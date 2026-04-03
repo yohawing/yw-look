@@ -1,0 +1,154 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(90, 100, 116, 0.28), transparent 38%),
+    linear-gradient(180deg, #20252d 0%, #14181e 100%);
+  color: #e7ebf0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+code {
+  font: inherit;
+}
+
+button {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+}
+
+button:disabled {
+  opacity: 0.5;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.topbar,
+.statusbar,
+.card,
+.viewer-panel {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 13, 18, 0.58);
+  backdrop-filter: blur(14px);
+}
+
+.topbar {
+  border-radius: 20px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.eyebrow,
+.card-title,
+.viewer-label,
+.muted {
+  color: #96a2b3;
+}
+
+.eyebrow,
+.card-title,
+.viewer-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+}
+
+.topbar h1 {
+  margin: 0.25rem 0 0;
+  font-size: clamp(1.6rem, 2.5vw, 2rem);
+}
+
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.viewer-panel {
+  border-radius: 28px;
+  min-height: 340px;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.viewer-placeholder {
+  max-width: 700px;
+  text-align: center;
+}
+
+.viewer-placeholder h2 {
+  margin: 0.5rem 0 1rem;
+}
+
+.viewer-placeholder p {
+  line-height: 1.6;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  border-radius: 22px;
+  padding: 1rem 1.1rem;
+}
+
+.card ul {
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.card li + li {
+  margin-top: 0.45rem;
+}
+
+.statusbar {
+  border-radius: 16px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.92rem;
+}
+
+@media (max-width: 900px) {
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .statusbar,
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
