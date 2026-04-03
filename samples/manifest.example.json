@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "description": "Sample asset manifest for yw-look verification",
+  "cases": [
+    {
+      "id": "glb-basic-pbr",
+      "kind": "model",
+      "format": "glb",
+      "path": "samples/assets/glb/basic-pbr.glb",
+      "tags": ["smoke", "pbr", "default"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": true,
+        "hasAnimation": false
+      }
+    },
+    {
+      "id": "fbx-embedded-textures",
+      "kind": "model",
+      "format": "fbx",
+      "path": "samples/private/fbx/embedded-textures.fbx",
+      "tags": ["smoke", "embedded-texture"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": true,
+        "hasAnimation": false
+      }
+    },
+    {
+      "id": "usd-preview-simple",
+      "kind": "model",
+      "format": "usd",
+      "path": "samples/private/usd/preview-simple.usdz",
+      "tags": ["experimental", "preview"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": false,
+        "hasAnimation": false
+      }
+    },
+    {
+      "id": "dds-2d-basic",
+      "kind": "texture",
+      "format": "dds",
+      "path": "samples/assets/dds/basic.dds",
+      "tags": ["smoke", "texture"],
+      "expect": {
+        "shouldLoad": true,
+        "hasMetadata": true
+      }
+    },
+    {
+      "id": "exr-hdr-range",
+      "kind": "texture",
+      "format": "exr",
+      "path": "samples/assets/exr/hdr-range.exr",
+      "tags": ["smoke", "tone-map"],
+      "expect": {
+        "shouldLoad": true,
+        "hasMetadata": true
+      }
+    },
+    {
+      "id": "obj-missing-texture",
+      "kind": "model",
+      "format": "obj",
+      "path": "samples/private/obj/missing-texture.obj",
+      "tags": ["error-case", "missing-reference"],
+      "expect": {
+        "shouldLoad": true,
+        "shouldWarn": true,
+        "warningType": "missing-texture"
+      }
+    },
+    {
+      "id": "dds-invalid",
+      "kind": "texture",
+      "format": "dds",
+      "path": "samples/private/dds/invalid.dds",
+      "tags": ["error-case"],
+      "expect": {
+        "shouldLoad": false,
+        "errorType": "load-failed"
+      }
+    }
+  ]
+}

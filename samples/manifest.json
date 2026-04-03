@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "description": "Downloaded verification samples for yw-look",
+  "cases": [
+    {
+      "id": "glb-box-textured",
+      "kind": "model",
+      "format": "glb",
+      "path": "samples/assets/glb/BoxTextured.glb",
+      "tags": ["smoke", "pbr", "textured"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": true,
+        "hasAnimation": false
+      }
+    },
+    {
+      "id": "gltf-duck-external",
+      "kind": "model",
+      "format": "gltf",
+      "path": "samples/assets/gltf/Duck.gltf",
+      "tags": ["smoke", "external-resources"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": true,
+        "hasAnimation": false
+      }
+    },
+    {
+      "id": "fbx-samba-dancing",
+      "kind": "model",
+      "format": "fbx",
+      "path": "samples/assets/fbx/Samba Dancing.fbx",
+      "tags": ["animation", "fbx"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": false,
+        "hasAnimation": true
+      }
+    },
+    {
+      "id": "obj-cerberus",
+      "kind": "model",
+      "format": "obj",
+      "path": "samples/assets/obj/Cerberus.obj",
+      "tags": ["textured", "obj"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": true,
+        "hasAnimation": false
+      }
+    },
+    {
+      "id": "ply-dolphins",
+      "kind": "model",
+      "format": "ply",
+      "path": "samples/assets/ply/dolphins.ply",
+      "tags": ["geometry", "ply"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": false,
+        "hasMetadata": true
+      }
+    },
+    {
+      "id": "stl-slotted-disk",
+      "kind": "model",
+      "format": "stl",
+      "path": "samples/assets/stl/slotted_disk.stl",
+      "tags": ["geometry", "stl"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": false,
+        "hasMetadata": true
+      }
+    },
+    {
+      "id": "tga-crate-grey8",
+      "kind": "texture",
+      "format": "tga",
+      "path": "samples/assets/tga/crate_grey8.tga",
+      "tags": ["texture", "tga"],
+      "expect": {
+        "shouldLoad": true,
+        "hasMetadata": true
+      }
+    },
+    {
+      "id": "dds-disturb-dxt1",
+      "kind": "texture",
+      "format": "dds",
+      "path": "samples/assets/dds/disturb_dxt1_nomip.dds",
+      "tags": ["texture", "dds", "compressed"],
+      "expect": {
+        "shouldLoad": true,
+        "hasMetadata": true
+      }
+    },
+    {
+      "id": "ktx2-uastc-2d",
+      "kind": "texture",
+      "format": "ktx2",
+      "path": "samples/assets/ktx2/2d_uastc.ktx2",
+      "tags": ["texture", "ktx2", "compressed"],
+      "expect": {
+        "shouldLoad": true,
+        "hasMetadata": true
+      }
+    },
+    {
+      "id": "hdr-venice-sunset",
+      "kind": "texture",
+      "format": "hdr",
+      "path": "samples/assets/hdr/venice_sunset_1k.hdr",
+      "tags": ["texture", "hdr", "envmap"],
+      "expect": {
+        "shouldLoad": true,
+        "hasMetadata": true
+      }
+    },
+    {
+      "id": "exr-piz-compressed",
+      "kind": "texture",
+      "format": "exr",
+      "path": "samples/assets/exr/piz_compressed.exr",
+      "tags": ["texture", "exr", "hdr"],
+      "expect": {
+        "shouldLoad": true,
+        "hasMetadata": true
+      }
+    }
+  ]
+}
