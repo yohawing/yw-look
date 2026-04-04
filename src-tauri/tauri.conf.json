@@ -23,9 +23,32 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "dangerousInsecureTransportProtocol": true,
+      "endpoints": [],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCQ0M2RDM1Qzc5RkE4REEKUldUYXFKL0hOVzNNSzNMbmRwUXpPazlRa3NZRzJtTVlKSVFvVHRDK05CellrYXZSRGJlTGR6elYK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "msi"],
+    "createUpdaterArtifacts": true,
+    "fileAssociations": [
+      {
+        "ext": ["glb", "gltf", "fbx", "obj", "ply", "stl"],
+        "name": "yw-look Model Asset",
+        "description": "3D model asset opened by yw-look"
+      },
+      {
+        "ext": ["png", "jpg", "jpeg", "tga", "dds", "hdr", "exr"],
+        "name": "yw-look Texture Asset",
+        "description": "Texture asset opened by yw-look"
+      }
+    ],
     "icon": ["icons/icon.ico"]
   }
 }

@@ -5,6 +5,9 @@ export type AppSettings = {
   recentFilesLimit: number;
   diagnosticsLogLevel: string;
   fileAssociationsEnabled: boolean;
+  updateEndpointOverride?: string | null;
+  updatePublicKeyOverride?: string | null;
+  allowInsecureUpdateEndpoint: boolean;
 };
 
 export type SettingsPayload = {

@@ -23,6 +23,7 @@ import {
 import { RecentFilesCard } from "./components/RecentFilesCard";
 import { SettingsCard } from "./components/SettingsCard";
 import { TextureListCard } from "./components/TextureListCard";
+import { UpdateCard } from "./components/UpdateCard";
 import { WarningsCard } from "./components/WarningsCard";
 import {
   loadDiagnosticsSnapshot,
@@ -42,6 +43,13 @@ import {
   type IntegrationPayload,
 } from "./lib/integrations";
 import { loadRecentFiles, type RecentFilesPayload } from "./lib/recentFiles";
+import {
+  checkForUpdate,
+  installPendingUpdate,
+  loadUpdateConfiguration,
+  type UpdateCheckPayload,
+  type UpdateConfigurationPayload,
+} from "./lib/updater";
 import {
   loadSettings,
   saveSettings,
@@ -127,6 +135,12 @@ export function App() {
   const [integrationPayload, setIntegrationPayload] =
     useState<IntegrationPayload | null>(null);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
+  const [updateConfiguration, setUpdateConfiguration] =
+    useState<UpdateConfigurationPayload | null>(null);
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckPayload | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
+  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
   const [performanceSnapshot, setPerformanceSnapshot] =
     useState<PerformanceSnapshot>({
       startupMs: null,
@@ -273,6 +287,24 @@ export function App() {
 
   useEffect(() => {
     void refreshDiagnostics();
+  }, []);
+
+  const refreshUpdateConfiguration = async () => {
+    try {
+      const payload = await loadUpdateConfiguration();
+      setUpdateConfiguration(payload);
+      setUpdateError(null);
+    } catch (error: unknown) {
+      setUpdateError(
+        error instanceof Error
+          ? error.message
+          : "Failed to load updater configuration.",
+      );
+    }
+  };
+
+  useEffect(() => {
+    void refreshUpdateConfiguration();
   }, []);
 
   useEffect(() => {
@@ -647,6 +679,69 @@ export function App() {
     }
   };
 
+  const handleSaveUpdateSettings = async ({
+    endpoint,
+    publicKey,
+    allowInsecure,
+  }: {
+    endpoint: string;
+    publicKey: string;
+    allowInsecure: boolean;
+  }) => {
+    if (!settingsPayload) {
+      return;
+    }
+
+    try {
+      const nextPayload = await saveSettings({
+        ...settingsPayload.settings,
+        updateEndpointOverride: endpoint.trim() || null,
+        updatePublicKeyOverride: publicKey.trim() || null,
+        allowInsecureUpdateEndpoint: allowInsecure,
+      });
+      setSettingsPayload(nextPayload);
+      setSettingsError(null);
+      await refreshUpdateConfiguration();
+    } catch (error: unknown) {
+      setUpdateError(
+        error instanceof Error
+          ? error.message
+          : "Failed to save updater settings.",
+      );
+    }
+  };
+
+  const handleCheckForUpdate = async () => {
+    try {
+      setIsCheckingForUpdate(true);
+      const payload = await checkForUpdate();
+      setUpdateCheck(payload);
+      setUpdateConfiguration(payload.configuration);
+      setUpdateError(null);
+    } catch (error: unknown) {
+      setUpdateError(
+        error instanceof Error ? error.message : "Failed to check for updates.",
+      );
+    } finally {
+      setIsCheckingForUpdate(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    try {
+      setIsInstallingUpdate(true);
+      const payload = await installPendingUpdate();
+      setUpdateError(payload.note);
+      setUpdateCheck(null);
+    } catch (error: unknown) {
+      setUpdateError(
+        error instanceof Error ? error.message : "Failed to install update.",
+      );
+    } finally {
+      setIsInstallingUpdate(false);
+    }
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -873,6 +968,17 @@ export function App() {
           settingsPayload={settingsPayload}
           settingsError={settingsError}
           onToggleFileAssociations={() => void handleToggleFileAssociations()}
+        />
+        <UpdateCard
+          key={`${settingsPayload?.settings.updateEndpointOverride ?? ""}:${settingsPayload?.settings.updatePublicKeyOverride ?? ""}:${settingsPayload?.settings.allowInsecureUpdateEndpoint ?? false}`}
+          isCheckingForUpdate={isCheckingForUpdate}
+          isInstallingUpdate={isInstallingUpdate}
+          onCheckForUpdate={() => void handleCheckForUpdate()}
+          onInstallUpdate={() => void handleInstallUpdate()}
+          onSaveOverride={(draft) => void handleSaveUpdateSettings(draft)}
+          updateCheck={updateCheck}
+          updateConfiguration={updateConfiguration}
+          updateError={updateError}
         />
         <RecentFilesCard
           onOpenPath={(path) => {

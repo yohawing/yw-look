@@ -25,7 +25,8 @@ body {
 button,
 code,
 select,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -80,6 +81,43 @@ button:disabled {
   gap: 0.55rem;
   color: #c2ccda;
   padding: 0.25rem 0.2rem;
+}
+
+.text-control {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+  color: #c2ccda;
+}
+
+.text-control input,
+.text-control textarea {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  padding: 0.7rem 0.85rem;
+}
+
+.text-control textarea {
+  resize: vertical;
+  min-height: 7rem;
+}
+
+.checkbox-control {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+  color: #c2ccda;
+}
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
 }
 
 .range-control span {

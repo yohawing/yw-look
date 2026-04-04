@@ -3,6 +3,9 @@ dist/
 .vite/
 target/
 src-tauri/target/
+tsconfig.node.tsbuildinfo
+.tauri/
+artifacts/updater-feed/
 
 artifacts/screenshots/*
 !artifacts/screenshots/.gitkeep

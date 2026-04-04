@@ -3,14 +3,19 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
     io::Write,
+    sync::Mutex,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
+use tauri_plugin_updater::{Update, UpdaterExt};
+use url::Url;
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
 const DIAGNOSTICS_LOG_FILE_NAME: &str = "diagnostics.log";
+const DEFAULT_UPDATER_ENDPOINT: Option<&str> = option_env!("YW_LOOK_UPDATER_ENDPOINT");
+const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> = option_env!("YW_LOOK_UPDATER_PUBLIC_KEY");
 const MODEL_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "dae", "vrm", "pmd", "pmx",
 ];
@@ -20,13 +25,58 @@ const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 struct AppSettings {
     version: u32,
     recent_files_limit: usize,
     diagnostics_log_level: String,
     file_associations_enabled: bool,
+    update_endpoint_override: Option<String>,
+    update_public_key_override: Option<String>,
+    allow_insecure_update_endpoint: bool,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateConfigurationPayload {
+    current_version: String,
+    default_endpoint: Option<String>,
+    default_pubkey_available: bool,
+    effective_endpoint: Option<String>,
+    effective_pubkey_available: bool,
+    using_override_endpoint: bool,
+    using_override_pubkey: bool,
+    allow_insecure_update_endpoint: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateMetadataPayload {
+    version: String,
+    current_version: String,
+    notes: Option<String>,
+    pub_date: Option<String>,
+    target: String,
+    download_url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateCheckPayload {
+    configuration: UpdateConfigurationPayload,
+    update: Option<UpdateMetadataPayload>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInstallPayload {
+    installed_version: String,
+    restart_required: bool,
+    note: String,
+}
+
+#[derive(Default)]
+struct PendingUpdateState(Mutex<Option<Update>>);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,11 +145,41 @@ struct DiagnosticRecordInput {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: 3,
             recent_files_limit: 20,
             diagnostics_log_level: "info".to_string(),
             file_associations_enabled: false,
+            update_endpoint_override: None,
+            update_public_key_override: None,
+            allow_insecure_update_endpoint: false,
         }
+    }
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn sanitize_settings(settings: AppSettings) -> AppSettings {
+    AppSettings {
+        version: settings.version.max(3),
+        recent_files_limit: settings.recent_files_limit.max(1),
+        diagnostics_log_level: if settings.diagnostics_log_level.trim().is_empty() {
+            "info".to_string()
+        } else {
+            settings.diagnostics_log_level
+        },
+        file_associations_enabled: settings.file_associations_enabled,
+        update_endpoint_override: normalize_optional_text(settings.update_endpoint_override),
+        update_public_key_override: normalize_optional_text(settings.update_public_key_override),
+        allow_insecure_update_endpoint: settings.allow_insecure_update_endpoint,
     }
 }
 
@@ -156,6 +236,76 @@ fn read_json_file<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> Result
 
 fn write_settings_file(path: &Path, settings: &AppSettings) -> Result<(), String> {
     write_json_file(path, settings)
+}
+
+fn default_updater_endpoint() -> Option<String> {
+    DEFAULT_UPDATER_ENDPOINT
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn default_updater_public_key() -> Option<String> {
+    DEFAULT_UPDATER_PUBLIC_KEY
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn effective_updater_endpoint(settings: &AppSettings) -> Option<String> {
+    settings
+        .update_endpoint_override
+        .clone()
+        .or_else(default_updater_endpoint)
+}
+
+fn effective_updater_public_key(settings: &AppSettings) -> Option<String> {
+    settings
+        .update_public_key_override
+        .clone()
+        .or_else(default_updater_public_key)
+}
+
+fn is_loopback_update_endpoint(endpoint: &str) -> bool {
+    endpoint.starts_with("http://127.0.0.1")
+        || endpoint.starts_with("http://localhost")
+        || endpoint.starts_with("http://[::1]")
+}
+
+fn current_app_version(app: &tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+fn build_update_configuration_payload(
+    app: &tauri::AppHandle,
+    settings: &AppSettings,
+) -> UpdateConfigurationPayload {
+    let default_endpoint = default_updater_endpoint();
+    let default_pubkey = default_updater_public_key();
+    let effective_endpoint = effective_updater_endpoint(settings);
+    let effective_pubkey = effective_updater_public_key(settings);
+
+    UpdateConfigurationPayload {
+        current_version: current_app_version(app),
+        default_endpoint,
+        default_pubkey_available: default_pubkey.is_some(),
+        effective_endpoint,
+        effective_pubkey_available: effective_pubkey.is_some(),
+        using_override_endpoint: settings.update_endpoint_override.is_some(),
+        using_override_pubkey: settings.update_public_key_override.is_some(),
+        allow_insecure_update_endpoint: settings.allow_insecure_update_endpoint,
+    }
+}
+
+fn update_metadata_payload(update: &Update) -> UpdateMetadataPayload {
+    UpdateMetadataPayload {
+        version: update.version.clone(),
+        current_version: update.current_version.clone(),
+        notes: update.body.clone(),
+        pub_date: update.date.map(|date| date.to_string()),
+        target: update.target.clone(),
+        download_url: update.download_url.to_string(),
+    }
 }
 
 fn infer_file_kind(extension: &str) -> String {
@@ -241,10 +391,12 @@ fn load_or_initialize_settings(app: &tauri::AppHandle) -> Result<(PathBuf, AppSe
         let raw = fs::read_to_string(&settings_path)
             .map_err(|error| format!("failed to read settings file: {error}"))?;
 
-        serde_json::from_str::<AppSettings>(&raw)
+        sanitize_settings(
+            serde_json::from_str::<AppSettings>(&raw)
             .map_err(|error| format!("failed to parse settings file: {error}"))?
+        )
     } else {
-        let defaults = AppSettings::default();
+        let defaults = sanitize_settings(AppSettings::default());
         write_settings_file(&settings_path, &defaults)?;
         defaults
     };
@@ -265,6 +417,38 @@ fn load_recent_file_entries(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<Rece
 
 fn save_recent_file_entries(path: &Path, entries: &[RecentFileEntry]) -> Result<(), String> {
     write_json_file(path, &entries.to_vec())
+}
+
+fn build_updater(
+    app: &tauri::AppHandle,
+    settings: &AppSettings,
+) -> Result<tauri_plugin_updater::Updater, String> {
+    let endpoint = effective_updater_endpoint(settings)
+        .ok_or_else(|| "no updater endpoint configured".to_string())?;
+    let pubkey = effective_updater_public_key(settings)
+        .ok_or_else(|| "no updater public key configured".to_string())?;
+
+    if !settings.allow_insecure_update_endpoint && endpoint.starts_with("http://") {
+        return Err(
+            "refusing insecure update endpoint; enable the local override toggle for loopback testing"
+                .to_string(),
+        );
+    }
+
+    if settings.allow_insecure_update_endpoint && !is_loopback_update_endpoint(&endpoint) {
+        return Err("insecure update endpoints are restricted to localhost or 127.0.0.1".to_string());
+    }
+
+    let endpoint = Url::parse(&endpoint)
+        .map_err(|error| format!("failed to parse updater endpoint: {error}"))?;
+
+    app
+        .updater_builder()
+        .pubkey(pubkey)
+        .endpoints(vec![endpoint])
+        .map_err(|error| format!("failed to configure updater endpoints: {error}"))?
+        .build()
+        .map_err(|error| format!("failed to build updater client: {error}"))
 }
 
 fn append_diagnostic_record(app: &tauri::AppHandle, record: &DiagnosticRecordInput) -> Result<(), String> {
@@ -321,12 +505,19 @@ fn load_settings(app: tauri::AppHandle) -> Result<SettingsPayload, String> {
 #[tauri::command]
 fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<SettingsPayload, String> {
     let settings_path = resolve_settings_path(&app)?;
+    let settings = sanitize_settings(settings);
     write_settings_file(&settings_path, &settings)?;
 
     Ok(SettingsPayload {
         settings_path: settings_path.display().to_string(),
         settings,
     })
+}
+
+#[tauri::command]
+fn load_update_configuration(app: tauri::AppHandle) -> Result<UpdateConfigurationPayload, String> {
+    let (_, settings) = load_or_initialize_settings(&app)?;
+    Ok(build_update_configuration_payload(&app, &settings))
 }
 
 #[tauri::command]
@@ -403,7 +594,7 @@ fn load_supported_extensions(app: tauri::AppHandle) -> Result<IntegrationPayload
 
     Ok(IntegrationPayload {
         file_associations_enabled: settings.file_associations_enabled,
-        install_strategy: "NSIS/WiX installer registration on Windows; runtime toggle stored in settings for future installer wiring.".to_string(),
+        install_strategy: "NSIS and MSI installers register supported file associations on Windows. The runtime toggle remains as a local preference until installer-level opt-in wiring is added.".to_string(),
         supported_extensions: FILE_ASSOCIATION_EXTENSIONS
             .iter()
             .map(|extension| format!(".{extension}"))
@@ -443,12 +634,70 @@ fn load_diagnostics_snapshot(app: tauri::AppHandle) -> Result<DiagnosticsPayload
     })
 }
 
+#[tauri::command]
+async fn check_for_update(
+    app: tauri::AppHandle,
+    pending_update: tauri::State<'_, PendingUpdateState>,
+) -> Result<UpdateCheckPayload, String> {
+    let (_, settings) = load_or_initialize_settings(&app)?;
+    let configuration = build_update_configuration_payload(&app, &settings);
+    let update = build_updater(&app, &settings)?
+        .check()
+        .await
+        .map_err(|error| format!("failed to check for updates: {error}"))?;
+
+    let payload = UpdateCheckPayload {
+        configuration,
+        update: update.as_ref().map(update_metadata_payload),
+    };
+
+    *pending_update.0.lock().unwrap() = update;
+
+    Ok(payload)
+}
+
+#[tauri::command]
+async fn install_pending_update(
+    pending_update: tauri::State<'_, PendingUpdateState>,
+) -> Result<UpdateInstallPayload, String> {
+    let update = pending_update
+        .0
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or_else(|| "no pending update is available; run a check first".to_string())?;
+    let installed_version = update.version.clone();
+
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|error| format!("failed to install update: {error}"))?;
+
+    Ok(UpdateInstallPayload {
+        installed_version,
+        restart_required: !cfg!(windows),
+        note: if cfg!(windows) {
+            "Windows will close the app and hand over to the installer.".to_string()
+        } else {
+            "Restart the app after installation to load the new version.".to_string()
+        },
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())
+                .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            app.manage(PendingUpdateState::default());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
+            load_update_configuration,
             open_file_dialog,
             resolve_selected_file,
             list_supported_siblings,
@@ -457,7 +706,9 @@ pub fn run() {
             load_recent_files,
             load_supported_extensions,
             log_diagnostic_event,
-            load_diagnostics_snapshot
+            load_diagnostics_snapshot,
+            check_for_update,
+            install_pending_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running yw-look");

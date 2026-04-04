@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:desktop": "npm run build && npm run tauri build",
+    "bundle:win": "npm run tauri build -- --bundles nsis,msi",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json && cargo check --manifest-path src-tauri/Cargo.toml",
     "check": "npm run lint && npm run format:check && npm run typecheck",
+    "update:local:prepare": "node scripts/prepare-local-update-feed.mjs",
+    "update:local:serve": "node scripts/serve-local-update-feed.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
