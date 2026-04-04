@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json && cargo check --manifest-path src-tauri/Cargo.toml",
+    "check": "npm run lint && npm run format:check && npm run typecheck",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -16,11 +21,21 @@
     "three": "^0.179.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@tauri-apps/cli": "^2.10.1",
+    "@types/node": "^25.5.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/three": "^0.183.1",
     "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "playwright": "^1.59.1",
+    "prettier": "^3.8.1",
     "typescript": "^5.9.2",
+    "typescript-eslint": "^8.58.0",
     "vite": "^7.1.3"
   }
 }

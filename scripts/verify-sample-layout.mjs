@@ -9,7 +9,9 @@ function log(message) {
 }
 
 if (!fs.existsSync(manifestPath)) {
-  log("samples/manifest.json がありません。samples/manifest.example.json をコピーして作成してください。");
+  log(
+    "samples/manifest.json がありません。samples/manifest.example.json をコピーして作成してください。",
+  );
   process.exit(1);
 }
 
@@ -41,7 +43,9 @@ for (const entry of cases) {
 
 log("");
 log("format counts:");
-for (const [format, count] of [...formatCounts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+for (const [format, count] of [...formatCounts.entries()].sort((a, b) =>
+  a[0].localeCompare(b[0]),
+)) {
   log(`- ${format}: ${count}`);
 }
 
