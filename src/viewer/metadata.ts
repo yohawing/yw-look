@@ -1,0 +1,187 @@
+import {
+  AnimationClip,
+  Group,
+  Material,
+  Mesh,
+  Object3D,
+  Texture,
+} from "three";
+import type { SelectedFile } from "../lib/files";
+import type { AssetMetadata, HierarchyNode } from "../components/assetMetadata";
+import type { TextureSlotKey, TexturedMaterial } from "./types";
+import { getMaterials } from "./scene";
+
+export type MetadataCollection = {
+  metadata: AssetMetadata;
+  textureRegistry: Map<string, Texture>;
+};
+
+function getObjectKind(object: Object3D) {
+  if (object instanceof Mesh) {
+    return "mesh";
+  }
+
+  if (object instanceof Group) {
+    return "group";
+  }
+
+  return object.type.toLowerCase();
+}
+
+function buildHierarchyNode(object: Object3D): HierarchyNode {
+  return {
+    name: object.name.trim() || "(unnamed)",
+    kind: getObjectKind(object),
+    children: object.children.map((child) => buildHierarchyNode(child)),
+  };
+}
+
+function getTextureDimensions(texture: Texture) {
+  const image = texture.image as { width?: number; height?: number } | undefined;
+
+  if (
+    image &&
+    typeof image.width === "number" &&
+    typeof image.height === "number"
+  ) {
+    return `${image.width}x${image.height}`;
+  }
+
+  return "unknown";
+}
+
+function inferTextureSourceKind(
+  texture: Texture,
+  currentFile: SelectedFile,
+): AssetMetadata["textures"][number]["sourceKind"] {
+  const fromUserData = texture.userData.textureSourceKind;
+  if (
+    fromUserData === "embedded" ||
+    fromUserData === "external" ||
+    fromUserData === "standalone"
+  ) {
+    return fromUserData;
+  }
+
+  if (currentFile.kind === "texture") {
+    return "standalone";
+  }
+
+  if (currentFile.extension === "glb") {
+    return "embedded";
+  }
+
+  if (currentFile.extension === "obj") {
+    return "external";
+  }
+
+  return "unknown";
+}
+
+export function collectAssetMetadata(
+  object: Group | Mesh,
+  currentFile: SelectedFile,
+  clips: AnimationClip[],
+  formatVersion: string | null,
+): MetadataCollection {
+  let nodeCount = 0;
+  let meshCount = 0;
+  const materials = new Set<Material>();
+  const textures = new Map<string, AssetMetadata["textures"][number]>();
+  const textureRegistry = new Map<string, Texture>();
+
+  object.traverse((child: Object3D) => {
+    nodeCount += 1;
+
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    meshCount += 1;
+
+    for (const material of getMaterials(child.material)) {
+      materials.add(material);
+
+      const textureSlots = [
+        ["Base Color", "map"],
+        ["Normal", "normalMap"],
+        ["Metalness", "metalnessMap"],
+        ["Roughness", "roughnessMap"],
+        ["Emissive", "emissiveMap"],
+        ["Alpha", "alphaMap"],
+      ] as const satisfies ReadonlyArray<readonly [string, TextureSlotKey]>;
+
+      for (const [channel, key] of textureSlots) {
+        const textureValue = (material as TexturedMaterial)[key];
+        if (!(textureValue instanceof Texture)) {
+          continue;
+        }
+
+        const textureId = String(textureValue.uuid);
+        if (textures.has(textureId)) {
+          continue;
+        }
+
+        textures.set(textureId, {
+          id: textureId,
+          label: textureValue.name.trim() || `${channel} Texture`,
+          channel,
+          dimensions: getTextureDimensions(textureValue),
+          sourceKind: inferTextureSourceKind(textureValue, currentFile),
+        });
+        textureRegistry.set(textureId, textureValue);
+      }
+    }
+  });
+
+  return {
+    metadata: {
+      formatLabel: currentFile.extension.toUpperCase(),
+      formatVersion,
+      nodeCount,
+      meshCount,
+      materialCount: materials.size,
+      textureCount: textures.size,
+      hasAnimation: clips.length > 0,
+      hierarchy: [buildHierarchyNode(object)],
+      textures: [...textures.values()],
+    },
+    textureRegistry,
+  };
+}
+
+export function buildMissingReferenceMetadata(
+  currentFile: SelectedFile,
+  formatVersion: string | null,
+  missingPaths: string[],
+  unresolvedImages: string[],
+): AssetMetadata {
+  const textureEntries = unresolvedImages.map((path, index) => ({
+    id: `unresolved:${path}:${index}`,
+    label: path,
+    channel: "Missing",
+    dimensions: "unknown",
+    sourceKind: "unresolved" as const,
+  }));
+
+  return {
+    formatLabel: currentFile.extension.toUpperCase(),
+    formatVersion,
+    nodeCount: 0,
+    meshCount: 0,
+    materialCount: 0,
+    textureCount: textureEntries.length,
+    hasAnimation: false,
+    hierarchy: [],
+    textures:
+      textureEntries.length > 0
+        ? textureEntries
+        : missingPaths.map((path, index) => ({
+            id: `missing:${path}:${index}`,
+            label: path,
+            channel: "Missing Resource",
+            dimensions: "unknown",
+            sourceKind: "unresolved" as const,
+          })),
+  };
+}

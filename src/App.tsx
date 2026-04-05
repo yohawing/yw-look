@@ -38,6 +38,7 @@ import {
   type DirectoryListing,
   type SelectedFile,
 } from "./lib/files";
+import { prefetchAdjacent } from "./viewer";
 import {
   loadSupportedExtensions,
   type IntegrationPayload,
@@ -442,6 +443,7 @@ export function App() {
 
     setCurrentFile(resolvedFile);
     setDirectoryListing(listing);
+    prefetchAdjacent(listing.files, listing.currentIndex);
     const elapsed = performance.now() - startedAt;
     setPerformanceSnapshot((previous) => ({
       ...previous,

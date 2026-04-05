@@ -2,7 +2,7 @@ use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
-    io::Write,
+    io::{Read as IoRead, Write},
     sync::Mutex,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -130,6 +130,28 @@ struct IntegrationPayload {
     file_associations_enabled: bool,
     install_strategy: String,
     supported_extensions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AssetInspection {
+    path: String,
+    file_name: String,
+    extension: String,
+    kind: String,
+    file_size_bytes: u64,
+    modified_at: Option<String>,
+    created_at: Option<String>,
+    preview_implemented: bool,
+    image_dimensions: Option<ImageDimensions>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageDimensions {
+    width: u32,
+    height: u32,
+    source: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -492,6 +514,150 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
     save_recent_file_entries(&recent_files_path, &entries)
 }
 
+const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
+    "glb", "gltf", "fbx", "obj", "ply", "stl",
+    "png", "jpg", "jpeg", "tga", "dds", "hdr", "exr",
+];
+
+fn system_time_to_unix_string(time: SystemTime) -> Option<String> {
+    time.duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs().to_string())
+}
+
+fn read_png_dimensions(path: &Path) -> Option<ImageDimensions> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut header = [0u8; 24];
+    file.read_exact(&mut header).ok()?;
+    if &header[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let width = u32::from_be_bytes([header[16], header[17], header[18], header[19]]);
+    let height = u32::from_be_bytes([header[20], header[21], header[22], header[23]]);
+    Some(ImageDimensions { width, height, source: "png-header".to_string() })
+}
+
+fn read_jpeg_dimensions(path: &Path) -> Option<ImageDimensions> {
+    let data = fs::read(path).ok()?;
+    if data.len() < 2 || data[0] != 0xFF || data[1] != 0xD8 {
+        return None;
+    }
+    let mut offset = 2;
+    while offset + 4 < data.len() {
+        if data[offset] != 0xFF {
+            break;
+        }
+        let marker = data[offset + 1];
+        if marker == 0xC0 || marker == 0xC2 {
+            if offset + 9 < data.len() {
+                let height = u16::from_be_bytes([data[offset + 5], data[offset + 6]]) as u32;
+                let width = u16::from_be_bytes([data[offset + 7], data[offset + 8]]) as u32;
+                return Some(ImageDimensions { width, height, source: "jpeg-header".to_string() });
+            }
+            break;
+        }
+        let length = u16::from_be_bytes([data[offset + 2], data[offset + 3]]) as usize;
+        offset += 2 + length;
+    }
+    None
+}
+
+fn read_dds_dimensions(path: &Path) -> Option<ImageDimensions> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut header = [0u8; 20];
+    file.read_exact(&mut header).ok()?;
+    if &header[0..4] != b"DDS " {
+        return None;
+    }
+    let height = u32::from_le_bytes([header[12], header[13], header[14], header[15]]);
+    let width = u32::from_le_bytes([header[16], header[17], header[18], header[19]]);
+    Some(ImageDimensions { width, height, source: "dds-header".to_string() })
+}
+
+fn read_tga_dimensions(path: &Path) -> Option<ImageDimensions> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut header = [0u8; 18];
+    file.read_exact(&mut header).ok()?;
+    let width = u16::from_le_bytes([header[12], header[13]]) as u32;
+    let height = u16::from_le_bytes([header[14], header[15]]) as u32;
+    if width == 0 || height == 0 || width > 65535 || height > 65535 {
+        return None;
+    }
+    Some(ImageDimensions { width, height, source: "tga-header".to_string() })
+}
+
+fn read_image_dimensions(path: &Path, extension: &str) -> Option<ImageDimensions> {
+    match extension {
+        "png" => read_png_dimensions(path),
+        "jpg" | "jpeg" => read_jpeg_dimensions(path),
+        "dds" => read_dds_dimensions(path),
+        "tga" => read_tga_dimensions(path),
+        _ => None,
+    }
+}
+
+fn build_asset_inspection(path: PathBuf) -> Result<AssetInspection, String> {
+    let normalized = normalize_file_path(path)?;
+
+    let extension = normalized
+        .extension()
+        .and_then(|v| v.to_str())
+        .map(|v| v.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if !is_supported_extension(&extension) {
+        return Err(format!("unsupported file extension: {extension}"));
+    }
+
+    let file_name = normalized
+        .file_name()
+        .and_then(|v| v.to_str())
+        .ok_or_else(|| "failed to resolve file name".to_string())?
+        .to_string();
+
+    let metadata = fs::metadata(&normalized)
+        .map_err(|e| format!("failed to read file metadata: {e}"))?;
+
+    let modified_at = metadata.modified().ok().and_then(system_time_to_unix_string);
+    let created_at = metadata.created().ok().and_then(system_time_to_unix_string);
+    let preview_implemented = PREVIEW_IMPLEMENTED_EXTENSIONS.contains(&extension.as_str());
+    let image_dimensions = read_image_dimensions(&normalized, &extension);
+
+    Ok(AssetInspection {
+        path: normalized.display().to_string(),
+        file_name,
+        extension: extension.clone(),
+        kind: infer_file_kind(&extension),
+        file_size_bytes: metadata.len(),
+        modified_at,
+        created_at,
+        preview_implemented,
+        image_dimensions,
+    })
+}
+
+#[tauri::command]
+fn inspect_asset(path: String) -> Result<AssetInspection, String> {
+    build_asset_inspection(PathBuf::from(path))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FormatSupportPayload {
+    model_extensions: Vec<String>,
+    texture_extensions: Vec<String>,
+    preview_implemented: Vec<String>,
+}
+
+#[tauri::command]
+fn load_format_support() -> FormatSupportPayload {
+    FormatSupportPayload {
+        model_extensions: MODEL_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
+        texture_extensions: TEXTURE_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
+        preview_implemented: PREVIEW_IMPLEMENTED_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
+    }
+}
+
 #[tauri::command]
 fn load_settings(app: tauri::AppHandle) -> Result<SettingsPayload, String> {
     let (settings_path, settings) = load_or_initialize_settings(&app)?;
@@ -708,7 +874,9 @@ pub fn run() {
             log_diagnostic_event,
             load_diagnostics_snapshot,
             check_for_update,
-            install_pending_update
+            install_pending_update,
+            inspect_asset,
+            load_format_support
         ])
         .run(tauri::generate_context!())
         .expect("error while running yw-look");
