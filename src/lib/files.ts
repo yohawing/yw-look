@@ -34,3 +34,35 @@ export async function readBinaryFile(path: string) {
 export async function getStartupFile() {
   return invoke<SelectedFile | null>("get_startup_file");
 }
+
+export type ImageDimensions = {
+  width: number;
+  height: number;
+  source: string;
+};
+
+export type AssetInspection = {
+  path: string;
+  fileName: string;
+  extension: string;
+  kind: AssetKind;
+  fileSizeBytes: number;
+  modifiedAt: string | null;
+  createdAt: string | null;
+  previewImplemented: boolean;
+  imageDimensions: ImageDimensions | null;
+};
+
+export async function inspectAsset(path: string) {
+  return invoke<AssetInspection>("inspect_asset", { path });
+}
+
+export type FormatSupport = {
+  modelExtensions: string[];
+  textureExtensions: string[];
+  previewImplemented: string[];
+};
+
+export async function loadFormatSupport() {
+  return invoke<FormatSupport>("load_format_support");
+}
