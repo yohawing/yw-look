@@ -6,21 +6,6 @@ type TextureListCardProps = {
   onSelectTexture: (textureId: string) => void;
 };
 
-function getSourceLabel(sourceKind: TextureEntry["sourceKind"]) {
-  switch (sourceKind) {
-    case "embedded":
-      return "embedded";
-    case "external":
-      return "external";
-    case "standalone":
-      return "standalone";
-    case "unresolved":
-      return "unresolved";
-    default:
-      return "unknown";
-  }
-}
-
 export function TextureListCard({
   textures,
   activeTextureId,
@@ -30,31 +15,37 @@ export function TextureListCard({
     <article className="card">
       <p className="card-title">Textures</p>
       {textures.length > 0 ? (
-        <ul className="texture-list">
+        <div className="texture-grid">
           {textures.map((texture) => (
-            <li key={texture.id}>
-              <button
-                className={
-                  texture.id === activeTextureId
-                    ? "texture-entry is-active"
-                    : "texture-entry"
-                }
-                onClick={() => onSelectTexture(texture.id)}
-                type="button"
-              >
-                <span>{texture.label}</span>
-                <span className="muted">
-                  {texture.channel} / {texture.dimensions} /{" "}
-                  {getSourceLabel(texture.sourceKind)}
+            <button
+              key={texture.id}
+              className={`texture-card${texture.id === activeTextureId ? " is-active" : ""}`}
+              onClick={() => onSelectTexture(texture.id)}
+              type="button"
+            >
+              <div className="texture-card-preview">
+                {texture.thumbnailUrl ? (
+                  <img
+                    src={texture.thumbnailUrl}
+                    alt={texture.label}
+                  />
+                ) : (
+                  <span className="texture-card-preview-placeholder">
+                    {texture.channel}
+                  </span>
+                )}
+              </div>
+              <div className="texture-card-info">
+                <span className="texture-card-label">{texture.label}</span>
+                <span className="texture-card-dimensions">
+                  {texture.dimensions}
                 </span>
-              </button>
-            </li>
+              </div>
+            </button>
           ))}
-        </ul>
+        </div>
       ) : (
-        <p className="muted">
-          No material textures are referenced by the current preview object.
-        </p>
+        <p className="muted">No textures referenced.</p>
       )}
     </article>
   );

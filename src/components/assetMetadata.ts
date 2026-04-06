@@ -9,6 +9,7 @@ export type TextureEntry = {
   label: string;
   channel: string;
   dimensions: string;
+  thumbnailUrl: string | null;
   sourceKind:
     | "embedded"
     | "external"

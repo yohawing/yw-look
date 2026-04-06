@@ -9,18 +9,37 @@ export function CurrentFileCard({ currentFile }: CurrentFileCardProps) {
     <article className="card">
       <p className="card-title">Current File</p>
       {currentFile ? (
-        <>
-          <ul>
-            <li>Name: {currentFile.fileName}</li>
-            <li>Kind: {currentFile.kind}</li>
-            <li>Extension: {currentFile.extension || "(none)"}</li>
-            <li>Folder: {currentFile.parentDirectory}</li>
-          </ul>
-          <p className="muted">{currentFile.path}</p>
-        </>
+        <div>
+          <div className="card-row">
+            <span className="card-row-label">Name:</span>
+            <span className="card-row-value">{currentFile.fileName}</span>
+          </div>
+          <div className="card-row">
+            <span className="card-row-label">Type:</span>
+            <span className="card-row-value">
+              {currentFile.kind === "model" ? "3D Model" : "Texture"}
+            </span>
+          </div>
+          <div className="card-row">
+            <span className="card-row-label">Extension:</span>
+            <span className="card-row-value">
+              {currentFile.extension ? `.${currentFile.extension}` : "(none)"}
+            </span>
+          </div>
+          <div className="card-row">
+            <span className="card-row-label">Folder:</span>
+            <span className="card-row-value-mono">
+              {currentFile.parentDirectory}
+            </span>
+          </div>
+          <div className="card-row">
+            <span className="card-row-label">Path:</span>
+            <span className="card-row-value-mono">{currentFile.path}</span>
+          </div>
+        </div>
       ) : (
         <p className="muted">
-          No file selected yet. Use Open to populate the current file state.
+          No file selected. Drop a file to open.
         </p>
       )}
     </article>

@@ -50,6 +50,31 @@ function getTextureDimensions(texture: Texture) {
   return "unknown";
 }
 
+const THUMB_SIZE = 128;
+
+function generateThumbnailUrl(texture: Texture): string | null {
+  const image = texture.image as
+    | HTMLImageElement
+    | HTMLCanvasElement
+    | ImageBitmap
+    | undefined;
+
+  if (!image) return null;
+
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = THUMB_SIZE;
+    canvas.height = THUMB_SIZE;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    ctx.drawImage(image as CanvasImageSource, 0, 0, THUMB_SIZE, THUMB_SIZE);
+    return canvas.toDataURL("image/jpeg", 0.7);
+  } catch {
+    return null;
+  }
+}
+
 function inferTextureSourceKind(
   texture: Texture,
   currentFile: SelectedFile,
@@ -127,6 +152,7 @@ export function collectAssetMetadata(
           label: textureValue.name.trim() || `${channel} Texture`,
           channel,
           dimensions: getTextureDimensions(textureValue),
+          thumbnailUrl: generateThumbnailUrl(textureValue),
           sourceKind: inferTextureSourceKind(textureValue, currentFile),
         });
         textureRegistry.set(textureId, textureValue);
@@ -161,6 +187,7 @@ export function buildMissingReferenceMetadata(
     label: path,
     channel: "Missing",
     dimensions: "unknown",
+    thumbnailUrl: null,
     sourceKind: "unresolved" as const,
   }));
 
@@ -181,6 +208,7 @@ export function buildMissingReferenceMetadata(
             label: path,
             channel: "Missing Resource",
             dimensions: "unknown",
+            thumbnailUrl: null,
             sourceKind: "unresolved" as const,
           })),
   };

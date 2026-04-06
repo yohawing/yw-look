@@ -57,23 +57,13 @@ import {
   type SettingsPayload,
 } from "./lib/settings";
 
-const sampleFormats = [
-  "glb",
-  "gltf",
-  "fbx",
-  "obj",
-  "ply",
-  "stl",
-  "png",
-  "jpg",
-  "jpeg",
-  "tga",
-  "dds",
-  "ktx2",
-  "hdr",
-  "exr",
-  "usd",
-];
+type SidebarTab =
+  | "file"
+  | "metadata"
+  | "hierarchy"
+  | "textures"
+  | "settings"
+  | "warnings";
 
 const initialViewerFeedback: ViewerFeedback = {
   mode: "empty",
@@ -82,33 +72,29 @@ const initialViewerFeedback: ViewerFeedback = {
   canResetCamera: false,
 };
 
-const displayModeOptions: Array<{ value: DisplayMode; label: string }> = [
-  { value: "untextured", label: "No Texture" },
-  { value: "textured", label: "Textured" },
-  { value: "wireframe", label: "Wireframe" },
-  { value: "texturedWireframe", label: "Textured + Wire" },
-];
-
-const textureViewModeOptions: Array<{
-  value: TextureViewMode;
-  label: string;
-}> = [
-  { value: "rgb", label: "RGB" },
-  { value: "rgba", label: "RGBA" },
-  { value: "alpha", label: "Alpha" },
-];
+function deriveDisplayMode(
+  showTexture: boolean,
+  showWireframe: boolean,
+): DisplayMode {
+  if (showTexture && showWireframe) return "texturedWireframe";
+  if (showTexture) return "textured";
+  if (showWireframe) return "wireframe";
+  return "untextured";
+}
 
 export function App() {
-  const formatList = useMemo(() => sampleFormats.join(" / "), []);
+  const [activeTab, setActiveTab] = useState<SidebarTab>("file");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showTexture, setShowTexture] = useState(true);
+  const [showWireframe, setShowWireframe] = useState(false);
   const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
   const [directoryListing, setDirectoryListing] =
     useState<DirectoryListing | null>(null);
   const [viewerFeedback, setViewerFeedback] = useState<ViewerFeedback>(
     initialViewerFeedback,
   );
-  const [displayMode, setDisplayMode] = useState<DisplayMode>("textured");
+  const displayMode = deriveDisplayMode(showTexture, showWireframe);
   const [openError, setOpenError] = useState<string | null>(null);
-  const [isOpeningFile, setIsOpeningFile] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [resetVersion, setResetVersion] = useState(0);
   const [settingsPayload, setSettingsPayload] =
@@ -122,8 +108,7 @@ export function App() {
   const [selectedTextureId, setSelectedTextureId] = useState<string | null>(
     null,
   );
-  const [textureViewMode, setTextureViewMode] =
-    useState<TextureViewMode>("rgba");
+  const [textureViewMode] = useState<TextureViewMode>("rgba");
   const [textureExposure, setTextureExposure] = useState(0);
   const [textureBlackPoint, setTextureBlackPoint] = useState(0);
   const [textureWhitePoint, setTextureWhitePoint] = useState(1);
@@ -190,11 +175,6 @@ export function App() {
     directoryListing !== null &&
     directoryListing.currentIndex !== null &&
     directoryListing.currentIndex < directoryListing.files.length - 1;
-  const hasTextureEntries = (assetMetadata?.textures.length ?? 0) > 0;
-  const canShowTextureViewer =
-    currentFile?.kind === "texture" || hasTextureEntries;
-  const isHdrLikeTexture =
-    currentFile?.extension === "hdr" || currentFile?.extension === "exr";
   const warnings = useMemo(() => {
     const nextWarnings: string[] = [];
 
@@ -492,48 +472,53 @@ export function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
-    getCurrentWindow()
-      .onDragDropEvent((event) => {
-        if (event.payload.type === "enter" || event.payload.type === "over") {
-          setIsDragActive(true);
-          return;
-        }
+    try {
+      getCurrentWindow()
+        .onDragDropEvent((event) => {
+          if (
+            event.payload.type === "enter" ||
+            event.payload.type === "over"
+          ) {
+            setIsDragActive(true);
+            return;
+          }
 
-        if (event.payload.type === "leave") {
+          if (event.payload.type === "leave") {
+            setIsDragActive(false);
+            return;
+          }
+
           setIsDragActive(false);
-          return;
-        }
+          const [firstPath] = event.payload.paths;
 
-        setIsDragActive(false);
-        const [firstPath] = event.payload.paths;
+          if (!firstPath) {
+            return;
+          }
 
-        if (!firstPath) {
-          return;
-        }
-
-        selectFilePathFromEffect(firstPath, "open").catch((error: unknown) => {
-          setOpenError(
-            error instanceof Error
-              ? error.message
-              : "Failed to open dropped file.",
+          selectFilePathFromEffect(firstPath, "open").catch(
+            (error: unknown) => {
+              setOpenError(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to open dropped file.",
+              );
+              setViewerFeedback((previous) => ({
+                ...previous,
+                mode: "loadFailed",
+                message: "Dropped file could not be resolved.",
+              }));
+            },
           );
-          setViewerFeedback((previous) => ({
-            ...previous,
-            mode: "loadFailed",
-            message: "Dropped file could not be resolved.",
-          }));
+        })
+        .then((dispose) => {
+          unlisten = dispose;
+        })
+        .catch(() => {
+          // Tauri API unavailable (browser dev mode)
         });
-      })
-      .then((dispose) => {
-        unlisten = dispose;
-      })
-      .catch((error: unknown) => {
-        setOpenError(
-          error instanceof Error
-            ? error.message
-            : "Failed to subscribe to drag and drop events.",
-        );
-      });
+    } catch {
+      // Tauri API unavailable (browser dev mode)
+    }
 
     return () => {
       unlisten?.();
@@ -595,13 +580,8 @@ export function App() {
 
   const handleOpenFile = async () => {
     try {
-      setIsOpeningFile(true);
       const selectedFile = await openFileDialog();
-
-      if (!selectedFile) {
-        return;
-      }
-
+      if (!selectedFile) return;
       await performSelectFilePath(selectedFile.path, "open");
     } catch (error: unknown) {
       setOpenError(
@@ -612,50 +592,6 @@ export function App() {
         mode: "loadFailed",
         message: "File dialog operation failed.",
       }));
-    } finally {
-      setIsOpeningFile(false);
-    }
-  };
-
-  const navigateRelative = async (offset: -1 | 1) => {
-    if (!directoryListing || directoryListing.currentIndex === null) {
-      return;
-    }
-
-    const nextFile =
-      directoryListing.files[directoryListing.currentIndex + offset];
-
-    if (!nextFile) {
-      return;
-    }
-
-    try {
-      await performSelectFilePath(nextFile.path, "navigation");
-    } catch (error: unknown) {
-      setOpenError(
-        error instanceof Error
-          ? error.message
-          : "Failed to navigate between files.",
-      );
-      setViewerFeedback((previous) => ({
-        ...previous,
-        mode: "loadFailed",
-        message: "Navigation failed while resolving the next file.",
-      }));
-    }
-  };
-
-  const handleRetryCurrentFile = async () => {
-    if (!currentFile) {
-      return;
-    }
-
-    try {
-      await performSelectFilePath(currentFile.path, "retry");
-    } catch (error: unknown) {
-      setOpenError(
-        error instanceof Error ? error.message : "Retry failed for current file.",
-      );
     }
   };
 
@@ -744,287 +680,313 @@ export function App() {
     }
   };
 
+  const sidebarContent = (() => {
+    switch (activeTab) {
+      case "file":
+        return (
+          <>
+            <CurrentFileCard currentFile={currentFile} />
+            <PerformanceCard snapshot={performanceSnapshot} />
+          </>
+        );
+      case "metadata":
+        return <MetadataCard metadata={assetMetadata} />;
+      case "hierarchy":
+        return <HierarchyCard hierarchy={assetMetadata?.hierarchy ?? []} />;
+      case "textures":
+        return (
+          <TextureListCard
+            activeTextureId={selectedTextureId}
+            onSelectTexture={(textureId) => {
+              if (
+                textureId === selectedTextureId &&
+                viewerSurfaceMode === "texture"
+              ) {
+                setViewerSurfaceMode("asset");
+              } else {
+                setSelectedTextureId(textureId);
+                setViewerSurfaceMode("texture");
+              }
+            }}
+            textures={assetMetadata?.textures ?? []}
+          />
+        );
+      case "settings":
+        return (
+          <>
+            <SettingsCard
+              settingsPayload={settingsPayload}
+              settingsError={settingsError}
+              onToggleFileAssociations={() =>
+                void handleToggleFileAssociations()
+              }
+            />
+            <UpdateCard
+              key={`${settingsPayload?.settings.updateEndpointOverride ?? ""}:${settingsPayload?.settings.updatePublicKeyOverride ?? ""}:${settingsPayload?.settings.allowInsecureUpdateEndpoint ?? false}`}
+              isCheckingForUpdate={isCheckingForUpdate}
+              isInstallingUpdate={isInstallingUpdate}
+              onCheckForUpdate={() => void handleCheckForUpdate()}
+              onInstallUpdate={() => void handleInstallUpdate()}
+              onSaveOverride={(draft) => void handleSaveUpdateSettings(draft)}
+              updateCheck={updateCheck}
+              updateConfiguration={updateConfiguration}
+              updateError={updateError}
+            />
+            <RecentFilesCard
+              onOpenPath={(path) => {
+                void performSelectFilePath(path, "recent").catch(
+                  (error: unknown) => {
+                    setRecentFilesError(
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to open recent file.",
+                    );
+                  },
+                );
+              }}
+              recentFilesError={recentFilesError}
+              recentFilesPayload={recentFilesPayload}
+            />
+            <IntegrationCard
+              integrationError={integrationError}
+              integrationPayload={integrationPayload}
+            />
+          </>
+        );
+      case "warnings":
+        return (
+          <>
+            <WarningsCard warnings={warnings} />
+            <DiagnosticsCard
+              diagnosticsError={diagnosticsError}
+              diagnosticsPayload={diagnosticsPayload}
+            />
+          </>
+        );
+    }
+  })();
+
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Asset Quick Look</p>
-          <h1>yw-look</h1>
-        </div>
-        <div className="topbar-actions">
-          <button onClick={handleOpenFile} type="button">
-            {isOpeningFile ? "Opening..." : "Open"}
-          </button>
-          <button
-            disabled={!canNavigatePrev}
-            onClick={() => void navigateRelative(-1)}
-            type="button"
-          >
-            Prev
-          </button>
-          <button
-            disabled={!canNavigateNext}
-            onClick={() => void navigateRelative(1)}
-            type="button"
-          >
-            Next
-          </button>
-          <button
-            disabled={!viewerFeedback.canResetCamera}
-            onClick={() => setResetVersion((value) => value + 1)}
-            type="button"
-          >
-            Reset Camera
-          </button>
-        </div>
-      </header>
+      {/* ── MenuBar ── */}
+      <nav className="menubar">
+        <button
+          className="menubar-button"
+          onClick={() => void handleOpenFile()}
+          type="button"
+        >
+          File
+        </button>
+        <button className="menubar-button" type="button">
+          View
+        </button>
+        <button className="menubar-button" type="button">
+          Window
+        </button>
+        <button className="menubar-button" type="button">
+          Help
+        </button>
+      </nav>
 
-      <section className="mode-strip" aria-label="Viewer controls hints">
-        <span className="mode-strip-label">Controls</span>
-        <span className="mode-chip is-static">Alt + Left: Orbit</span>
-        <span className="mode-chip is-static">Alt + Middle: Pan</span>
-        <span className="mode-chip is-static">Alt + Right: Zoom</span>
-        <span className="mode-chip is-static">Wheel: Zoom</span>
-        <span className="mode-chip is-static">Left / Right: Navigate</span>
-      </section>
+      {/* ── Viewport ── */}
+      <section className="main-content">
+        <div className="viewer-panel">
+          <AssetViewport
+            currentFile={currentFile}
+            displayMode={displayMode}
+            onFeedbackChange={setViewerFeedback}
+            onMetadataChange={setAssetMetadata}
+            selectedTextureId={selectedTextureId}
+            textureViewMode={textureViewMode}
+            viewerSurfaceMode={viewerSurfaceMode}
+            textureExposure={textureExposure}
+            textureBlackPoint={textureBlackPoint}
+            textureWhitePoint={textureWhitePoint}
+            resetVersion={resetVersion}
+          />
 
-      <section className="mode-strip" aria-label="Display mode controls">
-        <span className="mode-strip-label">Display</span>
-        {displayModeOptions.map((option) => (
-          <button
-            key={option.value}
-            className={
-              option.value === displayMode ? "mode-chip is-active" : "mode-chip"
-            }
-            onClick={() => setDisplayMode(option.value)}
-            type="button"
-          >
-            {option.label}
-          </button>
-        ))}
-      </section>
+          {/* ViewModeControls overlay */}
+          <div className="view-mode-controls">
+            <button
+              className={`view-mode-toggle${showTexture ? " is-active" : ""}`}
+              onClick={() => setShowTexture((v) => !v)}
+              type="button"
+            >
+              <span>Texture</span>
+              <span className={`toggle-switch${showTexture ? " is-on" : ""}`} />
+            </button>
+            <button
+              className={`view-mode-toggle${showWireframe ? " is-active" : ""}`}
+              onClick={() => setShowWireframe((v) => !v)}
+              type="button"
+            >
+              <span>Wireframe</span>
+              <span
+                className={`toggle-switch${showWireframe ? " is-on" : ""}`}
+              />
+            </button>
+          </div>
 
-      {canShowTextureViewer ? (
-        <section className="mode-strip" aria-label="Texture viewer controls">
-          <span className="mode-strip-label">Viewport</span>
+          {/* InfoPanel toggle button */}
           <button
-            className={
-              viewerSurfaceMode === "asset" ? "mode-chip is-active" : "mode-chip"
-            }
-            disabled={currentFile?.kind === "texture"}
-            onClick={() => setViewerSurfaceMode("asset")}
+            className={`info-panel-toggle${sidebarOpen ? " is-active" : ""}`}
+            onClick={() => setSidebarOpen((v) => !v)}
             type="button"
+            title={sidebarOpen ? "Close Info Panel" : "Open Info Panel"}
           >
-            3D View
+            <svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="2" y="2" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M11 2v14" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M13.5 6h1M13.5 9h1M13.5 12h1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
           </button>
-          <button
-            className={
-              viewerSurfaceMode === "texture"
-                ? "mode-chip is-active"
-                : "mode-chip"
-            }
-            disabled={!selectedTextureId}
-            onClick={() => setViewerSurfaceMode("texture")}
-            type="button"
-          >
-            Texture View
-          </button>
+
+          {/* Texture mode banner */}
           {viewerSurfaceMode === "texture" ? (
+            <button
+              className="texture-mode-banner"
+              onClick={() => setViewerSurfaceMode("asset")}
+              type="button"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8.5 2L4 7l4.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Back to 3D View
+            </button>
+          ) : null}
+
+          {/* Drop overlay */}
+          {isDragActive ? (
+            <div className="drop-overlay">
+              <p>Drop file to open</p>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      {/* ── Sidebar ── */}
+      <aside className={`sidebar${sidebarOpen ? " is-open" : ""}`}>
+        <nav className="sidebar-tabs">
+          <button
+            className={`tab-button${activeTab === "file" ? " is-active" : ""}`}
+            onClick={() => setActiveTab("file")}
+            type="button"
+            title="File Info"
+          >
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 1.5h5.5L13 5v9.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M9 1.5V5h3.5" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M5.5 8.5h5M5.5 10.5h5M5.5 12.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button
+            className={`tab-button${activeTab === "metadata" ? " is-active" : ""}`}
+            onClick={() => setActiveTab("metadata")}
+            type="button"
+            title="Metadata"
+          >
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="2" y="1.5" width="12" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
+              <rect x="2" y="7" width="12" height="8" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M2 9h12" stroke="currentColor" strokeWidth="1.2" />
+            </svg>
+          </button>
+          <button
+            className={`tab-button${activeTab === "hierarchy" ? " is-active" : ""}`}
+            onClick={() => setActiveTab("hierarchy")}
+            type="button"
+            title="Hierarchy"
+          >
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="4" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" />
+              <circle cx="12" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" />
+              <circle cx="8" cy="12" r="2" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M5 5.5L7 10.5M11 5.5L9 10.5" stroke="currentColor" strokeWidth="1.2" />
+            </svg>
+          </button>
+          <button
+            className={`tab-button${activeTab === "textures" ? " is-active" : ""}`}
+            onClick={() => setActiveTab("textures")}
+            type="button"
+            title="Textures"
+          >
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" />
+              <circle cx="5.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1" />
+              <path d="M2 11l3-3 2 2 3-4 4 5v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-1Z" stroke="currentColor" strokeWidth="1.2" fill="none" />
+            </svg>
+          </button>
+          <button
+            className={`tab-button${activeTab === "settings" ? " is-active" : ""}`}
+            onClick={() => setActiveTab("settings")}
+            type="button"
+            title="Settings"
+          >
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button
+            className={`tab-button${activeTab === "warnings" ? " is-active" : ""}`}
+            onClick={() => setActiveTab("warnings")}
+            type="button"
+            title="Warnings"
+          >
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 1.5L1.5 13.5h13L8 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+              <path d="M8 6v4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              <circle cx="8" cy="11.5" r="0.6" fill="currentColor" />
+            </svg>
+          </button>
+        </nav>
+        <div className="sidebar-content">{sidebarContent}</div>
+      </aside>
+
+      {/* ── StatusBar ── */}
+      <footer className="statusbar">
+        <div className="statusbar-group">
+          {currentFile ? (
             <>
-              <span className="mode-strip-label">Texture</span>
-              {textureViewModeOptions.map((option) => (
-                <button
-                  key={option.value}
-                  className={
-                    option.value === textureViewMode
-                      ? "mode-chip is-active"
-                      : "mode-chip"
-                  }
-                  onClick={() => setTextureViewMode(option.value)}
-                  type="button"
-                >
-                  {option.label}
-                </button>
-              ))}
-              <label className="range-control">
-                <span>Exposure {textureExposure.toFixed(2)}</span>
-                <input
-                  max={6}
-                  min={-6}
-                  onChange={(event) =>
-                    setTextureExposure(Number(event.target.value))
-                  }
-                  step={0.05}
-                  type="range"
-                  value={textureExposure}
-                />
-              </label>
-              <label className="range-control">
-                <span>Black {textureBlackPoint.toFixed(2)}</span>
-                <input
-                  max={Math.max(textureWhitePoint - 0.01, 0)}
-                  min={0}
-                  onChange={(event) =>
-                    setTextureBlackPoint(Number(event.target.value))
-                  }
-                  step={0.01}
-                  type="range"
-                  value={Math.min(textureBlackPoint, textureWhitePoint - 0.01)}
-                />
-              </label>
-              <label className="range-control">
-                <span>White {textureWhitePoint.toFixed(2)}</span>
-                <input
-                  max={8}
-                  min={Math.min(textureBlackPoint + 0.01, 8)}
-                  onChange={(event) =>
-                    setTextureWhitePoint(Number(event.target.value))
-                  }
-                  step={0.01}
-                  type="range"
-                  value={textureWhitePoint}
-                />
-              </label>
+              <span>
+                {viewerFeedback.mode === "loading"
+                  ? `Loading: ${currentFile.fileName}`
+                  : `Model loaded: ${currentFile.fileName}`}
+              </span>
+              {assetMetadata && assetMetadata.meshCount > 0 ? (
+                <>
+                  <span className="statusbar-separator" />
+                  <span>{assetMetadata.meshCount} meshes</span>
+                </>
+              ) : null}
+              {assetMetadata && assetMetadata.materialCount > 0 ? (
+                <>
+                  <span className="statusbar-separator" />
+                  <span>{assetMetadata.materialCount} materials</span>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <span>
+              {settingsError
+                ? "Settings load failed"
+                : `Viewer: ${viewerStatusLabel}`}
+            </span>
+          )}
+        </div>
+        <div className="statusbar-group">
+          {performanceSnapshot.loadMs !== null ? (
+            <>
+              <span className="statusbar-mono">
+                Load: {performanceSnapshot.loadMs.toFixed(0)}ms
+              </span>
+              <span className="statusbar-separator" />
             </>
           ) : null}
-        </section>
-      ) : null}
-
-      <section className="viewer-panel">
-        <AssetViewport
-          currentFile={currentFile}
-          displayMode={displayMode}
-          onFeedbackChange={setViewerFeedback}
-          onMetadataChange={setAssetMetadata}
-          selectedTextureId={selectedTextureId}
-          textureViewMode={textureViewMode}
-          viewerSurfaceMode={viewerSurfaceMode}
-          textureExposure={textureExposure}
-          textureBlackPoint={textureBlackPoint}
-          textureWhitePoint={textureWhitePoint}
-          resetVersion={resetVersion}
-        />
-        {isDragActive ? (
-          <div className="drop-overlay">
-            <p className="card-title">Drop Asset File</p>
-            <p>Release to open the first supported file path.</p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="info-grid">
-        <article className="card">
-          <p className="card-title">Current Scope</p>
-          <ul>
-            <li>Native file dialog, drag and drop, and startup file intake</li>
-            <li>Folder-aware previous and next navigation</li>
-            <li>Three.js scene, camera, lighting, and RoomEnvironment</li>
-            <li>Camera reset plus Alt-modified OrbitControls</li>
-            <li>Display modes with stable material restoration</li>
-            <li>Animation clip playback bar for animated model formats</li>
-            <li>Texture viewer switching with RGB, RGBA, and Alpha channels</li>
-            <li>Exposure and range controls for texture inspection</li>
-          </ul>
-        </article>
-
-        <article className="card">
-          <p className="card-title">Verification Samples</p>
-          <p>{formatList}</p>
-          <p className="muted">
-            Runtime preview is focused on single-file assets first. More loaders
-            will continue in the next sections.
-          </p>
-        </article>
-
-        <article className="card">
-          <p className="card-title">Viewer Status</p>
-          <p>{viewerFeedback.message}</p>
-          <p className="muted">Mode: {viewerStatusLabel}</p>
-          <p className="muted">Display: {displayMode}</p>
-          <p className="muted">Viewport: {viewerSurfaceMode}</p>
-          {viewerSurfaceMode === "texture" ? (
-            <p className="muted">
-              Range: {textureBlackPoint.toFixed(2)} to{" "}
-              {textureWhitePoint.toFixed(2)}
-              {isHdrLikeTexture ? ` / exposure ${textureExposure.toFixed(2)}` : ""}
-            </p>
-          ) : null}
-          {viewerFeedback.warning ? (
-            <p className="warning-text">{viewerFeedback.warning}</p>
-          ) : null}
-        </article>
-
-        <CurrentFileCard currentFile={currentFile} />
-        <WarningsCard warnings={warnings} />
-        <MetadataCard metadata={assetMetadata} />
-        <HierarchyCard hierarchy={assetMetadata?.hierarchy ?? []} />
-        <TextureListCard
-          activeTextureId={selectedTextureId}
-          onSelectTexture={(textureId) => {
-            setSelectedTextureId(textureId);
-            setViewerSurfaceMode("texture");
-          }}
-          textures={assetMetadata?.textures ?? []}
-        />
-        <SettingsCard
-          settingsPayload={settingsPayload}
-          settingsError={settingsError}
-          onToggleFileAssociations={() => void handleToggleFileAssociations()}
-        />
-        <UpdateCard
-          key={`${settingsPayload?.settings.updateEndpointOverride ?? ""}:${settingsPayload?.settings.updatePublicKeyOverride ?? ""}:${settingsPayload?.settings.allowInsecureUpdateEndpoint ?? false}`}
-          isCheckingForUpdate={isCheckingForUpdate}
-          isInstallingUpdate={isInstallingUpdate}
-          onCheckForUpdate={() => void handleCheckForUpdate()}
-          onInstallUpdate={() => void handleInstallUpdate()}
-          onSaveOverride={(draft) => void handleSaveUpdateSettings(draft)}
-          updateCheck={updateCheck}
-          updateConfiguration={updateConfiguration}
-          updateError={updateError}
-        />
-        <RecentFilesCard
-          onOpenPath={(path) => {
-            void performSelectFilePath(path, "recent").catch((error: unknown) => {
-              setRecentFilesError(
-                error instanceof Error
-                  ? error.message
-                  : "Failed to open recent file.",
-              );
-            });
-          }}
-          recentFilesError={recentFilesError}
-          recentFilesPayload={recentFilesPayload}
-        />
-        <IntegrationCard
-          integrationError={integrationError}
-          integrationPayload={integrationPayload}
-        />
-        <DiagnosticsCard
-          diagnosticsError={diagnosticsError}
-          diagnosticsPayload={diagnosticsPayload}
-        />
-        <PerformanceCard snapshot={performanceSnapshot} />
-        {openError ? (
-          <article className="card">
-            <p className="card-title">Open Error</p>
-            <p className="error-text">{openError}</p>
-            {currentFile ? (
-              <button onClick={() => void handleRetryCurrentFile()} type="button">
-                Retry
-              </button>
-            ) : null}
-          </article>
-        ) : null}
-      </section>
-
-      <footer className="statusbar">
-        <span>
-          Status:{" "}
-          {settingsError
-            ? "settings load failed"
-            : `viewer ${viewerStatusLabel}`}
-        </span>
-        <span>Current file: {currentFileSummary}</span>
+          <span className="statusbar-mono">
+            {currentFileSummary}
+          </span>
+        </div>
       </footer>
     </main>
   );
