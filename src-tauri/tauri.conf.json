@@ -39,7 +39,7 @@
     "createUpdaterArtifacts": true,
     "fileAssociations": [
       {
-        "ext": ["glb", "gltf", "fbx", "obj", "ply", "stl"],
+        "ext": ["glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz"],
         "name": "yw-look Model Asset",
         "description": "3D model asset opened by yw-look"
       },
