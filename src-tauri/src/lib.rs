@@ -17,11 +17,11 @@ const DIAGNOSTICS_LOG_FILE_NAME: &str = "diagnostics.log";
 const DEFAULT_UPDATER_ENDPOINT: Option<&str> = option_env!("YW_LOOK_UPDATER_ENDPOINT");
 const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> = option_env!("YW_LOOK_UPDATER_PUBLIC_KEY");
 const MODEL_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "dae", "vrm", "pmd", "pmx",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "pmd", "pmx",
 ];
 const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
 const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "png", "jpg", "jpeg", "tga", "dds", "hdr", "exr",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "png", "jpg", "jpeg", "tga", "dds", "hdr", "exr",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -693,7 +693,7 @@ fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<SelectedFilePayload>
         .add_filter(
             "Supported assets",
             &[
-                "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "dae", "vrm", "pmd", "pmx",
+                "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "pmd", "pmx",
                 "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
             ],
         )

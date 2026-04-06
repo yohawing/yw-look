@@ -354,6 +354,21 @@ export async function loadPreviewObject(file: SelectedFile): Promise<LoadedPrevi
         formatVersion: null,
       };
     }
+    case "usd":
+    case "usda":
+    case "usdc":
+    case "usdz": {
+      const { USDLoader } =
+        await import("three/examples/jsm/loaders/USDLoader.js");
+      const buffer = await readArrayBuffer(file.path);
+      const object = new USDLoader().parse(buffer);
+      return {
+        object,
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+      };
+    }
     case "png":
     case "jpg":
     case "jpeg": {
