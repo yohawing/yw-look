@@ -15,7 +15,7 @@ import { CurrentFileCard } from "./components/CurrentFileCard";
 import { DiagnosticsCard } from "./components/DiagnosticsCard";
 import { HierarchyCard } from "./components/HierarchyCard";
 import { IntegrationCard } from "./components/IntegrationCard";
-import { MetadataCard } from "./components/MetadataCard";
+import { MaterialListCard } from "./components/MaterialListCard";
 import {
   PerformanceCard,
   type PerformanceSnapshot,
@@ -59,8 +59,8 @@ import {
 
 type SidebarTab =
   | "file"
-  | "metadata"
   | "hierarchy"
+  | "materials"
   | "textures"
   | "settings"
   | "warnings";
@@ -87,6 +87,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
+  const [showGrid, setShowGrid] = useState(true);
   const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
   const [directoryListing, setDirectoryListing] =
     useState<DirectoryListing | null>(null);
@@ -685,14 +686,14 @@ export function App() {
       case "file":
         return (
           <>
-            <CurrentFileCard currentFile={currentFile} />
+            <CurrentFileCard currentFile={currentFile} metadata={assetMetadata} />
             <PerformanceCard snapshot={performanceSnapshot} />
           </>
         );
-      case "metadata":
-        return <MetadataCard metadata={assetMetadata} />;
       case "hierarchy":
         return <HierarchyCard hierarchy={assetMetadata?.hierarchy ?? []} />;
+      case "materials":
+        return <MaterialListCard materials={assetMetadata?.materials ?? []} />;
       case "textures":
         return (
           <TextureListCard
@@ -803,6 +804,7 @@ export function App() {
             textureBlackPoint={textureBlackPoint}
             textureWhitePoint={textureWhitePoint}
             resetVersion={resetVersion}
+            showGrid={showGrid}
           />
 
           {/* ViewModeControls overlay */}
@@ -824,6 +826,14 @@ export function App() {
               <span
                 className={`toggle-switch${showWireframe ? " is-on" : ""}`}
               />
+            </button>
+            <button
+              className={`view-mode-toggle${showGrid ? " is-active" : ""}`}
+              onClick={() => setShowGrid((v) => !v)}
+              type="button"
+            >
+              <span>Grid</span>
+              <span className={`toggle-switch${showGrid ? " is-on" : ""}`} />
             </button>
           </div>
 
@@ -880,18 +890,6 @@ export function App() {
             </svg>
           </button>
           <button
-            className={`tab-button${activeTab === "metadata" ? " is-active" : ""}`}
-            onClick={() => setActiveTab("metadata")}
-            type="button"
-            title="Metadata"
-          >
-            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="2" y="1.5" width="12" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
-              <rect x="2" y="7" width="12" height="8" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M2 9h12" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          </button>
-          <button
             className={`tab-button${activeTab === "hierarchy" ? " is-active" : ""}`}
             onClick={() => setActiveTab("hierarchy")}
             type="button"
@@ -902,6 +900,18 @@ export function App() {
               <circle cx="12" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" />
               <circle cx="8" cy="12" r="2" stroke="currentColor" strokeWidth="1.2" />
               <path d="M5 5.5L7 10.5M11 5.5L9 10.5" stroke="currentColor" strokeWidth="1.2" />
+            </svg>
+          </button>
+          <button
+            className={`tab-button${activeTab === "materials" ? " is-active" : ""}`}
+            onClick={() => setActiveTab("materials")}
+            type="button"
+            title="Materials"
+          >
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.2" />
+              <circle cx="8" cy="8" r="2" fill="currentColor" opacity="0.5" />
+              <path d="M8 2.5v2M8 11.5v2M2.5 8h2M11.5 8h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
             </svg>
           </button>
           <button

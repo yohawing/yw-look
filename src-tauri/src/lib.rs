@@ -353,8 +353,19 @@ fn normalize_file_path(path: PathBuf) -> Result<PathBuf, String> {
         return Err(format!("path is not a file: {}", path.display()));
     }
 
-    path.canonicalize()
-        .map_err(|error| format!("failed to normalize file path: {error}"))
+    let canonical = path.canonicalize()
+        .map_err(|error| format!("failed to normalize file path: {error}"))?;
+    Ok(strip_verbatim_prefix(&canonical))
+}
+
+/// Remove the `\\?\` extended-length prefix that `canonicalize()` adds on Windows.
+fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    let s = path.display().to_string();
+    if s.starts_with(r"\\?\") {
+        PathBuf::from(&s[4..])
+    } else {
+        path.to_path_buf()
+    }
 }
 
 fn build_selected_file_payload(path: PathBuf) -> Result<SelectedFilePayload, String> {

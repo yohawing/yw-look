@@ -13,22 +13,30 @@ export function IntegrationCard({
     <article className="card">
       <p className="card-title">Windows Integration</p>
       {integrationError ? (
-        <p className="error-text">{integrationError}</p>
+        <p className="card-error">{integrationError}</p>
       ) : integrationPayload ? (
         <>
-          <p className="muted">{integrationPayload.installStrategy}</p>
-          <p className="muted">
-            File associations:{" "}
-            {integrationPayload.fileAssociationsEnabled ? "enabled" : "disabled"}
-          </p>
-          <ul>
-            {integrationPayload.supportedExtensions.map((extension) => (
-              <li key={extension}>{extension}</li>
+          <div className="card-rows">
+            <div className="card-row">
+              <span className="card-row-label">Install strategy</span>
+              <span className="card-row-badge">{integrationPayload.installStrategy}</span>
+            </div>
+            <div className="card-row">
+              <span className="card-row-label">File associations</span>
+              <span className={`card-row-badge ${integrationPayload.fileAssociationsEnabled ? "badge-active" : ""}`}>
+                {integrationPayload.fileAssociationsEnabled ? "Enabled" : "Disabled"}
+              </span>
+            </div>
+          </div>
+          <div className="card-section-label">Supported extensions</div>
+          <div className="extension-badges">
+            {integrationPayload.supportedExtensions.map((ext) => (
+              <span key={ext} className="card-row-badge-mono">{ext}</span>
             ))}
-          </ul>
+          </div>
         </>
       ) : (
-        <p className="muted">Loading Windows integration details.</p>
+        <p className="card-empty">Loading Windows integration details.</p>
       )}
     </article>
   );

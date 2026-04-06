@@ -42,31 +42,42 @@ export function UpdateCard({
   return (
     <article className="card">
       <p className="card-title">App Updates</p>
-      {updateError ? <p className="error-text">{updateError}</p> : null}
+      {updateError ? <p className="card-error">{updateError}</p> : null}
       {updateConfiguration ? (
-        <>
-          <p className="muted">Current version: {updateConfiguration.currentVersion}</p>
-          <p className="muted">
-            Effective endpoint: {updateConfiguration.effectiveEndpoint ?? "not configured"}
-          </p>
-          <p className="muted">
-            Public key:{" "}
-            {updateConfiguration.effectivePubkeyAvailable ? "configured" : "missing"}
-          </p>
-          <p className="muted">
-            Source:{" "}
-            {updateConfiguration.usingOverrideEndpoint ||
-            updateConfiguration.usingOverridePubkey
-              ? "local override"
-              : "bundled release settings"}
-          </p>
-        </>
+        <div className="card-rows">
+          <div className="card-row">
+            <span className="card-row-label">Version</span>
+            <span className="card-row-badge-mono">{updateConfiguration.currentVersion}</span>
+          </div>
+          <div className="card-row">
+            <span className="card-row-label">Endpoint</span>
+            <span className="card-row-value-mono">
+              {updateConfiguration.effectiveEndpoint ?? "not configured"}
+            </span>
+          </div>
+          <div className="card-row">
+            <span className="card-row-label">Public key</span>
+            <span className={`card-row-badge ${updateConfiguration.effectivePubkeyAvailable ? "badge-active" : ""}`}>
+              {updateConfiguration.effectivePubkeyAvailable ? "Configured" : "Missing"}
+            </span>
+          </div>
+          <div className="card-row">
+            <span className="card-row-label">Source</span>
+            <span className="card-row-badge">
+              {updateConfiguration.usingOverrideEndpoint || updateConfiguration.usingOverridePubkey
+                ? "Local override"
+                : "Bundled"}
+            </span>
+          </div>
+        </div>
       ) : (
-        <p className="muted">Loading updater configuration.</p>
+        <p className="card-empty">Loading updater configuration.</p>
       )}
 
+      <div className="card-section-label">Local override</div>
+
       <label className="text-control">
-        <span>Local update feed URL</span>
+        <span>Update feed URL</span>
         <input
           onChange={(event) =>
             setDraft((previous) => ({ ...previous, endpoint: event.target.value }))
@@ -78,13 +89,13 @@ export function UpdateCard({
       </label>
 
       <label className="text-control">
-        <span>Local updater public key</span>
+        <span>Updater public key</span>
         <textarea
           onChange={(event) =>
             setDraft((previous) => ({ ...previous, publicKey: event.target.value }))
           }
-          placeholder="Paste the PEM public key for local update signing."
-          rows={5}
+          placeholder="Paste PEM public key for local update signing."
+          rows={4}
           value={draft.publicKey}
         />
       </label>
@@ -100,17 +111,18 @@ export function UpdateCard({
           }
           type="checkbox"
         />
-        <span>Allow local HTTP update feed on localhost only</span>
+        <span>Allow HTTP on localhost</span>
       </label>
 
       <div className="card-actions">
-        <button onClick={() => onSaveOverride(draft)} type="button">
-          Save Update Settings
+        <button className="btn-ghost" onClick={() => onSaveOverride(draft)} type="button">
+          Save
         </button>
-        <button onClick={onCheckForUpdate} type="button">
+        <button className="btn-ghost" onClick={onCheckForUpdate} type="button">
           {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
         </button>
         <button
+          className="btn-primary"
           disabled={!hasUpdate || isInstallingUpdate}
           onClick={onInstallUpdate}
           type="button"
@@ -120,26 +132,28 @@ export function UpdateCard({
       </div>
 
       {updateCheck?.update ? (
-        <>
-          <p className="muted">Available version: {updateCheck.update.version}</p>
-          <p className="muted">Target: {updateCheck.update.target}</p>
+        <div className="card-rows" style={{ marginTop: 12 }}>
+          <div className="card-row">
+            <span className="card-row-label">Available</span>
+            <span className="card-row-badge-mono">{updateCheck.update.version}</span>
+          </div>
+          <div className="card-row">
+            <span className="card-row-label">Target</span>
+            <span className="card-row-value">{updateCheck.update.target}</span>
+          </div>
           {updateCheck.update.pubDate ? (
-            <p className="muted">Published: {updateCheck.update.pubDate}</p>
+            <div className="card-row">
+              <span className="card-row-label">Published</span>
+              <span className="card-row-value">{updateCheck.update.pubDate}</span>
+            </div>
           ) : null}
           {updateCheck.update.notes ? (
             <pre className="log-preview">{updateCheck.update.notes}</pre>
-          ) : (
-            <p className="muted">No release notes were included with this update.</p>
-          )}
-        </>
+          ) : null}
+        </div>
       ) : updateCheck ? (
-        <p className="muted">No newer update is currently available.</p>
-      ) : (
-        <p className="muted">
-          Bundled releases use the build-time GitHub endpoint. The fields above
-          are for local development feeds.
-        </p>
-      )}
+        <p className="card-empty" style={{ marginTop: 8 }}>No newer update available.</p>
+      ) : null}
     </article>
   );
 }

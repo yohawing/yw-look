@@ -17,38 +17,40 @@ export function MetadataCard({ metadata }: MetadataCardProps) {
     <article className="card">
       <p className="card-title">Asset Metadata</p>
       {metadata ? (
-        <div>
+        <div className="card-rows">
           <div className="card-row">
-            <span className="card-row-label">Format:</span>
+            <span className="card-row-label">Format</span>
             <span className="card-row-value">{renderValue(metadata.formatLabel)}</span>
           </div>
           <div className="card-row">
-            <span className="card-row-label">Version:</span>
-            <span className="card-row-value">{renderValue(metadata.formatVersion)}</span>
+            <span className="card-row-label">Version</span>
+            <span className="card-row-badge-mono">{renderValue(metadata.formatVersion)}</span>
           </div>
           <div className="card-row">
-            <span className="card-row-label">Nodes:</span>
-            <span className="card-row-value">{renderValue(metadata.nodeCount)}</span>
+            <span className="card-row-label">Nodes</span>
+            <span className="card-row-value-num">{renderValue(metadata.nodeCount)}</span>
           </div>
           <div className="card-row">
-            <span className="card-row-label">Meshes:</span>
-            <span className="card-row-value">{renderValue(metadata.meshCount)}</span>
+            <span className="card-row-label">Meshes</span>
+            <span className="card-row-value-num">{renderValue(metadata.meshCount)}</span>
           </div>
           <div className="card-row">
-            <span className="card-row-label">Materials:</span>
-            <span className="card-row-value">{renderValue(metadata.materialCount)}</span>
+            <span className="card-row-label">Materials</span>
+            <span className="card-row-value-num">{renderValue(metadata.materialCount)}</span>
           </div>
           <div className="card-row">
-            <span className="card-row-label">Textures:</span>
-            <span className="card-row-value">{renderValue(metadata.textureCount)}</span>
+            <span className="card-row-label">Textures</span>
+            <span className="card-row-value-num">{renderValue(metadata.textureCount)}</span>
           </div>
           <div className="card-row">
-            <span className="card-row-label">Animations:</span>
-            <span className="card-row-value">{renderValue(metadata.hasAnimation)}</span>
+            <span className="card-row-label">Animations</span>
+            <span className={`card-row-badge ${metadata.hasAnimation ? "badge-active" : ""}`}>
+              {renderValue(metadata.hasAnimation)}
+            </span>
           </div>
         </div>
       ) : (
-        <p className="muted">
+        <p className="card-empty">
           Open a supported file to inspect metadata.
         </p>
       )}

@@ -9,22 +9,27 @@ type PerformanceCardProps = {
 };
 
 function formatMetric(value: number | null) {
-  return value === null ? "n/a" : `${value.toFixed(1)} ms`;
+  return value === null ? "—" : `${value.toFixed(1)} ms`;
 }
 
 export function PerformanceCard({ snapshot }: PerformanceCardProps) {
   return (
     <article className="card">
       <p className="card-title">Performance</p>
-      <ul>
-        <li>Startup: {formatMetric(snapshot.startupMs)}</li>
-        <li>Latest load: {formatMetric(snapshot.loadMs)}</li>
-        <li>Latest navigation: {formatMetric(snapshot.navigationMs)}</li>
-      </ul>
-      <p className="muted">
-        Measurements are captured in the renderer for startup, asset load, and
-        folder navigation.
-      </p>
+      <div className="card-rows">
+        <div className="card-row">
+          <span className="card-row-label">Startup</span>
+          <span className="card-row-value-mono">{formatMetric(snapshot.startupMs)}</span>
+        </div>
+        <div className="card-row">
+          <span className="card-row-label">Latest load</span>
+          <span className="card-row-value-mono">{formatMetric(snapshot.loadMs)}</span>
+        </div>
+        <div className="card-row">
+          <span className="card-row-label">Navigation</span>
+          <span className="card-row-value-mono">{formatMetric(snapshot.navigationMs)}</span>
+        </div>
+      </div>
     </article>
   );
 }

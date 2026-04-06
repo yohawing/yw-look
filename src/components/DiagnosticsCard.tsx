@@ -13,22 +13,22 @@ export function DiagnosticsCard({
     <article className="card">
       <p className="card-title">Diagnostics</p>
       {diagnosticsError ? (
-        <p className="error-text">{diagnosticsError}</p>
+        <p className="card-error">{diagnosticsError}</p>
       ) : diagnosticsPayload ? (
         <>
-          <p className="muted">{diagnosticsPayload.diagnosticsLogPath}</p>
+          <p className="card-path">{diagnosticsPayload.diagnosticsLogPath}</p>
           {diagnosticsPayload.diagnosticsSnapshot.length > 0 ? (
             <pre className="log-preview">
               {diagnosticsPayload.diagnosticsSnapshot.join("\n")}
             </pre>
           ) : (
-            <p className="muted">
-              No diagnostics events recorded yet for this session.
+            <p className="card-empty">
+              No diagnostics events recorded yet.
             </p>
           )}
         </>
       ) : (
-        <p className="muted">Loading diagnostics log snapshot.</p>
+        <p className="card-empty">Loading diagnostics log.</p>
       )}
     </article>
   );

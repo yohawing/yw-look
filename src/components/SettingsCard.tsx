@@ -15,7 +15,7 @@ export function SettingsCard({
     return (
       <article className="card">
         <p className="card-title">Local Settings</p>
-        <p className="error-text">{settingsError}</p>
+        <p className="card-error">{settingsError}</p>
       </article>
     );
   }
@@ -24,9 +24,7 @@ export function SettingsCard({
     return (
       <article className="card">
         <p className="card-title">Local Settings</p>
-        <p className="muted">
-          Loading settings from the Tauri app config directory.
-        </p>
+        <p className="card-empty">Loading settings.</p>
       </article>
     );
   }
@@ -34,27 +32,32 @@ export function SettingsCard({
   return (
     <article className="card">
       <p className="card-title">Local Settings</p>
-      <ul>
-        <li>Path: {settingsPayload.settingsPath}</li>
-        <li>Schema version: {settingsPayload.settings.version}</li>
-        <li>Recent files limit: {settingsPayload.settings.recentFilesLimit}</li>
-        <li>
-          Diagnostics log level: {settingsPayload.settings.diagnosticsLogLevel}
-        </li>
-        <li>
-          File associations:{" "}
-          {settingsPayload.settings.fileAssociationsEnabled
-            ? "enabled"
-            : "disabled"}
-        </li>
-      </ul>
-      <button onClick={onToggleFileAssociations} type="button">
-        Toggle File Associations
-      </button>
-      <p className="muted">
-        Settings are persisted in a JSON file under the per-user app config
-        directory.
-      </p>
+      <p className="card-path">{settingsPayload.settingsPath}</p>
+      <div className="card-rows">
+        <div className="card-row">
+          <span className="card-row-label">Schema version</span>
+          <span className="card-row-badge-mono">{settingsPayload.settings.version}</span>
+        </div>
+        <div className="card-row">
+          <span className="card-row-label">Recent files limit</span>
+          <span className="card-row-value-num">{settingsPayload.settings.recentFilesLimit}</span>
+        </div>
+        <div className="card-row">
+          <span className="card-row-label">Log level</span>
+          <span className="card-row-badge">{settingsPayload.settings.diagnosticsLogLevel}</span>
+        </div>
+        <div className="card-row">
+          <span className="card-row-label">File associations</span>
+          <span className={`card-row-badge ${settingsPayload.settings.fileAssociationsEnabled ? "badge-active" : ""}`}>
+            {settingsPayload.settings.fileAssociationsEnabled ? "Enabled" : "Disabled"}
+          </span>
+        </div>
+      </div>
+      <div className="card-actions">
+        <button className="btn-ghost" onClick={onToggleFileAssociations} type="button">
+          Toggle File Associations
+        </button>
+      </div>
     </article>
   );
 }

@@ -15,10 +15,10 @@ export function RecentFilesCard({
     <article className="card">
       <p className="card-title">Recent Files</p>
       {recentFilesError ? (
-        <p className="error-text">{recentFilesError}</p>
+        <p className="card-error">{recentFilesError}</p>
       ) : recentFilesPayload ? (
         <>
-          <p className="muted">{recentFilesPayload.recentFilesPath}</p>
+          <p className="card-path">{recentFilesPayload.recentFilesPath}</p>
           {recentFilesPayload.entries.length > 0 ? (
             <ul className="recent-list">
               {recentFilesPayload.entries.map((entry) => (
@@ -28,20 +28,21 @@ export function RecentFilesCard({
                     onClick={() => onOpenPath(entry.path)}
                     type="button"
                   >
-                    <span>{entry.path}</span>
-                    <span className="muted">
-                      {entry.kind} / {entry.lastAccessedAt}
+                    <span className="recent-entry-path">{entry.path}</span>
+                    <span className="recent-entry-meta">
+                      <span className="card-row-badge">{entry.kind}</span>
+                      <span>{entry.lastAccessedAt}</span>
                     </span>
                   </button>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="muted">No recent files recorded yet.</p>
+            <p className="card-empty">No recent files recorded yet.</p>
           )}
         </>
       ) : (
-        <p className="muted">Loading recent files list.</p>
+        <p className="card-empty">Loading recent files.</p>
       )}
     </article>
   );

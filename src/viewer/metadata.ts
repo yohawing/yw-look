@@ -1,13 +1,17 @@
 import {
   AnimationClip,
+  Color,
   Group,
   Material,
   Mesh,
+  MeshBasicMaterial,
+  MeshPhongMaterial,
+  MeshStandardMaterial,
   Object3D,
   Texture,
 } from "three";
 import type { SelectedFile } from "../lib/files";
-import type { AssetMetadata, HierarchyNode } from "../components/assetMetadata";
+import type { AssetMetadata, HierarchyNode, MaterialEntry } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { getMaterials } from "./scene";
 
@@ -33,6 +37,46 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
     name: object.name.trim() || "(unnamed)",
     kind: getObjectKind(object),
     children: object.children.map((child) => buildHierarchyNode(child)),
+  };
+}
+
+function getMaterialColor(material: Material): string | null {
+  if (
+    material instanceof MeshStandardMaterial ||
+    material instanceof MeshPhongMaterial ||
+    material instanceof MeshBasicMaterial
+  ) {
+    return `#${material.color.getHexString()}`;
+  }
+  return null;
+}
+
+function countMaterialTextures(material: Material): number {
+  const slots: TextureSlotKey[] = [
+    "map", "normalMap", "metalnessMap", "roughnessMap", "emissiveMap", "alphaMap",
+  ];
+  let count = 0;
+  for (const key of slots) {
+    if ((material as TexturedMaterial)[key] instanceof Texture) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function buildMaterialEntry(material: Material): MaterialEntry {
+  const typeName = material.type
+    .replace("Material", "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2");
+
+  return {
+    id: material.uuid,
+    name: material.name.trim() || typeName,
+    type: typeName,
+    color: getMaterialColor(material),
+    opacity: material.opacity,
+    transparent: material.transparent,
+    textureCount: countMaterialTextures(material),
   };
 }
 
@@ -171,6 +215,7 @@ export function collectAssetMetadata(
       hasAnimation: clips.length > 0,
       hierarchy: [buildHierarchyNode(object)],
       textures: [...textures.values()],
+      materials: [...materials].map(buildMaterialEntry),
     },
     textureRegistry,
   };
@@ -200,6 +245,7 @@ export function buildMissingReferenceMetadata(
     textureCount: textureEntries.length,
     hasAnimation: false,
     hierarchy: [],
+    materials: [],
     textures:
       textureEntries.length > 0
         ? textureEntries

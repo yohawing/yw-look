@@ -5,6 +5,7 @@ import {
   AnimationMixer,
   Color,
   DirectionalLight,
+  GridHelper,
   MOUSE,
   PerspectiveCamera,
   PMREMGenerator,
@@ -63,6 +64,7 @@ type AssetViewportProps = {
   textureBlackPoint: number;
   textureWhitePoint: number;
   resetVersion: number;
+  showGrid: boolean;
 };
 
 export function AssetViewport({
@@ -77,6 +79,7 @@ export function AssetViewport({
   textureBlackPoint,
   textureWhitePoint,
   resetVersion,
+  showGrid,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneContextRef = useRef<SceneContext | null>(null);
@@ -100,6 +103,14 @@ export function AssetViewport({
   useEffect(() => {
     displayModeRef.current = displayMode;
   }, [displayMode]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+    const grid = context?.scene.getObjectByName("__yw_initial_grid");
+    if (grid) {
+      grid.visible = showGrid;
+    }
+  }, [showGrid]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -145,7 +156,15 @@ export function AssetViewport({
     controls.mouseButtons.RIGHT = MOUSE.DOLLY;
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.enabled = false;
+
+    // ── Initial grid ──
+    const grid = new GridHelper(10, 20, "#555b66", "#3a3f48");
+    grid.name = "__yw_initial_grid";
+    scene.add(grid);
+    camera.position.set(5, 4, 5);
+    camera.lookAt(0, 0, 0);
+    controls.target.set(0, 0, 0);
+    controls.enabled = true;
 
     const pointerDownHandler = (event: PointerEvent) => {
       if (!sceneContextRef.current?.mountedObject) {
@@ -236,10 +255,24 @@ export function AssetViewport({
     context.controls.enabled = false;
     resetCameraRef.current = null;
 
+    // Show/hide initial grid based on file state
+    const grid = context.scene.getObjectByName("__yw_initial_grid");
+
     if (!currentFile) {
+      if (grid) {
+        grid.visible = showGrid;
+      }
+      context.camera.position.set(5, 4, 5);
+      context.camera.lookAt(0, 0, 0);
+      context.controls.target.set(0, 0, 0);
+      context.controls.enabled = true;
       onFeedbackChange(neutralFeedback);
       onMetadataChange(emptyAssetMetadata);
       return;
+    }
+
+    if (grid) {
+      grid.visible = showGrid;
     }
 
     if (!implementedPreviewExtensions.has(currentFile.extension)) {
@@ -567,8 +600,9 @@ export function AssetViewport({
   return (
     <div className="viewport-shell">
       <div className="viewport-canvas" ref={hostRef} />
+
       {effectiveOverlayMode !== "ready" ? (
-        <div className="viewport-overlay">
+        <div className={`viewport-overlay${effectiveOverlayMode === "empty" ? " is-empty" : ""}`}>
           <ViewerStatePanel mode={effectiveOverlayMode} />
         </div>
       ) : null}

@@ -21,9 +21,9 @@ const stateContent: Record<
   }
 > = {
   empty: {
-    label: "Viewer Placeholder",
-    title: "Tauri + React + Three.js base is ready for implementation.",
-    body: "Next steps are wiring file open, initializing the Three.js scene, and loading sample assets from samples/manifest.json.",
+    label: "yw-look",
+    title: "Drop a file here to preview",
+    body: "Drag & drop a 3D model or texture onto this window, or use File to open.",
     tone: "neutral",
   },
   loading: {

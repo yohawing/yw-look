@@ -18,6 +18,16 @@ export type TextureEntry = {
     | "unknown";
 };
 
+export type MaterialEntry = {
+  id: string;
+  name: string;
+  type: string;
+  color: string | null;
+  opacity: number;
+  transparent: boolean;
+  textureCount: number;
+};
+
 export type AssetMetadata = {
   formatLabel: string;
   formatVersion: string | null;
@@ -28,6 +38,7 @@ export type AssetMetadata = {
   hasAnimation: boolean;
   hierarchy: HierarchyNode[];
   textures: TextureEntry[];
+  materials: MaterialEntry[];
 };
 
 export const emptyAssetMetadata: AssetMetadata | null = null;
