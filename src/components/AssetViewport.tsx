@@ -172,7 +172,9 @@ export function AssetViewport({
         return;
       }
 
-      controls.enabled = event.button === 0 || event.altKey;
+      controls.enabled =
+        event.button === 0 ||
+        (event.altKey && (event.button === 1 || event.button === 2));
     };
 
     const pointerUpHandler = () => {
