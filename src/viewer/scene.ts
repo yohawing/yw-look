@@ -1,17 +1,57 @@
 import {
   Box3,
   BufferGeometry,
+  GridHelper,
   Group,
   Material,
   MathUtils,
   Mesh,
   Object3D,
   PerspectiveCamera,
+  Scene,
   Texture,
   Vector3,
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { DisplayMode, SceneContext } from "./types";
+
+export const GRID_NAME = "__yw_initial_grid";
+const GRID_DIVISIONS = 20;
+const MIN_NORMALIZED_DIMENSION = 0.1;
+const MAX_NORMALIZED_DIMENSION = 100;
+const SCALE_EPSILON = 1e-8;
+export const DEFAULT_SCENE_DIMENSION = 1;
+
+type GridPreset = {
+  maxDimension: number;
+  cellSize: number;
+  label: string;
+};
+
+export type GridConfig = {
+  cellSize: number;
+  label: string;
+  size: number;
+  divisions: number;
+};
+
+export type ScaleNormalizationResult = {
+  applied: boolean;
+  factor: number;
+  originalMaxDimension: number;
+  normalizedMaxDimension: number;
+};
+
+// Grid density presets tuned for inspection workflows:
+// small assets use finer mm/cm cells, large assets use coarser m-based cells.
+const gridPresets: GridPreset[] = [
+  { maxDimension: 0.1, cellSize: 0.001, label: "1 mm" },
+  { maxDimension: 1, cellSize: 0.01, label: "1 cm" },
+  { maxDimension: 10, cellSize: 0.1, label: "10 cm" },
+  { maxDimension: 100, cellSize: 1, label: "1 m" },
+  { maxDimension: 1000, cellSize: 10, label: "10 m" },
+  { maxDimension: Number.POSITIVE_INFINITY, cellSize: 100, label: "100 m" },
+];
 
 export function getMaterials(material: Material | Material[]) {
   return Array.isArray(material) ? material : [material];
@@ -125,10 +165,110 @@ export function applyInitialView(
   controls.update();
 }
 
-export function getScaleWarning(object: Group | Mesh) {
+export function getObjectMaxDimension(object: Group | Mesh) {
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
-  const maxDimension = Math.max(size.x, size.y, size.z);
+  return Math.max(size.x, size.y, size.z);
+}
+
+export function normalizeObjectScale(object: Group | Mesh): ScaleNormalizationResult {
+  const originalMaxDimension = getObjectMaxDimension(object);
+  if (!Number.isFinite(originalMaxDimension) || originalMaxDimension <= 0) {
+    return {
+      applied: false,
+      factor: 1,
+      originalMaxDimension: 0,
+      normalizedMaxDimension: 0,
+    };
+  }
+
+  let factor = 1;
+  if (originalMaxDimension < MIN_NORMALIZED_DIMENSION) {
+    factor = MIN_NORMALIZED_DIMENSION / originalMaxDimension;
+  } else if (originalMaxDimension > MAX_NORMALIZED_DIMENSION) {
+    factor = MAX_NORMALIZED_DIMENSION / originalMaxDimension;
+  }
+
+  const applied = Math.abs(factor - 1) > SCALE_EPSILON;
+  if (applied) {
+    object.scale.multiplyScalar(factor);
+    object.updateMatrixWorld(true);
+  }
+
+  return {
+    applied,
+    factor,
+    originalMaxDimension,
+    normalizedMaxDimension: getObjectMaxDimension(object),
+  };
+}
+
+export function getGridConfig(maxDimension: number): GridConfig {
+  const targetMaxDimension =
+    Number.isFinite(maxDimension) && maxDimension > 0
+      ? maxDimension
+      : DEFAULT_SCENE_DIMENSION;
+  const preset =
+    gridPresets.find((candidate) => targetMaxDimension <= candidate.maxDimension) ??
+    gridPresets.at(-1)!;
+
+  return {
+    cellSize: preset.cellSize,
+    label: preset.label,
+    size: preset.cellSize * GRID_DIVISIONS,
+    divisions: GRID_DIVISIONS,
+  };
+}
+
+function disposeGrid(grid: GridHelper) {
+  grid.geometry.dispose();
+  for (const material of getMaterials(grid.material)) {
+    material.dispose();
+  }
+}
+
+export function applyDynamicGrid(
+  scene: Scene,
+  maxDimension: number,
+  visible: boolean,
+) {
+  const existingGrid = scene.getObjectByName(GRID_NAME);
+  if (existingGrid instanceof GridHelper) {
+    scene.remove(existingGrid);
+    disposeGrid(existingGrid);
+  }
+
+  const config = getGridConfig(maxDimension);
+  const grid = new GridHelper(config.size, config.divisions, "#555b66", "#3a3f48");
+  grid.name = GRID_NAME;
+  grid.visible = visible;
+  scene.add(grid);
+
+  return config;
+}
+
+function formatScaleFactor(factor: number) {
+  if (!Number.isFinite(factor) || factor === 0) {
+    return "0";
+  }
+
+  const magnitude = Math.abs(factor);
+  if (magnitude < 0.0001 || magnitude >= 10000) {
+    return factor.toExponential(4);
+  }
+
+  return factor.toFixed(4);
+}
+
+export function getScaleWarning(
+  object: Group | Mesh,
+  normalized: ScaleNormalizationResult | null = null,
+) {
+  if (normalized?.applied) {
+    return `Scale normalized automatically (x${formatScaleFactor(normalized.factor)}).`;
+  }
+
+  const maxDimension = getObjectMaxDimension(object);
 
   if (maxDimension <= 0.001) {
     return "Scale warning: the loaded content is extremely small.";
