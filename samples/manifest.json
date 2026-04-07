@@ -136,6 +136,71 @@
         "shouldLoad": true,
         "hasMetadata": true
       }
+    },
+    {
+      "id": "usda-tiny-sanity",
+      "kind": "model",
+      "format": "usda",
+      "path": "samples/assets/usd/tiny.usda",
+      "tags": ["usd", "usda", "phase0", "sanity"],
+      "phase": "phase0",
+      "expect": {
+        "shouldLoad": true,
+        "defaultPrim": "Root",
+        "upAxis": "Y",
+        "metersPerUnit": 0.01,
+        "hasReferences": false,
+        "hasPayloads": false,
+        "hasSubLayers": false
+      }
+    },
+    {
+      "id": "usd-kitchen-set",
+      "kind": "model",
+      "format": "usd",
+      "path": "samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd",
+      "tags": ["usd", "usda", "usdc", "phase0", "composition", "private"],
+      "phase": "phase0",
+      "private": true,
+      "license": "Pixar Kitchen Set License (research / non-commercial)",
+      "notes": "Root is USDA. Per-asset *.geom.usd files are USDC binary. Heavy references and payloads.",
+      "expect": {
+        "shouldLoad": true,
+        "defaultPrim": "Kitchen_set",
+        "upAxis": "Z",
+        "hasReferences": true,
+        "hasPayloads": true,
+        "hasSubLayers": false,
+        "mixesUsdaAndUsdc": true
+      }
+    },
+    {
+      "id": "usdz-arkit-chameleon",
+      "kind": "model",
+      "format": "usdz",
+      "path": "samples/private/usd/chameleon_anim_mtl_variant.usdz",
+      "tags": ["usd", "usdz", "phase0", "zip", "private"],
+      "phase": "phase0",
+      "private": true,
+      "license": "Apple AR Quick Look sample (developer.apple.com)",
+      "expect": {
+        "shouldLoad": true,
+        "isZipContainer": true
+      }
+    },
+    {
+      "id": "usdz-arkit-glove",
+      "kind": "model",
+      "format": "usdz",
+      "path": "samples/private/usd/glove_baseball_mtl_variant.usdz",
+      "tags": ["usd", "usdz", "phase0", "zip", "private"],
+      "phase": "phase0",
+      "private": true,
+      "license": "Apple AR Quick Look sample (developer.apple.com)",
+      "expect": {
+        "shouldLoad": true,
+        "isZipContainer": true
+      }
     }
   ]
 }
