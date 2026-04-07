@@ -209,13 +209,13 @@
 
 ### macOS
 
-- [ ] `tauri.conf.json` の `bundle.targets` を OS 別に分岐する（macOS: `app`, `dmg`）
-- [ ] `src-tauri/icons/` に `.icns` アイコンを追加する
-- [ ] `bundle.icon` を OS 別に持てる構成にする（`tauri.macos.conf.json` 等の利用も検討）
-- [ ] `package.json` に `bundle:mac` スクリプトを追加する（`tauri build -- --bundles app,dmg`）
+- [x] `tauri.conf.json` の `bundle.targets` を `"all"` に変更し、OS 別ビルドは `--bundles` フラグで制御する
+- [x] `src-tauri/icons/` に `.icns` アイコンを追加する
+- [x] `bundle.icon` 配列に Windows / macOS / 汎用 PNG をすべて列挙する
+- [x] `package.json` に `bundle:mac` スクリプトを追加する（`tauri build -- --bundles app,dmg`）
 - [ ] macOS 上で `npm run tauri dev` が通ることを確認する
 - [ ] macOS 上で `npm run bundle:mac` が通ることを確認する
-- [ ] `tauri.conf.json` の identifier `com.ywlook.app` を `.app` 終端でない値に変更する
+- [x] `tauri.conf.json` の identifier を `com.yohawing.ywlook` に変更する（`.app` 終端を回避）
 - [ ] `plugins.updater.windows.installMode` 相当の macOS 側設定を整理する
 - [ ] `scripts/prepare-local-update-feed.mjs` を OS 別成果物に対応させる
   - [ ] `nsis` / `msi` だけでなく `macos` / `dmg` ディレクトリも走査する

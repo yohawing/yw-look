@@ -447,14 +447,9 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="<正しいパスワード>"
 
 ## `bundle identifier ... ends with .app`
 
-現状の identifier は `com.ywlook.app` です。`.app` で終わる識別子は **macOS 配布で実害が出る可能性が高い** ため、macOS 対応開始前に変更します。
+identifier は `com.yohawing.ywlook` を使用します。`.app` で終わる識別子は **macOS 配布で実害が出る可能性が高い** ため、初期設定の `com.ywlook.app` から変更済みです。
 
-候補:
-
-- `com.ywlook.viewer`
-- `com.ywlook.desktop`
-
-変更時は、既存 Windows インストーラーの上書き挙動が変わる可能性があるため、リリースノートで明示してください。
+既存 Windows インストーラーがインストールされている環境では、identifier 変更により上書きアップデートが効かず別アプリとして共存する可能性があるため、リリースノートで明示してください。
 
 ## macOS で「開発元を検証できません」と出る（ローカル配布時）
 
@@ -487,7 +482,6 @@ xattr -dr com.apple.quarantine src-tauri/target/release/bundle/macos/yw-look.app
 - Apple Developer ID 証明書の調達
 - GitHub Actions に `macos-latest` ジョブ追加
 - 公証フローの実機確認
-- identifier の `.app` 終端解消
 
 ## 最低限の確認コマンド
 
