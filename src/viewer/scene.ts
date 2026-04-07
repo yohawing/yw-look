@@ -247,12 +247,25 @@ export function applyDynamicGrid(
   return config;
 }
 
+function formatScaleFactor(factor: number) {
+  if (!Number.isFinite(factor) || factor === 0) {
+    return "0";
+  }
+
+  const magnitude = Math.abs(factor);
+  if (magnitude < 0.0001 || magnitude >= 10000) {
+    return factor.toExponential(4);
+  }
+
+  return factor.toFixed(4);
+}
+
 export function getScaleWarning(
   object: Group | Mesh,
   normalized: ScaleNormalizationResult | null = null,
 ) {
   if (normalized?.applied) {
-    return `Scale normalized automatically (x${normalized.factor.toFixed(4)}).`;
+    return `Scale normalized automatically (x${formatScaleFactor(normalized.factor)}).`;
   }
 
   const maxDimension = getObjectMaxDimension(object);
