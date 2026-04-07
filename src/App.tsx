@@ -199,6 +199,8 @@ export function App() {
       firstPaintMs: null,
       interactiveMs: null,
     });
+  const isTauri = isTauriEnvironment();
+  const shouldLoadRecentFiles = sidebarOpen || !isTauri;
   const shouldLoadDeferredData = sidebarOpen;
 
   const viewerStatusLabel = useMemo(() => {
@@ -257,7 +259,6 @@ export function App() {
 
     return nextWarnings;
   }, [assetMetadata?.textures, viewerFeedback.warning]);
-  const isTauri = isTauriEnvironment();
   const shortcutLines = useMemo(
     () =>
       Object.entries(menuShortcuts).map(([actionId, definition]) => {
@@ -395,7 +396,7 @@ export function App() {
   }, [performanceSnapshot.interactiveMs, settingsError, settingsPayload]);
 
   useEffect(() => {
-    if (!shouldLoadDeferredData) {
+    if (!shouldLoadRecentFiles) {
       return;
     }
 
@@ -425,7 +426,7 @@ export function App() {
     return () => {
       isActive = false;
     };
-  }, [currentFile, shouldLoadDeferredData]);
+  }, [currentFile, shouldLoadRecentFiles]);
 
   const refreshDiagnostics = useEffectEvent(async () => {
     try {
