@@ -1,6 +1,5 @@
 import {
   AnimationClip,
-  Color,
   Group,
   Material,
   Mesh,
@@ -11,7 +10,11 @@ import {
   Texture,
 } from "three";
 import type { SelectedFile } from "../lib/files";
-import type { AssetMetadata, HierarchyNode, MaterialEntry } from "../components/assetMetadata";
+import type {
+  AssetMetadata,
+  HierarchyNode,
+  MaterialEntry,
+} from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { getMaterials } from "./scene";
 
@@ -53,7 +56,12 @@ function getMaterialColor(material: Material): string | null {
 
 function countMaterialTextures(material: Material): number {
   const slots: TextureSlotKey[] = [
-    "map", "normalMap", "metalnessMap", "roughnessMap", "emissiveMap", "alphaMap",
+    "map",
+    "normalMap",
+    "metalnessMap",
+    "roughnessMap",
+    "emissiveMap",
+    "alphaMap",
   ];
   let count = 0;
   for (const key of slots) {
@@ -81,7 +89,9 @@ function buildMaterialEntry(material: Material): MaterialEntry {
 }
 
 function getTextureDimensions(texture: Texture) {
-  const image = texture.image as { width?: number; height?: number } | undefined;
+  const image = texture.image as
+    | { width?: number; height?: number }
+    | undefined;
 
   if (
     image &&

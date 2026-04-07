@@ -1,17 +1,22 @@
 import type { RecentFileEntry } from "./recentFiles";
+import sharedMenuDefinition from "./menu-definition.json";
 
-export type MenuActionId =
-  | "file.open"
-  | "file.exit"
-  | "view.toggleTexture"
-  | "view.toggleWireframe"
-  | "view.toggleGrid"
-  | "view.resetCamera"
-  | "view.toggleSidebar"
-  | "window.toggleFullscreen"
-  | "app.openSettings"
-  | "help.shortcuts"
-  | "help.about";
+const menuActionIds = [
+  "file.open",
+  "file.exit",
+  "view.toggleTexture",
+  "view.toggleWireframe",
+  "view.toggleGrid",
+  "view.resetCamera",
+  "view.toggleSidebar",
+  "window.toggleFullscreen",
+  "app.openSettings",
+  "help.shortcuts",
+  "help.about",
+] as const;
+const menuActionIdSet = new Set<string>(menuActionIds);
+
+export type MenuActionId = (typeof menuActionIds)[number];
 
 export type ShortcutDefinition = {
   key: string;
@@ -19,6 +24,41 @@ export type ShortcutDefinition = {
   shift?: boolean;
   alt?: boolean;
 };
+
+type SharedMenuItemEntry = {
+  type: "item";
+  id: string;
+  label: string;
+  shortcut?: ShortcutDefinition;
+};
+
+type SharedMenuSeparatorEntry = {
+  type: "separator";
+};
+
+type SharedMenuRecentFilesEntry = {
+  type: "recentFiles";
+  label: string;
+};
+
+type SharedMenuEntry =
+  | SharedMenuItemEntry
+  | SharedMenuSeparatorEntry
+  | SharedMenuRecentFilesEntry;
+
+type SharedMenuSection = {
+  id: string;
+  label: string;
+  entries: SharedMenuEntry[];
+};
+
+type SharedMenuDefinition = {
+  sections: SharedMenuSection[];
+};
+
+export function isMenuActionId(value: string): value is MenuActionId {
+  return menuActionIdSet.has(value);
+}
 
 export type MenuLeafDefinition = {
   type: "item";
@@ -46,63 +86,48 @@ export type MenuSectionDefinition = {
   entries: MenuEntryDefinition[];
 };
 
-export const menuSections: MenuSectionDefinition[] = [
-  {
-    id: "file",
-    label: "File",
-    entries: [
-      { type: "item", id: "file.open", label: "Open" },
-      { type: "recentFiles", label: "Recent Files" },
-      { type: "separator" },
-      { type: "item", id: "file.exit", label: "Exit" },
-    ],
-  },
-  {
-    id: "view",
-    label: "View",
-    entries: [
-      { type: "item", id: "view.toggleTexture", label: "Toggle Texture" },
-      { type: "item", id: "view.toggleWireframe", label: "Toggle Wireframe" },
-      { type: "item", id: "view.toggleGrid", label: "Toggle Grid" },
-      { type: "separator" },
-      { type: "item", id: "view.resetCamera", label: "Reset Camera" },
-      { type: "item", id: "view.toggleSidebar", label: "Toggle Sidebar" },
-    ],
-  },
-  {
-    id: "window",
-    label: "Window",
-    entries: [
-      {
+const definition = sharedMenuDefinition as SharedMenuDefinition;
+
+export const menuSections: MenuSectionDefinition[] = definition.sections.map(
+  (section) => ({
+    id: section.id,
+    label: section.label,
+    entries: section.entries.map((entry) => {
+      if (entry.type !== "item") {
+        return entry;
+      }
+
+      if (!isMenuActionId(entry.id)) {
+        throw new Error(
+          `Unknown menu action id: ${entry.id}. Valid ids: ${menuActionIds.join(", ")}`,
+        );
+      }
+
+      return {
         type: "item",
-        id: "window.toggleFullscreen",
-        label: "Toggle Fullscreen",
-      },
-      { type: "item", id: "app.openSettings", label: "Open Settings" },
-    ],
-  },
-  {
-    id: "help",
-    label: "Help",
-    entries: [
-      { type: "item", id: "help.shortcuts", label: "Shortcuts" },
-      { type: "item", id: "help.about", label: "About" },
-    ],
-  },
-];
+        id: entry.id,
+        label: entry.label,
+      };
+    }),
+  }),
+);
 
 export const menuShortcuts: Partial<Record<MenuActionId, ShortcutDefinition>> =
-  {
-    "file.open": { key: "o", ctrlOrMeta: true },
-    "file.exit": { key: "q", ctrlOrMeta: true },
-    "window.toggleFullscreen": { key: "f11" },
-    "view.toggleTexture": { key: "1", ctrlOrMeta: true },
-    "view.toggleWireframe": { key: "2", ctrlOrMeta: true },
-    "view.toggleGrid": { key: "3", ctrlOrMeta: true },
-    "view.resetCamera": { key: "r", ctrlOrMeta: true },
-    "view.toggleSidebar": { key: "b", ctrlOrMeta: true },
-    "app.openSettings": { key: ",", ctrlOrMeta: true },
-  };
+  definition.sections.reduce<Partial<Record<MenuActionId, ShortcutDefinition>>>(
+    (shortcuts, section) => {
+      for (const entry of section.entries) {
+        if (
+          entry.type === "item" &&
+          entry.shortcut &&
+          isMenuActionId(entry.id)
+        ) {
+          shortcuts[entry.id] = entry.shortcut;
+        }
+      }
+      return shortcuts;
+    },
+    {},
+  );
 
 function usesMacLabels() {
   if (typeof navigator === "undefined") {

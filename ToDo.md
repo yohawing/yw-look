@@ -74,8 +74,8 @@
 - [x] `FBX` ローダーを実装する
 - [x] `OBJ` ローダーを実装する
 - [x] `USD` ローダーを experimental として実装する
-- [ ] `USD` ローダーで `metersPerUnit` を読み取りスケール補正を適用する（Three.js USDAParser が無視するため極小表示になる）
-- [ ] `USD` ローダーで個別 `xformOp`（scale / translate / rotateXYZ）をサポートする（現在 matrix4d のみ）
+- [x] `USD` ローダーで `metersPerUnit` を読み取りスケール補正を適用する（Three.js USDAParser が無視するため極小表示になる）
+- [x] `USD` ローダーで個別 `xformOp`（scale / translate / rotateXYZ）をサポートする（現在 matrix4d のみ）
 - [x] `PLY` ローダー対応可否を確認し、可能なら実装する
 - [ ] `DAE` ローダーを実装する（Three.js に ColladaLoader あり、未統合）
 - [x] `STL` ローダー対応可否を確認し、可能なら実装する
@@ -238,12 +238,12 @@
 ### 共通メニュー定義
 
 - [x] メニュー項目の共通定義を作る（項目名・アクション・ショートカットを一箇所で管理）
-- [ ] Tauri / ブラウザで共通定義からメニューを生成する仕組みを作る
+- [x] Tauri / ブラウザで共通定義からメニューを生成する仕組みを作る
 
 ### Tauri ネイティブメニュー（デスクトップ）
 
-- [ ] Tauri Menu API でネイティブメニューバーを構築する
-- [ ] メニューイベントから Rust / フロントエンドへアクションを伝搬する仕組みを作る
+- [x] Tauri Menu API でネイティブメニューバーを構築する
+- [x] メニューイベントから Rust / フロントエンドへアクションを伝搬する仕組みを作る
 
 ### React メニューバーコンポーネント（ブラウザ）
 
