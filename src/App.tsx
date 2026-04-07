@@ -88,6 +88,7 @@ export function App() {
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  const [gridUnitLabel, setGridUnitLabel] = useState("1 m");
   const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
   const [directoryListing, setDirectoryListing] =
     useState<DirectoryListing | null>(null);
@@ -805,6 +806,7 @@ export function App() {
             textureWhitePoint={textureWhitePoint}
             resetVersion={resetVersion}
             showGrid={showGrid}
+            onGridUnitChange={setGridUnitLabel}
           />
 
           {/* ViewModeControls overlay */}
@@ -975,6 +977,10 @@ export function App() {
                   <span>{assetMetadata.materialCount} materials</span>
                 </>
               ) : null}
+              <>
+                <span className="statusbar-separator" />
+                <span>Grid: {gridUnitLabel}</span>
+              </>
             </>
           ) : (
             <span>

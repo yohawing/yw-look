@@ -21,9 +21,13 @@ export {
   stopAnimations,
   resetSceneObjects,
   applyInitialView,
+  getObjectMaxDimension,
+  normalizeObjectScale,
+  applyDynamicGrid,
   getScaleWarning,
   applyDisplayMode,
 } from "./scene";
+export type { GridConfig, ScaleNormalizationResult } from "./scene";
 
 export { loadPreviewObject } from "./loaders";
 

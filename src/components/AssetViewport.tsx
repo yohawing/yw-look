@@ -5,7 +5,6 @@ import {
   AnimationMixer,
   Color,
   DirectionalLight,
-  GridHelper,
   MOUSE,
   PerspectiveCamera,
   PMREMGenerator,
@@ -31,6 +30,9 @@ import {
   stopAnimations,
   resetSceneObjects,
   applyInitialView,
+  getObjectMaxDimension,
+  normalizeObjectScale,
+  applyDynamicGrid,
   getScaleWarning,
   applyDisplayMode,
   loadPreviewObject,
@@ -65,6 +67,7 @@ type AssetViewportProps = {
   textureWhitePoint: number;
   resetVersion: number;
   showGrid: boolean;
+  onGridUnitChange: (label: string) => void;
 };
 
 export function AssetViewport({
@@ -80,6 +83,7 @@ export function AssetViewport({
   textureWhitePoint,
   resetVersion,
   showGrid,
+  onGridUnitChange,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneContextRef = useRef<SceneContext | null>(null);
@@ -158,9 +162,8 @@ export function AssetViewport({
     controls.dampingFactor = 0.08;
 
     // ── Initial grid ──
-    const grid = new GridHelper(10, 20, "#555b66", "#3a3f48");
-    grid.name = "__yw_initial_grid";
-    scene.add(grid);
+    const initialGrid = applyDynamicGrid(scene, 1, true);
+    onGridUnitChange(initialGrid.label);
     camera.position.set(5, 4, 5);
     camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
@@ -240,7 +243,7 @@ export function AssetViewport({
       sceneContextRef.current = null;
       resetCameraRef.current = null;
     };
-  }, [onFeedbackChange, onMetadataChange]);
+  }, [onFeedbackChange, onGridUnitChange, onMetadataChange]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -263,6 +266,8 @@ export function AssetViewport({
       if (grid) {
         grid.visible = showGrid;
       }
+      const fallbackGrid = applyDynamicGrid(context.scene, 1, showGrid);
+      onGridUnitChange(fallbackGrid.label);
       context.camera.position.set(5, 4, 5);
       context.camera.lookAt(0, 0, 0);
       context.controls.target.set(0, 0, 0);
@@ -309,6 +314,15 @@ export function AssetViewport({
         context.mountedObject = object;
         context.sourceObject = object;
         context.cleanupUrls = cleanupUrls;
+        const normalization = normalizeObjectScale(object);
+        const gridConfig = applyDynamicGrid(
+          context.scene,
+          normalization.normalizedMaxDimension > 0
+            ? normalization.normalizedMaxDimension
+            : getObjectMaxDimension(object),
+          showGrid,
+        );
+        onGridUnitChange(gridConfig.label);
         applyDisplayMode(object, displayModeRef.current);
         applyInitialView(context.camera, context.controls, object);
         context.controls.enabled = true;
@@ -351,7 +365,7 @@ export function AssetViewport({
         onFeedbackChange({
           mode: "ready",
           message: `Preview ready: ${currentFile.fileName}`,
-          warning: getScaleWarning(object),
+          warning: getScaleWarning(object, normalization),
           canResetCamera: true,
         });
       })
@@ -395,7 +409,7 @@ export function AssetViewport({
       revokeUrls(context.cleanupUrls);
       context.cleanupUrls = [];
     };
-  }, [currentFile, onFeedbackChange, onMetadataChange]);
+  }, [currentFile, onFeedbackChange, onGridUnitChange, onMetadataChange, showGrid]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
