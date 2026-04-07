@@ -14,7 +14,11 @@ type MenuBarProps = {
   recentFiles: RecentFileEntry[];
 };
 
-export function MenuBar({ onAction, onOpenRecentFile, recentFiles }: MenuBarProps) {
+export function MenuBar({
+  onAction,
+  onOpenRecentFile,
+  recentFiles,
+}: MenuBarProps) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showRecentSubmenu, setShowRecentSubmenu] = useState(false);
 
@@ -23,7 +27,6 @@ export function MenuBar({ onAction, onOpenRecentFile, recentFiles }: MenuBarProp
 
   useEffect(() => {
     if (!openMenuId) {
-      setShowRecentSubmenu(false);
       return;
     }
 
@@ -67,7 +70,13 @@ export function MenuBar({ onAction, onOpenRecentFile, recentFiles }: MenuBarProp
     const entry = section.entries[entryIndex];
 
     if (entry.type === "separator") {
-      return <li aria-hidden className="menu-separator" key={`${section.id}-${entryIndex}`} />;
+      return (
+        <li
+          aria-hidden
+          className="menu-separator"
+          key={`${section.id}-${entryIndex}`}
+        />
+      );
     }
 
     if (entry.type === "recentFiles") {
@@ -112,7 +121,9 @@ export function MenuBar({ onAction, onOpenRecentFile, recentFiles }: MenuBarProp
                 ))
               ) : (
                 <li className="menu-item" role="none">
-                  <span className="menu-item-button is-disabled">No recent files</span>
+                  <span className="menu-item-button is-disabled">
+                    No recent files
+                  </span>
                 </li>
               )}
             </ul>
@@ -131,7 +142,9 @@ export function MenuBar({ onAction, onOpenRecentFile, recentFiles }: MenuBarProp
           type="button"
         >
           <span>{entry.label}</span>
-          {shortcutLabel ? <span className="menu-shortcut">{shortcutLabel}</span> : null}
+          {shortcutLabel ? (
+            <span className="menu-shortcut">{shortcutLabel}</span>
+          ) : null}
         </button>
       </li>
     );
@@ -147,7 +160,12 @@ export function MenuBar({ onAction, onOpenRecentFile, recentFiles }: MenuBarProp
               aria-expanded={isOpen}
               aria-haspopup="menu"
               className="menubar-button"
-              onClick={() => setOpenMenuId((current) => (current === section.id ? null : section.id))}
+              onClick={() => {
+                setShowRecentSubmenu(false);
+                setOpenMenuId((current) =>
+                  current === section.id ? null : section.id,
+                );
+              }}
               type="button"
             >
               {section.label}

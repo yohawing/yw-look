@@ -91,17 +91,18 @@ export const menuSections: MenuSectionDefinition[] = [
   },
 ];
 
-export const menuShortcuts: Partial<Record<MenuActionId, ShortcutDefinition>> = {
-  "file.open": { key: "o", ctrlOrMeta: true },
-  "file.exit": { key: "q", ctrlOrMeta: true },
-  "window.toggleFullscreen": { key: "f11" },
-  "view.toggleTexture": { key: "1", ctrlOrMeta: true },
-  "view.toggleWireframe": { key: "2", ctrlOrMeta: true },
-  "view.toggleGrid": { key: "3", ctrlOrMeta: true },
-  "view.resetCamera": { key: "r", ctrlOrMeta: true },
-  "view.toggleSidebar": { key: "b", ctrlOrMeta: true },
-  "app.openSettings": { key: ",", ctrlOrMeta: true },
-};
+export const menuShortcuts: Partial<Record<MenuActionId, ShortcutDefinition>> =
+  {
+    "file.open": { key: "o", ctrlOrMeta: true },
+    "file.exit": { key: "q", ctrlOrMeta: true },
+    "window.toggleFullscreen": { key: "f11" },
+    "view.toggleTexture": { key: "1", ctrlOrMeta: true },
+    "view.toggleWireframe": { key: "2", ctrlOrMeta: true },
+    "view.toggleGrid": { key: "3", ctrlOrMeta: true },
+    "view.resetCamera": { key: "r", ctrlOrMeta: true },
+    "view.toggleSidebar": { key: "b", ctrlOrMeta: true },
+    "app.openSettings": { key: ",", ctrlOrMeta: true },
+  };
 
 function usesMacLabels() {
   if (typeof navigator === "undefined") {
@@ -125,7 +126,10 @@ export function formatShortcut(definition: ShortcutDefinition) {
     keys.push(useMac ? "⌥" : "Alt");
   }
 
-  const keyLabel = definition.key.length === 1 ? definition.key.toUpperCase() : definition.key.toUpperCase();
+  const keyLabel =
+    definition.key.length === 1
+      ? definition.key.toUpperCase()
+      : definition.key.toUpperCase();
   keys.push(keyLabel);
   return useMac ? keys.join("") : keys.join("+");
 }
@@ -143,7 +147,9 @@ function normalizeKey(key: string) {
   return lowered;
 }
 
-export function resolveShortcutAction(event: KeyboardEvent): MenuActionId | null {
+export function resolveShortcutAction(
+  event: KeyboardEvent,
+): MenuActionId | null {
   const eventKey = normalizeKey(event.key);
 
   for (const [actionId, shortcut] of Object.entries(menuShortcuts) as [

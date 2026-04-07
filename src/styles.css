@@ -1,10 +1,22 @@
 :root {
   color-scheme: dark;
-  font-family: "Inter", "SF Pro Display", -apple-system, system-ui, "Segoe UI",
-    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-family:
+    "Inter",
+    "SF Pro Display",
+    -apple-system,
+    system-ui,
+    "Segoe UI",
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    "Open Sans",
+    "Helvetica Neue",
+    sans-serif;
   font-feature-settings: "cv01", "ss03";
-  --font-mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Monaco,
-    "Courier New", monospace;
+  --font-mono:
+    "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Monaco, "Courier New",
+    monospace;
   background: #08090a;
   color: #f7f8f8;
 }
@@ -171,7 +183,10 @@ textarea {
   flex-direction: column;
   overflow: hidden;
   opacity: 0;
-  transition: width 0.25s ease, opacity 0.2s ease, border-color 0.25s ease;
+  transition:
+    width 0.25s ease,
+    opacity 0.2s ease,
+    border-color 0.25s ease;
 }
 
 .sidebar.is-open {
@@ -203,7 +218,9 @@ textarea {
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .tab-button:hover {
@@ -316,7 +333,9 @@ textarea {
   color: #f7f8f8;
   font-size: 12px;
   min-width: 137px;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .view-mode-toggle.is-active {
@@ -372,7 +391,10 @@ textarea {
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .info-panel-toggle:hover {
@@ -782,7 +804,9 @@ textarea {
   font-size: 12px;
   font-weight: 510;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
 }
 
 .btn-ghost:hover {
@@ -885,7 +909,9 @@ textarea {
   font: inherit;
   padding: 0;
   text-align: center;
-  transition: border-color 0.12s, background 0.12s;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
 }
 
 .texture-card:hover {
@@ -979,10 +1005,8 @@ textarea {
 }
 
 .material-swatch-none {
-  background: repeating-conic-gradient(
-    #3a3f48 0% 25%,
-    #2a2e35 0% 50%
-  ) 50% / 10px 10px;
+  background: repeating-conic-gradient(#3a3f48 0% 25%, #2a2e35 0% 50%) 50% /
+    10px 10px;
 }
 
 .material-info {
@@ -1034,7 +1058,9 @@ textarea {
   color: inherit;
   cursor: pointer;
   font: inherit;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
 }
 
 .recent-entry:hover {
@@ -1107,7 +1133,9 @@ textarea {
   background: transparent;
   color: #62666d;
   cursor: pointer;
-  transition: color 0.1s, background 0.1s;
+  transition:
+    color 0.1s,
+    background 0.1s;
 }
 
 .tree-chevron:hover {
@@ -1209,7 +1237,9 @@ textarea {
   font-family: var(--font-mono);
   font-size: 11px;
   padding: 7px 10px;
-  transition: border-color 0.12s, background 0.12s;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
 }
 
 .text-control input:focus,
