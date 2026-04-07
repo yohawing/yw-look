@@ -291,19 +291,51 @@ export function App() {
       startupMs: performance.now() - appStartRef.current,
     }));
 
-    const rafId = window.requestAnimationFrame(() => {
+    const existingPaintMetric = performance
+      .getEntriesByType("paint")
+      .find((entry) => entry.name === "first-contentful-paint");
+    if (existingPaintMetric) {
       setPerformanceSnapshot((previous) =>
         previous.firstPaintMs === null
           ? {
               ...previous,
-              firstPaintMs: performance.now() - appStartRef.current,
+              firstPaintMs: existingPaintMetric.startTime,
             }
           : previous,
       );
+    }
+
+    if (typeof PerformanceObserver === "undefined") {
+      return;
+    }
+
+    const paintObserver = new PerformanceObserver((entryList) => {
+      const firstPaint = entryList
+        .getEntries()
+        .find((entry) => entry.name === "first-contentful-paint");
+      if (!firstPaint) {
+        return;
+      }
+
+      setPerformanceSnapshot((previous) =>
+        previous.firstPaintMs === null
+          ? {
+              ...previous,
+              firstPaintMs: firstPaint.startTime,
+            }
+          : previous,
+      );
+      paintObserver.disconnect();
     });
 
+    try {
+      paintObserver.observe({ type: "paint", buffered: true });
+    } catch {
+      paintObserver.disconnect();
+    }
+
     return () => {
-      window.cancelAnimationFrame(rafId);
+      paintObserver.disconnect();
     };
   }, []);
 
@@ -331,6 +363,24 @@ export function App() {
           : previous,
       );
     };
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (
+        callback: (deadline: IdleDeadline) => void,
+        options?: IdleRequestOptions,
+      ) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const callbackId = idleWindow.requestIdleCallback(markInteractive, {
+        timeout: 1500,
+      });
+      return () => {
+        cancelled = true;
+        idleWindow.cancelIdleCallback?.(callbackId);
+      };
+    }
 
     const timeoutId = window.setTimeout(markInteractive, 0);
     return () => {
