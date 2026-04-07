@@ -8,18 +8,20 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes("node_modules/three")) {
+          const normalizedId = id.replaceAll("\\", "/");
+
+          if (normalizedId.includes("node_modules/three")) {
             return "three-vendor";
           }
 
           if (
-            id.includes("node_modules/react") ||
-            id.includes("node_modules/scheduler")
+            normalizedId.includes("node_modules/react") ||
+            normalizedId.includes("node_modules/scheduler")
           ) {
             return "react-vendor";
           }
 
-          if (id.includes("node_modules/@tauri-apps")) {
+          if (normalizedId.includes("node_modules/@tauri-apps")) {
             return "tauri-vendor";
           }
 
