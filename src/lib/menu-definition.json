@@ -1,0 +1,87 @@
+{
+  "sections": [
+    {
+      "id": "file",
+      "label": "File",
+      "entries": [
+        {
+          "type": "item",
+          "id": "file.open",
+          "label": "Open",
+          "shortcut": { "key": "o", "ctrlOrMeta": true }
+        },
+        { "type": "recentFiles", "label": "Recent Files" },
+        { "type": "separator" },
+        {
+          "type": "item",
+          "id": "file.exit",
+          "label": "Exit",
+          "shortcut": { "key": "q", "ctrlOrMeta": true }
+        }
+      ]
+    },
+    {
+      "id": "view",
+      "label": "View",
+      "entries": [
+        {
+          "type": "item",
+          "id": "view.toggleTexture",
+          "label": "Toggle Texture",
+          "shortcut": { "key": "1", "ctrlOrMeta": true }
+        },
+        {
+          "type": "item",
+          "id": "view.toggleWireframe",
+          "label": "Toggle Wireframe",
+          "shortcut": { "key": "2", "ctrlOrMeta": true }
+        },
+        {
+          "type": "item",
+          "id": "view.toggleGrid",
+          "label": "Toggle Grid",
+          "shortcut": { "key": "3", "ctrlOrMeta": true }
+        },
+        { "type": "separator" },
+        {
+          "type": "item",
+          "id": "view.resetCamera",
+          "label": "Reset Camera",
+          "shortcut": { "key": "r", "ctrlOrMeta": true }
+        },
+        {
+          "type": "item",
+          "id": "view.toggleSidebar",
+          "label": "Toggle Sidebar",
+          "shortcut": { "key": "b", "ctrlOrMeta": true }
+        }
+      ]
+    },
+    {
+      "id": "window",
+      "label": "Window",
+      "entries": [
+        {
+          "type": "item",
+          "id": "window.toggleFullscreen",
+          "label": "Toggle Fullscreen",
+          "shortcut": { "key": "f11" }
+        },
+        {
+          "type": "item",
+          "id": "app.openSettings",
+          "label": "Open Settings",
+          "shortcut": { "key": ",", "ctrlOrMeta": true }
+        }
+      ]
+    },
+    {
+      "id": "help",
+      "label": "Help",
+      "entries": [
+        { "type": "item", "id": "help.shortcuts", "label": "Shortcuts" },
+        { "type": "item", "id": "help.about", "label": "About" }
+      ]
+    }
+  ]
+}

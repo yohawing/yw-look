@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
@@ -49,6 +50,7 @@ import { loadRecentFiles, type RecentFilesPayload } from "./lib/recentFiles";
 import { isTauriEnvironment } from "./lib/platform";
 import {
   formatShortcut,
+  isMenuActionId,
   menuShortcuts,
   resolveShortcutAction,
   type MenuActionId,
@@ -74,6 +76,16 @@ type SidebarTab =
   | "settings"
   | "warnings";
 
+type NativeMenuEventPayload =
+  | {
+      kind: "action";
+      actionId: string;
+    }
+  | {
+      kind: "recentFile";
+      path: string;
+    };
+
 const initialViewerFeedback: ViewerFeedback = {
   mode: "empty",
   message: "Open a supported asset to initialize the preview scene.",
@@ -89,6 +101,23 @@ function deriveDisplayMode(
   if (showTexture) return "textured";
   if (showWireframe) return "wireframe";
   return "untextured";
+}
+
+function isNativeMenuEventPayload(
+  value: unknown,
+): value is NativeMenuEventPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Record<string, unknown>;
+  if (payload.kind === "action") {
+    return typeof payload.actionId === "string";
+  }
+  if (payload.kind === "recentFile") {
+    return typeof payload.path === "string";
+  }
+  return false;
 }
 
 export function App() {
@@ -733,8 +762,20 @@ export function App() {
   const runMenuActionFromShortcut = useEffectEvent((actionId: MenuActionId) => {
     void executeMenuAction(actionId);
   });
+  const runMenuActionFromNativeMenu = useEffectEvent(
+    (actionId: MenuActionId) => {
+      void executeMenuAction(actionId);
+    },
+  );
+  const runRecentFileFromNativeMenu = useEffectEvent((path: string) => {
+    void handleOpenRecentFile(path);
+  });
 
   useEffect(() => {
+    if (isTauri) {
+      return;
+    }
+
     const handleShortcutDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) {
         return;
@@ -762,7 +803,46 @@ export function App() {
     return () => {
       window.removeEventListener("keydown", handleShortcutDown);
     };
-  }, []);
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri) {
+      return;
+    }
+
+    let isDisposed = false;
+    let unlisten: UnlistenFn | undefined;
+
+    listen<unknown>("yw-look://menu-action", (event) => {
+      if (!isNativeMenuEventPayload(event.payload)) {
+        return;
+      }
+
+      if (event.payload.kind === "action") {
+        if (isMenuActionId(event.payload.actionId)) {
+          runMenuActionFromNativeMenu(event.payload.actionId);
+        }
+        return;
+      }
+
+      runRecentFileFromNativeMenu(event.payload.path);
+    })
+      .then((dispose) => {
+        if (isDisposed) {
+          dispose();
+          return;
+        }
+        unlisten = dispose;
+      })
+      .catch(() => {
+        // Tauri API unavailable (browser dev mode)
+      });
+
+    return () => {
+      isDisposed = true;
+      unlisten?.();
+    };
+  }, [isTauri]);
 
   const handleToggleFileAssociations = async () => {
     if (!settingsPayload) {
