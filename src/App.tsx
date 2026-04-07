@@ -206,8 +206,8 @@ export function App() {
   const shortcutLines = useMemo(
     () =>
       Object.entries(menuShortcuts).map(([actionId, definition]) => {
-        const label = actionId.split(".").join(" > ");
-        return `${formatShortcut(definition)}  ${label}`;
+        const actionLabel = actionId.split(".").join(" > ");
+        return `${formatShortcut(definition)}  ${actionLabel}`;
       }),
     [],
   );

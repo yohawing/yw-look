@@ -83,7 +83,7 @@ export function MenuBar({
       return (
         <li
           className="menu-item menu-item-has-submenu"
-          key={`${section.id}-${entry.label}`}
+          key={`${section.id}-recentFiles-${entryIndex}`}
           onMouseEnter={() => setShowRecentSubmenu(true)}
           onMouseLeave={() => setShowRecentSubmenu(false)}
         >

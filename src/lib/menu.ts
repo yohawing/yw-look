@@ -109,7 +109,14 @@ function usesMacLabels() {
     return false;
   }
 
-  return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+  const userAgentData = (
+    navigator as Navigator & { userAgentData?: { platform?: string } }
+  ).userAgentData;
+  const platform =
+    typeof userAgentData?.platform === "string"
+      ? userAgentData.platform
+      : navigator.userAgent;
+  return /Mac|iPhone|iPad|iPod/.test(platform);
 }
 
 export function formatShortcut(definition: ShortcutDefinition) {
