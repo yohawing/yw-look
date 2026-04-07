@@ -327,11 +327,11 @@
 
 ### CI パイプライン
 
-- [ ] GitHub Actions ワークフローを作成する
-- [ ] Lint / 型チェック（`tsc --noEmit`）を CI で実行する
-- [ ] ユニットテスト / 統合テストを CI で実行する
-- [ ] ビジュアルリグレッションテストを CI で実行する
-- [ ] Rust 側のビルド・テストを CI で実行する（`cargo check` / `cargo test`）
+- [x] GitHub Actions ワークフローを作成する
+- [x] Lint / 型チェック（`tsc --noEmit`）を CI で実行する
+- [x] ユニットテスト / 統合テストを CI で実行する（selftest）
+- [x] ビジュアルリグレッションテストを CI で実行する（Playwright snapshot）
+- [x] Rust 側のビルド・テストを CI で実行する（`cargo check` / `cargo test`）
 - [ ] PR ごとにチェックを必須にする（branch protection）
 
 ### CD パイプライン
