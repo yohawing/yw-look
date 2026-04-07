@@ -471,7 +471,7 @@ function applyUsdRuntimeHints(object: Object3D, hints: UsdRuntimeHints) {
 }
 
 function toArrayBuffer(data: Uint8Array) {
-  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  return Uint8Array.from(data).buffer;
 }
 
 function isUsdcCrateBuffer(buffer: ArrayBuffer) {
@@ -539,9 +539,11 @@ async function tryExtractUsdaText(
 }
 
 async function parseUsdRuntimeHints(usdaText: string): Promise<UsdRuntimeHints> {
-  const { USDAParser } = await import(
-    "three/examples/jsm/loaders/usd/USDAParser.js"
-  );
+  const parserModulePath = "three/examples/jsm/loaders/usd/USDAParser.js";
+  const parserModule = (await import(parserModulePath)) as {
+    USDAParser: new () => { parseText: (text: string) => Record<string, unknown> };
+  };
+  const { USDAParser } = parserModule;
   const parser = new USDAParser();
   const root = parser.parseText(usdaText) as Record<string, unknown>;
   const xforms: UsdXformHints[] = [];
