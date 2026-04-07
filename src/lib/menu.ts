@@ -14,6 +14,7 @@ const menuActionIds = [
   "help.shortcuts",
   "help.about",
 ] as const;
+const menuActionIdSet = new Set<string>(menuActionIds as readonly string[]);
 
 export type MenuActionId = (typeof menuActionIds)[number];
 
@@ -55,8 +56,8 @@ type SharedMenuDefinition = {
   sections: SharedMenuSection[];
 };
 
-function isMenuActionId(value: string): value is MenuActionId {
-  return (menuActionIds as readonly string[]).includes(value);
+export function isMenuActionId(value: string): value is MenuActionId {
+  return menuActionIdSet.has(value);
 }
 
 export type MenuLeafDefinition = {
@@ -97,7 +98,9 @@ export const menuSections: MenuSectionDefinition[] = definition.sections.map(
       }
 
       if (!isMenuActionId(entry.id)) {
-        throw new Error(`Unknown menu action id: ${entry.id}`);
+        throw new Error(
+          `Unknown menu action id: ${entry.id}. Valid ids: ${menuActionIds.join(", ")}`,
+        );
       }
 
       return {

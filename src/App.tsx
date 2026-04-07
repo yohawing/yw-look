@@ -50,6 +50,7 @@ import { loadRecentFiles, type RecentFilesPayload } from "./lib/recentFiles";
 import { isTauriEnvironment } from "./lib/platform";
 import {
   formatShortcut,
+  isMenuActionId,
   menuShortcuts,
   resolveShortcutAction,
   type MenuActionId,
@@ -782,7 +783,9 @@ export function App() {
     let unlisten: UnlistenFn | undefined;
 
     listen<MenuActionId>("yw-look://menu-action", (event) => {
-      runMenuActionFromNativeMenu(event.payload);
+      if (isMenuActionId(event.payload)) {
+        runMenuActionFromNativeMenu(event.payload);
+      }
     })
       .then((dispose) => {
         unlisten = dispose;

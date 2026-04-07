@@ -300,6 +300,8 @@ fn build_native_menu<R: tauri::Runtime>(
                         .map_err(|error| format!("failed to append menu separator: {error}"))?;
                 }
                 SharedMenuEntry::RecentFiles { label } => {
+                    // Dynamic recent files listing is handled in the React menu UI.
+                    // Native menu keeps a disabled placeholder until per-session sync is added.
                     let item = MenuItem::new(app, label, false, None::<&str>).map_err(|error| {
                         format!("failed to create disabled recent files item: {error}")
                     })?;
@@ -1014,7 +1016,9 @@ pub fn run() {
         builder = builder.on_menu_event(move |app, event| {
             let action_id = event.id().as_ref();
             if menu_action_ids.contains(action_id) {
-                let _ = app.emit(MENU_ACTION_EVENT, action_id.to_string());
+                if let Err(error) = app.emit(MENU_ACTION_EVENT, action_id.to_string()) {
+                    eprintln!("failed to emit menu action event '{action_id}': {error}");
+                }
             }
         });
     }
