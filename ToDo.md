@@ -198,12 +198,38 @@
 - [ ] 最初の移行対象を決めて Tauri コマンドとして実装する
 - [ ] JS 側と Rust 側の責務分離方針をドキュメント化する
 
-## 15. Windows 統合
+## 15. OS 統合（Windows / macOS）
+
+### Windows
 
 - [x] 関連付け対象拡張子の設定方法を決める
 - [x] インストーラーで関連付けを扱う方法を調べる
 - [x] 設定画面から関連付けオン / オフできる余地を作る
 - [x] 対象拡張子一覧を UI から参照できるようにする
+
+### macOS
+
+- [ ] `tauri.conf.json` の `bundle.targets` を OS 別に分岐する（macOS: `app`, `dmg`）
+- [ ] `src-tauri/icons/` に `.icns` アイコンを追加する
+- [ ] `bundle.icon` を OS 別に持てる構成にする（`tauri.macos.conf.json` 等の利用も検討）
+- [ ] `package.json` に `bundle:mac` スクリプトを追加する（`tauri build -- --bundles app,dmg`）
+- [ ] macOS 上で `npm run tauri dev` が通ることを確認する
+- [ ] macOS 上で `npm run bundle:mac` が通ることを確認する
+- [ ] `tauri.conf.json` の identifier `com.ywlook.app` を `.app` 終端でない値に変更する
+- [ ] `plugins.updater.windows.installMode` 相当の macOS 側設定を整理する
+- [ ] `scripts/prepare-local-update-feed.mjs` を OS 別成果物に対応させる
+  - [ ] `nsis` / `msi` だけでなく `macos` / `dmg` ディレクトリも走査する
+  - [ ] `.exe` / `.msi` / `.app.tar.gz` / `.dmg` を拡張子で振り分ける
+  - [ ] target キーを `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` で自動判定する
+- [ ] Finder からのファイル関連付け（`CFBundleDocumentTypes`）が登録されることを確認する
+- [ ] Finder の「このアプリで開く」一覧に出ることを確認する
+- [ ] メニュー / ヘルプの `CmdOrCtrl` 表記が macOS で `⌘` として表示されるか確認する
+- [ ] Rust 側の Windows 限定文言（`load_supported_extensions` の説明等）を `cfg!(target_os)` で分岐する
+- [ ] Rust 側の `\\?\` プレフィクス除去等の Windows 専用パス処理を OS 別に整理する
+- [ ] Apple Developer ID 証明書を調達する
+- [ ] `codesign` + `notarytool` のフローを実機で確認する
+- [ ] `xattr -dr com.apple.quarantine` が必要なケースを `docs/release-distribution.md` に追記する
+- [ ] macOS 配布の最終手順を `docs/release-distribution.md` に確定版として反映する
 
 ## 16. ログと診断
 
@@ -340,6 +366,21 @@
 - [ ] ビルド成果物を GitHub Releases にアップロードする
 - [ ] 自動アップデート配信の仕組みを整備する（Tauri updater）
 - [ ] リリースノートを自動生成する仕組みを検討する
+
+#### macOS リリース対応
+
+- [ ] `.github/workflows/release.yml` に `macos-latest` ランナーのジョブを追加する
+- [ ] Windows / macOS のジョブをマトリクス化して並列実行する
+- [ ] Apple 署名関連 Secrets を GitHub Secrets に登録する
+  - [ ] `APPLE_CERTIFICATE`（`.p12` を base64 化）
+  - [ ] `APPLE_CERTIFICATE_PASSWORD`
+  - [ ] `APPLE_SIGNING_IDENTITY`
+  - [ ] `APPLE_ID`
+  - [ ] `APPLE_PASSWORD`（App-specific password）
+  - [ ] `APPLE_TEAM_ID`
+- [ ] `latest.json` を Windows / macOS 統合フォーマットで生成する
+  （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
+- [ ] macOS 公証ジョブの失敗時に updater feed を更新しないガードを入れる
 
 ## 21. 多言語対応（i18n）
 
