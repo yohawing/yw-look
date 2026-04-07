@@ -19,6 +19,8 @@ const GRID_NAME = "__yw_initial_grid";
 const GRID_DIVISIONS = 20;
 const MIN_NORMALIZED_DIMENSION = 0.1;
 const MAX_NORMALIZED_DIMENSION = 100;
+const SCALE_EPSILON = 1e-8;
+export const DEFAULT_SCENE_DIMENSION = 1;
 
 type GridPreset = {
   maxDimension: number;
@@ -40,6 +42,8 @@ export type ScaleNormalizationResult = {
   normalizedMaxDimension: number;
 };
 
+// Grid density presets tuned for inspection workflows:
+// small assets use finer mm/cm cells, large assets use coarser m-based cells.
 const gridPresets: GridPreset[] = [
   { maxDimension: 0.1, cellSize: 0.001, label: "1 mm" },
   { maxDimension: 1, cellSize: 0.01, label: "1 cm" },
@@ -164,7 +168,7 @@ export function applyInitialView(
 export function getObjectMaxDimension(object: Group | Mesh) {
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
-  return Math.max(size.x, size.y, size.z, 0);
+  return Math.max(size.x, size.y, size.z);
 }
 
 export function normalizeObjectScale(object: Group | Mesh): ScaleNormalizationResult {
@@ -185,7 +189,7 @@ export function normalizeObjectScale(object: Group | Mesh): ScaleNormalizationRe
     factor = MAX_NORMALIZED_DIMENSION / originalMaxDimension;
   }
 
-  const applied = Math.abs(factor - 1) > Number.EPSILON;
+  const applied = Math.abs(factor - 1) > SCALE_EPSILON;
   if (applied) {
     object.scale.multiplyScalar(factor);
     object.updateMatrixWorld(true);
@@ -201,7 +205,9 @@ export function normalizeObjectScale(object: Group | Mesh): ScaleNormalizationRe
 
 export function getGridConfig(maxDimension: number): GridConfig {
   const targetMaxDimension =
-    Number.isFinite(maxDimension) && maxDimension > 0 ? maxDimension : 1;
+    Number.isFinite(maxDimension) && maxDimension > 0
+      ? maxDimension
+      : DEFAULT_SCENE_DIMENSION;
   const preset =
     gridPresets.find((candidate) => targetMaxDimension <= candidate.maxDimension) ??
     gridPresets.at(-1)!;

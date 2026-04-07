@@ -25,12 +25,12 @@ import {
   type ViewerSurfaceMode,
   implementedPreviewExtensions,
   neutralFeedback,
+  DEFAULT_SCENE_DIMENSION,
   revokeUrls,
   disposeObject,
   stopAnimations,
   resetSceneObjects,
   applyInitialView,
-  getObjectMaxDimension,
   normalizeObjectScale,
   applyDynamicGrid,
   getScaleWarning,
@@ -162,7 +162,7 @@ export function AssetViewport({
     controls.dampingFactor = 0.08;
 
     // ── Initial grid ──
-    const initialGrid = applyDynamicGrid(scene, 1, true);
+    const initialGrid = applyDynamicGrid(scene, DEFAULT_SCENE_DIMENSION, true);
     onGridUnitChange(initialGrid.label);
     camera.position.set(5, 4, 5);
     camera.lookAt(0, 0, 0);
@@ -265,9 +265,14 @@ export function AssetViewport({
     if (!currentFile) {
       if (grid) {
         grid.visible = showGrid;
+      } else {
+        const fallbackGrid = applyDynamicGrid(
+          context.scene,
+          DEFAULT_SCENE_DIMENSION,
+          showGrid,
+        );
+        onGridUnitChange(fallbackGrid.label);
       }
-      const fallbackGrid = applyDynamicGrid(context.scene, 1, showGrid);
-      onGridUnitChange(fallbackGrid.label);
       context.camera.position.set(5, 4, 5);
       context.camera.lookAt(0, 0, 0);
       context.controls.target.set(0, 0, 0);
@@ -317,9 +322,7 @@ export function AssetViewport({
         const normalization = normalizeObjectScale(object);
         const gridConfig = applyDynamicGrid(
           context.scene,
-          normalization.normalizedMaxDimension > 0
-            ? normalization.normalizedMaxDimension
-            : getObjectMaxDimension(object),
+          normalization.normalizedMaxDimension,
           showGrid,
         );
         onGridUnitChange(gridConfig.label);

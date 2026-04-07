@@ -15,6 +15,7 @@ export {
 } from "./types";
 
 export {
+  DEFAULT_SCENE_DIMENSION,
   revokeUrls,
   disposeObject,
   disposePreviewObject,

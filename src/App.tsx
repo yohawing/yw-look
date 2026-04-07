@@ -977,10 +977,12 @@ export function App() {
                   <span>{assetMetadata.materialCount} materials</span>
                 </>
               ) : null}
-              <>
-                <span className="statusbar-separator" />
-                <span>Grid: {gridUnitLabel}</span>
-              </>
+              {showGrid ? (
+                <>
+                  <span className="statusbar-separator" />
+                  <span>Grid: {gridUnitLabel}</span>
+                </>
+              ) : null}
             </>
           ) : (
             <span>
