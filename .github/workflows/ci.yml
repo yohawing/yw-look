@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   frontend-checks:
     runs-on: ubuntu-latest
@@ -34,7 +37,6 @@ jobs:
 
   integration-tests:
     runs-on: ubuntu-latest
-    needs: frontend-checks
     steps:
       - uses: actions/checkout@v4
 
@@ -59,18 +61,23 @@ jobs:
           }
           trap cleanup EXIT
 
+          READY=0
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:1420/selftest.html >/dev/null; then
+              READY=1
               break
             fi
             sleep 1
           done
+          if [ "$READY" -ne 1 ]; then
+            echo "Vite dev server did not become ready in time."
+            exit 1
+          fi
 
           npm run test:integration -- http://127.0.0.1:1420/selftest.html
 
   visual-regression:
     runs-on: ubuntu-latest
-    needs: integration-tests
     steps:
       - uses: actions/checkout@v4
 
@@ -95,12 +102,18 @@ jobs:
           }
           trap cleanup EXIT
 
+          READY=0
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:1420/selftest.html >/dev/null; then
+              READY=1
               break
             fi
             sleep 1
           done
+          if [ "$READY" -ne 1 ]; then
+            echo "Vite dev server did not become ready in time."
+            exit 1
+          fi
 
           npm run test:visual -- http://127.0.0.1:1420/selftest.html tests/visual/snapshots/selftest-page-linux-chromium.png artifacts/screenshots/selftest-page-current.png
 

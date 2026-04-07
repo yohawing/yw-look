@@ -24,7 +24,7 @@ let parsedOutput;
 try {
   parsedOutput = JSON.parse(outputText);
 } catch {
-  console.error("Selftest output is not valid JSON.");
+  console.error(`Selftest output is not valid JSON: ${outputText.slice(0, 500)}`);
   process.exitCode = 1;
 }
 

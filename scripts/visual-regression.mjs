@@ -11,19 +11,31 @@ const actualPath =
   process.argv[4] ?? "artifacts/screenshots/selftest-page-current.png";
 const updateSnapshot = process.argv.includes("--update-snapshot");
 
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({
-  viewport: { width: 1280, height: 720 },
-});
+let screenshotBuffer;
+let browser;
 
-await page.goto(url, { waitUntil: "networkidle" });
-await page.waitForFunction(() => {
-  const content = globalThis.document?.getElementById("output")?.textContent ?? "";
-  return content.includes('"failedCount"') || content.includes('"fatal"');
-});
+try {
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 720 },
+  });
 
-const screenshotBuffer = await page.screenshot({ fullPage: true });
-await browser.close();
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => {
+    const outputText =
+      globalThis.document?.getElementById("output")?.textContent ?? "";
+    return outputText.includes('"failedCount"') || outputText.includes('"fatal"');
+  });
+
+  screenshotBuffer = await page.screenshot({ fullPage: true });
+} catch (error) {
+  console.error(
+    `Failed to run visual regression: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  process.exit(1);
+} finally {
+  await browser?.close();
+}
 
 await mkdir(path.dirname(actualPath), { recursive: true });
 await writeFile(actualPath, screenshotBuffer);
