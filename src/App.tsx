@@ -139,6 +139,10 @@ export function App() {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
+  const [dialogState, setDialogState] = useState<{
+    title: string;
+    lines: string[];
+  } | null>(null);
   const [performanceSnapshot, setPerformanceSnapshot] =
     useState<PerformanceSnapshot>({
       startupMs: null,
@@ -653,21 +657,30 @@ export function App() {
   };
 
   const handleShowShortcuts = () => {
-    window.alert(["Keyboard Shortcuts", ...shortcutLines].join("\n"));
+    setDialogState({
+      title: "Keyboard Shortcuts",
+      lines: shortcutLines,
+    });
   };
 
   const handleShowAbout = async () => {
     if (isTauri) {
       try {
         const version = await getVersion();
-        window.alert(`yw-look\nVersion ${version}`);
+        setDialogState({
+          title: "About",
+          lines: ["yw-look", `Version ${version}`],
+        });
         return;
       } catch {
         // ignore
       }
     }
 
-    window.alert("yw-look\nBrowser preview mode");
+    setDialogState({
+      title: "About",
+      lines: ["yw-look", "Browser preview mode"],
+    });
   };
 
   const executeMenuAction = async (actionId: MenuActionId) => {
@@ -1239,6 +1252,33 @@ export function App() {
         </nav>
         <div className="sidebar-content">{sidebarContent}</div>
       </aside>
+
+      {dialogState ? (
+        <div
+          className="dialog-backdrop"
+          onClick={() => setDialogState(null)}
+          role="presentation"
+        >
+          <section
+            aria-modal
+            className="dialog-card"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <header className="dialog-header">
+              <p className="card-title">{dialogState.title}</p>
+              <button
+                className="menubar-button"
+                onClick={() => setDialogState(null)}
+                type="button"
+              >
+                Close
+              </button>
+            </header>
+            <pre className="dialog-body">{dialogState.lines.join("\n")}</pre>
+          </section>
+        </div>
+      ) : null}
 
       {/* ── StatusBar ── */}
       <footer className="statusbar">

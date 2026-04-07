@@ -3,5 +3,5 @@ export function isTauriEnvironment() {
     return false;
   }
 
-  return Object.prototype.hasOwnProperty.call(window, "__TAURI_INTERNALS__");
+  return "__TAURI_INTERNALS__" in window;
 }

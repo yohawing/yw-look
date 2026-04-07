@@ -109,12 +109,12 @@ function usesMacLabels() {
     return false;
   }
 
-  const userAgentData = (
+  const navigatorData = (
     navigator as Navigator & { userAgentData?: { platform?: string } }
   ).userAgentData;
   const platform =
-    typeof userAgentData?.platform === "string"
-      ? userAgentData.platform
+    typeof navigatorData?.platform === "string"
+      ? navigatorData.platform
       : navigator.userAgent;
   return /Mac|iPhone|iPad|iPod/.test(platform);
 }
