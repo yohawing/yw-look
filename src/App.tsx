@@ -77,12 +77,21 @@ type SidebarTab =
   | "settings"
   | "warnings";
 
+type IdleCallbackWindow = Window & {
+  requestIdleCallback?: (
+    callback: (deadline: IdleDeadline) => void,
+    options?: IdleRequestOptions,
+  ) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
 const initialViewerFeedback: ViewerFeedback = {
   mode: "empty",
   message: "Open a supported asset to initialize the preview scene.",
   warning: null,
   canResetCamera: false,
 };
+const INTERACTIVE_IDLE_TIMEOUT_MS = 1500;
 
 function deriveDisplayMode(
   showTexture: boolean,
@@ -364,17 +373,13 @@ export function App() {
       );
     };
 
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (
-        callback: (deadline: IdleDeadline) => void,
-        options?: IdleRequestOptions,
-      ) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
+    const idleWindow = window as IdleCallbackWindow;
 
     if (typeof idleWindow.requestIdleCallback === "function") {
       const callbackId = idleWindow.requestIdleCallback(markInteractive, {
-        timeout: 1500,
+        // Keep this short so the metric still reflects initial usability
+        // while allowing the browser to complete immediate startup work.
+        timeout: INTERACTIVE_IDLE_TIMEOUT_MS,
       });
       return () => {
         cancelled = true;
