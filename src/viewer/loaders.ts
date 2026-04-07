@@ -281,10 +281,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseUsdFloatTuple(value: string): [number, number, number] | null {
-  const cleaned = value.replace(/[()]/g, "");
-  const numbers = cleaned
-    .split(",")
-    .map((part) => Number.parseFloat(part.trim()))
+  const matches = value.match(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g);
+  if (!matches) {
+    return null;
+  }
+
+  const numbers = matches
+    .map((entry) => Number.parseFloat(entry))
     .filter((num) => Number.isFinite(num));
 
   if (numbers.length !== 3) {
@@ -471,7 +474,14 @@ function applyUsdRuntimeHints(object: Object3D, hints: UsdRuntimeHints) {
 }
 
 function toArrayBuffer(data: Uint8Array) {
-  return Uint8Array.from(data).buffer;
+  if (data.byteOffset === 0 && data.byteLength === data.buffer.byteLength) {
+    return data.buffer as ArrayBuffer;
+  }
+
+  return data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength,
+  ) as ArrayBuffer;
 }
 
 function isUsdcCrateBuffer(buffer: ArrayBuffer) {
