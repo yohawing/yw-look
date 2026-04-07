@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
@@ -733,8 +734,17 @@ export function App() {
   const runMenuActionFromShortcut = useEffectEvent((actionId: MenuActionId) => {
     void executeMenuAction(actionId);
   });
+  const runMenuActionFromNativeMenu = useEffectEvent(
+    (actionId: MenuActionId) => {
+      void executeMenuAction(actionId);
+    },
+  );
 
   useEffect(() => {
+    if (isTauri) {
+      return;
+    }
+
     const handleShortcutDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) {
         return;
@@ -762,7 +772,29 @@ export function App() {
     return () => {
       window.removeEventListener("keydown", handleShortcutDown);
     };
-  }, []);
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri) {
+      return;
+    }
+
+    let unlisten: UnlistenFn | undefined;
+
+    listen<MenuActionId>("yw-look://menu-action", (event) => {
+      runMenuActionFromNativeMenu(event.payload);
+    })
+      .then((dispose) => {
+        unlisten = dispose;
+      })
+      .catch(() => {
+        // Tauri API unavailable (browser dev mode)
+      });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [isTauri]);
 
   const handleToggleFileAssociations = async () => {
     if (!settingsPayload) {
