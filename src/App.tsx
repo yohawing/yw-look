@@ -1260,13 +1260,16 @@ export function App() {
           role="presentation"
         >
           <section
+            aria-labelledby="dialog-title"
             aria-modal
             className="dialog-card"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
           >
             <header className="dialog-header">
-              <p className="card-title">{dialogState.title}</p>
+              <p className="card-title" id="dialog-title">
+                {dialogState.title}
+              </p>
               <button
                 className="menubar-button"
                 onClick={() => setDialogState(null)}
