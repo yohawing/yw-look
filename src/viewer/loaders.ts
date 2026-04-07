@@ -1,14 +1,15 @@
 import {
   CompressedTexture,
   DataTexture,
+  Euler,
   Group,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PlaneGeometry,
   SRGBColorSpace,
-  Texture,
   TextureLoader,
 } from "three";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
@@ -262,6 +263,296 @@ function applyObjTextureBundle(object: Group, bundle: TextureBundle) {
   });
 }
 
+type UsdXformHints = {
+  hasMatrixTransform: boolean;
+  order: string[];
+  scale: [number, number, number] | null;
+  translate: [number, number, number] | null;
+  rotateXYZ: [number, number, number] | null;
+};
+
+type UsdRuntimeHints = {
+  metersPerUnit: number | null;
+  xforms: UsdXformHints[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseUsdFloatTuple(value: string): [number, number, number] | null {
+  const cleaned = value.replace(/[()]/g, "");
+  const numbers = cleaned
+    .split(",")
+    .map((part) => Number.parseFloat(part.trim()))
+    .filter((num) => Number.isFinite(num));
+
+  if (numbers.length !== 3) {
+    return null;
+  }
+
+  return [numbers[0], numbers[1], numbers[2]];
+}
+
+function parseUsdOpOrder(value: string) {
+  const matches = value.match(/"([^"]+)"/g);
+  if (!matches) {
+    return [];
+  }
+
+  return matches.map((token) => token.replace(/^"|"$/g, ""));
+}
+
+function parseUsdNumericValue(value: string) {
+  const match = value.match(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/);
+  if (!match) {
+    return null;
+  }
+
+  const numeric = Number.parseFloat(match[0]);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function findUsdMetersPerUnit(data: Record<string, unknown>): number | null {
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === "string" && key.includes("metersPerUnit")) {
+      const parsed = parseUsdNumericValue(value);
+      if (parsed && parsed > 0) {
+        return parsed;
+      }
+    }
+
+    if (isRecord(value)) {
+      const nested = findUsdMetersPerUnit(value);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return null;
+}
+
+function collectUsdXformHints(
+  data: Record<string, unknown>,
+  result: UsdXformHints[],
+) {
+  for (const [key, value] of Object.entries(data)) {
+    if (!isRecord(value)) {
+      continue;
+    }
+
+    if (key.startsWith("def Scope")) {
+      collectUsdXformHints(value, result);
+      continue;
+    }
+
+    if (key.startsWith("def Xform")) {
+      const hints: UsdXformHints = {
+        hasMatrixTransform: false,
+        order: [],
+        scale: null,
+        translate: null,
+        rotateXYZ: null,
+      };
+
+      for (const [entryKey, entryValue] of Object.entries(value)) {
+        if (typeof entryValue !== "string") {
+          continue;
+        }
+
+        if (entryKey.includes("xformOp:transform")) {
+          hints.hasMatrixTransform = true;
+        } else if (entryKey.includes("xformOp:scale")) {
+          hints.scale = parseUsdFloatTuple(entryValue);
+        } else if (entryKey.includes("xformOp:translate")) {
+          hints.translate = parseUsdFloatTuple(entryValue);
+        } else if (entryKey.includes("xformOp:rotateXYZ")) {
+          hints.rotateXYZ = parseUsdFloatTuple(entryValue);
+        } else if (entryKey.includes("xformOpOrder")) {
+          hints.order = parseUsdOpOrder(entryValue);
+        }
+      }
+
+      result.push(hints);
+      collectUsdXformHints(value, result);
+    }
+  }
+}
+
+function collectUsdSceneNodes(root: Object3D) {
+  const nodes: Object3D[] = [];
+
+  const walk = (current: Object3D) => {
+    for (const child of current.children) {
+      nodes.push(child);
+      walk(child);
+    }
+  };
+
+  walk(root);
+  return nodes;
+}
+
+function applyUsdXformHint(target: Object3D, hint: UsdXformHints) {
+  if (hint.hasMatrixTransform) {
+    return;
+  }
+
+  const order =
+    hint.order.length > 0
+      ? hint.order
+      : ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"];
+
+  const composed = new Matrix4().identity();
+  let transformed = false;
+
+  for (const rawToken of order) {
+    const invert = rawToken.startsWith("!invert!");
+    const token = rawToken.replace(/^!invert!/, "");
+    let step: Matrix4 | null = null;
+
+    if (token.includes("xformOp:translate") && hint.translate) {
+      step = new Matrix4().makeTranslation(
+        hint.translate[0],
+        hint.translate[1],
+        hint.translate[2],
+      );
+    } else if (token.includes("xformOp:rotateXYZ") && hint.rotateXYZ) {
+      step = new Matrix4().makeRotationFromEuler(
+        new Euler(
+          (hint.rotateXYZ[0] * Math.PI) / 180,
+          (hint.rotateXYZ[1] * Math.PI) / 180,
+          (hint.rotateXYZ[2] * Math.PI) / 180,
+          "XYZ",
+        ),
+      );
+    } else if (token.includes("xformOp:scale") && hint.scale) {
+      step = new Matrix4().makeScale(
+        hint.scale[0],
+        hint.scale[1],
+        hint.scale[2],
+      );
+    }
+
+    if (!step) {
+      continue;
+    }
+
+    if (invert) {
+      step.invert();
+    }
+
+    composed.multiply(step);
+    transformed = true;
+  }
+
+  if (!transformed) {
+    return;
+  }
+
+  composed.decompose(target.position, target.quaternion, target.scale);
+}
+
+function applyUsdRuntimeHints(object: Object3D, hints: UsdRuntimeHints) {
+  const nodes = collectUsdSceneNodes(object);
+  const count = Math.min(nodes.length, hints.xforms.length);
+
+  for (let index = 0; index < count; index += 1) {
+    applyUsdXformHint(nodes[index], hints.xforms[index]);
+  }
+
+  if (!hints.metersPerUnit || Math.abs(hints.metersPerUnit - 1) < 1e-6) {
+    return;
+  }
+
+  const correctionScale = 1 / hints.metersPerUnit;
+  object.scale.multiplyScalar(correctionScale);
+}
+
+function toArrayBuffer(data: Uint8Array) {
+  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+}
+
+function isUsdcCrateBuffer(buffer: ArrayBuffer) {
+  const crateHeader = [0x50, 0x58, 0x52, 0x2d, 0x55, 0x53, 0x44, 0x43];
+  const view = new Uint8Array(buffer);
+
+  if (view.byteLength < crateHeader.length) {
+    return false;
+  }
+
+  return crateHeader.every((value, index) => view[index] === value);
+}
+
+async function tryExtractUsdaText(
+  extension: string,
+  buffer: ArrayBuffer,
+): Promise<string | null> {
+  if (extension === "usda") {
+    return new TextDecoder().decode(buffer);
+  }
+
+  if (extension === "usd") {
+    if (isUsdcCrateBuffer(buffer)) {
+      return null;
+    }
+    return new TextDecoder().decode(buffer);
+  }
+
+  if (extension !== "usdz") {
+    return null;
+  }
+
+  const { unzipSync, strFromU8 } = await import(
+    "three/examples/jsm/libs/fflate.module.js"
+  );
+  const zip = unzipSync(new Uint8Array(buffer)) as Record<string, Uint8Array>;
+  const firstFileName = Object.keys(zip)[0];
+
+  if (!firstFileName) {
+    return null;
+  }
+
+  const firstFile = zip[firstFileName];
+  if (!firstFile) {
+    return null;
+  }
+
+  if (firstFileName.endsWith("usda")) {
+    return strFromU8(firstFile);
+  }
+
+  if (firstFileName.endsWith("usdc")) {
+    return null;
+  }
+
+  if (firstFileName.endsWith("usd")) {
+    const firstBuffer = toArrayBuffer(firstFile);
+    if (isUsdcCrateBuffer(firstBuffer)) {
+      return null;
+    }
+    return strFromU8(firstFile);
+  }
+
+  return null;
+}
+
+async function parseUsdRuntimeHints(usdaText: string): Promise<UsdRuntimeHints> {
+  const { USDAParser } = await import(
+    "three/examples/jsm/loaders/usd/USDAParser.js"
+  );
+  const parser = new USDAParser();
+  const root = parser.parseText(usdaText) as Record<string, unknown>;
+  const xforms: UsdXformHints[] = [];
+  collectUsdXformHints(root, xforms);
+
+  return {
+    metersPerUnit: findUsdMetersPerUnit(root),
+    xforms,
+  };
+}
+
 export async function loadPreviewObject(file: SelectedFile): Promise<LoadedPreview> {
   switch (file.extension) {
     case "glb": {
@@ -361,7 +652,15 @@ export async function loadPreviewObject(file: SelectedFile): Promise<LoadedPrevi
       const { USDLoader } =
         await import("three/examples/jsm/loaders/USDLoader.js");
       const buffer = await readArrayBuffer(file.path);
-      const object = new USDLoader().parse(buffer);
+      const loader = new USDLoader();
+      const usdaText = await tryExtractUsdaText(file.extension, buffer);
+      const object = usdaText ? loader.parse(usdaText) : loader.parse(buffer);
+
+      if (usdaText) {
+        const runtimeHints = await parseUsdRuntimeHints(usdaText);
+        applyUsdRuntimeHints(object, runtimeHints);
+      }
+
       return {
         object,
         cleanupUrls: [],
