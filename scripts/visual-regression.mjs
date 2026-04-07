@@ -18,7 +18,7 @@ const page = await browser.newPage({
 
 await page.goto(url, { waitUntil: "networkidle" });
 await page.waitForFunction(() => {
-  const content = document.getElementById("output")?.textContent ?? "";
+  const content = globalThis.document?.getElementById("output")?.textContent ?? "";
   return content.includes('"failedCount"') || content.includes('"fatal"');
 });
 

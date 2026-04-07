@@ -12,7 +12,7 @@ page.on("console", (message) => {
 await page.goto(url, { waitUntil: "networkidle" });
 await page.locator("#output").waitFor();
 await page.waitForFunction(() => {
-  const content = document.getElementById("output")?.textContent ?? "";
+  const content = globalThis.document?.getElementById("output")?.textContent ?? "";
   return content.includes('"failedCount"') || content.includes('"fatal"');
 });
 
