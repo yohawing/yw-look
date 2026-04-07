@@ -1008,14 +1008,18 @@ pub fn run() {
     #[cfg(desktop)]
     let menu_action_ids = collect_menu_action_ids(&shared_menu_definition);
 
-    tauri::Builder::default()
-        #[cfg(desktop)]
-        .on_menu_event(move |app, event| {
+    let mut builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    {
+        builder = builder.on_menu_event(move |app, event| {
             let action_id = event.id().as_ref();
             if menu_action_ids.contains(action_id) {
                 let _ = app.emit(MENU_ACTION_EVENT, action_id.to_string());
             }
-        })
+        });
+    }
+
+    builder
         .setup(move |app| {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())
