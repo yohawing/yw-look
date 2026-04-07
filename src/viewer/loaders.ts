@@ -13,7 +13,11 @@ import {
   TextureLoader,
 } from "three";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
-import type { LoadedPreview, MissingReferenceError, TextureBundle } from "./types";
+import type {
+  LoadedPreview,
+  MissingReferenceError,
+  TextureBundle,
+} from "./types";
 
 async function readArrayBuffer(path: string) {
   const bytes = await readBinaryFile(path);
@@ -111,7 +115,10 @@ async function materializeGltf(file: SelectedFile) {
     let objectUrl: string;
 
     try {
-      objectUrl = await createBlobUrlFromPath(resourcePath, extension.toLowerCase());
+      objectUrl = await createBlobUrlFromPath(
+        resourcePath,
+        extension.toLowerCase(),
+      );
     } catch {
       missingPaths.push(uri);
       throw new Error(`Missing reference: ${uri}`);
@@ -199,7 +206,9 @@ async function tryLoadTextureFromPath(path: string) {
   }
 }
 
-async function buildObjTextureBundle(file: SelectedFile): Promise<TextureBundle> {
+async function buildObjTextureBundle(
+  file: SelectedFile,
+): Promise<TextureBundle> {
   const baseName = file.fileName.replace(/\.[^.]+$/, "");
   const candidates = {
     albedo: [`${baseName}_A.jpg`, `${baseName}_A.png`],
@@ -242,7 +251,12 @@ async function buildObjTextureBundle(file: SelectedFile): Promise<TextureBundle>
 }
 
 function applyObjTextureBundle(object: Group, bundle: TextureBundle) {
-  if (!bundle.albedo && !bundle.normal && !bundle.metalness && !bundle.roughness) {
+  if (
+    !bundle.albedo &&
+    !bundle.normal &&
+    !bundle.metalness &&
+    !bundle.roughness
+  ) {
     return;
   }
 
@@ -264,6 +278,7 @@ function applyObjTextureBundle(object: Group, bundle: TextureBundle) {
 }
 
 type UsdXformHints = {
+  path: string;
   hasMatrixTransform: boolean;
   order: string[];
   scale: [number, number, number] | null;
@@ -336,22 +351,47 @@ function findUsdMetersPerUnit(data: Record<string, unknown>): number | null {
   return null;
 }
 
+function extractUsdPrimName(key: string) {
+  const match = key.match(/^def Xform "([^"]+)"$/);
+  return match?.[1].trim() || null;
+}
+
+function buildUsdXformPath(parentSegments: string[], segment: string) {
+  return [...parentSegments, segment].join("/");
+}
+
+function isExactUsdXformKey(entryKey: string, op: string) {
+  return new RegExp(`\\bxformOp:${op}(?!:)`).test(entryKey);
+}
+
 function collectUsdXformHints(
   data: Record<string, unknown>,
+  parentSegments: string[],
   result: UsdXformHints[],
-) {
+  siblingIndex = 0,
+): number {
+  let currentSiblingIndex = siblingIndex;
+
   for (const [key, value] of Object.entries(data)) {
     if (!isRecord(value)) {
       continue;
     }
 
     if (key.startsWith("def Scope")) {
-      collectUsdXformHints(value, result);
+      currentSiblingIndex = collectUsdXformHints(
+        value,
+        parentSegments,
+        result,
+        currentSiblingIndex,
+      );
       continue;
     }
 
     if (key.startsWith("def Xform")) {
+      const segment = extractUsdPrimName(key) ?? `#${currentSiblingIndex}`;
+      const path = buildUsdXformPath(parentSegments, segment);
       const hints: UsdXformHints = {
+        path,
         hasMatrixTransform: false,
         order: [],
         scale: null,
@@ -364,36 +404,41 @@ function collectUsdXformHints(
           continue;
         }
 
-        if (entryKey.includes("xformOp:transform")) {
+        if (isExactUsdXformKey(entryKey, "transform")) {
           hints.hasMatrixTransform = true;
-        } else if (entryKey.includes("xformOp:scale")) {
+        } else if (isExactUsdXformKey(entryKey, "scale")) {
           hints.scale = parseUsdFloatTuple(entryValue);
-        } else if (entryKey.includes("xformOp:translate")) {
+        } else if (isExactUsdXformKey(entryKey, "translate")) {
           hints.translate = parseUsdFloatTuple(entryValue);
-        } else if (entryKey.includes("xformOp:rotateXYZ")) {
+        } else if (isExactUsdXformKey(entryKey, "rotateXYZ")) {
           hints.rotateXYZ = parseUsdFloatTuple(entryValue);
-        } else if (entryKey.includes("xformOpOrder")) {
+        } else if (/\bxformOpOrder\b/.test(entryKey)) {
           hints.order = parseUsdOpOrder(entryValue);
         }
       }
 
       result.push(hints);
-      collectUsdXformHints(value, result);
+      currentSiblingIndex += 1;
+      collectUsdXformHints(value, [...parentSegments, segment], result);
     }
   }
+
+  return currentSiblingIndex;
 }
 
-function collectUsdSceneNodes(root: Object3D) {
-  const nodes: Object3D[] = [];
+function collectUsdXformNodeMap(root: Object3D) {
+  const nodes = new Map<string, Object3D>();
 
-  const walk = (current: Object3D) => {
-    for (const child of current.children) {
-      nodes.push(child);
-      walk(child);
-    }
+  const walk = (current: Object3D, parentSegments: string[]) => {
+    current.children.forEach((child, index) => {
+      const segment = child.name.trim() || `#${index}`;
+      const path = buildUsdXformPath(parentSegments, segment);
+      nodes.set(path, child);
+      walk(child, [...parentSegments, segment]);
+    });
   };
 
-  walk(root);
+  walk(root, []);
   return nodes;
 }
 
@@ -415,13 +460,13 @@ function applyUsdXformHint(target: Object3D, hint: UsdXformHints) {
     const token = rawToken.replace(/^!invert!/, "");
     let step: Matrix4 | null = null;
 
-    if (token.includes("xformOp:translate") && hint.translate) {
+    if (token === "xformOp:translate" && hint.translate) {
       step = new Matrix4().makeTranslation(
         hint.translate[0],
         hint.translate[1],
         hint.translate[2],
       );
-    } else if (token.includes("xformOp:rotateXYZ") && hint.rotateXYZ) {
+    } else if (token === "xformOp:rotateXYZ" && hint.rotateXYZ) {
       step = new Matrix4().makeRotationFromEuler(
         new Euler(
           (hint.rotateXYZ[0] * Math.PI) / 180,
@@ -430,7 +475,7 @@ function applyUsdXformHint(target: Object3D, hint: UsdXformHints) {
           "XYZ",
         ),
       );
-    } else if (token.includes("xformOp:scale") && hint.scale) {
+    } else if (token === "xformOp:scale" && hint.scale) {
       step = new Matrix4().makeScale(
         hint.scale[0],
         hint.scale[1],
@@ -458,11 +503,14 @@ function applyUsdXformHint(target: Object3D, hint: UsdXformHints) {
 }
 
 function applyUsdRuntimeHints(object: Object3D, hints: UsdRuntimeHints) {
-  const nodes = collectUsdSceneNodes(object);
-  const count = Math.min(nodes.length, hints.xforms.length);
+  const nodeMap = collectUsdXformNodeMap(object);
 
-  for (let index = 0; index < count; index += 1) {
-    applyUsdXformHint(nodes[index], hints.xforms[index]);
+  for (const hint of hints.xforms) {
+    const target = nodeMap.get(hint.path);
+    if (!target) {
+      continue;
+    }
+    applyUsdXformHint(target, hint);
   }
 
   if (!hints.metersPerUnit || Math.abs(hints.metersPerUnit - 1) < 1e-6) {
@@ -514,15 +562,24 @@ async function tryExtractUsdaText(
     return null;
   }
 
-  const { unzipSync, strFromU8 } = await import(
-    "three/examples/jsm/libs/fflate.module.js"
-  );
-  const zip = unzipSync(new Uint8Array(buffer)) as Record<string, Uint8Array>;
-  const firstFileName = Object.keys(zip)[0];
-
+  const firstFileName = readUsdzFirstFileName(buffer);
   if (!firstFileName) {
     return null;
   }
+
+  const { unzip, strFromU8 } =
+    await import("three/examples/jsm/libs/fflate.module.js");
+  const zip = (await new Promise<Record<string, Uint8Array>>(
+    (resolve, reject) => {
+      unzip(new Uint8Array(buffer), (error, files) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(files as Record<string, Uint8Array>);
+      });
+    },
+  )) as Record<string, Uint8Array>;
 
   const firstFile = zip[firstFileName];
   if (!firstFile) {
@@ -548,16 +605,47 @@ async function tryExtractUsdaText(
   return null;
 }
 
-async function parseUsdRuntimeHints(usdaText: string): Promise<UsdRuntimeHints> {
+function readUsdzFirstFileName(buffer: ArrayBuffer) {
+  const header = new DataView(buffer);
+  const localFileHeaderSignature = 0x04034b50;
+
+  if (
+    header.byteLength < 30 ||
+    header.getUint32(0, true) !== localFileHeaderSignature
+  ) {
+    return null;
+  }
+
+  const fileNameLength = header.getUint16(26, true);
+  const extraFieldLength = header.getUint16(28, true);
+  const fileNameStart = 30;
+  const fileNameEnd = fileNameStart + fileNameLength;
+
+  if (
+    fileNameLength === 0 ||
+    fileNameEnd + extraFieldLength > header.byteLength
+  ) {
+    return null;
+  }
+
+  const bytes = new Uint8Array(buffer, fileNameStart, fileNameLength);
+  return new TextDecoder().decode(bytes);
+}
+
+async function parseUsdRuntimeHints(
+  usdaText: string,
+): Promise<UsdRuntimeHints> {
   const parserModulePath = "three/examples/jsm/loaders/usd/USDAParser.js";
   const parserModule = (await import(parserModulePath)) as {
-    USDAParser: new () => { parseText: (text: string) => Record<string, unknown> };
+    USDAParser: new () => {
+      parseText: (text: string) => Record<string, unknown>;
+    };
   };
   const { USDAParser } = parserModule;
   const parser = new USDAParser();
   const root = parser.parseText(usdaText) as Record<string, unknown>;
   const xforms: UsdXformHints[] = [];
-  collectUsdXformHints(root, xforms);
+  collectUsdXformHints(root, [], xforms);
 
   return {
     metersPerUnit: findUsdMetersPerUnit(root),
@@ -565,7 +653,9 @@ async function parseUsdRuntimeHints(usdaText: string): Promise<UsdRuntimeHints> 
   };
 }
 
-export async function loadPreviewObject(file: SelectedFile): Promise<LoadedPreview> {
+export async function loadPreviewObject(
+  file: SelectedFile,
+): Promise<LoadedPreview> {
   switch (file.extension) {
     case "glb": {
       const { GLTFLoader } =
@@ -669,8 +759,12 @@ export async function loadPreviewObject(file: SelectedFile): Promise<LoadedPrevi
       const object = usdaText ? loader.parse(usdaText) : loader.parse(buffer);
 
       if (usdaText) {
-        const runtimeHints = await parseUsdRuntimeHints(usdaText);
-        applyUsdRuntimeHints(object, runtimeHints);
+        try {
+          const runtimeHints = await parseUsdRuntimeHints(usdaText);
+          applyUsdRuntimeHints(object, runtimeHints);
+        } catch {
+          // Keep preview loading resilient when optional USDA hint parsing fails.
+        }
       }
 
       return {
