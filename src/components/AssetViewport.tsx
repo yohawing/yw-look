@@ -172,7 +172,9 @@ export function AssetViewport({
         return;
       }
 
-      controls.enabled = event.altKey;
+      controls.enabled =
+        event.button === 0 ||
+        (event.altKey && (event.button === 1 || event.button === 2));
     };
 
     const pointerUpHandler = () => {
@@ -362,10 +364,10 @@ export function AssetViewport({
         const message =
           error instanceof Error ? error.message : "Failed to load preview.";
         const missingReferenceError = error as Partial<MissingReferenceError>;
-        const mode = message.includes("404")
-          || missingReferenceError.missingPaths?.length
-          ? "missingReference"
-          : "loadFailed";
+        const mode =
+          message.includes("404") || missingReferenceError.missingPaths?.length
+            ? "missingReference"
+            : "loadFailed";
         setActivePreviewPath(null);
         setOverlayMode(mode);
         onMetadataChange(
@@ -394,11 +396,7 @@ export function AssetViewport({
       revokeUrls(context.cleanupUrls);
       context.cleanupUrls = [];
     };
-  }, [
-    currentFile,
-    onFeedbackChange,
-    onMetadataChange,
-  ]);
+  }, [currentFile, onFeedbackChange, onMetadataChange]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -602,7 +600,9 @@ export function AssetViewport({
       <div className="viewport-canvas" ref={hostRef} />
 
       {effectiveOverlayMode !== "ready" ? (
-        <div className={`viewport-overlay${effectiveOverlayMode === "empty" ? " is-empty" : ""}`}>
+        <div
+          className={`viewport-overlay${effectiveOverlayMode === "empty" ? " is-empty" : ""}`}
+        >
           <ViewerStatePanel mode={effectiveOverlayMode} />
         </div>
       ) : null}
