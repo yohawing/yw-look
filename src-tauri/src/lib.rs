@@ -1146,7 +1146,7 @@ pub fn run() {
     }
 
     builder
-        .setup(move |app| {
+        .setup(|app| {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;

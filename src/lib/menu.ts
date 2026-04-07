@@ -14,7 +14,7 @@ const menuActionIds = [
   "help.shortcuts",
   "help.about",
 ] as const;
-const menuActionIdSet = new Set<string>(menuActionIds as readonly string[]);
+const menuActionIdSet = new Set<string>(menuActionIds);
 
 export type MenuActionId = (typeof menuActionIds)[number];
 
