@@ -126,10 +126,7 @@ export function formatShortcut(definition: ShortcutDefinition) {
     keys.push(useMac ? "⌥" : "Alt");
   }
 
-  const keyLabel =
-    definition.key.length === 1
-      ? definition.key.toUpperCase()
-      : definition.key.toUpperCase();
+  const keyLabel = definition.key.toUpperCase();
   keys.push(keyLabel);
   return useMac ? keys.join("") : keys.join("+");
 }
@@ -179,5 +176,5 @@ export function resolveShortcutAction(
 }
 
 export function formatRecentFileLabel(entry: RecentFileEntry) {
-  return `${entry.path}`;
+  return entry.path;
 }
