@@ -77,7 +77,7 @@ type SidebarTab =
   | "settings"
   | "warnings";
 
-type IdleCallbackWindow = Window & {
+type WindowWithIdleCallback = Window & {
   requestIdleCallback?: (
     callback: (deadline: IdleDeadline) => void,
     options?: IdleRequestOptions,
@@ -91,7 +91,7 @@ const initialViewerFeedback: ViewerFeedback = {
   warning: null,
   canResetCamera: false,
 };
-const INTERACTIVE_IDLE_TIMEOUT_MS = 1500;
+const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
 
 function deriveDisplayMode(
   showTexture: boolean,
@@ -200,6 +200,8 @@ export function App() {
       interactiveMs: null,
     });
   const isTauri = isTauriEnvironment();
+  // Browser mode needs recent files immediately for the always-visible MenuBar.
+  // Tauri can keep this deferred until the sidebar is opened.
   const shouldLoadRecentFiles = sidebarOpen || !isTauri;
   const shouldLoadDeferredData = sidebarOpen;
 
@@ -374,13 +376,13 @@ export function App() {
       );
     };
 
-    const idleWindow = window as IdleCallbackWindow;
+    const idleWindow = window as WindowWithIdleCallback;
 
     if (typeof idleWindow.requestIdleCallback === "function") {
       const callbackId = idleWindow.requestIdleCallback(markInteractive, {
         // Keep this short so the metric still reflects initial usability
         // while allowing the browser to complete immediate startup work.
-        timeout: INTERACTIVE_IDLE_TIMEOUT_MS,
+        timeout: TIME_TO_INTERACTIVE_TIMEOUT_MS,
       });
       return () => {
         cancelled = true;
