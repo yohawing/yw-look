@@ -11,9 +11,36 @@ page.on("console", (message) => {
 
 await page.goto(url, { waitUntil: "networkidle" });
 await page.locator("#output").waitFor();
-await page.waitForTimeout(500);
+await page.waitForFunction(() => {
+  const content = document.getElementById("output")?.textContent ?? "";
+  return content.includes('"failedCount"') || content.includes('"fatal"');
+});
 
 const content = await page.locator("#output").textContent();
-console.log(content ?? "");
+const outputText = content ?? "";
+console.log(outputText);
+
+let parsedOutput;
+try {
+  parsedOutput = JSON.parse(outputText);
+} catch {
+  console.error("Selftest output is not valid JSON.");
+  process.exitCode = 1;
+}
+
+if (parsedOutput && typeof parsedOutput === "object") {
+  const hasFatal =
+    "fatal" in parsedOutput &&
+    typeof parsedOutput.fatal === "string" &&
+    parsedOutput.fatal.length > 0;
+  const failedCount =
+    "failedCount" in parsedOutput && typeof parsedOutput.failedCount === "number"
+      ? parsedOutput.failedCount
+      : 0;
+
+  if (hasFatal || failedCount > 0) {
+    process.exitCode = 1;
+  }
+}
 
 await browser.close();

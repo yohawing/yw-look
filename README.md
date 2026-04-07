@@ -150,6 +150,16 @@ npm run typecheck
 npm run check
 ```
 
+## テスト
+
+```bash
+# ローダー統合セルフテスト（Playwright）
+npm run test:integration -- http://127.0.0.1:1420/selftest.html
+
+# ビジュアルリグレッション（snapshot 比較）
+npm run test:visual -- http://127.0.0.1:1420/selftest.html
+```
+
 ## ディレクトリ構成
 
 ```

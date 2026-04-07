@@ -1,0 +1,60 @@
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { chromium } from "playwright";
+
+const url = process.argv[2] ?? "http://127.0.0.1:1420/selftest.html";
+const snapshotPath =
+  process.argv[3] ??
+  "tests/visual/snapshots/selftest-page-linux-chromium.png";
+const actualPath =
+  process.argv[4] ?? "artifacts/screenshots/selftest-page-current.png";
+const updateSnapshot = process.argv.includes("--update-snapshot");
+
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage({
+  viewport: { width: 1280, height: 720 },
+});
+
+await page.goto(url, { waitUntil: "networkidle" });
+await page.waitForFunction(() => {
+  const content = document.getElementById("output")?.textContent ?? "";
+  return content.includes('"failedCount"') || content.includes('"fatal"');
+});
+
+const screenshotBuffer = await page.screenshot({ fullPage: true });
+await browser.close();
+
+await mkdir(path.dirname(actualPath), { recursive: true });
+await writeFile(actualPath, screenshotBuffer);
+
+if (updateSnapshot) {
+  await mkdir(path.dirname(snapshotPath), { recursive: true });
+  await writeFile(snapshotPath, screenshotBuffer);
+  console.log(`Updated snapshot: ${snapshotPath}`);
+  process.exit(0);
+}
+
+let expectedBuffer;
+try {
+  expectedBuffer = await readFile(snapshotPath);
+} catch {
+  console.error(
+    `Snapshot not found at ${snapshotPath}. Run with --update-snapshot first.`,
+  );
+  process.exit(1);
+}
+
+if (Buffer.compare(screenshotBuffer, expectedBuffer) !== 0) {
+  const expectedHash = createHash("sha256").update(expectedBuffer).digest("hex");
+  const currentHash = createHash("sha256")
+    .update(screenshotBuffer)
+    .digest("hex");
+  console.error("Visual regression detected.");
+  console.error(`expected sha256: ${expectedHash}`);
+  console.error(`current  sha256: ${currentHash}`);
+  console.error(`actual image: ${actualPath}`);
+  process.exit(1);
+}
+
+console.log("Visual snapshot matched.");
