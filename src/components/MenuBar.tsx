@@ -86,12 +86,14 @@ export function MenuBar({
           key={`${section.id}-recentFiles-${entryIndex}`}
           onMouseEnter={() => setShowRecentSubmenu(true)}
           onMouseLeave={() => setShowRecentSubmenu(false)}
+          role="none"
         >
           <button
             aria-expanded={showRecentSubmenu}
             aria-haspopup="menu"
             className="menu-item-button"
             onClick={() => setShowRecentSubmenu((current) => !current)}
+            role="menuitem"
             type="button"
           >
             <span>{entry.label}</span>
