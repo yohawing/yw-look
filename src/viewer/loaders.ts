@@ -291,6 +291,13 @@ type UsdRuntimeHints = {
   xforms: UsdXformHints[];
 };
 
+const usdXformKeyPatterns = {
+  transform: /\bxformOp:transform(?!:)/,
+  scale: /\bxformOp:scale(?!:)/,
+  translate: /\bxformOp:translate(?!:)/,
+  rotateXYZ: /\bxformOp:rotateXYZ(?!:)/,
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -361,7 +368,8 @@ function buildUsdXformPath(parentSegments: string[], segment: string) {
 }
 
 function isExactUsdXformKey(entryKey: string, op: string) {
-  return new RegExp(`\\bxformOp:${op}(?!:)`).test(entryKey);
+  const pattern = usdXformKeyPatterns[op as keyof typeof usdXformKeyPatterns];
+  return pattern ? pattern.test(entryKey) : false;
 }
 
 function collectUsdXformHints(
@@ -522,14 +530,7 @@ function applyUsdRuntimeHints(object: Object3D, hints: UsdRuntimeHints) {
 }
 
 function toArrayBuffer(data: Uint8Array) {
-  if (data.byteOffset === 0 && data.byteLength === data.buffer.byteLength) {
-    return data.buffer as ArrayBuffer;
-  }
-
-  return data.buffer.slice(
-    data.byteOffset,
-    data.byteOffset + data.byteLength,
-  ) as ArrayBuffer;
+  return data.slice().buffer;
 }
 
 function isUsdcCrateBuffer(buffer: ArrayBuffer) {
@@ -607,6 +608,7 @@ async function tryExtractUsdaText(
 
 function readUsdzFirstFileName(buffer: ArrayBuffer) {
   const header = new DataView(buffer);
+  // ZIP local file header signature ("PK\x03\x04"), used by USDZ archives.
   const localFileHeaderSignature = 0x04034b50;
 
   if (
@@ -762,8 +764,8 @@ export async function loadPreviewObject(
         try {
           const runtimeHints = await parseUsdRuntimeHints(usdaText);
           applyUsdRuntimeHints(object, runtimeHints);
-        } catch {
-          // Keep preview loading resilient when optional USDA hint parsing fails.
+        } catch (error) {
+          console.warn("USD hint parsing failed:", error);
         }
       }
 
