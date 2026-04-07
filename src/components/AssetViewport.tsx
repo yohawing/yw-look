@@ -173,8 +173,7 @@ export function AssetViewport({
       }
 
       controls.enabled =
-        event.button === 0 ||
-        (event.altKey && (event.button === 1 || event.button === 2));
+        event.button === 0 || event.button === 1 || event.button === 2;
     };
 
     const pointerUpHandler = () => {
