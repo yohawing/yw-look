@@ -909,6 +909,26 @@ export function App() {
     void handleOpenRecentFile(path);
   });
 
+  type NativeMenuEventPayload =
+    | { kind: "action"; actionId: string }
+    | { kind: "recentFile"; path: string };
+
+  const isNativeMenuEventPayload = (
+    value: unknown,
+  ): value is NativeMenuEventPayload => {
+    if (typeof value !== "object" || value === null) {
+      return false;
+    }
+    const candidate = value as { kind?: unknown };
+    if (candidate.kind === "action") {
+      return typeof (value as { actionId?: unknown }).actionId === "string";
+    }
+    if (candidate.kind === "recentFile") {
+      return typeof (value as { path?: unknown }).path === "string";
+    }
+    return false;
+  };
+
   useEffect(() => {
     if (isTauri) {
       return;
