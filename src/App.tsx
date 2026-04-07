@@ -76,6 +76,16 @@ type SidebarTab =
   | "settings"
   | "warnings";
 
+type NativeMenuEventPayload =
+  | {
+      kind: "action";
+      actionId: string;
+    }
+  | {
+      kind: "recentFile";
+      path: string;
+    };
+
 const initialViewerFeedback: ViewerFeedback = {
   mode: "empty",
   message: "Open a supported asset to initialize the preview scene.",
@@ -91,6 +101,23 @@ function deriveDisplayMode(
   if (showTexture) return "textured";
   if (showWireframe) return "wireframe";
   return "untextured";
+}
+
+function isNativeMenuEventPayload(
+  value: unknown,
+): value is NativeMenuEventPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Record<string, unknown>;
+  if (payload.kind === "action") {
+    return typeof payload.actionId === "string";
+  }
+  if (payload.kind === "recentFile") {
+    return typeof payload.path === "string";
+  }
+  return false;
 }
 
 export function App() {
@@ -740,6 +767,9 @@ export function App() {
       void executeMenuAction(actionId);
     },
   );
+  const runRecentFileFromNativeMenu = useEffectEvent((path: string) => {
+    void handleOpenRecentFile(path);
+  });
 
   useEffect(() => {
     if (isTauri) {
@@ -780,14 +810,28 @@ export function App() {
       return;
     }
 
+    let isDisposed = false;
     let unlisten: UnlistenFn | undefined;
 
-    listen<MenuActionId>("yw-look://menu-action", (event) => {
-      if (isMenuActionId(event.payload)) {
-        runMenuActionFromNativeMenu(event.payload);
+    listen<unknown>("yw-look://menu-action", (event) => {
+      if (!isNativeMenuEventPayload(event.payload)) {
+        return;
       }
+
+      if (event.payload.kind === "action") {
+        if (isMenuActionId(event.payload.actionId)) {
+          runMenuActionFromNativeMenu(event.payload.actionId);
+        }
+        return;
+      }
+
+      runRecentFileFromNativeMenu(event.payload.path);
     })
       .then((dispose) => {
+        if (isDisposed) {
+          dispose();
+          return;
+        }
         unlisten = dispose;
       })
       .catch(() => {
@@ -795,6 +839,7 @@ export function App() {
       });
 
     return () => {
+      isDisposed = true;
       unlisten?.();
     };
   }, [isTauri]);

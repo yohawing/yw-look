@@ -1,7 +1,8 @@
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
+#[cfg(desktop)]
+use std::collections::HashSet;
 use std::{
-    collections::HashSet,
     fs::{self, OpenOptions},
     io::{Read as IoRead, Write},
     path::{Path, PathBuf},
@@ -17,16 +18,22 @@ use url::Url;
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
 const DIAGNOSTICS_LOG_FILE_NAME: &str = "diagnostics.log";
+#[cfg(desktop)]
 const MENU_ACTION_EVENT: &str = "yw-look://menu-action";
+#[cfg(desktop)]
+const MENU_RECENT_FILE_PREFIX: &str = "recent-file:";
+#[cfg(desktop)]
 const SHARED_MENU_DEFINITION_JSON: &str = include_str!("../../src/lib/menu-definition.json");
 const DEFAULT_UPDATER_ENDPOINT: Option<&str> = option_env!("YW_LOOK_UPDATER_ENDPOINT");
 const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> = option_env!("YW_LOOK_UPDATER_PUBLIC_KEY");
 const MODEL_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "pmd", "pmx",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "pmd",
+    "pmx",
 ];
 const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
 const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "png", "jpg", "jpeg", "tga", "dds", "hdr", "exr",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "png", "jpg", "jpeg",
+    "tga", "dds", "hdr", "exr",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +217,14 @@ enum SharedMenuEntry {
     },
 }
 
+#[cfg(desktop)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum NativeMenuEventPayload {
+    Action { action_id: String },
+    RecentFile { path: String },
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -262,10 +277,45 @@ fn collect_menu_action_ids(definition: &SharedMenuDefinition) -> HashSet<String>
 }
 
 #[cfg(desktop)]
-fn build_native_menu<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
+fn build_native_recent_files_submenu(
+    app: &tauri::AppHandle,
+    label: &str,
+) -> Result<Submenu, String> {
+    let submenu = Submenu::new(app, label, true)
+        .map_err(|error| format!("failed to create recent files submenu: {error}"))?;
+    let (_, entries) = load_clean_recent_file_entries(app)?;
+
+    if entries.is_empty() {
+        let item = MenuItem::new(app, "No recent files", false, None::<&str>)
+            .map_err(|error| format!("failed to create empty recent files item: {error}"))?;
+        submenu
+            .append(&item)
+            .map_err(|error| format!("failed to append empty recent files item: {error}"))?;
+        return Ok(submenu);
+    }
+
+    for entry in entries {
+        let item = MenuItem::with_id(
+            app,
+            format!("{MENU_RECENT_FILE_PREFIX}{}", entry.path),
+            entry.path,
+            true,
+            None::<&str>,
+        )
+        .map_err(|error| format!("failed to create recent file menu item: {error}"))?;
+        submenu
+            .append(&item)
+            .map_err(|error| format!("failed to append recent file menu item: {error}"))?;
+    }
+
+    Ok(submenu)
+}
+
+#[cfg(desktop)]
+fn build_native_menu(
+    app: &tauri::AppHandle,
     definition: &SharedMenuDefinition,
-) -> Result<Menu<R>, String> {
+) -> Result<Menu, String> {
     let menu = Menu::new(app).map_err(|error| format!("failed to create menu: {error}"))?;
 
     for section in &definition.sections {
@@ -280,14 +330,11 @@ fn build_native_menu<R: tauri::Runtime>(
                     shortcut,
                 } => {
                     let accelerator = shortcut.as_ref().map(shortcut_to_accelerator);
-                    let item = MenuItem::with_id(
-                        app,
-                        id.clone(),
-                        label,
-                        true,
-                        accelerator.as_deref(),
-                    )
-                    .map_err(|error| format!("failed to create menu item '{id}': {error}"))?;
+                    let item =
+                        MenuItem::with_id(app, id.clone(), label, true, accelerator.as_deref())
+                            .map_err(|error| {
+                                format!("failed to create menu item '{id}': {error}")
+                            })?;
                     submenu
                         .append(&item)
                         .map_err(|error| format!("failed to append menu item '{id}': {error}"))?;
@@ -300,14 +347,11 @@ fn build_native_menu<R: tauri::Runtime>(
                         .map_err(|error| format!("failed to append menu separator: {error}"))?;
                 }
                 SharedMenuEntry::RecentFiles { label } => {
-                    // Dynamic recent files listing is handled in the React menu UI.
-                    // Native menu keeps a disabled placeholder until per-session sync is added.
-                    let item = MenuItem::new(app, label, false, None::<&str>).map_err(|error| {
-                        format!("failed to create disabled recent files item: {error}")
-                    })?;
                     submenu
-                        .append(&item)
-                        .map_err(|error| format!("failed to append recent files item: {error}"))?;
+                        .append(&build_native_recent_files_submenu(app, label)?)
+                        .map_err(|error| {
+                            format!("failed to append recent files submenu '{label}': {error}")
+                        })?;
                 }
             }
         }
@@ -317,6 +361,15 @@ fn build_native_menu<R: tauri::Runtime>(
     }
 
     Ok(menu)
+}
+
+#[cfg(desktop)]
+fn refresh_native_menu(app: &tauri::AppHandle) -> Result<(), String> {
+    let definition = load_shared_menu_definition()?;
+    let menu = build_native_menu(app, &definition)?;
+    app.set_menu(menu)
+        .map_err(|error| format!("failed to apply native menu: {error}"))?;
+    Ok(())
 }
 
 fn normalize_optional_text(value: Option<String>) -> Option<String> {
@@ -494,7 +547,8 @@ fn normalize_file_path(path: PathBuf) -> Result<PathBuf, String> {
         return Err(format!("path is not a file: {}", path.display()));
     }
 
-    let canonical = path.canonicalize()
+    let canonical = path
+        .canonicalize()
         .map_err(|error| format!("failed to normalize file path: {error}"))?;
     Ok(strip_verbatim_prefix(&canonical))
 }
@@ -567,7 +621,7 @@ fn load_or_initialize_settings(app: &tauri::AppHandle) -> Result<(PathBuf, AppSe
 
         sanitize_settings(
             serde_json::from_str::<AppSettings>(&raw)
-            .map_err(|error| format!("failed to parse settings file: {error}"))?
+                .map_err(|error| format!("failed to parse settings file: {error}"))?,
         )
     } else {
         let defaults = sanitize_settings(AppSettings::default());
@@ -578,7 +632,9 @@ fn load_or_initialize_settings(app: &tauri::AppHandle) -> Result<(PathBuf, AppSe
     Ok((settings_path, settings))
 }
 
-fn load_recent_file_entries(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<RecentFileEntry>), String> {
+fn load_recent_file_entries(
+    app: &tauri::AppHandle,
+) -> Result<(PathBuf, Vec<RecentFileEntry>), String> {
     let recent_files_path = resolve_recent_files_path(app)?;
 
     if !recent_files_path.exists() {
@@ -591,6 +647,23 @@ fn load_recent_file_entries(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<Rece
 
 fn save_recent_file_entries(path: &Path, entries: &[RecentFileEntry]) -> Result<(), String> {
     write_json_file(path, &entries.to_vec())
+}
+
+fn load_clean_recent_file_entries(
+    app: &tauri::AppHandle,
+) -> Result<(PathBuf, Vec<RecentFileEntry>), String> {
+    let (_, settings) = load_or_initialize_settings(app)?;
+    let (recent_files_path, mut entries) = load_recent_file_entries(app)?;
+    let original_len = entries.len();
+
+    entries.retain(|entry| Path::new(&entry.path).exists());
+    entries.truncate(settings.recent_files_limit);
+
+    if entries.len() != original_len {
+        save_recent_file_entries(&recent_files_path, &entries)?;
+    }
+
+    Ok((recent_files_path, entries))
 }
 
 fn build_updater(
@@ -610,14 +683,15 @@ fn build_updater(
     }
 
     if settings.allow_insecure_update_endpoint && !is_loopback_update_endpoint(&endpoint) {
-        return Err("insecure update endpoints are restricted to localhost or 127.0.0.1".to_string());
+        return Err(
+            "insecure update endpoints are restricted to localhost or 127.0.0.1".to_string(),
+        );
     }
 
     let endpoint = Url::parse(&endpoint)
         .map_err(|error| format!("failed to parse updater endpoint: {error}"))?;
 
-    app
-        .updater_builder()
+    app.updater_builder()
         .pubkey(pubkey)
         .endpoints(vec![endpoint])
         .map_err(|error| format!("failed to configure updater endpoints: {error}"))?
@@ -625,7 +699,10 @@ fn build_updater(
         .map_err(|error| format!("failed to build updater client: {error}"))
 }
 
-fn append_diagnostic_record(app: &tauri::AppHandle, record: &DiagnosticRecordInput) -> Result<(), String> {
+fn append_diagnostic_record(
+    app: &tauri::AppHandle,
+    record: &DiagnosticRecordInput,
+) -> Result<(), String> {
     let log_path = resolve_diagnostics_log_path(app)?;
     ensure_parent_dir(&log_path)?;
 
@@ -663,12 +740,16 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
     );
     entries.truncate(settings.recent_files_limit);
 
-    save_recent_file_entries(&recent_files_path, &entries)
+    save_recent_file_entries(&recent_files_path, &entries)?;
+
+    #[cfg(desktop)]
+    refresh_native_menu(app)?;
+
+    Ok(())
 }
 
 const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl",
-    "png", "jpg", "jpeg", "tga", "dds", "hdr", "exr",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "png", "jpg", "jpeg", "tga", "dds", "hdr", "exr",
 ];
 
 fn system_time_to_unix_string(time: SystemTime) -> Option<String> {
@@ -686,7 +767,11 @@ fn read_png_dimensions(path: &Path) -> Option<ImageDimensions> {
     }
     let width = u32::from_be_bytes([header[16], header[17], header[18], header[19]]);
     let height = u32::from_be_bytes([header[20], header[21], header[22], header[23]]);
-    Some(ImageDimensions { width, height, source: "png-header".to_string() })
+    Some(ImageDimensions {
+        width,
+        height,
+        source: "png-header".to_string(),
+    })
 }
 
 fn read_jpeg_dimensions(path: &Path) -> Option<ImageDimensions> {
@@ -704,7 +789,11 @@ fn read_jpeg_dimensions(path: &Path) -> Option<ImageDimensions> {
             if offset + 9 < data.len() {
                 let height = u16::from_be_bytes([data[offset + 5], data[offset + 6]]) as u32;
                 let width = u16::from_be_bytes([data[offset + 7], data[offset + 8]]) as u32;
-                return Some(ImageDimensions { width, height, source: "jpeg-header".to_string() });
+                return Some(ImageDimensions {
+                    width,
+                    height,
+                    source: "jpeg-header".to_string(),
+                });
             }
             break;
         }
@@ -723,7 +812,11 @@ fn read_dds_dimensions(path: &Path) -> Option<ImageDimensions> {
     }
     let height = u32::from_le_bytes([header[12], header[13], header[14], header[15]]);
     let width = u32::from_le_bytes([header[16], header[17], header[18], header[19]]);
-    Some(ImageDimensions { width, height, source: "dds-header".to_string() })
+    Some(ImageDimensions {
+        width,
+        height,
+        source: "dds-header".to_string(),
+    })
 }
 
 fn read_tga_dimensions(path: &Path) -> Option<ImageDimensions> {
@@ -735,7 +828,11 @@ fn read_tga_dimensions(path: &Path) -> Option<ImageDimensions> {
     if width == 0 || height == 0 || width > 65535 || height > 65535 {
         return None;
     }
-    Some(ImageDimensions { width, height, source: "tga-header".to_string() })
+    Some(ImageDimensions {
+        width,
+        height,
+        source: "tga-header".to_string(),
+    })
 }
 
 fn read_image_dimensions(path: &Path, extension: &str) -> Option<ImageDimensions> {
@@ -767,10 +864,13 @@ fn build_asset_inspection(path: PathBuf) -> Result<AssetInspection, String> {
         .ok_or_else(|| "failed to resolve file name".to_string())?
         .to_string();
 
-    let metadata = fs::metadata(&normalized)
-        .map_err(|e| format!("failed to read file metadata: {e}"))?;
+    let metadata =
+        fs::metadata(&normalized).map_err(|e| format!("failed to read file metadata: {e}"))?;
 
-    let modified_at = metadata.modified().ok().and_then(system_time_to_unix_string);
+    let modified_at = metadata
+        .modified()
+        .ok()
+        .and_then(system_time_to_unix_string);
     let created_at = metadata.created().ok().and_then(system_time_to_unix_string);
     let preview_implemented = PREVIEW_IMPLEMENTED_EXTENSIONS.contains(&extension.as_str());
     let image_dimensions = read_image_dimensions(&normalized, &extension);
@@ -806,7 +906,10 @@ fn load_format_support() -> FormatSupportPayload {
     FormatSupportPayload {
         model_extensions: MODEL_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
         texture_extensions: TEXTURE_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
-        preview_implemented: PREVIEW_IMPLEMENTED_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
+        preview_implemented: PREVIEW_IMPLEMENTED_EXTENSIONS
+            .iter()
+            .map(|e| e.to_string())
+            .collect(),
     }
 }
 
@@ -845,8 +948,8 @@ fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<SelectedFilePayload>
         .add_filter(
             "Supported assets",
             &[
-                "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "pmd", "pmx",
-                "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
+                "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae",
+                "vrm", "pmd", "pmx", "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
             ],
         )
         .pick_file();
@@ -861,7 +964,10 @@ fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<SelectedFilePayload>
 }
 
 #[tauri::command]
-fn resolve_selected_file(app: tauri::AppHandle, path: String) -> Result<SelectedFilePayload, String> {
+fn resolve_selected_file(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<SelectedFilePayload, String> {
     let payload = build_selected_file_payload(PathBuf::from(path))?;
     sync_recent_file(&app, &payload)?;
     Ok(payload)
@@ -873,7 +979,10 @@ fn list_supported_siblings(path: String) -> Result<DirectoryListingPayload, Stri
     let files = list_supported_files_in_directory(Path::new(&file.parent_directory))?;
     let current_index = files.iter().position(|entry| entry.path == file.path);
 
-    Ok(DirectoryListingPayload { files, current_index })
+    Ok(DirectoryListingPayload {
+        files,
+        current_index,
+    })
 }
 
 #[tauri::command]
@@ -896,9 +1005,7 @@ fn get_startup_file(app: tauri::AppHandle) -> Result<Option<SelectedFilePayload>
 
 #[tauri::command]
 fn load_recent_files(app: tauri::AppHandle) -> Result<RecentFilesPayload, String> {
-    let (recent_files_path, mut entries) = load_recent_file_entries(&app)?;
-    entries.retain(|entry| Path::new(&entry.path).exists());
-    save_recent_file_entries(&recent_files_path, &entries)?;
+    let (recent_files_path, entries) = load_clean_recent_file_entries(&app)?;
 
     Ok(RecentFilesPayload {
         recent_files_path: recent_files_path.display().to_string(),
@@ -921,7 +1028,10 @@ fn load_supported_extensions(app: tauri::AppHandle) -> Result<IntegrationPayload
 }
 
 #[tauri::command]
-fn log_diagnostic_event(app: tauri::AppHandle, record: DiagnosticRecordInput) -> Result<(), String> {
+fn log_diagnostic_event(
+    app: tauri::AppHandle,
+    record: DiagnosticRecordInput,
+) -> Result<(), String> {
     append_diagnostic_record(&app, &record)
 }
 
@@ -1014,10 +1124,22 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.on_menu_event(move |app, event| {
-            let action_id = event.id().as_ref();
-            if menu_action_ids.contains(action_id) {
-                if let Err(error) = app.emit(MENU_ACTION_EVENT, action_id.to_string()) {
-                    eprintln!("failed to emit menu action event '{action_id}': {error}");
+            let menu_id = event.id().as_ref();
+            let payload = if menu_action_ids.contains(menu_id) {
+                Some(NativeMenuEventPayload::Action {
+                    action_id: menu_id.to_string(),
+                })
+            } else {
+                menu_id.strip_prefix(MENU_RECENT_FILE_PREFIX).map(|path| {
+                    NativeMenuEventPayload::RecentFile {
+                        path: path.to_string(),
+                    }
+                })
+            };
+
+            if let Some(payload) = payload {
+                if let Err(error) = app.emit(MENU_ACTION_EVENT, payload) {
+                    eprintln!("failed to emit menu action event '{menu_id}': {error}");
                 }
             }
         });
@@ -1031,13 +1153,11 @@ pub fn run() {
 
             #[cfg(desktop)]
             {
-                let menu = build_native_menu(&app.handle(), &shared_menu_definition).map_err(
+                refresh_native_menu(&app.handle()).map_err(
                     |error| -> Box<dyn std::error::Error> {
                         Box::new(std::io::Error::new(std::io::ErrorKind::Other, error))
                     },
                 )?;
-                app.set_menu(menu)
-                    .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
             }
 
             app.manage(PendingUpdateState::default());
