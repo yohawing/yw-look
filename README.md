@@ -153,10 +153,13 @@ npm run check
 ## テスト
 
 ```bash
-# ローダー統合セルフテスト（Playwright）
+# 先に dev server を起動して selftest.html を配信する
+npm run dev
+
+# 別ターミナルでローダー統合セルフテスト（Playwright）
 npm run test:integration -- http://127.0.0.1:1420/selftest.html
 
-# ビジュアルリグレッション（snapshot 比較）
+# 別ターミナルでビジュアルリグレッション（snapshot 比較）
 npm run test:visual -- http://127.0.0.1:1420/selftest.html
 ```
 
