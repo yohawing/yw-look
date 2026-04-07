@@ -3,13 +3,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 
-const url = process.argv[2] ?? "http://127.0.0.1:1420/selftest.html";
+const args = process.argv.slice(2);
+const updateSnapshot = args.includes("--update-snapshot");
+const positionalArgs = args.filter((arg) => arg !== "--update-snapshot");
+const url = positionalArgs[0] ?? "http://127.0.0.1:1420/selftest.html";
 const snapshotPath =
-  process.argv[3] ??
+  positionalArgs[1] ??
   "tests/visual/snapshots/selftest-page-linux-chromium.png";
 const actualPath =
-  process.argv[4] ?? "artifacts/screenshots/selftest-page-current.png";
-const updateSnapshot = process.argv.includes("--update-snapshot");
+  positionalArgs[2] ?? "artifacts/screenshots/selftest-page-current.png";
 
 let screenshotBuffer;
 let browser;
