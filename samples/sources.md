@@ -7,6 +7,13 @@
 - `fbx`, `obj`, `ply`, `stl`, `tga`, `dds`, `ktx2`, `hdr`, `exr`
   Source: `three.js` example assets
 
+## Locally generated tiny samples
+
+- `samples/assets/obj/TinyTriangle.obj`
+  Source: handcrafted minimal triangle mesh for smoke tests
+- `samples/assets/stl/TinyTetrahedronAscii.stl`
+  Source: handcrafted ASCII tetrahedron for lightweight STL checks
+
 ## Notes
 
 - These files are for local verification and debugging.

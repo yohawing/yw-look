@@ -59,6 +59,20 @@
       }
     },
     {
+      "id": "obj-tiny-triangle",
+      "kind": "model",
+      "format": "obj",
+      "path": "samples/assets/obj/TinyTriangle.obj",
+      "tags": ["smoke", "obj", "generated-local"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": false,
+        "hasMetadata": true,
+        "hasTextureList": false,
+        "hasAnimation": false
+      }
+    },
+    {
       "id": "ply-dolphins",
       "kind": "model",
       "format": "ply",
@@ -76,6 +90,18 @@
       "format": "stl",
       "path": "samples/assets/stl/slotted_disk.stl",
       "tags": ["geometry", "stl"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": false,
+        "hasMetadata": true
+      }
+    },
+    {
+      "id": "stl-tiny-tetrahedron-ascii",
+      "kind": "model",
+      "format": "stl",
+      "path": "samples/assets/stl/TinyTetrahedronAscii.stl",
+      "tags": ["smoke", "stl", "generated-local", "ascii"],
       "expect": {
         "shouldLoad": true,
         "hasHierarchy": false,
