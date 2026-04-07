@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
@@ -16,6 +17,7 @@ import { DiagnosticsCard } from "./components/DiagnosticsCard";
 import { HierarchyCard } from "./components/HierarchyCard";
 import { IntegrationCard } from "./components/IntegrationCard";
 import { MaterialListCard } from "./components/MaterialListCard";
+import { MenuBar } from "./components/MenuBar";
 import {
   PerformanceCard,
   type PerformanceSnapshot,
@@ -44,6 +46,13 @@ import {
   type IntegrationPayload,
 } from "./lib/integrations";
 import { loadRecentFiles, type RecentFilesPayload } from "./lib/recentFiles";
+import { isTauriEnvironment } from "./lib/platform";
+import {
+  formatShortcut,
+  menuShortcuts,
+  resolveShortcutAction,
+  type MenuActionId,
+} from "./lib/menu";
 import {
   checkForUpdate,
   installPendingUpdate,
@@ -191,6 +200,15 @@ export function App() {
 
     return nextWarnings;
   }, [assetMetadata?.textures, viewerFeedback.warning]);
+  const isTauri = isTauriEnvironment();
+  const shortcutLines = useMemo(
+    () =>
+      Object.entries(menuShortcuts).map(([actionId, definition]) => {
+        const label = actionId.split(".").join(" > ");
+        return `${formatShortcut(definition)}  ${label}`;
+      }),
+    [],
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -579,6 +597,36 @@ export function App() {
     };
   }, [canNavigateNext, canNavigatePrev, directoryListing]);
 
+  useEffect(() => {
+    const handleShortcutDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const actionId = resolveShortcutAction(event);
+      if (!actionId) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable;
+      if (isTyping) {
+        return;
+      }
+
+      event.preventDefault();
+      void runMenuAction(actionId);
+    };
+
+    window.addEventListener("keydown", handleShortcutDown);
+    return () => {
+      window.removeEventListener("keydown", handleShortcutDown);
+    };
+  }, []);
+
   const handleOpenFile = async () => {
     try {
       const selectedFile = await openFileDialog();
@@ -595,6 +643,104 @@ export function App() {
       }));
     }
   };
+
+  const handleOpenRecentFile = async (path: string) => {
+    try {
+      await performSelectFilePath(path, "recent");
+    } catch (error: unknown) {
+      setRecentFilesError(
+        error instanceof Error ? error.message : "Failed to open recent file.",
+      );
+    }
+  };
+
+  const handleToggleFullscreen = async () => {
+    if (isTauri) {
+      try {
+        const currentWindow = getCurrentWindow();
+        const next = !(await currentWindow.isFullscreen());
+        await currentWindow.setFullscreen(next);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleShowShortcuts = () => {
+    window.alert(["Keyboard Shortcuts", ...shortcutLines].join("\n"));
+  };
+
+  const handleShowAbout = async () => {
+    if (isTauri) {
+      try {
+        const version = await getVersion();
+        window.alert(`yw-look\nVersion ${version}`);
+        return;
+      } catch {
+        // ignore
+      }
+    }
+
+    window.alert("yw-look\nBrowser preview mode");
+  };
+
+  const runMenuAction = useEffectEvent(async (actionId: MenuActionId) => {
+    switch (actionId) {
+      case "file.open":
+        await handleOpenFile();
+        return;
+      case "file.exit":
+        if (isTauri) {
+          try {
+            await getCurrentWindow().close();
+          } catch {
+            // ignore
+          }
+        } else {
+          window.close();
+        }
+        return;
+      case "view.toggleTexture":
+        setShowTexture((value) => !value);
+        return;
+      case "view.toggleWireframe":
+        setShowWireframe((value) => !value);
+        return;
+      case "view.toggleGrid":
+        setShowGrid((value) => !value);
+        return;
+      case "view.resetCamera":
+        setResetVersion((value) => value + 1);
+        return;
+      case "view.toggleSidebar":
+        setSidebarOpen((value) => !value);
+        return;
+      case "window.toggleFullscreen":
+        await handleToggleFullscreen();
+        return;
+      case "app.openSettings":
+        setSidebarOpen(true);
+        setActiveTab("settings");
+        return;
+      case "help.shortcuts":
+        handleShowShortcuts();
+        return;
+      case "help.about":
+        await handleShowAbout();
+        return;
+    }
+  });
 
   const handleToggleFileAssociations = async () => {
     if (!settingsPayload) {
@@ -770,24 +916,17 @@ export function App() {
   return (
     <main className="app-shell">
       {/* ── MenuBar ── */}
-      <nav className="menubar">
-        <button
-          className="menubar-button"
-          onClick={() => void handleOpenFile()}
-          type="button"
-        >
-          File
-        </button>
-        <button className="menubar-button" type="button">
-          View
-        </button>
-        <button className="menubar-button" type="button">
-          Window
-        </button>
-        <button className="menubar-button" type="button">
-          Help
-        </button>
-      </nav>
+      {isTauri ? <div className="menubar menubar-hidden" /> : (
+        <MenuBar
+          onAction={(actionId) => {
+            void runMenuAction(actionId);
+          }}
+          onOpenRecentFile={(path) => {
+            void handleOpenRecentFile(path);
+          }}
+          recentFiles={recentFilesPayload?.entries ?? []}
+        />
+      )}
 
       {/* ── Viewport ── */}
       <section className="main-content">
