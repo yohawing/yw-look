@@ -185,12 +185,12 @@
 
 ### 起動高速化
 
-- [ ] 外部フォント読み込みを最適化する（`preload` + `display=fallback`、またはローカルフォントに変更）
-- [ ] 起動時の非同期データ読み込みを整理する（設定のみ先行、診断ログ・最近のファイル・統合情報はサイドバー展開時に遅延）
-- [ ] WebGL シーン初期化をファイル読み込みまで遅延する（PMREMGenerator・環境マップ等）
-- [ ] サイドバー系コンポーネントを `React.lazy` でコード分割する（DiagnosticsCard / UpdateCard / IntegrationCard 等）
-- [ ] Vite のビルド設定を見直す（コード分割・チャンク最適化）
-- [ ] Time to First Paint / Time to Interactive の計測ポイントを追加する
+- [x] 外部フォント読み込みを最適化する（`preload` + `display=fallback`、またはローカルフォントに変更）
+- [x] 起動時の非同期データ読み込みを整理する（設定のみ先行、診断ログ・最近のファイル・統合情報はサイドバー展開時に遅延）
+- [x] WebGL シーン初期化をファイル読み込みまで遅延する（PMREMGenerator・環境マップ等）
+- [x] サイドバー系コンポーネントを `React.lazy` でコード分割する（DiagnosticsCard / UpdateCard / IntegrationCard 等）
+- [x] Vite のビルド設定を見直す（コード分割・チャンク最適化）
+- [x] Time to First Paint / Time to Interactive の計測ポイントを追加する
 
 ### 重い処理の Rust 側移行
 

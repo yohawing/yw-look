@@ -89,12 +89,14 @@ export function AssetViewport({
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
   const displayModeRef = useRef(displayMode);
+  const showGridRef = useRef(showGrid);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
   const [overlayMode, setOverlayMode] = useState<ViewerMode>("empty");
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
+  const shouldInitializeScene = currentFile !== null;
   const effectiveOverlayMode =
     currentFile === null
       ? "empty"
@@ -109,6 +111,10 @@ export function AssetViewport({
   }, [displayMode]);
 
   useEffect(() => {
+    showGridRef.current = showGrid;
+  }, [showGrid]);
+
+  useEffect(() => {
     const context = sceneContextRef.current;
     const grid = context?.scene.getObjectByName("__yw_initial_grid");
     if (grid) {
@@ -117,6 +123,10 @@ export function AssetViewport({
   }, [showGrid]);
 
   useEffect(() => {
+    if (!shouldInitializeScene) {
+      return;
+    }
+
     const host = hostRef.current;
 
     if (!host) {
@@ -165,7 +175,7 @@ export function AssetViewport({
     const initialGrid = applyDynamicGrid(
       scene,
       DEFAULT_SCENE_DIMENSION,
-      showGrid,
+      showGridRef.current,
     );
     onGridUnitChange(initialGrid.label);
     camera.position.set(5, 4, 5);
@@ -247,7 +257,12 @@ export function AssetViewport({
       sceneContextRef.current = null;
       resetCameraRef.current = null;
     };
-  }, [onFeedbackChange, onGridUnitChange, onMetadataChange]);
+  }, [
+    onFeedbackChange,
+    onGridUnitChange,
+    onMetadataChange,
+    shouldInitializeScene,
+  ]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -416,7 +431,13 @@ export function AssetViewport({
       revokeUrls(context.cleanupUrls);
       context.cleanupUrls = [];
     };
-  }, [currentFile, onFeedbackChange, onGridUnitChange, onMetadataChange, showGrid]);
+  }, [
+    currentFile,
+    onFeedbackChange,
+    onGridUnitChange,
+    onMetadataChange,
+    showGrid,
+  ]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

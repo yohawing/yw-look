@@ -15,8 +15,7 @@
     sans-serif;
   font-feature-settings: "cv01", "ss03";
   --font-mono:
-    "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Monaco, "Courier New",
-    monospace;
+    ui-monospace, "SF Mono", Menlo, Monaco, "Courier New", monospace;
   background: #08090a;
   color: #f7f8f8;
 }

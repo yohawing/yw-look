@@ -1,4 +1,12 @@
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -14,19 +22,14 @@ import {
   type AssetMetadata,
 } from "./components/assetMetadata";
 import { CurrentFileCard } from "./components/CurrentFileCard";
-import { DiagnosticsCard } from "./components/DiagnosticsCard";
 import { HierarchyCard } from "./components/HierarchyCard";
-import { IntegrationCard } from "./components/IntegrationCard";
 import { MaterialListCard } from "./components/MaterialListCard";
 import { MenuBar } from "./components/MenuBar";
 import {
   PerformanceCard,
   type PerformanceSnapshot,
 } from "./components/PerformanceCard";
-import { RecentFilesCard } from "./components/RecentFilesCard";
-import { SettingsCard } from "./components/SettingsCard";
 import { TextureListCard } from "./components/TextureListCard";
-import { UpdateCard } from "./components/UpdateCard";
 import { WarningsCard } from "./components/WarningsCard";
 import {
   loadDiagnosticsSnapshot,
@@ -76,15 +79,13 @@ type SidebarTab =
   | "settings"
   | "warnings";
 
-type NativeMenuEventPayload =
-  | {
-      kind: "action";
-      actionId: string;
-    }
-  | {
-      kind: "recentFile";
-      path: string;
-    };
+type WindowWithIdleCallback = Window & {
+  requestIdleCallback?: (
+    callback: (deadline: IdleDeadline) => void,
+    options?: IdleRequestOptions,
+  ) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
 
 const initialViewerFeedback: ViewerFeedback = {
   mode: "empty",
@@ -92,6 +93,7 @@ const initialViewerFeedback: ViewerFeedback = {
   warning: null,
   canResetCamera: false,
 };
+const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
 
 function deriveDisplayMode(
   showTexture: boolean,
@@ -103,24 +105,42 @@ function deriveDisplayMode(
   return "untextured";
 }
 
-function isNativeMenuEventPayload(
-  value: unknown,
-): value is NativeMenuEventPayload {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
+const DiagnosticsCard = lazy(() =>
+  import("./components/DiagnosticsCard").then((module) => ({
+    default: module.DiagnosticsCard,
+  })),
+);
+const IntegrationCard = lazy(() =>
+  import("./components/IntegrationCard").then((module) => ({
+    default: module.IntegrationCard,
+  })),
+);
+const RecentFilesCard = lazy(() =>
+  import("./components/RecentFilesCard").then((module) => ({
+    default: module.RecentFilesCard,
+  })),
+);
+const SettingsCard = lazy(() =>
+  import("./components/SettingsCard").then((module) => ({
+    default: module.SettingsCard,
+  })),
+);
+const UpdateCard = lazy(() =>
+  import("./components/UpdateCard").then((module) => ({
+    default: module.UpdateCard,
+  })),
+);
 
-  const payload = value as Record<string, unknown>;
-  if (payload.kind === "action") {
-    return typeof payload.actionId === "string";
-  }
-  if (payload.kind === "recentFile") {
-    return typeof payload.path === "string";
-  }
-  return false;
+function SidebarCardFallback() {
+  return (
+    <article className="card">
+      <p className="muted">Loading panel…</p>
+    </article>
+  );
 }
 
 export function App() {
+  const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("file");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTexture, setShowTexture] = useState(true);
@@ -178,7 +198,14 @@ export function App() {
       startupMs: null,
       loadMs: null,
       navigationMs: null,
+      firstPaintMs: null,
+      interactiveMs: null,
     });
+  const isTauri = isTauriEnvironment();
+  // Browser mode needs recent files immediately for the always-visible MenuBar.
+  // Tauri can keep this deferred until the sidebar is opened.
+  const shouldLoadRecentFiles = sidebarOpen || !isTauri;
+  const shouldLoadDeferredData = sidebarOpen;
 
   const viewerStatusLabel = useMemo(() => {
     switch (viewerFeedback.mode) {
@@ -236,7 +263,6 @@ export function App() {
 
     return nextWarnings;
   }, [assetMetadata?.textures, viewerFeedback.warning]);
-  const isTauri = isTauriEnvironment();
   const shortcutLines = useMemo(
     () =>
       Object.entries(menuShortcuts).map(([actionId, definition]) => {
@@ -276,11 +302,108 @@ export function App() {
   useEffect(() => {
     setPerformanceSnapshot((previous) => ({
       ...previous,
-      startupMs: performance.now(),
+      startupMs: performance.now() - appStartRef.current,
     }));
+
+    const existingPaintMetric = performance
+      .getEntriesByType("paint")
+      .find((entry) => entry.name === "first-contentful-paint");
+    if (existingPaintMetric) {
+      setPerformanceSnapshot((previous) =>
+        previous.firstPaintMs === null
+          ? {
+              ...previous,
+              firstPaintMs: existingPaintMetric.startTime,
+            }
+          : previous,
+      );
+    }
+
+    if (typeof PerformanceObserver === "undefined") {
+      return;
+    }
+
+    const paintObserver = new PerformanceObserver((entryList) => {
+      const firstPaint = entryList
+        .getEntries()
+        .find((entry) => entry.name === "first-contentful-paint");
+      if (!firstPaint) {
+        return;
+      }
+
+      setPerformanceSnapshot((previous) =>
+        previous.firstPaintMs === null
+          ? {
+              ...previous,
+              firstPaintMs: firstPaint.startTime,
+            }
+          : previous,
+      );
+      paintObserver.disconnect();
+    });
+
+    try {
+      paintObserver.observe({ type: "paint", buffered: true });
+    } catch {
+      paintObserver.disconnect();
+    }
+
+    return () => {
+      paintObserver.disconnect();
+    };
   }, []);
 
   useEffect(() => {
+    if (performanceSnapshot.interactiveMs !== null) {
+      return;
+    }
+
+    if (!settingsPayload && !settingsError) {
+      return;
+    }
+
+    let cancelled = false;
+    const markInteractive = () => {
+      if (cancelled) {
+        return;
+      }
+
+      setPerformanceSnapshot((previous) =>
+        previous.interactiveMs === null
+          ? {
+              ...previous,
+              interactiveMs: performance.now() - appStartRef.current,
+            }
+          : previous,
+      );
+    };
+
+    const idleWindow = window as WindowWithIdleCallback;
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const callbackId = idleWindow.requestIdleCallback(markInteractive, {
+        // Keep this short so the metric still reflects initial usability
+        // while allowing the browser to complete immediate startup work.
+        timeout: TIME_TO_INTERACTIVE_TIMEOUT_MS,
+      });
+      return () => {
+        cancelled = true;
+        idleWindow.cancelIdleCallback?.(callbackId);
+      };
+    }
+
+    const timeoutId = window.setTimeout(markInteractive, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [performanceSnapshot.interactiveMs, settingsError, settingsPayload]);
+
+  useEffect(() => {
+    if (!shouldLoadRecentFiles) {
+      return;
+    }
+
     let isActive = true;
 
     loadRecentFiles()
@@ -307,7 +430,7 @@ export function App() {
     return () => {
       isActive = false;
     };
-  }, [currentFile]);
+  }, [currentFile, shouldLoadRecentFiles]);
 
   const refreshDiagnostics = useEffectEvent(async () => {
     try {
@@ -324,8 +447,12 @@ export function App() {
   });
 
   useEffect(() => {
+    if (!shouldLoadDeferredData) {
+      return;
+    }
+
     void refreshDiagnostics();
-  }, []);
+  }, [shouldLoadDeferredData]);
 
   const refreshUpdateConfiguration = async () => {
     try {
@@ -342,10 +469,18 @@ export function App() {
   };
 
   useEffect(() => {
+    if (!shouldLoadDeferredData) {
+      return;
+    }
+
     void refreshUpdateConfiguration();
-  }, []);
+  }, [shouldLoadDeferredData]);
 
   useEffect(() => {
+    if (!shouldLoadDeferredData) {
+      return;
+    }
+
     let isActive = true;
 
     loadSupportedExtensions()
@@ -372,7 +507,10 @@ export function App() {
     return () => {
       isActive = false;
     };
-  }, [settingsPayload?.settings.fileAssociationsEnabled]);
+  }, [
+    settingsPayload?.settings.fileAssociationsEnabled,
+    shouldLoadDeferredData,
+  ]);
 
   useEffect(() => {
     if (!currentFile) {
@@ -966,53 +1104,63 @@ export function App() {
       case "settings":
         return (
           <>
-            <SettingsCard
-              settingsPayload={settingsPayload}
-              settingsError={settingsError}
-              onToggleFileAssociations={() =>
-                void handleToggleFileAssociations()
-              }
-            />
-            <UpdateCard
-              key={`${settingsPayload?.settings.updateEndpointOverride ?? ""}:${settingsPayload?.settings.updatePublicKeyOverride ?? ""}:${settingsPayload?.settings.allowInsecureUpdateEndpoint ?? false}`}
-              isCheckingForUpdate={isCheckingForUpdate}
-              isInstallingUpdate={isInstallingUpdate}
-              onCheckForUpdate={() => void handleCheckForUpdate()}
-              onInstallUpdate={() => void handleInstallUpdate()}
-              onSaveOverride={(draft) => void handleSaveUpdateSettings(draft)}
-              updateCheck={updateCheck}
-              updateConfiguration={updateConfiguration}
-              updateError={updateError}
-            />
-            <RecentFilesCard
-              onOpenPath={(path) => {
-                void performSelectFilePath(path, "recent").catch(
-                  (error: unknown) => {
-                    setRecentFilesError(
-                      error instanceof Error
-                        ? error.message
-                        : "Failed to open recent file.",
-                    );
-                  },
-                );
-              }}
-              recentFilesError={recentFilesError}
-              recentFilesPayload={recentFilesPayload}
-            />
-            <IntegrationCard
-              integrationError={integrationError}
-              integrationPayload={integrationPayload}
-            />
+            <Suspense fallback={<SidebarCardFallback />}>
+              <SettingsCard
+                settingsPayload={settingsPayload}
+                settingsError={settingsError}
+                onToggleFileAssociations={() =>
+                  void handleToggleFileAssociations()
+                }
+              />
+            </Suspense>
+            <Suspense fallback={<SidebarCardFallback />}>
+              <UpdateCard
+                key={`${settingsPayload?.settings.updateEndpointOverride ?? ""}:${settingsPayload?.settings.updatePublicKeyOverride ?? ""}:${settingsPayload?.settings.allowInsecureUpdateEndpoint ?? false}`}
+                isCheckingForUpdate={isCheckingForUpdate}
+                isInstallingUpdate={isInstallingUpdate}
+                onCheckForUpdate={() => void handleCheckForUpdate()}
+                onInstallUpdate={() => void handleInstallUpdate()}
+                onSaveOverride={(draft) => void handleSaveUpdateSettings(draft)}
+                updateCheck={updateCheck}
+                updateConfiguration={updateConfiguration}
+                updateError={updateError}
+              />
+            </Suspense>
+            <Suspense fallback={<SidebarCardFallback />}>
+              <RecentFilesCard
+                onOpenPath={(path) => {
+                  void performSelectFilePath(path, "recent").catch(
+                    (error: unknown) => {
+                      setRecentFilesError(
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to open recent file.",
+                      );
+                    },
+                  );
+                }}
+                recentFilesError={recentFilesError}
+                recentFilesPayload={recentFilesPayload}
+              />
+            </Suspense>
+            <Suspense fallback={<SidebarCardFallback />}>
+              <IntegrationCard
+                integrationError={integrationError}
+                integrationPayload={integrationPayload}
+              />
+            </Suspense>
           </>
         );
       case "warnings":
         return (
           <>
             <WarningsCard warnings={warnings} />
-            <DiagnosticsCard
-              diagnosticsError={diagnosticsError}
-              diagnosticsPayload={diagnosticsPayload}
-            />
+            <Suspense fallback={<SidebarCardFallback />}>
+              <DiagnosticsCard
+                diagnosticsError={diagnosticsError}
+                diagnosticsPayload={diagnosticsPayload}
+              />
+            </Suspense>
           </>
         );
     }
