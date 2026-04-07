@@ -15,7 +15,7 @@ import {
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { DisplayMode, SceneContext } from "./types";
 
-const GRID_NAME = "__yw_initial_grid";
+export const GRID_NAME = "__yw_initial_grid";
 const GRID_DIVISIONS = 20;
 const MIN_NORMALIZED_DIMENSION = 0.1;
 const MAX_NORMALIZED_DIMENSION = 100;
