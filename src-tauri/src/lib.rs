@@ -11,7 +11,7 @@ use std::{
 };
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 
@@ -280,7 +280,7 @@ fn collect_menu_action_ids(definition: &SharedMenuDefinition) -> HashSet<String>
 fn build_native_recent_files_submenu(
     app: &tauri::AppHandle,
     label: &str,
-) -> Result<Submenu, String> {
+) -> Result<Submenu<tauri::Wry>, String> {
     let submenu = Submenu::new(app, label, true)
         .map_err(|error| format!("failed to create recent files submenu: {error}"))?;
     let (_, entries) = load_clean_recent_file_entries(app)?;
@@ -315,7 +315,7 @@ fn build_native_recent_files_submenu(
 fn build_native_menu(
     app: &tauri::AppHandle,
     definition: &SharedMenuDefinition,
-) -> Result<Menu, String> {
+) -> Result<Menu<tauri::Wry>, String> {
     let menu = Menu::new(app).map_err(|error| format!("failed to create menu: {error}"))?;
 
     for section in &definition.sections {
