@@ -162,7 +162,11 @@ export function AssetViewport({
     controls.dampingFactor = 0.08;
 
     // ── Initial grid ──
-    const initialGrid = applyDynamicGrid(scene, DEFAULT_SCENE_DIMENSION, true);
+    const initialGrid = applyDynamicGrid(
+      scene,
+      DEFAULT_SCENE_DIMENSION,
+      showGrid,
+    );
     onGridUnitChange(initialGrid.label);
     camera.position.set(5, 4, 5);
     camera.lookAt(0, 0, 0);
