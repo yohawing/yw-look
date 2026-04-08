@@ -147,10 +147,11 @@ jobs:
 
       - name: Cargo check
         run: |
-          echo "=== Before cargo check: git check-attr ==="
-          git check-attr filter -- src-tauri/icons/32x32.png
-          echo "=== Before: file header (hex) ==="
-          xxd src-tauri/icons/32x32.png | head -3
+          echo "=== All icon PNG files found ==="
+          find . -name "*.png" -path "*/icons/*" | while read f; do
+            echo -n "$f: "
+            xxd "$f" | head -1
+          done
           cargo check --manifest-path src-tauri/Cargo.toml
 
       - name: Cargo test
