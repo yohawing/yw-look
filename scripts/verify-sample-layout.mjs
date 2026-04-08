@@ -28,10 +28,16 @@ let missingCount = 0;
 const formatCounts = new Map();
 
 for (const entry of cases) {
-  const abs = path.join(root, entry.path);
-  const exists = fs.existsSync(abs);
   const format = entry.format || "unknown";
   formatCounts.set(format, (formatCounts.get(format) || 0) + 1);
+
+  if (entry.private) {
+    log(`[SKIP] ${entry.id} -> ${entry.path} (private)`);
+    continue;
+  }
+
+  const abs = path.join(root, entry.path);
+  const exists = fs.existsSync(abs);
 
   if (!exists) {
     missingCount += 1;

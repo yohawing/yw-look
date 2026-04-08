@@ -848,7 +848,11 @@ export function App() {
               <span>Grid</span>
               <span className={`toggle-switch${showGrid ? " is-on" : ""}`} />
             </button>
-            <div className="view-mode-group">
+            <div
+              aria-label="Background"
+              className="view-mode-group"
+              role="group"
+            >
               <span className="view-mode-label">Background</span>
               <div className="view-mode-chip-row">
                 {backgroundPresetOptions.map((option) => (
