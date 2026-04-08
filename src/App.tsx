@@ -397,11 +397,12 @@ export function App() {
       .catch((error: unknown) => {
         if (cancelled) return;
         // Keep any earlier summarize error; otherwise record this one.
-        setUsdInspectorError((previous) =>
-          previous ??
-          (error instanceof Error
-            ? error.message
-            : "Failed to inspect USD stage."),
+        setUsdInspectorError(
+          (previous) =>
+            previous ??
+            (error instanceof Error
+              ? error.message
+              : "Failed to inspect USD stage."),
         );
       });
 
@@ -412,11 +413,12 @@ export function App() {
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setUsdInspectorError((previous) =>
-          previous ??
-          (error instanceof Error
-            ? error.message
-            : "Failed to collect USD asset issues."),
+        setUsdInspectorError(
+          (previous) =>
+            previous ??
+            (error instanceof Error
+              ? error.message
+              : "Failed to collect USD asset issues."),
         );
       });
 

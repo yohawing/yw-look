@@ -14,8 +14,7 @@
     "Helvetica Neue",
     sans-serif;
   font-feature-settings: "cv01", "ss03";
-  --font-mono:
-    ui-monospace, "SF Mono", Menlo, Monaco, "Courier New", monospace;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, "Courier New", monospace;
   background: #08090a;
   color: #f7f8f8;
 }

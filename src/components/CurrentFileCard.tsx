@@ -14,7 +14,10 @@ function renderValue(value: string | number | boolean | null) {
   return value ?? "—";
 }
 
-export function CurrentFileCard({ currentFile, metadata }: CurrentFileCardProps) {
+export function CurrentFileCard({
+  currentFile,
+  metadata,
+}: CurrentFileCardProps) {
   if (!currentFile) {
     return (
       <article className="card">
@@ -60,7 +63,10 @@ export function CurrentFileCard({ currentFile, metadata }: CurrentFileCardProps)
               <span className="card-row-value">
                 {renderValue(metadata.formatLabel)}
                 {metadata.formatVersion ? (
-                  <span className="card-row-badge-mono" style={{ marginLeft: 6 }}>
+                  <span
+                    className="card-row-badge-mono"
+                    style={{ marginLeft: 6 }}
+                  >
                     {metadata.formatVersion}
                   </span>
                 ) : null}
@@ -68,23 +74,33 @@ export function CurrentFileCard({ currentFile, metadata }: CurrentFileCardProps)
             </div>
             <div className="card-row">
               <span className="card-row-label">Nodes</span>
-              <span className="card-row-value-num">{renderValue(metadata.nodeCount)}</span>
+              <span className="card-row-value-num">
+                {renderValue(metadata.nodeCount)}
+              </span>
             </div>
             <div className="card-row">
               <span className="card-row-label">Meshes</span>
-              <span className="card-row-value-num">{renderValue(metadata.meshCount)}</span>
+              <span className="card-row-value-num">
+                {renderValue(metadata.meshCount)}
+              </span>
             </div>
             <div className="card-row">
               <span className="card-row-label">Materials</span>
-              <span className="card-row-value-num">{renderValue(metadata.materialCount)}</span>
+              <span className="card-row-value-num">
+                {renderValue(metadata.materialCount)}
+              </span>
             </div>
             <div className="card-row">
               <span className="card-row-label">Textures</span>
-              <span className="card-row-value-num">{renderValue(metadata.textureCount)}</span>
+              <span className="card-row-value-num">
+                {renderValue(metadata.textureCount)}
+              </span>
             </div>
             <div className="card-row">
               <span className="card-row-label">Animations</span>
-              <span className={`card-row-badge ${metadata.hasAnimation ? "badge-active" : ""}`}>
+              <span
+                className={`card-row-badge ${metadata.hasAnimation ? "badge-active" : ""}`}
+              >
                 {renderValue(metadata.hasAnimation)}
               </span>
             </div>

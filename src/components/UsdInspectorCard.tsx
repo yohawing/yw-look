@@ -62,7 +62,10 @@ export function UsdInspectorCard({
           {issues.length > 0 && (
             <ul className="card-list">
               {issues.map((issue) => (
-                <li key={`${issue.code}:${issue.contextPath ?? ""}:${issue.message}`} className={`issue issue-${issue.level}`}>
+                <li
+                  key={`${issue.code}:${issue.contextPath ?? ""}:${issue.message}`}
+                  className={`issue issue-${issue.level}`}
+                >
                   <strong>{issue.code}</strong>: {issue.message}
                 </li>
               ))}

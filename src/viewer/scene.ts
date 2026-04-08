@@ -171,7 +171,9 @@ export function getObjectMaxDimension(object: Group | Mesh) {
   return Math.max(size.x, size.y, size.z);
 }
 
-export function normalizeObjectScale(object: Group | Mesh): ScaleNormalizationResult {
+export function normalizeObjectScale(
+  object: Group | Mesh,
+): ScaleNormalizationResult {
   const originalMaxDimension = getObjectMaxDimension(object);
   if (!Number.isFinite(originalMaxDimension) || originalMaxDimension <= 0) {
     return {
@@ -209,8 +211,9 @@ export function getGridConfig(maxDimension: number): GridConfig {
       ? maxDimension
       : DEFAULT_SCENE_DIMENSION;
   const preset =
-    gridPresets.find((candidate) => targetMaxDimension <= candidate.maxDimension) ??
-    gridPresets.at(-1)!;
+    gridPresets.find(
+      (candidate) => targetMaxDimension <= candidate.maxDimension,
+    ) ?? gridPresets.at(-1)!;
 
   return {
     cellSize: preset.cellSize,
@@ -239,7 +242,12 @@ export function applyDynamicGrid(
   }
 
   const config = getGridConfig(maxDimension);
-  const grid = new GridHelper(config.size, config.divisions, "#555b66", "#3a3f48");
+  const grid = new GridHelper(
+    config.size,
+    config.divisions,
+    "#555b66",
+    "#3a3f48",
+  );
   grid.name = GRID_NAME;
   grid.visible = visible;
   scene.add(grid);
@@ -281,7 +289,10 @@ export function getScaleWarning(
   return null;
 }
 
-export function applyDisplayMode(object: Group | Mesh, displayMode: DisplayMode) {
+export function applyDisplayMode(
+  object: Group | Mesh,
+  displayMode: DisplayMode,
+) {
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) {
       return;

@@ -25,7 +25,9 @@ export type UsdWorkerRequest = {
   /** Original file path, carried through for diagnostics only. */
   path: string;
   /** Either raw USDA text (for `.usda`) or a full binary buffer. */
-  payload: { kind: "text"; text: string } | { kind: "binary"; buffer: ArrayBuffer };
+  payload:
+    | { kind: "text"; text: string }
+    | { kind: "binary"; buffer: ArrayBuffer };
 };
 
 export type UsdWorkerResponse =
@@ -57,18 +59,18 @@ self.addEventListener("message", (event: MessageEvent<UsdWorkerRequest>) => {
       ok: true,
       sceneJson,
     };
-    (self as unknown as { postMessage: (payload: unknown) => void }).postMessage(
-      response,
-    );
+    (
+      self as unknown as { postMessage: (payload: unknown) => void }
+    ).postMessage(response);
   } catch (error) {
     const response: UsdWorkerResponse = {
       id: request.id,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     };
-    (self as unknown as { postMessage: (payload: unknown) => void }).postMessage(
-      response,
-    );
+    (
+      self as unknown as { postMessage: (payload: unknown) => void }
+    ).postMessage(response);
   }
 });
 

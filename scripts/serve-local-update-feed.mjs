@@ -23,7 +23,8 @@ if (!fs.existsSync(rootDir)) {
 }
 
 const server = http.createServer((request, response) => {
-  const requestPath = request.url === "/" ? "/latest.json" : request.url ?? "/";
+  const requestPath =
+    request.url === "/" ? "/latest.json" : (request.url ?? "/");
   const safePath = path.normalize(requestPath).replace(/^(\.\.[\\/])+/, "");
   const filePath = path.join(rootDir, safePath);
 

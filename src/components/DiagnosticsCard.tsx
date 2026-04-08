@@ -22,9 +22,7 @@ export function DiagnosticsCard({
               {diagnosticsPayload.diagnosticsSnapshot.join("\n")}
             </pre>
           ) : (
-            <p className="card-empty">
-              No diagnostics events recorded yet.
-            </p>
+            <p className="card-empty">No diagnostics events recorded yet.</p>
           )}
         </>
       ) : (

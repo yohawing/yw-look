@@ -218,7 +218,7 @@
 - [x] Phase 0 実アセットの観察値を回帰テストとして `OpenusdBackend` に組み込む
 - [x] 上流 PR 粒度の fork 改造（`up_axis` / `meters_per_unit` / `references_in` / `payloads_in` / `unresolved_assets` / `instanceable` metadata）を取り込む
 
-#### Phase 2 — UX 反映（進行中）
+#### Phase 2 — UX 反映（完了、Web Worker は Phase 3 へ）
 
 - [x] `docs/usd-phase2.md` で方針を確定する
 - [x] `summarize_stage` を読み込みパイプラインの先頭に挟み、summary を先に表示する
@@ -407,7 +407,7 @@
   - [ ] `APPLE_PASSWORD`（App-specific password）
   - [ ] `APPLE_TEAM_ID`
 - [ ] `latest.json` を Windows / macOS 統合フォーマットで生成する
-  （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
+      （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
 - [ ] macOS 公証ジョブの失敗時に updater feed を更新しないガードを入れる
 
 ## 21. 多言語対応（i18n）

@@ -36,25 +36,39 @@ export function SettingsCard({
       <div className="card-rows">
         <div className="card-row">
           <span className="card-row-label">Schema version</span>
-          <span className="card-row-badge-mono">{settingsPayload.settings.version}</span>
+          <span className="card-row-badge-mono">
+            {settingsPayload.settings.version}
+          </span>
         </div>
         <div className="card-row">
           <span className="card-row-label">Recent files limit</span>
-          <span className="card-row-value-num">{settingsPayload.settings.recentFilesLimit}</span>
+          <span className="card-row-value-num">
+            {settingsPayload.settings.recentFilesLimit}
+          </span>
         </div>
         <div className="card-row">
           <span className="card-row-label">Log level</span>
-          <span className="card-row-badge">{settingsPayload.settings.diagnosticsLogLevel}</span>
+          <span className="card-row-badge">
+            {settingsPayload.settings.diagnosticsLogLevel}
+          </span>
         </div>
         <div className="card-row">
           <span className="card-row-label">File associations</span>
-          <span className={`card-row-badge ${settingsPayload.settings.fileAssociationsEnabled ? "badge-active" : ""}`}>
-            {settingsPayload.settings.fileAssociationsEnabled ? "Enabled" : "Disabled"}
+          <span
+            className={`card-row-badge ${settingsPayload.settings.fileAssociationsEnabled ? "badge-active" : ""}`}
+          >
+            {settingsPayload.settings.fileAssociationsEnabled
+              ? "Enabled"
+              : "Disabled"}
           </span>
         </div>
       </div>
       <div className="card-actions">
-        <button className="btn-ghost" onClick={onToggleFileAssociations} type="button">
+        <button
+          className="btn-ghost"
+          onClick={onToggleFileAssociations}
+          type="button"
+        >
           Toggle File Associations
         </button>
       </div>

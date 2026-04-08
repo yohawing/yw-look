@@ -30,23 +30,23 @@
 
 ## 検証アセット
 
-| ID | パス | 形式 | 性質 |
-|---|---|---|---|
-| `usda-tiny-sanity` | `samples/assets/usd/tiny.usda` | USDA 単体 | 自作 sanity asset。`defaultPrim` / `upAxis` / `metersPerUnit` 明示 |
-| `usd-kitchen-set` | `samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd` | USDA root + USDC `*.geom.usd` | Pixar Kitchen Set。`references` と `payloads` 多用 |
-| `usd-kitchen-set-instanced` | `Kitchen_set_instanced.usd` | USDA + native instancing | `instanceable = true` を使う variant |
-| `usdz-arkit-chameleon` | `chameleon_anim_mtl_variant.usdz` | USDZ (ZIP) | Apple AR Quick Look サンプル。アニメ + variant |
-| `usdz-arkit-glove` | `glove_baseball_mtl_variant.usdz` | USDZ (ZIP) | Apple AR Quick Look サンプル。variant |
+| ID                          | パス                                                          | 形式                          | 性質                                                               |
+| --------------------------- | ------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------ |
+| `usda-tiny-sanity`          | `samples/assets/usd/tiny.usda`                                | USDA 単体                     | 自作 sanity asset。`defaultPrim` / `upAxis` / `metersPerUnit` 明示 |
+| `usd-kitchen-set`           | `samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd` | USDA root + USDC `*.geom.usd` | Pixar Kitchen Set。`references` と `payloads` 多用                 |
+| `usd-kitchen-set-instanced` | `Kitchen_set_instanced.usd`                                   | USDA + native instancing      | `instanceable = true` を使う variant                               |
+| `usdz-arkit-chameleon`      | `chameleon_anim_mtl_variant.usdz`                             | USDZ (ZIP)                    | Apple AR Quick Look サンプル。アニメ + variant                     |
+| `usdz-arkit-glove`          | `glove_baseball_mtl_variant.usdz`                             | USDZ (ZIP)                    | Apple AR Quick Look サンプル。variant                              |
 
 ## 結果マトリクス
 
-| アセット | `Stage::open` | `default_prim` | `layer_count` | `root_prims` | `traverse` 完走 prim 数 |
-|---|---|---|---|---|---|
-| `tiny.usda` | ✅ | `"Root"` | 1 | 1 | 2 |
-| `Kitchen_set.usd` | ✅ | `"Kitchen_set"` | **229** | 77 | **2048** |
-| `Kitchen_set_instanced.usd` | ❌ | — | — | — | — |
-| `chameleon_anim_mtl_variant.usdz` | ✅ | `"Root"` | 1 | 1 | 203 |
-| `glove_baseball_mtl_variant.usdz` | ✅ | `"glove_baseball"` | 1 | 1 | 67 |
+| アセット                          | `Stage::open` | `default_prim`     | `layer_count` | `root_prims` | `traverse` 完走 prim 数 |
+| --------------------------------- | ------------- | ------------------ | ------------- | ------------ | ----------------------- |
+| `tiny.usda`                       | ✅            | `"Root"`           | 1             | 1            | 2                       |
+| `Kitchen_set.usd`                 | ✅            | `"Kitchen_set"`    | **229**       | 77           | **2048**                |
+| `Kitchen_set_instanced.usd`       | ❌            | —                  | —             | —            | —                       |
+| `chameleon_anim_mtl_variant.usdz` | ✅            | `"Root"`           | 1             | 1            | 203                     |
+| `glove_baseball_mtl_variant.usdz` | ✅            | `"glove_baseball"` | 1             | 1            | 67                      |
 
 ### Kitchen Set の意味
 
@@ -77,28 +77,28 @@ USDA parser が prim metadata の `instanceable = true` をまだ知らない。
 
 ### 直接 accessor が存在するもの
 
-| 機能 | API |
-|---|---|
-| stage を開く | `Stage::open(&resolver, path) -> Result<Self>` |
-| `defaultPrim` 読み | `stage.default_prim() -> Option<String>` |
-| 合成済みレイヤ列挙 | `stage.layer_identifiers() -> &[String]` |
-| レイヤ数 | `stage.layer_count() -> usize` |
-| root prim 列挙 | `stage.root_prims() -> Result<Vec<String>>` |
-| prim 走査 | `stage.traverse(visitor) -> Result<()>` |
+| 機能               | API                                                  |
+| ------------------ | ---------------------------------------------------- |
+| stage を開く       | `Stage::open(&resolver, path) -> Result<Self>`       |
+| `defaultPrim` 読み | `stage.default_prim() -> Option<String>`             |
+| 合成済みレイヤ列挙 | `stage.layer_identifiers() -> &[String]`             |
+| レイヤ数           | `stage.layer_count() -> usize`                       |
+| root prim 列挙     | `stage.root_prims() -> Result<Vec<String>>`          |
+| prim 走査          | `stage.traverse(visitor) -> Result<()>`              |
 | 汎用 metadata 読み | `stage.field::<T>(path, field) -> Result<Option<T>>` |
-| spec 種別 | `stage.spec_type(path) -> Option<SpecType>` |
-| asset resolver | `ar::DefaultResolver::new()` |
+| spec 種別          | `stage.spec_type(path) -> Option<SpecType>`          |
+| asset resolver     | `ar::DefaultResolver::new()`                         |
 
 ### 汎用 API 経由が必要なもの (= fork PR の自然な単位)
 
-| 機能 | 現状 | 提案する upstream PR |
-|---|---|---|
-| `upAxis` 読み | `stage.field::<String>(...)` で取れるはず | `stage.up_axis() -> Option<UpAxis>` |
-| `metersPerUnit` 読み | 同上 | `stage.meters_per_unit() -> Option<f64>` |
-| `references` 列挙 | 自前で field 経由 | `stage.references_in(path) -> Vec<Reference>` |
-| `payloads` 列挙 | 自前で field 経由 | `stage.payloads_in(path) -> Vec<Payload>` |
-| 解決失敗アセット検出 | resolver 越しに自前で確認 | `stage.unresolved_assets() -> Vec<String>` |
-| `instanceable` prim metadata | USDA parser で未対応 | parser に metadata key 追加 |
+| 機能                         | 現状                                      | 提案する upstream PR                          |
+| ---------------------------- | ----------------------------------------- | --------------------------------------------- |
+| `upAxis` 読み                | `stage.field::<String>(...)` で取れるはず | `stage.up_axis() -> Option<UpAxis>`           |
+| `metersPerUnit` 読み         | 同上                                      | `stage.meters_per_unit() -> Option<f64>`      |
+| `references` 列挙            | 自前で field 経由                         | `stage.references_in(path) -> Vec<Reference>` |
+| `payloads` 列挙              | 自前で field 経由                         | `stage.payloads_in(path) -> Vec<Payload>`     |
+| 解決失敗アセット検出         | resolver 越しに自前で確認                 | `stage.unresolved_assets() -> Vec<String>`    |
+| `instanceable` prim metadata | USDA parser で未対応                      | parser に metadata key 追加                   |
 
 ## 判定: **Go**
 

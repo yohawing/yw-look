@@ -417,9 +417,7 @@ function readUsdzFirstFileName(buffer: ArrayBuffer) {
   return new TextDecoder().decode(bytes);
 }
 
-async function parseUsdRuntimeHints(
-  path: string,
-): Promise<UsdRuntimeHints> {
+async function parseUsdRuntimeHints(path: string): Promise<UsdRuntimeHints> {
   // Delegated to the Rust `OpenusdBackend` via the Tauri command surface,
   // so this works for USDA, USDC, and USDZ uniformly. Returns just the
   // pieces the Three.js viewer cannot recover by itself — currently only
@@ -436,9 +434,7 @@ async function parseUsdRuntimeHints(
       setTimeout(
         () =>
           reject(
-            new Error(
-              `inspectStage timeout after ${TIMEOUT_MS}ms for ${path}`,
-            ),
+            new Error(`inspectStage timeout after ${TIMEOUT_MS}ms for ${path}`),
           ),
         TIMEOUT_MS,
       ),
