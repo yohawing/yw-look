@@ -12,7 +12,7 @@ export type StageInspection = {
   upAxis: string | null;
   metersPerUnit: number | null;
   rootPrims: string[];
-  subLayers: string[];
+  composedLayers: string[];
   references: CompositionArc[];
   payloads: CompositionArc[];
   missingAssets: string[];

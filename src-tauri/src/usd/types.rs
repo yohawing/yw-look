@@ -16,7 +16,7 @@ pub struct StageInspection {
     pub up_axis: Option<String>,
     pub meters_per_unit: Option<f64>,
     pub root_prims: Vec<String>,
-    pub sub_layers: Vec<String>,
+    pub composed_layers: Vec<String>,
     pub references: Vec<CompositionArc>,
     pub payloads: Vec<CompositionArc>,
     pub missing_assets: Vec<String>,
