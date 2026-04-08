@@ -10,12 +10,7 @@ export type TextureEntry = {
   channel: string;
   dimensions: string;
   thumbnailUrl: string | null;
-  sourceKind:
-    | "embedded"
-    | "external"
-    | "standalone"
-    | "unresolved"
-    | "unknown";
+  sourceKind: "embedded" | "external" | "standalone" | "unresolved" | "unknown";
 };
 
 export type MaterialEntry = {

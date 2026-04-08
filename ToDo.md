@@ -115,7 +115,7 @@
 - [ ] プリセットビューを実装する（Front / Back / Left / Right / Top / Bottom）
 - [ ] バックフェースカリング ON/OFF を実装する
 - [ ] 環境マップ背景表示 ON/OFF を実装する（HDRI 背景 or 灰色）
-- [ ] 環境マップのプリセット切替を実装する（Studio / Outdoor / Neutral 等）
+- [x] 環境マップのプリセット切替を実装する（Studio / Outdoor / Neutral 等）
 - [ ] ボーン / スケルトン表示を実装する（アニメーション付きモデル用）
 - [ ] 軸ギズモ（XYZ インジケーター）を表示する
 - [ ] トーンマッピング切替を実装する（Linear / ACES / Reinhard）
@@ -198,6 +198,34 @@
 - [ ] Rust 側に移行する処理の優先度を整理する（ファイルパース・バウンディングボックス計算・メタデータ抽出等）
 - [ ] 最初の移行対象を決めて Tauri コマンドとして実装する
 - [ ] JS 側と Rust 側の責務分離方針をドキュメント化する
+
+### USD インスペクション（Rust バックエンド）
+
+#### Phase 0 — PoC
+
+- [x] `mxpv/openusd` crate で USDA / USDC / USDZ / references / payloads を実アセットで検証する
+- [x] Windows MSVC でのビルド障害がないことを確認する
+- [x] Phase 0 レポートを `docs/usd-phase0.md` にまとめる
+- [x] PoC コードを `experiments/usd-poc/` に隔離する
+- [x] Phase 0 用の最小 USD サンプル (`tiny.usda`) を `samples/assets/usd/` に追加する
+
+#### Phase 1 — Rust バックエンド骨格
+
+- [x] `UsdBackend` trait を `src-tauri/src/usd/backend.rs` に定義する
+- [x] `OpenusdBackend` を fork 版 `openusd` で実装する
+- [x] `inspect_stage` / `summarize_stage` / `collect_asset_issues` の Tauri command を公開する
+- [x] wire 型 (`StageInspection` / `StageSummary` / `AssetIssue` / `CompositionArc`) を定義する
+- [x] `inspectStage` で `metersPerUnit` ヒントをビューアに渡し極小表示を補正する
+- [x] Phase 0 実アセットの観察値を回帰テストとして `OpenusdBackend` に組み込む
+- [x] 上流 PR 粒度の fork 改造（`up_axis` / `meters_per_unit` / `references_in` / `payloads_in` / `unresolved_assets` / `instanceable` metadata）を取り込む
+
+#### Phase 2 — UX 反映（完了、Web Worker は Phase 3 へ）
+
+- [x] `docs/usd-phase2.md` で方針を確定する
+- [x] `summarize_stage` を読み込みパイプラインの先頭に挟み、summary を先に表示する
+- [x] `StageSummary` をメタデータ / 診断パネルに表示する
+- [x] `collect_asset_issues` の結果を警告バナーに表示する
+- [ ] `USDLoader.parse` を Web Worker に退避して UI スレッドのブロッキングを崩す（Phase 3 以降）
 
 ## 15. OS 統合（Windows / macOS）
 
@@ -380,7 +408,7 @@
   - [ ] `APPLE_PASSWORD`（App-specific password）
   - [ ] `APPLE_TEAM_ID`
 - [ ] `latest.json` を Windows / macOS 統合フォーマットで生成する
-  （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
+      （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
 - [ ] macOS 公証ジョブの失敗時に updater feed を更新しないガードを入れる
 
 ## 21. 多言語対応（i18n）

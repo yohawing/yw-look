@@ -47,7 +47,9 @@ export function UpdateCard({
         <div className="card-rows">
           <div className="card-row">
             <span className="card-row-label">Version</span>
-            <span className="card-row-badge-mono">{updateConfiguration.currentVersion}</span>
+            <span className="card-row-badge-mono">
+              {updateConfiguration.currentVersion}
+            </span>
           </div>
           <div className="card-row">
             <span className="card-row-label">Endpoint</span>
@@ -57,14 +59,19 @@ export function UpdateCard({
           </div>
           <div className="card-row">
             <span className="card-row-label">Public key</span>
-            <span className={`card-row-badge ${updateConfiguration.effectivePubkeyAvailable ? "badge-active" : ""}`}>
-              {updateConfiguration.effectivePubkeyAvailable ? "Configured" : "Missing"}
+            <span
+              className={`card-row-badge ${updateConfiguration.effectivePubkeyAvailable ? "badge-active" : ""}`}
+            >
+              {updateConfiguration.effectivePubkeyAvailable
+                ? "Configured"
+                : "Missing"}
             </span>
           </div>
           <div className="card-row">
             <span className="card-row-label">Source</span>
             <span className="card-row-badge">
-              {updateConfiguration.usingOverrideEndpoint || updateConfiguration.usingOverridePubkey
+              {updateConfiguration.usingOverrideEndpoint ||
+              updateConfiguration.usingOverridePubkey
                 ? "Local override"
                 : "Bundled"}
             </span>
@@ -80,7 +87,10 @@ export function UpdateCard({
         <span>Update feed URL</span>
         <input
           onChange={(event) =>
-            setDraft((previous) => ({ ...previous, endpoint: event.target.value }))
+            setDraft((previous) => ({
+              ...previous,
+              endpoint: event.target.value,
+            }))
           }
           placeholder="http://127.0.0.1:8765/latest.json"
           type="text"
@@ -92,7 +102,10 @@ export function UpdateCard({
         <span>Updater public key</span>
         <textarea
           onChange={(event) =>
-            setDraft((previous) => ({ ...previous, publicKey: event.target.value }))
+            setDraft((previous) => ({
+              ...previous,
+              publicKey: event.target.value,
+            }))
           }
           placeholder="Paste PEM public key for local update signing."
           rows={4}
@@ -115,7 +128,11 @@ export function UpdateCard({
       </label>
 
       <div className="card-actions">
-        <button className="btn-ghost" onClick={() => onSaveOverride(draft)} type="button">
+        <button
+          className="btn-ghost"
+          onClick={() => onSaveOverride(draft)}
+          type="button"
+        >
           Save
         </button>
         <button className="btn-ghost" onClick={onCheckForUpdate} type="button">
@@ -135,7 +152,9 @@ export function UpdateCard({
         <div className="card-rows" style={{ marginTop: 12 }}>
           <div className="card-row">
             <span className="card-row-label">Available</span>
-            <span className="card-row-badge-mono">{updateCheck.update.version}</span>
+            <span className="card-row-badge-mono">
+              {updateCheck.update.version}
+            </span>
           </div>
           <div className="card-row">
             <span className="card-row-label">Target</span>
@@ -144,7 +163,9 @@ export function UpdateCard({
           {updateCheck.update.pubDate ? (
             <div className="card-row">
               <span className="card-row-label">Published</span>
-              <span className="card-row-value">{updateCheck.update.pubDate}</span>
+              <span className="card-row-value">
+                {updateCheck.update.pubDate}
+              </span>
             </div>
           ) : null}
           {updateCheck.update.notes ? (
@@ -152,7 +173,9 @@ export function UpdateCard({
           ) : null}
         </div>
       ) : updateCheck ? (
-        <p className="card-empty" style={{ marginTop: 8 }}>No newer update available.</p>
+        <p className="card-empty" style={{ marginTop: 8 }}>
+          No newer update available.
+        </p>
       ) : null}
     </article>
   );
