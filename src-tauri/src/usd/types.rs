@@ -54,9 +54,6 @@ pub enum AssetIssueCode {
     MissingSubLayer,
     MissingPayload,
     SuspiciousMetersPerUnit,
-    ZUpAxis,
-    ParseFailure,
-    UnsupportedFeature,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -72,5 +69,5 @@ pub enum AssetIssueLevel {
 pub struct CompositionArc {
     pub source_prim: String,
     pub asset_path: String,
-    pub target_prim: Option<String>,
+    pub target_prim: String,
 }

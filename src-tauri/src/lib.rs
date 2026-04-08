@@ -8,7 +8,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{Read as IoRead, Write},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 #[cfg(desktop)]
@@ -96,18 +96,19 @@ struct UpdateInstallPayload {
 #[derive(Default)]
 struct PendingUpdateState(Mutex<Option<Update>>);
 
-/// Active USD inspection backend. Held as a trait object so the
-/// implementation can be swapped without touching command code.
+/// Active USD inspection backend. Held behind an `Arc` so each async
+/// Tauri command can clone a handle and move it into a blocking task
+/// without borrowing from `tauri::State`.
 /// Currently `OpenusdBackend` (yohawing/openusd `yw-look-phase1`).
-struct UsdBackendState(Box<dyn UsdBackend>);
+struct UsdBackendState(Arc<dyn UsdBackend>);
 
 impl UsdBackendState {
     fn new(backend: impl UsdBackend + 'static) -> Self {
-        Self(Box::new(backend))
+        Self(Arc::new(backend))
     }
 
-    fn backend(&self) -> &dyn UsdBackend {
-        self.0.as_ref()
+    fn handle(&self) -> Arc<dyn UsdBackend> {
+        Arc::clone(&self.0)
     }
 }
 
@@ -1084,48 +1085,48 @@ fn load_diagnostics_snapshot(app: tauri::AppHandle) -> Result<DiagnosticsPayload
 }
 
 fn map_usd_error(error: UsdError) -> String {
-    match error {
-        UsdError::NotImplemented => {
-            "USD inspection backend is not wired yet (Phase 1 in progress)".to_string()
-        }
-        other => other.to_string(),
-    }
+    error.to_string()
+}
+
+async fn run_blocking_usd<T, F>(task: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|e| format!("USD task join error: {e}"))?
+        .map_err(map_usd_error)
 }
 
 #[tauri::command]
-fn inspect_stage(
+async fn inspect_stage(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
 ) -> Result<StageInspection, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    backend
-        .backend()
-        .inspect_stage(&normalized)
-        .map_err(map_usd_error)
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.inspect_stage(&normalized)).await
 }
 
 #[tauri::command]
-fn summarize_stage(
+async fn summarize_stage(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
 ) -> Result<StageSummary, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    backend
-        .backend()
-        .summarize_stage(&normalized)
-        .map_err(map_usd_error)
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.summarize_stage(&normalized)).await
 }
 
 #[tauri::command]
-fn collect_asset_issues(
+async fn collect_asset_issues(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
 ) -> Result<Vec<AssetIssue>, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    backend
-        .backend()
-        .collect_asset_issues(&normalized)
-        .map_err(map_usd_error)
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.collect_asset_issues(&normalized)).await
 }
 
 #[tauri::command]

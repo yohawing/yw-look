@@ -79,14 +79,14 @@ impl UsdBackend for OpenusdBackend {
                     references.borrow_mut().push(CompositionArc {
                         source_prim: source.clone(),
                         asset_path: r.asset_path,
-                        target_prim: Some(r.prim_path.to_string()),
+                        target_prim: r.prim_path.to_string(),
                     });
                 }
                 for p in stage.payloads_in(prim_path.clone()) {
                     payloads.borrow_mut().push(CompositionArc {
                         source_prim: source.clone(),
                         asset_path: p.asset_path,
-                        target_prim: Some(p.prim_path.to_string()),
+                        target_prim: p.prim_path.to_string(),
                     });
                 }
             })
@@ -165,17 +165,6 @@ impl UsdBackend for OpenusdBackend {
         let stage = Self::open(path)?;
         let mut issues = Vec::new();
 
-        // Axis / unit heuristic warnings — always unique, no duplication risk.
-        if let Some(UpAxis::Z) = stage.up_axis() {
-            issues.push(AssetIssue {
-                code: AssetIssueCode::ZUpAxis,
-                level: AssetIssueLevel::Warning,
-                message: "Stage uses Z-up axis; verify viewer orientation.".to_string(),
-                detail: None,
-                context_path: None,
-            });
-        }
-
         if let Some(mpu) = stage.meters_per_unit() {
             if mpu <= 0.0 || mpu > 100.0 {
                 issues.push(AssetIssue {
@@ -241,7 +230,7 @@ impl UsdBackend for OpenusdBackend {
         for missing in stage.unresolved_assets() {
             if !covered.contains(missing.as_str()) {
                 issues.push(AssetIssue {
-                    code: AssetIssueCode::BrokenReference,
+                    code: AssetIssueCode::MissingSubLayer,
                     level: AssetIssueLevel::Error,
                     message: format!("Unresolved asset: {missing}"),
                     detail: None,

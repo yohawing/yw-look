@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 export type CompositionArc = {
   sourcePrim: string;
   assetPath: string;
-  targetPrim: string | null;
+  targetPrim: string;
 };
 
 export type StageInspection = {
@@ -32,10 +32,7 @@ export type AssetIssueCode =
   | "broken-reference"
   | "missing-sub-layer"
   | "missing-payload"
-  | "suspicious-meters-per-unit"
-  | "z-up-axis"
-  | "parse-failure"
-  | "unsupported-feature";
+  | "suspicious-meters-per-unit";
 
 export type AssetIssueLevel = "warning" | "error";
 
