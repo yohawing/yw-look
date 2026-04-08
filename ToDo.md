@@ -198,6 +198,34 @@
 - [ ] 最初の移行対象を決めて Tauri コマンドとして実装する
 - [ ] JS 側と Rust 側の責務分離方針をドキュメント化する
 
+### USD インスペクション（Rust バックエンド）
+
+#### Phase 0 — PoC
+
+- [x] `mxpv/openusd` crate で USDA / USDC / USDZ / references / payloads を実アセットで検証する
+- [x] Windows MSVC でのビルド障害がないことを確認する
+- [x] Phase 0 レポートを `docs/usd-phase0.md` にまとめる
+- [x] PoC コードを `experiments/usd-poc/` に隔離する
+- [x] Phase 0 用の最小 USD サンプル (`tiny.usda`) を `samples/assets/usd/` に追加する
+
+#### Phase 1 — Rust バックエンド骨格
+
+- [x] `UsdBackend` trait を `src-tauri/src/usd/backend.rs` に定義する
+- [x] `OpenusdBackend` を fork 版 `openusd` で実装する
+- [x] `inspect_stage` / `summarize_stage` / `collect_asset_issues` の Tauri command を公開する
+- [x] wire 型 (`StageInspection` / `StageSummary` / `AssetIssue` / `CompositionArc`) を定義する
+- [x] `inspectStage` で `metersPerUnit` ヒントをビューアに渡し極小表示を補正する
+- [x] Phase 0 実アセットの観察値を回帰テストとして `OpenusdBackend` に組み込む
+- [x] 上流 PR 粒度の fork 改造（`up_axis` / `meters_per_unit` / `references_in` / `payloads_in` / `unresolved_assets` / `instanceable` metadata）を取り込む
+
+#### Phase 2 — UX 反映（未着手）
+
+- [ ] `docs/usd-phase2.md` で方針を確定する
+- [ ] `summarize_stage` を読み込みパイプラインの先頭に挟み、summary を先に表示する
+- [ ] `StageSummary` をメタデータ / 診断パネルに表示する
+- [ ] `collect_asset_issues` の結果を警告バナーに表示する
+- [ ] `USDLoader.parse` を Web Worker に退避して UI スレッドのブロッキングを崩す
+
 ## 15. OS 統合（Windows / macOS）
 
 ### Windows
