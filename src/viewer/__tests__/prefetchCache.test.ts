@@ -12,11 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  prefetchAdjacent,
-  getCachedBuffer,
-  evictAll,
-} from "../prefetchCache";
+import { prefetchAdjacent, getCachedBuffer, evictAll } from "../prefetchCache";
 import type { SelectedFile } from "../../lib/files";
 
 const mockInvoke = vi.mocked(invoke);

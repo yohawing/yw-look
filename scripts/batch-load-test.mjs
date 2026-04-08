@@ -40,24 +40,24 @@ const LOADER_MAP = {
   ".obj": "OBJLoader",
   ".stl": "STLLoader",
   ".ply": "PLYLoader",
-  ".dae": "ColladaLoader",  // TODO: 未実装 (ToDo.md #6)
-  ".vrm": "VRMLoader",      // TODO: 未実装 (ToDo.md #6)
-  ".pmx": "MMDLoader",      // TODO: 未実装 (ToDo.md #6)
-  ".pmd": "MMDLoader",      // TODO: 未実装 (ToDo.md #6)
+  ".dae": "ColladaLoader", // TODO: 未実装 (ToDo.md #6)
+  ".vrm": "VRMLoader", // TODO: 未実装 (ToDo.md #6)
+  ".pmx": "MMDLoader", // TODO: 未実装 (ToDo.md #6)
+  ".pmd": "MMDLoader", // TODO: 未実装 (ToDo.md #6)
   // USD
-  ".usd":  "USDLoader",
+  ".usd": "USDLoader",
   ".usda": "USDLoader",
   ".usdc": "USDLoader (USDC — requires Rust backend Phase 3)",
   ".usdz": "USDLoader",
   // テクスチャ
-  ".png":  "TextureLoader",
-  ".jpg":  "TextureLoader",
+  ".png": "TextureLoader",
+  ".jpg": "TextureLoader",
   ".jpeg": "TextureLoader",
-  ".tga":  "TGALoader",
-  ".hdr":  "RGBELoader",
-  ".exr":  "EXRLoader",
-  ".dds":  "DDSLoader",
-  ".ktx2": "KTX2Loader",    // TODO: 未実装 (ToDo.md #7)
+  ".tga": "TGALoader",
+  ".hdr": "RGBELoader",
+  ".exr": "EXRLoader",
+  ".dds": "DDSLoader",
+  ".ktx2": "KTX2Loader", // TODO: 未実装 (ToDo.md #7)
 };
 
 // ---------------------------------------------------------------------------

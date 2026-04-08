@@ -104,9 +104,9 @@ describe("resolveSiblingPath", () => {
   });
 
   it("handles mixed slashes in base on Windows", () => {
-    expect(
-      resolveSiblingPath("C:\\Users/user\\models", "texture.png"),
-    ).toBe("C:\\Users\\user\\models\\texture.png");
+    expect(resolveSiblingPath("C:\\Users/user\\models", "texture.png")).toBe(
+      "C:\\Users\\user\\models\\texture.png",
+    );
   });
 });
 
@@ -116,7 +116,9 @@ describe("resolveSiblingPath", () => {
 
 describe("isUsdcCrateBuffer", () => {
   /** PXR-USDC magic bytes */
-  const USDC_MAGIC = new Uint8Array([0x50, 0x58, 0x52, 0x2d, 0x55, 0x53, 0x44, 0x43]);
+  const USDC_MAGIC = new Uint8Array([
+    0x50, 0x58, 0x52, 0x2d, 0x55, 0x53, 0x44, 0x43,
+  ]);
 
   it("returns true for a valid USDC header", () => {
     const buffer = new ArrayBuffer(16);
