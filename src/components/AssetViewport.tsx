@@ -252,10 +252,12 @@ export function AssetViewport({
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
   const environmentTargetRef = useRef<WebGLRenderTarget | null>(null);
-  const environmentTargetsRef = useRef<Map<EnvironmentPreset, WebGLRenderTarget> | null>(null);
-  const activeEnvironmentPresetRef = useRef<EnvironmentPreset>(
-    environmentPreset,
-  );
+  const environmentTargetsRef = useRef<Map<
+    EnvironmentPreset,
+    WebGLRenderTarget
+  > | null>(null);
+  const activeEnvironmentPresetRef =
+    useRef<EnvironmentPreset>(environmentPreset);
   const displayModeRef = useRef(displayMode);
   const showGridRef = useRef(showGrid);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
@@ -326,7 +328,10 @@ export function AssetViewport({
       environmentPreset,
     );
     if (environmentTargetRef.current) {
-      environmentTargetsRef.current.set(environmentPreset, environmentTargetRef.current);
+      environmentTargetsRef.current.set(
+        environmentPreset,
+        environmentTargetRef.current,
+      );
     }
     activeEnvironmentPresetRef.current = environmentPreset;
     scene.environment = environmentTargetRef.current.texture;
