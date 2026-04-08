@@ -21,40 +21,8 @@ mkdirSync(texturesDir, { recursive: true });
 
 // -----------------------------------------------------------------------
 // 1×1 PNG  (RGBA: 255, 0, 0, 255 = red)
-// PNG の仕様上最小となるバイト列を手組み。
-// CRC は事前計算済み。
+// zlib (Node 18+ 組込み) で IDAT を deflate して正確な PNG を生成する。
 // -----------------------------------------------------------------------
-// prettier-ignore
-const pngBytes = [
-  // PNG signature
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-  // IHDR chunk (13 bytes data)
-  0x00, 0x00, 0x00, 0x0d, // length
-  0x49, 0x48, 0x44, 0x52, // "IHDR"
-  0x00, 0x00, 0x00, 0x01, // width  = 1
-  0x00, 0x00, 0x00, 0x01, // height = 1
-  0x08,                   // bit depth = 8
-  0x02,                   // color type = 2 (RGB)
-  0x00,                   // compression method
-  0x00,                   // filter method
-  0x00,                   // interlace method
-  0x90, 0x77, 0x53, 0xde, // CRC32
-  // IDAT chunk (zlib-deflate of filter_byte+R+G+B = 00 FF 00 00)
-  0x00, 0x00, 0x00, 0x0c, // length = 12
-  0x49, 0x44, 0x41, 0x54, // "IDAT"
-  0x08, 0xd7,             // zlib header (deflate, default compression)
-  0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, // deflate stream (1×1 RGB red=FF,0,0)
-  // Note: actual pixel data compressed above represents filter=0, R=255, G=0, B=0
-  0xe2, 0x21, 0xbc, 0x33, // CRC32
-  // IEND chunk
-  0x00, 0x00, 0x00, 0x00, // length = 0
-  0x49, 0x45, 0x4e, 0x44, // "IEND"
-  0xae, 0x42, 0x60, 0x82, // CRC32
-];
-
-// 上記バイト列は複雑なので、代わりに Canvas API 非依存の方法として
-// zlib を使って正確な PNG を生成する。
-// Node.js 18+ は zlib が組込み。
 
 import { deflateSync } from "zlib";
 
