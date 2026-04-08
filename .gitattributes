@@ -27,4 +27,4 @@
 
 # App icons are small and committed as regular blobs so CI (which may
 # not have LFS configured) can read them during cargo check / build.
-src-tauri/icons/*.png -filter -diff -merge text
+src-tauri/icons/* binary -filter
