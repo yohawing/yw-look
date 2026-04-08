@@ -186,7 +186,6 @@ const backgroundPresetOptions: Array<{
   { id: "light", label: "Light" },
 ];
 
-
 export function App() {
   const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("file");

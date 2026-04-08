@@ -411,7 +411,10 @@ textarea {
   font-size: 11px;
   font-weight: 510;
   text-align: center;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
 }
 
 .view-mode-chip:hover {
