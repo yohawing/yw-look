@@ -1,9 +1,4 @@
-import {
-  Mesh,
-  PlaneGeometry,
-  ShaderMaterial,
-  Texture,
-} from "three";
+import { Mesh, PlaneGeometry, ShaderMaterial, Texture } from "three";
 import type { TextureViewMode } from "./types";
 
 export function createTextureViewerObject(
@@ -13,9 +8,10 @@ export function createTextureViewerObject(
   textureBlackPoint: number,
   textureWhitePoint: number,
 ) {
-  const image = texture.image as { width?: number; height?: number } | undefined;
-  const widthValue =
-    image && typeof image.width === "number" ? image.width : 1;
+  const image = texture.image as
+    | { width?: number; height?: number }
+    | undefined;
+  const widthValue = image && typeof image.width === "number" ? image.width : 1;
   const heightValue =
     image && typeof image.height === "number" ? image.height : 1;
   const ratio = widthValue / heightValue || 1;
@@ -30,11 +26,7 @@ export function createTextureViewerObject(
         uTexture: { value: texture },
         uMode: {
           value:
-            textureViewMode === "rgb"
-              ? 0
-              : textureViewMode === "rgba"
-                ? 1
-                : 2,
+            textureViewMode === "rgb" ? 0 : textureViewMode === "rgba" ? 1 : 2,
         },
         uExposure: { value: textureExposure },
         uBlackPoint: { value: textureBlackPoint },

@@ -9,10 +9,7 @@ export type {
   MissingReferenceError,
 } from "./types";
 
-export {
-  implementedPreviewExtensions,
-  neutralFeedback,
-} from "./types";
+export { implementedPreviewExtensions, neutralFeedback } from "./types";
 
 export {
   DEFAULT_SCENE_DIMENSION,
@@ -48,8 +45,4 @@ export {
   stepAction,
 } from "./animationController";
 
-export {
-  getCachedBuffer,
-  evictAll,
-  prefetchAdjacent,
-} from "./prefetchCache";
+export { getCachedBuffer, evictAll, prefetchAdjacent } from "./prefetchCache";

@@ -25,10 +25,7 @@ export function TextureListCard({
             >
               <div className="texture-card-preview">
                 {texture.thumbnailUrl ? (
-                  <img
-                    src={texture.thumbnailUrl}
-                    alt={texture.label}
-                  />
+                  <img src={texture.thumbnailUrl} alt={texture.label} />
                 ) : (
                   <span className="texture-card-preview-placeholder">
                     {texture.channel}
