@@ -17,7 +17,7 @@
 - OS: Windows 11
 - Toolchain: `rustc 1.94.0` / `cargo 1.94.0` (stable-x86_64-pc-windows-msvc)
 - Crate: `openusd = "0.2"` (released 2026-04-06)
-- PoC コード: `experiments/usd-poc/` (yw-look 本体から隔離した独立 Cargo project)
+- PoC コード: `experiments/usd-poc/` (yw-look 本体から隔離した独立 Cargo project、リポジトリには含まれていません)
 
 ## ビルド事情
 
@@ -142,9 +142,13 @@ PoC で扱った範囲ではないが、計画上忘れない:
 
 ## 再現手順
 
+> **注意**: `experiments/usd-poc/` ディレクトリはリポジトリに含まれていません（`.gitignore` で除外）。
+> PoC を再現するには、独立した Cargo project として自分で作成する必要があります。
+> 詳細は本ドキュメントの「実装詳細」セクションを参照してください。
+
 ```sh
-# Phase 0 PoC を再実行する
-cd experiments/usd-poc
+# 例: 独自に PoC project を作成した場合の実行方法
+cd /path/to/your/usd-poc
 cargo run --release
 ```
 

@@ -12,6 +12,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
+  type BackgroundPreset,
   type DisplayMode,
   type EnvironmentPreset,
   type TextureViewMode,
@@ -176,6 +177,15 @@ function SidebarCardFallback() {
   );
 }
 
+const backgroundPresetOptions: Array<{
+  id: BackgroundPreset;
+  label: string;
+}> = [
+  { id: "gray", label: "Gray" },
+  { id: "charcoal", label: "Dark" },
+  { id: "light", label: "Light" },
+];
+
 export function App() {
   const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("file");
@@ -183,6 +193,8 @@ export function App() {
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  const [backgroundPreset, setBackgroundPreset] =
+    useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
     useState<EnvironmentPreset>("studio");
   const [gridUnitLabel, setGridUnitLabel] = useState("1 m");
@@ -1367,6 +1379,7 @@ export function App() {
           <AssetViewport
             currentFile={currentFile}
             displayMode={displayMode}
+            backgroundPreset={backgroundPreset}
             onFeedbackChange={setViewerFeedback}
             onMetadataChange={setAssetMetadata}
             selectedTextureId={selectedTextureId}
@@ -1409,6 +1422,28 @@ export function App() {
               <span>Grid</span>
               <span className={`toggle-switch${showGrid ? " is-on" : ""}`} />
             </button>
+            <div
+              aria-label="Background"
+              className="view-mode-group"
+              role="group"
+            >
+              <span className="view-mode-label">Background</span>
+              <div className="view-mode-chip-row">
+                {backgroundPresetOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    aria-pressed={backgroundPreset === option.id}
+                    className={`view-mode-chip${
+                      backgroundPreset === option.id ? " is-active" : ""
+                    }`}
+                    onClick={() => setBackgroundPreset(option.id)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="view-mode-section">
               <span className="view-mode-section-label">Environment</span>
               <div className="preset-chip-row">

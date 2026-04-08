@@ -58,11 +58,30 @@ import { emptyAnimationState, type AnimationState } from "./animation";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
 export type { ViewerFeedback, DisplayMode, ViewerSurfaceMode, TextureViewMode };
+export type BackgroundPreset = "gray" | "charcoal" | "light";
+
+const backgroundPresetColors: Record<BackgroundPreset, string> = {
+  gray: "#717781",
+  charcoal: "#0f1011",
+  light: "#d9dee7",
+};
+
+function applyViewportBackground(
+  renderer: WebGLRenderer,
+  scene: Scene,
+  backgroundPreset: BackgroundPreset,
+) {
+  const color = backgroundPresetColors[backgroundPreset];
+  renderer.setClearColor(color);
+  scene.background = new Color(color);
+}
+
 export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
 
 type AssetViewportProps = {
   currentFile: SelectedFile | null;
   displayMode: DisplayMode;
+  backgroundPreset: BackgroundPreset;
   onFeedbackChange: (feedback: ViewerFeedback) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
   selectedTextureId: string | null;
@@ -235,6 +254,7 @@ function createEnvironmentTarget(
 export function AssetViewport({
   currentFile,
   displayMode,
+  backgroundPreset,
   onFeedbackChange,
   onMetadataChange,
   selectedTextureId,
@@ -306,12 +326,11 @@ export function AssetViewport({
     const renderer = new WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(host.clientWidth, host.clientHeight);
-    renderer.setClearColor("#717781");
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
 
     const scene = new Scene();
-    scene.background = new Color("#717781");
+    applyViewportBackground(renderer, scene, backgroundPreset);
 
     const camera = new PerspectiveCamera(
       45,
@@ -446,6 +465,16 @@ export function AssetViewport({
     onMetadataChange,
     shouldInitializeScene,
   ]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context) {
+      return;
+    }
+
+    applyViewportBackground(context.renderer, context.scene, backgroundPreset);
+  }, [backgroundPreset]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
