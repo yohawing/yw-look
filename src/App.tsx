@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
+  type BackgroundPreset,
   type DisplayMode,
   type TextureViewMode,
   type ViewerFeedback,
@@ -82,12 +83,23 @@ function deriveDisplayMode(
   return "untextured";
 }
 
+const backgroundPresetOptions: Array<{
+  id: BackgroundPreset;
+  label: string;
+}> = [
+  { id: "gray", label: "Gray" },
+  { id: "charcoal", label: "Dark" },
+  { id: "light", label: "Light" },
+];
+
 export function App() {
   const [activeTab, setActiveTab] = useState<SidebarTab>("file");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  const [backgroundPreset, setBackgroundPreset] =
+    useState<BackgroundPreset>("gray");
   const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
   const [directoryListing, setDirectoryListing] =
     useState<DirectoryListing | null>(null);
@@ -795,6 +807,7 @@ export function App() {
           <AssetViewport
             currentFile={currentFile}
             displayMode={displayMode}
+            backgroundPreset={backgroundPreset}
             onFeedbackChange={setViewerFeedback}
             onMetadataChange={setAssetMetadata}
             selectedTextureId={selectedTextureId}
@@ -835,6 +848,24 @@ export function App() {
               <span>Grid</span>
               <span className={`toggle-switch${showGrid ? " is-on" : ""}`} />
             </button>
+            <div className="view-mode-group">
+              <span className="view-mode-label">Background</span>
+              <div className="view-mode-chip-row">
+                {backgroundPresetOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    aria-pressed={backgroundPreset === option.id}
+                    className={`view-mode-chip${
+                      backgroundPreset === option.id ? " is-active" : ""
+                    }`}
+                    onClick={() => setBackgroundPreset(option.id)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* InfoPanel toggle button */}
