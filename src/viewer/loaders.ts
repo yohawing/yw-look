@@ -12,6 +12,7 @@ import {
 } from "three";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { inspectStage } from "../lib/usd";
+import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
   LoadedPreview,
   MissingReferenceError,
@@ -21,6 +22,28 @@ import type {
 async function readArrayBuffer(path: string) {
   const bytes = await readBinaryFile(path);
   return Uint8Array.from(bytes).buffer;
+}
+
+/**
+ * Yields control to the browser for one paint frame. Used before heavy
+ * synchronous work (e.g. Three.js USDLoader.parse) so that React commits
+ * staged earlier in the same tick get a chance to paint first.
+ *
+ * Falls back to a microtask/macrotask chain when running outside a DOM
+ * context (tests, SSR) where `requestAnimationFrame` is unavailable.
+ */
+async function yieldToPaint(): Promise<void> {
+  if (typeof requestAnimationFrame === "function") {
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => {
+        // A second macrotask tick ensures the paint after RAF has landed
+        // before we start burning the main thread again.
+        setTimeout(() => resolve(), 0);
+      }),
+    );
+    return;
+  }
+  await new Promise<void>((resolve) => setTimeout(() => resolve(), 0));
 }
 
 async function readTextFile(path: string) {
@@ -533,7 +556,40 @@ export async function loadPreviewObject(
       const buffer = await readArrayBuffer(file.path);
       const loader = new USDLoader();
       const usdaText = await tryExtractUsdaText(file.extension, buffer);
-      const object = usdaText ? loader.parse(usdaText) : loader.parse(buffer);
+      // Phase 2: yield one frame so the USD inspector sidebar (which is
+      // populated in parallel by App.tsx via the Rust backend) has a chance
+      // to paint before we block the main thread on the synchronous
+      // Three.js parse. See docs/usd-phase2.md for the 2-stage load design.
+      await yieldToPaint();
+
+      // Phase 2: optionally route the parse to a Web Worker. Default OFF.
+      // On any worker failure we silently fall back to the synchronous
+      // main-thread parse so the feature flag can never regress.
+      let workerObject: Object3D | null = null;
+      if (isUsdWorkerEnabled()) {
+        try {
+          workerObject = await parseUsdInWorker(
+            file.path,
+            usdaText
+              ? { kind: "text", text: usdaText }
+              : { kind: "binary", buffer },
+          );
+        } catch (error) {
+          console.warn(
+            "[usd] worker parse failed, falling back to main thread:",
+            error,
+          );
+          workerObject = null;
+        }
+      }
+      // `USDLoader.parse` returns a `Group`; the worker path reconstructs
+      // via `ObjectLoader.parse`, which is typed as `Object3D`. We cast
+      // the worker output to `Group` to match `LoadedPreview.object` —
+      // the scene graph shape is compatible even if the runtime class
+      // nominal identity differs.
+      const object: Group =
+        (workerObject as Group | null) ??
+        (usdaText ? loader.parse(usdaText) : loader.parse(buffer));
 
       try {
         const runtimeHints = await parseUsdRuntimeHints(file.path);
