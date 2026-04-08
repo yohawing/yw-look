@@ -552,6 +552,19 @@ export async function loadPreviewObject(
       const buffer = await readArrayBuffer(file.path);
       const loader = new USDLoader();
       const usdaText = await tryExtractUsdaText(file.extension, buffer);
+
+      // Three.js USDLoader only handles USDA (ASCII) format. When
+      // tryExtractUsdaText returns null for a non-USDZ file it means the
+      // buffer is USDC binary crate format, which the loader cannot parse.
+      // Passing raw USDC to USDLoader silently produces empty geometry, so
+      // we fail fast here with a clear message instead.
+      if (usdaText === null && file.extension !== "usdz") {
+        throw new Error(
+          `USDC binary format (${file.fileName}) cannot be rendered by the Three.js preview. ` +
+            `Stage metadata and inspection are still available in the sidebar.`,
+        );
+      }
+
       // Phase 2: yield one frame so the USD inspector sidebar (which is
       // populated in parallel by App.tsx via the Rust backend) has a chance
       // to paint before we block the main thread on the synchronous
@@ -583,15 +596,22 @@ export async function loadPreviewObject(
       // the worker output to `Group` to match `LoadedPreview.object` —
       // the scene graph shape is compatible even if the runtime class
       // nominal identity differs.
-      const object: Group =
-        (workerObject as Group | null) ??
-        (usdaText ? loader.parse(usdaText) : loader.parse(buffer));
+      let object: Group;
+      try {
+        object =
+          (workerObject as Group | null) ??
+          (usdaText ? loader.parse(usdaText) : loader.parse(buffer));
+        console.info(`[usd] USDLoader.parse OK: ${file.fileName}`);
+      } catch (parseError) {
+        console.error("[usd] USDLoader.parse failed:", parseError);
+        throw parseError;
+      }
 
       try {
         const runtimeHints = await parseUsdRuntimeHints(file.path);
         applyUsdRuntimeHints(object, runtimeHints);
       } catch (error) {
-        console.warn("USD hint parsing failed:", error);
+        console.warn("[usd] runtime hints failed:", error);
       }
 
       return {
