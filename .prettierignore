@@ -2,3 +2,4 @@ dist
 node_modules
 src-tauri/target
 samples/
+tests/fixtures/broken/

@@ -449,6 +449,16 @@ async function parseUsdRuntimeHints(path: string): Promise<UsdRuntimeHints> {
   };
 }
 
+/**
+ * @internal Exported for unit-testing only. Not part of the public API.
+ */
+export {
+  getMimeType,
+  resolveSiblingPath,
+  isUsdcCrateBuffer,
+  readUsdzFirstFileName,
+};
+
 export async function loadPreviewObject(
   file: SelectedFile,
 ): Promise<LoadedPreview> {
