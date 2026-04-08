@@ -22,6 +22,7 @@ export {
   getObjectMaxDimension,
   normalizeObjectScale,
   applyDynamicGrid,
+  applyTextureView,
   getScaleWarning,
   applyDisplayMode,
 } from "./scene";

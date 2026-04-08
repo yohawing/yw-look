@@ -165,6 +165,35 @@ export function applyInitialView(
   controls.update();
 }
 
+export function applyTextureView(
+  camera: PerspectiveCamera,
+  controls: OrbitControls,
+  object: Group | Mesh,
+) {
+  const bounds = new Box3().setFromObject(object);
+  const size = bounds.getSize(new Vector3());
+  const center = bounds.getCenter(new Vector3());
+  const safeWidth = Math.max(size.x, 0.001);
+  const safeHeight = Math.max(size.y, 0.001);
+  const verticalFov = MathUtils.degToRad(camera.fov);
+  const horizontalFov =
+    2 * Math.atan(Math.tan(verticalFov * 0.5) * camera.aspect);
+  const fitHeightDistance = safeHeight / (2 * Math.tan(verticalFov * 0.5));
+  const fitWidthDistance = safeWidth / (2 * Math.tan(horizontalFov * 0.5));
+  const fitDistance = Math.max(fitHeightDistance, fitWidthDistance) * 1.08;
+
+  camera.position.set(center.x, center.y, center.z + fitDistance);
+  camera.near = Math.max(fitDistance / 100, 0.01);
+  camera.far = Math.max(fitDistance * 20, 20);
+  camera.lookAt(center);
+  camera.updateProjectionMatrix();
+
+  controls.target.copy(center);
+  controls.minDistance = Math.max(fitDistance / 4, 0.05);
+  controls.maxDistance = Math.max(fitDistance * 20, 20);
+  controls.update();
+}
+
 export function getObjectMaxDimension(object: Group | Mesh) {
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());

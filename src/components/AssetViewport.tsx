@@ -38,6 +38,7 @@ import {
   applyInitialView,
   normalizeObjectScale,
   applyDynamicGrid,
+  applyTextureView,
   getScaleWarning,
   applyDisplayMode,
   loadPreviewObject,
@@ -77,6 +78,60 @@ function applyViewportBackground(
 }
 
 export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
+
+const INITIAL_GRID_NAME = "__yw_initial_grid";
+
+function configureAssetControls(controls: OrbitControls) {
+  controls.enableRotate = true;
+  controls.enablePan = true;
+  controls.enableZoom = true;
+  controls.mouseButtons.LEFT = MOUSE.ROTATE;
+  controls.mouseButtons.MIDDLE = MOUSE.PAN;
+  controls.mouseButtons.RIGHT = MOUSE.DOLLY;
+}
+
+function configureTextureControls(controls: OrbitControls) {
+  controls.enableRotate = false;
+  controls.enablePan = true;
+  controls.enableZoom = true;
+  controls.mouseButtons.LEFT = MOUSE.PAN;
+  controls.mouseButtons.MIDDLE = MOUSE.PAN;
+  controls.mouseButtons.RIGHT = MOUSE.DOLLY;
+}
+
+function syncGridVisibility(
+  context: SceneContext,
+  showGrid: boolean,
+  viewerSurfaceMode: ViewerSurfaceMode,
+  forceAssetGrid = false,
+) {
+  const grid = context.scene.getObjectByName(INITIAL_GRID_NAME);
+
+  if (grid) {
+    grid.visible =
+      showGrid && (forceAssetGrid || viewerSurfaceMode === "asset");
+  }
+}
+
+function frameMountedObject(
+  context: SceneContext,
+  object: NonNullable<SceneContext["mountedObject"]>,
+  viewerSurfaceMode: ViewerSurfaceMode,
+  showGrid: boolean,
+) {
+  syncGridVisibility(context, showGrid, viewerSurfaceMode);
+
+  if (viewerSurfaceMode === "texture") {
+    configureTextureControls(context.controls);
+    applyTextureView(context.camera, context.controls, object);
+    context.controls.enabled = true;
+    return;
+  }
+
+  configureAssetControls(context.controls);
+  applyInitialView(context.camera, context.controls, object);
+  context.controls.enabled = true;
+}
 
 type AssetViewportProps = {
   currentFile: SelectedFile | null;
@@ -279,6 +334,7 @@ export function AssetViewport({
   const activeEnvironmentPresetRef =
     useRef<EnvironmentPreset>(environmentPreset);
   const displayModeRef = useRef(displayMode);
+  const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
@@ -301,15 +357,11 @@ export function AssetViewport({
   }, [displayMode]);
 
   useEffect(() => {
-    showGridRef.current = showGrid;
-  }, [showGrid]);
+    viewerSurfaceModeRef.current = viewerSurfaceMode;
+  }, [viewerSurfaceMode]);
 
   useEffect(() => {
-    const context = sceneContextRef.current;
-    const grid = context?.scene.getObjectByName("__yw_initial_grid");
-    if (grid) {
-      grid.visible = showGrid;
-    }
+    showGridRef.current = showGrid;
   }, [showGrid]);
 
   useEffect(() => {
@@ -363,9 +415,7 @@ export function AssetViewport({
     scene.add(ambient, key, fill);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.mouseButtons.LEFT = MOUSE.ROTATE;
-    controls.mouseButtons.MIDDLE = MOUSE.PAN;
-    controls.mouseButtons.RIGHT = MOUSE.DOLLY;
+    configureAssetControls(controls);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
 
@@ -387,6 +437,11 @@ export function AssetViewport({
         return;
       }
 
+      if (viewerSurfaceModeRef.current === "texture") {
+        controls.enabled = true;
+        return;
+      }
+
       controls.enabled =
         event.button === 0 || event.button === 1 || event.button === 2;
     };
@@ -404,6 +459,23 @@ export function AssetViewport({
       renderer.setSize(nextSize.x, nextSize.y);
       camera.aspect = nextSize.x / nextSize.y;
       camera.updateProjectionMatrix();
+
+      const resizeContext = sceneContextRef.current;
+      const mountedObject = resizeContext?.mountedObject;
+      if (
+        !resizeContext ||
+        !mountedObject ||
+        viewerSurfaceModeRef.current !== "texture"
+      ) {
+        return;
+      }
+
+      frameMountedObject(
+        resizeContext,
+        mountedObject,
+        viewerSurfaceModeRef.current,
+        showGridRef.current,
+      );
     });
 
     resizeObserver.observe(host);
@@ -511,6 +583,55 @@ export function AssetViewport({
       return;
     }
 
+    if (!currentFile) {
+      syncGridVisibility(
+        context,
+        showGridRef.current,
+        viewerSurfaceModeRef.current,
+        true,
+      );
+      return;
+    }
+
+    if (!context.mountedObject) {
+      syncGridVisibility(
+        context,
+        showGridRef.current,
+        viewerSurfaceModeRef.current,
+      );
+      return;
+    }
+
+    frameMountedObject(
+      context,
+      context.mountedObject,
+      viewerSurfaceModeRef.current,
+      showGridRef.current,
+    );
+    resetCameraRef.current = () => {
+      const targetContext = sceneContextRef.current;
+      const targetObject = targetContext?.mountedObject;
+
+      if (!targetContext || !targetObject) {
+        return;
+      }
+
+      frameMountedObject(
+        targetContext,
+        targetObject,
+        viewerSurfaceModeRef.current,
+        showGridRef.current,
+      );
+    };
+  }, [currentFile, showGrid, viewerSurfaceMode]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context) {
+      return;
+    }
+
     stopAnimations(context);
     resetSceneObjects(context);
     revokeUrls(context.cleanupUrls);
@@ -519,31 +640,34 @@ export function AssetViewport({
     resetCameraRef.current = null;
 
     // Show/hide initial grid based on file state
-    const grid = context.scene.getObjectByName("__yw_initial_grid");
-
     if (!currentFile) {
-      if (grid) {
-        grid.visible = showGrid;
-      } else {
-        const fallbackGrid = applyDynamicGrid(
-          context.scene,
-          DEFAULT_SCENE_DIMENSION,
-          showGrid,
-        );
-        onGridUnitChange(fallbackGrid.label);
-      }
+      syncGridVisibility(
+        context,
+        showGridRef.current,
+        viewerSurfaceModeRef.current,
+        true,
+      );
+      const fallbackGrid = applyDynamicGrid(
+        context.scene,
+        DEFAULT_SCENE_DIMENSION,
+        showGridRef.current,
+      );
+      onGridUnitChange(fallbackGrid.label);
       context.camera.position.set(5, 4, 5);
       context.camera.lookAt(0, 0, 0);
       context.controls.target.set(0, 0, 0);
+      configureAssetControls(context.controls);
       context.controls.enabled = true;
       onFeedbackChange(neutralFeedback);
       onMetadataChange(emptyAssetMetadata);
       return;
     }
 
-    if (grid) {
-      grid.visible = showGrid;
-    }
+    syncGridVisibility(
+      context,
+      showGridRef.current,
+      viewerSurfaceModeRef.current,
+    );
 
     if (!implementedPreviewExtensions.has(currentFile.extension)) {
       onMetadataChange(emptyAssetMetadata);
@@ -586,8 +710,12 @@ export function AssetViewport({
         );
         onGridUnitChange(gridConfig.label);
         applyDisplayMode(object, displayModeRef.current);
-        applyInitialView(context.camera, context.controls, object);
-        context.controls.enabled = true;
+        frameMountedObject(
+          context,
+          object,
+          viewerSurfaceModeRef.current,
+          showGridRef.current,
+        );
         setActivePreviewPath(currentFile.path);
         setOverlayMode("ready");
         const metadataCollection = collectAssetMetadata(
@@ -615,13 +743,19 @@ export function AssetViewport({
         }
 
         resetCameraRef.current = () => {
-          const targetObject = context.mountedObject;
+          const targetContext = sceneContextRef.current;
+          const targetObject = targetContext?.mountedObject;
 
-          if (!targetObject) {
+          if (!targetContext || !targetObject) {
             return;
           }
 
-          applyInitialView(context.camera, context.controls, targetObject);
+          frameMountedObject(
+            targetContext,
+            targetObject,
+            viewerSurfaceModeRef.current,
+            showGridRef.current,
+          );
         };
 
         onFeedbackChange({
@@ -709,7 +843,12 @@ export function AssetViewport({
     ) {
       context.sourceObject.visible = true;
       context.mountedObject = context.sourceObject;
-      applyInitialView(context.camera, context.controls, context.sourceObject);
+      frameMountedObject(
+        context,
+        context.sourceObject,
+        viewerSurfaceModeRef.current,
+        showGridRef.current,
+      );
       return;
     }
 
@@ -729,7 +868,12 @@ export function AssetViewport({
     context.previewObject = previewObject;
     context.mountedObject = previewObject;
     context.scene.add(previewObject);
-    applyInitialView(context.camera, context.controls, previewObject);
+    frameMountedObject(
+      context,
+      previewObject,
+      viewerSurfaceModeRef.current,
+      showGridRef.current,
+    );
   }, [
     selectedTextureId,
     textureBlackPoint,
