@@ -145,6 +145,15 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Debug icon files
+        run: |
+          echo "=== git check-attr ==="
+          git check-attr filter -- src-tauri/icons/32x32.png
+          echo "=== file header (hex) ==="
+          xxd src-tauri/icons/32x32.png | head -3
+          echo "=== git cat-file ==="
+          git cat-file -t HEAD:src-tauri/icons/32x32.png
+
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
