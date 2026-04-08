@@ -1,9 +1,7 @@
 import {
   CompressedTexture,
   DataTexture,
-  Euler,
   Group,
-  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -13,6 +11,7 @@ import {
   TextureLoader,
 } from "three";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
+import { inspectStage } from "../lib/usd";
 import type {
   LoadedPreview,
   MissingReferenceError,
@@ -277,250 +276,11 @@ function applyObjTextureBundle(object: Group, bundle: TextureBundle) {
   });
 }
 
-type UsdXformHints = {
-  path: string;
-  hasMatrixTransform: boolean;
-  order: string[];
-  scale: [number, number, number] | null;
-  translate: [number, number, number] | null;
-  rotateXYZ: [number, number, number] | null;
-};
-
 type UsdRuntimeHints = {
   metersPerUnit: number | null;
-  xforms: UsdXformHints[];
 };
-
-const usdXformKeyPatterns = {
-  transform: /\bxformOp:transform(?!:)/,
-  scale: /\bxformOp:scale(?!:)/,
-  translate: /\bxformOp:translate(?!:)/,
-  rotateXYZ: /\bxformOp:rotateXYZ(?!:)/,
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function parseUsdFloatTuple(value: string): [number, number, number] | null {
-  const matches = value.match(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g);
-  if (!matches) {
-    return null;
-  }
-
-  const numbers = matches
-    .map((entry) => Number.parseFloat(entry))
-    .filter((num) => Number.isFinite(num));
-
-  if (numbers.length !== 3) {
-    return null;
-  }
-
-  return [numbers[0], numbers[1], numbers[2]];
-}
-
-function parseUsdOpOrder(value: string) {
-  const matches = value.match(/"([^"]+)"/g);
-  if (!matches) {
-    return [];
-  }
-
-  return matches.map((token) => token.replace(/^"|"$/g, ""));
-}
-
-function parseUsdNumericValue(value: string) {
-  const match = value.match(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/);
-  if (!match) {
-    return null;
-  }
-
-  const numeric = Number.parseFloat(match[0]);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function findUsdMetersPerUnit(data: Record<string, unknown>): number | null {
-  for (const [key, value] of Object.entries(data)) {
-    if (typeof value === "string" && key.includes("metersPerUnit")) {
-      const parsed = parseUsdNumericValue(value);
-      if (parsed && parsed > 0) {
-        return parsed;
-      }
-    }
-
-    if (isRecord(value)) {
-      const nested = findUsdMetersPerUnit(value);
-      if (nested) {
-        return nested;
-      }
-    }
-  }
-
-  return null;
-}
-
-function extractUsdPrimName(key: string) {
-  const match = key.match(/^def Xform "([^"]+)"$/);
-  return match?.[1].trim() || null;
-}
-
-function buildUsdXformPath(parentSegments: string[], segment: string) {
-  return [...parentSegments, segment].join("/");
-}
-
-function isExactUsdXformKey(entryKey: string, op: string) {
-  const pattern = usdXformKeyPatterns[op as keyof typeof usdXformKeyPatterns];
-  return pattern ? pattern.test(entryKey) : false;
-}
-
-function collectUsdXformHints(
-  data: Record<string, unknown>,
-  parentSegments: string[],
-  result: UsdXformHints[],
-  siblingIndex = 0,
-): number {
-  let currentSiblingIndex = siblingIndex;
-
-  for (const [key, value] of Object.entries(data)) {
-    if (!isRecord(value)) {
-      continue;
-    }
-
-    if (key.startsWith("def Scope")) {
-      currentSiblingIndex = collectUsdXformHints(
-        value,
-        parentSegments,
-        result,
-        currentSiblingIndex,
-      );
-      continue;
-    }
-
-    if (key.startsWith("def Xform")) {
-      const segment = extractUsdPrimName(key) ?? `#${currentSiblingIndex}`;
-      const path = buildUsdXformPath(parentSegments, segment);
-      const hints: UsdXformHints = {
-        path,
-        hasMatrixTransform: false,
-        order: [],
-        scale: null,
-        translate: null,
-        rotateXYZ: null,
-      };
-
-      for (const [entryKey, entryValue] of Object.entries(value)) {
-        if (typeof entryValue !== "string") {
-          continue;
-        }
-
-        if (isExactUsdXformKey(entryKey, "transform")) {
-          hints.hasMatrixTransform = true;
-        } else if (isExactUsdXformKey(entryKey, "scale")) {
-          hints.scale = parseUsdFloatTuple(entryValue);
-        } else if (isExactUsdXformKey(entryKey, "translate")) {
-          hints.translate = parseUsdFloatTuple(entryValue);
-        } else if (isExactUsdXformKey(entryKey, "rotateXYZ")) {
-          hints.rotateXYZ = parseUsdFloatTuple(entryValue);
-        } else if (/\bxformOpOrder\b/.test(entryKey)) {
-          hints.order = parseUsdOpOrder(entryValue);
-        }
-      }
-
-      result.push(hints);
-      currentSiblingIndex += 1;
-      collectUsdXformHints(value, [...parentSegments, segment], result);
-    }
-  }
-
-  return currentSiblingIndex;
-}
-
-function collectUsdXformNodeMap(root: Object3D) {
-  const nodes = new Map<string, Object3D>();
-
-  const walk = (current: Object3D, parentSegments: string[]) => {
-    current.children.forEach((child, index) => {
-      const segment = child.name.trim() || `#${index}`;
-      const path = buildUsdXformPath(parentSegments, segment);
-      nodes.set(path, child);
-      walk(child, [...parentSegments, segment]);
-    });
-  };
-
-  walk(root, []);
-  return nodes;
-}
-
-function applyUsdXformHint(target: Object3D, hint: UsdXformHints) {
-  if (hint.hasMatrixTransform) {
-    return;
-  }
-
-  const order =
-    hint.order.length > 0
-      ? hint.order
-      : ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"];
-
-  const composed = new Matrix4().identity();
-  let transformed = false;
-
-  for (const rawToken of order) {
-    const invert = rawToken.startsWith("!invert!");
-    const token = rawToken.replace(/^!invert!/, "");
-    let step: Matrix4 | null = null;
-
-    if (token === "xformOp:translate" && hint.translate) {
-      step = new Matrix4().makeTranslation(
-        hint.translate[0],
-        hint.translate[1],
-        hint.translate[2],
-      );
-    } else if (token === "xformOp:rotateXYZ" && hint.rotateXYZ) {
-      step = new Matrix4().makeRotationFromEuler(
-        new Euler(
-          (hint.rotateXYZ[0] * Math.PI) / 180,
-          (hint.rotateXYZ[1] * Math.PI) / 180,
-          (hint.rotateXYZ[2] * Math.PI) / 180,
-          "XYZ",
-        ),
-      );
-    } else if (token === "xformOp:scale" && hint.scale) {
-      step = new Matrix4().makeScale(
-        hint.scale[0],
-        hint.scale[1],
-        hint.scale[2],
-      );
-    }
-
-    if (!step) {
-      continue;
-    }
-
-    if (invert) {
-      step.invert();
-    }
-
-    composed.multiply(step);
-    transformed = true;
-  }
-
-  if (!transformed) {
-    return;
-  }
-
-  composed.decompose(target.position, target.quaternion, target.scale);
-}
 
 function applyUsdRuntimeHints(object: Object3D, hints: UsdRuntimeHints) {
-  const nodeMap = collectUsdXformNodeMap(object);
-
-  for (const hint of hints.xforms) {
-    const target = nodeMap.get(hint.path);
-    if (!target) {
-      continue;
-    }
-    applyUsdXformHint(target, hint);
-  }
-
   if (!hints.metersPerUnit || Math.abs(hints.metersPerUnit - 1) < 1e-6) {
     return;
   }
@@ -635,23 +395,38 @@ function readUsdzFirstFileName(buffer: ArrayBuffer) {
 }
 
 async function parseUsdRuntimeHints(
-  usdaText: string,
+  path: string,
 ): Promise<UsdRuntimeHints> {
-  const parserModulePath = "three/examples/jsm/loaders/usd/USDAParser.js";
-  const parserModule = (await import(parserModulePath)) as {
-    USDAParser: new () => {
-      parseText: (text: string) => Record<string, unknown>;
-    };
-  };
-  const { USDAParser } = parserModule;
-  const parser = new USDAParser();
-  const root = parser.parseText(usdaText) as Record<string, unknown>;
-  const xforms: UsdXformHints[] = [];
-  collectUsdXformHints(root, [], xforms);
-
+  // Delegated to the Rust `OpenusdBackend` via the Tauri command surface,
+  // so this works for USDA, USDC, and USDZ uniformly. Returns just the
+  // pieces the Three.js viewer cannot recover by itself — currently only
+  // `metersPerUnit` (USDLoader handles the xform graph natively).
+  //
+  // Wrapped in a hard timeout so a hung / slow backend call can never
+  // stall the preview pipeline — we fall back to "no hint" and the
+  // viewer still renders with USDLoader's own scene.
+  const started = performance.now();
+  const TIMEOUT_MS = 10_000;
+  const inspection = await Promise.race([
+    inspectStage(path),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `inspectStage timeout after ${TIMEOUT_MS}ms for ${path}`,
+            ),
+          ),
+        TIMEOUT_MS,
+      ),
+    ),
+  ]);
+  const elapsed = Math.round(performance.now() - started);
+  console.info(
+    `[usd] inspectStage OK in ${elapsed}ms: metersPerUnit=${inspection.metersPerUnit}`,
+  );
   return {
-    metersPerUnit: findUsdMetersPerUnit(root),
-    xforms,
+    metersPerUnit: inspection.metersPerUnit,
   };
 }
 
@@ -760,13 +535,11 @@ export async function loadPreviewObject(
       const usdaText = await tryExtractUsdaText(file.extension, buffer);
       const object = usdaText ? loader.parse(usdaText) : loader.parse(buffer);
 
-      if (usdaText) {
-        try {
-          const runtimeHints = await parseUsdRuntimeHints(usdaText);
-          applyUsdRuntimeHints(object, runtimeHints);
-        } catch (error) {
-          console.warn("USD hint parsing failed:", error);
-        }
+      try {
+        const runtimeHints = await parseUsdRuntimeHints(file.path);
+        applyUsdRuntimeHints(object, runtimeHints);
+      } catch (error) {
+        console.warn("USD hint parsing failed:", error);
       }
 
       return {

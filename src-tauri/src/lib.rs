@@ -1,3 +1,5 @@
+mod usd;
+
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 #[cfg(desktop)]
@@ -6,7 +8,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{Read as IoRead, Write},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 #[cfg(desktop)]
@@ -14,6 +16,10 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
+
+use crate::usd::{
+    AssetIssue, OpenusdBackend, StageInspection, StageSummary, UsdBackend, UsdError,
+};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
@@ -89,6 +95,22 @@ struct UpdateInstallPayload {
 
 #[derive(Default)]
 struct PendingUpdateState(Mutex<Option<Update>>);
+
+/// Active USD inspection backend. Held behind an `Arc` so each async
+/// Tauri command can clone a handle and move it into a blocking task
+/// without borrowing from `tauri::State`.
+/// Currently `OpenusdBackend` (yohawing/openusd `yw-look-phase1`).
+struct UsdBackendState(Arc<dyn UsdBackend>);
+
+impl UsdBackendState {
+    fn new(backend: impl UsdBackend + 'static) -> Self {
+        Self(Arc::new(backend))
+    }
+
+    fn handle(&self) -> Arc<dyn UsdBackend> {
+        Arc::clone(&self.0)
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1062,6 +1084,51 @@ fn load_diagnostics_snapshot(app: tauri::AppHandle) -> Result<DiagnosticsPayload
     })
 }
 
+fn map_usd_error(error: UsdError) -> String {
+    error.to_string()
+}
+
+async fn run_blocking_usd<T, F>(task: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|e| format!("USD task join error: {e}"))?
+        .map_err(map_usd_error)
+}
+
+#[tauri::command]
+async fn inspect_stage(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<StageInspection, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.inspect_stage(&normalized)).await
+}
+
+#[tauri::command]
+async fn summarize_stage(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<StageSummary, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.summarize_stage(&normalized)).await
+}
+
+#[tauri::command]
+async fn collect_asset_issues(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<Vec<AssetIssue>, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.collect_asset_issues(&normalized)).await
+}
+
 #[tauri::command]
 async fn check_for_update(
     app: tauri::AppHandle,
@@ -1161,6 +1228,7 @@ pub fn run() {
             }
 
             app.manage(PendingUpdateState::default());
+            app.manage(UsdBackendState::new(OpenusdBackend::new()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1179,7 +1247,10 @@ pub fn run() {
             check_for_update,
             install_pending_update,
             inspect_asset,
-            load_format_support
+            load_format_support,
+            inspect_stage,
+            summarize_stage,
+            collect_asset_issues
         ])
         .run(tauri::generate_context!())
         .expect("error while running yw-look");

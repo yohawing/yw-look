@@ -14,3 +14,5 @@ artifacts/logs/*
 
 samples/private/*
 !samples/private/.gitkeep
+
+experiments/
