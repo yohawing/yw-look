@@ -776,6 +776,38 @@ textarea {
   background: rgba(39, 166, 68, 0.12);
 }
 
+.card-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.card-grid dt {
+  color: #8a8f98;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  margin: 0;
+}
+
+.card-grid dd {
+  color: #d0d6e0;
+  font-size: 12px;
+  font-weight: 510;
+  text-align: right;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  margin: 0;
+}
+
+.card-grid dt:last-of-type,
+.card-grid dd:last-of-type {
+  border-bottom: none;
+}
+
 .card-empty {
   color: #62666d;
   font-size: 12px;
@@ -797,6 +829,33 @@ textarea {
   line-height: 1.4;
   margin: 0 0 8px;
   word-break: break-all;
+}
+
+.card-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.card-list .issue {
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 4px 6px;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.card-list .issue-warning {
+  color: #f0c040;
+  background: rgba(240, 192, 64, 0.08);
+}
+
+.card-list .issue-error {
+  color: #ff9a9a;
+  background: rgba(255, 100, 100, 0.08);
 }
 
 .card-divider {

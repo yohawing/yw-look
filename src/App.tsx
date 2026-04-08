@@ -30,7 +30,16 @@ import {
   type PerformanceSnapshot,
 } from "./components/PerformanceCard";
 import { TextureListCard } from "./components/TextureListCard";
+import { UsdInspectorCard } from "./components/UsdInspectorCard";
 import { WarningsCard } from "./components/WarningsCard";
+import {
+  collectAssetIssues,
+  inspectStage,
+  summarizeStage,
+  type AssetIssue,
+  type StageInspection,
+  type StageSummary,
+} from "./lib/usd";
 import {
   loadDiagnosticsSnapshot,
   logDiagnosticEvent,
@@ -86,6 +95,24 @@ type WindowWithIdleCallback = Window & {
   ) => number;
   cancelIdleCallback?: (handle: number) => void;
 };
+
+const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
+
+function isUsdFile(file: SelectedFile | null): boolean {
+  return !!file && USD_EXTENSIONS.has(file.extension);
+}
+
+/**
+ * Format one `AssetIssue` as a single-line string so it can be funneled
+ * into the existing `warnings: string[]` pipeline consumed by
+ * `WarningsCard`. Phase 2 intentionally keeps WarningsCard on its string
+ * contract; a structured `Issue` variant is a Phase 3 concern.
+ */
+function formatAssetIssue(issue: AssetIssue): string {
+  const prefix = issue.level === "error" ? "USD error" : "USD warning";
+  const context = issue.contextPath ? ` (${issue.contextPath})` : "";
+  return `${prefix}: ${issue.message}${context}`;
+}
 
 const initialViewerFeedback: ViewerFeedback = {
   mode: "empty",
@@ -201,6 +228,15 @@ export function App() {
       firstPaintMs: null,
       interactiveMs: null,
     });
+  const [usdSummary, setUsdSummary] = useState<StageSummary | null>(null);
+  const [usdInspection, setUsdInspection] = useState<StageInspection | null>(
+    null,
+  );
+  const [usdIssues, setUsdIssues] = useState<AssetIssue[]>([]);
+  const [usdInspectorLoading, setUsdInspectorLoading] = useState(false);
+  const [usdInspectorError, setUsdInspectorError] = useState<string | null>(
+    null,
+  );
   const isTauri = isTauriEnvironment();
   // Browser mode needs recent files immediately for the always-visible MenuBar.
   // Tauri can keep this deferred until the sidebar is opened.
@@ -261,8 +297,19 @@ export function App() {
       }
     }
 
+    // Phase 2: surface Rust-side USD asset hygiene issues in the existing
+    // warnings pipeline. Errors sort before warnings so broken references
+    // are visible first.
+    const sortedIssues = [...usdIssues].sort((a, b) => {
+      if (a.level === b.level) return 0;
+      return a.level === "error" ? -1 : 1;
+    });
+    for (const issue of sortedIssues) {
+      nextWarnings.push(formatAssetIssue(issue));
+    }
+
     return nextWarnings;
-  }, [assetMetadata?.textures, viewerFeedback.warning]);
+  }, [assetMetadata?.textures, usdIssues, viewerFeedback.warning]);
   const shortcutLines = useMemo(
     () =>
       Object.entries(menuShortcuts).map(([actionId, definition]) => {
@@ -298,6 +345,94 @@ export function App() {
       isActive = false;
     };
   }, []);
+
+  // Phase 2 USD inspector pipeline. Runs in parallel with the Three.js
+  // load path in AssetViewport, so the sidebar can show stage summary /
+  // inspection / asset issues before the heavy USDLoader parse finishes.
+  // See docs/usd-phase2.md.
+  useEffect(() => {
+    if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
+      setUsdSummary(null);
+      setUsdInspection(null);
+      setUsdIssues([]);
+      setUsdInspectorLoading(false);
+      setUsdInspectorError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setUsdSummary(null);
+    setUsdInspection(null);
+    setUsdIssues([]);
+    setUsdInspectorLoading(true);
+    setUsdInspectorError(null);
+
+    const path = currentFile.path;
+
+    // Summary resolves first and updates the UI immediately; the heavier
+    // inspection and asset-issue RPCs land later. We only drop the
+    // `loading` flag once ALL three settle so the card cannot flicker
+    // back to its "Open a USD…" empty state when the fastest RPC wins
+    // the race (e.g. `collect_asset_issues` returning an empty list
+    // before `summarize_stage` has produced any output).
+    const summarizePromise = summarizeStage(path)
+      .then((summary) => {
+        if (cancelled) return;
+        setUsdSummary(summary);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setUsdInspectorError(
+          error instanceof Error
+            ? error.message
+            : "Failed to summarize USD stage.",
+        );
+      });
+
+    const inspectPromise = inspectStage(path)
+      .then((inspection) => {
+        if (cancelled) return;
+        setUsdInspection(inspection);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        // Keep any earlier summarize error; otherwise record this one.
+        setUsdInspectorError((previous) =>
+          previous ??
+          (error instanceof Error
+            ? error.message
+            : "Failed to inspect USD stage."),
+        );
+      });
+
+    const issuesPromise = collectAssetIssues(path)
+      .then((issues) => {
+        if (cancelled) return;
+        setUsdIssues(issues);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setUsdInspectorError((previous) =>
+          previous ??
+          (error instanceof Error
+            ? error.message
+            : "Failed to collect USD asset issues."),
+        );
+      });
+
+    void Promise.allSettled([
+      summarizePromise,
+      inspectPromise,
+      issuesPromise,
+    ]).then(() => {
+      if (cancelled) return;
+      setUsdInspectorLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentFile, isTauri]);
 
   useEffect(() => {
     setPerformanceSnapshot((previous) => ({
@@ -1096,6 +1231,15 @@ export function App() {
               currentFile={currentFile}
               metadata={assetMetadata}
             />
+            {isUsdFile(currentFile) && (
+              <UsdInspectorCard
+                error={usdInspectorError}
+                inspection={usdInspection}
+                issues={usdIssues}
+                loading={usdInspectorLoading}
+                summary={usdSummary}
+              />
+            )}
             <PerformanceCard snapshot={performanceSnapshot} />
           </>
         );
