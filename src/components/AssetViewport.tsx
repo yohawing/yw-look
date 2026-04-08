@@ -107,16 +107,16 @@ function buildEnvironmentScene(preset: EnvironmentPreset) {
   const addPanel = ({
     color,
     position,
-    scale,
+    size,
     rotation = [0, 0, 0],
   }: {
     color: string;
     position: [number, number, number];
-    scale: [number, number, number];
+    size: [number, number, number];
     rotation?: [number, number, number];
   }) => {
     const panel = new Mesh(
-      new BoxGeometry(scale[0], scale[1], scale[2]),
+      new BoxGeometry(size[0], size[1], size[2]),
       new MeshBasicMaterial({ color }),
     );
     panel.position.set(position[0], position[1], position[2]);
@@ -147,24 +147,24 @@ function buildEnvironmentScene(preset: EnvironmentPreset) {
       addPanel({
         color: "#f3f4f8",
         position: [0, 9, -18],
-        scale: [14, 14, 0.45],
+        size: [14, 14, 0.45],
       });
       addPanel({
         color: "#dde3ee",
         position: [-15, 5, -8],
-        scale: [9, 12, 0.4],
+        size: [9, 12, 0.4],
         rotation: [0, 0.32, 0],
       });
       addPanel({
         color: "#d7dde7",
         position: [15, 4, -7],
-        scale: [9, 11, 0.4],
+        size: [9, 11, 0.4],
         rotation: [0, -0.34, 0],
       });
       addPanel({
         color: "#747c88",
         position: [0, -10, 0],
-        scale: [32, 0.5, 32],
+        size: [32, 0.5, 32],
       });
       break;
     case "outdoor":
@@ -177,19 +177,19 @@ function buildEnvironmentScene(preset: EnvironmentPreset) {
       addPanel({
         color: "#7fb3ff",
         position: [-16, 5, -8],
-        scale: [12, 10, 0.4],
+        size: [12, 10, 0.4],
         rotation: [0, 0.42, 0],
       });
       addPanel({
         color: "#d7ecff",
         position: [14, 7, -9],
-        scale: [8, 12, 0.35],
+        size: [8, 12, 0.35],
         rotation: [0, -0.26, 0],
       });
       addPanel({
         color: "#4a5665",
         position: [0, -11, 0],
-        scale: [36, 0.5, 36],
+        size: [36, 0.5, 36],
       });
       break;
     case "studio":
@@ -197,24 +197,24 @@ function buildEnvironmentScene(preset: EnvironmentPreset) {
       addPanel({
         color: "#ffffff",
         position: [0, 8, -16],
-        scale: [12, 12, 0.45],
+        size: [12, 12, 0.45],
       });
       addPanel({
         color: "#bfd0ff",
         position: [-15, 5, -9],
-        scale: [8, 14, 0.4],
+        size: [8, 14, 0.4],
         rotation: [0, 0.38, 0],
       });
       addPanel({
         color: "#ffe2c2",
         position: [15, 4, -8],
-        scale: [8, 10, 0.4],
+        size: [8, 10, 0.4],
         rotation: [0, -0.34, 0],
       });
       addPanel({
         color: "#626977",
         position: [0, -10, 0],
-        scale: [34, 0.5, 34],
+        size: [34, 0.5, 34],
       });
       break;
   }
@@ -252,6 +252,7 @@ export function AssetViewport({
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
   const environmentTargetRef = useRef<WebGLRenderTarget | null>(null);
+  const environmentTargetsRef = useRef<Map<EnvironmentPreset, WebGLRenderTarget>>(new Map());
   const activeEnvironmentPresetRef = useRef<EnvironmentPreset>(
     environmentPreset,
   );
@@ -321,8 +322,10 @@ export function AssetViewport({
     const pmremGenerator = new PMREMGenerator(renderer);
     environmentTargetRef.current = createEnvironmentTarget(
       pmremGenerator,
-      activeEnvironmentPresetRef.current,
+      environmentPreset,
     );
+    environmentTargetsRef.current.set(environmentPreset, environmentTargetRef.current);
+    activeEnvironmentPresetRef.current = environmentPreset;
     scene.environment = environmentTargetRef.current.texture;
 
     const ambient = new AmbientLight("#ffffff", 1.8);
@@ -419,7 +422,8 @@ export function AssetViewport({
       }
       revokeUrls(sceneContextRef.current?.cleanupUrls ?? []);
       controls.dispose();
-      environmentTargetRef.current?.dispose();
+      environmentTargetsRef.current.forEach((target) => target.dispose());
+      environmentTargetsRef.current.clear();
       environmentTargetRef.current = null;
       pmremGenerator.dispose();
       renderer.dispose();
@@ -445,13 +449,19 @@ export function AssetViewport({
       return;
     }
 
-    environmentTargetRef.current?.dispose();
-    environmentTargetRef.current = createEnvironmentTarget(
-      context.pmremGenerator,
-      environmentPreset,
-    );
+    let nextTarget = environmentTargetsRef.current.get(environmentPreset);
+
+    if (!nextTarget) {
+      nextTarget = createEnvironmentTarget(
+        context.pmremGenerator,
+        environmentPreset,
+      );
+      environmentTargetsRef.current.set(environmentPreset, nextTarget);
+    }
+
+    environmentTargetRef.current = nextTarget;
     activeEnvironmentPresetRef.current = environmentPreset;
-    context.scene.environment = environmentTargetRef.current.texture;
+    context.scene.environment = nextTarget.texture;
   }, [environmentPreset]);
 
   useEffect(() => {
