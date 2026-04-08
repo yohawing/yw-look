@@ -19,6 +19,34 @@
 - 大きい変更を 1 コミットに詰め込まない
 - 壊れている状態を長く放置しない
 
+## ブランチ運用
+
+`yw-look` は **`develop` 中心の開発フロー** を採用する。`main` は release 用の安定ブランチであり、直接 commit しない。
+
+### ブランチの役割
+
+- **`main`** — release 用。tag が打たれる対象。`develop` からの merge と hotfix のみが入る。
+- **`develop`** — 開発の集約ブランチ。**デフォルトブランチ**。すべての機能 PR はここに着地する。
+- **`feature/*` / `feat/*` / `fix/*` / `docs/*`** — 短命の作業ブランチ。`develop` から切り、PR で `develop` に戻す。
+
+### ルール
+
+- 機能開発は `develop` から作業ブランチを切る (例: `feat/usd-phase1`)
+- 通常の作業ブランチ（`feature/*` / `feat/*` / `fix/*` / `docs/*`）の PR の **base は必ず `develop`** にする。`main` を base にした PR は作らない
+- 作業ブランチは merge 後に削除する
+- `main` は release 時に `develop` から PR 経由で merge する（直接 push 禁止）
+- hotfix は `main` から `hotfix/*` を切り、**例外として** `hotfix/*` → `main` の PR で取り込む
+- hotfix を `main` に取り込んだ後は、同じ変更を `develop` にも PR 経由で取り込む
+
+### AI への明示
+
+AI が PR を作成する際は次を必ず守る:
+
+- 通常の作業ブランチでは `gh pr create --base develop ...` を使う
+- hotfix の場合のみ `hotfix/*` から `main` への PR を作成してよい。その後、同じ変更を `develop` にも取り込む
+- 既存ブランチに対する作業も、`git switch develop && git pull` してから feature ブランチを切り直す
+- main ブランチへの直接 push / 直接 commit は行わない
+
 ## コミット運用
 
 ### 必須ルール
