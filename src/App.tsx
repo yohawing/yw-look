@@ -1,4 +1,14 @@
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
@@ -13,18 +23,14 @@ import {
   type AssetMetadata,
 } from "./components/assetMetadata";
 import { CurrentFileCard } from "./components/CurrentFileCard";
-import { DiagnosticsCard } from "./components/DiagnosticsCard";
 import { HierarchyCard } from "./components/HierarchyCard";
-import { IntegrationCard } from "./components/IntegrationCard";
 import { MaterialListCard } from "./components/MaterialListCard";
+import { MenuBar } from "./components/MenuBar";
 import {
   PerformanceCard,
   type PerformanceSnapshot,
 } from "./components/PerformanceCard";
-import { RecentFilesCard } from "./components/RecentFilesCard";
-import { SettingsCard } from "./components/SettingsCard";
 import { TextureListCard } from "./components/TextureListCard";
-import { UpdateCard } from "./components/UpdateCard";
 import { WarningsCard } from "./components/WarningsCard";
 import {
   loadDiagnosticsSnapshot,
@@ -45,6 +51,14 @@ import {
   type IntegrationPayload,
 } from "./lib/integrations";
 import { loadRecentFiles, type RecentFilesPayload } from "./lib/recentFiles";
+import { isTauriEnvironment } from "./lib/platform";
+import {
+  formatShortcut,
+  isMenuActionId,
+  menuShortcuts,
+  resolveShortcutAction,
+  type MenuActionId,
+} from "./lib/menu";
 import {
   checkForUpdate,
   installPendingUpdate,
@@ -66,12 +80,21 @@ type SidebarTab =
   | "settings"
   | "warnings";
 
+type WindowWithIdleCallback = Window & {
+  requestIdleCallback?: (
+    callback: (deadline: IdleDeadline) => void,
+    options?: IdleRequestOptions,
+  ) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
 const initialViewerFeedback: ViewerFeedback = {
   mode: "empty",
   message: "Open a supported asset to initialize the preview scene.",
   warning: null,
   canResetCamera: false,
 };
+const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
 
 function deriveDisplayMode(
   showTexture: boolean,
@@ -83,6 +106,40 @@ function deriveDisplayMode(
   return "untextured";
 }
 
+const DiagnosticsCard = lazy(() =>
+  import("./components/DiagnosticsCard").then((module) => ({
+    default: module.DiagnosticsCard,
+  })),
+);
+const IntegrationCard = lazy(() =>
+  import("./components/IntegrationCard").then((module) => ({
+    default: module.IntegrationCard,
+  })),
+);
+const RecentFilesCard = lazy(() =>
+  import("./components/RecentFilesCard").then((module) => ({
+    default: module.RecentFilesCard,
+  })),
+);
+const SettingsCard = lazy(() =>
+  import("./components/SettingsCard").then((module) => ({
+    default: module.SettingsCard,
+  })),
+);
+const UpdateCard = lazy(() =>
+  import("./components/UpdateCard").then((module) => ({
+    default: module.UpdateCard,
+  })),
+);
+
+function SidebarCardFallback() {
+  return (
+    <article className="card">
+      <p className="muted">Loading panel…</p>
+    </article>
+  );
+}
+
 const backgroundPresetOptions: Array<{
   id: BackgroundPreset;
   label: string;
@@ -92,7 +149,9 @@ const backgroundPresetOptions: Array<{
   { id: "light", label: "Light" },
 ];
 
+
 export function App() {
+  const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("file");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTexture, setShowTexture] = useState(true);
@@ -100,6 +159,7 @@ export function App() {
   const [showGrid, setShowGrid] = useState(true);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
+  const [gridUnitLabel, setGridUnitLabel] = useState("1 m");
   const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
   const [directoryListing, setDirectoryListing] =
     useState<DirectoryListing | null>(null);
@@ -136,16 +196,29 @@ export function App() {
   const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [updateConfiguration, setUpdateConfiguration] =
     useState<UpdateConfigurationPayload | null>(null);
-  const [updateCheck, setUpdateCheck] = useState<UpdateCheckPayload | null>(null);
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckPayload | null>(
+    null,
+  );
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
+  const [dialogState, setDialogState] = useState<{
+    title: string;
+    lines: string[];
+  } | null>(null);
   const [performanceSnapshot, setPerformanceSnapshot] =
     useState<PerformanceSnapshot>({
       startupMs: null,
       loadMs: null,
       navigationMs: null,
+      firstPaintMs: null,
+      interactiveMs: null,
     });
+  const isTauri = isTauriEnvironment();
+  // Browser mode needs recent files immediately for the always-visible MenuBar.
+  // Tauri can keep this deferred until the sidebar is opened.
+  const shouldLoadRecentFiles = sidebarOpen || !isTauri;
+  const shouldLoadDeferredData = sidebarOpen;
 
   const viewerStatusLabel = useMemo(() => {
     switch (viewerFeedback.mode) {
@@ -203,6 +276,14 @@ export function App() {
 
     return nextWarnings;
   }, [assetMetadata?.textures, viewerFeedback.warning]);
+  const shortcutLines = useMemo(
+    () =>
+      Object.entries(menuShortcuts).map(([actionId, definition]) => {
+        const actionLabel = actionId.split(".").join(" > ");
+        return `${formatShortcut(definition)}  ${actionLabel}`;
+      }),
+    [],
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -234,11 +315,108 @@ export function App() {
   useEffect(() => {
     setPerformanceSnapshot((previous) => ({
       ...previous,
-      startupMs: performance.now(),
+      startupMs: performance.now() - appStartRef.current,
     }));
+
+    const existingPaintMetric = performance
+      .getEntriesByType("paint")
+      .find((entry) => entry.name === "first-contentful-paint");
+    if (existingPaintMetric) {
+      setPerformanceSnapshot((previous) =>
+        previous.firstPaintMs === null
+          ? {
+              ...previous,
+              firstPaintMs: existingPaintMetric.startTime,
+            }
+          : previous,
+      );
+    }
+
+    if (typeof PerformanceObserver === "undefined") {
+      return;
+    }
+
+    const paintObserver = new PerformanceObserver((entryList) => {
+      const firstPaint = entryList
+        .getEntries()
+        .find((entry) => entry.name === "first-contentful-paint");
+      if (!firstPaint) {
+        return;
+      }
+
+      setPerformanceSnapshot((previous) =>
+        previous.firstPaintMs === null
+          ? {
+              ...previous,
+              firstPaintMs: firstPaint.startTime,
+            }
+          : previous,
+      );
+      paintObserver.disconnect();
+    });
+
+    try {
+      paintObserver.observe({ type: "paint", buffered: true });
+    } catch {
+      paintObserver.disconnect();
+    }
+
+    return () => {
+      paintObserver.disconnect();
+    };
   }, []);
 
   useEffect(() => {
+    if (performanceSnapshot.interactiveMs !== null) {
+      return;
+    }
+
+    if (!settingsPayload && !settingsError) {
+      return;
+    }
+
+    let cancelled = false;
+    const markInteractive = () => {
+      if (cancelled) {
+        return;
+      }
+
+      setPerformanceSnapshot((previous) =>
+        previous.interactiveMs === null
+          ? {
+              ...previous,
+              interactiveMs: performance.now() - appStartRef.current,
+            }
+          : previous,
+      );
+    };
+
+    const idleWindow = window as WindowWithIdleCallback;
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const callbackId = idleWindow.requestIdleCallback(markInteractive, {
+        // Keep this short so the metric still reflects initial usability
+        // while allowing the browser to complete immediate startup work.
+        timeout: TIME_TO_INTERACTIVE_TIMEOUT_MS,
+      });
+      return () => {
+        cancelled = true;
+        idleWindow.cancelIdleCallback?.(callbackId);
+      };
+    }
+
+    const timeoutId = window.setTimeout(markInteractive, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [performanceSnapshot.interactiveMs, settingsError, settingsPayload]);
+
+  useEffect(() => {
+    if (!shouldLoadRecentFiles) {
+      return;
+    }
+
     let isActive = true;
 
     loadRecentFiles()
@@ -256,14 +434,16 @@ export function App() {
         }
 
         setRecentFilesError(
-          error instanceof Error ? error.message : "Failed to load recent files.",
+          error instanceof Error
+            ? error.message
+            : "Failed to load recent files.",
         );
       });
 
     return () => {
       isActive = false;
     };
-  }, [currentFile]);
+  }, [currentFile, shouldLoadRecentFiles]);
 
   const refreshDiagnostics = useEffectEvent(async () => {
     try {
@@ -280,8 +460,12 @@ export function App() {
   });
 
   useEffect(() => {
+    if (!shouldLoadDeferredData) {
+      return;
+    }
+
     void refreshDiagnostics();
-  }, []);
+  }, [shouldLoadDeferredData]);
 
   const refreshUpdateConfiguration = async () => {
     try {
@@ -298,10 +482,18 @@ export function App() {
   };
 
   useEffect(() => {
+    if (!shouldLoadDeferredData) {
+      return;
+    }
+
     void refreshUpdateConfiguration();
-  }, []);
+  }, [shouldLoadDeferredData]);
 
   useEffect(() => {
+    if (!shouldLoadDeferredData) {
+      return;
+    }
+
     let isActive = true;
 
     loadSupportedExtensions()
@@ -328,7 +520,10 @@ export function App() {
     return () => {
       isActive = false;
     };
-  }, [settingsPayload?.settings.fileAssociationsEnabled]);
+  }, [
+    settingsPayload?.settings.fileAssociationsEnabled,
+    shouldLoadDeferredData,
+  ]);
 
   useEffect(() => {
     if (!currentFile) {
@@ -488,10 +683,7 @@ export function App() {
     try {
       getCurrentWindow()
         .onDragDropEvent((event) => {
-          if (
-            event.payload.type === "enter" ||
-            event.payload.type === "over"
-          ) {
+          if (event.payload.type === "enter" || event.payload.type === "over") {
             setIsDragActive(true);
             return;
           }
@@ -562,26 +754,30 @@ export function App() {
         event.preventDefault();
         const nextFile =
           directoryListing.files[directoryListing.currentIndex - 1];
-        void selectFilePathFromEffect(nextFile.path, "navigation").catch((error: unknown) => {
-          setOpenError(
-            error instanceof Error
-              ? error.message
-              : "Failed to navigate to previous file.",
-          );
-        });
+        void selectFilePathFromEffect(nextFile.path, "navigation").catch(
+          (error: unknown) => {
+            setOpenError(
+              error instanceof Error
+                ? error.message
+                : "Failed to navigate to previous file.",
+            );
+          },
+        );
       }
 
       if (event.key === "ArrowRight" && canNavigateNext) {
         event.preventDefault();
         const nextFile =
           directoryListing.files[directoryListing.currentIndex + 1];
-        void selectFilePathFromEffect(nextFile.path, "navigation").catch((error: unknown) => {
-          setOpenError(
-            error instanceof Error
-              ? error.message
-              : "Failed to navigate to next file.",
-          );
-        });
+        void selectFilePathFromEffect(nextFile.path, "navigation").catch(
+          (error: unknown) => {
+            setOpenError(
+              error instanceof Error
+                ? error.message
+                : "Failed to navigate to next file.",
+            );
+          },
+        );
       }
     };
 
@@ -607,6 +803,217 @@ export function App() {
       }));
     }
   };
+
+  const handleOpenRecentFile = async (path: string) => {
+    try {
+      await performSelectFilePath(path, "recent");
+    } catch (error: unknown) {
+      setRecentFilesError(
+        error instanceof Error ? error.message : "Failed to open recent file.",
+      );
+    }
+  };
+
+  const handleToggleFullscreen = async () => {
+    if (isTauri) {
+      try {
+        const currentWindow = getCurrentWindow();
+        const next = !(await currentWindow.isFullscreen());
+        await currentWindow.setFullscreen(next);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleShowShortcuts = () => {
+    setDialogState({
+      title: "Keyboard Shortcuts",
+      lines: shortcutLines,
+    });
+  };
+
+  const handleShowAbout = async () => {
+    if (isTauri) {
+      try {
+        const version = await getVersion();
+        setDialogState({
+          title: "About",
+          lines: ["yw-look", `Version ${version}`],
+        });
+        return;
+      } catch {
+        // ignore
+      }
+    }
+
+    setDialogState({
+      title: "About",
+      lines: ["yw-look", "Browser preview mode"],
+    });
+  };
+
+  const executeMenuAction = async (actionId: MenuActionId) => {
+    switch (actionId) {
+      case "file.open":
+        await handleOpenFile();
+        return;
+      case "file.exit":
+        if (isTauri) {
+          try {
+            await getCurrentWindow().close();
+          } catch {
+            // ignore
+          }
+        } else {
+          window.close();
+        }
+        return;
+      case "view.toggleTexture":
+        setShowTexture((value) => !value);
+        return;
+      case "view.toggleWireframe":
+        setShowWireframe((value) => !value);
+        return;
+      case "view.toggleGrid":
+        setShowGrid((value) => !value);
+        return;
+      case "view.resetCamera":
+        setResetVersion((value) => value + 1);
+        return;
+      case "view.toggleSidebar":
+        setSidebarOpen((value) => !value);
+        return;
+      case "window.toggleFullscreen":
+        await handleToggleFullscreen();
+        return;
+      case "app.openSettings":
+        setSidebarOpen(true);
+        setActiveTab("settings");
+        return;
+      case "help.shortcuts":
+        handleShowShortcuts();
+        return;
+      case "help.about":
+        await handleShowAbout();
+        return;
+    }
+  };
+  const runMenuActionFromShortcut = useEffectEvent((actionId: MenuActionId) => {
+    void executeMenuAction(actionId);
+  });
+  const runMenuActionFromNativeMenu = useEffectEvent(
+    (actionId: MenuActionId) => {
+      void executeMenuAction(actionId);
+    },
+  );
+  const runRecentFileFromNativeMenu = useEffectEvent((path: string) => {
+    void handleOpenRecentFile(path);
+  });
+
+  type NativeMenuEventPayload =
+    | { kind: "action"; actionId: string }
+    | { kind: "recentFile"; path: string };
+
+  const isNativeMenuEventPayload = (
+    value: unknown,
+  ): value is NativeMenuEventPayload => {
+    if (typeof value !== "object" || value === null) {
+      return false;
+    }
+    const candidate = value as { kind?: unknown };
+    if (candidate.kind === "action") {
+      return typeof (value as { actionId?: unknown }).actionId === "string";
+    }
+    if (candidate.kind === "recentFile") {
+      return typeof (value as { path?: unknown }).path === "string";
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    if (isTauri) {
+      return;
+    }
+
+    const handleShortcutDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const actionId = resolveShortcutAction(event);
+      if (!actionId) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable;
+      if (isTyping) {
+        return;
+      }
+
+      event.preventDefault();
+      runMenuActionFromShortcut(actionId);
+    };
+
+    window.addEventListener("keydown", handleShortcutDown);
+    return () => {
+      window.removeEventListener("keydown", handleShortcutDown);
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri) {
+      return;
+    }
+
+    let isDisposed = false;
+    let unlisten: UnlistenFn | undefined;
+
+    listen<unknown>("yw-look://menu-action", (event) => {
+      if (!isNativeMenuEventPayload(event.payload)) {
+        return;
+      }
+
+      if (event.payload.kind === "action") {
+        if (isMenuActionId(event.payload.actionId)) {
+          runMenuActionFromNativeMenu(event.payload.actionId);
+        }
+        return;
+      }
+
+      runRecentFileFromNativeMenu(event.payload.path);
+    })
+      .then((dispose) => {
+        if (isDisposed) {
+          dispose();
+          return;
+        }
+        unlisten = dispose;
+      })
+      .catch(() => {
+        // Tauri API unavailable (browser dev mode)
+      });
+
+    return () => {
+      isDisposed = true;
+      unlisten?.();
+    };
+  }, [isTauri]);
 
   const handleToggleFileAssociations = async () => {
     if (!settingsPayload) {
@@ -698,7 +1105,10 @@ export function App() {
       case "file":
         return (
           <>
-            <CurrentFileCard currentFile={currentFile} metadata={assetMetadata} />
+            <CurrentFileCard
+              currentFile={currentFile}
+              metadata={assetMetadata}
+            />
             <PerformanceCard snapshot={performanceSnapshot} />
           </>
         );
@@ -727,53 +1137,63 @@ export function App() {
       case "settings":
         return (
           <>
-            <SettingsCard
-              settingsPayload={settingsPayload}
-              settingsError={settingsError}
-              onToggleFileAssociations={() =>
-                void handleToggleFileAssociations()
-              }
-            />
-            <UpdateCard
-              key={`${settingsPayload?.settings.updateEndpointOverride ?? ""}:${settingsPayload?.settings.updatePublicKeyOverride ?? ""}:${settingsPayload?.settings.allowInsecureUpdateEndpoint ?? false}`}
-              isCheckingForUpdate={isCheckingForUpdate}
-              isInstallingUpdate={isInstallingUpdate}
-              onCheckForUpdate={() => void handleCheckForUpdate()}
-              onInstallUpdate={() => void handleInstallUpdate()}
-              onSaveOverride={(draft) => void handleSaveUpdateSettings(draft)}
-              updateCheck={updateCheck}
-              updateConfiguration={updateConfiguration}
-              updateError={updateError}
-            />
-            <RecentFilesCard
-              onOpenPath={(path) => {
-                void performSelectFilePath(path, "recent").catch(
-                  (error: unknown) => {
-                    setRecentFilesError(
-                      error instanceof Error
-                        ? error.message
-                        : "Failed to open recent file.",
-                    );
-                  },
-                );
-              }}
-              recentFilesError={recentFilesError}
-              recentFilesPayload={recentFilesPayload}
-            />
-            <IntegrationCard
-              integrationError={integrationError}
-              integrationPayload={integrationPayload}
-            />
+            <Suspense fallback={<SidebarCardFallback />}>
+              <SettingsCard
+                settingsPayload={settingsPayload}
+                settingsError={settingsError}
+                onToggleFileAssociations={() =>
+                  void handleToggleFileAssociations()
+                }
+              />
+            </Suspense>
+            <Suspense fallback={<SidebarCardFallback />}>
+              <UpdateCard
+                key={`${settingsPayload?.settings.updateEndpointOverride ?? ""}:${settingsPayload?.settings.updatePublicKeyOverride ?? ""}:${settingsPayload?.settings.allowInsecureUpdateEndpoint ?? false}`}
+                isCheckingForUpdate={isCheckingForUpdate}
+                isInstallingUpdate={isInstallingUpdate}
+                onCheckForUpdate={() => void handleCheckForUpdate()}
+                onInstallUpdate={() => void handleInstallUpdate()}
+                onSaveOverride={(draft) => void handleSaveUpdateSettings(draft)}
+                updateCheck={updateCheck}
+                updateConfiguration={updateConfiguration}
+                updateError={updateError}
+              />
+            </Suspense>
+            <Suspense fallback={<SidebarCardFallback />}>
+              <RecentFilesCard
+                onOpenPath={(path) => {
+                  void performSelectFilePath(path, "recent").catch(
+                    (error: unknown) => {
+                      setRecentFilesError(
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to open recent file.",
+                      );
+                    },
+                  );
+                }}
+                recentFilesError={recentFilesError}
+                recentFilesPayload={recentFilesPayload}
+              />
+            </Suspense>
+            <Suspense fallback={<SidebarCardFallback />}>
+              <IntegrationCard
+                integrationError={integrationError}
+                integrationPayload={integrationPayload}
+              />
+            </Suspense>
           </>
         );
       case "warnings":
         return (
           <>
             <WarningsCard warnings={warnings} />
-            <DiagnosticsCard
-              diagnosticsError={diagnosticsError}
-              diagnosticsPayload={diagnosticsPayload}
-            />
+            <Suspense fallback={<SidebarCardFallback />}>
+              <DiagnosticsCard
+                diagnosticsError={diagnosticsError}
+                diagnosticsPayload={diagnosticsPayload}
+              />
+            </Suspense>
           </>
         );
     }
@@ -782,24 +1202,19 @@ export function App() {
   return (
     <main className="app-shell">
       {/* ── MenuBar ── */}
-      <nav className="menubar">
-        <button
-          className="menubar-button"
-          onClick={() => void handleOpenFile()}
-          type="button"
-        >
-          File
-        </button>
-        <button className="menubar-button" type="button">
-          View
-        </button>
-        <button className="menubar-button" type="button">
-          Window
-        </button>
-        <button className="menubar-button" type="button">
-          Help
-        </button>
-      </nav>
+      {isTauri ? (
+        <div className="menubar menubar-hidden" />
+      ) : (
+        <MenuBar
+          onAction={(actionId) => {
+            void executeMenuAction(actionId);
+          }}
+          onOpenRecentFile={(path) => {
+            void handleOpenRecentFile(path);
+          }}
+          recentFiles={recentFilesPayload?.entries ?? []}
+        />
+      )}
 
       {/* ── Viewport ── */}
       <section className="main-content">
@@ -818,6 +1233,7 @@ export function App() {
             textureWhitePoint={textureWhitePoint}
             resetVersion={resetVersion}
             showGrid={showGrid}
+            onGridUnitChange={setGridUnitLabel}
           />
 
           {/* ViewModeControls overlay */}
@@ -879,10 +1295,27 @@ export function App() {
             type="button"
             title={sidebarOpen ? "Close Info Panel" : "Open Info Panel"}
           >
-            <svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="2" y="2" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.4" />
+            <svg
+              viewBox="0 0 18 18"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect
+                x="2"
+                y="2"
+                width="14"
+                height="14"
+                rx="2"
+                stroke="currentColor"
+                strokeWidth="1.4"
+              />
               <path d="M11 2v14" stroke="currentColor" strokeWidth="1.4" />
-              <path d="M13.5 6h1M13.5 9h1M13.5 12h1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              <path
+                d="M13.5 6h1M13.5 9h1M13.5 12h1"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
 
@@ -893,8 +1326,20 @@ export function App() {
               onClick={() => setViewerSurfaceMode("asset")}
               type="button"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M8.5 2L4 7l4.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M8.5 2L4 7l4.5 5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
               Back to 3D View
             </button>
@@ -918,10 +1363,23 @@ export function App() {
             type="button"
             title="File Info"
           >
-            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M4 1.5h5.5L13 5v9.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.2" />
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M4 1.5h5.5L13 5v9.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
               <path d="M9 1.5V5h3.5" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M5.5 8.5h5M5.5 10.5h5M5.5 12.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              <path
+                d="M5.5 8.5h5M5.5 10.5h5M5.5 12.5h3"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
           <button
@@ -930,11 +1388,37 @@ export function App() {
             type="button"
             title="Hierarchy"
           >
-            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="4" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" />
-              <circle cx="12" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" />
-              <circle cx="8" cy="12" r="2" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M5 5.5L7 10.5M11 5.5L9 10.5" stroke="currentColor" strokeWidth="1.2" />
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <circle
+                cx="4"
+                cy="4"
+                r="2"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+              <circle
+                cx="12"
+                cy="4"
+                r="2"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+              <circle
+                cx="8"
+                cy="12"
+                r="2"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+              <path
+                d="M5 5.5L7 10.5M11 5.5L9 10.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
             </svg>
           </button>
           <button
@@ -943,10 +1427,25 @@ export function App() {
             type="button"
             title="Materials"
           >
-            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.2" />
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <circle
+                cx="8"
+                cy="8"
+                r="5.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
               <circle cx="8" cy="8" r="2" fill="currentColor" opacity="0.5" />
-              <path d="M8 2.5v2M8 11.5v2M2.5 8h2M11.5 8h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+              <path
+                d="M8 2.5v2M8 11.5v2M2.5 8h2M11.5 8h2"
+                stroke="currentColor"
+                strokeWidth="1"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
           <button
@@ -955,10 +1454,33 @@ export function App() {
             type="button"
             title="Textures"
           >
-            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" />
-              <circle cx="5.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1" />
-              <path d="M2 11l3-3 2 2 3-4 4 5v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-1Z" stroke="currentColor" strokeWidth="1.2" fill="none" />
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect
+                x="2"
+                y="2"
+                width="12"
+                height="12"
+                rx="1"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+              <circle
+                cx="5.5"
+                cy="5.5"
+                r="1.5"
+                stroke="currentColor"
+                strokeWidth="1"
+              />
+              <path
+                d="M2 11l3-3 2 2 3-4 4 5v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-1Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                fill="none"
+              />
             </svg>
           </button>
           <button
@@ -967,9 +1489,24 @@ export function App() {
             type="button"
             title="Settings"
           >
-            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <circle
+                cx="8"
+                cy="8"
+                r="2.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+              <path
+                d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
           <button
@@ -978,15 +1515,59 @@ export function App() {
             type="button"
             title="Warnings"
           >
-            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M8 1.5L1.5 13.5h13L8 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-              <path d="M8 6v4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M8 1.5L1.5 13.5h13L8 1.5Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M8 6v4"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
               <circle cx="8" cy="11.5" r="0.6" fill="currentColor" />
             </svg>
           </button>
         </nav>
         <div className="sidebar-content">{sidebarContent}</div>
       </aside>
+
+      {dialogState ? (
+        <div
+          className="dialog-backdrop"
+          onClick={() => setDialogState(null)}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="dialog-title"
+            aria-modal
+            className="dialog-card"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <header className="dialog-header">
+              <p className="card-title" id="dialog-title">
+                {dialogState.title}
+              </p>
+              <button
+                className="menubar-button"
+                onClick={() => setDialogState(null)}
+                type="button"
+              >
+                Close
+              </button>
+            </header>
+            <pre className="dialog-body">{dialogState.lines.join("\n")}</pre>
+          </section>
+        </div>
+      ) : null}
 
       {/* ── StatusBar ── */}
       <footer className="statusbar">
@@ -1010,6 +1591,12 @@ export function App() {
                   <span>{assetMetadata.materialCount} materials</span>
                 </>
               ) : null}
+              {showGrid ? (
+                <>
+                  <span className="statusbar-separator" />
+                  <span>Grid: {gridUnitLabel}</span>
+                </>
+              ) : null}
             </>
           ) : (
             <span>
@@ -1028,9 +1615,7 @@ export function App() {
               <span className="statusbar-separator" />
             </>
           ) : null}
-          <span className="statusbar-mono">
-            {currentFileSummary}
-          </span>
+          <span className="statusbar-mono">{currentFileSummary}</span>
         </div>
       </footer>
     </main>

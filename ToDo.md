@@ -62,9 +62,9 @@
 - [x] `Alt + 右ドラッグ = Zoom` を実装する
 - [x] ホイールズームを実装する
 - [x] 操作対象がない時の入力ガードを入れる
-- [ ] `左ドラッグ = Orbit` を実装する（Alt なし）
-- [ ] `中ボタンドラッグ = Pan` を実装する（Alt なし）
-- [ ] `右ドラッグ = Zoom` を実装する（Alt なし）
+- [x] `左ドラッグ = Orbit` を実装する（Alt なし）
+- [x] `中ボタンドラッグ = Pan` を実装する（Alt なし）
+- [x] `右ドラッグ = Zoom` を実装する（Alt なし）
 - [ ] モデルのバウンディングボックスに応じてカメラ操作感度（Orbit / Pan / Zoom）を自動調整する
 - [ ] カメラ操作感度を手動で微調整できるオプションを追加する
 
@@ -74,8 +74,8 @@
 - [x] `FBX` ローダーを実装する
 - [x] `OBJ` ローダーを実装する
 - [x] `USD` ローダーを experimental として実装する
-- [ ] `USD` ローダーで `metersPerUnit` を読み取りスケール補正を適用する（Three.js USDAParser が無視するため極小表示になる）
-- [ ] `USD` ローダーで個別 `xformOp`（scale / translate / rotateXYZ）をサポートする（現在 matrix4d のみ）
+- [x] `USD` ローダーで `metersPerUnit` を読み取りスケール補正を適用する（Three.js USDAParser が無視するため極小表示になる）
+- [x] `USD` ローダーで個別 `xformOp`（scale / translate / rotateXYZ）をサポートする（現在 matrix4d のみ）
 - [x] `PLY` ローダー対応可否を確認し、可能なら実装する
 - [ ] `DAE` ローダーを実装する（Three.js に ColladaLoader あり、未統合）
 - [x] `STL` ローダー対応可否を確認し、可能なら実装する
@@ -186,12 +186,12 @@
 
 ### 起動高速化
 
-- [ ] 外部フォント読み込みを最適化する（`preload` + `display=fallback`、またはローカルフォントに変更）
-- [ ] 起動時の非同期データ読み込みを整理する（設定のみ先行、診断ログ・最近のファイル・統合情報はサイドバー展開時に遅延）
-- [ ] WebGL シーン初期化をファイル読み込みまで遅延する（PMREMGenerator・環境マップ等）
-- [ ] サイドバー系コンポーネントを `React.lazy` でコード分割する（DiagnosticsCard / UpdateCard / IntegrationCard 等）
-- [ ] Vite のビルド設定を見直す（コード分割・チャンク最適化）
-- [ ] Time to First Paint / Time to Interactive の計測ポイントを追加する
+- [x] 外部フォント読み込みを最適化する（`preload` + `display=fallback`、またはローカルフォントに変更）
+- [x] 起動時の非同期データ読み込みを整理する（設定のみ先行、診断ログ・最近のファイル・統合情報はサイドバー展開時に遅延）
+- [x] WebGL シーン初期化をファイル読み込みまで遅延する（PMREMGenerator・環境マップ等）
+- [x] サイドバー系コンポーネントを `React.lazy` でコード分割する（DiagnosticsCard / UpdateCard / IntegrationCard 等）
+- [x] Vite のビルド設定を見直す（コード分割・チャンク最適化）
+- [x] Time to First Paint / Time to Interactive の計測ポイントを追加する
 
 ### 重い処理の Rust 側移行
 
@@ -199,12 +199,38 @@
 - [ ] 最初の移行対象を決めて Tauri コマンドとして実装する
 - [ ] JS 側と Rust 側の責務分離方針をドキュメント化する
 
-## 15. Windows 統合
+## 15. OS 統合（Windows / macOS）
+
+### Windows
 
 - [x] 関連付け対象拡張子の設定方法を決める
 - [x] インストーラーで関連付けを扱う方法を調べる
 - [x] 設定画面から関連付けオン / オフできる余地を作る
 - [x] 対象拡張子一覧を UI から参照できるようにする
+
+### macOS
+
+- [x] `tauri.conf.json` の `bundle.targets` を `"all"` に変更し、OS 別ビルドは `--bundles` フラグで制御する
+- [x] `src-tauri/icons/` に `.icns` アイコンを追加する
+- [x] `bundle.icon` 配列に Windows / macOS / 汎用 PNG をすべて列挙する
+- [x] `package.json` に `bundle:mac` スクリプトを追加する（`tauri build -- --bundles app,dmg`）
+- [ ] macOS 上で `npm run tauri dev` が通ることを確認する
+- [ ] macOS 上で `npm run bundle:mac` が通ることを確認する
+- [x] `tauri.conf.json` の identifier を `com.yohawing.ywlook` に変更する（`.app` 終端を回避）
+- [ ] `plugins.updater.windows.installMode` 相当の macOS 側設定を整理する
+- [ ] `scripts/prepare-local-update-feed.mjs` を OS 別成果物に対応させる
+  - [ ] `nsis` / `msi` だけでなく `macos` / `dmg` ディレクトリも走査する
+  - [ ] `.exe` / `.msi` / `.app.tar.gz` / `.dmg` を拡張子で振り分ける
+  - [ ] target キーを `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` で自動判定する
+- [ ] Finder からのファイル関連付け（`CFBundleDocumentTypes`）が登録されることを確認する
+- [ ] Finder の「このアプリで開く」一覧に出ることを確認する
+- [ ] メニュー / ヘルプの `CmdOrCtrl` 表記が macOS で `⌘` として表示されるか確認する
+- [ ] Rust 側の Windows 限定文言（`load_supported_extensions` の説明等）を `cfg!(target_os)` で分岐する
+- [ ] Rust 側の `\\?\` プレフィクス除去等の Windows 専用パス処理を OS 別に整理する
+- [ ] Apple Developer ID 証明書を調達する
+- [ ] `codesign` + `notarytool` のフローを実機で確認する
+- [ ] `xattr -dr com.apple.quarantine` が必要なケースを `docs/release-distribution.md` に追記する
+- [ ] macOS 配布の最終手順を `docs/release-distribution.md` に確定版として反映する
 
 ## 16. ログと診断
 
@@ -238,52 +264,52 @@
 
 ### 共通メニュー定義
 
-- [ ] メニュー項目の共通定義を作る（項目名・アクション・ショートカットを一箇所で管理）
-- [ ] Tauri / ブラウザで共通定義からメニューを生成する仕組みを作る
+- [x] メニュー項目の共通定義を作る（項目名・アクション・ショートカットを一箇所で管理）
+- [x] Tauri / ブラウザで共通定義からメニューを生成する仕組みを作る
 
 ### Tauri ネイティブメニュー（デスクトップ）
 
-- [ ] Tauri Menu API でネイティブメニューバーを構築する
-- [ ] メニューイベントから Rust / フロントエンドへアクションを伝搬する仕組みを作る
+- [x] Tauri Menu API でネイティブメニューバーを構築する
+- [x] メニューイベントから Rust / フロントエンドへアクションを伝搬する仕組みを作る
 
 ### React メニューバーコンポーネント（ブラウザ）
 
-- [ ] ドロップダウンメニューの基盤コンポーネントを作る（クリックで開閉・外側クリックで閉じる）
-- [ ] Tauri 環境ではコンポーネントを非表示にする分岐を入れる
+- [x] ドロップダウンメニューの基盤コンポーネントを作る（クリックで開閉・外側クリックで閉じる）
+- [x] Tauri 環境ではコンポーネントを非表示にする分岐を入れる
 
 ### File メニュー
 
-- [ ] `File > Open` を実装する（既存の handleOpenFile をメニューから呼ぶ）
-- [ ] `File > Recent Files` サブメニューを実装する（最近開いたファイル一覧）
-- [ ] `File > Exit` を実装する
+- [x] `File > Open` を実装する（既存の handleOpenFile をメニューから呼ぶ）
+- [x] `File > Recent Files` サブメニューを実装する（最近開いたファイル一覧）
+- [x] `File > Exit` を実装する
 
 ### View メニュー
 
-- [ ] `View > 表示モード切替` を実装する（Texture / Wireframe / Grid）
-- [ ] `View > カメラリセット` を実装する
-- [ ] `View > サイドバー表示 / 非表示` を実装する
+- [x] `View > 表示モード切替` を実装する（Texture / Wireframe / Grid）
+- [x] `View > カメラリセット` を実装する
+- [x] `View > サイドバー表示 / 非表示` を実装する
 
 ### Window メニュー
 
-- [ ] `Window > フルスクリーン切替` を実装する
+- [x] `Window > フルスクリーン切替` を実装する
 
 ### Help メニュー
 
-- [ ] `Help > ショートカット一覧` を実装する
-- [ ] `Help > About`（バージョン情報）を実装する
+- [x] `Help > ショートカット一覧` を実装する
+- [x] `Help > About`（バージョン情報）を実装する
 
 ### キーボードショートカット
 
-- [ ] ショートカットキーの一元管理の仕組みを作る（定義 → ハンドラ → 表示を一箇所で管理）
-- [ ] `Ctrl+O` — File Open を実装する
-- [ ] `Ctrl+Q` — Exit を実装する
-- [ ] `F11` — フルスクリーン切替を実装する
-- [ ] 各表示モードのショートカットを割り当てる
-- [ ] メニュー項目にショートカット表記を表示する
+- [x] ショートカットキーの一元管理の仕組みを作る（定義 → ハンドラ → 表示を一箇所で管理）
+- [x] `Ctrl+O` — File Open を実装する
+- [x] `Ctrl+Q` — Exit を実装する
+- [x] `F11` — フルスクリーン切替を実装する
+- [x] 各表示モードのショートカットを割り当てる
+- [x] メニュー項目にショートカット表記を表示する
 
 ### Settings 導線
 
-- [ ] メニューまたはツールバーから Settings パネルを開く導線を作る
+- [x] メニューまたはツールバーから Settings パネルを開く導線を作る
 
 ## 19. テスト整備
 
@@ -328,11 +354,11 @@
 
 ### CI パイプライン
 
-- [ ] GitHub Actions ワークフローを作成する
-- [ ] Lint / 型チェック（`tsc --noEmit`）を CI で実行する
-- [ ] ユニットテスト / 統合テストを CI で実行する
-- [ ] ビジュアルリグレッションテストを CI で実行する
-- [ ] Rust 側のビルド・テストを CI で実行する（`cargo check` / `cargo test`）
+- [x] GitHub Actions ワークフローを作成する
+- [x] Lint / 型チェック（`tsc --noEmit`）を CI で実行する
+- [x] ユニットテスト / 統合テストを CI で実行する（selftest）
+- [x] ビジュアルリグレッションテストを CI で実行する（Playwright snapshot）
+- [x] Rust 側のビルド・テストを CI で実行する（`cargo check` / `cargo test`）
 - [ ] PR ごとにチェックを必須にする（branch protection）
 
 ### CD パイプライン
@@ -341,6 +367,21 @@
 - [ ] ビルド成果物を GitHub Releases にアップロードする
 - [ ] 自動アップデート配信の仕組みを整備する（Tauri updater）
 - [ ] リリースノートを自動生成する仕組みを検討する
+
+#### macOS リリース対応
+
+- [ ] `.github/workflows/release.yml` に `macos-latest` ランナーのジョブを追加する
+- [ ] Windows / macOS のジョブをマトリクス化して並列実行する
+- [ ] Apple 署名関連 Secrets を GitHub Secrets に登録する
+  - [ ] `APPLE_CERTIFICATE`（`.p12` を base64 化）
+  - [ ] `APPLE_CERTIFICATE_PASSWORD`
+  - [ ] `APPLE_SIGNING_IDENTITY`
+  - [ ] `APPLE_ID`
+  - [ ] `APPLE_PASSWORD`（App-specific password）
+  - [ ] `APPLE_TEAM_ID`
+- [ ] `latest.json` を Windows / macOS 統合フォーマットで生成する
+  （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
+- [ ] macOS 公証ジョブの失敗時に updater feed を更新しないガードを入れる
 
 ## 21. 多言語対応（i18n）
 

@@ -1,10 +1,21 @@
 :root {
   color-scheme: dark;
-  font-family: "Inter", "SF Pro Display", -apple-system, system-ui, "Segoe UI",
-    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-family:
+    "Inter",
+    "SF Pro Display",
+    -apple-system,
+    system-ui,
+    "Segoe UI",
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    "Open Sans",
+    "Helvetica Neue",
+    sans-serif;
   font-feature-settings: "cv01", "ss03";
-  --font-mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Monaco,
-    "Courier New", monospace;
+  --font-mono:
+    ui-monospace, "SF Mono", Menlo, Monaco, "Courier New", monospace;
   background: #08090a;
   color: #f7f8f8;
 }
@@ -54,6 +65,12 @@ textarea {
   height: 35px;
   background: rgba(255, 255, 255, 0.04);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  position: relative;
+  z-index: 20;
+}
+
+.menubar-hidden {
+  pointer-events: none;
 }
 
 .menubar-button {
@@ -69,6 +86,118 @@ textarea {
 
 .menubar-button:hover {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.menu-group {
+  position: relative;
+}
+
+.menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  margin: 0;
+  padding: 6px;
+  min-width: 220px;
+  list-style: none;
+  background: #121418;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.45);
+}
+
+.menu-item {
+  position: relative;
+}
+
+.menu-item-button {
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #d0d6e0;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.menu-item-button.is-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.menu-shortcut {
+  color: #8a8f98;
+  white-space: nowrap;
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.menu-item-arrow {
+  color: #8a8f98;
+}
+
+.menu-item-recent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-submenu {
+  top: -6px;
+  left: calc(100% + 6px);
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.dialog-card {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  padding: 14px;
+  border-radius: 12px;
+  background: #0f1011;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.dialog-body {
+  margin: 0;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #d0d6e0;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .main-content {
@@ -91,7 +220,10 @@ textarea {
   flex-direction: column;
   overflow: hidden;
   opacity: 0;
-  transition: width 0.25s ease, opacity 0.2s ease, border-color 0.25s ease;
+  transition:
+    width 0.25s ease,
+    opacity 0.2s ease,
+    border-color 0.25s ease;
 }
 
 .sidebar.is-open {
@@ -123,7 +255,9 @@ textarea {
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .tab-button:hover {
@@ -236,7 +370,9 @@ textarea {
   color: #f7f8f8;
   font-size: 12px;
   min-width: 137px;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .view-mode-toggle.is-active {
@@ -338,7 +474,10 @@ textarea {
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .info-panel-toggle:hover {
@@ -748,7 +887,9 @@ textarea {
   font-size: 12px;
   font-weight: 510;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
 }
 
 .btn-ghost:hover {
@@ -851,7 +992,9 @@ textarea {
   font: inherit;
   padding: 0;
   text-align: center;
-  transition: border-color 0.12s, background 0.12s;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
 }
 
 .texture-card:hover {
@@ -945,10 +1088,8 @@ textarea {
 }
 
 .material-swatch-none {
-  background: repeating-conic-gradient(
-    #3a3f48 0% 25%,
-    #2a2e35 0% 50%
-  ) 50% / 10px 10px;
+  background: repeating-conic-gradient(#3a3f48 0% 25%, #2a2e35 0% 50%) 50% /
+    10px 10px;
 }
 
 .material-info {
@@ -1000,7 +1141,9 @@ textarea {
   color: inherit;
   cursor: pointer;
   font: inherit;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
 }
 
 .recent-entry:hover {
@@ -1073,7 +1216,9 @@ textarea {
   background: transparent;
   color: #62666d;
   cursor: pointer;
-  transition: color 0.1s, background 0.1s;
+  transition:
+    color 0.1s,
+    background 0.1s;
 }
 
 .tree-chevron:hover {
@@ -1175,7 +1320,9 @@ textarea {
   font-family: var(--font-mono);
   font-size: 11px;
   padding: 7px 10px;
-  transition: border-color 0.12s, background 0.12s;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
 }
 
 .text-control input:focus,

@@ -2,6 +2,8 @@ export type PerformanceSnapshot = {
   startupMs: number | null;
   loadMs: number | null;
   navigationMs: number | null;
+  firstPaintMs: number | null;
+  interactiveMs: number | null;
 };
 
 type PerformanceCardProps = {
@@ -19,15 +21,33 @@ export function PerformanceCard({ snapshot }: PerformanceCardProps) {
       <div className="card-rows">
         <div className="card-row">
           <span className="card-row-label">Startup</span>
-          <span className="card-row-value-mono">{formatMetric(snapshot.startupMs)}</span>
+          <span className="card-row-value-mono">
+            {formatMetric(snapshot.startupMs)}
+          </span>
+        </div>
+        <div className="card-row">
+          <span className="card-row-label">First Paint</span>
+          <span className="card-row-value-mono">
+            {formatMetric(snapshot.firstPaintMs)}
+          </span>
+        </div>
+        <div className="card-row">
+          <span className="card-row-label">Interactive</span>
+          <span className="card-row-value-mono">
+            {formatMetric(snapshot.interactiveMs)}
+          </span>
         </div>
         <div className="card-row">
           <span className="card-row-label">Latest load</span>
-          <span className="card-row-value-mono">{formatMetric(snapshot.loadMs)}</span>
+          <span className="card-row-value-mono">
+            {formatMetric(snapshot.loadMs)}
+          </span>
         </div>
         <div className="card-row">
           <span className="card-row-label">Navigation</span>
-          <span className="card-row-value-mono">{formatMetric(snapshot.navigationMs)}</span>
+          <span className="card-row-value-mono">
+            {formatMetric(snapshot.navigationMs)}
+          </span>
         </div>
       </div>
     </article>

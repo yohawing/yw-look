@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Type check (TypeScript)
+        run: |
+          npx tsc --noEmit
+          npx tsc --noEmit -p tsconfig.node.json
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run selftest integration
+        run: |
+          npm run dev -- --host 127.0.0.1 > /tmp/vite-dev.log 2>&1 &
+          DEV_SERVER_PID=$!
+          cleanup() {
+            kill "$DEV_SERVER_PID" || true
+          }
+          trap cleanup EXIT
+
+          READY=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:1420/selftest.html >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "Vite dev server did not become ready in time."
+            exit 1
+          fi
+
+          npm run test:integration -- http://127.0.0.1:1420/selftest.html
+
+  visual-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run visual regression
+        run: |
+          npm run dev -- --host 127.0.0.1 > /tmp/vite-dev.log 2>&1 &
+          DEV_SERVER_PID=$!
+          cleanup() {
+            kill "$DEV_SERVER_PID" || true
+          }
+          trap cleanup EXIT
+
+          READY=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:1420/selftest.html >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "Vite dev server did not become ready in time."
+            exit 1
+          fi
+
+          npm run test:visual -- http://127.0.0.1:1420/selftest.html tests/visual/snapshots/selftest-page-linux-chromium.png artifacts/screenshots/selftest-page-current.png
+
+      - name: Upload visual artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-visual-current
+          path: artifacts/screenshots/selftest-page-current.png
+
+  rust-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
