@@ -252,7 +252,7 @@ export function AssetViewport({
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
   const environmentTargetRef = useRef<WebGLRenderTarget | null>(null);
-  const environmentTargetsRef = useRef<Map<EnvironmentPreset, WebGLRenderTarget>>(new Map());
+  const environmentTargetsRef = useRef<Map<EnvironmentPreset, WebGLRenderTarget> | null>(null);
   const activeEnvironmentPresetRef = useRef<EnvironmentPreset>(
     environmentPreset,
   );
@@ -320,11 +320,14 @@ export function AssetViewport({
     camera.up.set(0, 1, 0);
 
     const pmremGenerator = new PMREMGenerator(renderer);
+    environmentTargetsRef.current = new Map();
     environmentTargetRef.current = createEnvironmentTarget(
       pmremGenerator,
       environmentPreset,
     );
-    environmentTargetsRef.current.set(environmentPreset, environmentTargetRef.current);
+    if (environmentTargetRef.current) {
+      environmentTargetsRef.current.set(environmentPreset, environmentTargetRef.current);
+    }
     activeEnvironmentPresetRef.current = environmentPreset;
     scene.environment = environmentTargetRef.current.texture;
 
@@ -422,8 +425,9 @@ export function AssetViewport({
       }
       revokeUrls(sceneContextRef.current?.cleanupUrls ?? []);
       controls.dispose();
-      environmentTargetsRef.current.forEach((target) => target.dispose());
-      environmentTargetsRef.current.clear();
+      environmentTargetsRef.current?.forEach((target) => target.dispose());
+      environmentTargetsRef.current?.clear();
+      environmentTargetsRef.current = null;
       environmentTargetRef.current = null;
       pmremGenerator.dispose();
       renderer.dispose();
@@ -449,14 +453,16 @@ export function AssetViewport({
       return;
     }
 
-    let nextTarget = environmentTargetsRef.current.get(environmentPreset);
+    let nextTarget = environmentTargetsRef.current?.get(environmentPreset);
 
     if (!nextTarget) {
       nextTarget = createEnvironmentTarget(
         context.pmremGenerator,
         environmentPreset,
       );
-      environmentTargetsRef.current.set(environmentPreset, nextTarget);
+      if (environmentTargetsRef.current) {
+        environmentTargetsRef.current.set(environmentPreset, nextTarget);
+      }
     }
 
     environmentTargetRef.current = nextTarget;
