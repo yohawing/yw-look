@@ -1231,7 +1231,7 @@ export function App() {
               currentFile={currentFile}
               metadata={assetMetadata}
             />
-            {isUsdFile(currentFile) && (
+            {isTauri && isUsdFile(currentFile) && (
               <UsdInspectorCard
                 error={usdInspectorError}
                 inspection={usdInspection}

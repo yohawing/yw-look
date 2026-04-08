@@ -50,8 +50,9 @@ const [usdInspectorError, setUsdInspectorError] = useState<string | null>(null);
 `useEffect([currentFile])` で以下を行う:
 
 - USD 拡張子でない or 非 Tauri 環境 → 全部クリア
-- それ以外 → loading=true にして `Promise.all([summarizeStage, inspectStage, collectAssetIssues])` を投げる
-- それぞれ結果が揃ったらまとめて set、失敗時は error を set
+- それ以外 → `loading=true` にして `summarizeStage` / `inspectStage` / `collectAssetIssues` を並列に投げる
+- 各 RPC は解決したものから個別に state を更新する（summary / inspection / issues をまとめて待たない）
+- `loading` の解除は `Promise.allSettled([...])` で全リクエスト完了後に行い、失敗時は `error` を set する
 
 `inspect_stage` が hints 経由で `loaders.ts` からも呼ばれるのを整理する:
 

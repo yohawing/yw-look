@@ -42,9 +42,11 @@ function rejectAllPending(error: Error): void {
     entry.reject(error);
   }
   pending.clear();
-  // Drop the broken worker so the next call can try to spawn a fresh
-  // one (or, more likely, fall back to the synchronous path).
+  // Terminate the broken worker to release its thread and event listeners,
+  // then drop the reference so the next call spawns a fresh one.
+  const dying = workerInstance;
   workerInstance = null;
+  dying?.terminate();
 }
 
 function getWorker(): Worker {

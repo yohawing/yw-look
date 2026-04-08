@@ -218,13 +218,13 @@
 - [x] Phase 0 実アセットの観察値を回帰テストとして `OpenusdBackend` に組み込む
 - [x] 上流 PR 粒度の fork 改造（`up_axis` / `meters_per_unit` / `references_in` / `payloads_in` / `unresolved_assets` / `instanceable` metadata）を取り込む
 
-#### Phase 2 — UX 反映（未着手）
+#### Phase 2 — UX 反映（進行中）
 
-- [ ] `docs/usd-phase2.md` で方針を確定する
-- [ ] `summarize_stage` を読み込みパイプラインの先頭に挟み、summary を先に表示する
-- [ ] `StageSummary` をメタデータ / 診断パネルに表示する
-- [ ] `collect_asset_issues` の結果を警告バナーに表示する
-- [ ] `USDLoader.parse` を Web Worker に退避して UI スレッドのブロッキングを崩す
+- [x] `docs/usd-phase2.md` で方針を確定する
+- [x] `summarize_stage` を読み込みパイプラインの先頭に挟み、summary を先に表示する
+- [x] `StageSummary` をメタデータ / 診断パネルに表示する
+- [x] `collect_asset_issues` の結果を警告バナーに表示する
+- [ ] `USDLoader.parse` を Web Worker に退避して UI スレッドのブロッキングを崩す（Phase 3 以降）
 
 ## 15. OS 統合（Windows / macOS）
 
