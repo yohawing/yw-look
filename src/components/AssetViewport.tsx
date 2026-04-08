@@ -3,18 +3,23 @@ import {
   ACESFilmicToneMapping,
   AmbientLight,
   AnimationMixer,
+  BackSide,
+  BoxGeometry,
   Color,
   DirectionalLight,
+  Mesh,
+  MeshBasicMaterial,
   MOUSE,
   PerspectiveCamera,
   PMREMGenerator,
   Scene,
+  SphereGeometry,
   Texture,
   Vector2,
+  WebGLRenderTarget,
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { SelectedFile } from "../lib/files";
 import {
   type DisplayMode,
@@ -53,6 +58,7 @@ import { emptyAnimationState, type AnimationState } from "./animation";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
 export type { ViewerFeedback, DisplayMode, ViewerSurfaceMode, TextureViewMode };
+export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
 
 type AssetViewportProps = {
   currentFile: SelectedFile | null;
@@ -68,7 +74,163 @@ type AssetViewportProps = {
   resetVersion: number;
   showGrid: boolean;
   onGridUnitChange: (label: string) => void;
+  environmentPreset: EnvironmentPreset;
 };
+
+function disposeEnvironmentScene(scene: Scene) {
+  scene.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    child.geometry.dispose();
+
+    if (Array.isArray(child.material)) {
+      for (const material of child.material) {
+        material.dispose();
+      }
+      return;
+    }
+
+    child.material.dispose();
+  });
+}
+
+function buildEnvironmentScene(preset: EnvironmentPreset) {
+  const scene = new Scene();
+  const shell = new Mesh(
+    new SphereGeometry(40, 40, 20),
+    new MeshBasicMaterial({ color: "#121418", side: BackSide }),
+  );
+  scene.add(shell);
+
+  const addPanel = ({
+    color,
+    position,
+    scale,
+    rotation = [0, 0, 0],
+  }: {
+    color: string;
+    position: [number, number, number];
+    scale: [number, number, number];
+    rotation?: [number, number, number];
+  }) => {
+    const panel = new Mesh(
+      new BoxGeometry(scale[0], scale[1], scale[2]),
+      new MeshBasicMaterial({ color }),
+    );
+    panel.position.set(position[0], position[1], position[2]);
+    panel.rotation.set(rotation[0], rotation[1], rotation[2]);
+    scene.add(panel);
+  };
+
+  const addGlowSphere = ({
+    color,
+    position,
+    radius,
+  }: {
+    color: string;
+    position: [number, number, number];
+    radius: number;
+  }) => {
+    const glow = new Mesh(
+      new SphereGeometry(radius, 24, 16),
+      new MeshBasicMaterial({ color }),
+    );
+    glow.position.set(position[0], position[1], position[2]);
+    scene.add(glow);
+  };
+
+  switch (preset) {
+    case "neutral":
+      shell.material.color.set("#191c21");
+      addPanel({
+        color: "#f3f4f8",
+        position: [0, 9, -18],
+        scale: [14, 14, 0.45],
+      });
+      addPanel({
+        color: "#dde3ee",
+        position: [-15, 5, -8],
+        scale: [9, 12, 0.4],
+        rotation: [0, 0.32, 0],
+      });
+      addPanel({
+        color: "#d7dde7",
+        position: [15, 4, -7],
+        scale: [9, 11, 0.4],
+        rotation: [0, -0.34, 0],
+      });
+      addPanel({
+        color: "#747c88",
+        position: [0, -10, 0],
+        scale: [32, 0.5, 32],
+      });
+      break;
+    case "outdoor":
+      shell.material.color.set("#1a2432");
+      addGlowSphere({
+        color: "#ffe6b3",
+        position: [0, 11, -16],
+        radius: 3.6,
+      });
+      addPanel({
+        color: "#7fb3ff",
+        position: [-16, 5, -8],
+        scale: [12, 10, 0.4],
+        rotation: [0, 0.42, 0],
+      });
+      addPanel({
+        color: "#d7ecff",
+        position: [14, 7, -9],
+        scale: [8, 12, 0.35],
+        rotation: [0, -0.26, 0],
+      });
+      addPanel({
+        color: "#4a5665",
+        position: [0, -11, 0],
+        scale: [36, 0.5, 36],
+      });
+      break;
+    case "studio":
+    default:
+      addPanel({
+        color: "#ffffff",
+        position: [0, 8, -16],
+        scale: [12, 12, 0.45],
+      });
+      addPanel({
+        color: "#bfd0ff",
+        position: [-15, 5, -9],
+        scale: [8, 14, 0.4],
+        rotation: [0, 0.38, 0],
+      });
+      addPanel({
+        color: "#ffe2c2",
+        position: [15, 4, -8],
+        scale: [8, 10, 0.4],
+        rotation: [0, -0.34, 0],
+      });
+      addPanel({
+        color: "#626977",
+        position: [0, -10, 0],
+        scale: [34, 0.5, 34],
+      });
+      break;
+  }
+
+  return scene;
+}
+
+function createEnvironmentTarget(
+  pmremGenerator: PMREMGenerator,
+  preset: EnvironmentPreset,
+) {
+  const environmentScene = buildEnvironmentScene(preset);
+  const target = pmremGenerator.fromScene(environmentScene, 0.04);
+  disposeEnvironmentScene(environmentScene);
+  return target;
+}
 
 export function AssetViewport({
   currentFile,
@@ -84,10 +246,15 @@ export function AssetViewport({
   resetVersion,
   showGrid,
   onGridUnitChange,
+  environmentPreset,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
+  const environmentTargetRef = useRef<WebGLRenderTarget | null>(null);
+  const activeEnvironmentPresetRef = useRef<EnvironmentPreset>(
+    environmentPreset,
+  );
   const displayModeRef = useRef(displayMode);
   const showGridRef = useRef(showGrid);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
@@ -152,10 +319,11 @@ export function AssetViewport({
     camera.up.set(0, 1, 0);
 
     const pmremGenerator = new PMREMGenerator(renderer);
-    scene.environment = pmremGenerator.fromScene(
-      new RoomEnvironment(),
-      0.04,
-    ).texture;
+    environmentTargetRef.current = createEnvironmentTarget(
+      pmremGenerator,
+      activeEnvironmentPresetRef.current,
+    );
+    scene.environment = environmentTargetRef.current.texture;
 
     const ambient = new AmbientLight("#ffffff", 1.8);
     const key = new DirectionalLight("#ffffff", 2.4);
@@ -251,6 +419,8 @@ export function AssetViewport({
       }
       revokeUrls(sceneContextRef.current?.cleanupUrls ?? []);
       controls.dispose();
+      environmentTargetRef.current?.dispose();
+      environmentTargetRef.current = null;
       pmremGenerator.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);
@@ -263,6 +433,26 @@ export function AssetViewport({
     onMetadataChange,
     shouldInitializeScene,
   ]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context) {
+      return;
+    }
+
+    if (activeEnvironmentPresetRef.current === environmentPreset) {
+      return;
+    }
+
+    environmentTargetRef.current?.dispose();
+    environmentTargetRef.current = createEnvironmentTarget(
+      context.pmremGenerator,
+      environmentPreset,
+    );
+    activeEnvironmentPresetRef.current = environmentPreset;
+    context.scene.environment = environmentTargetRef.current.texture;
+  }, [environmentPreset]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

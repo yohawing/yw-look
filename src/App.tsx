@@ -13,6 +13,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
   type DisplayMode,
+  type EnvironmentPreset,
   type TextureViewMode,
   type ViewerFeedback,
   type ViewerSurfaceMode,
@@ -105,6 +106,15 @@ function deriveDisplayMode(
   return "untextured";
 }
 
+const environmentPresets: Array<{
+  id: EnvironmentPreset;
+  label: string;
+}> = [
+  { id: "studio", label: "Studio" },
+  { id: "neutral", label: "Neutral" },
+  { id: "outdoor", label: "Outdoor" },
+];
+
 const DiagnosticsCard = lazy(() =>
   import("./components/DiagnosticsCard").then((module) => ({
     default: module.DiagnosticsCard,
@@ -146,6 +156,8 @@ export function App() {
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  const [environmentPreset, setEnvironmentPreset] =
+    useState<EnvironmentPreset>("studio");
   const [gridUnitLabel, setGridUnitLabel] = useState("1 m");
   const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
   const [directoryListing, setDirectoryListing] =
@@ -1220,6 +1232,7 @@ export function App() {
             resetVersion={resetVersion}
             showGrid={showGrid}
             onGridUnitChange={setGridUnitLabel}
+            environmentPreset={environmentPreset}
           />
 
           {/* ViewModeControls overlay */}
@@ -1250,6 +1263,21 @@ export function App() {
               <span>Grid</span>
               <span className={`toggle-switch${showGrid ? " is-on" : ""}`} />
             </button>
+            <div className="view-mode-section">
+              <span className="view-mode-section-label">Environment</span>
+              <div className="preset-chip-row">
+                {environmentPresets.map((preset) => (
+                  <button
+                    key={preset.id}
+                    className={`preset-chip${environmentPreset === preset.id ? " is-active" : ""}`}
+                    onClick={() => setEnvironmentPreset(preset.id)}
+                    type="button"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* InfoPanel toggle button */}

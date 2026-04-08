@@ -114,7 +114,7 @@
 - [ ] プリセットビューを実装する（Front / Back / Left / Right / Top / Bottom）
 - [ ] バックフェースカリング ON/OFF を実装する
 - [ ] 環境マップ背景表示 ON/OFF を実装する（HDRI 背景 or 灰色）
-- [ ] 環境マップのプリセット切替を実装する（Studio / Outdoor / Neutral 等）
+- [x] 環境マップのプリセット切替を実装する（Studio / Outdoor / Neutral 等）
 - [ ] ボーン / スケルトン表示を実装する（アニメーション付きモデル用）
 - [ ] 軸ギズモ（XYZ インジケーター）を表示する
 - [ ] トーンマッピング切替を実装する（Linear / ACES / Reinhard）
