@@ -135,7 +135,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          lfs: true
+          lfs: false
 
       - name: Install system dependencies
         run: |
@@ -146,13 +146,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cargo check
-        run: |
-          echo "=== All icon PNG files found ==="
-          find . -name "*.png" -path "*/icons/*" | while read f; do
-            echo -n "$f: "
-            xxd "$f" | head -1
-          done
-          cargo check --manifest-path src-tauri/Cargo.toml
+        run: cargo check --manifest-path src-tauri/Cargo.toml
 
       - name: Cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
