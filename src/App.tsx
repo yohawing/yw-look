@@ -373,7 +373,7 @@ export function App() {
   // Phase 2 USD inspector pipeline. Runs in parallel with the Three.js
   // load path in AssetViewport, so the sidebar can show stage summary /
   // inspection / asset issues before the heavy USDLoader parse finishes.
-  // See docs/usd-phase2.md.
+  // See docs/usd.md.
   useEffect(() => {
     if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
       setUsdSummary(null);
@@ -733,18 +733,36 @@ export function App() {
   }, [currentFile?.path, openError]);
 
   useEffect(() => {
-    if (viewerFeedback.mode === "ready" || viewerFeedback.mode === "empty") {
+    // "loading" is a transient state — do not record it as a diagnostic
+    // event. Only terminal states (failure / unsupported / missingReference)
+    // are worth persisting so the Diagnostics panel stays signal-rich.
+    if (
+      viewerFeedback.mode === "ready" ||
+      viewerFeedback.mode === "empty" ||
+      viewerFeedback.mode === "loading"
+    ) {
       return;
     }
+
+    const level =
+      viewerFeedback.mode === "missingReference" ||
+      viewerFeedback.mode === "unsupported"
+        ? "warn"
+        : "error";
+
+    // Mirror to the webview console so the issue is visible in devtools
+    // (Tauri: Ctrl+Shift+I) without having to open the Diagnostics panel.
+    const logFn = level === "warn" ? console.warn : console.error;
+    logFn(
+      `[viewer] ${viewerFeedback.mode}:`,
+      viewerFeedback.message,
+      viewerFeedback.warning ?? "",
+    );
 
     void (async () => {
       await logDiagnosticEvent({
         code: `VIEWER_${viewerFeedback.mode.toUpperCase()}`,
-        level:
-          viewerFeedback.mode === "missingReference" ||
-          viewerFeedback.mode === "unsupported"
-            ? "warn"
-            : "error",
+        level,
         message: viewerFeedback.message,
         detail: viewerFeedback.warning,
         contextPath: currentFile?.path ?? null,
