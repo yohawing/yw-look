@@ -832,7 +832,11 @@ export function AssetViewport({
           message.includes("404") || missingReferenceError.missingPaths?.length
             ? "missingReference"
             : "loadFailed";
-        setActivePreviewPath(null);
+        // Mark this file as "done" (success or failure) so the effectiveOverlayMode
+        // formula picks up the new overlayMode below. Setting null here would keep
+        // effectiveOverlayMode stuck on "loading" because the formula falls through
+        // to "loading" when activePreviewPath !== currentFile.path.
+        setActivePreviewPath(currentFile.path);
         setOverlayMode(mode);
         onMetadataChange(
           mode === "missingReference" && currentFile
