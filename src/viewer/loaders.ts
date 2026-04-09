@@ -66,6 +66,8 @@ function getMimeType(extension: string) {
       return "image/vnd.radiance";
     case "exr":
       return "image/x-exr";
+    case "ktx2":
+      return "image/ktx2";
     case "bin":
       return "application/octet-stream";
     default:
@@ -461,6 +463,7 @@ export {
 
 export async function loadPreviewObject(
   file: SelectedFile,
+  renderer?: import("three").WebGLRenderer,
 ): Promise<LoadedPreview> {
   switch (file.extension) {
     case "glb": {
@@ -550,6 +553,30 @@ export async function loadPreviewObject(
         ),
         cleanupUrls: [],
         clips: [],
+        formatVersion: null,
+      };
+    }
+    case "dae": {
+      const { ColladaLoader } =
+        await import("three/examples/jsm/loaders/ColladaLoader.js");
+      const text = await readTextFile(file.path);
+      // ColladaLoader.parse(text, path) resolves image references relative to
+      // `path`. In the Tauri environment, direct file:// access is blocked for
+      // loaded documents, so we pass an empty string and accept that embedded
+      // geometry renders without external textures at this MVP stage.
+      const collada = new ColladaLoader().parse(text, "");
+      if (!collada) {
+        throw new Error(`Failed to parse Collada file: ${file.fileName}`);
+      }
+      // @types/three types Collada.scene as Scene, but ColladaLoader actually
+      // returns a Group at runtime. We cast to Group to satisfy LoadedPreview.
+      const colladaGroup = collada.scene as unknown as Group;
+      // AnimationClips are attached to scene.animations by the loader.
+      const colladaClips = collada.scene.animations ?? [];
+      return {
+        object: colladaGroup,
+        cleanupUrls: [],
+        clips: colladaClips,
         formatVersion: null,
       };
     }
@@ -697,6 +724,42 @@ export async function loadPreviewObject(
       const texture = await new EXRLoader().loadAsync(objectUrl);
       texture.name = file.fileName;
       texture.userData.textureSourceKind = "standalone";
+      return {
+        object: createTexturePreview(texture),
+        cleanupUrls: [objectUrl],
+        clips: [],
+        formatVersion: null,
+      };
+    }
+    case "ktx2": {
+      const { KTX2Loader } =
+        await import("three/examples/jsm/loaders/KTX2Loader.js");
+      const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      const loader = new KTX2Loader();
+      // The basis transcoder files are served from /basis/ (copied from
+      // node_modules/three into public/basis/ at build time).
+      loader.setTranscoderPath("/basis/");
+      if (renderer) {
+        loader.detectSupport(renderer);
+      } else {
+        // Fallback workerConfig for desktop (Tauri) where we can safely assume
+        // S3TC/DXT and BPTC support on modern discrete GPUs. ASTC and PVRTC
+        // are mobile-only formats; ETC2 is broadly supported but not critical.
+        // This path is only taken in test/SSR environments without a renderer.
+        (loader as unknown as { workerConfig: Record<string, boolean> }).workerConfig = {
+          astcSupported: false,
+          astcHDRSupported: false,
+          etc1Supported: false,
+          etc2Supported: false,
+          dxtSupported: true,
+          bptcSupported: true,
+          pvrtcSupported: false,
+        };
+      }
+      const texture = await loader.loadAsync(objectUrl);
+      texture.name = file.fileName;
+      texture.userData.textureSourceKind = "standalone";
+      loader.dispose();
       return {
         object: createTexturePreview(texture),
         cleanupUrls: [objectUrl],

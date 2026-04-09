@@ -88,6 +88,7 @@ export const implementedPreviewExtensions = new Set([
   "obj",
   "ply",
   "stl",
+  "dae",
   "usd",
   "usda",
   "usdc",
@@ -99,6 +100,7 @@ export const implementedPreviewExtensions = new Set([
   "dds",
   "hdr",
   "exr",
+  "ktx2",
 ]);
 
 export const neutralFeedback: ViewerFeedback = {

@@ -4,6 +4,7 @@ import {
   AmbientLight,
   AnimationMixer,
   BackSide,
+  Box3,
   BoxGeometry,
   Color,
   DirectionalLight,
@@ -16,6 +17,7 @@ import {
   SphereGeometry,
   Texture,
   Vector2,
+  Vector3,
   WebGLRenderTarget,
   WebGLRenderer,
 } from "three";
@@ -36,6 +38,7 @@ import {
   stopAnimations,
   resetSceneObjects,
   applyInitialView,
+  applyControlsSensitivity,
   normalizeObjectScale,
   applyDynamicGrid,
   applyTextureView,
@@ -118,6 +121,7 @@ function frameMountedObject(
   object: NonNullable<SceneContext["mountedObject"]>,
   viewerSurfaceMode: ViewerSurfaceMode,
   showGrid: boolean,
+  sensitivityMultiplier = 1,
 ) {
   syncGridVisibility(context, showGrid, viewerSurfaceMode);
 
@@ -129,7 +133,7 @@ function frameMountedObject(
   }
 
   configureAssetControls(context.controls);
-  applyInitialView(context.camera, context.controls, object);
+  applyInitialView(context.camera, context.controls, object, sensitivityMultiplier);
   context.controls.enabled = true;
 }
 
@@ -149,6 +153,8 @@ type AssetViewportProps = {
   showGrid: boolean;
   onGridUnitChange: (label: string) => void;
   environmentPreset: EnvironmentPreset;
+  /** Multiplier applied on top of the auto-computed sensitivity (0.25 – 4). */
+  cameraSpeedMultiplier: number;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -322,6 +328,7 @@ export function AssetViewport({
   showGrid,
   onGridUnitChange,
   environmentPreset,
+  cameraSpeedMultiplier,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneContextRef = useRef<SceneContext | null>(null);
@@ -336,6 +343,7 @@ export function AssetViewport({
   const displayModeRef = useRef(displayMode);
   const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
+  const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -363,6 +371,22 @@ export function AssetViewport({
   useEffect(() => {
     showGridRef.current = showGrid;
   }, [showGrid]);
+
+  useEffect(() => {
+    cameraSpeedMultiplierRef.current = cameraSpeedMultiplier;
+
+    // When multiplier changes while a model is loaded, immediately update
+    // OrbitControls so the user feels the effect without a camera reset.
+    const context = sceneContextRef.current;
+    if (!context?.mountedObject) {
+      return;
+    }
+    // Re-derive maxDimension from the mounted object's bounding box.
+    const bounds = new Box3().setFromObject(context.mountedObject);
+    const size = bounds.getSize(new Vector3());
+    const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
+    applyControlsSensitivity(context.controls, maxDimension, cameraSpeedMultiplier);
+  }, [cameraSpeedMultiplier]);
 
   useEffect(() => {
     if (!shouldInitializeScene) {
@@ -475,6 +499,7 @@ export function AssetViewport({
         mountedObject,
         viewerSurfaceModeRef.current,
         showGridRef.current,
+        cameraSpeedMultiplierRef.current,
       );
     });
 
@@ -607,6 +632,7 @@ export function AssetViewport({
       context.mountedObject,
       viewerSurfaceModeRef.current,
       showGridRef.current,
+      cameraSpeedMultiplierRef.current,
     );
     resetCameraRef.current = () => {
       const targetContext = sceneContextRef.current;
@@ -621,6 +647,7 @@ export function AssetViewport({
         targetObject,
         viewerSurfaceModeRef.current,
         showGridRef.current,
+        cameraSpeedMultiplierRef.current,
       );
     };
   }, [currentFile, showGrid, viewerSurfaceMode]);
@@ -690,7 +717,7 @@ export function AssetViewport({
     });
     onMetadataChange(emptyAssetMetadata);
 
-    loadPreviewObject(currentFile)
+    loadPreviewObject(currentFile, context.renderer)
       .then(({ object, cleanupUrls, clips, formatVersion }) => {
         if (disposed) {
           disposeObject(object);
@@ -715,6 +742,7 @@ export function AssetViewport({
           object,
           viewerSurfaceModeRef.current,
           showGridRef.current,
+          cameraSpeedMultiplierRef.current,
         );
         setActivePreviewPath(currentFile.path);
         setOverlayMode("ready");
@@ -755,6 +783,7 @@ export function AssetViewport({
             targetObject,
             viewerSurfaceModeRef.current,
             showGridRef.current,
+            cameraSpeedMultiplierRef.current,
           );
         };
 
@@ -852,6 +881,7 @@ export function AssetViewport({
         context.sourceObject,
         viewerSurfaceModeRef.current,
         showGridRef.current,
+        cameraSpeedMultiplierRef.current,
       );
       return;
     }
@@ -877,6 +907,7 @@ export function AssetViewport({
       previewObject,
       viewerSurfaceModeRef.current,
       showGridRef.current,
+      cameraSpeedMultiplierRef.current,
     );
   }, [
     selectedTextureId,
