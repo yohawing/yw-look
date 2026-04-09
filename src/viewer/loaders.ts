@@ -756,10 +756,22 @@ export async function loadPreviewObject(
           pvrtcSupported: false,
         };
       }
-      const texture = await loader.loadAsync(objectUrl);
+      // try/finally guarantees the KTX2 worker pool is torn down even when
+      // the transcoder assets are missing, the file is corrupt, or the GPU
+      // rejects the format — otherwise repeated failed opens leak workers.
+      // On failure we also revoke the blob URL so it does not stay resident
+      // (the normal cleanupUrls path only runs when we return successfully).
+      let texture;
+      try {
+        texture = await loader.loadAsync(objectUrl);
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl);
+        throw error;
+      } finally {
+        loader.dispose();
+      }
       texture.name = file.fileName;
       texture.userData.textureSourceKind = "standalone";
-      loader.dispose();
       return {
         object: createTexturePreview(texture),
         cleanupUrls: [objectUrl],
