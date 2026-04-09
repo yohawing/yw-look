@@ -19,6 +19,8 @@ export {
   stopAnimations,
   resetSceneObjects,
   applyInitialView,
+  applyControlsSensitivity,
+  computeAutoSensitivity,
   getObjectMaxDimension,
   normalizeObjectScale,
   applyDynamicGrid,

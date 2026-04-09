@@ -137,10 +137,62 @@ export function resetSceneObjects(context: SceneContext) {
   context.textureRegistry = new Map<string, Texture>();
 }
 
+/**
+ * Compute auto sensitivity speeds for OrbitControls based on model size.
+ *
+ * Strategy: use a log10-based mapping so that sensitivity grows smoothly
+ * across the mm→km range without breaking at extreme values.
+ *
+ *   log10(0.001) = -3  → very small (mm scale) → slower rotate, slower pan
+ *   log10(1)     =  0  → reference (1 m scale) → baseline speeds
+ *   log10(1000)  =  3  → large (km scale)      → faster pan, same rotate
+ *
+ * Rotate speed: kept close to 1 for all sizes – perceived rotation is
+ * already independent of model scale. Slight reduction for tiny models
+ * helps precision work.
+ *
+ * Pan speed: scales up with larger models so a single gesture covers a
+ * meaningful distance. Clamped to [0.3, 3.0].
+ *
+ * Zoom speed (scroll): similarly scaled. Clamped to [0.5, 2.5].
+ */
+export function computeAutoSensitivity(maxDimension: number): {
+  rotateSpeed: number;
+  panSpeed: number;
+  zoomSpeed: number;
+} {
+  const safeDim =
+    Number.isFinite(maxDimension) && maxDimension > 0 ? maxDimension : 1;
+  // log10 of maxDimension, clamped to [-3, 3]
+  const logDim = Math.max(-3, Math.min(3, Math.log10(safeDim)));
+  // Normalise to [0, 1] where 0 = 0.001 m, 1 = 1000 m
+  const t = (logDim + 3) / 6;
+
+  const rotateSpeed = MathUtils.lerp(0.6, 1.0, t);
+  const panSpeed = MathUtils.lerp(0.3, 3.0, t);
+  const zoomSpeed = MathUtils.lerp(0.5, 2.5, t);
+
+  return { rotateSpeed, panSpeed, zoomSpeed };
+}
+
+export function applyControlsSensitivity(
+  controls: OrbitControls,
+  maxDimension: number,
+  multiplier: number,
+) {
+  const safeMultiplier =
+    Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+  const auto = computeAutoSensitivity(maxDimension);
+  controls.rotateSpeed = auto.rotateSpeed * safeMultiplier;
+  controls.panSpeed = auto.panSpeed * safeMultiplier;
+  controls.zoomSpeed = auto.zoomSpeed * safeMultiplier;
+}
+
 export function applyInitialView(
   camera: PerspectiveCamera,
   controls: OrbitControls,
   object: Group | Mesh,
+  sensitivityMultiplier = 1,
 ) {
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
@@ -162,6 +214,7 @@ export function applyInitialView(
   controls.target.copy(center);
   controls.minDistance = Math.max(maxDimension / 50, 0.05);
   controls.maxDistance = Math.max(maxDimension * 40, 50);
+  applyControlsSensitivity(controls, maxDimension, sensitivityMultiplier);
   controls.update();
 }
 

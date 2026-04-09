@@ -193,6 +193,7 @@ export function App() {
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  const [cameraSpeedMultiplier, setCameraSpeedMultiplier] = useState(1);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
@@ -1410,6 +1411,7 @@ export function App() {
             showGrid={showGrid}
             onGridUnitChange={setGridUnitLabel}
             environmentPreset={environmentPreset}
+            cameraSpeedMultiplier={cameraSpeedMultiplier}
           />
 
           {/* ViewModeControls overlay */}
@@ -1476,6 +1478,42 @@ export function App() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div className="view-mode-section">
+              <div className="camera-speed-header">
+                <span className="view-mode-section-label">Camera Speed</span>
+                {cameraSpeedMultiplier !== 1 ? (
+                  <button
+                    className="camera-speed-reset"
+                    onClick={() => setCameraSpeedMultiplier(1)}
+                    type="button"
+                    title="Reset to auto"
+                  >
+                    Reset
+                  </button>
+                ) : null}
+              </div>
+              <div className="camera-speed-row">
+                <span className="camera-speed-bound">0.25×</span>
+                <input
+                  type="range"
+                  className="camera-speed-slider"
+                  min={-2}
+                  max={2}
+                  step={0.01}
+                  value={Math.log2(cameraSpeedMultiplier)}
+                  onChange={(e) =>
+                    setCameraSpeedMultiplier(
+                      Math.pow(2, Number(e.target.value)),
+                    )
+                  }
+                  aria-label="Camera speed multiplier"
+                />
+                <span className="camera-speed-bound">4×</span>
+              </div>
+              <span className="camera-speed-value">
+                {cameraSpeedMultiplier.toFixed(2)}×
+              </span>
             </div>
           </div>
 
