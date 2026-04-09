@@ -36,8 +36,12 @@ function getObjectKind(object: Object3D) {
 }
 
 function buildHierarchyNode(object: Object3D): HierarchyNode {
+  // Some loaders (notably ColladaLoader) leave Object3D.name as null when the
+  // source document has no name attribute, so guard against non-string values
+  // before calling trim().
+  const rawName = typeof object.name === "string" ? object.name : "";
   return {
-    name: object.name.trim() || "(unnamed)",
+    name: rawName.trim() || "(unnamed)",
     kind: getObjectKind(object),
     children: object.children.map((child) => buildHierarchyNode(child)),
   };
