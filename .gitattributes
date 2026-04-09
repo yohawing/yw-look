@@ -27,3 +27,7 @@
 # App icons are small and committed as regular blobs so CI (which may
 # not have LFS configured) can read them during cargo check / build.
 src-tauri/icons/* binary -filter
+
+# Basis Universal transcoder ships as a regular blob (~515 KB) so the
+# KTX2Loader transcoder is readable without LFS checkout.
+public/basis/* binary -filter
