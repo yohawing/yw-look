@@ -127,9 +127,10 @@ function frameMountedObject(
   if (viewerSurfaceMode === "texture") {
     configureTextureControls(context.controls);
     applyTextureView(context.camera, context.controls, object);
-    // Reset to neutral speeds for texture pan/zoom – texture objects are always
-    // normalized to a small quad so asset-derived speeds would feel wrong.
-    applyControlsSensitivity(context.controls, 1, 1);
+    // Use neutral (dim=1) sensitivity for texture pan/zoom so the hidden
+    // asset's original size does not bleed into texture controls, but still
+    // honour the user's manual camera-speed multiplier.
+    applyControlsSensitivity(context.controls, 1, sensitivityMultiplier);
     context.controls.enabled = true;
     return;
   }
@@ -389,8 +390,14 @@ export function AssetViewport({
     if (!context?.mountedObject) {
       return;
     }
-    // Use the stored raw (pre-normalization) dimension for accurate sensitivity.
-    applyControlsSensitivity(context.controls, context.rawMaxDimension, cameraSpeedMultiplier);
+    // In texture mode the hidden asset's dimension must NOT influence pan/zoom,
+    // so use a neutral dim=1. Otherwise use the stored raw (pre-normalization)
+    // dimension for accurate asset-scale sensitivity.
+    const sensitivityDim =
+      viewerSurfaceModeRef.current === "texture"
+        ? 1
+        : context.rawMaxDimension;
+    applyControlsSensitivity(context.controls, sensitivityDim, cameraSpeedMultiplier);
   }, [cameraSpeedMultiplier]);
 
   useEffect(() => {
