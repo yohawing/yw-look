@@ -770,6 +770,10 @@ export function AssetViewport({
           return;
         }
 
+        // Log the raw error to the webview console so it is visible in
+        // devtools (Tauri: Ctrl+Shift+I) and not just in Diagnostics.
+        console.error("[viewer] load failed:", error);
+
         const message =
           error instanceof Error ? error.message : "Failed to load preview.";
         const missingReferenceError = error as Partial<MissingReferenceError>;

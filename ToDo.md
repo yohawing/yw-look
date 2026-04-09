@@ -205,7 +205,7 @@
 
 - [x] `mxpv/openusd` crate で USDA / USDC / USDZ / references / payloads を実アセットで検証する
 - [x] Windows MSVC でのビルド障害がないことを確認する
-- [x] Phase 0 レポートを `docs/usd-phase0.md` にまとめる
+- [x] Phase 0 レポートを `docs/usd.md` にまとめる
 - [x] PoC コードを `experiments/usd-poc/` に隔離する
 - [x] Phase 0 用の最小 USD サンプル (`tiny.usda`) を `samples/assets/usd/` に追加する
 
@@ -221,11 +221,67 @@
 
 #### Phase 2 — UX 反映（完了、Web Worker は Phase 3 へ）
 
-- [x] `docs/usd-phase2.md` で方針を確定する
+- [x] `docs/usd.md` で方針を確定する
 - [x] `summarize_stage` を読み込みパイプラインの先頭に挟み、summary を先に表示する
 - [x] `StageSummary` をメタデータ / 診断パネルに表示する
 - [x] `collect_asset_issues` の結果を警告バナーに表示する
+- [x] USDC バイナリを Three.js に渡す前に明示エラーを出す（黙って空描画になるのを防ぐ）
 - [ ] `USDLoader.parse` を Web Worker に退避して UI スレッドのブロッキングを崩す（Phase 3 以降）
+
+#### Phase 3 — Rust Geometry パイプライン（yohawing/openusd fork 連携）
+
+Three.js USDLoader は USDA テキストしか描画できないため、USDC バイナリ（Kitchen Set 等）の
+3D プレビューには Rust 側で geometry を読み出して Three.js に渡すパイプラインが必要。
+設計方針は `docs/usd.md` Phase 3 セクションで確定済み。
+fork: `yohawing/openusd`（branch: `yw-look-phase1` ベース）で作業中。
+
+転送方式: **GLB + `tauri::ipc::Response`**
+- `ipc::Response` で GLB バイナリをそのまま送出（JSON シリアライズなし）→ JS 側 `invoke<ArrayBuffer>()`
+- JS 側は `GLTFLoader.parseAsync(buffer, "")` で受け取る（独自 Loader 不要）
+- 将来の animation / texture 拡張も GLTF 仕様に乗れる
+
+分岐判定: **拡張子ではなく `stage.root_layer_is_binary()` で判定**
+- `.usdz` は ZIP コンテナ。root layer が USDA / USDC どちらかは実行時に確認する
+- USDA root → `USDLoader.parse`、USDC root → `extract_geometry → GLTFLoader`
+- `references` は通常 compose、`payloads` はこのフェーズでは loaded 扱いのまま
+
+- [ ] `yohawing/openusd` fork に Mesh geometry 取得 API を追加する
+  - [ ] `stage.root_layer_is_binary()` — root layer が USDC かどうかを返す（分岐判定用）
+  - [ ] `stage.meshes_in(prim_path)` — Mesh prim の points / faceVertexIndices / faceVertexCounts を返す
+  - [ ] `stage.normals_in(prim_path)` — 法線（authored または face-varying 補完）
+  - [ ] `stage.uvs_in(prim_path)` — テクスチャ座標
+  - [ ] `stage.xform_of(prim_path)` — composed ワールド変換行列
+  - [ ] `stage.material_of(prim_path)` — UsdPreviewSurface の baseColor / roughness / metallic
+- [ ] Rust 側で USD geometry を GLB バイナリに変換する（`gltf` crate）
+  - face-varying → vertex-varying 展開（faceVertexIndices の重複頂点化）
+- [ ] Tauri command `extract_geometry` を実装する（`Result<ipc::Response, String>` を返す）
+- [ ] フロント側の分岐を「拡張子判定」から「`root_layer_is_binary()` 判定」に切り替える
+  - USDA root → `USDLoader.parse`（既存）
+  - USDC root → `invoke("extract_geometry") → GLTFLoader.parseAsync`
+- [ ] `USDLoader.parse` の Web Worker 退避と合わせて描画パイプラインを整理する
+- [ ] Kitchen Set (`Ball.geom.usd` 等) で動作検証する
+
+#### Phase 4 — Payload 遅延ロード
+
+- [ ] `docs/usd.md` で Phase 4 方針を確定する
+- [ ] `references` は通常 compose、`payloads` のみ deferred 対象にする
+- [ ] `summarize_stage` / `inspect_stage` に load policy を導入する
+- [ ] `payloads deferred` モードでも hierarchy / issues を表示できるようにする
+- [ ] payload prim の `loaded / unloaded / missing` 状態を UI に表示する
+- [ ] 必要な payload だけ後から load する API を設計する
+- [ ] viewer の再構築または差分更新戦略を決める
+- [ ] Kitchen Set クラスで初回表示体験の改善を検証する
+
+#### Phase 5 — Preview 品質向上
+
+- [ ] `docs/usd.md` で Phase 5 方針を確定する
+- [ ] variant set 一覧と選択中 variant を inspector に表示する
+- [ ] variant 切り替えを preview に反映する
+- [ ] purpose (`default` / `render` / `proxy` / `guide`) の表示ポリシーを導入する
+- [ ] `PointInstancer` を preview できるようにする
+- [ ] `GeomSubset` / face subset 単位の material binding を反映する
+- [ ] stage 内 camera の列挙と切り替えを実装する
+- [ ] authored camera がない場合の auto-framing を改善する
 
 ## 15. OS 統合（Windows / macOS）
 
@@ -242,8 +298,8 @@
 - [x] `src-tauri/icons/` に `.icns` アイコンを追加する
 - [x] `bundle.icon` 配列に Windows / macOS / 汎用 PNG をすべて列挙する
 - [x] `package.json` に `bundle:mac` スクリプトを追加する（`tauri build -- --bundles app,dmg`）
-- [ ] macOS 上で `npm run tauri dev` が通ることを確認する
-- [ ] macOS 上で `npm run bundle:mac` が通ることを確認する
+- [x] macOS 上で `npm run tauri dev` が通ることを確認する
+- [x] macOS 上で `npm run bundle:mac` が通ることを確認する
 - [x] `tauri.conf.json` の identifier を `com.yohawing.ywlook` に変更する（`.app` 終端を回避）
 - [ ] `plugins.updater.windows.installMode` 相当の macOS 側設定を整理する
 - [ ] `scripts/prepare-local-update-feed.mjs` を OS 別成果物に対応させる

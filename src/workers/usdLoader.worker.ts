@@ -13,7 +13,7 @@
  * USDZ-embedded textures) that will be validated in Phase 3 before we
  * enable it for real users.
  *
- * See docs/usd-phase2.md §"Web Worker スケルトン" for the rationale and
+ * See docs/usd.md §"Web Worker スケルトン" for the rationale and
  * the Phase 3 acceptance criteria.
  */
 

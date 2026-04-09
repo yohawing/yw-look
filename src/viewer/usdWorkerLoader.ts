@@ -6,7 +6,7 @@
  * we pretend the worker doesn't exist until Phase 3 validates the
  * toJSON/fromJSON roundtrip against real assets.
  *
- * See docs/usd-phase2.md.
+ * See docs/usd.md.
  */
 
 import { ObjectLoader, type Object3D } from "three";

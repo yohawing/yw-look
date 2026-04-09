@@ -318,7 +318,7 @@ mod tests {
     // ----- Phase 0 production-asset parity tests --------------------------
     //
     // These tests reproduce the numbers we observed in `experiments/usd-poc`
-    // (see docs/usd-phase0.md) but through `OpenusdBackend` instead of the
+    // (see docs/usd.md) but through `OpenusdBackend` instead of the
     // raw `openusd` API. They confirm the adapter does not lose information
     // for real-world USD scenes.
     //
