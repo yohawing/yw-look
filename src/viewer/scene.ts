@@ -193,6 +193,13 @@ export function applyInitialView(
   controls: OrbitControls,
   object: Group | Mesh,
   sensitivityMultiplier = 1,
+  /**
+   * Original (pre-normalization) max dimension of the asset in scene units.
+   * Used for camera sensitivity only – camera position and clipping planes
+   * are computed from the normalized `object` bounds as usual.
+   * When omitted, sensitivity falls back to the normalized dimension.
+   */
+  rawMaxDimension?: number,
 ) {
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
@@ -214,7 +221,13 @@ export function applyInitialView(
   controls.target.copy(center);
   controls.minDistance = Math.max(maxDimension / 50, 0.05);
   controls.maxDistance = Math.max(maxDimension * 40, 50);
-  applyControlsSensitivity(controls, maxDimension, sensitivityMultiplier);
+  // Use the raw (pre-normalization) dimension for sensitivity so that a 1 mm
+  // asset gets finer controls than a 10 m asset even after normalization.
+  const sensitivityDim =
+    rawMaxDimension !== undefined && rawMaxDimension > 0
+      ? rawMaxDimension
+      : maxDimension;
+  applyControlsSensitivity(controls, sensitivityDim, sensitivityMultiplier);
   controls.update();
 }
 

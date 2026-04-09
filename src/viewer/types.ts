@@ -47,6 +47,12 @@ export type SceneContext = {
   clips: AnimationClip[];
   activeAction: AnimationAction | null;
   textureRegistry: Map<string, Texture>;
+  /**
+   * Original (pre-normalization) max dimension of the last loaded asset in
+   * scene units. Used to compute camera sensitivity so that assets that are
+   * scale-normalized still get speed values appropriate for their real size.
+   */
+  rawMaxDimension: number;
 };
 
 export type LoadedPreview = {

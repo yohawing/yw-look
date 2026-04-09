@@ -4,7 +4,6 @@ import {
   AmbientLight,
   AnimationMixer,
   BackSide,
-  Box3,
   BoxGeometry,
   Color,
   DirectionalLight,
@@ -17,7 +16,6 @@ import {
   SphereGeometry,
   Texture,
   Vector2,
-  Vector3,
   WebGLRenderTarget,
   WebGLRenderer,
 } from "three";
@@ -122,18 +120,28 @@ function frameMountedObject(
   viewerSurfaceMode: ViewerSurfaceMode,
   showGrid: boolean,
   sensitivityMultiplier = 1,
+  rawMaxDimension?: number,
 ) {
   syncGridVisibility(context, showGrid, viewerSurfaceMode);
 
   if (viewerSurfaceMode === "texture") {
     configureTextureControls(context.controls);
     applyTextureView(context.camera, context.controls, object);
+    // Reset to neutral speeds for texture pan/zoom – texture objects are always
+    // normalized to a small quad so asset-derived speeds would feel wrong.
+    applyControlsSensitivity(context.controls, 1, 1);
     context.controls.enabled = true;
     return;
   }
 
   configureAssetControls(context.controls);
-  applyInitialView(context.camera, context.controls, object, sensitivityMultiplier);
+  applyInitialView(
+    context.camera,
+    context.controls,
+    object,
+    sensitivityMultiplier,
+    rawMaxDimension,
+  );
   context.controls.enabled = true;
 }
 
@@ -381,11 +389,8 @@ export function AssetViewport({
     if (!context?.mountedObject) {
       return;
     }
-    // Re-derive maxDimension from the mounted object's bounding box.
-    const bounds = new Box3().setFromObject(context.mountedObject);
-    const size = bounds.getSize(new Vector3());
-    const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
-    applyControlsSensitivity(context.controls, maxDimension, cameraSpeedMultiplier);
+    // Use the stored raw (pre-normalization) dimension for accurate sensitivity.
+    applyControlsSensitivity(context.controls, context.rawMaxDimension, cameraSpeedMultiplier);
   }, [cameraSpeedMultiplier]);
 
   useEffect(() => {
@@ -527,6 +532,7 @@ export function AssetViewport({
       clips: [],
       activeAction: null,
       textureRegistry: new Map<string, Texture>(),
+      rawMaxDimension: 1,
     };
 
     onFeedbackChange(neutralFeedback);
@@ -633,6 +639,7 @@ export function AssetViewport({
       viewerSurfaceModeRef.current,
       showGridRef.current,
       cameraSpeedMultiplierRef.current,
+      context.rawMaxDimension,
     );
     resetCameraRef.current = () => {
       const targetContext = sceneContextRef.current;
@@ -648,6 +655,7 @@ export function AssetViewport({
         viewerSurfaceModeRef.current,
         showGridRef.current,
         cameraSpeedMultiplierRef.current,
+        targetContext.rawMaxDimension,
       );
     };
   }, [currentFile, showGrid, viewerSurfaceMode]);
@@ -730,6 +738,11 @@ export function AssetViewport({
         context.sourceObject = object;
         context.cleanupUrls = cleanupUrls;
         const normalization = normalizeObjectScale(object);
+        // Store the original (pre-normalization) dimension so camera sensitivity
+        // can reflect the asset's real world scale rather than the clamped size.
+        context.rawMaxDimension = normalization.originalMaxDimension > 0
+          ? normalization.originalMaxDimension
+          : normalization.normalizedMaxDimension;
         const gridConfig = applyDynamicGrid(
           context.scene,
           normalization.normalizedMaxDimension,
@@ -743,6 +756,7 @@ export function AssetViewport({
           viewerSurfaceModeRef.current,
           showGridRef.current,
           cameraSpeedMultiplierRef.current,
+          context.rawMaxDimension,
         );
         setActivePreviewPath(currentFile.path);
         setOverlayMode("ready");
@@ -784,6 +798,7 @@ export function AssetViewport({
             viewerSurfaceModeRef.current,
             showGridRef.current,
             cameraSpeedMultiplierRef.current,
+            targetContext.rawMaxDimension,
           );
         };
 
@@ -882,6 +897,7 @@ export function AssetViewport({
         viewerSurfaceModeRef.current,
         showGridRef.current,
         cameraSpeedMultiplierRef.current,
+        context.rawMaxDimension,
       );
       return;
     }
