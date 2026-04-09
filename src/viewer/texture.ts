@@ -1,4 +1,11 @@
-import { Mesh, MeshBasicMaterial, PlaneGeometry, Texture } from "three";
+import {
+  FloatType,
+  HalfFloatType,
+  Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  Texture,
+} from "three";
 
 /**
  * Builds a flat plane mesh for previewing a single texture in the viewport.
@@ -10,13 +17,25 @@ import { Mesh, MeshBasicMaterial, PlaneGeometry, Texture } from "three";
  * the texture too dark on Tauri's WebView2 because the chunks that built-in
  * materials get for free were not auto-injected.
  *
- * `toneMapped = false` keeps raw texture values out of `ACESFilmicToneMapping`
- * (which the asset viewport uses for the 3D model preview).
+ * Per-format material configuration:
  *
- * Texture-view extras like RGBA-checker compositing, alpha extraction,
- * exposure/black/white remap are tracked separately in ToDo §7 (channel
- * display, EV slider). Reintroduce them via material.onBeforeCompile when
- * the UI to drive them lands.
+ * - LDR (PNG/JPG/TGA/DDS/KTX2 byte textures):
+ *   `toneMapped = false` keeps raw values out of `ACESFilmicToneMapping`
+ *   so the preview matches reference viewers (XnView/Photoshop).
+ *   `transparent = true` honours alpha channels — transparent PNG/TGA
+ *   cutouts show through to the gray background instead of rendering
+ *   garbage RGB on opaque pixels.
+ *
+ * - HDR (`.hdr` / `.exr`, float-typed textures):
+ *   `toneMapped = true` lets the renderer's ACES filmic curve compress
+ *   the >1.0 range — without it everything above pure white clips to
+ *   solid white. `transparent = false` because float HDR textures do
+ *   not carry meaningful alpha and we want a flat opaque plane.
+ *
+ * Channel display, exposure slider, and explicit alpha-on-checker
+ * compositing are tracked separately in ToDo §7 ("チャンネル別表示")
+ * and will be reintroduced via `material.onBeforeCompile` once the UI
+ * lands.
  */
 export function createTextureViewerObject(texture: Texture) {
   const image = texture.image as
@@ -29,12 +48,15 @@ export function createTextureViewerObject(texture: Texture) {
   const width = ratio >= 1 ? 2.6 : 2.6 * ratio;
   const height = ratio >= 1 ? 2.6 / ratio : 2.6;
 
+  const isFloat =
+    texture.type === FloatType || texture.type === HalfFloatType;
+
   return new Mesh(
     new PlaneGeometry(width, height),
     new MeshBasicMaterial({
       map: texture,
-      transparent: false,
-      toneMapped: false,
+      transparent: !isFloat,
+      toneMapped: isFloat,
     }),
   );
 }
