@@ -40,7 +40,7 @@ const LOADER_MAP = {
   ".obj": "OBJLoader",
   ".stl": "STLLoader",
   ".ply": "PLYLoader",
-  ".dae": "ColladaLoader", // TODO: 未実装 (ToDo.md #6)
+  ".dae": "ColladaLoader",
   ".vrm": "VRMLoader", // TODO: 未実装 (ToDo.md #6)
   ".pmx": "MMDLoader", // TODO: 未実装 (ToDo.md #6)
   ".pmd": "MMDLoader", // TODO: 未実装 (ToDo.md #6)
@@ -57,7 +57,7 @@ const LOADER_MAP = {
   ".hdr": "RGBELoader",
   ".exr": "EXRLoader",
   ".dds": "DDSLoader",
-  ".ktx2": "KTX2Loader", // TODO: 未実装 (ToDo.md #7)
+  ".ktx2": "KTX2Loader",
 };
 
 // ---------------------------------------------------------------------------
