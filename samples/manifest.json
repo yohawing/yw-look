@@ -109,6 +109,20 @@
       }
     },
     {
+      "id": "dae-tiny-tetrahedron",
+      "kind": "model",
+      "format": "dae",
+      "path": "samples/assets/dae/TinyTetrahedron.dae",
+      "tags": ["smoke", "dae", "collada", "generated-local"],
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": false,
+        "hasAnimation": false
+      }
+    },
+    {
       "id": "tga-crate-grey8",
       "kind": "texture",
       "format": "tga",

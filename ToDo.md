@@ -79,8 +79,6 @@
 - [x] `PLY` ローダー対応可否を確認し、可能なら実装する
 - [x] `DAE` ローダーを実装する（Three.js に ColladaLoader あり、未統合）
 - [x] `STL` ローダー対応可否を確認し、可能なら実装する
-- [ ] `VRM` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
-- [ ] `PMD / PMX / VMD / VRMA` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
 - [x] 対応拡張子ごとの lazy load を実装する
 
 ## 7. テクスチャ / 画像ローダー
@@ -490,6 +488,8 @@ fork: `yohawing/openusd`（branch: `yw-look-phase1` ベース）で作業中。
 
 ## 24. 将来対応の検討（フォーマット・パフォーマンス）
 
+- [ ] `VRM` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
+- [ ] `PMD / PMX / VMD / VRMA` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
 - [ ] `Alembic (.abc)` の対応方針を調べる（Three.js 標準にはなし、外部ライブラリ要）
 - [ ] `ufbx` を使った native FBX パスの将来設計をまとめる（現在は Three.js FBXLoader）
 - [ ] `DDS` の native 展開が必要か検証する（現在は Three.js DDSLoader で対応済み）
