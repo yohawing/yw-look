@@ -15,7 +15,6 @@ import {
   type BackgroundPreset,
   type DisplayMode,
   type EnvironmentPreset,
-  type TextureViewMode,
   type ViewerFeedback,
   type ViewerSurfaceMode,
 } from "./components/AssetViewport";
@@ -220,10 +219,11 @@ export function App() {
   const [selectedTextureId, setSelectedTextureId] = useState<string | null>(
     null,
   );
-  const [textureViewMode] = useState<TextureViewMode>("rgba");
-  const [textureExposure, setTextureExposure] = useState(0);
-  const [textureBlackPoint, setTextureBlackPoint] = useState(0);
-  const [textureWhitePoint, setTextureWhitePoint] = useState(1);
+  // Note: texture view-mode / exposure / black-point / white-point were
+  // removed here when the ShaderMaterial-based preview was replaced with
+  // MeshBasicMaterial (see src/viewer/texture.ts). They will be re-added in
+  // ToDo §7 ("チャンネル別表示") once the texture-view UI lands, alongside
+  // an onBeforeCompile hook on the new material.
   const [recentFilesPayload, setRecentFilesPayload] =
     useState<RecentFilesPayload | null>(null);
   const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
@@ -682,9 +682,6 @@ export function App() {
       if (viewerSurfaceMode !== "asset") {
         setViewerSurfaceMode("asset");
       }
-      setTextureExposure(0);
-      setTextureBlackPoint(0);
-      setTextureWhitePoint(1);
       return;
     }
 
@@ -696,10 +693,6 @@ export function App() {
       }
       if (viewerSurfaceMode !== "texture") {
         setViewerSurfaceMode("texture");
-      }
-      if (currentFile.extension === "hdr" || currentFile.extension === "exr") {
-        setTextureExposure(0.75);
-        setTextureWhitePoint(4);
       }
       return;
     }
@@ -1402,11 +1395,7 @@ export function App() {
             onFeedbackChange={setViewerFeedback}
             onMetadataChange={setAssetMetadata}
             selectedTextureId={selectedTextureId}
-            textureViewMode={textureViewMode}
             viewerSurfaceMode={viewerSurfaceMode}
-            textureExposure={textureExposure}
-            textureBlackPoint={textureBlackPoint}
-            textureWhitePoint={textureWhitePoint}
             resetVersion={resetVersion}
             showGrid={showGrid}
             onGridUnitChange={setGridUnitLabel}

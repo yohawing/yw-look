@@ -25,7 +25,6 @@ import {
   type DisplayMode,
   type MissingReferenceError,
   type SceneContext,
-  type TextureViewMode,
   type ViewerFeedback,
   type ViewerSurfaceMode,
   implementedPreviewExtensions,
@@ -59,7 +58,7 @@ import { emptyAssetMetadata, type AssetMetadata } from "./assetMetadata";
 import { emptyAnimationState, type AnimationState } from "./animation";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
-export type { ViewerFeedback, DisplayMode, ViewerSurfaceMode, TextureViewMode };
+export type { ViewerFeedback, DisplayMode, ViewerSurfaceMode };
 export type BackgroundPreset = "gray" | "charcoal" | "light";
 
 const backgroundPresetColors: Record<BackgroundPreset, string> = {
@@ -153,11 +152,7 @@ type AssetViewportProps = {
   onFeedbackChange: (feedback: ViewerFeedback) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
   selectedTextureId: string | null;
-  textureViewMode: TextureViewMode;
   viewerSurfaceMode: ViewerSurfaceMode;
-  textureExposure: number;
-  textureBlackPoint: number;
-  textureWhitePoint: number;
   resetVersion: number;
   showGrid: boolean;
   onGridUnitChange: (label: string) => void;
@@ -328,11 +323,7 @@ export function AssetViewport({
   onFeedbackChange,
   onMetadataChange,
   selectedTextureId,
-  textureViewMode,
   viewerSurfaceMode,
-  textureExposure,
-  textureBlackPoint,
-  textureWhitePoint,
   resetVersion,
   showGrid,
   onGridUnitChange,
@@ -918,13 +909,7 @@ export function AssetViewport({
       return;
     }
 
-    const previewObject = createTextureViewerObject(
-      selectedTexture,
-      textureViewMode,
-      textureExposure,
-      textureBlackPoint,
-      textureWhitePoint,
-    );
+    const previewObject = createTextureViewerObject(selectedTexture);
     context.sourceObject.visible = false;
     context.previewObject = previewObject;
     context.mountedObject = previewObject;
@@ -936,14 +921,7 @@ export function AssetViewport({
       showGridRef.current,
       cameraSpeedMultiplierRef.current,
     );
-  }, [
-    selectedTextureId,
-    textureBlackPoint,
-    textureExposure,
-    textureViewMode,
-    textureWhitePoint,
-    viewerSurfaceMode,
-  ]);
+  }, [selectedTextureId, viewerSurfaceMode]);
 
   useEffect(() => {
     resetCameraRef.current?.();
