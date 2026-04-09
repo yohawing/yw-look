@@ -32,10 +32,21 @@ import {
  *   solid white. `transparent = false` because float HDR textures do
  *   not carry meaningful alpha and we want a flat opaque plane.
  *
+ * Known limitations (deferred to ToDo §7):
+ *
+ * - Float-typed *data* textures (e.g. EXR normal/roughness/metalness
+ *   maps from a USD asset) will be tone mapped here even though their
+ *   values should be displayed verbatim. Distinguishing color from data
+ *   needs the texture role/channel which lives in the metadata layer,
+ *   not on the Texture object itself.
+ * - RGBA EXR matte/decal textures lose their alpha because we force
+ *   `transparent = false` for floats. The same role/channel signal is
+ *   needed to selectively re-enable transparent compositing.
+ *
  * Channel display, exposure slider, and explicit alpha-on-checker
  * compositing are tracked separately in ToDo §7 ("チャンネル別表示")
  * and will be reintroduced via `material.onBeforeCompile` once the UI
- * lands.
+ * (and a way to plumb the texture role through to this function) lands.
  */
 export function createTextureViewerObject(texture: Texture) {
   const image = texture.image as
