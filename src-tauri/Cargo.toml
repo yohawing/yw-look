@@ -30,16 +30,16 @@ url = "2"
 
 # ⚠️ CI-BLOCKING — must be resolved before this commit is pushed to GitHub.
 #
-# Phase 4 + Phase 5a depend on the `yw-look-phase4` branch of the openusd
-# fork. That branch has not been pushed upstream yet (push is held pending
-# review), so there is no GitHub-resolvable rev that carries the new
-# `StageLoadPolicy` / `Stage::material_of` APIs. Until the branch is
-# pushed, this `[patch]` redirects Cargo to the local working tree at
-# `F:\Develop\openusd`.
+# Phase 4 + Phase 5a + Phase 5b WIP depend on the `yw-look-phase4` branch
+# of the openusd fork. That branch has not been pushed upstream yet (push
+# is held pending review), so there is no GitHub-resolvable rev that
+# carries the new `StageLoadPolicy` / `Stage::material_of` /
+# `Stage::skeleton_of` APIs. Until the branch is pushed, this `[patch]`
+# redirects Cargo to the local working tree at `F:\Develop\openusd`.
 #
 # Remove this patch **and** bump the rev above to
-# `aaf9a218aa2f0a9b508b9ecae9e332c3455c2f60` (the Phase 5a tip) the moment
-# the fork branch lands on GitHub. Without that swap, `cargo check` in a
-# fresh clone — including CI — will fail to resolve the openusd dep.
+# `5c44588a519c674b177e3fd71e979f294a4dd030` (the Phase 5b WIP tip) the
+# moment the fork branch lands on GitHub. Without that swap, `cargo check`
+# in a fresh clone — including CI — will fail to resolve the openusd dep.
 [patch."https://github.com/yohawing/openusd.git"]
 openusd = { path = "../../openusd" }

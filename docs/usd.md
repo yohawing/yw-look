@@ -451,6 +451,43 @@ USD の「軽く見せる」設計に素直に乗れる。
 - layer 編集
 - composition 編集 UI
 
+### Phase 5b — Skel API WIP（fork のみ、yw-look 統合は繰越）
+
+ストレッチ目標として fork (`yohawing/openusd`, branch `yw-look-phase4`) に最小 SkelAPI を導入したが、**yw-look 側 GLB パイプラインへの統合は次セッション以降に繰越**。理由は下記。
+
+#### fork 側で実装済み (commit `5c44588`)
+
+- `pub struct SkeletonData { joints, bind_transforms, rest_transforms, parents }`
+- `pub struct SkelAnimationData { times, translations, rotations, scales, joints }` (型のみ、body は deferred stub)
+- `Stage::skeleton_of(mesh_path) -> Option<(Path, SkeletonData)>` — `SkelBindingAPI::skel:binding` + ancestor `SkelRoot` walk の 2 経路
+- `Stage::skel_animation_of(skeleton_path) -> Option<SkelAnimationData>` — 現状常に `None`、rustdoc に deferral 理由を記載
+- `fixtures/skel_smoke/` に 2-joint Hip/Spine fixture と 5 本のテスト
+
+#### 繰越理由
+
+1. **animation の time-sampled 配列読み取りが USDA parser でブロック中**
+   - `openusd::pcp` の `resolve_field` は `FieldKey::TimeSamples` を `Value::TimeSamples(TimeSampleMap)` として返せる設計
+   - USDC reader (`src/usdc/reader.rs`) は `Type::TimeSamples` を正しくデコード
+   - しかし USDA parser の `parse_time_samples` (`src/usda/parser.rs:1096-1110`) は各サンプル値を `parse_property_metadata_value()` で読むため、`float3[] translations.timeSamples = { 0: [(0,0,0), (0,1,0)] }` のような **配列型 vector のサンプル** を食わせると `"Unsupported property metadata value token: Punctuation('(')"` で落ちる
+   - スカラー time sample（`fixtures/timesamples.usda` の `double prop.timeSamples = { 4: 40 }`）は通るが、SkelAnimation の translations/rotations/scales はすべて配列型 vec で必ずこのパスを通るため、USDA 単独で end-to-end 検証する fixture が作れない
+
+2. **per-vertex skinning data (`primvars:skel:jointIndices` / `primvars:skel:jointWeights`) が `MeshData` に載っていない**
+   - 現状の `Stage::mesh_of` は points / faceVertexCounts / faceVertexIndices / normals / uvs のみ
+   - skin を glTF に書き出すには各頂点に joint index 4 つ + weight 4 つが必要
+   - `MeshData` 拡張（あるいは別型 `SkinData` の追加）は Phase 5c の課題
+
+3. **yw-look 側では bind pose のみ embed しても見た目が変わらない**
+   - skeleton を glTF skin として埋め込んでも、animation channels と per-vertex skinning がなければ rest pose と同じ見た目になる
+   - 部分的な統合よりも、上記 2 点が解決した時点で一括統合するほうが回帰検知しやすい
+
+#### Phase 5c で必要な作業
+
+1. USDA parser の `parse_property_metadata_value` を配列型 vector を受理するよう拡張（`src/usda/parser.rs:1096`）、または USDC で SkelAnimation fixture を用意
+2. `Stage::skel_animation_of` の body を実装（API shape は確定済み、`skel:animationSource` rel を辿って `translations` / `rotations` / `scales` を `FieldKey::TimeSamples` 経由で読むだけ）
+3. `MeshData` または新しい `SkinData` 型に `joint_indices: Vec<u32>` + `joint_weights: Vec<f32>` を追加
+4. yw-look 側 `glb.rs` に `SkinInput` を導入、glTF nodes / skin / inverseBindMatrices を出力
+5. `loaders.ts` 側は既存の glTF skin 経路（FBX/glTF と同じ `THREE.AnimationMixer` 連携）にそのまま乗る
+
 ---
 
 ## 通しの方針・制約
