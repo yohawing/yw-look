@@ -122,6 +122,17 @@ function configureAssetControls(controls: OrbitControls) {
   controls.mouseButtons.RIGHT = MOUSE.DOLLY;
 }
 
+function applyControlSensitivity(
+  controls: OrbitControls,
+  sensitivity: number,
+) {
+  // Clamp so users can't lock themselves out with a zero multiplier.
+  const safe = Math.max(sensitivity, 0.05);
+  controls.rotateSpeed = safe;
+  controls.panSpeed = safe;
+  controls.zoomSpeed = safe;
+}
+
 function configureTextureControls(controls: OrbitControls) {
   controls.enableRotate = false;
   controls.enablePan = true;
@@ -201,6 +212,7 @@ type AssetViewportProps = {
   showEnvironmentBackground: boolean;
   backfaceCulling: boolean;
   cameraPresetRequest: CameraPresetRequest | null;
+  controlSensitivity: number;
   toneMappingMode: ToneMappingMode;
   exposure: number;
   onGridUnitChange: (label: string) => void;
@@ -382,6 +394,7 @@ export function AssetViewport({
   showEnvironmentBackground,
   backfaceCulling,
   cameraPresetRequest,
+  controlSensitivity,
   toneMappingMode,
   exposure,
   onGridUnitChange,
@@ -517,6 +530,7 @@ export function AssetViewport({
     configureAssetControls(controls);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
+    applyControlSensitivity(controls, controlSensitivity);
 
     // ── Initial grid ──
     const initialGrid = applyDynamicGrid(
@@ -671,6 +685,14 @@ export function AssetViewport({
     }
     context.renderer.toneMappingExposure = exposure;
   }, [exposure]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+    if (!context) {
+      return;
+    }
+    applyControlSensitivity(context.controls, controlSensitivity);
+  }, [controlSensitivity]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

@@ -248,6 +248,7 @@ export function App() {
   const [backfaceCulling, setBackfaceCulling] = useState(true);
   const [cameraPresetRequest, setCameraPresetRequest] =
     useState<CameraPresetRequest | null>(null);
+  const [controlSensitivity, setControlSensitivity] = useState(1);
   const [toneMappingMode, setToneMappingMode] =
     useState<ToneMappingMode>("aces");
   const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
@@ -1474,6 +1475,7 @@ export function App() {
             showEnvironmentBackground={showEnvironmentBackground}
             backfaceCulling={backfaceCulling}
             cameraPresetRequest={cameraPresetRequest}
+            controlSensitivity={controlSensitivity}
             toneMappingMode={toneMappingMode}
             exposure={exposure}
             onGridUnitChange={setGridUnitLabel}
@@ -1607,6 +1609,24 @@ export function App() {
                   </button>
                 ))}
               </div>
+              <label className="range-control">
+                <span>Sensitivity {controlSensitivity.toFixed(2)}</span>
+                <input
+                  aria-label="Camera control sensitivity"
+                  max={3}
+                  min={0.1}
+                  onChange={(event) =>
+                    setControlSensitivity(
+                      Number.parseFloat(event.target.value),
+                    )
+                  }
+                  onDoubleClick={() => setControlSensitivity(1)}
+                  step={0.05}
+                  title="Orbit / pan / zoom multiplier (double-click to reset)"
+                  type="range"
+                  value={controlSensitivity}
+                />
+              </label>
             </div>
             {viewerSurfaceMode === "texture" ? (
               <>
