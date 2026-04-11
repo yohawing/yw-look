@@ -258,6 +258,7 @@ export function App() {
   const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
+  const [environmentRotation, setEnvironmentRotation] = useState(0);
   const [backfaceCulling, setBackfaceCulling] = useState(true);
   const [cameraPresetRequest, setCameraPresetRequest] =
     useState<CameraPresetRequest | null>(null);
@@ -1491,6 +1492,7 @@ export function App() {
             showNormals={showNormals}
             showVertexColors={showVertexColors}
             showEnvironmentBackground={showEnvironmentBackground}
+            environmentRotation={environmentRotation}
             backfaceCulling={backfaceCulling}
             cameraPresetRequest={cameraPresetRequest}
             controlSensitivity={controlSensitivity}
@@ -1659,6 +1661,26 @@ export function App() {
                   </button>
                 ))}
               </div>
+              <label className="range-control">
+                <span>
+                  Rotation {Math.round((environmentRotation * 180) / Math.PI)}°
+                </span>
+                <input
+                  aria-label="Environment map rotation"
+                  max={Math.PI * 2}
+                  min={0}
+                  onChange={(event) =>
+                    setEnvironmentRotation(
+                      Number.parseFloat(event.target.value),
+                    )
+                  }
+                  onDoubleClick={() => setEnvironmentRotation(0)}
+                  step={Math.PI / 180}
+                  title="Rotate the environment map around the up axis (double-click to reset)"
+                  type="range"
+                  value={environmentRotation}
+                />
+              </label>
             </div>
             <div className="view-mode-section">
               <span className="view-mode-section-label">View</span>

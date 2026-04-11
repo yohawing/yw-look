@@ -216,6 +216,7 @@ type AssetViewportProps = {
   showNormals: boolean;
   showVertexColors: boolean;
   showEnvironmentBackground: boolean;
+  environmentRotation: number;
   backfaceCulling: boolean;
   cameraPresetRequest: CameraPresetRequest | null;
   controlSensitivity: number;
@@ -403,6 +404,7 @@ export function AssetViewport({
   showNormals,
   showVertexColors,
   showEnvironmentBackground,
+  environmentRotation,
   backfaceCulling,
   cameraPresetRequest,
   controlSensitivity,
@@ -537,6 +539,8 @@ export function AssetViewport({
     }
     activeEnvironmentPresetRef.current = environmentPreset;
     scene.environment = environmentTargetRef.current.texture;
+    scene.environmentRotation.set(0, environmentRotation, 0);
+    scene.backgroundRotation.set(0, environmentRotation, 0);
 
     applyViewportBackground(
       renderer,
@@ -740,6 +744,17 @@ export function AssetViewport({
     // exactly what we want so the canvas re-samples at the new scale.
     context.renderer.setPixelRatio(window.devicePixelRatio * renderScale);
   }, [renderScale]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+    if (!context) {
+      return;
+    }
+    // Rotate only around Y (up-axis) so the HDRI spins horizontally,
+    // which is what "rotate environment" means for most studio rigs.
+    context.scene.environmentRotation.set(0, environmentRotation, 0);
+    context.scene.backgroundRotation.set(0, environmentRotation, 0);
+  }, [environmentRotation]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
