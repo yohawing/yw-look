@@ -1641,6 +1641,65 @@ export function App() {
                     ))}
                   </div>
                 </div>
+                <div className="view-mode-section">
+                  <span className="view-mode-section-label">
+                    Range (HDR/EXR)
+                  </span>
+                  <label className="range-control">
+                    <span>EV {textureExposure.toFixed(2)}</span>
+                    <input
+                      aria-label="Texture exposure (EV)"
+                      max={6}
+                      min={-6}
+                      onChange={(event) =>
+                        setTextureExposure(
+                          Number.parseFloat(event.target.value),
+                        )
+                      }
+                      onDoubleClick={() => setTextureExposure(0)}
+                      step={0.1}
+                      title="Double-click to reset"
+                      type="range"
+                      value={textureExposure}
+                    />
+                  </label>
+                  <label className="range-control">
+                    <span>Black {textureBlackPoint.toFixed(2)}</span>
+                    <input
+                      aria-label="Texture black point"
+                      max={1}
+                      min={-1}
+                      onChange={(event) =>
+                        setTextureBlackPoint(
+                          Number.parseFloat(event.target.value),
+                        )
+                      }
+                      onDoubleClick={() => setTextureBlackPoint(0)}
+                      step={0.01}
+                      title="Double-click to reset"
+                      type="range"
+                      value={textureBlackPoint}
+                    />
+                  </label>
+                  <label className="range-control">
+                    <span>White {textureWhitePoint.toFixed(2)}</span>
+                    <input
+                      aria-label="Texture white point"
+                      max={8}
+                      min={0.1}
+                      onChange={(event) =>
+                        setTextureWhitePoint(
+                          Number.parseFloat(event.target.value),
+                        )
+                      }
+                      onDoubleClick={() => setTextureWhitePoint(1)}
+                      step={0.05}
+                      title="Double-click to reset"
+                      type="range"
+                      value={textureWhitePoint}
+                    />
+                  </label>
+                </div>
               </>
             ) : null}
             <div className="view-mode-section">
