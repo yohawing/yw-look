@@ -854,7 +854,22 @@ export function AssetViewport({
     }
     // setPixelRatio triggers a drawing-buffer reallocation, which is
     // exactly what we want so the canvas re-samples at the new scale.
-    context.renderer.setPixelRatio(window.devicePixelRatio * renderScale);
+    const pixelRatio = window.devicePixelRatio * renderScale;
+    context.renderer.setPixelRatio(pixelRatio);
+
+    const fxaaState = fxaaStateRef.current;
+    if (!fxaaState) {
+      return;
+    }
+
+    const width = context.renderer.domElement.clientWidth;
+    const height = context.renderer.domElement.clientHeight;
+
+    fxaaState.composer.setSize(width, height);
+    fxaaState.fxaaPass.material.uniforms.resolution.value.set(
+      1 / (width * pixelRatio),
+      1 / (height * pixelRatio),
+    );
   }, [renderScale]);
 
   useEffect(() => {
