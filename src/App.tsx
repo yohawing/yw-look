@@ -222,6 +222,16 @@ const textureChannelOptions: Array<{
   { id: "alpha", label: "A" },
 ];
 
+const textureTileOptions: Array<{
+  count: number;
+  label: string;
+}> = [
+  { count: 1, label: "1x" },
+  { count: 2, label: "2x" },
+  { count: 4, label: "4x" },
+  { count: 8, label: "8x" },
+];
+
 const DEFAULT_EXPOSURE = 1.1;
 
 export function App() {
@@ -272,6 +282,7 @@ export function App() {
   const [textureExposure, setTextureExposure] = useState(0);
   const [textureBlackPoint, setTextureBlackPoint] = useState(0);
   const [textureWhitePoint, setTextureWhitePoint] = useState(1);
+  const [textureTileCount, setTextureTileCount] = useState(1);
   const [recentFilesPayload, setRecentFilesPayload] =
     useState<RecentFilesPayload | null>(null);
   const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
@@ -1455,6 +1466,7 @@ export function App() {
             textureExposure={textureExposure}
             textureBlackPoint={textureBlackPoint}
             textureWhitePoint={textureWhitePoint}
+            textureTileCount={textureTileCount}
             resetVersion={resetVersion}
             showGrid={showGrid}
             showAxes={showAxes}
@@ -1597,21 +1609,39 @@ export function App() {
               </div>
             </div>
             {viewerSurfaceMode === "texture" ? (
-              <div className="view-mode-section">
-                <span className="view-mode-section-label">Channel</span>
-                <div className="preset-chip-row">
-                  {textureChannelOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      className={`preset-chip${textureViewMode === option.id ? " is-active" : ""}`}
-                      onClick={() => setTextureViewMode(option.id)}
-                      type="button"
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+              <>
+                <div className="view-mode-section">
+                  <span className="view-mode-section-label">Channel</span>
+                  <div className="preset-chip-row">
+                    {textureChannelOptions.map((option) => (
+                      <button
+                        key={option.id}
+                        className={`preset-chip${textureViewMode === option.id ? " is-active" : ""}`}
+                        onClick={() => setTextureViewMode(option.id)}
+                        type="button"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+                <div className="view-mode-section">
+                  <span className="view-mode-section-label">Tiling</span>
+                  <div className="preset-chip-row">
+                    {textureTileOptions.map((option) => (
+                      <button
+                        key={option.count}
+                        className={`preset-chip${textureTileCount === option.count ? " is-active" : ""}`}
+                        onClick={() => setTextureTileCount(option.count)}
+                        type="button"
+                        title={`Repeat the texture ${option.count}x in both directions`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             ) : null}
             <div className="view-mode-section">
               <span className="view-mode-section-label">Tone Mapping</span>

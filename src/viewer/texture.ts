@@ -16,6 +16,7 @@ export function createTextureViewerObject(
   textureExposure: number,
   textureBlackPoint: number,
   textureWhitePoint: number,
+  textureTileCount: number,
 ) {
   const image = texture.image as
     | { width?: number; height?: number }
@@ -39,6 +40,7 @@ export function createTextureViewerObject(
         uExposure: { value: textureExposure },
         uBlackPoint: { value: textureBlackPoint },
         uWhitePoint: { value: textureWhitePoint },
+        uTileCount: { value: Math.max(textureTileCount, 1) },
       },
       vertexShader: `
         varying vec2 vUv;
@@ -53,6 +55,7 @@ export function createTextureViewerObject(
         uniform float uExposure;
         uniform float uBlackPoint;
         uniform float uWhitePoint;
+        uniform float uTileCount;
         varying vec2 vUv;
 
         vec3 checker(vec2 uv) {
@@ -74,7 +77,11 @@ export function createTextureViewerObject(
         }
 
         void main() {
-          vec4 texel = texture2D(uTexture, vUv);
+          // Wrap in the shader so we can tile without mutating the
+          // texture's wrap modes (which are shared between the texture
+          // preview and any 3D material still pointing at it).
+          vec2 tiledUv = fract(vUv * uTileCount);
+          vec4 texel = texture2D(uTexture, tiledUv);
           vec3 color = remapRange(texel.rgb);
           float alphaValue = remapScalar(texel.a);
 
