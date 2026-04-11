@@ -77,7 +77,7 @@
 - [x] `USD` ローダーで `metersPerUnit` を読み取りスケール補正を適用する（Three.js USDAParser が無視するため極小表示になる）
 - [x] `USD` ローダーで個別 `xformOp`（scale / translate / rotateXYZ）をサポートする（現在 matrix4d のみ）
 - [x] `PLY` ローダー対応可否を確認し、可能なら実装する
-- [ ] `DAE` ローダーを実装する（Three.js に ColladaLoader あり、未統合）
+- [x] `DAE` ローダーを実装する（Three.js に ColladaLoader あり、未統合）
 - [x] `STL` ローダー対応可否を確認し、可能なら実装する
 - [ ] `VRM` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
 - [ ] `PMD / PMX / VMD / VRMA` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）

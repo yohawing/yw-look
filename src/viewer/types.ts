@@ -88,6 +88,7 @@ export const implementedPreviewExtensions = new Set([
   "obj",
   "ply",
   "stl",
+  "dae",
   "usd",
   "usda",
   "usdc",

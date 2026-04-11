@@ -771,7 +771,8 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
 }
 
 const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "png", "jpg", "jpeg", "tga", "dds", "hdr", "exr",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga", "dds", "hdr",
+    "exr",
 ];
 
 fn system_time_to_unix_string(time: SystemTime) -> Option<String> {
