@@ -11,7 +11,7 @@ import {
   TextureLoader,
 } from "three";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
-import { inspectStage } from "../lib/usd";
+import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
   LoadedPreview,
@@ -635,6 +635,76 @@ export async function loadPreviewObject(
     case "usda":
     case "usdc":
     case "usdz": {
+      // Phase 3: route through the Rust GLB extraction pipeline whenever
+      // the stage depends on anything `USDLoader.parse` can't handle —
+      // i.e. a USDC root layer *or* any external composition (references,
+      // payloads, sublayers). yw-look only hands `USDLoader.parse` a
+      // single text buffer; it has no file-system hook, so any authored
+      // reference silently disappears. Single self-contained USDA files
+      // still go through the Three.js loader because it preserves the
+      // authored xform hierarchy better than our GLB flattener.
+      //
+      // Branching is NOT by file extension: a `.usdz` archive can wrap
+      // either USDA or USDC, and a `.usd` extension can be either format
+      // too. `requiresGlbPreview` opens the stage on the Rust side and
+      // reports the definitive answer.
+      let useGlbPipeline = false;
+      try {
+        useGlbPipeline = await requiresGlbPreview(file.path);
+      } catch (error) {
+        // If the Rust check itself fails (e.g. a catastrophic parse
+        // error) fall through to the JS-side magic-byte sniff so the
+        // load can still proceed and the user sees at least *something*.
+        console.warn(
+          "[usd] requires_glb_preview failed, falling back to JS detection:",
+          error,
+        );
+      }
+
+      if (useGlbPipeline) {
+        // ---- USDC pipeline -------------------------------------------
+        // Yield a frame so the Rust-populated inspector sidebar has a
+        // chance to paint before we block on the (potentially heavy)
+        // GLB extraction.
+        await yieldToPaint();
+
+        const started = performance.now();
+        const glbBuffer = await extractGeometry(file.path);
+        console.info(
+          `[usd] extract_geometry OK in ${Math.round(
+            performance.now() - started,
+          )}ms (${glbBuffer.byteLength} bytes): ${file.fileName}`,
+        );
+
+        const { GLTFLoader } =
+          await import("three/examples/jsm/loaders/GLTFLoader.js");
+        const gltf = await new GLTFLoader().parseAsync(glbBuffer, "");
+        console.info(`[usd] GLTFLoader.parseAsync OK: ${file.fileName}`);
+
+        // GLTFLoader returns a `GLTF` whose `scene` is a Group. Our
+        // preview pipeline expects `Group | Mesh`, so we hand back the
+        // scene root directly.
+        const object = gltf.scene;
+
+        // Apply metersPerUnit / upAxis hints from the inspector — these
+        // come from the same Rust backend so the Phase 2 work continues
+        // to apply uniformly.
+        try {
+          const runtimeHints = await parseUsdRuntimeHints(file.path);
+          applyUsdRuntimeHints(object, runtimeHints);
+        } catch (error) {
+          console.warn("[usd] runtime hints failed:", error);
+        }
+
+        return {
+          object,
+          cleanupUrls: [],
+          clips: [],
+          formatVersion: null,
+        };
+      }
+
+      // ---- USDA pipeline (existing) ------------------------------------
       const { USDLoader } =
         await import("three/examples/jsm/loaders/USDLoader.js");
       const buffer = await readArrayBuffer(file.path);
@@ -642,13 +712,20 @@ export async function loadPreviewObject(
       const usdaText = await tryExtractUsdaText(file.extension, buffer);
 
       // Three.js USDLoader only handles USDA (ASCII) format. When
-      // tryExtractUsdaText returns null for a non-USDZ file it means the
-      // buffer is USDC binary crate format, which the loader cannot parse.
-      // Passing raw USDC to USDLoader silently produces empty geometry, so
-      // we fail fast here with a clear message instead.
-      if (usdaText === null && file.extension !== "usdz") {
+      // tryExtractUsdaText returns null it means the content is USDC
+      // binary crate — either a raw `.usdc` / `.usd` file, or a `.usdz`
+      // archive whose first layer is USDC. Normally we'd have already
+      // taken the GLB pipeline branch above, but if `isRootLayerBinary`
+      // failed (e.g. the backend refused to open the stage) we fall back
+      // here. Passing a raw USDC buffer to `USDLoader.parse` silently
+      // produces empty geometry, so we fail fast with a clear error
+      // regardless of the file extension. Previously the USDZ branch
+      // fell through to the synchronous loader, which reintroduced the
+      // exact silent-empty-preview bug the Phase 3 pipeline is trying
+      // to remove.
+      if (usdaText === null) {
         throw new Error(
-          `USDC binary format (${file.fileName}) cannot be rendered by the Three.js preview. ` +
+          `USDC binary content detected in ${file.fileName} and the GLB pipeline is unavailable. ` +
             `Stage metadata and inspection are still available in the sidebar.`,
         );
       }
@@ -797,7 +874,9 @@ export async function loadPreviewObject(
         // S3TC/DXT and BPTC support on modern discrete GPUs. ASTC and PVRTC
         // are mobile-only formats; ETC2 is broadly supported but not critical.
         // This path is only taken in test/SSR environments without a renderer.
-        (loader as unknown as { workerConfig: Record<string, boolean> }).workerConfig = {
+        (
+          loader as unknown as { workerConfig: Record<string, boolean> }
+        ).workerConfig = {
           astcSupported: false,
           astcHDRSupported: false,
           etc1Supported: false,

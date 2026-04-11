@@ -1130,6 +1130,43 @@ async fn collect_asset_issues(
     run_blocking_usd(move || handle.collect_asset_issues(&normalized)).await
 }
 
+/// Phase 3: returns whether the frontend should route this USD file
+/// through the Rust GLB extraction pipeline instead of Three.js
+/// `USDLoader.parse`. True whenever the root layer is binary USDC *or*
+/// the composed stage has more than one layer (references, payloads,
+/// sublayers) — because `USDLoader.parse` only sees the single buffer
+/// yw-look hands it and cannot follow external asset paths.
+///
+/// This is the decision the frontend acts on during the USD load case.
+/// The backend opens the stage once and inspects layer count, so it's
+/// cheap enough to call eagerly.
+#[tauri::command]
+async fn requires_glb_preview(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<bool, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.requires_glb_preview(&normalized)).await
+}
+
+/// Phase 3: extracts every Mesh prim in the stage as a single GLB binary,
+/// returned as a raw byte stream via `tauri::ipc::Response`. The frontend
+/// receives the bytes as `ArrayBuffer` and feeds them to
+/// `GLTFLoader.parseAsync`. Use only after `root_layer_is_binary` returned
+/// `true` — for USDA stages the existing `USDLoader.parse` path is faster
+/// and more accurate (no triangulation, full xform graph).
+#[tauri::command]
+async fn extract_geometry(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<tauri::ipc::Response, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    let bytes = run_blocking_usd(move || handle.extract_geometry_glb(&normalized)).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 #[tauri::command]
 async fn check_for_update(
     app: tauri::AppHandle,
@@ -1251,7 +1288,9 @@ pub fn run() {
             load_format_support,
             inspect_stage,
             summarize_stage,
-            collect_asset_issues
+            collect_asset_issues,
+            requires_glb_preview,
+            extract_geometry
         ])
         .run(tauri::generate_context!())
         .expect("error while running yw-look");

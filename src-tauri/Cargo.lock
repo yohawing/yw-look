@@ -2523,7 +2523,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 [[package]]
 name = "openusd"
 version = "0.2.0"
-source = "git+https://github.com/yohawing/openusd.git?rev=d924cac8cc5d84043873c3700f85c616ea99b330#d924cac8cc5d84043873c3700f85c616ea99b330"
+source = "git+https://github.com/yohawing/openusd.git?rev=4b3d9b2e8520026bedd01cd0a56de1dc792e814b#4b3d9b2e8520026bedd01cd0a56de1dc792e814b"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2532,6 +2532,7 @@ dependencies = [
  "lz4_flex",
  "num-traits",
  "strum",
+ "thiserror 2.0.18",
  "zip 8.5.0",
 ]
 

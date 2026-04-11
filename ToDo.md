@@ -226,38 +226,45 @@
 - [x] USDC バイナリを Three.js に渡す前に明示エラーを出す（黙って空描画になるのを防ぐ）
 - [ ] `USDLoader.parse` を Web Worker に退避して UI スレッドのブロッキングを崩す（Phase 3 以降）
 
-#### Phase 3 — Rust Geometry パイプライン（yohawing/openusd fork 連携）
+#### Phase 3 — Rust Geometry パイプライン（yohawing/openusd fork 連携、ほぼ完了）
 
 Three.js USDLoader は USDA テキストしか描画できないため、USDC バイナリ（Kitchen Set 等）の
 3D プレビューには Rust 側で geometry を読み出して Three.js に渡すパイプラインが必要。
 設計方針は `docs/usd.md` Phase 3 セクションで確定済み。
-fork: `yohawing/openusd`（branch: `yw-look-phase1` ベース）で作業中。
+fork: `yohawing/openusd`（branch: `yw-look-phase3`、`main` 上に phase1 改造を再 port した状態）で実装。
 
 転送方式: **GLB + `tauri::ipc::Response`**
+
 - `ipc::Response` で GLB バイナリをそのまま送出（JSON シリアライズなし）→ JS 側 `invoke<ArrayBuffer>()`
 - JS 側は `GLTFLoader.parseAsync(buffer, "")` で受け取る（独自 Loader 不要）
 - 将来の animation / texture 拡張も GLTF 仕様に乗れる
+- GLTF JSON は手書き（`serde_json::json!`）+ GLB binary container 自前で構築。`gltf` クレート未使用で依存最小
 
 分岐判定: **拡張子ではなく `stage.root_layer_is_binary()` で判定**
+
 - `.usdz` は ZIP コンテナ。root layer が USDA / USDC どちらかは実行時に確認する
 - USDA root → `USDLoader.parse`、USDC root → `extract_geometry → GLTFLoader`
 - `references` は通常 compose、`payloads` はこのフェーズでは loaded 扱いのまま
 
-- [ ] `yohawing/openusd` fork に Mesh geometry 取得 API を追加する
-  - [ ] `stage.root_layer_is_binary()` — root layer が USDC かどうかを返す（分岐判定用）
-  - [ ] `stage.meshes_in(prim_path)` — Mesh prim の points / faceVertexIndices / faceVertexCounts を返す
-  - [ ] `stage.normals_in(prim_path)` — 法線（authored または face-varying 補完）
-  - [ ] `stage.uvs_in(prim_path)` — テクスチャ座標
-  - [ ] `stage.xform_of(prim_path)` — composed ワールド変換行列
-  - [ ] `stage.material_of(prim_path)` — UsdPreviewSurface の baseColor / roughness / metallic
-- [ ] Rust 側で USD geometry を GLB バイナリに変換する（`gltf` crate）
-  - face-varying → vertex-varying 展開（faceVertexIndices の重複頂点化）
-- [ ] Tauri command `extract_geometry` を実装する（`Result<ipc::Response, String>` を返す）
-- [ ] フロント側の分岐を「拡張子判定」から「`root_layer_is_binary()` 判定」に切り替える
+- [x] `yohawing/openusd` fork に Mesh geometry 取得 API を追加する
+  - [x] `stage.root_layer_is_binary()` — root layer が USDC かどうかを返す（分岐判定用）
+  - [x] `stage.mesh_of(prim_path)` — `MeshData { points, face_vertex_indices, face_vertex_counts, normals?, uvs? }` を一括返却（旧 ToDo の `meshes_in/normals_in/uvs_in` 3 本を統合）
+  - [x] `stage.local_xform_of(prim_path)` — column-major `[f64; 16]`。**親方向の合成は yw-look 側で実施**（fork は単 prim の local のみ提供）
+  - [ ] `stage.material_of(prim_path)` — UsdPreviewSurface の baseColor / roughness / metallic（**Phase 5 に延期**: fork に UsdShade 実装が皆無で、追加コストが大きいため。GLB は default PBR material 1 個で出力）
+- [x] Rust 側で USD geometry を GLB バイナリに変換する（`src-tauri/src/usd/glb.rs`、unit test 3 件 PASS）
+  - face-varying → vertex-varying 展開（vertex_count vs face_vertex_count をサイズ判定で自動分類、quad/n-gon の fan triangulate）
+  - normals 未 authored の場合は face normal を自動生成
+  - 全 Mesh を 1 GLB の複数 mesh + 各 mesh に world matrix を node transform で適用
+- [x] Tauri command `extract_geometry` / `root_layer_is_binary` を実装（`tauri::ipc::Response` で GLB バイナリ送出）
+- [x] フロント側の分岐を「拡張子判定」から「`root_layer_is_binary()` 判定」に切り替える
   - USDA root → `USDLoader.parse`（既存）
   - USDC root → `invoke("extract_geometry") → GLTFLoader.parseAsync`
-- [ ] `USDLoader.parse` の Web Worker 退避と合わせて描画パイプラインを整理する
-- [ ] Kitchen Set (`Ball.geom.usd` 等) で動作検証する
+  - Rust の判定が失敗したら従来の magic-byte sniff に fallback
+- [ ] `USDLoader.parse` の Web Worker 退避と合わせて描画パイプラインを整理する（Phase 3.5 / 別フェーズ）
+- [x] Kitchen Set で動作検証する
+  - `Ball.geom.usd` (USDC root) → `extract_geometry` で正しい GLB 生成（cargo test PASS）
+  - `Kitchen_set.usd` (USDA root + 228 USDC references) → multi-mesh 抽出 37MB GLB を release ビルドで 234ms（cargo test PASS）
+- [ ] **Tauri 起動での手動 E2E 確認**（`npm run tauri:dev` で `Ball.geom.usd` を開いて 3D ビューに表示されることを目視確認）— ユーザー側で実行
 
 #### Phase 4 — Payload 遅延ロード
 

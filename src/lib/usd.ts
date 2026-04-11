@@ -55,3 +55,31 @@ export async function summarizeStage(path: string) {
 export async function collectAssetIssues(path: string) {
   return invoke<AssetIssue[]>("collect_asset_issues", { path });
 }
+
+/**
+ * Phase 3: decides whether the frontend should route this USD file through
+ * the Rust GLB extraction pipeline instead of Three.js `USDLoader.parse`.
+ *
+ * Returns `true` when:
+ *   - the root layer is binary USDC (`USDLoader` cannot read it at all), or
+ *   - the stage composes more than one layer (references, payloads,
+ *     sublayers) — yw-look only hands USDLoader a single text buffer, so
+ *     any external composition is invisible on the JS side.
+ *
+ * The Rust backend opens the stage once and inspects `layer_count`, so
+ * this is cheap enough to call eagerly during the load pipeline.
+ */
+export async function requiresGlbPreview(path: string) {
+  return invoke<boolean>("requires_glb_preview", { path });
+}
+
+/**
+ * Phase 3: extracts every Mesh prim from the USD stage at `path` and
+ * returns a self-contained GLB binary as an `ArrayBuffer`. Feed the result
+ * to `GLTFLoader.parseAsync(buffer, "")` on the frontend. Only call this
+ * when `isRootLayerBinary(path)` returned `true` — for USDA stages the
+ * existing Three.js `USDLoader` is faster and more accurate.
+ */
+export async function extractGeometry(path: string) {
+  return invoke<ArrayBuffer>("extract_geometry", { path });
+}

@@ -45,4 +45,35 @@ pub trait UsdBackend: Send + Sync {
 
     /// Asset hygiene checks: broken references, suspicious metadata, etc.
     fn collect_asset_issues(&self, path: &Path) -> Result<Vec<AssetIssue>, UsdError>;
+
+    /// Phase 3: returns `true` if the root layer of the stage is the binary
+    /// USDC crate format, `false` if it's USDA text. Kept as a primitive
+    /// for tests and diagnostics — the frontend should consult
+    /// [`Self::requires_glb_preview`] instead, which also accounts for
+    /// composition arcs.
+    fn root_layer_is_binary(&self, path: &Path) -> Result<bool, UsdError>;
+
+    /// Phase 3: decides whether the frontend should route this file through
+    /// the Rust GLB extraction pipeline instead of Three.js `USDLoader.parse`.
+    ///
+    /// Returns `true` when either is true:
+    ///   - the root layer is binary USDC, or
+    ///   - the composed stage has more than one layer (sublayers,
+    ///     references, payloads).
+    ///
+    /// `USDLoader.parse` only sees the single text buffer yw-look hands
+    /// it — it has no hook to follow external asset paths — so any file
+    /// that depends on another layer will render empty through the JS
+    /// path even if every file in the chain is USDA. The GLB pipeline,
+    /// on the other hand, uses the fully-composed openusd `Stage`, so it
+    /// transparently handles references and (loaded-mode) payloads.
+    fn requires_glb_preview(&self, path: &Path) -> Result<bool, UsdError>;
+
+    /// Phase 3: extracts all Mesh prims from the stage and serializes them
+    /// to a self-contained GLB binary, returned as raw bytes. The frontend
+    /// receives this via `tauri::ipc::Response` and feeds it to
+    /// `GLTFLoader.parseAsync`. World-space transforms are composed by the
+    /// implementation; only a default PBR material is emitted (proper
+    /// UsdPreviewSurface support is deferred to Phase 5).
+    fn extract_geometry_glb(&self, path: &Path) -> Result<Vec<u8>, UsdError>;
 }

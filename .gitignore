@@ -16,3 +16,6 @@ samples/private/*
 !samples/private/.gitkeep
 
 experiments/
+
+# Local Claude Code session state
+.claude/
