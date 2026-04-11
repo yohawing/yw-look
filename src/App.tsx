@@ -18,6 +18,7 @@ import {
   type DisplayMode,
   type EnvironmentPreset,
   type TextureViewMode,
+  type ToneMappingMode,
   type ViewerFeedback,
   type ViewerSurfaceMode,
 } from "./components/AssetViewport";
@@ -200,6 +201,17 @@ const cameraPresetOptions: Array<{
   { id: "bottom", label: "Bottom" },
 ];
 
+const toneMappingOptions: Array<{
+  id: ToneMappingMode;
+  label: string;
+}> = [
+  { id: "linear", label: "Linear" },
+  { id: "aces", label: "ACES" },
+  { id: "reinhard", label: "Reinhard" },
+];
+
+const DEFAULT_EXPOSURE = 1.1;
+
 export function App() {
   const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("file");
@@ -214,6 +226,9 @@ export function App() {
   const [backfaceCulling, setBackfaceCulling] = useState(true);
   const [cameraPresetRequest, setCameraPresetRequest] =
     useState<CameraPresetRequest | null>(null);
+  const [toneMappingMode, setToneMappingMode] =
+    useState<ToneMappingMode>("aces");
+  const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
@@ -1434,6 +1449,8 @@ export function App() {
             showEnvironmentBackground={showEnvironmentBackground}
             backfaceCulling={backfaceCulling}
             cameraPresetRequest={cameraPresetRequest}
+            toneMappingMode={toneMappingMode}
+            exposure={exposure}
             onGridUnitChange={setGridUnitLabel}
             environmentPreset={environmentPreset}
           />
@@ -1565,6 +1582,37 @@ export function App() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div className="view-mode-section">
+              <span className="view-mode-section-label">Tone Mapping</span>
+              <div className="preset-chip-row">
+                {toneMappingOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    className={`preset-chip${toneMappingMode === option.id ? " is-active" : ""}`}
+                    onClick={() => setToneMappingMode(option.id)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <label className="range-control">
+                <span>Exposure {exposure.toFixed(2)}</span>
+                <input
+                  aria-label="Exposure"
+                  max={4}
+                  min={0}
+                  onChange={(event) =>
+                    setExposure(Number.parseFloat(event.target.value))
+                  }
+                  onDoubleClick={() => setExposure(DEFAULT_EXPOSURE)}
+                  step={0.05}
+                  title="Double-click to reset"
+                  type="range"
+                  value={exposure}
+                />
+              </label>
             </div>
           </div>
 

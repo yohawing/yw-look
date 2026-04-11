@@ -7,14 +7,17 @@ import {
   BoxGeometry,
   Color,
   DirectionalLight,
+  LinearToneMapping,
   Mesh,
   MeshBasicMaterial,
   MOUSE,
   PerspectiveCamera,
   PMREMGenerator,
+  ReinhardToneMapping,
   Scene,
   SphereGeometry,
   Texture,
+  type ToneMapping,
   Vector2,
   WebGLRenderTarget,
   WebGLRenderer,
@@ -98,6 +101,14 @@ function applyViewportBackground(
 }
 
 export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
+
+export type ToneMappingMode = "linear" | "aces" | "reinhard";
+
+const toneMappingModeMap: Record<ToneMappingMode, ToneMapping> = {
+  linear: LinearToneMapping,
+  aces: ACESFilmicToneMapping,
+  reinhard: ReinhardToneMapping,
+};
 
 const INITIAL_GRID_NAME = "__yw_initial_grid";
 const AXES_HELPER_NAME = "__yw_axes_helper";
@@ -189,6 +200,8 @@ type AssetViewportProps = {
   showEnvironmentBackground: boolean;
   backfaceCulling: boolean;
   cameraPresetRequest: CameraPresetRequest | null;
+  toneMappingMode: ToneMappingMode;
+  exposure: number;
   onGridUnitChange: (label: string) => void;
   environmentPreset: EnvironmentPreset;
 };
@@ -367,6 +380,8 @@ export function AssetViewport({
   showEnvironmentBackground,
   backfaceCulling,
   cameraPresetRequest,
+  toneMappingMode,
+  exposure,
   onGridUnitChange,
   environmentPreset,
 }: AssetViewportProps) {
@@ -450,8 +465,8 @@ export function AssetViewport({
     const renderer = new WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(host.clientWidth, host.clientHeight);
-    renderer.toneMapping = ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMapping = toneMappingModeMap[toneMappingMode];
+    renderer.toneMappingExposure = exposure;
 
     const scene = new Scene();
     // Defer applyViewportBackground until after the environment target has
@@ -638,6 +653,22 @@ export function AssetViewport({
         : null,
     );
   }, [backgroundPreset, showEnvironmentBackground]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+    if (!context) {
+      return;
+    }
+    context.renderer.toneMapping = toneMappingModeMap[toneMappingMode];
+  }, [toneMappingMode]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+    if (!context) {
+      return;
+    }
+    context.renderer.toneMappingExposure = exposure;
+  }, [exposure]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
