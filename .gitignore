@@ -11,6 +11,8 @@ artifacts/screenshots/*
 !artifacts/screenshots/.gitkeep
 artifacts/logs/*
 !artifacts/logs/.gitkeep
+artifacts/preview/*
+!artifacts/preview/.gitkeep
 
 samples/private/*
 !samples/private/.gitkeep
