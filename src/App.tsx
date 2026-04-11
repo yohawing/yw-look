@@ -270,7 +270,7 @@ export function App() {
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(false);
   const [showNormals, setShowNormals] = useState(false);
   const [showVertexColors, setShowVertexColors] = useState(false);
-  const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
+  const [viewportPanelOpen, setViewportPanelOpen] = useState(false);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
   const [environmentRotation, setEnvironmentRotation] = useState(0);
@@ -1477,9 +1477,7 @@ export function App() {
   return (
     <main className="app-shell">
       {/* ── MenuBar ── */}
-      {isTauri ? (
-        <div className="menubar menubar-hidden" />
-      ) : (
+      {isTauri ? null : (
         <MenuBar
           onAction={(actionId) => {
             void executeMenuAction(actionId);
@@ -1779,6 +1777,24 @@ export function App() {
                     value={cameraFov}
                   />
                 </label>
+                <label className="range-control">
+                  <span>Speed {cameraSpeedMultiplier.toFixed(2)}×</span>
+                  <input
+                    aria-label="Camera speed multiplier"
+                    max={2}
+                    min={-2}
+                    onChange={(event) =>
+                      setCameraSpeedMultiplier(
+                        Math.pow(2, Number.parseFloat(event.target.value)),
+                      )
+                    }
+                    onDoubleClick={() => setCameraSpeedMultiplier(1)}
+                    step={0.01}
+                    title="Camera movement speed multiplier (double-click to reset)"
+                    type="range"
+                    value={Math.log2(cameraSpeedMultiplier)}
+                  />
+                </label>
               </div>
               {viewerSurfaceMode === "texture" ? (
                 <>
@@ -1974,42 +1990,6 @@ export function App() {
                   />
                 </button>
               </div>
-            </div>
-            <div className="view-mode-section">
-              <div className="camera-speed-header">
-                <span className="view-mode-section-label">Camera Speed</span>
-                {cameraSpeedMultiplier !== 1 ? (
-                  <button
-                    className="camera-speed-reset"
-                    onClick={() => setCameraSpeedMultiplier(1)}
-                    type="button"
-                    title="Reset to auto"
-                  >
-                    Reset
-                  </button>
-                ) : null}
-              </div>
-              <div className="camera-speed-row">
-                <span className="camera-speed-bound">0.25×</span>
-                <input
-                  type="range"
-                  className="camera-speed-slider"
-                  min={-2}
-                  max={2}
-                  step={0.01}
-                  value={Math.log2(cameraSpeedMultiplier)}
-                  onChange={(e) =>
-                    setCameraSpeedMultiplier(
-                      Math.pow(2, Number(e.target.value)),
-                    )
-                  }
-                  aria-label="Camera speed multiplier"
-                />
-                <span className="camera-speed-bound">4×</span>
-              </div>
-              <span className="camera-speed-value">
-                {cameraSpeedMultiplier.toFixed(2)}×
-              </span>
             </div>
           </div>
 
