@@ -1,6 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type CompositionArcState = "loaded" | "missing";
+/**
+ * Phase 4 wire-level load policy. `loadAll` keeps the Phase 3 behavior
+ * of composing references and payloads together; `noPayloads` defers
+ * every payload, leaving the authored metadata visible in the inspector
+ * but not loading the target layers. Omitting the argument to an invoke
+ * is equivalent to `loadAll`.
+ */
+export type StageLoadPolicy = "loadAll" | "noPayloads";
+
+/**
+ * Resolution state of a composition arc.
+ * - `loaded`: the arc is composed into the stage.
+ * - `missing`: the resolver could not find the target asset.
+ * - `unloaded`: Phase 4 — a payload arc that was deliberately skipped
+ *   because the stage was opened with `noPayloads`. The target is
+ *   resolvable but has not been composed.
+ */
+export type CompositionArcState = "loaded" | "missing" | "unloaded";
 
 export type CompositionArc = {
   sourcePrim: string;
@@ -19,6 +36,7 @@ export type StageInspection = {
   references: CompositionArc[];
   payloads: CompositionArc[];
   missingAssets: string[];
+  loadPolicy: StageLoadPolicy;
 };
 
 export type StageSummary = {
@@ -27,8 +45,10 @@ export type StageSummary = {
   rootPrimCount: number;
   meshCount: number;
   payloadCount: number;
+  unloadedPayloadCount: number;
   hasVariants: boolean;
   warnings: string[];
+  loadPolicy: StageLoadPolicy;
 };
 
 export type AssetIssueCode =
@@ -47,12 +67,12 @@ export type AssetIssue = {
   contextPath: string | null;
 };
 
-export async function inspectStage(path: string) {
-  return invoke<StageInspection>("inspect_stage", { path });
+export async function inspectStage(path: string, policy?: StageLoadPolicy) {
+  return invoke<StageInspection>("inspect_stage", { path, policy });
 }
 
-export async function summarizeStage(path: string) {
-  return invoke<StageSummary>("summarize_stage", { path });
+export async function summarizeStage(path: string, policy?: StageLoadPolicy) {
+  return invoke<StageSummary>("summarize_stage", { path, policy });
 }
 
 export async function collectAssetIssues(path: string) {
@@ -82,7 +102,12 @@ export async function requiresGlbPreview(path: string) {
  * to `GLTFLoader.parseAsync(buffer, "")` on the frontend. Only call this
  * when `isRootLayerBinary(path)` returned `true` — for USDA stages the
  * existing Three.js `USDLoader` is faster and more accurate.
+ *
+ * Phase 4: pass `policy = "noPayloads"` to build a GLB that only
+ * contains meshes from payload-free composition. Under deferred mode
+ * the backend may throw if the stage has no renderable meshes without
+ * its payloads, so callers should guard against that.
  */
-export async function extractGeometry(path: string) {
-  return invoke<ArrayBuffer>("extract_geometry", { path });
+export async function extractGeometry(path: string, policy?: StageLoadPolicy) {
+  return invoke<ArrayBuffer>("extract_geometry", { path, policy });
 }

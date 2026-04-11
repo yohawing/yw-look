@@ -15,6 +15,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.1.0", features = [] }
 
 [dependencies]
+# The rev below is a historical upstream-resolvable anchor (Phase 3 tip);
+# the actual code comes from the [patch] below pointing at ../../openusd
+# where the Phase 4 branch lives. Once yw-look-phase4 is pushed to GitHub
+# this rev will be bumped to 54cb0eb94d7171cb3b5f306b9faf742faf3e61f6 and
+# the patch removed.
 openusd = { git = "https://github.com/yohawing/openusd.git", rev = "4b3d9b2e8520026bedd01cd0a56de1dc792e814b" }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
@@ -23,9 +28,17 @@ tauri = { version = "2.8.5", features = [] }
 tauri-plugin-updater = "2.10.0"
 url = "2"
 
-# Phase 3 note: while the openusd subagent is rebuilding the fork on top of
-# upstream main (re-porting Phase 1 features + adding Phase 3 geometry APIs),
-# we keep the existing rev pinned. Once the subagent pushes `yw-look-phase3`,
-# bump the rev above to that commit. We deliberately do NOT use a local
-# `[patch]` here because the working tree at `../../openusd` switches branches
-# during the rebuild and would otherwise destabilize this crate's build.
+# ⚠️ CI-BLOCKING — must be resolved before this commit is pushed to GitHub.
+#
+# Phase 4 depends on the `yw-look-phase4` branch of the openusd fork. That
+# branch has not been pushed upstream yet (push is held pending review), so
+# there is no GitHub-resolvable rev that carries the new `StageLoadPolicy`
+# API. Until the branch is pushed, this `[patch]` redirects Cargo to the
+# local working tree at `F:\Develop\openusd`.
+#
+# Remove this patch **and** bump the rev above to
+# `54cb0eb94d7171cb3b5f306b9faf742faf3e61f6` (the Phase 4a tip) the moment
+# the fork branch lands on GitHub. Without that swap, `cargo check` in a
+# fresh clone — including CI — will fail to resolve the openusd dep.
+[patch."https://github.com/yohawing/openusd.git"]
+openusd = { path = "../../openusd" }

@@ -464,6 +464,7 @@ export {
 export async function loadPreviewObject(
   file: SelectedFile,
   renderer?: import("three").WebGLRenderer,
+  options: { usdLoadPolicy?: import("../lib/usd").StageLoadPolicy } = {},
 ): Promise<LoadedPreview> {
   switch (file.extension) {
     case "glb": {
@@ -648,6 +649,7 @@ export async function loadPreviewObject(
       // either USDA or USDC, and a `.usd` extension can be either format
       // too. `requiresGlbPreview` opens the stage on the Rust side and
       // reports the definitive answer.
+      const usdPolicy = options.usdLoadPolicy ?? "loadAll";
       let useGlbPipeline = false;
       try {
         useGlbPipeline = await requiresGlbPreview(file.path);
@@ -669,11 +671,11 @@ export async function loadPreviewObject(
         await yieldToPaint();
 
         const started = performance.now();
-        const glbBuffer = await extractGeometry(file.path);
+        const glbBuffer = await extractGeometry(file.path, usdPolicy);
         console.info(
           `[usd] extract_geometry OK in ${Math.round(
             performance.now() - started,
-          )}ms (${glbBuffer.byteLength} bytes): ${file.fileName}`,
+          )}ms (${glbBuffer.byteLength} bytes, policy=${usdPolicy}): ${file.fileName}`,
         );
 
         const { GLTFLoader } =

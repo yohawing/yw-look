@@ -132,10 +132,7 @@ function configureAssetControls(controls: OrbitControls) {
   controls.mouseButtons.RIGHT = MOUSE.DOLLY;
 }
 
-function applyControlSensitivity(
-  controls: OrbitControls,
-  sensitivity: number,
-) {
+function applyControlSensitivity(controls: OrbitControls, sensitivity: number) {
   // Clamp so users can't lock themselves out with a zero multiplier.
   const safe = Math.max(sensitivity, 0.05);
   controls.rotateSpeed = safe;
@@ -252,6 +249,12 @@ type AssetViewportProps = {
   environmentPreset: EnvironmentPreset;
   /** Multiplier applied on top of the auto-computed sensitivity (0.25 – 4). */
   cameraSpeedMultiplier: number;
+  /**
+   * Phase 4 USD load policy. Default `"loadAll"` preserves Phase 3
+   * behavior. When this changes the viewport reloads the preview with
+   * the new policy so deferred payloads take effect.
+   */
+  usdLoadPolicy?: import("../lib/usd").StageLoadPolicy;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -446,6 +449,7 @@ export function AssetViewport({
   onGridUnitChange,
   environmentPreset,
   cameraSpeedMultiplier,
+  usdLoadPolicy,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -578,10 +582,12 @@ export function AssetViewport({
     // so use a neutral dim=1. Otherwise use the stored raw (pre-normalization)
     // dimension for accurate asset-scale sensitivity.
     const sensitivityDim =
-      viewerSurfaceModeRef.current === "texture"
-        ? 1
-        : context.rawMaxDimension;
-    applyControlsSensitivity(context.controls, sensitivityDim, cameraSpeedMultiplier);
+      viewerSurfaceModeRef.current === "texture" ? 1 : context.rawMaxDimension;
+    applyControlsSensitivity(
+      context.controls,
+      sensitivityDim,
+      cameraSpeedMultiplier,
+    );
   }, [cameraSpeedMultiplier]);
 
   useEffect(() => {
@@ -1108,7 +1114,7 @@ export function AssetViewport({
     });
     onMetadataChange(emptyAssetMetadata);
 
-    loadPreviewObject(currentFile, context.renderer)
+    loadPreviewObject(currentFile, context.renderer, { usdLoadPolicy })
       .then(({ object, cleanupUrls, clips, formatVersion }) => {
         if (disposed) {
           disposeObject(object);
@@ -1123,9 +1129,10 @@ export function AssetViewport({
         const normalization = normalizeObjectScale(object);
         // Store the original (pre-normalization) dimension so camera sensitivity
         // can reflect the asset's real world scale rather than the clamped size.
-        context.rawMaxDimension = normalization.originalMaxDimension > 0
-          ? normalization.originalMaxDimension
-          : normalization.normalizedMaxDimension;
+        context.rawMaxDimension =
+          normalization.originalMaxDimension > 0
+            ? normalization.originalMaxDimension
+            : normalization.normalizedMaxDimension;
         const gridConfig = applyDynamicGrid(
           context.scene,
           normalization.normalizedMaxDimension,
@@ -1174,11 +1181,7 @@ export function AssetViewport({
           object,
           showBoundingBoxesRef.current,
         );
-        applyNormalHelpers(
-          context.scene,
-          object,
-          showNormalsRef.current,
-        );
+        applyNormalHelpers(context.scene, object, showNormalsRef.current);
 
         context.clips = clips;
         if (clips.length > 0) {
@@ -1275,6 +1278,7 @@ export function AssetViewport({
     onGridUnitChange,
     onMetadataChange,
     showGrid,
+    usdLoadPolicy,
   ]);
 
   useEffect(() => {
@@ -1350,9 +1354,7 @@ export function AssetViewport({
       composer.addPass(new RenderPass(context.scene, context.camera));
       const fxaaPass = new ShaderPass(FXAAShader);
       const pixelRatio = context.renderer.getPixelRatio();
-      (
-        fxaaPass.material.uniforms.resolution.value as Vector2
-      ).set(
+      (fxaaPass.material.uniforms.resolution.value as Vector2).set(
         1 / (host.clientWidth * pixelRatio),
         1 / (host.clientHeight * pixelRatio),
       );

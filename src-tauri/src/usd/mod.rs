@@ -17,4 +17,4 @@ pub mod types;
 
 pub use backend::{UsdBackend, UsdError};
 pub use openusd_backend::OpenusdBackend;
-pub use types::{AssetIssue, StageInspection, StageSummary};
+pub use types::{AssetIssue, StageInspection, StageLoadPolicy, StageSummary};

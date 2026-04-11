@@ -18,7 +18,8 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 
 use crate::usd::{
-    AssetIssue, OpenusdBackend, StageInspection, StageSummary, UsdBackend, UsdError,
+    AssetIssue, OpenusdBackend, StageInspection, StageLoadPolicy, StageSummary, UsdBackend,
+    UsdError,
 };
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -1104,20 +1105,26 @@ where
 async fn inspect_stage(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
+    // Phase 4: optional on the wire so Phase 3 frontends still work.
+    // `None` → `StageLoadPolicy::LoadAll` via `Default`.
+    policy: Option<StageLoadPolicy>,
 ) -> Result<StageInspection, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.handle();
-    run_blocking_usd(move || handle.inspect_stage(&normalized)).await
+    let policy = policy.unwrap_or_default();
+    run_blocking_usd(move || handle.inspect_stage(&normalized, policy)).await
 }
 
 #[tauri::command]
 async fn summarize_stage(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
+    policy: Option<StageLoadPolicy>,
 ) -> Result<StageSummary, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.handle();
-    run_blocking_usd(move || handle.summarize_stage(&normalized)).await
+    let policy = policy.unwrap_or_default();
+    run_blocking_usd(move || handle.summarize_stage(&normalized, policy)).await
 }
 
 #[tauri::command]
@@ -1125,6 +1132,7 @@ async fn collect_asset_issues(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
 ) -> Result<Vec<AssetIssue>, String> {
+    // Asset issues always run under LoadAll — see the backend impl.
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.handle();
     run_blocking_usd(move || handle.collect_asset_issues(&normalized)).await
@@ -1160,10 +1168,15 @@ async fn requires_glb_preview(
 async fn extract_geometry(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
+    // Phase 4: `None` preserves Phase 3 behavior (LoadAll). Frontend
+    // toggles Deferred to pass `{policy: "noPayloads"}`.
+    policy: Option<StageLoadPolicy>,
 ) -> Result<tauri::ipc::Response, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.handle();
-    let bytes = run_blocking_usd(move || handle.extract_geometry_glb(&normalized)).await?;
+    let policy = policy.unwrap_or_default();
+    let bytes =
+        run_blocking_usd(move || handle.extract_geometry_glb(&normalized, policy)).await?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 

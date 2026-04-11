@@ -3,11 +3,12 @@
 //! `yw-look` keeps the parser implementation behind this trait so the
 //! Tauri command layer never depends on a specific USD crate. The active
 //! implementation is `OpenusdBackend`, a thin adapter over our fork of
-//! `mxpv/openusd` (yohawing/openusd, branch `yw-look-phase1`).
+//! `mxpv/openusd` (yohawing/openusd, currently on branch
+//! `yw-look-phase4`).
 
 use std::path::Path;
 
-use super::types::{AssetIssue, StageInspection, StageSummary};
+use super::types::{AssetIssue, StageInspection, StageLoadPolicy, StageSummary};
 
 /// Errors a USD backend can produce. Kept intentionally narrow so the
 /// command layer can map them to user-facing diagnostics consistently.
@@ -36,14 +37,30 @@ impl std::error::Error for UsdError {}
 /// share across threads — Tauri's command runtime may invoke them from
 /// a worker pool.
 pub trait UsdBackend: Send + Sync {
-    /// Heavyweight inspection. May walk references / payloads.
-    fn inspect_stage(&self, path: &Path) -> Result<StageInspection, UsdError>;
+    /// Heavyweight inspection. Walks references / payloads according to
+    /// `policy`. `StageLoadPolicy::NoPayloads` causes payload arcs to
+    /// be surfaced as `CompositionArcState::Unloaded` instead of being
+    /// composed.
+    fn inspect_stage(
+        &self,
+        path: &Path,
+        policy: StageLoadPolicy,
+    ) -> Result<StageInspection, UsdError>;
 
     /// Lightweight summary intended for the "show something instantly"
-    /// UX path. Implementations should avoid touching payloads.
-    fn summarize_stage(&self, path: &Path) -> Result<StageSummary, UsdError>;
+    /// UX path. Under `StageLoadPolicy::NoPayloads` the `mesh_count`
+    /// reflects only composed payload-free geometry and
+    /// `unloaded_payload_count` reports how many payload arcs were
+    /// skipped.
+    fn summarize_stage(
+        &self,
+        path: &Path,
+        policy: StageLoadPolicy,
+    ) -> Result<StageSummary, UsdError>;
 
     /// Asset hygiene checks: broken references, suspicious metadata, etc.
+    /// Always runs under the default `LoadAll` policy — issue collection
+    /// wants to see every arc regardless of deferred-load UI state.
     fn collect_asset_issues(&self, path: &Path) -> Result<Vec<AssetIssue>, UsdError>;
 
     /// Phase 3: returns `true` if the root layer of the stage is the binary
@@ -72,8 +89,11 @@ pub trait UsdBackend: Send + Sync {
     /// Phase 3: extracts all Mesh prims from the stage and serializes them
     /// to a self-contained GLB binary, returned as raw bytes. The frontend
     /// receives this via `tauri::ipc::Response` and feeds it to
-    /// `GLTFLoader.parseAsync`. World-space transforms are composed by the
-    /// implementation; only a default PBR material is emitted (proper
-    /// UsdPreviewSurface support is deferred to Phase 5).
-    fn extract_geometry_glb(&self, path: &Path) -> Result<Vec<u8>, UsdError>;
+    /// `GLTFLoader.parseAsync`. `policy` is forwarded to the backend so
+    /// `NoPayloads` builds a GLB containing only payload-free meshes.
+    fn extract_geometry_glb(
+        &self,
+        path: &Path,
+        policy: StageLoadPolicy,
+    ) -> Result<Vec<u8>, UsdError>;
 }

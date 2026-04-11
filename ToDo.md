@@ -208,12 +208,12 @@
 
 #### Phase 4 — Payload 遅延ロード
 
-- [ ] `docs/usd.md` で Phase 4 方針を確定する
-- [ ] `summarize_stage` / `inspect_stage` に load policy を導入する（`references` は常時 compose、`payloads` のみ deferred 対象）
-- [ ] `payloads deferred` モードでも hierarchy / issues を表示できるようにする
-- [ ] payload prim の `loaded / unloaded / missing` 状態を UI に表示する
-- [ ] 必要な payload だけ後から load する API を設計する
-- [ ] viewer の再構築または差分更新戦略を決める
+- [ ] `docs/usd.md` で Phase 4 方針を確定する（実装に合わせて追記する）
+- [x] `summarize_stage` / `inspect_stage` に load policy を導入する（`references` は常時 compose、`payloads` のみ deferred 対象）
+- [x] `payloads deferred` モードでも hierarchy / issues を表示できるようにする
+- [x] payload prim の `loaded / unloaded / missing` 状態を UI に表示する
+- [ ] 必要な payload だけ後から load する API を設計する（stateful session は Phase 5 以降に延期）
+- [x] viewer の再構築または差分更新戦略を決める（`usdLoadPolicy` 依存の useEffect で extract_geometry 再走 + dispose）
 - [ ] Kitchen Set クラスで初回表示体験の改善を検証する
 
 #### Phase 5 — Preview 品質向上

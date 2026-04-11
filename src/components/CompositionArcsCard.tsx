@@ -46,6 +46,15 @@ export function CompositionArcsCard({
     for (const a of inspection.payloads) if (a.state === "missing") n += 1;
     return n;
   }, [inspection]);
+  // Phase 4: surface the deferred-payload total separately from
+  // missing arcs so the card distinguishes "couldn't load" (error)
+  // from "chose not to load" (informational).
+  const unloadedCount = useMemo(() => {
+    if (!inspection) return 0;
+    let n = 0;
+    for (const a of inspection.payloads) if (a.state === "unloaded") n += 1;
+    return n;
+  }, [inspection]);
 
   const groups = useMemo(() => {
     if (!inspection) return [];
@@ -68,6 +77,12 @@ export function CompositionArcsCard({
             <dd>{referenceCount}</dd>
             <dt>Payloads</dt>
             <dd>{payloadCount}</dd>
+            {unloadedCount > 0 && (
+              <>
+                <dt>Deferred</dt>
+                <dd className="muted">{unloadedCount}</dd>
+              </>
+            )}
             {missingCount > 0 && (
               <>
                 <dt>Missing</dt>
@@ -99,7 +114,9 @@ export function CompositionArcsCard({
                           className={
                             arc.state === "missing"
                               ? "badge badge-error"
-                              : "badge badge-ok"
+                              : arc.state === "unloaded"
+                                ? "badge badge-muted"
+                                : "badge badge-ok"
                           }
                         >
                           {arc.state}

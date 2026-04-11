@@ -44,6 +44,7 @@ import {
   summarizeStage,
   type AssetIssue,
   type StageInspection,
+  type StageLoadPolicy,
   type StageSummary,
 } from "./lib/usd";
 import {
@@ -360,6 +361,11 @@ export function App() {
   const [usdInspectorError, setUsdInspectorError] = useState<string | null>(
     null,
   );
+  // Phase 4: deferred-payload toggle. Defaults to `loadAll` to
+  // preserve Phase 3 behavior; switching to `noPayloads` re-runs the
+  // inspector and GLB pipeline with payloads deferred.
+  const [usdLoadPolicy, setUsdLoadPolicy] =
+    useState<StageLoadPolicy>("loadAll");
   const isTauri = isTauriEnvironment();
   // Browser mode needs recent files immediately for the always-visible MenuBar.
   // Tauri can keep this deferred until the sidebar is opened.
@@ -498,7 +504,7 @@ export function App() {
     // back to its "Open a USD…" empty state when the fastest RPC wins
     // the race (e.g. `collect_asset_issues` returning an empty list
     // before `summarize_stage` has produced any output).
-    const summarizePromise = summarizeStage(path)
+    const summarizePromise = summarizeStage(path, usdLoadPolicy)
       .then((summary) => {
         if (cancelled) return;
         setUsdSummary(summary);
@@ -512,7 +518,7 @@ export function App() {
         );
       });
 
-    const inspectPromise = inspectStage(path)
+    const inspectPromise = inspectStage(path, usdLoadPolicy)
       .then((inspection) => {
         if (cancelled) return;
         setUsdInspection(inspection);
@@ -557,7 +563,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [currentFile, isTauri]);
+  }, [currentFile, isTauri, usdLoadPolicy]);
 
   useEffect(() => {
     setPerformanceSnapshot((previous) => ({
@@ -1375,6 +1381,8 @@ export function App() {
                   issues={usdIssues}
                   loading={usdInspectorLoading}
                   summary={usdSummary}
+                  loadPolicy={usdLoadPolicy}
+                  onLoadPolicyChange={setUsdLoadPolicy}
                 />
                 <Suspense fallback={<SidebarCardFallback />}>
                   <CompositionArcsCard
@@ -1529,6 +1537,7 @@ export function App() {
             onGridUnitChange={setGridUnitLabel}
             environmentPreset={environmentPreset}
             cameraSpeedMultiplier={cameraSpeedMultiplier}
+            usdLoadPolicy={usdLoadPolicy}
           />
 
           {/* ViewModeControls overlay */}

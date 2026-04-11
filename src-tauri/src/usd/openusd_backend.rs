@@ -1,5 +1,5 @@
 //! Concrete `UsdBackend` implementation backed by the `openusd` crate
-//! (yohawing fork of `mxpv/openusd`, branch `yw-look-phase3`).
+//! (yohawing fork of `mxpv/openusd`, branch `yw-look-phase4`).
 //!
 //! This adapter is intentionally thin: it converts paths, calls the
 //! parser, and maps the result into `yw-look`'s wire types in
@@ -7,19 +7,32 @@
 //! belongs in the frontend or a higher layer.
 
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::stage::{MeshData, UpAxis};
-use openusd::Stage;
+use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
 
 use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
-    StageInspection, StageSummary,
+    StageInspection, StageLoadPolicy, StageSummary,
 };
+
+/// Translate the wire-level `StageLoadPolicy` used by Tauri commands
+/// into the corresponding `openusd::StageLoadPolicy`. Kept as a plain
+/// function so the conversion is in one place and the two enum types
+/// can evolve independently if the fork adds a variant yw-look does
+/// not yet expose to the frontend.
+fn to_openusd_policy(policy: StageLoadPolicy) -> OpenusdLoadPolicy {
+    match policy {
+        StageLoadPolicy::LoadAll => OpenusdLoadPolicy::LoadAll,
+        StageLoadPolicy::NoPayloads => OpenusdLoadPolicy::NoPayloads,
+    }
+}
 
 /// Real backend backed by `openusd`.
 pub struct OpenusdBackend;
@@ -44,11 +57,17 @@ impl OpenusdBackend {
     /// producing a hard error — but the same behavior was in place for
     /// the entirety of Phase 1 / Phase 2 and matches the "show as much
     /// as possible" philosophy of the inspector.
-    fn open(path: &StdPath) -> Result<Stage, UsdError> {
+    ///
+    /// Phase 4: `policy` controls whether payload arcs are composed. The
+    /// default (`LoadAll`) reproduces Phase 3 behavior; `NoPayloads`
+    /// skips every payload and makes `Stage::skipped_payloads` return
+    /// the targeted arcs for UI display.
+    fn open(path: &StdPath, policy: StageLoadPolicy) -> Result<Stage, UsdError> {
         let path_str = path
             .to_str()
             .ok_or_else(|| UsdError::Io(format!("non-UTF8 path: {}", path.display())))?;
         Stage::builder()
+            .load_policy(to_openusd_policy(policy))
             .on_error(|_err| Ok(()))
             .open(path_str)
             .map_err(|e| UsdError::Parse(e.to_string()))
@@ -62,8 +81,12 @@ impl Default for OpenusdBackend {
 }
 
 impl UsdBackend for OpenusdBackend {
-    fn inspect_stage(&self, path: &StdPath) -> Result<StageInspection, UsdError> {
-        let stage = Self::open(path)?;
+    fn inspect_stage(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+    ) -> Result<StageInspection, UsdError> {
+        let stage = Self::open(path, policy)?;
 
         let default_prim = stage.default_prim();
         let up_axis = stage.up_axis().map(|axis| match axis {
@@ -87,12 +110,27 @@ impl UsdBackend for OpenusdBackend {
         // tagged with its current resolution state. This uses the same
         // exact-string matching as `collect_asset_issues` — any arc whose
         // authored `assetPath` appears in `unresolved_assets()` is reported
-        // as `Missing`, everything else is `Loaded`. Deferred loading is
-        // out of scope (Phase 4 Lite); `Loaded` here means "composed into
-        // the stage", not "cached in memory on demand".
+        // as `Missing`, everything else is `Loaded`.
         let missing_assets = stage.unresolved_assets();
-        let unresolved_set: std::collections::HashSet<&str> =
+        let unresolved_set: HashSet<&str> =
             missing_assets.iter().map(String::as_str).collect();
+
+        // Phase 4: collect the payload arcs the layer collector skipped
+        // under NoPayloads. The key here is `(asset_path, source_prim)`
+        // where `source_prim` is the prim that _declares_ the payload
+        // arc (`payload = @asset@</target>` is authored on that prim).
+        // This matches what `Stage::skipped_payloads` records — the
+        // declaring prim, not the target. Matching on the target path
+        // (which is what `payloads_in(...).prim_path` returns) would be
+        // wrong: a payload like `payload = @foo.usda@</Target>` on
+        // `/Root` is stored as `(foo.usda, /Root)`, not `(foo.usda,
+        // /Target)`, and a target-based lookup would miss it whenever
+        // source and target differ.
+        let skipped_payloads = stage.skipped_payloads();
+        let skipped_set: HashSet<(String, String)> = skipped_payloads
+            .iter()
+            .map(|sp| (sp.asset_path.clone(), sp.prim_path.to_string()))
+            .collect();
 
         let references = RefCell::new(Vec::new());
         let payloads = RefCell::new(Vec::new());
@@ -101,7 +139,7 @@ impl UsdBackend for OpenusdBackend {
             .traverse(|prim_path| {
                 let source = prim_path.as_str().to_string();
                 for r in stage.references_in(prim_path.clone()) {
-                    let state = arc_state(&unresolved_set, &r.asset_path);
+                    let state = reference_arc_state(&unresolved_set, &r.asset_path);
                     references.borrow_mut().push(CompositionArc {
                         source_prim: source.clone(),
                         asset_path: r.asset_path,
@@ -110,11 +148,22 @@ impl UsdBackend for OpenusdBackend {
                     });
                 }
                 for p in stage.payloads_in(prim_path.clone()) {
-                    let state = arc_state(&unresolved_set, &p.asset_path);
+                    // `source` is the prim that authored the payload
+                    // (what `Stage::skipped_payloads` keys on); `p.prim_path`
+                    // is the target prim inside the external layer (what the
+                    // UI displays as the arc destination). They are usually
+                    // but not always the same path.
+                    let target_prim = p.prim_path.to_string();
+                    let state = payload_arc_state(
+                        &unresolved_set,
+                        &skipped_set,
+                        &p.asset_path,
+                        &source,
+                    );
                     payloads.borrow_mut().push(CompositionArc {
                         source_prim: source.clone(),
                         asset_path: p.asset_path,
-                        target_prim: p.prim_path.to_string(),
+                        target_prim,
                         state,
                     });
                 }
@@ -131,11 +180,16 @@ impl UsdBackend for OpenusdBackend {
             references: references.into_inner(),
             payloads: payloads.into_inner(),
             missing_assets,
+            load_policy: policy,
         })
     }
 
-    fn summarize_stage(&self, path: &StdPath) -> Result<StageSummary, UsdError> {
-        let stage = Self::open(path)?;
+    fn summarize_stage(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+    ) -> Result<StageSummary, UsdError> {
+        let stage = Self::open(path, policy)?;
 
         let layer_count = stage.layer_count();
         let root_prim_count = stage
@@ -183,17 +237,19 @@ impl UsdBackend for OpenusdBackend {
             root_prim_count,
             mesh_count: mesh_count.into_inner(),
             payload_count: payload_count.into_inner(),
+            unloaded_payload_count: stage.skipped_payloads().len(),
             has_variants: has_variants.into_inner(),
             warnings,
+            load_policy: policy,
         })
     }
 
     fn root_layer_is_binary(&self, path: &StdPath) -> Result<bool, UsdError> {
-        Ok(Self::open(path)?.root_layer_is_binary())
+        Ok(Self::open(path, StageLoadPolicy::LoadAll)?.root_layer_is_binary())
     }
 
     fn requires_glb_preview(&self, path: &StdPath) -> Result<bool, UsdError> {
-        let stage = Self::open(path)?;
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         // Binary root → Three.js USDLoader can't parse it at all.
         if stage.root_layer_is_binary() {
             return Ok(true);
@@ -211,8 +267,12 @@ impl UsdBackend for OpenusdBackend {
         Ok(false)
     }
 
-    fn extract_geometry_glb(&self, path: &StdPath) -> Result<Vec<u8>, UsdError> {
-        let stage = Self::open(path)?;
+    fn extract_geometry_glb(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+    ) -> Result<Vec<u8>, UsdError> {
+        let stage = Self::open(path, policy)?;
 
         // Pre-compute the Z-up → Y-up correction, if any. The viewer is
         // Y-up; Z-up USD scenes (Kitchen Set, most DCC exports from Maya
@@ -288,7 +348,10 @@ impl UsdBackend for OpenusdBackend {
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
-        let stage = Self::open(path)?;
+        // Asset issues always inspect the fully-loaded stage — the UI
+        // wants a complete picture of what's broken regardless of which
+        // policy the frontend happens to be rendering.
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         let mut issues = Vec::new();
 
         if let Some(mpu) = stage.meters_per_unit() {
@@ -305,7 +368,7 @@ impl UsdBackend for OpenusdBackend {
 
         // Build the set of unresolved assets for arc-level lookups.
         let unresolved_owned = stage.unresolved_assets();
-        let unresolved: std::collections::HashSet<&str> =
+        let unresolved: HashSet<&str> =
             unresolved_owned.iter().map(|s| s.as_str()).collect();
 
         // Walk references / payloads and emit one contextualized issue per
@@ -313,14 +376,15 @@ impl UsdBackend for OpenusdBackend {
         // attributed so that we can fall back to a generic issue for any
         // that aren't reachable via an explicit arc.
         let collected: RefCell<Vec<AssetIssue>> = RefCell::new(Vec::new());
-        let covered: RefCell<std::collections::HashSet<String>> =
-            RefCell::new(std::collections::HashSet::new());
+        let covered: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 
         stage
             .traverse(|prim_path| {
                 let source = prim_path.as_str().to_string();
                 for r in stage.references_in(prim_path.clone()) {
-                    if arc_state(&unresolved, &r.asset_path) == CompositionArcState::Missing {
+                    if reference_arc_state(&unresolved, &r.asset_path)
+                        == CompositionArcState::Missing
+                    {
                         covered.borrow_mut().insert(r.asset_path.clone());
                         collected.borrow_mut().push(AssetIssue {
                             code: AssetIssueCode::BrokenReference,
@@ -332,7 +396,13 @@ impl UsdBackend for OpenusdBackend {
                     }
                 }
                 for p in stage.payloads_in(prim_path.clone()) {
-                    if arc_state(&unresolved, &p.asset_path) == CompositionArcState::Missing {
+                    // collect_asset_issues runs under LoadAll, so no
+                    // payload can be Unloaded here — only Missing vs
+                    // Loaded. Skip the skipped_set parameter to keep the
+                    // call site tight.
+                    if reference_arc_state(&unresolved, &p.asset_path)
+                        == CompositionArcState::Missing
+                    {
                         covered.borrow_mut().insert(p.asset_path.clone());
                         collected.borrow_mut().push(AssetIssue {
                             code: AssetIssueCode::MissingPayload,
@@ -367,14 +437,15 @@ impl UsdBackend for OpenusdBackend {
     }
 }
 
-// ----- Phase 4 helpers ------------------------------------------------------
+// ----- Arc state helpers ---------------------------------------------------
 
-/// Classify a composition arc based on whether its authored `asset_path`
-/// is in the stage's unresolved-asset set. Kept as a free function so
-/// both `inspect_stage` and `collect_asset_issues` can share the same
-/// exact-string matching rule.
-fn arc_state(
-    unresolved: &std::collections::HashSet<&str>,
+/// Classify a reference arc. References are always composed, so the
+/// only two possible states are `Loaded` (asset resolves) and
+/// `Missing` (appears in `unresolved_assets`). Shared by `inspect_stage`
+/// and `collect_asset_issues` to keep the exact-string match rule in
+/// one place.
+fn reference_arc_state(
+    unresolved: &HashSet<&str>,
     asset_path: &str,
 ) -> CompositionArcState {
     if unresolved.contains(asset_path) {
@@ -382,6 +453,32 @@ fn arc_state(
     } else {
         CompositionArcState::Loaded
     }
+}
+
+/// Classify a payload arc. Unlike references, payloads have three
+/// states: `Missing` (unresolved), `Unloaded` (deliberately skipped by
+/// `StageLoadPolicy::NoPayloads`), and `Loaded` (composed). We check
+/// `Missing` first because a payload that cannot be resolved at all
+/// trumps any deferred-load intent.
+///
+/// The skip set is keyed on `(asset_path, source_prim)` — the prim
+/// that authored the payload — because `Stage::skipped_payloads`
+/// records the declaring prim, not the payload's target. A layer can
+/// host multiple payload arcs pointing at the same asset from
+/// different prims and each must map to its own `Unloaded` result.
+fn payload_arc_state(
+    unresolved: &HashSet<&str>,
+    skipped: &HashSet<(String, String)>,
+    asset_path: &str,
+    source_prim: &str,
+) -> CompositionArcState {
+    if unresolved.contains(asset_path) {
+        return CompositionArcState::Missing;
+    }
+    if skipped.contains(&(asset_path.to_string(), source_prim.to_string())) {
+        return CompositionArcState::Unloaded;
+    }
+    CompositionArcState::Loaded
 }
 
 
@@ -1537,7 +1634,7 @@ mod tests {
         }
         let backend = OpenusdBackend::new();
         let summary = backend
-            .summarize_stage(&path)
+            .summarize_stage(&path, super::StageLoadPolicy::LoadAll)
             .expect("summarize tiny.usda");
         assert_eq!(summary.layer_count, 1);
         assert_eq!(summary.root_prim_count, 1);
@@ -1555,7 +1652,7 @@ mod tests {
         }
         let backend = OpenusdBackend::new();
         let inspection = backend
-            .inspect_stage(&path)
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
             .expect("inspect tiny.usda");
         assert_eq!(inspection.default_prim.as_deref(), Some("Root"));
         assert_eq!(inspection.up_axis.as_deref(), Some("Y"));
@@ -1596,7 +1693,7 @@ mod tests {
         }
         let backend = OpenusdBackend::new();
         let inspection = backend
-            .inspect_stage(&path)
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
             .expect("inspect tiny_broken_ref.usda");
 
         let good = inspection
@@ -1716,7 +1813,7 @@ def Xform "Root" (
 
         let backend = OpenusdBackend::new();
         let glb = backend
-            .extract_geometry_glb(&usda)
+            .extract_geometry_glb(&usda, super::StageLoadPolicy::LoadAll)
             .expect("extract_geometry pivot_pair.usda");
 
         // GLB sanity check, then pull out the first node's matrix and
@@ -1782,7 +1879,7 @@ def Xform "Root" (
         }
         let backend = OpenusdBackend::new();
         let glb = backend
-            .extract_geometry_glb(&path)
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract_geometry tiny_trs.usda");
         assert_eq!(&glb[0..4], b"glTF");
 
@@ -1861,7 +1958,7 @@ def Xform "Root" (
         }
         let backend = OpenusdBackend::new();
         let glb = backend
-            .extract_geometry_glb(&path)
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract_geometry tiny.usda");
 
         // GLB header check.
@@ -1910,7 +2007,7 @@ def Xform "Root" (
         let backend = OpenusdBackend::new();
         let started = std::time::Instant::now();
         let glb = backend
-            .extract_geometry_glb(&path)
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract_geometry_glb kitchen_set");
         eprintln!(
             "kitchen_set extract_geometry: {} bytes in {:?}",
@@ -1971,7 +2068,7 @@ def Xform "Root" (
         );
 
         let glb = backend
-            .extract_geometry_glb(&path)
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract_geometry ball.usd (payload + reference chain)");
 
         assert_eq!(&glb[0..4], b"glTF");
@@ -2008,7 +2105,7 @@ def Xform "Root" (
         assert!(is_binary, "Ball.geom.usd should be USDC");
 
         let glb = backend
-            .extract_geometry_glb(&path)
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract_geometry_glb");
         assert_eq!(&glb[0..4], b"glTF", "GLB magic header");
         let total_length = u32::from_le_bytes(glb[8..12].try_into().unwrap()) as usize;
@@ -2029,7 +2126,7 @@ def Xform "Root" (
             return;
         }
         let backend = OpenusdBackend::new();
-        let summary = backend.summarize_stage(&path).expect("summarize kitchen_set");
+        let summary = backend.summarize_stage(&path, super::StageLoadPolicy::LoadAll).expect("summarize kitchen_set");
         // Phase 0 observation: 229 layers, 77 root prims, 2048 traversed prims.
         assert_eq!(summary.layer_count, 229, "kitchen_set layer count");
         assert_eq!(summary.root_prim_count, 77, "kitchen_set root prim count");
@@ -2045,7 +2142,7 @@ def Xform "Root" (
             return;
         }
         let backend = OpenusdBackend::new();
-        let inspection = backend.inspect_stage(&path).expect("inspect kitchen_set");
+        let inspection = backend.inspect_stage(&path, super::StageLoadPolicy::LoadAll).expect("inspect kitchen_set");
         assert_eq!(inspection.default_prim.as_deref(), Some("Kitchen_set"));
         assert_eq!(inspection.up_axis.as_deref(), Some("Z"));
         // Phase 0 says references and payloads are heavily used.
@@ -2090,7 +2187,7 @@ def Xform "Root" (
         }
         let backend = OpenusdBackend::new();
         let inspection = backend
-            .inspect_stage(&path)
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
             .expect("instanceable metadata regression: should now parse");
         assert_eq!(inspection.default_prim.as_deref(), Some("Kitchen_set"));
     }
@@ -2105,11 +2202,11 @@ def Xform "Root" (
             return;
         }
         let backend = OpenusdBackend::new();
-        let summary = backend.summarize_stage(&path).expect("summarize chameleon");
+        let summary = backend.summarize_stage(&path, super::StageLoadPolicy::LoadAll).expect("summarize chameleon");
         assert_eq!(summary.layer_count, 1, "usdz reports as a single layer");
         assert_eq!(summary.root_prim_count, 1);
 
-        let inspection = backend.inspect_stage(&path).expect("inspect chameleon");
+        let inspection = backend.inspect_stage(&path, super::StageLoadPolicy::LoadAll).expect("inspect chameleon");
         assert_eq!(inspection.default_prim.as_deref(), Some("Root"));
     }
 
@@ -2135,7 +2232,7 @@ def Xform "Root" (
         assert!(is_binary, "chameleon usdz has a USDC root layer");
 
         let glb = backend
-            .extract_geometry_glb(&path)
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract_geometry chameleon");
         assert_eq!(&glb[0..4], b"glTF");
         let total_length = u32::from_le_bytes(glb[8..12].try_into().unwrap()) as usize;
@@ -2153,7 +2250,7 @@ def Xform "Root" (
         let backend = OpenusdBackend::new();
         assert!(backend.root_layer_is_binary(&path).expect("root binary"));
         let glb = backend
-            .extract_geometry_glb(&path)
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract_geometry glove");
         assert_eq!(&glb[0..4], b"glTF");
         assert!(glb.len() > 1024);
@@ -2169,7 +2266,7 @@ def Xform "Root" (
         let backend = OpenusdBackend::new();
         assert!(backend.root_layer_is_binary(&path).expect("root binary"));
         let glb = backend
-            .extract_geometry_glb(&path)
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract_geometry seahorse");
         assert_eq!(&glb[0..4], b"glTF");
         assert!(glb.len() > 1024);
@@ -2201,7 +2298,7 @@ def Xform "Root" (
                 .unwrap_or_else(|e| panic!("{candidate}: root_layer_is_binary failed: {e}"));
             assert!(is_binary, "{candidate} should be USDC");
             let glb = backend
-                .extract_geometry_glb(&path)
+                .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
                 .unwrap_or_else(|e| panic!("{candidate}: extract_geometry failed: {e}"));
             assert_eq!(&glb[0..4], b"glTF", "{candidate}: missing GLB magic");
             assert!(
@@ -2226,12 +2323,206 @@ def Xform "Root" (
             return;
         }
         let backend = OpenusdBackend::new();
-        let summary = backend.summarize_stage(&path).expect("summarize glove");
+        let summary = backend.summarize_stage(&path, super::StageLoadPolicy::LoadAll).expect("summarize glove");
         assert_eq!(summary.layer_count, 1);
         assert_eq!(summary.root_prim_count, 1);
 
-        let inspection = backend.inspect_stage(&path).expect("inspect glove");
+        let inspection = backend.inspect_stage(&path, super::StageLoadPolicy::LoadAll).expect("inspect glove");
         assert_eq!(inspection.default_prim.as_deref(), Some("glove_baseball"));
+    }
+
+    /// Phase 4 regression: `Stage::skipped_payloads()` keys on the prim
+    /// that **declared** the payload, not on the target prim inside the
+    /// external layer. This test authors
+    /// `payload = @./payload.usda@</Target>` on a root prim called
+    /// `/Root` (where source `/Root` and target `/Target` are distinct)
+    /// and verifies the payload arc is reported as `Unloaded` under
+    /// `NoPayloads`. A target-keyed lookup would miss and report
+    /// `Loaded` by mistake — Codex P2.
+    #[test]
+    fn no_payloads_matches_on_source_prim_not_target() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_payload_source_test");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let root_usda = tmp_dir.join("root.usda");
+        let payload_usda = tmp_dir.join("payload.usda");
+
+        std::fs::write(
+            &payload_usda,
+            r#"#usda 1.0
+(
+    defaultPrim = "Target"
+)
+
+def Mesh "Target"
+{
+    int[] faceVertexCounts = [3]
+    int[] faceVertexIndices = [0, 1, 2]
+    point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+}
+"#,
+        )?;
+        std::fs::write(
+            &root_usda,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root" (
+    payload = @./payload.usda@</Target>
+)
+{
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let inspection = backend
+            .inspect_stage(&root_usda, super::StageLoadPolicy::NoPayloads)
+            .expect("inspect root.usda NoPayloads");
+
+        let payload_arc = inspection
+            .payloads
+            .iter()
+            .find(|a| a.source_prim == "/Root")
+            .expect("payload arc on /Root should be recorded");
+        assert_eq!(
+            payload_arc.state,
+            CompositionArcState::Unloaded,
+            "arc on /Root must match skipped_payloads on its source prim"
+        );
+        assert_eq!(payload_arc.target_prim, "/Target");
+
+        // And LoadAll must still compose the payload — regression guard
+        // that we are not accidentally skipping payloads under LoadAll.
+        let loaded = backend
+            .inspect_stage(&root_usda, super::StageLoadPolicy::LoadAll)
+            .expect("inspect root.usda LoadAll");
+        let loaded_arc = loaded
+            .payloads
+            .iter()
+            .find(|a| a.source_prim == "/Root")
+            .expect("payload arc on /Root under LoadAll");
+        assert_eq!(loaded_arc.state, CompositionArcState::Loaded);
+
+        Ok(())
+    }
+
+    /// Phase 4: Ball.usd holds a single payload arc. Under `LoadAll`
+    /// the summary reports zero unloaded payloads and the composition
+    /// arc is `Loaded`; under `NoPayloads` the same arc flips to
+    /// `Unloaded` and is mirrored in `summary.unloaded_payload_count`.
+    /// The issue list must remain unchanged because asset hygiene runs
+    /// regardless of frontend deferred-load state.
+    #[test]
+    #[ignore = "needs samples/private (Pixar license)"]
+    fn ball_usd_no_payloads_reports_unloaded_arc() {
+        let path = PathBuf::from(
+            "../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.usd",
+        );
+        if skip_if_missing(&path, "ball_usd") {
+            return;
+        }
+        let backend = OpenusdBackend::new();
+
+        let loaded_summary = backend
+            .summarize_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("summarize Ball.usd LoadAll");
+        assert_eq!(
+            loaded_summary.unloaded_payload_count, 0,
+            "LoadAll must never skip payloads"
+        );
+        assert_eq!(
+            loaded_summary.load_policy,
+            super::StageLoadPolicy::LoadAll
+        );
+
+        let deferred_summary = backend
+            .summarize_stage(&path, super::StageLoadPolicy::NoPayloads)
+            .expect("summarize Ball.usd NoPayloads");
+        assert!(
+            deferred_summary.unloaded_payload_count >= 1,
+            "NoPayloads must report at least one deferred payload, got {}",
+            deferred_summary.unloaded_payload_count
+        );
+        assert_eq!(
+            deferred_summary.load_policy,
+            super::StageLoadPolicy::NoPayloads
+        );
+        assert_eq!(
+            deferred_summary.payload_count, loaded_summary.payload_count,
+            "authored payload count is independent of load policy"
+        );
+
+        let loaded_insp = backend
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("inspect Ball.usd LoadAll");
+        assert!(
+            loaded_insp
+                .payloads
+                .iter()
+                .all(|a| a.state == CompositionArcState::Loaded),
+            "LoadAll should mark every Ball payload arc as Loaded: {:?}",
+            loaded_insp.payloads
+        );
+
+        let deferred_insp = backend
+            .inspect_stage(&path, super::StageLoadPolicy::NoPayloads)
+            .expect("inspect Ball.usd NoPayloads");
+        let unloaded = deferred_insp
+            .payloads
+            .iter()
+            .filter(|a| a.state == CompositionArcState::Unloaded)
+            .count();
+        assert!(
+            unloaded >= 1,
+            "NoPayloads must mark at least one Ball payload arc as Unloaded: {:?}",
+            deferred_insp.payloads
+        );
+        assert_eq!(
+            deferred_insp.load_policy,
+            super::StageLoadPolicy::NoPayloads
+        );
+    }
+
+    /// `extract_geometry_glb` is the GLB pipeline entry point. Under
+    /// `LoadAll` Ball.usd produces a non-trivial GLB (its payload mesh
+    /// is composed); under `NoPayloads` the payload target is skipped,
+    /// so there are no renderable Mesh prims and we expect a clean
+    /// parse error — the backend explicitly flags empty stages rather
+    /// than returning a zero-byte GLB.
+    #[test]
+    #[ignore = "needs samples/private (Pixar license)"]
+    fn ball_usd_no_payloads_extract_geometry_is_empty() {
+        let path = PathBuf::from(
+            "../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.usd",
+        );
+        if skip_if_missing(&path, "ball_usd_extract") {
+            return;
+        }
+        let backend = OpenusdBackend::new();
+
+        let loaded_glb = backend
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract Ball.usd LoadAll");
+        assert_eq!(&loaded_glb[0..4], b"glTF");
+        assert!(
+            loaded_glb.len() > 512,
+            "LoadAll GLB unexpectedly small: {} bytes",
+            loaded_glb.len()
+        );
+
+        let err = backend
+            .extract_geometry_glb(&path, super::StageLoadPolicy::NoPayloads)
+            .expect_err("NoPayloads should have no meshes to extract");
+        let UsdError::Parse(msg) = err else {
+            panic!("expected Parse error, got {err:?}");
+        };
+        assert!(
+            msg.contains("no renderable Mesh"),
+            "unexpected error message: {msg}"
+        );
     }
 
     /// Helper: every output triangle must have strictly positive signed

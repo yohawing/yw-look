@@ -1,4 +1,9 @@
-import type { AssetIssue, StageInspection, StageSummary } from "../lib/usd";
+import type {
+  AssetIssue,
+  StageInspection,
+  StageLoadPolicy,
+  StageSummary,
+} from "../lib/usd";
 
 type UsdInspectorCardProps = {
   summary: StageSummary | null;
@@ -6,6 +11,13 @@ type UsdInspectorCardProps = {
   issues: AssetIssue[];
   loading: boolean;
   error: string | null;
+  /**
+   * Phase 4: current load policy. `null` when no USD asset is open so
+   * the segmented control can hide. When set, the control sends the
+   * new value up through `onLoadPolicyChange`.
+   */
+  loadPolicy: StageLoadPolicy | null;
+  onLoadPolicyChange: (policy: StageLoadPolicy) => void;
 };
 
 export function UsdInspectorCard({
@@ -14,10 +26,43 @@ export function UsdInspectorCard({
   issues,
   loading,
   error,
+  loadPolicy,
+  onLoadPolicyChange,
 }: UsdInspectorCardProps) {
+  const showControl = loadPolicy !== null;
   return (
     <article className="card">
-      <p className="card-title">USD Inspector</p>
+      <header className="card-header">
+        <p className="card-title">USD Inspector</p>
+        {showControl && (
+          <div
+            className="segmented-control"
+            role="group"
+            aria-label="USD load policy"
+          >
+            <button
+              type="button"
+              className={`segmented-option${
+                loadPolicy === "loadAll" ? " is-active" : ""
+              }`}
+              aria-pressed={loadPolicy === "loadAll"}
+              onClick={() => onLoadPolicyChange("loadAll")}
+            >
+              Loaded
+            </button>
+            <button
+              type="button"
+              className={`segmented-option${
+                loadPolicy === "noPayloads" ? " is-active" : ""
+              }`}
+              aria-pressed={loadPolicy === "noPayloads"}
+              onClick={() => onLoadPolicyChange("noPayloads")}
+            >
+              Deferred
+            </button>
+          </div>
+        )}
+      </header>
       {error ? (
         <p className="card-error">{error}</p>
       ) : loading ? (
@@ -37,7 +82,15 @@ export function UsdInspectorCard({
               <dt>Meshes</dt>
               <dd>{summary.meshCount}</dd>
               <dt>Payloads</dt>
-              <dd>{summary.payloadCount}</dd>
+              <dd>
+                {summary.payloadCount}
+                {summary.unloadedPayloadCount > 0 && (
+                  <span className="muted">
+                    {" "}
+                    ({summary.unloadedPayloadCount} deferred)
+                  </span>
+                )}
+              </dd>
               <dt>Variants</dt>
               <dd>{summary.hasVariants ? "yes" : "no"}</dd>
             </dl>
