@@ -231,6 +231,7 @@ type AssetViewportProps = {
   cameraFov: number;
   renderScale: number;
   showShadows: boolean;
+  fxaaEnabled: boolean;
   showRendererStats: boolean;
   toneMappingMode: ToneMappingMode;
   exposure: number;
@@ -423,6 +424,7 @@ export function AssetViewport({
   cameraFov,
   renderScale,
   showShadows,
+  fxaaEnabled,
   showRendererStats,
   toneMappingMode,
   exposure,
@@ -433,6 +435,26 @@ export function AssetViewport({
   const statsRef = useRef<HTMLDivElement | null>(null);
   const keyLightRef = useRef<DirectionalLight | null>(null);
   const showShadowsRef = useRef(showShadows);
+  // EffectComposer lives behind a lazy import; only materialized the
+  // first time the user enables FXAA so the base renderer path has
+  // no post-processing cost when the toggle is off. The structural
+  // shape here matches what we use on the value later so we can keep
+  // the import statements lazy without leaking three/examples types
+  // to module scope.
+  type FxaaComposerState = {
+    composer: {
+      render: () => void;
+      setSize: (w: number, h: number) => void;
+      dispose: () => void;
+    };
+    fxaaPass: {
+      material: {
+        uniforms: Record<string, { value: Vector2 }>;
+      };
+    };
+  };
+  const fxaaStateRef = useRef<FxaaComposerState | null>(null);
+  const fxaaEnabledRef = useRef(fxaaEnabled);
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
   const environmentTargetRef = useRef<WebGLRenderTarget | null>(null);
@@ -485,6 +507,10 @@ export function AssetViewport({
   useEffect(() => {
     showShadowsRef.current = showShadows;
   }, [showShadows]);
+
+  useEffect(() => {
+    fxaaEnabledRef.current = fxaaEnabled;
+  }, [fxaaEnabled]);
 
   useEffect(() => {
     showSkeletonRef.current = showSkeleton;
@@ -649,6 +675,16 @@ export function AssetViewport({
       camera.aspect = nextSize.x / nextSize.y;
       camera.updateProjectionMatrix();
 
+      const fxaaState = fxaaStateRef.current;
+      if (fxaaState) {
+        fxaaState.composer.setSize(nextSize.x, nextSize.y);
+        const pixelRatio = renderer.getPixelRatio();
+        fxaaState.fxaaPass.material.uniforms.resolution.value.set(
+          1 / (nextSize.x * pixelRatio),
+          1 / (nextSize.y * pixelRatio),
+        );
+      }
+
       const resizeContext = sceneContextRef.current;
       const mountedObject = resizeContext?.mountedObject;
       if (
@@ -681,7 +717,11 @@ export function AssetViewport({
     const renderLoop = () => {
       animationFrame = window.requestAnimationFrame(renderLoop);
       controls.update();
-      renderer.render(scene, camera);
+      if (fxaaEnabledRef.current && fxaaStateRef.current) {
+        fxaaStateRef.current.composer.render();
+      } else {
+        renderer.render(scene, camera);
+      }
 
       statsFrameCount += 1;
       const now = performance.now();
@@ -741,6 +781,9 @@ export function AssetViewport({
       environmentTargetsRef.current?.clear();
       environmentTargetsRef.current = null;
       environmentTargetRef.current = null;
+      fxaaStateRef.current?.composer.dispose();
+      fxaaStateRef.current = null;
+      keyLightRef.current = null;
       pmremGenerator.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);
@@ -1206,6 +1249,54 @@ export function AssetViewport({
       showShadows,
     );
   }, [showShadows]);
+
+  useEffect(() => {
+    if (!fxaaEnabled) {
+      // Leave the composer in place (so re-enabling is cheap) and
+      // rely on fxaaEnabledRef to skip it in the render loop.
+      return;
+    }
+    const context = sceneContextRef.current;
+    if (!context || fxaaStateRef.current) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const [
+        { EffectComposer },
+        { RenderPass },
+        { ShaderPass },
+        { FXAAShader },
+      ] = await Promise.all([
+        import("three/examples/jsm/postprocessing/EffectComposer.js"),
+        import("three/examples/jsm/postprocessing/RenderPass.js"),
+        import("three/examples/jsm/postprocessing/ShaderPass.js"),
+        import("three/examples/jsm/shaders/FXAAShader.js"),
+      ]);
+      if (cancelled) return;
+      const host = hostRef.current;
+      if (!host) return;
+      const composer = new EffectComposer(context.renderer);
+      composer.addPass(new RenderPass(context.scene, context.camera));
+      const fxaaPass = new ShaderPass(FXAAShader);
+      const pixelRatio = context.renderer.getPixelRatio();
+      (
+        fxaaPass.material.uniforms.resolution.value as Vector2
+      ).set(
+        1 / (host.clientWidth * pixelRatio),
+        1 / (host.clientHeight * pixelRatio),
+      );
+      composer.addPass(fxaaPass);
+      composer.setSize(host.clientWidth, host.clientHeight);
+      fxaaStateRef.current = {
+        composer,
+        fxaaPass: fxaaPass as unknown as FxaaComposerState["fxaaPass"],
+      };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fxaaEnabled]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

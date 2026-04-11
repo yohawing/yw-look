@@ -278,6 +278,7 @@ export function App() {
   const [cameraFov, setCameraFov] = useState(45);
   const [renderScale, setRenderScale] = useState(1);
   const [showShadows, setShowShadows] = useState(false);
+  const [fxaaEnabled, setFxaaEnabled] = useState(false);
   const [showRendererStats, setShowRendererStats] = useState(false);
   const [toneMappingMode, setToneMappingMode] =
     useState<ToneMappingMode>("aces");
@@ -1516,6 +1517,7 @@ export function App() {
             cameraFov={cameraFov}
             renderScale={renderScale}
             showShadows={showShadows}
+            fxaaEnabled={fxaaEnabled}
             showRendererStats={showRendererStats}
             toneMappingMode={toneMappingMode}
             exposure={exposure}
@@ -1938,6 +1940,17 @@ export function App() {
                   </button>
                 ))}
               </div>
+              <button
+                className={`view-mode-toggle${fxaaEnabled ? " is-active" : ""}`}
+                onClick={() => setFxaaEnabled((v) => !v)}
+                type="button"
+                title="Apply FXAA post-process anti-aliasing (MSAA is always on)"
+              >
+                <span>FXAA</span>
+                <span
+                  className={`toggle-switch${fxaaEnabled ? " is-on" : ""}`}
+                />
+              </button>
               <button
                 className={`view-mode-toggle${showRendererStats ? " is-active" : ""}`}
                 onClick={() => setShowRendererStats((v) => !v)}
