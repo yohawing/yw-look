@@ -281,7 +281,7 @@ fork 側の API が粗い部分は yw-look 側で補完している:
 
 ---
 
-## Phase 4 — Payload 遅延ロード（計画）
+## Phase 4 — Payload 遅延ロード（実装済み）
 
 ### 目的
 
@@ -343,6 +343,52 @@ payload の局所 load / unload を UI と同期したくなった時点で sess
 - variant set と payload load policy の同時最適化
 - アニメーション対応
 - ネットワーク越しの遠隔 asset streaming
+
+### 実装サマリ（Phase 4a + 4b + 4c）
+
+#### fork 側 (`yohawing/openusd`, branch `yw-look-phase4`)
+
+| 追加 API                                   | 内容                                                                      |
+| ------------------------------------------ | ------------------------------------------------------------------------- |
+| `StageLoadPolicy::{LoadAll, NoPayloads}`   | `#[non_exhaustive]` enum。`LoadAll` がデフォルトで Phase 3 挙動を維持     |
+| `SkippedPayload { asset_path, prim_path }` | `NoPayloads` で飛ばした payload 1 件を表す。`prim_path` は**宣言元 prim** |
+| `StageBuilder::load_policy`                | builder 経由で policy を仕込む。`Stage::open` シグネチャは非変更          |
+| `Stage::skipped_payloads`                  | 合成結果に溶け込まなかった payload の一覧                                 |
+| `Stage::load_policy`                       | 現在の policy を返すアクセサ                                              |
+
+- 注入ポイント: layer collection の `collect_recursive` で `DependencyKind::Payload` を recurse 前に弾く
+- 追加で pcp 側にも `skip_payloads: bool` を伝播（root layer の prim spec に残る authored payload listOp を pcp が評価しに行って `Error::UnresolvedLayer` を投げるため）
+- `Stage::open` / `references_in` / `payloads_in` / `unresolved_assets` / `mesh_of` / `local_xform_of` のシグネチャは**一切変更なし**
+- テスト: `fixtures/ball_payload/` に最小 USDA を追加して `load_all` / `no_payloads` / layer count / traverse 完走の 4 本
+
+#### yw-look 側 (`src-tauri/src/usd/`)
+
+- wire 型 `StageLoadPolicy { LoadAll, NoPayloads }` を `types.rs` に追加、`#[serde(rename_all = "camelCase")]` で `loadAll` / `noPayloads` に統一
+- `CompositionArcState` を 3 値化（`Loaded` / `Missing` / `Unloaded`）
+- `StageSummary.unloaded_payload_count`、`StageInspection.load_policy` を追加
+- `UsdBackend` trait: `inspect_stage` / `summarize_stage` / `extract_geometry_glb` が `policy: StageLoadPolicy` を必須引数として受け取る。`collect_asset_issues` / `requires_glb_preview` は常に `LoadAll` で走る
+- Tauri コマンドは `policy: Option<StageLoadPolicy>` を受け付け、`unwrap_or_default()` で後方互換を維持（Phase 3 frontend からの invoke も黙って LoadAll で通る）
+- `payload_arc_state` の skip set は `(asset_path, source_prim)` 2 値キー。`Stage::skipped_payloads` は宣言元 prim を記録し、`payloads_in` の戻り値 `p.prim_path` は external layer 内の target prim なので、**source と target が異なる場合に取り違えないよう明示的に使い分ける**
+
+#### Frontend
+
+- `src/lib/usd.ts`: `StageLoadPolicy` / `CompositionArcState` 3 値 / `unloadedPayloadCount` / `loadPolicy` を型に追加、`summarizeStage` / `inspectStage` / `extractGeometry` が optional policy 引数を受け付け
+- `UsdInspectorCard`: ヘッダに `Loaded` / `Deferred` segmented control を配置、`unloadedPayloadCount` を Payloads 行にインラインで併記
+- `CompositionArcsCard`: `Deferred` バッジ（`.badge-muted` 中立色）を追加して `missing`（エラー色）と分離表示
+- `App.tsx`: `usdLoadPolicy` state を導入し inspector エフェクトの依存配列に追加、`AssetViewport` 経由で `loadPreviewObject` にも伝搬
+- `AssetViewport` / `loaders.ts`: 依存配列に `usdLoadPolicy` を追加し、切替時に古い GLB scene を dispose してから `extract_geometry(path, policy)` を再実行
+
+#### デフォルト UX
+
+- 初期値は `loadAll` を維持（Phase 3 挙動を壊さない）
+- heuristic トースト（例: `payloadCount > 50` で Deferred 提案）は Phase 5 以降で検討
+- stateful session (`open_stage` / `load_payloads`) は Phase 5 以降で再評価
+
+#### 後続課題
+
+- `[patch."https://github.com/yohawing/openusd.git"]` を `src-tauri/Cargo.toml` に一時追加中。`yw-look-phase4` ブランチが upstream に push されたら `rev` を `54cb0eb94d7171cb3b5f306b9faf742faf3e61f6` に更新して patch を削除する
+- Kitchen Set クラスでの初回表示時間の実測（`performance.now()` で計測ポイントを追加）
+- payload 単位 load / unload UI（現状は stage 全体 toggle のみ）
 
 ---
 
