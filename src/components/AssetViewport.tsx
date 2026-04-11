@@ -219,6 +219,7 @@ type AssetViewportProps = {
   backfaceCulling: boolean;
   cameraPresetRequest: CameraPresetRequest | null;
   controlSensitivity: number;
+  cameraFov: number;
   toneMappingMode: ToneMappingMode;
   exposure: number;
   onGridUnitChange: (label: string) => void;
@@ -404,6 +405,7 @@ export function AssetViewport({
   backfaceCulling,
   cameraPresetRequest,
   controlSensitivity,
+  cameraFov,
   toneMappingMode,
   exposure,
   onGridUnitChange,
@@ -512,7 +514,7 @@ export function AssetViewport({
     // been created so we can honor showEnvironmentBackground on first frame.
 
     const camera = new PerspectiveCamera(
-      45,
+      cameraFov,
       host.clientWidth / host.clientHeight,
       0.01,
       2000,
@@ -717,6 +719,15 @@ export function AssetViewport({
     }
     applyControlSensitivity(context.controls, controlSensitivity);
   }, [controlSensitivity]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+    if (!context) {
+      return;
+    }
+    context.camera.fov = cameraFov;
+    context.camera.updateProjectionMatrix();
+  }, [cameraFov]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

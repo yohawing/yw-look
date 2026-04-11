@@ -253,6 +253,7 @@ export function App() {
   const [cameraPresetRequest, setCameraPresetRequest] =
     useState<CameraPresetRequest | null>(null);
   const [controlSensitivity, setControlSensitivity] = useState(1);
+  const [cameraFov, setCameraFov] = useState(45);
   const [toneMappingMode, setToneMappingMode] =
     useState<ToneMappingMode>("aces");
   const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
@@ -1483,6 +1484,7 @@ export function App() {
             backfaceCulling={backfaceCulling}
             cameraPresetRequest={cameraPresetRequest}
             controlSensitivity={controlSensitivity}
+            cameraFov={cameraFov}
             toneMappingMode={toneMappingMode}
             exposure={exposure}
             onGridUnitChange={setGridUnitLabel}
@@ -1683,6 +1685,22 @@ export function App() {
                   title="Orbit / pan / zoom multiplier (double-click to reset)"
                   type="range"
                   value={controlSensitivity}
+                />
+              </label>
+              <label className="range-control">
+                <span>FOV {cameraFov.toFixed(0)}°</span>
+                <input
+                  aria-label="Camera field of view"
+                  max={120}
+                  min={10}
+                  onChange={(event) =>
+                    setCameraFov(Number.parseFloat(event.target.value))
+                  }
+                  onDoubleClick={() => setCameraFov(45)}
+                  step={1}
+                  title="Vertical field of view (double-click to reset)"
+                  type="range"
+                  value={cameraFov}
                 />
               </label>
             </div>
