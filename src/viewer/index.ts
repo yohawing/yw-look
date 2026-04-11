@@ -27,6 +27,7 @@ export {
   applyTextureView,
   getScaleWarning,
   applyDisplayMode,
+  applyBackfaceCulling,
 } from "./scene";
 export type {
   CameraPreset,

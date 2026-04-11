@@ -2,6 +2,8 @@ import {
   AxesHelper,
   Box3,
   BufferGeometry,
+  DoubleSide,
+  FrontSide,
   GridHelper,
   Group,
   Material,
@@ -411,6 +413,33 @@ export function getScaleWarning(
   }
 
   return null;
+}
+
+export function applyBackfaceCulling(
+  object: Group | Mesh,
+  backfaceCulling: boolean,
+) {
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    for (const material of getMaterials(child.material)) {
+      if (!material || !("side" in material)) {
+        continue;
+      }
+
+      // Remember the authored side the first time we touch the material so
+      // toggling culling on can restore anything fancier than FrontSide
+      // (e.g. DoubleSide leaves, decals) the loader set up.
+      const originalSide = material.userData.originalSide ?? material.side;
+      material.userData.originalSide = originalSide;
+      material.side = backfaceCulling
+        ? (originalSide ?? FrontSide)
+        : DoubleSide;
+      material.needsUpdate = true;
+    }
+  });
 }
 
 export function applyDisplayMode(

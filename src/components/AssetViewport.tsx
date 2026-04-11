@@ -44,6 +44,7 @@ import {
   applyTextureView,
   getScaleWarning,
   applyDisplayMode,
+  applyBackfaceCulling,
   loadPreviewObject,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
@@ -184,6 +185,7 @@ type AssetViewportProps = {
   showGrid: boolean;
   showAxes: boolean;
   showEnvironmentBackground: boolean;
+  backfaceCulling: boolean;
   cameraPresetRequest: CameraPresetRequest | null;
   onGridUnitChange: (label: string) => void;
   environmentPreset: EnvironmentPreset;
@@ -360,6 +362,7 @@ export function AssetViewport({
   showGrid,
   showAxes,
   showEnvironmentBackground,
+  backfaceCulling,
   cameraPresetRequest,
   onGridUnitChange,
   environmentPreset,
@@ -375,6 +378,7 @@ export function AssetViewport({
   const activeEnvironmentPresetRef =
     useRef<EnvironmentPreset>(environmentPreset);
   const displayModeRef = useRef(displayMode);
+  const backfaceCullingRef = useRef(backfaceCulling);
   const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
   const showAxesRef = useRef(showAxes);
@@ -399,6 +403,10 @@ export function AssetViewport({
   useEffect(() => {
     displayModeRef.current = displayMode;
   }, [displayMode]);
+
+  useEffect(() => {
+    backfaceCullingRef.current = backfaceCulling;
+  }, [backfaceCulling]);
 
   useEffect(() => {
     viewerSurfaceModeRef.current = viewerSurfaceMode;
@@ -831,6 +839,7 @@ export function AssetViewport({
           showAxesRef.current,
         );
         applyDisplayMode(object, displayModeRef.current);
+        applyBackfaceCulling(object, backfaceCullingRef.current);
         frameMountedObject(
           context,
           object,
@@ -949,6 +958,16 @@ export function AssetViewport({
 
     applyDisplayMode(context.sourceObject, displayMode);
   }, [displayMode]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context?.sourceObject) {
+      return;
+    }
+
+    applyBackfaceCulling(context.sourceObject, backfaceCulling);
+  }, [backfaceCulling]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

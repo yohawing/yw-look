@@ -210,6 +210,7 @@ export function App() {
   const [showAxes, setShowAxes] = useState(false);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
+  const [backfaceCulling, setBackfaceCulling] = useState(true);
   const [cameraPresetRequest, setCameraPresetRequest] =
     useState<CameraPresetRequest | null>(null);
   const [backgroundPreset, setBackgroundPreset] =
@@ -1429,6 +1430,7 @@ export function App() {
             showGrid={showGrid}
             showAxes={showAxes}
             showEnvironmentBackground={showEnvironmentBackground}
+            backfaceCulling={backfaceCulling}
             cameraPresetRequest={cameraPresetRequest}
             onGridUnitChange={setGridUnitLabel}
             environmentPreset={environmentPreset}
@@ -1480,6 +1482,17 @@ export function App() {
               <span>Env BG</span>
               <span
                 className={`toggle-switch${showEnvironmentBackground ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${backfaceCulling ? " is-active" : ""}`}
+              onClick={() => setBackfaceCulling((v) => !v)}
+              type="button"
+              title="Hide polygons facing away from the camera"
+            >
+              <span>Cull</span>
+              <span
+                className={`toggle-switch${backfaceCulling ? " is-on" : ""}`}
               />
             </button>
             <div
