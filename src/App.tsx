@@ -243,6 +243,7 @@ export function App() {
   const [showGrid, setShowGrid] = useState(true);
   const [showAxes, setShowAxes] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(false);
+  const [showBoundingBoxes, setShowBoundingBoxes] = useState(false);
   const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
@@ -1473,6 +1474,7 @@ export function App() {
             showGrid={showGrid}
             showAxes={showAxes}
             showSkeleton={showSkeleton}
+            showBoundingBoxes={showBoundingBoxes}
             showEnvironmentBackground={showEnvironmentBackground}
             backfaceCulling={backfaceCulling}
             cameraPresetRequest={cameraPresetRequest}
@@ -1569,6 +1571,17 @@ export function App() {
               <span>Skeleton</span>
               <span
                 className={`toggle-switch${showSkeleton ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showBoundingBoxes ? " is-active" : ""}`}
+              onClick={() => setShowBoundingBoxes((v) => !v)}
+              type="button"
+              title="Show per-mesh bounding box outlines"
+            >
+              <span>BBox</span>
+              <span
+                className={`toggle-switch${showBoundingBoxes ? " is-on" : ""}`}
               />
             </button>
             <div

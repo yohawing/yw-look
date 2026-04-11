@@ -1,6 +1,7 @@
 import {
   AxesHelper,
   Box3,
+  Box3Helper,
   BufferGeometry,
   DoubleSide,
   FrontSide,
@@ -23,6 +24,7 @@ import type { DisplayMode, SceneContext } from "./types";
 export const GRID_NAME = "__yw_initial_grid";
 export const AXES_NAME = "__yw_axes_helper";
 const SKELETON_HELPER_FLAG = "__yw_skeleton_helper";
+const BBOX_HELPER_FLAG = "__yw_bbox_helper";
 const GRID_DIVISIONS = 20;
 // Axes length is tied to grid size so the XYZ indicator scales with the
 // current unit preset. Slightly longer than half a grid cell keeps the
@@ -494,6 +496,90 @@ export function applySkeletonHelpers(
       }
     }
     object.add(helper);
+  }
+}
+
+function disposeBoundingBoxHelper(helper: Box3Helper) {
+  helper.geometry.dispose();
+  for (const material of getMaterials(helper.material)) {
+    material.dispose();
+  }
+}
+
+export function removeBoundingBoxHelpers(object: Group | Mesh) {
+  const toRemove: Box3Helper[] = [];
+  object.traverse((child: Object3D) => {
+    if (
+      child instanceof Box3Helper &&
+      child.userData[BBOX_HELPER_FLAG] === true
+    ) {
+      toRemove.push(child);
+    }
+  });
+  for (const helper of toRemove) {
+    helper.parent?.remove(helper);
+    disposeBoundingBoxHelper(helper);
+  }
+}
+
+// Per-mesh Box3 helpers live under the mounted object so the existing
+// dispose pipeline cleans them up, and so they inherit the model's
+// world transform automatically when the user orbits around.
+export function applyBoundingBoxHelpers(
+  object: Group | Mesh,
+  visible: boolean,
+) {
+  removeBoundingBoxHelpers(object);
+  if (!visible) {
+    return;
+  }
+
+  const helpers: Array<{ parent: Object3D; helper: Box3Helper }> = [];
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+    // Ignore our own helper meshes — SkeletonHelper, AxesHelper and
+    // Box3Helper all extend LineSegments which extends Mesh.
+    if (
+      child.userData[SKELETON_HELPER_FLAG] === true ||
+      child.userData[BBOX_HELPER_FLAG] === true
+    ) {
+      return;
+    }
+
+    const geometry = child.geometry;
+    if (!(geometry instanceof BufferGeometry)) {
+      return;
+    }
+
+    if (!geometry.boundingBox) {
+      geometry.computeBoundingBox();
+    }
+    const bounds = geometry.boundingBox;
+    if (!bounds || bounds.isEmpty()) {
+      return;
+    }
+
+    const helper = new Box3Helper(bounds.clone(), 0x7170ff);
+    helper.userData[BBOX_HELPER_FLAG] = true;
+    const materials = getMaterials(helper.material);
+    for (const material of materials) {
+      if ("depthTest" in material) {
+        material.depthTest = false;
+      }
+      if ("transparent" in material) {
+        material.transparent = true;
+      }
+    }
+    helper.renderOrder = 2;
+    helpers.push({ parent: child, helper });
+  });
+
+  // Attaching during traverse() would mutate the tree we're walking, so
+  // defer the add() calls until the walk finishes.
+  for (const { parent, helper } of helpers) {
+    parent.add(helper);
   }
 }
 

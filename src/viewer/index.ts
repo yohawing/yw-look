@@ -30,6 +30,8 @@ export {
   applyBackfaceCulling,
   applySkeletonHelpers,
   removeSkeletonHelpers,
+  applyBoundingBoxHelpers,
+  removeBoundingBoxHelpers,
 } from "./scene";
 export type {
   CameraPreset,

@@ -49,6 +49,7 @@ import {
   applyDisplayMode,
   applyBackfaceCulling,
   applySkeletonHelpers,
+  applyBoundingBoxHelpers,
   loadPreviewObject,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
@@ -209,6 +210,7 @@ type AssetViewportProps = {
   showGrid: boolean;
   showAxes: boolean;
   showSkeleton: boolean;
+  showBoundingBoxes: boolean;
   showEnvironmentBackground: boolean;
   backfaceCulling: boolean;
   cameraPresetRequest: CameraPresetRequest | null;
@@ -391,6 +393,7 @@ export function AssetViewport({
   showGrid,
   showAxes,
   showSkeleton,
+  showBoundingBoxes,
   showEnvironmentBackground,
   backfaceCulling,
   cameraPresetRequest,
@@ -413,6 +416,7 @@ export function AssetViewport({
   const displayModeRef = useRef(displayMode);
   const backfaceCullingRef = useRef(backfaceCulling);
   const showSkeletonRef = useRef(showSkeleton);
+  const showBoundingBoxesRef = useRef(showBoundingBoxes);
   const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
   const showAxesRef = useRef(showAxes);
@@ -445,6 +449,10 @@ export function AssetViewport({
   useEffect(() => {
     showSkeletonRef.current = showSkeleton;
   }, [showSkeleton]);
+
+  useEffect(() => {
+    showBoundingBoxesRef.current = showBoundingBoxes;
+  }, [showBoundingBoxes]);
 
   useEffect(() => {
     viewerSurfaceModeRef.current = viewerSurfaceMode;
@@ -923,6 +931,7 @@ export function AssetViewport({
         context.textureRegistry = metadataCollection.textureRegistry;
         onMetadataChange(metadataCollection.metadata);
         applySkeletonHelpers(object, showSkeletonRef.current);
+        applyBoundingBoxHelpers(object, showBoundingBoxesRef.current);
 
         context.clips = clips;
         if (clips.length > 0) {
@@ -1044,6 +1053,16 @@ export function AssetViewport({
 
     applySkeletonHelpers(context.sourceObject, showSkeleton);
   }, [showSkeleton]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context?.sourceObject) {
+      return;
+    }
+
+    applyBoundingBoxHelpers(context.sourceObject, showBoundingBoxes);
+  }, [showBoundingBoxes]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
