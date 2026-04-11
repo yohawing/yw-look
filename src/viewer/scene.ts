@@ -171,6 +171,65 @@ export function applyInitialView(
   controls.update();
 }
 
+export type CameraPreset =
+  | "front"
+  | "back"
+  | "left"
+  | "right"
+  | "top"
+  | "bottom";
+
+// Direction vectors are where the camera sits relative to the target.
+// `front` means "the viewer is in front of the model and looks back along -Z".
+const cameraPresetDirections: Record<CameraPreset, Vector3> = {
+  front: new Vector3(0, 0, 1),
+  back: new Vector3(0, 0, -1),
+  left: new Vector3(-1, 0, 0),
+  right: new Vector3(1, 0, 0),
+  top: new Vector3(0, 1, 0),
+  bottom: new Vector3(0, -1, 0),
+};
+
+// For the top/bottom views the default Y-up reference collapses (lookAt
+// degenerates). Pick an arbitrary but stable in-plane up vector so
+// OrbitControls.update() has something to orient against.
+const cameraPresetUpOverrides: Partial<Record<CameraPreset, Vector3>> = {
+  top: new Vector3(0, 0, -1),
+  bottom: new Vector3(0, 0, 1),
+};
+
+export function applyPresetView(
+  camera: PerspectiveCamera,
+  controls: OrbitControls,
+  object: Group | Mesh,
+  preset: CameraPreset,
+) {
+  const bounds = new Box3().setFromObject(object);
+  const size = bounds.getSize(new Vector3());
+  const center = bounds.getCenter(new Vector3());
+  const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
+  const fitHeightDistance =
+    maxDimension / (2 * Math.tan(MathUtils.degToRad(camera.fov * 0.5)));
+  const fitDistance = fitHeightDistance * 1.5;
+
+  const direction = cameraPresetDirections[preset].clone().normalize();
+  const offset = direction.multiplyScalar(fitDistance);
+  camera.position.copy(center.clone().add(offset));
+
+  const upOverride = cameraPresetUpOverrides[preset];
+  camera.up.copy(upOverride ?? new Vector3(0, 1, 0));
+
+  camera.near = Math.max(maxDimension / 500, 0.01);
+  camera.far = Math.max(maxDimension * 20, 200);
+  camera.lookAt(center);
+  camera.updateProjectionMatrix();
+
+  controls.target.copy(center);
+  controls.minDistance = Math.max(maxDimension / 50, 0.05);
+  controls.maxDistance = Math.max(maxDimension * 40, 50);
+  controls.update();
+}
+
 export function applyTextureView(
   camera: PerspectiveCamera,
   controls: OrbitControls,

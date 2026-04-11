@@ -22,6 +22,7 @@ import {
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { SelectedFile } from "../lib/files";
 import {
+  type CameraPreset,
   type DisplayMode,
   type MissingReferenceError,
   type SceneContext,
@@ -36,6 +37,7 @@ import {
   stopAnimations,
   resetSceneObjects,
   applyInitialView,
+  applyPresetView,
   normalizeObjectScale,
   applyDynamicGrid,
   applyDynamicAxes,
@@ -59,8 +61,19 @@ import { emptyAssetMetadata, type AssetMetadata } from "./assetMetadata";
 import { emptyAnimationState, type AnimationState } from "./animation";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
-export type { ViewerFeedback, DisplayMode, ViewerSurfaceMode, TextureViewMode };
+export type {
+  ViewerFeedback,
+  DisplayMode,
+  ViewerSurfaceMode,
+  TextureViewMode,
+  CameraPreset,
+};
 export type BackgroundPreset = "gray" | "charcoal" | "light";
+
+export type CameraPresetRequest = {
+  preset: CameraPreset;
+  version: number;
+};
 
 const backgroundPresetColors: Record<BackgroundPreset, string> = {
   gray: "#717781",
@@ -171,6 +184,7 @@ type AssetViewportProps = {
   showGrid: boolean;
   showAxes: boolean;
   showEnvironmentBackground: boolean;
+  cameraPresetRequest: CameraPresetRequest | null;
   onGridUnitChange: (label: string) => void;
   environmentPreset: EnvironmentPreset;
 };
@@ -346,6 +360,7 @@ export function AssetViewport({
   showGrid,
   showAxes,
   showEnvironmentBackground,
+  cameraPresetRequest,
   onGridUnitChange,
   environmentPreset,
 }: AssetViewportProps) {
@@ -1000,6 +1015,27 @@ export function AssetViewport({
   useEffect(() => {
     resetCameraRef.current?.();
   }, [resetVersion]);
+
+  useEffect(() => {
+    if (!cameraPresetRequest) {
+      return;
+    }
+
+    const context = sceneContextRef.current;
+    const object = context?.mountedObject;
+    if (!context || !object || viewerSurfaceModeRef.current !== "asset") {
+      return;
+    }
+
+    configureAssetControls(context.controls);
+    applyPresetView(
+      context.camera,
+      context.controls,
+      object,
+      cameraPresetRequest.preset,
+    );
+    context.controls.enabled = true;
+  }, [cameraPresetRequest]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

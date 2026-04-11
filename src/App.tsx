@@ -13,6 +13,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
   type BackgroundPreset,
+  type CameraPreset,
+  type CameraPresetRequest,
   type DisplayMode,
   type EnvironmentPreset,
   type TextureViewMode,
@@ -186,6 +188,18 @@ const backgroundPresetOptions: Array<{
   { id: "light", label: "Light" },
 ];
 
+const cameraPresetOptions: Array<{
+  id: CameraPreset;
+  label: string;
+}> = [
+  { id: "front", label: "Front" },
+  { id: "back", label: "Back" },
+  { id: "left", label: "Left" },
+  { id: "right", label: "Right" },
+  { id: "top", label: "Top" },
+  { id: "bottom", label: "Bottom" },
+];
+
 export function App() {
   const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("file");
@@ -196,6 +210,8 @@ export function App() {
   const [showAxes, setShowAxes] = useState(false);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
+  const [cameraPresetRequest, setCameraPresetRequest] =
+    useState<CameraPresetRequest | null>(null);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
@@ -1413,6 +1429,7 @@ export function App() {
             showGrid={showGrid}
             showAxes={showAxes}
             showEnvironmentBackground={showEnvironmentBackground}
+            cameraPresetRequest={cameraPresetRequest}
             onGridUnitChange={setGridUnitLabel}
             environmentPreset={environmentPreset}
           />
@@ -1498,6 +1515,27 @@ export function App() {
                     type="button"
                   >
                     {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="view-mode-section">
+              <span className="view-mode-section-label">View</span>
+              <div className="preset-chip-row">
+                {cameraPresetOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    className="preset-chip"
+                    onClick={() =>
+                      setCameraPresetRequest((previous) => ({
+                        preset: option.id,
+                        version: (previous?.version ?? 0) + 1,
+                      }))
+                    }
+                    type="button"
+                    title={`View from ${option.label.toLowerCase()}`}
+                  >
+                    {option.label}
                   </button>
                 ))}
               </div>
