@@ -29,6 +29,7 @@ import {
   type DisplayMode,
   type MissingReferenceError,
   type SceneContext,
+  type TextureFilterMode,
   type TextureViewMode,
   type ViewerFeedback,
   type ViewerSurfaceMode,
@@ -48,6 +49,7 @@ import {
   getScaleWarning,
   applyDisplayMode,
   applyBackfaceCulling,
+  applyTextureFilter,
   applyVertexColors,
   applySkeletonHelpers,
   applyBoundingBoxHelpers,
@@ -74,6 +76,7 @@ export type {
   DisplayMode,
   ViewerSurfaceMode,
   TextureViewMode,
+  TextureFilterMode,
   CameraPreset,
 };
 export type BackgroundPreset = "gray" | "charcoal" | "light";
@@ -218,6 +221,7 @@ type AssetViewportProps = {
   showEnvironmentBackground: boolean;
   environmentRotation: number;
   backfaceCulling: boolean;
+  textureFilterMode: TextureFilterMode;
   cameraPresetRequest: CameraPresetRequest | null;
   controlSensitivity: number;
   cameraFov: number;
@@ -406,6 +410,7 @@ export function AssetViewport({
   showEnvironmentBackground,
   environmentRotation,
   backfaceCulling,
+  textureFilterMode,
   cameraPresetRequest,
   controlSensitivity,
   cameraFov,
@@ -427,6 +432,7 @@ export function AssetViewport({
     useRef<EnvironmentPreset>(environmentPreset);
   const displayModeRef = useRef(displayMode);
   const backfaceCullingRef = useRef(backfaceCulling);
+  const textureFilterModeRef = useRef(textureFilterMode);
   const showSkeletonRef = useRef(showSkeleton);
   const showBoundingBoxesRef = useRef(showBoundingBoxes);
   const showNormalsRef = useRef(showNormals);
@@ -459,6 +465,10 @@ export function AssetViewport({
   useEffect(() => {
     backfaceCullingRef.current = backfaceCulling;
   }, [backfaceCulling]);
+
+  useEffect(() => {
+    textureFilterModeRef.current = textureFilterMode;
+  }, [textureFilterMode]);
 
   useEffect(() => {
     showSkeletonRef.current = showSkeleton;
@@ -965,6 +975,7 @@ export function AssetViewport({
         );
         applyDisplayMode(object, displayModeRef.current);
         applyBackfaceCulling(object, backfaceCullingRef.current);
+        applyTextureFilter(object, textureFilterModeRef.current);
         applyVertexColors(object, showVertexColorsRef.current);
         frameMountedObject(
           context,
@@ -1107,6 +1118,16 @@ export function AssetViewport({
 
     applyBackfaceCulling(context.sourceObject, backfaceCulling);
   }, [backfaceCulling]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context?.sourceObject) {
+      return;
+    }
+
+    applyTextureFilter(context.sourceObject, textureFilterMode);
+  }, [textureFilterMode]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

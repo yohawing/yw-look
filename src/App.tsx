@@ -17,6 +17,7 @@ import {
   type CameraPresetRequest,
   type DisplayMode,
   type EnvironmentPreset,
+  type TextureFilterMode,
   type TextureViewMode,
   type ToneMappingMode,
   type ViewerFeedback,
@@ -241,6 +242,15 @@ const renderScaleOptions: Array<{
   { value: 2, label: "2x" },
 ];
 
+const textureFilterOptions: Array<{
+  id: TextureFilterMode;
+  label: string;
+}> = [
+  { id: "nearest", label: "Nearest" },
+  { id: "linear", label: "Bilinear" },
+  { id: "trilinear", label: "Trilinear" },
+];
+
 const DEFAULT_EXPOSURE = 1.1;
 
 export function App() {
@@ -260,6 +270,8 @@ export function App() {
     useState(false);
   const [environmentRotation, setEnvironmentRotation] = useState(0);
   const [backfaceCulling, setBackfaceCulling] = useState(true);
+  const [textureFilterMode, setTextureFilterMode] =
+    useState<TextureFilterMode>("trilinear");
   const [cameraPresetRequest, setCameraPresetRequest] =
     useState<CameraPresetRequest | null>(null);
   const [controlSensitivity, setControlSensitivity] = useState(1);
@@ -1494,6 +1506,7 @@ export function App() {
             showEnvironmentBackground={showEnvironmentBackground}
             environmentRotation={environmentRotation}
             backfaceCulling={backfaceCulling}
+            textureFilterMode={textureFilterMode}
             cameraPresetRequest={cameraPresetRequest}
             controlSensitivity={controlSensitivity}
             cameraFov={cameraFov}
@@ -1872,6 +1885,19 @@ export function App() {
                     onClick={() => setRenderScale(option.value)}
                     type="button"
                     title={`Render at ${option.label} of the device pixel ratio`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <div className="preset-chip-row">
+                {textureFilterOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    className={`preset-chip${textureFilterMode === option.id ? " is-active" : ""}`}
+                    onClick={() => setTextureFilterMode(option.id)}
+                    type="button"
+                    title={`Texture filtering: ${option.label}`}
                   >
                     {option.label}
                   </button>

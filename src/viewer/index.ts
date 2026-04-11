@@ -28,6 +28,7 @@ export {
   getScaleWarning,
   applyDisplayMode,
   applyBackfaceCulling,
+  applyTextureFilter,
   applyVertexColors,
   applySkeletonHelpers,
   removeSkeletonHelpers,
@@ -40,6 +41,7 @@ export type {
   CameraPreset,
   GridConfig,
   ScaleNormalizationResult,
+  TextureFilterMode,
 } from "./scene";
 
 export { loadPreviewObject } from "./loaders";

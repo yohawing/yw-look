@@ -7,9 +7,15 @@ import {
   FrontSide,
   GridHelper,
   Group,
+  LinearFilter,
+  LinearMipMapLinearFilter,
+  type MagnificationTextureFilter,
   Material,
   MathUtils,
   Mesh,
+  type MinificationTextureFilter,
+  NearestFilter,
+  NearestMipMapNearestFilter,
   Object3D,
   PerspectiveCamera,
   Scene,
@@ -662,6 +668,54 @@ export function applyNormalHelpers(
     }
     helper.renderOrder = 2;
     scene.add(helper);
+  });
+}
+
+export type TextureFilterMode = "nearest" | "linear" | "trilinear";
+
+type FilterPair = {
+  mag: MagnificationTextureFilter;
+  min: MinificationTextureFilter;
+};
+
+const textureFilterMap: Record<TextureFilterMode, FilterPair> = {
+  nearest: { mag: NearestFilter, min: NearestMipMapNearestFilter },
+  linear: { mag: LinearFilter, min: LinearFilter },
+  trilinear: { mag: LinearFilter, min: LinearMipMapLinearFilter },
+};
+
+export function applyTextureFilter(
+  object: Group | Mesh,
+  mode: TextureFilterMode,
+) {
+  const touched = new Set<Texture>();
+  const { mag, min } = textureFilterMap[mode];
+
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+    if (
+      child.userData[SKELETON_HELPER_FLAG] === true ||
+      child.userData[BBOX_HELPER_FLAG] === true ||
+      child.userData[NORMAL_HELPER_FLAG] === true
+    ) {
+      return;
+    }
+
+    for (const material of getMaterials(child.material)) {
+      if (!material) continue;
+      // Walk the material's texture-valued properties rather than the
+      // authored slot list, so we catch engine-specific maps like
+      // aoMap, envMap, etc. without having to enumerate them.
+      for (const value of Object.values(material)) {
+        if (!(value instanceof Texture) || touched.has(value)) continue;
+        value.magFilter = mag;
+        value.minFilter = min;
+        value.needsUpdate = true;
+        touched.add(value);
+      }
+    }
   });
 }
 
