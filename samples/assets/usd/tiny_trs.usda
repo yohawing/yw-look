@@ -1,0 +1,27 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    metersPerUnit = 1.0
+    doc = "yw-look xformOp order regression fixture. Exercises a prim with xformOpOrder = [translate, rotateZ] at known values so tests can verify the composed world matrix matches USD's semantics (first op in list is outermost / applied last to the vertex)."
+)
+
+def Xform "Root"
+{
+    def Xform "Rotated" (
+        kind = "component"
+    )
+    {
+        double3 xformOp:translate = (10, 0, 0)
+        float xformOp:rotateZ = 90
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateZ"]
+
+        def Mesh "Quad"
+        {
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            point3f[] points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+            uniform token subdivisionScheme = "none"
+        }
+    }
+}

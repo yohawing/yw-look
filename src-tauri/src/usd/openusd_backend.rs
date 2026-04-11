@@ -384,6 +384,7 @@ fn arc_state(
     }
 }
 
+
 // ----- Phase 3 helpers ------------------------------------------------------
 
 /// Column-major rotation that maps a Z-up point `(x, y, z)` to the
@@ -598,12 +599,25 @@ fn compose_world_xform(stage: &Stage, prim_path: &SdfPath) -> Result<[f64; 16], 
 ///     USDZ files)
 ///   - `!invert!` prefixes (Maya-style pivot pairs)
 ///
-/// USD's `xformOpOrder` lists ops innermost first, so in column-vector
-/// convention we multiply right-to-left. For each entry:
+/// USD (row-vector) composes ops as `M_row = op[0] * op[1] * ... * op[N-1]`,
+/// so in column-vector convention the equivalent matrix is
+/// `M_col = op[0] * op[1] * ... * op[N-1]` as well — the first op in the
+/// list becomes the leftmost factor (outermost), and the last op becomes
+/// the rightmost factor (innermost, applied first to the vertex).
+///
+/// Concretely: `xformOpOrder = [translate, rotateXYZ]` means "rotate
+/// locally, then translate to position" — the standard placement
+/// convention used by XformCommonAPI and heavy users like Pixar's
+/// Kitchen Set. The earlier implementation iterated in reverse and
+/// produced `R * T`, which flung every prop around the origin.
+///
+/// For each entry:
 ///   1. Strip an optional `!invert!` prefix, remembering the flag.
 ///   2. Look up the underlying attribute via `stage.field::<Value>(...)`.
 ///   3. Build the op matrix via [`build_xform_op_matrix`].
 ///   4. Invert the matrix when the flag was set.
+///   5. Append on the right: `result = result * op` — so iterating the
+///      list forward yields `op[0] * op[1] * ... * op[N-1]`.
 ///
 /// Returns `Ok(None)` when the prim has no `xformOpOrder` authored.
 fn compose_prim_local_xform(
@@ -632,7 +646,7 @@ fn compose_prim_local_xform(
     }
 
     let mut result = identity_mat4();
-    for name in op_names.iter().rev() {
+    for name in op_names.iter() {
         if name == "!resetXformStack!" {
             // Reset is handled by the caller (via has_reset_xform_stack),
             // not as an op — skip it here.
@@ -1511,6 +1525,79 @@ def Xform "Root" (
 
         std::fs::remove_file(&usda).ok();
         Ok(())
+    }
+
+    /// Regression guard for Phase 4: `compose_prim_local_xform` used to
+    /// iterate the xformOp list in reverse, which turned the canonical
+    /// Pixar op order `[translate, rotateXYZ]` into `R * T` instead of
+    /// `T * R`. Any prop with both a translate and a rotate — every
+    /// single Kitchen Set MeasuringSpoon / Cup / Bowl / chain of shakers —
+    /// ended up rotated around the world origin, flinging it across (and
+    /// often through) the kitchen floor.
+    ///
+    /// This test uses a self-contained USDA with
+    /// `xformOpOrder = [translate(10,0,0), rotateZ(90)]`. USD semantics
+    /// say ops in this list apply in list order, which translates (in
+    /// column-vector convention) to `M = T * R` — i.e., rotate locally
+    /// first, then translate to position. We verify the composed world
+    /// matrix has translation column `(10, 0, 0)` and a Z-rotation by
+    /// checking a known axis basis vector.
+    #[test]
+    fn trs_order_matches_usd_semantics() {
+        let path = PathBuf::from("../samples/assets/usd/tiny_trs.usda");
+        if !path.exists() || is_lfs_pointer(&path) {
+            eprintln!("SKIP trs_order_matches_usd_semantics: fixture missing");
+            return;
+        }
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&path)
+            .expect("extract_geometry tiny_trs.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+        let matrix = doc["nodes"][0]["matrix"].as_array().expect("node matrix");
+        let m: Vec<f64> = matrix.iter().map(|v| v.as_f64().unwrap()).collect();
+
+        // Column-major layout: m[12..15] is the translation column.
+        // Under the correct `T * R` composition, applying M to the local
+        // origin (0, 0, 0, 1) must give (10, 0, 0, 1) — the value we
+        // authored in xformOp:translate. The old `R * T` code rotated
+        // (10, 0, 0) by 90° around Z, which would put translation at
+        // roughly (0, 10, 0) instead.
+        assert!(
+            (m[12] - 10.0).abs() < 1e-5,
+            "expected translation.x == 10 (T*R), got m[12]={} — op order reversed?",
+            m[12]
+        );
+        assert!(
+            m[13].abs() < 1e-5,
+            "expected translation.y == 0 (T*R), got m[13]={} — op order reversed?",
+            m[13]
+        );
+        assert!(
+            m[14].abs() < 1e-5,
+            "expected translation.z == 0, got m[14]={}",
+            m[14]
+        );
+
+        // Verify the rotation column too: the local X axis (1, 0, 0)
+        // transforms to the first column of M. Rz(90°) maps +X → +Y, so
+        // m[0..3] should be approximately (0, 1, 0).
+        assert!(
+            m[0].abs() < 1e-5 && (m[1] - 1.0).abs() < 1e-5 && m[2].abs() < 1e-5,
+            "expected local +X → world +Y after Rz(90), got ({}, {}, {})",
+            m[0],
+            m[1],
+            m[2]
+        );
     }
 
     #[test]
