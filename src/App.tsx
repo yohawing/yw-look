@@ -232,6 +232,15 @@ const textureTileOptions: Array<{
   { count: 8, label: "8x" },
 ];
 
+const renderScaleOptions: Array<{
+  value: number;
+  label: string;
+}> = [
+  { value: 0.5, label: "0.5x" },
+  { value: 1, label: "1x" },
+  { value: 2, label: "2x" },
+];
+
 const DEFAULT_EXPOSURE = 1.1;
 
 export function App() {
@@ -254,6 +263,7 @@ export function App() {
     useState<CameraPresetRequest | null>(null);
   const [controlSensitivity, setControlSensitivity] = useState(1);
   const [cameraFov, setCameraFov] = useState(45);
+  const [renderScale, setRenderScale] = useState(1);
   const [toneMappingMode, setToneMappingMode] =
     useState<ToneMappingMode>("aces");
   const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
@@ -1485,6 +1495,7 @@ export function App() {
             cameraPresetRequest={cameraPresetRequest}
             controlSensitivity={controlSensitivity}
             cameraFov={cameraFov}
+            renderScale={renderScale}
             toneMappingMode={toneMappingMode}
             exposure={exposure}
             onGridUnitChange={setGridUnitLabel}
@@ -1828,6 +1839,22 @@ export function App() {
                   value={exposure}
                 />
               </label>
+            </div>
+            <div className="view-mode-section">
+              <span className="view-mode-section-label">Quality</span>
+              <div className="preset-chip-row">
+                {renderScaleOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    className={`preset-chip${renderScale === option.value ? " is-active" : ""}`}
+                    onClick={() => setRenderScale(option.value)}
+                    type="button"
+                    title={`Render at ${option.label} of the device pixel ratio`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
             </div>
           </div>

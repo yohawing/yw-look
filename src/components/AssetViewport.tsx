@@ -220,6 +220,7 @@ type AssetViewportProps = {
   cameraPresetRequest: CameraPresetRequest | null;
   controlSensitivity: number;
   cameraFov: number;
+  renderScale: number;
   toneMappingMode: ToneMappingMode;
   exposure: number;
   onGridUnitChange: (label: string) => void;
@@ -406,6 +407,7 @@ export function AssetViewport({
   cameraPresetRequest,
   controlSensitivity,
   cameraFov,
+  renderScale,
   toneMappingMode,
   exposure,
   onGridUnitChange,
@@ -504,7 +506,7 @@ export function AssetViewport({
     }
 
     const renderer = new WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(window.devicePixelRatio * renderScale);
     renderer.setSize(host.clientWidth, host.clientHeight);
     renderer.toneMapping = toneMappingModeMap[toneMappingMode];
     renderer.toneMappingExposure = exposure;
@@ -728,6 +730,16 @@ export function AssetViewport({
     context.camera.fov = cameraFov;
     context.camera.updateProjectionMatrix();
   }, [cameraFov]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+    if (!context) {
+      return;
+    }
+    // setPixelRatio triggers a drawing-buffer reallocation, which is
+    // exactly what we want so the canvas re-samples at the new scale.
+    context.renderer.setPixelRatio(window.devicePixelRatio * renderScale);
+  }, [renderScale]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

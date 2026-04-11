@@ -510,7 +510,7 @@ fork: `yohawing/openusd`（branch: `yw-look-phase1` ベース）で作業中。
 - [ ] 被写界深度（DOF）
 - [ ] ブルーム（グロー効果）
 - [ ] アンチエイリアス切替（None / FXAA / MSAA）
-- [ ] 解像度スケール（0.5x / 1x / 2x）
+- [x] 解像度スケール（0.5x / 1x / 2x）
 - [ ] テクスチャフィルタリング切替（Nearest / Bilinear / Trilinear）
 - [ ] FPS / ドローコール / 三角形数 / VRAM のオンスクリーン表示
 - [ ] ミップレベル可視化
