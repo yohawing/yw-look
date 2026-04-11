@@ -72,10 +72,14 @@ function applyViewportBackground(
   renderer: WebGLRenderer,
   scene: Scene,
   backgroundPreset: BackgroundPreset,
+  environmentTexture: Texture | null,
 ) {
   const color = backgroundPresetColors[backgroundPreset];
+  // setClearColor still matters: it is used when the scene has no
+  // background (rare) and when a frame is rendered without clearing
+  // the environment texture (e.g. during resize before relayout).
   renderer.setClearColor(color);
-  scene.background = new Color(color);
+  scene.background = environmentTexture ?? new Color(color);
 }
 
 export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
@@ -166,6 +170,7 @@ type AssetViewportProps = {
   resetVersion: number;
   showGrid: boolean;
   showAxes: boolean;
+  showEnvironmentBackground: boolean;
   onGridUnitChange: (label: string) => void;
   environmentPreset: EnvironmentPreset;
 };
@@ -340,6 +345,7 @@ export function AssetViewport({
   resetVersion,
   showGrid,
   showAxes,
+  showEnvironmentBackground,
   onGridUnitChange,
   environmentPreset,
 }: AssetViewportProps) {
@@ -357,6 +363,8 @@ export function AssetViewport({
   const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
   const showAxesRef = useRef(showAxes);
+  const showEnvironmentBackgroundRef = useRef(showEnvironmentBackground);
+  const backgroundPresetRef = useRef(backgroundPreset);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -390,6 +398,14 @@ export function AssetViewport({
   }, [showAxes]);
 
   useEffect(() => {
+    showEnvironmentBackgroundRef.current = showEnvironmentBackground;
+  }, [showEnvironmentBackground]);
+
+  useEffect(() => {
+    backgroundPresetRef.current = backgroundPreset;
+  }, [backgroundPreset]);
+
+  useEffect(() => {
     if (!shouldInitializeScene) {
       return;
     }
@@ -407,7 +423,8 @@ export function AssetViewport({
     renderer.toneMappingExposure = 1.1;
 
     const scene = new Scene();
-    applyViewportBackground(renderer, scene, backgroundPreset);
+    // Defer applyViewportBackground until after the environment target has
+    // been created so we can honor showEnvironmentBackground on first frame.
 
     const camera = new PerspectiveCamera(
       45,
@@ -431,6 +448,15 @@ export function AssetViewport({
     }
     activeEnvironmentPresetRef.current = environmentPreset;
     scene.environment = environmentTargetRef.current.texture;
+
+    applyViewportBackground(
+      renderer,
+      scene,
+      backgroundPreset,
+      showEnvironmentBackgroundRef.current
+        ? environmentTargetRef.current.texture
+        : null,
+    );
 
     const ambient = new AmbientLight("#ffffff", 1.8);
     const key = new DirectionalLight("#ffffff", 2.4);
@@ -572,8 +598,15 @@ export function AssetViewport({
       return;
     }
 
-    applyViewportBackground(context.renderer, context.scene, backgroundPreset);
-  }, [backgroundPreset]);
+    applyViewportBackground(
+      context.renderer,
+      context.scene,
+      backgroundPreset,
+      showEnvironmentBackground
+        ? (environmentTargetRef.current?.texture ?? null)
+        : null,
+    );
+  }, [backgroundPreset, showEnvironmentBackground]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -601,6 +634,18 @@ export function AssetViewport({
     environmentTargetRef.current = nextTarget;
     activeEnvironmentPresetRef.current = environmentPreset;
     context.scene.environment = nextTarget.texture;
+
+    // If the environment is currently used as the background too, swap the
+    // background texture in the same frame to avoid a flicker where
+    // `scene.background` still points at the previous preset.
+    if (showEnvironmentBackgroundRef.current) {
+      applyViewportBackground(
+        context.renderer,
+        context.scene,
+        backgroundPresetRef.current,
+        nextTarget.texture,
+      );
+    }
   }, [environmentPreset]);
 
   useEffect(() => {

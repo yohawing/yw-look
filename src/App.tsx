@@ -194,6 +194,8 @@ export function App() {
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [showAxes, setShowAxes] = useState(false);
+  const [showEnvironmentBackground, setShowEnvironmentBackground] =
+    useState(false);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
@@ -1410,6 +1412,7 @@ export function App() {
             resetVersion={resetVersion}
             showGrid={showGrid}
             showAxes={showAxes}
+            showEnvironmentBackground={showEnvironmentBackground}
             onGridUnitChange={setGridUnitLabel}
             environmentPreset={environmentPreset}
           />
@@ -1450,6 +1453,17 @@ export function App() {
             >
               <span>Axes</span>
               <span className={`toggle-switch${showAxes ? " is-on" : ""}`} />
+            </button>
+            <button
+              className={`view-mode-toggle${showEnvironmentBackground ? " is-active" : ""}`}
+              onClick={() => setShowEnvironmentBackground((v) => !v)}
+              type="button"
+              title="Show the environment map as the viewport background"
+            >
+              <span>Env BG</span>
+              <span
+                className={`toggle-switch${showEnvironmentBackground ? " is-on" : ""}`}
+              />
             </button>
             <div
               aria-label="Background"
