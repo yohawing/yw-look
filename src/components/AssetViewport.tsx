@@ -11,6 +11,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MOUSE,
+  PCFSoftShadowMap,
   PerspectiveCamera,
   PMREMGenerator,
   ReinhardToneMapping,
@@ -54,6 +55,8 @@ import {
   applySkeletonHelpers,
   applyBoundingBoxHelpers,
   applyNormalHelpers,
+  applyShadows,
+  ensureShadowCatcher,
   loadPreviewObject,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
@@ -227,6 +230,7 @@ type AssetViewportProps = {
   controlSensitivity: number;
   cameraFov: number;
   renderScale: number;
+  showShadows: boolean;
   showRendererStats: boolean;
   toneMappingMode: ToneMappingMode;
   exposure: number;
@@ -418,6 +422,7 @@ export function AssetViewport({
   controlSensitivity,
   cameraFov,
   renderScale,
+  showShadows,
   showRendererStats,
   toneMappingMode,
   exposure,
@@ -426,6 +431,8 @@ export function AssetViewport({
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
+  const keyLightRef = useRef<DirectionalLight | null>(null);
+  const showShadowsRef = useRef(showShadows);
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
   const environmentTargetRef = useRef<WebGLRenderTarget | null>(null);
@@ -474,6 +481,10 @@ export function AssetViewport({
   useEffect(() => {
     textureFilterModeRef.current = textureFilterMode;
   }, [textureFilterMode]);
+
+  useEffect(() => {
+    showShadowsRef.current = showShadows;
+  }, [showShadows]);
 
   useEffect(() => {
     showSkeletonRef.current = showSkeleton;
@@ -527,6 +538,11 @@ export function AssetViewport({
     renderer.setSize(host.clientWidth, host.clientHeight);
     renderer.toneMapping = toneMappingModeMap[toneMappingMode];
     renderer.toneMappingExposure = exposure;
+    // Enable the shadow pipeline up-front so toggling shadows later
+    // is just a light.castShadow flip — flipping shadowMap.enabled
+    // at runtime forces every material to recompile shaders.
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = PCFSoftShadowMap;
 
     const scene = new Scene();
     // Defer applyViewportBackground until after the environment target has
@@ -569,9 +585,21 @@ export function AssetViewport({
     const ambient = new AmbientLight("#ffffff", 1.8);
     const key = new DirectionalLight("#ffffff", 2.4);
     key.position.set(6, 8, 5);
+    // Shadow camera sized for the default scene; re-framed per asset
+    // when the user enables shadows (applyShadows → updateShadowCatcher).
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.camera.near = 0.1;
+    key.shadow.camera.far = 200;
+    key.shadow.camera.left = -20;
+    key.shadow.camera.right = 20;
+    key.shadow.camera.top = 20;
+    key.shadow.camera.bottom = -20;
+    key.shadow.bias = -0.0005;
+    keyLightRef.current = key;
     const fill = new DirectionalLight("#cfd9ea", 1.2);
     fill.position.set(-5, 3, -4);
     scene.add(ambient, key, fill);
+    ensureShadowCatcher(scene);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     configureAssetControls(controls);
@@ -1008,6 +1036,12 @@ export function AssetViewport({
         applyBackfaceCulling(object, backfaceCullingRef.current);
         applyTextureFilter(object, textureFilterModeRef.current);
         applyVertexColors(object, showVertexColorsRef.current);
+        applyShadows(
+          context.scene,
+          object,
+          keyLightRef.current,
+          showShadowsRef.current,
+        );
         frameMountedObject(
           context,
           object,
@@ -1159,6 +1193,19 @@ export function AssetViewport({
 
     applyTextureFilter(context.sourceObject, textureFilterMode);
   }, [textureFilterMode]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+    if (!context) {
+      return;
+    }
+    applyShadows(
+      context.scene,
+      context.sourceObject,
+      keyLightRef.current,
+      showShadows,
+    );
+  }, [showShadows]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

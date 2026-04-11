@@ -277,6 +277,7 @@ export function App() {
   const [controlSensitivity, setControlSensitivity] = useState(1);
   const [cameraFov, setCameraFov] = useState(45);
   const [renderScale, setRenderScale] = useState(1);
+  const [showShadows, setShowShadows] = useState(false);
   const [showRendererStats, setShowRendererStats] = useState(false);
   const [toneMappingMode, setToneMappingMode] =
     useState<ToneMappingMode>("aces");
@@ -1514,6 +1515,7 @@ export function App() {
             controlSensitivity={controlSensitivity}
             cameraFov={cameraFov}
             renderScale={renderScale}
+            showShadows={showShadows}
             showRendererStats={showRendererStats}
             toneMappingMode={toneMappingMode}
             exposure={exposure}
@@ -1585,6 +1587,17 @@ export function App() {
               <span>Env BG</span>
               <span
                 className={`toggle-switch${showEnvironmentBackground ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showShadows ? " is-active" : ""}`}
+              onClick={() => setShowShadows((v) => !v)}
+              type="button"
+              title="Cast directional-light shadows onto a ground plane"
+            >
+              <span>Shadows</span>
+              <span
+                className={`toggle-switch${showShadows ? " is-on" : ""}`}
               />
             </button>
             <button

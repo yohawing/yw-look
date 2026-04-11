@@ -3,6 +3,7 @@ import {
   Box3,
   Box3Helper,
   BufferGeometry,
+  DirectionalLight,
   DoubleSide,
   FrontSide,
   GridHelper,
@@ -18,7 +19,9 @@ import {
   NearestMipMapNearestFilter,
   Object3D,
   PerspectiveCamera,
+  PlaneGeometry,
   Scene,
+  ShadowMaterial,
   SkeletonHelper,
   SkinnedMesh,
   Texture,
@@ -30,6 +33,7 @@ import type { DisplayMode, SceneContext } from "./types";
 
 export const GRID_NAME = "__yw_initial_grid";
 export const AXES_NAME = "__yw_axes_helper";
+export const SHADOW_CATCHER_NAME = "__yw_shadow_catcher";
 const SKELETON_HELPER_FLAG = "__yw_skeleton_helper";
 const BBOX_HELPER_FLAG = "__yw_bbox_helper";
 const NORMAL_HELPER_FLAG = "__yw_normal_helper";
@@ -433,6 +437,83 @@ export function getScaleWarning(
   }
 
   return null;
+}
+
+// The shadow catcher is a ShadowMaterial plane that only renders
+// where it receives shadow. We keep it hidden until the user opts in
+// so a disabled shadow pipeline doesn't eat any GPU budget.
+export function ensureShadowCatcher(scene: Scene) {
+  const existing = scene.getObjectByName(SHADOW_CATCHER_NAME);
+  if (existing instanceof Mesh) {
+    return existing;
+  }
+  const plane = new Mesh(
+    new PlaneGeometry(200, 200),
+    new ShadowMaterial({ opacity: 0.35 }),
+  );
+  plane.name = SHADOW_CATCHER_NAME;
+  plane.rotation.x = -Math.PI / 2;
+  plane.receiveShadow = true;
+  plane.visible = false;
+  scene.add(plane);
+  return plane;
+}
+
+function updateShadowCatcherForObject(scene: Scene, object: Group | Mesh) {
+  const catcher = scene.getObjectByName(SHADOW_CATCHER_NAME);
+  if (!(catcher instanceof Mesh)) {
+    return;
+  }
+  const bounds = new Box3().setFromObject(object);
+  if (bounds.isEmpty()) {
+    return;
+  }
+  const size = bounds.getSize(new Vector3());
+  const center = bounds.getCenter(new Vector3());
+  // Sit just below the model so the shadow doesn't z-fight with
+  // whatever ground plane the model itself authored, and stretch
+  // wide enough to catch long shadows at low sun angles.
+  const padding = Math.max(size.x, size.z, 1) * 3;
+  const geometry = catcher.geometry;
+  if (geometry instanceof PlaneGeometry) {
+    geometry.dispose();
+  }
+  (catcher as Mesh).geometry = new PlaneGeometry(padding, padding);
+  catcher.position.set(center.x, bounds.min.y - size.y * 0.001, center.z);
+}
+
+export function applyShadows(
+  scene: Scene,
+  object: Group | Mesh | null,
+  keyLight: DirectionalLight | null,
+  enabled: boolean,
+) {
+  const catcher = scene.getObjectByName(SHADOW_CATCHER_NAME);
+  if (catcher instanceof Mesh) {
+    catcher.visible = enabled;
+  }
+  if (keyLight) {
+    keyLight.castShadow = enabled;
+  }
+  if (!object) {
+    return;
+  }
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof Mesh)) return;
+    if (
+      child.userData[SKELETON_HELPER_FLAG] === true ||
+      child.userData[BBOX_HELPER_FLAG] === true ||
+      child.userData[NORMAL_HELPER_FLAG] === true ||
+      child.name === SHADOW_CATCHER_NAME
+    ) {
+      return;
+    }
+    child.castShadow = enabled;
+    child.receiveShadow = enabled;
+  });
+  if (enabled && object) {
+    updateShadowCatcherForObject(scene, object);
+  }
 }
 
 function disposeSkeletonHelper(helper: SkeletonHelper) {

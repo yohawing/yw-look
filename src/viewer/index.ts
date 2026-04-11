@@ -36,6 +36,8 @@ export {
   removeBoundingBoxHelpers,
   applyNormalHelpers,
   removeNormalHelpers,
+  ensureShadowCatcher,
+  applyShadows,
 } from "./scene";
 export type {
   CameraPreset,
