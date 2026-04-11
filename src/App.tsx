@@ -244,6 +244,7 @@ export function App() {
   const [showAxes, setShowAxes] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(false);
+  const [showNormals, setShowNormals] = useState(false);
   const [showVertexColors, setShowVertexColors] = useState(false);
   const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
@@ -1476,6 +1477,7 @@ export function App() {
             showAxes={showAxes}
             showSkeleton={showSkeleton}
             showBoundingBoxes={showBoundingBoxes}
+            showNormals={showNormals}
             showVertexColors={showVertexColors}
             showEnvironmentBackground={showEnvironmentBackground}
             backfaceCulling={backfaceCulling}
@@ -1595,6 +1597,17 @@ export function App() {
               <span>Vertex Color</span>
               <span
                 className={`toggle-switch${showVertexColors ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showNormals ? " is-active" : ""}`}
+              onClick={() => setShowNormals((v) => !v)}
+              type="button"
+              title="Show vertex normals as line indicators"
+            >
+              <span>Normals</span>
+              <span
+                className={`toggle-switch${showNormals ? " is-on" : ""}`}
               />
             </button>
             <div

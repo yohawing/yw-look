@@ -19,12 +19,14 @@ import {
   Vector3,
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { VertexNormalsHelper } from "three/examples/jsm/helpers/VertexNormalsHelper.js";
 import type { DisplayMode, SceneContext } from "./types";
 
 export const GRID_NAME = "__yw_initial_grid";
 export const AXES_NAME = "__yw_axes_helper";
 const SKELETON_HELPER_FLAG = "__yw_skeleton_helper";
 const BBOX_HELPER_FLAG = "__yw_bbox_helper";
+const NORMAL_HELPER_FLAG = "__yw_normal_helper";
 const GRID_DIVISIONS = 20;
 // Axes length is tied to grid size so the XYZ indicator scales with the
 // current unit preset. Slightly longer than half a grid cell keeps the
@@ -134,6 +136,13 @@ export function stopAnimations(context: SceneContext) {
 }
 
 export function resetSceneObjects(context: SceneContext) {
+  // Drop any overlay helpers pointing at the outgoing asset before
+  // we dispose its geometry, otherwise the helpers would still
+  // reference freed buffers until the next toggle.
+  removeSkeletonHelpers(context.scene);
+  removeBoundingBoxHelpers(context.scene);
+  removeNormalHelpers(context.scene);
+
   if (context.previewObject) {
     context.scene.remove(context.previewObject);
     disposePreviewObject(context.previewObject);
@@ -454,9 +463,9 @@ function collectSkeletonRoots(object: Group | Mesh): Object3D[] {
   return roots;
 }
 
-export function removeSkeletonHelpers(object: Group | Mesh) {
+export function removeSkeletonHelpers(scene: Scene) {
   const toRemove: SkeletonHelper[] = [];
-  object.traverse((child: Object3D) => {
+  scene.traverse((child: Object3D) => {
     if (
       child instanceof SkeletonHelper &&
       child.userData[SKELETON_HELPER_FLAG] === true
@@ -470,11 +479,17 @@ export function removeSkeletonHelpers(object: Group | Mesh) {
   }
 }
 
+// SkeletonHelper / Box3Helper / VertexNormalsHelper all compute line
+// positions using the target mesh's matrixWorld. Adding them as a
+// child of the mounted object would apply the parent's transform a
+// second time, so all helpers live directly under the scene and we
+// track them with userData flags for cleanup.
 export function applySkeletonHelpers(
+  scene: Scene,
   object: Group | Mesh,
   visible: boolean,
 ) {
-  removeSkeletonHelpers(object);
+  removeSkeletonHelpers(scene);
   if (!visible) {
     return;
   }
@@ -495,7 +510,7 @@ export function applySkeletonHelpers(
         material.transparent = true;
       }
     }
-    object.add(helper);
+    scene.add(helper);
   }
 }
 
@@ -506,9 +521,9 @@ function disposeBoundingBoxHelper(helper: Box3Helper) {
   }
 }
 
-export function removeBoundingBoxHelpers(object: Group | Mesh) {
+export function removeBoundingBoxHelpers(scene: Scene) {
   const toRemove: Box3Helper[] = [];
-  object.traverse((child: Object3D) => {
+  scene.traverse((child: Object3D) => {
     if (
       child instanceof Box3Helper &&
       child.userData[BBOX_HELPER_FLAG] === true
@@ -522,19 +537,16 @@ export function removeBoundingBoxHelpers(object: Group | Mesh) {
   }
 }
 
-// Per-mesh Box3 helpers live under the mounted object so the existing
-// dispose pipeline cleans them up, and so they inherit the model's
-// world transform automatically when the user orbits around.
 export function applyBoundingBoxHelpers(
+  scene: Scene,
   object: Group | Mesh,
   visible: boolean,
 ) {
-  removeBoundingBoxHelpers(object);
+  removeBoundingBoxHelpers(scene);
   if (!visible) {
     return;
   }
 
-  const helpers: Array<{ parent: Object3D; helper: Box3Helper }> = [];
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) {
       return;
@@ -543,7 +555,8 @@ export function applyBoundingBoxHelpers(
     // Box3Helper all extend LineSegments which extends Mesh.
     if (
       child.userData[SKELETON_HELPER_FLAG] === true ||
-      child.userData[BBOX_HELPER_FLAG] === true
+      child.userData[BBOX_HELPER_FLAG] === true ||
+      child.userData[NORMAL_HELPER_FLAG] === true
     ) {
       return;
     }
@@ -553,15 +566,14 @@ export function applyBoundingBoxHelpers(
       return;
     }
 
-    if (!geometry.boundingBox) {
-      geometry.computeBoundingBox();
-    }
-    const bounds = geometry.boundingBox;
-    if (!bounds || bounds.isEmpty()) {
+    // Compute the axis-aligned world-space box so helper can live on
+    // the scene root without inheriting the model's transform.
+    const worldBounds = new Box3().setFromObject(child);
+    if (worldBounds.isEmpty()) {
       return;
     }
 
-    const helper = new Box3Helper(bounds.clone(), 0x7170ff);
+    const helper = new Box3Helper(worldBounds, 0x7170ff);
     helper.userData[BBOX_HELPER_FLAG] = true;
     const materials = getMaterials(helper.material);
     for (const material of materials) {
@@ -573,14 +585,84 @@ export function applyBoundingBoxHelpers(
       }
     }
     helper.renderOrder = 2;
-    helpers.push({ parent: child, helper });
+    scene.add(helper);
   });
+}
 
-  // Attaching during traverse() would mutate the tree we're walking, so
-  // defer the add() calls until the walk finishes.
-  for (const { parent, helper } of helpers) {
-    parent.add(helper);
+function disposeNormalHelper(helper: VertexNormalsHelper) {
+  helper.geometry.dispose();
+  for (const material of getMaterials(helper.material)) {
+    material.dispose();
   }
+}
+
+export function removeNormalHelpers(scene: Scene) {
+  const toRemove: VertexNormalsHelper[] = [];
+  scene.traverse((child: Object3D) => {
+    if (
+      child instanceof VertexNormalsHelper &&
+      child.userData[NORMAL_HELPER_FLAG] === true
+    ) {
+      toRemove.push(child);
+    }
+  });
+  for (const helper of toRemove) {
+    helper.parent?.remove(helper);
+    disposeNormalHelper(helper);
+  }
+}
+
+export function applyNormalHelpers(
+  scene: Scene,
+  object: Group | Mesh,
+  visible: boolean,
+) {
+  removeNormalHelpers(scene);
+  if (!visible) {
+    return;
+  }
+
+  // Pick a line length relative to the whole object so the normals
+  // read correctly regardless of model scale. Per-mesh bounds would
+  // make tiny meshes show huge spikes.
+  const bounds = new Box3().setFromObject(object);
+  const size = bounds.getSize(new Vector3());
+  const reference = Math.max(size.x, size.y, size.z, 0.001);
+  const lineLength = reference * 0.02;
+
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+    if (
+      child.userData[SKELETON_HELPER_FLAG] === true ||
+      child.userData[BBOX_HELPER_FLAG] === true ||
+      child.userData[NORMAL_HELPER_FLAG] === true
+    ) {
+      return;
+    }
+
+    const geometry = child.geometry;
+    if (
+      !(geometry instanceof BufferGeometry) ||
+      geometry.getAttribute("normal") === undefined
+    ) {
+      return;
+    }
+
+    const helper = new VertexNormalsHelper(child, lineLength, 0x5ec4ff);
+    helper.userData[NORMAL_HELPER_FLAG] = true;
+    for (const material of getMaterials(helper.material)) {
+      if ("depthTest" in material) {
+        material.depthTest = false;
+      }
+      if ("transparent" in material) {
+        material.transparent = true;
+      }
+    }
+    helper.renderOrder = 2;
+    scene.add(helper);
+  });
 }
 
 export function applyVertexColors(

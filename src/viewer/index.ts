@@ -33,6 +33,8 @@ export {
   removeSkeletonHelpers,
   applyBoundingBoxHelpers,
   removeBoundingBoxHelpers,
+  applyNormalHelpers,
+  removeNormalHelpers,
 } from "./scene";
 export type {
   CameraPreset,

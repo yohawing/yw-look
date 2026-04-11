@@ -51,6 +51,7 @@ import {
   applyVertexColors,
   applySkeletonHelpers,
   applyBoundingBoxHelpers,
+  applyNormalHelpers,
   loadPreviewObject,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
@@ -212,6 +213,7 @@ type AssetViewportProps = {
   showAxes: boolean;
   showSkeleton: boolean;
   showBoundingBoxes: boolean;
+  showNormals: boolean;
   showVertexColors: boolean;
   showEnvironmentBackground: boolean;
   backfaceCulling: boolean;
@@ -396,6 +398,7 @@ export function AssetViewport({
   showAxes,
   showSkeleton,
   showBoundingBoxes,
+  showNormals,
   showVertexColors,
   showEnvironmentBackground,
   backfaceCulling,
@@ -420,6 +423,7 @@ export function AssetViewport({
   const backfaceCullingRef = useRef(backfaceCulling);
   const showSkeletonRef = useRef(showSkeleton);
   const showBoundingBoxesRef = useRef(showBoundingBoxes);
+  const showNormalsRef = useRef(showNormals);
   const showVertexColorsRef = useRef(showVertexColors);
   const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
@@ -457,6 +461,10 @@ export function AssetViewport({
   useEffect(() => {
     showBoundingBoxesRef.current = showBoundingBoxes;
   }, [showBoundingBoxes]);
+
+  useEffect(() => {
+    showNormalsRef.current = showNormals;
+  }, [showNormals]);
 
   useEffect(() => {
     showVertexColorsRef.current = showVertexColors;
@@ -939,8 +947,17 @@ export function AssetViewport({
         );
         context.textureRegistry = metadataCollection.textureRegistry;
         onMetadataChange(metadataCollection.metadata);
-        applySkeletonHelpers(object, showSkeletonRef.current);
-        applyBoundingBoxHelpers(object, showBoundingBoxesRef.current);
+        applySkeletonHelpers(context.scene, object, showSkeletonRef.current);
+        applyBoundingBoxHelpers(
+          context.scene,
+          object,
+          showBoundingBoxesRef.current,
+        );
+        applyNormalHelpers(
+          context.scene,
+          object,
+          showNormalsRef.current,
+        );
 
         context.clips = clips;
         if (clips.length > 0) {
@@ -1060,7 +1077,7 @@ export function AssetViewport({
       return;
     }
 
-    applySkeletonHelpers(context.sourceObject, showSkeleton);
+    applySkeletonHelpers(context.scene, context.sourceObject, showSkeleton);
   }, [showSkeleton]);
 
   useEffect(() => {
@@ -1070,8 +1087,22 @@ export function AssetViewport({
       return;
     }
 
-    applyBoundingBoxHelpers(context.sourceObject, showBoundingBoxes);
+    applyBoundingBoxHelpers(
+      context.scene,
+      context.sourceObject,
+      showBoundingBoxes,
+    );
   }, [showBoundingBoxes]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context?.sourceObject) {
+      return;
+    }
+
+    applyNormalHelpers(context.scene, context.sourceObject, showNormals);
+  }, [showNormals]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
