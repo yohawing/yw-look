@@ -1,15 +1,23 @@
 import {
+  AmbientLight,
+  Box3,
   BufferGeometry,
+  Color,
   CompressedTexture,
   DataTexture,
+  DirectionalLight,
   Group,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  PerspectiveCamera,
   PlaneGeometry,
   SRGBColorSpace,
+  Scene,
   Texture,
   TextureLoader,
+  Vector3,
+  WebGLRenderer,
 } from "three";
 
 type SampleCase = {
@@ -244,8 +252,97 @@ async function main() {
   setOutput({ failedCount: failed.length, results });
 }
 
-main().catch((error) => {
-  setOutput({
-    fatal: error instanceof Error ? error.message : String(error),
+async function runSingleModelMode(rawPath: string) {
+  const normalizedPath = rawPath.replace(/^\/+/, "");
+  const format = normalizedPath.split(".").pop()?.toLowerCase() ?? "";
+  const sample: SampleCase = {
+    id: "preview",
+    kind: "model",
+    format,
+    path: normalizedPath,
+  };
+
+  const canvas = document.createElement("canvas");
+  canvas.id = "preview-canvas";
+  canvas.width = 1024;
+  canvas.height = 768;
+  canvas.style.cssText = "display:block;width:1024px;height:768px;";
+  document.body.appendChild(canvas);
+
+  const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: false });
+  renderer.setPixelRatio(1);
+  renderer.setSize(1024, 768, false);
+  renderer.setClearColor(new Color("#1a1c22"));
+
+  const scene = new Scene();
+  scene.add(new AmbientLight(0xffffff, 0.6));
+  const key = new DirectionalLight(0xffffff, 1.1);
+  key.position.set(3, 5, 4);
+  scene.add(key);
+  const fill = new DirectionalLight(0xffffff, 0.45);
+  fill.position.set(-4, 2, -3);
+  scene.add(fill);
+
+  const camera = new PerspectiveCamera(45, 1024 / 768, 0.01, 5000);
+
+  try {
+    const object = (await loadCase(sample)) as Group | Mesh;
+    scene.add(object);
+
+    const bbox = new Box3().setFromObject(object);
+    const size = bbox.getSize(new Vector3());
+    const center = bbox.getCenter(new Vector3());
+    const radius = Math.max(size.x, size.y, size.z) || 1;
+    camera.position
+      .copy(center)
+      .add(new Vector3(radius * 1.6, radius * 1.2, radius * 1.8));
+    camera.lookAt(center);
+    camera.near = Math.max(radius / 1000, 0.001);
+    camera.far = radius * 100;
+    camera.updateProjectionMatrix();
+
+    renderer.render(scene, camera);
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    renderer.render(scene, camera);
+
+    setOutput({
+      mode: "single",
+      ok: true,
+      format,
+      path: rawPath,
+      bbox: {
+        min: bbox.min.toArray(),
+        max: bbox.max.toArray(),
+        size: size.toArray(),
+        sizeMax: radius,
+      },
+    });
+  } catch (error) {
+    console.error("[preview] load failed:", error);
+    setOutput({
+      mode: "single",
+      ok: false,
+      format,
+      path: rawPath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+const params = new URLSearchParams(location.search);
+const singlePath = params.get("path");
+
+if (singlePath) {
+  runSingleModelMode(singlePath).catch((error) => {
+    setOutput({
+      mode: "single",
+      fatal: error instanceof Error ? error.message : String(error),
+    });
   });
-});
+} else {
+  main().catch((error) => {
+    setOutput({
+      fatal: error instanceof Error ? error.message : String(error),
+    });
+  });
+}
