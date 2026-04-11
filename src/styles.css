@@ -349,26 +349,106 @@ textarea {
   z-index: 10;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 9px;
+  gap: 4px;
+  padding: 6px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(16, 18, 24, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.view-mode-controls.is-collapsed {
+  max-height: none;
+  overflow: visible;
+  padding: 4px;
+}
+
+.view-mode-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.view-mode-controls.is-collapsed .view-mode-body {
+  display: none;
+}
+
+.view-mode-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: #d0d6e0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  min-width: 120px;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.view-mode-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #f7f8f8;
+}
+
+.view-mode-header-label {
+  flex: 1;
+  text-align: left;
+}
+
+.view-mode-caret {
+  display: inline-block;
+  font-size: 11px;
+  color: #8a8f98;
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+
+.view-mode-caret.is-open {
+  transform: rotate(0deg);
+}
+
+.view-mode-controls .range-control {
+  font-size: 10px;
+  padding: 2px 4px 0;
+  gap: 6px;
+}
+
+.view-mode-controls .range-control span {
+  min-width: 5.5rem;
+}
+
+.view-mode-controls .range-control input[type="range"] {
+  width: 7rem;
+  flex: 1;
 }
 
 .view-mode-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 13px;
+  gap: 10px;
+  padding: 6px 11px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.05);
   cursor: pointer;
   color: #f7f8f8;
-  font-size: 12px;
-  min-width: 137px;
+  font-size: 11px;
+  min-width: 120px;
   transition:
     border-color 0.15s,
     background 0.15s;
@@ -379,66 +459,19 @@ textarea {
   background: rgba(255, 255, 255, 0.05);
 }
 
-.view-mode-group {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding-top: 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.view-mode-label {
-  color: #8a8f98;
-  font-size: 10px;
-  font-weight: 510;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.view-mode-chip-row {
-  display: flex;
-  gap: 6px;
-}
-
-.view-mode-chip {
-  min-width: 0;
-  flex: 1;
-  padding: 7px 10px;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
-  color: #d0d6e0;
-  font-size: 11px;
-  font-weight: 510;
-  text-align: center;
-  transition:
-    border-color 0.15s,
-    background 0.15s,
-    color 0.15s;
-}
-
-.view-mode-chip:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #f7f8f8;
-}
-
-.view-mode-chip.is-active {
-  border-color: #7170ff;
-  background: rgba(113, 112, 255, 0.1);
-  color: #f7f8f8;
-}
-
 .view-mode-section {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding-top: 4px;
+  gap: 5px;
+  padding-top: 6px;
+  margin-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .view-mode-section-label {
   color: #8a8f98;
-  font-size: 10px;
-  font-weight: 510;
+  font-size: 9px;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 0 4px;
@@ -446,18 +479,18 @@ textarea {
 
 .preset-chip-row {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
 .preset-chip {
   min-width: 0;
-  padding: 7px 10px;
+  padding: 5px 9px;
   border-radius: 9999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
   color: #d0d6e0;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 510;
   line-height: 1.4;
   transition:

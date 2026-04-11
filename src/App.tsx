@@ -243,6 +243,7 @@ export function App() {
   const [showGrid, setShowGrid] = useState(true);
   const [showAxes, setShowAxes] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(false);
+  const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
   const [backfaceCulling, setBackfaceCulling] = useState(true);
@@ -1483,7 +1484,25 @@ export function App() {
           />
 
           {/* ViewModeControls overlay */}
-          <div className="view-mode-controls">
+          <div
+            className={`view-mode-controls${viewportPanelOpen ? "" : " is-collapsed"}`}
+          >
+            <button
+              className="view-mode-header"
+              onClick={() => setViewportPanelOpen((v) => !v)}
+              type="button"
+              title={viewportPanelOpen ? "Collapse panel" : "Expand panel"}
+              aria-expanded={viewportPanelOpen}
+            >
+              <span className="view-mode-header-label">Viewport</span>
+              <span
+                className={`view-mode-caret${viewportPanelOpen ? " is-open" : ""}`}
+                aria-hidden="true"
+              >
+                ▾
+              </span>
+            </button>
+            <div className="view-mode-body">
             <button
               className={`view-mode-toggle${showTexture ? " is-active" : ""}`}
               onClick={() => setShowTexture((v) => !v)}
@@ -1554,16 +1573,16 @@ export function App() {
             </button>
             <div
               aria-label="Background"
-              className="view-mode-group"
+              className="view-mode-section"
               role="group"
             >
-              <span className="view-mode-label">Background</span>
-              <div className="view-mode-chip-row">
+              <span className="view-mode-section-label">Background</span>
+              <div className="preset-chip-row">
                 {backgroundPresetOptions.map((option) => (
                   <button
                     key={option.id}
                     aria-pressed={backgroundPreset === option.id}
-                    className={`view-mode-chip${
+                    className={`preset-chip${
                       backgroundPreset === option.id ? " is-active" : ""
                     }`}
                     onClick={() => setBackgroundPreset(option.id)}
@@ -1752,6 +1771,7 @@ export function App() {
                   value={exposure}
                 />
               </label>
+            </div>
             </div>
           </div>
 
