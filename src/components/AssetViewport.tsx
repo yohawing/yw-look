@@ -43,6 +43,7 @@ import {
   resetSceneObjects,
   applyInitialView,
   applyPresetView,
+  applyControlsSensitivity,
   normalizeObjectScale,
   applyDynamicGrid,
   applyDynamicAxes,
@@ -185,6 +186,8 @@ function frameMountedObject(
   viewerSurfaceMode: ViewerSurfaceMode,
   showGrid: boolean,
   showAxes: boolean,
+  sensitivityMultiplier = 1,
+  rawMaxDimension?: number,
 ) {
   syncGridVisibility(context, showGrid, viewerSurfaceMode);
   syncAxesVisibility(context, showAxes, viewerSurfaceMode);
@@ -192,12 +195,22 @@ function frameMountedObject(
   if (viewerSurfaceMode === "texture") {
     configureTextureControls(context.controls);
     applyTextureView(context.camera, context.controls, object);
+    // Use neutral (dim=1) sensitivity for texture pan/zoom so the hidden
+    // asset's original size does not bleed into texture controls, but still
+    // honour the user's manual camera-speed multiplier.
+    applyControlsSensitivity(context.controls, 1, sensitivityMultiplier);
     context.controls.enabled = true;
     return;
   }
 
   configureAssetControls(context.controls);
-  applyInitialView(context.camera, context.controls, object);
+  applyInitialView(
+    context.camera,
+    context.controls,
+    object,
+    sensitivityMultiplier,
+    rawMaxDimension,
+  );
   context.controls.enabled = true;
 }
 
@@ -208,8 +221,8 @@ type AssetViewportProps = {
   onFeedbackChange: (feedback: ViewerFeedback) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
   selectedTextureId: string | null;
-  textureViewMode: TextureViewMode;
   viewerSurfaceMode: ViewerSurfaceMode;
+  textureViewMode: TextureViewMode;
   textureExposure: number;
   textureBlackPoint: number;
   textureWhitePoint: number;
@@ -237,6 +250,8 @@ type AssetViewportProps = {
   exposure: number;
   onGridUnitChange: (label: string) => void;
   environmentPreset: EnvironmentPreset;
+  /** Multiplier applied on top of the auto-computed sensitivity (0.25 – 4). */
+  cameraSpeedMultiplier: number;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -401,8 +416,8 @@ export function AssetViewport({
   onFeedbackChange,
   onMetadataChange,
   selectedTextureId,
-  textureViewMode,
   viewerSurfaceMode,
+  textureViewMode,
   textureExposure,
   textureBlackPoint,
   textureWhitePoint,
@@ -430,6 +445,7 @@ export function AssetViewport({
   exposure,
   onGridUnitChange,
   environmentPreset,
+  cameraSpeedMultiplier,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -476,6 +492,7 @@ export function AssetViewport({
   const showAxesRef = useRef(showAxes);
   const showEnvironmentBackgroundRef = useRef(showEnvironmentBackground);
   const backgroundPresetRef = useRef(backgroundPreset);
+  const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -547,6 +564,25 @@ export function AssetViewport({
   useEffect(() => {
     backgroundPresetRef.current = backgroundPreset;
   }, [backgroundPreset]);
+
+  useEffect(() => {
+    cameraSpeedMultiplierRef.current = cameraSpeedMultiplier;
+
+    // When multiplier changes while a model is loaded, immediately update
+    // OrbitControls so the user feels the effect without a camera reset.
+    const context = sceneContextRef.current;
+    if (!context?.mountedObject) {
+      return;
+    }
+    // In texture mode the hidden asset's dimension must NOT influence pan/zoom,
+    // so use a neutral dim=1. Otherwise use the stored raw (pre-normalization)
+    // dimension for accurate asset-scale sensitivity.
+    const sensitivityDim =
+      viewerSurfaceModeRef.current === "texture"
+        ? 1
+        : context.rawMaxDimension;
+    applyControlsSensitivity(context.controls, sensitivityDim, cameraSpeedMultiplier);
+  }, [cameraSpeedMultiplier]);
 
   useEffect(() => {
     if (!shouldInitializeScene) {
@@ -701,6 +737,7 @@ export function AssetViewport({
         viewerSurfaceModeRef.current,
         showGridRef.current,
         showAxesRef.current,
+        cameraSpeedMultiplierRef.current,
       );
     });
 
@@ -758,6 +795,7 @@ export function AssetViewport({
       clips: [],
       activeAction: null,
       textureRegistry: new Map<string, Texture>(),
+      rawMaxDimension: 1,
     };
 
     onFeedbackChange(neutralFeedback);
@@ -951,6 +989,8 @@ export function AssetViewport({
       viewerSurfaceModeRef.current,
       showGridRef.current,
       showAxesRef.current,
+      cameraSpeedMultiplierRef.current,
+      context.rawMaxDimension,
     );
     resetCameraRef.current = () => {
       const targetContext = sceneContextRef.current;
@@ -966,6 +1006,8 @@ export function AssetViewport({
         viewerSurfaceModeRef.current,
         showGridRef.current,
         showAxesRef.current,
+        cameraSpeedMultiplierRef.current,
+        targetContext.rawMaxDimension,
       );
     };
   }, [currentFile, showGrid, showAxes, viewerSurfaceMode]);
@@ -1051,7 +1093,7 @@ export function AssetViewport({
     });
     onMetadataChange(emptyAssetMetadata);
 
-    loadPreviewObject(currentFile)
+    loadPreviewObject(currentFile, context.renderer)
       .then(({ object, cleanupUrls, clips, formatVersion }) => {
         if (disposed) {
           disposeObject(object);
@@ -1064,6 +1106,11 @@ export function AssetViewport({
         context.sourceObject = object;
         context.cleanupUrls = cleanupUrls;
         const normalization = normalizeObjectScale(object);
+        // Store the original (pre-normalization) dimension so camera sensitivity
+        // can reflect the asset's real world scale rather than the clamped size.
+        context.rawMaxDimension = normalization.originalMaxDimension > 0
+          ? normalization.originalMaxDimension
+          : normalization.normalizedMaxDimension;
         const gridConfig = applyDynamicGrid(
           context.scene,
           normalization.normalizedMaxDimension,
@@ -1091,6 +1138,8 @@ export function AssetViewport({
           viewerSurfaceModeRef.current,
           showGridRef.current,
           showAxesRef.current,
+          cameraSpeedMultiplierRef.current,
+          context.rawMaxDimension,
         );
         setActivePreviewPath(currentFile.path);
         setOverlayMode("ready");
@@ -1145,6 +1194,8 @@ export function AssetViewport({
             viewerSurfaceModeRef.current,
             showGridRef.current,
             showAxesRef.current,
+            cameraSpeedMultiplierRef.current,
+            targetContext.rawMaxDimension,
           );
         };
 
@@ -1171,7 +1222,11 @@ export function AssetViewport({
           message.includes("404") || missingReferenceError.missingPaths?.length
             ? "missingReference"
             : "loadFailed";
-        setActivePreviewPath(null);
+        // Mark this file as "done" (success or failure) so the effectiveOverlayMode
+        // formula picks up the new overlayMode below. Setting null here would keep
+        // effectiveOverlayMode stuck on "loading" because the formula falls through
+        // to "loading" when activePreviewPath !== currentFile.path.
+        setActivePreviewPath(currentFile.path);
         setOverlayMode(mode);
         onMetadataChange(
           mode === "missingReference" && currentFile
@@ -1368,6 +1423,8 @@ export function AssetViewport({
         viewerSurfaceModeRef.current,
         showGridRef.current,
         showAxesRef.current,
+        cameraSpeedMultiplierRef.current,
+        context.rawMaxDimension,
       );
       return;
     }
@@ -1396,6 +1453,7 @@ export function AssetViewport({
       viewerSurfaceModeRef.current,
       showGridRef.current,
       showAxesRef.current,
+      cameraSpeedMultiplierRef.current,
     );
   }, [
     selectedTextureId,

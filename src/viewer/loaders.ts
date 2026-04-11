@@ -66,6 +66,8 @@ function getMimeType(extension: string) {
       return "image/vnd.radiance";
     case "exr":
       return "image/x-exr";
+    case "ktx2":
+      return "image/ktx2";
     case "bin":
       return "application/octet-stream";
     default:
@@ -461,6 +463,7 @@ export {
 
 export async function loadPreviewObject(
   file: SelectedFile,
+  renderer?: import("three").WebGLRenderer,
 ): Promise<LoadedPreview> {
   switch (file.extension) {
     case "glb": {
@@ -770,6 +773,54 @@ export async function loadPreviewObject(
         await import("three/examples/jsm/loaders/EXRLoader.js");
       const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
       const texture = await new EXRLoader().loadAsync(objectUrl);
+      texture.name = file.fileName;
+      texture.userData.textureSourceKind = "standalone";
+      return {
+        object: createTexturePreview(texture),
+        cleanupUrls: [objectUrl],
+        clips: [],
+        formatVersion: null,
+      };
+    }
+    case "ktx2": {
+      const { KTX2Loader } =
+        await import("three/examples/jsm/loaders/KTX2Loader.js");
+      const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      const loader = new KTX2Loader();
+      // The basis transcoder files are served from /basis/ (copied from
+      // node_modules/three into public/basis/ at build time).
+      loader.setTranscoderPath("/basis/");
+      if (renderer) {
+        loader.detectSupport(renderer);
+      } else {
+        // Fallback workerConfig for desktop (Tauri) where we can safely assume
+        // S3TC/DXT and BPTC support on modern discrete GPUs. ASTC and PVRTC
+        // are mobile-only formats; ETC2 is broadly supported but not critical.
+        // This path is only taken in test/SSR environments without a renderer.
+        (loader as unknown as { workerConfig: Record<string, boolean> }).workerConfig = {
+          astcSupported: false,
+          astcHDRSupported: false,
+          etc1Supported: false,
+          etc2Supported: false,
+          dxtSupported: true,
+          bptcSupported: true,
+          pvrtcSupported: false,
+        };
+      }
+      // try/finally guarantees the KTX2 worker pool is torn down even when
+      // the transcoder assets are missing, the file is corrupt, or the GPU
+      // rejects the format — otherwise repeated failed opens leak workers.
+      // On failure we also revoke the blob URL so it does not stay resident
+      // (the normal cleanupUrls path only runs when we return successfully).
+      let texture;
+      try {
+        texture = await loader.loadAsync(objectUrl);
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl);
+        throw error;
+      } finally {
+        loader.dispose();
+      }
       texture.name = file.fileName;
       texture.userData.textureSourceKind = "standalone";
       return {

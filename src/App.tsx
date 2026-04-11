@@ -283,6 +283,7 @@ export function App() {
   const [toneMappingMode, setToneMappingMode] =
     useState<ToneMappingMode>("aces");
   const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
+  const [cameraSpeedMultiplier, setCameraSpeedMultiplier] = useState(1);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
@@ -774,9 +775,6 @@ export function App() {
       if (viewerSurfaceMode !== "asset") {
         setViewerSurfaceMode("asset");
       }
-      setTextureExposure(0);
-      setTextureBlackPoint(0);
-      setTextureWhitePoint(1);
       return;
     }
 
@@ -788,10 +786,6 @@ export function App() {
       }
       if (viewerSurfaceMode !== "texture") {
         setViewerSurfaceMode("texture");
-      }
-      if (currentFile.extension === "hdr" || currentFile.extension === "exr") {
-        setTextureExposure(0.75);
-        setTextureWhitePoint(4);
       }
       return;
     }
@@ -1494,8 +1488,8 @@ export function App() {
             onFeedbackChange={setViewerFeedback}
             onMetadataChange={setAssetMetadata}
             selectedTextureId={selectedTextureId}
-            textureViewMode={textureViewMode}
             viewerSurfaceMode={viewerSurfaceMode}
+            textureViewMode={textureViewMode}
             textureExposure={textureExposure}
             textureBlackPoint={textureBlackPoint}
             textureWhitePoint={textureWhitePoint}
@@ -1523,6 +1517,7 @@ export function App() {
             exposure={exposure}
             onGridUnitChange={setGridUnitLabel}
             environmentPreset={environmentPreset}
+            cameraSpeedMultiplier={cameraSpeedMultiplier}
           />
 
           {/* ViewModeControls overlay */}
@@ -1963,6 +1958,42 @@ export function App() {
                 />
               </button>
             </div>
+            </div>
+            <div className="view-mode-section">
+              <div className="camera-speed-header">
+                <span className="view-mode-section-label">Camera Speed</span>
+                {cameraSpeedMultiplier !== 1 ? (
+                  <button
+                    className="camera-speed-reset"
+                    onClick={() => setCameraSpeedMultiplier(1)}
+                    type="button"
+                    title="Reset to auto"
+                  >
+                    Reset
+                  </button>
+                ) : null}
+              </div>
+              <div className="camera-speed-row">
+                <span className="camera-speed-bound">0.25×</span>
+                <input
+                  type="range"
+                  className="camera-speed-slider"
+                  min={-2}
+                  max={2}
+                  step={0.01}
+                  value={Math.log2(cameraSpeedMultiplier)}
+                  onChange={(e) =>
+                    setCameraSpeedMultiplier(
+                      Math.pow(2, Number(e.target.value)),
+                    )
+                  }
+                  aria-label="Camera speed multiplier"
+                />
+                <span className="camera-speed-bound">4×</span>
+              </div>
+              <span className="camera-speed-value">
+                {cameraSpeedMultiplier.toFixed(2)}×
+              </span>
             </div>
           </div>
 

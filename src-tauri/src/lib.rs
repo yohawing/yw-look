@@ -38,8 +38,8 @@ const MODEL_EXTENSIONS: &[&str] = &[
 ];
 const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
 const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "png", "jpg", "jpeg",
-    "tga", "dds", "hdr", "exr",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "usd", "usda", "usdc", "usdz", "png", "jpg",
+    "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -771,8 +771,8 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
 }
 
 const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga", "dds", "hdr",
-    "exr",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga", "dds", "ktx2",
+    "hdr", "exr",
 ];
 
 fn system_time_to_unix_string(time: SystemTime) -> Option<String> {

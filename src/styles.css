@@ -496,6 +496,85 @@ textarea {
   padding: 0 4px;
 }
 
+/* ── Camera Speed Slider ── */
+
+.camera-speed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+.camera-speed-reset {
+  font-size: 10px;
+  font-weight: 510;
+  color: #62666d;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.camera-speed-reset:hover {
+  color: #8a8f98;
+}
+
+.camera-speed-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.camera-speed-bound {
+  color: #62666d;
+  font-size: 10px;
+  font-weight: 510;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.camera-speed-slider {
+  flex: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 3px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+  cursor: pointer;
+}
+
+.camera-speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #f7f8f8;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.camera-speed-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: #f7f8f8;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.camera-speed-value {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 510;
+  color: #8a8f98;
+  font-family: var(--font-mono);
+}
+
 .preset-chip-row {
   display: flex;
   gap: 4px;

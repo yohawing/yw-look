@@ -20,6 +20,8 @@ export {
   resetSceneObjects,
   applyInitialView,
   applyPresetView,
+  applyControlsSensitivity,
+  computeAutoSensitivity,
   getObjectMaxDimension,
   normalizeObjectScale,
   applyDynamicGrid,

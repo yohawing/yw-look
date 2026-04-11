@@ -1,4 +1,12 @@
-import { Mesh, PlaneGeometry, ShaderMaterial, Texture } from "three";
+import {
+  FloatType,
+  HalfFloatType,
+  Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  ShaderMaterial,
+  Texture,
+} from "three";
 import type { TextureViewMode } from "./types";
 
 const textureViewModeToUniform: Record<TextureViewMode, number> = {
@@ -28,6 +36,9 @@ export function createTextureViewerObject(
   const ratio = widthValue / heightValue || 1;
   const width = ratio >= 1 ? 2.6 : 2.6 * ratio;
   const height = ratio >= 1 ? 2.6 / ratio : 2.6;
+
+  const isFloat =
+    texture.type === FloatType || texture.type === HalfFloatType;
 
   return new Mesh(
     new PlaneGeometry(width, height),
