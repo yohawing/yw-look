@@ -211,6 +211,7 @@ type AssetViewportProps = {
   textureBlackPoint: number;
   textureWhitePoint: number;
   textureTileCount: number;
+  textureGamma: number;
   resetVersion: number;
   showGrid: boolean;
   showAxes: boolean;
@@ -400,6 +401,7 @@ export function AssetViewport({
   textureBlackPoint,
   textureWhitePoint,
   textureTileCount,
+  textureGamma,
   resetVersion,
   showGrid,
   showAxes,
@@ -1215,6 +1217,7 @@ export function AssetViewport({
       textureBlackPoint,
       textureWhitePoint,
       textureTileCount,
+      textureGamma,
     );
     context.sourceObject.visible = false;
     context.previewObject = previewObject;
@@ -1231,6 +1234,7 @@ export function AssetViewport({
     selectedTextureId,
     textureBlackPoint,
     textureExposure,
+    textureGamma,
     textureTileCount,
     textureViewMode,
     textureWhitePoint,

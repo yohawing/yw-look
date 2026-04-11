@@ -312,6 +312,7 @@ export function App() {
   const [textureBlackPoint, setTextureBlackPoint] = useState(0);
   const [textureWhitePoint, setTextureWhitePoint] = useState(1);
   const [textureTileCount, setTextureTileCount] = useState(1);
+  const [textureGamma, setTextureGamma] = useState(2.2);
   const [recentFilesPayload, setRecentFilesPayload] =
     useState<RecentFilesPayload | null>(null);
   const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
@@ -1496,6 +1497,7 @@ export function App() {
             textureBlackPoint={textureBlackPoint}
             textureWhitePoint={textureWhitePoint}
             textureTileCount={textureTileCount}
+            textureGamma={textureGamma}
             resetVersion={resetVersion}
             showGrid={showGrid}
             showAxes={showAxes}
@@ -1841,6 +1843,24 @@ export function App() {
                       value={textureWhitePoint}
                     />
                   </label>
+                  <div className="preset-chip-row">
+                    <button
+                      className={`preset-chip${Math.abs(textureGamma - 1) < 0.001 ? " is-active" : ""}`}
+                      onClick={() => setTextureGamma(1)}
+                      type="button"
+                      title="Show raw linear values without gamma correction"
+                    >
+                      Linear
+                    </button>
+                    <button
+                      className={`preset-chip${Math.abs(textureGamma - 2.2) < 0.001 ? " is-active" : ""}`}
+                      onClick={() => setTextureGamma(2.2)}
+                      type="button"
+                      title="Apply sRGB gamma (2.2)"
+                    >
+                      Gamma 2.2
+                    </button>
+                  </div>
                 </div>
               </>
             ) : null}

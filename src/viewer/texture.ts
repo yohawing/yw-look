@@ -17,6 +17,7 @@ export function createTextureViewerObject(
   textureBlackPoint: number,
   textureWhitePoint: number,
   textureTileCount: number,
+  textureGamma: number,
 ) {
   const image = texture.image as
     | { width?: number; height?: number }
@@ -41,6 +42,7 @@ export function createTextureViewerObject(
         uBlackPoint: { value: textureBlackPoint },
         uWhitePoint: { value: textureWhitePoint },
         uTileCount: { value: Math.max(textureTileCount, 1) },
+        uGamma: { value: Math.max(textureGamma, 0.0001) },
       },
       vertexShader: `
         varying vec2 vUv;
@@ -56,6 +58,7 @@ export function createTextureViewerObject(
         uniform float uBlackPoint;
         uniform float uWhitePoint;
         uniform float uTileCount;
+        uniform float uGamma;
         varying vec2 vUv;
 
         vec3 checker(vec2 uv) {
@@ -76,6 +79,14 @@ export function createTextureViewerObject(
           return clamp(shifted / safeRange, 0.0, 1.0);
         }
 
+        vec3 applyGamma(vec3 color) {
+          // uGamma == 1.0 ⇒ linear, 2.2 ⇒ sRGB-ish encoding.
+          // Three.js output color space already applies an sRGB
+          // conversion, so this uniform layers on top of that to
+          // give the user a "raw linear vs gamma-corrected" toggle.
+          return pow(color, vec3(1.0 / uGamma));
+        }
+
         void main() {
           // Wrap in the shader so we can tile without mutating the
           // texture's wrap modes (which are shared between the texture
@@ -86,13 +97,13 @@ export function createTextureViewerObject(
           float alphaValue = remapScalar(texel.a);
 
           if (uMode == 0) {
-            gl_FragColor = vec4(color, 1.0);
+            gl_FragColor = vec4(applyGamma(color), 1.0);
             return;
           }
 
           if (uMode == 1) {
             vec3 composite = mix(checker(vUv), color, alphaValue);
-            gl_FragColor = vec4(composite, 1.0);
+            gl_FragColor = vec4(applyGamma(composite), 1.0);
             return;
           }
 
