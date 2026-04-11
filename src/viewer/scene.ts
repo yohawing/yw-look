@@ -583,6 +583,49 @@ export function applyBoundingBoxHelpers(
   }
 }
 
+export function applyVertexColors(
+  object: Group | Mesh,
+  useVertexColors: boolean,
+) {
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+    // Skip helper meshes we add ourselves.
+    if (
+      child.userData[SKELETON_HELPER_FLAG] === true ||
+      child.userData[BBOX_HELPER_FLAG] === true
+    ) {
+      return;
+    }
+
+    const geometry = child.geometry;
+    const hasColorAttribute =
+      geometry instanceof BufferGeometry &&
+      geometry.getAttribute("color") !== undefined;
+
+    for (const material of getMaterials(child.material)) {
+      if (!material || !("vertexColors" in material)) {
+        continue;
+      }
+      const original = material.userData.originalVertexColors;
+      if (typeof original !== "boolean") {
+        material.userData.originalVertexColors = Boolean(material.vertexColors);
+      }
+      const originalFlag = Boolean(
+        material.userData.originalVertexColors ?? false,
+      );
+      // Only force vertexColors on when the geometry actually has a
+      // color attribute; otherwise Three.js silently falls back to
+      // white and the toggle looks broken. When off, restore whatever
+      // the loader authored.
+      material.vertexColors =
+        useVertexColors && hasColorAttribute ? true : originalFlag;
+      material.needsUpdate = true;
+    }
+  });
+}
+
 export function applyBackfaceCulling(
   object: Group | Mesh,
   backfaceCulling: boolean,

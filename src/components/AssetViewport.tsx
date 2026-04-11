@@ -48,6 +48,7 @@ import {
   getScaleWarning,
   applyDisplayMode,
   applyBackfaceCulling,
+  applyVertexColors,
   applySkeletonHelpers,
   applyBoundingBoxHelpers,
   loadPreviewObject,
@@ -211,6 +212,7 @@ type AssetViewportProps = {
   showAxes: boolean;
   showSkeleton: boolean;
   showBoundingBoxes: boolean;
+  showVertexColors: boolean;
   showEnvironmentBackground: boolean;
   backfaceCulling: boolean;
   cameraPresetRequest: CameraPresetRequest | null;
@@ -394,6 +396,7 @@ export function AssetViewport({
   showAxes,
   showSkeleton,
   showBoundingBoxes,
+  showVertexColors,
   showEnvironmentBackground,
   backfaceCulling,
   cameraPresetRequest,
@@ -417,6 +420,7 @@ export function AssetViewport({
   const backfaceCullingRef = useRef(backfaceCulling);
   const showSkeletonRef = useRef(showSkeleton);
   const showBoundingBoxesRef = useRef(showBoundingBoxes);
+  const showVertexColorsRef = useRef(showVertexColors);
   const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
   const showAxesRef = useRef(showAxes);
@@ -453,6 +457,10 @@ export function AssetViewport({
   useEffect(() => {
     showBoundingBoxesRef.current = showBoundingBoxes;
   }, [showBoundingBoxes]);
+
+  useEffect(() => {
+    showVertexColorsRef.current = showVertexColors;
+  }, [showVertexColors]);
 
   useEffect(() => {
     viewerSurfaceModeRef.current = viewerSurfaceMode;
@@ -911,6 +919,7 @@ export function AssetViewport({
         );
         applyDisplayMode(object, displayModeRef.current);
         applyBackfaceCulling(object, backfaceCullingRef.current);
+        applyVertexColors(object, showVertexColorsRef.current);
         frameMountedObject(
           context,
           object,
@@ -1063,6 +1072,16 @@ export function AssetViewport({
 
     applyBoundingBoxHelpers(context.sourceObject, showBoundingBoxes);
   }, [showBoundingBoxes]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context?.sourceObject) {
+      return;
+    }
+
+    applyVertexColors(context.sourceObject, showVertexColors);
+  }, [showVertexColors]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

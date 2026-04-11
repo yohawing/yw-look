@@ -28,6 +28,7 @@ export {
   getScaleWarning,
   applyDisplayMode,
   applyBackfaceCulling,
+  applyVertexColors,
   applySkeletonHelpers,
   removeSkeletonHelpers,
   applyBoundingBoxHelpers,

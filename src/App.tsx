@@ -244,6 +244,7 @@ export function App() {
   const [showAxes, setShowAxes] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(false);
+  const [showVertexColors, setShowVertexColors] = useState(false);
   const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
@@ -1475,6 +1476,7 @@ export function App() {
             showAxes={showAxes}
             showSkeleton={showSkeleton}
             showBoundingBoxes={showBoundingBoxes}
+            showVertexColors={showVertexColors}
             showEnvironmentBackground={showEnvironmentBackground}
             backfaceCulling={backfaceCulling}
             cameraPresetRequest={cameraPresetRequest}
@@ -1582,6 +1584,17 @@ export function App() {
               <span>BBox</span>
               <span
                 className={`toggle-switch${showBoundingBoxes ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showVertexColors ? " is-active" : ""}`}
+              onClick={() => setShowVertexColors((v) => !v)}
+              type="button"
+              title="Render per-vertex colors when the geometry has a color attribute"
+            >
+              <span>Vertex Color</span>
+              <span
+                className={`toggle-switch${showVertexColors ? " is-on" : ""}`}
               />
             </button>
             <div
