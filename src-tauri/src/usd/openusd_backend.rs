@@ -17,7 +17,8 @@ use openusd::Stage;
 use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
 use super::types::{
-    AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, StageInspection, StageSummary,
+    AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
+    StageInspection, StageSummary,
 };
 
 /// Real backend backed by `openusd`.
@@ -82,6 +83,17 @@ impl UsdBackend for OpenusdBackend {
         let layer_ids = stage.layer_identifiers();
         let composed_layers: Vec<String> = layer_ids.into_iter().skip(1).collect();
 
+        // Capture unresolved assets upfront so each composition arc can be
+        // tagged with its current resolution state. This uses the same
+        // exact-string matching as `collect_asset_issues` — any arc whose
+        // authored `assetPath` appears in `unresolved_assets()` is reported
+        // as `Missing`, everything else is `Loaded`. Deferred loading is
+        // out of scope (Phase 4 Lite); `Loaded` here means "composed into
+        // the stage", not "cached in memory on demand".
+        let missing_assets = stage.unresolved_assets();
+        let unresolved_set: std::collections::HashSet<&str> =
+            missing_assets.iter().map(String::as_str).collect();
+
         let references = RefCell::new(Vec::new());
         let payloads = RefCell::new(Vec::new());
 
@@ -89,23 +101,25 @@ impl UsdBackend for OpenusdBackend {
             .traverse(|prim_path| {
                 let source = prim_path.as_str().to_string();
                 for r in stage.references_in(prim_path.clone()) {
+                    let state = arc_state(&unresolved_set, &r.asset_path);
                     references.borrow_mut().push(CompositionArc {
                         source_prim: source.clone(),
                         asset_path: r.asset_path,
                         target_prim: r.prim_path.to_string(),
+                        state,
                     });
                 }
                 for p in stage.payloads_in(prim_path.clone()) {
+                    let state = arc_state(&unresolved_set, &p.asset_path);
                     payloads.borrow_mut().push(CompositionArc {
                         source_prim: source.clone(),
                         asset_path: p.asset_path,
                         target_prim: p.prim_path.to_string(),
+                        state,
                     });
                 }
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
-
-        let missing_assets = stage.unresolved_assets();
 
         Ok(StageInspection {
             path: path.display().to_string(),
@@ -306,7 +320,7 @@ impl UsdBackend for OpenusdBackend {
             .traverse(|prim_path| {
                 let source = prim_path.as_str().to_string();
                 for r in stage.references_in(prim_path.clone()) {
-                    if unresolved.contains(r.asset_path.as_str()) {
+                    if arc_state(&unresolved, &r.asset_path) == CompositionArcState::Missing {
                         covered.borrow_mut().insert(r.asset_path.clone());
                         collected.borrow_mut().push(AssetIssue {
                             code: AssetIssueCode::BrokenReference,
@@ -318,7 +332,7 @@ impl UsdBackend for OpenusdBackend {
                     }
                 }
                 for p in stage.payloads_in(prim_path.clone()) {
-                    if unresolved.contains(p.asset_path.as_str()) {
+                    if arc_state(&unresolved, &p.asset_path) == CompositionArcState::Missing {
                         covered.borrow_mut().insert(p.asset_path.clone());
                         collected.borrow_mut().push(AssetIssue {
                             code: AssetIssueCode::MissingPayload,
@@ -350,6 +364,23 @@ impl UsdBackend for OpenusdBackend {
         }
 
         Ok(issues)
+    }
+}
+
+// ----- Phase 4 helpers ------------------------------------------------------
+
+/// Classify a composition arc based on whether its authored `asset_path`
+/// is in the stage's unresolved-asset set. Kept as a free function so
+/// both `inspect_stage` and `collect_asset_issues` can share the same
+/// exact-string matching rule.
+fn arc_state(
+    unresolved: &std::collections::HashSet<&str>,
+    asset_path: &str,
+) -> CompositionArcState {
+    if unresolved.contains(asset_path) {
+        CompositionArcState::Missing
+    } else {
+        CompositionArcState::Loaded
     }
 }
 
@@ -1306,6 +1337,52 @@ mod tests {
     }
 
     #[test]
+    fn inspect_tiny_broken_ref_reports_missing_state() {
+        // Phase 4 Lite regression: verify that `CompositionArc::state`
+        // reflects the stage resolver's opinion. The fixture has two
+        // references authored at sibling prims — one points at
+        // tiny.usda (resolvable) and one at a non-existent path. We
+        // expect the first arc to report `Loaded` and the second to
+        // report `Missing`.
+        let path = PathBuf::from("../samples/assets/usd/tiny_broken_ref.usda");
+        if !path.exists() || is_lfs_pointer(&path) {
+            eprintln!("SKIP inspect_tiny_broken_ref_reports_missing_state: fixture missing");
+            return;
+        }
+        let backend = OpenusdBackend::new();
+        let inspection = backend
+            .inspect_stage(&path)
+            .expect("inspect tiny_broken_ref.usda");
+
+        let good = inspection
+            .references
+            .iter()
+            .find(|a| a.asset_path.contains("tiny.usda"))
+            .expect("resolvable reference recorded");
+        assert_eq!(
+            good.state,
+            CompositionArcState::Loaded,
+            "resolvable arc must be Loaded"
+        );
+
+        let broken = inspection
+            .references
+            .iter()
+            .find(|a| a.asset_path.contains("does_not_exist"))
+            .expect("broken reference recorded");
+        assert_eq!(
+            broken.state,
+            CompositionArcState::Missing,
+            "unresolved arc must be Missing"
+        );
+
+        assert!(
+            !inspection.missing_assets.is_empty(),
+            "missing_assets should list the unresolved path"
+        );
+    }
+
+    #[test]
     fn root_layer_is_binary_for_tiny_usda() {
         let path = tiny_usda();
         if is_lfs_pointer(&path) {
@@ -1661,6 +1738,22 @@ def Xform "Root" (
         assert!(
             !inspection.payloads.is_empty(),
             "kitchen_set should expose payloads"
+        );
+        // Phase 4 Lite: every arc in a well-resolved asset should report
+        // `Loaded`. Kitchen Set on a clean checkout resolves fully.
+        assert!(
+            inspection
+                .references
+                .iter()
+                .all(|a| a.state == CompositionArcState::Loaded),
+            "kitchen_set references should all be Loaded"
+        );
+        assert!(
+            inspection
+                .payloads
+                .iter()
+                .all(|a| a.state == CompositionArcState::Loaded),
+            "kitchen_set payloads should all be Loaded"
         );
     }
 

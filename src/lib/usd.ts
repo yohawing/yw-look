@@ -1,9 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export type CompositionArcState = "loaded" | "missing";
+
 export type CompositionArc = {
   sourcePrim: string;
   assetPath: string;
   targetPrim: string;
+  state: CompositionArcState;
 };
 
 export type StageInspection = {

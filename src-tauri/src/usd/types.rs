@@ -70,4 +70,15 @@ pub struct CompositionArc {
     pub source_prim: String,
     pub asset_path: String,
     pub target_prim: String,
+    pub state: CompositionArcState,
+}
+
+/// Resolution state of a composition arc. `Loaded` means the asset was
+/// successfully composed into the stage; `Missing` means the resolver
+/// could not locate it (the arc appears in `Stage::unresolved_assets`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompositionArcState {
+    Loaded,
+    Missing,
 }
