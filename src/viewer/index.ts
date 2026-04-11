@@ -28,6 +28,8 @@ export {
   getScaleWarning,
   applyDisplayMode,
   applyBackfaceCulling,
+  applySkeletonHelpers,
+  removeSkeletonHelpers,
 } from "./scene";
 export type {
   CameraPreset,

@@ -208,6 +208,7 @@ export function App() {
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [showAxes, setShowAxes] = useState(false);
+  const [showSkeleton, setShowSkeleton] = useState(false);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
   const [backfaceCulling, setBackfaceCulling] = useState(true);
@@ -1429,6 +1430,7 @@ export function App() {
             resetVersion={resetVersion}
             showGrid={showGrid}
             showAxes={showAxes}
+            showSkeleton={showSkeleton}
             showEnvironmentBackground={showEnvironmentBackground}
             backfaceCulling={backfaceCulling}
             cameraPresetRequest={cameraPresetRequest}
@@ -1493,6 +1495,17 @@ export function App() {
               <span>Cull</span>
               <span
                 className={`toggle-switch${backfaceCulling ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showSkeleton ? " is-active" : ""}`}
+              onClick={() => setShowSkeleton((v) => !v)}
+              type="button"
+              title="Show bones of rigged / animated models"
+            >
+              <span>Skeleton</span>
+              <span
+                className={`toggle-switch${showSkeleton ? " is-on" : ""}`}
               />
             </button>
             <div

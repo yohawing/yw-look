@@ -45,6 +45,7 @@ import {
   getScaleWarning,
   applyDisplayMode,
   applyBackfaceCulling,
+  applySkeletonHelpers,
   loadPreviewObject,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
@@ -184,6 +185,7 @@ type AssetViewportProps = {
   resetVersion: number;
   showGrid: boolean;
   showAxes: boolean;
+  showSkeleton: boolean;
   showEnvironmentBackground: boolean;
   backfaceCulling: boolean;
   cameraPresetRequest: CameraPresetRequest | null;
@@ -361,6 +363,7 @@ export function AssetViewport({
   resetVersion,
   showGrid,
   showAxes,
+  showSkeleton,
   showEnvironmentBackground,
   backfaceCulling,
   cameraPresetRequest,
@@ -379,6 +382,7 @@ export function AssetViewport({
     useRef<EnvironmentPreset>(environmentPreset);
   const displayModeRef = useRef(displayMode);
   const backfaceCullingRef = useRef(backfaceCulling);
+  const showSkeletonRef = useRef(showSkeleton);
   const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
   const showAxesRef = useRef(showAxes);
@@ -407,6 +411,10 @@ export function AssetViewport({
   useEffect(() => {
     backfaceCullingRef.current = backfaceCulling;
   }, [backfaceCulling]);
+
+  useEffect(() => {
+    showSkeletonRef.current = showSkeleton;
+  }, [showSkeleton]);
 
   useEffect(() => {
     viewerSurfaceModeRef.current = viewerSurfaceMode;
@@ -849,6 +857,8 @@ export function AssetViewport({
         );
         setActivePreviewPath(currentFile.path);
         setOverlayMode("ready");
+        // Collect metadata before adding SkeletonHelper children so the
+        // bone helper meshes don't get counted as model meshes/nodes.
         const metadataCollection = collectAssetMetadata(
           object,
           currentFile,
@@ -857,6 +867,7 @@ export function AssetViewport({
         );
         context.textureRegistry = metadataCollection.textureRegistry;
         onMetadataChange(metadataCollection.metadata);
+        applySkeletonHelpers(object, showSkeletonRef.current);
 
         context.clips = clips;
         if (clips.length > 0) {
@@ -968,6 +979,16 @@ export function AssetViewport({
 
     applyBackfaceCulling(context.sourceObject, backfaceCulling);
   }, [backfaceCulling]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context?.sourceObject) {
+      return;
+    }
+
+    applySkeletonHelpers(context.sourceObject, showSkeleton);
+  }, [showSkeleton]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

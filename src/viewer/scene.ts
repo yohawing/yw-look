@@ -12,6 +12,8 @@ import {
   Object3D,
   PerspectiveCamera,
   Scene,
+  SkeletonHelper,
+  SkinnedMesh,
   Texture,
   Vector3,
 } from "three";
@@ -20,6 +22,7 @@ import type { DisplayMode, SceneContext } from "./types";
 
 export const GRID_NAME = "__yw_initial_grid";
 export const AXES_NAME = "__yw_axes_helper";
+const SKELETON_HELPER_FLAG = "__yw_skeleton_helper";
 const GRID_DIVISIONS = 20;
 // Axes length is tied to grid size so the XYZ indicator scales with the
 // current unit preset. Slightly longer than half a grid cell keeps the
@@ -413,6 +416,85 @@ export function getScaleWarning(
   }
 
   return null;
+}
+
+function disposeSkeletonHelper(helper: SkeletonHelper) {
+  helper.geometry.dispose();
+  for (const material of getMaterials(helper.material)) {
+    material.dispose();
+  }
+}
+
+// Collect skeleton roots (rigs) once so we emit a single helper per
+// skeleton even if the rig drives several SkinnedMesh children.
+function collectSkeletonRoots(object: Group | Mesh): Object3D[] {
+  const seen = new Set<Object3D>();
+  const roots: Object3D[] = [];
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof SkinnedMesh) || !child.skeleton) {
+      return;
+    }
+    const firstBone = child.skeleton.bones[0];
+    if (!firstBone) {
+      return;
+    }
+    // Walk up to the highest bone so the helper draws the full chain.
+    let root: Object3D = firstBone;
+    while (root.parent && (root.parent as Object3D).type === "Bone") {
+      root = root.parent as Object3D;
+    }
+    if (seen.has(root)) {
+      return;
+    }
+    seen.add(root);
+    roots.push(root);
+  });
+  return roots;
+}
+
+export function removeSkeletonHelpers(object: Group | Mesh) {
+  const toRemove: SkeletonHelper[] = [];
+  object.traverse((child: Object3D) => {
+    if (
+      child instanceof SkeletonHelper &&
+      child.userData[SKELETON_HELPER_FLAG] === true
+    ) {
+      toRemove.push(child);
+    }
+  });
+  for (const helper of toRemove) {
+    helper.parent?.remove(helper);
+    disposeSkeletonHelper(helper);
+  }
+}
+
+export function applySkeletonHelpers(
+  object: Group | Mesh,
+  visible: boolean,
+) {
+  removeSkeletonHelpers(object);
+  if (!visible) {
+    return;
+  }
+
+  const roots = collectSkeletonRoots(object);
+  for (const root of roots) {
+    const helper = new SkeletonHelper(root);
+    helper.userData[SKELETON_HELPER_FLAG] = true;
+    // Draw bones on top of the skinned mesh so the rig stays visible
+    // through geometry without disabling depth entirely.
+    helper.renderOrder = 2;
+    const materials = getMaterials(helper.material);
+    for (const material of materials) {
+      if ("depthTest" in material) {
+        material.depthTest = false;
+      }
+      if ("transparent" in material) {
+        material.transparent = true;
+      }
+    }
+    object.add(helper);
+  }
 }
 
 export function applyBackfaceCulling(
