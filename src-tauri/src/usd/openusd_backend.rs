@@ -502,43 +502,58 @@ fn srgb_to_linear(c: f32) -> f32 {
 
 /// Convert a fork-level `MaterialData` (scalar PBR factors resolved
 /// from a `UsdPreviewSurface` shader) into a yw-look `MaterialInput`
-/// ready for the GLB builder. Unauthored fields fall back to the
-/// yw-look default so they match the pre-Phase-5a look when a prim is
-/// only partially specified.
+/// ready for the GLB builder.
 ///
-/// `diffuse_texture` is intentionally dropped here: Phase 5a only
-/// covers scalar inputs, and embedding an external asset into the GLB
-/// requires reading the file bytes and inserting them into the BIN
-/// chunk — a later-phase task. The slot is reserved on the `MaterialInput`
-/// design for when that lands.
+/// **Unauthored channels fall back to the `UsdPreviewSurface` schema
+/// defaults — not yw-look's neutral preview material.** A USD asset
+/// that authors only `diffuseColor` should still see the spec
+/// `roughness = 0.5`, `metallic = 0.0`, opacity 1, etc., not
+/// yw-look's grey-rough fallback. The yw-look default is only used
+/// when a mesh is not bound to any material at all (slot 0 of the
+/// GLB materials array).
 ///
 /// sRGB base color values are linearized here because glTF specifies
 /// `baseColorFactor` in linear space; emissive is already linear in
 /// `MaterialData` and passes through untouched.
+///
+/// `diffuse_texture` is intentionally dropped: Phase 5a only covers
+/// scalar inputs, and embedding an external asset into the GLB
+/// requires reading the file bytes and inserting them into the BIN
+/// chunk — a later-phase task. The slot is reserved on the
+/// `MaterialInput` design for when that lands.
 fn material_input_from_data(
     name: &str,
     data: &MaterialData,
 ) -> glb::MaterialInput {
-    let default = glb::MaterialInput::default_preview();
-    let mut base_color = default.base_color_factor;
-    if let Some([r, g, b]) = data.diffuse_color {
-        base_color = [
-            srgb_to_linear(r),
-            srgb_to_linear(g),
-            srgb_to_linear(b),
-            base_color[3],
-        ];
-    }
-    if let Some(alpha) = data.opacity {
-        base_color[3] = alpha.clamp(0.0, 1.0);
-    }
+    // UsdPreviewSurface schema defaults — see
+    // https://openusd.org/release/spec_usdpreviewsurface.html. These
+    // are the values a Hydra renderer would substitute for any
+    // unauthored input, so the GLB stays consistent with what the USD
+    // viewer would show.
+    const USD_DIFFUSE_DEFAULT: [f32; 3] = [0.18, 0.18, 0.18];
+    const USD_METALLIC_DEFAULT: f32 = 0.0;
+    const USD_ROUGHNESS_DEFAULT: f32 = 0.5;
+    const USD_OPACITY_DEFAULT: f32 = 1.0;
+    const USD_EMISSIVE_DEFAULT: [f32; 3] = [0.0, 0.0, 0.0];
+
+    let diffuse = data.diffuse_color.unwrap_or(USD_DIFFUSE_DEFAULT);
+    let opacity = data.opacity.unwrap_or(USD_OPACITY_DEFAULT).clamp(0.0, 1.0);
+
     glb::MaterialInput {
         name: format!("usd:{name}"),
-        base_color_factor: base_color,
-        metallic_factor: data.metallic.unwrap_or(default.metallic_factor),
-        roughness_factor: data.roughness.unwrap_or(default.roughness_factor),
-        emissive_factor: data.emissive_color.unwrap_or(default.emissive_factor),
-        double_sided: default.double_sided,
+        base_color_factor: [
+            srgb_to_linear(diffuse[0]),
+            srgb_to_linear(diffuse[1]),
+            srgb_to_linear(diffuse[2]),
+            opacity,
+        ],
+        metallic_factor: data.metallic.unwrap_or(USD_METALLIC_DEFAULT),
+        roughness_factor: data.roughness.unwrap_or(USD_ROUGHNESS_DEFAULT),
+        emissive_factor: data.emissive_color.unwrap_or(USD_EMISSIVE_DEFAULT),
+        // glTF doubleSided is independent of UsdPreviewSurface — keep
+        // it on so the preview is not orientation-sensitive when an
+        // asset's mesh winding is ambiguous.
+        double_sided: true,
     }
 }
 
@@ -2474,6 +2489,112 @@ def Xform "Root" (
         let out = out_dir.join("ball.glb");
         std::fs::write(&out, &glb).expect("write glb");
         eprintln!("wrote {} ({} bytes)", out.display(), glb.len());
+    }
+
+    /// Phase 5a regression (Codex P1): a `UsdPreviewSurface` that
+    /// only authors `diffuseColor` must export the **schema defaults**
+    /// for `metallic`, `roughness`, `opacity` and `emissiveColor` —
+    /// not yw-look's neutral preview material. The bug was that
+    /// `material_input_from_data` was filling missing channels from
+    /// `MaterialInput::default_preview()`, which uses
+    /// `roughness_factor = 0.9` and `metallic_factor = 0.0`. A USD
+    /// shader that explicitly relies on `roughness = 0.5` (the spec
+    /// default) would silently render too rough.
+    #[test]
+    fn partial_preview_surface_uses_schema_defaults_not_yw_look_defaults() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase5a_partial_shader");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda = tmp_dir.join("partial.usda");
+        std::fs::write(
+            &usda,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        rel material:binding = </Root/Looks/PartialMat>
+    }
+
+    def "Looks"
+    {
+        def Material "PartialMat"
+        {
+            token outputs:surface.connect = </Root/Looks/PartialMat/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                # Only diffuseColor authored — the other PBR factors
+                # must inherit UsdPreviewSurface schema defaults.
+                color3f inputs:diffuseColor = (0.5, 0.5, 0.5)
+                token outputs:surface
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda, super::StageLoadPolicy::LoadAll)
+            .expect("extract partial.usda");
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let materials = doc["materials"].as_array().expect("materials array");
+        let partial_slot = materials
+            .iter()
+            .position(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.contains("PartialMat"))
+                    .unwrap_or(false)
+            })
+            .expect("PartialMat slot");
+        let partial = &materials[partial_slot];
+        let pbr = &partial["pbrMetallicRoughness"];
+
+        let metallic = pbr["metallicFactor"].as_f64().unwrap();
+        let roughness = pbr["roughnessFactor"].as_f64().unwrap();
+        let alpha = pbr["baseColorFactor"][3].as_f64().unwrap();
+        // UsdPreviewSurface schema defaults: metallic 0, roughness 0.5,
+        // opacity 1.
+        assert!(
+            (metallic - 0.0).abs() < 1e-4,
+            "metallic should be 0 (USD default), got {metallic}"
+        );
+        assert!(
+            (roughness - 0.5).abs() < 1e-4,
+            "roughness should be 0.5 (USD default), got {roughness}"
+        );
+        assert!(
+            (alpha - 1.0).abs() < 1e-4,
+            "opacity should be 1 (USD default), got {alpha}"
+        );
+        // Opaque material → no `alphaMode` field emitted.
+        assert!(
+            partial.get("alphaMode").is_none(),
+            "fully-opaque material should not emit alphaMode"
+        );
+
+        Ok(())
     }
 
     /// Phase 5a end-to-end: a `Mesh` bound to a `Material` that holds a
