@@ -1,6 +1,15 @@
 import { Mesh, PlaneGeometry, ShaderMaterial, Texture } from "three";
 import type { TextureViewMode } from "./types";
 
+const textureViewModeToUniform: Record<TextureViewMode, number> = {
+  rgb: 0,
+  rgba: 1,
+  alpha: 2,
+  r: 3,
+  g: 4,
+  b: 5,
+};
+
 export function createTextureViewerObject(
   texture: Texture,
   textureViewMode: TextureViewMode,
@@ -25,8 +34,7 @@ export function createTextureViewerObject(
       uniforms: {
         uTexture: { value: texture },
         uMode: {
-          value:
-            textureViewMode === "rgb" ? 0 : textureViewMode === "rgba" ? 1 : 2,
+          value: textureViewModeToUniform[textureViewMode],
         },
         uExposure: { value: textureExposure },
         uBlackPoint: { value: textureBlackPoint },
@@ -81,7 +89,25 @@ export function createTextureViewerObject(
             return;
           }
 
-          gl_FragColor = vec4(vec3(alphaValue), 1.0);
+          if (uMode == 2) {
+            gl_FragColor = vec4(vec3(alphaValue), 1.0);
+            return;
+          }
+
+          // Single-channel isolations draw the channel as greyscale so
+          // the viewer can spot detail without being distracted by the
+          // other two channels' colouring.
+          if (uMode == 3) {
+            gl_FragColor = vec4(vec3(color.r), 1.0);
+            return;
+          }
+
+          if (uMode == 4) {
+            gl_FragColor = vec4(vec3(color.g), 1.0);
+            return;
+          }
+
+          gl_FragColor = vec4(vec3(color.b), 1.0);
         }
       `,
     }),

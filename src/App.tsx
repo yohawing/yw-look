@@ -210,6 +210,18 @@ const toneMappingOptions: Array<{
   { id: "reinhard", label: "Reinhard" },
 ];
 
+const textureChannelOptions: Array<{
+  id: TextureViewMode;
+  label: string;
+}> = [
+  { id: "rgb", label: "RGB" },
+  { id: "rgba", label: "RGBA" },
+  { id: "r", label: "R" },
+  { id: "g", label: "G" },
+  { id: "b", label: "B" },
+  { id: "alpha", label: "A" },
+];
+
 const DEFAULT_EXPOSURE = 1.1;
 
 export function App() {
@@ -255,7 +267,8 @@ export function App() {
   const [selectedTextureId, setSelectedTextureId] = useState<string | null>(
     null,
   );
-  const [textureViewMode] = useState<TextureViewMode>("rgba");
+  const [textureViewMode, setTextureViewMode] =
+    useState<TextureViewMode>("rgba");
   const [textureExposure, setTextureExposure] = useState(0);
   const [textureBlackPoint, setTextureBlackPoint] = useState(0);
   const [textureWhitePoint, setTextureWhitePoint] = useState(1);
@@ -1583,6 +1596,23 @@ export function App() {
                 ))}
               </div>
             </div>
+            {viewerSurfaceMode === "texture" ? (
+              <div className="view-mode-section">
+                <span className="view-mode-section-label">Channel</span>
+                <div className="preset-chip-row">
+                  {textureChannelOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      className={`preset-chip${textureViewMode === option.id ? " is-active" : ""}`}
+                      onClick={() => setTextureViewMode(option.id)}
+                      type="button"
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="view-mode-section">
               <span className="view-mode-section-label">Tone Mapping</span>
               <div className="preset-chip-row">

@@ -31,7 +31,7 @@ export type DisplayMode =
 
 export type ViewerSurfaceMode = "asset" | "texture";
 
-export type TextureViewMode = "rgb" | "rgba" | "alpha";
+export type TextureViewMode = "rgb" | "rgba" | "r" | "g" | "b" | "alpha";
 
 export type SceneContext = {
   renderer: WebGLRenderer;
