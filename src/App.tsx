@@ -277,6 +277,7 @@ export function App() {
   const [controlSensitivity, setControlSensitivity] = useState(1);
   const [cameraFov, setCameraFov] = useState(45);
   const [renderScale, setRenderScale] = useState(1);
+  const [showRendererStats, setShowRendererStats] = useState(false);
   const [toneMappingMode, setToneMappingMode] =
     useState<ToneMappingMode>("aces");
   const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
@@ -1513,6 +1514,7 @@ export function App() {
             controlSensitivity={controlSensitivity}
             cameraFov={cameraFov}
             renderScale={renderScale}
+            showRendererStats={showRendererStats}
             toneMappingMode={toneMappingMode}
             exposure={exposure}
             onGridUnitChange={setGridUnitLabel}
@@ -1923,6 +1925,17 @@ export function App() {
                   </button>
                 ))}
               </div>
+              <button
+                className={`view-mode-toggle${showRendererStats ? " is-active" : ""}`}
+                onClick={() => setShowRendererStats((v) => !v)}
+                type="button"
+                title="Show FPS / draw calls / triangles / memory HUD"
+              >
+                <span>Stats</span>
+                <span
+                  className={`toggle-switch${showRendererStats ? " is-on" : ""}`}
+                />
+              </button>
             </div>
             </div>
           </div>

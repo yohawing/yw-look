@@ -512,7 +512,7 @@ fork: `yohawing/openusd`（branch: `yw-look-phase1` ベース）で作業中。
 - [ ] アンチエイリアス切替（None / FXAA / MSAA）
 - [x] 解像度スケール（0.5x / 1x / 2x）
 - [x] テクスチャフィルタリング切替（Nearest / Bilinear / Trilinear）
-- [ ] FPS / ドローコール / 三角形数 / VRAM のオンスクリーン表示
+- [x] FPS / ドローコール / 三角形数 / VRAM のオンスクリーン表示
 - [ ] ミップレベル可視化
 
 ## 25. 最初の実装順

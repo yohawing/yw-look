@@ -227,6 +227,7 @@ type AssetViewportProps = {
   controlSensitivity: number;
   cameraFov: number;
   renderScale: number;
+  showRendererStats: boolean;
   toneMappingMode: ToneMappingMode;
   exposure: number;
   onGridUnitChange: (label: string) => void;
@@ -417,12 +418,14 @@ export function AssetViewport({
   controlSensitivity,
   cameraFov,
   renderScale,
+  showRendererStats,
   toneMappingMode,
   exposure,
   onGridUnitChange,
   environmentPreset,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const statsRef = useRef<HTMLDivElement | null>(null);
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
   const environmentTargetRef = useRef<WebGLRenderTarget | null>(null);
@@ -639,11 +642,37 @@ export function AssetViewport({
 
     resizeObserver.observe(host);
 
+    // Renderer stats HUD (FPS / draw calls / triangles / memory).
+    // The stats node is populated via textContent directly so toggling
+    // the overlay never costs a React re-render inside the render loop.
+    let statsLastSampled = performance.now();
+    let statsFrameCount = 0;
+    let statsLastFps = 0;
+
     let animationFrame = 0;
     const renderLoop = () => {
       animationFrame = window.requestAnimationFrame(renderLoop);
       controls.update();
       renderer.render(scene, camera);
+
+      statsFrameCount += 1;
+      const now = performance.now();
+      const elapsed = now - statsLastSampled;
+      if (elapsed >= 250) {
+        statsLastFps = (statsFrameCount * 1000) / elapsed;
+        statsFrameCount = 0;
+        statsLastSampled = now;
+        const statsNode = statsRef.current;
+        if (statsNode) {
+          const info = renderer.info;
+          statsNode.textContent = [
+            `${statsLastFps.toFixed(0)} fps`,
+            `${info.render.calls} calls`,
+            `${info.render.triangles.toLocaleString()} tri`,
+            `${info.memory.geometries} geo / ${info.memory.textures} tex`,
+          ].join("  •  ");
+        }
+      }
     };
     renderLoop();
 
@@ -1402,6 +1431,13 @@ export function AssetViewport({
   return (
     <div className="viewport-shell">
       <div className="viewport-canvas" ref={hostRef} />
+
+      <div
+        className="viewport-stats"
+        ref={statsRef}
+        hidden={!showRendererStats}
+        aria-hidden={!showRendererStats}
+      />
 
       {effectiveOverlayMode !== "ready" ? (
         <div
