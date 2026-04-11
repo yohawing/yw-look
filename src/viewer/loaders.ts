@@ -557,26 +557,77 @@ export async function loadPreviewObject(
       };
     }
     case "dae": {
-      const { ColladaLoader } =
-        await import("three/examples/jsm/loaders/ColladaLoader.js");
+      const [{ ColladaLoader }, { LoadingManager }] = await Promise.all([
+        import("three/examples/jsm/loaders/ColladaLoader.js"),
+        import("three"),
+      ]);
       const text = await readTextFile(file.path);
-      // ColladaLoader.parse(text, path) resolves image references relative to
-      // `path`. In the Tauri environment, direct file:// access is blocked for
-      // loaded documents, so we pass an empty string and accept that embedded
-      // geometry renders without external textures at this MVP stage.
-      const collada = new ColladaLoader().parse(text, "");
-      if (!collada) {
-        throw new Error(`Failed to parse Collada file: ${file.fileName}`);
+      const cleanupUrls: string[] = [];
+      // Pre-resolve every <image>/<init_from> reference we can find in
+      // the DAE document to blob URLs, then feed those through a
+      // LoadingManager URL modifier so ColladaLoader.parse() (which is
+      // synchronous and cannot await fs reads) picks them up.
+      const imagePaths = new Set<string>();
+      for (const match of text.matchAll(/<init_from>([^<]+)<\/init_from>/g)) {
+        imagePaths.add(match[1].trim());
       }
-      // @types/three types Collada.scene as Scene, but ColladaLoader actually
-      // returns a Group at runtime. We cast to Group to satisfy LoadedPreview.
-      const colladaGroup = collada.scene as unknown as Group;
-      // AnimationClips are attached to scene.animations by the loader.
-      const colladaClips = collada.scene.animations ?? [];
+      for (const match of text.matchAll(
+        /<image[^>]*>\s*<source>([^<]+)<\/source>/g,
+      )) {
+        imagePaths.add(match[1].trim());
+      }
+      const blobCache = new Map<string, string>();
+      const missingPaths: string[] = [];
+      for (const imagePath of imagePaths) {
+        if (/^(data:|blob:|https?:)/i.test(imagePath)) continue;
+        const resolvedPath = resolveSiblingPath(
+          file.parentDirectory,
+          imagePath,
+        );
+        const extension = imagePath.includes(".")
+          ? (imagePath.split(".").pop() ?? "bin").toLowerCase()
+          : "bin";
+        try {
+          const blobUrl = await createBlobUrlFromPath(resolvedPath, extension);
+          blobCache.set(imagePath, blobUrl);
+          cleanupUrls.push(blobUrl);
+        } catch {
+          missingPaths.push(imagePath);
+        }
+      }
+      if (missingPaths.length > 0) {
+        for (const url of cleanupUrls) {
+          URL.revokeObjectURL(url);
+        }
+        const error = new Error(
+          `Missing reference: ${missingPaths.join(", ")}`,
+        ) as MissingReferenceError;
+        error.formatVersion = null;
+        error.missingPaths = missingPaths;
+        error.unresolvedImages = [];
+        throw error;
+      }
+      const manager = new LoadingManager();
+      manager.setURLModifier((url) => {
+        if (/^(data:|blob:|https?:)/i.test(url)) return url;
+        return blobCache.get(url) ?? url;
+      });
+      const loader = new ColladaLoader(manager);
+      const collada = loader.parse(text, file.parentDirectory);
+      if (!collada) {
+        throw new Error(
+          "Collada parse returned no result; the document may be malformed.",
+        );
+      }
+      // ColladaLoader returns a `Scene`; our preview pipeline expects
+      // `Group | Mesh`. Wrap in a Group so the object is a normal
+      // transform container, matching how the other loaders hand off.
+      const wrapped = new Group();
+      wrapped.add(collada.scene);
       return {
-        object: colladaGroup,
-        cleanupUrls: [],
-        clips: colladaClips,
+        object: wrapped,
+        cleanupUrls,
+        clips: [],
         formatVersion: null,
       };
     }

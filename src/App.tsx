@@ -13,8 +13,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
   type BackgroundPreset,
+  type CameraPreset,
+  type CameraPresetRequest,
   type DisplayMode,
   type EnvironmentPreset,
+  type TextureFilterMode,
+  type TextureViewMode,
+  type ToneMappingMode,
   type ViewerFeedback,
   type ViewerSurfaceMode,
 } from "./components/AssetViewport";
@@ -185,6 +190,69 @@ const backgroundPresetOptions: Array<{
   { id: "light", label: "Light" },
 ];
 
+const cameraPresetOptions: Array<{
+  id: CameraPreset;
+  label: string;
+}> = [
+  { id: "front", label: "Front" },
+  { id: "back", label: "Back" },
+  { id: "left", label: "Left" },
+  { id: "right", label: "Right" },
+  { id: "top", label: "Top" },
+  { id: "bottom", label: "Bottom" },
+];
+
+const toneMappingOptions: Array<{
+  id: ToneMappingMode;
+  label: string;
+}> = [
+  { id: "linear", label: "Linear" },
+  { id: "aces", label: "ACES" },
+  { id: "reinhard", label: "Reinhard" },
+];
+
+const textureChannelOptions: Array<{
+  id: TextureViewMode;
+  label: string;
+}> = [
+  { id: "rgb", label: "RGB" },
+  { id: "rgba", label: "RGBA" },
+  { id: "r", label: "R" },
+  { id: "g", label: "G" },
+  { id: "b", label: "B" },
+  { id: "alpha", label: "A" },
+];
+
+const textureTileOptions: Array<{
+  count: number;
+  label: string;
+}> = [
+  { count: 1, label: "1x" },
+  { count: 2, label: "2x" },
+  { count: 4, label: "4x" },
+  { count: 8, label: "8x" },
+];
+
+const renderScaleOptions: Array<{
+  value: number;
+  label: string;
+}> = [
+  { value: 0.5, label: "0.5x" },
+  { value: 1, label: "1x" },
+  { value: 2, label: "2x" },
+];
+
+const textureFilterOptions: Array<{
+  id: TextureFilterMode;
+  label: string;
+}> = [
+  { id: "nearest", label: "Nearest" },
+  { id: "linear", label: "Bilinear" },
+  { id: "trilinear", label: "Trilinear" },
+];
+
+const DEFAULT_EXPOSURE = 1.1;
+
 export function App() {
   const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("file");
@@ -192,6 +260,29 @@ export function App() {
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  const [showAxes, setShowAxes] = useState(false);
+  const [showSkeleton, setShowSkeleton] = useState(false);
+  const [showBoundingBoxes, setShowBoundingBoxes] = useState(false);
+  const [showNormals, setShowNormals] = useState(false);
+  const [showVertexColors, setShowVertexColors] = useState(false);
+  const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
+  const [showEnvironmentBackground, setShowEnvironmentBackground] =
+    useState(false);
+  const [environmentRotation, setEnvironmentRotation] = useState(0);
+  const [backfaceCulling, setBackfaceCulling] = useState(true);
+  const [textureFilterMode, setTextureFilterMode] =
+    useState<TextureFilterMode>("trilinear");
+  const [cameraPresetRequest, setCameraPresetRequest] =
+    useState<CameraPresetRequest | null>(null);
+  const [controlSensitivity, setControlSensitivity] = useState(1);
+  const [cameraFov, setCameraFov] = useState(45);
+  const [renderScale, setRenderScale] = useState(1);
+  const [showShadows, setShowShadows] = useState(false);
+  const [fxaaEnabled, setFxaaEnabled] = useState(false);
+  const [showRendererStats, setShowRendererStats] = useState(false);
+  const [toneMappingMode, setToneMappingMode] =
+    useState<ToneMappingMode>("aces");
+  const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
   const [cameraSpeedMultiplier, setCameraSpeedMultiplier] = useState(1);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
@@ -219,11 +310,13 @@ export function App() {
   const [selectedTextureId, setSelectedTextureId] = useState<string | null>(
     null,
   );
-  // Note: texture view-mode / exposure / black-point / white-point were
-  // removed here when the ShaderMaterial-based preview was replaced with
-  // MeshBasicMaterial (see src/viewer/texture.ts). They will be re-added in
-  // ToDo §7 ("チャンネル別表示") once the texture-view UI lands, alongside
-  // an onBeforeCompile hook on the new material.
+  const [textureViewMode, setTextureViewMode] =
+    useState<TextureViewMode>("rgba");
+  const [textureExposure, setTextureExposure] = useState(0);
+  const [textureBlackPoint, setTextureBlackPoint] = useState(0);
+  const [textureWhitePoint, setTextureWhitePoint] = useState(1);
+  const [textureTileCount, setTextureTileCount] = useState(1);
+  const [textureGamma, setTextureGamma] = useState(2.2);
   const [recentFilesPayload, setRecentFilesPayload] =
     useState<RecentFilesPayload | null>(null);
   const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
@@ -1396,15 +1489,57 @@ export function App() {
             onMetadataChange={setAssetMetadata}
             selectedTextureId={selectedTextureId}
             viewerSurfaceMode={viewerSurfaceMode}
+            textureViewMode={textureViewMode}
+            textureExposure={textureExposure}
+            textureBlackPoint={textureBlackPoint}
+            textureWhitePoint={textureWhitePoint}
+            textureTileCount={textureTileCount}
+            textureGamma={textureGamma}
             resetVersion={resetVersion}
             showGrid={showGrid}
+            showAxes={showAxes}
+            showSkeleton={showSkeleton}
+            showBoundingBoxes={showBoundingBoxes}
+            showNormals={showNormals}
+            showVertexColors={showVertexColors}
+            showEnvironmentBackground={showEnvironmentBackground}
+            environmentRotation={environmentRotation}
+            backfaceCulling={backfaceCulling}
+            textureFilterMode={textureFilterMode}
+            cameraPresetRequest={cameraPresetRequest}
+            controlSensitivity={controlSensitivity}
+            cameraFov={cameraFov}
+            renderScale={renderScale}
+            showShadows={showShadows}
+            fxaaEnabled={fxaaEnabled}
+            showRendererStats={showRendererStats}
+            toneMappingMode={toneMappingMode}
+            exposure={exposure}
             onGridUnitChange={setGridUnitLabel}
             environmentPreset={environmentPreset}
             cameraSpeedMultiplier={cameraSpeedMultiplier}
           />
 
           {/* ViewModeControls overlay */}
-          <div className="view-mode-controls">
+          <div
+            className={`view-mode-controls${viewportPanelOpen ? "" : " is-collapsed"}`}
+          >
+            <button
+              className="view-mode-header"
+              onClick={() => setViewportPanelOpen((v) => !v)}
+              type="button"
+              title={viewportPanelOpen ? "Collapse panel" : "Expand panel"}
+              aria-expanded={viewportPanelOpen}
+            >
+              <span className="view-mode-header-label">Viewport</span>
+              <span
+                className={`view-mode-caret${viewportPanelOpen ? " is-open" : ""}`}
+                aria-hidden="true"
+              >
+                ▾
+              </span>
+            </button>
+            <div className="view-mode-body">
             <button
               className={`view-mode-toggle${showTexture ? " is-active" : ""}`}
               onClick={() => setShowTexture((v) => !v)}
@@ -1431,18 +1566,104 @@ export function App() {
               <span>Grid</span>
               <span className={`toggle-switch${showGrid ? " is-on" : ""}`} />
             </button>
+            <button
+              className={`view-mode-toggle${showAxes ? " is-active" : ""}`}
+              onClick={() => setShowAxes((v) => !v)}
+              type="button"
+              title="Show XYZ axis indicator at the origin"
+            >
+              <span>Axes</span>
+              <span className={`toggle-switch${showAxes ? " is-on" : ""}`} />
+            </button>
+            <button
+              className={`view-mode-toggle${showEnvironmentBackground ? " is-active" : ""}`}
+              onClick={() => setShowEnvironmentBackground((v) => !v)}
+              type="button"
+              title="Show the environment map as the viewport background"
+            >
+              <span>Env BG</span>
+              <span
+                className={`toggle-switch${showEnvironmentBackground ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showShadows ? " is-active" : ""}`}
+              onClick={() => setShowShadows((v) => !v)}
+              type="button"
+              title="Cast directional-light shadows onto a ground plane"
+            >
+              <span>Shadows</span>
+              <span
+                className={`toggle-switch${showShadows ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${backfaceCulling ? " is-active" : ""}`}
+              onClick={() => setBackfaceCulling((v) => !v)}
+              type="button"
+              title="Hide polygons facing away from the camera"
+            >
+              <span>Cull</span>
+              <span
+                className={`toggle-switch${backfaceCulling ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showSkeleton ? " is-active" : ""}`}
+              onClick={() => setShowSkeleton((v) => !v)}
+              type="button"
+              title="Show bones of rigged / animated models"
+            >
+              <span>Skeleton</span>
+              <span
+                className={`toggle-switch${showSkeleton ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showBoundingBoxes ? " is-active" : ""}`}
+              onClick={() => setShowBoundingBoxes((v) => !v)}
+              type="button"
+              title="Show per-mesh bounding box outlines"
+            >
+              <span>BBox</span>
+              <span
+                className={`toggle-switch${showBoundingBoxes ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showVertexColors ? " is-active" : ""}`}
+              onClick={() => setShowVertexColors((v) => !v)}
+              type="button"
+              title="Render per-vertex colors when the geometry has a color attribute"
+            >
+              <span>Vertex Color</span>
+              <span
+                className={`toggle-switch${showVertexColors ? " is-on" : ""}`}
+              />
+            </button>
+            <button
+              className={`view-mode-toggle${showNormals ? " is-active" : ""}`}
+              onClick={() => setShowNormals((v) => !v)}
+              type="button"
+              title="Show vertex normals as line indicators"
+            >
+              <span>Normals</span>
+              <span
+                className={`toggle-switch${showNormals ? " is-on" : ""}`}
+              />
+            </button>
             <div
               aria-label="Background"
-              className="view-mode-group"
+              className="view-mode-section"
               role="group"
             >
-              <span className="view-mode-label">Background</span>
-              <div className="view-mode-chip-row">
+              <span className="view-mode-section-label">Background</span>
+              <div className="preset-chip-row">
                 {backgroundPresetOptions.map((option) => (
                   <button
                     key={option.id}
                     aria-pressed={backgroundPreset === option.id}
-                    className={`view-mode-chip${
+                    className={`preset-chip${
                       backgroundPreset === option.id ? " is-active" : ""
                     }`}
                     onClick={() => setBackgroundPreset(option.id)}
@@ -1467,6 +1688,276 @@ export function App() {
                   </button>
                 ))}
               </div>
+              <label className="range-control">
+                <span>
+                  Rotation {Math.round((environmentRotation * 180) / Math.PI)}°
+                </span>
+                <input
+                  aria-label="Environment map rotation"
+                  max={Math.PI * 2}
+                  min={0}
+                  onChange={(event) =>
+                    setEnvironmentRotation(
+                      Number.parseFloat(event.target.value),
+                    )
+                  }
+                  onDoubleClick={() => setEnvironmentRotation(0)}
+                  step={Math.PI / 180}
+                  title="Rotate the environment map around the up axis (double-click to reset)"
+                  type="range"
+                  value={environmentRotation}
+                />
+              </label>
+            </div>
+            <div className="view-mode-section">
+              <span className="view-mode-section-label">View</span>
+              <div className="preset-chip-row">
+                {cameraPresetOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    className="preset-chip"
+                    onClick={() =>
+                      setCameraPresetRequest((previous) => ({
+                        preset: option.id,
+                        version: (previous?.version ?? 0) + 1,
+                      }))
+                    }
+                    type="button"
+                    title={`View from ${option.label.toLowerCase()}`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <label className="range-control">
+                <span>Sensitivity {controlSensitivity.toFixed(2)}</span>
+                <input
+                  aria-label="Camera control sensitivity"
+                  max={3}
+                  min={0.1}
+                  onChange={(event) =>
+                    setControlSensitivity(
+                      Number.parseFloat(event.target.value),
+                    )
+                  }
+                  onDoubleClick={() => setControlSensitivity(1)}
+                  step={0.05}
+                  title="Orbit / pan / zoom multiplier (double-click to reset)"
+                  type="range"
+                  value={controlSensitivity}
+                />
+              </label>
+              <label className="range-control">
+                <span>FOV {cameraFov.toFixed(0)}°</span>
+                <input
+                  aria-label="Camera field of view"
+                  max={120}
+                  min={10}
+                  onChange={(event) =>
+                    setCameraFov(Number.parseFloat(event.target.value))
+                  }
+                  onDoubleClick={() => setCameraFov(45)}
+                  step={1}
+                  title="Vertical field of view (double-click to reset)"
+                  type="range"
+                  value={cameraFov}
+                />
+              </label>
+            </div>
+            {viewerSurfaceMode === "texture" ? (
+              <>
+                <div className="view-mode-section">
+                  <span className="view-mode-section-label">Channel</span>
+                  <div className="preset-chip-row">
+                    {textureChannelOptions.map((option) => (
+                      <button
+                        key={option.id}
+                        className={`preset-chip${textureViewMode === option.id ? " is-active" : ""}`}
+                        onClick={() => setTextureViewMode(option.id)}
+                        type="button"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="view-mode-section">
+                  <span className="view-mode-section-label">Tiling</span>
+                  <div className="preset-chip-row">
+                    {textureTileOptions.map((option) => (
+                      <button
+                        key={option.count}
+                        className={`preset-chip${textureTileCount === option.count ? " is-active" : ""}`}
+                        onClick={() => setTextureTileCount(option.count)}
+                        type="button"
+                        title={`Repeat the texture ${option.count}x in both directions`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="view-mode-section">
+                  <span className="view-mode-section-label">
+                    Range (HDR/EXR)
+                  </span>
+                  <label className="range-control">
+                    <span>EV {textureExposure.toFixed(2)}</span>
+                    <input
+                      aria-label="Texture exposure (EV)"
+                      max={6}
+                      min={-6}
+                      onChange={(event) =>
+                        setTextureExposure(
+                          Number.parseFloat(event.target.value),
+                        )
+                      }
+                      onDoubleClick={() => setTextureExposure(0)}
+                      step={0.1}
+                      title="Double-click to reset"
+                      type="range"
+                      value={textureExposure}
+                    />
+                  </label>
+                  <label className="range-control">
+                    <span>Black {textureBlackPoint.toFixed(2)}</span>
+                    <input
+                      aria-label="Texture black point"
+                      max={1}
+                      min={-1}
+                      onChange={(event) =>
+                        setTextureBlackPoint(
+                          Number.parseFloat(event.target.value),
+                        )
+                      }
+                      onDoubleClick={() => setTextureBlackPoint(0)}
+                      step={0.01}
+                      title="Double-click to reset"
+                      type="range"
+                      value={textureBlackPoint}
+                    />
+                  </label>
+                  <label className="range-control">
+                    <span>White {textureWhitePoint.toFixed(2)}</span>
+                    <input
+                      aria-label="Texture white point"
+                      max={8}
+                      min={0.1}
+                      onChange={(event) =>
+                        setTextureWhitePoint(
+                          Number.parseFloat(event.target.value),
+                        )
+                      }
+                      onDoubleClick={() => setTextureWhitePoint(1)}
+                      step={0.05}
+                      title="Double-click to reset"
+                      type="range"
+                      value={textureWhitePoint}
+                    />
+                  </label>
+                  <div className="preset-chip-row">
+                    <button
+                      className={`preset-chip${Math.abs(textureGamma - 1) < 0.001 ? " is-active" : ""}`}
+                      onClick={() => setTextureGamma(1)}
+                      type="button"
+                      title="Show raw linear values without gamma correction"
+                    >
+                      Linear
+                    </button>
+                    <button
+                      className={`preset-chip${Math.abs(textureGamma - 2.2) < 0.001 ? " is-active" : ""}`}
+                      onClick={() => setTextureGamma(2.2)}
+                      type="button"
+                      title="Apply sRGB gamma (2.2)"
+                    >
+                      Gamma 2.2
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : null}
+            <div className="view-mode-section">
+              <span className="view-mode-section-label">Tone Mapping</span>
+              <div className="preset-chip-row">
+                {toneMappingOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    className={`preset-chip${toneMappingMode === option.id ? " is-active" : ""}`}
+                    onClick={() => setToneMappingMode(option.id)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <label className="range-control">
+                <span>Exposure {exposure.toFixed(2)}</span>
+                <input
+                  aria-label="Exposure"
+                  max={4}
+                  min={0}
+                  onChange={(event) =>
+                    setExposure(Number.parseFloat(event.target.value))
+                  }
+                  onDoubleClick={() => setExposure(DEFAULT_EXPOSURE)}
+                  step={0.05}
+                  title="Double-click to reset"
+                  type="range"
+                  value={exposure}
+                />
+              </label>
+            </div>
+            <div className="view-mode-section">
+              <span className="view-mode-section-label">Quality</span>
+              <div className="preset-chip-row">
+                {renderScaleOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    className={`preset-chip${renderScale === option.value ? " is-active" : ""}`}
+                    onClick={() => setRenderScale(option.value)}
+                    type="button"
+                    title={`Render at ${option.label} of the device pixel ratio`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <div className="preset-chip-row">
+                {textureFilterOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    className={`preset-chip${textureFilterMode === option.id ? " is-active" : ""}`}
+                    onClick={() => setTextureFilterMode(option.id)}
+                    type="button"
+                    title={`Texture filtering: ${option.label}`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                className={`view-mode-toggle${fxaaEnabled ? " is-active" : ""}`}
+                onClick={() => setFxaaEnabled((v) => !v)}
+                type="button"
+                title="Apply FXAA post-process anti-aliasing (MSAA is always on)"
+              >
+                <span>FXAA</span>
+                <span
+                  className={`toggle-switch${fxaaEnabled ? " is-on" : ""}`}
+                />
+              </button>
+              <button
+                className={`view-mode-toggle${showRendererStats ? " is-active" : ""}`}
+                onClick={() => setShowRendererStats((v) => !v)}
+                type="button"
+                title="Show FPS / draw calls / triangles / memory HUD"
+              >
+                <span>Stats</span>
+                <span
+                  className={`toggle-switch${showRendererStats ? " is-on" : ""}`}
+                />
+              </button>
+            </div>
             </div>
             <div className="view-mode-section">
               <div className="camera-speed-header">

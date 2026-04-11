@@ -19,16 +19,34 @@ export {
   stopAnimations,
   resetSceneObjects,
   applyInitialView,
+  applyPresetView,
   applyControlsSensitivity,
   computeAutoSensitivity,
   getObjectMaxDimension,
   normalizeObjectScale,
   applyDynamicGrid,
+  applyDynamicAxes,
   applyTextureView,
   getScaleWarning,
   applyDisplayMode,
+  applyBackfaceCulling,
+  applyTextureFilter,
+  applyVertexColors,
+  applySkeletonHelpers,
+  removeSkeletonHelpers,
+  applyBoundingBoxHelpers,
+  removeBoundingBoxHelpers,
+  applyNormalHelpers,
+  removeNormalHelpers,
+  ensureShadowCatcher,
+  applyShadows,
 } from "./scene";
-export type { GridConfig, ScaleNormalizationResult } from "./scene";
+export type {
+  CameraPreset,
+  GridConfig,
+  ScaleNormalizationResult,
+  TextureFilterMode,
+} from "./scene";
 
 export { loadPreviewObject } from "./loaders";
 
