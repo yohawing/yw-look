@@ -38,6 +38,7 @@ import {
   applyInitialView,
   normalizeObjectScale,
   applyDynamicGrid,
+  applyDynamicAxes,
   applyTextureView,
   getScaleWarning,
   applyDisplayMode,
@@ -80,6 +81,7 @@ function applyViewportBackground(
 export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
 
 const INITIAL_GRID_NAME = "__yw_initial_grid";
+const AXES_HELPER_NAME = "__yw_axes_helper";
 
 function configureAssetControls(controls: OrbitControls) {
   controls.enableRotate = true;
@@ -113,13 +115,29 @@ function syncGridVisibility(
   }
 }
 
+function syncAxesVisibility(
+  context: SceneContext,
+  showAxes: boolean,
+  viewerSurfaceMode: ViewerSurfaceMode,
+  forceAssetAxes = false,
+) {
+  const axes = context.scene.getObjectByName(AXES_HELPER_NAME);
+
+  if (axes) {
+    axes.visible =
+      showAxes && (forceAssetAxes || viewerSurfaceMode === "asset");
+  }
+}
+
 function frameMountedObject(
   context: SceneContext,
   object: NonNullable<SceneContext["mountedObject"]>,
   viewerSurfaceMode: ViewerSurfaceMode,
   showGrid: boolean,
+  showAxes: boolean,
 ) {
   syncGridVisibility(context, showGrid, viewerSurfaceMode);
+  syncAxesVisibility(context, showAxes, viewerSurfaceMode);
 
   if (viewerSurfaceMode === "texture") {
     configureTextureControls(context.controls);
@@ -147,6 +165,7 @@ type AssetViewportProps = {
   textureWhitePoint: number;
   resetVersion: number;
   showGrid: boolean;
+  showAxes: boolean;
   onGridUnitChange: (label: string) => void;
   environmentPreset: EnvironmentPreset;
 };
@@ -320,6 +339,7 @@ export function AssetViewport({
   textureWhitePoint,
   resetVersion,
   showGrid,
+  showAxes,
   onGridUnitChange,
   environmentPreset,
 }: AssetViewportProps) {
@@ -336,6 +356,7 @@ export function AssetViewport({
   const displayModeRef = useRef(displayMode);
   const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
+  const showAxesRef = useRef(showAxes);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -363,6 +384,10 @@ export function AssetViewport({
   useEffect(() => {
     showGridRef.current = showGrid;
   }, [showGrid]);
+
+  useEffect(() => {
+    showAxesRef.current = showAxes;
+  }, [showAxes]);
 
   useEffect(() => {
     if (!shouldInitializeScene) {
@@ -426,6 +451,7 @@ export function AssetViewport({
       showGridRef.current,
     );
     onGridUnitChange(initialGrid.label);
+    applyDynamicAxes(scene, DEFAULT_SCENE_DIMENSION, showAxesRef.current);
     camera.position.set(5, 4, 5);
     camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
@@ -475,6 +501,7 @@ export function AssetViewport({
         mountedObject,
         viewerSurfaceModeRef.current,
         showGridRef.current,
+        showAxesRef.current,
       );
     });
 
@@ -590,6 +617,12 @@ export function AssetViewport({
         viewerSurfaceModeRef.current,
         true,
       );
+      syncAxesVisibility(
+        context,
+        showAxesRef.current,
+        viewerSurfaceModeRef.current,
+        true,
+      );
       return;
     }
 
@@ -597,6 +630,11 @@ export function AssetViewport({
       syncGridVisibility(
         context,
         showGridRef.current,
+        viewerSurfaceModeRef.current,
+      );
+      syncAxesVisibility(
+        context,
+        showAxesRef.current,
         viewerSurfaceModeRef.current,
       );
       return;
@@ -607,6 +645,7 @@ export function AssetViewport({
       context.mountedObject,
       viewerSurfaceModeRef.current,
       showGridRef.current,
+      showAxesRef.current,
     );
     resetCameraRef.current = () => {
       const targetContext = sceneContextRef.current;
@@ -621,9 +660,10 @@ export function AssetViewport({
         targetObject,
         viewerSurfaceModeRef.current,
         showGridRef.current,
+        showAxesRef.current,
       );
     };
-  }, [currentFile, showGrid, viewerSurfaceMode]);
+  }, [currentFile, showGrid, showAxes, viewerSurfaceMode]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -647,12 +687,23 @@ export function AssetViewport({
         viewerSurfaceModeRef.current,
         true,
       );
+      syncAxesVisibility(
+        context,
+        showAxesRef.current,
+        viewerSurfaceModeRef.current,
+        true,
+      );
       const fallbackGrid = applyDynamicGrid(
         context.scene,
         DEFAULT_SCENE_DIMENSION,
         showGridRef.current,
       );
       onGridUnitChange(fallbackGrid.label);
+      applyDynamicAxes(
+        context.scene,
+        DEFAULT_SCENE_DIMENSION,
+        showAxesRef.current,
+      );
       context.camera.position.set(5, 4, 5);
       context.camera.lookAt(0, 0, 0);
       context.controls.target.set(0, 0, 0);
@@ -666,6 +717,11 @@ export function AssetViewport({
     syncGridVisibility(
       context,
       showGridRef.current,
+      viewerSurfaceModeRef.current,
+    );
+    syncAxesVisibility(
+      context,
+      showAxesRef.current,
       viewerSurfaceModeRef.current,
     );
 
@@ -709,12 +765,18 @@ export function AssetViewport({
           showGrid,
         );
         onGridUnitChange(gridConfig.label);
+        applyDynamicAxes(
+          context.scene,
+          normalization.normalizedMaxDimension,
+          showAxesRef.current,
+        );
         applyDisplayMode(object, displayModeRef.current);
         frameMountedObject(
           context,
           object,
           viewerSurfaceModeRef.current,
           showGridRef.current,
+          showAxesRef.current,
         );
         setActivePreviewPath(currentFile.path);
         setOverlayMode("ready");
@@ -755,6 +817,7 @@ export function AssetViewport({
             targetObject,
             viewerSurfaceModeRef.current,
             showGridRef.current,
+            showAxesRef.current,
           );
         };
 
@@ -852,6 +915,7 @@ export function AssetViewport({
         context.sourceObject,
         viewerSurfaceModeRef.current,
         showGridRef.current,
+        showAxesRef.current,
       );
       return;
     }
@@ -877,6 +941,7 @@ export function AssetViewport({
       previewObject,
       viewerSurfaceModeRef.current,
       showGridRef.current,
+      showAxesRef.current,
     );
   }, [
     selectedTextureId,

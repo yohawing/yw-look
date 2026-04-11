@@ -193,6 +193,7 @@ export function App() {
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  const [showAxes, setShowAxes] = useState(false);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
@@ -1408,6 +1409,7 @@ export function App() {
             textureWhitePoint={textureWhitePoint}
             resetVersion={resetVersion}
             showGrid={showGrid}
+            showAxes={showAxes}
             onGridUnitChange={setGridUnitLabel}
             environmentPreset={environmentPreset}
           />
@@ -1439,6 +1441,15 @@ export function App() {
             >
               <span>Grid</span>
               <span className={`toggle-switch${showGrid ? " is-on" : ""}`} />
+            </button>
+            <button
+              className={`view-mode-toggle${showAxes ? " is-active" : ""}`}
+              onClick={() => setShowAxes((v) => !v)}
+              type="button"
+              title="Show XYZ axis indicator at the origin"
+            >
+              <span>Axes</span>
+              <span className={`toggle-switch${showAxes ? " is-on" : ""}`} />
             </button>
             <div
               aria-label="Background"

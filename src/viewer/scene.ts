@@ -1,4 +1,5 @@
 import {
+  AxesHelper,
   Box3,
   BufferGeometry,
   GridHelper,
@@ -16,7 +17,12 @@ import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js
 import type { DisplayMode, SceneContext } from "./types";
 
 export const GRID_NAME = "__yw_initial_grid";
+export const AXES_NAME = "__yw_axes_helper";
 const GRID_DIVISIONS = 20;
+// Axes length is tied to grid size so the XYZ indicator scales with the
+// current unit preset. Slightly longer than half a grid cell keeps the
+// arrows visible but avoids punching through a model that fills the grid.
+const AXES_LENGTH_FACTOR = 0.6;
 const MIN_NORMALIZED_DIMENSION = 0.1;
 const MAX_NORMALIZED_DIMENSION = 100;
 const SCALE_EPSILON = 1e-8;
@@ -282,6 +288,36 @@ export function applyDynamicGrid(
   scene.add(grid);
 
   return config;
+}
+
+function disposeAxes(axes: AxesHelper) {
+  axes.geometry.dispose();
+  for (const material of getMaterials(axes.material)) {
+    material.dispose();
+  }
+}
+
+export function applyDynamicAxes(
+  scene: Scene,
+  maxDimension: number,
+  visible: boolean,
+) {
+  const existing = scene.getObjectByName(AXES_NAME);
+  if (existing instanceof AxesHelper) {
+    scene.remove(existing);
+    disposeAxes(existing);
+  }
+
+  const config = getGridConfig(maxDimension);
+  const axes = new AxesHelper(config.size * AXES_LENGTH_FACTOR);
+  axes.name = AXES_NAME;
+  axes.visible = visible;
+  // Render axes on top of the grid but keep the default depth test so
+  // they can still be occluded by solid geometry.
+  axes.renderOrder = 1;
+  scene.add(axes);
+
+  return axes;
 }
 
 function formatScaleFactor(factor: number) {

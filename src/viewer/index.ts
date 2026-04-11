@@ -22,6 +22,7 @@ export {
   getObjectMaxDimension,
   normalizeObjectScale,
   applyDynamicGrid,
+  applyDynamicAxes,
   applyTextureView,
   getScaleWarning,
   applyDisplayMode,
