@@ -219,7 +219,7 @@
 #### Phase 5 — Preview 品質向上
 
 - [ ] `docs/usd.md` で Phase 5 方針を確定する
-- [ ] UsdPreviewSurface → GLB material 変換（Phase 3 から延期）
+- [x] UsdPreviewSurface → GLB material 変換（Phase 3 から延期、scalar factors のみ、texture 埋め込みは Phase 5b+ へ繰越）
 - [x] 凹 n-gon の ear-clip triangulation（Phase 3 から延期、Newell 法 + 2D ear-clip、Kitchen Set 回帰 green）
 - [ ] variant set 一覧表示と切り替えを preview に反映する
 - [ ] purpose (`default` / `render` / `proxy` / `guide`) の表示ポリシーを導入する

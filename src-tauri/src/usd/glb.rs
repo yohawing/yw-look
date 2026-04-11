@@ -2,17 +2,60 @@
 //!
 //! Takes already-triangulated, per-vertex mesh data and produces a self-
 //! contained GLB binary that `GLTFLoader.parseAsync` can consume on the
-//! frontend. Material support is intentionally minimal — every mesh shares
-//! a single default PBR material. UsdPreviewSurface integration is a
-//! Phase 5 concern.
+//! frontend. Phase 5a widens the surface to per-mesh PBR materials so the
+//! UsdPreviewSurface integration can light scenes correctly; callers pass
+//! a flat list of `MaterialInput`s and a `material_index` on each mesh.
+//! The legacy "single default material" behavior is a one-element
+//! `materials` array with `material_index = 0`.
 //!
 //! The caller (currently `OpenusdBackend`) is responsible for:
 //!   - triangulating quads / n-gons (we only accept triangle indices)
 //!   - expanding face-varying normals / UVs to per-vertex form
 //!   - composing world-space transforms (the `world_matrix` field is the
 //!     final composed transform applied as a node matrix)
+//!   - resolving UsdPreviewSurface inputs into `MaterialInput` scalars
 
 use serde_json::{json, Value};
+
+/// PBR material slot referenced from one or more `MeshInput`s. All
+/// fields have GLTF-compatible defaults so callers can omit unauthored
+/// inputs. Phase 5a covers scalar inputs only; texture support lands in
+/// a later phase together with Rust-side asset embedding.
+#[derive(Debug, Clone)]
+pub struct MaterialInput {
+    /// Display name attached to the GLTF material object. Free-form.
+    pub name: String,
+    /// RGBA base color factor. Default `[0.7, 0.7, 0.7, 1.0]` matches
+    /// the pre-Phase-5a default material so unauthored meshes keep
+    /// their look.
+    pub base_color_factor: [f32; 4],
+    /// 0.0 – 1.0. Default `0.0`.
+    pub metallic_factor: f32,
+    /// 0.0 – 1.0. Default `0.9`.
+    pub roughness_factor: f32,
+    /// Linear RGB emissive color. Default `[0.0, 0.0, 0.0]`.
+    pub emissive_factor: [f32; 3],
+    /// GLTF `doubleSided` flag. USD Mesh orientation metadata is baked
+    /// into the triangulator winding so the default is `true`.
+    pub double_sided: bool,
+}
+
+impl MaterialInput {
+    /// The default material yw-look used before Phase 5a introduced
+    /// per-mesh MaterialInput. Kept so simple callers can avoid
+    /// threading a materials array through when they only want the
+    /// legacy "neutral grey" preview look.
+    pub fn default_preview() -> Self {
+        Self {
+            name: "yw_look_default".to_string(),
+            base_color_factor: [0.7, 0.7, 0.7, 1.0],
+            metallic_factor: 0.0,
+            roughness_factor: 0.9,
+            emissive_factor: [0.0, 0.0, 0.0],
+            double_sided: true,
+        }
+    }
+}
 
 /// One mesh ready to be packed into a GLB. Positions / normals / UVs are
 /// per-vertex; `indices` describes triangles into those arrays.
@@ -31,6 +74,10 @@ pub struct MeshInput {
     pub normals: Option<Vec<f32>>,
     /// Optional UV coordinates, length = vertex_count * 2.
     pub uvs: Option<Vec<f32>>,
+    /// Index into the `materials` array passed to `build_glb`. Every
+    /// mesh must reference a valid material; use `0` when the caller
+    /// only supplies a single default material.
+    pub material_index: usize,
 }
 
 impl MeshInput {
@@ -113,11 +160,32 @@ const CHUNK_TYPE_BIN: u32 = 0x004E4942; // "BIN\0"
 const COMPONENT_TYPE_FLOAT: u32 = 5126;
 const COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
 
-/// Build a GLB binary from a list of meshes. Returns the GLB byte stream
-/// ready to send via `tauri::ipc::Response`.
-pub fn build_glb(meshes: &[MeshInput]) -> Result<Vec<u8>, String> {
+/// Build a GLB binary from a list of meshes and materials. Returns the
+/// GLB byte stream ready to send via `tauri::ipc::Response`.
+///
+/// `materials` must be non-empty and every `MeshInput.material_index`
+/// must point into it. Callers that only want the legacy default look
+/// can pass `&[MaterialInput::default_preview()]` and set
+/// `material_index = 0` on every mesh.
+pub fn build_glb(
+    meshes: &[MeshInput],
+    materials: &[MaterialInput],
+) -> Result<Vec<u8>, String> {
     if meshes.is_empty() {
         return Err("no meshes to export".to_string());
+    }
+    if materials.is_empty() {
+        return Err("at least one material is required".to_string());
+    }
+    for (i, m) in meshes.iter().enumerate() {
+        if m.material_index >= materials.len() {
+            return Err(format!(
+                "mesh[{i}] '{}' references material_index {} but only {} materials were supplied",
+                m.name,
+                m.material_index,
+                materials.len()
+            ));
+        }
     }
     for m in meshes {
         m.validate()?;
@@ -262,7 +330,7 @@ pub fn build_glb(meshes: &[MeshInput]) -> Result<Vec<u8>, String> {
             "primitives": [{
                 "attributes": Value::Object(attributes),
                 "indices": index_accessor_idx,
-                "material": 0,
+                "material": mesh.material_index,
                 "mode": 4, // TRIANGLES
             }],
         }));
@@ -279,13 +347,53 @@ pub fn build_glb(meshes: &[MeshInput]) -> Result<Vec<u8>, String> {
         let _ = mesh_idx; // silence unused if compiler complains
     }
 
+    // ---- Build GLTF materials array ------------------------------------
+    let gltf_materials: Vec<Value> = materials
+        .iter()
+        .map(|m| {
+            let mut material = json!({
+                "name": m.name,
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [
+                        m.base_color_factor[0],
+                        m.base_color_factor[1],
+                        m.base_color_factor[2],
+                        m.base_color_factor[3],
+                    ],
+                    "metallicFactor": m.metallic_factor,
+                    "roughnessFactor": m.roughness_factor,
+                },
+                "doubleSided": m.double_sided,
+            });
+            // Only emit `emissiveFactor` when non-zero so the GLB stays
+            // minimal for the (common) no-emission case.
+            let emissive = m.emissive_factor;
+            if emissive[0] > 0.0 || emissive[1] > 0.0 || emissive[2] > 0.0 {
+                material["emissiveFactor"] =
+                    json!([emissive[0], emissive[1], emissive[2]]);
+            }
+            // glTF's default `alphaMode` is OPAQUE, which means the
+            // alpha channel of baseColorFactor is ignored and the
+            // object always renders fully opaque. `UsdPreviewSurface`'s
+            // `inputs:opacity` flows into `base_color_factor[3]`, so
+            // whenever that value is below 1 we need `BLEND` mode for
+            // the preview to actually look translucent. A small
+            // epsilon avoids flipping modes on floating-point noise
+            // around 1.0.
+            if m.base_color_factor[3] < 1.0 - 1e-4 {
+                material["alphaMode"] = json!("BLEND");
+            }
+            material
+        })
+        .collect();
+
     // ---- Build GLTF JSON document --------------------------------------
     let total_bin_length = bin.len() as u64;
 
     let document = json!({
         "asset": {
             "version": "2.0",
-            "generator": "yw-look usd-phase3",
+            "generator": "yw-look usd-phase5a",
         },
         "scene": 0,
         "scenes": [{ "nodes": scene_nodes }],
@@ -294,15 +402,7 @@ pub fn build_glb(meshes: &[MeshInput]) -> Result<Vec<u8>, String> {
         "buffers": [{ "byteLength": total_bin_length }],
         "bufferViews": buffer_views,
         "accessors": accessors,
-        "materials": [{
-            "name": "yw_look_default",
-            "pbrMetallicRoughness": {
-                "baseColorFactor": [0.7, 0.7, 0.7, 1.0],
-                "metallicFactor": 0.0,
-                "roughnessFactor": 0.9,
-            },
-            "doubleSided": true,
-        }],
+        "materials": gltf_materials,
     });
 
     let mut json_bytes = serde_json::to_vec(&document)
@@ -383,13 +483,18 @@ mod tests {
                 1.0, 1.0, //
                 0.0, 1.0,
             ]),
+            material_index: 0,
         }
+    }
+
+    fn default_materials() -> Vec<MaterialInput> {
+        vec![MaterialInput::default_preview()]
     }
 
     #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
-        let glb = build_glb(&[mesh]).expect("build glb");
+        let glb = build_glb(&[mesh], &default_materials()).expect("build glb");
 
         // GLB header sanity check
         assert_eq!(&glb[0..4], b"glTF");
@@ -432,7 +537,7 @@ mod tests {
     fn rejects_mismatched_normal_count() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.normals = Some(vec![0.0; 6]); // wrong length
-        let err = build_glb(&[mesh]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials()).unwrap_err();
         assert!(err.contains("normal"));
     }
 
@@ -440,7 +545,154 @@ mod tests {
     fn rejects_out_of_range_index() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.indices = vec![0, 1, 99];
-        let err = build_glb(&[mesh]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials()).unwrap_err();
         assert!(err.contains("out of range"));
+    }
+
+    #[test]
+    fn rejects_material_index_out_of_range() {
+        let mut mesh = unit_quad_split_into_two_triangles();
+        mesh.material_index = 5;
+        let err = build_glb(&[mesh], &default_materials()).unwrap_err();
+        assert!(
+            err.contains("material_index"),
+            "expected material_index error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_materials_array() {
+        let mesh = unit_quad_split_into_two_triangles();
+        let err = build_glb(&[mesh], &[]).unwrap_err();
+        assert!(err.contains("material"));
+    }
+
+    #[test]
+    fn emits_alpha_mode_blend_for_translucent_material() {
+        let mesh = unit_quad_split_into_two_triangles();
+        let materials = vec![MaterialInput {
+            name: "glass".to_string(),
+            base_color_factor: [0.2, 0.5, 0.9, 0.4],
+            metallic_factor: 0.0,
+            roughness_factor: 0.1,
+            emissive_factor: [0.0, 0.0, 0.0],
+            double_sided: true,
+        }];
+        let glb = build_glb(&[mesh], &materials).expect("build glb");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        assert_eq!(doc["materials"][0]["alphaMode"], "BLEND");
+    }
+
+    #[test]
+    fn omits_alpha_mode_for_opaque_material() {
+        let mesh = unit_quad_split_into_two_triangles();
+        let materials = vec![MaterialInput::default_preview()];
+        let glb = build_glb(&[mesh], &materials).expect("build glb");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // Default alphaMode is OPAQUE, so we deliberately omit the
+        // field rather than writing "OPAQUE" explicitly — a minor
+        // size + review-noise win.
+        assert!(doc["materials"][0].get("alphaMode").is_none());
+    }
+
+    #[test]
+    fn emits_multiple_materials_with_custom_factors() {
+        // Two meshes referencing two different material slots — verify
+        // the GLTF JSON carries both materials with their authored
+        // factors, and that each mesh primitive points at the right
+        // index. This covers the Phase 5a plumbing end-to-end without
+        // needing a USD stage.
+        let mut red_mesh = unit_quad_split_into_two_triangles();
+        red_mesh.name = "red".to_string();
+        red_mesh.material_index = 0;
+        let mut blue_mesh = unit_quad_split_into_two_triangles();
+        blue_mesh.name = "blue".to_string();
+        blue_mesh.material_index = 1;
+
+        let materials = vec![
+            MaterialInput {
+                name: "red".to_string(),
+                base_color_factor: [1.0, 0.2, 0.2, 1.0],
+                metallic_factor: 0.1,
+                roughness_factor: 0.4,
+                emissive_factor: [0.0, 0.0, 0.0],
+                double_sided: false,
+            },
+            MaterialInput {
+                name: "blue_emissive".to_string(),
+                base_color_factor: [0.1, 0.2, 0.9, 1.0],
+                metallic_factor: 0.8,
+                roughness_factor: 0.2,
+                emissive_factor: [0.0, 0.0, 0.4],
+                double_sided: true,
+            },
+        ];
+
+        let glb = build_glb(&[red_mesh, blue_mesh], &materials).expect("build glb");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let materials_arr = doc["materials"].as_array().expect("materials array");
+        assert_eq!(materials_arr.len(), 2);
+        assert_eq!(materials_arr[0]["name"], "red");
+        let base = materials_arr[0]["pbrMetallicRoughness"]["baseColorFactor"]
+            .as_array()
+            .expect("baseColorFactor array");
+        let expected_red = [1.0_f64, 0.2, 0.2, 1.0];
+        for (i, component) in base.iter().enumerate() {
+            let v = component.as_f64().expect("factor is number");
+            assert!(
+                (v - expected_red[i]).abs() < 1e-5,
+                "baseColorFactor[{i}] = {v}, expected {}",
+                expected_red[i]
+            );
+        }
+        assert!(
+            materials_arr[0].get("emissiveFactor").is_none(),
+            "zero emissive should be omitted"
+        );
+        assert_eq!(materials_arr[1]["name"], "blue_emissive");
+        assert_eq!(materials_arr[1]["doubleSided"], true);
+        let emissive = materials_arr[1]["emissiveFactor"]
+            .as_array()
+            .expect("emissiveFactor array");
+        let expected_emissive = [0.0_f64, 0.0, 0.4];
+        for (i, component) in emissive.iter().enumerate() {
+            let v = component.as_f64().expect("emissive component");
+            assert!(
+                (v - expected_emissive[i]).abs() < 1e-5,
+                "emissiveFactor[{i}] = {v}",
+            );
+        }
+
+        let meshes_arr = doc["meshes"].as_array().expect("meshes array");
+        assert_eq!(meshes_arr[0]["primitives"][0]["material"], 0);
+        assert_eq!(meshes_arr[1]["primitives"][0]["material"], 1);
     }
 }

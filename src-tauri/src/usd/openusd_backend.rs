@@ -12,7 +12,7 @@ use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::stage::{MeshData, UpAxis};
+use openusd::stage::{MaterialData, MeshData, UpAxis};
 use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
 
 use super::backend::{UsdBackend, UsdError};
@@ -314,6 +314,19 @@ impl UsdBackend for OpenusdBackend {
             ));
         }
 
+        // Phase 5a material resolution. The GLB output holds a
+        // deduplicated materials array; slot 0 is always the default
+        // preview material so unbound meshes have something to point
+        // at. Each bound Material prim (identified by its composed
+        // path) maps to exactly one additional slot, built from
+        // `Stage::material_of` output. A mesh whose `bound_material`
+        // path appears multiple times across the stage shares the
+        // slot, matching how glTF expects material reuse to work.
+        let mut materials: Vec<glb::MaterialInput> =
+            vec![glb::MaterialInput::default_preview()];
+        let mut material_slots: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+
         // Pass 2: build a MeshInput per Mesh prim, composing the world
         // transform along the parent chain and pre-applying the up-axis
         // correction.
@@ -333,8 +346,38 @@ impl UsdBackend for OpenusdBackend {
             let world_f32 = mat4_f64_to_f32(&world);
 
             let orientation = read_mesh_orientation(&stage, prim_path);
-            let triangulated =
+            let mut triangulated =
                 mesh_data_to_input(prim_path, world_f32, &mesh_data, orientation)?;
+
+            // Resolve the material slot for this mesh. Unbound meshes
+            // fall back to slot 0 (default); a bound Material prim is
+            // looked up once and its `MaterialData` is converted to
+            // `MaterialInput` and cached in `material_slots` so the
+            // output GLB contains a single row per distinct material.
+            let slot = if let Some(mat_path) = stage.bound_material(prim_path.clone())
+            {
+                let key = mat_path.to_string();
+                if let Some(&existing) = material_slots.get(&key) {
+                    existing
+                } else if let Some(data) = stage.material_of(prim_path.clone()) {
+                    let slot = materials.len();
+                    materials.push(material_input_from_data(&key, &data));
+                    material_slots.insert(key, slot);
+                    slot
+                } else {
+                    // `bound_material` returned Some but `material_of`
+                    // could not find a UsdPreviewSurface under it — a
+                    // non-PBR material, multi-hop graph, etc. Fall
+                    // back to the default slot rather than emitting an
+                    // empty entry that contributes nothing over the
+                    // default.
+                    0
+                }
+            } else {
+                0
+            };
+            triangulated.material_index = slot;
+
             inputs.push(triangulated);
         }
 
@@ -344,7 +387,7 @@ impl UsdBackend for OpenusdBackend {
             ));
         }
 
-        glb::build_glb(&inputs).map_err(UsdError::Parse)
+        glb::build_glb(&inputs, &materials).map_err(UsdError::Parse)
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
@@ -438,6 +481,66 @@ impl UsdBackend for OpenusdBackend {
 }
 
 // ----- Arc state helpers ---------------------------------------------------
+
+/// Convert an sRGB color channel (0-1 float) to linear space.
+///
+/// USD's `UsdPreviewSurface` documents `inputs:diffuseColor` — and the
+/// openusd fork's `MaterialData::diffuse_color` — as sRGB values, but
+/// glTF's `pbrMetallicRoughness.baseColorFactor` is specified in
+/// **linear** space. Forwarding sRGB values straight through would
+/// make previews look too saturated and slightly darker than Storm
+/// would render them. The piecewise formula is the standard
+/// IEC 61966-2-1 decoding curve.
+fn srgb_to_linear(c: f32) -> f32 {
+    let c = c.clamp(0.0, 1.0);
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Convert a fork-level `MaterialData` (scalar PBR factors resolved
+/// from a `UsdPreviewSurface` shader) into a yw-look `MaterialInput`
+/// ready for the GLB builder. Unauthored fields fall back to the
+/// yw-look default so they match the pre-Phase-5a look when a prim is
+/// only partially specified.
+///
+/// `diffuse_texture` is intentionally dropped here: Phase 5a only
+/// covers scalar inputs, and embedding an external asset into the GLB
+/// requires reading the file bytes and inserting them into the BIN
+/// chunk — a later-phase task. The slot is reserved on the `MaterialInput`
+/// design for when that lands.
+///
+/// sRGB base color values are linearized here because glTF specifies
+/// `baseColorFactor` in linear space; emissive is already linear in
+/// `MaterialData` and passes through untouched.
+fn material_input_from_data(
+    name: &str,
+    data: &MaterialData,
+) -> glb::MaterialInput {
+    let default = glb::MaterialInput::default_preview();
+    let mut base_color = default.base_color_factor;
+    if let Some([r, g, b]) = data.diffuse_color {
+        base_color = [
+            srgb_to_linear(r),
+            srgb_to_linear(g),
+            srgb_to_linear(b),
+            base_color[3],
+        ];
+    }
+    if let Some(alpha) = data.opacity {
+        base_color[3] = alpha.clamp(0.0, 1.0);
+    }
+    glb::MaterialInput {
+        name: format!("usd:{name}"),
+        base_color_factor: base_color,
+        metallic_factor: data.metallic.unwrap_or(default.metallic_factor),
+        roughness_factor: data.roughness.unwrap_or(default.roughness_factor),
+        emissive_factor: data.emissive_color.unwrap_or(default.emissive_factor),
+        double_sided: default.double_sided,
+    }
+}
 
 /// Classify a reference arc. References are always composed, so the
 /// only two possible states are `Loaded` (asset resolves) and
@@ -1525,6 +1628,11 @@ fn mesh_data_to_input(
         indices,
         normals: normals_out,
         uvs: uvs_out,
+        // Phase 5a stub: always reference the shared default material
+        // at slot 0. The callsite in `extract_geometry_glb` builds a
+        // single-element materials array to match. Will be overwritten
+        // once `material_of` wiring lands.
+        material_index: 0,
     })
 }
 
@@ -2329,6 +2437,182 @@ def Xform "Root" (
 
         let inspection = backend.inspect_stage(&path, super::StageLoadPolicy::LoadAll).expect("inspect glove");
         assert_eq!(inspection.default_prim.as_deref(), Some("glove_baseball"));
+    }
+
+    /// Phase 5a E2E helper: write a Kitchen Set GLB to disk so the
+    /// Node-side `preview-model` skill can open it in a real WebGL
+    /// context and the reviewer can visually verify material binding
+    /// survives the full pipeline. Ignored by default so automated
+    /// runs don't produce unsolicited artifacts.
+    #[test]
+    #[ignore = "manual E2E helper — needs samples/private"]
+    fn dump_kitchen_set_glb_for_preview_model() {
+        let candidates = [
+            "../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.geom.usd",
+            "../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.usd",
+        ];
+        let mut chosen: Option<PathBuf> = None;
+        for c in &candidates {
+            let p = PathBuf::from(c);
+            if p.exists() {
+                chosen = Some(p);
+                break;
+            }
+        }
+        let Some(path) = chosen else {
+            eprintln!("SKIP dump_kitchen_set_glb: no fixture found");
+            return;
+        };
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract kitchen set ball");
+
+        let out_dir = PathBuf::from(std::env::temp_dir()).join("yw_look_phase5a_dump");
+        std::fs::create_dir_all(&out_dir).expect("create tmp dir");
+        let out = out_dir.join("ball.glb");
+        std::fs::write(&out, &glb).expect("write glb");
+        eprintln!("wrote {} ({} bytes)", out.display(), glb.len());
+    }
+
+    /// Phase 5a end-to-end: a `Mesh` bound to a `Material` that holds a
+    /// `UsdPreviewSurface` with authored diffuse / metallic / roughness
+    /// must land in the GLB's `materials` array with matching factors,
+    /// and the corresponding mesh primitive must reference that slot
+    /// (not slot 0 / the default). Uses a temp-dir USDA fixture so the
+    /// test runs without needing samples/private.
+    #[test]
+    fn extract_geometry_applies_usd_preview_surface_factors() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase5a_material_smoke");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda = tmp_dir.join("preview_surface.usda");
+        std::fs::write(
+            &usda,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root" (
+    kind = "component"
+)
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        rel material:binding = </Root/Looks/BlueMat>
+    }
+
+    def "Looks"
+    {
+        def Material "BlueMat"
+        {
+            token outputs:surface.connect = </Root/Looks/BlueMat/PreviewSurface.outputs:surface>
+
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.1, 0.3, 0.9)
+                float inputs:metallic = 0.25
+                float inputs:roughness = 0.4
+                token outputs:surface
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda, super::StageLoadPolicy::LoadAll)
+            .expect("extract preview_surface.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        // Pull the JSON chunk out so we can inspect materials + the
+        // primitive's material index directly.
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let materials = doc["materials"].as_array().expect("materials array");
+        assert!(
+            materials.len() >= 2,
+            "expected default + BlueMat slots, got {}",
+            materials.len()
+        );
+        // Slot 0 is always the default preview material.
+        assert_eq!(materials[0]["name"], "yw_look_default");
+
+        // Find the BlueMat slot and verify authored scalars survived
+        // the round trip through MaterialData → MaterialInput → GLTF.
+        let blue_slot = materials
+            .iter()
+            .position(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.contains("BlueMat"))
+                    .unwrap_or(false)
+            })
+            .expect("BlueMat material slot must be present");
+        let blue = &materials[blue_slot];
+        let base = blue["pbrMetallicRoughness"]["baseColorFactor"]
+            .as_array()
+            .expect("baseColorFactor");
+        // USD authors diffuseColor as sRGB = (0.1, 0.3, 0.9). After
+        // `material_input_from_data` linearizes for glTF, we expect
+        // the IEC sRGB decoding of each channel. Using the same helper
+        // the production code uses keeps this test robust against any
+        // future changes to the conversion formula.
+        let expected_base = [
+            super::srgb_to_linear(0.1_f32) as f64,
+            super::srgb_to_linear(0.3_f32) as f64,
+            super::srgb_to_linear(0.9_f32) as f64,
+        ];
+        for (i, v) in expected_base.iter().enumerate() {
+            let got = base[i].as_f64().unwrap();
+            assert!(
+                (got - v).abs() < 1e-4,
+                "baseColorFactor[{i}] = {got}, expected {v}"
+            );
+        }
+        let metallic = blue["pbrMetallicRoughness"]["metallicFactor"]
+            .as_f64()
+            .unwrap();
+        let roughness = blue["pbrMetallicRoughness"]["roughnessFactor"]
+            .as_f64()
+            .unwrap();
+        assert!((metallic - 0.25).abs() < 1e-4, "metallicFactor = {metallic}");
+        assert!((roughness - 0.4).abs() < 1e-4, "roughnessFactor = {roughness}");
+
+        // And the Tri mesh must reference the BlueMat slot, not the
+        // default. This exercises the dedup + slot assignment in
+        // `extract_geometry_glb`.
+        let meshes = doc["meshes"].as_array().expect("meshes array");
+        let tri = meshes
+            .iter()
+            .find(|m| m["name"].as_str().map(|n| n.ends_with("Tri")).unwrap_or(false))
+            .expect("Tri mesh must appear");
+        let material_idx = tri["primitives"][0]["material"]
+            .as_u64()
+            .expect("material index") as usize;
+        assert_eq!(
+            material_idx, blue_slot,
+            "Tri mesh should reference the BlueMat slot, not the default"
+        );
+
+        Ok(())
     }
 
     /// Phase 4 regression: `Stage::skipped_payloads()` keys on the prim
