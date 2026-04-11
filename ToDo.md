@@ -220,7 +220,7 @@
 
 - [ ] `docs/usd.md` で Phase 5 方針を確定する
 - [ ] UsdPreviewSurface → GLB material 変換（Phase 3 から延期）
-- [ ] 凹 n-gon の ear-clip triangulation（Phase 3 から延期）
+- [x] 凹 n-gon の ear-clip triangulation（Phase 3 から延期、Newell 法 + 2D ear-clip、Kitchen Set 回帰 green）
 - [ ] variant set 一覧表示と切り替えを preview に反映する
 - [ ] purpose (`default` / `render` / `proxy` / `guide`) の表示ポリシーを導入する
 - [ ] `PointInstancer` を preview できるようにする

@@ -248,7 +248,7 @@ fork 側の API が粗い部分は yw-look 側で補完している:
 ### Phase 5 に延期した項目
 
 - **`material_of()` (UsdPreviewSurface PBR)** — fork に `UsdShade` 実装が皆無で、Phase 3 のためだけに shader graph resolver を追加するのは重すぎる。GLB は default PBR material 1 個で出力し、Phase 5 で正式対応する
-- **凹 n-gon の ear-clip triangulation** — 現状は fan 分割のみ。凹ポリゴンは破綻する可能性があるため Phase 5 で ear-clip を入れる
+- ~~**凹 n-gon の ear-clip triangulation**~~ — Phase 5 先行で対応済み（`triangulate_polygon`、`openusd_backend.rs`）。Newell の法線計算 → 主成分軸を drop した 2D 射影 → 符号付き面積で CW/CCW 判定 → ear-clip。数値縮退時は fan にフォールバック。triangle / convex quad は同じ経路で高速パスに乗る
 
 **副作用として受け入れた項目**: 外部 layer を持つ USDA も GLB 経路に流れるため、USDLoader が扱っていた簡易 material 表示が失われる。Phase 5 で Rust 側 material 対応と合わせて回収する。
 

@@ -986,6 +986,222 @@ fn mat4_f64_to_f32(m: &[f64; 16]) -> [f32; 16] {
     out
 }
 
+/// Triangulates a single face polygon and returns local vertex indices
+/// (0..n) grouped into triangles. The output preserves the authored
+/// winding: if the input polygon is CCW in its best-fit projection plane
+/// the triangles are CCW as well, and vice versa. `MeshOrientation`
+/// reversal is the caller's job.
+///
+/// Convex polygons — the overwhelming majority of authored USD faces —
+/// take a **fan fast path** from vertex 0, matching the pre-Phase-5 fan
+/// triangulation byte-for-byte. This matters for:
+///   - non-planar quads, where the diagonal choice changes the rendered
+///     surface (and the flat normals we emit) even though the quad is
+///     not concave;
+///   - face-varying attributes, where the diagonal choice decides which
+///     corner values each triangle sees.
+/// Ear clipping only runs when at least one corner is reflex.
+///
+/// Falls back to a plain fan on numerical degeneracy (colinear points,
+/// zero-area projection, runaway ear search).
+fn triangulate_polygon(positions: &[[f32; 3]]) -> Vec<[usize; 3]> {
+    let n = positions.len();
+    if n < 3 {
+        return Vec::new();
+    }
+    if n == 3 {
+        return vec![[0, 1, 2]];
+    }
+
+    let (nx, ny, nz) = newell_normal(positions);
+    let normal_len_sq = nx * nx + ny * ny + nz * nz;
+    if !normal_len_sq.is_finite() || normal_len_sq < 1e-24 {
+        return fan_triangulate(n);
+    }
+
+    let (ax, ay) = pick_projection_axes(nx, ny, nz);
+    let proj: Vec<[f32; 2]> =
+        positions.iter().map(|p| [p[ax], p[ay]]).collect();
+
+    // Signed area in the picked projection. Sign tells us whether the
+    // polygon is CCW (>0) or CW (<0) in this 2D basis; ear tests adapt
+    // so the authored winding is preserved on output.
+    let mut area2 = 0.0_f32;
+    for i in 0..n {
+        let a = proj[i];
+        let b = proj[(i + 1) % n];
+        area2 += a[0] * b[1] - b[0] * a[1];
+    }
+    if !area2.is_finite() || area2.abs() < 1e-20 {
+        return fan_triangulate(n);
+    }
+    let ccw_sign: f32 = if area2 > 0.0 { 1.0 } else { -1.0 };
+
+    // Fast path: if every corner turns the same way as the overall
+    // signed area, the polygon is convex and the legacy fan split is
+    // the correct output. This keeps backwards-compatible behavior for
+    // tri / quad / n-gon convex faces — the ear-clipper is only needed
+    // when a reflex corner actually exists.
+    let mut is_convex = true;
+    for i in 0..n {
+        let a = proj[(i + n - 1) % n];
+        let b = proj[i];
+        let c = proj[(i + 1) % n];
+        let cross =
+            (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+        if cross * ccw_sign < 0.0 {
+            is_convex = false;
+            break;
+        }
+    }
+    if is_convex {
+        return fan_triangulate(n);
+    }
+
+    let mut remaining: Vec<usize> = (0..n).collect();
+    let mut tris: Vec<[usize; 3]> = Vec::with_capacity(n - 2);
+
+    // Bounded work: for a simple polygon ear clipping terminates in
+    // O(n^2) steps. Add a hard cap so a pathological polygon cannot
+    // hang the backend — on overflow we fall back to a fan over what
+    // is left.
+    let guard_max = n.saturating_mul(n) + 16;
+    let mut guard = 0usize;
+
+    while remaining.len() > 3 {
+        guard += 1;
+        if guard > guard_max {
+            for k in 1..remaining.len() - 1 {
+                tris.push([remaining[0], remaining[k], remaining[k + 1]]);
+            }
+            return tris;
+        }
+
+        let m = remaining.len();
+        let mut ear_at: Option<usize> = None;
+        for i in 0..m {
+            let prev_local = (i + m - 1) % m;
+            let next_local = (i + 1) % m;
+            let prev_idx = remaining[prev_local];
+            let cur_idx = remaining[i];
+            let next_idx = remaining[next_local];
+            let a = proj[prev_idx];
+            let b = proj[cur_idx];
+            let c = proj[next_idx];
+
+            // Convex-corner test adapted for CW/CCW. A positive
+            // cross * ccw_sign means the corner turns toward the
+            // polygon interior.
+            let cross =
+                (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            if cross * ccw_sign <= 0.0 {
+                continue;
+            }
+
+            let mut is_ear = true;
+            for j in 0..m {
+                if j == prev_local || j == i || j == next_local {
+                    continue;
+                }
+                let p = proj[remaining[j]];
+                if point_in_triangle(p, a, b, c, ccw_sign) {
+                    is_ear = false;
+                    break;
+                }
+            }
+
+            if is_ear {
+                tris.push([prev_idx, cur_idx, next_idx]);
+                ear_at = Some(i);
+                break;
+            }
+        }
+
+        match ear_at {
+            Some(i) => {
+                remaining.remove(i);
+            }
+            None => {
+                // No ear found this pass — almost always means the
+                // polygon is self-intersecting or pathologically
+                // degenerate. Fall back to a fan over what is left so
+                // we still emit *something* rather than erroring out.
+                for k in 1..remaining.len() - 1 {
+                    tris.push([remaining[0], remaining[k], remaining[k + 1]]);
+                }
+                return tris;
+            }
+        }
+    }
+
+    if remaining.len() == 3 {
+        tris.push([remaining[0], remaining[1], remaining[2]]);
+    }
+
+    tris
+}
+
+/// Newell's method for a robust face normal over an arbitrary simple
+/// polygon. Unlike the first-three-vertices cross product this stays
+/// well-defined when the leading vertices happen to be colinear, which
+/// is common in automatically tessellated exports.
+fn newell_normal(positions: &[[f32; 3]]) -> (f32, f32, f32) {
+    let n = positions.len();
+    let mut nx = 0.0_f32;
+    let mut ny = 0.0_f32;
+    let mut nz = 0.0_f32;
+    for i in 0..n {
+        let cur = positions[i];
+        let nxt = positions[(i + 1) % n];
+        nx += (cur[1] - nxt[1]) * (cur[2] + nxt[2]);
+        ny += (cur[2] - nxt[2]) * (cur[0] + nxt[0]);
+        nz += (cur[0] - nxt[0]) * (cur[1] + nxt[1]);
+    }
+    (nx, ny, nz)
+}
+
+/// Picks the 2D axes to use when projecting a 3D polygon onto its best
+/// plane. We drop the axis whose normal component is dominant; the two
+/// axes left are the most faithful 2D mapping and avoid the degeneracy
+/// of projecting onto an edge-on plane.
+fn pick_projection_axes(nx: f32, ny: f32, nz: f32) -> (usize, usize) {
+    let nxa = nx.abs();
+    let nya = ny.abs();
+    let nza = nz.abs();
+    if nxa >= nya && nxa >= nza {
+        (1, 2)
+    } else if nya >= nza {
+        (0, 2)
+    } else {
+        (0, 1)
+    }
+}
+
+/// Half-plane point-in-triangle test that respects the caller's
+/// orientation sign. `ccw_sign` is +1 for CCW triangles and -1 for CW;
+/// a point counts as inside when it stays on the interior side of all
+/// three edges. Edge-hugging points are intentionally treated as inside
+/// to block ears whose cut would step on another vertex.
+fn point_in_triangle(
+    p: [f32; 2],
+    a: [f32; 2],
+    b: [f32; 2],
+    c: [f32; 2],
+    ccw_sign: f32,
+) -> bool {
+    let d1 = ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]))
+        * ccw_sign;
+    let d2 = ((c[0] - b[0]) * (p[1] - b[1]) - (c[1] - b[1]) * (p[0] - b[0]))
+        * ccw_sign;
+    let d3 = ((a[0] - c[0]) * (p[1] - c[1]) - (a[1] - c[1]) * (p[0] - c[0]))
+        * ccw_sign;
+    d1 >= 0.0 && d2 >= 0.0 && d3 >= 0.0
+}
+
+fn fan_triangulate(n: usize) -> Vec<[usize; 3]> {
+    (1..n - 1).map(|k| [0usize, k, k + 1]).collect()
+}
+
 /// Triangulates a USD mesh and expands face-varying attributes into the
 /// per-vertex layout `glb::build_glb` expects.
 ///
@@ -1076,6 +1292,7 @@ fn mesh_data_to_input(
     let mut next_vertex: u32 = 0;
 
     let mut fv_cursor: usize = 0;
+    let mut face_points: Vec<[f32; 3]> = Vec::new();
     for (face_idx, &count_i32) in data.face_vertex_counts.iter().enumerate() {
         let count = count_i32 as usize;
         if count < 3 {
@@ -1085,33 +1302,47 @@ fn mesh_data_to_input(
             continue;
         }
 
-        // Fan-triangulate the face: (0, k, k+1) for k = 1..count-1.
-        // For `orientation = "leftHanded"` meshes we reverse the triangle
-        // winding to (0, k+1, k) so GLTF's right-handed convention agrees
-        // with the authored front-face.
-        //
-        // Known limitation: this fan is only correct for convex faces.
-        // Concave n-gons (count > 4) may produce self-intersecting
-        // triangles that render incorrectly. Most DCC exports use tri
-        // or quad meshes, both handled correctly by the fan. Proper
-        // ear-clipping is Phase 5 territory; file a regression if you
-        // hit a visibly broken concave preview.
-        for k in 1..(count - 1) {
+        // Gather this face's vertex positions for the triangulator and
+        // validate point indices up-front so the inner loop can trust
+        // them. Face-varying attributes stay indexed by the original
+        // `fv_cursor + local_corner` so the ear-clipper only decides the
+        // triangle set, not how attributes are looked up.
+        face_points.clear();
+        face_points.reserve(count);
+        for local in 0..count {
+            let fv_index = fv_cursor + local;
+            let point_index = data.face_vertex_indices[fv_index] as usize;
+            if point_index >= point_count {
+                return Err(UsdError::Parse(format!(
+                    "Mesh '{}' faceVertexIndex {} out of range (point_count={})",
+                    prim_path.as_str(),
+                    point_index,
+                    point_count
+                )));
+            }
+            face_points.push([
+                data.points[point_index * 3],
+                data.points[point_index * 3 + 1],
+                data.points[point_index * 3 + 2],
+            ]);
+        }
+
+        // Ear-clipping in the face's best-fit plane. Triangles (count==3)
+        // and convex quads take a fast path inside `triangulate_polygon`;
+        // concave n-gons get fully ear-clipped. LeftHanded winding is
+        // handled below by reversing each output triangle so GLTF's
+        // right-handed convention keeps pointing at the authored front
+        // face.
+        let triangles = triangulate_polygon(&face_points);
+
+        for tri in &triangles {
             let corners: [usize; 3] = match orientation {
-                MeshOrientation::RightHanded => [0, k, k + 1],
-                MeshOrientation::LeftHanded => [0, k + 1, k],
+                MeshOrientation::RightHanded => [tri[0], tri[1], tri[2]],
+                MeshOrientation::LeftHanded => [tri[0], tri[2], tri[1]],
             };
             for &local_corner in &corners {
                 let fv_index = fv_cursor + local_corner;
                 let point_index = data.face_vertex_indices[fv_index] as usize;
-                if point_index >= point_count {
-                    return Err(UsdError::Parse(format!(
-                        "Mesh '{}' faceVertexIndex {} out of range (point_count={})",
-                        prim_path.as_str(),
-                        point_index,
-                        point_count
-                    )));
-                }
 
                 positions.push(data.points[point_index * 3]);
                 positions.push(data.points[point_index * 3 + 1]);
@@ -2001,5 +2232,213 @@ def Xform "Root" (
 
         let inspection = backend.inspect_stage(&path).expect("inspect glove");
         assert_eq!(inspection.default_prim.as_deref(), Some("glove_baseball"));
+    }
+
+    /// Helper: every output triangle must have strictly positive signed
+    /// area in the projection plane implied by the polygon normal. For
+    /// XY-plane fixtures that means `ccw_sign * cross > 0`.
+    fn triangle_signed_area_xy(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> f32 {
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    }
+
+    #[test]
+    fn triangulate_triangle_passthrough() {
+        let positions = vec![
+            [0.0_f32, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        let tris = super::triangulate_polygon(&positions);
+        assert_eq!(tris, vec![[0, 1, 2]]);
+    }
+
+    #[test]
+    fn triangulate_convex_quad_matches_fan() {
+        let positions = vec![
+            [0.0_f32, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        let tris = super::triangulate_polygon(&positions);
+        assert_eq!(tris.len(), 2);
+        for tri in &tris {
+            let area = triangle_signed_area_xy(
+                positions[tri[0]],
+                positions[tri[1]],
+                positions[tri[2]],
+            );
+            assert!(area > 0.0, "tri {tri:?} area {area}");
+        }
+    }
+
+    /// Arrow-shaped concave quad: vertex 3 is a reflex corner. A simple
+    /// fan from vertex 0 produces the triangle `[0, 2, 3]` which is
+    /// oriented the wrong way (negative area) because the cut crosses
+    /// outside the polygon. Ear-clipping must produce only CCW
+    /// triangles.
+    #[test]
+    fn triangulate_concave_quad_arrow() {
+        let positions = vec![
+            [0.0_f32, 0.0, 0.0], // 0
+            [4.0, 2.0, 0.0],     // 1
+            [0.0, 4.0, 0.0],     // 2
+            [2.0, 2.0, 0.0],     // 3 reflex
+        ];
+        let tris = super::triangulate_polygon(&positions);
+        assert_eq!(tris.len(), 2, "tris = {tris:?}");
+        for tri in &tris {
+            let area = triangle_signed_area_xy(
+                positions[tri[0]],
+                positions[tri[1]],
+                positions[tri[2]],
+            );
+            assert!(
+                area > 0.0,
+                "triangle {tri:?} has non-positive area {area}"
+            );
+        }
+        let mut seen = [false; 4];
+        for tri in &tris {
+            for &i in tri {
+                seen[i] = true;
+            }
+        }
+        assert!(seen.iter().all(|&x| x), "all vertices should be used");
+    }
+
+    /// L-shaped hexagon: vertex 3 is reflex. Must produce exactly
+    /// 4 CCW triangles that together cover the L.
+    #[test]
+    fn triangulate_concave_l_hexagon() {
+        let positions = vec![
+            [0.0_f32, 0.0, 0.0], // 0
+            [2.0, 0.0, 0.0],     // 1
+            [2.0, 1.0, 0.0],     // 2
+            [1.0, 1.0, 0.0],     // 3 reflex
+            [1.0, 2.0, 0.0],     // 4
+            [0.0, 2.0, 0.0],     // 5
+        ];
+        let tris = super::triangulate_polygon(&positions);
+        assert_eq!(tris.len(), 4, "tris = {tris:?}");
+
+        let mut total_area = 0.0_f32;
+        for tri in &tris {
+            let area = triangle_signed_area_xy(
+                positions[tri[0]],
+                positions[tri[1]],
+                positions[tri[2]],
+            );
+            assert!(area > 0.0, "triangle {tri:?} area {area}");
+            total_area += 0.5 * area;
+        }
+        // L-shape area = 2*1 + 1*1 = 3.
+        assert!(
+            (total_area - 3.0).abs() < 1e-4,
+            "total area {total_area} should equal 3"
+        );
+    }
+
+    /// CW-authored concave polygon: the triangulator must preserve the
+    /// authored winding (each output triangle has negative signed area
+    /// in XY projection) instead of silently flipping to CCW.
+    #[test]
+    fn triangulate_preserves_cw_winding() {
+        let positions = vec![
+            [0.0_f32, 0.0, 0.0], // 0
+            [0.0, 4.0, 0.0],     // 1
+            [4.0, 2.0, 0.0],     // 2
+            [2.0, 2.0, 0.0],     // 3 reflex
+        ];
+        let tris = super::triangulate_polygon(&positions);
+        assert_eq!(tris.len(), 2);
+        for tri in &tris {
+            let area = triangle_signed_area_xy(
+                positions[tri[0]],
+                positions[tri[1]],
+                positions[tri[2]],
+            );
+            assert!(
+                area < 0.0,
+                "CW input must produce CW triangles: {tri:?} area {area}"
+            );
+        }
+    }
+
+    /// Degenerate polygon (all points colinear) falls back to a fan
+    /// instead of panicking or looping forever.
+    #[test]
+    fn triangulate_degenerate_colinear_falls_back_to_fan() {
+        let positions = vec![
+            [0.0_f32, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [3.0, 0.0, 0.0],
+        ];
+        let tris = super::triangulate_polygon(&positions);
+        // Fan on 4 vertices = 2 triangles, even if they're zero-area.
+        assert_eq!(tris.len(), 2);
+    }
+
+    /// End-to-end regression: feeding a concave n-gon through
+    /// `mesh_data_to_input` must produce a triangle soup whose total
+    /// area (in XY) equals the polygon area. A plain fan would
+    /// over-count because one of its triangles flips to the "wrong"
+    /// side of the reflex vertex.
+    #[test]
+    fn mesh_data_concave_polygon_ear_clipped() {
+        // L-shaped hexagon with area 3.
+        let positions_flat: Vec<f32> = vec![
+            0.0, 0.0, 0.0, // 0
+            2.0, 0.0, 0.0, // 1
+            2.0, 1.0, 0.0, // 2
+            1.0, 1.0, 0.0, // 3 reflex
+            1.0, 2.0, 0.0, // 4
+            0.0, 2.0, 0.0, // 5
+        ];
+        let data = openusd::stage::MeshData {
+            points: positions_flat,
+            face_vertex_indices: vec![0, 1, 2, 3, 4, 5],
+            face_vertex_counts: vec![6],
+            normals: None,
+            uvs: None,
+        };
+        let prim_path = SdfPath::new("/L").unwrap();
+        let out = super::mesh_data_to_input(
+            &prim_path,
+            [
+                1.0, 0.0, 0.0, 0.0, //
+                0.0, 1.0, 0.0, 0.0, //
+                0.0, 0.0, 1.0, 0.0, //
+                0.0, 0.0, 0.0, 1.0,
+            ],
+            &data,
+            super::MeshOrientation::RightHanded,
+        )
+        .expect("mesh_data_to_input");
+
+        // Each output vertex is a unique corner → 4 triangles * 3
+        // corners = 12 positions, 12 indices.
+        assert_eq!(out.indices.len(), 12);
+        assert_eq!(out.positions.len(), 36);
+
+        // Sum signed area across triangles should equal L's area (3).
+        let mut total = 0.0_f32;
+        for tri in out.indices.chunks_exact(3) {
+            let get = |idx: u32| {
+                let i = idx as usize * 3;
+                [out.positions[i], out.positions[i + 1], out.positions[i + 2]]
+            };
+            let a = get(tri[0]);
+            let b = get(tri[1]);
+            let c = get(tri[2]);
+            let area = triangle_signed_area_xy(a, b, c);
+            assert!(area > 0.0, "post-triangulation tri has area {area}");
+            total += 0.5 * area;
+        }
+        assert!(
+            (total - 3.0).abs() < 1e-3,
+            "L-shaped hexagon total area = {total}, expected 3"
+        );
     }
 }
