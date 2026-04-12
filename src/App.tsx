@@ -504,6 +504,8 @@ export function App() {
     // back to its "Open a USD…" empty state when the fastest RPC wins
     // the race (e.g. `collect_asset_issues` returning an empty list
     // before `summarize_stage` has produced any output).
+    const usdInspectorStartMs = performance.now();
+
     const summarizePromise = summarizeStage(path, usdLoadPolicy)
       .then((summary) => {
         if (cancelled) return;
@@ -558,6 +560,10 @@ export function App() {
     ]).then(() => {
       if (cancelled) return;
       setUsdInspectorLoading(false);
+      const elapsedMs = Math.round(performance.now() - usdInspectorStartMs);
+      console.info(
+        `[usd] inspector RPCs settled in ${elapsedMs}ms (policy=${usdLoadPolicy}): ${path}`,
+      );
     });
 
     return () => {
