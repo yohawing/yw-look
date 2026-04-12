@@ -2194,10 +2194,18 @@ fn mesh_data_to_input(
         total_face_vertices,
         face_count,
     );
+    let color_kind = classify_attribute(
+        data.display_color.as_ref().map(Vec::as_slice),
+        3,
+        point_count,
+        total_face_vertices,
+        face_count,
+    );
 
     let mut positions: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
     let mut uvs: Vec<f32> = Vec::new();
+    let mut colors: Vec<f32> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
     let mut next_vertex: u32 = 0;
 
@@ -2312,6 +2320,30 @@ fn mesh_data_to_input(
                     }
                 }
 
+                if let Some(src) = &data.display_color {
+                    match color_kind {
+                        AttrKind::Vertex => {
+                            colors.extend_from_slice(
+                                &src[point_index * 3..point_index * 3 + 3],
+                            );
+                        }
+                        AttrKind::FaceVarying => {
+                            colors.extend_from_slice(
+                                &src[fv_index * 3..fv_index * 3 + 3],
+                            );
+                        }
+                        AttrKind::Uniform => {
+                            colors.extend_from_slice(
+                                &src[face_idx * 3..face_idx * 3 + 3],
+                            );
+                        }
+                        AttrKind::Constant => {
+                            colors.extend_from_slice(&src[0..3]);
+                        }
+                        AttrKind::None | AttrKind::Unknown => {}
+                    }
+                }
+
                 if has_skin {
                     // Vertex-interpolation only (the typical UsdSkel
                     // case). Each point carries `joints_per_vertex`
@@ -2376,6 +2408,18 @@ fn mesh_data_to_input(
         (None, None)
     };
 
+    // per-vertex / per-face-varying displayColor → COLOR_0.
+    // Constant (1 color) is handled upstream as baseColorFactor and
+    // should NOT appear here — otherwise the GLB would have both a
+    // baseColorFactor tint AND vertex colors, double-applying the color.
+    let colors_out = if matches!(color_kind, AttrKind::Vertex | AttrKind::FaceVarying | AttrKind::Uniform)
+        && !colors.is_empty()
+    {
+        Some(colors)
+    } else {
+        None
+    };
+
     Ok(MeshInput {
         name: prim_path.as_str().to_string(),
         world_matrix: world,
@@ -2383,6 +2427,7 @@ fn mesh_data_to_input(
         indices,
         normals: normals_out,
         uvs: uvs_out,
+        colors: colors_out,
         joint_indices: joint_indices_field,
         joint_weights: joint_weights_field,
         // Phase 5a stub: always reference the shared default material

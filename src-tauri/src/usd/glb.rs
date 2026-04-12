@@ -158,6 +158,12 @@ pub struct MeshInput {
     pub normals: Option<Vec<f32>>,
     /// Optional UV coordinates, length = vertex_count * 2.
     pub uvs: Option<Vec<f32>>,
+    /// Per-vertex RGB colors, length = `vertex_count * 3`. `Some`
+    /// when the source mesh carries `primvars:displayColor` with
+    /// per-vertex interpolation. Values are sRGB floats (0-1); the
+    /// GLB writer emits them as-is because glTF's `COLOR_0` is
+    /// interpreted as sRGB by Three.js when `vertexColors = true`.
+    pub colors: Option<Vec<f32>>,
     /// Phase 5c E: optional 4-influence joint indices, length =
     /// `vertex_count * 4`. `Some` only for skinned meshes; the
     /// caller has already padded / truncated to 4 influences per
@@ -533,6 +539,33 @@ pub fn build_glb(
             "type": "SCALAR",
         }));
 
+        // -- vertex colors (per-vertex displayColor) ----------------------
+        let color_accessor_idx = if let Some(colors) = &mesh.colors {
+            let off = bin.len() as u64;
+            for &v in colors {
+                bin.extend_from_slice(&v.to_le_bytes());
+            }
+            let len = (bin.len() as u64) - off;
+            pad_to_4(&mut bin);
+            let view_idx = buffer_views.len();
+            buffer_views.push(json!({
+                "buffer": 0,
+                "byteOffset": off,
+                "byteLength": len,
+                "target": 34962,
+            }));
+            let acc_idx = accessors.len();
+            accessors.push(json!({
+                "bufferView": view_idx,
+                "componentType": COMPONENT_TYPE_FLOAT,
+                "count": vertex_count,
+                "type": "VEC3",
+            }));
+            Some(acc_idx)
+        } else {
+            None
+        };
+
         // -- joint indices / weights (Phase 5c E) ------------------------
         let (joints_accessor_idx, weights_accessor_idx) = match (
             mesh.joint_indices.as_ref(),
@@ -595,6 +628,9 @@ pub fn build_glb(
         }
         if let Some(idx) = uv_accessor_idx {
             attributes.insert("TEXCOORD_0".to_string(), json!(idx));
+        }
+        if let Some(idx) = color_accessor_idx {
+            attributes.insert("COLOR_0".to_string(), json!(idx));
         }
         if let Some(idx) = joints_accessor_idx {
             attributes.insert("JOINTS_0".to_string(), json!(idx));
@@ -1211,6 +1247,7 @@ mod tests {
                 1.0, 1.0, //
                 0.0, 1.0,
             ]),
+            colors: None,
             joint_indices: None,
             joint_weights: None,
             material_index: 0,
