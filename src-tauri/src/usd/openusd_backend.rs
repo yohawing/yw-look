@@ -383,8 +383,18 @@ impl UsdBackend for OpenusdBackend {
             let world_f32 = mat4_f64_to_f32(&world);
 
             let orientation = read_mesh_orientation(&stage, prim_path);
+            // max_joint clamps JOINTS_0 indices to the skin's actual
+            // joint count so the GLB never references out-of-range
+            // bones. If the mesh is unrigged (skin_index == None), the
+            // skin lookup won't apply anyway, but we still pass a sane
+            // cap so mesh_data_to_input can zero out stray authored
+            // joint indices.
+            let max_joint = mesh_skin_slots[mesh_idx]
+                .and_then(|si| skins.get(si))
+                .map(|s| s.joint_names.len())
+                .unwrap_or(usize::MAX);
             let mut triangulated =
-                mesh_data_to_input(prim_path, world_f32, &mesh_data, orientation)?;
+                mesh_data_to_input(prim_path, world_f32, &mesh_data, orientation, max_joint)?;
 
             // Resolve the material slot for this mesh. Unbound meshes
             // fall back to slot 0 (default); a bound Material prim is
@@ -2014,6 +2024,7 @@ fn mesh_data_to_input(
     world: [f32; 16],
     data: &MeshData,
     orientation: MeshOrientation,
+    max_joint: usize,
 ) -> Result<MeshInput, UsdError> {
     let point_count = data.points.len() / 3;
     if data.points.len() % 3 != 0 || point_count == 0 {
@@ -2213,6 +2224,7 @@ fn mesh_data_to_input(
                             &src_w[off..end],
                             &mut joint_indices_out,
                             &mut joint_weights_out,
+                            max_joint,
                         );
                     } else {
                         // Out-of-range source — push 4 zero
@@ -2288,18 +2300,32 @@ fn mesh_data_to_input(
 /// influences we keep the 4 strongest by weight; if fewer, we zero-
 /// pad and renormalize is left to the runtime (Three.js handles
 /// non-unit weight totals on the GPU).
+///
+/// `max_joint` is the number of joints in the skeleton. Any index
+/// >= `max_joint` is clamped to 0 and its weight zeroed so the GLB
+/// never references a bone that doesn't exist in the skin's joints
+/// array. HumanFemale hits this: USD's `primvars:skel:jointIndices`
+/// can reference the **full** skeleton's joint list (≈109 joints)
+/// while `Stage::skeleton_of` may return a subset (≈66) depending
+/// on which payload/reference paths the fork could compose.
 fn pack_skin_influences(
     src_idx: &[u32],
     src_w: &[f32],
     out_idx: &mut Vec<u16>,
     out_w: &mut Vec<f32>,
+    max_joint: usize,
 ) {
     // Quick paths for the common 1..=4 cases.
     let n = src_idx.len();
     if n <= 4 {
         for i in 0..4 {
-            out_idx.push(if i < n { src_idx[i] as u16 } else { 0 });
-            out_w.push(if i < n { src_w[i] } else { 0.0 });
+            if i < n && (src_idx[i] as usize) < max_joint {
+                out_idx.push(src_idx[i] as u16);
+                out_w.push(src_w[i]);
+            } else {
+                out_idx.push(0);
+                out_w.push(0.0);
+            }
         }
         return;
     }
@@ -2310,8 +2336,14 @@ fn pack_skin_influences(
     pairs.sort_by(|a, b| b.1.total_cmp(&a.1));
     for i in 0..4 {
         let (idx, w) = pairs[i];
-        out_idx.push(src_idx[idx] as u16);
-        out_w.push(w);
+        let ji = src_idx[idx] as usize;
+        if ji < max_joint {
+            out_idx.push(ji as u16);
+            out_w.push(w);
+        } else {
+            out_idx.push(0);
+            out_w.push(0.0);
+        }
     }
 }
 
@@ -2547,6 +2579,7 @@ mod tests {
             [0.0; 16],
             &bad_mesh,
             MeshOrientation::RightHanded,
+            usize::MAX,
         )
         .expect_err("negative faceVertexCounts must be rejected");
         let UsdError::Parse(msg) = err else {
@@ -4299,6 +4332,7 @@ def Xform "Root" (
             ],
             &data,
             super::MeshOrientation::RightHanded,
+            usize::MAX,
         )
         .expect("mesh_data_to_input");
 

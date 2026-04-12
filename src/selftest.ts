@@ -300,7 +300,22 @@ async function runSingleModelMode(rawPath: string) {
     const object = (await loadCase(sample)) as Group | Mesh;
     scene.add(object);
 
-    const bbox = new Box3().setFromObject(object);
+    // SkinnedMesh.computeBoundingBox can crash when bone references
+    // from JOINTS_0 indices don't line up with the skin's skeleton
+    // (e.g. large rigged USD exports with partial joint coverage).
+    // Guard with try/catch so the screenshot still gets taken and we
+    // at least get a visual — debugging the bone mismatch is easier
+    // with a rendered frame than with nothing.
+    (object as Object3D).updateMatrixWorld(true);
+    let bbox: Box3;
+    try {
+      bbox = new Box3().setFromObject(object);
+    } catch {
+      console.warn(
+        "[preview] Box3.setFromObject failed on skinned mesh, using unit bbox",
+      );
+      bbox = new Box3(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
+    }
     const size = bbox.getSize(new Vector3());
     const center = bbox.getCenter(new Vector3());
     const radius = Math.max(size.x, size.y, size.z) || 1;
