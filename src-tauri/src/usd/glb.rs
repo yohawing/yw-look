@@ -45,6 +45,13 @@ pub struct MaterialInput {
     /// `BuildContext::textures` keyed by the index stored here so the
     /// builder can dedupe textures across materials.
     pub base_color_texture: Option<usize>,
+    /// Phase 5e L1: glTF wrap mode for the base color texture sampler.
+    /// `10497` = REPEAT (default), `33071` = CLAMP_TO_EDGE,
+    /// `33648` = MIRRORED_REPEAT. Only meaningful when
+    /// `base_color_texture` is `Some`.
+    pub wrap_s: u32,
+    /// Same as `wrap_s` for the T axis.
+    pub wrap_t: u32,
 }
 
 impl MaterialInput {
@@ -61,6 +68,8 @@ impl MaterialInput {
             emissive_factor: [0.0, 0.0, 0.0],
             double_sided: true,
             base_color_texture: None,
+            wrap_s: 10497,
+            wrap_t: 10497,
         }
     }
 }
@@ -965,18 +974,48 @@ pub fn build_glb(
         "materials": gltf_materials,
     });
     if !textures.is_empty() {
-        // Single shared sampler with glTF defaults: linear mip-mapping +
-        // repeat wrap. Matches what UsdUVTexture authors usually expect
-        // unless they explicitly override `wrapS` / `wrapT`, which
-        // Phase 5c doesn't surface yet (Phase 5d candidate).
+        // Phase 5e L1: build a sampler per unique (wrapS, wrapT) pair
+        // so different materials can use different wrap modes. Most
+        // assets share the same mode, so this typically produces just
+        // one sampler entry. Each texture entry references the sampler
+        // whose wrap matches the first material that uses that texture.
+        let mut sampler_dedup: std::collections::HashMap<(u32, u32), usize> =
+            std::collections::HashMap::new();
+        let mut gltf_samplers: Vec<Value> = Vec::new();
+        // Re-map gltf_textures sampler indices per material wrap mode.
+        for m in materials.iter() {
+            if let Some(tex_idx) = m.base_color_texture {
+                let key = (m.wrap_s, m.wrap_t);
+                if !sampler_dedup.contains_key(&key) {
+                    let idx = gltf_samplers.len();
+                    gltf_samplers.push(json!({
+                        "magFilter": 9729, // LINEAR
+                        "minFilter": 9987, // LINEAR_MIPMAP_LINEAR
+                        "wrapS": key.0,
+                        "wrapT": key.1,
+                    }));
+                    sampler_dedup.insert(key, idx);
+                }
+                let sampler_idx = sampler_dedup[&key];
+                // Patch the texture entry's sampler reference
+                if let Some(tex) = gltf_textures.get_mut(tex_idx) {
+                    tex["sampler"] = json!(sampler_idx);
+                }
+            }
+        }
+        // Fallback: if no material referenced any texture (shouldn't
+        // happen since textures is non-empty), emit the default sampler.
+        if gltf_samplers.is_empty() {
+            gltf_samplers.push(json!({
+                "magFilter": 9729,
+                "minFilter": 9987,
+                "wrapS": 10497,
+                "wrapT": 10497,
+            }));
+        }
         document["images"] = Value::Array(gltf_images);
         document["textures"] = Value::Array(gltf_textures);
-        document["samplers"] = json!([{
-            "magFilter": 9729, // LINEAR
-            "minFilter": 9987, // LINEAR_MIPMAP_LINEAR
-            "wrapS": 10497,    // REPEAT
-            "wrapT": 10497,    // REPEAT
-        }]);
+        document["samplers"] = Value::Array(gltf_samplers);
     }
     if !gltf_skins.is_empty() {
         document["skins"] = Value::Array(gltf_skins);
@@ -1270,6 +1309,8 @@ mod tests {
             emissive_factor: [0.0, 0.0, 0.0],
             double_sided: true,
             base_color_texture: None,
+            wrap_s: 10497,
+            wrap_t: 10497,
         }];
         let glb = build_glb(&[mesh], &materials, &[], &[], &[]).expect("build glb");
 
@@ -1329,6 +1370,8 @@ mod tests {
                 emissive_factor: [0.0, 0.0, 0.0],
                 double_sided: false,
                 base_color_texture: None,
+                wrap_s: 10497,
+                wrap_t: 10497,
             },
             MaterialInput {
                 name: "blue_emissive".to_string(),
@@ -1338,6 +1381,8 @@ mod tests {
                 emissive_factor: [0.0, 0.0, 0.4],
                 double_sided: true,
                 base_color_texture: None,
+                wrap_s: 10497,
+                wrap_t: 10497,
             },
         ];
 

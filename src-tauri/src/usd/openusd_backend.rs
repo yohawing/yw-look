@@ -939,6 +939,7 @@ fn skin_input_from_skel(
     }
 }
 
+#[allow(dead_code)]
 fn mat4_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
     let mut out = [0.0_f32; 16];
     for col in 0..4 {
@@ -1100,6 +1101,20 @@ fn animation_input_from_skel(
     })
 }
 
+/// Phase 5e L1: map a USD `inputs:wrapS/wrapT` token to a glTF
+/// sampler wrap mode constant. USD tokens: `"repeat"` (10497),
+/// `"clamp"` (33071 CLAMP_TO_EDGE), `"mirror"` (33648
+/// MIRRORED_REPEAT), `"useMetadata"` / None → REPEAT (the glTF
+/// default, matching most DCC texture file defaults).
+fn usd_wrap_to_gltf(token: Option<&str>) -> u32 {
+    match token {
+        Some("clamp") => 33071,            // CLAMP_TO_EDGE
+        Some("mirror") => 33648,           // MIRRORED_REPEAT
+        Some("repeat") | Some("useMetadata") | None => 10497, // REPEAT
+        Some(_) => 10497,                  // unknown → REPEAT fallback
+    }
+}
+
 /// Convert an sRGB color channel (0-1 float) to linear space.
 ///
 /// USD's `UsdPreviewSurface` documents `inputs:diffuseColor` — and the
@@ -1176,6 +1191,12 @@ fn material_input_from_data(
         // texture has been resolved and the GLB-level texture index
         // is known.
         base_color_texture: None,
+        // Phase 5e L1: map USD wrap mode tokens to glTF sampler
+        // constants. USD defaults to "useMetadata" which we treat
+        // as REPEAT (glTF default) since the metadata source is
+        // typically the texture file itself and we don't read it.
+        wrap_s: usd_wrap_to_gltf(data.wrap_s.as_deref()),
+        wrap_t: usd_wrap_to_gltf(data.wrap_t.as_deref()),
     }
 }
 
