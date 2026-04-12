@@ -2481,21 +2481,28 @@ fn mesh_data_to_input(
                     }
                 }
 
+                // USD texCoord V runs bottom→top; glTF V runs top→bottom.
+                // Flip V on every UV emission so textures render right-side-up.
                 if let Some(src) = &data.uvs {
+                    let push_uv = |uvs: &mut Vec<f32>, u: f32, v: f32| {
+                        uvs.push(u);
+                        uvs.push(1.0 - v);
+                    };
                     match uv_kind {
                         AttrKind::Vertex => {
-                            uvs.extend_from_slice(
-                                &src[point_index * 2..point_index * 2 + 2],
-                            );
+                            let off = point_index * 2;
+                            push_uv(&mut uvs, src[off], src[off + 1]);
                         }
                         AttrKind::FaceVarying => {
-                            uvs.extend_from_slice(&src[fv_index * 2..fv_index * 2 + 2]);
+                            let off = fv_index * 2;
+                            push_uv(&mut uvs, src[off], src[off + 1]);
                         }
                         AttrKind::Uniform => {
-                            uvs.extend_from_slice(&src[face_idx * 2..face_idx * 2 + 2]);
+                            let off = face_idx * 2;
+                            push_uv(&mut uvs, src[off], src[off + 1]);
                         }
                         AttrKind::Constant => {
-                            uvs.extend_from_slice(&src[0..2]);
+                            push_uv(&mut uvs, src[0], src[1]);
                         }
                         AttrKind::None | AttrKind::Unknown => {}
                     }
