@@ -435,6 +435,23 @@ impl UsdBackend for OpenusdBackend {
             let has_subset_materials = !subsets.is_empty()
                 && subsets.iter().any(|s| s.material_binding.is_some());
 
+            // Fallback: if subsets have NO material bindings but
+            // Material prims exist under a sibling `Looks` scope,
+            // try matching subset names to Material names by prefix.
+            // This catches Maya/Apple exports where the authored
+            // binding relationship is missing but the naming
+            // convention `subset_name` → `Looks/subset_name_N` holds.
+            let has_subset_materials = has_subset_materials || {
+                if !subsets.is_empty() && subsets.iter().all(|s| s.material_binding.is_none()) {
+                    // Check if name-based matching would work
+                    subsets.iter().any(|s| {
+                        find_material_by_name_fallback(&stage, prim_path, &s.name).is_some()
+                    })
+                } else {
+                    false
+                }
+            };
+
             if has_subset_materials {
                 for subset in &subsets {
                     let filtered = filter_mesh_by_face_indices(
@@ -456,10 +473,14 @@ impl UsdBackend for OpenusdBackend {
                         max_joint,
                     )?;
 
-                    // Resolve material from the subset's binding.
+                    // Resolve material: try authored binding first,
+                    // fall back to name-based matching if missing.
+                    let mat_ref = subset.material_binding.as_ref().cloned().or_else(|| {
+                        find_material_by_name_fallback(&stage, prim_path, &subset.name)
+                    });
                     let slot = resolve_material_slot(
                         &stage,
-                        subset.material_binding.as_ref(),
+                        mat_ref.as_ref(),
                         &subset_name,
                         &mut materials,
                         &mut material_texture_paths,
@@ -1165,6 +1186,63 @@ fn animation_input_from_skel(
         rotations,
         scales,
     })
+}
+
+/// Name-based material fallback for GeomSubsets without authored
+/// `material:binding`. Searches sibling `Looks` scopes for a
+/// Material whose prim name starts with the subset name. Returns
+/// the first match, or `None` if no candidate is found.
+fn find_material_by_name_fallback(
+    stage: &Stage,
+    mesh_path: &SdfPath,
+    subset_name: &str,
+) -> Option<SdfPath> {
+    // Walk up from the mesh to find a parent that has a `Looks` child.
+    let mut parent_str = mesh_path.as_str().to_string();
+    loop {
+        let Some(slash) = parent_str.rfind('/') else { break };
+        if slash == 0 { break; }
+        parent_str.truncate(slash);
+
+        let looks_str = format!("{}/Looks", parent_str);
+        let Ok(looks_path) = SdfPath::new(&looks_str) else { continue };
+
+        // Check if Looks prim exists by reading its specifier.
+        if stage
+            .field::<SdfValue>(looks_path.clone(), FieldKey::Specifier)
+            .ok()
+            .flatten()
+            .is_none()
+        {
+            continue;
+        }
+
+        // Found a Looks scope. Search its children for a Material
+        // whose name starts with the subset name.
+        let mut found: Option<SdfPath> = None;
+        stage.traverse(|prim_path| {
+            if found.is_some() { return; }
+            let path_str = prim_path.as_str();
+            if !path_str.starts_with(&looks_str) { return; }
+            // Direct child of Looks only (no deeper nesting)
+            let remainder = &path_str[looks_str.len()..];
+            if remainder.is_empty() || remainder.chars().filter(|c| *c == '/').count() != 1 {
+                return;
+            }
+            let child_name = remainder.trim_start_matches('/');
+            if child_name.starts_with(subset_name) {
+                let type_name: Option<String> = stage.field(prim_path.clone(), FieldKey::TypeName).ok().flatten();
+                if type_name.as_deref() == Some("Material") {
+                    found = Some(prim_path.clone());
+                }
+            }
+        }).ok();
+
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
 }
 
 /// Resolve a material binding path → material slot index, creating
@@ -3598,6 +3676,87 @@ def Xform "Root" (
     /// context and the reviewer can visually verify material binding
     /// survives the full pipeline. Ignored by default so automated
     /// runs don't produce unsolicited artifacts.
+    #[test]
+    #[ignore = "manual E2E — needs samples/private"]
+    fn dump_seahorse_glb_for_preview_model() {
+        let path = PathBuf::from(
+            "../samples/private/usd/seahorse_anim_mtl_variant.usdz",
+        );
+        if skip_if_missing(&path, "seahorse_dump") { return; }
+        let backend = OpenusdBackend::new();
+        match backend.extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll) {
+            Ok(glb) => {
+                let out_dir = PathBuf::from("../artifacts/tmp");
+                std::fs::create_dir_all(&out_dir).expect("mkdir");
+                let out = out_dir.join("seahorse.glb");
+                std::fs::write(&out, &glb).expect("write");
+                eprintln!("wrote {} ({} bytes)", out.display(), glb.len());
+            }
+            Err(err) => eprintln!("SKIP seahorse dump: {err}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "manual debug — needs samples/private"]
+    fn debug_seahorse_material() {
+        use openusd::sdf::Value as SdfValue;
+        let path = PathBuf::from(
+            "../samples/private/usd/seahorse_anim_mtl_variant.usdz",
+        );
+        if skip_if_missing(&path, "seahorse_debug") { return; }
+        let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
+        let mesh_path = SdfPath::new("/seahorse_bind/seahorse/seahorse_combined_mesh").unwrap();
+
+        // Check GeomSubsets
+        let subsets = stage.geom_subsets_of(mesh_path.clone());
+        eprintln!("GeomSubsets: {} found", subsets.len());
+        for s in &subsets {
+            eprintln!("  {} indices={} mat={:?}",
+                s.name, s.indices.len(),
+                s.material_binding.as_ref().map(|p| p.to_string()));
+            // Check alternative binding names
+            let subset_path = SdfPath::new(&format!("{}/{}", mesh_path.as_str(), s.name)).unwrap();
+            // Brute-force: try bound_material directly on the subset
+            let bm_sub = stage.bound_material(subset_path.clone());
+            eprintln!("    bound_material(subset) = {:?}", bm_sub.as_ref().map(|p| p.to_string()));
+
+            for rel_name in &["material:binding", "material:binding:preview", "material:binding:full"] {
+                if let Ok(prop) = subset_path.append_property(rel_name) {
+                    let val: Option<SdfValue> = stage.field(prop, FieldKey::TargetPaths).ok().flatten();
+                    if val.is_some() {
+                        eprintln!("    {} = {:?}", rel_name, val);
+                    }
+                }
+            }
+        }
+
+        // Check parent chain for material:binding
+        let parents = [
+            "/seahorse_bind/seahorse",
+            "/seahorse_bind",
+        ];
+        for p in &parents {
+            if let Ok(pp) = SdfPath::new(p) {
+                let bm = stage.bound_material(pp).map(|p| p.to_string());
+                eprintln!("parent {} -> bound_material={:?}", p, bm);
+            }
+        }
+
+        // Check direct mesh bound_material
+        let bm = stage.bound_material(mesh_path.clone()).map(|p| p.to_string());
+        eprintln!("mesh -> bound_material={:?}", bm);
+
+        // List all Material prims
+        eprintln!("\n--- All prims under /seahorse_bind with material in path ---");
+        stage.traverse(|prim_path| {
+            let path_str = prim_path.as_str();
+            if path_str.contains("mtl") || path_str.contains("Looks") || path_str.contains("Material") || path_str.contains("mat") {
+                let type_name: Option<String> = stage.field(prim_path.clone(), FieldKey::TypeName).ok().flatten();
+                eprintln!("  {} type={:?}", path_str, type_name);
+            }
+        }).unwrap();
+    }
+
     #[test]
     #[ignore = "manual debug — needs samples/private"]
     fn debug_glove_xform_ops() {
