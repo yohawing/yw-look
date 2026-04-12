@@ -281,372 +281,55 @@ fork 側の API が粗い部分は yw-look 側で補完している:
 
 ---
 
-## Phase 4 — Payload 遅延ロード（実装済み）
+## Phase 4 — Payload 遅延ロード（実装済）
 
-### 目的
+`references` は常時 compose、`payloads` のみ deferred 対象。stateless API（各 Tauri コマンドに `policy: Option<StageLoadPolicy>` 引数を追加）で実装。
 
-`references` は通常 compose したまま、`payloads` だけを遅延ロード対象にする。重い USD シーンでも hierarchy と基本情報は素早く見せ、必要になった payload だけ後から読み込める状態を目指す。
+### fork 側 API
 
-### 方針
+| API                                      | 内容                                                 |
+| ---------------------------------------- | ---------------------------------------------------- |
+| `StageLoadPolicy::{LoadAll, NoPayloads}` | builder 経由で policy を仕込む。`Stage::open` 非変更 |
+| `Stage::skipped_payloads()`              | NoPayloads でスキップした payload の一覧             |
 
-- `references` は常に通常どおり読み込む
-- `payloads` のみ load policy の対象にする
-- 初期モードは 2 つに絞る
-  - `loaded` — 現在どおり payload を含めて compose
-  - `deferred` — payload を展開せず summary / hierarchy を先に出す
-- `.usdz` でも拡張子ではなく **root layer が binary USD かどうか** で表示パイプラインを分岐する
+### yw-look 側
 
-### 想定 UX
-
-```text
-USD ファイル開封
-  ├─ references は compose 済み
-  ├─ payloads は deferred
-  │    ├─ hierarchy には payload prim を表示
-  │    ├─ inspector には loaded / unloaded / missing を表示
-  │    └─ preview は payload なしの軽量結果を先に表示
-  └─ ユーザー操作または明示コマンドで payload を load
-       └─ 対象 prim の geometry を追加取得して viewer に反映
-```
-
-### API 進化の方向
-
-最初は stateless に試し、必要になったら stateful session に進む。
-
-#### 1. stateless（先に試す）
-
-- `summarize_stage(path, load_policy)`
-- `inspect_stage(path, load_policy)`
-- `extract_geometry(path, load_policy, prim_paths?)`
-
-#### 2. stateful session（必要なら）
-
-- `open_stage(path, load_policy) -> stage_id`
-- `load_payloads(stage_id, prim_paths?)`
-- `unload_payloads(stage_id, prim_paths?)`
-- `extract_geometry(stage_id, prim_paths?)`
-
-payload の局所 load / unload を UI と同期したくなった時点で session 化する。
-
-### 達成条件
-
-1. `references` は従来どおり自動で compose される
-2. `payloads deferred` モードで summary / hierarchy / issues が取得できる
-3. payload prim が `loaded / unloaded / missing` のいずれかで識別できる
-4. 指定 payload の load 後に viewer を再構築または差分更新できる
-5. Kitchen Set クラスで「まず開ける」体験が改善したと確認できる
-
-### 非スコープ（Phase 4）
-
-- payload の自動優先度制御
-- カメラ位置に応じた streaming
-- variant set と payload load policy の同時最適化
-- アニメーション対応
-- ネットワーク越しの遠隔 asset streaming
-
-### 実装サマリ（Phase 4a + 4b + 4c）
-
-#### fork 側 (`yohawing/openusd`, branch `yw-look-phase4`)
-
-| 追加 API                                   | 内容                                                                      |
-| ------------------------------------------ | ------------------------------------------------------------------------- |
-| `StageLoadPolicy::{LoadAll, NoPayloads}`   | `#[non_exhaustive]` enum。`LoadAll` がデフォルトで Phase 3 挙動を維持     |
-| `SkippedPayload { asset_path, prim_path }` | `NoPayloads` で飛ばした payload 1 件を表す。`prim_path` は**宣言元 prim** |
-| `StageBuilder::load_policy`                | builder 経由で policy を仕込む。`Stage::open` シグネチャは非変更          |
-| `Stage::skipped_payloads`                  | 合成結果に溶け込まなかった payload の一覧                                 |
-| `Stage::load_policy`                       | 現在の policy を返すアクセサ                                              |
-
-- 注入ポイント: layer collection の `collect_recursive` で `DependencyKind::Payload` を recurse 前に弾く
-- 追加で pcp 側にも `skip_payloads: bool` を伝播（root layer の prim spec に残る authored payload listOp を pcp が評価しに行って `Error::UnresolvedLayer` を投げるため）
-- `Stage::open` / `references_in` / `payloads_in` / `unresolved_assets` / `mesh_of` / `local_xform_of` のシグネチャは**一切変更なし**
-- テスト: `fixtures/ball_payload/` に最小 USDA を追加して `load_all` / `no_payloads` / layer count / traverse 完走の 4 本
-
-#### yw-look 側 (`src-tauri/src/usd/`)
-
-- wire 型 `StageLoadPolicy { LoadAll, NoPayloads }` を `types.rs` に追加、`#[serde(rename_all = "camelCase")]` で `loadAll` / `noPayloads` に統一
-- `CompositionArcState` を 3 値化（`Loaded` / `Missing` / `Unloaded`）
-- `StageSummary.unloaded_payload_count`、`StageInspection.load_policy` を追加
-- `UsdBackend` trait: `inspect_stage` / `summarize_stage` / `extract_geometry_glb` が `policy: StageLoadPolicy` を必須引数として受け取る。`collect_asset_issues` / `requires_glb_preview` は常に `LoadAll` で走る
-- Tauri コマンドは `policy: Option<StageLoadPolicy>` を受け付け、`unwrap_or_default()` で後方互換を維持（Phase 3 frontend からの invoke も黙って LoadAll で通る）
-- `payload_arc_state` の skip set は `(asset_path, source_prim)` 2 値キー。`Stage::skipped_payloads` は宣言元 prim を記録し、`payloads_in` の戻り値 `p.prim_path` は external layer 内の target prim なので、**source と target が異なる場合に取り違えないよう明示的に使い分ける**
-
-#### Frontend
-
-- `src/lib/usd.ts`: `StageLoadPolicy` / `CompositionArcState` 3 値 / `unloadedPayloadCount` / `loadPolicy` を型に追加、`summarizeStage` / `inspectStage` / `extractGeometry` が optional policy 引数を受け付け
-- `UsdInspectorCard`: ヘッダに `Loaded` / `Deferred` segmented control を配置、`unloadedPayloadCount` を Payloads 行にインラインで併記
-- `CompositionArcsCard`: `Deferred` バッジ（`.badge-muted` 中立色）を追加して `missing`（エラー色）と分離表示
-- `App.tsx`: `usdLoadPolicy` state を導入し inspector エフェクトの依存配列に追加、`AssetViewport` 経由で `loadPreviewObject` にも伝搬
-- `AssetViewport` / `loaders.ts`: 依存配列に `usdLoadPolicy` を追加し、切替時に古い GLB scene を dispose してから `extract_geometry(path, policy)` を再実行
-
-#### デフォルト UX
-
-- 初期値は `loadAll` を維持（Phase 3 挙動を壊さない）
-- heuristic トースト（例: `payloadCount > 50` で Deferred 提案）は Phase 5 以降で検討
-- stateful session (`open_stage` / `load_payloads`) は Phase 5 以降で再評価
-
-#### 後続課題
-
-- `[patch."https://github.com/yohawing/openusd.git"]` を `src-tauri/Cargo.toml` に一時追加中。`yw-look-phase4` ブランチが upstream に push されたら `rev` を `54cb0eb94d7171cb3b5f306b9faf742faf3e61f6` に更新して patch を削除する
-- Kitchen Set クラスでの初回表示時間の実測（`performance.now()` で計測ポイントを追加）
-- payload 単位 load / unload UI（現状は stage 全体 toggle のみ）
+- `CompositionArcState` を 3 値化 (`Loaded` / `Missing` / `Unloaded`)
+- UsdInspectorCard にヘッダ segmented control (`Loaded` / `Deferred`)
+- `usdLoadPolicy` state 切替で inspector + GLB viewer を再走
 
 ---
 
-## Phase 5 — Preview 品質向上（計画）
-
-### 目的
-
-USD シーンを「開ける」だけでなく、「作者が意図した状態に近い見た目で素早く確認できる」ことを目指す。Phase 3/4 で表示基盤と payload 制御を整えた上で、preview として価値の高い USD 機能を順に追加する。
-
-### 優先対象
-
-#### 1. Variant Set
-
-- variant set 一覧を inspector に表示する
-- 選択中 variant を表示する
-- 主要 variant の切り替えを UI から行えるようにする
-
-見た目違い・LOD・素材違いが variant に載ることが多く、preview 価値が高い。
-
-#### 2. Purpose
-
-- `default` / `render` / `proxy` / `guide` の表示ポリシーを持つ
-- 重いシーンでは `proxy` を優先して開けるようにする
-
-USD の「軽く見せる」設計に素直に乗れる。
-
-#### 3. PointInstancer
-
-- scatter / vegetation / crowd 系で使われる `PointInstancer` を表示する
-- 同一 prototype mesh を GPU インスタンス化して負荷を抑える
-
-対応有無で scene の再現度が大きく変わる。
-
-#### 4. GeomSubset / Material Binding
-
-- mesh 単位だけでなく face subset 単位の material binding を反映する
-- `UsdPreviewSurface` の割り当て精度を上げる
-
-単一 mesh に複数 material が載るケースの見た目に効く。
-
-#### 5. Camera / Framing
-
-- stage 内 camera を列挙して切り替えられるようにする
-- authored camera がない場合でも extent / bounds から framing を安定化する
-
-レビュー時に「最初に何が見えるか」の品質を上げられる。
-
-### 達成条件
-
-1. 代表的な USD アセットで variant の切り替え結果を preview に反映できる
-2. purpose の違いで render / proxy 表示を切り替えられる
-3. PointInstancer を含むシーンが大崩れせず表示できる
-4. GeomSubset material が最低限正しく見える
-5. authored camera または安定した auto-framing で初期視点が改善する
-
-### 非スコープ（Phase 5）
-
-- skeletal animation / blend shape の完全対応
-- Hydra 相当の完全な見た目再現
-- layer 編集
-- composition 編集 UI
-
-### Phase 5b — Skel API WIP（fork のみ、yw-look 統合は繰越）
-
-ストレッチ目標として fork (`yohawing/openusd`, branch `yw-look-phase4`) に最小 SkelAPI を導入したが、**yw-look 側 GLB パイプラインへの統合は次セッション以降に繰越**。理由は下記。
-
-#### fork 側で実装済み (commit `5c44588`)
-
-- `pub struct SkeletonData { joints, bind_transforms, rest_transforms, parents }`
-- `pub struct SkelAnimationData { times, translations, rotations, scales, joints }` (型のみ、body は deferred stub)
-- `Stage::skeleton_of(mesh_path) -> Option<(Path, SkeletonData)>` — `SkelBindingAPI::skel:binding` + ancestor `SkelRoot` walk の 2 経路
-- `Stage::skel_animation_of(skeleton_path) -> Option<SkelAnimationData>` — 現状常に `None`、rustdoc に deferral 理由を記載
-- `fixtures/skel_smoke/` に 2-joint Hip/Spine fixture と 5 本のテスト
-
-#### 繰越理由
-
-1. **animation の time-sampled 配列読み取りが USDA parser でブロック中**
-   - `openusd::pcp` の `resolve_field` は `FieldKey::TimeSamples` を `Value::TimeSamples(TimeSampleMap)` として返せる設計
-   - USDC reader (`src/usdc/reader.rs`) は `Type::TimeSamples` を正しくデコード
-   - しかし USDA parser の `parse_time_samples` (`src/usda/parser.rs:1096-1110`) は各サンプル値を `parse_property_metadata_value()` で読むため、`float3[] translations.timeSamples = { 0: [(0,0,0), (0,1,0)] }` のような **配列型 vector のサンプル** を食わせると `"Unsupported property metadata value token: Punctuation('(')"` で落ちる
-   - スカラー time sample（`fixtures/timesamples.usda` の `double prop.timeSamples = { 4: 40 }`）は通るが、SkelAnimation の translations/rotations/scales はすべて配列型 vec で必ずこのパスを通るため、USDA 単独で end-to-end 検証する fixture が作れない
-
-2. **per-vertex skinning data (`primvars:skel:jointIndices` / `primvars:skel:jointWeights`) が `MeshData` に載っていない**
-   - 現状の `Stage::mesh_of` は points / faceVertexCounts / faceVertexIndices / normals / uvs のみ
-   - skin を glTF に書き出すには各頂点に joint index 4 つ + weight 4 つが必要
-   - `MeshData` 拡張（あるいは別型 `SkinData` の追加）は Phase 5c の課題
-
-3. **yw-look 側では bind pose のみ embed しても見た目が変わらない**
-   - skeleton を glTF skin として埋め込んでも、animation channels と per-vertex skinning がなければ rest pose と同じ見た目になる
-   - 部分的な統合よりも、上記 2 点が解決した時点で一括統合するほうが回帰検知しやすい
-
-#### Phase 5c で必要な作業
-
-1. USDA parser の `parse_property_metadata_value` を配列型 vector を受理するよう拡張（`src/usda/parser.rs:1096`）、または USDC で SkelAnimation fixture を用意
-2. `Stage::skel_animation_of` の body を実装（API shape は確定済み、`skel:animationSource` rel を辿って `translations` / `rotations` / `scales` を `FieldKey::TimeSamples` 経由で読むだけ）
-3. `MeshData` または新しい `SkinData` 型に `joint_indices: Vec<u32>` + `joint_weights: Vec<f32>` を追加
-4. yw-look 側 `glb.rs` に `SkinInput` を導入、glTF nodes / skin / inverseBindMatrices を出力
-5. `loaders.ts` 側は既存の glTF skin 経路（FBX/glTF と同じ `THREE.AnimationMixer` 連携）にそのまま乗る
-
----
-
-## Phase 5c — Texture & Skinning パイプライン（実装済）
-
-### スコープ
-
-Phase 5a で「scalar PBR factor のみ」、Phase 5b で「skeleton の bind pose のみ」と意図的に削った 2 つの軸を一気に閉じる。
-
-| ID  | 項目                                                                                                                                                 | 担当    | 状態                                                    |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------- |
-| A   | USDZ 内 texture を GLB BIN chunk に埋め込み (`UsdPreviewSurface.diffuseColor` の texture path を image / texture / sampler としてエクスポート)       | yw-look | ✅ 実装済 (filesystem fixture e2e + Codex P1+P2 fix)    |
-| B   | USDA parser の `parse_property_metadata_value` を配列型 vector 値で受理可能にする                                                                    | fork    | ✅ 実装済 (`52029e6`)                                   |
-| C   | `MeshData` に `joint_indices` + `joint_weights` を追加し、`Stage::mesh_of` で `primvars:skel:jointIndices` / `primvars:skel:jointWeights` を読み込む | fork    | ✅ 実装済 (`6b51a5f` + `b36f6b4` の elementSize 型 fix) |
-| D   | `Stage::skel_animation_of` の body を `FieldKey::TimeSamples` 経由で実装                                                                             | fork    | ✅ 実装済 (`dcdd16e`)                                   |
-| E   | yw-look 側 `glb.rs` に `SkinInput` / `AnimationInput` を追加して glTF nodes / skin / inverseBindMatrices / animation channels を出力                 | yw-look | ✅ 実装済 (skinned mesh e2e + Codex P1×4 + P2 fix)      |
-
-### Phase 5c E の Codex フィードバック (適用済)
-
-- **P1 [fork rest matrices column-major]**: `SkeletonData::bind/rest_transforms` は fork で既に column-major なので yw-look 側で transpose しない (元コードは二重 transpose していた)
-- **P1 [skinned mesh world transform]**: skinned mesh node は identity ではなく `mesh.world_matrix` を載せる。vertex 位置は mesh-local のままで、glTF skin の inverseBindMatrices と組み合わせて world に展開される
-- **P1 [animated joint TRS]**: glTF は node `matrix` のアニメーションを許さないので、joint nodes は rest local matrix を **TRS に decompose** して `translation` / `rotation` / `scale` で出力する
-- **P1 [time codes → seconds]**: `Stage::skel_animation_of` の time samples は **USD time code** なので glTF sampler input に書く前に `stage.field<f64>(abs_root, FieldKey::TimeCodesPerSecond).unwrap_or(24.0)` で割って秒に変換する
-- **P2 [sparse channel handling]**: rotation / scale が translation のタイムラインに対して sparse な場合、欠損フレームは `[0,0,0,0]` クォータニオンや `[0,0,0]` スケールで埋めずに **その joint のチャネルごと drop** して runtime に rest pose を継承させる
-
-### Phase 5d 進捗
-
-#### F1 — variant set / Windows path resolution (完了, fork `930bfc5`)
-
-最大の unblock 候補だった variant set 解決は、調査の結果 **fork pcp が元から実装済み** であることが判明（`resolve_variant_selections_in` / `eval_variants` が strongest-first で selection を解決し、authored 無しでは各 variant set の最初の variant を採用）。Phase 5d F1 では:
-
-1. 既存挙動を pin する 3 本の smoke test と 3 つの fixture を `fixtures/variant_select/` に追加（明示選択 / 暗黙 first-variant / 空 variant の regression guard）
-2. 別の Windows 固有 blocker を発見・修正: `src/pcp/index.rs::find_layer` が `std::path::MAIN_SEPARATOR` (Windows では `\`) を境界判定に使っていたため、POSIX style needle (`./assets/foo.usd`) と DefaultResolver が返す `\\?\C:\...\assets\foo.usd` 形式の identifier の suffix match が失敗し、`HumanFemale.walk.usd` のような cross-OS reference を持つ asset が `unresolved Reference layer` で死んでいた。両辺を `/` 正規化してから比較するように修正、`find_layer_posix_needle_windows_identifier` で regression guard
-
-これにより chameleon の `bound_material` は 6 つの distinct material path (`chameleon_mat_1` / `chameleon_mat_1_2` / ... / `stick_placeholder_mat_1`) を正しく返すようになり、yw-look の mesh traverse も 6 件すべて拾えている。
-
-#### Phase 5e chameleon — closed (asset-side limitation, NOT a fork bug)
-
-Phase 5d L2 と Phase 5e で chameleon Apple AR Quick Look asset の textured PBR を表示しようと **3 つの仮説 (NodeGraph wrap → composition gap → USDC decoder)** を順に立てて 3 回 fork 調査した結果、**全部誤り** で、本当の理由は **asset 自体の構造** であることが判明した (`fork 1a7758b` の raw CrateFile レベル PATHS 列挙):
-
-1. `/Root/chameleon_idle/Looks/chameleon_mat*/UsdPreviewSurface` prim 群は **`info:id` と `outputs:surface` しか author していない** (empty stub)。`inputs:diffuseColor` 等のプロパティは USDC ファイルに最初から存在しない。
-2. 本物の shader graph は **別 prim tree `/Root/chameleon_mtl/Looks/{chameleon_blue_mat, chameleon_green_mat, chameleon_camo_mat}`** に MaterialX + RealityKit subgraph として authored されている (≈ 485 個の `inputs:*` PropertySpec)。
-3. しかし `chameleon_idle/Looks` ⇔ `chameleon_mtl/Looks` を **繋ぐ composition arc が一本も無い** (references / payload / inheritPaths / specializes / variantSets すべて unauthored)。
-4. mesh 側の variant set は `material:binding` を `chameleon_mat_N` (suffix 付き stub) に切り替えるだけで、`chameleon_mtl` ツリーには到達しない。
-5. `chameleon_mat.outputs:surface.connectionPaths` は self-reference (自分の子の UsdPreviewSurface stub を指す)。MaterialX / RealityKit にも pass-through しない。
-
-つまり chameleon asset は **Apple Reality Composer Pro が「UsdPreviewSurface stub + 別ツリーの MaterialX 本体」というハイブリッド authoring** をしており、pure USD preview pipeline で reach するには yw-look 側に **asset-specific heuristic mapping** (`chameleon_mat_1_2_3_4_5` → `chameleon_green_mat` 等の hardcoded routing) を入れるしかない。これは不潔で扱いたくないので、**chameleon asset は pure USD preview の非対象** として確定する。
-
-`Stage::material_of` が chameleon に対して `None` を返すのは正しい挙動で、fork にも yw-look にもバグはない。`fork 1a7758b` には raw CrateFile probe + Stage 経由 has_spec assertion の `#[ignore]` pin test 2 本が残っており、誤解を再発見した時の再調査の起点になる。
-
-yw-look 側の `extract_geometry_chameleon_textured_smoke` test は構造 baseline (`materials.len() >= 2`、`mesh_count >= 5`) で `#[ignore]` のまま据え置き。pcp variant 解決の regression guard としては機能する。
-
-> #### 関連 Phase 5d L2 履歴
->
-> 1 回目の Phase 5d L2 (`fork 0d40283`) は「Material 直下に Shader が居て NodeGraph wrap でない」ことを dump で示し、2 回目の Phase 5e (`fork 1a7758b`) は「authored 自体されていない」ことを raw CrateFile で示した。両方とも前提崩壊で実装は 0 行、調査だけが残った。次回の調査が無駄に再発しないよう **chameleon は asset-side 制約として打ち切り** を docs / ToDo / cargo test コメントの 3 ヶ所で明示している。
-
-##### 旧 L2 仮説の元記述 (参考、誤り)
-
-Phase 5d L2 は当初 「fork の `material_of` を NodeGraph wrap 越しに歩かせる」 タスクとして起票したが、fork agent の dump 調査 (`fork 0d40283`) で **NodeGraph wrap 仮説は崩れた**:
-
-```
-/Root/chameleon_idle/Looks/
-  chameleon_mat (Material, has_spec=true, properties=0)
-    UsdPreviewSurface (Shader, has_spec=true, properties=0)  ← 直下にいる
-  chameleon_mat_1 .. chameleon_mat_1_2_3_4_5_6_7_8_9_10
-    UsdPreviewSurface (Shader, 同上)
-  stick_placeholder_mat
-    UsdPreviewSurface (Shader, properties=1, diffuseColor=Vec3f([0.11, 0.055, 0.057]))
-```
-
-chameleon の `UsdPreviewSurface` Shader は **Material 直下にあって NodeGraph wrap されていない**。`material_of` walker を再帰化しても解決しない。真因はもっと上流の **property spec が composition で消えていること**:
-
-| Material                  | shader has_spec | inputs:diffuseColor Default   | inputs:diffuseColor has_spec |
-| ------------------------- | --------------- | ----------------------------- | ---------------------------- |
-| `chameleon_mat`           | true            | None                          | **false**                    |
-| `chameleon_mat_1`         | true            | None                          | **false**                    |
-| `chameleon_mat_1_2_3_4_5` | true            | None                          | **false**                    |
-| `stick_placeholder_mat`   | true            | `Vec3f([0.11, 0.055, 0.057])` | true                         |
-
-加えて variant 解決後に `chameleon_mat_1_2_3_4_5_6_7_8_9_10` のような **suffix 付き Material が 11 個生成** されているのが見える。これは variant compose 時に同じ Material spec が複数回 propagate されて auto-rename されている (variant 解決時の prim duplicate バグ) 可能性が高い。Phase 5d F1 で variant 解決を pin した時には観測できていなかった、F1 で生まれた regression かもしれない。
-
-##### 真因候補と次の調査方向 (Phase 5e+)
-
-1. **USDC decode の漏れ**: chameleon は USDC binary 内で Shader input properties を authoring。`src/usdc/reader.rs` が特定の field / valueRep を skip している可能性
-2. **variant compose 時の property arc 引き継ぎミス**: prim tree の rename / duplicate で property child arc が新しい prim に伝搬されていない
-3. **spec type filter**: reader が PropertySpec を Material/Shader の下で読まずに捨てている
-
-調査の最初の一手:
-
-- `chameleon_mat` (suffix なし、F1 variant 解決前から存在) の properties が 0 なら → **USDC decode 段階の問題**、`src/usdc/reader.rs` 側を疑う
-- Layer-level raw spec dump で composition resolve 前の生 layer に `inputs:diffuseColor` が authored されているか確認 (`Layer` API)
-
-`fork 0d40283` には diagnostic dump test (`#[ignore]`) が残してあるので次のセッションで pickup できる。
-
-##### Phase 5d L2 の re-scope
-
-実装すべきは「NodeGraph walker」ではなく **「chameleon shader property composition gap 調査 + 修正」**。範囲が深いので Phase 5e の独立タスクとして切り出す。yw-look 側の `extract_geometry_chameleon_textured_smoke` は当面 `materials.len() >= 2` + `mesh_count >= 5` の構造 baseline で `#[ignore]` のまま据え置き。
-
-#### F3 — composition cycle の過検知 (HumanFemale 系、未着手)
-
-F1 で Windows path 問題が解けた後、`HumanFemale.walk.usd` の layer stack 12 層は collect に成功するが、次の段階で `composition arc cycle at /HumanFemale_Group/HumanFemale (depth 2)` で死ぬ。pcp 側 cycle 判定の過検知（`HumanFemale.full.usd` → `HumanFemale.full_payload.usd` → 複数 instance への rematch）と推測。Phase 5d F3 で pcp の cycle 判定を見直す必要があるが、pcp graph 内部に踏み込むため範囲が大きい。Phase 5e に持ち越す可能性あり。
-
-### 並行戦略
-
-- **Track 1 (即着手)**: メインエージェントが **A (texture embedding)** を yw-look 側で実装。fork ブロックがないので Phase 5c 全体の進捗を稼ぐ
-- **Track 2 (即着手)**: fork agent 1 が **B (USDA parser fix)** を実装。`stage.rs` を触らないので C と排他しないよう `usda/parser.rs` のみに集中する briefing
-- **Track 3 (B + 追加 fork agent)**: fork agent 2 が B 完了後に **C (MeshData skin) + D (skel_animation_of body)** を実装。両方 `stage.rs` を触るので 1 エージェントで逐次のほうが安全
-- **Track 4 (C + D 後)**: メインエージェントが **E (yw-look glb skin/animation)** を実装
-
-各節目で `cargo test --lib usd::` + `npm run typecheck` + `npm test` + Codex review + commit。
-
-### A の実装ノート (yw-look 側、即着手)
-
-- `MaterialData.diffuse_texture` に asset 文字列が入っている場合のみ走る経路
-- Asset path 解決:
-  - 絶対パス → ファイルを直接読む
-  - 相対パス → USDA の場合は USDA ファイルからの相対、USDZ の場合は zip エントリ
-- USDZ archive の中身を取り出すには、`zip` クレートを fork ではなく yw-look 側に追加するか、stage 経由で読める道があるか確認
-  - 既存 yw-look の `viewer/loaders.ts` にすでに USDZ を扱う経路があるかチェック
-- GLB BIN chunk に PNG/JPEG バイトを入れ、glTF `images` / `textures` / `samplers` を追加
-- `MaterialInput` に `base_color_texture: Option<usize>` (texture index) を追加
-- mesh primitive の `pbrMetallicRoughness.baseColorTexture` を出力
-- TEXCOORD_0 はすでに出力済み
-
-### B の実装ノート (fork 側)
-
-- 失敗箇所: `src/usda/parser.rs:1096-1110` 付近の `parse_property_metadata_value`
-- 現在のエラー: `"Unsupported property metadata value token: Punctuation('(')"`
-- USDA の time sample で配列型 vector 値が来た時の syntax 例:
-  ```
-  float3[] translations.timeSamples = {
-      0: [(0, 0, 0), (0, 1, 0)],
-      24: [(0, 0, 0), (0, 1, 0.5)],
-  }
-  ```
-- `parse_array_value` 系の既存ヘルパが流用できないか調査。tuple `(x, y, z)` のパースも合わせて必要
-- 既存 timesamples テスト (`fixtures/timesamples.usda` のスカラー path) を壊さないこと
-
-### C の実装ノート (fork 側)
-
-- `MeshData` 拡張: `joint_indices: Vec<u32>`, `joint_weights: Vec<f32>` を追加（option ではなく空 Vec を許容するか、`Option<Vec<...>>` か）
-- 読み出し: `primvars:skel:jointIndices` (int[]) / `primvars:skel:jointWeights` (float[])
-- USD では interpolation `vertex` か `faceVarying` を見る必要がある（既存 normals / uvs と同じ流れ）
-- joints per vertex の数 (`elementSize` metadata) も読む — glTF は per vertex 4 を期待するので、4 でないなら最初の 4 だけ採用 or 重み再正規化
-
-### D の実装ノート (fork 側)
-
-- `skel:animationSource` relationship を辿って `UsdSkelSkelAnimation` prim を取得（既存 `bound_material` と同パターン）
-- `joints` (uniform token[]) を読む
-- `translations` / `rotations` / `scales` を `FieldKey::TimeSamples` 経由で取得
-- `Value::TimeSamples(TimeSampleMap)` を `Vec<(f64, Vec<f32>)>` 形式に整形
-- B が完了して USDA fixture が書ければ end-to-end テストも追加可能
-
-### 検証
-
-- A: USDZ サンプル (chameleon / glove / seahorse) で texture が出力 GLB に含まれることを cargo test で検証 + preview-model でスクショ確認
-- B: USDA SkelAnimation fixture を `fixtures/skel_animation/` に追加して parse できる単体テスト
-- C: jointIndices / jointWeights 付き fixture で `mesh_of` が値を返すテスト
-- D: `skel_animation_of` で 2 フレームの translations を読み取れるテスト
-- E: 統合 USDA で skin 付き mesh を extract → preview-model で T ポーズ + animation 確認
+## Phase 5 — Preview 品質向上（実装済）
+
+### 完了項目
+
+| 機能                       | 概要                                                                                                                                       | 検証結果                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| **Ear-clip triangulation** | 凹 n-gon の ear-clipping。凸ポリゴンは従来の fan fast path を維持                                                                          | Kitchen Set 回帰 green                               |
+| **PBR material (scalar)**  | `UsdPreviewSurface` の diffuseColor / metallic / roughness / opacity / emissive を GLB material に反映。sRGB→linear 変換 + alphaMode BLEND | 自作 fixture で e2e green                            |
+| **PBR material (texture)** | USDZ archive / filesystem の PNG/JPEG を GLB BIN chunk に埋め込み、baseColorTexture として出力。per-material sampler dedup                 | **Glove: テクスチャ付き描画 ✅**                     |
+| **displayColor fallback**  | `primvars:displayColor` (constant) を `baseColorFactor` にマッピング。`material:binding` がない mesh 用                                    | **Kitchen Set: カラフル描画 ✅**                     |
+| **wrapS/wrapT sampler**    | UsdUVTexture の wrap mode token → glTF sampler 定数 mapping                                                                                | fork `d4e9cd2`                                       |
+| **MaterialX 互換**         | `ND_UsdPreviewSurface_surfaceshader` / `ND_image_color3` 等の MaterialX node ID を受理                                                     | **Glove: material_of 解決 ✅**                       |
+| **UsdSkel skin**           | `skeleton_of` → SkeletonData、`mesh_of` skin primvars、GLB skin + JOINTS_0 / WEIGHTS_0 出力、TRS decompose                                 | **HumanFemale: 87 mesh 描画 ✅**                     |
+| **SkelAnimation**          | `skel_animation_of` → SkelAnimationData、GLB animation channels、USD time code → seconds 変換                                              | tiny_rigged.usda で Three.js AnimationMixer 動作確認 |
+| **Variant set**            | fork pcp が元から実装済みと確認。smoke test 3 本を pin                                                                                     | fixture 3 本 green                                   |
+| **Windows path fix**       | `find_layer` の path separator 正規化。HumanFemale が layer collect 成功するように                                                         | `930bfc5`                                            |
+| **pcp false cycle fix**    | ancestor propagation の eval_stack guard。HumanFemale が compose 完了するように                                                            | `b895c9b`                                            |
+
+### 既知の制約
+
+| 項目                        | 状態                | 理由                                                                                                               |
+| --------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **chameleon テクスチャ**    | 非対応 (asset-side) | UsdPreviewSurface stub のみ、本物の shading は別 prim tree の MaterialX subgraph。composition arc で繋がっていない |
+| **per-vertex displayColor** | 未実装              | constant (1 色/mesh) のみ対応。per-vertex → GLB `COLOR_0` は今後の課題                                             |
+| **multi-hop shader graph**  | 未実装              | 1-hop texture connection のみ。NodeGraph wrapping は別 asset で需要が出たら対応                                    |
+| **GeomSubset material**     | 未実装              | face subset 単位の material binding。Kitchen Set では不使用                                                        |
+| **PointInstancer**          | 未実装              | scatter/vegetation/crowd 用                                                                                        |
+| **Purpose**                 | 未実装              | `default` / `render` / `proxy` / `guide` の表示切替                                                                |
+| **Stage Camera**            | 未実装              | authored camera の列挙と切替                                                                                       |
+| **per-prim payload load**   | 未実装              | stateful session (`open_stage` / `load_payloads`) は延期                                                           |
 
 ---
 

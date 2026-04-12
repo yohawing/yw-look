@@ -206,31 +206,36 @@
 - [x] **Phase 2** — UX 反映（summary 先出し、`UsdInspectorCard` / `WarningsCard` 合流、USDC 明示エラー）
 - [x] **Phase 3** — Rust Geometry パイプライン（GLB + `ipc::Response`、`requires_glb_preview` 分岐、fork `mesh_of` + yw-look 側で world xform 合成・Z-up 補正・visibility 継承・leftHanded winding、手書き GLB builder）
 
-#### Phase 4 — Payload 遅延ロード
+#### Phase 4 — Payload 遅延ロード（実装済）
 
-- [ ] `docs/usd.md` で Phase 4 方針を確定する（実装に合わせて追記する）
-- [x] `summarize_stage` / `inspect_stage` に load policy を導入する（`references` は常時 compose、`payloads` のみ deferred 対象）
-- [x] `payloads deferred` モードでも hierarchy / issues を表示できるようにする
-- [x] payload prim の `loaded / unloaded / missing` 状態を UI に表示する
-- [ ] 必要な payload だけ後から load する API を設計する（stateful session は Phase 5 以降に延期）
-- [x] viewer の再構築または差分更新戦略を決める（`usdLoadPolicy` 依存の useEffect で extract_geometry 再走 + dispose）
-- [ ] Kitchen Set クラスで初回表示体験の改善を検証する
+- [x] `summarize_stage` / `inspect_stage` に load policy 導入（stateless API）
+- [x] payload prim の `loaded / unloaded / missing` 3 値表示
+- [x] UsdInspectorCard に Loaded / Deferred segmented control
+- [x] viewer の policy 切替 → extract_geometry 再走 + dispose
+- [ ] Kitchen Set で初回表示時間計測
+- [ ] per-prim payload load/unload（stateful session、延期中）
 
-#### Phase 5 — Preview 品質向上
+#### Phase 5 — Preview 品質向上（実装済）
 
-- [ ] `docs/usd.md` で Phase 5 方針を確定する
-- [x] UsdPreviewSurface → GLB material 変換（scalar factor + USDZ/filesystem texture 埋め込み: Phase 5a + Phase 5c A 完了。Variant set / Windows path: Phase 5d F1。chameleon asset は MaterialX subgraph + 空 stub のハイブリッド authoring で pure USD preview path では不可、Phase 5e で打ち切り。多段 shader graph 全般の対応は Phase 5e+ 候補）
-- [x] 凹 n-gon の ear-clip triangulation
-- [x] USD Skel → glTF skin/animation 全段 (fork: skeleton_of / mesh_of skin primvars / skel_animation_of body / USDA parser time-sampled 配列 fix。yw-look: SkinInput + AnimationInput + 4-influence packing + TRS decompose + time-code-to-seconds 変換 + sparse channel handling)。Phase 5c A〜E 全て実装済
-- [ ] variant set 一覧表示と切り替えを preview に反映する
-- [ ] purpose (`default` / `render` / `proxy` / `guide`) の表示ポリシーを導入する
-- [ ] `PointInstancer` を preview できるようにする
-- [ ] `GeomSubset` / face subset 単位の material binding を反映する
-- [ ] stage 内 camera の列挙と切り替え、authored camera なし時の auto-framing 改善
+- [x] 凹 n-gon ear-clip triangulation（convex fast path 付き）
+- [x] UsdPreviewSurface → GLB material（scalar PBR factor + sRGB→linear + alphaMode）
+- [x] USDZ / filesystem texture embedding（TextureLoader + per-material sampler dedup）
+- [x] displayColor fallback（Kitchen Set 等、constant color → baseColorFactor）
+- [x] MaterialX node ID 互換（`ND_UsdPreviewSurface_surfaceshader` / `ND_image_color3`、Glove テクスチャ解決）
+- [x] wrapS/wrapT sampler mapping
+- [x] USD Skel → glTF skin + animation 全段（skeleton_of / mesh_of skin / skel_animation_of / TRS decompose / time code→秒）
+- [x] Variant set resolution 確認 + Windows path fix
+- [x] pcp false cycle detection fix（HumanFemale unblock）
 
-#### 継続タスク
+#### 今後の USD 課題
 
-- [ ] `USDLoader.parse` を Web Worker に退避して UI スレッドのブロッキングを崩す
+- [ ] per-vertex displayColor → GLB `COLOR_0` attribute
+- [ ] variant set 一覧表示・切り替え UI
+- [ ] purpose (`default` / `render` / `proxy` / `guide`) 表示ポリシー
+- [ ] `PointInstancer` preview
+- [ ] `GeomSubset` / face subset material binding
+- [ ] stage 内 camera の列挙と切替
+- [ ] `USDLoader.parse` を Web Worker に退避
 
 ## 15. OS 統合（Windows / macOS）
 
