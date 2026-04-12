@@ -346,6 +346,13 @@ impl UsdBackend for OpenusdBackend {
         let mut skin_slots: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
         let mut mesh_skin_slots: Vec<Option<usize>> = vec![None; mesh_paths.len()];
+        // Pre-compute the f32 Z-up → Y-up correction for skeleton
+        // transforms. We need this in both the bind-transform
+        // rotation and the root-joint rest-transform rotation so the
+        // joint hierarchy comes out Y-up in the GLB.
+        let up_correction_f32: Option<[f32; 16]> =
+            up_axis_correction.map(|c| mat4_f64_to_f32(&c));
+
         for (i, prim_path) in mesh_paths.iter().enumerate() {
             if let Some((skel_path, skel_data)) =
                 stage.skeleton_of(prim_path.clone())
@@ -355,7 +362,8 @@ impl UsdBackend for OpenusdBackend {
                     existing
                 } else {
                     let slot = skins.len();
-                    let skin_input = skin_input_from_skel(&key, &skel_data);
+                    let skin_input =
+                        skin_input_from_skel(&key, &skel_data, up_correction_f32.as_ref());
                     skins.push(skin_input);
                     skin_slots.insert(key, slot);
                     slot
@@ -897,8 +905,16 @@ fn guess_image_mime(asset_path: &str) -> Option<&'static str> {
 fn skin_input_from_skel(
     name: &str,
     skel: &openusd::stage::SkeletonData,
+    _up_axis_correction: Option<&[f32; 16]>,
 ) -> glb::SkinInput {
     let joint_count = skel.joints.len();
+
+    // Skeleton bind/rest transforms stay in their authored space
+    // (Z-up for Z-up stages). The Z-up → Y-up rotation lives on the
+    // mesh node's world matrix, which Three.js applies AFTER the
+    // skinning computation (`meshMatrix * skin(vertex, joints)`).
+    // Rotating the skeleton transforms here would double-rotate the
+    // result because the mesh node already carries the correction.
     let rest_local_matrices: Vec<[f32; 16]> = skel.rest_transforms.clone();
     let inverse_bind_matrices: Vec<[f32; 16]> = skel
         .bind_transforms
@@ -921,6 +937,20 @@ fn skin_input_from_skel(
         rest_local_matrices,
         inverse_bind_matrices,
     }
+}
+
+fn mat4_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
+    let mut out = [0.0_f32; 16];
+    for col in 0..4 {
+        for row in 0..4 {
+            let mut sum = 0.0_f32;
+            for k in 0..4 {
+                sum += a[k * 4 + row] * b[col * 4 + k];
+            }
+            out[col * 4 + row] = sum;
+        }
+    }
+    out
 }
 
 const IDENTITY_MAT4_F32: [f32; 16] = [
