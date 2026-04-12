@@ -2,34 +2,34 @@
 
 ## v0.1.1 (2026-04-12)
 
-### 3D フォーマット
+### 3D Formats
 
-- USD / USDA / USDC / USDZ 対応 (Rust バックエンド経由の GLB 変換)
-  - PBR マテリアル、テクスチャ埋め込み、スキン、アニメーション、variant sets
-- COLLADA (.dae) ローダー追加
+- USD / USDA / USDC / USDZ support (GLB conversion via Rust backend)
+  - PBR materials, texture embedding, skins, animations, variant sets
+- COLLADA (.dae) loader
 
-### テクスチャ
+### Textures
 
-- KTX2 ローダー追加
-- テクスチャビューア改善 (ガンマ / 露出 / タイル表示)
+- KTX2 loader
+- Texture viewer improvements (gamma, exposure, tiling)
 
-### ビューア
+### Viewer
 
-- FXAA ポストプロセス
-- シャドウ表示
-- displayColor / per-vertex color 対応
+- FXAA post-processing
+- Shadow rendering
+- displayColor / per-vertex color support
 
-### デスクトップ統合
+### Desktop Integration
 
-- ネイティブメニューバー
-- アプリ内アップデーター (GitHub Releases 連携)
-- ファイル関連付け (3D モデル + テクスチャ)
+- Native menu bar
+- In-app updater (GitHub Releases)
+- File associations (3D models + textures)
 
-### インフラ
+### Infrastructure
 
-- CI パイプライン整備 (lint, typecheck, Rust check, integration test, visual regression)
-- Windows NSIS / MSI バンドル対応
+- CI pipeline (lint, typecheck, Rust check, integration test, visual regression)
+- Windows NSIS / MSI bundling
 
 ## v0.1.0
 
-初期リリース。glTF, FBX, OBJ, PLY, STL および主要画像フォーマットの表示に対応。
+Initial release. Supports glTF, FBX, OBJ, PLY, STL and common image formats.
