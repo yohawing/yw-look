@@ -1637,7 +1637,15 @@ fn compose_world_xform(stage: &Stage, prim_path: &SdfPath) -> Result<[f64; 16], 
         // keeps the routing surface small — whatever `requires_glb_preview`
         // sends through will see the authored transforms faithfully.
         match compose_prim_local_xform(stage, &sdf_path) {
-            Ok(Some(local)) => chain.push(local),
+            Ok(Some(local)) => {
+                if std::env::var("YW_LOOK_USD_DEBUG_XFORM").is_ok() {
+                    eprintln!(
+                        "  xform {} diag=[{:.3}, {:.3}, {:.3}] t=[{:.3}, {:.3}, {:.3}]",
+                        path_str, local[0], local[5], local[10], local[12], local[13], local[14]
+                    );
+                }
+                chain.push(local);
+            }
             Ok(None) => {}
             Err(e) => {
                 eprintln!(
@@ -1862,15 +1870,19 @@ fn read_angle(value: &SdfValue) -> Option<f64> {
     }
 }
 
-/// Extracts a quaternion from any of USD's quat value types. USD stores
-/// quaternions as `(real, i, j, k)` i.e. `[w, x, y, z]` in array order.
+/// Extracts a quaternion from any of USD's quat value types. The fork's
+/// USDC reader stores quaternions in **imaginary-first** order
+/// `[x, y, z, w]` matching the USDC binary crate format — NOT the C++
+/// `GfQuatf(real, imaginary)` API order. We return `(w, x, y, z)` so
+/// callers can use the standard scalar-first convention for matrix
+/// construction.
 fn read_quat(value: &SdfValue) -> Option<(f64, f64, f64, f64)> {
     match value {
-        SdfValue::Quatd([w, x, y, z]) => Some((*w, *x, *y, *z)),
-        SdfValue::Quatf([w, x, y, z]) => {
+        SdfValue::Quatd([x, y, z, w]) => Some((*w, *x, *y, *z)),
+        SdfValue::Quatf([x, y, z, w]) => {
             Some((*w as f64, *x as f64, *y as f64, *z as f64))
         }
-        SdfValue::Quath([w, x, y, z]) => Some((
+        SdfValue::Quath([x, y, z, w]) => Some((
             f64::from(*w),
             f64::from(*x),
             f64::from(*y),
@@ -3586,6 +3598,38 @@ def Xform "Root" (
     /// context and the reviewer can visually verify material binding
     /// survives the full pipeline. Ignored by default so automated
     /// runs don't produce unsolicited artifacts.
+    #[test]
+    #[ignore = "manual debug — needs samples/private"]
+    fn debug_glove_xform_ops() {
+        use openusd::sdf::Value as SdfValue;
+        let path = PathBuf::from(
+            "../samples/private/usd/glove_baseball_mtl_variant.usdz",
+        );
+        if skip_if_missing(&path, "glove_xform") { return; }
+        let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
+        let root = SdfPath::new("/glove_baseball").unwrap();
+
+        // Read xformOpOrder via property path (same method as compose_prim_local_xform)
+        let order_path = root.append_property("xformOpOrder").unwrap();
+        let order: Option<SdfValue> = stage.field(order_path, FieldKey::Default).ok().flatten();
+        eprintln!("xformOpOrder = {:?}", order);
+
+        // Try reading individual xformOps
+        for op_name in &["xformOp:transform", "xformOp:rotateXYZ", "xformOp:rotateZ",
+                          "xformOp:scale", "xformOp:translate", "xformOp:orient"] {
+            if let Ok(prop) = root.append_property(op_name) {
+                let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
+                if val.is_some() {
+                    eprintln!("  {} = {:?}", op_name, val);
+                }
+            }
+        }
+
+        // Our compose_prim_local_xform
+        let our_local = super::compose_prim_local_xform(&stage, &root);
+        eprintln!("our compose_prim_local_xform = {:?}", our_local);
+    }
+
     #[test]
     #[ignore = "manual E2E — needs samples/private"]
     fn dump_glove_glb_for_preview_model() {
