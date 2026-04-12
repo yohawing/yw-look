@@ -37,6 +37,10 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "macOS": {
+      "entitlements": "Entitlements.plist",
+      "signingIdentity": "-"
+    },
     "fileAssociations": [
       {
         "ext": [
