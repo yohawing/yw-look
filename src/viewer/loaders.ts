@@ -701,7 +701,7 @@ export async function loadPreviewObject(
         return {
           object,
           cleanupUrls: [],
-          clips: [],
+          clips: gltf.animations,
           formatVersion: null,
         };
       }
