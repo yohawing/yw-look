@@ -523,17 +523,47 @@ Phase 5a で「scalar PBR factor のみ」、Phase 5b で「skeleton の bind po
 
 これにより chameleon の `bound_material` は 6 つの distinct material path (`chameleon_mat_1` / `chameleon_mat_1_2` / ... / `stick_placeholder_mat_1`) を正しく返すようになり、yw-look の mesh traverse も 6 件すべて拾えている。
 
-#### L2 — fork `material_of` を NodeGraph wrapping 越しに歩かせる (未着手)
+#### L2 — chameleon shader property composition gap (調査済み, 修正は Phase 5e へ re-scope)
 
-chameleon の本命 PBR は `bound_material` で path までは取れるが、Material prim の直下に `UsdPreviewSurface` Shader が無く NodeGraph layer 越しに wrap されているため、fork の現行 `material_of` walker は `None` を返す。結果として yw-look の GLB は default + stick placeholder の 2 slot にとどまり、chameleon body / eye / nail / tongue は default grey で出る。
+Phase 5d L2 は当初 「fork の `material_of` を NodeGraph wrap 越しに歩かせる」 タスクとして起票したが、fork agent の dump 調査 (`fork 0d40283`) で **NodeGraph wrap 仮説は崩れた**:
 
-修正方針:
+```
+/Root/chameleon_idle/Looks/
+  chameleon_mat (Material, has_spec=true, properties=0)
+    UsdPreviewSurface (Shader, has_spec=true, properties=0)  ← 直下にいる
+  chameleon_mat_1 .. chameleon_mat_1_2_3_4_5_6_7_8_9_10
+    UsdPreviewSurface (Shader, 同上)
+  stick_placeholder_mat
+    UsdPreviewSurface (Shader, properties=1, diffuseColor=Vec3f([0.11, 0.055, 0.057]))
+```
 
-- `Stage::material_of` を Material prim の直接の Shader 子だけでなく、子 NodeGraph (`info:id == "NodeGraph"` or `typeName == "NodeGraph"`) の中も再帰的に検索
-- 検索順序は USD spec 通り `outputs:surface` connection を辿る方が正しいが、Phase 5a 同様「Material 配下のどこかにある最初の `info:id == "UsdPreviewSurface"` Shader を採用」のヒューリスティックでも十分ステップアップする
-- `extract_geometry_chameleon_textured_smoke` の `#[ignore]` を外し、`materials.len() >= 6` + `chameleon_*` 名前の image が ≥ 1 で pin
+chameleon の `UsdPreviewSurface` Shader は **Material 直下にあって NodeGraph wrap されていない**。`material_of` walker を再帰化しても解決しない。真因はもっと上流の **property spec が composition で消えていること**:
 
-L2 が入ると chameleon の textured PBR が GLB に乗り、preview-model でテクスチャ付きのトカゲが出るようになる。
+| Material                  | shader has_spec | inputs:diffuseColor Default   | inputs:diffuseColor has_spec |
+| ------------------------- | --------------- | ----------------------------- | ---------------------------- |
+| `chameleon_mat`           | true            | None                          | **false**                    |
+| `chameleon_mat_1`         | true            | None                          | **false**                    |
+| `chameleon_mat_1_2_3_4_5` | true            | None                          | **false**                    |
+| `stick_placeholder_mat`   | true            | `Vec3f([0.11, 0.055, 0.057])` | true                         |
+
+加えて variant 解決後に `chameleon_mat_1_2_3_4_5_6_7_8_9_10` のような **suffix 付き Material が 11 個生成** されているのが見える。これは variant compose 時に同じ Material spec が複数回 propagate されて auto-rename されている (variant 解決時の prim duplicate バグ) 可能性が高い。Phase 5d F1 で variant 解決を pin した時には観測できていなかった、F1 で生まれた regression かもしれない。
+
+##### 真因候補と次の調査方向 (Phase 5e+)
+
+1. **USDC decode の漏れ**: chameleon は USDC binary 内で Shader input properties を authoring。`src/usdc/reader.rs` が特定の field / valueRep を skip している可能性
+2. **variant compose 時の property arc 引き継ぎミス**: prim tree の rename / duplicate で property child arc が新しい prim に伝搬されていない
+3. **spec type filter**: reader が PropertySpec を Material/Shader の下で読まずに捨てている
+
+調査の最初の一手:
+
+- `chameleon_mat` (suffix なし、F1 variant 解決前から存在) の properties が 0 なら → **USDC decode 段階の問題**、`src/usdc/reader.rs` 側を疑う
+- Layer-level raw spec dump で composition resolve 前の生 layer に `inputs:diffuseColor` が authored されているか確認 (`Layer` API)
+
+`fork 0d40283` には diagnostic dump test (`#[ignore]`) が残してあるので次のセッションで pickup できる。
+
+##### Phase 5d L2 の re-scope
+
+実装すべきは「NodeGraph walker」ではなく **「chameleon shader property composition gap 調査 + 修正」**。範囲が深いので Phase 5e の独立タスクとして切り出す。yw-look 側の `extract_geometry_chameleon_textured_smoke` は当面 `materials.len() >= 2` + `mesh_count >= 5` の構造 baseline で `#[ignore]` のまま据え置き。
 
 #### F3 — composition cycle の過検知 (HumanFemale 系、未着手)
 
