@@ -13,7 +13,7 @@ use std::path::Path as StdPath;
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::stage::{MaterialData, MeshData, UpAxis};
-use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
+use openusd::{GeomSubsetData, Stage, StageLoadPolicy as OpenusdLoadPolicy};
 
 use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
@@ -402,9 +402,10 @@ impl UsdBackend for OpenusdBackend {
             }
         }
 
-        // Pass 2: build a MeshInput per Mesh prim, composing the world
-        // transform along the parent chain and pre-applying the up-axis
-        // correction.
+        // Pass 2: build a MeshInput per Mesh prim (or per GeomSubset
+        // when the mesh has face-level material splits), composing the
+        // world transform along the parent chain and pre-applying the
+        // up-axis correction.
         let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
         for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
             let Some(mesh_data) = stage
@@ -421,100 +422,84 @@ impl UsdBackend for OpenusdBackend {
             let world_f32 = mat4_f64_to_f32(&world);
 
             let orientation = read_mesh_orientation(&stage, prim_path);
-            // max_joint clamps JOINTS_0 indices to the skin's actual
-            // joint count so the GLB never references out-of-range
-            // bones. If the mesh is unrigged (skin_index == None), the
-            // skin lookup won't apply anyway, but we still pass a sane
-            // cap so mesh_data_to_input can zero out stray authored
-            // joint indices.
             let max_joint = mesh_skin_slots[mesh_idx]
                 .and_then(|si| skins.get(si))
                 .map(|s| s.joint_names.len())
                 .unwrap_or(usize::MAX);
+
+            // GeomSubset: if the mesh has face subsets with material
+            // bindings, produce one MeshInput per subset so each face
+            // group gets its own material. Otherwise fall through to
+            // the whole-mesh path.
+            let subsets = stage.geom_subsets_of(prim_path.clone());
+            let has_subset_materials = !subsets.is_empty()
+                && subsets.iter().any(|s| s.material_binding.is_some());
+
+            if has_subset_materials {
+                for subset in &subsets {
+                    let filtered = filter_mesh_by_face_indices(
+                        &mesh_data,
+                        &subset.indices,
+                    );
+                    if filtered.face_vertex_counts.is_empty() {
+                        continue;
+                    }
+                    let subset_name = SdfPath::new(
+                        &format!("{}/{}", prim_path.as_str(), subset.name),
+                    )
+                    .unwrap_or_else(|_| prim_path.clone());
+                    let mut tri = mesh_data_to_input(
+                        &subset_name,
+                        world_f32,
+                        &filtered,
+                        orientation,
+                        max_joint,
+                    )?;
+
+                    // Resolve material from the subset's binding.
+                    let slot = resolve_material_slot(
+                        &stage,
+                        subset.material_binding.as_ref(),
+                        &subset_name,
+                        &mut materials,
+                        &mut material_texture_paths,
+                        &mut material_slots,
+                    );
+                    tri.material_index = apply_display_color_fallback(
+                        slot,
+                        &filtered,
+                        &subset_name,
+                        &mut materials,
+                        &mut material_texture_paths,
+                        &mut material_slots,
+                    );
+                    tri.skin_index = mesh_skin_slots[mesh_idx];
+                    inputs.push(tri);
+                }
+                continue; // skip whole-mesh path
+            }
+
             let mut triangulated =
                 mesh_data_to_input(prim_path, world_f32, &mesh_data, orientation, max_joint)?;
 
             // Resolve the material slot for this mesh. Unbound meshes
-            // fall back to slot 0 (default); a bound Material prim is
-            // looked up once and its `MaterialData` is converted to
-            // `MaterialInput` and cached in `material_slots` so the
-            // output GLB contains a single row per distinct material.
-            let slot = if let Some(mat_path) = stage.bound_material(prim_path.clone())
-            {
-                let key = mat_path.to_string();
-                if let Some(&existing) = material_slots.get(&key) {
-                    existing
-                } else if let Some(data) = stage.material_of(prim_path.clone()) {
-                    let slot = materials.len();
-                    let tex_path = data.diffuse_texture.clone();
-                    materials.push(material_input_from_data(&key, &data));
-                    material_texture_paths.push(tex_path);
-                    material_slots.insert(key, slot);
-                    slot
-                } else {
-                    // `bound_material` returned Some but `material_of`
-                    // could not find a UsdPreviewSurface under it — a
-                    // non-PBR material, multi-hop graph, etc. Fall
-                    // back to the default slot rather than emitting an
-                    // empty entry that contributes nothing over the
-                    // default.
-                    0
-                }
-            } else {
-                0
-            };
-            // Phase 5e displayColor fallback: when the mesh has no
-            // bound material (slot==0) but carries a constant
-            // `primvars:displayColor`, create a unique material slot
-            // with that color as baseColorFactor. This gives Kitchen
-            // Set and similar assets their authored per-mesh colors
-            // without needing UsdPreviewSurface materials.
-            let final_slot = if slot == 0 {
-                if let Some(ref dc) = mesh_data.display_color {
-                    if dc.len() == 3 {
-                        // Constant (1 color / mesh). Linearize from
-                        // sRGB like UsdPreviewSurface diffuseColor.
-                        let key = format!(
-                            "displayColor:{:.4},{:.4},{:.4}",
-                            dc[0], dc[1], dc[2]
-                        );
-                        if let Some(&existing) = material_slots.get(&key) {
-                            existing
-                        } else {
-                            let s = materials.len();
-                            materials.push(glb::MaterialInput {
-                                name: format!("dc:{}", prim_path.as_str()),
-                                base_color_factor: [
-                                    srgb_to_linear(dc[0]),
-                                    srgb_to_linear(dc[1]),
-                                    srgb_to_linear(dc[2]),
-                                    1.0,
-                                ],
-                                metallic_factor: 0.0,
-                                roughness_factor: 0.5,
-                                emissive_factor: [0.0, 0.0, 0.0],
-                                double_sided: true,
-                                base_color_texture: None,
-                                wrap_s: 10497,
-                                wrap_t: 10497,
-                            });
-                            material_texture_paths.push(None);
-                            material_slots.insert(key, s);
-                            s
-                        }
-                    } else {
-                        // per-vertex displayColor → Phase 5e+ COLOR_0
-                        // attribute output. For now fall back to
-                        // default.
-                        0
-                    }
-                } else {
-                    0
-                }
-            } else {
-                slot
-            };
-            triangulated.material_index = final_slot;
+            // fall back to slot 0 (default).
+            let slot = resolve_material_slot(
+                &stage,
+                stage.bound_material(prim_path.clone()).as_ref(),
+                prim_path,
+                &mut materials,
+                &mut material_texture_paths,
+                &mut material_slots,
+            );
+            triangulated.material_index = apply_display_color_fallback(
+                slot,
+                &mesh_data,
+                prim_path,
+                &mut materials,
+                &mut material_texture_paths,
+                &mut material_slots,
+            );
 
             // Phase 5c E: attach the dedup'd skin slot to this mesh
             // primitive. The mesh is rendered statically when no
@@ -1180,6 +1165,172 @@ fn animation_input_from_skel(
         rotations,
         scales,
     })
+}
+
+/// Resolve a material binding path → material slot index, creating
+/// a new MaterialInput when the material is first seen.
+fn resolve_material_slot(
+    stage: &Stage,
+    mat_path: Option<&SdfPath>,
+    prim_path: &SdfPath,
+    materials: &mut Vec<glb::MaterialInput>,
+    material_texture_paths: &mut Vec<Option<String>>,
+    material_slots: &mut std::collections::HashMap<String, usize>,
+) -> usize {
+    let Some(mat_path) = mat_path else { return 0 };
+    let key = mat_path.to_string();
+    if let Some(&existing) = material_slots.get(&key) {
+        return existing;
+    }
+    if let Some(data) = stage.material_of(prim_path.clone()) {
+        let slot = materials.len();
+        let tex_path = data.diffuse_texture.clone();
+        materials.push(material_input_from_data(&key, &data));
+        material_texture_paths.push(tex_path);
+        material_slots.insert(key, slot);
+        slot
+    } else {
+        0
+    }
+}
+
+/// displayColor fallback: when the mesh has no bound material
+/// (slot==0) but carries a constant `primvars:displayColor`, create
+/// a unique material slot with that color as baseColorFactor.
+fn apply_display_color_fallback(
+    slot: usize,
+    mesh_data: &MeshData,
+    prim_path: &SdfPath,
+    materials: &mut Vec<glb::MaterialInput>,
+    material_texture_paths: &mut Vec<Option<String>>,
+    material_slots: &mut std::collections::HashMap<String, usize>,
+) -> usize {
+    if slot != 0 {
+        return slot;
+    }
+    if let Some(ref dc) = mesh_data.display_color {
+        if dc.len() == 3 {
+            let key = format!("displayColor:{:.4},{:.4},{:.4}", dc[0], dc[1], dc[2]);
+            if let Some(&existing) = material_slots.get(&key) {
+                return existing;
+            }
+            let s = materials.len();
+            materials.push(glb::MaterialInput {
+                name: format!("dc:{}", prim_path.as_str()),
+                base_color_factor: [
+                    srgb_to_linear(dc[0]),
+                    srgb_to_linear(dc[1]),
+                    srgb_to_linear(dc[2]),
+                    1.0,
+                ],
+                metallic_factor: 0.0,
+                roughness_factor: 0.5,
+                emissive_factor: [0.0, 0.0, 0.0],
+                double_sided: true,
+                base_color_texture: None,
+                wrap_s: 10497,
+                wrap_t: 10497,
+            });
+            material_texture_paths.push(None);
+            material_slots.insert(key, s);
+            return s;
+        }
+    }
+    0
+}
+
+/// Filter a MeshData to only include faces at the given face indices
+/// (0-based). Used by the GeomSubset pipeline to split a multi-
+/// material mesh into per-subset MeshInputs. The points array is
+/// shared (face_vertex_indices still reference the same point
+/// indices); only face_vertex_counts / face_vertex_indices /
+/// face-varying attributes are sliced.
+fn filter_mesh_by_face_indices(
+    mesh: &MeshData,
+    face_indices: &[u32],
+) -> MeshData {
+    let mut counts = Vec::new();
+    let mut indices = Vec::new();
+
+    // Build a face-vertex cursor map for the original mesh so we can
+    // slice face-varying attributes correctly.
+    let mut fv_offsets: Vec<usize> = Vec::with_capacity(mesh.face_vertex_counts.len());
+    let mut cursor: usize = 0;
+    for &c in &mesh.face_vertex_counts {
+        fv_offsets.push(cursor);
+        cursor += c as usize;
+    }
+
+    let mut new_normals: Option<Vec<f32>> = mesh.normals.as_ref().map(|_| Vec::new());
+    let mut new_uvs: Option<Vec<f32>> = mesh.uvs.as_ref().map(|_| Vec::new());
+    let mut new_dc: Option<Vec<f32>> = mesh.display_color.as_ref().map(|_| Vec::new());
+
+    let total_fv: usize = mesh.face_vertex_counts.iter().map(|c| *c as usize).sum();
+    let _point_count = mesh.points.len() / 3;
+    let face_count = mesh.face_vertex_counts.len();
+
+    for &fi in face_indices {
+        let fi = fi as usize;
+        if fi >= face_count {
+            continue;
+        }
+        let count = mesh.face_vertex_counts[fi];
+        counts.push(count);
+        let off = fv_offsets[fi];
+        let end = off + count as usize;
+        indices.extend_from_slice(&mesh.face_vertex_indices[off..end]);
+
+        // Face-varying attributes: copy the corresponding slice.
+        // We detect face-varying by checking if the source length
+        // matches total_fv * stride.
+        if let (Some(src), Some(dst)) = (&mesh.normals, &mut new_normals) {
+            if src.len() == total_fv * 3 {
+                dst.extend_from_slice(&src[off * 3..end * 3]);
+            }
+        }
+        if let (Some(src), Some(dst)) = (&mesh.uvs, &mut new_uvs) {
+            if src.len() == total_fv * 2 {
+                dst.extend_from_slice(&src[off * 2..end * 2]);
+            }
+        }
+        if let (Some(src), Some(dst)) = (&mesh.display_color, &mut new_dc) {
+            if src.len() == total_fv * 3 {
+                dst.extend_from_slice(&src[off * 3..end * 3]);
+            }
+        }
+    }
+
+    // For vertex-varying / constant / uniform attributes, pass the
+    // original arrays through unchanged — mesh_data_to_input will
+    // index into them by point_index which still works because we
+    // kept the same points array.
+    let normals = if mesh.normals.as_ref().map(|n| n.len()) == Some(total_fv * 3) {
+        new_normals
+    } else {
+        mesh.normals.clone()
+    };
+    let uvs = if mesh.uvs.as_ref().map(|u| u.len()) == Some(total_fv * 2) {
+        new_uvs
+    } else {
+        mesh.uvs.clone()
+    };
+    let display_color = if mesh.display_color.as_ref().map(|d| d.len()) == Some(total_fv * 3) {
+        new_dc
+    } else {
+        mesh.display_color.clone()
+    };
+
+    MeshData {
+        points: mesh.points.clone(),
+        face_vertex_indices: indices,
+        face_vertex_counts: counts,
+        normals,
+        uvs,
+        joint_indices: mesh.joint_indices.clone(),
+        joint_weights: mesh.joint_weights.clone(),
+        joints_per_vertex: mesh.joints_per_vertex,
+        display_color,
+    }
 }
 
 /// Phase 5e L1: map a USD `inputs:wrapS/wrapT` token to a glTF

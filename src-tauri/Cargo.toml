@@ -19,7 +19,7 @@ tauri-build = { version = "2.1.0", features = [] }
 # API plus the pcp false-cycle-detection fix (`b895c9b`) that lets
 # HumanFemale.walk.usd and similar multi-payload USD stages compose
 # without falsely hitting `Error::ArcCycle`.
-openusd = { git = "https://github.com/yohawing/openusd.git", rev = "75a6a84fd19986410e234e59a3117f257c1ca1f8" }
+openusd = { git = "https://github.com/yohawing/openusd.git", rev = "012664563cbacf67ea17ea49323109a4d6c88588" }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
