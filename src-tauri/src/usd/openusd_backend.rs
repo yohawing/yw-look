@@ -433,7 +433,58 @@ impl UsdBackend for OpenusdBackend {
             } else {
                 0
             };
-            triangulated.material_index = slot;
+            // Phase 5e displayColor fallback: when the mesh has no
+            // bound material (slot==0) but carries a constant
+            // `primvars:displayColor`, create a unique material slot
+            // with that color as baseColorFactor. This gives Kitchen
+            // Set and similar assets their authored per-mesh colors
+            // without needing UsdPreviewSurface materials.
+            let final_slot = if slot == 0 {
+                if let Some(ref dc) = mesh_data.display_color {
+                    if dc.len() == 3 {
+                        // Constant (1 color / mesh). Linearize from
+                        // sRGB like UsdPreviewSurface diffuseColor.
+                        let key = format!(
+                            "displayColor:{:.4},{:.4},{:.4}",
+                            dc[0], dc[1], dc[2]
+                        );
+                        if let Some(&existing) = material_slots.get(&key) {
+                            existing
+                        } else {
+                            let s = materials.len();
+                            materials.push(glb::MaterialInput {
+                                name: format!("dc:{}", prim_path.as_str()),
+                                base_color_factor: [
+                                    srgb_to_linear(dc[0]),
+                                    srgb_to_linear(dc[1]),
+                                    srgb_to_linear(dc[2]),
+                                    1.0,
+                                ],
+                                metallic_factor: 0.0,
+                                roughness_factor: 0.5,
+                                emissive_factor: [0.0, 0.0, 0.0],
+                                double_sided: true,
+                                base_color_texture: None,
+                                wrap_s: 10497,
+                                wrap_t: 10497,
+                            });
+                            material_texture_paths.push(None);
+                            material_slots.insert(key, s);
+                            s
+                        }
+                    } else {
+                        // per-vertex displayColor → Phase 5e+ COLOR_0
+                        // attribute output. For now fall back to
+                        // default.
+                        0
+                    }
+                } else {
+                    0
+                }
+            } else {
+                slot
+            };
+            triangulated.material_index = final_slot;
 
             // Phase 5c E: attach the dedup'd skin slot to this mesh
             // primitive. The mesh is rendered statically when no
@@ -2623,6 +2674,7 @@ mod tests {
             joint_indices: None,
             joint_weights: None,
             joints_per_vertex: 0,
+            display_color: None,
         };
         let prim_path = SdfPath::new("/Malicious").unwrap();
         let err = mesh_data_to_input(
@@ -3301,6 +3353,135 @@ def Xform "Root" (
     /// context and the reviewer can visually verify material binding
     /// survives the full pipeline. Ignored by default so automated
     /// runs don't produce unsolicited artifacts.
+    #[test]
+    #[ignore = "manual E2E — needs samples/private"]
+    fn dump_glove_glb_for_preview_model() {
+        let path = PathBuf::from(
+            "../samples/private/usd/glove_baseball_mtl_variant.usdz",
+        );
+        if skip_if_missing(&path, "glove_dump") { return; }
+        let backend = OpenusdBackend::new();
+        match backend.extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll) {
+            Ok(glb) => {
+                let out_dir = PathBuf::from("../artifacts/tmp");
+                std::fs::create_dir_all(&out_dir).expect("mkdir");
+                let out = out_dir.join("glove.glb");
+                std::fs::write(&out, &glb).expect("write");
+                eprintln!("wrote {} ({} bytes)", out.display(), glb.len());
+            }
+            Err(err) => eprintln!("SKIP glove dump: {err}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "manual debug — needs samples/private"]
+    fn debug_glove_material_binding() {
+        use openusd::sdf::Value as SdfValue;
+        let path = PathBuf::from(
+            "../samples/private/usd/glove_baseball_mtl_variant.usdz",
+        );
+        if skip_if_missing(&path, "glove_debug") { return; }
+        let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
+        let mut checked = 0;
+        stage.traverse(|prim_path| {
+            if !super::is_renderable_mesh(&stage, prim_path) { return; }
+            checked += 1;
+            let bm = stage.bound_material(prim_path.clone()).map(|p| p.to_string());
+            let mo = stage.material_of(prim_path.clone());
+            let dc_path = prim_path.append_property("primvars:displayColor").ok();
+            let dc = dc_path.and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+            eprintln!(
+                "  {} -> bound={:?} material_of={:?} displayColor={}",
+                prim_path.as_str(),
+                bm,
+                mo.as_ref().map(|m| format!("diffuse={:?} tex={:?}", m.diffuse_color, m.diffuse_texture)),
+                if dc.is_some() { "yes" } else { "no" }
+            );
+        }).unwrap();
+        eprintln!("glove: {checked} meshes");
+
+        // Check the Material prim's children to understand why material_of fails
+        let mat_path = SdfPath::new("/glove_baseball/mtl/glove_new_mat_1").unwrap();
+        eprintln!("\n--- Material children dump ---");
+        stage.traverse(|prim_path| {
+            // Only look under the material path
+            if !prim_path.as_str().starts_with("/glove_baseball/mtl/glove_new_mat_1") { return; }
+            let type_name: Option<String> = stage.field(prim_path.clone(), FieldKey::TypeName).ok().flatten();
+            let info_id_path = prim_path.append_property("info:id").ok();
+            let info_id: Option<String> = info_id_path.and_then(|p| stage.field(p, FieldKey::Default).ok().flatten());
+            // Check for inputs:diffuseColor
+            let dc_path = prim_path.append_property("inputs:diffuseColor").ok();
+            let dc: Option<SdfValue> = dc_path.and_then(|p| stage.field(p, FieldKey::Default).ok().flatten());
+            let dc_conn_path = prim_path.append_property("inputs:diffuseColor").ok();
+            let dc_conn: Option<SdfValue> = dc_conn_path.and_then(|p| stage.field::<SdfValue>(p, FieldKey::ConnectionPaths).ok().flatten());
+            eprintln!(
+                "  {} type={:?} info:id={:?} diffuseColor={:?} diffuseColor.connect={:?}",
+                prim_path.as_str(), type_name, info_id,
+                dc.as_ref().map(|v| format!("{:?}", v).chars().take(50).collect::<String>()),
+                dc_conn.as_ref().map(|v| format!("{:?}", v).chars().take(80).collect::<String>()),
+            );
+        }).unwrap();
+    }
+
+    #[test]
+    #[ignore = "manual debug — needs samples/private"]
+    fn debug_kitchen_set_material_binding() {
+        use openusd::sdf::{Value as SdfValue};
+        let path = PathBuf::from(
+            "../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd",
+        );
+        if !path.exists() { return; }
+        let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
+        let mut checked = 0;
+        let mut bound = 0;
+        let mut has_display_color = 0;
+        stage.traverse(|prim_path| {
+            if !super::is_renderable_mesh(&stage, prim_path) { return; }
+            checked += 1;
+            if checked <= 10 {
+                let bm = stage.bound_material(prim_path.clone()).map(|p| p.to_string());
+                // Check for primvars:displayColor
+                let dc_path = prim_path.append_property("primvars:displayColor").ok();
+                let dc = dc_path.and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+                let dc_label = match &dc {
+                    Some(SdfValue::Vec3fVec(v)) => format!("Vec3f[{}]", v.len()),
+                    Some(SdfValue::Vec3f(v)) => format!("Vec3f({:.2},{:.2},{:.2})", v[0], v[1], v[2]),
+                    Some(other) => format!("{:?}", other).chars().take(40).collect(),
+                    None => "None".to_string(),
+                };
+                eprintln!("  {} -> bound={:?} displayColor={}", prim_path.as_str(), bm, dc_label);
+                if bm.is_some() { bound += 1; }
+                if dc.is_some() { has_display_color += 1; }
+            }
+        }).unwrap();
+        eprintln!("Kitchen Set: {checked} meshes, first 10: {bound} bound, {has_display_color} displayColor");
+    }
+
+    #[test]
+    #[ignore = "manual E2E helper — needs samples/private"]
+    fn dump_kitchen_set_full_glb_for_preview_model() {
+        let path = PathBuf::from(
+            "../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd",
+        );
+        if !path.exists() {
+            eprintln!("SKIP dump_kitchen_set_full_glb: fixture missing");
+            return;
+        }
+        let backend = OpenusdBackend::new();
+        match backend.extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll) {
+            Ok(glb) => {
+                let out_dir = PathBuf::from("../artifacts/tmp");
+                std::fs::create_dir_all(&out_dir).expect("create artifacts/tmp");
+                let out = out_dir.join("kitchen_set.glb");
+                std::fs::write(&out, &glb).expect("write glb");
+                eprintln!("wrote {} ({} bytes)", out.display(), glb.len());
+            }
+            Err(err) => {
+                eprintln!("SKIP dump_kitchen_set_full_glb: {err}");
+            }
+        }
+    }
+
     #[test]
     #[ignore = "manual E2E helper — needs samples/private"]
     fn dump_kitchen_set_glb_for_preview_model() {
@@ -4371,6 +4552,7 @@ def Xform "Root" (
             joint_indices: None,
             joint_weights: None,
             joints_per_vertex: 0,
+            display_color: None,
         };
         let prim_path = SdfPath::new("/L").unwrap();
         let out = super::mesh_data_to_input(
