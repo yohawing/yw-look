@@ -68,6 +68,7 @@ pub trait UsdBackend: Send + Sync {
     /// for tests and diagnostics — the frontend should consult
     /// [`Self::requires_glb_preview`] instead, which also accounts for
     /// composition arcs.
+    #[allow(dead_code)] // diagnostic-only, exercised by `#[cfg(test)]` paths
     fn root_layer_is_binary(&self, path: &Path) -> Result<bool, UsdError>;
 
     /// Phase 3: decides whether the frontend should route this file through

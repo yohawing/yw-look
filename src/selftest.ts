@@ -1,5 +1,7 @@
 import {
   AmbientLight,
+  AnimationClip,
+  AnimationMixer,
   Box3,
   BufferGeometry,
   Color,
@@ -10,6 +12,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
   PerspectiveCamera,
   PlaneGeometry,
   SRGBColorSpace,
@@ -121,6 +124,14 @@ async function loadCase(sample: SampleCase) {
         await import("three/examples/jsm/loaders/GLTFLoader.js");
       const buffer = await readArrayBuffer(url);
       const gltf = await new GLTFLoader().parseAsync(buffer, "");
+      // Phase 5d L3: stash animation clips on the scene's userData so
+      // `runSingleModelMode` can spin up an AnimationMixer if any
+      // animations are present. The preview-model skill captures one
+      // frame at t=0, but the mixer tick lets a future caller advance
+      // it before grabbing the screenshot.
+      if (gltf.animations && gltf.animations.length > 0) {
+        gltf.scene.userData.animations = gltf.animations;
+      }
       return gltf.scene;
     }
     case "gltf": {
@@ -301,6 +312,26 @@ async function runSingleModelMode(rawPath: string) {
     camera.far = radius * 100;
     camera.updateProjectionMatrix();
 
+    // Phase 5d L3: if the loaded glTF carried any animation clips,
+    // run them through an AnimationMixer for ~16 ticks (~ 1/4 second
+    // of playback) before grabbing the final frame so the captured
+    // screenshot reflects mid-animation deformation rather than the
+    // bind pose. Skipped silently for non-animated glTF / FBX / etc.
+    const animations = ((object as Object3D).userData?.animations ??
+      []) as AnimationClip[];
+    let animationFrames = 0;
+    if (animations.length > 0) {
+      const mixer = new AnimationMixer(object as Object3D);
+      for (const clip of animations) {
+        mixer.clipAction(clip).play();
+      }
+      const dt = 1 / 60;
+      for (let i = 0; i < 16; i++) {
+        mixer.update(dt);
+        animationFrames += 1;
+      }
+    }
+
     renderer.render(scene, camera);
     await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
     renderer.render(scene, camera);
@@ -310,6 +341,8 @@ async function runSingleModelMode(rawPath: string) {
       ok: true,
       format,
       path: rawPath,
+      animationClips: animations.length,
+      animationFrames,
       bbox: {
         min: bbox.min.toArray(),
         max: bbox.max.toArray(),
