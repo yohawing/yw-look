@@ -6,7 +6,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist", "node_modules", "src-tauri/target"],
+    ignores: ["dist", "node_modules", "src-tauri/target", "public"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -36,7 +36,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["scripts/**/*.mjs"],
+    files: ["scripts/**/*.mjs", "tests/**/*.mjs"],
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.node,

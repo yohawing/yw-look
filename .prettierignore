@@ -1,3 +1,7 @@
 dist
 node_modules
 src-tauri/target
+src-tauri/gen/
+samples/
+tests/fixtures/broken/
+public/basis/

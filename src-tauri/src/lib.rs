@@ -1,3 +1,5 @@
+mod usd;
+
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 #[cfg(desktop)]
@@ -6,7 +8,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{Read as IoRead, Write},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 #[cfg(desktop)]
@@ -14,6 +16,11 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
+
+use crate::usd::{
+    AssetIssue, OpenusdBackend, StageInspection, StageLoadPolicy, StageSummary, UsdBackend,
+    UsdError,
+};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
@@ -32,8 +39,8 @@ const MODEL_EXTENSIONS: &[&str] = &[
 ];
 const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
 const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "png", "jpg", "jpeg",
-    "tga", "dds", "hdr", "exr",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "usd", "usda", "usdc", "usdz", "png", "jpg",
+    "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +96,22 @@ struct UpdateInstallPayload {
 
 #[derive(Default)]
 struct PendingUpdateState(Mutex<Option<Update>>);
+
+/// Active USD inspection backend. Held behind an `Arc` so each async
+/// Tauri command can clone a handle and move it into a blocking task
+/// without borrowing from `tauri::State`.
+/// Currently `OpenusdBackend` (yohawing/openusd `yw-look-phase1`).
+struct UsdBackendState(Arc<dyn UsdBackend>);
+
+impl UsdBackendState {
+    fn new(backend: impl UsdBackend + 'static) -> Self {
+        Self(Arc::new(backend))
+    }
+
+    fn handle(&self) -> Arc<dyn UsdBackend> {
+        Arc::clone(&self.0)
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -749,7 +772,8 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
 }
 
 const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "png", "jpg", "jpeg", "tga", "dds", "hdr", "exr",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga", "dds", "ktx2",
+    "hdr", "exr",
 ];
 
 fn system_time_to_unix_string(time: SystemTime) -> Option<String> {
@@ -1062,6 +1086,100 @@ fn load_diagnostics_snapshot(app: tauri::AppHandle) -> Result<DiagnosticsPayload
     })
 }
 
+fn map_usd_error(error: UsdError) -> String {
+    error.to_string()
+}
+
+async fn run_blocking_usd<T, F>(task: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|e| format!("USD task join error: {e}"))?
+        .map_err(map_usd_error)
+}
+
+#[tauri::command]
+async fn inspect_stage(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    // Phase 4: optional on the wire so Phase 3 frontends still work.
+    // `None` → `StageLoadPolicy::LoadAll` via `Default`.
+    policy: Option<StageLoadPolicy>,
+) -> Result<StageInspection, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    let policy = policy.unwrap_or_default();
+    run_blocking_usd(move || handle.inspect_stage(&normalized, policy)).await
+}
+
+#[tauri::command]
+async fn summarize_stage(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    policy: Option<StageLoadPolicy>,
+) -> Result<StageSummary, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    let policy = policy.unwrap_or_default();
+    run_blocking_usd(move || handle.summarize_stage(&normalized, policy)).await
+}
+
+#[tauri::command]
+async fn collect_asset_issues(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<Vec<AssetIssue>, String> {
+    // Asset issues always run under LoadAll — see the backend impl.
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.collect_asset_issues(&normalized)).await
+}
+
+/// Phase 3: returns whether the frontend should route this USD file
+/// through the Rust GLB extraction pipeline instead of Three.js
+/// `USDLoader.parse`. True whenever the root layer is binary USDC *or*
+/// the composed stage has more than one layer (references, payloads,
+/// sublayers) — because `USDLoader.parse` only sees the single buffer
+/// yw-look hands it and cannot follow external asset paths.
+///
+/// This is the decision the frontend acts on during the USD load case.
+/// The backend opens the stage once and inspects layer count, so it's
+/// cheap enough to call eagerly.
+#[tauri::command]
+async fn requires_glb_preview(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<bool, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.requires_glb_preview(&normalized)).await
+}
+
+/// Phase 3: extracts every Mesh prim in the stage as a single GLB binary,
+/// returned as a raw byte stream via `tauri::ipc::Response`. The frontend
+/// receives the bytes as `ArrayBuffer` and feeds them to
+/// `GLTFLoader.parseAsync`. Use only after `root_layer_is_binary` returned
+/// `true` — for USDA stages the existing `USDLoader.parse` path is faster
+/// and more accurate (no triangulation, full xform graph).
+#[tauri::command]
+async fn extract_geometry(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    // Phase 4: `None` preserves Phase 3 behavior (LoadAll). Frontend
+    // toggles Deferred to pass `{policy: "noPayloads"}`.
+    policy: Option<StageLoadPolicy>,
+) -> Result<tauri::ipc::Response, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    let policy = policy.unwrap_or_default();
+    let bytes =
+        run_blocking_usd(move || handle.extract_geometry_glb(&normalized, policy)).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 #[tauri::command]
 async fn check_for_update(
     app: tauri::AppHandle,
@@ -1161,6 +1279,7 @@ pub fn run() {
             }
 
             app.manage(PendingUpdateState::default());
+            app.manage(UsdBackendState::new(OpenusdBackend::new()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1179,7 +1298,12 @@ pub fn run() {
             check_for_update,
             install_pending_update,
             inspect_asset,
-            load_format_support
+            load_format_support,
+            inspect_stage,
+            summarize_stage,
+            collect_asset_issues,
+            requires_glb_preview,
+            extract_geometry
         ])
         .run(tauri::generate_context!())
         .expect("error while running yw-look");

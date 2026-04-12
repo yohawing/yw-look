@@ -1,0 +1,341 @@
+# USD 対応 設計・記録ドキュメント
+
+`yw-look` の USD サポートを Phase ごとに記録する。方針決定・実装記録・次フェーズの計画をこのファイルに一元管理する。
+
+---
+
+## Phase 0 — PoC（完了）
+
+### 目的
+
+Rust 側 inspector の実装基盤として `mxpv/openusd` (`openusd 0.2.0`) が使えるかを fork する前に確認する。
+
+判断したいこと:
+
+- USDA / USDC / USDZ が現実のアセットで読めるか
+- composition (`references` / `payloads` / `subLayers`) が動くか
+- Windows MSVC でビルドが通るか
+- `inspect_stage` / `summarize_stage` / `collect_asset_issues` を組める API があるか
+
+### 検証環境
+
+- OS: Windows 11
+- Toolchain: `rustc 1.94.0` / `cargo 1.94.0` (stable-x86_64-pc-windows-msvc)
+- Crate: `openusd = "0.2"` (released 2026-04-06)
+- PoC コード: `experiments/usd-poc/`（yw-look 本体から隔離した独立 Cargo project）
+
+### ビルド事情
+
+- `openusd 0.2` の依存ツリーは **pure Rust のみ**（C++ FFI / bindgen / cmake なし）
+- Windows MSVC で build / run まで成功
+- yw-look の配布要件（インストーラ同梱、C++ ランタイム不要）と相性が良い
+
+### 検証アセット
+
+| ID                          | パス                                                          | 形式                          | 性質                                 |
+| --------------------------- | ------------------------------------------------------------- | ----------------------------- | ------------------------------------ |
+| `usda-tiny-sanity`          | `samples/assets/usd/tiny.usda`                                | USDA 単体                     | 自作 sanity asset                    |
+| `usd-kitchen-set`           | `samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd` | USDA root + USDC `*.geom.usd` | Pixar Kitchen Set                    |
+| `usd-kitchen-set-instanced` | `Kitchen_set_instanced.usd`                                   | USDA + native instancing      | `instanceable = true` を使う variant |
+| `usdz-arkit-chameleon`      | `chameleon_anim_mtl_variant.usdz`                             | USDZ (ZIP)                    | Apple AR Quick Look サンプル         |
+| `usdz-arkit-glove`          | `glove_baseball_mtl_variant.usdz`                             | USDZ (ZIP)                    | Apple AR Quick Look サンプル         |
+
+### 結果マトリクス
+
+| アセット                          | `Stage::open` | `default_prim`     | `layer_count` | `root_prims` | traverse 完走 prim 数 |
+| --------------------------------- | ------------- | ------------------ | ------------- | ------------ | --------------------- |
+| `tiny.usda`                       | ✅            | `"Root"`           | 1             | 1            | 2                     |
+| `Kitchen_set.usd`                 | ✅            | `"Kitchen_set"`    | **229**       | 77           | **2048**              |
+| `Kitchen_set_instanced.usd`       | ❌            | —                  | —             | —            | —                     |
+| `chameleon_anim_mtl_variant.usdz` | ✅            | `"Root"`           | 1             | 1            | 203                   |
+| `glove_baseball_mtl_variant.usdz` | ✅            | `"glove_baseball"` | 1             | 1            | 67                    |
+
+`Kitchen_set_instanced.usd` の失敗原因: USDA parser が `instanceable = true` を未認識。upstream PR 1 本で塞げる粒度。
+
+### 判定: **Go**
+
+Phase 1 へ進む。
+
+### 再現手順
+
+```sh
+cd experiments/usd-poc
+cargo run --release
+```
+
+---
+
+## Phase 1 — Rust バックエンド（完了）
+
+### 実装内容
+
+- `UsdBackend` trait (`src-tauri/src/usd/backend.rs`) — 抽象境界
+- `OpenusdBackend` — `yohawing/openusd` fork を呼ぶ薄いアダプター
+- Tauri command: `inspect_stage` / `summarize_stage` / `collect_asset_issues`
+- wire 型: `StageInspection` / `StageSummary` / `AssetIssue` / `CompositionArc`
+- `inspectStage` で `metersPerUnit` ヒントを Three.js ビューアに渡し極小表示を補正
+
+### fork で追加した API（`yohawing/openusd`, branch: `yw-look-phase1`）
+
+| 追加 API                          | 内容                          |
+| --------------------------------- | ----------------------------- |
+| `stage.up_axis()`                 | `enum UpAxis { Y, Z }` を返す |
+| `stage.meters_per_unit()`         | `f64` を返す                  |
+| `stage.references_in(path)`       | composition arc の列挙        |
+| `stage.payloads_in(path)`         | 同上                          |
+| `stage.unresolved_assets()`       | 解決失敗アセットのリスト      |
+| `instanceable` prim metadata 対応 | USDA parser の認識キー追加    |
+
+### Exit rule
+
+upstream PR 5 本のうち過半が 3 ヶ月以内に merge されない、もしくは USDC 系のクリティカルな破綻が判明した場合 → fork 常用をやめ、`yw-look/src-tauri` 側に必要最小限の inspector を inline で持つ方針に切り替える。
+
+---
+
+## Phase 2 — UX 反映（完了）
+
+### 目的
+
+Phase 1 で実装した Rust コマンドをフロントエンドに反映し、読み込み体験を「重い parse を待たせきり」から「まずサマリを見せて parse は後追い」に変える。
+
+### 達成条件（すべて完了）
+
+1. ✅ USD 開封と同時に `summarize_stage` / `inspect_stage` / `collect_asset_issues` を並列実行し UsdInspectorCard に表示
+2. ✅ `collect_asset_issues` の結果を既存 WarningsCard に合流
+3. ✅ `USDLoader.parse` 前に `rAF + setTimeout(0)` で 1 フレーム譲りサマリを先に paint
+4. ✅ USDC バイナリ検出時に明示エラーを出す（黙って空描画になるのを防ぐ）
+5. ✅ Web Worker scaffold を `VITE_USD_WORKER=1` で有効化できる状態で用意（default OFF）
+
+### 読み込みパイプライン設計
+
+```
+currentFile 変更
+ ├─ (A) App 側: summarizeStage + inspectStage + collectAssetIssues を parallel 実行
+ │     → UsdInspectorCard / WarningsCard が即座に更新される
+ └─ (B) AssetViewport 側: loadPreviewObject → yieldToPaint() → USDLoader.parse
+        → USDA のみ成功。USDC は明示エラー
+```
+
+### 判明した Three.js USDLoader の限界
+
+| ファイル種別     | 3D プレビュー | USD Inspector |
+| ---------------- | ------------- | ------------- |
+| USDA テキスト    | ✅            | ✅            |
+| USDZ (USDA root) | ✅            | ✅            |
+| USDC バイナリ    | ❌ 明示エラー | ✅            |
+| USDZ (USDC root) | ❌ 明示エラー | ✅            |
+
+USDC の 3D 描画は Three.js では不可能。Phase 3 で Rust → カスタムバイナリ → 専用 Loader パイプラインで対応する。
+
+### Web Worker スケルトン（`VITE_USD_WORKER=1`）
+
+- `src/workers/usdLoader.worker.ts` — USDLoader.parse → `Group.toJSON()` を worker 内で実行
+- `src/viewer/usdWorkerLoader.ts` — worker 呼び出し + `ObjectLoader` 再構築 wrapper
+- 失敗時は同期 parse にフォールバック。binary buffer は `slice(0)` でコピーして渡す（transfer で detach しない）
+- toJSON/fromJSON の material 再現度は Phase 3 で検証してから正式 ON にする
+
+---
+
+## Phase 3 — Rust Geometry パイプライン（完了）
+
+### 目的
+
+USDC バイナリ（Kitchen Set の `.geom.usd` 等）と、外部 layer を持つ USDA を 3D で表示できるようにする。`yohawing/openusd` fork に geometry 取得 API を追加し、Rust 側で GLB バイナリを生成して Three.js `GLTFLoader` に渡す。
+
+`references` / `payloads` は通常どおり compose した状態で扱う。payload の deferred load / unload 制御は Phase 4 へ分離する。
+
+### 転送フォーマット: GLB + `ipc::Response`
+
+| 方式                      | 判断                                                                |
+| ------------------------- | ------------------------------------------------------------------- |
+| JSON                      | float 配列が文字列化され 3〜4 倍のサイズ → 除外                     |
+| `Vec<u8>` IPC             | serde_json が整数配列にシリアライズし同様に肥大化 → 除外            |
+| カスタムバイナリ (YWLD)   | 独自仕様の維持コストが大きい。ボトルネックは USD traverse 側 → 除外 |
+| **GLB + `ipc::Response`** | 標準フォーマット・`GLTFLoader` 再利用・外部ツールで検証可能 → 採用  |
+
+`ipc::Response` で GLB バイナリを JSON シリアライズせずそのまま `ArrayBuffer` として JS 側に渡す。
+
+**実装ノート**: `gltf` crate は採用せず、`serde_json::json!` で GLTF JSON を組み立てて GLB binary container を手書きする方式にした（`src-tauri/src/usd/glb.rs`）。依存を最小化でき、`accessor.min/max` や stride 計算も自前で完結する。
+
+### 分岐判定: `requires_glb_preview()`
+
+拡張子ではなく **stage の実体** で分岐する。`.usdz` は ZIP コンテナであり、root layer が USDA / USDC どちらの場合もある。
+
+```
+USD ファイル開封（usda / usd / usdc / usdz すべて同じパス）
+  └─ Rust: Stage::open() → requires_glb_preview(path) で判定
+       ├─ false → USDLoader.parse（既存の Three.js 経路）
+       └─ true  → extract_geometry(path) → GLB バイナリ
+            └─ ipc::Response → invoke<ArrayBuffer>()
+                 └─ GLTFLoader.parseAsync(buffer, "") → Group
+```
+
+`requires_glb_preview()` は以下のいずれかで true を返す:
+
+1. **root layer が USDC バイナリ** — Three.js USDLoader は USDC を読めない
+2. **composed layer_count > 1** — yw-look は単一テキストバッファしか USDLoader に渡さないため、`references` / `payloads` / `subLayers` を持つ USDA も JS 側では空描画になる。GLB パイプラインは fork 側で fully-composed stage を扱うため composition arc を透過的に解決できる
+
+Ball.usd（USDA root + payload chain → USDC leaves）のようなケースは、この 2 番目のルールで GLB 経路に乗る。
+
+### IPC 転送
+
+```rust
+use tauri::ipc::Response;
+
+#[tauri::command]
+async fn extract_geometry(
+    backend: State<'_, UsdBackendState>,
+    path: String,
+) -> Result<Response, String> {
+    let glb: Vec<u8> = run_blocking_usd(move |b| b.extract_geometry_glb(path.as_ref()))?;
+    Ok(Response::new(glb))
+}
+```
+
+### パイプライン全体
+
+```
+USD ファイル (USDC root または composition あり USDA)
+  └─ Rust: openusd fork で Stage::open() → pcp 合成済み Stage
+       └─ 2-pass traverse:
+            (1) renderable な Mesh prim を収集
+                 ├─ is_renderable_mesh: active / visibility / purpose を親方向に継承チェック
+                 └─ mesh_of(path): points / indices / counts / normals / uvs を一括取得
+            (2) 各 Mesh の world matrix を yw-look 側で合成
+                 ├─ compose_prim_local_xform: xformOpOrder を走査
+                 │    - matrix4d / translate / scale
+                 │    - rotateX/Y/Z / rotateXYZ〜ZYX（Euler 三つ組）
+                 │    - orient（quaternion）
+                 │    - !invert! プレフィクス（Maya pivot pair 対応）
+                 │    - !resetXformStack! 尊重
+                 └─ 親 prim を辿って local を掛け合わせ world を構築
+  └─ Rust: Z-up → Y-up 補正行列を pre-multiply（upAxis が Z の場合）
+  └─ Rust: triangulate（quad/ngon fan、orientation 応じた winding 反転）
+  └─ Rust: build_glb() で GLB バイナリ生成
+  └─ Tauri IPC: ipc::Response（JSON シリアライズなし）
+  └─ JS: GLTFLoader.parseAsync(buffer, "") → Three.js Group
+```
+
+### fork に追加した API（`yohawing/openusd`, branch: `yw-look-phase3`）
+
+Phase 3 では fork を `main` に再ベースし、Phase 1 改造を再 port した上で Phase 3 API を追加している。
+
+| API                               | 内容                                                                                      |
+| --------------------------------- | ----------------------------------------------------------------------------------------- |
+| `stage.root_layer_is_binary()`    | root layer が USDC バイナリかどうか                                                       |
+| `stage.mesh_of(prim_path)`        | `MeshData { points, face_vertex_indices, face_vertex_counts, normals?, uvs? }` の一括取得 |
+| `stage.local_xform_of(prim_path)` | 単 prim の local matrix（**未使用**。yw-look 側で `compose_prim_local_xform` を実装）     |
+
+計画段階の `meshes_in / normals_in / uvs_in / xform_of` は `mesh_of` に統合した。
+
+### yw-look 側で実装した補助層
+
+fork 側の API が粗い部分は yw-look 側で補完している:
+
+| 役割                                         | 実装場所                                                          |
+| -------------------------------------------- | ----------------------------------------------------------------- |
+| 親方向の xform 合成                          | `OpenusdBackend::compose_world_xform`（`!resetXformStack!` 尊重） |
+| xformOp 順序付き合成（invert 対応）          | `OpenusdBackend::compose_prim_local_xform`                        |
+| xformOp:orient / rotate / scale / matrix4d   | `build_xform_op_matrix`、`read_quat`、`quat_to_mat4`              |
+| 4x4 逆行列                                   | `invert_mat4`（cofactor）                                         |
+| Z-up → Y-up 補正                             | `z_up_to_y_up_mat4`                                               |
+| 可視性 / purpose / active の継承判定         | `is_renderable_mesh`（親チェーン walk）                           |
+| rightHanded / leftHanded 判定と winding 反転 | `MeshOrientation` + `mesh_data_to_input`                          |
+| uniform / constant primvar の展開            | `AttrKind` 分類                                                   |
+| face-varying → vertex-varying 展開           | `mesh_data_to_input`                                              |
+| GLB バイナリ組み立て                         | `src-tauri/src/usd/glb.rs`                                        |
+
+### Phase 5 に延期した項目
+
+- ~~**`material_of()` (UsdPreviewSurface PBR)**~~ — Phase 5a で scalar factor のみ対応済み（`Stage::material_of` を fork に追加、1 hop の UsdUVTexture connection 解決、GLB は `materials[]` 配列として出力）。diffuse texture embedding / multi-hop shader graph は Phase 5b+ へ繰越
+- ~~**凹 n-gon の ear-clip triangulation**~~ — Phase 5 先行で対応済み（`triangulate_polygon`、`openusd_backend.rs`）。Newell の法線計算 → 主成分軸を drop した 2D 射影 → 符号付き面積で CW/CCW 判定 → ear-clip。数値縮退時は fan にフォールバック。triangle / convex quad は同じ経路で高速パスに乗る
+
+**副作用として受け入れた項目**: 外部 layer を持つ USDA も GLB 経路に流れるため、USDLoader が扱っていた簡易 material 表示が失われる。Phase 5 で Rust 側 material 対応と合わせて回収する。
+
+### 検証アセット
+
+| アセット                                                                            | 経路                             | 結果                                            |
+| ----------------------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------- |
+| `samples/assets/usd/tiny.usda`                                                      | USDA（layer 1）                  | USDLoader 経路で描画（既存挙動維持）            |
+| `samples/private/usd/Kitchen_set/.../Ball.geom.usd`                                 | USDC 単体                        | GLB 経路で描画                                  |
+| `samples/private/usd/Kitchen_set/.../Ball.usd`                                      | USDA root + payload chain → USDC | GLB 経路で描画                                  |
+| `samples/private/usd/Kitchen_set/.../Kitchen_set.usd`                               | USDA + 228 USDC refs             | GLB 経路、release ビルド 234ms で 37MB GLB 生成 |
+| `chameleon_anim_mtl_variant.usdz` / `glove_baseball_mtl_variant.usdz` / seahorse 系 | USDZ（USDA root）                | USDLoader 経路で描画                            |
+
+### 自動テスト
+
+- **openusd fork 側** (`cargo test -p openusd`): `root_layer_is_binary` / `mesh_of` / `local_xform_of` の単体テスト
+- **yw-look Rust 側** (`cargo test --lib usd::`): GLB builder 3 件 + backend integration 20 件（tiny.usda、Kitchen Set 4 種、Ball.usd、USDZ 3 種、pivot pair regression、negative face counts rejection 等）
+- **yw-look frontend** (`npm run test`): 41 vitest
+
+### 非スコープ（Phase 3）
+
+- アニメーション（USD skeletal / blend shape → Three.js morph）
+- USDZ 内テクスチャの Rust 側展開
+- native instancing（upstream merge 待ち）
+- variant set の切り替え UI
+- `payload` の deferred load / unload 制御
+- UsdPreviewSurface → GLB material 変換（Phase 5）
+- 凹 n-gon の ear-clip triangulation（Phase 5）
+- `USDLoader.parse` の Web Worker 退避（別フェーズ）
+
+---
+
+## Phase 4 — Payload 遅延ロード（実装済）
+
+`references` は常時 compose、`payloads` のみ deferred 対象。stateless API（各 Tauri コマンドに `policy: Option<StageLoadPolicy>` 引数を追加）で実装。
+
+### fork 側 API
+
+| API                                      | 内容                                                 |
+| ---------------------------------------- | ---------------------------------------------------- |
+| `StageLoadPolicy::{LoadAll, NoPayloads}` | builder 経由で policy を仕込む。`Stage::open` 非変更 |
+| `Stage::skipped_payloads()`              | NoPayloads でスキップした payload の一覧             |
+
+### yw-look 側
+
+- `CompositionArcState` を 3 値化 (`Loaded` / `Missing` / `Unloaded`)
+- UsdInspectorCard にヘッダ segmented control (`Loaded` / `Deferred`)
+- `usdLoadPolicy` state 切替で inspector + GLB viewer を再走
+
+---
+
+## Phase 5 — Preview 品質向上（実装済）
+
+### 完了項目
+
+| 機能                       | 概要                                                                                                                                       | 検証結果                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| **Ear-clip triangulation** | 凹 n-gon の ear-clipping。凸ポリゴンは従来の fan fast path を維持                                                                          | Kitchen Set 回帰 green                               |
+| **PBR material (scalar)**  | `UsdPreviewSurface` の diffuseColor / metallic / roughness / opacity / emissive を GLB material に反映。sRGB→linear 変換 + alphaMode BLEND | 自作 fixture で e2e green                            |
+| **PBR material (texture)** | USDZ archive / filesystem の PNG/JPEG を GLB BIN chunk に埋め込み、baseColorTexture として出力。per-material sampler dedup                 | **Glove: テクスチャ付き描画 ✅**                     |
+| **displayColor fallback**  | `primvars:displayColor` (constant) を `baseColorFactor` にマッピング。`material:binding` がない mesh 用                                    | **Kitchen Set: カラフル描画 ✅**                     |
+| **wrapS/wrapT sampler**    | UsdUVTexture の wrap mode token → glTF sampler 定数 mapping                                                                                | fork `d4e9cd2`                                       |
+| **MaterialX 互換**         | `ND_UsdPreviewSurface_surfaceshader` / `ND_image_color3` 等の MaterialX node ID を受理                                                     | **Glove: material_of 解決 ✅**                       |
+| **UsdSkel skin**           | `skeleton_of` → SkeletonData、`mesh_of` skin primvars、GLB skin + JOINTS_0 / WEIGHTS_0 出力、TRS decompose                                 | **HumanFemale: 87 mesh 描画 ✅**                     |
+| **SkelAnimation**          | `skel_animation_of` → SkelAnimationData、GLB animation channels、USD time code → seconds 変換                                              | tiny_rigged.usda で Three.js AnimationMixer 動作確認 |
+| **Variant set**            | fork pcp が元から実装済みと確認。smoke test 3 本を pin                                                                                     | fixture 3 本 green                                   |
+| **Windows path fix**       | `find_layer` の path separator 正規化。HumanFemale が layer collect 成功するように                                                         | `930bfc5`                                            |
+| **pcp false cycle fix**    | ancestor propagation の eval_stack guard。HumanFemale が compose 完了するように                                                            | `b895c9b`                                            |
+
+### 既知の制約
+
+| 項目                        | 状態                | 理由                                                                                                               |
+| --------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **chameleon テクスチャ**    | 非対応 (asset-side) | UsdPreviewSurface stub のみ、本物の shading は別 prim tree の MaterialX subgraph。composition arc で繋がっていない |
+| **per-vertex displayColor** | 未実装              | constant (1 色/mesh) のみ対応。per-vertex → GLB `COLOR_0` は今後の課題                                             |
+| **multi-hop shader graph**  | 未実装              | 1-hop texture connection のみ。NodeGraph wrapping は別 asset で需要が出たら対応                                    |
+| **GeomSubset material**     | 未実装              | face subset 単位の material binding。Kitchen Set では不使用                                                        |
+| **PointInstancer**          | 未実装              | scatter/vegetation/crowd 用                                                                                        |
+| **Purpose**                 | 未実装              | `default` / `render` / `proxy` / `guide` の表示切替                                                                |
+| **Stage Camera**            | 未実装              | authored camera の列挙と切替                                                                                       |
+| **per-prim payload load**   | 未実装              | stateful session (`open_stage` / `load_payloads`) は延期                                                           |
+
+---
+
+## 通しの方針・制約
+
+- **表示は Three.js / 検査は Rust** を基本方針とする
+- Rust 側は `UsdBackend` trait で実装を隠蔽し、parser 差し替えに備える
+- fork (`yohawing/openusd`) の変更は可能な限り upstream PR として提案する
+- Windows MSVC での pure Rust ビルドを維持する（C++ FFI は持ち込まない）

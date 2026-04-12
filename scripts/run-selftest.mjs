@@ -12,7 +12,8 @@ page.on("console", (message) => {
 await page.goto(url, { waitUntil: "networkidle" });
 await page.locator("#output").waitFor();
 await page.waitForFunction(() => {
-  const content = globalThis.document?.getElementById("output")?.textContent ?? "";
+  const content =
+    globalThis.document?.getElementById("output")?.textContent ?? "";
   return content.includes('"failedCount"') || content.includes('"fatal"');
 });
 
@@ -24,7 +25,9 @@ let parsedOutput;
 try {
   parsedOutput = JSON.parse(outputText);
 } catch {
-  console.error(`Selftest output is not valid JSON: ${outputText.slice(0, 500)}`);
+  console.error(
+    `Selftest output is not valid JSON: ${outputText.slice(0, 500)}`,
+  );
   process.exitCode = 1;
 }
 
@@ -34,7 +37,8 @@ if (parsedOutput && typeof parsedOutput === "object") {
     typeof parsedOutput.fatal === "string" &&
     parsedOutput.fatal.length > 0;
   const failedCount =
-    "failedCount" in parsedOutput && typeof parsedOutput.failedCount === "number"
+    "failedCount" in parsedOutput &&
+    typeof parsedOutput.failedCount === "number"
       ? parsedOutput.failedCount
       : 0;
 

@@ -5,7 +5,13 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const tauriConfigPath = path.join(repoRoot, "src-tauri", "tauri.conf.json");
-const bundleDir = path.join(repoRoot, "src-tauri", "target", "release", "bundle");
+const bundleDir = path.join(
+  repoRoot,
+  "src-tauri",
+  "target",
+  "release",
+  "bundle",
+);
 const outputDir = path.join(repoRoot, "artifacts", "updater-feed");
 const baseUrl =
   process.env.YW_LOOK_LOCAL_UPDATE_BASE_URL ?? "http://127.0.0.1:8765";
@@ -62,7 +68,10 @@ function main() {
   const signature = fs.readFileSync(bundle.signaturePath, "utf8").trim();
 
   ensureDir(outputDir);
-  fs.copyFileSync(bundle.installerPath, path.join(outputDir, bundle.installerName));
+  fs.copyFileSync(
+    bundle.installerPath,
+    path.join(outputDir, bundle.installerName),
+  );
   fs.copyFileSync(
     bundle.signaturePath,
     path.join(outputDir, `${bundle.installerName}.sig`),

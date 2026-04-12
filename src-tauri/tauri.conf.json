@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "yw-look",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.yohawing.ywlook",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -39,12 +39,24 @@
     "createUpdaterArtifacts": true,
     "fileAssociations": [
       {
-        "ext": ["glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz"],
+        "ext": [
+          "glb",
+          "gltf",
+          "fbx",
+          "obj",
+          "ply",
+          "stl",
+          "dae",
+          "usd",
+          "usda",
+          "usdc",
+          "usdz"
+        ],
         "name": "yw-look Model Asset",
         "description": "3D model asset opened by yw-look"
       },
       {
-        "ext": ["png", "jpg", "jpeg", "tga", "dds", "hdr", "exr"],
+        "ext": ["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"],
         "name": "yw-look Texture Asset",
         "description": "Texture asset opened by yw-look"
       }

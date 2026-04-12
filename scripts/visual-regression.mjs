@@ -26,7 +26,9 @@ try {
   await page.waitForFunction(() => {
     const outputText =
       globalThis.document?.getElementById("output")?.textContent ?? "";
-    return outputText.includes('"failedCount"') || outputText.includes('"fatal"');
+    return (
+      outputText.includes('"failedCount"') || outputText.includes('"fatal"')
+    );
   });
 
   screenshotBuffer = await page.screenshot({ fullPage: true });
@@ -60,7 +62,9 @@ try {
 }
 
 if (Buffer.compare(screenshotBuffer, expectedBuffer) !== 0) {
-  const expectedHash = createHash("sha256").update(expectedBuffer).digest("hex");
+  const expectedHash = createHash("sha256")
+    .update(expectedBuffer)
+    .digest("hex");
   const currentHash = createHash("sha256")
     .update(screenshotBuffer)
     .digest("hex");

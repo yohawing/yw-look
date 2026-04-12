@@ -1,15 +1,26 @@
 import {
+  AmbientLight,
+  AnimationClip,
+  AnimationMixer,
+  Box3,
   BufferGeometry,
+  Color,
   CompressedTexture,
   DataTexture,
+  DirectionalLight,
   Group,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
+  PerspectiveCamera,
   PlaneGeometry,
   SRGBColorSpace,
+  Scene,
   Texture,
   TextureLoader,
+  Vector3,
+  WebGLRenderer,
 } from "three";
 
 type SampleCase = {
@@ -113,6 +124,14 @@ async function loadCase(sample: SampleCase) {
         await import("three/examples/jsm/loaders/GLTFLoader.js");
       const buffer = await readArrayBuffer(url);
       const gltf = await new GLTFLoader().parseAsync(buffer, "");
+      // Phase 5d L3: stash animation clips on the scene's userData so
+      // `runSingleModelMode` can spin up an AnimationMixer if any
+      // animations are present. The preview-model skill captures one
+      // frame at t=0, but the mixer tick lets a future caller advance
+      // it before grabbing the screenshot.
+      if (gltf.animations && gltf.animations.length > 0) {
+        gltf.scene.userData.animations = gltf.animations;
+      }
       return gltf.scene;
     }
     case "gltf": {
@@ -244,8 +263,134 @@ async function main() {
   setOutput({ failedCount: failed.length, results });
 }
 
-main().catch((error) => {
-  setOutput({
-    fatal: error instanceof Error ? error.message : String(error),
+async function runSingleModelMode(rawPath: string) {
+  const normalizedPath = rawPath.replace(/^\/+/, "");
+  const format = normalizedPath.split(".").pop()?.toLowerCase() ?? "";
+  const sample: SampleCase = {
+    id: "preview",
+    kind: "model",
+    format,
+    path: normalizedPath,
+  };
+
+  const canvas = document.createElement("canvas");
+  canvas.id = "preview-canvas";
+  canvas.width = 1024;
+  canvas.height = 768;
+  canvas.style.cssText = "display:block;width:1024px;height:768px;";
+  document.body.appendChild(canvas);
+
+  const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: false });
+  renderer.setPixelRatio(1);
+  renderer.setSize(1024, 768, false);
+  renderer.setClearColor(new Color("#1a1c22"));
+
+  const scene = new Scene();
+  scene.add(new AmbientLight(0xffffff, 0.6));
+  const key = new DirectionalLight(0xffffff, 1.1);
+  key.position.set(3, 5, 4);
+  scene.add(key);
+  const fill = new DirectionalLight(0xffffff, 0.45);
+  fill.position.set(-4, 2, -3);
+  scene.add(fill);
+
+  const camera = new PerspectiveCamera(45, 1024 / 768, 0.01, 5000);
+
+  try {
+    const object = (await loadCase(sample)) as Group | Mesh;
+    scene.add(object);
+
+    // SkinnedMesh.computeBoundingBox can crash when bone references
+    // from JOINTS_0 indices don't line up with the skin's skeleton
+    // (e.g. large rigged USD exports with partial joint coverage).
+    // Guard with try/catch so the screenshot still gets taken and we
+    // at least get a visual — debugging the bone mismatch is easier
+    // with a rendered frame than with nothing.
+    (object as Object3D).updateMatrixWorld(true);
+    let bbox: Box3;
+    try {
+      bbox = new Box3().setFromObject(object);
+    } catch {
+      console.warn(
+        "[preview] Box3.setFromObject failed on skinned mesh, using unit bbox",
+      );
+      bbox = new Box3(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
+    }
+    const size = bbox.getSize(new Vector3());
+    const center = bbox.getCenter(new Vector3());
+    const radius = Math.max(size.x, size.y, size.z) || 1;
+    camera.position
+      .copy(center)
+      .add(new Vector3(radius * 1.6, radius * 1.2, radius * 1.8));
+    camera.lookAt(center);
+    camera.near = Math.max(radius / 1000, 0.001);
+    camera.far = radius * 100;
+    camera.updateProjectionMatrix();
+
+    // Phase 5d L3: if the loaded glTF carried any animation clips,
+    // run them through an AnimationMixer for ~16 ticks (~ 1/4 second
+    // of playback) before grabbing the final frame so the captured
+    // screenshot reflects mid-animation deformation rather than the
+    // bind pose. Skipped silently for non-animated glTF / FBX / etc.
+    const animations = ((object as Object3D).userData?.animations ??
+      []) as AnimationClip[];
+    let animationFrames = 0;
+    if (animations.length > 0) {
+      const mixer = new AnimationMixer(object as Object3D);
+      for (const clip of animations) {
+        mixer.clipAction(clip).play();
+      }
+      const dt = 1 / 60;
+      for (let i = 0; i < 16; i++) {
+        mixer.update(dt);
+        animationFrames += 1;
+      }
+    }
+
+    renderer.render(scene, camera);
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    renderer.render(scene, camera);
+
+    setOutput({
+      mode: "single",
+      ok: true,
+      format,
+      path: rawPath,
+      animationClips: animations.length,
+      animationFrames,
+      bbox: {
+        min: bbox.min.toArray(),
+        max: bbox.max.toArray(),
+        size: size.toArray(),
+        sizeMax: radius,
+      },
+    });
+  } catch (error) {
+    console.error("[preview] load failed:", error);
+    setOutput({
+      mode: "single",
+      ok: false,
+      format,
+      path: rawPath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+const params = new URLSearchParams(location.search);
+const singlePath = params.get("path");
+
+if (singlePath) {
+  runSingleModelMode(singlePath).catch((error) => {
+    setOutput({
+      mode: "single",
+      fatal: error instanceof Error ? error.message : String(error),
+    });
   });
-});
+} else {
+  main().catch((error) => {
+    setOutput({
+      fatal: error instanceof Error ? error.message : String(error),
+    });
+  });
+}

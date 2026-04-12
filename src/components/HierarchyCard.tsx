@@ -5,7 +5,13 @@ type HierarchyCardProps = {
   hierarchy: HierarchyNode[];
 };
 
-function HierarchyBranch({ node, depth }: { node: HierarchyNode; depth: number }) {
+function HierarchyBranch({
+  node,
+  depth,
+}: {
+  node: HierarchyNode;
+  depth: number;
+}) {
   const hasChildren = node.children.length > 0;
   const [expanded, setExpanded] = useState(depth < 2);
 
@@ -64,13 +70,15 @@ export function HierarchyCard({ hierarchy }: HierarchyCardProps) {
       {hierarchy.length > 0 ? (
         <ul className="tree-root">
           {hierarchy.map((node, index) => (
-            <HierarchyBranch key={`${node.name}-${index}`} node={node} depth={0} />
+            <HierarchyBranch
+              key={`${node.name}-${index}`}
+              node={node}
+              depth={0}
+            />
           ))}
         </ul>
       ) : (
-        <p className="muted">
-          No hierarchy available for the current asset.
-        </p>
+        <p className="muted">No hierarchy available for the current asset.</p>
       )}
     </article>
   );

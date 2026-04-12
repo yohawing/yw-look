@@ -1,0 +1,24 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    metersPerUnit = 0.01
+    doc = "yw-look Phase 4 fixture. Contains one resolvable reference to tiny.usda and one broken reference to a non-existent asset, so `inspect_stage` can verify CompositionArcState::Missing."
+)
+
+def Xform "Root" (
+    kind = "assembly"
+)
+{
+    def Xform "GoodChild" (
+        references = @./tiny.usda@</Root>
+    )
+    {
+    }
+
+    def Xform "BrokenChild" (
+        references = @./does_not_exist.usda@</Root>
+    )
+    {
+    }
+}

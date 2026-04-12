@@ -31,7 +31,7 @@ export type DisplayMode =
 
 export type ViewerSurfaceMode = "asset" | "texture";
 
-export type TextureViewMode = "rgb" | "rgba" | "alpha";
+export type TextureViewMode = "rgb" | "rgba" | "r" | "g" | "b" | "alpha";
 
 export type SceneContext = {
   renderer: WebGLRenderer;
@@ -47,6 +47,12 @@ export type SceneContext = {
   clips: AnimationClip[];
   activeAction: AnimationAction | null;
   textureRegistry: Map<string, Texture>;
+  /**
+   * Original (pre-normalization) max dimension of the last loaded asset in
+   * scene units. Used to compute camera sensitivity so that assets that are
+   * scale-normalized still get speed values appropriate for their real size.
+   */
+  rawMaxDimension: number;
 };
 
 export type LoadedPreview = {
@@ -88,6 +94,7 @@ export const implementedPreviewExtensions = new Set([
   "obj",
   "ply",
   "stl",
+  "dae",
   "usd",
   "usda",
   "usdc",
@@ -99,6 +106,7 @@ export const implementedPreviewExtensions = new Set([
   "dds",
   "hdr",
   "exr",
+  "ktx2",
 ]);
 
 export const neutralFeedback: ViewerFeedback = {

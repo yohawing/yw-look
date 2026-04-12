@@ -50,9 +50,9 @@
 - [x] `Y-up` 基準で扱う実装を入れる
 - [x] 極端なスケールの警告判定を入れる
 - [x] カメラリセットを実装する
-- [ ] バウンディングボックスに基づく自動スケール正規化を実装する（全フォーマット共通、極端なスケールを自動補正）
-- [ ] Grid の単位をモデルサイズに応じて動的に切り替える（mm / cm / m 等）
-- [ ] Grid 単位をステータスバーまたは UI に表示する
+- [x] バウンディングボックスに基づく自動スケール正規化を実装する（全フォーマット共通、極端なスケールを自動補正）
+- [x] Grid の単位をモデルサイズに応じて動的に切り替える（mm / cm / m 等）
+- [x] Grid 単位をステータスバーまたは UI に表示する
 
 ## 5. カメラ操作
 
@@ -65,8 +65,8 @@
 - [x] `左ドラッグ = Orbit` を実装する（Alt なし）
 - [x] `中ボタンドラッグ = Pan` を実装する（Alt なし）
 - [x] `右ドラッグ = Zoom` を実装する（Alt なし）
-- [ ] モデルのバウンディングボックスに応じてカメラ操作感度（Orbit / Pan / Zoom）を自動調整する
-- [ ] カメラ操作感度を手動で微調整できるオプションを追加する
+- [x] モデルのバウンディングボックスに応じてカメラ操作感度（Orbit / Pan / Zoom）を自動調整する
+- [x] カメラ操作感度を手動で微調整できるオプションを追加する
 
 ## 6. 3D フォーマットローダー
 
@@ -77,10 +77,8 @@
 - [x] `USD` ローダーで `metersPerUnit` を読み取りスケール補正を適用する（Three.js USDAParser が無視するため極小表示になる）
 - [x] `USD` ローダーで個別 `xformOp`（scale / translate / rotateXYZ）をサポートする（現在 matrix4d のみ）
 - [x] `PLY` ローダー対応可否を確認し、可能なら実装する
-- [ ] `DAE` ローダーを実装する（Three.js に ColladaLoader あり、未統合）
+- [x] `DAE` ローダーを実装する（Three.js に ColladaLoader あり、未統合）
 - [x] `STL` ローダー対応可否を確認し、可能なら実装する
-- [ ] `VRM` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
-- [ ] `PMD / PMX / VMD / VRMA` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
 - [x] 対応拡張子ごとの lazy load を実装する
 
 ## 7. テクスチャ / 画像ローダー
@@ -90,15 +88,15 @@
 - [x] `HDR` 表示を実装する
 - [x] `EXR` 表示を実装する
 - [x] `DDS` 表示を実装する
-- [ ] `KTX2` 表示を実装する（Three.js に KTX2Loader あり、未統合）
+- [x] `KTX2` 表示を実装する（Three.js に KTX2Loader あり、未統合）
 - [x] `DDS` 読み込み失敗時のエラー分岐を整理する
 - [x] テクスチャ種別ごとの表示初期値を決める
-- [ ] 画像ファイルのデフォルト表示を 2D ビューにする（フィット表示・パン・ズーム）
+- [x] 画像ファイルのデフォルト表示を 2D ビューにする（フィット表示・パン・ズーム）
 - [ ] 2D ビューから 3D プレビュー（板ポリ表示）に切り替えるオプションを追加する
-- [ ] チャンネル別表示を実装する（R / G / B / A 単独表示切替）
-- [ ] 露出（EV）調整スライダーを実装する（HDR / EXR 向け）
-- [ ] ガンマ / リニア表示切替を実装する
-- [ ] タイリングプレビューを実装する（テクスチャの繰り返し表示）
+- [x] チャンネル別表示を実装する（R / G / B / A 単独表示切替）
+- [x] 露出（EV）調整スライダーを実装する（HDR / EXR 向け）
+- [x] ガンマ / リニア表示切替を実装する
+- [x] タイリングプレビューを実装する（テクスチャの繰り返し表示）
 
 ## 8. 表示モード
 
@@ -108,17 +106,18 @@
 - [x] `テクスチャあり + ワイヤーフレーム` モードを実装する
 - [x] モード切替 UI を作る
 - [x] モード切替時のマテリアル差し替えと復元を安定化する
-- [ ] ビューポート設定パネルを作る（オーバーレイチップから独立したパネル UI、カテゴリ分けで整理）
-- [ ] 既存のモード切替チップをパネルに統合する
+- [x] 背景色プリセット切り替えを実装する
+- [x] ビューポート設定パネルを作る（オーバーレイチップから独立したパネル UI、カテゴリ分けで整理）
+- [x] 既存のモード切替チップをパネルに統合する
 - [ ] パースペクティブ / オーソグラフィック切替を実装する
-- [ ] プリセットビューを実装する（Front / Back / Left / Right / Top / Bottom）
-- [ ] バックフェースカリング ON/OFF を実装する
-- [ ] 環境マップ背景表示 ON/OFF を実装する（HDRI 背景 or 灰色）
-- [ ] 環境マップのプリセット切替を実装する（Studio / Outdoor / Neutral 等）
-- [ ] ボーン / スケルトン表示を実装する（アニメーション付きモデル用）
-- [ ] 軸ギズモ（XYZ インジケーター）を表示する
-- [ ] トーンマッピング切替を実装する（Linear / ACES / Reinhard）
-- [ ] 露出調整スライダーを実装する
+- [x] プリセットビューを実装する（Front / Back / Left / Right / Top / Bottom）
+- [x] バックフェースカリング ON/OFF を実装する
+- [x] 環境マップ背景表示 ON/OFF を実装する（HDRI 背景 or 灰色）
+- [x] 環境マップのプリセット切替を実装する（Studio / Outdoor / Neutral 等）
+- [x] ボーン / スケルトン表示を実装する（アニメーション付きモデル用）
+- [x] 軸ギズモ（XYZ インジケーター）を表示する
+- [x] トーンマッピング切替を実装する（Linear / ACES / Reinhard）
+- [x] 露出調整スライダーを実装する
 
 ## 9. アニメーション UI
 
@@ -198,6 +197,46 @@
 - [ ] 最初の移行対象を決めて Tauri コマンドとして実装する
 - [ ] JS 側と Rust 側の責務分離方針をドキュメント化する
 
+### USD インスペクション（Rust バックエンド）
+
+設計・実装記録は `docs/usd.md` を参照。
+
+- [x] **Phase 0** — PoC（`mxpv/openusd` で USDA/USDC/USDZ/composition を実アセット検証、Windows MSVC 確認）
+- [x] **Phase 1** — Rust バックエンド骨格（`UsdBackend` trait、`OpenusdBackend`、`inspect_stage` / `summarize_stage` / `collect_asset_issues` Tauri command、fork 改造：`up_axis` / `meters_per_unit` / `references_in` / `payloads_in` / `unresolved_assets` / `instanceable`）
+- [x] **Phase 2** — UX 反映（summary 先出し、`UsdInspectorCard` / `WarningsCard` 合流、USDC 明示エラー）
+- [x] **Phase 3** — Rust Geometry パイプライン（GLB + `ipc::Response`、`requires_glb_preview` 分岐、fork `mesh_of` + yw-look 側で world xform 合成・Z-up 補正・visibility 継承・leftHanded winding、手書き GLB builder）
+
+#### Phase 4 — Payload 遅延ロード（実装済）
+
+- [x] `summarize_stage` / `inspect_stage` に load policy 導入（stateless API）
+- [x] payload prim の `loaded / unloaded / missing` 3 値表示
+- [x] UsdInspectorCard に Loaded / Deferred segmented control
+- [x] viewer の policy 切替 → extract_geometry 再走 + dispose
+- [ ] Kitchen Set で初回表示時間計測
+- [ ] per-prim payload load/unload（stateful session、延期中）
+
+#### Phase 5 — Preview 品質向上（実装済）
+
+- [x] 凹 n-gon ear-clip triangulation（convex fast path 付き）
+- [x] UsdPreviewSurface → GLB material（scalar PBR factor + sRGB→linear + alphaMode）
+- [x] USDZ / filesystem texture embedding（TextureLoader + per-material sampler dedup）
+- [x] displayColor fallback（Kitchen Set 等、constant color → baseColorFactor）
+- [x] MaterialX node ID 互換（`ND_UsdPreviewSurface_surfaceshader` / `ND_image_color3`、Glove テクスチャ解決）
+- [x] wrapS/wrapT sampler mapping
+- [x] USD Skel → glTF skin + animation 全段（skeleton_of / mesh_of skin / skel_animation_of / TRS decompose / time code→秒）
+- [x] Variant set resolution 確認 + Windows path fix
+- [x] pcp false cycle detection fix（HumanFemale unblock）
+
+#### 今後の USD 課題
+
+- [ ] per-vertex displayColor → GLB `COLOR_0` attribute
+- [ ] variant set 一覧表示・切り替え UI
+- [ ] purpose (`default` / `render` / `proxy` / `guide`) 表示ポリシー
+- [ ] `PointInstancer` preview
+- [ ] `GeomSubset` / face subset material binding
+- [ ] stage 内 camera の列挙と切替
+- [ ] `USDLoader.parse` を Web Worker に退避
+
 ## 15. OS 統合（Windows / macOS）
 
 ### Windows
@@ -213,8 +252,8 @@
 - [x] `src-tauri/icons/` に `.icns` アイコンを追加する
 - [x] `bundle.icon` 配列に Windows / macOS / 汎用 PNG をすべて列挙する
 - [x] `package.json` に `bundle:mac` スクリプトを追加する（`tauri build -- --bundles app,dmg`）
-- [ ] macOS 上で `npm run tauri dev` が通ることを確認する
-- [ ] macOS 上で `npm run bundle:mac` が通ることを確認する
+- [x] macOS 上で `npm run tauri dev` が通ることを確認する
+- [x] macOS 上で `npm run bundle:mac` が通ることを確認する
 - [x] `tauri.conf.json` の identifier を `com.yohawing.ywlook` に変更する（`.app` 終端を回避）
 - [ ] `plugins.updater.windows.installMode` 相当の macOS 側設定を整理する
 - [ ] `scripts/prepare-local-update-feed.mjs` を OS 別成果物に対応させる
@@ -379,7 +418,7 @@
   - [ ] `APPLE_PASSWORD`（App-specific password）
   - [ ] `APPLE_TEAM_ID`
 - [ ] `latest.json` を Windows / macOS 統合フォーマットで生成する
-  （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
+      （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
 - [ ] macOS 公証ジョブの失敗時に updater feed を更新しないガードを入れる
 
 ## 21. 多言語対応（i18n）
@@ -405,6 +444,8 @@
 
 ## 24. 将来対応の検討（フォーマット・パフォーマンス）
 
+- [ ] `VRM` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
+- [ ] `PMD / PMX / VMD / VRMA` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
 - [ ] `Alembic (.abc)` の対応方針を調べる（Three.js 標準にはなし、外部ライブラリ要）
 - [ ] `ufbx` を使った native FBX パスの将来設計をまとめる（現在は Three.js FBXLoader）
 - [ ] `DDS` の native 展開が必要か検証する（現在は Three.js DDSLoader で対応済み）
@@ -413,21 +454,21 @@
 
 ### ビューポート追加機能（後回し）
 
-- [ ] 法線表示（面法線・頂点法線のライン可視化）
+- [x] 法線表示（面法線・頂点法線のライン可視化）
 - [ ] UV 展開オーバーレイ表示
-- [ ] 頂点カラー表示
-- [ ] バウンディングボックス表示（各メッシュ単位）
-- [ ] 環境マップ回転
-- [ ] 影の ON/OFF
+- [x] 頂点カラー表示
+- [x] バウンディングボックス表示（各メッシュ単位）
+- [x] 環境マップ回転
+- [x] 影の ON/OFF
 - [ ] SSAO（アンビエントオクルージョン）
 - [ ] スケールリファレンス（人体シルエット等のサイズ比較）
-- [ ] FOV / ニアクリップ / ファークリップ調整
+- [x] FOV / ニアクリップ / ファークリップ調整
 - [ ] 被写界深度（DOF）
 - [ ] ブルーム（グロー効果）
-- [ ] アンチエイリアス切替（None / FXAA / MSAA）
-- [ ] 解像度スケール（0.5x / 1x / 2x）
-- [ ] テクスチャフィルタリング切替（Nearest / Bilinear / Trilinear）
-- [ ] FPS / ドローコール / 三角形数 / VRAM のオンスクリーン表示
+- [x] アンチエイリアス切替（None / FXAA / MSAA）
+- [x] 解像度スケール（0.5x / 1x / 2x）
+- [x] テクスチャフィルタリング切替（Nearest / Bilinear / Trilinear）
+- [x] FPS / ドローコール / 三角形数 / VRAM のオンスクリーン表示
 - [ ] ミップレベル可視化
 
 ## 25. 最初の実装順

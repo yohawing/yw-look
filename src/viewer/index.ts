@@ -9,10 +9,7 @@ export type {
   MissingReferenceError,
 } from "./types";
 
-export {
-  implementedPreviewExtensions,
-  neutralFeedback,
-} from "./types";
+export { implementedPreviewExtensions, neutralFeedback } from "./types";
 
 export {
   DEFAULT_SCENE_DIMENSION,
@@ -22,13 +19,34 @@ export {
   stopAnimations,
   resetSceneObjects,
   applyInitialView,
+  applyPresetView,
+  applyControlsSensitivity,
+  computeAutoSensitivity,
   getObjectMaxDimension,
   normalizeObjectScale,
   applyDynamicGrid,
+  applyDynamicAxes,
+  applyTextureView,
   getScaleWarning,
   applyDisplayMode,
+  applyBackfaceCulling,
+  applyTextureFilter,
+  applyVertexColors,
+  applySkeletonHelpers,
+  removeSkeletonHelpers,
+  applyBoundingBoxHelpers,
+  removeBoundingBoxHelpers,
+  applyNormalHelpers,
+  removeNormalHelpers,
+  ensureShadowCatcher,
+  applyShadows,
 } from "./scene";
-export type { GridConfig, ScaleNormalizationResult } from "./scene";
+export type {
+  CameraPreset,
+  GridConfig,
+  ScaleNormalizationResult,
+  TextureFilterMode,
+} from "./scene";
 
 export { loadPreviewObject } from "./loaders";
 
@@ -48,8 +66,4 @@ export {
   stepAction,
 } from "./animationController";
 
-export {
-  getCachedBuffer,
-  evictAll,
-  prefetchAdjacent,
-} from "./prefetchCache";
+export { getCachedBuffer, evictAll, prefetchAdjacent } from "./prefetchCache";

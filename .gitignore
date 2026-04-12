@@ -11,6 +11,14 @@ artifacts/screenshots/*
 !artifacts/screenshots/.gitkeep
 artifacts/logs/*
 !artifacts/logs/.gitkeep
+artifacts/preview/*
+!artifacts/preview/.gitkeep
+artifacts/tmp/
 
 samples/private/*
 !samples/private/.gitkeep
+
+experiments/
+
+# Local Claude Code session state
+.claude/
