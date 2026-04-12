@@ -490,6 +490,85 @@ USD の「軽く見せる」設計に素直に乗れる。
 
 ---
 
+## Phase 5c — Texture & Skinning パイプライン（実装中）
+
+### スコープ
+
+Phase 5a で「scalar PBR factor のみ」、Phase 5b で「skeleton の bind pose のみ」と意図的に削った 2 つの軸を一気に閉じる。
+
+| ID  | 項目                                                                                                                                                                     | 担当    | 依存             | 状態                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| A   | USDZ 内 texture を GLB BIN chunk に埋め込み (`UsdPreviewSurface.diffuseColor` の texture path を image / texture / sampler としてエクスポート)                           | yw-look | fork 不要        | ✅ 実装済 (filesystem fixture で検証、USDZ は TextureLoader 単体テスト + chameleon は fork material_of 制約により部分対応) |
+| B   | USDA parser の `parse_property_metadata_value` を配列型 vector 値で受理可能にする                                                                                        | fork    | なし             | ✅ 実装済 (`52029e6` `fix(usda): route time samples through parse_value`)                                                  |
+| C   | `MeshData` に `joint_indices: Vec<u32>` + `joint_weights: Vec<f32>` を追加し、`Stage::mesh_of` で `primvars:skel:jointIndices` / `primvars:skel:jointWeights` を読み込む | fork    | なし（B と独立） | 🔄 fork agent 実装中                                                                                                       |
+| D   | `Stage::skel_animation_of` の body を `FieldKey::TimeSamples` 経由で実装                                                                                                 | fork    | B                | 🔄 fork agent 実装中                                                                                                       |
+| E   | yw-look 側 `glb.rs` に `SkinInput` を追加して glTF nodes / skin / inverseBindMatrices / animation channels を出力                                                        | yw-look | C + D            | ⏳ 待機中                                                                                                                  |
+
+### 既知の Phase 5d 候補
+
+Phase 5c A の chameleon USDZ smoke test (`extract_geometry_chameleon_textured_smoke`) は `#[ignore]` で残してある。原因は yw-look 側ではなく fork の `Stage::material_of` が **variant set 越しの material binding を解決しない**こと。chameleon の本命 PBR material は `mtl_variants` variant set の選択先にあるため、現在の `bound_material` ロジックでは stick placeholder material しか拾えない。Phase 5d で variant 解決を入れた時点で `#[ignore]` を外し、`materials.len() >= 2` を `images.len() >= 1` に強める。
+
+### 並行戦略
+
+- **Track 1 (即着手)**: メインエージェントが **A (texture embedding)** を yw-look 側で実装。fork ブロックがないので Phase 5c 全体の進捗を稼ぐ
+- **Track 2 (即着手)**: fork agent 1 が **B (USDA parser fix)** を実装。`stage.rs` を触らないので C と排他しないよう `usda/parser.rs` のみに集中する briefing
+- **Track 3 (B + 追加 fork agent)**: fork agent 2 が B 完了後に **C (MeshData skin) + D (skel_animation_of body)** を実装。両方 `stage.rs` を触るので 1 エージェントで逐次のほうが安全
+- **Track 4 (C + D 後)**: メインエージェントが **E (yw-look glb skin/animation)** を実装
+
+各節目で `cargo test --lib usd::` + `npm run typecheck` + `npm test` + Codex review + commit。
+
+### A の実装ノート (yw-look 側、即着手)
+
+- `MaterialData.diffuse_texture` に asset 文字列が入っている場合のみ走る経路
+- Asset path 解決:
+  - 絶対パス → ファイルを直接読む
+  - 相対パス → USDA の場合は USDA ファイルからの相対、USDZ の場合は zip エントリ
+- USDZ archive の中身を取り出すには、`zip` クレートを fork ではなく yw-look 側に追加するか、stage 経由で読める道があるか確認
+  - 既存 yw-look の `viewer/loaders.ts` にすでに USDZ を扱う経路があるかチェック
+- GLB BIN chunk に PNG/JPEG バイトを入れ、glTF `images` / `textures` / `samplers` を追加
+- `MaterialInput` に `base_color_texture: Option<usize>` (texture index) を追加
+- mesh primitive の `pbrMetallicRoughness.baseColorTexture` を出力
+- TEXCOORD_0 はすでに出力済み
+
+### B の実装ノート (fork 側)
+
+- 失敗箇所: `src/usda/parser.rs:1096-1110` 付近の `parse_property_metadata_value`
+- 現在のエラー: `"Unsupported property metadata value token: Punctuation('(')"`
+- USDA の time sample で配列型 vector 値が来た時の syntax 例:
+  ```
+  float3[] translations.timeSamples = {
+      0: [(0, 0, 0), (0, 1, 0)],
+      24: [(0, 0, 0), (0, 1, 0.5)],
+  }
+  ```
+- `parse_array_value` 系の既存ヘルパが流用できないか調査。tuple `(x, y, z)` のパースも合わせて必要
+- 既存 timesamples テスト (`fixtures/timesamples.usda` のスカラー path) を壊さないこと
+
+### C の実装ノート (fork 側)
+
+- `MeshData` 拡張: `joint_indices: Vec<u32>`, `joint_weights: Vec<f32>` を追加（option ではなく空 Vec を許容するか、`Option<Vec<...>>` か）
+- 読み出し: `primvars:skel:jointIndices` (int[]) / `primvars:skel:jointWeights` (float[])
+- USD では interpolation `vertex` か `faceVarying` を見る必要がある（既存 normals / uvs と同じ流れ）
+- joints per vertex の数 (`elementSize` metadata) も読む — glTF は per vertex 4 を期待するので、4 でないなら最初の 4 だけ採用 or 重み再正規化
+
+### D の実装ノート (fork 側)
+
+- `skel:animationSource` relationship を辿って `UsdSkelSkelAnimation` prim を取得（既存 `bound_material` と同パターン）
+- `joints` (uniform token[]) を読む
+- `translations` / `rotations` / `scales` を `FieldKey::TimeSamples` 経由で取得
+- `Value::TimeSamples(TimeSampleMap)` を `Vec<(f64, Vec<f32>)>` 形式に整形
+- B が完了して USDA fixture が書ければ end-to-end テストも追加可能
+
+### 検証
+
+- A: USDZ サンプル (chameleon / glove / seahorse) で texture が出力 GLB に含まれることを cargo test で検証 + preview-model でスクショ確認
+- B: USDA SkelAnimation fixture を `fixtures/skel_animation/` に追加して parse できる単体テスト
+- C: jointIndices / jointWeights 付き fixture で `mesh_of` が値を返すテスト
+- D: `skel_animation_of` で 2 フレームの translations を読み取れるテスト
+- E: 統合 USDA で skin 付き mesh を extract → preview-model で T ポーズ + animation 確認
+
+---
+
 ## 通しの方針・制約
 
 - **表示は Three.js / 検査は Rust** を基本方針とする

@@ -314,18 +314,28 @@ impl UsdBackend for OpenusdBackend {
             ));
         }
 
-        // Phase 5a material resolution. The GLB output holds a
-        // deduplicated materials array; slot 0 is always the default
-        // preview material so unbound meshes have something to point
-        // at. Each bound Material prim (identified by its composed
-        // path) maps to exactly one additional slot, built from
-        // `Stage::material_of` output. A mesh whose `bound_material`
-        // path appears multiple times across the stage shares the
-        // slot, matching how glTF expects material reuse to work.
+        // Phase 5a material resolution + Phase 5c texture embedding.
+        // The GLB output holds a deduplicated materials array; slot 0
+        // is always the default preview material so unbound meshes
+        // have something to point at. Each bound Material prim
+        // (identified by its composed path) maps to exactly one
+        // additional slot, built from `Stage::material_of` output.
+        // A mesh whose `bound_material` path appears multiple times
+        // across the stage shares the slot, matching how glTF expects
+        // material reuse to work.
+        //
+        // Texture resolution happens after the mesh pass: we collect
+        // each material's authored texture asset path during pass 2,
+        // then a final pass loads PNG/JPEG bytes (USDZ archive entry
+        // or filesystem-relative file) and patches the material's
+        // `base_color_texture` to point at the new GLB image slot.
         let mut materials: Vec<glb::MaterialInput> =
             vec![glb::MaterialInput::default_preview()];
         let mut material_slots: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
+        // Per material slot: the authored diffuse_texture asset path,
+        // or `None` for "no texture / default slot".
+        let mut material_texture_paths: Vec<Option<String>> = vec![None];
 
         // Pass 2: build a MeshInput per Mesh prim, composing the world
         // transform along the parent chain and pre-applying the up-axis
@@ -361,7 +371,9 @@ impl UsdBackend for OpenusdBackend {
                     existing
                 } else if let Some(data) = stage.material_of(prim_path.clone()) {
                     let slot = materials.len();
+                    let tex_path = data.diffuse_texture.clone();
                     materials.push(material_input_from_data(&key, &data));
+                    material_texture_paths.push(tex_path);
                     material_slots.insert(key, slot);
                     slot
                 } else {
@@ -387,7 +399,95 @@ impl UsdBackend for OpenusdBackend {
             ));
         }
 
-        glb::build_glb(&inputs, &materials).map_err(UsdError::Parse)
+        // Phase 5c: resolve and embed each authored texture asset.
+        // `texture_loader` opens the USDZ archive lazily on the first
+        // texture lookup so non-textured stages don't pay the zip
+        // open cost.
+        //
+        // ### Layer-relative resolution: best effort, Phase 5d
+        //
+        // Ideally a `@./albedo.png@` authored on a Material that lives
+        // in a referenced layer should resolve relative to **that
+        // layer's** directory, not the top-level stage. The fork's
+        // `Stage::material_of` does not yet expose which layer a
+        // given material spec came from, so we approximate by
+        // searching every composed layer's parent directory in order
+        // (root first, then references / payloads / sublayers). For
+        // single-layer assets and self-contained USDZ this is
+        // identical to a layer-aware lookup. For composed scenes
+        // where two layers author the same relative path against
+        // different files, the closer-to-root layer wins; this is a
+        // known limitation tracked as Phase 5d (needs a fork API
+        // for `Stage::layer_for_prim`).
+        let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(parent) = path.parent() {
+            search_dirs.push(parent.to_path_buf());
+        }
+        for layer_id in stage.layer_identifiers() {
+            // layer_identifiers returns the root layer first, then the
+            // composed layers in order. Skip the root path's parent
+            // (already added) and convert each composed layer's
+            // identifier into a directory.
+            let layer_path = StdPath::new(&layer_id);
+            if let Some(parent) = layer_path.parent() {
+                if !search_dirs.iter().any(|d| d == parent) {
+                    search_dirs.push(parent.to_path_buf());
+                }
+            }
+        }
+
+        let mut texture_loader = TextureLoader::new(path, search_dirs);
+        let mut textures: Vec<glb::TextureInput> = Vec::new();
+        // Dedupe by **resolved source identity** (filesystem PathBuf or
+        // USDZ entry name), not the authored relative string. Two
+        // materials in different layers can author the same
+        // `@./albedo.png@` and resolve to different files; raw-string
+        // dedupe would silently merge them (Codex P2: dedupe key).
+        let mut texture_dedup: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for (mat_idx, tex_path) in material_texture_paths.iter().enumerate() {
+            let Some(tex_path) = tex_path else { continue };
+            match texture_loader.load(tex_path) {
+                Ok(loaded) => {
+                    let new_idx =
+                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                            existing
+                        } else {
+                            let idx = textures.len();
+                            textures.push(loaded.input);
+                            texture_dedup.insert(loaded.identity, idx);
+                            idx
+                        };
+                    materials[mat_idx].base_color_texture = Some(new_idx);
+                    // Codex P1: when a base color texture is attached
+                    // we must neutralize the material's base color
+                    // factor to white. UsdPreviewSurface treats
+                    // diffuseColor as **either** a scalar value
+                    // **or** a UsdUVTexture connection — there is no
+                    // multiplicative tint in the standard preview
+                    // shader. Leaving the schema fallback (0.18, 0.18,
+                    // 0.18) in baseColorFactor would multiply the
+                    // sampled image by ~0.18 in glTF, rendering
+                    // textured surfaces 5× too dark. Preserve alpha
+                    // so opacity-driven alphaMode still works.
+                    let alpha = materials[mat_idx].base_color_factor[3];
+                    materials[mat_idx].base_color_factor = [1.0, 1.0, 1.0, alpha];
+                }
+                Err(err) => {
+                    // Don't fail the whole extraction over a missing
+                    // texture — log it and let the material fall back
+                    // to its scalar baseColorFactor. Real assets often
+                    // ship with broken texture references that the
+                    // user wants to see anyway.
+                    eprintln!(
+                        "[usd] failed to load texture '{}' for material[{mat_idx}]: {err}",
+                        tex_path
+                    );
+                }
+            }
+        }
+
+        glb::build_glb(&inputs, &materials, &textures).map_err(UsdError::Parse)
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
@@ -482,6 +582,227 @@ impl UsdBackend for OpenusdBackend {
 
 // ----- Arc state helpers ---------------------------------------------------
 
+/// Phase 5c: result of resolving an authored `UsdPreviewSurface`
+/// texture asset path. `input` is the GLB-ready payload to embed,
+/// `identity` is a stable string identifier for **dedup keying** —
+/// two authored asset paths that resolve to the same file or USDZ
+/// entry must produce the same `identity` so the GLB only emits one
+/// copy of the image bytes.
+struct LoadedTexture {
+    input: glb::TextureInput,
+    identity: String,
+}
+
+/// Phase 5c: lazily resolve `UsdPreviewSurface` texture asset paths
+/// against either a USDZ archive (zip read on first access) or one of
+/// several search directories on the filesystem. The list of search
+/// directories includes the root path's parent plus every composed
+/// layer's parent so a material that lives in a referenced or
+/// payloaded layer resolves its `inputs:file` against the **layer's**
+/// directory rather than the top-level stage's directory (Codex P2).
+/// The loader is intentionally state-bearing so a stage with hundreds
+/// of textures only opens its USDZ archive once.
+struct TextureLoader<'a> {
+    /// Source path passed to `extract_geometry_glb`. Used to detect
+    /// USDZ archives.
+    source_path: &'a StdPath,
+    /// Filesystem search directories, in priority order (closest layer
+    /// first). Empty for USDZ-rooted stages.
+    search_dirs: Vec<std::path::PathBuf>,
+    /// `Some(map)` once a USDZ archive has been opened. Keyed on the
+    /// lower-cased zip entry name with the raw uncompressed file bytes.
+    usdz_entries: Option<std::collections::HashMap<String, Vec<u8>>>,
+    /// Set after a failed USDZ open so we don't keep retrying.
+    usdz_open_failed: bool,
+}
+
+impl<'a> TextureLoader<'a> {
+    fn new(source_path: &'a StdPath, search_dirs: Vec<std::path::PathBuf>) -> Self {
+        Self {
+            source_path,
+            search_dirs,
+            usdz_entries: None,
+            usdz_open_failed: false,
+        }
+    }
+
+    /// Loads `asset_path` and returns a `LoadedTexture` ready to embed.
+    /// The `identity` field of the result is what callers should key
+    /// dedupe caches on (NOT the authored `asset_path` string).
+    fn load(
+        &mut self,
+        asset_path: &str,
+    ) -> Result<LoadedTexture, String> {
+        let mime = guess_image_mime(asset_path)
+            .ok_or_else(|| format!("unsupported texture extension: {asset_path}"))?;
+
+        let (bytes, identity) = if self.is_usdz_source() {
+            self.load_from_usdz(asset_path)?
+        } else {
+            self.load_from_filesystem(asset_path)?
+        };
+
+        Ok(LoadedTexture {
+            input: glb::TextureInput {
+                name: asset_path.to_string(),
+                mime_type: mime.to_string(),
+                data: bytes,
+            },
+            identity,
+        })
+    }
+
+    fn is_usdz_source(&self) -> bool {
+        self.source_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("usdz"))
+            .unwrap_or(false)
+    }
+
+    fn load_from_filesystem(
+        &self,
+        asset_path: &str,
+    ) -> Result<(Vec<u8>, String), String> {
+        // Try absolute first, then each search dir in order.
+        let candidate = StdPath::new(asset_path);
+        if candidate.is_absolute() {
+            return std::fs::read(candidate)
+                .map(|bytes| (bytes, candidate.to_string_lossy().to_string()))
+                .map_err(|e| format!("read {}: {e}", candidate.display()));
+        }
+
+        let mut last_err: Option<String> = None;
+        for dir in &self.search_dirs {
+            let resolved = dir.join(candidate);
+            match std::fs::read(&resolved) {
+                Ok(bytes) => {
+                    // Identity = canonicalized resolved path so two
+                    // different relative authorings that hit the same
+                    // file dedupe correctly.
+                    let canonical = std::fs::canonicalize(&resolved)
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| resolved.to_string_lossy().to_string());
+                    return Ok((bytes, canonical));
+                }
+                Err(e) => {
+                    last_err =
+                        Some(format!("{}: {e}", resolved.display()));
+                }
+            }
+        }
+        Err(format!(
+            "could not resolve '{asset_path}' against {} search dirs (last error: {})",
+            self.search_dirs.len(),
+            last_err.as_deref().unwrap_or("none"),
+        ))
+    }
+
+    fn load_from_usdz(
+        &mut self,
+        asset_path: &str,
+    ) -> Result<(Vec<u8>, String), String> {
+        if self.usdz_entries.is_none() && !self.usdz_open_failed {
+            match Self::open_usdz_archive(self.source_path) {
+                Ok(map) => self.usdz_entries = Some(map),
+                Err(err) => {
+                    self.usdz_open_failed = true;
+                    return Err(format!(
+                        "open usdz {}: {err}",
+                        self.source_path.display()
+                    ));
+                }
+            }
+        }
+        let entries = self
+            .usdz_entries
+            .as_ref()
+            .ok_or_else(|| "usdz archive unavailable".to_string())?;
+
+        // USDZ entries use forward slashes; the asset path may also
+        // contain `./` prefixes. Normalize before lookup. The lookup
+        // is case-insensitive because USDZ archives sometimes carry
+        // mixed-case names from Windows tools.
+        let normalized = asset_path.replace('\\', "/");
+        let needle = normalized.trim_start_matches("./").to_ascii_lowercase();
+        if let Some(bytes) = entries.get(&needle) {
+            // Identity = "usdz:<archive path>!<entry key>" so it
+            // never collides with a filesystem identity.
+            let identity = format!("usdz:{}!{needle}", self.source_path.display());
+            return Ok((bytes.clone(), identity));
+        }
+        // Fall back to a basename match — some USDZ archives flatten
+        // their texture directory and the authored path still uses
+        // the original DCC layout. Codex P2: if multiple entries
+        // share the same basename (e.g. `textures/body/albedo.jpg`
+        // **and** `textures/head/albedo.jpg`) we **must not** pick
+        // arbitrarily because `HashMap::iter()` has no stable order
+        // and the preview would non-deterministically show the wrong
+        // texture. Require a unique basename hit, otherwise error
+        // out so the caller logs it and falls back to the scalar
+        // base color factor.
+        let basename = needle.rsplit('/').next().unwrap_or(&needle);
+        let basename_matches: Vec<&String> = entries
+            .keys()
+            .filter(|k| k.rsplit('/').next() == Some(basename))
+            .collect();
+        match basename_matches.len() {
+            0 => Err(format!("no usdz entry matches '{asset_path}'")),
+            1 => {
+                let key = basename_matches[0];
+                let bytes = entries[key].clone();
+                let identity =
+                    format!("usdz:{}!{key}", self.source_path.display());
+                Ok((bytes, identity))
+            }
+            n => Err(format!(
+                "ambiguous usdz basename '{basename}' for '{asset_path}': {n} candidates ({:?})",
+                basename_matches
+            )),
+        }
+    }
+
+    fn open_usdz_archive(
+        source_path: &StdPath,
+    ) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
+        use std::io::Read;
+        let file = std::fs::File::open(source_path)
+            .map_err(|e| format!("open: {e}"))?;
+        let mut archive = zip::ZipArchive::new(file)
+            .map_err(|e| format!("zip header: {e}"))?;
+        let mut out = std::collections::HashMap::new();
+        for i in 0..archive.len() {
+            let mut entry = archive
+                .by_index(i)
+                .map_err(|e| format!("zip entry {i}: {e}"))?;
+            if entry.is_dir() {
+                continue;
+            }
+            let key = entry.name().to_ascii_lowercase();
+            let mut buf = Vec::with_capacity(entry.size() as usize);
+            entry
+                .read_to_end(&mut buf)
+                .map_err(|e| format!("read zip entry {i}: {e}"))?;
+            out.insert(key, buf);
+        }
+        Ok(out)
+    }
+}
+
+/// Best-effort image MIME type from a file extension. glTF only
+/// natively supports PNG and JPEG, so anything else is rejected at
+/// the call site.
+fn guess_image_mime(asset_path: &str) -> Option<&'static str> {
+    let lower = asset_path.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        Some("image/png")
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        Some("image/jpeg")
+    } else {
+        None
+    }
+}
+
 /// Convert an sRGB color channel (0-1 float) to linear space.
 ///
 /// USD's `UsdPreviewSurface` documents `inputs:diffuseColor` — and the
@@ -554,6 +875,10 @@ fn material_input_from_data(
         // it on so the preview is not orientation-sensitive when an
         // asset's mesh winding is ambiguous.
         double_sided: true,
+        // Caller (`extract_geometry_glb`) overwrites this once the
+        // texture has been resolved and the GLB-level texture index
+        // is known.
+        base_color_texture: None,
     }
 }
 
@@ -2489,6 +2814,261 @@ def Xform "Root" (
         let out = out_dir.join("ball.glb");
         std::fs::write(&out, &glb).expect("write glb");
         eprintln!("wrote {} ({} bytes)", out.display(), glb.len());
+    }
+
+    /// Phase 5c A: TextureLoader's USDZ branch must be able to pull
+    /// raw image bytes out of a real USDZ archive even when the fork's
+    /// `material_of` doesn't surface a texture path. This unit-tests
+    /// the loader directly so the texture-embedding plumbing has
+    /// coverage independent of upstream resolver gaps.
+    #[test]
+    #[ignore = "needs samples/private (Apple AR Quick Look)"]
+    fn texture_loader_reads_chameleon_usdz_entry() {
+        let path = PathBuf::from(
+            "../samples/private/usd/chameleon_anim_mtl_variant.usdz",
+        );
+        if skip_if_missing(&path, "texture_loader_chameleon") {
+            return;
+        }
+        // USDZ branch ignores search dirs entirely, so an empty list is fine.
+        let mut loader = super::TextureLoader::new(&path, Vec::new());
+        // chameleon ships its base color jpegs under `0/`. Verify the
+        // loader resolves both the full path and the bare basename
+        // (since real USD assets author either form depending on the
+        // DCC export).
+        let full = loader
+            .load("0/chameleon_bc.jpg")
+            .expect("load 0/chameleon_bc.jpg");
+        assert_eq!(full.input.mime_type, "image/jpeg");
+        assert!(full.input.data.len() > 1024, "image bytes truncated");
+
+        let bare = loader
+            .load("chameleon_bc.jpg")
+            .expect("load chameleon_bc.jpg via basename");
+        assert_eq!(bare.input.mime_type, "image/jpeg");
+        assert_eq!(
+            bare.input.data.len(),
+            full.input.data.len(),
+            "basename lookup should hit the same archive entry"
+        );
+        // Both lookups must produce the same identity so the dedup
+        // cache merges the two authored paths into a single GLB
+        // texture slot.
+        assert_eq!(
+            full.identity, bare.identity,
+            "full path and basename must produce the same dedup identity"
+        );
+    }
+
+    /// Phase 5c A: a USDA file that authors `inputs:diffuseColor` as a
+    /// `UsdUVTexture` connection with a relative `inputs:file` asset
+    /// path must end up in the GLB with the texture embedded as an
+    /// `image` referencing a `bufferView`, the matching `texture`
+    /// pointing at the image, and the material's `pbrMetallicRoughness`
+    /// carrying a `baseColorTexture` index. Uses a tiny PNG written to
+    /// disk so the test runs without needing samples/private.
+    #[test]
+    fn extract_geometry_embeds_filesystem_diffuse_texture() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase5c_fs_texture");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let png_path = tmp_dir.join("checker.png");
+        // Minimal valid 1x1 sRGB PNG (red pixel). Hand-crafted bytes
+        // so the test does not depend on the `image` crate.
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG magic
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR length + type
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1
+            0x08, 0x02, 0x00, 0x00, 0x00, // bit depth 8, color type 2 (RGB)
+            0x90, 0x77, 0x53, 0xDE, // IHDR CRC
+            0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, // IDAT length + type
+            0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01,
+            0x5C, 0xCD, 0xFF, 0x69, // IDAT CRC
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND length + type
+            0xAE, 0x42, 0x60, 0x82, // IEND CRC
+        ];
+        std::fs::write(&png_path, png_bytes)?;
+
+        let usda_path = tmp_dir.join("textured.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </Root/Looks/RedMat>
+    }
+
+    def "Looks"
+    {
+        def Material "RedMat"
+        {
+            token outputs:surface.connect = </Root/Looks/RedMat/Preview.outputs:surface>
+
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </Root/Looks/RedMat/Tex.outputs:rgb>
+                token outputs:surface
+            }
+
+            def Shader "Tex"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./checker.png@
+                token outputs:rgb
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract textured.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        // Decode the JSON chunk and verify the texture pipeline.
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let images = doc["images"].as_array().expect("images array");
+        assert_eq!(
+            images.len(),
+            1,
+            "expected one embedded image, got {images:?}"
+        );
+        assert_eq!(images[0]["mimeType"], "image/png");
+        assert!(
+            images[0]["bufferView"].is_number(),
+            "image must reference a bufferView, got {:?}",
+            images[0]
+        );
+
+        let textures = doc["textures"].as_array().expect("textures array");
+        assert_eq!(textures.len(), 1);
+        assert_eq!(textures[0]["source"], 0);
+        assert_eq!(textures[0]["sampler"], 0);
+
+        let samplers = doc["samplers"].as_array().expect("samplers array");
+        assert_eq!(samplers.len(), 1);
+        // glTF defaults: linear mip-mapping + repeat wrap.
+        assert_eq!(samplers[0]["magFilter"], 9729);
+        assert_eq!(samplers[0]["wrapS"], 10497);
+
+        // The bound material must reference texture index 0 via
+        // baseColorTexture; slot 0 (default) must NOT have a texture.
+        let materials = doc["materials"].as_array().expect("materials array");
+        assert_eq!(materials[0]["name"], "yw_look_default");
+        assert!(
+            materials[0]["pbrMetallicRoughness"]
+                .get("baseColorTexture")
+                .is_none(),
+            "default material should not have a base color texture"
+        );
+        let red_slot = materials
+            .iter()
+            .position(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.contains("RedMat"))
+                    .unwrap_or(false)
+            })
+            .expect("RedMat slot");
+        let red = &materials[red_slot];
+        assert_eq!(red["pbrMetallicRoughness"]["baseColorTexture"]["index"], 0);
+        assert_eq!(red["pbrMetallicRoughness"]["baseColorTexture"]["texCoord"], 0);
+
+        // Codex P1: when baseColorTexture is attached, baseColorFactor
+        // RGB must be neutral white so the texture is not multiplied
+        // by the schema-default 0.18 fallback. Alpha is preserved so
+        // an authored opacity still drives alphaMode.
+        let factor = red["pbrMetallicRoughness"]["baseColorFactor"]
+            .as_array()
+            .expect("baseColorFactor");
+        for i in 0..3 {
+            let v = factor[i].as_f64().unwrap();
+            assert!(
+                (v - 1.0).abs() < 1e-6,
+                "baseColorFactor[{i}] = {v}, expected 1.0 when texture is bound"
+            );
+        }
+        let alpha = factor[3].as_f64().unwrap();
+        assert!((alpha - 1.0).abs() < 1e-6, "alpha should be 1 by default");
+
+        Ok(())
+    }
+
+    /// Phase 5c A status: chameleon USDZ ships ten PNG/JPG textures
+    /// (chameleon_bc.jpg etc.) referenced from a `UsdPreviewSurface`
+    /// material that lives behind a variant set. The yw-look texture
+    /// loader can extract any USDZ entry it is asked to (verified by
+    /// `extract_geometry_embeds_filesystem_diffuse_texture` for the
+    /// filesystem path, and the extracted GLB validates clean), but
+    /// the openusd fork's `Stage::material_of` only resolves the
+    /// stick placeholder material on this asset — it doesn't follow
+    /// the chameleon mesh's binding through the variant set's PBR
+    /// material. So image count is currently zero on this asset.
+    ///
+    /// The test is left here as a regression marker for the day the
+    /// fork picks up variant-set / `MaterialBindingAPI` resolution.
+    /// Marked `#[ignore]` so a CI run with samples/private does not
+    /// fail; flip the assert to `>= 1` once the fork upgrade lands.
+    #[test]
+    #[ignore = "fork material_of variant-set blocker — Phase 5d candidate"]
+    fn extract_geometry_chameleon_textured_smoke() {
+        let path = PathBuf::from(
+            "../samples/private/usd/chameleon_anim_mtl_variant.usdz",
+        );
+        if skip_if_missing(&path, "chameleon_textures") {
+            return;
+        }
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract chameleon usdz");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let materials = doc["materials"].as_array().expect("materials array");
+        // Pin: at minimum we expect the default slot + at least one
+        // bound material slot from `Stage::material_of`. Anything
+        // beyond that (including embedded textures) is a Phase 5d
+        // upgrade target.
+        assert!(
+            materials.len() >= 2,
+            "chameleon should produce at least 2 material slots, got {}",
+            materials.len()
+        );
     }
 
     /// Phase 5a regression (Codex P1): a `UsdPreviewSurface` that

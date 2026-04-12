@@ -15,15 +15,21 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.1.0", features = [] }
 
 [dependencies]
-# Phase 5b WIP tip on the `yw-look-phase4` branch of the fork. Carries
-# StageLoadPolicy (Phase 4a), Stage::material_of (Phase 5a) and
-# Stage::skeleton_of (Phase 5b WIP). Bump again as yw-look-phase4
-# advances.
-openusd = { git = "https://github.com/yohawing/openusd.git", rev = "5c44588a519c674b177e3fd71e979f294a4dd030" }
+# Phase 5c B tip on the `yw-look-phase4` branch of the fork. Carries
+# StageLoadPolicy (Phase 4a), Stage::material_of (Phase 5a),
+# Stage::skeleton_of (Phase 5b WIP), and the USDA parser fix that
+# accepts time-sampled array values (Phase 5c B, needed for the
+# upcoming SkelAnimation work). Bump again as yw-look-phase4 advances.
+openusd = { git = "https://github.com/yohawing/openusd.git", rev = "52029e6920bcad9fcc9c8277ae2309e1a3fc34d4" }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.8.5", features = [] }
 tauri-plugin-updater = "2.10.0"
 url = "2"
+# Phase 5c: USDZ archives are zip files; we open them in the GLB
+# extraction path to pull out UsdPreviewSurface texture assets and
+# embed them into the glTF binary chunk. openusd already pulls zip 8
+# transitively, so this matches its version to share the build.
+zip = { version = "8", default-features = false, features = ["deflate"] }
 

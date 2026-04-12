@@ -19,8 +19,9 @@ use serde_json::{json, Value};
 
 /// PBR material slot referenced from one or more `MeshInput`s. All
 /// fields have GLTF-compatible defaults so callers can omit unauthored
-/// inputs. Phase 5a covers scalar inputs only; texture support lands in
-/// a later phase together with Rust-side asset embedding.
+/// inputs. Phase 5c adds optional `base_color_texture` so a
+/// `UsdPreviewSurface` whose `inputs:diffuseColor` is connected to a
+/// `UsdUVTexture` shows up with its actual texture in the preview.
 #[derive(Debug, Clone)]
 pub struct MaterialInput {
     /// Display name attached to the GLTF material object. Free-form.
@@ -38,6 +39,12 @@ pub struct MaterialInput {
     /// GLTF `doubleSided` flag. USD Mesh orientation metadata is baked
     /// into the triangulator winding so the default is `true`.
     pub double_sided: bool,
+    /// Phase 5c: optional base color (sRGB) texture to embed in the GLB
+    /// BIN chunk. `None` keeps the legacy "no texture, factor only"
+    /// behavior. The actual byte payload + MIME type live in
+    /// `BuildContext::textures` keyed by the index stored here so the
+    /// builder can dedupe textures across materials.
+    pub base_color_texture: Option<usize>,
 }
 
 impl MaterialInput {
@@ -53,8 +60,26 @@ impl MaterialInput {
             roughness_factor: 0.9,
             emissive_factor: [0.0, 0.0, 0.0],
             double_sided: true,
+            base_color_texture: None,
         }
     }
+}
+
+/// One image to embed in the GLB binary chunk and reference from a
+/// material as a `baseColorTexture`. The builder pads the BIN chunk
+/// for alignment and writes a single `images[i]` + `textures[i]` +
+/// `samplers[0]` triple per `TextureInput`.
+#[derive(Debug, Clone)]
+pub struct TextureInput {
+    /// Display name attached to the glTF image / texture. Free-form;
+    /// usually the source asset path.
+    pub name: String,
+    /// glTF MIME type, must be `"image/png"` or `"image/jpeg"`.
+    /// Anything else is rejected at validation time.
+    pub mime_type: String,
+    /// Raw image bytes (PNG or JPEG file content as it would land on
+    /// disk).
+    pub data: Vec<u8>,
 }
 
 /// One mesh ready to be packed into a GLB. Positions / normals / UVs are
@@ -160,16 +185,19 @@ const CHUNK_TYPE_BIN: u32 = 0x004E4942; // "BIN\0"
 const COMPONENT_TYPE_FLOAT: u32 = 5126;
 const COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
 
-/// Build a GLB binary from a list of meshes and materials. Returns the
-/// GLB byte stream ready to send via `tauri::ipc::Response`.
+/// Build a GLB binary from a list of meshes, materials, and textures.
+/// Returns the GLB byte stream ready to send via
+/// `tauri::ipc::Response`.
 ///
 /// `materials` must be non-empty and every `MeshInput.material_index`
-/// must point into it. Callers that only want the legacy default look
-/// can pass `&[MaterialInput::default_preview()]` and set
-/// `material_index = 0` on every mesh.
+/// must point into it. Texture references on `MaterialInput` index
+/// into the `textures` slice — `MaterialInput::base_color_texture =
+/// Some(i)` means "use `textures[i]` as the sRGB base color sampler".
+/// Pass an empty `textures` slice when no material uses one.
 pub fn build_glb(
     meshes: &[MeshInput],
     materials: &[MaterialInput],
+    textures: &[TextureInput],
 ) -> Result<Vec<u8>, String> {
     if meshes.is_empty() {
         return Err("no meshes to export".to_string());
@@ -184,6 +212,32 @@ pub fn build_glb(
                 m.name,
                 m.material_index,
                 materials.len()
+            ));
+        }
+    }
+    for (i, m) in materials.iter().enumerate() {
+        if let Some(tex_idx) = m.base_color_texture {
+            if tex_idx >= textures.len() {
+                return Err(format!(
+                    "material[{i}] '{}' references base_color_texture {} but only {} textures were supplied",
+                    m.name,
+                    tex_idx,
+                    textures.len()
+                ));
+            }
+        }
+    }
+    for (i, t) in textures.iter().enumerate() {
+        if t.data.is_empty() {
+            return Err(format!(
+                "texture[{i}] '{}' has empty image data",
+                t.name
+            ));
+        }
+        if t.mime_type != "image/png" && t.mime_type != "image/jpeg" {
+            return Err(format!(
+                "texture[{i}] '{}' has unsupported mimeType '{}'; expected image/png or image/jpeg",
+                t.name, t.mime_type
             ));
         }
     }
@@ -347,22 +401,62 @@ pub fn build_glb(
         let _ = mesh_idx; // silence unused if compiler complains
     }
 
+    // ---- Embed textures into the BIN chunk -----------------------------
+    //
+    // Each TextureInput becomes one bufferView (containing the raw
+    // PNG/JPEG bytes), one image (referencing that bufferView with the
+    // declared mimeType), and one texture (referencing the image and
+    // a single shared sampler with the glTF defaults). Materials then
+    // index into the textures array via `pbrMetallicRoughness.baseColorTexture`.
+    let mut gltf_images: Vec<Value> = Vec::with_capacity(textures.len());
+    let mut gltf_textures: Vec<Value> = Vec::with_capacity(textures.len());
+    for tex in textures {
+        let off = bin.len() as u64;
+        bin.extend_from_slice(&tex.data);
+        let len = (bin.len() as u64) - off;
+        pad_to_4(&mut bin);
+
+        let view_idx = buffer_views.len();
+        buffer_views.push(json!({
+            "buffer": 0,
+            "byteOffset": off,
+            "byteLength": len,
+        }));
+        let image_idx = gltf_images.len();
+        gltf_images.push(json!({
+            "name": tex.name,
+            "mimeType": tex.mime_type,
+            "bufferView": view_idx,
+        }));
+        gltf_textures.push(json!({
+            "source": image_idx,
+            "sampler": 0,
+        }));
+    }
+
     // ---- Build GLTF materials array ------------------------------------
     let gltf_materials: Vec<Value> = materials
         .iter()
         .map(|m| {
+            let mut pbr = json!({
+                "baseColorFactor": [
+                    m.base_color_factor[0],
+                    m.base_color_factor[1],
+                    m.base_color_factor[2],
+                    m.base_color_factor[3],
+                ],
+                "metallicFactor": m.metallic_factor,
+                "roughnessFactor": m.roughness_factor,
+            });
+            if let Some(tex_idx) = m.base_color_texture {
+                pbr["baseColorTexture"] = json!({
+                    "index": tex_idx,
+                    "texCoord": 0,
+                });
+            }
             let mut material = json!({
                 "name": m.name,
-                "pbrMetallicRoughness": {
-                    "baseColorFactor": [
-                        m.base_color_factor[0],
-                        m.base_color_factor[1],
-                        m.base_color_factor[2],
-                        m.base_color_factor[3],
-                    ],
-                    "metallicFactor": m.metallic_factor,
-                    "roughnessFactor": m.roughness_factor,
-                },
+                "pbrMetallicRoughness": pbr,
                 "doubleSided": m.double_sided,
             });
             // Only emit `emissiveFactor` when non-zero so the GLB stays
@@ -390,10 +484,10 @@ pub fn build_glb(
     // ---- Build GLTF JSON document --------------------------------------
     let total_bin_length = bin.len() as u64;
 
-    let document = json!({
+    let mut document = json!({
         "asset": {
             "version": "2.0",
-            "generator": "yw-look usd-phase5a",
+            "generator": "yw-look usd-phase5c",
         },
         "scene": 0,
         "scenes": [{ "nodes": scene_nodes }],
@@ -404,6 +498,20 @@ pub fn build_glb(
         "accessors": accessors,
         "materials": gltf_materials,
     });
+    if !textures.is_empty() {
+        // Single shared sampler with glTF defaults: linear mip-mapping +
+        // repeat wrap. Matches what UsdUVTexture authors usually expect
+        // unless they explicitly override `wrapS` / `wrapT`, which
+        // Phase 5c doesn't surface yet (Phase 5d candidate).
+        document["images"] = Value::Array(gltf_images);
+        document["textures"] = Value::Array(gltf_textures);
+        document["samplers"] = json!([{
+            "magFilter": 9729, // LINEAR
+            "minFilter": 9987, // LINEAR_MIPMAP_LINEAR
+            "wrapS": 10497,    // REPEAT
+            "wrapT": 10497,    // REPEAT
+        }]);
+    }
 
     let mut json_bytes = serde_json::to_vec(&document)
         .map_err(|e| format!("failed to serialize GLTF JSON: {e}"))?;
@@ -494,7 +602,7 @@ mod tests {
     #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
-        let glb = build_glb(&[mesh], &default_materials()).expect("build glb");
+        let glb = build_glb(&[mesh], &default_materials(), &[]).expect("build glb");
 
         // GLB header sanity check
         assert_eq!(&glb[0..4], b"glTF");
@@ -537,7 +645,7 @@ mod tests {
     fn rejects_mismatched_normal_count() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.normals = Some(vec![0.0; 6]); // wrong length
-        let err = build_glb(&[mesh], &default_materials()).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[]).unwrap_err();
         assert!(err.contains("normal"));
     }
 
@@ -545,7 +653,7 @@ mod tests {
     fn rejects_out_of_range_index() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.indices = vec![0, 1, 99];
-        let err = build_glb(&[mesh], &default_materials()).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[]).unwrap_err();
         assert!(err.contains("out of range"));
     }
 
@@ -553,7 +661,7 @@ mod tests {
     fn rejects_material_index_out_of_range() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.material_index = 5;
-        let err = build_glb(&[mesh], &default_materials()).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[]).unwrap_err();
         assert!(
             err.contains("material_index"),
             "expected material_index error, got: {err}"
@@ -563,7 +671,7 @@ mod tests {
     #[test]
     fn rejects_empty_materials_array() {
         let mesh = unit_quad_split_into_two_triangles();
-        let err = build_glb(&[mesh], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &[], &[]).unwrap_err();
         assert!(err.contains("material"));
     }
 
@@ -577,8 +685,9 @@ mod tests {
             roughness_factor: 0.1,
             emissive_factor: [0.0, 0.0, 0.0],
             double_sided: true,
+            base_color_texture: None,
         }];
-        let glb = build_glb(&[mesh], &materials).expect("build glb");
+        let glb = build_glb(&[mesh], &materials, &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -596,7 +705,7 @@ mod tests {
     fn omits_alpha_mode_for_opaque_material() {
         let mesh = unit_quad_split_into_two_triangles();
         let materials = vec![MaterialInput::default_preview()];
-        let glb = build_glb(&[mesh], &materials).expect("build glb");
+        let glb = build_glb(&[mesh], &materials, &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -635,6 +744,7 @@ mod tests {
                 roughness_factor: 0.4,
                 emissive_factor: [0.0, 0.0, 0.0],
                 double_sided: false,
+                base_color_texture: None,
             },
             MaterialInput {
                 name: "blue_emissive".to_string(),
@@ -643,10 +753,11 @@ mod tests {
                 roughness_factor: 0.2,
                 emissive_factor: [0.0, 0.0, 0.4],
                 double_sided: true,
+                base_color_texture: None,
             },
         ];
 
-        let glb = build_glb(&[red_mesh, blue_mesh], &materials).expect("build glb");
+        let glb = build_glb(&[red_mesh, blue_mesh], &materials, &[]).expect("build glb");
         assert_eq!(&glb[0..4], b"glTF");
 
         let json_chunk_len =
