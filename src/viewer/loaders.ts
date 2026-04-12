@@ -100,6 +100,11 @@ function resolveSiblingPath(baseDirectory: string, relativePath: string) {
     }
 
     if (segment === "..") {
+      if (segments.length === 0) {
+        throw new Error(
+          `Path traversal beyond filesystem root: ${relativePath}`,
+        );
+      }
       segments.pop();
       continue;
     }

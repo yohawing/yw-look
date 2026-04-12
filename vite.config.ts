@@ -34,12 +34,7 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     fs: {
-      allow: [
-        "..",
-        ...(process.platform === "win32"
-          ? ["C:/", "D:/", "E:/", "F:/", "G:/"]
-          : ["/"]),
-      ],
+      allow: [".."],
     },
   },
 });

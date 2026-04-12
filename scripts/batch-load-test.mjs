@@ -41,9 +41,9 @@ const LOADER_MAP = {
   ".stl": "STLLoader",
   ".ply": "PLYLoader",
   ".dae": "ColladaLoader",
-  ".vrm": "VRMLoader", // TODO: 未実装 (ToDo.md #6)
-  ".pmx": "MMDLoader", // TODO: 未実装 (ToDo.md #6)
-  ".pmd": "MMDLoader", // TODO: 未実装 (ToDo.md #6)
+  // ".vrm": "VRMLoader", // 未実装 (ToDo.md #6)
+  // ".pmx": "MMDLoader", // 未実装 (ToDo.md #6)
+  // ".pmd": "MMDLoader", // 未実装 (ToDo.md #6)
   // USD
   ".usd": "USDLoader",
   ".usda": "USDLoader",

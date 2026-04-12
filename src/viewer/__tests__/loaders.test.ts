@@ -59,6 +59,10 @@ describe("getMimeType", () => {
   it("returns application/octet-stream for empty string", () => {
     expect(getMimeType("")).toBe("application/octet-stream");
   });
+
+  it("returns image/ktx2 for ktx2", () => {
+    expect(getMimeType("ktx2")).toBe("image/ktx2");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -106,6 +110,12 @@ describe("resolveSiblingPath", () => {
   it("handles mixed slashes in base on Windows", () => {
     expect(resolveSiblingPath("C:\\Users/user\\models", "texture.png")).toBe(
       "C:\\Users\\user\\models\\texture.png",
+    );
+  });
+
+  it("throws on path traversal beyond filesystem root", () => {
+    expect(() => resolveSiblingPath("/home", "../../etc/passwd")).toThrow(
+      "Path traversal beyond filesystem root",
     );
   });
 });
