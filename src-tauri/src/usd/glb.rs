@@ -1030,8 +1030,8 @@ fn decompose_trs_column_major(m: &[f32; 16]) -> ([f32; 3], [f32; 4], [f32; 3]) {
 
     // Read each basis column.
     let mut col0 = [m[0], m[1], m[2]];
-    let mut col1 = [m[4], m[5], m[6]];
-    let mut col2 = [m[8], m[9], m[10]];
+    let col1 = [m[4], m[5], m[6]];
+    let col2 = [m[8], m[9], m[10]];
 
     let mut sx = (col0[0] * col0[0] + col0[1] * col0[1] + col0[2] * col0[2]).sqrt();
     let sy = (col1[0] * col1[0] + col1[1] * col1[1] + col1[2] * col1[2]).sqrt();

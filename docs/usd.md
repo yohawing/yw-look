@@ -512,9 +512,32 @@ Phase 5a で「scalar PBR factor のみ」、Phase 5b で「skeleton の bind po
 - **P1 [time codes → seconds]**: `Stage::skel_animation_of` の time samples は **USD time code** なので glTF sampler input に書く前に `stage.field<f64>(abs_root, FieldKey::TimeCodesPerSecond).unwrap_or(24.0)` で割って秒に変換する
 - **P2 [sparse channel handling]**: rotation / scale が translation のタイムラインに対して sparse な場合、欠損フレームは `[0,0,0,0]` クォータニオンや `[0,0,0]` スケールで埋めずに **その joint のチャネルごと drop** して runtime に rest pose を継承させる
 
-### 既知の Phase 5d 候補
+### Phase 5d 進捗
 
-Phase 5c A の chameleon USDZ smoke test (`extract_geometry_chameleon_textured_smoke`) は `#[ignore]` で残してある。原因は yw-look 側ではなく fork の `Stage::material_of` が **variant set 越しの material binding を解決しない**こと。chameleon の本命 PBR material は `mtl_variants` variant set の選択先にあるため、現在の `bound_material` ロジックでは stick placeholder material しか拾えない。Phase 5d で variant 解決を入れた時点で `#[ignore]` を外し、`materials.len() >= 2` を `images.len() >= 1` に強める。
+#### F1 — variant set / Windows path resolution (完了, fork `930bfc5`)
+
+最大の unblock 候補だった variant set 解決は、調査の結果 **fork pcp が元から実装済み** であることが判明（`resolve_variant_selections_in` / `eval_variants` が strongest-first で selection を解決し、authored 無しでは各 variant set の最初の variant を採用）。Phase 5d F1 では:
+
+1. 既存挙動を pin する 3 本の smoke test と 3 つの fixture を `fixtures/variant_select/` に追加（明示選択 / 暗黙 first-variant / 空 variant の regression guard）
+2. 別の Windows 固有 blocker を発見・修正: `src/pcp/index.rs::find_layer` が `std::path::MAIN_SEPARATOR` (Windows では `\`) を境界判定に使っていたため、POSIX style needle (`./assets/foo.usd`) と DefaultResolver が返す `\\?\C:\...\assets\foo.usd` 形式の identifier の suffix match が失敗し、`HumanFemale.walk.usd` のような cross-OS reference を持つ asset が `unresolved Reference layer` で死んでいた。両辺を `/` 正規化してから比較するように修正、`find_layer_posix_needle_windows_identifier` で regression guard
+
+これにより chameleon の `bound_material` は 6 つの distinct material path (`chameleon_mat_1` / `chameleon_mat_1_2` / ... / `stick_placeholder_mat_1`) を正しく返すようになり、yw-look の mesh traverse も 6 件すべて拾えている。
+
+#### L2 — fork `material_of` を NodeGraph wrapping 越しに歩かせる (未着手)
+
+chameleon の本命 PBR は `bound_material` で path までは取れるが、Material prim の直下に `UsdPreviewSurface` Shader が無く NodeGraph layer 越しに wrap されているため、fork の現行 `material_of` walker は `None` を返す。結果として yw-look の GLB は default + stick placeholder の 2 slot にとどまり、chameleon body / eye / nail / tongue は default grey で出る。
+
+修正方針:
+
+- `Stage::material_of` を Material prim の直接の Shader 子だけでなく、子 NodeGraph (`info:id == "NodeGraph"` or `typeName == "NodeGraph"`) の中も再帰的に検索
+- 検索順序は USD spec 通り `outputs:surface` connection を辿る方が正しいが、Phase 5a 同様「Material 配下のどこかにある最初の `info:id == "UsdPreviewSurface"` Shader を採用」のヒューリスティックでも十分ステップアップする
+- `extract_geometry_chameleon_textured_smoke` の `#[ignore]` を外し、`materials.len() >= 6` + `chameleon_*` 名前の image が ≥ 1 で pin
+
+L2 が入ると chameleon の textured PBR が GLB に乗り、preview-model でテクスチャ付きのトカゲが出るようになる。
+
+#### F3 — composition cycle の過検知 (HumanFemale 系、未着手)
+
+F1 で Windows path 問題が解けた後、`HumanFemale.walk.usd` の layer stack 12 層は collect に成功するが、次の段階で `composition arc cycle at /HumanFemale_Group/HumanFemale (depth 2)` で死ぬ。pcp 側 cycle 判定の過検知（`HumanFemale.full.usd` → `HumanFemale.full_payload.usd` → 複数 instance への rematch）と推測。Phase 5d F3 で pcp の cycle 判定を見直す必要があるが、pcp graph 内部に踏み込むため範囲が大きい。Phase 5e に持ち越す可能性あり。
 
 ### 並行戦略
 

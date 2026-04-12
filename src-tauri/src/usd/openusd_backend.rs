@@ -3594,23 +3594,27 @@ def Xform "Root"
         Ok(())
     }
 
-    /// Phase 5c A status: chameleon USDZ ships ten PNG/JPG textures
-    /// (chameleon_bc.jpg etc.) referenced from a `UsdPreviewSurface`
-    /// material that lives behind a variant set. The yw-look texture
-    /// loader can extract any USDZ entry it is asked to (verified by
-    /// `extract_geometry_embeds_filesystem_diffuse_texture` for the
-    /// filesystem path, and the extracted GLB validates clean), but
-    /// the openusd fork's `Stage::material_of` only resolves the
-    /// stick placeholder material on this asset — it doesn't follow
-    /// the chameleon mesh's binding through the variant set's PBR
-    /// material. So image count is currently zero on this asset.
+    /// Phase 5d state for the chameleon Apple AR Quick Look asset:
+    /// after F1 the fork's `bound_material` correctly returns six
+    /// distinct chameleon material prim paths (one per skinned mesh
+    /// piece — eye, nail, tongue, body, etc.), so variant resolution
+    /// is fully working. However those Material prims do **not**
+    /// host a `UsdPreviewSurface` Shader as a direct child — they
+    /// wrap one through a NodeGraph layer that the fork's current
+    /// `material_of` walker does not enter, so `material_of` returns
+    /// `None` for every chameleon piece and only the stick
+    /// placeholder material (which authors a flat scalar diffuseColor
+    /// directly under the Material prim) ends up in the GLB.
     ///
-    /// The test is left here as a regression marker for the day the
-    /// fork picks up variant-set / `MaterialBindingAPI` resolution.
-    /// Marked `#[ignore]` so a CI run with samples/private does not
-    /// fail; flip the assert to `>= 1` once the fork upgrade lands.
+    /// The chameleon textures themselves can be pulled out of the
+    /// USDZ archive — `texture_loader_reads_chameleon_usdz_entry`
+    /// pins that — but they cannot reach the GLB until the fork
+    /// learns to follow NodeGraph wrappings. Tracked as Phase 5d L2.
+    /// Until then this smoke test only locks the structural baseline
+    /// (default + stick placeholder) so a regression in pcp/variant
+    /// resolution would still trip the assertion.
     #[test]
-    #[ignore = "fork material_of variant-set blocker — Phase 5d candidate"]
+    #[ignore = "needs samples/private + Phase 5d L2 NodeGraph walker for full pin"]
     fn extract_geometry_chameleon_textured_smoke() {
         let path = PathBuf::from(
             "../samples/private/usd/chameleon_anim_mtl_variant.usdz",
@@ -3632,12 +3636,21 @@ def Xform "Root"
             .unwrap()
             .trim_end_matches(' ');
         let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
-
         let materials = doc["materials"].as_array().expect("materials array");
-        // Pin: at minimum we expect the default slot + at least one
-        // bound material slot from `Stage::material_of`. Anything
-        // beyond that (including embedded textures) is a Phase 5d
-        // upgrade target.
+        let mesh_count = doc["meshes"].as_array().map(|a| a.len()).unwrap_or(0);
+
+        // Variant resolution is working, so the chameleon traverse
+        // produces multiple Mesh prims (eye, nail, tongue, body,
+        // etc.). Lock the count so a regression in
+        // `is_renderable_mesh` or pcp variant resolution would trip
+        // this immediately.
+        assert!(
+            mesh_count >= 5,
+            "chameleon should expose >= 5 Mesh prims after F1 variant fix, got {mesh_count}"
+        );
+
+        // Pin: at minimum we expect the default slot + the stick
+        // placeholder material slot. Phase 5d L2 will add the rest.
         assert!(
             materials.len() >= 2,
             "chameleon should produce at least 2 material slots, got {}",

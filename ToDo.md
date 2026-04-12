@@ -219,7 +219,7 @@
 #### Phase 5 — Preview 品質向上
 
 - [ ] `docs/usd.md` で Phase 5 方針を確定する
-- [x] UsdPreviewSurface → GLB material 変換（scalar factor + USDZ/filesystem texture 埋め込み: Phase 5a + Phase 5c A 完了。Variant set 越しの material binding は Phase 5d 候補）
+- [x] UsdPreviewSurface → GLB material 変換（scalar factor + USDZ/filesystem texture 埋め込み: Phase 5a + Phase 5c A 完了。Variant set 越しの material binding は Phase 5d F1 で fork 側が元から動いていることが確認済 + Windows path bug 修正。NodeGraph wrapping 越しの shader graph 解決は Phase 5d L2 で要修正）
 - [x] 凹 n-gon の ear-clip triangulation
 - [x] USD Skel → glTF skin/animation 全段 (fork: skeleton_of / mesh_of skin primvars / skel_animation_of body / USDA parser time-sampled 配列 fix。yw-look: SkinInput + AnimationInput + 4-influence packing + TRS decompose + time-code-to-seconds 変換 + sparse channel handling)。Phase 5c A〜E 全て実装済
 - [ ] variant set 一覧表示と切り替えを preview に反映する

@@ -2523,7 +2523,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 [[package]]
 name = "openusd"
 version = "0.2.0"
-source = "git+https://github.com/yohawing/openusd.git?rev=b36f6b40167d7dd9e13ff633a638e485cfcc4764#b36f6b40167d7dd9e13ff633a638e485cfcc4764"
+source = "git+https://github.com/yohawing/openusd.git?rev=930bfc5e3a43cde4cff340ed3db327eed6d7ad18#930bfc5e3a43cde4cff340ed3db327eed6d7ad18"
 dependencies = [
  "anyhow",
  "bytemuck",
