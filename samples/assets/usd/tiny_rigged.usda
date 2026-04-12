@@ -1,0 +1,90 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    timeCodesPerSecond = 24
+    startTimeCode = 0
+    endTimeCode = 24
+)
+
+# Phase 5c E preview fixture: a 4-vertex strip rigged to a 2-joint
+# skeleton, with a 24-frame translation animation. Used by
+# `dump_tiny_rigged_glb_for_preview_model` to write a real GLB to
+# artifacts/tmp/ so the preview-model skill can verify the
+# UsdSkel → glTF skin / animation pipeline end-to-end in a real
+# WebGL context.
+
+def Xform "Root"
+{
+    def SkelRoot "Rig"
+    {
+        def Mesh "Body" (
+            prepend apiSchemas = ["SkelBindingAPI"]
+        )
+        {
+            int[] faceVertexCounts = [3, 3]
+            int[] faceVertexIndices = [0, 1, 2, 1, 3, 2]
+            point3f[] points = [
+                (-0.5, 0, 0),
+                (0.5, 0, 0),
+                (-0.5, 1, 0),
+                (0.5, 1, 0),
+            ]
+
+            int[] primvars:skel:jointIndices = [
+                0, 1, 0, 1,
+                0, 1, 0, 1,
+                1, 0, 1, 0,
+                1, 0, 1, 0,
+            ] (
+                interpolation = "vertex"
+                elementSize = 4
+            )
+            float[] primvars:skel:jointWeights = [
+                1.0, 0.0, 0.0, 0.0,
+                1.0, 0.0, 0.0, 0.0,
+                0.5, 0.5, 0.0, 0.0,
+                0.5, 0.5, 0.0, 0.0,
+            ] (
+                interpolation = "vertex"
+                elementSize = 4
+            )
+
+            rel skel:skeleton = </Root/Rig/Skel>
+        }
+
+        def Skeleton "Skel"
+        {
+            uniform token[] joints = ["Hip", "Hip/Spine"]
+            uniform matrix4d[] bindTransforms = [
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1)),
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0.5, 0, 1))
+            ]
+            uniform matrix4d[] restTransforms = [
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1)),
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0.5, 0, 1))
+            ]
+            rel skel:animationSource = </Root/Rig/Anim>
+        }
+
+        def SkelAnimation "Anim"
+        {
+            uniform token[] joints = ["Hip", "Hip/Spine"]
+            float3[] translations.timeSamples = {
+                0: [(0, 0, 0), (0, 0.5, 0)],
+                12: [(0.25, 0, 0), (-0.25, 0.6, 0)],
+                24: [(0, 0, 0), (0, 0.5, 0)],
+            }
+            quatf[] rotations.timeSamples = {
+                0: [(1, 0, 0, 0), (1, 0, 0, 0)],
+                12: [(0.9659, 0, 0, 0.2588), (0.9659, 0, 0, -0.2588)],
+                24: [(1, 0, 0, 0), (1, 0, 0, 0)],
+            }
+            float3[] scales.timeSamples = {
+                0: [(1, 1, 1), (1, 1, 1)],
+                12: [(1, 1, 1), (1, 1, 1)],
+                24: [(1, 1, 1), (1, 1, 1)],
+            }
+        }
+    }
+}

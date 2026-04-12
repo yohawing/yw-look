@@ -3121,6 +3121,43 @@ def Xform "Root" (
         assert_eq!(inspection.default_prim.as_deref(), Some("glove_baseball"));
     }
 
+    /// Phase 5c E E2E helper: write the `samples/assets/usd/tiny_rigged.usda`
+    /// fixture to `artifacts/tmp/tiny_rigged.glb` so the
+    /// preview-model skill can verify the UsdSkel → glTF skin /
+    /// animation pipeline in a real WebGL context. Always runs (no
+    /// `#[ignore]`) because the fixture is checked in.
+    #[test]
+    fn dump_tiny_rigged_glb_for_preview_model() -> std::io::Result<()> {
+        let path = PathBuf::from("../samples/assets/usd/tiny_rigged.usda");
+        if !path.exists() {
+            eprintln!("SKIP dump_tiny_rigged_glb: fixture missing at {}", path.display());
+            return Ok(());
+        }
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract tiny_rigged.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        // Sanity-check the JSON chunk before persisting so a broken
+        // GLB does not silently land in artifacts/tmp.
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+        assert!(doc["skins"].as_array().is_some_and(|a| !a.is_empty()));
+        assert!(doc["animations"].as_array().is_some_and(|a| !a.is_empty()));
+
+        let out_dir = PathBuf::from("../artifacts/tmp");
+        std::fs::create_dir_all(&out_dir)?;
+        std::fs::write(out_dir.join("tiny_rigged.glb"), &glb)?;
+        Ok(())
+    }
+
     /// Phase 5c E E2E helper: write a UsdSkelExamples HumanFemale GLB
     /// to `artifacts/tmp/` so the Node-side `preview-model` skill can
     /// load the rigged + animated mesh in a real WebGL context. Lets
