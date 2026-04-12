@@ -129,10 +129,16 @@ GitHub Actions では次を設定します。
 更新対象:
 
 - `package.json`
+- `package-lock.json` (`npm install --package-lock-only` で自動更新)
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock` (`cargo update --workspace` で自動更新)
 - `src-tauri/tauri.conf.json`
-- 必要なら他の表示用バージョン
 
-### 4. タグを push する
+### 4. CHANGELOG を更新する
+
+`CHANGELOG.md` に今回のリリース内容を追記します。英語で記述してください。
+
+### 5. タグを push する
 
 例:
 
@@ -141,7 +147,7 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-### 5. GitHub Actions で Release を作る
+### 6. GitHub Actions で Release を作る
 
 workflow が Windows bundle をビルドし、GitHub Release に成果物を添付します。
 
@@ -292,9 +298,13 @@ Windows 用の Secrets に加えて、次を追加します。
 
 ### 4. バージョンを更新する
 
-Windows と同じく `package.json` と `src-tauri/tauri.conf.json` を更新します。
+Windows と同じく全バージョンファイルを更新します（Windows 側ステップ 3 参照）。
 
-### 5. タグを push して Actions を走らせる
+### 5. CHANGELOG を更新する
+
+Windows 側ステップ 4 と同じ。`CHANGELOG.md` に英語でリリース内容を追記します。
+
+### 6. タグを push して Actions を走らせる
 
 ```bash
 git tag v0.1.1
