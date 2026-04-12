@@ -23,6 +23,20 @@ pub enum StageLoadPolicy {
     NoPayloads,
 }
 
+/// One variant set found on a prim during stage inspection.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VariantSetInfo {
+    /// Prim path where this variant set is authored.
+    pub prim_path: String,
+    /// Name of the variant set (e.g. `"modelingVariant"`).
+    pub set_name: String,
+    /// Authored variant selection on this prim, or `None` when the
+    /// prim does not explicitly author a selection (the first variant
+    /// becomes the implicit default).
+    pub selection: Option<String>,
+}
+
 /// Heavyweight stage detail. Returned by `inspect_stage`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +50,10 @@ pub struct StageInspection {
     pub references: Vec<CompositionArc>,
     pub payloads: Vec<CompositionArc>,
     pub missing_assets: Vec<String>,
+    /// Variant sets found across all prims (read-only for now;
+    /// interactive switching needs a fork API for session-layer
+    /// variant selection override).
+    pub variant_sets: Vec<VariantSetInfo>,
     /// Phase 4: which load policy was used to build the inspected stage.
     /// Reflected back to the frontend so UI controls can render their
     /// current state from a single source of truth.

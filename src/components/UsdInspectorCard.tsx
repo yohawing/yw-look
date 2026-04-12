@@ -105,6 +105,36 @@ export function UsdInspectorCard({
               {inspection.upAxis && (
                 <p className="card-path">upAxis: {inspection.upAxis}</p>
               )}
+              {inspection.variantSets.length > 0 && (
+                <details className="card-details">
+                  <summary className="card-path">
+                    Variant Sets{" "}
+                    <span className="muted">
+                      ({inspection.variantSets.length})
+                    </span>
+                  </summary>
+                  <ul className="card-list">
+                    {inspection.variantSets.map((vs, i) => (
+                      <li
+                        key={`${vs.primPath}:${vs.setName}:${i}`}
+                        className="issue"
+                      >
+                        <strong>{vs.setName}</strong>
+                        {vs.selection && (
+                          <>
+                            {" "}
+                            ={" "}
+                            <span className="badge badge-ok">
+                              {vs.selection}
+                            </span>
+                          </>
+                        )}
+                        <span className="muted"> @ {vs.primPath}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
               {inspection.missingAssets.length > 0 && (
                 <p className="card-error">
                   Missing assets: {inspection.missingAssets.length}

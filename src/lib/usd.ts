@@ -26,6 +26,12 @@ export type CompositionArc = {
   state: CompositionArcState;
 };
 
+export type VariantSetInfo = {
+  primPath: string;
+  setName: string;
+  selection: string | null;
+};
+
 export type StageInspection = {
   path: string;
   defaultPrim: string | null;
@@ -36,6 +42,7 @@ export type StageInspection = {
   references: CompositionArc[];
   payloads: CompositionArc[];
   missingAssets: string[];
+  variantSets: VariantSetInfo[];
   loadPolicy: StageLoadPolicy;
 };
 

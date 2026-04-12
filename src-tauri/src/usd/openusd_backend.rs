@@ -134,10 +134,39 @@ impl UsdBackend for OpenusdBackend {
 
         let references = RefCell::new(Vec::new());
         let payloads = RefCell::new(Vec::new());
+        let variant_sets_out = RefCell::new(Vec::<super::types::VariantSetInfo>::new());
 
         stage
             .traverse(|prim_path| {
                 let source = prim_path.as_str().to_string();
+
+                // Collect variant sets for the inspector UI.
+                if let Ok(Some(SdfValue::TokenVec(set_names))) =
+                    stage.field::<SdfValue>(prim_path.clone(), FieldKey::VariantSetNames)
+                {
+                    for set_name in &set_names {
+                        // Try to read the authored selection for
+                        // this variant set via VariantSelection.
+                        // The selection is stored as a dict-like
+                        // structure; we check if
+                        // `variants = { string <set_name> = "..." }`
+                        // is authored. Fallback: None (pcp picks
+                        // the first variant).
+                        let selection: Option<String> = None;
+                        // TODO: read variants dict once fork exposes
+                        // the per-set selection query. For now the
+                        // inspector shows the set name without the
+                        // selection.
+                        variant_sets_out.borrow_mut().push(
+                            super::types::VariantSetInfo {
+                                prim_path: source.clone(),
+                                set_name: set_name.clone(),
+                                selection,
+                            },
+                        );
+                    }
+                }
+
                 for r in stage.references_in(prim_path.clone()) {
                     let state = reference_arc_state(&unresolved_set, &r.asset_path);
                     references.borrow_mut().push(CompositionArc {
@@ -180,6 +209,7 @@ impl UsdBackend for OpenusdBackend {
             references: references.into_inner(),
             payloads: payloads.into_inner(),
             missing_assets,
+            variant_sets: variant_sets_out.into_inner(),
             load_policy: policy,
         })
     }
