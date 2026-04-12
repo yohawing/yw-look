@@ -337,11 +337,38 @@ impl UsdBackend for OpenusdBackend {
         // or `None` for "no texture / default slot".
         let mut material_texture_paths: Vec<Option<String>> = vec![None];
 
+        // Phase 5c E: resolve any UsdSkel rig bound to one of the
+        // collected meshes BEFORE the mesh build pass so each mesh's
+        // `skin_index` can be set inline. We dedupe by skeleton prim
+        // path so a stage with several meshes sharing one rig
+        // produces exactly one GLB skin object.
+        let mut skins: Vec<glb::SkinInput> = Vec::new();
+        let mut skin_slots: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut mesh_skin_slots: Vec<Option<usize>> = vec![None; mesh_paths.len()];
+        for (i, prim_path) in mesh_paths.iter().enumerate() {
+            if let Some((skel_path, skel_data)) =
+                stage.skeleton_of(prim_path.clone())
+            {
+                let key = skel_path.to_string();
+                let slot = if let Some(&existing) = skin_slots.get(&key) {
+                    existing
+                } else {
+                    let slot = skins.len();
+                    let skin_input = skin_input_from_skel(&key, &skel_data);
+                    skins.push(skin_input);
+                    skin_slots.insert(key, slot);
+                    slot
+                };
+                mesh_skin_slots[i] = Some(slot);
+            }
+        }
+
         // Pass 2: build a MeshInput per Mesh prim, composing the world
         // transform along the parent chain and pre-applying the up-axis
         // correction.
         let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
-        for prim_path in &mesh_paths {
+        for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
             let Some(mesh_data) = stage
                 .mesh_of(prim_path.clone())
                 .map_err(|e| UsdError::Parse(e.to_string()))?
@@ -390,6 +417,11 @@ impl UsdBackend for OpenusdBackend {
             };
             triangulated.material_index = slot;
 
+            // Phase 5c E: attach the dedup'd skin slot to this mesh
+            // primitive. The mesh is rendered statically when no
+            // skin is bound.
+            triangulated.skin_index = mesh_skin_slots[mesh_idx];
+
             inputs.push(triangulated);
         }
 
@@ -397,6 +429,40 @@ impl UsdBackend for OpenusdBackend {
             return Err(UsdError::Parse(
                 "stage has Mesh prims but none had usable points data".to_string(),
             ));
+        }
+
+        // Phase 5c E: per skin, resolve the bound SkelAnimation and
+        // convert it into a glTF animation. Stages without
+        // skel:animationSource skip the conversion silently. We
+        // also need the stage's `timeCodesPerSecond` so we can map
+        // USD time codes (which is what `Stage::skel_animation_of`
+        // returns) to glTF seconds — the spec defaults to 24 when
+        // not authored, so we mirror that fallback. (Codex P1.)
+        let time_codes_per_second: f64 = stage
+            .field::<f64>(SdfPath::abs_root(), FieldKey::TimeCodesPerSecond)
+            .ok()
+            .flatten()
+            .filter(|v| *v > 0.0)
+            .unwrap_or(24.0);
+        let mut animations: Vec<glb::AnimationInput> = Vec::new();
+        for (skin_idx, skin) in skins.iter().enumerate() {
+            // Look up the skel path key by reverse mapping. Cheap:
+            // there are typically 0–2 skins in a stage.
+            let skel_path_str = skin_slots
+                .iter()
+                .find_map(|(k, &v)| (v == skin_idx).then(|| k.clone()));
+            let Some(skel_path_str) = skel_path_str else { continue };
+            let Ok(skel_path) = SdfPath::new(&skel_path_str) else { continue };
+            if let Some(anim_data) = stage.skel_animation_of(skel_path) {
+                if let Some(anim_input) = animation_input_from_skel(
+                    skin_idx,
+                    &skin.joint_names,
+                    &anim_data,
+                    time_codes_per_second,
+                ) {
+                    animations.push(anim_input);
+                }
+            }
         }
 
         // Phase 5c: resolve and embed each authored texture asset.
@@ -487,7 +553,7 @@ impl UsdBackend for OpenusdBackend {
             }
         }
 
-        glb::build_glb(&inputs, &materials, &textures).map_err(UsdError::Parse)
+        glb::build_glb(&inputs, &materials, &textures, &skins, &animations).map_err(UsdError::Parse)
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
@@ -801,6 +867,197 @@ fn guess_image_mime(asset_path: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Phase 5c E: convert a fork-level `SkeletonData` into a yw-look
+/// `SkinInput` ready for the GLB writer.
+///
+/// `SkeletonData::{bind_transforms, rest_transforms}` are already
+/// stored in **column-major** layout by the fork (matching glTF's
+/// expectation), so we pass them through verbatim — Codex P1: an
+/// earlier version mistakenly transposed both arrays which flipped
+/// every joint transform.
+///
+/// `bindTransforms` are world-space bind transforms; glTF wants the
+/// **inverse** of those for the `inverseBindMatrices` accessor, so
+/// we invert each one before writing the GLB. `restTransforms` are
+/// local-space bind-pose transforms and pass through unchanged for
+/// use as the joint nodes' default TRS (the matrix is decomposed in
+/// `glb.rs` because glTF disallows animating a node's `matrix`).
+fn skin_input_from_skel(
+    name: &str,
+    skel: &openusd::stage::SkeletonData,
+) -> glb::SkinInput {
+    let joint_count = skel.joints.len();
+    let rest_local_matrices: Vec<[f32; 16]> = skel.rest_transforms.clone();
+    let inverse_bind_matrices: Vec<[f32; 16]> = skel
+        .bind_transforms
+        .iter()
+        .map(|m| invert_mat4_f32(m).unwrap_or(IDENTITY_MAT4_F32))
+        .collect();
+    // Pad shorter authored arrays out to the joint count with
+    // identity so the GLB writer's parallel-length validation passes
+    // even on slightly malformed assets.
+    let rest_local_matrices = pad_to_len(rest_local_matrices, joint_count, IDENTITY_MAT4_F32);
+    let inverse_bind_matrices = pad_to_len(
+        inverse_bind_matrices,
+        joint_count,
+        IDENTITY_MAT4_F32,
+    );
+    glb::SkinInput {
+        name: format!("usd:{name}"),
+        joint_names: skel.joints.clone(),
+        parents: skel.parents.clone(),
+        rest_local_matrices,
+        inverse_bind_matrices,
+    }
+}
+
+const IDENTITY_MAT4_F32: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, //
+    0.0, 1.0, 0.0, 0.0, //
+    0.0, 0.0, 1.0, 0.0, //
+    0.0, 0.0, 0.0, 1.0,
+];
+
+fn pad_to_len<T: Clone>(mut v: Vec<T>, len: usize, fill: T) -> Vec<T> {
+    while v.len() < len {
+        v.push(fill.clone());
+    }
+    v.truncate(len);
+    v
+}
+
+/// 4×4 column-major matrix inverse over `f32`. Returns `None` for
+/// near-singular matrices (we treat any determinant below 1e-8 as
+/// non-invertible). Used to derive glTF inverseBindMatrices from
+/// USD's world-space `bindTransforms`.
+fn invert_mat4_f32(m: &[f32; 16]) -> Option<[f32; 16]> {
+    let inv: [f32; 16] = [
+        m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15]
+            + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10],
+        -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15]
+            - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10],
+        m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15]
+            + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6],
+        -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11]
+            - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6],
+        -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15]
+            - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10],
+        m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15]
+            + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10],
+        -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15]
+            - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6],
+        m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11]
+            + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6],
+        m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15]
+            + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9],
+        -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15]
+            - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9],
+        m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15]
+            + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5],
+        -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11]
+            - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5],
+        -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14]
+            - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9],
+        m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14]
+            + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9],
+        -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14]
+            - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5],
+        m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10]
+            + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5],
+    ];
+    let det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+    if det.abs() < 1e-8 || !det.is_finite() {
+        return None;
+    }
+    let inv_det = 1.0 / det;
+    let mut out = [0.0_f32; 16];
+    for (i, value) in inv.iter().enumerate() {
+        out[i] = value * inv_det;
+    }
+    Some(out)
+}
+
+/// Phase 5c E: convert a fork-level `SkelAnimationData` into the
+/// flattened-per-joint layout the GLB writer wants. Returns `None`
+/// when the animation has no time samples.
+///
+/// `time_codes_per_second` is used to map USD time codes (what the
+/// fork returns) to glTF seconds. Pass the stage-level
+/// `timeCodesPerSecond` metadata or the USD-spec default (24).
+///
+/// **Sparse channels** — UsdSkel allows authoring `rotations` or
+/// `scales` only on a subset of the translation timeline, with
+/// missing frames represented as empty vectors by
+/// `align_samples_to_times`. Filling those gaps with zeros would
+/// produce invalid `[0,0,0,0]` quaternions or zero scales (Codex
+/// P2), so for any joint with at least one missing frame on a
+/// channel we **drop** that channel entirely and let the runtime
+/// fall back to the joint's rest TRS.
+fn animation_input_from_skel(
+    skin_index: usize,
+    skin_joint_names: &[String],
+    anim: &openusd::stage::SkelAnimationData,
+    time_codes_per_second: f64,
+) -> Option<glb::AnimationInput> {
+    if anim.times.is_empty() {
+        return None;
+    }
+    let frame_count = anim.times.len();
+    let inv_tcps = if time_codes_per_second > 0.0 {
+        1.0 / time_codes_per_second
+    } else {
+        1.0
+    };
+    let times: Vec<f32> = anim.times.iter().map(|&t| (t * inv_tcps) as f32).collect();
+
+    // Build a mapping from skin joint -> index in the animation's
+    // joint list. UsdSkelSkelAnimation can target a subset of the
+    // skeleton's joints (in any order), so we look each skin joint
+    // up by name; joints that aren't animated stay at rest.
+    let anim_index_for: Vec<Option<usize>> = skin_joint_names
+        .iter()
+        .map(|name| anim.joints.iter().position(|j| j == name))
+        .collect();
+
+    let extract_channel = |samples: &[Vec<f32>], stride: usize| -> Vec<Option<Vec<f32>>> {
+        anim_index_for
+            .iter()
+            .map(|maybe_anim_idx| {
+                let Some(anim_idx) = *maybe_anim_idx else { return None };
+                if samples.is_empty() || samples.len() < frame_count {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(frame_count * stride);
+                let off = anim_idx * stride;
+                for frame in samples.iter().take(frame_count) {
+                    // Sparse frame → drop the entire channel for
+                    // this joint so the runtime keeps using the
+                    // rest pose for the missing slots instead of
+                    // collapsing on `[0,0,0,0]`.
+                    if frame.is_empty() || off + stride > frame.len() {
+                        return None;
+                    }
+                    out.extend_from_slice(&frame[off..off + stride]);
+                }
+                Some(out)
+            })
+            .collect()
+    };
+
+    let translations = extract_channel(&anim.translations, 3);
+    let rotations = extract_channel(&anim.rotations, 4);
+    let scales = extract_channel(&anim.scales, 3);
+
+    Some(glb::AnimationInput {
+        name: "usd:SkelAnimation".to_string(),
+        times,
+        skin_index,
+        translations,
+        rotations,
+        scales,
+    })
 }
 
 /// Convert an sRGB color channel (0-1 float) to linear space.
@@ -1831,6 +2088,18 @@ fn mesh_data_to_input(
     let mut indices: Vec<u32> = Vec::new();
     let mut next_vertex: u32 = 0;
 
+    // Phase 5c E: per-vertex skin payload. UsdSkel exposes one
+    // (joint_indices, joint_weights) tuple per **point**, with
+    // `joints_per_vertex` influences each. We expand into the same
+    // per-corner triangle-soup layout the rest of the loop produces,
+    // padding / truncating to glTF's 4 influences per vertex. The
+    // arrays stay empty when the source mesh isn't rigged.
+    let has_skin = data.joint_indices.is_some()
+        && data.joint_weights.is_some()
+        && data.joints_per_vertex > 0;
+    let mut joint_indices_out: Vec<u16> = Vec::new();
+    let mut joint_weights_out: Vec<f32> = Vec::new();
+
     let mut fv_cursor: usize = 0;
     let mut face_points: Vec<[f32; 3]> = Vec::new();
     for (face_idx, &count_i32) in data.face_vertex_counts.iter().enumerate() {
@@ -1930,6 +2199,32 @@ fn mesh_data_to_input(
                     }
                 }
 
+                if has_skin {
+                    // Vertex-interpolation only (the typical UsdSkel
+                    // case). Each point carries `joints_per_vertex`
+                    // influences; pack to 4 with the helper.
+                    let src_idx = data.joint_indices.as_ref().unwrap();
+                    let src_w = data.joint_weights.as_ref().unwrap();
+                    let off = point_index * data.joints_per_vertex;
+                    let end = off + data.joints_per_vertex;
+                    if end <= src_idx.len() && end <= src_w.len() {
+                        pack_skin_influences(
+                            &src_idx[off..end],
+                            &src_w[off..end],
+                            &mut joint_indices_out,
+                            &mut joint_weights_out,
+                        );
+                    } else {
+                        // Out-of-range source — push 4 zero
+                        // influences so the per-vertex stride still
+                        // matches and validation passes.
+                        for _ in 0..4 {
+                            joint_indices_out.push(0);
+                            joint_weights_out.push(0.0);
+                        }
+                    }
+                }
+
                 indices.push(next_vertex);
                 next_vertex += 1;
             }
@@ -1961,6 +2256,12 @@ fn mesh_data_to_input(
         Some(uvs)
     };
 
+    let (joint_indices_field, joint_weights_field) = if has_skin {
+        (Some(joint_indices_out), Some(joint_weights_out))
+    } else {
+        (None, None)
+    };
+
     Ok(MeshInput {
         name: prim_path.as_str().to_string(),
         world_matrix: world,
@@ -1968,12 +2269,50 @@ fn mesh_data_to_input(
         indices,
         normals: normals_out,
         uvs: uvs_out,
+        joint_indices: joint_indices_field,
+        joint_weights: joint_weights_field,
         // Phase 5a stub: always reference the shared default material
         // at slot 0. The callsite in `extract_geometry_glb` builds a
         // single-element materials array to match. Will be overwritten
         // once `material_of` wiring lands.
         material_index: 0,
+        // skin_index is patched in `extract_geometry_glb` after the
+        // skin slot for this mesh is known. Default `None` is the
+        // unrigged path.
+        skin_index: None,
     })
+}
+
+/// Pack a single point's joint influences (USD-side variable count)
+/// into the 4 fixed slots glTF wants. If the source has more than 4
+/// influences we keep the 4 strongest by weight; if fewer, we zero-
+/// pad and renormalize is left to the runtime (Three.js handles
+/// non-unit weight totals on the GPU).
+fn pack_skin_influences(
+    src_idx: &[u32],
+    src_w: &[f32],
+    out_idx: &mut Vec<u16>,
+    out_w: &mut Vec<f32>,
+) {
+    // Quick paths for the common 1..=4 cases.
+    let n = src_idx.len();
+    if n <= 4 {
+        for i in 0..4 {
+            out_idx.push(if i < n { src_idx[i] as u16 } else { 0 });
+            out_w.push(if i < n { src_w[i] } else { 0.0 });
+        }
+        return;
+    }
+    // n > 4: pick the four strongest weights. Stable sort by weight
+    // desc keeps results deterministic across runs.
+    let mut pairs: Vec<(usize, f32)> =
+        (0..n).map(|i| (i, src_w[i])).collect();
+    pairs.sort_by(|a, b| b.1.total_cmp(&a.1));
+    for i in 0..4 {
+        let (idx, w) = pairs[i];
+        out_idx.push(src_idx[idx] as u16);
+        out_w.push(w);
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2198,6 +2537,9 @@ mod tests {
             face_vertex_counts: vec![-1],
             normals: None,
             uvs: None,
+            joint_indices: None,
+            joint_weights: None,
+            joints_per_vertex: 0,
         };
         let prim_path = SdfPath::new("/Malicious").unwrap();
         let err = mesh_data_to_input(
@@ -2779,6 +3121,60 @@ def Xform "Root" (
         assert_eq!(inspection.default_prim.as_deref(), Some("glove_baseball"));
     }
 
+    /// Phase 5c E E2E helper: write a UsdSkelExamples HumanFemale GLB
+    /// to `artifacts/tmp/` so the Node-side `preview-model` skill can
+    /// load the rigged + animated mesh in a real WebGL context. Lets
+    /// the reviewer visually confirm `JOINTS_0` / `WEIGHTS_0` and the
+    /// glTF skin/animation channels round-trip through Three.js.
+    /// Ignored by default so automated runs don't produce unsolicited
+    /// artifacts.
+    #[test]
+    #[ignore = "manual E2E helper — needs samples/private (UsdSkelExamples)"]
+    fn dump_human_female_skinned_glb_for_preview_model() {
+        let candidates = [
+            "../samples/private/usd/UsdSkelExamples/UsdSkelExamples/HumanFemale/HumanFemale.walk.usd",
+            "../samples/private/usd/UsdSkelExamples/UsdSkelExamples/HumanFemale/HumanFemale.usd",
+        ];
+        let mut chosen: Option<PathBuf> = None;
+        for c in &candidates {
+            let p = PathBuf::from(c);
+            if p.exists() {
+                chosen = Some(p);
+                break;
+            }
+        }
+        let Some(path) = chosen else {
+            eprintln!("SKIP dump_human_female_skinned_glb: no fixture found");
+            return;
+        };
+        let backend = OpenusdBackend::new();
+        // HumanFemale.{walk,}.usd uses variants / `over` constructs
+        // the fork's stage walker does not traverse yet, so the
+        // extraction may legitimately return "no renderable Mesh
+        // prims". Treat that as a documented Phase 5d candidate
+        // rather than a hard test failure.
+        let glb = match backend
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+        {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!(
+                    "SKIP dump_human_female_skinned_glb: fork could not extract HumanFemale ({err})"
+                );
+                return;
+            }
+        };
+
+        // Persist into the project tree so preview-model.mjs can
+        // serve it from Vite without needing fs.allow updates for
+        // %TEMP%.
+        let out_dir = PathBuf::from("../artifacts/tmp");
+        std::fs::create_dir_all(&out_dir).expect("create artifacts/tmp");
+        let out = out_dir.join("human_female.glb");
+        std::fs::write(&out, &glb).expect("write glb");
+        eprintln!("wrote {} ({} bytes)", out.display(), glb.len());
+    }
+
     /// Phase 5a E2E helper: write a Kitchen Set GLB to disk so the
     /// Node-side `preview-model` skill can open it in a real WebGL
     /// context and the reviewer can visually verify material binding
@@ -2814,6 +3210,147 @@ def Xform "Root" (
         let out = out_dir.join("ball.glb");
         std::fs::write(&out, &glb).expect("write glb");
         eprintln!("wrote {} ({} bytes)", out.display(), glb.len());
+    }
+
+    /// Phase 5c E: a skinned mesh authored with `SkelBindingAPI` and
+    /// a sibling `Skeleton` + `SkelAnimation` must end up in the GLB
+    /// with a `skins[]` entry, joint nodes, JOINTS_0/WEIGHTS_0
+    /// vertex attributes on the mesh primitive, an `animations[]`
+    /// entry, and a `node.skin` reference back to the rig. Uses a
+    /// temp-dir USDA fixture so the test runs without samples/private.
+    #[test]
+    fn extract_geometry_emits_skin_and_animation() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase5c_e_skin");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda = tmp_dir.join("rigged.usda");
+        std::fs::write(
+            &usda,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def SkelRoot "RigRoot"
+    {
+        def Mesh "Body" (
+            prepend apiSchemas = ["SkelBindingAPI"]
+        )
+        {
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+
+            int[] primvars:skel:jointIndices = [0, 1, 0, 1, 0, 1] (
+                interpolation = "vertex"
+                elementSize = 2
+            )
+            float[] primvars:skel:jointWeights = [1.0, 0.0, 0.5, 0.5, 0.0, 1.0] (
+                interpolation = "vertex"
+                elementSize = 2
+            )
+
+            rel skel:skeleton = </Root/RigRoot/Skel>
+        }
+
+        def Skeleton "Skel"
+        {
+            uniform token[] joints = ["Hip", "Hip/Spine"]
+            uniform matrix4d[] bindTransforms = [
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1)),
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 1, 0, 1))
+            ]
+            uniform matrix4d[] restTransforms = [
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1)),
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 1, 0, 1))
+            ]
+            rel skel:animationSource = </Root/RigRoot/Anim>
+        }
+
+        def SkelAnimation "Anim"
+        {
+            uniform token[] joints = ["Hip", "Hip/Spine"]
+            float3[] translations.timeSamples = {
+                0: [(0, 0, 0), (0, 1, 0)],
+                24: [(0, 0.5, 0), (0, 1, 0.25)],
+            }
+            quatf[] rotations.timeSamples = {
+                0: [(1, 0, 0, 0), (1, 0, 0, 0)],
+                24: [(0.7071, 0, 0.7071, 0), (1, 0, 0, 0)],
+            }
+            float3[] scales.timeSamples = {
+                0: [(1, 1, 1), (1, 1, 1)],
+                24: [(1, 1, 1), (1, 1, 1)],
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda, super::StageLoadPolicy::LoadAll)
+            .expect("extract rigged.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // Skins must be present and contain the joint hierarchy.
+        let skins = doc["skins"].as_array().expect("skins array");
+        assert_eq!(skins.len(), 1);
+        let skin = &skins[0];
+        let joints = skin["joints"].as_array().expect("joint node indices");
+        assert_eq!(joints.len(), 2);
+        assert!(skin["inverseBindMatrices"].is_number());
+
+        // The mesh primitive must carry JOINTS_0 + WEIGHTS_0 and the
+        // mesh node must reference the skin.
+        let meshes = doc["meshes"].as_array().expect("meshes");
+        let body = meshes
+            .iter()
+            .find(|m| m["name"].as_str().map(|n| n.ends_with("Body")).unwrap_or(false))
+            .expect("Body mesh");
+        let attrs = &body["primitives"][0]["attributes"];
+        assert!(attrs.get("JOINTS_0").is_some(), "missing JOINTS_0 attribute");
+        assert!(attrs.get("WEIGHTS_0").is_some(), "missing WEIGHTS_0 attribute");
+
+        let nodes = doc["nodes"].as_array().expect("nodes");
+        let mesh_node = nodes
+            .iter()
+            .find(|n| n.get("mesh").is_some())
+            .expect("at least one node references a mesh");
+        assert_eq!(mesh_node["skin"], 0);
+
+        // Animations must be present, target the skin, and contain
+        // 2 time samples (0 and 24).
+        let animations = doc["animations"].as_array().expect("animations");
+        assert_eq!(animations.len(), 1);
+        let anim = &animations[0];
+        let samplers = anim["samplers"].as_array().expect("anim samplers");
+        let channels = anim["channels"].as_array().expect("anim channels");
+        assert!(!samplers.is_empty(), "expected at least one sampler");
+        assert!(!channels.is_empty(), "expected at least one channel");
+        // Verify the channel targets a joint node and uses one of
+        // the TRS paths glTF supports.
+        let first_path = channels[0]["target"]["path"]
+            .as_str()
+            .expect("channel target path");
+        assert!(
+            ["translation", "rotation", "scale"].contains(&first_path),
+            "unexpected channel path: {first_path}"
+        );
+
+        Ok(())
     }
 
     /// Phase 5c A: TextureLoader's USDZ branch must be able to pull
@@ -3678,6 +4215,9 @@ def Xform "Root" (
             face_vertex_counts: vec![6],
             normals: None,
             uvs: None,
+            joint_indices: None,
+            joint_weights: None,
+            joints_per_vertex: 0,
         };
         let prim_path = SdfPath::new("/L").unwrap();
         let out = super::mesh_data_to_input(

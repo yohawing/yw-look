@@ -490,19 +490,27 @@ USD の「軽く見せる」設計に素直に乗れる。
 
 ---
 
-## Phase 5c — Texture & Skinning パイプライン（実装中）
+## Phase 5c — Texture & Skinning パイプライン（実装済）
 
 ### スコープ
 
 Phase 5a で「scalar PBR factor のみ」、Phase 5b で「skeleton の bind pose のみ」と意図的に削った 2 つの軸を一気に閉じる。
 
-| ID  | 項目                                                                                                                                                                     | 担当    | 依存             | 状態                                                                                                                       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| A   | USDZ 内 texture を GLB BIN chunk に埋め込み (`UsdPreviewSurface.diffuseColor` の texture path を image / texture / sampler としてエクスポート)                           | yw-look | fork 不要        | ✅ 実装済 (filesystem fixture で検証、USDZ は TextureLoader 単体テスト + chameleon は fork material_of 制約により部分対応) |
-| B   | USDA parser の `parse_property_metadata_value` を配列型 vector 値で受理可能にする                                                                                        | fork    | なし             | ✅ 実装済 (`52029e6` `fix(usda): route time samples through parse_value`)                                                  |
-| C   | `MeshData` に `joint_indices: Vec<u32>` + `joint_weights: Vec<f32>` を追加し、`Stage::mesh_of` で `primvars:skel:jointIndices` / `primvars:skel:jointWeights` を読み込む | fork    | なし（B と独立） | 🔄 fork agent 実装中                                                                                                       |
-| D   | `Stage::skel_animation_of` の body を `FieldKey::TimeSamples` 経由で実装                                                                                                 | fork    | B                | 🔄 fork agent 実装中                                                                                                       |
-| E   | yw-look 側 `glb.rs` に `SkinInput` を追加して glTF nodes / skin / inverseBindMatrices / animation channels を出力                                                        | yw-look | C + D            | ⏳ 待機中                                                                                                                  |
+| ID  | 項目                                                                                                                                                 | 担当    | 状態                                                    |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------- |
+| A   | USDZ 内 texture を GLB BIN chunk に埋め込み (`UsdPreviewSurface.diffuseColor` の texture path を image / texture / sampler としてエクスポート)       | yw-look | ✅ 実装済 (filesystem fixture e2e + Codex P1+P2 fix)    |
+| B   | USDA parser の `parse_property_metadata_value` を配列型 vector 値で受理可能にする                                                                    | fork    | ✅ 実装済 (`52029e6`)                                   |
+| C   | `MeshData` に `joint_indices` + `joint_weights` を追加し、`Stage::mesh_of` で `primvars:skel:jointIndices` / `primvars:skel:jointWeights` を読み込む | fork    | ✅ 実装済 (`6b51a5f` + `b36f6b4` の elementSize 型 fix) |
+| D   | `Stage::skel_animation_of` の body を `FieldKey::TimeSamples` 経由で実装                                                                             | fork    | ✅ 実装済 (`dcdd16e`)                                   |
+| E   | yw-look 側 `glb.rs` に `SkinInput` / `AnimationInput` を追加して glTF nodes / skin / inverseBindMatrices / animation channels を出力                 | yw-look | ✅ 実装済 (skinned mesh e2e + Codex P1×4 + P2 fix)      |
+
+### Phase 5c E の Codex フィードバック (適用済)
+
+- **P1 [fork rest matrices column-major]**: `SkeletonData::bind/rest_transforms` は fork で既に column-major なので yw-look 側で transpose しない (元コードは二重 transpose していた)
+- **P1 [skinned mesh world transform]**: skinned mesh node は identity ではなく `mesh.world_matrix` を載せる。vertex 位置は mesh-local のままで、glTF skin の inverseBindMatrices と組み合わせて world に展開される
+- **P1 [animated joint TRS]**: glTF は node `matrix` のアニメーションを許さないので、joint nodes は rest local matrix を **TRS に decompose** して `translation` / `rotation` / `scale` で出力する
+- **P1 [time codes → seconds]**: `Stage::skel_animation_of` の time samples は **USD time code** なので glTF sampler input に書く前に `stage.field<f64>(abs_root, FieldKey::TimeCodesPerSecond).unwrap_or(24.0)` で割って秒に変換する
+- **P2 [sparse channel handling]**: rotation / scale が translation のタイムラインに対して sparse な場合、欠損フレームは `[0,0,0,0]` クォータニオンや `[0,0,0]` スケールで埋めずに **その joint のチャネルごと drop** して runtime に rest pose を継承させる
 
 ### 既知の Phase 5d 候補
 
