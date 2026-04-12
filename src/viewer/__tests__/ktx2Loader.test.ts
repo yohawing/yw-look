@@ -30,25 +30,22 @@ describe("KTX2Loader dynamic import smoke", () => {
   });
 
   it("constructs without throwing", async () => {
-    const { KTX2Loader } = await import(
-      "three/examples/jsm/loaders/KTX2Loader.js"
-    );
+    const { KTX2Loader } =
+      await import("three/examples/jsm/loaders/KTX2Loader.js");
     expect(() => new KTX2Loader()).not.toThrow();
   });
 
   it("accepts setTranscoderPath('/basis/') and returns itself", async () => {
-    const { KTX2Loader } = await import(
-      "three/examples/jsm/loaders/KTX2Loader.js"
-    );
+    const { KTX2Loader } =
+      await import("three/examples/jsm/loaders/KTX2Loader.js");
     const loader = new KTX2Loader();
     const returned = loader.setTranscoderPath("/basis/");
     expect(returned).toBe(loader);
   });
 
   it("dispose is callable on a freshly constructed loader", async () => {
-    const { KTX2Loader } = await import(
-      "three/examples/jsm/loaders/KTX2Loader.js"
-    );
+    const { KTX2Loader } =
+      await import("three/examples/jsm/loaders/KTX2Loader.js");
     const loader = new KTX2Loader();
     loader.setTranscoderPath("/basis/");
     expect(() => loader.dispose()).not.toThrow();

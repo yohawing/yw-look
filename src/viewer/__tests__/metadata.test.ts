@@ -32,9 +32,7 @@ describe("collectAssetMetadata", () => {
     mesh.name = "tetra";
     root.add(mesh);
 
-    expect(() =>
-      collectAssetMetadata(root, fakeFile, [], null),
-    ).not.toThrow();
+    expect(() => collectAssetMetadata(root, fakeFile, [], null)).not.toThrow();
   });
 
   it("renders null-named nodes as (unnamed) in the hierarchy", () => {
