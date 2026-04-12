@@ -15,12 +15,15 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.1.0", features = [] }
 
 [dependencies]
-# Phase 5c B tip on the `yw-look-phase4` branch of the fork. Carries
-# StageLoadPolicy (Phase 4a), Stage::material_of (Phase 5a),
-# Stage::skeleton_of (Phase 5b WIP), and the USDA parser fix that
-# accepts time-sampled array values (Phase 5c B, needed for the
-# upcoming SkelAnimation work). Bump again as yw-look-phase4 advances.
-openusd = { git = "https://github.com/yohawing/openusd.git", rev = "52029e6920bcad9fcc9c8277ae2309e1a3fc34d4" }
+# Phase 5c D tip + Phase 5c C fix on the `yw-look-phase4` branch of
+# the fork. Carries StageLoadPolicy (Phase 4a), Stage::material_of
+# (Phase 5a), Stage::skeleton_of (Phase 5b WIP), USDA parser
+# time-sampled array fix (Phase 5c B), MeshData per-vertex skin
+# payload (Phase 5c C), real Stage::skel_animation_of body (Phase 5c
+# D), plus an elementSize-type fix that accepts Int as well as Int64
+# so the chameleon Apple AR Quick Look asset still parses cleanly.
+# Bump again as yw-look-phase4 advances.
+openusd = { git = "https://github.com/yohawing/openusd.git", rev = "b36f6b40167d7dd9e13ff633a638e485cfcc4764" }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
