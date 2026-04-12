@@ -338,6 +338,29 @@ impl UsdBackend for OpenusdBackend {
             .map_err(|e| UsdError::Parse(e.to_string()))?;
 
         let mesh_paths = mesh_paths.into_inner();
+
+        // Filter out "leaked" root prims from referenced/payloaded
+        // layers. When a layer is composed via `prepend references`,
+        // the fork's traverse exposes both the composed prim tree
+        // (under defaultPrim) AND the raw root prims from the
+        // external layers. The raw roots produce visual duplicates
+        // at the origin. Keep only prims under the stage's
+        // defaultPrim (if one is authored); for stages without a
+        // defaultPrim we keep everything.
+        let mesh_paths = if let Some(ref dp) = stage.default_prim() {
+            let prefix = format!("/{dp}/");
+            let root_path = format!("/{dp}");
+            mesh_paths
+                .into_iter()
+                .filter(|p| {
+                    let s = p.as_str();
+                    s.starts_with(&prefix) || s == root_path
+                })
+                .collect::<Vec<_>>()
+        } else {
+            mesh_paths
+        };
+
         if mesh_paths.is_empty() {
             return Err(UsdError::Parse(
                 "no renderable Mesh prims found in stage".to_string(),
