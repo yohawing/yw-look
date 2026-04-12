@@ -15,12 +15,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.1.0", features = [] }
 
 [dependencies]
-# Phase 5d L2 investigation tip on the `yw-look-phase4` branch of the
-# fork. Carries everything Phase 4 / 5 plus the F1 Windows path
-# normalization and an `#[ignore]` chameleon Material structure dump
-# test that ruled out the NodeGraph-wrapping hypothesis for L2 — see
-# `0d40283` for the diagnosis. Bump again as yw-look-phase4 advances.
-openusd = { git = "https://github.com/yohawing/openusd.git", rev = "0d402833b44e2bbd08ba86f28412b9c77a543280" }
+# Phase 5e chameleon-investigation tip on `yw-look-phase4`. Carries
+# every Phase 4/5 fork API plus two `#[ignore]` pin tests that nail
+# the chameleon Apple AR Quick Look asset's UsdPreviewSurface stubs
+# as an asset-side limitation rather than a fork bug — see
+# `1a7758b` for the raw-USDC investigation. Bump again as
+# `yw-look-phase4` advances.
+openusd = { git = "https://github.com/yohawing/openusd.git", rev = "1a7758b1a1255c910f98ca8df4227e350fdf5a61" }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

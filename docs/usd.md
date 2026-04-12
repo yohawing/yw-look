@@ -523,7 +523,27 @@ Phase 5a で「scalar PBR factor のみ」、Phase 5b で「skeleton の bind po
 
 これにより chameleon の `bound_material` は 6 つの distinct material path (`chameleon_mat_1` / `chameleon_mat_1_2` / ... / `stick_placeholder_mat_1`) を正しく返すようになり、yw-look の mesh traverse も 6 件すべて拾えている。
 
-#### L2 — chameleon shader property composition gap (調査済み, 修正は Phase 5e へ re-scope)
+#### Phase 5e chameleon — closed (asset-side limitation, NOT a fork bug)
+
+Phase 5d L2 と Phase 5e で chameleon Apple AR Quick Look asset の textured PBR を表示しようと **3 つの仮説 (NodeGraph wrap → composition gap → USDC decoder)** を順に立てて 3 回 fork 調査した結果、**全部誤り** で、本当の理由は **asset 自体の構造** であることが判明した (`fork 1a7758b` の raw CrateFile レベル PATHS 列挙):
+
+1. `/Root/chameleon_idle/Looks/chameleon_mat*/UsdPreviewSurface` prim 群は **`info:id` と `outputs:surface` しか author していない** (empty stub)。`inputs:diffuseColor` 等のプロパティは USDC ファイルに最初から存在しない。
+2. 本物の shader graph は **別 prim tree `/Root/chameleon_mtl/Looks/{chameleon_blue_mat, chameleon_green_mat, chameleon_camo_mat}`** に MaterialX + RealityKit subgraph として authored されている (≈ 485 個の `inputs:*` PropertySpec)。
+3. しかし `chameleon_idle/Looks` ⇔ `chameleon_mtl/Looks` を **繋ぐ composition arc が一本も無い** (references / payload / inheritPaths / specializes / variantSets すべて unauthored)。
+4. mesh 側の variant set は `material:binding` を `chameleon_mat_N` (suffix 付き stub) に切り替えるだけで、`chameleon_mtl` ツリーには到達しない。
+5. `chameleon_mat.outputs:surface.connectionPaths` は self-reference (自分の子の UsdPreviewSurface stub を指す)。MaterialX / RealityKit にも pass-through しない。
+
+つまり chameleon asset は **Apple Reality Composer Pro が「UsdPreviewSurface stub + 別ツリーの MaterialX 本体」というハイブリッド authoring** をしており、pure USD preview pipeline で reach するには yw-look 側に **asset-specific heuristic mapping** (`chameleon_mat_1_2_3_4_5` → `chameleon_green_mat` 等の hardcoded routing) を入れるしかない。これは不潔で扱いたくないので、**chameleon asset は pure USD preview の非対象** として確定する。
+
+`Stage::material_of` が chameleon に対して `None` を返すのは正しい挙動で、fork にも yw-look にもバグはない。`fork 1a7758b` には raw CrateFile probe + Stage 経由 has_spec assertion の `#[ignore]` pin test 2 本が残っており、誤解を再発見した時の再調査の起点になる。
+
+yw-look 側の `extract_geometry_chameleon_textured_smoke` test は構造 baseline (`materials.len() >= 2`、`mesh_count >= 5`) で `#[ignore]` のまま据え置き。pcp variant 解決の regression guard としては機能する。
+
+> #### 関連 Phase 5d L2 履歴
+>
+> 1 回目の Phase 5d L2 (`fork 0d40283`) は「Material 直下に Shader が居て NodeGraph wrap でない」ことを dump で示し、2 回目の Phase 5e (`fork 1a7758b`) は「authored 自体されていない」ことを raw CrateFile で示した。両方とも前提崩壊で実装は 0 行、調査だけが残った。次回の調査が無駄に再発しないよう **chameleon は asset-side 制約として打ち切り** を docs / ToDo / cargo test コメントの 3 ヶ所で明示している。
+
+##### 旧 L2 仮説の元記述 (参考、誤り)
 
 Phase 5d L2 は当初 「fork の `material_of` を NodeGraph wrap 越しに歩かせる」 タスクとして起票したが、fork agent の dump 調査 (`fork 0d40283`) で **NodeGraph wrap 仮説は崩れた**:
 

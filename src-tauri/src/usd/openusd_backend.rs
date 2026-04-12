@@ -3594,25 +3594,44 @@ def Xform "Root"
         Ok(())
     }
 
-    /// Phase 5d state for the chameleon Apple AR Quick Look asset:
-    /// after F1 the fork's `bound_material` correctly returns six
-    /// distinct chameleon material prim paths (one per skinned mesh
-    /// piece — eye, nail, tongue, body, etc.), so variant resolution
-    /// is fully working. However those Material prims do **not**
-    /// host a `UsdPreviewSurface` Shader as a direct child — they
-    /// wrap one through a NodeGraph layer that the fork's current
-    /// `material_of` walker does not enter, so `material_of` returns
-    /// `None` for every chameleon piece and only the stick
-    /// placeholder material (which authors a flat scalar diffuseColor
-    /// directly under the Material prim) ends up in the GLB.
+    /// Phase 5e final state for the chameleon Apple AR Quick Look
+    /// asset (`samples/private/usd/chameleon_anim_mtl_variant.usdz`):
+    /// neither yw-look nor the openusd fork can recover the textured
+    /// PBR look from this asset, and the reason is **the asset
+    /// itself**, not a fork bug.
     ///
-    /// The chameleon textures themselves can be pulled out of the
-    /// USDZ archive — `texture_loader_reads_chameleon_usdz_entry`
-    /// pins that — but they cannot reach the GLB until the fork
-    /// learns to follow NodeGraph wrappings. Tracked as Phase 5d L2.
-    /// Until then this smoke test only locks the structural baseline
-    /// (default + stick placeholder) so a regression in pcp/variant
-    /// resolution would still trip the assertion.
+    /// Two successive fork-side investigations (`fork 0d40283`,
+    /// `fork 1a7758b`) drilled through the chameleon USDC at the
+    /// raw `CrateFile` PATHS section level and found:
+    ///
+    /// - `/Root/chameleon_idle/Looks/chameleon_mat*/UsdPreviewSurface`
+    ///   prim specs author **only** `info:id` and `outputs:surface`.
+    ///   No `inputs:diffuseColor` / `inputs:metallic` /
+    ///   `inputs:roughness` are written into the file at all — the
+    ///   shader is an empty stub for compatibility.
+    /// - The real shader graph lives in a separate prim tree at
+    ///   `/Root/chameleon_mtl/Looks/{chameleon_blue_mat,
+    ///   chameleon_green_mat, chameleon_camo_mat}` as a MaterialX +
+    ///   RealityKit subgraph (~485 inputs:* property specs).
+    /// - **No composition arc** connects `chameleon_idle/Looks` to
+    ///   `chameleon_mtl/Looks` — references / payload / inheritPaths
+    ///   / specializes / variantSets are all unauthored on both
+    ///   sides. The variant set on the meshes only retargets
+    ///   `material:binding` to `chameleon_mat_N`, never reaching the
+    ///   `chameleon_mtl` tree.
+    ///
+    /// So `Stage::material_of` returns `None` for every chameleon
+    /// piece **correctly**, and the same in yw-look. Recovering the
+    /// chameleon's textured look would require a yw-look-side
+    /// asset-specific heuristic that maps the empty stubs onto the
+    /// MaterialX subgraph, which we explicitly do **not** want to
+    /// take on. The chameleon asset stays as a non-goal for the
+    /// pure USD preview path.
+    ///
+    /// This test pins the structural baseline (the default slot,
+    /// the stick placeholder material slot, and at least 5 mesh
+    /// prims after F1 variant resolution) so any regression in pcp
+    /// variant resolution or `is_renderable_mesh` would still trip.
     #[test]
     #[ignore = "needs samples/private + Phase 5d L2 NodeGraph walker for full pin"]
     fn extract_geometry_chameleon_textured_smoke() {
