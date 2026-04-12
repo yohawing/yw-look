@@ -408,7 +408,7 @@ impl UsdBackend for OpenusdBackend {
         // up-axis correction.
         let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
         for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
-            let Some(mesh_data) = stage
+            let Some(mut mesh_data) = stage
                 .mesh_of(prim_path.clone())
                 .map_err(|e| UsdError::Parse(e.to_string()))?
             else {
@@ -420,6 +420,13 @@ impl UsdBackend for OpenusdBackend {
                 world = mat4_mul(correction, &world);
             }
             let world_f32 = mat4_f64_to_f32(&world);
+
+            // Expand indexed face-varying UVs: USD allows
+            // `primvars:st:indices` to map compact UV arrays to
+            // face vertices (UV seam handling). If present, expand
+            // the compact UVs to full face-varying layout so
+            // classify_attribute picks them up as FaceVarying.
+            expand_indexed_uvs(&stage, prim_path, &mut mesh_data);
 
             let orientation = read_mesh_orientation(&stage, prim_path);
             let max_joint = mesh_skin_slots[mesh_idx]
@@ -1186,6 +1193,63 @@ fn animation_input_from_skel(
         rotations,
         scales,
     })
+}
+
+/// Expand indexed face-varying UVs. USD allows `primvars:st:indices`
+/// to decouple the UV array from face-vertex order — the UV array
+/// is compact (unique UV coordinates only), and the indices map
+/// each face vertex to its UV entry. When present, expand the
+/// compact array to full face-varying layout so `classify_attribute`
+/// recognizes it and `mesh_data_to_input` emits `TEXCOORD_0`.
+fn expand_indexed_uvs(
+    stage: &Stage,
+    prim_path: &SdfPath,
+    mesh_data: &mut MeshData,
+) {
+    let Some(ref uvs) = mesh_data.uvs else { return };
+    let total_fv: usize = mesh_data
+        .face_vertex_counts
+        .iter()
+        .map(|c| *c as usize)
+        .sum();
+    let point_count = mesh_data.points.len() / 3;
+    let uv_count = uvs.len() / 2;
+
+    // If UVs already match vertex or face-varying count, no expansion needed.
+    if uv_count == point_count || uv_count == total_fv {
+        return;
+    }
+
+    // Try reading primvars:st:indices.
+    let Ok(idx_path) = prim_path.append_property("primvars:st:indices") else {
+        return;
+    };
+    let Ok(Some(idx_value)) = stage.field::<SdfValue>(idx_path, FieldKey::Default) else {
+        return;
+    };
+    let indices: Vec<usize> = match idx_value {
+        SdfValue::IntVec(v) => v.iter().map(|i| *i as usize).collect(),
+        SdfValue::UintVec(v) => v.iter().map(|i| *i as usize).collect(),
+        _ => return,
+    };
+
+    // indices should have total_fv entries mapping face-vertex → UV entry.
+    if indices.len() != total_fv {
+        return;
+    }
+
+    // Expand: for each face vertex, look up its UV via the index.
+    let mut expanded = Vec::with_capacity(total_fv * 2);
+    for &idx in &indices {
+        if idx < uv_count {
+            expanded.push(uvs[idx * 2]);
+            expanded.push(uvs[idx * 2 + 1]);
+        } else {
+            expanded.push(0.0);
+            expanded.push(0.0);
+        }
+    }
+    mesh_data.uvs = Some(expanded);
 }
 
 /// Name-based material fallback for GeomSubsets without authored
@@ -3706,6 +3770,31 @@ def Xform "Root" (
         if skip_if_missing(&path, "seahorse_debug") { return; }
         let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
         let mesh_path = SdfPath::new("/seahorse_bind/seahorse/seahorse_combined_mesh").unwrap();
+
+        // Mesh stats
+        let mesh_data = stage.mesh_of(mesh_path.clone()).ok().flatten();
+        if let Some(ref md) = mesh_data {
+            let total_fv: usize = md.face_vertex_counts.iter().map(|c| *c as usize).sum();
+            let point_count = md.points.len() / 3;
+            let uv_len = md.uvs.as_ref().map(|u| u.len()).unwrap_or(0);
+            eprintln!("  meshdata: points={} faces={} total_fv={} uvs.len={} (fv*2={} pt*2={})",
+                point_count, md.face_vertex_counts.len(), total_fv, uv_len, total_fv * 2, point_count * 2);
+        }
+
+        // Check UV primvar names
+        for uv_name in &["primvars:st", "primvars:st1", "primvars:UVMap", "primvars:map1", "primvars:uv"] {
+            if let Ok(prop) = mesh_path.append_property(uv_name) {
+                let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
+                if val.is_some() {
+                    let len = match &val {
+                        Some(SdfValue::Vec2fVec(v)) => v.len(),
+                        Some(SdfValue::FloatVec(v)) => v.len() / 2,
+                        _ => 0,
+                    };
+                    eprintln!("  UV found: {} len={}", uv_name, len);
+                }
+            }
+        }
 
         // Check GeomSubsets
         let subsets = stage.geom_subsets_of(mesh_path.clone());
