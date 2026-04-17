@@ -52,6 +52,113 @@ mod cpp_backend {
         });
     }
 
+    /// Writes a top-level `plugInfo.json` to `dir` whose only content
+    /// is an `Includes` directive matching every per-plugin
+    /// `resources/` subdirectory. Needed because vcpkg's OpenUSD port
+    /// produces per-plugin plugInfo files at `bin/usd/<name>/
+    /// resources/plugInfo.json` but does not ship a manifest at
+    /// `bin/usd/plugInfo.json`. Without a top-level manifest,
+    /// `PlugRegistry::RegisterPlugins("<dll_dir>/usd")` probes
+    /// `<dll_dir>/usd/plugInfo.json`, fails to open it, and never
+    /// recurses into the plugin subdirs — leaving USDA / USDC file
+    /// format plugins unregistered and `UsdStage::Open` aborting.
+    ///
+    /// The `*/resources/` include pattern matches the manifest shape
+    /// vcpkg itself installs at `lib/usd/plugInfo.json`, so the
+    /// generated file is semantically identical to the upstream one.
+    fn write_plugin_manifest(dir: &Path) {
+        if !dir.exists() {
+            return;
+        }
+        let manifest = dir.join("plugInfo.json");
+        fs::write(
+            &manifest,
+            b"{\n    \"Includes\": [ \"*/resources/\" ]\n}\n",
+        )
+        .unwrap_or_else(|e| {
+            panic!(
+                "failed to write top-level plugInfo manifest {}: {e}",
+                manifest.display()
+            )
+        });
+    }
+
+    /// Recursively mirrors `src` into `dst`, creating directories as
+    /// needed. Used to ship the OpenUSD plugin tree (`bin/usd/<name>/
+    /// resources/plugInfo.json`) next to the runtime DLLs so the shim
+    /// can bootstrap `PlugRegistry` at startup. If `src` does not
+    /// exist we silently skip: the vcpkg port may place plugins under
+    /// a different subdir on future revisions, and breaking the dev
+    /// build on a file layout change is worse than a quiet no-op.
+    fn mirror_tree(src: &Path, dst: &Path) {
+        if !src.exists() {
+            return;
+        }
+        fs::create_dir_all(dst).unwrap_or_else(|e| {
+            panic!("create_dir_all {} failed: {e}", dst.display())
+        });
+        let entries = fs::read_dir(src).unwrap_or_else(|e| {
+            panic!("read_dir {} failed: {e}", src.display())
+        });
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            let entry_name = entry.file_name();
+            let dst_child = dst.join(&entry_name);
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            if file_type.is_dir() {
+                mirror_tree(&entry_path, &dst_child);
+            } else if file_type.is_file() {
+                let _ = fs::remove_file(&dst_child);
+                fs::copy(&entry_path, &dst_child).unwrap_or_else(|e| {
+                    panic!(
+                        "copy plugin asset {} -> {} failed: {e}",
+                        entry_path.display(),
+                        dst_child.display()
+                    )
+                });
+            }
+        }
+    }
+
+    /// Walks `dir` (non-recursively) and returns every file whose
+    /// extension (case-insensitive) matches `ext` and whose file name
+    /// passes `accept`. Used to pick up the full runtime-library
+    /// closure without committing to a hardcoded filename list that
+    /// drifts as vcpkg ports rename / split / merge their output.
+    fn collect_libs(
+        dir: &Path,
+        ext: &str,
+        accept: impl Fn(&str) -> bool,
+    ) -> Vec<PathBuf> {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        let ext_lower = ext.to_ascii_lowercase();
+        let mut out = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let matches_ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase() == ext_lower)
+                .unwrap_or(false);
+            if !matches_ext {
+                continue;
+            }
+            if accept(name) {
+                out.push(path);
+            }
+        }
+        out.sort();
+        out
+    }
+
     /// Returns true when the two files exist and their byte contents
     /// are bit-identical. Uses a full read because the runtime libs we
     /// mirror are a handful of tens of MB at most — negligible next to
@@ -331,30 +438,48 @@ mod cpp_backend {
         let dev_deps_dir = dev_profile_dir.as_deref().map(|p| p.join("deps"));
 
         if target_os == "windows" {
-            // Windows ships DLLs in bin/ and import libs in lib/. We
-            // only need the runtime DLLs in the bundle.
-            // Runtime DLL set must match every `target_link_libraries`
-            // entry in third_party/usd_c_shim/CMakeLists.txt. The shim
-            // links against `usd / usdGeom / sdf / tf`; leaving any of
-            // those out of the bundle / dev-mirror makes the DLL load
-            // at startup (`LoadLibrary("usd_c_shim.dll")`) fail with
-            // an unresolved-import 0xc0000135. `usd_ms.dll` is kept
-            // for vcpkg builds that prefer the monolithic flavor;
-            // missing files are skipped by `copy_into` below.
-            let windows_dlls = [
-                "usd_ms.dll",
-                "tbb12.dll",
-                "tbb.dll",
-                "usd.dll",
-                "usdGeom.dll",
-                "usdShade.dll",
-                "sdf.dll",
-                "tf.dll",
-            ];
-            for name in windows_dlls {
-                copy_into(&vcpkg_bin.join(name), &staging);
+            // Scan the vcpkg bin/ tree for every DLL the shim's pxr
+            // transitive closure may load at runtime. Hardcoding an
+            // explicit list breaks when the vcpkg `usd` port changes
+            // its flavor (e.g. 26.3 stopped shipping a monolithic
+            // `usd_ms.dll` and renamed everything to `usd_*.dll` with
+            // an explicit prefix — `usd_usd.dll`, `usd_sdf.dll`, ...).
+            // A prefix-based scan stays correct through that churn.
+            //
+            // Prefixes covered:
+            //   - `usd_*.dll`      → OpenUSD core + plugin libraries
+            //   - `tbb*.dll`       → oneAPI TBB runtime
+            //   - `hwloc*.dll`     → TBB's hwloc dependency (cpu topo)
+            //   - `zlib1.dll`      → usd's layer compression / USDZ
+            //
+            // Anything outside these prefixes is ignored. Everything
+            // inside is mirrored without needing to know whether the
+            // port is monolithic or split.
+            let windows_dlls = collect_libs(&vcpkg_bin, "dll", |name| {
+                name.starts_with("usd_")
+                    || name.starts_with("tbb")
+                    || name.starts_with("hwloc")
+                    || name == "zlib1.dll"
+                    // legacy monolithic flavor, kept for ports that
+                    // re-enable it.
+                    || name == "usd_ms.dll"
+            });
+            for src in &windows_dlls {
+                copy_into(src, &staging);
             }
             copy_into(&shim_install.join("bin").join("usd_c_shim.dll"), &staging);
+
+            // Plugin tree: the shim registers the `usd/` subtree at
+            // startup (see `shim_library_directory()` /
+            // `register_plugins_once()` in usd_c_shim.cpp) so OpenUSD
+            // can locate the .usda / .usdc file-format plugins that
+            // `UsdStage::Open` requires. The plugInfo.json files use
+            // a relative LibraryPath of `../../usd_<name>.dll`, which
+            // resolves to the sibling DLLs we staged above as long as
+            // we keep the tree layout identical.
+            let vcpkg_plugin_tree = vcpkg_bin.join("usd");
+            mirror_tree(&vcpkg_plugin_tree, &staging.join("usd"));
+            write_plugin_manifest(&staging.join("usd"));
 
             // Mirror into both the dev profile dir (for `cargo run`) and
             // its `deps/` (for integration tests and example binaries).
@@ -366,33 +491,35 @@ mod cpp_backend {
                 .into_iter()
                 .flatten()
             {
-                for name in windows_dlls {
-                    copy_into_dev_dir(&vcpkg_bin.join(name), dev_dir);
+                for src in &windows_dlls {
+                    copy_into_dev_dir(src, dev_dir);
                 }
                 copy_into_dev_dir(&shim_install.join("bin").join("usd_c_shim.dll"), dev_dir);
+                mirror_tree(&vcpkg_plugin_tree, &dev_dir.join("usd"));
+                write_plugin_manifest(&dev_dir.join("usd"));
             }
         } else if target_os == "macos" {
             // macOS stores both versioned and unversioned dylibs under
             // lib/. The Tauri macOS bundler will read Frameworks from
-            // here and sign them.
-            // Same rationale as windows_dlls: cover every module the
-            // shim links against so `dlopen(libusd_c_shim.dylib)`
-            // resolves cleanly. Missing files are silently skipped
-            // by `copy_into` for the monolithic (`usd_ms`) flavor.
-            let macos_dylibs = [
-                "libusd_ms.dylib",
-                "libtbb.12.dylib",
-                "libtbb.dylib",
-                "libusd.dylib",
-                "libusdGeom.dylib",
-                "libusdShade.dylib",
-                "libsdf.dylib",
-                "libtf.dylib",
-            ];
-            for name in macos_dylibs {
-                copy_into(&vcpkg_lib.join(name), &staging);
+            // here and sign them. See the Windows branch for why we
+            // scan by prefix rather than hardcoding filenames.
+            let macos_dylibs = collect_libs(&vcpkg_lib, "dylib", |name| {
+                name.starts_with("libusd_")
+                    || name.starts_with("libtbb")
+                    || name.starts_with("libhwloc")
+                    || name.starts_with("libz.")
+                    || name == "libusd_ms.dylib"
+            });
+            for src in &macos_dylibs {
+                copy_into(src, &staging);
             }
             copy_into(&shim_install.join("lib").join("libusd_c_shim.dylib"), &staging);
+
+            // Plugin tree (see Windows branch for rationale). On macOS
+            // vcpkg places it under `lib/usd/` next to the dylibs.
+            let vcpkg_plugin_tree = vcpkg_lib.join("usd");
+            mirror_tree(&vcpkg_plugin_tree, &staging.join("usd"));
+            write_plugin_manifest(&staging.join("usd"));
 
             // Mirror into the dev binary directories so the
             // `@loader_path` rpath emitted above resolves every dylib
@@ -406,13 +533,15 @@ mod cpp_backend {
                 .into_iter()
                 .flatten()
             {
-                for name in macos_dylibs {
-                    copy_into_dev_dir(&vcpkg_lib.join(name), dev_dir);
+                for src in &macos_dylibs {
+                    copy_into_dev_dir(src, dev_dir);
                 }
                 copy_into_dev_dir(
                     &shim_install.join("lib").join("libusd_c_shim.dylib"),
                     dev_dir,
                 );
+                mirror_tree(&vcpkg_plugin_tree, &dev_dir.join("usd"));
+                write_plugin_manifest(&dev_dir.join("usd"));
             }
         }
     }
