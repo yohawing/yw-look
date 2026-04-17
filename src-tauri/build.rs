@@ -52,6 +52,109 @@ mod cpp_backend {
         });
     }
 
+    /// Returns true when the two files exist and their byte contents
+    /// are bit-identical. Uses a full read because the runtime libs we
+    /// mirror are a handful of tens of MB at most — negligible next to
+    /// the OpenUSD compile that dominates this build.
+    fn files_byte_equal(a: &Path, b: &Path) -> bool {
+        let (Ok(am), Ok(bm)) = (fs::metadata(a), fs::metadata(b)) else {
+            return false;
+        };
+        if am.len() != bm.len() {
+            return false;
+        }
+        match (fs::read(a), fs::read(b)) {
+            (Ok(ab), Ok(bb)) => ab == bb,
+            _ => false,
+        }
+    }
+
+    /// Mirror one library next to the dev binaries.
+    ///
+    /// Destination is Cargo's live target directory (`target/<profile>/`
+    /// or `target/<profile>/deps/`), which is what `cargo run` /
+    /// `cargo tauri dev` / integration tests load native libraries
+    /// from.
+    ///
+    /// Policy:
+    /// 1. If the destination already holds a byte-identical copy, skip
+    ///    the write entirely. This avoids rebuild churn and — crucially
+    ///    on Windows — sidesteps the DLL-lock problem whenever the
+    ///    shim's output did not actually change between builds.
+    /// 2. Otherwise replace the destination by deleting it first and
+    ///    then copying. The two-step sequence survives the common
+    ///    Windows case where the destination is currently mapped by a
+    ///    running dev process: `remove_file` on a mapped DLL performs
+    ///    a scheduled-for-delete rename rather than an immediate unlink
+    ///    on modern NTFS, letting the subsequent `copy` create a fresh
+    ///    file at the original path. If even this sequence fails, we
+    ///    abort the build with an actionable error — leaving the stale
+    ///    library in place would silently make the next run exercise
+    ///    outdated C++ code, which is strictly worse than a build
+    ///    failure the developer can fix by closing the other process.
+    fn copy_into_dev_dir(src: &Path, dst_dir: &Path) {
+        let dst = dst_dir.join(src.file_name().expect("file_name"));
+
+        if !src.exists() {
+            // This helper is only called from the active OS branch,
+            // so a missing source means vcpkg / the shim build did
+            // not actually produce the expected artifact for this
+            // host (e.g. after a branch switch or a failed earlier
+            // build). Leaving a stale copy next to the dev binary
+            // would silently let `cargo run` load outdated native
+            // code; remove it so the loader fails loudly instead.
+            if dst.exists() {
+                fs::remove_file(&dst).unwrap_or_else(|e| {
+                    panic!(
+                        "failed to evict stale dev-mirror copy {} \
+                         after source {} disappeared: {}",
+                        dst.display(),
+                        src.display(),
+                        e
+                    )
+                });
+            }
+            return;
+        }
+        fs::create_dir_all(dst_dir).unwrap_or_else(|e| {
+            panic!(
+                "failed to create dev mirror dir {}: {}",
+                dst_dir.display(),
+                e
+            )
+        });
+
+        if files_byte_equal(src, &dst) {
+            // Bit-identical: nothing to replace, so the DLL-lock case
+            // cannot even be hit.
+            return;
+        }
+
+        // Best-effort: try to unlink the destination first. On Windows
+        // this lets a fresh copy land at the same path even if the old
+        // file is still mapped into a running process. `remove_file`
+        // is allowed to fail (e.g. the file does not exist yet); only
+        // a failing `copy` after this is fatal.
+        let _ = fs::remove_file(&dst);
+
+        fs::copy(src, &dst).unwrap_or_else(|e| {
+            panic!(
+                "failed to mirror {} -> {}: {}\n\n\
+                 On Windows this usually means a previously launched \
+                 `cargo run`, `cargo tauri dev`, or integration-test \
+                 binary still has the library mapped and is holding an \
+                 exclusive lock on it. Close that process and rebuild.\n\
+                 (Aborting instead of warning: a silent skip here would \
+                 leave a stale native library in {} and the next launch \
+                 would load old C++ backend code.)",
+                src.display(),
+                dst.display(),
+                e,
+                dst_dir.display(),
+            )
+        });
+    }
+
     pub(super) fn build() {
         let target_os = env::var("CARGO_CFG_TARGET_OS").expect("CARGO_CFG_TARGET_OS");
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("CARGO_CFG_TARGET_ARCH");
@@ -172,35 +275,105 @@ mod cpp_backend {
         //    it on every invocation.
         let staging = manifest_dir.join("cpp-artifacts").join(triplet);
 
+        // 5b. Additionally mirror the runtime libraries next to the
+        //     dev binaries so `cargo run` / `cargo tauri dev` / `cargo
+        //     test` can dynamically load them without a `.app` / `.exe`
+        //     bundle layout.
+        //
+        //     Two target directories matter in dev mode:
+        //       - `target/<profile>/`        — the primary Cargo binary
+        //         (`yw-look[.exe]`) lives here; on Windows the PE loader
+        //         searches this directory first for DLLs referenced by
+        //         the EXE.
+        //       - `target/<profile>/deps/`   — integration-test binaries
+        //         and example binaries run from here; on Windows it is
+        //         also the directory rustc uses as the output dir for
+        //         cdylib deps of downstream crates.
+        //
+        //     macOS resolves both through the `-Wl,-rpath,@loader_path`
+        //     rpath emitted above (step 4): the loader checks the
+        //     binary's own directory, which is either `target/<profile>/`
+        //     or `target/<profile>/deps/`.
+        //
+        //     The location is derived from OUT_DIR so out-of-tree
+        //     `CARGO_TARGET_DIR` setups still work. OUT_DIR layout is
+        //     `{target_dir}/{profile}/build/{pkg-hash}/out`, so three
+        //     parents up yields `{target_dir}/{profile}/`.
+        let dev_profile_dir = out_dir
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+        let dev_deps_dir = dev_profile_dir.as_deref().map(|p| p.join("deps"));
+
         if target_os == "windows" {
             // Windows ships DLLs in bin/ and import libs in lib/. We
             // only need the runtime DLLs in the bundle.
-            for name in [
+            let windows_dlls = [
                 "usd_ms.dll",
                 "tbb12.dll",
                 "tbb.dll",
                 "usd.dll",
                 "usdGeom.dll",
                 "usdShade.dll",
-            ] {
+            ];
+            for name in windows_dlls {
                 copy_into(&vcpkg_bin.join(name), &staging);
             }
             copy_into(&shim_install.join("bin").join("usd_c_shim.dll"), &staging);
+
+            // Mirror into both the dev profile dir (for `cargo run`) and
+            // its `deps/` (for integration tests and example binaries).
+            // On Windows the PE loader searches the EXE's own directory,
+            // so both locations need a copy. Use the tolerant helper
+            // because a running dev binary may hold a file lock on the
+            // previous DLL.
+            for dev_dir in [dev_profile_dir.as_deref(), dev_deps_dir.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                for name in windows_dlls {
+                    copy_into_dev_dir(&vcpkg_bin.join(name), dev_dir);
+                }
+                copy_into_dev_dir(&shim_install.join("bin").join("usd_c_shim.dll"), dev_dir);
+            }
         } else if target_os == "macos" {
             // macOS stores both versioned and unversioned dylibs under
             // lib/. The Tauri macOS bundler will read Frameworks from
             // here and sign them.
-            for name in [
+            let macos_dylibs = [
                 "libusd_ms.dylib",
                 "libtbb.12.dylib",
                 "libtbb.dylib",
                 "libusd.dylib",
                 "libusdGeom.dylib",
                 "libusdShade.dylib",
-            ] {
+            ];
+            for name in macos_dylibs {
                 copy_into(&vcpkg_lib.join(name), &staging);
             }
             copy_into(&shim_install.join("lib").join("libusd_c_shim.dylib"), &staging);
+
+            // Mirror into the dev binary directories so the
+            // `@loader_path` rpath emitted above resolves every dylib
+            // alongside the main binary (`target/<profile>/`) or the
+            // test/example binaries (`target/<profile>/deps/`). Use the
+            // tolerant helper to stay consistent with the Windows
+            // branch; dyld on macOS does not hold exclusive file
+            // handles the same way, so failures here are unusual but
+            // still treated as soft warnings for symmetry.
+            for dev_dir in [dev_profile_dir.as_deref(), dev_deps_dir.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                for name in macos_dylibs {
+                    copy_into_dev_dir(&vcpkg_lib.join(name), dev_dir);
+                }
+                copy_into_dev_dir(
+                    &shim_install.join("lib").join("libusd_c_shim.dylib"),
+                    dev_dir,
+                );
+            }
         }
     }
 }
