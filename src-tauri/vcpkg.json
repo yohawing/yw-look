@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "yw-look",
+  "version-string": "0.1.1",
+  "description": "USD C++ backend dependencies for the yw-look asset inspector.",
+  "dependencies": [
+    {
+      "name": "usd",
+      "version>=": "25.05.1"
+    }
+  ],
+  "builtin-baseline": "REPLACE_WITH_VCPKG_COMMIT_SHA"
+}
