@@ -222,6 +222,18 @@ mod cpp_backend {
         // short-circuits find_package() and guarantees we see exactly
         // the headers that match the libs the toolchain file links in.
         let pxr_dir = vcpkg_installed.join("share").join("pxr");
+
+        // The `vcpkg install --x-install-root=...` we ran above puts
+        // the triplet tree under `src-tauri/vcpkg_installed/`, which
+        // is not where the vcpkg CMake toolchain expects to find it
+        // by default (it defaults to the *CMake build dir's* vcpkg_
+        // installed/ sibling). Without this override, transitive
+        // `find_dependency(TBB ...)` calls inside pxrConfig.cmake fail
+        // with "Could not find a package configuration file" because
+        // the toolchain is looking in a different tree than the one
+        // we actually installed into.
+        let vcpkg_installed_root = manifest_dir.join("vcpkg_installed");
+
         let shim_install = cmake::Config::new(&shim_src)
             .profile("Release")
             .define(
@@ -232,6 +244,7 @@ mod cpp_backend {
                     .join("vcpkg.cmake"),
             )
             .define("VCPKG_TARGET_TRIPLET", triplet)
+            .define("VCPKG_INSTALLED_DIR", &vcpkg_installed_root)
             .define("pxr_DIR", &pxr_dir)
             .build();
 
