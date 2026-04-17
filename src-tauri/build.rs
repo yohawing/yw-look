@@ -212,6 +212,16 @@ mod cpp_backend {
             shim_src.join("CMakeLists.txt").display()
         );
 
+        // Force find_package(pxr CONFIG) to resolve against the vcpkg-
+        // installed copy. Without `pxr_DIR` pinned, developers who also
+        // have a manual OpenUSD build on PATH / CMAKE_PREFIX_PATH /
+        // PXR_ROOT end up compiling the shim against their local
+        // headers while linking against vcpkg's libraries, which
+        // explodes with double-nested PXR_NAMESPACE and cryptic robin-
+        // map syntax errors. Pointing `pxr_DIR` at vcpkg's share/pxr
+        // short-circuits find_package() and guarantees we see exactly
+        // the headers that match the libs the toolchain file links in.
+        let pxr_dir = vcpkg_installed.join("share").join("pxr");
         let shim_install = cmake::Config::new(&shim_src)
             .profile("Release")
             .define(
@@ -222,6 +232,7 @@ mod cpp_backend {
                     .join("vcpkg.cmake"),
             )
             .define("VCPKG_TARGET_TRIPLET", triplet)
+            .define("pxr_DIR", &pxr_dir)
             .build();
 
         // 3. Generate Rust bindings from the shim's C header. The
