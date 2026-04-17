@@ -3,6 +3,6 @@
   "default-registry": {
     "kind": "git",
     "repository": "https://github.com/microsoft/vcpkg",
-    "baseline": "REPLACE_WITH_VCPKG_COMMIT_SHA"
+    "baseline": "b83a134447208c35f740e4b6faf1263b0d6e860e"
   }
 }
