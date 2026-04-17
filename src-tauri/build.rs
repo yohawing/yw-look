@@ -309,6 +309,14 @@ mod cpp_backend {
         if target_os == "windows" {
             // Windows ships DLLs in bin/ and import libs in lib/. We
             // only need the runtime DLLs in the bundle.
+            // Runtime DLL set must match every `target_link_libraries`
+            // entry in third_party/usd_c_shim/CMakeLists.txt. The shim
+            // links against `usd / usdGeom / sdf / tf`; leaving any of
+            // those out of the bundle / dev-mirror makes the DLL load
+            // at startup (`LoadLibrary("usd_c_shim.dll")`) fail with
+            // an unresolved-import 0xc0000135. `usd_ms.dll` is kept
+            // for vcpkg builds that prefer the monolithic flavor;
+            // missing files are skipped by `copy_into` below.
             let windows_dlls = [
                 "usd_ms.dll",
                 "tbb12.dll",
@@ -316,6 +324,8 @@ mod cpp_backend {
                 "usd.dll",
                 "usdGeom.dll",
                 "usdShade.dll",
+                "sdf.dll",
+                "tf.dll",
             ];
             for name in windows_dlls {
                 copy_into(&vcpkg_bin.join(name), &staging);
@@ -341,6 +351,10 @@ mod cpp_backend {
             // macOS stores both versioned and unversioned dylibs under
             // lib/. The Tauri macOS bundler will read Frameworks from
             // here and sign them.
+            // Same rationale as windows_dlls: cover every module the
+            // shim links against so `dlopen(libusd_c_shim.dylib)`
+            // resolves cleanly. Missing files are silently skipped
+            // by `copy_into` for the monolithic (`usd_ms`) flavor.
             let macos_dylibs = [
                 "libusd_ms.dylib",
                 "libtbb.12.dylib",
@@ -348,6 +362,8 @@ mod cpp_backend {
                 "libusd.dylib",
                 "libusdGeom.dylib",
                 "libusdShade.dylib",
+                "libsdf.dylib",
+                "libtf.dylib",
             ];
             for name in macos_dylibs {
                 copy_into(&vcpkg_lib.join(name), &staging);
