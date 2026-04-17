@@ -118,7 +118,24 @@ std::string shim_library_directory() {
  * first. PlugRegistry is itself a singleton and RegisterPlugins is
  * additive, so calling it once is sufficient, but we guard with
  * std::call_once for clarity and to avoid the rare double-registration
- * cost in case the internal noop check ever changes. */
+ * cost in case the internal noop check ever changes.
+ *
+ * Probes several candidate locations because the plugin tree lands
+ * in different relative positions depending on the deployment:
+ *
+ *   - `<dll_dir>/usd`                — dev builds on every OS (build.rs
+ *                                      mirrors next to the shim) and
+ *                                      Windows MSI (resources live next
+ *                                      to the exe).
+ *   - `<dll_dir>/../Resources/usd`   — macOS .app bundle (shim dylib
+ *                                      sits in Contents/Frameworks/,
+ *                                      plugin tree in Contents/Resources/
+ *                                      because Tauri's macOS bundler
+ *                                      puts `resources:` there).
+ *
+ * RegisterPlugins is additive, so probing both is safe even when only
+ * one exists.
+ */
 void register_plugins_once() {
     static std::once_flag flag;
     std::call_once(flag, []() {
@@ -129,6 +146,8 @@ void register_plugins_once() {
          * branch of the same call. */
         try {
             PlugRegistry::GetInstance().RegisterPlugins(dir + "/usd");
+            PlugRegistry::GetInstance().RegisterPlugins(
+                dir + "/../Resources/usd");
         } catch (...) {
             /* Swallow: failure here will surface shortly as a
              * UsdStage::Open error, and letting an exception unwind
