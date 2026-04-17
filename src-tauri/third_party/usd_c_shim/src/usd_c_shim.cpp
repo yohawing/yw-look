@@ -20,8 +20,25 @@
 
 #include <cmath>
 #include <exception>
+#include <mutex>
 #include <string>
 
+#ifdef _WIN32
+/* NOMINMAX keeps <windows.h> from defining `min`/`max` macros that
+ * collide with std::numeric_limits and friends used by OpenUSD's
+ * ilmbase half-float limit traits. WIN32_LEAN_AND_MEAN drops rarely-
+ * used headers (cryptography, DDE, ...) so the shim's compile stays
+ * quick and doesn't leak even more tokens into the global scope. */
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#else
+#  include <dlfcn.h>
+#endif
+
+#include <pxr/base/plug/registry.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/layer.h>
@@ -58,6 +75,67 @@ struct UsdcStage_s {
 };
 
 namespace {
+
+/* Returns the directory containing the shim's own shared library, so
+ * we can bootstrap OpenUSD's plugin registry against the `usd/`
+ * subdirectory that `build.rs` mirrors next to the shim. Without this
+ * the plugin registry only sees the vcpkg install prefix baked in at
+ * build time, which does not exist on the target machine — meaning
+ * `UsdStage::Open` cannot find the `usda`/`usdc` file-format plugins
+ * and aborts during stage composition. */
+std::string shim_library_directory() {
+#ifdef _WIN32
+    HMODULE handle = nullptr;
+    if (!::GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(&shim_library_directory),
+            &handle)) {
+        return {};
+    }
+    char buf[MAX_PATH];
+    DWORD n = ::GetModuleFileNameA(handle, buf, MAX_PATH);
+    if (n == 0 || n == MAX_PATH) return {};
+    std::string path(buf, n);
+    auto pos = path.find_last_of("\\/");
+    return (pos == std::string::npos) ? std::string() : path.substr(0, pos);
+#else
+    Dl_info info{};
+    if (!::dladdr(reinterpret_cast<void *>(&shim_library_directory),
+                  &info)
+        || info.dli_fname == nullptr) {
+        return {};
+    }
+    std::string path = info.dli_fname;
+    auto pos = path.find_last_of('/');
+    return (pos == std::string::npos) ? std::string() : path.substr(0, pos);
+#endif
+}
+
+/* Idempotent plugin-registration bootstrap. Called lazily from every
+ * public entry point that may touch the UsdStage / Plug registry so
+ * the shim stays usable regardless of which function a caller hits
+ * first. PlugRegistry is itself a singleton and RegisterPlugins is
+ * additive, so calling it once is sufficient, but we guard with
+ * std::call_once for clarity and to avoid the rare double-registration
+ * cost in case the internal noop check ever changes. */
+void register_plugins_once() {
+    static std::once_flag flag;
+    std::call_once(flag, []() {
+        const std::string dir = shim_library_directory();
+        if (dir.empty()) return;
+        /* Windows accepts both '\' and '/' as separators for
+         * RegisterPlugins; use '/' for portability with the macOS
+         * branch of the same call. */
+        try {
+            PlugRegistry::GetInstance().RegisterPlugins(dir + "/usd");
+        } catch (...) {
+            /* Swallow: failure here will surface shortly as a
+             * UsdStage::Open error, and letting an exception unwind
+             * across the FFI boundary is UB. */
+        }
+    });
+}
 
 UsdcError *make_err(const char *msg) {
     auto *e = new UsdcError_s();
@@ -117,6 +195,8 @@ extern "C" USDC_API UsdcStage *usdc_stage_open(const char *path,
         if (out_err) *out_err = make_err("usdc_stage_open: path is null");
         return nullptr;
     }
+
+    register_plugins_once();
 
     try {
         const auto load = (policy == USDC_LOAD_NO_PAYLOADS)
@@ -204,7 +284,24 @@ extern "C" USDC_API int usdc_stage_root_layer_is_binary(UsdcStage *stage) {
 extern "C" USDC_API size_t usdc_stage_layer_count(UsdcStage *stage) {
     if (!stage) return 0;
     try {
-        return stage->stage->GetUsedLayers().size();
+        /* GetUsedLayers returns every layer contributing to stage
+         * composition, including the always-present session layer
+         * even when a caller opens a stage without one explicitly.
+         * yw-look's inspector matches the Rust fork's semantics,
+         * which counts only "authored" composed layers — session
+         * layer excluded — so subtract when it is present. */
+        const auto used = stage->stage->GetUsedLayers();
+        const SdfLayerHandle session = stage->stage->GetSessionLayer();
+        size_t count = used.size();
+        if (session) {
+            for (const auto &l : used) {
+                if (l == session) {
+                    --count;
+                    break;
+                }
+            }
+        }
+        return count;
     } catch (...) {
         return 0;
     }
@@ -231,10 +328,22 @@ extern "C" USDC_API void usdc_stage_layer_identifiers(UsdcStage *stage,
                                                       void *user) {
     if (!stage || !cb) return;
     swallow([&] {
+        const SdfLayerHandle session = stage->stage->GetSessionLayer();
+        /* Emit the root layer first so the Rust backend can strip it
+         * to derive the "composed layers" list in the same single-
+         * step way as the Rust-fork backend. Remaining authored
+         * layers follow in their GetUsedLayers order; the implicit
+         * session layer is skipped because the inspector UI treats
+         * it as non-authored infrastructure. */
+        const SdfLayerHandle root = stage->stage->GetRootLayer();
+        if (root) {
+            cb(root->GetIdentifier().c_str(), user);
+        }
         for (const SdfLayerHandle &layer : stage->stage->GetUsedLayers()) {
             if (!layer) continue;
-            const std::string s = layer->GetIdentifier();
-            cb(s.c_str(), user);
+            if (layer == root) continue;
+            if (layer == session) continue;
+            cb(layer->GetIdentifier().c_str(), user);
         }
     });
 }

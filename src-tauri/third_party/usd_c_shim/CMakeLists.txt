@@ -39,6 +39,7 @@ target_link_libraries(usd_c_shim PRIVATE
     usdGeom
     sdf
     tf
+    plug
 )
 
 if(APPLE)
