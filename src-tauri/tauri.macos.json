@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "_comment": "Overlay applied with `tauri build --config tauri.macos.json` when building the C++-backend flavor on macOS arm64. The `macOS.frameworks` list places each dylib under `.app/Contents/Frameworks/` so the `@loader_path/../Frameworks` rpath baked into the binary can resolve them. Ad-hoc codesigning (from the base tauri.conf.json `signingIdentity: '-'`) re-signs the copied dylibs.",
+  "bundle": {
+    "macOS": {
+      "frameworks": [
+        "cpp-artifacts/arm64-osx/libusd_ms.dylib",
+        "cpp-artifacts/arm64-osx/libtbb.12.dylib",
+        "cpp-artifacts/arm64-osx/libusd_c_shim.dylib"
+      ]
+    }
+  }
+}

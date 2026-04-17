@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "_comment": "Overlay applied with `tauri build --config tauri.windows.json` when building the C++-backend flavor on Windows. Merges on top of tauri.conf.json.",
+  "bundle": {
+    "resources": {
+      "cpp-artifacts/x64-windows/usd_ms.dll": "./usd_ms.dll",
+      "cpp-artifacts/x64-windows/tbb12.dll": "./tbb12.dll",
+      "cpp-artifacts/x64-windows/usd_c_shim.dll": "./usd_c_shim.dll"
+    }
+  }
+}
