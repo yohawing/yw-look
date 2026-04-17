@@ -23,6 +23,7 @@
 #include <string>
 
 #include <pxr/base/tf/token.h>
+#include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/sdf/payload.h>
@@ -45,6 +46,12 @@ struct UsdcError_s {
 
 struct UsdcStage_s {
     UsdStageRefPtr stage;
+    /* Remembered at open time so `usdc_stage_skipped_payloads` can
+     * short-circuit for LoadAll stages without having to query the
+     * stage for load rules — the OpenUSD API for introspecting a
+     * composed UsdStageLoadRules has shifted between versions, but
+     * the policy we opened with is stable for the handle's lifetime. */
+    UsdcLoadPolicy policy;
     /* One-shot buffer backing scalar C-string returns. Overwritten on
      * every call that produces a string result. */
     std::string scratch;
@@ -122,6 +129,7 @@ extern "C" USDC_API UsdcStage *usdc_stage_open(const char *path,
         }
         auto *h = new UsdcStage_s();
         h->stage = stage;
+        h->policy = policy;
         return h;
     } catch (const std::exception &e) {
         if (out_err) *out_err = make_err(e.what());
@@ -240,11 +248,9 @@ extern "C" USDC_API void usdc_stage_references_in(UsdcStage *stage,
     if (!prim) return;
 
     swallow([&] {
-        SdfReferencesProxy refs = prim.GetReferences();
-        /* GetReferences() on a UsdPrim returns an editable proxy; the
-         * authored list lives on the prim's spec across the layer
-         * stack. We walk the prim's metadata to collect authored
-         * references without mutating anything. */
+        /* We walk the prim's authored metadata directly to collect
+         * references without mutating anything (the editable proxy
+         * from GetReferences() is not needed for a read-only pass). */
         SdfReferenceListOp op;
         if (prim.GetMetadata(SdfFieldKeys->References, &op)) {
             std::vector<SdfReference> items;
@@ -363,14 +369,14 @@ extern "C" USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
      * classify by (asset_path, source_prim) — matching the Rust
      * fork's skipped_payloads keying.
      *
-     * Stages opened with LoadAll never enter this loop because the
-     * root load rule is Rule::AllRule (or a mixed ruleset with All
-     * at the root); we short-circuit early in that case. */
+     * Stages opened with LoadAll have nothing to report here; we
+     * short-circuit by consulting the policy stored on the handle
+     * at open time. Querying the stage's current UsdStageLoadRules
+     * would be more "live" but the API surface for that has shifted
+     * between OpenUSD releases, and the policy we were opened with
+     * is stable for the handle's lifetime. */
+    if (stage->policy != USDC_LOAD_NO_PAYLOADS) return;
     swallow([&] {
-        if (stage->stage->GetLoadRules().GetEffectiveRulesForPath(SdfPath::AbsoluteRootPath())
-                != UsdStageLoadRules::Rule::NoneRule) {
-            return;
-        }
         for (const UsdPrim &prim : stage->stage->TraverseAll()) {
             SdfPayloadListOp op;
             if (!prim.GetMetadata(SdfFieldKeys->Payload, &op)) continue;
