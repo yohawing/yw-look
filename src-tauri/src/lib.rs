@@ -1,4 +1,4 @@
-mod usd;
+pub mod usd;
 
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
