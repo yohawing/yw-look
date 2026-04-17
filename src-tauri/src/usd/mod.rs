@@ -43,23 +43,38 @@ pub use openusd_cpp_backend::OpenusdCppBackend;
 // instantiate at app startup. Which concrete type it points at is
 // decided at compile time by the Cargo features in `Cargo.toml`.
 //
-// Resolution rules:
-//   - `backend-openusd-cpp` alone   → `OpenusdCppBackend`
-//   - `backend-openusd-rs` alone    → `OpenusdBackend`
-//   - both                          → `OpenusdBackend` (Rust fork wins
-//     because it covers the full PoC + geometry surface; the C++ side
-//     is inspector-only for now)
-//   - neither                       → compile error (Cargo forbids
-//     empty feature sets by convention here: the `default` feature
-//     pins the Rust fork on)
+// Resolution rules (C++ wins whenever it is compiled in):
+//   - `backend-openusd-cpp` alone            → `OpenusdCppBackend`
+//   - `backend-openusd-cpp` + `-rs` together → `OpenusdCppBackend`
+//   - `backend-openusd-rs` alone             → `OpenusdBackend`
+//   - neither                                → compile error (at least
+//     one backend must be enabled; the `default` feature pins the
+//     Rust fork on for unopinionated invocations)
+//
+// Why the C++ backend wins when both features are on:
+//
+//   `cargo build --features backend-openusd-cpp` additively merges
+//   with the `default = ["backend-openusd-rs"]` feature set, so
+//   without `--no-default-features` a builder who just asked for the
+//   C++ flavor would otherwise pay the 30-60 minute vcpkg + OpenUSD
+//   source build and still end up running the Rust fork at runtime —
+//   a silent downgrade with no indication that the opt-in request
+//   was ignored. Making the C++ selection take precedence matches
+//   user intent: compiling the cpp backend in means the caller wants
+//   to use it.
+//
+//   Integration tests under `src-tauri/tests/` that compare the two
+//   backends instantiate `OpenusdBackend::new()` and
+//   `OpenusdCppBackend::new()` directly (not through `DefaultBackend`),
+//   so this precedence change does not affect parity coverage.
 
-#[cfg(all(
-    feature = "backend-openusd-cpp",
-    not(feature = "backend-openusd-rs"),
-))]
+#[cfg(feature = "backend-openusd-cpp")]
 pub type DefaultBackend = OpenusdCppBackend;
 
-#[cfg(feature = "backend-openusd-rs")]
+#[cfg(all(
+    feature = "backend-openusd-rs",
+    not(feature = "backend-openusd-cpp"),
+))]
 pub type DefaultBackend = OpenusdBackend;
 
 #[cfg(not(any(feature = "backend-openusd-rs", feature = "backend-openusd-cpp")))]
