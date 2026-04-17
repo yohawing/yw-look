@@ -24,6 +24,13 @@ target_include_directories(usd_c_shim PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
+# Signal to the public header that we are *building* the shim, so
+# USDC_API expands to dllexport (Windows) / default visibility (POSIX).
+# Consumers of this library — bindgen parsing the header, Rust callers
+# linking against the import library — do NOT see this define, so they
+# get dllimport / no attribute, which is what we want.
+target_compile_definitions(usd_c_shim PRIVATE USD_C_SHIM_BUILDING)
+
 # Link against the Pixar OpenUSD libraries provided by vcpkg. We only
 # need the subset our shim touches: stage composition + geom metrics
 # for the up-axis / metersPerUnit queries.

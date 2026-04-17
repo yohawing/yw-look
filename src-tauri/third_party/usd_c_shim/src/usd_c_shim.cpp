@@ -7,6 +7,15 @@
 // was gathered before the failure; APIs that return a single value
 // surface the exception through UsdcError**.
 
+// Must be defined before including the header so that USDC_API expands
+// to the "export" form (dllexport on Windows, default visibility on
+// POSIX) for every public declaration pulled in below. CMake also
+// defines this via target_compile_definitions, but defining it here
+// guards against accidental builds that forget to pass it through.
+#ifndef USD_C_SHIM_BUILDING
+#  define USD_C_SHIM_BUILDING 1
+#endif
+
 #include "usd_c_shim.h"
 
 #include <cmath>
@@ -82,19 +91,19 @@ void swallow(F &&f) {
 
 /* -------------------- error -------------------- */
 
-extern "C" const char *usdc_error_message(const UsdcError *err) {
+extern "C" USDC_API const char *usdc_error_message(const UsdcError *err) {
     return (err != nullptr) ? err->msg.c_str() : "";
 }
 
-extern "C" void usdc_error_free(UsdcError *err) {
+extern "C" USDC_API void usdc_error_free(UsdcError *err) {
     delete err;
 }
 
 /* -------------------- stage lifecycle -------------------- */
 
-extern "C" UsdcStage *usdc_stage_open(const char *path,
-                                     UsdcLoadPolicy policy,
-                                     UsdcError **out_err) {
+extern "C" USDC_API UsdcStage *usdc_stage_open(const char *path,
+                                               UsdcLoadPolicy policy,
+                                               UsdcError **out_err) {
     if (out_err) *out_err = nullptr;
 
     if (path == nullptr) {
@@ -123,13 +132,13 @@ extern "C" UsdcStage *usdc_stage_open(const char *path,
     }
 }
 
-extern "C" void usdc_stage_close(UsdcStage *stage) {
+extern "C" USDC_API void usdc_stage_close(UsdcStage *stage) {
     delete stage;
 }
 
 /* -------------------- scalar queries -------------------- */
 
-extern "C" const char *usdc_stage_default_prim(UsdcStage *stage) {
+extern "C" USDC_API const char *usdc_stage_default_prim(UsdcStage *stage) {
     if (!stage) return nullptr;
     try {
         UsdPrim prim = stage->stage->GetDefaultPrim();
@@ -141,7 +150,7 @@ extern "C" const char *usdc_stage_default_prim(UsdcStage *stage) {
     }
 }
 
-extern "C" int usdc_stage_up_axis(UsdcStage *stage) {
+extern "C" USDC_API int usdc_stage_up_axis(UsdcStage *stage) {
     if (!stage) return -1;
     try {
         TfToken axis = UsdGeomGetStageUpAxis(stage->stage);
@@ -153,7 +162,7 @@ extern "C" int usdc_stage_up_axis(UsdcStage *stage) {
     }
 }
 
-extern "C" double usdc_stage_meters_per_unit(UsdcStage *stage) {
+extern "C" USDC_API double usdc_stage_meters_per_unit(UsdcStage *stage) {
     if (!stage) return std::nan("");
     try {
         /* UsdGeomGetStageMetersPerUnit returns 0.01 as the default.
@@ -168,7 +177,7 @@ extern "C" double usdc_stage_meters_per_unit(UsdcStage *stage) {
     }
 }
 
-extern "C" int usdc_stage_root_layer_is_binary(UsdcStage *stage) {
+extern "C" USDC_API int usdc_stage_root_layer_is_binary(UsdcStage *stage) {
     if (!stage) return -1;
     try {
         SdfLayerHandle root = stage->stage->GetRootLayer();
@@ -184,7 +193,7 @@ extern "C" int usdc_stage_root_layer_is_binary(UsdcStage *stage) {
     }
 }
 
-extern "C" size_t usdc_stage_layer_count(UsdcStage *stage) {
+extern "C" USDC_API size_t usdc_stage_layer_count(UsdcStage *stage) {
     if (!stage) return 0;
     try {
         return stage->stage->GetUsedLayers().size();
@@ -195,9 +204,9 @@ extern "C" size_t usdc_stage_layer_count(UsdcStage *stage) {
 
 /* -------------------- enumeration -------------------- */
 
-extern "C" void usdc_stage_traverse(UsdcStage *stage,
-                                    UsdcStringCallback cb,
-                                    void *user) {
+extern "C" USDC_API void usdc_stage_traverse(UsdcStage *stage,
+                                             UsdcStringCallback cb,
+                                             void *user) {
     if (!stage || !cb) return;
     swallow([&] {
         for (const UsdPrim &prim : stage->stage->Traverse()) {
@@ -209,9 +218,9 @@ extern "C" void usdc_stage_traverse(UsdcStage *stage,
     });
 }
 
-extern "C" void usdc_stage_layer_identifiers(UsdcStage *stage,
-                                             UsdcStringCallback cb,
-                                             void *user) {
+extern "C" USDC_API void usdc_stage_layer_identifiers(UsdcStage *stage,
+                                                      UsdcStringCallback cb,
+                                                      void *user) {
     if (!stage || !cb) return;
     swallow([&] {
         for (const SdfLayerHandle &layer : stage->stage->GetUsedLayers()) {
@@ -222,10 +231,10 @@ extern "C" void usdc_stage_layer_identifiers(UsdcStage *stage,
     });
 }
 
-extern "C" void usdc_stage_references_in(UsdcStage *stage,
-                                         const char *prim_path,
-                                         UsdcArcCallback cb,
-                                         void *user) {
+extern "C" USDC_API void usdc_stage_references_in(UsdcStage *stage,
+                                                  const char *prim_path,
+                                                  UsdcArcCallback cb,
+                                                  void *user) {
     if (!cb) return;
     UsdPrim prim = prim_at(stage, prim_path);
     if (!prim) return;
@@ -264,10 +273,10 @@ extern "C" void usdc_stage_references_in(UsdcStage *stage,
     });
 }
 
-extern "C" void usdc_stage_payloads_in(UsdcStage *stage,
-                                       const char *prim_path,
-                                       UsdcArcCallback cb,
-                                       void *user) {
+extern "C" USDC_API void usdc_stage_payloads_in(UsdcStage *stage,
+                                                const char *prim_path,
+                                                UsdcArcCallback cb,
+                                                void *user) {
     if (!cb) return;
     UsdPrim prim = prim_at(stage, prim_path);
     if (!prim) return;
@@ -302,9 +311,9 @@ extern "C" void usdc_stage_payloads_in(UsdcStage *stage,
     });
 }
 
-extern "C" void usdc_stage_unresolved_assets(UsdcStage *stage,
-                                             UsdcStringCallback cb,
-                                             void *user) {
+extern "C" USDC_API void usdc_stage_unresolved_assets(UsdcStage *stage,
+                                                      UsdcStringCallback cb,
+                                                      void *user) {
     if (!stage || !cb) return;
     /* OpenUSD has no direct "list of unresolved asset paths" API like
      * our Rust fork does. We approximate by walking every authored
@@ -345,9 +354,9 @@ extern "C" void usdc_stage_unresolved_assets(UsdcStage *stage,
     });
 }
 
-extern "C" void usdc_stage_skipped_payloads(UsdcStage *stage,
-                                            UsdcStringCallback cb,
-                                            void *user) {
+extern "C" USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
+                                                     UsdcStringCallback cb,
+                                                     void *user) {
     if (!stage || !cb) return;
     /* A stage opened with LoadNone leaves every payload unloaded.
      * Emit each authored payload's asset path. Stages opened with
@@ -373,7 +382,7 @@ extern "C" void usdc_stage_skipped_payloads(UsdcStage *stage,
 
 /* -------------------- per-prim queries -------------------- */
 
-extern "C" int usdc_prim_type_is_mesh(UsdcStage *stage, const char *prim_path) {
+extern "C" USDC_API int usdc_prim_type_is_mesh(UsdcStage *stage, const char *prim_path) {
     UsdPrim prim = prim_at(stage, prim_path);
     if (!prim) return 0;
     try {
@@ -383,7 +392,7 @@ extern "C" int usdc_prim_type_is_mesh(UsdcStage *stage, const char *prim_path) {
     }
 }
 
-extern "C" int usdc_prim_has_variants(UsdcStage *stage, const char *prim_path) {
+extern "C" USDC_API int usdc_prim_has_variants(UsdcStage *stage, const char *prim_path) {
     UsdPrim prim = prim_at(stage, prim_path);
     if (!prim) return 0;
     try {
@@ -393,10 +402,10 @@ extern "C" int usdc_prim_has_variants(UsdcStage *stage, const char *prim_path) {
     }
 }
 
-extern "C" void usdc_prim_variant_set_names(UsdcStage *stage,
-                                            const char *prim_path,
-                                            UsdcStringCallback cb,
-                                            void *user) {
+extern "C" USDC_API void usdc_prim_variant_set_names(UsdcStage *stage,
+                                                     const char *prim_path,
+                                                     UsdcStringCallback cb,
+                                                     void *user) {
     if (!cb) return;
     UsdPrim prim = prim_at(stage, prim_path);
     if (!prim) return;
@@ -409,9 +418,9 @@ extern "C" void usdc_prim_variant_set_names(UsdcStage *stage,
     });
 }
 
-extern "C" const char *usdc_prim_variant_selection(UsdcStage *stage,
-                                                   const char *prim_path,
-                                                   const char *set_name) {
+extern "C" USDC_API const char *usdc_prim_variant_selection(UsdcStage *stage,
+                                                            const char *prim_path,
+                                                            const char *set_name) {
     UsdPrim prim = prim_at(stage, prim_path);
     if (!prim || !set_name || !stage) return nullptr;
     try {
