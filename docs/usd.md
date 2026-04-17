@@ -333,9 +333,194 @@ fork 側の API が粗い部分は yw-look 側で補完している:
 
 ---
 
+## Phase 5.5 — C++ バックエンド PoC（実装済 / 家で検証待ち）
+
+docs/usd-cpp-poc.md と docs/usd-cpp.md に詳細。要約:
+
+- vcpkg manifest で Pixar OpenUSD を依存宣言し、手書き C shim (`third_party/usd_c_shim/`) 経由で bindgen
+- Cargo feature `backend-openusd-cpp` で `OpenusdBackend` (Rust fork) と `OpenusdCppBackend` を切替
+- PoC スコープは **Inspector API のみ** (`inspect_stage` / `summarize_stage` / `collect_asset_issues` / `root_layer_is_binary`)
+- geometry / material / skel は Phase 9 で追加（後述、優先度低）
+- 対応: Windows x64 / macOS arm64
+
+**Hydra は採用しない**。Pixar Hydra 経由なら material network / light / instancer がまとめて解決できるが、バイナリ +60〜100 MB / 初回ビルド +30 分 のコストに対して yw-look のサイズ感とメリットが釣り合わないため不採用。代わりに Phase 6-8 の feature は C++ 側でも Rust fork 側でも素朴に USD schema を walk して実装する。
+
+---
+
+## Phase 6 — マテリアル詳細（計画中・週末アタック）
+
+### 目的
+
+Phase 5 の「既知の制約」のうち、**マテリアル系で実アセットに影響の大きい 4 項目**を Rust fork に実装する。C++ backend への port は Phase 9 で後追い、fork の変更は upstream PR 候補。
+
+### スコープ
+
+| サブフェーズ | 機能                                   | 想定工数 | 想定コミット                                      |
+| ------------ | -------------------------------------- | -------- | ------------------------------------------------- |
+| **6a**       | Normal map (`inputs:normal` 1-hop)     | 4〜6 h   | `loader: resolve UsdPreviewSurface normal input`  |
+| **6b**       | UsdTransform2d (texture tile / offset) | 4〜6 h   | `loader: apply UsdTransform2d to UV coordinates`  |
+| **6c**       | PrimvarReader + per-vertex displayColor | 6〜8 h   | `loader: surface vertex colors via PrimvarReader` |
+| **6d**       | UsdSkelBlendShape → GLB morph targets  | 12〜16 h | `loader: emit morph targets for UsdSkelBlendShape` |
+
+合計: 26〜36 h。週末（16〜20 h）で 6a-6c、6d は持ち越し可。
+
+### 各サブフェーズの詳細
+
+#### 6a. Normal map
+
+fork 側 `Stage::material_of` の `MaterialData` に `normal_texture: Option<TextureBinding>` を追加。yw-look 側で glTF `materials[n].normalTexture` として出力、USDZ archive or filesystem 解決は既存 `TextureLoader` を再利用。
+
+- 検証アセット: glove_baseball (既に normal map 付き) / 自作 fixture
+- GLB viewer で法線の出方が DCC 側表示と一致すること
+- scale パラメータ (`inputs:scale` on UsdUVTexture chained to normal) は Phase 10 に延期
+
+#### 6b. UsdTransform2d
+
+UsdShade の `UsdTransform2d` ノードを検出し、`inputs:scale` / `rotation` / `translation` を読んで glTF の `KHR_texture_transform` extension に変換。
+
+- 検証: tile 繰り返しをしている自作 fixture
+- Three.js 側は `KHR_texture_transform` を標準サポート
+- GeomSubset と混ざるケースは Phase 10 に延期
+
+#### 6c. PrimvarReader + per-vertex displayColor
+
+- `UsdPrimvarReader_float3` が `primvars:displayColor` を参照していれば、mesh の per-vertex color を GLB `COLOR_0` 属性として出力
+- `UsdPrimvarReader_float2` の custom UV (`primvars:st2` など) は attr 2nd UV として `TEXCOORD_1` に
+- `AttrKind::Vertex | FaceVarying` のみ対象（`Constant` は既存 displayColor fallback で処理済み）
+
+#### 6d. BlendShape（持ち越し可）
+
+- fork に `Stage::blend_shapes_of(mesh_path) -> Vec<BlendShapeData>` 追加
+- `BlendShapeData` は offset positions + point indices を持つ
+- GLB の `primitives[n].targets` + `meshes[n].weights` として出力
+- USD の time sample → glTF animation channel (`weights`)
+- 検証アセット: 自作 morph fixture
+
+### 横断
+
+- 各サブフェーズは **独立コミット** で進める（AGENTS.md のコミット運用に従う）
+- fork 側 API 追加 → yw-look 側でそれを読む → GLB 出力 → 検証 → コミット の順
+- 週末終了時点で最低でも 6a / 6b が release ブランチに入ることを target
+
+---
+
+## Phase 7 — シーン完成度（計画）
+
+### 目的
+
+アセット単体の描画だけでなく、USD が記述している**シーン状態（ライト・カメラ・可視性切替）**を viewer に反映する。
+
+| サブフェーズ | 機能                                        | 概要                                                                               |
+| ------------ | ------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **7a**       | UsdLuxLight → Three.js lights               | DomeLight / DistantLight / RectLight / SphereLight / DiskLight / CylinderLight の 6 種 |
+| **7b**       | UsdGeomCamera 列挙 + 切替 UI                | authored camera のドロップダウンで視点切替、viewer 標準カメラにも戻れる           |
+| **7c**       | Purpose 切替 UI                             | `default` / `render` / `proxy` / `guide` の on/off トグル                         |
+
+### 7a の補足
+
+DomeLight は Three.js の `PMREMGenerator` + env map として扱う。`inputs:texture:file` の HDR / EXR を読み取り、既存 `HDRJPGLoader` 系の流用を検討。
+
+他のライトは intensity / color / exposure を Three.js light の `intensity` へ変換。`enableColorTemperature` + `colorTemperature` は Planck の式で sRGB 色に変換してから乗算。
+
+### 7b の補足
+
+`inputs:focalLength` / `focusDistance` / `fStop` / `clippingRange` を Three.js `PerspectiveCamera` に写す。aperture は今は無視（DoF 未対応）。
+
+### 7c の補足
+
+現状は `proxy` / `guide` を無条件でフィルタしているが、DCC 系のチェック用途では `proxy` を見たい場面もある。UI トグルで viewer 側の可視状態を動的に切り替える。GLB は purpose ごとに別 GLB を生成する方針（4 × GLB）か、単一 GLB で node visibility flag を切り替える方針（1 × GLB、Three.js 側 object.visible）のどちらかを採用。後者の方が軽いので推奨。
+
+---
+
+## Phase 8 — 非 Mesh prim type（計画）
+
+### 目的
+
+Mesh 以外のジオメトリ表現に対応。**現状は全て空描画**になる。
+
+| サブフェーズ | 機能                                        | 概要                                                   |
+| ------------ | ------------------------------------------- | ------------------------------------------------------ |
+| **8a**       | PointInstancer                              | scatter された mesh を GLB `EXT_mesh_gpu_instancing` で出力 |
+| **8b**       | UsdGeomPoints                               | 点群 → Three.js `Points` or glTF `POINTS` primitive    |
+| **8c**       | UsdGeomBasisCurves                          | カーブ・髪・リボン → Three.js `Line2` 系               |
+| **8d**       | Geometry primitives                         | Sphere / Cube / Cylinder / Cone / Capsule → Three.js 標準 geometry |
+
+### 8a の補足
+
+`UsdGeomPointInstancer` の `positions` / `orientations` / `scales` / `protoIndices` を読んで、protoIndex ごとに別 GLB mesh を用意、各インスタンスは `EXT_mesh_gpu_instancing` の `TRANSLATION / ROTATION / SCALE` attribute で展開。これで Kitchen_set_instanced が Rust fork でも描画できるようになる（fork 側の instanceable フラグ解釈とは別解決）。
+
+### 8b-c の補足
+
+点群・カーブは glTF 標準サポートが弱いため、**Three.js への直接受け渡し** or **viewer 側独自パイプライン**を検討。Rust fork 側では `points_of` / `curves_of` API を追加。
+
+### 8d の補足
+
+プリミティブ形状は parameter (radius / extent / height) だけ読み取れば三角分割できる。yw-look 側で Three.js `SphereGeometry` 等に変換、または Rust 側で triangulated mesh として GLB に詰める。前者の方が軽量。
+
+---
+
+## Phase 9 — C++ バックエンド geometry 拡張（計画、優先度低）
+
+### 目的
+
+C++ backend (Phase 5.5) を inspector-only から **geometry / material / skel まで対応**させ、Rust fork の代替として使える状態にする。
+
+### 前提条件
+
+- Phase 5.5 の家での実ビルド検証が完了していること
+- Exit rule（150 MB / クラッシュ率 / MSI ビルド時間）をクリアしていること
+
+### 方針の転換
+
+以前の計画では「C++ 側 API は Rust fork と 1:1 パラレル」としていたが、以下に緩める:
+
+- **C++ 側が先行してよい**: Phase 6-8 で fork に追加した機能は、C++ shim では優先度と工数に応じて順次実装
+- **Rust fork は後追い**: fork 側は独立に機能を拡充（PR merge / 自前コミット）。C++ backend に追いついた時点で parity
+- **trait は共通**: `UsdBackend` trait のメソッドは両 backend が実装。fork で未実装の機能は `None` / `unimplemented!` を返し、frontend 側でフォールバック表示
+
+### 優先順
+
+1. `mesh_of` / `material_of` / `skeleton_of` / `skel_animation_of` の port（Rust fork と同じ MeshData / MaterialData 等を返す）
+2. Phase 6 で追加したマテリアル系機能の port
+3. Phase 7 で追加したライト / カメラ / purpose の port
+4. Phase 8 で追加した prim type の port
+
+### A/B 検証
+
+Kitchen Set / HumanFemale / Kitchen_set_instanced / USDZ 3 種で両 backend を並行実行し、GLB 出力が意味的に一致する（prim 数、material 数、mesh 数、skin 数）ことを確認。差異があれば issue を切る。
+
+---
+
+## Phase 10 — 高度シェーディング / ニッチ形式（計画）
+
+### 目的
+
+残りの長期課題。Phase 9 以降に着手を検討。
+
+| サブフェーズ | 機能                                   | 概要                                                           |
+| ------------ | -------------------------------------- | -------------------------------------------------------------- |
+| **10a**      | Multi-hop shader graph                 | UsdShadeNodeGraph の wrapping、任意 hop の texture / primvar 解決 |
+| **10b**      | MaterialX ノード拡充                    | `ND_convert_*` / `ND_multiply_*` / `ND_mix_*` 等の標準ノード |
+| **10c**      | USDZ 内 EXR / DDS / TGA テクスチャ      | 既存 `TextureLoader` の対応フォーマット拡張                     |
+| **10d**      | UsdVol (volumetric)                    | OpenVDB 連携。Three.js 側の volume rendering 実装込み          |
+
+---
+
+## 横断テーマ（各 Phase に散らす）
+
+- **Variant set インタラクティブ切替 UI**: 現状 read-only。session layer 経由で variant selection を上書きし、GLB を再生成する
+- **Per-prim payload load**: stateful session API (`open_stage` / `load_payloads` / `unload_payloads`)。UI で payload ツリーを表示し個別に load/unload
+- **Performance**: Kitchen Set (2048 prims / 234ms) は OK。次の負荷帯 (10k prims / 100k poly) で測る
+- **回帰テスト資産**: 新しい機能を追加するたびに samples/manifest.json にテスト資産を追加する
+
+---
+
 ## 通しの方針・制約
 
 - **表示は Three.js / 検査は Rust** を基本方針とする
-- Rust 側は `UsdBackend` trait で実装を隠蔽し、parser 差し替えに備える
+- Rust 側は `UsdBackend` trait で実装を隠蔽し、複数 parser 実装を並立できる構造を維持
+- **C++ FFI を持ち込む方針に転換**: Phase 5.5 で Pixar OpenUSD C++ の薄い shim を導入（vcpkg 経由）。default feature は引き続き Rust fork、C++ backend は `backend-openusd-cpp` feature で opt-in
 - fork (`yohawing/openusd`) の変更は可能な限り upstream PR として提案する
-- Windows MSVC での pure Rust ビルドを維持する（C++ FFI は持ち込まない）
+- **Hydra は採用しない**: バイナリサイズ・ビルド時間のコストに対して yw-look の要件（quick look スケール）と釣り合わない。material network 解決は手動で 1 hop ずつ行う方針を継続
+- Rust fork と C++ backend は trait を共通にするが、**機能の実装順序は独立してよい**。先行した方で trait メソッドを定義し、後追いは `unimplemented!` か `None` でフォールバック
+- 配布物 (MSI / .app) に C++ 依存を同梱する場合はライセンス表記を維持（docs/usd-cpp.md 参照）
