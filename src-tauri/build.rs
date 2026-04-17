@@ -277,6 +277,21 @@ mod cpp_backend {
         );
         println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
         println!("cargo:rerun-if-env-changed=VCPKG_BINARY_SOURCES");
+        println!("cargo:rerun-if-env-changed=LIBCLANG_PATH");
+
+        // Treat the manifest files as first-class build inputs: if a
+        // developer bumps the baseline SHA or the usd version>=
+        // constraint, Cargo needs to rerun the build script so vcpkg
+        // picks up the change. Without these declarations Cargo only
+        // reruns on source-file changes and we'd ship stale libs.
+        println!(
+            "cargo:rerun-if-changed={}",
+            manifest_dir.join("vcpkg.json").display()
+        );
+        println!(
+            "cargo:rerun-if-changed={}",
+            manifest_dir.join("vcpkg-configuration.json").display()
+        );
 
         // 1. Invoke vcpkg in manifest mode. Classic vcpkg users may
         //    not be used to this, but it's the mode the vcpkg.json +
@@ -297,7 +312,6 @@ mod cpp_backend {
         assert!(status.success(), "vcpkg install failed: {status}");
 
         let vcpkg_installed = manifest_dir.join("vcpkg_installed").join(triplet);
-        let vcpkg_include = vcpkg_installed.join("include");
         let vcpkg_lib = vcpkg_installed.join("lib");
         let vcpkg_bin = vcpkg_installed.join("bin");
 
