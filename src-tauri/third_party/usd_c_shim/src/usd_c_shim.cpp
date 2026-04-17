@@ -355,12 +355,17 @@ extern "C" USDC_API void usdc_stage_unresolved_assets(UsdcStage *stage,
 }
 
 extern "C" USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
-                                                     UsdcStringCallback cb,
+                                                     UsdcArcCallback cb,
                                                      void *user) {
     if (!stage || !cb) return;
     /* A stage opened with LoadNone leaves every payload unloaded.
-     * Emit each authored payload's asset path. Stages opened with
-     * LoadAll return nothing here. */
+     * Emit one UsdcArc per (prim, payload) pair so callers can
+     * classify by (asset_path, source_prim) — matching the Rust
+     * fork's skipped_payloads keying.
+     *
+     * Stages opened with LoadAll never enter this loop because the
+     * root load rule is Rule::AllRule (or a mixed ruleset with All
+     * at the root); we short-circuit early in that case. */
     swallow([&] {
         if (stage->stage->GetLoadRules().GetEffectiveRulesForPath(SdfPath::AbsoluteRootPath())
                 != UsdStageLoadRules::Rule::NoneRule) {
@@ -368,13 +373,32 @@ extern "C" USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
         }
         for (const UsdPrim &prim : stage->stage->TraverseAll()) {
             SdfPayloadListOp op;
-            if (prim.GetMetadata(SdfFieldKeys->Payload, &op)) {
-                std::vector<SdfPayload> items;
-                op.ApplyOperations(&items);
-                for (const SdfPayload &p : items) {
+            if (!prim.GetMetadata(SdfFieldKeys->Payload, &op)) continue;
+            std::vector<SdfPayload> items;
+            op.ApplyOperations(&items);
+            if (items.empty()) continue;
+
+            const std::string source = prim.GetPath().GetAsString();
+            for (const SdfPayload &p : items) {
+                swallow([&] {
                     const std::string asset = p.GetAssetPath();
-                    if (!asset.empty()) cb(asset.c_str(), user);
-                }
+                    if (asset.empty()) return;
+                    std::string target;
+                    if (!p.GetPrimPath().IsEmpty()) {
+                        target = p.GetPrimPath().GetAsString();
+                    }
+                    UsdcArc arc;
+                    arc.source_prim = source.c_str();
+                    arc.asset_path = asset.c_str();
+                    arc.target_prim = target.empty() ? nullptr : target.c_str();
+                    /* Skipped-payload emissions always represent an
+                     * Unloaded arc; reference assets that were also
+                     * unresolved still get reclassified to Missing
+                     * on the Rust side by cross-checking against
+                     * unresolved_assets. */
+                    arc.is_loaded = 0;
+                    cb(&arc, user);
+                });
             }
         }
     });

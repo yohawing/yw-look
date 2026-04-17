@@ -168,10 +168,27 @@ USDC_API void usdc_stage_unresolved_assets(UsdcStage *stage,
                                            UsdcStringCallback cb,
                                            void *user);
 
-/* Asset paths for payloads that were skipped under
- * USDC_LOAD_NO_PAYLOADS. Empty under USDC_LOAD_ALL. */
+/* Payloads that were skipped under USDC_LOAD_NO_PAYLOADS, reported as
+ * full composition arcs so callers can classify by (asset_path,
+ * source_prim) pair.
+ *
+ * Why UsdcArcCallback (not UsdcStringCallback):
+ * A USD stage can author the same payload asset from multiple prims
+ * with different local load rules, so asset_path alone is not a
+ * sufficient key to decide whether a given (prim, payload) pair was
+ * Unloaded vs Loaded. The Rust fork classifies on the same
+ * (asset_path, source_prim) pair, and this callback surface lets the
+ * C++ backend match that behavior.
+ *
+ * Field semantics per emission:
+ *   - source_prim : SdfPath of the prim that authored the payload.
+ *   - asset_path  : authored asset path literal.
+ *   - target_prim : nullable; same convention as references_in/payloads_in.
+ *   - is_loaded   : always 0 (emissions represent skipped payloads).
+ *
+ * Empty under USDC_LOAD_ALL. */
 USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
-                                          UsdcStringCallback cb,
+                                          UsdcArcCallback cb,
                                           void *user);
 
 /* -------------------- per-prim queries -------------------- */

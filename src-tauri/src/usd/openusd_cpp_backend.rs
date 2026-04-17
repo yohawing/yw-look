@@ -71,22 +71,23 @@ fn classify_reference(
 
 /// Payload classification has three states. Missing trumps Unloaded
 /// so a broken payload never reads as "deferred on purpose". Keyed on
-/// (asset_path, source_prim) so multiple payloads pointing at the same
-/// asset from different prims are classified independently.
+/// the (asset_path, source_prim) pair so multiple payloads pointing at
+/// the same asset from different prims are classified independently —
+/// matching the Rust fork's `openusd_backend::payload_arc_state`
+/// behavior.
 fn classify_payload(
     unresolved: &HashSet<&str>,
-    skipped_assets: &HashSet<&str>,
+    skipped_pairs: &HashSet<(&str, &str)>,
     asset_path: &str,
+    source_prim: &str,
     policy: StageLoadPolicy,
 ) -> CompositionArcState {
     if unresolved.contains(asset_path) {
         return CompositionArcState::Missing;
     }
-    // The C shim currently reports skipped payloads as a flat asset-
-    // path list (no source-prim breakdown). When NoPayloads is active,
-    // treat every asset in that list as Unloaded; LoadAll never emits
-    // skipped entries.
-    if policy == StageLoadPolicy::NoPayloads && skipped_assets.contains(asset_path) {
+    if policy == StageLoadPolicy::NoPayloads
+        && skipped_pairs.contains(&(asset_path, source_prim))
+    {
         return CompositionArcState::Unloaded;
     }
     CompositionArcState::Loaded
@@ -131,9 +132,14 @@ impl UsdBackend for OpenusdCppBackend {
         let unresolved_set: HashSet<&str> =
             missing_assets.iter().map(String::as_str).collect();
 
-        let skipped_assets_owned = stage.skipped_payloads();
-        let skipped_set: HashSet<&str> =
-            skipped_assets_owned.iter().map(String::as_str).collect();
+        // Skipped-payloads key on (asset_path, source_prim) — see
+        // `classify_payload`. Hold the owning Vec until classification
+        // is done so the borrowed `&str` pairs stay valid.
+        let skipped_owned = stage.skipped_payloads();
+        let skipped_pairs: HashSet<(&str, &str)> = skipped_owned
+            .iter()
+            .map(|a| (a.asset_path.as_str(), a.source_prim.as_str()))
+            .collect();
 
         let mut references = Vec::<CompositionArc>::new();
         let mut payloads = Vec::<CompositionArc>::new();
@@ -161,8 +167,13 @@ impl UsdBackend for OpenusdCppBackend {
                 });
             }
             for p in stage.payloads_in(prim_path) {
-                let state =
-                    classify_payload(&unresolved_set, &skipped_set, &p.asset_path, policy);
+                let state = classify_payload(
+                    &unresolved_set,
+                    &skipped_pairs,
+                    &p.asset_path,
+                    &p.source_prim,
+                    policy,
+                );
                 payloads.push(CompositionArc {
                     source_prim: p.source_prim,
                     asset_path: p.asset_path,

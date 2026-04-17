@@ -196,13 +196,20 @@ impl CStage {
         out
     }
 
-    pub fn skipped_payloads(&self) -> Vec<String> {
-        let mut out = Vec::<String>::new();
+    /// Returns one [`Arc`] per (prim, payload) pair that was skipped
+    /// under [`LoadPolicy::NoPayloads`]. `is_loaded` is always `false`
+    /// on the emitted arcs; callers cross-check the `asset_path`
+    /// against [`Self::unresolved_assets`] to promote an entry to the
+    /// `Missing` classification when appropriate.
+    ///
+    /// Empty under [`LoadPolicy::All`].
+    pub fn skipped_payloads(&self) -> Vec<Arc> {
+        let mut out = Vec::<Arc>::new();
         unsafe {
             usdc_stage_skipped_payloads(
                 self.raw,
-                Some(string_trampoline),
-                &mut out as *mut Vec<String> as *mut c_void,
+                Some(arc_trampoline),
+                &mut out as *mut Vec<Arc> as *mut c_void,
             );
         }
         out
