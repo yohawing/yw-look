@@ -66,13 +66,9 @@ jobs:
           - platform: windows-x86_64
             runner: windows-latest
             triplet: x64-windows
-            vcpkg_bootstrap: bootstrap-vcpkg.bat
-            vcpkg_exe: vcpkg.exe
           - platform: macos-aarch64
             runner: macos-14
             triplet: arm64-osx
-            vcpkg_bootstrap: bootstrap-vcpkg.sh
-            vcpkg_exe: vcpkg
 
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
@@ -91,7 +87,7 @@ jobs:
       # vcpkg's x-gha binary source reads ACTIONS_CACHE_URL and
       # ACTIONS_RUNTIME_TOKEN from the environment. These are only
       # exposed to JavaScript steps by default; this snippet re-exports
-      # them so the subsequent `cargo` shell step can see them.
+      # them so the subsequent shell step can see them.
       - name: Export GitHub Actions cache env vars
         uses: actions/github-script@v7
         with:
@@ -107,29 +103,56 @@ jobs:
             exit 1
           fi
 
-      - name: Bootstrap vcpkg
+      # Bootstrap is split per-os because bootstrap-vcpkg.bat is a
+      # native cmd script and does not run reliably under Git Bash,
+      # while the macOS `.sh` counterpart expects a POSIX shell. Both
+      # steps read the baseline SHA from the manifest so the vcpkg
+      # tree we check out matches the pin developers use locally.
+      - name: Bootstrap vcpkg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git clone --depth=1 https://github.com/microsoft/vcpkg "$env:USERPROFILE\vcpkg"
+          $baseline = (Get-Content src-tauri/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          git -C "$env:USERPROFILE\vcpkg" fetch --depth=1 origin $baseline
+          git -C "$env:USERPROFILE\vcpkg" checkout FETCH_HEAD
+          & "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
+          "VCPKG_ROOT=$env:USERPROFILE\vcpkg" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Bootstrap vcpkg (macOS)
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           git clone --depth=1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
-          # Pin to the baseline the manifest declares so binary-cache
-          # keys match across runs regardless of microsoft/vcpkg's HEAD.
-          BASELINE=$(python -c "import json,sys; print(json.load(open('src-tauri/vcpkg.json'))['builtin-baseline'])")
+          BASELINE=$(python3 -c "import json,sys; print(json.load(open('src-tauri/vcpkg.json'))['builtin-baseline'])")
           git -C "$HOME/vcpkg" fetch --depth=1 origin "$BASELINE"
           git -C "$HOME/vcpkg" checkout FETCH_HEAD
-          "$HOME/vcpkg/${{ matrix.vcpkg_bootstrap }}"
+          "$HOME/vcpkg/bootstrap-vcpkg.sh"
           echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Tauri build deps (macOS)
-        if: runner.os == 'macOS'
+      # bindgen's libclang dependency: the standalone LLVM distribution
+      # ships `libclang.dll` / `libclang.dylib`, which the
+      # `clang-format` / `clang-tidy` bundled inside Visual Studio or
+      # Xcode do not. `windows-latest` images ship LLVM under
+      # `C:\Program Files\LLVM`; `macos-14` has Homebrew's llvm cask
+      # available behind `brew --prefix llvm`.
+      - name: Set LIBCLANG_PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          # Tauri itself doesn't need extra deps on macOS runners, but
-          # OpenUSD's vcpkg port picks up system frameworks via
-          # find_package. Nothing to install today; keep the step so
-          # future port changes can hook in.
-          :
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Set LIBCLANG_PATH (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # brew ships llvm as an explicit formula; install if missing,
+          # then expose its lib/ to bindgen.
+          brew list --formula llvm >/dev/null 2>&1 || brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
 
       - name: Cargo check (feature OFF — baseline guard)
         working-directory: src-tauri
@@ -188,17 +211,22 @@ jobs:
           fi
 
       - name: Bootstrap vcpkg
-        shell: bash
+        shell: pwsh
         run: |
-          git clone --depth=1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
-          BASELINE=$(python -c "import json,sys; print(json.load(open('src-tauri/vcpkg.json'))['builtin-baseline'])")
-          git -C "$HOME/vcpkg" fetch --depth=1 origin "$BASELINE"
-          git -C "$HOME/vcpkg" checkout FETCH_HEAD
-          "$HOME/vcpkg/bootstrap-vcpkg.bat"
-          echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
+          git clone --depth=1 https://github.com/microsoft/vcpkg "$env:USERPROFILE\vcpkg"
+          $baseline = (Get-Content src-tauri/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          git -C "$env:USERPROFILE\vcpkg" fetch --depth=1 origin $baseline
+          git -C "$env:USERPROFILE\vcpkg" checkout FETCH_HEAD
+          & "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
+          "VCPKG_ROOT=$env:USERPROFILE\vcpkg" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Set LIBCLANG_PATH
+        shell: pwsh
+        run: |
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Cargo test (both backends enabled, parity tests only)
         working-directory: src-tauri
