@@ -6,7 +6,7 @@
   "dependencies": [
     {
       "name": "usd",
-      "version>=": "25.05.1"
+      "version>=": "25.5.1"
     }
   ],
   "builtin-baseline": "b83a134447208c35f740e4b6faf1263b0d6e860e"

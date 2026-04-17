@@ -125,7 +125,7 @@ vendor/ ツリーは作らない。OpenUSD バイナリは `src-tauri/vcpkg_inst
 {
   "name": "yw-look",
   "version-string": "0.1.0",
-  "dependencies": [{ "name": "usd", "version>=": "25.05.1" }],
+  "dependencies": [{ "name": "usd", "version>=": "25.5.1" }],
   "builtin-baseline": "<vcpkg repo commit SHA>"
 }
 ```
