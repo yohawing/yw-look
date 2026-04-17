@@ -92,7 +92,19 @@ unsafe impl Send for CStage {}
 
 impl CStage {
     pub fn open(path: &Path, policy: LoadPolicy) -> Result<Self, CError> {
-        let c_path = CString::new(path.to_string_lossy().as_ref())
+        // Require UTF-8 paths up-front rather than silently round-
+        // tripping through `to_string_lossy()`, which would replace
+        // invalid sequences with U+FFFD and hand OpenUSD a path that
+        // no longer matches the file on disk. The Rust fork backend
+        // also errors out on non-UTF-8 paths, so the two backends
+        // stay consistent for Tauri callers that compare results.
+        let path_str = path.to_str().ok_or_else(|| {
+            CError(format!(
+                "path is not valid UTF-8: {}",
+                path.display()
+            ))
+        })?;
+        let c_path = CString::new(path_str)
             .map_err(|_| CError("path contains interior NUL byte".to_string()))?;
         let mut err: *mut UsdcError = std::ptr::null_mut();
         let raw = unsafe { usdc_stage_open(c_path.as_ptr(), policy.to_raw(), &mut err) };
