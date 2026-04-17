@@ -6,6 +6,9 @@
       "frameworks": [
         "cpp-artifacts/arm64-osx/libusd_ms.dylib",
         "cpp-artifacts/arm64-osx/libtbb.12.dylib",
+        "cpp-artifacts/arm64-osx/libusd.dylib",
+        "cpp-artifacts/arm64-osx/libusdGeom.dylib",
+        "cpp-artifacts/arm64-osx/libusdShade.dylib",
         "cpp-artifacts/arm64-osx/libsdf.dylib",
         "cpp-artifacts/arm64-osx/libtf.dylib",
         "cpp-artifacts/arm64-osx/libusd_c_shim.dylib"
