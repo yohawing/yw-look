@@ -52,6 +52,10 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/variantSets.h>
 #include <pxr/base/gf/matrix4d.h>
+#include <pxr/base/gf/vec2d.h>
+#include <pxr/base/gf/vec2f.h>
+#include <pxr/base/gf/vec3d.h>
+#include <pxr/base/gf/vec3f.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/mesh.h>
@@ -910,6 +914,110 @@ usdc_mesh_display_color(UsdcStage *stage,
     }
 }
 
+/* -------------------- generic prim attribute reads (Phase 2.H) -------------------- */
+
+extern "C" USDC_API const char *
+usdc_prim_type_name(UsdcStage *stage, const char *prim_path) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return nullptr;
+    try {
+        TfToken t = prim.GetTypeName();
+        if (t.IsEmpty()) return nullptr;
+        stage->scratch = t.GetString();
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API int
+usdc_prim_attr_float(UsdcStage *stage,
+                     const char *prim_path,
+                     const char *attr_name,
+                     float *out) {
+    if (!out || !attr_name) return 0;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return 0;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return 0;
+        VtValue v;
+        if (!attr.Get(&v)) return 0;
+        if (v.IsHolding<float>()) {
+            *out = v.UncheckedGet<float>();
+            return 1;
+        }
+        if (v.IsHolding<double>()) {
+            *out = static_cast<float>(v.UncheckedGet<double>());
+            return 1;
+        }
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" USDC_API int
+usdc_prim_attr_float2(UsdcStage *stage,
+                      const char *prim_path,
+                      const char *attr_name,
+                      float out[2]) {
+    if (!out || !attr_name) return 0;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return 0;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return 0;
+        VtValue v;
+        if (!attr.Get(&v)) return 0;
+        if (v.IsHolding<GfVec2f>()) {
+            const GfVec2f &c = v.UncheckedGet<GfVec2f>();
+            out[0] = c[0]; out[1] = c[1];
+            return 1;
+        }
+        if (v.IsHolding<GfVec2d>()) {
+            const GfVec2d &c = v.UncheckedGet<GfVec2d>();
+            out[0] = static_cast<float>(c[0]);
+            out[1] = static_cast<float>(c[1]);
+            return 1;
+        }
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" USDC_API int
+usdc_prim_attr_color3f(UsdcStage *stage,
+                       const char *prim_path,
+                       const char *attr_name,
+                       float out[3]) {
+    if (!out || !attr_name) return 0;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return 0;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return 0;
+        VtValue v;
+        if (!attr.Get(&v)) return 0;
+        if (v.IsHolding<GfVec3f>()) {
+            const GfVec3f &c = v.UncheckedGet<GfVec3f>();
+            out[0] = c[0]; out[1] = c[1]; out[2] = c[2];
+            return 1;
+        }
+        if (v.IsHolding<GfVec3d>()) {
+            const GfVec3d &c = v.UncheckedGet<GfVec3d>();
+            out[0] = static_cast<float>(c[0]);
+            out[1] = static_cast<float>(c[1]);
+            out[2] = static_cast<float>(c[2]);
+            return 1;
+        }
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
 /* -------------------- material / shading (Phase 2.E.1) -------------------- */
 
 extern "C" USDC_API const char *
@@ -937,10 +1045,20 @@ usdc_material_surface_shader(UsdcStage *stage, const char *mat_path) {
     try {
         UsdShadeMaterial mat(prim);
         if (!mat) return nullptr;
-        /* Universal render-context first (no token). Fall back to mtlx
-         * so MaterialX-authored assets still surface a shader when the
-         * universal output is unauthored. */
+        /* Try each common render context in decreasing priority:
+         *   - universal (no-context): every USD asset author should
+         *     set this, matches `UsdShadeTokens->universalRenderContext`.
+         *   - glslfx: Storm / UsdImagingGL's native surface.
+         *     UsdPreviewSurface fixtures emitted by Houdini and some
+         *     Pixar tools only populate this one.
+         *   - mtlx: MaterialX-authored assets.
+         * First hit wins; an asset that only emits `outputs:surface:glslfx`
+         * would otherwise look unbound, matching a Rust-backend parity
+         * gap flagged in the Phase 2.F/2.H code review. */
         UsdShadeShader shader = mat.ComputeSurfaceSource();
+        if (!shader) {
+            shader = mat.ComputeSurfaceSource({TfToken("glslfx")});
+        }
         if (!shader) {
             shader = mat.ComputeSurfaceSource({TfToken("mtlx")});
         }

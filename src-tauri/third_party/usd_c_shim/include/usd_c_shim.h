@@ -329,6 +329,42 @@ USDC_API void usdc_mesh_display_color(UsdcStage *stage,
                                       void *user,
                                       UsdcInterpolation *out_interp);
 
+/* -------------------- generic prim attribute reads (Phase 2.H) -------------------- */
+
+/* Returns the prim's USD `typeName` (e.g. "Mesh", "Camera",
+ * "DistantLight", "SphereLight"). Scratch-buffer lifetime. Returns
+ * NULL for the pseudo-root or a prim without a type. Not the same as
+ * `usdc_shader_id` — this is the IsA schema type, not the Shader's
+ * `info:id` token. */
+USDC_API const char *usdc_prim_type_name(UsdcStage *stage,
+                                         const char *prim_path);
+
+/* Reads a float or double attribute authored on `prim_path` at the
+ * default time code. Writes the value to `*out` and returns 1 on
+ * success. Returns 0 when unauthored or the wrong type. Does not
+ * traverse connections or follow shader input namespaces (pass the
+ * bare attribute name, e.g. "focalLength"). */
+USDC_API int usdc_prim_attr_float(UsdcStage *stage,
+                                  const char *prim_path,
+                                  const char *attr_name,
+                                  float *out);
+
+/* Reads a float2 / double2 attribute (e.g. `UsdGeomCamera.clippingRange`)
+ * at the default time code. Writes two floats to `out` and returns 1
+ * on success. Returns 0 when unauthored or the wrong type. */
+USDC_API int usdc_prim_attr_float2(UsdcStage *stage,
+                                   const char *prim_path,
+                                   const char *attr_name,
+                                   float out[2]);
+
+/* Reads a color3f / color3d attribute (e.g. a UsdLux
+ * `inputs:color` stored on the light prim itself). Returns 0 on
+ * missing / wrong type. */
+USDC_API int usdc_prim_attr_color3f(UsdcStage *stage,
+                                    const char *prim_path,
+                                    const char *attr_name,
+                                    float out[3]);
+
 /* -------------------- material / shading (Phase 2.E.1) -------------------- */
 
 /* Returns the SdfPath of the Material prim bound (direct binding,

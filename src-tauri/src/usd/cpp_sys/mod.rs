@@ -394,6 +394,52 @@ impl CStage {
         })
     }
 
+    /// USD `typeName` token on a prim (e.g. `"Mesh"`, `"Camera"`,
+    /// `"DistantLight"`). `None` for the pseudo-root or an untyped
+    /// prim. Different from `shader_id` — this is the IsA schema type.
+    pub fn prim_type_name(&self, prim_path: &str) -> Option<String> {
+        let c = CString::new(prim_path).ok()?;
+        let p = unsafe { usdc_prim_type_name(self.raw, c.as_ptr()) };
+        ptr_to_opt_string(p)
+    }
+
+    /// Scalar float or double attribute on any prim at the default
+    /// time code. Used for UsdGeomCamera / UsdLux numeric inputs that
+    /// live directly on the prim (not under the shader input
+    /// namespace). `None` when unauthored or wrong type.
+    pub fn prim_attr_float(&self, prim_path: &str, attr_name: &str) -> Option<f32> {
+        let pp = CString::new(prim_path).ok()?;
+        let an = CString::new(attr_name).ok()?;
+        let mut out: f32 = 0.0;
+        let ok = unsafe {
+            usdc_prim_attr_float(self.raw, pp.as_ptr(), an.as_ptr(), &mut out as *mut f32)
+        };
+        if ok == 1 { Some(out) } else { None }
+    }
+
+    /// float2 / double2 attribute (e.g. `UsdGeomCamera.clippingRange`).
+    pub fn prim_attr_float2(&self, prim_path: &str, attr_name: &str) -> Option<[f32; 2]> {
+        let pp = CString::new(prim_path).ok()?;
+        let an = CString::new(attr_name).ok()?;
+        let mut out: [f32; 2] = [0.0; 2];
+        let ok = unsafe {
+            usdc_prim_attr_float2(self.raw, pp.as_ptr(), an.as_ptr(), out.as_mut_ptr())
+        };
+        if ok == 1 { Some(out) } else { None }
+    }
+
+    /// color3f / color3d attribute (e.g. a UsdLux `inputs:color`
+    /// authored directly on the light prim).
+    pub fn prim_attr_color3f(&self, prim_path: &str, attr_name: &str) -> Option<[f32; 3]> {
+        let pp = CString::new(prim_path).ok()?;
+        let an = CString::new(attr_name).ok()?;
+        let mut out: [f32; 3] = [0.0; 3];
+        let ok = unsafe {
+            usdc_prim_attr_color3f(self.raw, pp.as_ptr(), an.as_ptr(), out.as_mut_ptr())
+        };
+        if ok == 1 { Some(out) } else { None }
+    }
+
     /// Direct `UsdShadeMaterialBinding` lookup (allPurpose) on a prim.
     /// Returns the bound material's SdfPath as a Rust `String`. `None`
     /// when no binding is authored.

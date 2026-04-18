@@ -473,12 +473,21 @@ impl UsdBackend for OpenusdCppBackend {
         // that layer.
         let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
         if let Some(parent) = path.parent() {
-            search_dirs.push(parent.to_path_buf());
+            if !parent.as_os_str().is_empty() {
+                search_dirs.push(parent.to_path_buf());
+            }
         }
         for layer_id in stage.layer_identifiers() {
             let layer_path = StdPath::new(&layer_id);
             if let Some(parent) = layer_path.parent() {
-                if !search_dirs.iter().any(|d| d == parent) {
+                // Bare-filename layer identifiers (e.g. anonymous
+                // layers or a single relative `.usd` path) yield
+                // `Some("")`, which would otherwise be pushed as a
+                // distinct CWD-relative search dir and shadow real
+                // parents. Drop them.
+                if !parent.as_os_str().is_empty()
+                    && !search_dirs.iter().any(|d| d == parent)
+                {
                     search_dirs.push(parent.to_path_buf());
                 }
             }
@@ -520,7 +529,13 @@ impl UsdBackend for OpenusdCppBackend {
             }
         }
 
-        glb::build_glb(&inputs, &materials, &textures, &[], &[], &[], &[])
+        // Phase 2.H: resolve UsdLux lights and UsdGeomCamera cameras
+        // alongside meshes. Same up-axis baking applies so glTF node
+        // matrices stay self-describing.
+        let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref());
+        let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref());
+
+        glb::build_glb(&inputs, &materials, &textures, &[], &[], &lights, &cameras)
             .map_err(|e| UsdError::Parse(e.to_string()))
     }
 }
@@ -600,6 +615,101 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
     })
 }
 
+/// Phase 2.H: enumerate UsdLux light prims and resolve each to a
+/// `glb::LightInput`. Only `DistantLight` (→ directional) and
+/// `SphereLight` (→ point) are mapped, matching the Rust backend's
+/// scope. Area lights and DomeLights are intentionally skipped —
+/// glTF's `KHR_lights_punctual` does not cover them.
+fn resolve_lights_cpp(
+    stage: &CStage,
+    up_correction: Option<&[f64; 16]>,
+) -> Vec<glb::LightInput> {
+    let mut out = Vec::new();
+    for prim_path in stage.traverse() {
+        let kind = match stage.prim_type_name(&prim_path).as_deref() {
+            Some("DistantLight") => glb::LightKind::Directional,
+            Some("SphereLight") => glb::LightKind::Point,
+            _ => continue,
+        };
+        let intensity = stage
+            .prim_attr_float(&prim_path, "inputs:intensity")
+            .unwrap_or(1.0);
+        let exposure = stage
+            .prim_attr_float(&prim_path, "inputs:exposure")
+            .unwrap_or(0.0);
+        let intensity = intensity * 2.0f32.powf(exposure);
+        let color = stage
+            .prim_attr_color3f(&prim_path, "inputs:color")
+            .unwrap_or([1.0, 1.0, 1.0]);
+        let mut world = stage.prim_world_matrix(&prim_path).unwrap_or_else(identity_mat4);
+        if let Some(correction) = up_correction {
+            world = mat4_mul(correction, &world);
+        }
+        out.push(glb::LightInput {
+            name: prim_path.clone(),
+            kind,
+            color,
+            intensity,
+            world_matrix: mat4_f64_to_f32(&world),
+        });
+    }
+    out
+}
+
+/// Phase 2.H: enumerate `UsdGeomCamera` prims and resolve each to a
+/// `glb::CameraInput`. Perspective only; non-perspective projections
+/// are skipped like the Rust backend does. Spec defaults kick in
+/// when `focalLength` / `horizontalAperture` / `verticalAperture`
+/// are unauthored so every camera produces a valid glTF entry.
+fn resolve_cameras_cpp(
+    stage: &CStage,
+    up_correction: Option<&[f64; 16]>,
+) -> Vec<glb::CameraInput> {
+    let mut out = Vec::new();
+    for prim_path in stage.traverse() {
+        if stage.prim_type_name(&prim_path).as_deref() != Some("Camera") {
+            continue;
+        }
+        let focal_length = stage
+            .prim_attr_float(&prim_path, "focalLength")
+            .unwrap_or(50.0);
+        let horizontal_aperture = stage
+            .prim_attr_float(&prim_path, "horizontalAperture")
+            .unwrap_or(20.955);
+        let vertical_aperture = stage
+            .prim_attr_float(&prim_path, "verticalAperture")
+            .unwrap_or(15.2908);
+
+        let yfov = glb::camera_yfov_radians(vertical_aperture, focal_length);
+        let aspect_ratio = if vertical_aperture > 0.0 {
+            horizontal_aperture / vertical_aperture
+        } else {
+            1.0
+        };
+
+        let (znear, zfar) = match stage.prim_attr_float2(&prim_path, "clippingRange") {
+            Some(v) if v[0] > 0.0 => (v[0], Some(v[1])),
+            Some(v) => (0.1, Some(v[1])),
+            None => (0.1, None),
+        };
+
+        let mut world = stage.prim_world_matrix(&prim_path).unwrap_or_else(identity_mat4);
+        if let Some(correction) = up_correction {
+            world = mat4_mul(correction, &world);
+        }
+
+        out.push(glb::CameraInput {
+            name: prim_path.clone(),
+            yfov,
+            aspect_ratio,
+            znear,
+            zfar,
+            world_matrix: mat4_f64_to_f32(&world),
+        });
+    }
+    out
+}
+
 /// Phase 2.E.1: resolve a mesh's bound material into a
 /// `MaterialInput` slot, deduping by material SdfPath so multiple
 /// meshes sharing one binding point at the same slot. Falls back to
@@ -644,22 +754,19 @@ fn resolve_material_slot_cpp(
     const OPACITY_DEFAULT: f32 = 1.0;
     const EMISSIVE_DEFAULT: [f32; 3] = [0.0, 0.0, 0.0];
 
-    // When `inputs:diffuseColor` is connected to a UsdUVTexture we
-    // cannot read the color as a scalar. Neutralize the factor to
-    // white so Phase 2.F's texture resolve step can multiply the
-    // sampled image in 1:1 (matches the Rust backend's Codex P1
-    // behavior). Until 2.F lands, textured meshes render white
-    // instead of the 0.18 schema default — closer to "something is
-    // there" than "solid dark".
+    // The factor stays at the authored scalar (or schema default)
+    // here. When `inputs:diffuseColor` is driven by a UsdUVTexture
+    // and the texture loads successfully, the later texture pass
+    // neutralizes this to white (UsdPreviewSurface is either-or,
+    // never multiplicative). Keeping the scalar here means a
+    // texture load failure leaves the material with the authored
+    // (or 0.18 default) color rather than collapsing to white —
+    // matches the Rust backend's Codex P1 fallback.
     let has_diffuse_texture =
         stage.shader_input_has_connection(&shader_path, "inputs:diffuseColor");
-    let diffuse = if has_diffuse_texture {
-        [1.0, 1.0, 1.0]
-    } else {
-        stage
-            .shader_input_color3f(&shader_path, "inputs:diffuseColor")
-            .unwrap_or(DIFFUSE_DEFAULT)
-    };
+    let diffuse = stage
+        .shader_input_color3f(&shader_path, "inputs:diffuseColor")
+        .unwrap_or(DIFFUSE_DEFAULT);
     let opacity = stage
         .shader_input_float(&shader_path, "inputs:opacity")
         .unwrap_or(OPACITY_DEFAULT)
