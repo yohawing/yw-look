@@ -13,6 +13,24 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.1.0", features = [] }
+# Optional build-time deps enabled by the `backend-openusd-cpp`
+# feature. They are kept out of `default` so feature-off builds never
+# require a C++ toolchain, CMake, or vcpkg.
+bindgen = { version = "0.70", optional = true }
+cmake = { version = "0.1", optional = true }
+
+[features]
+# Default matches the pre-C++-wrapper behavior: the pure-Rust openusd
+# fork is the active backend.
+default = ["backend-openusd-rs"]
+# Pure-Rust backend (yohawing/openusd fork). Keeps the existing
+# `OpenusdBackend` compiled in and wired up.
+backend-openusd-rs = []
+# C++ backend (Pixar OpenUSD via vcpkg + a handwritten C shim).
+# Enabling this pulls in the build-time dependencies above and
+# requires VCPKG_ROOT to be set at build time. See
+# `docs/usd-cpp.md` for setup.
+backend-openusd-cpp = ["dep:bindgen", "dep:cmake"]
 
 [dependencies]
 # Phase 5e F3 fix on `yw-look-phase4`. Carries every Phase 4/5 fork

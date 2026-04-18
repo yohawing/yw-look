@@ -389,6 +389,12 @@ impl UsdBackend for OpenusdBackend {
         // Per material slot: the authored diffuse_texture asset path,
         // or `None` for "no texture / default slot".
         let mut material_texture_paths: Vec<Option<String>> = vec![None];
+        // Phase 6a: same shape as `material_texture_paths` but for
+        // `UsdPreviewSurface.inputs:normal` texture asset paths. Each
+        // slot is `None` when the material has no normal map
+        // authored. The loading loop below populates
+        // `MaterialInput.normal_texture` after deduping across slots.
+        let mut material_normal_paths: Vec<Option<String>> = vec![None];
 
         // Phase 5c E: resolve any UsdSkel rig bound to one of the
         // collected meshes BEFORE the mesh build pass so each mesh's
@@ -451,11 +457,44 @@ impl UsdBackend for OpenusdBackend {
             // classify_attribute picks them up as FaceVarying.
             expand_indexed_uvs(&stage, prim_path, &mut mesh_data);
 
+            // UsdSkel per-mesh `skel:joints` override: when a mesh
+            // authors its own ordered joint subset, the mesh's
+            // `primvars:skel:jointIndices` index into that subset,
+            // not the bound Skeleton's full `joints` array. glTF's
+            // `skin.joints` list mirrors the full skeleton order, so
+            // the raw indices must be remapped before they reach
+            // `mesh_data_to_input`. Apple ARKit exports
+            // (chameleon / seahorse) use this pattern heavily —
+            // eyeball meshes bind to a single head-deep joint, etc.
+            // Skipping this step leaves every vertex pointing at the
+            // wrong joint and produces the classic "exploded" look.
+            if let Some(skin_slot) = mesh_skin_slots[mesh_idx] {
+                if let Some(local_joints) =
+                    read_mesh_skel_joints_override(&stage, prim_path)
+                {
+                    if let Some(skin) = skins.get(skin_slot) {
+                        remap_mesh_skin_indices(
+                            &mut mesh_data,
+                            &local_joints,
+                            &skin.joint_names,
+                        );
+                    }
+                }
+            }
+
             let orientation = read_mesh_orientation(&stage, prim_path);
             let max_joint = mesh_skin_slots[mesh_idx]
                 .and_then(|si| skins.get(si))
                 .map(|s| s.joint_names.len())
                 .unwrap_or(usize::MAX);
+
+            // Phase 6d: resolve blend shape targets against the mesh's
+            // own point count (same point buffer is shared across
+            // subsets, so the filtered / whole-mesh paths below both
+            // reuse this result). Empty when the mesh has no
+            // `skel:blendShapeTargets` relationship.
+            let point_count = mesh_data.points.len() / 3;
+            let blend_shapes = resolve_blend_shapes(&stage, prim_path, point_count);
 
             // GeomSubset: if the mesh has face subsets with material
             // bindings, produce one MeshInput per subset so each face
@@ -501,6 +540,7 @@ impl UsdBackend for OpenusdBackend {
                         &filtered,
                         orientation,
                         max_joint,
+                        &blend_shapes,
                     )?;
 
                     // Resolve material: try authored binding first,
@@ -514,6 +554,7 @@ impl UsdBackend for OpenusdBackend {
                         &subset_name,
                         &mut materials,
                         &mut material_texture_paths,
+                        &mut material_normal_paths,
                         &mut material_slots,
                     );
                     tri.material_index = apply_display_color_fallback(
@@ -522,6 +563,7 @@ impl UsdBackend for OpenusdBackend {
                         &subset_name,
                         &mut materials,
                         &mut material_texture_paths,
+                        &mut material_normal_paths,
                         &mut material_slots,
                     );
                     tri.skin_index = mesh_skin_slots[mesh_idx];
@@ -530,8 +572,14 @@ impl UsdBackend for OpenusdBackend {
                 continue; // skip whole-mesh path
             }
 
-            let mut triangulated =
-                mesh_data_to_input(prim_path, world_f32, &mesh_data, orientation, max_joint)?;
+            let mut triangulated = mesh_data_to_input(
+                prim_path,
+                world_f32,
+                &mesh_data,
+                orientation,
+                max_joint,
+                &blend_shapes,
+            )?;
 
             // Resolve the material slot for this mesh. Unbound meshes
             // fall back to slot 0 (default).
@@ -541,6 +589,7 @@ impl UsdBackend for OpenusdBackend {
                 prim_path,
                 &mut materials,
                 &mut material_texture_paths,
+                &mut material_normal_paths,
                 &mut material_slots,
             );
             triangulated.material_index = apply_display_color_fallback(
@@ -549,6 +598,7 @@ impl UsdBackend for OpenusdBackend {
                 prim_path,
                 &mut materials,
                 &mut material_texture_paths,
+                &mut material_normal_paths,
                 &mut material_slots,
             );
 
@@ -688,7 +738,59 @@ impl UsdBackend for OpenusdBackend {
             }
         }
 
-        glb::build_glb(&inputs, &materials, &textures, &skins, &animations).map_err(UsdError::Parse)
+        // Phase 6a: second pass for normal maps. Shares `texture_dedup`
+        // with the diffuse pass so a single image referenced from both
+        // channels (unusual, but seen in hand-authored fixtures)
+        // produces exactly one embedded copy. Failures only drop the
+        // normal channel; the diffuse output already established above
+        // is preserved.
+        for (mat_idx, tex_path) in material_normal_paths.iter().enumerate() {
+            let Some(tex_path) = tex_path else { continue };
+            match texture_loader.load(tex_path) {
+                Ok(loaded) => {
+                    let new_idx =
+                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                            existing
+                        } else {
+                            let idx = textures.len();
+                            textures.push(loaded.input);
+                            texture_dedup.insert(loaded.identity, idx);
+                            idx
+                        };
+                    materials[mat_idx].normal_texture = Some(new_idx);
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[usd] failed to load normal map '{}' for material[{mat_idx}]: {err}",
+                        tex_path
+                    );
+                }
+            }
+        }
+
+        // Phase 7a: resolve authored UsdLux lights to glTF
+        // KHR_lights_punctual entries. Lights are always gathered at
+        // stage scope (independent of the mesh traversal above), so
+        // they come through even when the stage has no mesh prims —
+        // useful for USD lighting-only scenes that we may get in
+        // production.
+        let lights = resolve_lights(&stage, up_axis_correction.as_ref());
+        // Phase 7b: enumerate authored UsdGeomCamera prims. glTF
+        // cameras are emitted alongside meshes / lights; Three.js's
+        // GLTFLoader exposes them on `gltf.cameras` for the
+        // frontend's camera switcher to pick up.
+        let cameras = resolve_cameras(&stage, up_axis_correction.as_ref());
+
+        glb::build_glb(
+            &inputs,
+            &materials,
+            &textures,
+            &skins,
+            &animations,
+            &lights,
+            &cameras,
+        )
+        .map_err(UsdError::Parse)
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
@@ -1001,6 +1103,76 @@ fn guess_image_mime(asset_path: &str) -> Option<&'static str> {
         Some("image/jpeg")
     } else {
         None
+    }
+}
+
+/// Reads a mesh prim's `skel:joints` attribute — the optional
+/// per-mesh joint ordering override defined by UsdSkel. When
+/// authored, the mesh's `primvars:skel:jointIndices` index into this
+/// local list rather than the bound Skeleton's full `joints` array.
+///
+/// Returns `None` when the attribute is not authored, which signals
+/// the caller that the mesh's joint indices are already in skeleton
+/// order (the common DCC case, e.g. the `tiny_rigged.usda` fixture
+/// and the `UsdSkelExamples/HumanFemale` rig).
+fn read_mesh_skel_joints_override(
+    stage: &Stage,
+    mesh_path: &SdfPath,
+) -> Option<Vec<String>> {
+    let attr_path = mesh_path.append_property("skel:joints").ok()?;
+    let value: Option<SdfValue> =
+        stage.field(attr_path, FieldKey::Default).ok()?;
+    match value? {
+        SdfValue::TokenVec(v) | SdfValue::StringVec(v) => Some(v),
+        _ => None,
+    }
+}
+
+/// Rewrites `mesh.joint_indices` so every influence references the
+/// bound Skeleton's full joint order (what the GLB skin exposes)
+/// rather than the mesh's local `skel:joints` subset. Influences
+/// whose local joint can't be matched to the skeleton are dropped by
+/// zeroing their weight — glTF normalizes weights per-vertex, so
+/// this degrades gracefully for mildly malformed authoring.
+///
+/// No-op when the mesh has no joint influences authored, so the
+/// caller can invoke this unconditionally on any rigged mesh.
+fn remap_mesh_skin_indices(
+    mesh: &mut MeshData,
+    mesh_local_joints: &[String],
+    skeleton_joints: &[String],
+) {
+    // Precompute local → skeleton index, once per mesh. `None` means
+    // the local joint isn't present in the skeleton — authoring bug
+    // or stray entry, handled below by zeroing weights.
+    let remap: Vec<Option<u32>> = mesh_local_joints
+        .iter()
+        .map(|local| {
+            skeleton_joints
+                .iter()
+                .position(|s| s == local)
+                .map(|i| i as u32)
+        })
+        .collect();
+
+    let (Some(indices), Some(weights)) =
+        (mesh.joint_indices.as_mut(), mesh.joint_weights.as_mut())
+    else {
+        return;
+    };
+
+    for (idx, w) in indices.iter_mut().zip(weights.iter_mut()) {
+        let local = *idx as usize;
+        match remap.get(local).and_then(|r| *r) {
+            Some(skel_index) => *idx = skel_index,
+            None => {
+                // Unmatched local joint — zero the influence so the
+                // vertex falls back to its other influences (or to
+                // the rest pose if this was its only one).
+                *idx = 0;
+                *w = 0.0;
+            }
+        }
     }
 }
 
@@ -1334,12 +1506,19 @@ fn find_material_by_name_fallback(
 
 /// Resolve a material binding path → material slot index, creating
 /// a new MaterialInput when the material is first seen.
+///
+/// Phase 6a: also walks the bound material's UsdShade graph to find a
+/// `UsdPreviewSurface.inputs:normal` connection and records the asset
+/// path of the connected `UsdUVTexture.inputs:file` into the parallel
+/// `material_normal_paths` vector. The actual texture bytes are loaded
+/// + embedded later in the same pass that handles base color textures.
 fn resolve_material_slot(
     stage: &Stage,
     mat_path: Option<&SdfPath>,
     prim_path: &SdfPath,
     materials: &mut Vec<glb::MaterialInput>,
     material_texture_paths: &mut Vec<Option<String>>,
+    material_normal_paths: &mut Vec<Option<String>>,
     material_slots: &mut std::collections::HashMap<String, usize>,
 ) -> usize {
     let Some(mat_path) = mat_path else { return 0 };
@@ -1350,12 +1529,650 @@ fn resolve_material_slot(
     if let Some(data) = stage.material_of(prim_path.clone()) {
         let slot = materials.len();
         let tex_path = data.diffuse_texture.clone();
-        materials.push(material_input_from_data(&key, &data));
+        // Phase 6a: the fork's `MaterialData` does not carry a normal
+        // texture field, so we walk the UsdShade graph ourselves
+        // using the same public API surface (prim_children + field
+        // with FieldKey::ConnectionPaths). When the fork eventually
+        // grows `MaterialData::normal_texture`, this helper can be
+        // collapsed to a single `data.normal_texture.clone()` line.
+        let normal_tex = resolve_normal_texture(stage, mat_path);
+        let mut mi = material_input_from_data(&key, &data);
+        // Phase 6b: texture transforms live alongside the texture
+        // slot on the MaterialInput itself; probe the UsdShade graph
+        // for a UsdTransform2d between the UsdUVTexture and
+        // PrimvarReader, and drop identity transforms so the GLB
+        // stays minimal.
+        mi.base_color_texture_transform =
+            resolve_texture_transform(stage, mat_path, "inputs:diffuseColor");
+        mi.normal_texture_transform =
+            resolve_texture_transform(stage, mat_path, "inputs:normal");
+        materials.push(mi);
         material_texture_paths.push(tex_path);
+        material_normal_paths.push(normal_tex);
         material_slots.insert(key, slot);
         slot
     } else {
         0
+    }
+}
+
+/// Phase 7a: enumerate `UsdLuxLight` prims on the stage and resolve
+/// each to a [`glb::LightInput`] with the authored intensity, color,
+/// exposure, and world transform baked in.
+///
+/// Scope:
+///   - `UsdLuxDistantLight` → [`LightKind::Directional`]
+///   - `UsdLuxSphereLight`  → [`LightKind::Point`] (no shaping cone)
+///
+/// Out of scope (returns no entry): `RectLight`, `DiskLight`,
+/// `CylinderLight`, `DomeLight`. Area lights need a glTF extension
+/// that does not yet exist (`KHR_lights_area` is draft-only);
+/// DomeLight is handled via the environment-map pipeline and does
+/// not belong in `KHR_lights_punctual`.
+///
+/// Up-axis correction is applied when the stage is Z-up so the glTF
+/// node matrix is expressed in the viewer's Y-up space, same as
+/// mesh nodes.
+fn resolve_lights(stage: &Stage, up_correction: Option<&[f64; 16]>) -> Vec<glb::LightInput> {
+    let light_paths = RefCell::new(Vec::<SdfPath>::new());
+    if stage
+        .traverse(|prim_path| {
+            if detect_light_kind(stage, prim_path).is_some() {
+                light_paths.borrow_mut().push(prim_path.clone());
+            }
+        })
+        .is_err()
+    {
+        return Vec::new();
+    }
+
+    let paths = light_paths.into_inner();
+    let mut out = Vec::with_capacity(paths.len());
+    for prim_path in paths {
+        let Some(kind) = detect_light_kind(stage, &prim_path) else {
+            continue;
+        };
+        let intensity = read_shader_float(stage, &prim_path, "inputs:intensity")
+            .unwrap_or(1.0);
+        let exposure = read_shader_float(stage, &prim_path, "inputs:exposure")
+            .unwrap_or(0.0);
+        let intensity = intensity * (2.0f32).powf(exposure);
+        let color = read_shader_color(stage, &prim_path, "inputs:color")
+            .unwrap_or([1.0, 1.0, 1.0]);
+
+        let Ok(world) = compose_world_xform(stage, &prim_path) else {
+            continue;
+        };
+        let world = match up_correction {
+            Some(correction) => mat4_mul(correction, &world),
+            None => world,
+        };
+        let world_f32 = mat4_f64_to_f32(&world);
+
+        out.push(glb::LightInput {
+            name: prim_path.as_str().to_string(),
+            kind,
+            color,
+            intensity,
+            world_matrix: world_f32,
+        });
+    }
+    out
+}
+
+/// Map the prim's USD `typeName` to the subset of light kinds yw-look
+/// currently emits to glTF. Returns `None` for non-lights and for
+/// lights we intentionally skip (area lights, DomeLight).
+fn detect_light_kind(stage: &Stage, prim_path: &SdfPath) -> Option<glb::LightKind> {
+    let type_name: Option<String> = stage
+        .field(prim_path.clone(), FieldKey::TypeName)
+        .ok()
+        .flatten();
+    match type_name.as_deref() {
+        Some("DistantLight") => Some(glb::LightKind::Directional),
+        Some("SphereLight") => Some(glb::LightKind::Point),
+        _ => None,
+    }
+}
+
+/// Read a `float` / `double` input from a light (or shader) prim.
+/// Returns `None` when unauthored or typed as something else.
+fn read_shader_float(stage: &Stage, prim_path: &SdfPath, input_name: &str) -> Option<f32> {
+    let prop_path = prim_path.append_property(input_name).ok()?;
+    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    match value {
+        SdfValue::Float(v) => Some(v),
+        SdfValue::Double(v) => Some(v as f32),
+        _ => None,
+    }
+}
+
+/// Read a `color3f` / `color3d` input on a light prim. Falls back to
+/// `None` when the value is unauthored or the wrong type.
+fn read_shader_color(stage: &Stage, prim_path: &SdfPath, input_name: &str) -> Option<[f32; 3]> {
+    let prop_path = prim_path.append_property(input_name).ok()?;
+    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    match value {
+        SdfValue::Vec3f(v) => Some(v),
+        SdfValue::Vec3d(v) => Some([v[0] as f32, v[1] as f32, v[2] as f32]),
+        _ => None,
+    }
+}
+
+/// Phase 7b: enumerate `UsdGeomCamera` prims and resolve each to a
+/// [`glb::CameraInput`]. USD's camera schema stores focal length and
+/// aperture in **millimeters**, which we convert to a glTF
+/// `perspective.yfov` (radians) via [`glb::camera_yfov_radians`].
+///
+/// Scope:
+///   - Perspective cameras only. Orthographic projections require an
+///     emitter for glTF `orthographic` and are deferred until a
+///     concrete asset needs them.
+///   - `clippingRange` is read when authored; otherwise the spec
+///     defaults (0.1, 1e6) are used so the camera always produces a
+///     valid glTF entry.
+///
+/// Out of scope (returns no entry): cameras inside un-composed
+/// payloads (those are already invisible to `traverse` under
+/// `NoPayloads` policy), and cameras that evaluate to
+/// non-perspective projections.
+fn resolve_cameras(
+    stage: &Stage,
+    up_correction: Option<&[f64; 16]>,
+) -> Vec<glb::CameraInput> {
+    let camera_paths = RefCell::new(Vec::<SdfPath>::new());
+    if stage
+        .traverse(|prim_path| {
+            let type_name: Option<String> = stage
+                .field(prim_path.clone(), FieldKey::TypeName)
+                .ok()
+                .flatten();
+            if type_name.as_deref() == Some("Camera") {
+                camera_paths.borrow_mut().push(prim_path.clone());
+            }
+        })
+        .is_err()
+    {
+        return Vec::new();
+    }
+
+    let paths = camera_paths.into_inner();
+    let mut out = Vec::with_capacity(paths.len());
+    for prim_path in paths {
+        // USD camera defaults (per UsdGeomCamera schema):
+        //   focalLength = 50mm, horizontalAperture = 20.955mm,
+        //   verticalAperture = 15.2908mm.
+        // glTF spec defaults: yfov = π/4, aspectRatio = 1.0,
+        // znear = 0.1. Projection types differ from USD: glTF
+        // `perspective` matches USD `perspective`.
+        let focal_length =
+            read_shader_float(stage, &prim_path, "focalLength").unwrap_or(50.0);
+        let horizontal_aperture =
+            read_shader_float(stage, &prim_path, "horizontalAperture").unwrap_or(20.955);
+        let vertical_aperture =
+            read_shader_float(stage, &prim_path, "verticalAperture").unwrap_or(15.2908);
+
+        let yfov = glb::camera_yfov_radians(vertical_aperture, focal_length);
+        let aspect_ratio = if vertical_aperture > 0.0 {
+            horizontal_aperture / vertical_aperture
+        } else {
+            1.0
+        };
+
+        // clippingRange is a float2 in USD; we read it as Vec2f and
+        // fall back to glTF-friendly defaults when missing.
+        let clip = prim_path
+            .append_property("clippingRange")
+            .ok()
+            .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+        let (znear, zfar) = match clip {
+            Some(SdfValue::Vec2f(v)) => (v[0], Some(v[1])),
+            Some(SdfValue::Vec2d(v)) => (v[0] as f32, Some(v[1] as f32)),
+            _ => (0.1, None),
+        };
+        let znear = if znear > 0.0 { znear } else { 0.1 };
+
+        let Ok(world) = compose_world_xform(stage, &prim_path) else {
+            continue;
+        };
+        let world = match up_correction {
+            Some(correction) => mat4_mul(correction, &world),
+            None => world,
+        };
+        let world_f32 = mat4_f64_to_f32(&world);
+
+        out.push(glb::CameraInput {
+            name: prim_path.as_str().to_string(),
+            yfov,
+            aspect_ratio,
+            znear,
+            zfar,
+            world_matrix: world_f32,
+        });
+    }
+    out
+}
+
+/// Phase 6d: one morph target expanded to dense per-vertex offsets.
+///
+/// `offsets` is flat `[dx0, dy0, dz0, dx1, dy1, dz1, ...]` of length
+/// `point_count * 3`, covering every vertex in the mesh. When the
+/// authored USD data is sparse (`pointIndices` + a shorter `offsets`
+/// array) the caller fills unaffected vertices with zero deltas
+/// during [`resolve_blend_shapes`].
+pub(crate) struct DenseBlendShape {
+    pub name: String,
+    pub offsets: Vec<f32>,
+}
+
+/// Phase 6d: resolve every `UsdSkelBlendShape` target bound to a
+/// mesh prim into a dense per-vertex offset array. Returns `Vec::new()`
+/// when the mesh has no `skel:blendShapeTargets` relationship, no
+/// resolvable targets, or any per-target authored data is malformed.
+///
+/// The fork's `Stage::mesh_of` does not surface blend shapes (there
+/// is no `MeshData::blend_shapes` field), so yw-look walks the stage
+/// directly via the public schema API — `prim_children`, `field`, and
+/// `FieldKey::TargetPaths` for the relationship, `FieldKey::Default`
+/// for the BlendShape prim's attributes. When the fork eventually
+/// grows a blend-shape aware MeshData variant, this helper is the
+/// place to replace.
+///
+/// **Scope (Phase 6d initial cut)**: positions only. `normalOffsets`
+/// are read by the spec but intentionally ignored — the renderer
+/// re-derives shading normals from the deformed positions, which is
+/// visually a bit noisier but keeps the initial implementation
+/// small. `inbetweens` (auxiliary shapes at fractional weights) are
+/// out of scope; only the primary shape is resolved.
+pub(crate) fn resolve_blend_shapes(
+    stage: &Stage,
+    mesh_path: &SdfPath,
+    point_count: usize,
+) -> Vec<DenseBlendShape> {
+    // Authored targets live on `skel:blendShapeTargets` as a USD
+    // relationship, which the fork exposes via
+    // `FieldKey::TargetPaths`. USDA parse example:
+    //
+    //     rel skel:blendShapeTargets = [</Mesh/Shapes/Smile>]
+    let targets_path = match mesh_path.append_property("skel:blendShapeTargets") {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    let targets_value: Option<SdfValue> = stage
+        .field(targets_path, FieldKey::TargetPaths)
+        .ok()
+        .flatten();
+    let list_op = match targets_value {
+        Some(SdfValue::PathListOp(op)) => op,
+        _ => return Vec::new(),
+    };
+
+    // Read `skel:blendShapes` token array (if authored) so we can
+    // name each channel symmetrically with how UsdSkelAnimation will
+    // look them up later. When unauthored, fall back to the target
+    // prim's own name.
+    let skel_blend_shapes = read_blend_shape_names(stage, mesh_path);
+
+    let mut out: Vec<DenseBlendShape> = Vec::new();
+    for (i, target) in list_op.iter().enumerate() {
+        let target_path = target.clone();
+        let Some(dense) =
+            read_dense_blend_shape(stage, &target_path, point_count)
+        else {
+            continue;
+        };
+        let name = skel_blend_shapes
+            .get(i)
+            .cloned()
+            .or_else(|| target_path.name().map(|s| s.to_string()))
+            .unwrap_or_else(|| format!("blend_shape_{i}"));
+        out.push(DenseBlendShape {
+            name,
+            offsets: dense,
+        });
+    }
+    out
+}
+
+/// Read the `uniform token[] skel:blendShapes` primvar / attribute on
+/// the mesh. Returns an empty Vec when unauthored; the authored order
+/// is the channel order and must parallel `skel:blendShapeTargets`.
+fn read_blend_shape_names(stage: &Stage, mesh_path: &SdfPath) -> Vec<String> {
+    let prop_path = match mesh_path.append_property("skel:blendShapes") {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    match stage.field::<SdfValue>(prop_path, FieldKey::Default).ok().flatten() {
+        Some(SdfValue::TokenVec(names)) | Some(SdfValue::StringVec(names)) => names,
+        _ => Vec::new(),
+    }
+}
+
+/// Resolve a single `UsdSkelBlendShape` prim to a dense per-vertex
+/// offset array. Returns `None` when the prim has no usable authored
+/// data (missing offsets, malformed pointIndices, offsets count
+/// mismatch).
+fn read_dense_blend_shape(
+    stage: &Stage,
+    target_path: &SdfPath,
+    point_count: usize,
+) -> Option<Vec<f32>> {
+    // Confirm the target is actually a BlendShape prim. Mis-authored
+    // relationships pointing at random prims are surprisingly common
+    // in production exports, so a quiet skip here is better than
+    // propagating the failure up.
+    let type_name: Option<String> = stage
+        .field(target_path.clone(), FieldKey::TypeName)
+        .ok()
+        .flatten();
+    if type_name.as_deref() != Some("BlendShape") {
+        return None;
+    }
+
+    // `offsets` is always authored as `vector3f[]`; `pointIndices` is
+    // optional — when absent, `offsets` must match the full point
+    // count (dense authoring).
+    let offsets_path = target_path.append_property("offsets").ok()?;
+    let offsets_value: SdfValue = stage
+        .field(offsets_path, FieldKey::Default)
+        .ok()
+        .flatten()?;
+    let offsets_vec: Vec<[f32; 3]> = match offsets_value {
+        SdfValue::Vec3fVec(v) => v,
+        _ => return None,
+    };
+
+    let indices_path = target_path.append_property("pointIndices").ok()?;
+    let indices_value: Option<SdfValue> = stage
+        .field(indices_path, FieldKey::Default)
+        .ok()
+        .flatten();
+
+    let mut dense = vec![0.0f32; point_count * 3];
+
+    match indices_value {
+        Some(SdfValue::IntVec(point_indices)) => {
+            // Sparse: `offsets[i]` applies to `pointIndices[i]`.
+            if point_indices.len() != offsets_vec.len() {
+                return None;
+            }
+            for (idx, off) in point_indices.iter().zip(offsets_vec.iter()) {
+                let pi = *idx as usize;
+                if pi >= point_count {
+                    // Silently clamp: an authored pointIndex outside
+                    // the mesh's point range is authoring garbage.
+                    // Dropping it keeps the mesh renderable.
+                    continue;
+                }
+                dense[pi * 3] = off[0];
+                dense[pi * 3 + 1] = off[1];
+                dense[pi * 3 + 2] = off[2];
+            }
+        }
+        _ => {
+            // Dense: `offsets.len()` must equal `point_count`.
+            if offsets_vec.len() != point_count {
+                return None;
+            }
+            for (pi, off) in offsets_vec.iter().enumerate() {
+                dense[pi * 3] = off[0];
+                dense[pi * 3 + 1] = off[1];
+                dense[pi * 3 + 2] = off[2];
+            }
+        }
+    }
+
+    Some(dense)
+}
+
+/// Walk the UsdShade graph rooted at a Material prim looking for a
+/// `UsdPreviewSurface.inputs:normal` connection that targets a
+/// `UsdUVTexture` (or MaterialX equivalent). Returns the texture
+/// asset path on success, `None` when any step in the chain is
+/// missing or has the wrong type.
+///
+/// Mirrors the logic of the fork's private `find_preview_surface_shader`
+/// + `follow_texture_connection` helpers (stage.rs:773 / 921). When
+/// `MaterialData` grows a `normal_texture` field upstream, this
+/// function becomes redundant and the call site can use it directly.
+fn resolve_normal_texture(stage: &Stage, material_path: &SdfPath) -> Option<String> {
+    let surface_shader = find_preview_surface_shader(stage, material_path)?;
+    let normal_input = surface_shader.append_property("inputs:normal").ok()?;
+    follow_texture_connection_to_asset(stage, &normal_input)
+}
+
+/// Find a child Shader of `material_path` whose `info:id` is
+/// `"UsdPreviewSurface"`. Walks direct children only (the standard
+/// Material-Shader layout); if a real asset wraps the shader inside
+/// nested NodeGraphs we'll miss it, which is the same single-hop
+/// limitation `material_of` has for the diffuse channel.
+fn find_preview_surface_shader(stage: &Stage, material_path: &SdfPath) -> Option<SdfPath> {
+    let children = stage.prim_children(material_path.clone()).ok()?;
+    for child_name in children {
+        // SdfPath has no `append_child`; compose the child path via
+        // string concat (same pattern used for GeomSubset names).
+        let child =
+            SdfPath::new(&format!("{}/{}", material_path.as_str(), child_name)).ok()?;
+        let type_name: Option<String> =
+            stage.field(child.clone(), FieldKey::TypeName).ok().flatten();
+        if type_name.as_deref() != Some("Shader") {
+            continue;
+        }
+        let info_id_path = child.append_property("info:id").ok()?;
+        let info_id: Option<String> = stage
+            .field(info_id_path, FieldKey::Default)
+            .ok()
+            .flatten();
+        let is_preview_surface = matches!(
+            info_id.as_deref(),
+            Some("UsdPreviewSurface")
+                // MaterialX node-def equivalent used by Reality Composer
+                // Pro and other ARKit-flavored exports.
+                | Some("ND_UsdPreviewSurface_surfaceshader")
+        );
+        if is_preview_surface {
+            return Some(child);
+        }
+    }
+    None
+}
+
+/// Given a property path like `/Mat/Surface.inputs:normal`, follow a
+/// single `ConnectionPaths` hop and, if the target is a UsdUVTexture
+/// (or MaterialX image-node equivalent) shader's output, return the
+/// `inputs:file` asset path on that shader. Returns `None` for any
+/// missing step or unexpected type.
+fn follow_texture_connection_to_asset(
+    stage: &Stage,
+    input_path: &SdfPath,
+) -> Option<String> {
+    let connections: Option<SdfValue> = stage
+        .field(input_path.clone(), FieldKey::ConnectionPaths)
+        .ok()
+        .flatten();
+    let list_op = match connections? {
+        SdfValue::PathListOp(op) => op,
+        _ => return None,
+    };
+    // ListOp::iter chains explicit + prepended + added items; we take
+    // the first one as the active connection. USD's strongest-wins
+    // composition rule means this matches what Hydra would resolve.
+    let target = list_op.iter().next()?.clone();
+    // `target` is a property path like `/Mat/Tex.outputs:rgb`; strip
+    // the `.outputs:rgb` suffix to get the texture shader prim path.
+    let shader_path = target.prim_path();
+
+    let type_name: Option<String> = stage
+        .field(shader_path.clone(), FieldKey::TypeName)
+        .ok()
+        .flatten();
+    if type_name.as_deref() != Some("Shader") {
+        return None;
+    }
+    let info_id_path = shader_path.append_property("info:id").ok()?;
+    let info_id: Option<String> = stage
+        .field(info_id_path, FieldKey::Default)
+        .ok()
+        .flatten();
+    let is_texture_shader = matches!(
+        info_id.as_deref(),
+        Some("UsdUVTexture")
+            | Some("ND_image_color3")
+            | Some("ND_image_color4")
+            | Some("ND_image_float")
+            | Some("ND_image_vector3")
+    );
+    if !is_texture_shader {
+        return None;
+    }
+    let file_path = shader_path.append_property("inputs:file").ok()?;
+    let value: Option<SdfValue> = stage.field(file_path, FieldKey::Default).ok().flatten();
+    match value? {
+        SdfValue::AssetPath(s) => Some(s),
+        SdfValue::String(s) | SdfValue::Token(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// Phase 6b: follow the UsdShade graph from a Material prim down to
+/// the `UsdUVTexture` node bound to `surface_input_name`
+/// (`"inputs:diffuseColor"` / `"inputs:normal"`), then probe that
+/// texture node's `inputs:st` for a `UsdTransform2d` hop. Returns
+/// the authored transform as a `glb::TextureTransform`, or `None`
+/// when:
+///
+///   - the surface / texture / transform chain is missing at any step
+///   - the transform is the identity (we'd emit a no-op extension)
+///
+/// Reads:
+///
+///   - `UsdTransform2d.inputs:translation` — `float2` or `double2`
+///   - `UsdTransform2d.inputs:rotation` — `float` or `double`, in
+///     **degrees** per the UsdPreviewSurface spec
+///   - `UsdTransform2d.inputs:scale` — `float2` or `double2`
+///
+/// Default values follow the UsdPreviewSurface spec: translation
+/// `(0, 0)`, rotation `0°`, scale `(1, 1)`.
+fn resolve_texture_transform(
+    stage: &Stage,
+    material_path: &SdfPath,
+    surface_input_name: &str,
+) -> Option<glb::TextureTransform> {
+    let surface_shader = find_preview_surface_shader(stage, material_path)?;
+    let surface_input = surface_shader
+        .append_property(surface_input_name)
+        .ok()?;
+    let texture_shader = follow_connection_to_shader(stage, &surface_input)?;
+    // Only UsdUVTexture / MaterialX image nodes carry an `inputs:st`
+    // meaningfully. Bail out if the connected shader is anything else
+    // (e.g. the diffuseColor input is bound directly to a constant).
+    if !shader_is_texture_node(stage, &texture_shader) {
+        return None;
+    }
+    let st_input = texture_shader.append_property("inputs:st").ok()?;
+    let transform_shader = follow_connection_to_shader(stage, &st_input)?;
+    let info_id_path = transform_shader.append_property("info:id").ok()?;
+    let info_id: Option<String> = stage
+        .field(info_id_path, FieldKey::Default)
+        .ok()
+        .flatten();
+    if info_id.as_deref() != Some("UsdTransform2d") {
+        // Common case: `inputs:st` is wired straight to a
+        // PrimvarReader with no transform in between. Identity =
+        // return None so the serializer omits the extension.
+        return None;
+    }
+
+    let translation = read_vec2_input(stage, &transform_shader, "inputs:translation")
+        .unwrap_or([0.0, 0.0]);
+    let rotation_deg =
+        read_scalar_input(stage, &transform_shader, "inputs:rotation").unwrap_or(0.0);
+    let scale = read_vec2_input(stage, &transform_shader, "inputs:scale")
+        .unwrap_or([1.0, 1.0]);
+
+    let transform = glb::TextureTransform {
+        offset: translation,
+        rotation: rotation_deg.to_radians(),
+        scale,
+    };
+    if transform.is_identity() {
+        None
+    } else {
+        Some(transform)
+    }
+}
+
+/// Follow one `ConnectionPaths` hop from a property path and return
+/// the target shader's prim path (property suffix stripped). Returns
+/// `None` when the property has no authored connection or the target
+/// resolves to something other than a Shader prim.
+fn follow_connection_to_shader(stage: &Stage, input_path: &SdfPath) -> Option<SdfPath> {
+    let connections: Option<SdfValue> = stage
+        .field(input_path.clone(), FieldKey::ConnectionPaths)
+        .ok()
+        .flatten();
+    let list_op = match connections? {
+        SdfValue::PathListOp(op) => op,
+        _ => return None,
+    };
+    let target = list_op.iter().next()?.clone();
+    let shader_path = target.prim_path();
+    let type_name: Option<String> = stage
+        .field(shader_path.clone(), FieldKey::TypeName)
+        .ok()
+        .flatten();
+    if type_name.as_deref() != Some("Shader") {
+        return None;
+    }
+    Some(shader_path)
+}
+
+/// Returns true when the shader's `info:id` matches a known texture
+/// sampler node (`UsdUVTexture` or the MaterialX equivalents).
+fn shader_is_texture_node(stage: &Stage, shader_path: &SdfPath) -> bool {
+    let info_id_path = match shader_path.append_property("info:id") {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    let info_id: Option<String> = stage
+        .field(info_id_path, FieldKey::Default)
+        .ok()
+        .flatten();
+    matches!(
+        info_id.as_deref(),
+        Some("UsdUVTexture")
+            | Some("ND_image_color3")
+            | Some("ND_image_color4")
+            | Some("ND_image_float")
+            | Some("ND_image_vector3")
+    )
+}
+
+/// Read a scalar float-like input on a shader prim. Accepts both
+/// `float` and `double` authoring; other numeric types are ignored.
+fn read_scalar_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> Option<f32> {
+    let prop_path = shader_path.append_property(input_name).ok()?;
+    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    match value {
+        SdfValue::Float(v) => Some(v),
+        SdfValue::Double(v) => Some(v as f32),
+        _ => None,
+    }
+}
+
+/// Read a vec2 float-like input on a shader prim. Accepts both
+/// `float2` and `double2` authoring; other types fall through.
+fn read_vec2_input(
+    stage: &Stage,
+    shader_path: &SdfPath,
+    input_name: &str,
+) -> Option<[f32; 2]> {
+    let prop_path = shader_path.append_property(input_name).ok()?;
+    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    match value {
+        SdfValue::Vec2f(v) => Some(v),
+        SdfValue::Vec2d(v) => Some([v[0] as f32, v[1] as f32]),
+        _ => None,
     }
 }
 
@@ -1368,6 +2185,7 @@ fn apply_display_color_fallback(
     prim_path: &SdfPath,
     materials: &mut Vec<glb::MaterialInput>,
     material_texture_paths: &mut Vec<Option<String>>,
+    material_normal_paths: &mut Vec<Option<String>>,
     material_slots: &mut std::collections::HashMap<String, usize>,
 ) -> usize {
     if slot != 0 {
@@ -1393,10 +2211,14 @@ fn apply_display_color_fallback(
                 emissive_factor: [0.0, 0.0, 0.0],
                 double_sided: true,
                 base_color_texture: None,
+                normal_texture: None,
+                base_color_texture_transform: None,
+                normal_texture_transform: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
             });
             material_texture_paths.push(None);
+            material_normal_paths.push(None);
             material_slots.insert(key, s);
             return s;
         }
@@ -1588,6 +2410,17 @@ fn material_input_from_data(
         // texture has been resolved and the GLB-level texture index
         // is known.
         base_color_texture: None,
+        // Phase 6a: caller fills this in after `resolve_normal_texture`
+        // walks the UsdShade graph and `TextureLoader` resolves the
+        // asset path into GLB bytes.
+        normal_texture: None,
+        // Phase 6b: texture transforms are populated by
+        // `resolve_material_slot` after this function returns,
+        // because they require walking the shader graph from the
+        // Material prim path — information `material_input_from_data`
+        // does not have.
+        base_color_texture_transform: None,
+        normal_texture_transform: None,
         // Phase 5e L1: map USD wrap mode tokens to glTF sampler
         // constants. USD defaults to "useMetadata" which we treat
         // as REPEAT (glTF default) since the metadata source is
@@ -2485,6 +3318,7 @@ fn mesh_data_to_input(
     data: &MeshData,
     orientation: MeshOrientation,
     max_joint: usize,
+    blend_shapes: &[DenseBlendShape],
 ) -> Result<MeshInput, UsdError> {
     let point_count = data.points.len() / 3;
     if data.points.len() % 3 != 0 || point_count == 0 {
@@ -2567,6 +3401,13 @@ fn mesh_data_to_input(
     let mut indices: Vec<u32> = Vec::new();
     let mut next_vertex: u32 = 0;
 
+    // Phase 6d: one per-corner `Vec<f32>` per morph target. Filled in
+    // inside the corner loop using the same `point_index` that drives
+    // `positions`, so after the loop each entry holds per-vertex
+    // position deltas in the same layout as `MeshInput::positions`.
+    let mut morph_corner_offsets: Vec<Vec<f32>> =
+        blend_shapes.iter().map(|_| Vec::new()).collect();
+
     // Phase 5c E: per-vertex skin payload. UsdSkel exposes one
     // (joint_indices, joint_weights) tuple per **point**, with
     // `joints_per_vertex` influences each. We expand into the same
@@ -2635,6 +3476,19 @@ fn mesh_data_to_input(
                 positions.push(data.points[point_index * 3]);
                 positions.push(data.points[point_index * 3 + 1]);
                 positions.push(data.points[point_index * 3 + 2]);
+
+                // Phase 6d: mirror the position push into every morph
+                // target's delta array, indexed by the same
+                // `point_index`. Each `DenseBlendShape.offsets` is
+                // already sparse-expanded to cover every point, so the
+                // lookup is a straight index.
+                for (target_idx, target) in blend_shapes.iter().enumerate() {
+                    let off = point_index * 3;
+                    let out = &mut morph_corner_offsets[target_idx];
+                    out.push(target.offsets[off]);
+                    out.push(target.offsets[off + 1]);
+                    out.push(target.offsets[off + 2]);
+                }
 
                 if let Some(src) = &data.normals {
                     match normal_kind {
@@ -2804,6 +3658,20 @@ fn mesh_data_to_input(
         // skin slot for this mesh is known. Default `None` is the
         // unrigged path.
         skin_index: None,
+        // Phase 6d: pair each accumulated per-corner offset buffer
+        // with its authored blend-shape name so the GLB writer can
+        // emit `mesh.extras.targetNames`. Weights default to zero
+        // (rest pose) — animation for `skel:blendShapeWeights`
+        // tracks will populate them in a later phase.
+        morph_targets: blend_shapes
+            .iter()
+            .enumerate()
+            .map(|(i, src)| glb::MorphTarget {
+                name: Some(src.name.clone()),
+                position_offsets: morph_corner_offsets[i].clone(),
+            })
+            .collect(),
+        morph_weights: vec![0.0f32; blend_shapes.len()],
     })
 }
 
@@ -2887,14 +3755,22 @@ fn classify_attribute(
     let Some(src) = src else {
         return AttrKind::None;
     };
-    if src.len() == point_count * stride {
+    // Check `Constant` first: a one-face / one-point mesh would match
+    // `Uniform` / `Vertex` with the same source length as `Constant`,
+    // and the constant-interpolation case is the most restrictive
+    // semantically — a single shared value for every corner. Without
+    // this ordering the Phase 6c COLOR_0 path mis-classifies
+    // single-triangle displayColor as Uniform and emits a vertex
+    // attribute when the UsdPreviewSurface fallback already carries
+    // the color as `baseColorFactor`, double-applying it in-viewer.
+    if src.len() == stride {
+        AttrKind::Constant
+    } else if src.len() == point_count * stride {
         AttrKind::Vertex
     } else if src.len() == face_vertex_count * stride {
         AttrKind::FaceVarying
     } else if src.len() == face_count * stride {
         AttrKind::Uniform
-    } else if src.len() == stride {
-        AttrKind::Constant
     } else {
         AttrKind::Unknown
     }
@@ -3093,6 +3969,7 @@ mod tests {
             &bad_mesh,
             MeshOrientation::RightHanded,
             usize::MAX,
+            &[],
         )
         .expect_err("negative faceVertexCounts must be rejected");
         let UsdError::Parse(msg) = err else {
@@ -4407,6 +5284,1065 @@ def Xform "Root"
         Ok(())
     }
 
+    /// Phase 6a: a UsdPreviewSurface with both `inputs:diffuseColor`
+    /// and `inputs:normal` connections must produce a GLB material
+    /// with both `pbrMetallicRoughness.baseColorTexture` and
+    /// `normalTexture` set, and the shared `textures` array must
+    /// contain exactly the two distinct images (deduplication works
+    /// across the base color and normal channels via the shared
+    /// `texture_dedup` map).
+    #[test]
+    fn extract_geometry_embeds_normal_map_texture() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6a_fs_normal");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let albedo_path = tmp_dir.join("albedo.png");
+        let normal_path = tmp_dir.join("normal.png");
+        // Same 1x1 PNG bytes used by the base color fixture above;
+        // content doesn't matter because we only check the glTF
+        // plumbing, not any per-pixel rendering outcome.
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
+            0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
+            0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
+            0x41, 0x54, 0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
+            0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+            0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&albedo_path, png_bytes)?;
+        std::fs::write(&normal_path, png_bytes)?;
+
+        let usda_path = tmp_dir.join("textured.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </Root/Looks/PBRMat>
+    }
+
+    def "Looks"
+    {
+        def Material "PBRMat"
+        {
+            token outputs:surface.connect = </Root/Looks/PBRMat/Preview.outputs:surface>
+
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </Root/Looks/PBRMat/Albedo.outputs:rgb>
+                normal3f inputs:normal.connect = </Root/Looks/PBRMat/Normal.outputs:rgb>
+                token outputs:surface
+            }
+
+            def Shader "Albedo"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./albedo.png@
+                token outputs:rgb
+            }
+
+            def Shader "Normal"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./normal.png@
+                token outputs:rgb
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract textured.usda with normal map");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // Two distinct textures should land in the GLB: one for base
+        // color, one for normal. A correct implementation dedupes on
+        // resolved identity, so the two files at different paths but
+        // with identical bytes still produce two entries (the dedup
+        // key is the filesystem path, not the byte hash).
+        let textures = doc["textures"].as_array().expect("textures array");
+        assert_eq!(
+            textures.len(),
+            2,
+            "expected albedo + normal to land as two textures, got {textures:?}"
+        );
+
+        let materials = doc["materials"].as_array().expect("materials array");
+        let pbr_slot = materials
+            .iter()
+            .position(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.contains("PBRMat"))
+                    .unwrap_or(false)
+            })
+            .expect("PBRMat slot present");
+        let pbr = &materials[pbr_slot];
+
+        // Base color channel
+        let base_idx = pbr["pbrMetallicRoughness"]["baseColorTexture"]["index"]
+            .as_u64()
+            .expect("baseColorTexture.index");
+
+        // Normal channel: glTF places `normalTexture` at the material
+        // level, not nested under `pbrMetallicRoughness`.
+        let normal_idx = pbr["normalTexture"]["index"]
+            .as_u64()
+            .expect("normalTexture.index");
+        assert_eq!(pbr["normalTexture"]["texCoord"], 0);
+
+        assert_ne!(
+            base_idx, normal_idx,
+            "base color and normal must reference different texture indices"
+        );
+
+        Ok(())
+    }
+
+    /// Phase 6b: a `UsdTransform2d` authored between the PrimvarReader
+    /// and the UsdUVTexture on the diffuse channel must produce a
+    /// `KHR_texture_transform` extension on the GLB material's
+    /// `baseColorTexture` with the authored scale / rotation /
+    /// translation values. The top-level `extensionsUsed` must also
+    /// list the extension (required by the glTF spec).
+    #[test]
+    fn extract_geometry_applies_usd_transform_2d() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6b_transform2d");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let png_path = tmp_dir.join("albedo.png");
+        // Reuse the 1x1 PNG bytes; pixel content is irrelevant to
+        // the plumbing being exercised here.
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
+            0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
+            0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
+            0x41, 0x54, 0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
+            0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+            0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&png_path, png_bytes)?;
+
+        let usda_path = tmp_dir.join("tiled.usda");
+        // Authoring below uses scale = (2.0, 3.0), rotation = 90°,
+        // translation = (0.25, 0.75). The asserts below convert the
+        // rotation to radians before comparing — `resolve_texture_
+        // transform` bakes the conversion so the GLB carries the
+        // glTF-native radian form.
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </Root/Looks/TiledMat>
+    }
+
+    def "Looks"
+    {
+        def Material "TiledMat"
+        {
+            token outputs:surface.connect = </Root/Looks/TiledMat/Preview.outputs:surface>
+
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </Root/Looks/TiledMat/Tex.outputs:rgb>
+                token outputs:surface
+            }
+
+            def Shader "Tex"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./albedo.png@
+                float2 inputs:st.connect = </Root/Looks/TiledMat/UVXform.outputs:result>
+                token outputs:rgb
+            }
+
+            def Shader "UVXform"
+            {
+                uniform token info:id = "UsdTransform2d"
+                float2 inputs:scale = (2.0, 3.0)
+                float inputs:rotation = 90.0
+                float2 inputs:translation = (0.25, 0.75)
+                float2 inputs:in.connect = </Root/Looks/TiledMat/PrimvarST.outputs:result>
+                float2 outputs:result
+            }
+
+            def Shader "PrimvarST"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract tiled.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // extensionsUsed must declare KHR_texture_transform.
+        let ext_used = doc["extensionsUsed"].as_array().expect("extensionsUsed");
+        assert!(
+            ext_used
+                .iter()
+                .any(|e| e.as_str() == Some("KHR_texture_transform")),
+            "extensionsUsed missing KHR_texture_transform, got {ext_used:?}"
+        );
+
+        let materials = doc["materials"].as_array().expect("materials array");
+        let pbr_slot = materials
+            .iter()
+            .position(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.contains("TiledMat"))
+                    .unwrap_or(false)
+            })
+            .expect("TiledMat slot present");
+        let pbr = &materials[pbr_slot];
+
+        let transform = &pbr["pbrMetallicRoughness"]["baseColorTexture"]["extensions"]
+            ["KHR_texture_transform"];
+        assert!(transform.is_object(), "KHR_texture_transform missing");
+
+        // offset = translation authored in USD → direct mapping
+        let offset = transform["offset"].as_array().expect("offset array");
+        assert!((offset[0].as_f64().unwrap() - 0.25).abs() < 1e-5);
+        assert!((offset[1].as_f64().unwrap() - 0.75).abs() < 1e-5);
+
+        // rotation USD deg → glTF rad (90° = π/2)
+        let rotation = transform["rotation"].as_f64().expect("rotation f64");
+        assert!(
+            (rotation - std::f64::consts::FRAC_PI_2).abs() < 1e-5,
+            "rotation = {rotation}, expected π/2 (≈1.5708)"
+        );
+
+        // scale = authored (2.0, 3.0)
+        let scale = transform["scale"].as_array().expect("scale array");
+        assert!((scale[0].as_f64().unwrap() - 2.0).abs() < 1e-5);
+        assert!((scale[1].as_f64().unwrap() - 3.0).abs() < 1e-5);
+
+        Ok(())
+    }
+
+    /// Phase 6b: authored materials without a `UsdTransform2d` (the
+    /// common case, where `inputs:st` is wired straight to a
+    /// PrimvarReader) must NOT emit a `KHR_texture_transform`
+    /// extension or list it in `extensionsUsed`. Regression guard so
+    /// the identity-transform drop in `resolve_texture_transform`
+    /// stays honest.
+    #[test]
+    fn extract_geometry_without_transform2d_omits_extension() -> std::io::Result<()> {
+        // Re-exercise the base-color-only filesystem fixture from
+        // Phase 5c; it has no UsdTransform2d authored.
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6b_no_transform");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let png_path = tmp_dir.join("checker.png");
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
+            0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
+            0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
+            0x41, 0x54, 0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
+            0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+            0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&png_path, png_bytes)?;
+
+        let usda_path = tmp_dir.join("plain.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </Root/Looks/PlainMat>
+    }
+
+    def "Looks"
+    {
+        def Material "PlainMat"
+        {
+            token outputs:surface.connect = </Root/Looks/PlainMat/Preview.outputs:surface>
+
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </Root/Looks/PlainMat/Tex.outputs:rgb>
+                token outputs:surface
+            }
+
+            def Shader "Tex"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./checker.png@
+                token outputs:rgb
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract plain.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        assert!(
+            doc.get("extensionsUsed").is_none(),
+            "extensionsUsed should be absent when no transforms authored, got {:?}",
+            doc.get("extensionsUsed")
+        );
+
+        let materials = doc["materials"].as_array().expect("materials array");
+        for m in materials {
+            let base = &m["pbrMetallicRoughness"]["baseColorTexture"];
+            if base.is_object() {
+                assert!(
+                    base.get("extensions").is_none(),
+                    "baseColorTexture carries no-op extensions: {base:?}"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Phase 6c: a mesh authoring per-vertex `primvars:displayColor`
+    /// must flow through to the GLB as a `COLOR_0` vertex attribute.
+    /// Regression guard: the constant-color path (handled separately
+    /// via `apply_display_color_fallback` as `baseColorFactor`) must
+    /// not also emit `COLOR_0`, otherwise the color would be applied
+    /// twice (once at vertex, once as the factor multiplier).
+    #[test]
+    fn extract_geometry_emits_color_0_for_per_vertex_display_color() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6c_vertex_color");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("vcolor.usda");
+        // 3 vertices, 3 distinct displayColors with interpolation =
+        // "vertex". We deliberately do NOT bind a material: the mesh
+        // should render with per-vertex colors via COLOR_0 alone.
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        color3f[] primvars:displayColor = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)] (
+            interpolation = "vertex"
+        )
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract vcolor.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // Primitive must carry a COLOR_0 attribute pointing at an
+        // accessor. We walk meshes[0].primitives[0] because the
+        // fixture has exactly one mesh with one primitive.
+        let meshes = doc["meshes"].as_array().expect("meshes array");
+        assert!(!meshes.is_empty(), "expected at least one glTF mesh");
+        let primitive = &meshes[0]["primitives"][0];
+        let color_accessor_idx = primitive["attributes"]["COLOR_0"]
+            .as_u64()
+            .expect("COLOR_0 accessor index");
+
+        let accessors = doc["accessors"].as_array().expect("accessors array");
+        let color_acc = &accessors[color_accessor_idx as usize];
+        assert_eq!(color_acc["type"], "VEC3", "COLOR_0 must be VEC3");
+        // componentType 5126 = FLOAT (glTF uses integer enum values).
+        assert_eq!(color_acc["componentType"], 5126);
+        // 3 triangle corners → 3 vertices in the expanded per-corner
+        // layout; glTF does not require per-primitive vertex dedup.
+        let count = color_acc["count"].as_u64().expect("count");
+        assert_eq!(count, 3, "expected 3 vertices, got {count}");
+
+        Ok(())
+    }
+
+    /// Phase 6c regression: a mesh whose `primvars:displayColor` is
+    /// authored as a single constant triple must continue to use the
+    /// `baseColorFactor` fallback and must NOT emit a `COLOR_0`
+    /// attribute — otherwise the material color would be applied
+    /// twice (once as the factor, once per vertex).
+    #[test]
+    fn extract_geometry_omits_color_0_for_constant_display_color() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6c_constant_color");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("const_color.usda");
+        // Single color, interpolation = "constant" — Kitchen Set's
+        // typical pattern for a mesh with no authored material.
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        color3f[] primvars:displayColor = [(0.8, 0.2, 0.1)] (
+            interpolation = "constant"
+        )
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract const_color.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // No COLOR_0 on the primitive.
+        let primitive = &doc["meshes"][0]["primitives"][0];
+        assert!(
+            primitive["attributes"].get("COLOR_0").is_none(),
+            "constant displayColor must not emit COLOR_0, got {primitive:?}"
+        );
+
+        // The color must have been materialized as a dedicated
+        // material slot whose `baseColorFactor` matches the authored
+        // color (after sRGB → linear conversion). The fallback
+        // material name is prefixed `dc:`.
+        let materials = doc["materials"].as_array().expect("materials array");
+        let dc_slot = materials
+            .iter()
+            .find(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.starts_with("dc:"))
+                    .unwrap_or(false)
+            })
+            .expect("displayColor fallback material slot");
+        let factor = dc_slot["pbrMetallicRoughness"]["baseColorFactor"]
+            .as_array()
+            .expect("baseColorFactor array");
+        // sRGB 0.8 → linear ≈ 0.6038, 0.2 → ≈ 0.0331, 0.1 → ≈ 0.0100.
+        // We leave a generous epsilon so the test remains stable if
+        // the sRGB curve implementation is ever re-derived.
+        let r = factor[0].as_f64().unwrap();
+        let g = factor[1].as_f64().unwrap();
+        let b = factor[2].as_f64().unwrap();
+        assert!((r - 0.6038).abs() < 1e-3, "R = {r}, expected ≈0.6038");
+        assert!((g - 0.0331).abs() < 1e-3, "G = {g}, expected ≈0.0331");
+        assert!((b - 0.0100).abs() < 1e-3, "B = {b}, expected ≈0.0100");
+
+        Ok(())
+    }
+
+    /// Phase 6d: a mesh bound to a `UsdSkelBlendShape` target must
+    /// produce a GLB primitive with `targets[0].POSITION` pointing at
+    /// a VEC3 FLOAT accessor sized to match the mesh's vertex count,
+    /// and the parent mesh object must expose a parallel
+    /// `weights: [0.0]` array plus an `extras.targetNames` entry
+    /// carrying the authored shape name. Sparse authoring via
+    /// `pointIndices` must expand to dense deltas (zeros at
+    /// untouched vertices) before the per-corner expansion runs.
+    #[test]
+    fn extract_geometry_emits_morph_target_for_blend_shape() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6d_blend_shape");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("blendshape.usda");
+        // 3-point triangle, one BlendShape "Smile" authored SPARSELY
+        // (only point 1 is offset). After dense expansion we expect
+        // `[0,0,0, 0.5,0,0, 0,0,0]` in point layout; after triangle-
+        // soup expansion the per-corner array is the same because
+        // each point maps to exactly one corner.
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["SkelBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        uniform token[] skel:blendShapes = ["Smile"]
+        rel skel:blendShapeTargets = [</Root/Tri/Smile>]
+
+        def BlendShape "Smile"
+        {
+            uniform vector3f[] offsets = [(0.5, 0.0, 0.0)]
+            uniform int[] pointIndices = [1]
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract blendshape.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let meshes = doc["meshes"].as_array().expect("meshes array");
+        let mesh = &meshes[0];
+
+        // weights parallel to targets, initialized to 0 (rest pose).
+        let weights = mesh["weights"].as_array().expect("mesh.weights");
+        assert_eq!(
+            weights.len(),
+            1,
+            "expected one weight entry, got {weights:?}"
+        );
+        assert!((weights[0].as_f64().unwrap() - 0.0).abs() < 1e-6);
+
+        // targetNames extras for the shape-key UI.
+        let names = mesh["extras"]["targetNames"]
+            .as_array()
+            .expect("extras.targetNames");
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0].as_str(), Some("Smile"));
+
+        let primitive = &mesh["primitives"][0];
+        let targets = primitive["targets"].as_array().expect("primitive.targets");
+        assert_eq!(targets.len(), 1);
+        let pos_acc_idx = targets[0]["POSITION"]
+            .as_u64()
+            .expect("targets[0].POSITION");
+        let accessors = doc["accessors"].as_array().unwrap();
+        let pos_acc = &accessors[pos_acc_idx as usize];
+        assert_eq!(pos_acc["type"], "VEC3");
+        assert_eq!(pos_acc["componentType"], 5126); // FLOAT
+        // 3 triangle corners after expansion.
+        assert_eq!(pos_acc["count"].as_u64().unwrap(), 3);
+
+        // The axis-wise min/max cover the sparse delta: max_x = 0.5,
+        // every other channel is 0. These are required by the glTF
+        // spec for morph target accessors.
+        let max = pos_acc["max"].as_array().expect("max array");
+        assert!((max[0].as_f64().unwrap() - 0.5).abs() < 1e-6);
+        assert!((max[1].as_f64().unwrap() - 0.0).abs() < 1e-6);
+        assert!((max[2].as_f64().unwrap() - 0.0).abs() < 1e-6);
+        let min = pos_acc["min"].as_array().expect("min array");
+        assert!(min[0].as_f64().unwrap().abs() < 1e-6);
+
+        Ok(())
+    }
+
+    /// Phase 6d regression: a mesh without `skel:blendShapeTargets`
+    /// must not emit any morph-target JSON — no `targets` on the
+    /// primitive, no `weights` on the mesh, no `extras.targetNames`.
+    /// Keeps non-rigged preview output byte-identical to Phase 6c.
+    #[test]
+    fn extract_geometry_omits_morph_when_no_blend_shapes() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6d_no_blend");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("plain.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract plain.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let mesh = &doc["meshes"][0];
+        assert!(
+            mesh.get("weights").is_none(),
+            "mesh.weights must be omitted when no morph targets"
+        );
+        assert!(
+            mesh.get("extras").is_none(),
+            "mesh.extras must be omitted when no morph targets"
+        );
+        let primitive = &mesh["primitives"][0];
+        assert!(
+            primitive.get("targets").is_none(),
+            "primitive.targets must be omitted when no morph targets"
+        );
+
+        Ok(())
+    }
+
+    /// Phase 7a: a stage authoring one `DistantLight` + one
+    /// `SphereLight` must produce a GLB whose top-level
+    /// `extensions.KHR_lights_punctual.lights` array carries both
+    /// entries with the authored color / intensity baked in, and
+    /// whose scene graph has one glTF node per light pointing at the
+    /// matching light definition. `extensionsUsed` must list
+    /// `"KHR_lights_punctual"` per the glTF spec.
+    #[test]
+    fn extract_geometry_emits_khr_lights_punctual() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase7a_lights");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("lights.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+
+    def DistantLight "Sun"
+    {
+        color3f inputs:color = (1.0, 0.95, 0.8)
+        float inputs:intensity = 3.0
+        float inputs:exposure = 1.0
+    }
+
+    def SphereLight "Fill"
+    {
+        color3f inputs:color = (0.4, 0.5, 1.0)
+        float inputs:intensity = 10.0
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract lights.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // extensionsUsed must declare KHR_lights_punctual.
+        let ext_used = doc["extensionsUsed"].as_array().expect("extensionsUsed");
+        assert!(
+            ext_used
+                .iter()
+                .any(|e| e.as_str() == Some("KHR_lights_punctual")),
+            "extensionsUsed missing KHR_lights_punctual, got {ext_used:?}"
+        );
+
+        // Top-level lights array with 2 entries.
+        let lights = doc["extensions"]["KHR_lights_punctual"]["lights"]
+            .as_array()
+            .expect("KHR_lights_punctual.lights");
+        assert_eq!(lights.len(), 2, "expected 2 lights, got {lights:?}");
+
+        let sun = lights.iter().find(|l| l["type"] == "directional").expect("directional");
+        // intensity = 3.0 * 2^1.0 = 6.0
+        assert!(
+            (sun["intensity"].as_f64().unwrap() - 6.0).abs() < 1e-5,
+            "sun intensity: {}",
+            sun["intensity"]
+        );
+        let color = sun["color"].as_array().unwrap();
+        assert!((color[0].as_f64().unwrap() - 1.0).abs() < 1e-5);
+        assert!((color[1].as_f64().unwrap() - 0.95).abs() < 1e-5);
+        assert!((color[2].as_f64().unwrap() - 0.8).abs() < 1e-5);
+
+        let fill = lights.iter().find(|l| l["type"] == "point").expect("point");
+        // exposure unauthored → default 0.0; intensity stays at 10.0
+        assert!(
+            (fill["intensity"].as_f64().unwrap() - 10.0).abs() < 1e-5,
+            "fill intensity: {}",
+            fill["intensity"]
+        );
+
+        // Each light has a matching scene node with the extension
+        // pointer. We can't assume ordering in the scenes.nodes list
+        // (meshes land there too), so search for any node that
+        // references our lights.
+        let nodes = doc["nodes"].as_array().expect("nodes");
+        let light_node_count = nodes
+            .iter()
+            .filter(|n| {
+                n.get("extensions")
+                    .and_then(|e| e.get("KHR_lights_punctual"))
+                    .is_some()
+            })
+            .count();
+        assert_eq!(
+            light_node_count, 2,
+            "expected 2 nodes with KHR_lights_punctual, got {light_node_count}"
+        );
+
+        Ok(())
+    }
+
+    /// Phase 7b: a stage with one `UsdGeomCamera` must produce a
+    /// glTF `cameras` array with the resolved yfov + aspect ratio +
+    /// clipping range, and a scene node carrying `camera: i`
+    /// pointing at it. Verifies the mm → radians yfov math against
+    /// known USD defaults: a 35mm full-frame sensor (vertAp 24mm)
+    /// with a 50mm "normal" lens resolves to the canonical ~27°
+    /// vertical FOV (`2·atan(24 / (2·50)) ≈ 0.4711` rad).
+    #[test]
+    fn extract_geometry_emits_authored_cameras() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase7b_camera");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("camera.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+
+    def Camera "MainCam"
+    {
+        float focalLength = 50.0
+        float horizontalAperture = 36.0
+        float verticalAperture = 24.0
+        float2 clippingRange = (0.5, 1000.0)
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract camera.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let cameras = doc["cameras"].as_array().expect("cameras array");
+        assert_eq!(cameras.len(), 1, "expected 1 camera, got {cameras:?}");
+        let cam = &cameras[0];
+        assert_eq!(cam["type"], "perspective");
+
+        // yfov = 2 * atan(24 / (2 * 50)) ≈ 0.4711 rad (27° vertical
+        // FOV — the canonical "50mm normal lens on full frame" pair).
+        let yfov = cam["perspective"]["yfov"].as_f64().unwrap();
+        assert!(
+            (yfov - 0.4711).abs() < 1e-4,
+            "yfov = {yfov}, expected ≈ 0.4711 rad"
+        );
+        // aspect = 36 / 24 = 1.5
+        let aspect = cam["perspective"]["aspectRatio"].as_f64().unwrap();
+        assert!((aspect - 1.5).abs() < 1e-4);
+        // clippingRange
+        let znear = cam["perspective"]["znear"].as_f64().unwrap();
+        let zfar = cam["perspective"]["zfar"].as_f64().unwrap();
+        assert!((znear - 0.5).abs() < 1e-4);
+        assert!((zfar - 1000.0).abs() < 1e-1);
+
+        // Matching scene node with `camera` pointer.
+        let nodes = doc["nodes"].as_array().unwrap();
+        let camera_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|n| n.get("camera").is_some())
+            .collect();
+        assert_eq!(
+            camera_nodes.len(),
+            1,
+            "expected 1 camera-bearing node, got {camera_nodes:?}"
+        );
+        assert_eq!(camera_nodes[0]["camera"].as_u64().unwrap(), 0);
+
+        Ok(())
+    }
+
+    /// Phase 7b regression: a stage with no authored cameras must
+    /// emit no `cameras` array at all so the pre-7b output stays
+    /// byte-identical.
+    #[test]
+    fn extract_geometry_omits_cameras_when_none_authored() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase7b_no_camera");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("plain.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract plain.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        assert!(
+            doc.get("cameras").is_none(),
+            "cameras must be omitted when none authored, got {:?}",
+            doc.get("cameras")
+        );
+
+        Ok(())
+    }
+
+    /// Phase 7a regression: stages without any authored UsdLuxLight
+    /// must not touch the glTF extension machinery — no
+    /// `extensions`, no `extensionsUsed` entry, no light-bearing
+    /// nodes. Keeps pre-7a output byte-identical when no lights
+    /// are authored.
+    #[test]
+    fn extract_geometry_omits_lights_when_none_authored() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase7a_no_lights");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("plain.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract plain.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // No KHR_lights_punctual anywhere.
+        if let Some(ext_used) = doc.get("extensionsUsed") {
+            let names: Vec<&str> = ext_used
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect();
+            assert!(
+                !names.contains(&"KHR_lights_punctual"),
+                "extensionsUsed must not list KHR_lights_punctual when no lights authored: {names:?}"
+            );
+        }
+        assert!(
+            doc["extensions"]
+                .get("KHR_lights_punctual")
+                .is_none(),
+            "document.extensions must not carry KHR_lights_punctual when no lights authored"
+        );
+
+        Ok(())
+    }
+
     /// Phase 5e final state for the chameleon Apple AR Quick Look
     /// asset (`samples/private/usd/chameleon_anim_mtl_variant.usdz`):
     /// neither yw-look nor the openusd fork can recover the textured
@@ -5114,6 +7050,7 @@ def Xform "Root" (
             &data,
             super::MeshOrientation::RightHanded,
             usize::MAX,
+            &[],
         )
         .expect("mesh_data_to_input");
 

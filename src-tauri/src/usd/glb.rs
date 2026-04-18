@@ -45,6 +45,26 @@ pub struct MaterialInput {
     /// `BuildContext::textures` keyed by the index stored here so the
     /// builder can dedupe textures across materials.
     pub base_color_texture: Option<usize>,
+    /// Phase 6a: optional tangent-space normal map (linear) texture.
+    /// Same indexing semantics as `base_color_texture`. Emitted as the
+    /// glTF `material.normalTexture` (sibling of `pbrMetallicRoughness`,
+    /// not nested inside it). The `texCoord` is hardcoded to 0 and
+    /// `scale` is left at the glTF default (1.0); per-channel `scale`
+    /// support belongs to Phase 10 with the rest of multi-hop shader
+    /// resolution.
+    pub normal_texture: Option<usize>,
+    /// Phase 6b: optional UV transform applied to the base color
+    /// texture. Emitted as the `KHR_texture_transform` extension on
+    /// the `baseColorTexture` reference; the identity transform is
+    /// represented as `None` so the extension is omitted from the
+    /// GLB JSON when no `UsdTransform2d` is authored.
+    pub base_color_texture_transform: Option<TextureTransform>,
+    /// Phase 6b: same as `base_color_texture_transform` but for the
+    /// normal map. USD assets commonly share one `UsdTransform2d`
+    /// between both channels; the two values are resolved
+    /// independently so per-channel transforms (rare but valid) come
+    /// through correctly.
+    pub normal_texture_transform: Option<TextureTransform>,
     /// Phase 5e L1: glTF wrap mode for the base color texture sampler.
     /// `10497` = REPEAT (default), `33071` = CLAMP_TO_EDGE,
     /// `33648` = MIRRORED_REPEAT. Only meaningful when
@@ -52,6 +72,60 @@ pub struct MaterialInput {
     pub wrap_s: u32,
     /// Same as `wrap_s` for the T axis.
     pub wrap_t: u32,
+}
+
+/// Phase 6b: glTF `KHR_texture_transform` payload. USD's
+/// `UsdTransform2d` applies its inputs in scale → rotate → translate
+/// order, which matches the glTF spec's "scale applied first, then
+/// rotation, then translation", so the USD inputs map directly to the
+/// glTF fields. `rotation` is stored in **radians** (converted from the
+/// USD `float inputs:rotation` in degrees at resolve time) so the GLB
+/// serializer does not need to know about the USD authoring unit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextureTransform {
+    pub offset: [f32; 2],
+    pub rotation: f32,
+    pub scale: [f32; 2],
+}
+
+impl TextureTransform {
+    /// Identity transform — caller-side helper for unit tests and the
+    /// rare "authored transform but all defaults" case. Not emitted to
+    /// the GLB (the serializer drops identity transforms).
+    pub fn identity() -> Self {
+        Self {
+            offset: [0.0, 0.0],
+            rotation: 0.0,
+            scale: [1.0, 1.0],
+        }
+    }
+
+    /// Returns true when the transform is close enough to the identity
+    /// that `KHR_texture_transform` can be omitted. Uses a small
+    /// epsilon because floating-point conversion from USD's double or
+    /// degree-based authoring can introduce tiny residuals.
+    pub fn is_identity(&self) -> bool {
+        const EPS: f32 = 1e-6;
+        (self.offset[0].abs() < EPS)
+            && (self.offset[1].abs() < EPS)
+            && (self.rotation.abs() < EPS)
+            && ((self.scale[0] - 1.0).abs() < EPS)
+            && ((self.scale[1] - 1.0).abs() < EPS)
+    }
+}
+
+/// Build the JSON payload for one `KHR_texture_transform` extension
+/// entry. Emitted inline on a `baseColorTexture` / `normalTexture`
+/// reference; the top-level `extensionsUsed` declaration is handled
+/// separately by the GLB document builder.
+fn texture_transform_extension(t: &TextureTransform) -> Value {
+    json!({
+        "KHR_texture_transform": {
+            "offset": [t.offset[0], t.offset[1]],
+            "rotation": t.rotation,
+            "scale": [t.scale[0], t.scale[1]],
+        }
+    })
 }
 
 impl MaterialInput {
@@ -68,6 +142,9 @@ impl MaterialInput {
             emissive_factor: [0.0, 0.0, 0.0],
             double_sided: true,
             base_color_texture: None,
+            normal_texture: None,
+            base_color_texture_transform: None,
+            normal_texture_transform: None,
             wrap_s: 10497,
             wrap_t: 10497,
         }
@@ -141,6 +218,28 @@ pub struct AnimationInput {
     pub scales: Vec<Option<Vec<f32>>>,
 }
 
+/// Phase 6d: one morph target attached to a mesh. glTF stores morph
+/// targets as per-vertex **delta arrays** (offset from the base
+/// position / normal), not absolute positions, and the final vertex
+/// position is `base + sum(weight[i] * target[i].position)`. The
+/// yw-look walker converts USD's sparse `UsdSkelBlendShape.offsets` +
+/// `pointIndices` into dense per-corner arrays before stuffing them
+/// here so the GLB writer only has to emit accessors.
+///
+/// Per-target normals are optional and omitted for Phase 6d; the
+/// renderer re-computes normals from deformed positions, which is
+/// visually noisier but keeps the initial commit small.
+#[derive(Debug, Clone)]
+pub struct MorphTarget {
+    /// Optional display name. Emitted into
+    /// `mesh.extras.targetNames` so renderers with shape-key UIs can
+    /// label the sliders.
+    pub name: Option<String>,
+    /// Per-vertex position delta, flattened as `[dx, dy, dz, ...]`.
+    /// Length must equal `vertex_count * 3` (same as `MeshInput::positions`).
+    pub position_offsets: Vec<f32>,
+}
+
 /// One mesh ready to be packed into a GLB. Positions / normals / UVs are
 /// per-vertex; `indices` describes triangles into those arrays.
 #[derive(Debug, Clone)]
@@ -183,6 +282,18 @@ pub struct MeshInput {
     /// `Some`); `None` means the mesh is rendered statically with
     /// only its `world_matrix` node transform.
     pub skin_index: Option<usize>,
+    /// Phase 6d: morph targets (shape keys). Empty vec means the mesh
+    /// has no morph deformation. Every entry's `position_offsets`
+    /// array must have `vertex_count * 3` floats so the GLB writer
+    /// can emit one accessor per target without re-validating against
+    /// the mesh positions.
+    pub morph_targets: Vec<MorphTarget>,
+    /// Phase 6d: initial weight for each morph target, length must
+    /// equal `morph_targets.len()`. Emitted as `mesh.weights` in the
+    /// glTF JSON. yw-look currently populates this with zeros (rest
+    /// pose); animation that drives the weights at runtime is a
+    /// follow-up (SkelAnimation `blendShapeWeights` track).
+    pub morph_weights: Vec<f32>,
 }
 
 impl MeshInput {
@@ -267,6 +378,30 @@ impl MeshInput {
                 ));
             }
         }
+        // Phase 6d: morph target invariants. Each target's delta array
+        // must be parallel to the mesh positions, and `morph_weights`
+        // must be parallel to `morph_targets`. glTF itself validates
+        // these at load time but we catch authoring errors closer to
+        // the source.
+        for (i, target) in self.morph_targets.iter().enumerate() {
+            if target.position_offsets.len() != vc * 3 {
+                return Err(format!(
+                    "mesh '{}' morph target [{}] has {} position floats but {} are required",
+                    self.name,
+                    i,
+                    target.position_offsets.len(),
+                    vc * 3
+                ));
+            }
+        }
+        if self.morph_weights.len() != self.morph_targets.len() {
+            return Err(format!(
+                "mesh '{}' has {} morph weights but {} targets",
+                self.name,
+                self.morph_weights.len(),
+                self.morph_targets.len()
+            ));
+        }
         Ok(())
     }
 
@@ -285,6 +420,115 @@ impl MeshInput {
         }
         (min, max)
     }
+}
+
+/// Phase 7a: one light to embed as a glTF `KHR_lights_punctual`
+/// extension entry. yw-look maps USD `UsdLuxDistantLight` → directional
+/// and `UsdLuxSphereLight` → point; area lights (`RectLight`,
+/// `DiskLight`, `CylinderLight`) and `DomeLight` are intentionally
+/// out of scope for 7a and will be approximated or handled via the
+/// environment map pipeline in a later phase.
+#[derive(Debug, Clone)]
+pub struct LightInput {
+    /// Display name — surfaces in Three.js `light.name` for UI.
+    pub name: String,
+    /// Light type. Spot is in the enum for symmetry with glTF but
+    /// yw-look does not currently resolve UsdLux nodes to spot
+    /// lights (USD has no direct spot primitive; authoring pattern
+    /// is a SphereLight with `shaping:cone:*` inputs, which is
+    /// deferred to Phase 10).
+    pub kind: LightKind,
+    /// Linear RGB color. USD authoring is in linear space already
+    /// (matching the `inputs:color` semantic), so no sRGB conversion
+    /// happens at this layer.
+    pub color: [f32; 3],
+    /// `inputs:intensity * 2^inputs:exposure` pre-multiplied at
+    /// resolve time. glTF intensity units: lumens for point/spot,
+    /// lux for directional. USD inputs are nits/cd/m² — the two
+    /// differ by a constant factor that depends on the scene scale,
+    /// and yw-look leaves the value as-is because the preview
+    /// tonemap renders look-OK across a wide range.
+    pub intensity: f32,
+    /// Column-major world transform applied to the light's own glTF
+    /// node. USD light direction comes from the parent Xform's
+    /// rotation; we bake that (plus Z-up→Y-up correction when the
+    /// stage is Z-up) into this matrix so the glTF node is the
+    /// single source of truth.
+    pub world_matrix: [f32; 16],
+}
+
+/// Variants yw-look resolves in Phase 7a. Kept narrow deliberately;
+/// adding a new variant requires emitting the matching glTF `type`
+/// string and any light-specific fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightKind {
+    Directional,
+    Point,
+    /// Reserved for future: USD `SphereLight` with `shaping:cone:angle`
+    /// authoring, which the glTF spec maps to `spot`.
+    Spot,
+}
+
+/// Phase 7b: one authored UsdGeomCamera prim resolved to glTF camera
+/// attributes. glTF stores cameras as top-level document entries
+/// (`cameras[i]`) and references them from nodes via `camera: i`;
+/// we mirror that shape so Three.js's GLTFLoader picks them up
+/// without a frontend-side bridge.
+#[derive(Debug, Clone)]
+pub struct CameraInput {
+    /// Display name — surfaces in Three.js `camera.name` for the
+    /// camera switcher UI.
+    pub name: String,
+    /// USD `focalLength` (mm) converted to glTF `perspective.yfov`
+    /// (radians) using the authored `verticalAperture` (mm).
+    pub yfov: f32,
+    /// USD `horizontalAperture / verticalAperture`. glTF stores
+    /// aspect ratio as `perspective.aspectRatio`. When authored
+    /// apertures are missing yw-look emits the spec default of 1.0
+    /// so the field is always present.
+    pub aspect_ratio: f32,
+    /// USD `clippingRange[0]` — glTF `perspective.znear`.
+    pub znear: f32,
+    /// USD `clippingRange[1]` — glTF `perspective.zfar`. `None`
+    /// means "use glTF infinite far plane" (field omitted).
+    pub zfar: Option<f32>,
+    /// World-space transform baked from the camera's parent Xform
+    /// chain plus any Z-up → Y-up correction, mirroring how mesh
+    /// and light nodes carry `matrix`.
+    pub world_matrix: [f32; 16],
+}
+
+/// Convert USD camera intrinsics (mm focal length + mm aperture) to
+/// a glTF vertical field of view in radians. The formula is the
+/// standard pinhole relation: `yfov = 2 * atan(vAperture / (2 * focal))`.
+/// Falls back to π/4 (45°) when either input is non-positive so
+/// malformed cameras still produce a valid glTF entry.
+pub fn camera_yfov_radians(vertical_aperture_mm: f32, focal_length_mm: f32) -> f32 {
+    if vertical_aperture_mm <= 0.0 || focal_length_mm <= 0.0 {
+        return std::f32::consts::FRAC_PI_4;
+    }
+    2.0 * (vertical_aperture_mm / (2.0 * focal_length_mm)).atan()
+}
+
+/// Returns the axis-wise `(min, max)` over a flat `[x, y, z, x, y, z, ...]`
+/// slice. Used for morph-target accessor bounds; callers must guarantee
+/// `data.len() % 3 == 0`. An empty slice returns the identity-style
+/// `(INFINITY, -INFINITY)` pair — glTF forbids that, but the serializer
+/// only calls this when at least one vertex exists.
+fn vec3_min_max(data: &[f32]) -> ([f32; 3], [f32; 3]) {
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for chunk in data.chunks_exact(3) {
+        for axis in 0..3 {
+            if chunk[axis] < min[axis] {
+                min[axis] = chunk[axis];
+            }
+            if chunk[axis] > max[axis] {
+                max[axis] = chunk[axis];
+            }
+        }
+    }
+    (min, max)
 }
 
 const GLB_MAGIC: u32 = 0x46546C67; // "glTF"
@@ -321,6 +565,8 @@ pub fn build_glb(
     textures: &[TextureInput],
     skins: &[SkinInput],
     animations: &[AnimationInput],
+    lights: &[LightInput],
+    cameras: &[CameraInput],
 ) -> Result<Vec<u8>, String> {
     if meshes.is_empty() {
         return Err("no meshes to export".to_string());
@@ -639,16 +885,85 @@ pub fn build_glb(
             attributes.insert("WEIGHTS_0".to_string(), json!(idx));
         }
 
+        // Phase 6d: morph targets. Each target produces one accessor
+        // (per-vertex position deltas); glTF stores the pointer array
+        // as `primitive.targets: [{POSITION: accessor_idx}]`. The
+        // per-target `mesh.weights` parallel array is assembled below
+        // at the mesh object level. Empty `morph_targets` means we
+        // emit no `targets` field at all — keeping the GLB minimal
+        // for the (common) no-blendshape case.
+        let mut morph_target_json: Vec<Value> = Vec::with_capacity(mesh.morph_targets.len());
+        for target in &mesh.morph_targets {
+            // Validation already confirmed target.position_offsets.len()
+            // == vertex_count * 3, so we can embed it as-is.
+            let view = buffer_views.len();
+            let off = bin.len() as u64;
+            for f in &target.position_offsets {
+                bin.extend_from_slice(&f.to_le_bytes());
+            }
+            let len = (bin.len() as u64) - off;
+            pad_to_4(&mut bin);
+            buffer_views.push(json!({
+                "buffer": 0,
+                "byteOffset": off,
+                "byteLength": len,
+                "target": 34962, // ARRAY_BUFFER
+            }));
+            // Per the glTF spec, morph target accessors must carry
+            // `min` / `max` so renderers can compute a tight
+            // bounding volume for the deformed mesh; we supply them.
+            let (min, max) = vec3_min_max(&target.position_offsets);
+            let acc = accessors.len();
+            accessors.push(json!({
+                "bufferView": view,
+                "componentType": COMPONENT_TYPE_FLOAT,
+                "count": vertex_count,
+                "type": "VEC3",
+                "min": [min[0], min[1], min[2]],
+                "max": [max[0], max[1], max[2]],
+            }));
+            morph_target_json.push(json!({
+                "POSITION": acc,
+            }));
+        }
+
+        let mut primitive = json!({
+            "attributes": Value::Object(attributes),
+            "indices": index_accessor_idx,
+            "material": mesh.material_index,
+            "mode": 4, // TRIANGLES
+        });
+        if !morph_target_json.is_empty() {
+            primitive["targets"] = Value::Array(morph_target_json);
+        }
+
         let mesh_idx_in_doc = gltf_meshes.len();
-        gltf_meshes.push(json!({
+        let mut mesh_json = json!({
             "name": mesh.name,
-            "primitives": [{
-                "attributes": Value::Object(attributes),
-                "indices": index_accessor_idx,
-                "material": mesh.material_index,
-                "mode": 4, // TRIANGLES
-            }],
-        }));
+            "primitives": [primitive],
+        });
+        // glTF `mesh.weights` is parallel to `primitive.targets`.
+        // Emit only when the mesh has morph targets so the no-morph
+        // GLB stays byte-identical to the pre-Phase-6d output.
+        if !mesh.morph_weights.is_empty() {
+            mesh_json["weights"] = json!(mesh.morph_weights);
+        }
+        // Emit `extras.targetNames` so renderers with shape-key
+        // inspector UIs (Blender glTF importer, Three.js editor) can
+        // label the sliders. Missing names fall back to anonymous
+        // entries, which glTF permits.
+        let names: Vec<Value> = mesh
+            .morph_targets
+            .iter()
+            .map(|t| match &t.name {
+                Some(n) => json!(n),
+                None => Value::Null,
+            })
+            .collect();
+        if names.iter().any(|n| !n.is_null()) {
+            mesh_json["extras"] = json!({ "targetNames": names });
+        }
+        gltf_meshes.push(mesh_json);
 
         // -- node --------------------------------------------------------
         // The mesh node always carries the composed world transform
@@ -946,51 +1261,162 @@ pub fn build_glb(
     }
 
     // ---- Build GLTF materials array ------------------------------------
-    let gltf_materials: Vec<Value> = materials
-        .iter()
-        .map(|m| {
-            let mut pbr = json!({
-                "baseColorFactor": [
-                    m.base_color_factor[0],
-                    m.base_color_factor[1],
-                    m.base_color_factor[2],
-                    m.base_color_factor[3],
-                ],
-                "metallicFactor": m.metallic_factor,
-                "roughnessFactor": m.roughness_factor,
+    //
+    // Phase 6b: the materials loop also tracks whether any authored
+    // texture transform was emitted. When that flag ends up set, the
+    // top-level GLTF document grows an `extensionsUsed` entry for
+    // `KHR_texture_transform`, which is required by the glTF spec so
+    // compliant loaders know to interpret the extension.
+    let mut material_needs_transform_ext = false;
+    let mut gltf_materials: Vec<Value> = Vec::with_capacity(materials.len());
+    for m in materials.iter() {
+        let mut pbr = json!({
+            "baseColorFactor": [
+                m.base_color_factor[0],
+                m.base_color_factor[1],
+                m.base_color_factor[2],
+                m.base_color_factor[3],
+            ],
+            "metallicFactor": m.metallic_factor,
+            "roughnessFactor": m.roughness_factor,
+        });
+        if let Some(tex_idx) = m.base_color_texture {
+            let mut entry = json!({
+                "index": tex_idx,
+                "texCoord": 0,
             });
-            if let Some(tex_idx) = m.base_color_texture {
-                pbr["baseColorTexture"] = json!({
-                    "index": tex_idx,
-                    "texCoord": 0,
-                });
+            // Phase 6b: attach KHR_texture_transform if a
+            // UsdTransform2d was authored between the shader's
+            // `inputs:st` and the texture node. Identity transforms
+            // are dropped at resolve time so we never emit them here.
+            if let Some(ref t) = m.base_color_texture_transform {
+                entry["extensions"] = texture_transform_extension(t);
+                material_needs_transform_ext = true;
             }
-            let mut material = json!({
-                "name": m.name,
-                "pbrMetallicRoughness": pbr,
-                "doubleSided": m.double_sided,
+            pbr["baseColorTexture"] = entry;
+        }
+        let mut material = json!({
+            "name": m.name,
+            "pbrMetallicRoughness": pbr,
+            "doubleSided": m.double_sided,
+        });
+        // Phase 6a: emit the optional normal map. glTF places
+        // `normalTexture` at the material level, parallel to
+        // `pbrMetallicRoughness`, not nested inside it.
+        if let Some(tex_idx) = m.normal_texture {
+            let mut entry = json!({
+                "index": tex_idx,
+                "texCoord": 0,
             });
-            // Only emit `emissiveFactor` when non-zero so the GLB stays
-            // minimal for the (common) no-emission case.
-            let emissive = m.emissive_factor;
-            if emissive[0] > 0.0 || emissive[1] > 0.0 || emissive[2] > 0.0 {
-                material["emissiveFactor"] =
-                    json!([emissive[0], emissive[1], emissive[2]]);
+            if let Some(ref t) = m.normal_texture_transform {
+                entry["extensions"] = texture_transform_extension(t);
+                material_needs_transform_ext = true;
             }
-            // glTF's default `alphaMode` is OPAQUE, which means the
-            // alpha channel of baseColorFactor is ignored and the
-            // object always renders fully opaque. `UsdPreviewSurface`'s
-            // `inputs:opacity` flows into `base_color_factor[3]`, so
-            // whenever that value is below 1 we need `BLEND` mode for
-            // the preview to actually look translucent. A small
-            // epsilon avoids flipping modes on floating-point noise
-            // around 1.0.
-            if m.base_color_factor[3] < 1.0 - 1e-4 {
-                material["alphaMode"] = json!("BLEND");
-            }
-            material
-        })
-        .collect();
+            material["normalTexture"] = entry;
+        }
+        // Only emit `emissiveFactor` when non-zero so the GLB stays
+        // minimal for the (common) no-emission case.
+        let emissive = m.emissive_factor;
+        if emissive[0] > 0.0 || emissive[1] > 0.0 || emissive[2] > 0.0 {
+            material["emissiveFactor"] =
+                json!([emissive[0], emissive[1], emissive[2]]);
+        }
+        // glTF's default `alphaMode` is OPAQUE, which means the alpha
+        // channel of baseColorFactor is ignored and the object always
+        // renders fully opaque. `UsdPreviewSurface`'s `inputs:opacity`
+        // flows into `base_color_factor[3]`, so whenever that value is
+        // below 1 we need `BLEND` mode for the preview to actually
+        // look translucent. A small epsilon avoids flipping modes on
+        // floating-point noise around 1.0.
+        if m.base_color_factor[3] < 1.0 - 1e-4 {
+            material["alphaMode"] = json!("BLEND");
+        }
+        gltf_materials.push(material);
+    }
+
+    // ---- Phase 7a: KHR_lights_punctual -----------------------------
+    //
+    // For each LightInput, emit:
+    //   1. A glTF light definition (top-level `extensions.KHR_lights_punctual.lights[i]`)
+    //   2. A scene node carrying the authored world_matrix plus
+    //      `extensions.KHR_lights_punctual.light: i`.
+    //
+    // Lights are always scene-root nodes (parent hierarchy is baked
+    // into world_matrix) — keeps the JSON small and matches how
+    // Three.js expects to find punctual lights.
+    let mut gltf_light_defs: Vec<Value> = Vec::new();
+    for light in lights {
+        let type_str = match light.kind {
+            LightKind::Directional => "directional",
+            LightKind::Point => "point",
+            LightKind::Spot => "spot",
+        };
+        let mut def = json!({
+            "name": light.name,
+            "type": type_str,
+            "color": [light.color[0], light.color[1], light.color[2]],
+            "intensity": light.intensity,
+        });
+        // glTF spec: only point / spot take `range`; omit (= infinite)
+        // to match USD's default. Directional range is always infinite.
+        // If we later resolve a USD `inputs:radius` fall-off we can add
+        // a finite `range` here.
+        if matches!(light.kind, LightKind::Spot) {
+            // Placeholder cone for future Spot support. Keep generous
+            // defaults so the light is visible if authored.
+            def["spot"] = json!({
+                "innerConeAngle": 0.0,
+                "outerConeAngle": std::f32::consts::FRAC_PI_4,
+            });
+        }
+        let light_idx = gltf_light_defs.len();
+        gltf_light_defs.push(def);
+
+        // Scene node for this light.
+        let node_idx = nodes.len();
+        nodes.push(json!({
+            "name": format!("{}_light_node", light.name),
+            "matrix": light.world_matrix.iter().copied().collect::<Vec<f32>>(),
+            "extensions": {
+                "KHR_lights_punctual": {
+                    "light": light_idx,
+                }
+            },
+        }));
+        scene_nodes.push(json!(node_idx));
+    }
+
+    // ---- Phase 7b: glTF cameras -------------------------------------
+    //
+    // For each CameraInput we emit one top-level `cameras[i]` entry
+    // and one scene node carrying the authored world_matrix plus
+    // `camera: i`. Unlike lights, glTF cameras are core (no
+    // extension), so there's no extensionsUsed bookkeeping.
+    let mut gltf_cameras: Vec<Value> = Vec::new();
+    for camera in cameras {
+        let mut perspective = json!({
+            "yfov": camera.yfov,
+            "aspectRatio": camera.aspect_ratio,
+            "znear": camera.znear,
+        });
+        if let Some(zfar) = camera.zfar {
+            perspective["zfar"] = json!(zfar);
+        }
+        let camera_idx = gltf_cameras.len();
+        gltf_cameras.push(json!({
+            "name": camera.name,
+            "type": "perspective",
+            "perspective": perspective,
+        }));
+
+        let node_idx = nodes.len();
+        nodes.push(json!({
+            "name": format!("{}_camera_node", camera.name),
+            "matrix": camera.world_matrix.iter().copied().collect::<Vec<f32>>(),
+            "camera": camera_idx,
+        }));
+        scene_nodes.push(json!(node_idx));
+    }
 
     // ---- Build GLTF JSON document --------------------------------------
     let total_bin_length = bin.len() as u64;
@@ -1009,6 +1435,30 @@ pub fn build_glb(
         "accessors": accessors,
         "materials": gltf_materials,
     });
+    if !gltf_cameras.is_empty() {
+        document["cameras"] = json!(gltf_cameras);
+    }
+    // Phase 6b / 7a: register extensions in the top-level
+    // `extensionsUsed` list. glTF requires this declaration;
+    // omitting it causes compliant loaders to drop the extension
+    // or refuse the file. We build the list additively so both
+    // Phase 6b (texture transforms) and Phase 7a (lights) can
+    // coexist.
+    let mut extensions_used: Vec<&str> = Vec::new();
+    if material_needs_transform_ext {
+        extensions_used.push("KHR_texture_transform");
+    }
+    if !gltf_light_defs.is_empty() {
+        extensions_used.push("KHR_lights_punctual");
+        document["extensions"] = json!({
+            "KHR_lights_punctual": {
+                "lights": gltf_light_defs,
+            }
+        });
+    }
+    if !extensions_used.is_empty() {
+        document["extensionsUsed"] = json!(extensions_used);
+    }
     if !textures.is_empty() {
         // Phase 5e L1: build a sampler per unique (wrapS, wrapT) pair
         // so different materials can use different wrap modes. Most
@@ -1252,6 +1702,8 @@ mod tests {
             joint_weights: None,
             material_index: 0,
             skin_index: None,
+            morph_targets: Vec::new(),
+            morph_weights: Vec::new(),
         }
     }
 
@@ -1262,7 +1714,7 @@ mod tests {
     #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
-        let glb = build_glb(&[mesh], &default_materials(), &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).expect("build glb");
 
         // GLB header sanity check
         assert_eq!(&glb[0..4], b"glTF");
@@ -1305,7 +1757,7 @@ mod tests {
     fn rejects_mismatched_normal_count() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.normals = Some(vec![0.0; 6]); // wrong length
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("normal"));
     }
 
@@ -1313,7 +1765,7 @@ mod tests {
     fn rejects_out_of_range_index() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.indices = vec![0, 1, 99];
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("out of range"));
     }
 
@@ -1321,7 +1773,7 @@ mod tests {
     fn rejects_material_index_out_of_range() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.material_index = 5;
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
         assert!(
             err.contains("material_index"),
             "expected material_index error, got: {err}"
@@ -1331,7 +1783,7 @@ mod tests {
     #[test]
     fn rejects_empty_materials_array() {
         let mesh = unit_quad_split_into_two_triangles();
-        let err = build_glb(&[mesh], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &[], &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("material"));
     }
 
@@ -1346,10 +1798,13 @@ mod tests {
             emissive_factor: [0.0, 0.0, 0.0],
             double_sided: true,
             base_color_texture: None,
+            normal_texture: None,
+            base_color_texture_transform: None,
+            normal_texture_transform: None,
             wrap_s: 10497,
             wrap_t: 10497,
         }];
-        let glb = build_glb(&[mesh], &materials, &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -1367,7 +1822,7 @@ mod tests {
     fn omits_alpha_mode_for_opaque_material() {
         let mesh = unit_quad_split_into_two_triangles();
         let materials = vec![MaterialInput::default_preview()];
-        let glb = build_glb(&[mesh], &materials, &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -1407,8 +1862,11 @@ mod tests {
                 emissive_factor: [0.0, 0.0, 0.0],
                 double_sided: false,
                 base_color_texture: None,
+                normal_texture: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
+                base_color_texture_transform: None,
+                normal_texture_transform: None,
             },
             MaterialInput {
                 name: "blue_emissive".to_string(),
@@ -1418,12 +1876,15 @@ mod tests {
                 emissive_factor: [0.0, 0.0, 0.4],
                 double_sided: true,
                 base_color_texture: None,
+                normal_texture: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
+                base_color_texture_transform: None,
+                normal_texture_transform: None,
             },
         ];
 
-        let glb = build_glb(&[red_mesh, blue_mesh], &materials, &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[red_mesh, blue_mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
         assert_eq!(&glb[0..4], b"glTF");
 
         let json_chunk_len =

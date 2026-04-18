@@ -1,4 +1,4 @@
-mod usd;
+pub mod usd;
 
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 
 use crate::usd::{
-    AssetIssue, OpenusdBackend, StageInspection, StageLoadPolicy, StageSummary, UsdBackend,
+    AssetIssue, DefaultBackend, StageInspection, StageLoadPolicy, StageSummary, UsdBackend,
     UsdError,
 };
 
@@ -1279,7 +1279,7 @@ pub fn run() {
             }
 
             app.manage(PendingUpdateState::default());
-            app.manage(UsdBackendState::new(OpenusdBackend::new()));
+            app.manage(UsdBackendState::new(DefaultBackend::new()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
