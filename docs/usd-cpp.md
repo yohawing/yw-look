@@ -7,13 +7,30 @@ yw-look の USD パースを Pixar OpenUSD C++ 経由で行うための手順書
 
 ## 位置づけ
 
-- **default** は `backend-openusd-rs` feature（`yohawing/openusd` fork、pure Rust）
-- **`backend-openusd-cpp`** feature を付けたときのみ Pixar OpenUSD C++ に切り替わる
+- **default** は `backend-openusd-cpp` feature（Pixar OpenUSD via vcpkg）_（Phase 2.J 以降）_
+- pure-Rust フォールバックは `backend-openusd-rs` を明示的に opt-in したとき有効化
+  (`cargo build --no-default-features --features backend-openusd-rs`)
 - 対応プラットフォーム: **Windows MSVC x64** / **macOS arm64** のみ
-- PoC スコープ: **Inspector API のみ**
-  - `inspect_stage` / `summarize_stage` / `collect_asset_issues` / `root_layer_is_binary`
-  - `requires_glb_preview` は常に `false`、`extract_geometry_glb` は明示エラー
-  - 3D 描画経路は引き続き Rust fork（default feature）を使う
+  - Linux は `compile_error!` で明示的に切り捨て（`src/usd/mod.rs`）。Linux で
+    ビルドする場合は上記 opt-in で Rust fork へ切り替える必要がある
+- 実装範囲（Phase 2.A〜2.J 完了時点）:
+  - **Inspector**: `inspect_stage` / `summarize_stage` /
+    `collect_asset_issues` / `root_layer_is_binary`（Phase 1）
+  - **Geometry → GLB**: `requires_glb_preview` / `extract_geometry_glb`
+    は Rust fork と同経路（`mesh_data_to_input` を共有）で動作。mesh /
+    xform / visibility / orientation / UV の index-expansion をカバー。
+  - **Material**: UsdPreviewSurface スカラー入力 (diffuseColor /
+    metallic / roughness / opacity / emissiveColor) + 接続先
+    UsdUVTexture の asset path 解決。テクスチャは USDZ archive と
+    filesystem 両方から解決（`TextureLoader` を共通化）。
+  - **Light / Camera**: UsdLux DistantLight → Directional,
+    SphereLight → Point、UsdGeomCamera の perspective。
+  - **displayColor**: constant interpolation → material fallback,
+    per-vertex / faceVarying → glTF COLOR_0（triangulator 経由）。
+- 既知の未対応（将来フェーズ）:
+  - UsdSkel（skeleton / skinning / animation / blend shapes）
+  - GeomSubset（per-face material 分割）
+  - UsdTransform2d, normal map, wrapS/wrapT 対応
 
 ## 仕組み
 
@@ -117,25 +134,34 @@ Visual Studio 2022 / 2026 に同梱の `clang-format` / `clang-tidy` には
 ```sh
 cd yw-look/src-tauri
 
-# C++ feature OFF（default）。従来どおり。
+# Phase 2.J 以降は default が C++ backend。初回は vcpkg が OpenUSD を
+# source build するため 30〜60 分かかる。2 回目以降は vcpkg の binary
+# cache から秒で復元される。vcpkg.json / baseline SHA を書き換えた
+# ときだけ再ビルドが走る。
 cargo build
 
-# C++ feature ON。初回は vcpkg が OpenUSD を source build するため 30〜60 分かかる。
-cargo build --no-default-features --features backend-openusd-cpp
+# pure-Rust fork へ切り替えたい場合（パリティ確認 / Linux 等）
+cargo build --no-default-features --features backend-openusd-rs
 ```
 
-2 回目以降は vcpkg の binary cache から秒で復元される。vcpkg.json / baseline SHA を
-書き換えたときだけ再ビルドが走る。
-
 ## 配布ビルド
+
+Phase 2.J 以降は **default** が C++ backend なので、`tauri build` に
+feature flag を渡さなくても cpp backend でビルドされる。以前のドキュメント
+は `yw_look_lib/backend-openusd-cpp` を明示していたが、`yw-look` パッケージ
+の lib / bin は同じ `src-tauri/Cargo.toml` に属するので `backend-openusd-cpp`
+と直接指定すればよい（`--features "<lib-name>/..."` 形式は不要）。
 
 ### Windows
 
 ```powershell
 cd yw-look
+# Phase 2.J 以降は feature flag 省略可（default = cpp）
+npm run tauri build -- --config src-tauri/tauri.windows.json
+
+# 明示したい場合
 npm run tauri build -- `
-  --no-default-features `
-  --features "yw_look_lib/backend-openusd-cpp" `
+  --features backend-openusd-cpp `
   --config src-tauri/tauri.windows.json
 ```
 
@@ -159,9 +185,12 @@ bin/` 配下の `usd_*.dll` をすべて prefix マッチで拾うので、port 
 
 ```sh
 cd yw-look
+# Phase 2.J 以降は feature flag 省略可（default = cpp）
+npm run tauri build -- --config src-tauri/tauri.macos.json
+
+# 明示したい場合
 npm run tauri build -- \
-  --no-default-features \
-  --features "yw_look_lib/backend-openusd-cpp" \
+  --features backend-openusd-cpp \
   --config src-tauri/tauri.macos.json
 ```
 
@@ -359,23 +388,41 @@ $VCPKG_ROOT/vcpkg depend-info usd --triplet=x64-windows
 
 出力されたリストのうち実際にリンクされているもの分だけライセンスを集めればよい。
 
-## Exit rule / 撤退
+## Rust fork 撤退条件（Phase 2.J 以降の反転版）
 
-以下のいずれかに該当したら C++ バックエンドは廃止し、`backend-openusd-rs` 単独運用に戻す:
+Phase 2.J で C++ backend が default になったので、Exit rule は「C++ を
+止めて Rust fork に戻る」判断ではなく「Rust fork を `backend-openusd-rs`
+feature ごと廃止して cpp 一本化に振る」判断基準になる。
 
-- `usd_ms.dll` + 依存の合計が 150 MB を超える
-- クリーン Windows 環境で起動できない（C++ ランタイム / side-by-side エラー）
-- クリーン macOS 環境で起動できない（codesign / rpath / quarantine）
+Rust fork を落としてよい条件:
+
+- Windows / macOS の配布ビルドが 30 日以上連続でグリーン
+- cpp / rs 両 backend の parity test（`tiny_usda_glb_parity_with_rust_backend`）
+  が Phase 2.G（UsdSkel）／GeomSubset 実装後も成立し続ける
+- Linux サポート（vcpkg toolchain の整備）の見通しが立たない or 不要が
+  確定している
+- 開発者が Rust fork 側のバグ修正を取り込み続けるコストより、
+  cpp 一本化のメンテ簡素化コストが勝るという判断
+
+逆に以下のいずれかが起きたら **cpp を撤退** し、default を `backend-openusd-rs`
+に戻す:
+
+- 配布ビルド (`usd_*.dll` + 依存) 合計が 150 MB を超える
+- クリーン Windows / macOS で起動できない恒久的な問題（C++ ランタイム /
+  side-by-side / codesign / rpath / quarantine）が 2 週間以上解決しない
 - C shim でクラッシュが 1 アセット / 1000 file open 以上
 - vcpkg の `usd` port が壊れ、fix が 3 ヶ月以上来ない
 - MSI / .app ビルド（CI の cache hit 時）に 3 分以上加算
 
-撤退手順:
+撤退手順（cpp 側を落とす場合）:
 
-1. `Cargo.toml` から `backend-openusd-cpp` feature と optional deps を削除
-2. `src-tauri/src/usd/cpp_sys/` / `openusd_cpp_backend.rs` を削除
-3. `src-tauri/third_party/usd_c_shim/` / `vcpkg.json` / `vcpkg-configuration.json` を削除
-4. `tauri.windows.json` / `tauri.macos.json` を削除
-5. `docs/usd-cpp-poc.md` に「なぜ止めたか」の最終節を追記して保存（歴史資料として残す）
+1. `Cargo.toml` の `default` を `["backend-openusd-rs"]` に戻す
+2. `Cargo.toml` から `backend-openusd-cpp` feature と optional deps を削除
+3. `src-tauri/src/usd/cpp_sys/` / `openusd_cpp_backend.rs` を削除
+4. `src-tauri/third_party/usd_c_shim/` / `vcpkg.json` / `vcpkg-configuration.json` を削除
+5. `tauri.windows.json` / `tauri.macos.json` を削除
+6. `src-tauri/src/usd/mod.rs` の Linux `compile_error!` ガードを削除
+7. `.github/workflows/ci-cpp-backend.yml` を削除、`ci.yml` の Linux opt-out を戻す
+8. `docs/usd-cpp-poc.md` に「なぜ止めたか」の最終節を追記して保存
 
-撤退後も計画書は履歴に残す — 同じ判断を後で再検討するときの材料になる。
+計画書は履歴に残す — 同じ判断を後で再検討するときの材料になる。

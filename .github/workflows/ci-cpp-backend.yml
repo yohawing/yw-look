@@ -10,23 +10,20 @@ name: CI — USD C++ backend (PoC)
 # full design.
 
 on:
-  # Alpha phase: `develop` gets direct pushes and is intentionally
-  # excluded here — the C++ PoC build is 30-60 min and doesn't block
-  # alpha iteration. Re-add `develop` once the Exit rule items in
-  # docs/usd-cpp-poc.md are cleared.
+  # Phase 2.J flipped the C++ backend to default, so `develop` pushes
+  # now trigger this workflow too (the previous alpha-period carve-out
+  # is gone — if cpp ships as the default it has to stay green on the
+  # dev branch).
   #
-  # Path filters are scoped to files that *actually* affect the C++
+  # Path filters stay scoped to files that actually affect the C++
   # build: the shim, the vcpkg manifests, the Rust bindgen/cpp side,
-  # the dedicated integration test, and the sample fixtures the test
-  # opens. Changes to the shared trait (`backend.rs`), the pure-Rust
-  # backend (`openusd_backend.rs`), module wiring (`mod.rs`,
-  # `lib.rs`), or types (`types.rs`) are intentionally excluded while
-  # the PoC iterates — a trait-signature mismatch that would break
-  # the C++ impl is caught by the main-targeting PR run or by manual
-  # `workflow_dispatch`. See docs/usd-cpp-poc.md for the exit path.
+  # the dedicated integration tests, and the sample fixtures the
+  # tests open. Module wiring (`mod.rs`, `lib.rs`) is now included
+  # because the default-feature flip means it gates the build graph.
   push:
     branches:
       - main
+      - develop
       - "claude/openusd-cpp-wrapper-**"
     paths:
       - "src-tauri/Cargo.toml"
@@ -35,15 +32,15 @@ on:
       - "src-tauri/vcpkg-configuration.json"
       - "src-tauri/third_party/usd_c_shim/**"
       - "src-tauri/src/usd/cpp_sys/**"
+      - "src-tauri/src/usd/mod.rs"
       - "src-tauri/src/usd/openusd_cpp_backend.rs"
-      - "src-tauri/tests/cpp_backend_inspector.rs"
+      - "src-tauri/tests/cpp_backend_*.rs"
       - "samples/assets/usd/**"
       - ".github/workflows/ci-cpp-backend.yml"
   pull_request:
-    # Only run on PRs into `main`; PRs into `develop` are the alpha
-    # iteration flow and skip this job to stay nimble.
     branches:
       - main
+      - develop
     paths:
       - "src-tauri/Cargo.toml"
       - "src-tauri/build.rs"
@@ -51,8 +48,9 @@ on:
       - "src-tauri/vcpkg-configuration.json"
       - "src-tauri/third_party/usd_c_shim/**"
       - "src-tauri/src/usd/cpp_sys/**"
+      - "src-tauri/src/usd/mod.rs"
       - "src-tauri/src/usd/openusd_cpp_backend.rs"
-      - "src-tauri/tests/cpp_backend_inspector.rs"
+      - "src-tauri/tests/cpp_backend_*.rs"
       - "samples/assets/usd/**"
       - ".github/workflows/ci-cpp-backend.yml"
   workflow_dispatch:
@@ -181,30 +179,30 @@ jobs:
           brew list --formula llvm >/dev/null 2>&1 || brew install llvm
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
 
-      - name: Cargo check (feature OFF — baseline guard)
+      - name: Cargo check (default — now cpp backend post-Phase-2.J)
         working-directory: src-tauri
         shell: bash
         run: cargo check
 
-      - name: Cargo check (backend-openusd-cpp)
+      - name: Cargo check (Rust fork backend, opt-in)
         working-directory: src-tauri
         shell: bash
-        run: cargo check --no-default-features --features backend-openusd-cpp
+        run: cargo check --no-default-features --features backend-openusd-rs
 
       - name: Cargo test (cpp backend integration tests)
         working-directory: src-tauri
         shell: bash
         run: |
-          # Scope to the cpp_backend_inspector integration test so a
-          # regression in the Rust fork backend's own unit tests (which
-          # compile in unconditionally because the `openusd` dependency
-          # is not feature-gated) doesn't muddy the cpp-only signal.
-          # Parity tests that need both backends live in the parity job
-          # below.
+          # Run every `cpp_backend_*` integration test. The inspector
+          # test covers Phase 1 surfaces; `cpp_backend_geometry` covers
+          # Phase 2.C–2.I.1 (geometry, materials, textures, displayColor
+          # fallback). Parity tests that need both backends live in the
+          # parity job below.
           cargo test \
             --no-default-features \
             --features backend-openusd-cpp \
-            --test cpp_backend_inspector
+            --test cpp_backend_inspector \
+            --test cpp_backend_geometry
 
   cpp-backend-parity:
     # Runs only when both backends can be built together so the
@@ -267,8 +265,11 @@ jobs:
         shell: bash
         run: |
           # Parity tests are the only ones that exercise both concrete
-          # backends side-by-side; scoping to the integration test keeps
-          # the signal targeted.
+          # backends side-by-side; scoping to the integration tests
+          # keeps the signal targeted. `cpp_backend_geometry` carries
+          # the Phase 2.D parity test (tiny_usda_glb_parity_with_rust_backend)
+          # which is gated behind both features being on.
           cargo test \
             --features "backend-openusd-rs backend-openusd-cpp" \
-            --test cpp_backend_inspector
+            --test cpp_backend_inspector \
+            --test cpp_backend_geometry

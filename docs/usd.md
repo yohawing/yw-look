@@ -2,6 +2,13 @@
 
 `yw-look` の USD サポートを Phase ごとに記録する。方針決定・実装記録・次フェーズの計画をこのファイルに一元管理する。
 
+> **Note (Phase 2.J / 2026-04 以降)**: default backend は Pixar OpenUSD
+> via vcpkg の **C++ backend** に切り替わった。この `usd.md` に書かれて
+> いる Phase 0〜Phase 7 の実装は `yohawing/openusd` fork (pure Rust) 側
+> の記録で、現在は `backend-openusd-rs` feature を明示的に opt-in した
+> 場合に動く。
+> C++ backend の設計・手順は [`docs/usd-cpp.md`](./usd-cpp.md) を参照。
+
 ---
 
 ## Phase 0 — PoC（完了）
