@@ -6043,8 +6043,9 @@ def Xform "Root"
     /// glTF `cameras` array with the resolved yfov + aspect ratio +
     /// clipping range, and a scene node carrying `camera: i`
     /// pointing at it. Verifies the mm → radians yfov math against
-    /// known USD defaults (focal 50mm, vertAp 24mm → yfov ≈ 0.2676
-    /// rad).
+    /// known USD defaults: a 35mm full-frame sensor (vertAp 24mm)
+    /// with a 50mm "normal" lens resolves to the canonical ~27°
+    /// vertical FOV (`2·atan(24 / (2·50)) ≈ 0.4711` rad).
     #[test]
     fn extract_geometry_emits_authored_cameras() -> std::io::Result<()> {
         let tmp_dir = std::env::temp_dir().join("yw_look_phase7b_camera");
@@ -6097,11 +6098,12 @@ def Xform "Root"
         let cam = &cameras[0];
         assert_eq!(cam["type"], "perspective");
 
-        // yfov = 2 * atan(24 / (2 * 50)) ≈ 0.26761585 rad
+        // yfov = 2 * atan(24 / (2 * 50)) ≈ 0.4711 rad (27° vertical
+        // FOV — the canonical "50mm normal lens on full frame" pair).
         let yfov = cam["perspective"]["yfov"].as_f64().unwrap();
         assert!(
-            (yfov - 0.26761585).abs() < 1e-4,
-            "yfov = {yfov}, expected ≈ 0.26761585 rad"
+            (yfov - 0.4711).abs() < 1e-4,
+            "yfov = {yfov}, expected ≈ 0.4711 rad"
         );
         // aspect = 36 / 24 = 1.5
         let aspect = cam["perspective"]["aspectRatio"].as_f64().unwrap();
