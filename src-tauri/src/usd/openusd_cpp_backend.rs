@@ -707,7 +707,14 @@ fn resolve_lights_cpp(
         let color = stage
             .prim_attr_color3f(&prim_path, "inputs:color")
             .unwrap_or([1.0, 1.0, 1.0]);
-        let mut world = stage.prim_world_matrix(&prim_path).unwrap_or_else(identity_mat4);
+        // Skip (rather than fall back to identity) when the light
+        // prim isn't xformable — matches the Rust backend, which
+        // `continue`s in the same situation. An identity-matrix
+        // fallback would emit a ghost light at the origin for
+        // malformed assets and break parity deterministic ordering.
+        let Some(mut world) = stage.prim_world_matrix(&prim_path) else {
+            continue;
+        };
         if let Some(correction) = up_correction {
             world = mat4_mul(correction, &world);
         }
@@ -759,7 +766,13 @@ fn resolve_cameras_cpp(
             None => (0.1, None),
         };
 
-        let mut world = stage.prim_world_matrix(&prim_path).unwrap_or_else(identity_mat4);
+        // Same skip-on-failure stance as `resolve_lights_cpp`: a
+        // non-xformable camera prim is malformed USD, and the Rust
+        // backend drops it silently rather than emitting with an
+        // identity transform.
+        let Some(mut world) = stage.prim_world_matrix(&prim_path) else {
+            continue;
+        };
         if let Some(correction) = up_correction {
             world = mat4_mul(correction, &world);
         }
