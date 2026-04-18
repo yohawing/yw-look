@@ -446,8 +446,22 @@ impl UsdBackend for OpenusdCppBackend {
             // to slot 0 (yw-look default) when the mesh has no
             // material binding or the surface shader is not a
             // UsdPreviewSurface.
-            triangulated.material_index = resolve_material_slot_cpp(
+            let bound_slot = resolve_material_slot_cpp(
                 &stage,
+                prim_path,
+                &mut materials,
+                &mut material_slots,
+                &mut material_texture_paths,
+            );
+            // Phase 2.I.1: when the mesh has no bound material and
+            // carries a constant `primvars:displayColor`, promote the
+            // color into a dedicated material slot so unshaded meshes
+            // still pick up the authored tint. Per-vertex / varying
+            // interpolations already flow through to COLOR_0 via the
+            // shared triangulator in `mesh_data_to_input`.
+            triangulated.material_index = apply_display_color_fallback_cpp(
+                bound_slot,
+                &raw,
                 prim_path,
                 &mut materials,
                 &mut material_slots,
@@ -613,6 +627,58 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
         joints_per_vertex: 0,
         display_color,
     })
+}
+
+/// Phase 2.I.1: displayColor fallback for cpp backend. When a mesh
+/// has no bound material (slot 0) but authors a constant
+/// `primvars:displayColor`, create a dedicated material slot so the
+/// viewer picks up the authored color instead of the yw-look default
+/// grey. Mirrors `apply_display_color_fallback` on the Rust backend;
+/// keeps a separate copy so the cpp backend doesn't need to grow the
+/// `material_normal_paths` argument the Rust fallback threads through.
+fn apply_display_color_fallback_cpp(
+    slot: usize,
+    mesh: &MeshData,
+    prim_path: &str,
+    materials: &mut Vec<MaterialInput>,
+    material_slots: &mut std::collections::HashMap<String, usize>,
+    material_texture_paths: &mut Vec<Option<String>>,
+) -> usize {
+    if slot != 0 {
+        return slot;
+    }
+    let Some(dc) = &mesh.display_color else { return 0 };
+    // Only the constant-interpolation case makes sense as a material
+    // fallback; per-vertex / faceVarying display colors flow into
+    // COLOR_0 via `mesh_data_to_input` and don't need a material
+    // slot.
+    if dc.len() != 3 {
+        return 0;
+    }
+    let key = format!("displayColor:{:.4},{:.4},{:.4}", dc[0], dc[1], dc[2]);
+    if let Some(&existing) = material_slots.get(&key) {
+        return existing;
+    }
+    let mut mi = MaterialInput::default_preview();
+    mi.name = format!("dc:{prim_path}");
+    mi.base_color_factor = [
+        srgb_to_linear(dc[0]),
+        srgb_to_linear(dc[1]),
+        srgb_to_linear(dc[2]),
+        1.0,
+    ];
+    // displayColor is a preview-only signal; leave metallic at 0 and
+    // roughness at a slightly smoother default than the yw-look
+    // fallback (0.9) so the result looks plausible for untextured
+    // assets that mostly use displayColor for colored solids.
+    mi.metallic_factor = 0.0;
+    mi.roughness_factor = 0.5;
+
+    let s = materials.len();
+    materials.push(mi);
+    material_texture_paths.push(None);
+    material_slots.insert(key, s);
+    s
 }
 
 /// Phase 2.H: enumerate UsdLux light prims and resolve each to a
