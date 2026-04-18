@@ -232,12 +232,27 @@ process.exit(verdict.ok ? 0 : 1);
 
 async function runUsdToGlb(inputAbs, outputAbs) {
   const cargoManifest = path.resolve("src-tauri/Cargo.toml");
+  // Backend is chosen at build time via Cargo features:
+  //   YW_LOOK_USD_BACKEND=cpp  → vcpkg OpenUSD via usd_c_shim
+  //                               (requires VCPKG_ROOT + LLVM locally)
+  //   anything else / unset    → yohawing/openusd Rust fork (default)
+  // `usd_to_glb` uses `DefaultBackend`, which resolves per feature in
+  // src/usd/mod.rs — flipping this env var is enough to drive the two
+  // backends through the same preview-model skill.
+  const backend = (process.env.YW_LOOK_USD_BACKEND || "").toLowerCase();
+  const features = [];
+  const noDefault = backend === "cpp";
+  if (backend === "cpp") {
+    features.push("backend-openusd-cpp");
+  }
   const args = [
     "run",
     "--quiet",
     "--release",
     "--manifest-path",
     cargoManifest,
+    ...(noDefault ? ["--no-default-features"] : []),
+    ...(features.length > 0 ? ["--features", features.join(",")] : []),
     "--bin",
     "usd_to_glb",
     "--",

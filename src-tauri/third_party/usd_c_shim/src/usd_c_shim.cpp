@@ -51,9 +51,21 @@
 #include <pxr/usd/usd/references.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/variantSets.h>
+#include <pxr/base/gf/matrix4d.h>
+#include <pxr/base/vt/array.h>
+#include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/metrics.h>
+#include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usdGeom/xformable.h>
+#include <pxr/usd/usdShade/connectableAPI.h>
+#include <pxr/usd/usdShade/input.h>
+#include <pxr/usd/usdShade/material.h>
+#include <pxr/usd/usdShade/materialBindingAPI.h>
+#include <pxr/usd/usdShade/output.h>
+#include <pxr/usd/usdShade/shader.h>
+#include <pxr/usd/usdShade/tokens.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -290,11 +302,19 @@ extern "C" USDC_API int usdc_stage_root_layer_is_binary(UsdcStage *stage) {
         SdfLayerHandle root = stage->stage->GetRootLayer();
         if (!root) return -1;
         /* USDC layers report GetFileFormat()->GetFormatId() == "usdc".
-         * USDA reports "usda". USDZ presents its inner root layer
-         * here (either form). */
+         * USDA reports "usda". A USDZ package reports "usdz" regardless
+         * of the inner root layer's flavor. For the purposes of yw-look's
+         * "should this go through the GLB pipeline?" router, both USDC
+         * and USDZ need to be classified as binary — the Three.js
+         * USDLoader can only handle a plain USDA text buffer, so routing
+         * a USDZ archive through it produces an empty scene. The Rust
+         * fork backend (see openusd::layer::open_layer_with_format)
+         * already reports `is_binary == true` for USDZ packages for the
+         * same reason. */
         const TfToken &fmt = root->GetFileFormat()->GetFormatId();
         static const TfToken kUsdc("usdc");
-        return (fmt == kUsdc) ? 1 : 0;
+        static const TfToken kUsdz("usdz");
+        return (fmt == kUsdc || fmt == kUsdz) ? 1 : 0;
     } catch (...) {
         return -1;
     }
@@ -590,5 +610,460 @@ extern "C" USDC_API const char *usdc_prim_variant_selection(UsdcStage *stage,
         return stage->scratch.c_str();
     } catch (...) {
         return nullptr;
+    }
+}
+
+/* -------------------- geometry -------------------- */
+
+namespace {
+
+/* Map a pxr interpolation token to the shim's vocabulary. Unknown /
+ * missing tokens map to USDC_INTERP_UNKNOWN so the Rust side can
+ * fall back to a safe default. */
+UsdcInterpolation map_interp(const TfToken &tok) {
+    if (tok == UsdGeomTokens->constant)    return USDC_INTERP_CONSTANT;
+    if (tok == UsdGeomTokens->uniform)     return USDC_INTERP_UNIFORM;
+    if (tok == UsdGeomTokens->varying)     return USDC_INTERP_VARYING;
+    if (tok == UsdGeomTokens->vertex)      return USDC_INTERP_VERTEX;
+    if (tok == UsdGeomTokens->faceVarying) return USDC_INTERP_FACE_VARYING;
+    return USDC_INTERP_UNKNOWN;
+}
+
+/* Call `cb(data, count, user)` with the contents of a VtArray, coerced
+ * to a flat view of the element type's underlying scalar. Handles
+ * VtArray<GfVec3f>, <GfVec2f>, <float> uniformly because the memory
+ * layout is contiguous and VtArray guarantees a trivially-copyable
+ * storage for these types. Emits (NULL, 0) on empty or on failure. */
+template <typename T>
+void emit_float_array(const VtArray<T> &arr,
+                      UsdcFloatBufferCallback cb,
+                      void *user,
+                      size_t stride) {
+    if (!cb) return;
+    if (arr.empty()) {
+        cb(nullptr, 0, user);
+        return;
+    }
+    const float *data = reinterpret_cast<const float *>(arr.cdata());
+    cb(data, arr.size() * stride, user);
+}
+
+void emit_empty_floats(UsdcFloatBufferCallback cb, void *user) {
+    if (cb) cb(nullptr, 0, user);
+}
+void emit_empty_ints(UsdcI32BufferCallback cb, void *user) {
+    if (cb) cb(nullptr, 0, user);
+}
+
+/* Walks the imageable ancestor chain, returning false if any ancestor
+ * deactivates the subtree. `active` is not strictly inheritable, but
+ * UsdPrim::IsActive already collapses that — a deactivated ancestor
+ * suppresses IsActive on every descendant. */
+bool is_visible_under_default_purpose(const UsdPrim &prim) {
+    if (!prim || !prim.IsActive()) return false;
+    UsdGeomImageable img(prim);
+    if (!img) return true; /* non-imageable prim; inherit visibility */
+    /* ComputeVisibility returns "invisible" if the prim or any
+     * ancestor authored visibility = invisible. */
+    TfToken vis = img.ComputeVisibility();
+    if (vis == UsdGeomTokens->invisible) return false;
+    /* ComputePurpose resolves to the effective purpose after
+     * inheritance. Default + render are both renderable under the
+     * default viewer purpose; proxy and guide are hidden. */
+    TfToken purpose = img.ComputePurpose();
+    if (purpose == UsdGeomTokens->proxy || purpose == UsdGeomTokens->guide) {
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+extern "C" USDC_API int usdc_prim_is_renderable_mesh(UsdcStage *stage,
+                                                     const char *prim_path) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return 0;
+    try {
+        if (!prim.IsA<UsdGeomMesh>()) return 0;
+        return is_visible_under_default_purpose(prim) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" USDC_API int usdc_prim_world_matrix(UsdcStage *stage,
+                                               const char *prim_path,
+                                               double out_matrix[16]) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim || !out_matrix) return 0;
+    try {
+        UsdGeomXformable xf(prim);
+        if (!xf) return 0;
+        bool reset = false;
+        GfMatrix4d m =
+            xf.ComputeLocalToWorldTransform(UsdTimeCode::Default());
+        (void)reset;
+        /* GfMatrix4d is row-major in memory (M[row][col]); glTF expects
+         * column-major. Transpose during the copy so Rust receives
+         * glTF-compatible layout directly. */
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                out_matrix[c * 4 + r] = m[r][c];
+            }
+        }
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" USDC_API UsdcOrientation usdc_mesh_orientation(UsdcStage *stage,
+                                                          const char *prim_path) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return USDC_ORIENT_RIGHT_HANDED;
+    try {
+        UsdGeomMesh mesh(prim);
+        if (!mesh) return USDC_ORIENT_RIGHT_HANDED;
+        TfToken tok;
+        if (!mesh.GetOrientationAttr().Get(&tok)) {
+            return USDC_ORIENT_RIGHT_HANDED;
+        }
+        return (tok == UsdGeomTokens->leftHanded)
+                   ? USDC_ORIENT_LEFT_HANDED
+                   : USDC_ORIENT_RIGHT_HANDED;
+    } catch (...) {
+        return USDC_ORIENT_RIGHT_HANDED;
+    }
+}
+
+extern "C" USDC_API void usdc_mesh_points(UsdcStage *stage,
+                                          const char *prim_path,
+                                          UsdcFloatBufferCallback cb,
+                                          void *user) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdGeomMesh mesh(prim);
+        if (!mesh) { emit_empty_floats(cb, user); return; }
+        VtArray<GfVec3f> pts;
+        if (!mesh.GetPointsAttr().Get(&pts)) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        emit_float_array(pts, cb, user, 3);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_mesh_face_vertex_counts(UsdcStage *stage,
+                             const char *prim_path,
+                             UsdcI32BufferCallback cb,
+                             void *user) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim || !cb) { emit_empty_ints(cb, user); return; }
+    try {
+        UsdGeomMesh mesh(prim);
+        if (!mesh) { emit_empty_ints(cb, user); return; }
+        VtArray<int> counts;
+        if (!mesh.GetFaceVertexCountsAttr().Get(&counts) || counts.empty()) {
+            emit_empty_ints(cb, user);
+            return;
+        }
+        cb(counts.cdata(), counts.size(), user);
+    } catch (...) {
+        emit_empty_ints(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_mesh_face_vertex_indices(UsdcStage *stage,
+                              const char *prim_path,
+                              UsdcI32BufferCallback cb,
+                              void *user) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim || !cb) { emit_empty_ints(cb, user); return; }
+    try {
+        UsdGeomMesh mesh(prim);
+        if (!mesh) { emit_empty_ints(cb, user); return; }
+        VtArray<int> indices;
+        if (!mesh.GetFaceVertexIndicesAttr().Get(&indices) || indices.empty()) {
+            emit_empty_ints(cb, user);
+            return;
+        }
+        cb(indices.cdata(), indices.size(), user);
+    } catch (...) {
+        emit_empty_ints(cb, user);
+    }
+}
+
+extern "C" USDC_API void usdc_mesh_normals(UsdcStage *stage,
+                                           const char *prim_path,
+                                           UsdcFloatBufferCallback cb,
+                                           void *user,
+                                           UsdcInterpolation *out_interp) {
+    if (out_interp) *out_interp = USDC_INTERP_UNKNOWN;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdGeomMesh mesh(prim);
+        if (!mesh) { emit_empty_floats(cb, user); return; }
+        VtArray<GfVec3f> normals;
+        if (!mesh.GetNormalsAttr().Get(&normals) || normals.empty()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        if (out_interp) {
+            *out_interp = map_interp(mesh.GetNormalsInterpolation());
+        }
+        emit_float_array(normals, cb, user, 3);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API void usdc_mesh_uvs(UsdcStage *stage,
+                                       const char *prim_path,
+                                       UsdcFloatBufferCallback cb,
+                                       void *user,
+                                       UsdcInterpolation *out_interp) {
+    if (out_interp) *out_interp = USDC_INTERP_UNKNOWN;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdGeomPrimvarsAPI api(prim);
+        UsdGeomPrimvar uv = api.GetPrimvar(TfToken("primvars:st"));
+        /* Fall back to the alternate primvars:uv spelling that some
+         * authoring tools emit. */
+        if (!uv) {
+            uv = api.GetPrimvar(TfToken("primvars:uv"));
+        }
+        if (!uv || !uv.HasValue()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        VtArray<GfVec2f> values;
+        if (!uv.Get(&values) || values.empty()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        if (out_interp) {
+            *out_interp = map_interp(uv.GetInterpolation());
+        }
+        emit_float_array(values, cb, user, 2);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API void usdc_mesh_uv_indices(UsdcStage *stage,
+                                              const char *prim_path,
+                                              UsdcI32BufferCallback cb,
+                                              void *user) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim || !cb) { emit_empty_ints(cb, user); return; }
+    try {
+        UsdGeomPrimvarsAPI api(prim);
+        UsdGeomPrimvar uv = api.GetPrimvar(TfToken("primvars:st"));
+        if (!uv) uv = api.GetPrimvar(TfToken("primvars:uv"));
+        if (!uv || !uv.IsIndexed()) { emit_empty_ints(cb, user); return; }
+        VtArray<int> indices;
+        if (!uv.GetIndices(&indices) || indices.empty()) {
+            emit_empty_ints(cb, user);
+            return;
+        }
+        cb(indices.cdata(), indices.size(), user);
+    } catch (...) {
+        emit_empty_ints(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_mesh_display_color(UsdcStage *stage,
+                        const char *prim_path,
+                        UsdcFloatBufferCallback cb,
+                        void *user,
+                        UsdcInterpolation *out_interp) {
+    if (out_interp) *out_interp = USDC_INTERP_UNKNOWN;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdGeomPrimvarsAPI api(prim);
+        UsdGeomPrimvar dc = api.GetPrimvar(TfToken("primvars:displayColor"));
+        if (!dc || !dc.HasValue()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        VtArray<GfVec3f> colors;
+        if (!dc.Get(&colors) || colors.empty()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        if (out_interp) {
+            *out_interp = map_interp(dc.GetInterpolation());
+        }
+        emit_float_array(colors, cb, user, 3);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+/* -------------------- material / shading (Phase 2.E.1) -------------------- */
+
+extern "C" USDC_API const char *
+usdc_prim_bound_material(UsdcStage *stage, const char *prim_path) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return nullptr;
+    try {
+        UsdShadeMaterialBindingAPI binding(prim);
+        /* Direct binding only — yw-look's Rust backend also reads the
+         * direct binding via `stage.bound_material`, so parity is
+         * maintained by avoiding the full collection-lookup path here. */
+        UsdShadeMaterial mat = binding.ComputeBoundMaterial();
+        if (!mat) return nullptr;
+        stage->scratch = mat.GetPath().GetString();
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API const char *
+usdc_material_surface_shader(UsdcStage *stage, const char *mat_path) {
+    UsdPrim prim = prim_at(stage, mat_path);
+    if (!prim) return nullptr;
+    try {
+        UsdShadeMaterial mat(prim);
+        if (!mat) return nullptr;
+        /* Universal render-context first (no token). Fall back to mtlx
+         * so MaterialX-authored assets still surface a shader when the
+         * universal output is unauthored. */
+        UsdShadeShader shader = mat.ComputeSurfaceSource();
+        if (!shader) {
+            shader = mat.ComputeSurfaceSource({TfToken("mtlx")});
+        }
+        if (!shader) return nullptr;
+        stage->scratch = shader.GetPath().GetString();
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API const char *
+usdc_shader_id(UsdcStage *stage, const char *shader_path) {
+    UsdPrim prim = prim_at(stage, shader_path);
+    if (!prim) return nullptr;
+    try {
+        UsdShadeShader shader(prim);
+        if (!shader) return nullptr;
+        TfToken id;
+        if (!shader.GetShaderId(&id) || id.IsEmpty()) return nullptr;
+        stage->scratch = id.GetString();
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API int
+usdc_shader_input_float(UsdcStage *stage,
+                        const char *shader_path,
+                        const char *input_name,
+                        float *out) {
+    if (!out || !input_name) return 0;
+    UsdPrim prim = prim_at(stage, shader_path);
+    if (!prim) return 0;
+    try {
+        UsdShadeShader shader(prim);
+        if (!shader) return 0;
+        /* Accept both the leading-"inputs:" form and the bare input
+         * name, matching how Rust callers spell the attribute. */
+        TfToken token(input_name);
+        std::string raw = input_name;
+        if (raw.rfind("inputs:", 0) == 0) {
+            token = TfToken(raw.substr(7));
+        }
+        UsdShadeInput in = shader.GetInput(token);
+        if (!in) return 0;
+        UsdAttribute attr = in.GetAttr();
+        if (!attr) return 0;
+        VtValue v;
+        if (!attr.Get(&v)) return 0;
+        if (v.IsHolding<float>()) {
+            *out = v.UncheckedGet<float>();
+            return 1;
+        }
+        if (v.IsHolding<double>()) {
+            *out = static_cast<float>(v.UncheckedGet<double>());
+            return 1;
+        }
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" USDC_API int
+usdc_shader_input_has_connection(UsdcStage *stage,
+                                 const char *shader_path,
+                                 const char *input_name) {
+    if (!input_name) return 0;
+    UsdPrim prim = prim_at(stage, shader_path);
+    if (!prim) return 0;
+    try {
+        UsdShadeShader shader(prim);
+        if (!shader) return 0;
+        TfToken token(input_name);
+        std::string raw = input_name;
+        if (raw.rfind("inputs:", 0) == 0) {
+            token = TfToken(raw.substr(7));
+        }
+        UsdShadeInput in = shader.GetInput(token);
+        if (!in) return 0;
+        return in.HasConnectedSource() ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" USDC_API int
+usdc_shader_input_color3f(UsdcStage *stage,
+                          const char *shader_path,
+                          const char *input_name,
+                          float out[3]) {
+    if (!out || !input_name) return 0;
+    UsdPrim prim = prim_at(stage, shader_path);
+    if (!prim) return 0;
+    try {
+        UsdShadeShader shader(prim);
+        if (!shader) return 0;
+        TfToken token(input_name);
+        std::string raw = input_name;
+        if (raw.rfind("inputs:", 0) == 0) {
+            token = TfToken(raw.substr(7));
+        }
+        UsdShadeInput in = shader.GetInput(token);
+        if (!in) return 0;
+        UsdAttribute attr = in.GetAttr();
+        if (!attr) return 0;
+        VtValue v;
+        if (!attr.Get(&v)) return 0;
+        if (v.IsHolding<GfVec3f>()) {
+            const GfVec3f &c = v.UncheckedGet<GfVec3f>();
+            out[0] = c[0]; out[1] = c[1]; out[2] = c[2];
+            return 1;
+        }
+        if (v.IsHolding<GfVec3d>()) {
+            const GfVec3d &c = v.UncheckedGet<GfVec3d>();
+            out[0] = static_cast<float>(c[0]);
+            out[1] = static_cast<float>(c[1]);
+            out[2] = static_cast<float>(c[2]);
+            return 1;
+        }
+        return 0;
+    } catch (...) {
+        return 0;
     }
 }

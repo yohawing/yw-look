@@ -13,7 +13,7 @@
 
 use std::{path::PathBuf, process::ExitCode};
 
-use yw_look_lib::usd::{OpenusdBackend, StageLoadPolicy, UsdBackend};
+use yw_look_lib::usd::{DefaultBackend, StageLoadPolicy, UsdBackend};
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
@@ -32,7 +32,7 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let backend = OpenusdBackend::new();
+    let backend = DefaultBackend::new();
     let bytes = match backend.extract_geometry_glb(&input_path, StageLoadPolicy::LoadAll) {
         Ok(v) => v,
         Err(err) => {

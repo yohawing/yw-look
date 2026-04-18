@@ -1,0 +1,42 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    metersPerUnit = 0.01
+    doc = "yw-look Phase 2.E.1 fixture: single Mesh with a bound UsdPreviewSurface that authors only scalar inputs (no texture connections). Exercises the cpp backend's material-resolve path end-to-end."
+)
+
+def Xform "Root" (
+    kind = "component"
+)
+{
+    def Mesh "Quad" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-1, 0, -1), (1, 0, -1), (1, 0, 1), (-1, 0, 1)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </Root/Looks/RedMat>
+    }
+
+    def Scope "Looks"
+    {
+        def Material "RedMat"
+        {
+            token outputs:surface.connect = </Root/Looks/RedMat/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.8, 0.1, 0.05)
+                float inputs:metallic = 0.2
+                float inputs:roughness = 0.4
+                float inputs:opacity = 1.0
+                color3f inputs:emissiveColor = (0.0, 0.0, 0.0)
+                token outputs:surface
+            }
+        }
+    }
+}

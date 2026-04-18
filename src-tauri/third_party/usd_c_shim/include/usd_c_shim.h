@@ -213,6 +213,177 @@ USDC_API const char *usdc_prim_variant_selection(UsdcStage *stage,
                                                  const char *prim_path,
                                                  const char *set_name);
 
+/* -------------------- geometry -------------------- */
+
+/* Primvar interpolation tokens, matching the pxr::UsdGeomTokens
+ * interpolation vocabulary. Returned alongside normal / UV / displayColor
+ * reads so the caller can expand faceVarying data into per-vertex layout
+ * or emit a COLOR_0 attribute as appropriate. */
+typedef enum {
+    USDC_INTERP_UNKNOWN      = -1,
+    USDC_INTERP_CONSTANT     = 0,
+    USDC_INTERP_UNIFORM      = 1,
+    USDC_INTERP_VARYING      = 2,
+    USDC_INTERP_VERTEX       = 3,
+    USDC_INTERP_FACE_VARYING = 4
+} UsdcInterpolation;
+
+/* UsdGeomMesh `orientation` token. Default (and authoring when the
+ * attribute is absent) is right-handed; left-handed meshes need their
+ * triangle indices reversed when targeting Y-up right-handed glTF. */
+typedef enum {
+    USDC_ORIENT_RIGHT_HANDED = 0,
+    USDC_ORIENT_LEFT_HANDED  = 1
+} UsdcOrientation;
+
+/* Bulk attribute readers. Called exactly once with the authored data:
+ *   - `data != NULL` and `count > 0` when the attribute is authored,
+ *   - `data == NULL` and `count == 0` when it is not.
+ *
+ * The `data` pointer is valid only for the duration of the callback,
+ * backed either by a VtArray still owned by OpenUSD or by a transient
+ * copy inside the shim. Callers must consume or memcpy the buffer
+ * before returning from the callback.
+ *
+ * `cb` may be invoked with `count == 0` even when the callback pointer
+ * itself is non-null; the trampoline on the caller side should no-op
+ * on an empty buffer. */
+typedef void (*UsdcFloatBufferCallback)(const float *data, size_t count, void *user);
+typedef void (*UsdcI32BufferCallback)(const int *data, size_t count, void *user);
+
+/* Returns 1 iff the prim at `prim_path` is a UsdGeomMesh AND its
+ * effective visibility / purpose / active state is renderable under
+ * the default render purpose.
+ *
+ * Inheritance follows UsdGeomImageable semantics:
+ *   - `active == false` anywhere on the ancestor chain → skipped.
+ *   - `visibility == invisible` inherited → skipped.
+ *   - `purpose` resolves to `proxy` or `guide` → skipped.
+ *
+ * All other failures (unknown prim, exception, non-mesh) return 0. */
+USDC_API int usdc_prim_is_renderable_mesh(UsdcStage *stage,
+                                          const char *prim_path);
+
+/* Computes UsdGeomXformable::ComputeLocalToWorldTransform at the
+ * default time code. Writes 16 column-major doubles to `out_matrix`
+ * and returns 1 on success. Returns 0 if the prim is not xformable
+ * or the computation throws; `out_matrix` is left untouched in that
+ * case. */
+USDC_API int usdc_prim_world_matrix(UsdcStage *stage,
+                                    const char *prim_path,
+                                    double out_matrix[16]);
+
+/* Reads `orientation` on a UsdGeomMesh prim. Returns
+ * USDC_ORIENT_RIGHT_HANDED if the attribute is unauthored, the prim
+ * is not a mesh, or the read fails. */
+USDC_API UsdcOrientation usdc_mesh_orientation(UsdcStage *stage,
+                                               const char *prim_path);
+
+/* Emits `points` as a flat `[x, y, z, x, y, z, ...]` float buffer. */
+USDC_API void usdc_mesh_points(UsdcStage *stage,
+                               const char *prim_path,
+                               UsdcFloatBufferCallback cb,
+                               void *user);
+
+/* Emits `faceVertexCounts`. One entry per face. */
+USDC_API void usdc_mesh_face_vertex_counts(UsdcStage *stage,
+                                           const char *prim_path,
+                                           UsdcI32BufferCallback cb,
+                                           void *user);
+
+/* Emits `faceVertexIndices`. Total length equals the sum of
+ * `faceVertexCounts`. */
+USDC_API void usdc_mesh_face_vertex_indices(UsdcStage *stage,
+                                            const char *prim_path,
+                                            UsdcI32BufferCallback cb,
+                                            void *user);
+
+/* Emits `normals` and writes the attribute's interpolation token to
+ * `*out_interp` (may be NULL to skip interpolation reporting). The
+ * flat layout is `[x, y, z, ...]`. Length semantics depend on
+ * interpolation (vertex / faceVarying / uniform / constant). */
+USDC_API void usdc_mesh_normals(UsdcStage *stage,
+                                const char *prim_path,
+                                UsdcFloatBufferCallback cb,
+                                void *user,
+                                UsdcInterpolation *out_interp);
+
+/* Emits `primvars:st` UV coordinates, flat `[u, v, ...]`. */
+USDC_API void usdc_mesh_uvs(UsdcStage *stage,
+                            const char *prim_path,
+                            UsdcFloatBufferCallback cb,
+                            void *user,
+                            UsdcInterpolation *out_interp);
+
+/* Emits `primvars:st:indices` for faceVarying UV indirection. Emits
+ * `(NULL, 0)` when the primvar does not author an indices array. */
+USDC_API void usdc_mesh_uv_indices(UsdcStage *stage,
+                                   const char *prim_path,
+                                   UsdcI32BufferCallback cb,
+                                   void *user);
+
+/* Emits `primvars:displayColor`, flat `[r, g, b, ...]`. */
+USDC_API void usdc_mesh_display_color(UsdcStage *stage,
+                                      const char *prim_path,
+                                      UsdcFloatBufferCallback cb,
+                                      void *user,
+                                      UsdcInterpolation *out_interp);
+
+/* -------------------- material / shading (Phase 2.E.1) -------------------- */
+
+/* Returns the SdfPath of the Material prim bound (direct binding,
+ * allPurpose) to `prim_path`. The returned pointer is backed by the
+ * stage's scratch buffer and must be consumed before the next shim
+ * call on this stage. Returns NULL if no binding is authored, or if
+ * the prim does not exist. */
+USDC_API const char *usdc_prim_bound_material(UsdcStage *stage,
+                                              const char *prim_path);
+
+/* Returns the SdfPath of the Shader prim connected to
+ * `outputs:surface` on the Material at `mat_path`. Resolves the
+ * universal (no render-context) output, falling back to "mtlx" if
+ * universal is unauthored. Scratch-buffer lifetime; see
+ * `usdc_prim_bound_material`. Returns NULL if no surface shader is
+ * connected or the prim is not a Material. */
+USDC_API const char *usdc_material_surface_shader(UsdcStage *stage,
+                                                  const char *mat_path);
+
+/* Returns the `info:id` token authored on `shader_path`
+ * (e.g. "UsdPreviewSurface", "UsdUVTexture", "UsdTransform2d").
+ * Scratch-buffer lifetime. Returns NULL if unauthored or the prim is
+ * not a Shader. */
+USDC_API const char *usdc_shader_id(UsdcStage *stage,
+                                    const char *shader_path);
+
+/* Reads a float or double input authored on `shader_path` by name
+ * (e.g. "inputs:roughness"). Writes the resolved value to `*out` and
+ * returns 1 on success. Returns 0 when the input is unauthored, has
+ * the wrong type, or is driven only by a connection (no fallback
+ * value). Does not traverse connections. */
+USDC_API int usdc_shader_input_float(UsdcStage *stage,
+                                     const char *shader_path,
+                                     const char *input_name,
+                                     float *out);
+
+/* Reads a color3f or color3d input authored on `shader_path` by name
+ * (e.g. "inputs:diffuseColor"). Writes [r, g, b] to `out`. Returns 0
+ * when unauthored or the wrong type. Does not traverse connections. */
+USDC_API int usdc_shader_input_color3f(UsdcStage *stage,
+                                       const char *shader_path,
+                                       const char *input_name,
+                                       float out[3]);
+
+/* Returns 1 when `input_name` on `shader_path` has at least one
+ * authored connection source (e.g. `inputs:diffuseColor.connect`
+ * pointing at a `UsdUVTexture.outputs:rgb`). This is how
+ * `UsdPreviewSurface` expresses "driven by a texture" — callers use
+ * it to neutralize `baseColorFactor` to white when a texture lookup
+ * is downstream. Returns 0 for unauthored, unconnected, or missing
+ * shader prims. */
+USDC_API int usdc_shader_input_has_connection(UsdcStage *stage,
+                                              const char *shader_path,
+                                              const char *input_name);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

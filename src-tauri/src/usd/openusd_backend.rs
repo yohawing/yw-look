@@ -2343,7 +2343,7 @@ fn usd_wrap_to_gltf(token: Option<&str>) -> u32 {
 /// make previews look too saturated and slightly darker than Storm
 /// would render them. The piecewise formula is the standard
 /// IEC 61966-2-1 decoding curve.
-fn srgb_to_linear(c: f32) -> f32 {
+pub(crate) fn srgb_to_linear(c: f32) -> f32 {
     let c = c.clamp(0.0, 1.0);
     if c <= 0.04045 {
         c / 12.92
@@ -2478,7 +2478,7 @@ fn payload_arc_state(
 /// Column-major rotation that maps a Z-up point `(x, y, z)` to the
 /// equivalent Y-up point `(x, z, -y)`. Used to bake scene up-axis
 /// conversion into mesh world matrices so the GLB is self-describing.
-fn z_up_to_y_up_mat4() -> [f64; 16] {
+pub(crate) fn z_up_to_y_up_mat4() -> [f64; 16] {
     [
         1.0, 0.0, 0.0, 0.0, //
         0.0, 0.0, -1.0, 0.0, //
@@ -2492,7 +2492,7 @@ fn z_up_to_y_up_mat4() -> [f64; 16] {
 /// reversed indices so backface culling and flat-normal generation
 /// agree with the Y-up right-handed GLTF coordinate system.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MeshOrientation {
+pub(crate) enum MeshOrientation {
     RightHanded,
     LeftHanded,
 }
@@ -3064,7 +3064,7 @@ fn identity_mat4() -> [f64; 16] {
 }
 
 /// Multiplies two column-major 4x4 matrices: `a * b`.
-fn mat4_mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
+pub(crate) fn mat4_mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
     let mut out = [0.0; 16];
     for col in 0..4 {
         for row in 0..4 {
@@ -3078,7 +3078,7 @@ fn mat4_mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
     out
 }
 
-fn mat4_f64_to_f32(m: &[f64; 16]) -> [f32; 16] {
+pub(crate) fn mat4_f64_to_f32(m: &[f64; 16]) -> [f32; 16] {
     let mut out = [0.0_f32; 16];
     for i in 0..16 {
         out[i] = m[i] as f32;
@@ -3312,7 +3312,7 @@ fn fan_triangulate(n: usize) -> Vec<[usize; 3]> {
 /// frontend's `GLTFLoader` is fast enough that this isn't a bottleneck for
 /// the asset sizes we currently care about; revisit if Kitchen Set timings
 /// regress noticeably.
-fn mesh_data_to_input(
+pub(crate) fn mesh_data_to_input(
     prim_path: &SdfPath,
     world: [f32; 16],
     data: &MeshData,

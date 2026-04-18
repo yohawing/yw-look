@@ -25,7 +25,7 @@
 )]
 
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_void};
+use std::os::raw::{c_char, c_int, c_void};
 use std::path::Path;
 
 // Raw bindings produced by bindgen from usd_c_shim.h.
@@ -77,6 +77,40 @@ pub struct Arc {
     pub asset_path: String,
     pub target_prim: Option<String>,
     pub is_loaded: bool,
+}
+
+/// Primvar interpolation token returned alongside mesh attribute reads.
+/// Mirrors the shim's `UsdcInterpolation`; `Unknown` covers both
+/// "shim returned USDC_INTERP_UNKNOWN" and "attribute not authored".
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Interpolation {
+    Unknown,
+    Constant,
+    Uniform,
+    Varying,
+    Vertex,
+    FaceVarying,
+}
+
+impl Interpolation {
+    fn from_raw(raw: UsdcInterpolation) -> Self {
+        match raw {
+            USDC_INTERP_CONSTANT => Self::Constant,
+            USDC_INTERP_UNIFORM => Self::Uniform,
+            USDC_INTERP_VARYING => Self::Varying,
+            USDC_INTERP_VERTEX => Self::Vertex,
+            USDC_INTERP_FACE_VARYING => Self::FaceVarying,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// UsdGeomMesh `orientation` token. Defaults to [`Self::RightHanded`]
+/// when the attribute is unauthored.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Orientation {
+    RightHanded,
+    LeftHanded,
 }
 
 /// RAII wrapper around a `UsdcStage*`. Freed on drop.
@@ -283,6 +317,205 @@ impl CStage {
         );
         out
     }
+
+    // ---------- geometry ----------
+
+    /// Returns `true` iff the prim at `prim_path` is a UsdGeomMesh and
+    /// its effective visibility / purpose / active state renders under
+    /// the default render purpose. The shim delegates to pxr's
+    /// UsdGeomImageable inheritance, so this matches what usdview would
+    /// display by default.
+    pub fn prim_is_renderable_mesh(&self, prim_path: &str) -> bool {
+        let Ok(c) = CString::new(prim_path) else {
+            return false;
+        };
+        unsafe { usdc_prim_is_renderable_mesh(self.raw, c.as_ptr()) != 0 }
+    }
+
+    /// Computes the prim's local-to-world transform at the default
+    /// time code. Returns 16 column-major `f64`s (glTF convention) or
+    /// `None` if the prim is not xformable.
+    pub fn prim_world_matrix(&self, prim_path: &str) -> Option<[f64; 16]> {
+        let c = CString::new(prim_path).ok()?;
+        let mut out = [0.0f64; 16];
+        let ok = unsafe { usdc_prim_world_matrix(self.raw, c.as_ptr(), out.as_mut_ptr()) };
+        (ok != 0).then_some(out)
+    }
+
+    pub fn mesh_orientation(&self, prim_path: &str) -> Orientation {
+        let Ok(c) = CString::new(prim_path) else {
+            return Orientation::RightHanded;
+        };
+        match unsafe { usdc_mesh_orientation(self.raw, c.as_ptr()) } {
+            USDC_ORIENT_LEFT_HANDED => Orientation::LeftHanded,
+            _ => Orientation::RightHanded,
+        }
+    }
+
+    pub fn mesh_points(&self, prim_path: &str) -> Vec<f32> {
+        self.read_float_attr(prim_path, |s, cb, u| unsafe {
+            usdc_mesh_points(self.raw, s, cb, u)
+        })
+    }
+
+    pub fn mesh_face_vertex_counts(&self, prim_path: &str) -> Vec<i32> {
+        self.read_i32_attr(prim_path, |s, cb, u| unsafe {
+            usdc_mesh_face_vertex_counts(self.raw, s, cb, u)
+        })
+    }
+
+    pub fn mesh_face_vertex_indices(&self, prim_path: &str) -> Vec<i32> {
+        self.read_i32_attr(prim_path, |s, cb, u| unsafe {
+            usdc_mesh_face_vertex_indices(self.raw, s, cb, u)
+        })
+    }
+
+    pub fn mesh_normals(&self, prim_path: &str) -> (Vec<f32>, Interpolation) {
+        self.read_float_attr_with_interp(prim_path, |s, cb, u, out| unsafe {
+            usdc_mesh_normals(self.raw, s, cb, u, out)
+        })
+    }
+
+    pub fn mesh_uvs(&self, prim_path: &str) -> (Vec<f32>, Interpolation) {
+        self.read_float_attr_with_interp(prim_path, |s, cb, u, out| unsafe {
+            usdc_mesh_uvs(self.raw, s, cb, u, out)
+        })
+    }
+
+    pub fn mesh_uv_indices(&self, prim_path: &str) -> Vec<i32> {
+        self.read_i32_attr(prim_path, |s, cb, u| unsafe {
+            usdc_mesh_uv_indices(self.raw, s, cb, u)
+        })
+    }
+
+    pub fn mesh_display_color(&self, prim_path: &str) -> (Vec<f32>, Interpolation) {
+        self.read_float_attr_with_interp(prim_path, |s, cb, u, out| unsafe {
+            usdc_mesh_display_color(self.raw, s, cb, u, out)
+        })
+    }
+
+    /// Direct `UsdShadeMaterialBinding` lookup (allPurpose) on a prim.
+    /// Returns the bound material's SdfPath as a Rust `String`. `None`
+    /// when no binding is authored.
+    pub fn prim_bound_material(&self, prim_path: &str) -> Option<String> {
+        let c = CString::new(prim_path).ok()?;
+        let p = unsafe { usdc_prim_bound_material(self.raw, c.as_ptr()) };
+        ptr_to_opt_string(p)
+    }
+
+    /// Path of the Shader prim connected to `outputs:surface` on the
+    /// Material. Universal render context first, then `mtlx` fallback.
+    pub fn material_surface_shader(&self, mat_path: &str) -> Option<String> {
+        let c = CString::new(mat_path).ok()?;
+        let p = unsafe { usdc_material_surface_shader(self.raw, c.as_ptr()) };
+        ptr_to_opt_string(p)
+    }
+
+    /// `info:id` token authored on a Shader prim (e.g.
+    /// `"UsdPreviewSurface"`, `"UsdUVTexture"`, `"UsdTransform2d"`).
+    pub fn shader_id(&self, shader_path: &str) -> Option<String> {
+        let c = CString::new(shader_path).ok()?;
+        let p = unsafe { usdc_shader_id(self.raw, c.as_ptr()) };
+        ptr_to_opt_string(p)
+    }
+
+    /// Scalar float input read on a shader prim. Accepts either
+    /// `"inputs:roughness"` or just `"roughness"`. Returns `None` when
+    /// unauthored or wrong type.
+    pub fn shader_input_float(&self, shader_path: &str, input_name: &str) -> Option<f32> {
+        let sp = CString::new(shader_path).ok()?;
+        let ip = CString::new(input_name).ok()?;
+        let mut out: f32 = 0.0;
+        let ok = unsafe {
+            usdc_shader_input_float(self.raw, sp.as_ptr(), ip.as_ptr(), &mut out as *mut f32)
+        };
+        if ok == 1 { Some(out) } else { None }
+    }
+
+    /// Returns true when the named shader input has an authored
+    /// connection source (e.g. `diffuseColor.connect` → UsdUVTexture).
+    /// Used to neutralize `baseColorFactor` to white on meshes whose
+    /// `UsdPreviewSurface.inputs:diffuseColor` is driven by a texture
+    /// we have not yet loaded.
+    pub fn shader_input_has_connection(&self, shader_path: &str, input_name: &str) -> bool {
+        let Ok(sp) = CString::new(shader_path) else { return false };
+        let Ok(ip) = CString::new(input_name) else { return false };
+        let ok = unsafe {
+            usdc_shader_input_has_connection(self.raw, sp.as_ptr(), ip.as_ptr())
+        };
+        ok == 1
+    }
+
+    /// `color3f` / `color3d` input read on a shader prim. Returns
+    /// `None` when unauthored or wrong type.
+    pub fn shader_input_color3f(&self, shader_path: &str, input_name: &str) -> Option<[f32; 3]> {
+        let sp = CString::new(shader_path).ok()?;
+        let ip = CString::new(input_name).ok()?;
+        let mut out: [f32; 3] = [0.0; 3];
+        let ok = unsafe {
+            usdc_shader_input_color3f(self.raw, sp.as_ptr(), ip.as_ptr(), out.as_mut_ptr())
+        };
+        if ok == 1 { Some(out) } else { None }
+    }
+
+    fn read_float_attr<F>(&self, prim_path: &str, call: F) -> Vec<f32>
+    where
+        F: FnOnce(*const c_char, UsdcFloatBufferCallback, *mut c_void),
+    {
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<f32>::new();
+        call(
+            c.as_ptr(),
+            Some(float_buffer_trampoline),
+            &mut out as *mut Vec<f32> as *mut c_void,
+        );
+        out
+    }
+
+    fn read_i32_attr<F>(&self, prim_path: &str, call: F) -> Vec<i32>
+    where
+        F: FnOnce(*const c_char, UsdcI32BufferCallback, *mut c_void),
+    {
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<i32>::new();
+        call(
+            c.as_ptr(),
+            Some(i32_buffer_trampoline),
+            &mut out as *mut Vec<i32> as *mut c_void,
+        );
+        out
+    }
+
+    fn read_float_attr_with_interp<F>(
+        &self,
+        prim_path: &str,
+        call: F,
+    ) -> (Vec<f32>, Interpolation)
+    where
+        F: FnOnce(
+            *const c_char,
+            UsdcFloatBufferCallback,
+            *mut c_void,
+            *mut UsdcInterpolation,
+        ),
+    {
+        let Ok(c) = CString::new(prim_path) else {
+            return (Vec::new(), Interpolation::Unknown);
+        };
+        let mut out = Vec::<f32>::new();
+        let mut interp: UsdcInterpolation = USDC_INTERP_UNKNOWN;
+        call(
+            c.as_ptr(),
+            Some(float_buffer_trampoline),
+            &mut out as *mut Vec<f32> as *mut c_void,
+            &mut interp,
+        );
+        (out, Interpolation::from_raw(interp))
+    }
 }
 
 impl Drop for CStage {
@@ -350,4 +583,42 @@ unsafe extern "C" fn arc_trampoline(arc: *const UsdcArc, user: *mut c_void) {
         target_prim,
         is_loaded: r.is_loaded != 0,
     });
+}
+
+// Trampoline: the shim calls this once per mesh attribute with the
+// entire flat float buffer. `user` is a `&mut Vec<f32>` that we extend
+// with a copy of the borrowed slice before the callback returns; the
+// pointer becomes invalid as soon as the shim unwinds.
+//
+// Safety:
+//   - `data` must point to `count` contiguous valid `f32`s (or be
+//     null with `count == 0`).
+//   - `user` must be a `*mut Vec<f32>` as set up by `read_float_attr`.
+unsafe extern "C" fn float_buffer_trampoline(
+    data: *const f32,
+    count: usize,
+    user: *mut c_void,
+) {
+    if user.is_null() || data.is_null() || count == 0 {
+        return;
+    }
+    let out = unsafe { &mut *(user as *mut Vec<f32>) };
+    let slice = unsafe { std::slice::from_raw_parts(data, count) };
+    out.extend_from_slice(slice);
+}
+
+// Same pattern for i32 integer buffers (faceVertexCounts / indices).
+// `c_int` on Windows MSVC and macOS x64/arm64 is 32-bit, so a reinterpret
+// to `i32` is safe for the platforms the C++ backend targets.
+unsafe extern "C" fn i32_buffer_trampoline(
+    data: *const c_int,
+    count: usize,
+    user: *mut c_void,
+) {
+    if user.is_null() || data.is_null() || count == 0 {
+        return;
+    }
+    let out = unsafe { &mut *(user as *mut Vec<i32>) };
+    let slice = unsafe { std::slice::from_raw_parts(data as *const i32, count) };
+    out.extend_from_slice(slice);
 }

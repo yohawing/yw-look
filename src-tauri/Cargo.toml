@@ -4,6 +4,10 @@ version = "0.1.1"
 description = "Quick look style asset viewer for CG workflows"
 authors = ["OpenAI Codex"]
 edition = "2021"
+# Pin the default binary so `cargo run` (invoked by `tauri dev`) never
+# ambiguates between the main Tauri bin (`yw-look`) and helper CLIs
+# like `src/bin/usd_to_glb.rs`.
+default-run = "yw-look"
 
 [package.metadata]
 

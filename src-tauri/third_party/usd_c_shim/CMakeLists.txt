@@ -37,6 +37,7 @@ target_compile_definitions(usd_c_shim PRIVATE USD_C_SHIM_BUILDING)
 target_link_libraries(usd_c_shim PRIVATE
     usd
     usdGeom
+    usdShade
     sdf
     tf
     plug
