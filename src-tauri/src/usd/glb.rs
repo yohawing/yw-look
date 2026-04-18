@@ -469,6 +469,47 @@ pub enum LightKind {
     Spot,
 }
 
+/// Phase 7b: one authored UsdGeomCamera prim resolved to glTF camera
+/// attributes. glTF stores cameras as top-level document entries
+/// (`cameras[i]`) and references them from nodes via `camera: i`;
+/// we mirror that shape so Three.js's GLTFLoader picks them up
+/// without a frontend-side bridge.
+#[derive(Debug, Clone)]
+pub struct CameraInput {
+    /// Display name — surfaces in Three.js `camera.name` for the
+    /// camera switcher UI.
+    pub name: String,
+    /// USD `focalLength` (mm) converted to glTF `perspective.yfov`
+    /// (radians) using the authored `verticalAperture` (mm).
+    pub yfov: f32,
+    /// USD `horizontalAperture / verticalAperture`. glTF stores
+    /// aspect ratio as `perspective.aspectRatio`. When authored
+    /// apertures are missing yw-look emits the spec default of 1.0
+    /// so the field is always present.
+    pub aspect_ratio: f32,
+    /// USD `clippingRange[0]` — glTF `perspective.znear`.
+    pub znear: f32,
+    /// USD `clippingRange[1]` — glTF `perspective.zfar`. `None`
+    /// means "use glTF infinite far plane" (field omitted).
+    pub zfar: Option<f32>,
+    /// World-space transform baked from the camera's parent Xform
+    /// chain plus any Z-up → Y-up correction, mirroring how mesh
+    /// and light nodes carry `matrix`.
+    pub world_matrix: [f32; 16],
+}
+
+/// Convert USD camera intrinsics (mm focal length + mm aperture) to
+/// a glTF vertical field of view in radians. The formula is the
+/// standard pinhole relation: `yfov = 2 * atan(vAperture / (2 * focal))`.
+/// Falls back to π/4 (45°) when either input is non-positive so
+/// malformed cameras still produce a valid glTF entry.
+pub fn camera_yfov_radians(vertical_aperture_mm: f32, focal_length_mm: f32) -> f32 {
+    if vertical_aperture_mm <= 0.0 || focal_length_mm <= 0.0 {
+        return std::f32::consts::FRAC_PI_4;
+    }
+    2.0 * (vertical_aperture_mm / (2.0 * focal_length_mm)).atan()
+}
+
 /// Returns the axis-wise `(min, max)` over a flat `[x, y, z, x, y, z, ...]`
 /// slice. Used for morph-target accessor bounds; callers must guarantee
 /// `data.len() % 3 == 0`. An empty slice returns the identity-style
@@ -525,6 +566,7 @@ pub fn build_glb(
     skins: &[SkinInput],
     animations: &[AnimationInput],
     lights: &[LightInput],
+    cameras: &[CameraInput],
 ) -> Result<Vec<u8>, String> {
     if meshes.is_empty() {
         return Err("no meshes to export".to_string());
@@ -1344,6 +1386,38 @@ pub fn build_glb(
         scene_nodes.push(json!(node_idx));
     }
 
+    // ---- Phase 7b: glTF cameras -------------------------------------
+    //
+    // For each CameraInput we emit one top-level `cameras[i]` entry
+    // and one scene node carrying the authored world_matrix plus
+    // `camera: i`. Unlike lights, glTF cameras are core (no
+    // extension), so there's no extensionsUsed bookkeeping.
+    let mut gltf_cameras: Vec<Value> = Vec::new();
+    for camera in cameras {
+        let mut perspective = json!({
+            "yfov": camera.yfov,
+            "aspectRatio": camera.aspect_ratio,
+            "znear": camera.znear,
+        });
+        if let Some(zfar) = camera.zfar {
+            perspective["zfar"] = json!(zfar);
+        }
+        let camera_idx = gltf_cameras.len();
+        gltf_cameras.push(json!({
+            "name": camera.name,
+            "type": "perspective",
+            "perspective": perspective,
+        }));
+
+        let node_idx = nodes.len();
+        nodes.push(json!({
+            "name": format!("{}_camera_node", camera.name),
+            "matrix": camera.world_matrix.iter().copied().collect::<Vec<f32>>(),
+            "camera": camera_idx,
+        }));
+        scene_nodes.push(json!(node_idx));
+    }
+
     // ---- Build GLTF JSON document --------------------------------------
     let total_bin_length = bin.len() as u64;
 
@@ -1361,6 +1435,9 @@ pub fn build_glb(
         "accessors": accessors,
         "materials": gltf_materials,
     });
+    if !gltf_cameras.is_empty() {
+        document["cameras"] = json!(gltf_cameras);
+    }
     // Phase 6b / 7a: register extensions in the top-level
     // `extensionsUsed` list. glTF requires this declaration;
     // omitting it causes compliant loaders to drop the extension
@@ -1637,7 +1714,7 @@ mod tests {
     #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
-        let glb = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).expect("build glb");
 
         // GLB header sanity check
         assert_eq!(&glb[0..4], b"glTF");
@@ -1680,7 +1757,7 @@ mod tests {
     fn rejects_mismatched_normal_count() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.normals = Some(vec![0.0; 6]); // wrong length
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("normal"));
     }
 
@@ -1688,7 +1765,7 @@ mod tests {
     fn rejects_out_of_range_index() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.indices = vec![0, 1, 99];
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("out of range"));
     }
 
@@ -1696,7 +1773,7 @@ mod tests {
     fn rejects_material_index_out_of_range() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.material_index = 5;
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
         assert!(
             err.contains("material_index"),
             "expected material_index error, got: {err}"
@@ -1706,7 +1783,7 @@ mod tests {
     #[test]
     fn rejects_empty_materials_array() {
         let mesh = unit_quad_split_into_two_triangles();
-        let err = build_glb(&[mesh], &[], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &[], &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("material"));
     }
 
@@ -1727,7 +1804,7 @@ mod tests {
             wrap_s: 10497,
             wrap_t: 10497,
         }];
-        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -1745,7 +1822,7 @@ mod tests {
     fn omits_alpha_mode_for_opaque_material() {
         let mesh = unit_quad_split_into_two_triangles();
         let materials = vec![MaterialInput::default_preview()];
-        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -1807,7 +1884,7 @@ mod tests {
             },
         ];
 
-        let glb = build_glb(&[red_mesh, blue_mesh], &materials, &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[red_mesh, blue_mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
         assert_eq!(&glb[0..4], b"glTF");
 
         let json_chunk_len =

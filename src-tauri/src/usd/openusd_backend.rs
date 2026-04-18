@@ -750,9 +750,22 @@ impl UsdBackend for OpenusdBackend {
         // useful for USD lighting-only scenes that we may get in
         // production.
         let lights = resolve_lights(&stage, up_axis_correction.as_ref());
+        // Phase 7b: enumerate authored UsdGeomCamera prims. glTF
+        // cameras are emitted alongside meshes / lights; Three.js's
+        // GLTFLoader exposes them on `gltf.cameras` for the
+        // frontend's camera switcher to pick up.
+        let cameras = resolve_cameras(&stage, up_axis_correction.as_ref());
 
-        glb::build_glb(&inputs, &materials, &textures, &skins, &animations, &lights)
-            .map_err(UsdError::Parse)
+        glb::build_glb(
+            &inputs,
+            &materials,
+            &textures,
+            &skins,
+            &animations,
+            &lights,
+            &cameras,
+        )
+        .map_err(UsdError::Parse)
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
@@ -1549,6 +1562,100 @@ fn read_shader_color(stage: &Stage, prim_path: &SdfPath, input_name: &str) -> Op
         SdfValue::Vec3d(v) => Some([v[0] as f32, v[1] as f32, v[2] as f32]),
         _ => None,
     }
+}
+
+/// Phase 7b: enumerate `UsdGeomCamera` prims and resolve each to a
+/// [`glb::CameraInput`]. USD's camera schema stores focal length and
+/// aperture in **millimeters**, which we convert to a glTF
+/// `perspective.yfov` (radians) via [`glb::camera_yfov_radians`].
+///
+/// Scope:
+///   - Perspective cameras only. Orthographic projections require an
+///     emitter for glTF `orthographic` and are deferred until a
+///     concrete asset needs them.
+///   - `clippingRange` is read when authored; otherwise the spec
+///     defaults (0.1, 1e6) are used so the camera always produces a
+///     valid glTF entry.
+///
+/// Out of scope (returns no entry): cameras inside un-composed
+/// payloads (those are already invisible to `traverse` under
+/// `NoPayloads` policy), and cameras that evaluate to
+/// non-perspective projections.
+fn resolve_cameras(
+    stage: &Stage,
+    up_correction: Option<&[f64; 16]>,
+) -> Vec<glb::CameraInput> {
+    let camera_paths = RefCell::new(Vec::<SdfPath>::new());
+    if stage
+        .traverse(|prim_path| {
+            let type_name: Option<String> = stage
+                .field(prim_path.clone(), FieldKey::TypeName)
+                .ok()
+                .flatten();
+            if type_name.as_deref() == Some("Camera") {
+                camera_paths.borrow_mut().push(prim_path.clone());
+            }
+        })
+        .is_err()
+    {
+        return Vec::new();
+    }
+
+    let paths = camera_paths.into_inner();
+    let mut out = Vec::with_capacity(paths.len());
+    for prim_path in paths {
+        // USD camera defaults (per UsdGeomCamera schema):
+        //   focalLength = 50mm, horizontalAperture = 20.955mm,
+        //   verticalAperture = 15.2908mm.
+        // glTF spec defaults: yfov = π/4, aspectRatio = 1.0,
+        // znear = 0.1. Projection types differ from USD: glTF
+        // `perspective` matches USD `perspective`.
+        let focal_length =
+            read_shader_float(stage, &prim_path, "focalLength").unwrap_or(50.0);
+        let horizontal_aperture =
+            read_shader_float(stage, &prim_path, "horizontalAperture").unwrap_or(20.955);
+        let vertical_aperture =
+            read_shader_float(stage, &prim_path, "verticalAperture").unwrap_or(15.2908);
+
+        let yfov = glb::camera_yfov_radians(vertical_aperture, focal_length);
+        let aspect_ratio = if vertical_aperture > 0.0 {
+            horizontal_aperture / vertical_aperture
+        } else {
+            1.0
+        };
+
+        // clippingRange is a float2 in USD; we read it as Vec2f and
+        // fall back to glTF-friendly defaults when missing.
+        let clip = prim_path
+            .append_property("clippingRange")
+            .ok()
+            .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+        let (znear, zfar) = match clip {
+            Some(SdfValue::Vec2f(v)) => (v[0], Some(v[1])),
+            Some(SdfValue::Vec2d(v)) => (v[0] as f32, Some(v[1] as f32)),
+            _ => (0.1, None),
+        };
+        let znear = if znear > 0.0 { znear } else { 0.1 };
+
+        let Ok(world) = compose_world_xform(stage, &prim_path) else {
+            continue;
+        };
+        let world = match up_correction {
+            Some(correction) => mat4_mul(correction, &world),
+            None => world,
+        };
+        let world_f32 = mat4_f64_to_f32(&world);
+
+        out.push(glb::CameraInput {
+            name: prim_path.as_str().to_string(),
+            yfov,
+            aspect_ratio,
+            znear,
+            zfar,
+            world_matrix: world_f32,
+        });
+    }
+    out
 }
 
 /// Phase 6d: one morph target expanded to dense per-vertex offsets.
@@ -5927,6 +6034,146 @@ def Xform "Root"
         assert_eq!(
             light_node_count, 2,
             "expected 2 nodes with KHR_lights_punctual, got {light_node_count}"
+        );
+
+        Ok(())
+    }
+
+    /// Phase 7b: a stage with one `UsdGeomCamera` must produce a
+    /// glTF `cameras` array with the resolved yfov + aspect ratio +
+    /// clipping range, and a scene node carrying `camera: i`
+    /// pointing at it. Verifies the mm → radians yfov math against
+    /// known USD defaults (focal 50mm, vertAp 24mm → yfov ≈ 0.2676
+    /// rad).
+    #[test]
+    fn extract_geometry_emits_authored_cameras() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase7b_camera");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("camera.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+
+    def Camera "MainCam"
+    {
+        float focalLength = 50.0
+        float horizontalAperture = 36.0
+        float verticalAperture = 24.0
+        float2 clippingRange = (0.5, 1000.0)
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract camera.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let cameras = doc["cameras"].as_array().expect("cameras array");
+        assert_eq!(cameras.len(), 1, "expected 1 camera, got {cameras:?}");
+        let cam = &cameras[0];
+        assert_eq!(cam["type"], "perspective");
+
+        // yfov = 2 * atan(24 / (2 * 50)) ≈ 0.26761585 rad
+        let yfov = cam["perspective"]["yfov"].as_f64().unwrap();
+        assert!(
+            (yfov - 0.26761585).abs() < 1e-4,
+            "yfov = {yfov}, expected ≈ 0.26761585 rad"
+        );
+        // aspect = 36 / 24 = 1.5
+        let aspect = cam["perspective"]["aspectRatio"].as_f64().unwrap();
+        assert!((aspect - 1.5).abs() < 1e-4);
+        // clippingRange
+        let znear = cam["perspective"]["znear"].as_f64().unwrap();
+        let zfar = cam["perspective"]["zfar"].as_f64().unwrap();
+        assert!((znear - 0.5).abs() < 1e-4);
+        assert!((zfar - 1000.0).abs() < 1e-1);
+
+        // Matching scene node with `camera` pointer.
+        let nodes = doc["nodes"].as_array().unwrap();
+        let camera_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|n| n.get("camera").is_some())
+            .collect();
+        assert_eq!(
+            camera_nodes.len(),
+            1,
+            "expected 1 camera-bearing node, got {camera_nodes:?}"
+        );
+        assert_eq!(camera_nodes[0]["camera"].as_u64().unwrap(), 0);
+
+        Ok(())
+    }
+
+    /// Phase 7b regression: a stage with no authored cameras must
+    /// emit no `cameras` array at all so the pre-7b output stays
+    /// byte-identical.
+    #[test]
+    fn extract_geometry_omits_cameras_when_none_authored() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase7b_no_camera");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("plain.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract plain.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        assert!(
+            doc.get("cameras").is_none(),
+            "cameras must be omitted when none authored, got {:?}",
+            doc.get("cameras")
         );
 
         Ok(())
