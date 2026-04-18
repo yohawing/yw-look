@@ -428,10 +428,10 @@ cargo test --lib usd::openusd_backend::tests::extract_geometry_omits_morph_when_
 
 アセット単体の描画だけでなく、USD が記述している**シーン状態（ライト・カメラ・可視性切替）**を viewer に反映する。
 
-| サブフェーズ | 機能                          | 状態 | 実コミット                                               |
-| ------------ | ----------------------------- | ---- | -------------------------------------------------------- |
-| **7a**       | UsdLuxLight → Three.js lights | ✅   | `8ff1225 loader: resolve UsdLux lights to KHR_lights_punctual` (DistantLight / SphereLight のみ) |
-| **7b**       | UsdGeomCamera 列挙 + 切替 UI  | ✅   | `ce0404e loader: enumerate UsdGeomCamera prims as glTF cameras` (backend emission のみ、frontend 切替 UI は別途) |
+| サブフェーズ | 機能                          | 状態 | 実コミット                                                                                                                                                |
+| ------------ | ----------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **7a**       | UsdLuxLight → Three.js lights | ✅   | `8ff1225 loader: resolve UsdLux lights to KHR_lights_punctual` (DistantLight / SphereLight のみ)                                                          |
+| **7b**       | UsdGeomCamera 列挙 + 切替 UI  | ✅   | `ce0404e loader: enumerate UsdGeomCamera prims as glTF cameras` (backend emission のみ、frontend 切替 UI は別途)                                          |
 | **7c**       | Purpose 切替 UI               | 🚧   | 未着手 — backend の `is_renderable_mesh` は `proxy`/`guide` を hard filter、`extract_geometry_glb` に purpose mode パラメータと frontend toggle UI が必要 |
 
 ### 7a. Lights — 実装ノート
@@ -456,6 +456,7 @@ cargo test --lib usd::openusd_backend::tests::extract_geometry_omits_morph_when_
 **現状**: `is_renderable_mesh` が `proxy` / `guide` purpose を hard filter してしまうので、`extract_geometry_glb` の時点でそれらの mesh は存在しない。
 
 **必要なもの**:
+
 1. Backend: `is_renderable_mesh` を relaxed mode に切替可能にする（purpose フィルタをパラメータ化）
 2. `MeshInput` / GLB `node.extras.purpose` にタグ emit
 3. Frontend: `default` / `render` / `proxy` / `guide` のチェックボックス UI、node 走査で `visible` トグル
