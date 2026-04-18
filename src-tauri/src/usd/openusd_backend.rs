@@ -457,6 +457,31 @@ impl UsdBackend for OpenusdBackend {
             // classify_attribute picks them up as FaceVarying.
             expand_indexed_uvs(&stage, prim_path, &mut mesh_data);
 
+            // UsdSkel per-mesh `skel:joints` override: when a mesh
+            // authors its own ordered joint subset, the mesh's
+            // `primvars:skel:jointIndices` index into that subset,
+            // not the bound Skeleton's full `joints` array. glTF's
+            // `skin.joints` list mirrors the full skeleton order, so
+            // the raw indices must be remapped before they reach
+            // `mesh_data_to_input`. Apple ARKit exports
+            // (chameleon / seahorse) use this pattern heavily —
+            // eyeball meshes bind to a single head-deep joint, etc.
+            // Skipping this step leaves every vertex pointing at the
+            // wrong joint and produces the classic "exploded" look.
+            if let Some(skin_slot) = mesh_skin_slots[mesh_idx] {
+                if let Some(local_joints) =
+                    read_mesh_skel_joints_override(&stage, prim_path)
+                {
+                    if let Some(skin) = skins.get(skin_slot) {
+                        remap_mesh_skin_indices(
+                            &mut mesh_data,
+                            &local_joints,
+                            &skin.joint_names,
+                        );
+                    }
+                }
+            }
+
             let orientation = read_mesh_orientation(&stage, prim_path);
             let max_joint = mesh_skin_slots[mesh_idx]
                 .and_then(|si| skins.get(si))
@@ -1078,6 +1103,76 @@ fn guess_image_mime(asset_path: &str) -> Option<&'static str> {
         Some("image/jpeg")
     } else {
         None
+    }
+}
+
+/// Reads a mesh prim's `skel:joints` attribute — the optional
+/// per-mesh joint ordering override defined by UsdSkel. When
+/// authored, the mesh's `primvars:skel:jointIndices` index into this
+/// local list rather than the bound Skeleton's full `joints` array.
+///
+/// Returns `None` when the attribute is not authored, which signals
+/// the caller that the mesh's joint indices are already in skeleton
+/// order (the common DCC case, e.g. the `tiny_rigged.usda` fixture
+/// and the `UsdSkelExamples/HumanFemale` rig).
+fn read_mesh_skel_joints_override(
+    stage: &Stage,
+    mesh_path: &SdfPath,
+) -> Option<Vec<String>> {
+    let attr_path = mesh_path.append_property("skel:joints").ok()?;
+    let value: Option<SdfValue> =
+        stage.field(attr_path, FieldKey::Default).ok()?;
+    match value? {
+        SdfValue::TokenVec(v) | SdfValue::StringVec(v) => Some(v),
+        _ => None,
+    }
+}
+
+/// Rewrites `mesh.joint_indices` so every influence references the
+/// bound Skeleton's full joint order (what the GLB skin exposes)
+/// rather than the mesh's local `skel:joints` subset. Influences
+/// whose local joint can't be matched to the skeleton are dropped by
+/// zeroing their weight — glTF normalizes weights per-vertex, so
+/// this degrades gracefully for mildly malformed authoring.
+///
+/// No-op when the mesh has no joint influences authored, so the
+/// caller can invoke this unconditionally on any rigged mesh.
+fn remap_mesh_skin_indices(
+    mesh: &mut MeshData,
+    mesh_local_joints: &[String],
+    skeleton_joints: &[String],
+) {
+    // Precompute local → skeleton index, once per mesh. `None` means
+    // the local joint isn't present in the skeleton — authoring bug
+    // or stray entry, handled below by zeroing weights.
+    let remap: Vec<Option<u32>> = mesh_local_joints
+        .iter()
+        .map(|local| {
+            skeleton_joints
+                .iter()
+                .position(|s| s == local)
+                .map(|i| i as u32)
+        })
+        .collect();
+
+    let (Some(indices), Some(weights)) =
+        (mesh.joint_indices.as_mut(), mesh.joint_weights.as_mut())
+    else {
+        return;
+    };
+
+    for (idx, w) in indices.iter_mut().zip(weights.iter_mut()) {
+        let local = *idx as usize;
+        match remap.get(local).and_then(|r| *r) {
+            Some(skel_index) => *idx = skel_index,
+            None => {
+                // Unmatched local joint — zero the influence so the
+                // vertex falls back to its other influences (or to
+                // the rest pose if this was its only one).
+                *idx = 0;
+                *w = 0.0;
+            }
+        }
     }
 }
 
