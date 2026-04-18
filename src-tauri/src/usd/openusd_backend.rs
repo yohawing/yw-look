@@ -3441,14 +3441,22 @@ fn classify_attribute(
     let Some(src) = src else {
         return AttrKind::None;
     };
-    if src.len() == point_count * stride {
+    // Check `Constant` first: a one-face / one-point mesh would match
+    // `Uniform` / `Vertex` with the same source length as `Constant`,
+    // and the constant-interpolation case is the most restrictive
+    // semantically — a single shared value for every corner. Without
+    // this ordering the Phase 6c COLOR_0 path mis-classifies
+    // single-triangle displayColor as Uniform and emits a vertex
+    // attribute when the UsdPreviewSurface fallback already carries
+    // the color as `baseColorFactor`, double-applying it in-viewer.
+    if src.len() == stride {
+        AttrKind::Constant
+    } else if src.len() == point_count * stride {
         AttrKind::Vertex
     } else if src.len() == face_vertex_count * stride {
         AttrKind::FaceVarying
     } else if src.len() == face_count * stride {
         AttrKind::Uniform
-    } else if src.len() == stride {
-        AttrKind::Constant
     } else {
         AttrKind::Unknown
     }
