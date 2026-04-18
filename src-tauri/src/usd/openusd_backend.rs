@@ -389,6 +389,12 @@ impl UsdBackend for OpenusdBackend {
         // Per material slot: the authored diffuse_texture asset path,
         // or `None` for "no texture / default slot".
         let mut material_texture_paths: Vec<Option<String>> = vec![None];
+        // Phase 6a: same shape as `material_texture_paths` but for
+        // `UsdPreviewSurface.inputs:normal` texture asset paths. Each
+        // slot is `None` when the material has no normal map
+        // authored. The loading loop below populates
+        // `MaterialInput.normal_texture` after deduping across slots.
+        let mut material_normal_paths: Vec<Option<String>> = vec![None];
 
         // Phase 5c E: resolve any UsdSkel rig bound to one of the
         // collected meshes BEFORE the mesh build pass so each mesh's
@@ -514,6 +520,7 @@ impl UsdBackend for OpenusdBackend {
                         &subset_name,
                         &mut materials,
                         &mut material_texture_paths,
+                        &mut material_normal_paths,
                         &mut material_slots,
                     );
                     tri.material_index = apply_display_color_fallback(
@@ -522,6 +529,7 @@ impl UsdBackend for OpenusdBackend {
                         &subset_name,
                         &mut materials,
                         &mut material_texture_paths,
+                        &mut material_normal_paths,
                         &mut material_slots,
                     );
                     tri.skin_index = mesh_skin_slots[mesh_idx];
@@ -541,6 +549,7 @@ impl UsdBackend for OpenusdBackend {
                 prim_path,
                 &mut materials,
                 &mut material_texture_paths,
+                &mut material_normal_paths,
                 &mut material_slots,
             );
             triangulated.material_index = apply_display_color_fallback(
@@ -549,6 +558,7 @@ impl UsdBackend for OpenusdBackend {
                 prim_path,
                 &mut materials,
                 &mut material_texture_paths,
+                &mut material_normal_paths,
                 &mut material_slots,
             );
 
@@ -682,6 +692,36 @@ impl UsdBackend for OpenusdBackend {
                     // user wants to see anyway.
                     eprintln!(
                         "[usd] failed to load texture '{}' for material[{mat_idx}]: {err}",
+                        tex_path
+                    );
+                }
+            }
+        }
+
+        // Phase 6a: second pass for normal maps. Shares `texture_dedup`
+        // with the diffuse pass so a single image referenced from both
+        // channels (unusual, but seen in hand-authored fixtures)
+        // produces exactly one embedded copy. Failures only drop the
+        // normal channel; the diffuse output already established above
+        // is preserved.
+        for (mat_idx, tex_path) in material_normal_paths.iter().enumerate() {
+            let Some(tex_path) = tex_path else { continue };
+            match texture_loader.load(tex_path) {
+                Ok(loaded) => {
+                    let new_idx =
+                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                            existing
+                        } else {
+                            let idx = textures.len();
+                            textures.push(loaded.input);
+                            texture_dedup.insert(loaded.identity, idx);
+                            idx
+                        };
+                    materials[mat_idx].normal_texture = Some(new_idx);
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[usd] failed to load normal map '{}' for material[{mat_idx}]: {err}",
                         tex_path
                     );
                 }
@@ -1334,12 +1374,19 @@ fn find_material_by_name_fallback(
 
 /// Resolve a material binding path → material slot index, creating
 /// a new MaterialInput when the material is first seen.
+///
+/// Phase 6a: also walks the bound material's UsdShade graph to find a
+/// `UsdPreviewSurface.inputs:normal` connection and records the asset
+/// path of the connected `UsdUVTexture.inputs:file` into the parallel
+/// `material_normal_paths` vector. The actual texture bytes are loaded
+/// + embedded later in the same pass that handles base color textures.
 fn resolve_material_slot(
     stage: &Stage,
     mat_path: Option<&SdfPath>,
     prim_path: &SdfPath,
     materials: &mut Vec<glb::MaterialInput>,
     material_texture_paths: &mut Vec<Option<String>>,
+    material_normal_paths: &mut Vec<Option<String>>,
     material_slots: &mut std::collections::HashMap<String, usize>,
 ) -> usize {
     let Some(mat_path) = mat_path else { return 0 };
@@ -1350,12 +1397,129 @@ fn resolve_material_slot(
     if let Some(data) = stage.material_of(prim_path.clone()) {
         let slot = materials.len();
         let tex_path = data.diffuse_texture.clone();
+        // Phase 6a: the fork's `MaterialData` does not carry a normal
+        // texture field, so we walk the UsdShade graph ourselves
+        // using the same public API surface (prim_children + field
+        // with FieldKey::ConnectionPaths). When the fork eventually
+        // grows `MaterialData::normal_texture`, this helper can be
+        // collapsed to a single `data.normal_texture.clone()` line.
+        let normal_tex = resolve_normal_texture(stage, mat_path);
         materials.push(material_input_from_data(&key, &data));
         material_texture_paths.push(tex_path);
+        material_normal_paths.push(normal_tex);
         material_slots.insert(key, slot);
         slot
     } else {
         0
+    }
+}
+
+/// Walk the UsdShade graph rooted at a Material prim looking for a
+/// `UsdPreviewSurface.inputs:normal` connection that targets a
+/// `UsdUVTexture` (or MaterialX equivalent). Returns the texture
+/// asset path on success, `None` when any step in the chain is
+/// missing or has the wrong type.
+///
+/// Mirrors the logic of the fork's private `find_preview_surface_shader`
+/// + `follow_texture_connection` helpers (stage.rs:773 / 921). When
+/// `MaterialData` grows a `normal_texture` field upstream, this
+/// function becomes redundant and the call site can use it directly.
+fn resolve_normal_texture(stage: &Stage, material_path: &SdfPath) -> Option<String> {
+    let surface_shader = find_preview_surface_shader(stage, material_path)?;
+    let normal_input = surface_shader.append_property("inputs:normal").ok()?;
+    follow_texture_connection_to_asset(stage, &normal_input)
+}
+
+/// Find a child Shader of `material_path` whose `info:id` is
+/// `"UsdPreviewSurface"`. Walks direct children only (the standard
+/// Material-Shader layout); if a real asset wraps the shader inside
+/// nested NodeGraphs we'll miss it, which is the same single-hop
+/// limitation `material_of` has for the diffuse channel.
+fn find_preview_surface_shader(stage: &Stage, material_path: &SdfPath) -> Option<SdfPath> {
+    let children = stage.prim_children(material_path.clone()).ok()?;
+    for child_name in children {
+        // SdfPath has no `append_child`; compose the child path via
+        // string concat (same pattern used for GeomSubset names).
+        let child =
+            SdfPath::new(&format!("{}/{}", material_path.as_str(), child_name)).ok()?;
+        let type_name: Option<String> =
+            stage.field(child.clone(), FieldKey::TypeName).ok().flatten();
+        if type_name.as_deref() != Some("Shader") {
+            continue;
+        }
+        let info_id_path = child.append_property("info:id").ok()?;
+        let info_id: Option<String> = stage
+            .field(info_id_path, FieldKey::Default)
+            .ok()
+            .flatten();
+        let is_preview_surface = matches!(
+            info_id.as_deref(),
+            Some("UsdPreviewSurface")
+                // MaterialX node-def equivalent used by Reality Composer
+                // Pro and other ARKit-flavored exports.
+                | Some("ND_UsdPreviewSurface_surfaceshader")
+        );
+        if is_preview_surface {
+            return Some(child);
+        }
+    }
+    None
+}
+
+/// Given a property path like `/Mat/Surface.inputs:normal`, follow a
+/// single `ConnectionPaths` hop and, if the target is a UsdUVTexture
+/// (or MaterialX image-node equivalent) shader's output, return the
+/// `inputs:file` asset path on that shader. Returns `None` for any
+/// missing step or unexpected type.
+fn follow_texture_connection_to_asset(
+    stage: &Stage,
+    input_path: &SdfPath,
+) -> Option<String> {
+    let connections: Option<SdfValue> = stage
+        .field(input_path.clone(), FieldKey::ConnectionPaths)
+        .ok()
+        .flatten();
+    let list_op = match connections? {
+        SdfValue::PathListOp(op) => op,
+        _ => return None,
+    };
+    // ListOp::iter chains explicit + prepended + added items; we take
+    // the first one as the active connection. USD's strongest-wins
+    // composition rule means this matches what Hydra would resolve.
+    let target = list_op.iter().next()?.clone();
+    // `target` is a property path like `/Mat/Tex.outputs:rgb`; strip
+    // the `.outputs:rgb` suffix to get the texture shader prim path.
+    let shader_path = target.prim_path();
+
+    let type_name: Option<String> = stage
+        .field(shader_path.clone(), FieldKey::TypeName)
+        .ok()
+        .flatten();
+    if type_name.as_deref() != Some("Shader") {
+        return None;
+    }
+    let info_id_path = shader_path.append_property("info:id").ok()?;
+    let info_id: Option<String> = stage
+        .field(info_id_path, FieldKey::Default)
+        .ok()
+        .flatten();
+    let is_texture_shader = matches!(
+        info_id.as_deref(),
+        Some("UsdUVTexture")
+            | Some("ND_image_color3")
+            | Some("ND_image_color4")
+            | Some("ND_image_float")
+            | Some("ND_image_vector3")
+    );
+    if !is_texture_shader {
+        return None;
+    }
+    let file_path = shader_path.append_property("inputs:file").ok()?;
+    let value: Option<SdfValue> = stage.field(file_path, FieldKey::Default).ok().flatten();
+    match value? {
+        SdfValue::AssetPath(s) => Some(s),
+        SdfValue::String(s) | SdfValue::Token(s) => Some(s),
+        _ => None,
     }
 }
 
@@ -1368,6 +1532,7 @@ fn apply_display_color_fallback(
     prim_path: &SdfPath,
     materials: &mut Vec<glb::MaterialInput>,
     material_texture_paths: &mut Vec<Option<String>>,
+    material_normal_paths: &mut Vec<Option<String>>,
     material_slots: &mut std::collections::HashMap<String, usize>,
 ) -> usize {
     if slot != 0 {
@@ -1393,10 +1558,12 @@ fn apply_display_color_fallback(
                 emissive_factor: [0.0, 0.0, 0.0],
                 double_sided: true,
                 base_color_texture: None,
+                normal_texture: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
             });
             material_texture_paths.push(None);
+            material_normal_paths.push(None);
             material_slots.insert(key, s);
             return s;
         }
@@ -1588,6 +1755,10 @@ fn material_input_from_data(
         // texture has been resolved and the GLB-level texture index
         // is known.
         base_color_texture: None,
+        // Phase 6a: caller fills this in after `resolve_normal_texture`
+        // walks the UsdShade graph and `TextureLoader` resolves the
+        // asset path into GLB bytes.
+        normal_texture: None,
         // Phase 5e L1: map USD wrap mode tokens to glTF sampler
         // constants. USD defaults to "useMetadata" which we treat
         // as REPEAT (glTF default) since the metadata source is
@@ -4403,6 +4574,149 @@ def Xform "Root"
         }
         let alpha = factor[3].as_f64().unwrap();
         assert!((alpha - 1.0).abs() < 1e-6, "alpha should be 1 by default");
+
+        Ok(())
+    }
+
+    /// Phase 6a: a UsdPreviewSurface with both `inputs:diffuseColor`
+    /// and `inputs:normal` connections must produce a GLB material
+    /// with both `pbrMetallicRoughness.baseColorTexture` and
+    /// `normalTexture` set, and the shared `textures` array must
+    /// contain exactly the two distinct images (deduplication works
+    /// across the base color and normal channels via the shared
+    /// `texture_dedup` map).
+    #[test]
+    fn extract_geometry_embeds_normal_map_texture() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6a_fs_normal");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let albedo_path = tmp_dir.join("albedo.png");
+        let normal_path = tmp_dir.join("normal.png");
+        // Same 1x1 PNG bytes used by the base color fixture above;
+        // content doesn't matter because we only check the glTF
+        // plumbing, not any per-pixel rendering outcome.
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
+            0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
+            0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
+            0x41, 0x54, 0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
+            0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+            0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&albedo_path, png_bytes)?;
+        std::fs::write(&normal_path, png_bytes)?;
+
+        let usda_path = tmp_dir.join("textured.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </Root/Looks/PBRMat>
+    }
+
+    def "Looks"
+    {
+        def Material "PBRMat"
+        {
+            token outputs:surface.connect = </Root/Looks/PBRMat/Preview.outputs:surface>
+
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </Root/Looks/PBRMat/Albedo.outputs:rgb>
+                normal3f inputs:normal.connect = </Root/Looks/PBRMat/Normal.outputs:rgb>
+                token outputs:surface
+            }
+
+            def Shader "Albedo"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./albedo.png@
+                token outputs:rgb
+            }
+
+            def Shader "Normal"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./normal.png@
+                token outputs:rgb
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract textured.usda with normal map");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // Two distinct textures should land in the GLB: one for base
+        // color, one for normal. A correct implementation dedupes on
+        // resolved identity, so the two files at different paths but
+        // with identical bytes still produce two entries (the dedup
+        // key is the filesystem path, not the byte hash).
+        let textures = doc["textures"].as_array().expect("textures array");
+        assert_eq!(
+            textures.len(),
+            2,
+            "expected albedo + normal to land as two textures, got {textures:?}"
+        );
+
+        let materials = doc["materials"].as_array().expect("materials array");
+        let pbr_slot = materials
+            .iter()
+            .position(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.contains("PBRMat"))
+                    .unwrap_or(false)
+            })
+            .expect("PBRMat slot present");
+        let pbr = &materials[pbr_slot];
+
+        // Base color channel
+        let base_idx = pbr["pbrMetallicRoughness"]["baseColorTexture"]["index"]
+            .as_u64()
+            .expect("baseColorTexture.index");
+
+        // Normal channel: glTF places `normalTexture` at the material
+        // level, not nested under `pbrMetallicRoughness`.
+        let normal_idx = pbr["normalTexture"]["index"]
+            .as_u64()
+            .expect("normalTexture.index");
+        assert_eq!(pbr["normalTexture"]["texCoord"], 0);
+
+        assert_ne!(
+            base_idx, normal_idx,
+            "base color and normal must reference different texture indices"
+        );
 
         Ok(())
     }

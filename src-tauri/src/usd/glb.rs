@@ -45,6 +45,14 @@ pub struct MaterialInput {
     /// `BuildContext::textures` keyed by the index stored here so the
     /// builder can dedupe textures across materials.
     pub base_color_texture: Option<usize>,
+    /// Phase 6a: optional tangent-space normal map (linear) texture.
+    /// Same indexing semantics as `base_color_texture`. Emitted as the
+    /// glTF `material.normalTexture` (sibling of `pbrMetallicRoughness`,
+    /// not nested inside it). The `texCoord` is hardcoded to 0 and
+    /// `scale` is left at the glTF default (1.0); per-channel `scale`
+    /// support belongs to Phase 10 with the rest of multi-hop shader
+    /// resolution.
+    pub normal_texture: Option<usize>,
     /// Phase 5e L1: glTF wrap mode for the base color texture sampler.
     /// `10497` = REPEAT (default), `33071` = CLAMP_TO_EDGE,
     /// `33648` = MIRRORED_REPEAT. Only meaningful when
@@ -68,6 +76,7 @@ impl MaterialInput {
             emissive_factor: [0.0, 0.0, 0.0],
             double_sided: true,
             base_color_texture: None,
+            normal_texture: None,
             wrap_s: 10497,
             wrap_t: 10497,
         }
@@ -970,6 +979,15 @@ pub fn build_glb(
                 "pbrMetallicRoughness": pbr,
                 "doubleSided": m.double_sided,
             });
+            // Phase 6a: emit the optional normal map. glTF places
+            // `normalTexture` at the material level, parallel to
+            // `pbrMetallicRoughness`, not nested inside it.
+            if let Some(tex_idx) = m.normal_texture {
+                material["normalTexture"] = json!({
+                    "index": tex_idx,
+                    "texCoord": 0,
+                });
+            }
             // Only emit `emissiveFactor` when non-zero so the GLB stays
             // minimal for the (common) no-emission case.
             let emissive = m.emissive_factor;
@@ -1346,6 +1364,7 @@ mod tests {
             emissive_factor: [0.0, 0.0, 0.0],
             double_sided: true,
             base_color_texture: None,
+            normal_texture: None,
             wrap_s: 10497,
             wrap_t: 10497,
         }];
@@ -1407,6 +1426,7 @@ mod tests {
                 emissive_factor: [0.0, 0.0, 0.0],
                 double_sided: false,
                 base_color_texture: None,
+                normal_texture: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
             },
@@ -1418,6 +1438,7 @@ mod tests {
                 emissive_factor: [0.0, 0.0, 0.4],
                 double_sided: true,
                 base_color_texture: None,
+                normal_texture: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
             },
