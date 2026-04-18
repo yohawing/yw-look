@@ -422,6 +422,53 @@ impl MeshInput {
     }
 }
 
+/// Phase 7a: one light to embed as a glTF `KHR_lights_punctual`
+/// extension entry. yw-look maps USD `UsdLuxDistantLight` → directional
+/// and `UsdLuxSphereLight` → point; area lights (`RectLight`,
+/// `DiskLight`, `CylinderLight`) and `DomeLight` are intentionally
+/// out of scope for 7a and will be approximated or handled via the
+/// environment map pipeline in a later phase.
+#[derive(Debug, Clone)]
+pub struct LightInput {
+    /// Display name — surfaces in Three.js `light.name` for UI.
+    pub name: String,
+    /// Light type. Spot is in the enum for symmetry with glTF but
+    /// yw-look does not currently resolve UsdLux nodes to spot
+    /// lights (USD has no direct spot primitive; authoring pattern
+    /// is a SphereLight with `shaping:cone:*` inputs, which is
+    /// deferred to Phase 10).
+    pub kind: LightKind,
+    /// Linear RGB color. USD authoring is in linear space already
+    /// (matching the `inputs:color` semantic), so no sRGB conversion
+    /// happens at this layer.
+    pub color: [f32; 3],
+    /// `inputs:intensity * 2^inputs:exposure` pre-multiplied at
+    /// resolve time. glTF intensity units: lumens for point/spot,
+    /// lux for directional. USD inputs are nits/cd/m² — the two
+    /// differ by a constant factor that depends on the scene scale,
+    /// and yw-look leaves the value as-is because the preview
+    /// tonemap renders look-OK across a wide range.
+    pub intensity: f32,
+    /// Column-major world transform applied to the light's own glTF
+    /// node. USD light direction comes from the parent Xform's
+    /// rotation; we bake that (plus Z-up→Y-up correction when the
+    /// stage is Z-up) into this matrix so the glTF node is the
+    /// single source of truth.
+    pub world_matrix: [f32; 16],
+}
+
+/// Variants yw-look resolves in Phase 7a. Kept narrow deliberately;
+/// adding a new variant requires emitting the matching glTF `type`
+/// string and any light-specific fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightKind {
+    Directional,
+    Point,
+    /// Reserved for future: USD `SphereLight` with `shaping:cone:angle`
+    /// authoring, which the glTF spec maps to `spot`.
+    Spot,
+}
+
 /// Returns the axis-wise `(min, max)` over a flat `[x, y, z, x, y, z, ...]`
 /// slice. Used for morph-target accessor bounds; callers must guarantee
 /// `data.len() % 3 == 0`. An empty slice returns the identity-style
@@ -477,6 +524,7 @@ pub fn build_glb(
     textures: &[TextureInput],
     skins: &[SkinInput],
     animations: &[AnimationInput],
+    lights: &[LightInput],
 ) -> Result<Vec<u8>, String> {
     if meshes.is_empty() {
         return Err("no meshes to export".to_string());
@@ -1244,6 +1292,58 @@ pub fn build_glb(
         gltf_materials.push(material);
     }
 
+    // ---- Phase 7a: KHR_lights_punctual -----------------------------
+    //
+    // For each LightInput, emit:
+    //   1. A glTF light definition (top-level `extensions.KHR_lights_punctual.lights[i]`)
+    //   2. A scene node carrying the authored world_matrix plus
+    //      `extensions.KHR_lights_punctual.light: i`.
+    //
+    // Lights are always scene-root nodes (parent hierarchy is baked
+    // into world_matrix) — keeps the JSON small and matches how
+    // Three.js expects to find punctual lights.
+    let mut gltf_light_defs: Vec<Value> = Vec::new();
+    for light in lights {
+        let type_str = match light.kind {
+            LightKind::Directional => "directional",
+            LightKind::Point => "point",
+            LightKind::Spot => "spot",
+        };
+        let mut def = json!({
+            "name": light.name,
+            "type": type_str,
+            "color": [light.color[0], light.color[1], light.color[2]],
+            "intensity": light.intensity,
+        });
+        // glTF spec: only point / spot take `range`; omit (= infinite)
+        // to match USD's default. Directional range is always infinite.
+        // If we later resolve a USD `inputs:radius` fall-off we can add
+        // a finite `range` here.
+        if matches!(light.kind, LightKind::Spot) {
+            // Placeholder cone for future Spot support. Keep generous
+            // defaults so the light is visible if authored.
+            def["spot"] = json!({
+                "innerConeAngle": 0.0,
+                "outerConeAngle": std::f32::consts::FRAC_PI_4,
+            });
+        }
+        let light_idx = gltf_light_defs.len();
+        gltf_light_defs.push(def);
+
+        // Scene node for this light.
+        let node_idx = nodes.len();
+        nodes.push(json!({
+            "name": format!("{}_light_node", light.name),
+            "matrix": light.world_matrix.iter().copied().collect::<Vec<f32>>(),
+            "extensions": {
+                "KHR_lights_punctual": {
+                    "light": light_idx,
+                }
+            },
+        }));
+        scene_nodes.push(json!(node_idx));
+    }
+
     // ---- Build GLTF JSON document --------------------------------------
     let total_bin_length = bin.len() as u64;
 
@@ -1261,12 +1361,26 @@ pub fn build_glb(
         "accessors": accessors,
         "materials": gltf_materials,
     });
-    // Phase 6b: register KHR_texture_transform in extensionsUsed when
-    // any material actually carries the extension. glTF requires this
-    // declaration; omitting it causes compliant loaders to drop the
-    // extension or refuse the file.
+    // Phase 6b / 7a: register extensions in the top-level
+    // `extensionsUsed` list. glTF requires this declaration;
+    // omitting it causes compliant loaders to drop the extension
+    // or refuse the file. We build the list additively so both
+    // Phase 6b (texture transforms) and Phase 7a (lights) can
+    // coexist.
+    let mut extensions_used: Vec<&str> = Vec::new();
     if material_needs_transform_ext {
-        document["extensionsUsed"] = json!(["KHR_texture_transform"]);
+        extensions_used.push("KHR_texture_transform");
+    }
+    if !gltf_light_defs.is_empty() {
+        extensions_used.push("KHR_lights_punctual");
+        document["extensions"] = json!({
+            "KHR_lights_punctual": {
+                "lights": gltf_light_defs,
+            }
+        });
+    }
+    if !extensions_used.is_empty() {
+        document["extensionsUsed"] = json!(extensions_used);
     }
     if !textures.is_empty() {
         // Phase 5e L1: build a sampler per unique (wrapS, wrapT) pair
@@ -1523,7 +1637,7 @@ mod tests {
     #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
-        let glb = build_glb(&[mesh], &default_materials(), &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[]).expect("build glb");
 
         // GLB header sanity check
         assert_eq!(&glb[0..4], b"glTF");
@@ -1566,7 +1680,7 @@ mod tests {
     fn rejects_mismatched_normal_count() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.normals = Some(vec![0.0; 6]); // wrong length
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("normal"));
     }
 
@@ -1574,7 +1688,7 @@ mod tests {
     fn rejects_out_of_range_index() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.indices = vec![0, 1, 99];
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("out of range"));
     }
 
@@ -1582,7 +1696,7 @@ mod tests {
     fn rejects_material_index_out_of_range() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.material_index = 5;
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[]).unwrap_err();
         assert!(
             err.contains("material_index"),
             "expected material_index error, got: {err}"
@@ -1592,7 +1706,7 @@ mod tests {
     #[test]
     fn rejects_empty_materials_array() {
         let mesh = unit_quad_split_into_two_triangles();
-        let err = build_glb(&[mesh], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[mesh], &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("material"));
     }
 
@@ -1613,7 +1727,7 @@ mod tests {
             wrap_s: 10497,
             wrap_t: 10497,
         }];
-        let glb = build_glb(&[mesh], &materials, &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -1631,7 +1745,7 @@ mod tests {
     fn omits_alpha_mode_for_opaque_material() {
         let mesh = unit_quad_split_into_two_triangles();
         let materials = vec![MaterialInput::default_preview()];
-        let glb = build_glb(&[mesh], &materials, &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -1693,7 +1807,7 @@ mod tests {
             },
         ];
 
-        let glb = build_glb(&[red_mesh, blue_mesh], &materials, &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[red_mesh, blue_mesh], &materials, &[], &[], &[], &[]).expect("build glb");
         assert_eq!(&glb[0..4], b"glTF");
 
         let json_chunk_len =

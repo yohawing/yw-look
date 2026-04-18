@@ -743,7 +743,16 @@ impl UsdBackend for OpenusdBackend {
             }
         }
 
-        glb::build_glb(&inputs, &materials, &textures, &skins, &animations).map_err(UsdError::Parse)
+        // Phase 7a: resolve authored UsdLux lights to glTF
+        // KHR_lights_punctual entries. Lights are always gathered at
+        // stage scope (independent of the mesh traversal above), so
+        // they come through even when the stage has no mesh prims —
+        // useful for USD lighting-only scenes that we may get in
+        // production.
+        let lights = resolve_lights(&stage, up_axis_correction.as_ref());
+
+        glb::build_glb(&inputs, &materials, &textures, &skins, &animations, &lights)
+            .map_err(UsdError::Parse)
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
@@ -1436,6 +1445,109 @@ fn resolve_material_slot(
         slot
     } else {
         0
+    }
+}
+
+/// Phase 7a: enumerate `UsdLuxLight` prims on the stage and resolve
+/// each to a [`glb::LightInput`] with the authored intensity, color,
+/// exposure, and world transform baked in.
+///
+/// Scope:
+///   - `UsdLuxDistantLight` → [`LightKind::Directional`]
+///   - `UsdLuxSphereLight`  → [`LightKind::Point`] (no shaping cone)
+///
+/// Out of scope (returns no entry): `RectLight`, `DiskLight`,
+/// `CylinderLight`, `DomeLight`. Area lights need a glTF extension
+/// that does not yet exist (`KHR_lights_area` is draft-only);
+/// DomeLight is handled via the environment-map pipeline and does
+/// not belong in `KHR_lights_punctual`.
+///
+/// Up-axis correction is applied when the stage is Z-up so the glTF
+/// node matrix is expressed in the viewer's Y-up space, same as
+/// mesh nodes.
+fn resolve_lights(stage: &Stage, up_correction: Option<&[f64; 16]>) -> Vec<glb::LightInput> {
+    let light_paths = RefCell::new(Vec::<SdfPath>::new());
+    if stage
+        .traverse(|prim_path| {
+            if detect_light_kind(stage, prim_path).is_some() {
+                light_paths.borrow_mut().push(prim_path.clone());
+            }
+        })
+        .is_err()
+    {
+        return Vec::new();
+    }
+
+    let paths = light_paths.into_inner();
+    let mut out = Vec::with_capacity(paths.len());
+    for prim_path in paths {
+        let Some(kind) = detect_light_kind(stage, &prim_path) else {
+            continue;
+        };
+        let intensity = read_shader_float(stage, &prim_path, "inputs:intensity")
+            .unwrap_or(1.0);
+        let exposure = read_shader_float(stage, &prim_path, "inputs:exposure")
+            .unwrap_or(0.0);
+        let intensity = intensity * (2.0f32).powf(exposure);
+        let color = read_shader_color(stage, &prim_path, "inputs:color")
+            .unwrap_or([1.0, 1.0, 1.0]);
+
+        let Ok(world) = compose_world_xform(stage, &prim_path) else {
+            continue;
+        };
+        let world = match up_correction {
+            Some(correction) => mat4_mul(correction, &world),
+            None => world,
+        };
+        let world_f32 = mat4_f64_to_f32(&world);
+
+        out.push(glb::LightInput {
+            name: prim_path.as_str().to_string(),
+            kind,
+            color,
+            intensity,
+            world_matrix: world_f32,
+        });
+    }
+    out
+}
+
+/// Map the prim's USD `typeName` to the subset of light kinds yw-look
+/// currently emits to glTF. Returns `None` for non-lights and for
+/// lights we intentionally skip (area lights, DomeLight).
+fn detect_light_kind(stage: &Stage, prim_path: &SdfPath) -> Option<glb::LightKind> {
+    let type_name: Option<String> = stage
+        .field(prim_path.clone(), FieldKey::TypeName)
+        .ok()
+        .flatten();
+    match type_name.as_deref() {
+        Some("DistantLight") => Some(glb::LightKind::Directional),
+        Some("SphereLight") => Some(glb::LightKind::Point),
+        _ => None,
+    }
+}
+
+/// Read a `float` / `double` input from a light (or shader) prim.
+/// Returns `None` when unauthored or typed as something else.
+fn read_shader_float(stage: &Stage, prim_path: &SdfPath, input_name: &str) -> Option<f32> {
+    let prop_path = prim_path.append_property(input_name).ok()?;
+    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    match value {
+        SdfValue::Float(v) => Some(v),
+        SdfValue::Double(v) => Some(v as f32),
+        _ => None,
+    }
+}
+
+/// Read a `color3f` / `color3d` input on a light prim. Falls back to
+/// `None` when the value is unauthored or the wrong type.
+fn read_shader_color(stage: &Stage, prim_path: &SdfPath, input_name: &str) -> Option<[f32; 3]> {
+    let prop_path = prim_path.append_property(input_name).ok()?;
+    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    match value {
+        SdfValue::Vec3f(v) => Some(v),
+        SdfValue::Vec3d(v) => Some([v[0] as f32, v[1] as f32, v[2] as f32]),
+        _ => None,
     }
 }
 
@@ -5699,6 +5811,189 @@ def Xform "Root"
         assert!(
             primitive.get("targets").is_none(),
             "primitive.targets must be omitted when no morph targets"
+        );
+
+        Ok(())
+    }
+
+    /// Phase 7a: a stage authoring one `DistantLight` + one
+    /// `SphereLight` must produce a GLB whose top-level
+    /// `extensions.KHR_lights_punctual.lights` array carries both
+    /// entries with the authored color / intensity baked in, and
+    /// whose scene graph has one glTF node per light pointing at the
+    /// matching light definition. `extensionsUsed` must list
+    /// `"KHR_lights_punctual"` per the glTF spec.
+    #[test]
+    fn extract_geometry_emits_khr_lights_punctual() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase7a_lights");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("lights.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+
+    def DistantLight "Sun"
+    {
+        color3f inputs:color = (1.0, 0.95, 0.8)
+        float inputs:intensity = 3.0
+        float inputs:exposure = 1.0
+    }
+
+    def SphereLight "Fill"
+    {
+        color3f inputs:color = (0.4, 0.5, 1.0)
+        float inputs:intensity = 10.0
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract lights.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // extensionsUsed must declare KHR_lights_punctual.
+        let ext_used = doc["extensionsUsed"].as_array().expect("extensionsUsed");
+        assert!(
+            ext_used
+                .iter()
+                .any(|e| e.as_str() == Some("KHR_lights_punctual")),
+            "extensionsUsed missing KHR_lights_punctual, got {ext_used:?}"
+        );
+
+        // Top-level lights array with 2 entries.
+        let lights = doc["extensions"]["KHR_lights_punctual"]["lights"]
+            .as_array()
+            .expect("KHR_lights_punctual.lights");
+        assert_eq!(lights.len(), 2, "expected 2 lights, got {lights:?}");
+
+        let sun = lights.iter().find(|l| l["type"] == "directional").expect("directional");
+        // intensity = 3.0 * 2^1.0 = 6.0
+        assert!(
+            (sun["intensity"].as_f64().unwrap() - 6.0).abs() < 1e-5,
+            "sun intensity: {}",
+            sun["intensity"]
+        );
+        let color = sun["color"].as_array().unwrap();
+        assert!((color[0].as_f64().unwrap() - 1.0).abs() < 1e-5);
+        assert!((color[1].as_f64().unwrap() - 0.95).abs() < 1e-5);
+        assert!((color[2].as_f64().unwrap() - 0.8).abs() < 1e-5);
+
+        let fill = lights.iter().find(|l| l["type"] == "point").expect("point");
+        // exposure unauthored → default 0.0; intensity stays at 10.0
+        assert!(
+            (fill["intensity"].as_f64().unwrap() - 10.0).abs() < 1e-5,
+            "fill intensity: {}",
+            fill["intensity"]
+        );
+
+        // Each light has a matching scene node with the extension
+        // pointer. We can't assume ordering in the scenes.nodes list
+        // (meshes land there too), so search for any node that
+        // references our lights.
+        let nodes = doc["nodes"].as_array().expect("nodes");
+        let light_node_count = nodes
+            .iter()
+            .filter(|n| {
+                n.get("extensions")
+                    .and_then(|e| e.get("KHR_lights_punctual"))
+                    .is_some()
+            })
+            .count();
+        assert_eq!(
+            light_node_count, 2,
+            "expected 2 nodes with KHR_lights_punctual, got {light_node_count}"
+        );
+
+        Ok(())
+    }
+
+    /// Phase 7a regression: stages without any authored UsdLuxLight
+    /// must not touch the glTF extension machinery — no
+    /// `extensions`, no `extensionsUsed` entry, no light-bearing
+    /// nodes. Keeps pre-7a output byte-identical when no lights
+    /// are authored.
+    #[test]
+    fn extract_geometry_omits_lights_when_none_authored() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase7a_no_lights");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("plain.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract plain.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // No KHR_lights_punctual anywhere.
+        if let Some(ext_used) = doc.get("extensionsUsed") {
+            let names: Vec<&str> = ext_used
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect();
+            assert!(
+                !names.contains(&"KHR_lights_punctual"),
+                "extensionsUsed must not list KHR_lights_punctual when no lights authored: {names:?}"
+            );
+        }
+        assert!(
+            doc["extensions"]
+                .get("KHR_lights_punctual")
+                .is_none(),
+            "document.extensions must not carry KHR_lights_punctual when no lights authored"
         );
 
         Ok(())
