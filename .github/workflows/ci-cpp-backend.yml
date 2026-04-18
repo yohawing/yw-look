@@ -14,6 +14,16 @@ on:
   # excluded here — the C++ PoC build is 30-60 min and doesn't block
   # alpha iteration. Re-add `develop` once the Exit rule items in
   # docs/usd-cpp-poc.md are cleared.
+  #
+  # Path filters are scoped to files that *actually* affect the C++
+  # build: the shim, the vcpkg manifests, the Rust bindgen/cpp side,
+  # the dedicated integration test, and the sample fixtures the test
+  # opens. Changes to the shared trait (`backend.rs`), the pure-Rust
+  # backend (`openusd_backend.rs`), module wiring (`mod.rs`,
+  # `lib.rs`), or types (`types.rs`) are intentionally excluded while
+  # the PoC iterates — a trait-signature mismatch that would break
+  # the C++ impl is caught by the main-targeting PR run or by manual
+  # `workflow_dispatch`. See docs/usd-cpp-poc.md for the exit path.
   push:
     branches:
       - main
@@ -26,12 +36,7 @@ on:
       - "src-tauri/third_party/usd_c_shim/**"
       - "src-tauri/src/usd/cpp_sys/**"
       - "src-tauri/src/usd/openusd_cpp_backend.rs"
-      - "src-tauri/src/usd/openusd_backend.rs"
-      - "src-tauri/src/usd/backend.rs"
-      - "src-tauri/src/usd/types.rs"
-      - "src-tauri/src/usd/mod.rs"
-      - "src-tauri/src/lib.rs"
-      - "src-tauri/tests/**"
+      - "src-tauri/tests/cpp_backend_inspector.rs"
       - "samples/assets/usd/**"
       - ".github/workflows/ci-cpp-backend.yml"
   pull_request:
@@ -47,15 +52,17 @@ on:
       - "src-tauri/third_party/usd_c_shim/**"
       - "src-tauri/src/usd/cpp_sys/**"
       - "src-tauri/src/usd/openusd_cpp_backend.rs"
-      - "src-tauri/src/usd/openusd_backend.rs"
-      - "src-tauri/src/usd/backend.rs"
-      - "src-tauri/src/usd/types.rs"
-      - "src-tauri/src/usd/mod.rs"
-      - "src-tauri/src/lib.rs"
-      - "src-tauri/tests/**"
+      - "src-tauri/tests/cpp_backend_inspector.rs"
       - "samples/assets/usd/**"
       - ".github/workflows/ci-cpp-backend.yml"
   workflow_dispatch:
+
+# Cancel an in-flight run when a newer commit lands on the same ref.
+# Important for the PoC branches where rapid pushes are common — the
+# 30-60 min build is expensive to keep running for a superseded SHA.
+concurrency:
+  group: ci-cpp-backend-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -139,6 +146,19 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      # Cache cargo registry, git deps, and target/ across runs.
+      # `shared-key` keeps the cache keyed per feature set so the
+      # `cpp-only` artifacts (no default features, backend-openusd-cpp)
+      # do not thrash with the parity job's mixed-feature build below.
+      # `Swatinem/rust-cache` hashes `Cargo.lock` + toolchain + OS
+      # automatically, so cross-platform runs stay isolated.
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: cpp-only
+          cache-on-failure: true
 
       # bindgen's libclang dependency: the standalone LLVM distribution
       # ships `libclang.dll` / `libclang.dylib`, which the
@@ -229,6 +249,13 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: parity-both
+          cache-on-failure: true
 
       - name: Set LIBCLANG_PATH
         shell: pwsh
