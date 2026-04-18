@@ -532,6 +532,95 @@ impl CStage {
         if ok == 1 { Some(out) } else { None }
     }
 
+    // -------- UsdSkel (Phase 2.G) --------
+
+    /// Inherited-bound UsdSkelSkeleton path for a mesh.
+    pub fn mesh_bound_skeleton(&self, mesh_path: &str) -> Option<String> {
+        let c = CString::new(mesh_path).ok()?;
+        let p = unsafe { usdc_mesh_bound_skeleton(self.raw, c.as_ptr()) };
+        ptr_to_opt_string(p)
+    }
+
+    /// Joint token paths authored on `UsdSkelSkeleton.joints`, in
+    /// order. Parent indices are derived Rust-side via path-prefix
+    /// matching (UsdSkel convention).
+    pub fn skel_joints(&self, skel_path: &str) -> Vec<String> {
+        let Ok(c) = CString::new(skel_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_skel_joints(
+                self.raw,
+                c.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// `bindTransforms` as a flat column-major f32 buffer (16 floats
+    /// per joint). Matches the Rust fork's `SkeletonData.bind_transforms`
+    /// layout, so `skin_input_from_skel` can consume either source.
+    pub fn skel_bind_transforms(&self, skel_path: &str) -> Vec<f32> {
+        self.read_float_attr(skel_path, |s, cb, u| unsafe {
+            usdc_skel_bind_transforms(self.raw, s, cb, u)
+        })
+    }
+
+    /// `restTransforms` as a flat column-major f32 buffer.
+    pub fn skel_rest_transforms(&self, skel_path: &str) -> Vec<f32> {
+        self.read_float_attr(skel_path, |s, cb, u| unsafe {
+            usdc_skel_rest_transforms(self.raw, s, cb, u)
+        })
+    }
+
+    /// Per-mesh `skel:joints` override (token array). Empty when
+    /// unauthored.
+    pub fn mesh_skel_joints(&self, mesh_path: &str) -> Vec<String> {
+        let Ok(c) = CString::new(mesh_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_mesh_skel_joints(
+                self.raw,
+                c.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// `primvars:skel:jointIndices`. Flat int array of length
+    /// `point_count * joints_per_vertex`.
+    pub fn mesh_joint_indices(&self, mesh_path: &str) -> Vec<i32> {
+        self.read_i32_attr(mesh_path, |s, cb, u| unsafe {
+            usdc_mesh_joint_indices(self.raw, s, cb, u)
+        })
+    }
+
+    /// `primvars:skel:jointWeights`. Parallel to `mesh_joint_indices`.
+    pub fn mesh_joint_weights(&self, mesh_path: &str) -> Vec<f32> {
+        self.read_float_attr(mesh_path, |s, cb, u| unsafe {
+            usdc_mesh_joint_weights(self.raw, s, cb, u)
+        })
+    }
+
+    /// Bone influences per vertex (the primvar's `elementSize`
+    /// metadata). 0 means "no skinning authored" — yw-look treats the
+    /// spec-default 1 as unskinned because single-influence rigs
+    /// are effectively static.
+    pub fn mesh_joints_per_vertex(&self, mesh_path: &str) -> usize {
+        let Ok(c) = CString::new(mesh_path) else {
+            return 0;
+        };
+        let n = unsafe { usdc_mesh_joints_per_vertex(self.raw, c.as_ptr()) };
+        if n > 0 { n as usize } else { 0 }
+    }
+
     fn read_float_attr<F>(&self, prim_path: &str, call: F) -> Vec<f32>
     where
         F: FnOnce(*const c_char, UsdcFloatBufferCallback, *mut c_void),

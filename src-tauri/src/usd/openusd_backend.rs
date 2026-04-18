@@ -1137,7 +1137,7 @@ fn read_mesh_skel_joints_override(
 ///
 /// No-op when the mesh has no joint influences authored, so the
 /// caller can invoke this unconditionally on any rigged mesh.
-fn remap_mesh_skin_indices(
+pub(crate) fn remap_mesh_skin_indices(
     mesh: &mut MeshData,
     mesh_local_joints: &[String],
     skeleton_joints: &[String],
@@ -1262,7 +1262,7 @@ fn pad_to_len<T: Clone>(mut v: Vec<T>, len: usize, fill: T) -> Vec<T> {
 /// near-singular matrices (we treat any determinant below 1e-8 as
 /// non-invertible). Used to derive glTF inverseBindMatrices from
 /// USD's world-space `bindTransforms`.
-fn invert_mat4_f32(m: &[f32; 16]) -> Option<[f32; 16]> {
+pub(crate) fn invert_mat4_f32(m: &[f32; 16]) -> Option<[f32; 16]> {
     let inv: [f32; 16] = [
         m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15]
             + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10],

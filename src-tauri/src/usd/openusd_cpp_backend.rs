@@ -29,8 +29,8 @@ use super::backend::{UsdBackend, UsdError};
 use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation};
 use super::glb::{self, MaterialInput, MeshInput};
 use super::openusd_backend::{
-    mat4_f64_to_f32, mat4_mul, mesh_data_to_input, srgb_to_linear, z_up_to_y_up_mat4,
-    MeshOrientation,
+    invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mesh_data_to_input, remap_mesh_skin_indices,
+    srgb_to_linear, z_up_to_y_up_mat4, MeshOrientation,
 };
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
@@ -401,10 +401,43 @@ impl UsdBackend for OpenusdCppBackend {
         // diffuse texture). The texture-loading pass below walks this
         // once `mesh_paths` have been processed.
         let mut material_texture_paths: Vec<Option<String>> = vec![None];
+
+        // Phase 2.G: UsdSkel skin resolution. A first pass walks
+        // meshes, resolves each bound Skeleton via the shim, and
+        // builds a dedup'd `SkinInput`. `mesh_skin_slots` parallels
+        // `mesh_paths`. The Z-up→Y-up correction is applied to bind /
+        // rest transforms so the skeleton hierarchy ends up in the
+        // same Y-up space the mesh node matrices target.
+        let up_correction_f32: Option<[f32; 16]> =
+            up_axis_correction.as_ref().map(mat4_f64_to_f32);
+        let mut skins: Vec<glb::SkinInput> = Vec::new();
+        let mut skin_slots: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut mesh_skin_slots: Vec<Option<usize>> = vec![None; mesh_paths.len()];
+        for (i, prim_path) in mesh_paths.iter().enumerate() {
+            let Some(skel_path) = stage.mesh_bound_skeleton(prim_path) else {
+                continue;
+            };
+            let slot = if let Some(&existing) = skin_slots.get(&skel_path) {
+                existing
+            } else {
+                let Some(skin_input) =
+                    build_skin_input_cpp(&stage, &skel_path, up_correction_f32.as_ref())
+                else {
+                    continue;
+                };
+                let s = skins.len();
+                skins.push(skin_input);
+                skin_slots.insert(skel_path.clone(), s);
+                s
+            };
+            mesh_skin_slots[i] = Some(slot);
+        }
+
         let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
 
-        for prim_path in &mesh_paths {
-            let Some(raw) = build_mesh_data_from_shim(&stage, prim_path) else {
+        for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
+            let Some(mut raw) = build_mesh_data_from_shim(&stage, prim_path) else {
                 continue;
             };
 
@@ -431,12 +464,41 @@ impl UsdBackend for OpenusdCppBackend {
                 continue;
             };
 
+            // Phase 2.G: apply the per-mesh `skel:joints` override,
+            // remapping the mesh's `primvars:skel:jointIndices` into
+            // the bound Skeleton's full joint order (what glTF
+            // `skin.joints` exposes). Apple ARKit exports (chameleon /
+            // seahorse) use this heavily — skipping it leaves
+            // eyeball / tongue meshes pointing at the wrong joint
+            // and produces the "exploded" look.
+            let skin_slot = mesh_skin_slots[mesh_idx];
+            if let Some(slot) = skin_slot {
+                let local_joints = stage.mesh_skel_joints(prim_path);
+                if !local_joints.is_empty() {
+                    if let Some(skin) = skins.get(slot) {
+                        remap_mesh_skin_indices(
+                            &mut raw,
+                            &local_joints,
+                            &skin.joint_names,
+                        );
+                    }
+                }
+            }
+
+            // Clamp joint indices to the skeleton's joint count so
+            // `mesh_data_to_input` doesn't reject the mesh. Matches
+            // the max_joint parameter the Rust backend passes.
+            let max_joint = skin_slot
+                .and_then(|si| skins.get(si))
+                .map(|s| s.joint_names.len())
+                .unwrap_or(usize::MAX);
+
             let mut triangulated = mesh_data_to_input(
                 &sdf_path,
                 world_f32,
                 &raw,
                 orientation,
-                usize::MAX,
+                max_joint,
                 &[],
             )?;
 
@@ -467,7 +529,22 @@ impl UsdBackend for OpenusdCppBackend {
                 &mut material_slots,
                 &mut material_texture_paths,
             );
-            triangulated.skin_index = None;
+            // Only attach skin_index when the mesh actually carries
+            // per-vertex joint influences. Rigid-follow meshes (an
+            // eye rigidly parented to a head joint is a common ARKit
+            // pattern) have `primvars:skel:jointIndices` unauthored,
+            // so the MeshData's joint_indices / joint_weights are
+            // None and the glTF skin payload must stay empty —
+            // otherwise `glb::build_glb`'s consistency check rejects
+            // the blob. Mesh skipping the skin means it renders with
+            // its static world matrix, which is exactly what rigid-
+            // follow semantics want.
+            triangulated.skin_index =
+                if triangulated.joint_indices.is_some() && triangulated.joint_weights.is_some() {
+                    skin_slot
+                } else {
+                    None
+                };
             inputs.push(triangulated);
         }
 
@@ -549,7 +626,7 @@ impl UsdBackend for OpenusdCppBackend {
         let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref());
         let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref());
 
-        glb::build_glb(&inputs, &materials, &textures, &[], &[], &lights, &cameras)
+        glb::build_glb(&inputs, &materials, &textures, &skins, &[], &lights, &cameras)
             .map_err(|e| UsdError::Parse(e.to_string()))
     }
 }
@@ -616,17 +693,141 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
     };
     let display_color = (!display_color_raw.is_empty()).then_some(display_color_raw);
 
+    // Phase 2.G: capture any authored skin primvar on the mesh. The
+    // outer loop decides whether to use it based on whether a bound
+    // skeleton resolves (a mesh with `primvars:skel:jointIndices` but
+    // no reachable Skeleton is effectively unrigged for preview
+    // purposes).
+    let jpv = stage.mesh_joints_per_vertex(prim_path);
+    let (joint_indices, joint_weights, joints_per_vertex) = if jpv > 0 {
+        let indices_i32 = stage.mesh_joint_indices(prim_path);
+        let weights = stage.mesh_joint_weights(prim_path);
+        if indices_i32.is_empty()
+            || weights.is_empty()
+            || indices_i32.len() != weights.len()
+        {
+            (None, None, 0)
+        } else {
+            // USD authors int[]; glTF wants u16 (triangulator later
+            // truncates to 4 influences / u16). Negative authoring
+            // is a schema violation, so clamp to 0 defensively.
+            let indices: Vec<u32> = indices_i32
+                .into_iter()
+                .map(|i| if i < 0 { 0 } else { i as u32 })
+                .collect();
+            (Some(indices), Some(weights), jpv)
+        }
+    } else {
+        (None, None, 0)
+    };
+
     Some(MeshData {
         points,
         face_vertex_counts,
         face_vertex_indices,
         normals,
         uvs,
-        joint_indices: None,
-        joint_weights: None,
-        joints_per_vertex: 0,
+        joint_indices,
+        joint_weights,
+        joints_per_vertex,
         display_color,
     })
+}
+
+/// Phase 2.G: build a `glb::SkinInput` from the shim's skeleton
+/// queries. Returns `None` when the skeleton authors no joints
+/// (malformed or empty rig) so the caller can silently drop the
+/// mesh's skin hookup and fall back to static rendering.
+///
+/// Parents are derived from joint token paths using the UsdSkel
+/// convention: `/root/hip/leg`'s parent is the joint whose path
+/// equals `root/hip` within the same array. Roots (no `/` in the
+/// path, or unmatched parent) get `None`.
+///
+/// Bind / rest transforms are kept in their authored space (the
+/// up-axis correction is intentionally not applied here — matches
+/// `skin_input_from_skel` on the Rust backend, which relies on the
+/// mesh's world matrix carrying the Z-up→Y-up rotation so
+/// `meshMatrix * skin(vertex, joints)` stays single-rotate).
+fn build_skin_input_cpp(
+    stage: &CStage,
+    skel_path: &str,
+    _up_correction_f32: Option<&[f32; 16]>,
+) -> Option<glb::SkinInput> {
+    let joints = stage.skel_joints(skel_path);
+    if joints.is_empty() {
+        return None;
+    }
+    let joint_count = joints.len();
+
+    let parents = derive_joint_parents(&joints);
+
+    let rest_flat = stage.skel_rest_transforms(skel_path);
+    let bind_flat = stage.skel_bind_transforms(skel_path);
+
+    // Unflatten to one 16-element matrix per joint; pad with
+    // identity when the source array is short (malformed rigs from
+    // hand-authored USD are surprisingly common).
+    let rest_local_matrices = unflatten_mat4_or_identity(&rest_flat, joint_count);
+    let bind_world_matrices = unflatten_mat4_or_identity(&bind_flat, joint_count);
+    let inverse_bind_matrices: Vec<[f32; 16]> = bind_world_matrices
+        .iter()
+        .map(|m| invert_mat4_f32(m).unwrap_or([
+            1.0, 0.0, 0.0, 0.0, //
+            0.0, 1.0, 0.0, 0.0, //
+            0.0, 0.0, 1.0, 0.0, //
+            0.0, 0.0, 0.0, 1.0,
+        ]))
+        .collect();
+
+    Some(glb::SkinInput {
+        name: format!("usd:{skel_path}"),
+        joint_names: joints,
+        parents,
+        rest_local_matrices,
+        inverse_bind_matrices,
+    })
+}
+
+/// Split a flat `[f32]` of `joint_count * 16` values into one 16-
+/// element matrix per joint. Short / empty inputs pad with identity.
+fn unflatten_mat4_or_identity(flat: &[f32], joint_count: usize) -> Vec<[f32; 16]> {
+    const IDENTITY: [f32; 16] = [
+        1.0, 0.0, 0.0, 0.0, //
+        0.0, 1.0, 0.0, 0.0, //
+        0.0, 0.0, 1.0, 0.0, //
+        0.0, 0.0, 0.0, 1.0,
+    ];
+    let mut out = Vec::with_capacity(joint_count);
+    for j in 0..joint_count {
+        let start = j * 16;
+        if start + 16 <= flat.len() {
+            let mut m = [0.0_f32; 16];
+            m.copy_from_slice(&flat[start..start + 16]);
+            out.push(m);
+        } else {
+            out.push(IDENTITY);
+        }
+    }
+    out
+}
+
+/// UsdSkel parent-derivation: joint path tokens use `/` as segment
+/// separator, and the parent of `a/b/c` is whichever entry spells
+/// exactly `a/b`. Root joints (paths with no `/`) and orphans (parent
+/// path not present in the joints array) get `None`. O(n²) but
+/// skeletons in practice stay well under 1000 joints.
+fn derive_joint_parents(joints: &[String]) -> Vec<Option<usize>> {
+    joints
+        .iter()
+        .map(|j| {
+            let Some(sep) = j.rfind('/') else {
+                return None;
+            };
+            let parent_path = &j[..sep];
+            joints.iter().position(|p| p == parent_path)
+        })
+        .collect()
 }
 
 /// Phase 2.I.1: displayColor fallback for cpp backend. When a mesh

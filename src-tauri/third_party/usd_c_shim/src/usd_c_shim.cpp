@@ -71,6 +71,9 @@
 #include <pxr/usd/usdShade/output.h>
 #include <pxr/usd/usdShade/shader.h>
 #include <pxr/usd/usdShade/tokens.h>
+#include <pxr/usd/usdSkel/bindingAPI.h>
+#include <pxr/usd/usdSkel/skeleton.h>
+#include <pxr/usd/usdSkel/tokens.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -708,12 +711,22 @@ extern "C" USDC_API int usdc_prim_world_matrix(UsdcStage *stage,
         GfMatrix4d m =
             xf.ComputeLocalToWorldTransform(UsdTimeCode::Default());
         (void)reset;
-        /* GfMatrix4d is row-major in memory (M[row][col]); glTF expects
-         * column-major. Transpose during the copy so Rust receives
-         * glTF-compatible layout directly. */
-        for (int r = 0; r < 4; ++r) {
-            for (int c = 0; c < 4; ++c) {
-                out_matrix[c * 4 + r] = m[r][c];
+        /* USD uses row-vector convention (`v * M`) with translation
+         * authored in the last *row*, and `GfMatrix4d::operator[]` is
+         * row-major (`m[row][col]`). glTF uses column-vector
+         * convention (`M * v`) with translation in the last *column*
+         * and stores matrices column-major. The two semantics are
+         * related by `M_gltf = transpose(M_usd)`, and the column-
+         * major memory layout of `M_gltf` is identical to the
+         * row-major memory layout of `M_usd`. So the correct copy is
+         * `out[i*4+j] = m[i][j]` — no transpose at the float level.
+         * An earlier version wrote `out[c*4+r] = m[r][c]` and
+         * silently mis-rendered every non-identity world xform
+         * (translation landed on the bottom row of the glTF matrix
+         * instead of the last column). */
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                out_matrix[i * 4 + j] = m[i][j];
             }
         }
         return 1;
@@ -1246,6 +1259,196 @@ usdc_shader_input_color3f(UsdcStage *stage,
             return 1;
         }
         return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+/* -------------------- UsdSkel (Phase 2.G) -------------------- */
+
+namespace {
+
+/* Flatten a `GfMatrix4d` into 16 floats matching the glTF column-
+ * major convention. See `usdc_prim_world_matrix` for why this is
+ * "just copy the bytes" rather than a transpose: USD row-major
+ * memory of `M_usd` has the same layout as glTF column-major memory
+ * of `transpose(M_usd)`, which is exactly the matrix Three.js needs
+ * to apply the USD-authored transform. */
+void push_matrix_column_major_f32(std::vector<float> &out, const GfMatrix4d &m) {
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            out.push_back(static_cast<float>(m[i][j]));
+        }
+    }
+}
+
+/* Read a VtArray<GfMatrix4d> attribute and emit the flattened
+ * column-major float buffer through `cb`. Emits an empty buffer
+ * when the attribute is unauthored. */
+void emit_matrix_array_column_major(const UsdAttribute &attr,
+                                    UsdcFloatBufferCallback cb,
+                                    void *user) {
+    if (!cb) return;
+    VtArray<GfMatrix4d> arr;
+    if (!attr || !attr.Get(&arr) || arr.empty()) {
+        cb(nullptr, 0, user);
+        return;
+    }
+    std::vector<float> flat;
+    flat.reserve(arr.size() * 16);
+    for (const GfMatrix4d &m : arr) {
+        push_matrix_column_major_f32(flat, m);
+    }
+    cb(flat.data(), flat.size(), user);
+}
+
+void emit_token_array(const UsdAttribute &attr,
+                      UsdcStringCallback cb,
+                      void *user) {
+    if (!cb) return;
+    VtArray<TfToken> arr;
+    if (!attr || !attr.Get(&arr)) return;
+    for (const TfToken &t : arr) {
+        cb(t.GetString().c_str(), user);
+    }
+}
+
+} /* anonymous namespace */
+
+extern "C" USDC_API const char *
+usdc_mesh_bound_skeleton(UsdcStage *stage, const char *mesh_path) {
+    UsdPrim prim = prim_at(stage, mesh_path);
+    if (!prim) return nullptr;
+    try {
+        UsdSkelBindingAPI binding(prim);
+        UsdSkelSkeleton skel = binding.GetInheritedSkeleton();
+        if (!skel) return nullptr;
+        stage->scratch = skel.GetPath().GetString();
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API void
+usdc_skel_joints(UsdcStage *stage,
+                 const char *skel_path,
+                 UsdcStringCallback cb,
+                 void *user) {
+    UsdPrim prim = prim_at(stage, skel_path);
+    if (!prim || !cb) return;
+    try {
+        UsdSkelSkeleton skel(prim);
+        if (!skel) return;
+        emit_token_array(skel.GetJointsAttr(), cb, user);
+    } catch (...) {
+        /* best-effort; drop the enumeration silently */
+    }
+}
+
+extern "C" USDC_API void
+usdc_skel_bind_transforms(UsdcStage *stage,
+                          const char *skel_path,
+                          UsdcFloatBufferCallback cb,
+                          void *user) {
+    UsdPrim prim = prim_at(stage, skel_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdSkelSkeleton skel(prim);
+        if (!skel) { emit_empty_floats(cb, user); return; }
+        emit_matrix_array_column_major(skel.GetBindTransformsAttr(), cb, user);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_skel_rest_transforms(UsdcStage *stage,
+                          const char *skel_path,
+                          UsdcFloatBufferCallback cb,
+                          void *user) {
+    UsdPrim prim = prim_at(stage, skel_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdSkelSkeleton skel(prim);
+        if (!skel) { emit_empty_floats(cb, user); return; }
+        emit_matrix_array_column_major(skel.GetRestTransformsAttr(), cb, user);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_mesh_skel_joints(UsdcStage *stage,
+                      const char *mesh_path,
+                      UsdcStringCallback cb,
+                      void *user) {
+    UsdPrim prim = prim_at(stage, mesh_path);
+    if (!prim || !cb) return;
+    try {
+        /* `skel:joints` is a schema attribute on UsdSkelBindingAPI. A
+         * mesh that carries the API may or may not advertise the
+         * schema name; read the attribute directly for robustness
+         * against minimal authoring. */
+        UsdAttribute attr = prim.GetAttribute(TfToken("skel:joints"));
+        emit_token_array(attr, cb, user);
+    } catch (...) {
+        /* drop silently */
+    }
+}
+
+extern "C" USDC_API void
+usdc_mesh_joint_indices(UsdcStage *stage,
+                        const char *mesh_path,
+                        UsdcI32BufferCallback cb,
+                        void *user) {
+    UsdPrim prim = prim_at(stage, mesh_path);
+    if (!prim) { emit_empty_ints(cb, user); return; }
+    try {
+        UsdGeomPrimvarsAPI api(prim);
+        UsdGeomPrimvar pv = api.GetPrimvar(TfToken("primvars:skel:jointIndices"));
+        if (!pv || !pv.HasValue()) { emit_empty_ints(cb, user); return; }
+        VtArray<int> arr;
+        if (!pv.Get(&arr) || arr.empty()) { emit_empty_ints(cb, user); return; }
+        cb(arr.cdata(), arr.size(), user);
+    } catch (...) {
+        emit_empty_ints(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_mesh_joint_weights(UsdcStage *stage,
+                        const char *mesh_path,
+                        UsdcFloatBufferCallback cb,
+                        void *user) {
+    UsdPrim prim = prim_at(stage, mesh_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdGeomPrimvarsAPI api(prim);
+        UsdGeomPrimvar pv = api.GetPrimvar(TfToken("primvars:skel:jointWeights"));
+        if (!pv || !pv.HasValue()) { emit_empty_floats(cb, user); return; }
+        VtArray<float> arr;
+        if (!pv.Get(&arr) || arr.empty()) { emit_empty_floats(cb, user); return; }
+        cb(arr.cdata(), arr.size(), user);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API int
+usdc_mesh_joints_per_vertex(UsdcStage *stage, const char *mesh_path) {
+    UsdPrim prim = prim_at(stage, mesh_path);
+    if (!prim) return 0;
+    try {
+        UsdGeomPrimvarsAPI api(prim);
+        UsdGeomPrimvar pv = api.GetPrimvar(TfToken("primvars:skel:jointIndices"));
+        if (!pv) return 0;
+        int sz = pv.GetElementSize();
+        /* UsdGeomPrimvar::GetElementSize defaults to 1 when unauthored;
+         * a single influence per vertex effectively means "no skinning"
+         * so treat that the same as unauthored. Apple ARKit exports
+         * typically author 4. */
+        return sz > 1 ? sz : 0;
     } catch (...) {
         return 0;
     }

@@ -440,6 +440,75 @@ USDC_API const char *usdc_shader_input_asset(UsdcStage *stage,
                                              const char *shader_path,
                                              const char *input_name);
 
+/* -------------------- UsdSkel (Phase 2.G) -------------------- */
+
+/* Returns the SdfPath of the `UsdSkelSkeleton` inherited-bound to a
+ * mesh via `UsdSkelBindingAPI`. Walks the prim hierarchy so a skel
+ * rel authored on an ancestor (the common SkelRoot pattern) still
+ * resolves. Scratch-buffer lifetime. Returns NULL when no skeleton
+ * is bound or when the prim does not exist. */
+USDC_API const char *usdc_mesh_bound_skeleton(UsdcStage *stage,
+                                              const char *mesh_path);
+
+/* Enumerates the authored joint token paths on a
+ * `UsdSkelSkeleton.joints` array, in authoring order. Callers use
+ * the order to derive parent indices by longest-common-prefix
+ * match. Emits nothing on unauthored / missing prims. */
+USDC_API void usdc_skel_joints(UsdcStage *stage,
+                               const char *skel_path,
+                               UsdcStringCallback cb,
+                               void *user);
+
+/* Emits `UsdSkelSkeleton.bindTransforms` as a flat 16-float-per-joint
+ * buffer in **column-major** layout (glTF convention). The shim
+ * transposes OpenUSD's row-major `GfMatrix4d` on the way out. */
+USDC_API void usdc_skel_bind_transforms(UsdcStage *stage,
+                                        const char *skel_path,
+                                        UsdcFloatBufferCallback cb,
+                                        void *user);
+
+/* Same as `usdc_skel_bind_transforms`, for
+ * `UsdSkelSkeleton.restTransforms`. Column-major, 16 floats per
+ * joint. */
+USDC_API void usdc_skel_rest_transforms(UsdcStage *stage,
+                                        const char *skel_path,
+                                        UsdcFloatBufferCallback cb,
+                                        void *user);
+
+/* Enumerates the per-mesh `skel:joints` token override. Apple ARKit
+ * exports use this to restrict which joints a given mesh binds to
+ * (the mesh's `primvars:skel:jointIndices` index into this subset,
+ * not the full Skeleton.joints array). Emits nothing when
+ * unauthored. */
+USDC_API void usdc_mesh_skel_joints(UsdcStage *stage,
+                                    const char *mesh_path,
+                                    UsdcStringCallback cb,
+                                    void *user);
+
+/* Emits `primvars:skel:jointIndices` as a flat int array. Length is
+ * `point_count * joints_per_vertex`. Use
+ * `usdc_mesh_joints_per_vertex` to learn the stride. */
+USDC_API void usdc_mesh_joint_indices(UsdcStage *stage,
+                                      const char *mesh_path,
+                                      UsdcI32BufferCallback cb,
+                                      void *user);
+
+/* Emits `primvars:skel:jointWeights` as a flat float array. Parallel
+ * to `usdc_mesh_joint_indices`; sums to 1.0 per-vertex in spec-
+ * compliant authoring, but yw-look does not normalize before
+ * handing the glTF writer. */
+USDC_API void usdc_mesh_joint_weights(UsdcStage *stage,
+                                      const char *mesh_path,
+                                      UsdcFloatBufferCallback cb,
+                                      void *user);
+
+/* Returns the `elementSize` metadata on `primvars:skel:jointIndices`
+ * — i.e. the number of bone influences stored per vertex (spec
+ * default 1, Apple ARKit exports usually author 4). Returns 0 when
+ * the primvar is unauthored. */
+USDC_API int usdc_mesh_joints_per_vertex(UsdcStage *stage,
+                                         const char *mesh_path);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
