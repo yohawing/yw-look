@@ -5,13 +5,14 @@
 //! - [`types`] — wire-level types shared with the frontend.
 //! - [`backend`] — the [`backend::UsdBackend`] trait every parser
 //!   implementation must satisfy.
-//! - [`openusd_backend`] — the default implementation, a thin adapter
-//!   over our fork of `mxpv/openusd`. Active when the Cargo feature
-//!   `backend-openusd-rs` is on (enabled by default).
-//! - [`openusd_cpp_backend`] — an alternative implementation backed
-//!   by Pixar OpenUSD via a handwritten C shim. Active when the
-//!   Cargo feature `backend-openusd-cpp` is on (inspector-only PoC;
-//!   see `docs/usd-cpp.md`).
+//! - [`openusd_backend`] — the pure-Rust adapter over our fork of
+//!   `mxpv/openusd`. Now opt-in via `backend-openusd-rs`; kept for
+//!   parity testing and for Linux targets where the C++ backend is
+//!   gated off (Phase 2.J).
+//! - [`openusd_cpp_backend`] — the default implementation (Phase 2.J
+//!   onward), backed by Pixar OpenUSD via a handwritten C shim.
+//!   Active when the Cargo feature `backend-openusd-cpp` is on
+//!   (enabled by default on Windows / macOS; see `docs/usd-cpp.md`).
 //! - [`glb`] — Phase 3 GLB serializer that turns extracted USDC mesh
 //!   data into a binary glTF blob the frontend's `GLTFLoader` can
 //!   consume.
@@ -80,5 +81,18 @@ pub type DefaultBackend = OpenusdBackend;
 #[cfg(not(any(feature = "backend-openusd-rs", feature = "backend-openusd-cpp")))]
 compile_error!(
     "At least one of the USD backend features must be enabled: \
-     `backend-openusd-rs` (default) or `backend-openusd-cpp`."
+     `backend-openusd-rs` or `backend-openusd-cpp` (default)."
+);
+
+// Phase 2.J: the C++ backend depends on a vcpkg-provided OpenUSD +
+// LLVM toolchain that yw-look has not yet set up on Linux. Hard-fail
+// at compile time so Linux builders receive a clear message instead
+// of a hundred lines of cmake / bindgen errors. Drop back to the
+// Rust fork with:
+//   cargo build --no-default-features --features backend-openusd-rs
+#[cfg(all(feature = "backend-openusd-cpp", target_os = "linux"))]
+compile_error!(
+    "`backend-openusd-cpp` is not supported on Linux. \
+     Build with `--no-default-features --features backend-openusd-rs` \
+     or switch to a Windows / macOS host."
 );

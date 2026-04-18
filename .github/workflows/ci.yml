@@ -146,8 +146,18 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cargo check
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+      # Phase 2.J: the default feature set pulls in `backend-openusd-cpp`
+      # (vcpkg OpenUSD + LLVM), which yw-look does not yet provision on
+      # Linux hosts. Build the Rust-fork backend explicitly here so
+      # ubuntu-runner CI covers the openusd crate without the vcpkg hop.
+      # Windows + macOS coverage for the C++ default lives in
+      # `ci-cpp-backend.yml`.
+      - name: Cargo check (Rust fork backend)
+        run: >-
+          cargo check --manifest-path src-tauri/Cargo.toml
+          --no-default-features --features backend-openusd-rs
 
-      - name: Cargo test
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Cargo test (Rust fork backend)
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml
+          --no-default-features --features backend-openusd-rs

@@ -24,9 +24,15 @@ bindgen = { version = "0.70", optional = true }
 cmake = { version = "0.1", optional = true }
 
 [features]
-# Default matches the pre-C++-wrapper behavior: the pure-Rust openusd
-# fork is the active backend.
-default = ["backend-openusd-rs"]
+# Phase 2.J: the C++ backend (Pixar OpenUSD via vcpkg + a handwritten
+# C shim) is now the default. Pre-Phase-2.J builds used the pure-Rust
+# `yohawing/openusd` fork as the default; that backend still compiles
+# under the opt-in `backend-openusd-rs` feature for parity testing
+# and for targets that cannot (yet) consume the C++ toolchain.
+#
+# To build the pure-Rust flavor explicitly, pass:
+#   cargo build --no-default-features --features backend-openusd-rs
+default = ["backend-openusd-cpp"]
 # Pure-Rust backend (yohawing/openusd fork). Keeps the existing
 # `OpenusdBackend` compiled in and wired up.
 backend-openusd-rs = []
@@ -34,6 +40,11 @@ backend-openusd-rs = []
 # Enabling this pulls in the build-time dependencies above and
 # requires VCPKG_ROOT to be set at build time. See
 # `docs/usd-cpp.md` for setup.
+#
+# Linux is intentionally unsupported while the vcpkg + OpenUSD build
+# is still Windows-first; the C++ backend compile-errors out on
+# `target_os = "linux"` so Linux builders must drop back to the Rust
+# backend via `--no-default-features --features backend-openusd-rs`.
 backend-openusd-cpp = ["dep:bindgen", "dep:cmake"]
 
 [dependencies]
