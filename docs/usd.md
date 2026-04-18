@@ -347,60 +347,77 @@ docs/usd-cpp-poc.md と docs/usd-cpp.md に詳細。要約:
 
 ---
 
-## Phase 6 — マテリアル詳細（計画中・週末アタック）
+## Phase 6 — マテリアル詳細（実装済 / 家で検証待ち）
 
 ### 目的
 
-Phase 5 の「既知の制約」のうち、**マテリアル系で実アセットに影響の大きい 4 項目**を Rust fork に実装する。C++ backend への port は Phase 9 で後追い、fork の変更は upstream PR 候補。
+Phase 5 の「既知の制約」のうち、**マテリアル系で実アセットに影響の大きい 4 項目**を Rust fork に実装した。C++ backend への port は Phase 9 で後追い、fork の変更は upstream PR 候補。
 
-### スコープ
+### スコープと完了状況
 
-| サブフェーズ | 機能                                    | 想定工数 | 想定コミット                                       |
-| ------------ | --------------------------------------- | -------- | -------------------------------------------------- |
-| **6a**       | Normal map (`inputs:normal` 1-hop)      | 4〜6 h   | `loader: resolve UsdPreviewSurface normal input`   |
-| **6b**       | UsdTransform2d (texture tile / offset)  | 4〜6 h   | `loader: apply UsdTransform2d to UV coordinates`   |
-| **6c**       | PrimvarReader + per-vertex displayColor | 6〜8 h   | `loader: surface vertex colors via PrimvarReader`  |
-| **6d**       | UsdSkelBlendShape → GLB morph targets   | 12〜16 h | `loader: emit morph targets for UsdSkelBlendShape` |
+| サブフェーズ | 機能                                    | 状態 | 実コミット                                                                         |
+| ------------ | --------------------------------------- | ---- | ---------------------------------------------------------------------------------- |
+| **6a**       | Normal map (`inputs:normal` 1-hop)      | ✅   | `e973b6a loader: resolve UsdPreviewSurface normal input`                           |
+| **6b**       | UsdTransform2d (texture tile / offset)  | ✅   | `7256448 loader: apply UsdTransform2d to UV coordinates`                           |
+| **6c**       | per-vertex displayColor → COLOR_0       | ✅   | `bb5a414 test: cover per-vertex displayColor → glTF COLOR_0`                       |
+| **6c.2**     | PrimvarReader_float2 custom UV (st2…)   | 🚧   | deferred — MeshData に secondary UV フィールドがなく、fork 側拡張が必要           |
+| **6d**       | UsdSkelBlendShape → GLB morph targets   | ✅   | `6fc3120 glb: wire morph-target plumbing` + `f3a4949 loader: emit morph targets`   |
+| **6d.2**     | BlendShape animation (`blendShapeWeights` track) | 🚧 | deferred — SkelAnimationData に weight track がなく、fork 側拡張が必要 |
 
-合計: 26〜36 h。週末（16〜20 h）で 6a-6c、6d は持ち越し可。
+### 6a. Normal map — 実装ノート
 
-### 各サブフェーズの詳細
+- fork は改変せず、yw-look 側で shader graph を walk（`find_preview_surface_shader` + `follow_texture_connection_to_asset`）
+- base color テクスチャと同じ `TextureLoader` + `texture_dedup` を共有、同一画像が両チャンネルで参照されても 1 枚しか埋込まない
+- glTF では `material.normalTexture`（`pbrMetallicRoughness` の外）として出力
+- scale パラメータ（UsdUVTexture 側の `inputs:scale`）は Phase 10 に延期
 
-#### 6a. Normal map
+### 6b. UsdTransform2d — 実装ノート
 
-fork 側 `Stage::material_of` の `MaterialData` に `normal_texture: Option<TextureBinding>` を追加。yw-look 側で glTF `materials[n].normalTexture` として出力、USDZ archive or filesystem 解決は既存 `TextureLoader` を再利用。
+- `inputs:scale` / `rotation` / `translation` を読んで glTF `KHR_texture_transform` に変換
+- USD の rotation (degrees) → glTF (radians) 変換はリゾルブ時に実施
+- Identity transform は emit しない（GLB 最小化）
+- 各テクスチャ参照 (`baseColorTexture` / `normalTexture`) に個別に付く
+- top-level `extensionsUsed` への登録も自動
+- 共通 helper: `follow_connection_to_shader` / `shader_is_texture_node` / `read_scalar_input` / `read_vec2_input`
 
-- 検証アセット: glove_baseball (既に normal map 付き) / 自作 fixture
-- GLB viewer で法線の出方が DCC 側表示と一致すること
-- scale パラメータ (`inputs:scale` on UsdUVTexture chained to normal) は Phase 10 に延期
+### 6c. per-vertex displayColor — 実装ノート
 
-#### 6b. UsdTransform2d
+- per-vertex displayColor → GLB `COLOR_0` のパスは Phase 5a 時点ですでに実装済みだったが、CI で pin されていなかった
+- 本フェーズでは 2 本のユニットテストで挙動を明文化
+  - `extract_geometry_emits_color_0_for_per_vertex_display_color`
+  - `extract_geometry_omits_color_0_for_constant_display_color`（constant 色が `baseColorFactor` + COLOR_0 の二重適用にならないことを保証）
 
-UsdShade の `UsdTransform2d` ノードを検出し、`inputs:scale` / `rotation` / `translation` を読んで glTF の `KHR_texture_transform` extension に変換。
+### 6c.2. PrimvarReader 経由の custom UV — 保留理由
 
-- 検証: tile 繰り返しをしている自作 fixture
-- Three.js 側は `KHR_texture_transform` を標準サポート
-- GeomSubset と混ざるケースは Phase 10 に延期
+- `primvars:st2` など secondary UV セット → `TEXCOORD_1` の経路は、fork の `MeshData` が UV を `Option<Vec<f32>>` 1 本しか持たないため **fork 側拡張が必要**
+- 必要な変更: `MeshData.secondary_uvs: HashMap<String, Vec<f32>>` 追加 + mesh_of 側の抽出、yw-look 側で PrimvarReader → primvar 名 → secondary UV ルーティング
+- 優先度高いアセットが出てきたら着手（chameleon USDZ の複数 UV セットが該当する可能性）
 
-#### 6c. PrimvarReader + per-vertex displayColor
+### 6d. UsdSkelBlendShape → morph targets — 実装ノート
 
-- `UsdPrimvarReader_float3` が `primvars:displayColor` を参照していれば、mesh の per-vertex color を GLB `COLOR_0` 属性として出力
-- `UsdPrimvarReader_float2` の custom UV (`primvars:st2` など) は attr 2nd UV として `TEXCOORD_1` に
-- `AttrKind::Vertex | FaceVarying` のみ対象（`Constant` は既存 displayColor fallback で処理済み）
+- 2 コミット構成: `6fc3120` で plumbing（`MorphTarget` struct、`MeshInput.morph_targets / morph_weights`、GLB JSON 出力）、`f3a4949` で walker + 統合
+- fork は改変せず yw-look 側で walk: `skel:blendShapeTargets` リレーション → `UsdSkelBlendShape` prim の `offsets` + `pointIndices`
+- Sparse authoring（`pointIndices` あり）は dense per-vertex 配列に展開してから triangle-soup 展開ループに流す（既存の `mesh_data_to_input` ループに morph_corner_offsets アキュムレータを追加）
+- GLB `primitive.targets[0].POSITION` + `mesh.weights` (rest pose = 0.0) + `mesh.extras.targetNames` を出力
+- **スコープ外（6d.2 以降）**: normalOffsets / inbetweens / SkelAnimation の `blendShapeWeights` time sample → glTF animation track
 
-#### 6d. BlendShape（持ち越し可）
+### 検証（家で実行）
 
-- fork に `Stage::blend_shapes_of(mesh_path) -> Vec<BlendShapeData>` 追加
-- `BlendShapeData` は offset positions + point indices を持つ
-- GLB の `primitives[n].targets` + `meshes[n].weights` として出力
-- USD の time sample → glTF animation channel (`weights`)
-- 検証アセット: 自作 morph fixture
+```sh
+cd src-tauri
+cargo test --lib usd::openusd_backend::tests::extract_geometry_embeds_normal_map_texture
+cargo test --lib usd::openusd_backend::tests::extract_geometry_applies_usd_transform_2d
+cargo test --lib usd::openusd_backend::tests::extract_geometry_without_transform2d_omits_extension
+cargo test --lib usd::openusd_backend::tests::extract_geometry_emits_color_0_for_per_vertex_display_color
+cargo test --lib usd::openusd_backend::tests::extract_geometry_omits_color_0_for_constant_display_color
+cargo test --lib usd::openusd_backend::tests::extract_geometry_emits_morph_target_for_blend_shape
+cargo test --lib usd::openusd_backend::tests::extract_geometry_omits_morph_when_no_blend_shapes
+```
 
-### 横断
-
-- 各サブフェーズは **独立コミット** で進める（AGENTS.md のコミット運用に従う）
-- fork 側 API 追加 → yw-look 側でそれを読む → GLB 出力 → 検証 → コミット の順
-- 週末終了時点で最低でも 6a / 6b が release ブランチに入ることを target
+実アセット確認:
+- glove_baseball.usdz — normal map が効いていること（目視 / DCC 比較）
+- 自作の UsdTransform2d 付きアセット — UV が正しくタイル / オフセットすること
+- 自作の UsdSkelBlendShape 付き rigged mesh — weight をスライダで動かすと形状が変わること（Three.js AnimationMixer 経由）
 
 ---
 
