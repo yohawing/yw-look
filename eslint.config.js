@@ -6,7 +6,21 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist", "node_modules", "src-tauri/target", "public"],
+    ignores: [
+      "dist",
+      "node_modules",
+      "src-tauri/target",
+      // C++ backend build outputs. vcpkg_installed/ ships third-party
+      // JS assets (hwloc visualizer etc.) that trip no-undef /
+      // no-array-constructor; cpp-artifacts/ is pure .dll / .dylib
+      // but a future port could drop JS there too. Both dirs are
+      // gitignored and never materialize on CI, so ignoring them
+      // only shuts up local runs on machines that built the C++
+      // backend.
+      "src-tauri/vcpkg_installed",
+      "src-tauri/cpp-artifacts",
+      "public",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
