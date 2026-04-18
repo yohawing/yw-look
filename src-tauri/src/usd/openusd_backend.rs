@@ -5143,6 +5143,167 @@ def Xform "Root"
         Ok(())
     }
 
+    /// Phase 6c: a mesh authoring per-vertex `primvars:displayColor`
+    /// must flow through to the GLB as a `COLOR_0` vertex attribute.
+    /// Regression guard: the constant-color path (handled separately
+    /// via `apply_display_color_fallback` as `baseColorFactor`) must
+    /// not also emit `COLOR_0`, otherwise the color would be applied
+    /// twice (once at vertex, once as the factor multiplier).
+    #[test]
+    fn extract_geometry_emits_color_0_for_per_vertex_display_color() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6c_vertex_color");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("vcolor.usda");
+        // 3 vertices, 3 distinct displayColors with interpolation =
+        // "vertex". We deliberately do NOT bind a material: the mesh
+        // should render with per-vertex colors via COLOR_0 alone.
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        color3f[] primvars:displayColor = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)] (
+            interpolation = "vertex"
+        )
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract vcolor.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // Primitive must carry a COLOR_0 attribute pointing at an
+        // accessor. We walk meshes[0].primitives[0] because the
+        // fixture has exactly one mesh with one primitive.
+        let meshes = doc["meshes"].as_array().expect("meshes array");
+        assert!(!meshes.is_empty(), "expected at least one glTF mesh");
+        let primitive = &meshes[0]["primitives"][0];
+        let color_accessor_idx = primitive["attributes"]["COLOR_0"]
+            .as_u64()
+            .expect("COLOR_0 accessor index");
+
+        let accessors = doc["accessors"].as_array().expect("accessors array");
+        let color_acc = &accessors[color_accessor_idx as usize];
+        assert_eq!(color_acc["type"], "VEC3", "COLOR_0 must be VEC3");
+        // componentType 5126 = FLOAT (glTF uses integer enum values).
+        assert_eq!(color_acc["componentType"], 5126);
+        // 3 triangle corners → 3 vertices in the expanded per-corner
+        // layout; glTF does not require per-primitive vertex dedup.
+        let count = color_acc["count"].as_u64().expect("count");
+        assert_eq!(count, 3, "expected 3 vertices, got {count}");
+
+        Ok(())
+    }
+
+    /// Phase 6c regression: a mesh whose `primvars:displayColor` is
+    /// authored as a single constant triple must continue to use the
+    /// `baseColorFactor` fallback and must NOT emit a `COLOR_0`
+    /// attribute — otherwise the material color would be applied
+    /// twice (once as the factor, once per vertex).
+    #[test]
+    fn extract_geometry_omits_color_0_for_constant_display_color() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6c_constant_color");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("const_color.usda");
+        // Single color, interpolation = "constant" — Kitchen Set's
+        // typical pattern for a mesh with no authored material.
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        color3f[] primvars:displayColor = [(0.8, 0.2, 0.1)] (
+            interpolation = "constant"
+        )
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract const_color.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // No COLOR_0 on the primitive.
+        let primitive = &doc["meshes"][0]["primitives"][0];
+        assert!(
+            primitive["attributes"].get("COLOR_0").is_none(),
+            "constant displayColor must not emit COLOR_0, got {primitive:?}"
+        );
+
+        // The color must have been materialized as a dedicated
+        // material slot whose `baseColorFactor` matches the authored
+        // color (after sRGB → linear conversion). The fallback
+        // material name is prefixed `dc:`.
+        let materials = doc["materials"].as_array().expect("materials array");
+        let dc_slot = materials
+            .iter()
+            .find(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.starts_with("dc:"))
+                    .unwrap_or(false)
+            })
+            .expect("displayColor fallback material slot");
+        let factor = dc_slot["pbrMetallicRoughness"]["baseColorFactor"]
+            .as_array()
+            .expect("baseColorFactor array");
+        // sRGB 0.8 → linear ≈ 0.6038, 0.2 → ≈ 0.0331, 0.1 → ≈ 0.0100.
+        // We leave a generous epsilon so the test remains stable if
+        // the sRGB curve implementation is ever re-derived.
+        let r = factor[0].as_f64().unwrap();
+        let g = factor[1].as_f64().unwrap();
+        let b = factor[2].as_f64().unwrap();
+        assert!((r - 0.6038).abs() < 1e-3, "R = {r}, expected ≈0.6038");
+        assert!((g - 0.0331).abs() < 1e-3, "G = {g}, expected ≈0.0331");
+        assert!((b - 0.0100).abs() < 1e-3, "B = {b}, expected ≈0.0100");
+
+        Ok(())
+    }
+
     /// Phase 5e final state for the chameleon Apple AR Quick Look
     /// asset (`samples/private/usd/chameleon_anim_mtl_variant.usdz`):
     /// neither yw-look nor the openusd fork can recover the textured
