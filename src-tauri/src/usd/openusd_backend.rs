@@ -463,6 +463,14 @@ impl UsdBackend for OpenusdBackend {
                 .map(|s| s.joint_names.len())
                 .unwrap_or(usize::MAX);
 
+            // Phase 6d: resolve blend shape targets against the mesh's
+            // own point count (same point buffer is shared across
+            // subsets, so the filtered / whole-mesh paths below both
+            // reuse this result). Empty when the mesh has no
+            // `skel:blendShapeTargets` relationship.
+            let point_count = mesh_data.points.len() / 3;
+            let blend_shapes = resolve_blend_shapes(&stage, prim_path, point_count);
+
             // GeomSubset: if the mesh has face subsets with material
             // bindings, produce one MeshInput per subset so each face
             // group gets its own material. Otherwise fall through to
@@ -507,6 +515,7 @@ impl UsdBackend for OpenusdBackend {
                         &filtered,
                         orientation,
                         max_joint,
+                        &blend_shapes,
                     )?;
 
                     // Resolve material: try authored binding first,
@@ -538,8 +547,14 @@ impl UsdBackend for OpenusdBackend {
                 continue; // skip whole-mesh path
             }
 
-            let mut triangulated =
-                mesh_data_to_input(prim_path, world_f32, &mesh_data, orientation, max_joint)?;
+            let mut triangulated = mesh_data_to_input(
+                prim_path,
+                world_f32,
+                &mesh_data,
+                orientation,
+                max_joint,
+                &blend_shapes,
+            )?;
 
             // Resolve the material slot for this mesh. Unbound meshes
             // fall back to slot 0 (default).
@@ -1422,6 +1437,178 @@ fn resolve_material_slot(
     } else {
         0
     }
+}
+
+/// Phase 6d: one morph target expanded to dense per-vertex offsets.
+///
+/// `offsets` is flat `[dx0, dy0, dz0, dx1, dy1, dz1, ...]` of length
+/// `point_count * 3`, covering every vertex in the mesh. When the
+/// authored USD data is sparse (`pointIndices` + a shorter `offsets`
+/// array) the caller fills unaffected vertices with zero deltas
+/// during [`resolve_blend_shapes`].
+pub(crate) struct DenseBlendShape {
+    pub name: String,
+    pub offsets: Vec<f32>,
+}
+
+/// Phase 6d: resolve every `UsdSkelBlendShape` target bound to a
+/// mesh prim into a dense per-vertex offset array. Returns `Vec::new()`
+/// when the mesh has no `skel:blendShapeTargets` relationship, no
+/// resolvable targets, or any per-target authored data is malformed.
+///
+/// The fork's `Stage::mesh_of` does not surface blend shapes (there
+/// is no `MeshData::blend_shapes` field), so yw-look walks the stage
+/// directly via the public schema API — `prim_children`, `field`, and
+/// `FieldKey::TargetPaths` for the relationship, `FieldKey::Default`
+/// for the BlendShape prim's attributes. When the fork eventually
+/// grows a blend-shape aware MeshData variant, this helper is the
+/// place to replace.
+///
+/// **Scope (Phase 6d initial cut)**: positions only. `normalOffsets`
+/// are read by the spec but intentionally ignored — the renderer
+/// re-derives shading normals from the deformed positions, which is
+/// visually a bit noisier but keeps the initial implementation
+/// small. `inbetweens` (auxiliary shapes at fractional weights) are
+/// out of scope; only the primary shape is resolved.
+pub(crate) fn resolve_blend_shapes(
+    stage: &Stage,
+    mesh_path: &SdfPath,
+    point_count: usize,
+) -> Vec<DenseBlendShape> {
+    // Authored targets live on `skel:blendShapeTargets` as a USD
+    // relationship, which the fork exposes via
+    // `FieldKey::TargetPaths`. USDA parse example:
+    //
+    //     rel skel:blendShapeTargets = [</Mesh/Shapes/Smile>]
+    let targets_path = match mesh_path.append_property("skel:blendShapeTargets") {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    let targets_value: Option<SdfValue> = stage
+        .field(targets_path, FieldKey::TargetPaths)
+        .ok()
+        .flatten();
+    let list_op = match targets_value {
+        Some(SdfValue::PathListOp(op)) => op,
+        _ => return Vec::new(),
+    };
+
+    // Read `skel:blendShapes` token array (if authored) so we can
+    // name each channel symmetrically with how UsdSkelAnimation will
+    // look them up later. When unauthored, fall back to the target
+    // prim's own name.
+    let skel_blend_shapes = read_blend_shape_names(stage, mesh_path);
+
+    let mut out: Vec<DenseBlendShape> = Vec::new();
+    for (i, target) in list_op.iter().enumerate() {
+        let target_path = target.clone();
+        let Some(dense) =
+            read_dense_blend_shape(stage, &target_path, point_count)
+        else {
+            continue;
+        };
+        let name = skel_blend_shapes
+            .get(i)
+            .cloned()
+            .or_else(|| target_path.name().map(|s| s.to_string()))
+            .unwrap_or_else(|| format!("blend_shape_{i}"));
+        out.push(DenseBlendShape {
+            name,
+            offsets: dense,
+        });
+    }
+    out
+}
+
+/// Read the `uniform token[] skel:blendShapes` primvar / attribute on
+/// the mesh. Returns an empty Vec when unauthored; the authored order
+/// is the channel order and must parallel `skel:blendShapeTargets`.
+fn read_blend_shape_names(stage: &Stage, mesh_path: &SdfPath) -> Vec<String> {
+    let prop_path = match mesh_path.append_property("skel:blendShapes") {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    match stage.field::<SdfValue>(prop_path, FieldKey::Default).ok().flatten() {
+        Some(SdfValue::TokenVec(names)) | Some(SdfValue::StringVec(names)) => names,
+        _ => Vec::new(),
+    }
+}
+
+/// Resolve a single `UsdSkelBlendShape` prim to a dense per-vertex
+/// offset array. Returns `None` when the prim has no usable authored
+/// data (missing offsets, malformed pointIndices, offsets count
+/// mismatch).
+fn read_dense_blend_shape(
+    stage: &Stage,
+    target_path: &SdfPath,
+    point_count: usize,
+) -> Option<Vec<f32>> {
+    // Confirm the target is actually a BlendShape prim. Mis-authored
+    // relationships pointing at random prims are surprisingly common
+    // in production exports, so a quiet skip here is better than
+    // propagating the failure up.
+    let type_name: Option<String> = stage
+        .field(target_path.clone(), FieldKey::TypeName)
+        .ok()
+        .flatten();
+    if type_name.as_deref() != Some("BlendShape") {
+        return None;
+    }
+
+    // `offsets` is always authored as `vector3f[]`; `pointIndices` is
+    // optional — when absent, `offsets` must match the full point
+    // count (dense authoring).
+    let offsets_path = target_path.append_property("offsets").ok()?;
+    let offsets_value: SdfValue = stage
+        .field(offsets_path, FieldKey::Default)
+        .ok()
+        .flatten()?;
+    let offsets_vec: Vec<[f32; 3]> = match offsets_value {
+        SdfValue::Vec3fVec(v) => v,
+        _ => return None,
+    };
+
+    let indices_path = target_path.append_property("pointIndices").ok()?;
+    let indices_value: Option<SdfValue> = stage
+        .field(indices_path, FieldKey::Default)
+        .ok()
+        .flatten();
+
+    let mut dense = vec![0.0f32; point_count * 3];
+
+    match indices_value {
+        Some(SdfValue::IntVec(point_indices)) => {
+            // Sparse: `offsets[i]` applies to `pointIndices[i]`.
+            if point_indices.len() != offsets_vec.len() {
+                return None;
+            }
+            for (idx, off) in point_indices.iter().zip(offsets_vec.iter()) {
+                let pi = *idx as usize;
+                if pi >= point_count {
+                    // Silently clamp: an authored pointIndex outside
+                    // the mesh's point range is authoring garbage.
+                    // Dropping it keeps the mesh renderable.
+                    continue;
+                }
+                dense[pi * 3] = off[0];
+                dense[pi * 3 + 1] = off[1];
+                dense[pi * 3 + 2] = off[2];
+            }
+        }
+        _ => {
+            // Dense: `offsets.len()` must equal `point_count`.
+            if offsets_vec.len() != point_count {
+                return None;
+            }
+            for (pi, off) in offsets_vec.iter().enumerate() {
+                dense[pi * 3] = off[0];
+                dense[pi * 3 + 1] = off[1];
+                dense[pi * 3 + 2] = off[2];
+            }
+        }
+    }
+
+    Some(dense)
 }
 
 /// Walk the UsdShade graph rooted at a Material prim looking for a
@@ -2817,6 +3004,7 @@ fn mesh_data_to_input(
     data: &MeshData,
     orientation: MeshOrientation,
     max_joint: usize,
+    blend_shapes: &[DenseBlendShape],
 ) -> Result<MeshInput, UsdError> {
     let point_count = data.points.len() / 3;
     if data.points.len() % 3 != 0 || point_count == 0 {
@@ -2899,6 +3087,13 @@ fn mesh_data_to_input(
     let mut indices: Vec<u32> = Vec::new();
     let mut next_vertex: u32 = 0;
 
+    // Phase 6d: one per-corner `Vec<f32>` per morph target. Filled in
+    // inside the corner loop using the same `point_index` that drives
+    // `positions`, so after the loop each entry holds per-vertex
+    // position deltas in the same layout as `MeshInput::positions`.
+    let mut morph_corner_offsets: Vec<Vec<f32>> =
+        blend_shapes.iter().map(|_| Vec::new()).collect();
+
     // Phase 5c E: per-vertex skin payload. UsdSkel exposes one
     // (joint_indices, joint_weights) tuple per **point**, with
     // `joints_per_vertex` influences each. We expand into the same
@@ -2967,6 +3162,19 @@ fn mesh_data_to_input(
                 positions.push(data.points[point_index * 3]);
                 positions.push(data.points[point_index * 3 + 1]);
                 positions.push(data.points[point_index * 3 + 2]);
+
+                // Phase 6d: mirror the position push into every morph
+                // target's delta array, indexed by the same
+                // `point_index`. Each `DenseBlendShape.offsets` is
+                // already sparse-expanded to cover every point, so the
+                // lookup is a straight index.
+                for (target_idx, target) in blend_shapes.iter().enumerate() {
+                    let off = point_index * 3;
+                    let out = &mut morph_corner_offsets[target_idx];
+                    out.push(target.offsets[off]);
+                    out.push(target.offsets[off + 1]);
+                    out.push(target.offsets[off + 2]);
+                }
 
                 if let Some(src) = &data.normals {
                     match normal_kind {
@@ -3136,12 +3344,20 @@ fn mesh_data_to_input(
         // skin slot for this mesh is known. Default `None` is the
         // unrigged path.
         skin_index: None,
-        // Phase 6d structural: empty vec = no morph deformation. The
-        // UsdSkelBlendShape walker in `extract_geometry_glb` fills
-        // these in after calling `mesh_data_to_input` and knows the
-        // resolved triangle-corner layout.
-        morph_targets: Vec::new(),
-        morph_weights: Vec::new(),
+        // Phase 6d: pair each accumulated per-corner offset buffer
+        // with its authored blend-shape name so the GLB writer can
+        // emit `mesh.extras.targetNames`. Weights default to zero
+        // (rest pose) — animation for `skel:blendShapeWeights`
+        // tracks will populate them in a later phase.
+        morph_targets: blend_shapes
+            .iter()
+            .enumerate()
+            .map(|(i, src)| glb::MorphTarget {
+                name: Some(src.name.clone()),
+                position_offsets: morph_corner_offsets[i].clone(),
+            })
+            .collect(),
+        morph_weights: vec![0.0f32; blend_shapes.len()],
     })
 }
 
@@ -3431,6 +3647,7 @@ mod tests {
             &bad_mesh,
             MeshOrientation::RightHanded,
             usize::MAX,
+            &[],
         )
         .expect_err("negative faceVertexCounts must be rejected");
         let UsdError::Parse(msg) = err else {
@@ -5310,6 +5527,175 @@ def Xform "Root"
         Ok(())
     }
 
+    /// Phase 6d: a mesh bound to a `UsdSkelBlendShape` target must
+    /// produce a GLB primitive with `targets[0].POSITION` pointing at
+    /// a VEC3 FLOAT accessor sized to match the mesh's vertex count,
+    /// and the parent mesh object must expose a parallel
+    /// `weights: [0.0]` array plus an `extras.targetNames` entry
+    /// carrying the authored shape name. Sparse authoring via
+    /// `pointIndices` must expand to dense deltas (zeros at
+    /// untouched vertices) before the per-corner expansion runs.
+    #[test]
+    fn extract_geometry_emits_morph_target_for_blend_shape() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6d_blend_shape");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("blendshape.usda");
+        // 3-point triangle, one BlendShape "Smile" authored SPARSELY
+        // (only point 1 is offset). After dense expansion we expect
+        // `[0,0,0, 0.5,0,0, 0,0,0]` in point layout; after triangle-
+        // soup expansion the per-corner array is the same because
+        // each point maps to exactly one corner.
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["SkelBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        uniform token[] skel:blendShapes = ["Smile"]
+        rel skel:blendShapeTargets = [</Root/Tri/Smile>]
+
+        def BlendShape "Smile"
+        {
+            uniform vector3f[] offsets = [(0.5, 0.0, 0.0)]
+            uniform int[] pointIndices = [1]
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract blendshape.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let meshes = doc["meshes"].as_array().expect("meshes array");
+        let mesh = &meshes[0];
+
+        // weights parallel to targets, initialized to 0 (rest pose).
+        let weights = mesh["weights"].as_array().expect("mesh.weights");
+        assert_eq!(
+            weights.len(),
+            1,
+            "expected one weight entry, got {weights:?}"
+        );
+        assert!((weights[0].as_f64().unwrap() - 0.0).abs() < 1e-6);
+
+        // targetNames extras for the shape-key UI.
+        let names = mesh["extras"]["targetNames"]
+            .as_array()
+            .expect("extras.targetNames");
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0].as_str(), Some("Smile"));
+
+        let primitive = &mesh["primitives"][0];
+        let targets = primitive["targets"].as_array().expect("primitive.targets");
+        assert_eq!(targets.len(), 1);
+        let pos_acc_idx = targets[0]["POSITION"]
+            .as_u64()
+            .expect("targets[0].POSITION");
+        let accessors = doc["accessors"].as_array().unwrap();
+        let pos_acc = &accessors[pos_acc_idx as usize];
+        assert_eq!(pos_acc["type"], "VEC3");
+        assert_eq!(pos_acc["componentType"], 5126); // FLOAT
+        // 3 triangle corners after expansion.
+        assert_eq!(pos_acc["count"].as_u64().unwrap(), 3);
+
+        // The axis-wise min/max cover the sparse delta: max_x = 0.5,
+        // every other channel is 0. These are required by the glTF
+        // spec for morph target accessors.
+        let max = pos_acc["max"].as_array().expect("max array");
+        assert!((max[0].as_f64().unwrap() - 0.5).abs() < 1e-6);
+        assert!((max[1].as_f64().unwrap() - 0.0).abs() < 1e-6);
+        assert!((max[2].as_f64().unwrap() - 0.0).abs() < 1e-6);
+        let min = pos_acc["min"].as_array().expect("min array");
+        assert!(min[0].as_f64().unwrap().abs() < 1e-6);
+
+        Ok(())
+    }
+
+    /// Phase 6d regression: a mesh without `skel:blendShapeTargets`
+    /// must not emit any morph-target JSON — no `targets` on the
+    /// primitive, no `weights` on the mesh, no `extras.targetNames`.
+    /// Keeps non-rigged preview output byte-identical to Phase 6c.
+    #[test]
+    fn extract_geometry_omits_morph_when_no_blend_shapes() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6d_no_blend");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let usda_path = tmp_dir.join("plain.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract plain.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        let mesh = &doc["meshes"][0];
+        assert!(
+            mesh.get("weights").is_none(),
+            "mesh.weights must be omitted when no morph targets"
+        );
+        assert!(
+            mesh.get("extras").is_none(),
+            "mesh.extras must be omitted when no morph targets"
+        );
+        let primitive = &mesh["primitives"][0];
+        assert!(
+            primitive.get("targets").is_none(),
+            "primitive.targets must be omitted when no morph targets"
+        );
+
+        Ok(())
+    }
+
     /// Phase 5e final state for the chameleon Apple AR Quick Look
     /// asset (`samples/private/usd/chameleon_anim_mtl_variant.usdz`):
     /// neither yw-look nor the openusd fork can recover the textured
@@ -6017,6 +6403,7 @@ def Xform "Root" (
             &data,
             super::MeshOrientation::RightHanded,
             usize::MAX,
+            &[],
         )
         .expect("mesh_data_to_input");
 
