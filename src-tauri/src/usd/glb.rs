@@ -1524,6 +1524,8 @@ mod tests {
                 normal_texture: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
+                base_color_texture_transform: None,
+                normal_texture_transform: None,
             },
             MaterialInput {
                 name: "blue_emissive".to_string(),
@@ -1536,6 +1538,8 @@ mod tests {
                 normal_texture: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
+                base_color_texture_transform: None,
+                normal_texture_transform: None,
             },
         ];
 
