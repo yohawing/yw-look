@@ -422,17 +422,46 @@ cargo test --lib usd::openusd_backend::tests::extract_geometry_omits_morph_when_
 
 ---
 
-## Phase 7 — シーン完成度（計画）
+## Phase 7 — シーン完成度（実装中）
 
 ### 目的
 
 アセット単体の描画だけでなく、USD が記述している**シーン状態（ライト・カメラ・可視性切替）**を viewer に反映する。
 
-| サブフェーズ | 機能                          | 概要                                                                                   |
-| ------------ | ----------------------------- | -------------------------------------------------------------------------------------- |
-| **7a**       | UsdLuxLight → Three.js lights | DomeLight / DistantLight / RectLight / SphereLight / DiskLight / CylinderLight の 6 種 |
-| **7b**       | UsdGeomCamera 列挙 + 切替 UI  | authored camera のドロップダウンで視点切替、viewer 標準カメラにも戻れる                |
-| **7c**       | Purpose 切替 UI               | `default` / `render` / `proxy` / `guide` の on/off トグル                              |
+| サブフェーズ | 機能                          | 状態 | 実コミット                                               |
+| ------------ | ----------------------------- | ---- | -------------------------------------------------------- |
+| **7a**       | UsdLuxLight → Three.js lights | ✅   | `8ff1225 loader: resolve UsdLux lights to KHR_lights_punctual` (DistantLight / SphereLight のみ) |
+| **7b**       | UsdGeomCamera 列挙 + 切替 UI  | ✅   | `ce0404e loader: enumerate UsdGeomCamera prims as glTF cameras` (backend emission のみ、frontend 切替 UI は別途) |
+| **7c**       | Purpose 切替 UI               | 🚧   | 未着手 — backend の `is_renderable_mesh` は `proxy`/`guide` を hard filter、`extract_geometry_glb` に purpose mode パラメータと frontend toggle UI が必要 |
+
+### 7a. Lights — 実装ノート
+
+- yw-look 側 walker (`resolve_lights` + `detect_light_kind`): `stage.traverse` → typeName 判定 → `inputs:color` / `inputs:intensity` / `inputs:exposure` 読取 → world xform 合成 → glTF `KHR_lights_punctual` へ変換
+- intensity には `exposure` を `intensity * 2^exposure` で事前適用
+- 対応: **DistantLight → directional**、**SphereLight → point**
+- 延期: **RectLight / DiskLight / CylinderLight**（glTF に area light が無い、`KHR_lights_area` は draft）、**DomeLight**（env map パイプラインで扱うべき）、**spot 形状**（`shaping:cone:angle` 読取）
+- `extensionsUsed` への `KHR_lights_punctual` 追加は 6b の `KHR_texture_transform` と additive に共存
+- Z-up → Y-up 補正はライトノードにも適用、方向が mesh と一致
+
+### 7b. Cameras — 実装ノート
+
+- yw-look 側 walker (`resolve_cameras`): `Camera` prim を列挙、`focalLength` / `horizontalAperture` / `verticalAperture` / `clippingRange` を mm/float2 として読取
+- glTF 変換: `yfov = 2 * atan(vAperture / (2 * focal))` (ラジアン)、`aspectRatio = hAperture / vAperture`
+- `zfar` は `clippingRange[1]` が authored 時のみ emit（glTF の infinite-far-plane default を尊重）
+- default 値は 35mm フィルム換算（36×24mm, 50mm）で spec デフォルトに合わせる
+- 延期: **orthographic projection**（USD `projection = "orthographic"` → glTF `orthographic` への分岐コード必要）、**frontend 側のカメラ切替 UI**（GLB は `gltf.cameras[]` で提供済み、frontend が dropdown を実装すれば動く）
+
+### 7c. Purpose 切替 — 未着手の計画
+
+**現状**: `is_renderable_mesh` が `proxy` / `guide` purpose を hard filter してしまうので、`extract_geometry_glb` の時点でそれらの mesh は存在しない。
+
+**必要なもの**:
+1. Backend: `is_renderable_mesh` を relaxed mode に切替可能にする（purpose フィルタをパラメータ化）
+2. `MeshInput` / GLB `node.extras.purpose` にタグ emit
+3. Frontend: `default` / `render` / `proxy` / `guide` のチェックボックス UI、node 走査で `visible` トグル
+4. Wire 型: `extract_geometry_glb(path, policy, purpose_filter)` の 3 引数化、frontend → Tauri command 経路
+
+**優先度**: 7a/7b より低い（実アセットで proxy/guide を見たい場面が限定的）。別セッションで着手予定。
 
 ### 7a の補足
 
