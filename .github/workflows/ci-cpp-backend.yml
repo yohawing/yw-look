@@ -10,10 +10,13 @@ name: CI — USD C++ backend (PoC)
 # full design.
 
 on:
+  # Alpha phase: `develop` gets direct pushes and is intentionally
+  # excluded here — the C++ PoC build is 30-60 min and doesn't block
+  # alpha iteration. Re-add `develop` once the Exit rule items in
+  # docs/usd-cpp-poc.md are cleared.
   push:
     branches:
       - main
-      - develop
       - "claude/openusd-cpp-wrapper-**"
     paths:
       - "src-tauri/Cargo.toml"
@@ -32,6 +35,10 @@ on:
       - "samples/assets/usd/**"
       - ".github/workflows/ci-cpp-backend.yml"
   pull_request:
+    # Only run on PRs into `main`; PRs into `develop` are the alpha
+    # iteration flow and skip this job to stay nimble.
+    branches:
+      - main
     paths:
       - "src-tauri/Cargo.toml"
       - "src-tauri/build.rs"
