@@ -53,6 +53,18 @@ pub struct MaterialInput {
     /// support belongs to Phase 10 with the rest of multi-hop shader
     /// resolution.
     pub normal_texture: Option<usize>,
+    /// Phase 6b: optional UV transform applied to the base color
+    /// texture. Emitted as the `KHR_texture_transform` extension on
+    /// the `baseColorTexture` reference; the identity transform is
+    /// represented as `None` so the extension is omitted from the
+    /// GLB JSON when no `UsdTransform2d` is authored.
+    pub base_color_texture_transform: Option<TextureTransform>,
+    /// Phase 6b: same as `base_color_texture_transform` but for the
+    /// normal map. USD assets commonly share one `UsdTransform2d`
+    /// between both channels; the two values are resolved
+    /// independently so per-channel transforms (rare but valid) come
+    /// through correctly.
+    pub normal_texture_transform: Option<TextureTransform>,
     /// Phase 5e L1: glTF wrap mode for the base color texture sampler.
     /// `10497` = REPEAT (default), `33071` = CLAMP_TO_EDGE,
     /// `33648` = MIRRORED_REPEAT. Only meaningful when
@@ -60,6 +72,60 @@ pub struct MaterialInput {
     pub wrap_s: u32,
     /// Same as `wrap_s` for the T axis.
     pub wrap_t: u32,
+}
+
+/// Phase 6b: glTF `KHR_texture_transform` payload. USD's
+/// `UsdTransform2d` applies its inputs in scale → rotate → translate
+/// order, which matches the glTF spec's "scale applied first, then
+/// rotation, then translation", so the USD inputs map directly to the
+/// glTF fields. `rotation` is stored in **radians** (converted from the
+/// USD `float inputs:rotation` in degrees at resolve time) so the GLB
+/// serializer does not need to know about the USD authoring unit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextureTransform {
+    pub offset: [f32; 2],
+    pub rotation: f32,
+    pub scale: [f32; 2],
+}
+
+impl TextureTransform {
+    /// Identity transform — caller-side helper for unit tests and the
+    /// rare "authored transform but all defaults" case. Not emitted to
+    /// the GLB (the serializer drops identity transforms).
+    pub fn identity() -> Self {
+        Self {
+            offset: [0.0, 0.0],
+            rotation: 0.0,
+            scale: [1.0, 1.0],
+        }
+    }
+
+    /// Returns true when the transform is close enough to the identity
+    /// that `KHR_texture_transform` can be omitted. Uses a small
+    /// epsilon because floating-point conversion from USD's double or
+    /// degree-based authoring can introduce tiny residuals.
+    pub fn is_identity(&self) -> bool {
+        const EPS: f32 = 1e-6;
+        (self.offset[0].abs() < EPS)
+            && (self.offset[1].abs() < EPS)
+            && (self.rotation.abs() < EPS)
+            && ((self.scale[0] - 1.0).abs() < EPS)
+            && ((self.scale[1] - 1.0).abs() < EPS)
+    }
+}
+
+/// Build the JSON payload for one `KHR_texture_transform` extension
+/// entry. Emitted inline on a `baseColorTexture` / `normalTexture`
+/// reference; the top-level `extensionsUsed` declaration is handled
+/// separately by the GLB document builder.
+fn texture_transform_extension(t: &TextureTransform) -> Value {
+    json!({
+        "KHR_texture_transform": {
+            "offset": [t.offset[0], t.offset[1]],
+            "rotation": t.rotation,
+            "scale": [t.scale[0], t.scale[1]],
+        }
+    })
 }
 
 impl MaterialInput {
@@ -77,6 +143,8 @@ impl MaterialInput {
             double_sided: true,
             base_color_texture: None,
             normal_texture: None,
+            base_color_texture_transform: None,
+            normal_texture_transform: None,
             wrap_s: 10497,
             wrap_t: 10497,
         }
@@ -955,60 +1023,78 @@ pub fn build_glb(
     }
 
     // ---- Build GLTF materials array ------------------------------------
-    let gltf_materials: Vec<Value> = materials
-        .iter()
-        .map(|m| {
-            let mut pbr = json!({
-                "baseColorFactor": [
-                    m.base_color_factor[0],
-                    m.base_color_factor[1],
-                    m.base_color_factor[2],
-                    m.base_color_factor[3],
-                ],
-                "metallicFactor": m.metallic_factor,
-                "roughnessFactor": m.roughness_factor,
+    //
+    // Phase 6b: the materials loop also tracks whether any authored
+    // texture transform was emitted. When that flag ends up set, the
+    // top-level GLTF document grows an `extensionsUsed` entry for
+    // `KHR_texture_transform`, which is required by the glTF spec so
+    // compliant loaders know to interpret the extension.
+    let mut material_needs_transform_ext = false;
+    let mut gltf_materials: Vec<Value> = Vec::with_capacity(materials.len());
+    for m in materials.iter() {
+        let mut pbr = json!({
+            "baseColorFactor": [
+                m.base_color_factor[0],
+                m.base_color_factor[1],
+                m.base_color_factor[2],
+                m.base_color_factor[3],
+            ],
+            "metallicFactor": m.metallic_factor,
+            "roughnessFactor": m.roughness_factor,
+        });
+        if let Some(tex_idx) = m.base_color_texture {
+            let mut entry = json!({
+                "index": tex_idx,
+                "texCoord": 0,
             });
-            if let Some(tex_idx) = m.base_color_texture {
-                pbr["baseColorTexture"] = json!({
-                    "index": tex_idx,
-                    "texCoord": 0,
-                });
+            // Phase 6b: attach KHR_texture_transform if a
+            // UsdTransform2d was authored between the shader's
+            // `inputs:st` and the texture node. Identity transforms
+            // are dropped at resolve time so we never emit them here.
+            if let Some(ref t) = m.base_color_texture_transform {
+                entry["extensions"] = texture_transform_extension(t);
+                material_needs_transform_ext = true;
             }
-            let mut material = json!({
-                "name": m.name,
-                "pbrMetallicRoughness": pbr,
-                "doubleSided": m.double_sided,
+            pbr["baseColorTexture"] = entry;
+        }
+        let mut material = json!({
+            "name": m.name,
+            "pbrMetallicRoughness": pbr,
+            "doubleSided": m.double_sided,
+        });
+        // Phase 6a: emit the optional normal map. glTF places
+        // `normalTexture` at the material level, parallel to
+        // `pbrMetallicRoughness`, not nested inside it.
+        if let Some(tex_idx) = m.normal_texture {
+            let mut entry = json!({
+                "index": tex_idx,
+                "texCoord": 0,
             });
-            // Phase 6a: emit the optional normal map. glTF places
-            // `normalTexture` at the material level, parallel to
-            // `pbrMetallicRoughness`, not nested inside it.
-            if let Some(tex_idx) = m.normal_texture {
-                material["normalTexture"] = json!({
-                    "index": tex_idx,
-                    "texCoord": 0,
-                });
+            if let Some(ref t) = m.normal_texture_transform {
+                entry["extensions"] = texture_transform_extension(t);
+                material_needs_transform_ext = true;
             }
-            // Only emit `emissiveFactor` when non-zero so the GLB stays
-            // minimal for the (common) no-emission case.
-            let emissive = m.emissive_factor;
-            if emissive[0] > 0.0 || emissive[1] > 0.0 || emissive[2] > 0.0 {
-                material["emissiveFactor"] =
-                    json!([emissive[0], emissive[1], emissive[2]]);
-            }
-            // glTF's default `alphaMode` is OPAQUE, which means the
-            // alpha channel of baseColorFactor is ignored and the
-            // object always renders fully opaque. `UsdPreviewSurface`'s
-            // `inputs:opacity` flows into `base_color_factor[3]`, so
-            // whenever that value is below 1 we need `BLEND` mode for
-            // the preview to actually look translucent. A small
-            // epsilon avoids flipping modes on floating-point noise
-            // around 1.0.
-            if m.base_color_factor[3] < 1.0 - 1e-4 {
-                material["alphaMode"] = json!("BLEND");
-            }
-            material
-        })
-        .collect();
+            material["normalTexture"] = entry;
+        }
+        // Only emit `emissiveFactor` when non-zero so the GLB stays
+        // minimal for the (common) no-emission case.
+        let emissive = m.emissive_factor;
+        if emissive[0] > 0.0 || emissive[1] > 0.0 || emissive[2] > 0.0 {
+            material["emissiveFactor"] =
+                json!([emissive[0], emissive[1], emissive[2]]);
+        }
+        // glTF's default `alphaMode` is OPAQUE, which means the alpha
+        // channel of baseColorFactor is ignored and the object always
+        // renders fully opaque. `UsdPreviewSurface`'s `inputs:opacity`
+        // flows into `base_color_factor[3]`, so whenever that value is
+        // below 1 we need `BLEND` mode for the preview to actually
+        // look translucent. A small epsilon avoids flipping modes on
+        // floating-point noise around 1.0.
+        if m.base_color_factor[3] < 1.0 - 1e-4 {
+            material["alphaMode"] = json!("BLEND");
+        }
+        gltf_materials.push(material);
+    }
 
     // ---- Build GLTF JSON document --------------------------------------
     let total_bin_length = bin.len() as u64;
@@ -1027,6 +1113,13 @@ pub fn build_glb(
         "accessors": accessors,
         "materials": gltf_materials,
     });
+    // Phase 6b: register KHR_texture_transform in extensionsUsed when
+    // any material actually carries the extension. glTF requires this
+    // declaration; omitting it causes compliant loaders to drop the
+    // extension or refuse the file.
+    if material_needs_transform_ext {
+        document["extensionsUsed"] = json!(["KHR_texture_transform"]);
+    }
     if !textures.is_empty() {
         // Phase 5e L1: build a sampler per unique (wrapS, wrapT) pair
         // so different materials can use different wrap modes. Most
@@ -1365,6 +1458,8 @@ mod tests {
             double_sided: true,
             base_color_texture: None,
             normal_texture: None,
+            base_color_texture_transform: None,
+            normal_texture_transform: None,
             wrap_s: 10497,
             wrap_t: 10497,
         }];

@@ -1404,7 +1404,17 @@ fn resolve_material_slot(
         // grows `MaterialData::normal_texture`, this helper can be
         // collapsed to a single `data.normal_texture.clone()` line.
         let normal_tex = resolve_normal_texture(stage, mat_path);
-        materials.push(material_input_from_data(&key, &data));
+        let mut mi = material_input_from_data(&key, &data);
+        // Phase 6b: texture transforms live alongside the texture
+        // slot on the MaterialInput itself; probe the UsdShade graph
+        // for a UsdTransform2d between the UsdUVTexture and
+        // PrimvarReader, and drop identity transforms so the GLB
+        // stays minimal.
+        mi.base_color_texture_transform =
+            resolve_texture_transform(stage, mat_path, "inputs:diffuseColor");
+        mi.normal_texture_transform =
+            resolve_texture_transform(stage, mat_path, "inputs:normal");
+        materials.push(mi);
         material_texture_paths.push(tex_path);
         material_normal_paths.push(normal_tex);
         material_slots.insert(key, slot);
@@ -1523,6 +1533,148 @@ fn follow_texture_connection_to_asset(
     }
 }
 
+/// Phase 6b: follow the UsdShade graph from a Material prim down to
+/// the `UsdUVTexture` node bound to `surface_input_name`
+/// (`"inputs:diffuseColor"` / `"inputs:normal"`), then probe that
+/// texture node's `inputs:st` for a `UsdTransform2d` hop. Returns
+/// the authored transform as a `glb::TextureTransform`, or `None`
+/// when:
+///
+///   - the surface / texture / transform chain is missing at any step
+///   - the transform is the identity (we'd emit a no-op extension)
+///
+/// Reads:
+///
+///   - `UsdTransform2d.inputs:translation` — `float2` or `double2`
+///   - `UsdTransform2d.inputs:rotation` — `float` or `double`, in
+///     **degrees** per the UsdPreviewSurface spec
+///   - `UsdTransform2d.inputs:scale` — `float2` or `double2`
+///
+/// Default values follow the UsdPreviewSurface spec: translation
+/// `(0, 0)`, rotation `0°`, scale `(1, 1)`.
+fn resolve_texture_transform(
+    stage: &Stage,
+    material_path: &SdfPath,
+    surface_input_name: &str,
+) -> Option<glb::TextureTransform> {
+    let surface_shader = find_preview_surface_shader(stage, material_path)?;
+    let surface_input = surface_shader
+        .append_property(surface_input_name)
+        .ok()?;
+    let texture_shader = follow_connection_to_shader(stage, &surface_input)?;
+    // Only UsdUVTexture / MaterialX image nodes carry an `inputs:st`
+    // meaningfully. Bail out if the connected shader is anything else
+    // (e.g. the diffuseColor input is bound directly to a constant).
+    if !shader_is_texture_node(stage, &texture_shader) {
+        return None;
+    }
+    let st_input = texture_shader.append_property("inputs:st").ok()?;
+    let transform_shader = follow_connection_to_shader(stage, &st_input)?;
+    let info_id_path = transform_shader.append_property("info:id").ok()?;
+    let info_id: Option<String> = stage
+        .field(info_id_path, FieldKey::Default)
+        .ok()
+        .flatten();
+    if info_id.as_deref() != Some("UsdTransform2d") {
+        // Common case: `inputs:st` is wired straight to a
+        // PrimvarReader with no transform in between. Identity =
+        // return None so the serializer omits the extension.
+        return None;
+    }
+
+    let translation = read_vec2_input(stage, &transform_shader, "inputs:translation")
+        .unwrap_or([0.0, 0.0]);
+    let rotation_deg =
+        read_scalar_input(stage, &transform_shader, "inputs:rotation").unwrap_or(0.0);
+    let scale = read_vec2_input(stage, &transform_shader, "inputs:scale")
+        .unwrap_or([1.0, 1.0]);
+
+    let transform = glb::TextureTransform {
+        offset: translation,
+        rotation: rotation_deg.to_radians(),
+        scale,
+    };
+    if transform.is_identity() {
+        None
+    } else {
+        Some(transform)
+    }
+}
+
+/// Follow one `ConnectionPaths` hop from a property path and return
+/// the target shader's prim path (property suffix stripped). Returns
+/// `None` when the property has no authored connection or the target
+/// resolves to something other than a Shader prim.
+fn follow_connection_to_shader(stage: &Stage, input_path: &SdfPath) -> Option<SdfPath> {
+    let connections: Option<SdfValue> = stage
+        .field(input_path.clone(), FieldKey::ConnectionPaths)
+        .ok()
+        .flatten();
+    let list_op = match connections? {
+        SdfValue::PathListOp(op) => op,
+        _ => return None,
+    };
+    let target = list_op.iter().next()?.clone();
+    let shader_path = target.prim_path();
+    let type_name: Option<String> = stage
+        .field(shader_path.clone(), FieldKey::TypeName)
+        .ok()
+        .flatten();
+    if type_name.as_deref() != Some("Shader") {
+        return None;
+    }
+    Some(shader_path)
+}
+
+/// Returns true when the shader's `info:id` matches a known texture
+/// sampler node (`UsdUVTexture` or the MaterialX equivalents).
+fn shader_is_texture_node(stage: &Stage, shader_path: &SdfPath) -> bool {
+    let info_id_path = match shader_path.append_property("info:id") {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    let info_id: Option<String> = stage
+        .field(info_id_path, FieldKey::Default)
+        .ok()
+        .flatten();
+    matches!(
+        info_id.as_deref(),
+        Some("UsdUVTexture")
+            | Some("ND_image_color3")
+            | Some("ND_image_color4")
+            | Some("ND_image_float")
+            | Some("ND_image_vector3")
+    )
+}
+
+/// Read a scalar float-like input on a shader prim. Accepts both
+/// `float` and `double` authoring; other numeric types are ignored.
+fn read_scalar_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> Option<f32> {
+    let prop_path = shader_path.append_property(input_name).ok()?;
+    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    match value {
+        SdfValue::Float(v) => Some(v),
+        SdfValue::Double(v) => Some(v as f32),
+        _ => None,
+    }
+}
+
+/// Read a vec2 float-like input on a shader prim. Accepts both
+/// `float2` and `double2` authoring; other types fall through.
+fn read_vec2_input(
+    stage: &Stage,
+    shader_path: &SdfPath,
+    input_name: &str,
+) -> Option<[f32; 2]> {
+    let prop_path = shader_path.append_property(input_name).ok()?;
+    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    match value {
+        SdfValue::Vec2f(v) => Some(v),
+        SdfValue::Vec2d(v) => Some([v[0] as f32, v[1] as f32]),
+        _ => None,
+    }
+}
+
 /// displayColor fallback: when the mesh has no bound material
 /// (slot==0) but carries a constant `primvars:displayColor`, create
 /// a unique material slot with that color as baseColorFactor.
@@ -1559,6 +1711,8 @@ fn apply_display_color_fallback(
                 double_sided: true,
                 base_color_texture: None,
                 normal_texture: None,
+                base_color_texture_transform: None,
+                normal_texture_transform: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
             });
@@ -1759,6 +1913,13 @@ fn material_input_from_data(
         // walks the UsdShade graph and `TextureLoader` resolves the
         // asset path into GLB bytes.
         normal_texture: None,
+        // Phase 6b: texture transforms are populated by
+        // `resolve_material_slot` after this function returns,
+        // because they require walking the shader graph from the
+        // Material prim path — information `material_input_from_data`
+        // does not have.
+        base_color_texture_transform: None,
+        normal_texture_transform: None,
         // Phase 5e L1: map USD wrap mode tokens to glTF sampler
         // constants. USD defaults to "useMetadata" which we treat
         // as REPEAT (glTF default) since the metadata source is
@@ -4717,6 +4878,267 @@ def Xform "Root"
             base_idx, normal_idx,
             "base color and normal must reference different texture indices"
         );
+
+        Ok(())
+    }
+
+    /// Phase 6b: a `UsdTransform2d` authored between the PrimvarReader
+    /// and the UsdUVTexture on the diffuse channel must produce a
+    /// `KHR_texture_transform` extension on the GLB material's
+    /// `baseColorTexture` with the authored scale / rotation /
+    /// translation values. The top-level `extensionsUsed` must also
+    /// list the extension (required by the glTF spec).
+    #[test]
+    fn extract_geometry_applies_usd_transform_2d() -> std::io::Result<()> {
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6b_transform2d");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let png_path = tmp_dir.join("albedo.png");
+        // Reuse the 1x1 PNG bytes; pixel content is irrelevant to
+        // the plumbing being exercised here.
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
+            0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
+            0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
+            0x41, 0x54, 0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
+            0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+            0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&png_path, png_bytes)?;
+
+        let usda_path = tmp_dir.join("tiled.usda");
+        // Authoring below uses scale = (2.0, 3.0), rotation = 90°,
+        // translation = (0.25, 0.75). The asserts below convert the
+        // rotation to radians before comparing — `resolve_texture_
+        // transform` bakes the conversion so the GLB carries the
+        // glTF-native radian form.
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </Root/Looks/TiledMat>
+    }
+
+    def "Looks"
+    {
+        def Material "TiledMat"
+        {
+            token outputs:surface.connect = </Root/Looks/TiledMat/Preview.outputs:surface>
+
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </Root/Looks/TiledMat/Tex.outputs:rgb>
+                token outputs:surface
+            }
+
+            def Shader "Tex"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./albedo.png@
+                float2 inputs:st.connect = </Root/Looks/TiledMat/UVXform.outputs:result>
+                token outputs:rgb
+            }
+
+            def Shader "UVXform"
+            {
+                uniform token info:id = "UsdTransform2d"
+                float2 inputs:scale = (2.0, 3.0)
+                float inputs:rotation = 90.0
+                float2 inputs:translation = (0.25, 0.75)
+                float2 inputs:in.connect = </Root/Looks/TiledMat/PrimvarST.outputs:result>
+                float2 outputs:result
+            }
+
+            def Shader "PrimvarST"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract tiled.usda");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        // extensionsUsed must declare KHR_texture_transform.
+        let ext_used = doc["extensionsUsed"].as_array().expect("extensionsUsed");
+        assert!(
+            ext_used
+                .iter()
+                .any(|e| e.as_str() == Some("KHR_texture_transform")),
+            "extensionsUsed missing KHR_texture_transform, got {ext_used:?}"
+        );
+
+        let materials = doc["materials"].as_array().expect("materials array");
+        let pbr_slot = materials
+            .iter()
+            .position(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.contains("TiledMat"))
+                    .unwrap_or(false)
+            })
+            .expect("TiledMat slot present");
+        let pbr = &materials[pbr_slot];
+
+        let transform = &pbr["pbrMetallicRoughness"]["baseColorTexture"]["extensions"]
+            ["KHR_texture_transform"];
+        assert!(transform.is_object(), "KHR_texture_transform missing");
+
+        // offset = translation authored in USD → direct mapping
+        let offset = transform["offset"].as_array().expect("offset array");
+        assert!((offset[0].as_f64().unwrap() - 0.25).abs() < 1e-5);
+        assert!((offset[1].as_f64().unwrap() - 0.75).abs() < 1e-5);
+
+        // rotation USD deg → glTF rad (90° = π/2)
+        let rotation = transform["rotation"].as_f64().expect("rotation f64");
+        assert!(
+            (rotation - std::f64::consts::FRAC_PI_2).abs() < 1e-5,
+            "rotation = {rotation}, expected π/2 (≈1.5708)"
+        );
+
+        // scale = authored (2.0, 3.0)
+        let scale = transform["scale"].as_array().expect("scale array");
+        assert!((scale[0].as_f64().unwrap() - 2.0).abs() < 1e-5);
+        assert!((scale[1].as_f64().unwrap() - 3.0).abs() < 1e-5);
+
+        Ok(())
+    }
+
+    /// Phase 6b: authored materials without a `UsdTransform2d` (the
+    /// common case, where `inputs:st` is wired straight to a
+    /// PrimvarReader) must NOT emit a `KHR_texture_transform`
+    /// extension or list it in `extensionsUsed`. Regression guard so
+    /// the identity-transform drop in `resolve_texture_transform`
+    /// stays honest.
+    #[test]
+    fn extract_geometry_without_transform2d_omits_extension() -> std::io::Result<()> {
+        // Re-exercise the base-color-only filesystem fixture from
+        // Phase 5c; it has no UsdTransform2d authored.
+        let tmp_dir = std::env::temp_dir().join("yw_look_phase6b_no_transform");
+        std::fs::create_dir_all(&tmp_dir)?;
+        let png_path = tmp_dir.join("checker.png");
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
+            0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
+            0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
+            0x41, 0x54, 0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
+            0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+            0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&png_path, png_bytes)?;
+
+        let usda_path = tmp_dir.join("plain.usda");
+        std::fs::write(
+            &usda_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </Root/Looks/PlainMat>
+    }
+
+    def "Looks"
+    {
+        def Material "PlainMat"
+        {
+            token outputs:surface.connect = </Root/Looks/PlainMat/Preview.outputs:surface>
+
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </Root/Looks/PlainMat/Tex.outputs:rgb>
+                token outputs:surface
+            }
+
+            def Shader "Tex"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./checker.png@
+                token outputs:rgb
+            }
+        }
+    }
+}
+"#,
+        )?;
+
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
+            .expect("extract plain.usda");
+
+        let json_chunk_len =
+            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_start = 20;
+        let json_end = json_start + json_chunk_len;
+        let json_text = std::str::from_utf8(&glb[json_start..json_end])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        assert!(
+            doc.get("extensionsUsed").is_none(),
+            "extensionsUsed should be absent when no transforms authored, got {:?}",
+            doc.get("extensionsUsed")
+        );
+
+        let materials = doc["materials"].as_array().expect("materials array");
+        for m in materials {
+            let base = &m["pbrMetallicRoughness"]["baseColorTexture"];
+            if base.is_object() {
+                assert!(
+                    base.get("extensions").is_none(),
+                    "baseColorTexture carries no-op extensions: {base:?}"
+                );
+            }
+        }
 
         Ok(())
     }
