@@ -432,6 +432,34 @@ impl CStage {
         if ok == 1 { Some(out) } else { None }
     }
 
+    /// First connected source prim for a named shader input. For
+    /// `UsdPreviewSurface.inputs:diffuseColor` authored as
+    /// `.connect = </M/Tex.outputs:rgb>` this returns `"/M/Tex"`.
+    /// `None` when no connection is authored.
+    pub fn shader_input_connected_source_prim(
+        &self,
+        shader_path: &str,
+        input_name: &str,
+    ) -> Option<String> {
+        let sp = CString::new(shader_path).ok()?;
+        let ip = CString::new(input_name).ok()?;
+        let p = unsafe {
+            usdc_shader_input_connected_source_prim(self.raw, sp.as_ptr(), ip.as_ptr())
+        };
+        ptr_to_opt_string(p)
+    }
+
+    /// Reads an `asset`-typed shader input as the authored path
+    /// string. Used to recover `UsdUVTexture.inputs:file` targets for
+    /// the TextureLoader. The shim does not apply ArResolver; the
+    /// returned path is whatever was authored in the layer.
+    pub fn shader_input_asset(&self, shader_path: &str, input_name: &str) -> Option<String> {
+        let sp = CString::new(shader_path).ok()?;
+        let ip = CString::new(input_name).ok()?;
+        let p = unsafe { usdc_shader_input_asset(self.raw, sp.as_ptr(), ip.as_ptr()) };
+        ptr_to_opt_string(p)
+    }
+
     /// Returns true when the named shader input has an authored
     /// connection source (e.g. `diffuseColor.connect` → UsdUVTexture).
     /// Used to neutralize `baseColorFactor` to white on meshes whose

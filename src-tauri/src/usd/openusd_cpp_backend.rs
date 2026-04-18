@@ -388,13 +388,19 @@ impl UsdBackend for OpenusdCppBackend {
         }
 
         // Slot 0 is the yw-look default preview material, matching the
-        // Rust backend's convention. Phase 2.E.1 adds UsdPreviewSurface
-        // scalar resolution (diffuseColor / metallic / roughness /
-        // opacity / emissiveColor) on top — textures and
-        // UsdTransform2d land in 2.F.
+        // Rust backend's convention. Phase 2.E.1 added UsdPreviewSurface
+        // scalar resolution; Phase 2.F bolts on texture resolution for
+        // `inputs:diffuseColor` (USDZ archive + filesystem) via the
+        // shared `TextureLoader`, so bound-texture previews land with
+        // their actual image bytes.
         let mut materials: Vec<MaterialInput> = vec![MaterialInput::default_preview()];
         let mut material_slots: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
+        // Parallel to `materials`: each entry is the authored
+        // `inputs:file` asset path (or `None` when the material has no
+        // diffuse texture). The texture-loading pass below walks this
+        // once `mesh_paths` have been processed.
+        let mut material_texture_paths: Vec<Option<String>> = vec![None];
         let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
 
         for prim_path in &mesh_paths {
@@ -445,6 +451,7 @@ impl UsdBackend for OpenusdCppBackend {
                 prim_path,
                 &mut materials,
                 &mut material_slots,
+                &mut material_texture_paths,
             );
             triangulated.skin_index = None;
             inputs.push(triangulated);
@@ -456,7 +463,64 @@ impl UsdBackend for OpenusdCppBackend {
             ));
         }
 
-        glb::build_glb(&inputs, &materials, &[], &[], &[], &[], &[])
+        // Phase 2.F: resolve every material's `inputs:diffuseColor`
+        // texture path into actual image bytes and embed them in the
+        // GLB. Failures log and fall back to the scalar base color —
+        // real assets commonly ship with broken texture references that
+        // the user still wants to preview. Search dirs include the
+        // stage file's parent plus every composed layer's parent so
+        // materials authored in a referenced layer resolve relative to
+        // that layer.
+        let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(parent) = path.parent() {
+            search_dirs.push(parent.to_path_buf());
+        }
+        for layer_id in stage.layer_identifiers() {
+            let layer_path = StdPath::new(&layer_id);
+            if let Some(parent) = layer_path.parent() {
+                if !search_dirs.iter().any(|d| d == parent) {
+                    search_dirs.push(parent.to_path_buf());
+                }
+            }
+        }
+
+        let mut texture_loader =
+            super::openusd_backend::TextureLoader::new(path, search_dirs);
+        let mut textures: Vec<glb::TextureInput> = Vec::new();
+        let mut texture_dedup: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for (mat_idx, tex_path) in material_texture_paths.iter().enumerate() {
+            let Some(tex_path) = tex_path else { continue };
+            match texture_loader.load(tex_path) {
+                Ok(loaded) => {
+                    let new_idx =
+                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                            existing
+                        } else {
+                            let idx = textures.len();
+                            textures.push(loaded.input);
+                            texture_dedup.insert(loaded.identity, idx);
+                            idx
+                        };
+                    materials[mat_idx].base_color_texture = Some(new_idx);
+                    // Neutralize the factor to white exactly like the
+                    // Rust backend does — UsdPreviewSurface treats
+                    // diffuseColor as *either* scalar or texture, no
+                    // multiplicative tint, so leaving the 0.18 schema
+                    // default would render textured surfaces too dark.
+                    let alpha = materials[mat_idx].base_color_factor[3];
+                    materials[mat_idx].base_color_factor = [1.0, 1.0, 1.0, alpha];
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[usd-cpp] texture '{}' for material[{mat_idx}] failed: {err}",
+                        tex_path
+                    );
+                }
+            }
+        }
+
+        glb::build_glb(&inputs, &materials, &textures, &[], &[], &[], &[])
             .map_err(|e| UsdError::Parse(e.to_string()))
     }
 }
@@ -550,6 +614,7 @@ fn resolve_material_slot_cpp(
     prim_path: &str,
     materials: &mut Vec<MaterialInput>,
     material_slots: &mut std::collections::HashMap<String, usize>,
+    material_texture_paths: &mut Vec<Option<String>>,
 ) -> usize {
     let Some(mat_path) = stage.prim_bound_material(prim_path) else {
         return 0;
@@ -621,8 +686,29 @@ fn resolve_material_slot_cpp(
     mi.roughness_factor = roughness;
     mi.emissive_factor = emissive;
 
+    // Walk the UsdShade graph for the diffuseColor connection's
+    // target shader; if it's a UsdUVTexture, pull its authored
+    // `inputs:file` asset path so the outer loop can hand it to the
+    // shared TextureLoader. Keeps the scalar fallback path intact
+    // when no texture is wired up.
+    let texture_asset_path = if has_diffuse_texture {
+        stage
+            .shader_input_connected_source_prim(&shader_path, "inputs:diffuseColor")
+            .and_then(|src_shader_path| {
+                match stage.shader_id(&src_shader_path).as_deref() {
+                    Some("UsdUVTexture") => {
+                        stage.shader_input_asset(&src_shader_path, "inputs:file")
+                    }
+                    _ => None,
+                }
+            })
+    } else {
+        None
+    };
+
     let slot = materials.len();
     materials.push(mi);
+    material_texture_paths.push(texture_asset_path);
     material_slots.insert(mat_path, slot);
     slot
 }

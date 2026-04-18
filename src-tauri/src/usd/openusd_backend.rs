@@ -891,9 +891,9 @@ impl UsdBackend for OpenusdBackend {
 /// two authored asset paths that resolve to the same file or USDZ
 /// entry must produce the same `identity` so the GLB only emits one
 /// copy of the image bytes.
-struct LoadedTexture {
-    input: glb::TextureInput,
-    identity: String,
+pub(crate) struct LoadedTexture {
+    pub(crate) input: glb::TextureInput,
+    pub(crate) identity: String,
 }
 
 /// Phase 5c: lazily resolve `UsdPreviewSurface` texture asset paths
@@ -905,7 +905,7 @@ struct LoadedTexture {
 /// directory rather than the top-level stage's directory (Codex P2).
 /// The loader is intentionally state-bearing so a stage with hundreds
 /// of textures only opens its USDZ archive once.
-struct TextureLoader<'a> {
+pub(crate) struct TextureLoader<'a> {
     /// Source path passed to `extract_geometry_glb`. Used to detect
     /// USDZ archives.
     source_path: &'a StdPath,
@@ -920,7 +920,7 @@ struct TextureLoader<'a> {
 }
 
 impl<'a> TextureLoader<'a> {
-    fn new(source_path: &'a StdPath, search_dirs: Vec<std::path::PathBuf>) -> Self {
+    pub(crate) fn new(source_path: &'a StdPath, search_dirs: Vec<std::path::PathBuf>) -> Self {
         Self {
             source_path,
             search_dirs,
@@ -932,7 +932,7 @@ impl<'a> TextureLoader<'a> {
     /// Loads `asset_path` and returns a `LoadedTexture` ready to embed.
     /// The `identity` field of the result is what callers should key
     /// dedupe caches on (NOT the authored `asset_path` string).
-    fn load(
+    pub(crate) fn load(
         &mut self,
         asset_path: &str,
     ) -> Result<LoadedTexture, String> {

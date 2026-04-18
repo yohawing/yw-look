@@ -59,6 +59,7 @@
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformable.h>
+#include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/usdShade/connectableAPI.h>
 #include <pxr/usd/usdShade/input.h>
 #include <pxr/usd/usdShade/material.h>
@@ -1002,6 +1003,70 @@ usdc_shader_input_float(UsdcStage *stage,
         return 0;
     } catch (...) {
         return 0;
+    }
+}
+
+extern "C" USDC_API const char *
+usdc_shader_input_connected_source_prim(UsdcStage *stage,
+                                        const char *shader_path,
+                                        const char *input_name) {
+    if (!input_name) return nullptr;
+    UsdPrim prim = prim_at(stage, shader_path);
+    if (!prim) return nullptr;
+    try {
+        UsdShadeShader shader(prim);
+        if (!shader) return nullptr;
+        TfToken token(input_name);
+        std::string raw = input_name;
+        if (raw.rfind("inputs:", 0) == 0) {
+            token = TfToken(raw.substr(7));
+        }
+        UsdShadeInput in = shader.GetInput(token);
+        if (!in) return nullptr;
+        SdfPathVector sources;
+        if (!in.GetRawConnectedSourcePaths(&sources) || sources.empty()) {
+            return nullptr;
+        }
+        /* Source entries are property paths like `/Mat/Tex.outputs:rgb`;
+         * strip the property suffix so the caller sees just the prim. */
+        stage->scratch = sources.front().GetPrimPath().GetString();
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API const char *
+usdc_shader_input_asset(UsdcStage *stage,
+                        const char *shader_path,
+                        const char *input_name) {
+    if (!input_name) return nullptr;
+    UsdPrim prim = prim_at(stage, shader_path);
+    if (!prim) return nullptr;
+    try {
+        UsdShadeShader shader(prim);
+        if (!shader) return nullptr;
+        TfToken token(input_name);
+        std::string raw = input_name;
+        if (raw.rfind("inputs:", 0) == 0) {
+            token = TfToken(raw.substr(7));
+        }
+        UsdShadeInput in = shader.GetInput(token);
+        if (!in) return nullptr;
+        UsdAttribute attr = in.GetAttr();
+        if (!attr) return nullptr;
+        VtValue v;
+        if (!attr.Get(&v)) return nullptr;
+        if (!v.IsHolding<SdfAssetPath>()) return nullptr;
+        /* `GetAssetPath()` returns the authored string; the yw-look
+         * texture loader handles USDZ-archive vs filesystem resolve on
+         * the Rust side, so we intentionally skip `GetResolvedPath()`. */
+        const SdfAssetPath &ap = v.UncheckedGet<SdfAssetPath>();
+        stage->scratch = ap.GetAssetPath();
+        if (stage->scratch.empty()) return nullptr;
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
     }
 }
 

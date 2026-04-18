@@ -384,6 +384,26 @@ USDC_API int usdc_shader_input_has_connection(UsdcStage *stage,
                                               const char *shader_path,
                                               const char *input_name);
 
+/* Returns the SdfPath of the first connected source prim for
+ * `input_name` on `shader_path`. For a `UsdPreviewSurface` with
+ * `inputs:diffuseColor.connect = </M/Tex.outputs:rgb>`, this returns
+ * `"/M/Tex"`. Scratch-buffer lifetime. Returns NULL when the input
+ * has no connection or the prim does not exist. */
+USDC_API const char *usdc_shader_input_connected_source_prim(
+    UsdcStage *stage,
+    const char *shader_path,
+    const char *input_name);
+
+/* Reads an `asset`-typed input authored on `shader_path` (e.g.
+ * `UsdUVTexture.inputs:file`) and returns the **authored** asset
+ * path string — no resolver / ArResolver hop. Scratch-buffer
+ * lifetime. Returns NULL when unauthored or the wrong type. Callers
+ * handle the filesystem / USDZ-archive resolve themselves so the
+ * shim does not have to know about the yw-look search-dir rules. */
+USDC_API const char *usdc_shader_input_asset(UsdcStage *stage,
+                                             const char *shader_path,
+                                             const char *input_name);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
