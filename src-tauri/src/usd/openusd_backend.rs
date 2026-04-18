@@ -3136,6 +3136,12 @@ fn mesh_data_to_input(
         // skin slot for this mesh is known. Default `None` is the
         // unrigged path.
         skin_index: None,
+        // Phase 6d structural: empty vec = no morph deformation. The
+        // UsdSkelBlendShape walker in `extract_geometry_glb` fills
+        // these in after calling `mesh_data_to_input` and knows the
+        // resolved triangle-corner layout.
+        morph_targets: Vec::new(),
+        morph_weights: Vec::new(),
     })
 }
 

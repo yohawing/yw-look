@@ -218,6 +218,28 @@ pub struct AnimationInput {
     pub scales: Vec<Option<Vec<f32>>>,
 }
 
+/// Phase 6d: one morph target attached to a mesh. glTF stores morph
+/// targets as per-vertex **delta arrays** (offset from the base
+/// position / normal), not absolute positions, and the final vertex
+/// position is `base + sum(weight[i] * target[i].position)`. The
+/// yw-look walker converts USD's sparse `UsdSkelBlendShape.offsets` +
+/// `pointIndices` into dense per-corner arrays before stuffing them
+/// here so the GLB writer only has to emit accessors.
+///
+/// Per-target normals are optional and omitted for Phase 6d; the
+/// renderer re-computes normals from deformed positions, which is
+/// visually noisier but keeps the initial commit small.
+#[derive(Debug, Clone)]
+pub struct MorphTarget {
+    /// Optional display name. Emitted into
+    /// `mesh.extras.targetNames` so renderers with shape-key UIs can
+    /// label the sliders.
+    pub name: Option<String>,
+    /// Per-vertex position delta, flattened as `[dx, dy, dz, ...]`.
+    /// Length must equal `vertex_count * 3` (same as `MeshInput::positions`).
+    pub position_offsets: Vec<f32>,
+}
+
 /// One mesh ready to be packed into a GLB. Positions / normals / UVs are
 /// per-vertex; `indices` describes triangles into those arrays.
 #[derive(Debug, Clone)]
@@ -260,6 +282,18 @@ pub struct MeshInput {
     /// `Some`); `None` means the mesh is rendered statically with
     /// only its `world_matrix` node transform.
     pub skin_index: Option<usize>,
+    /// Phase 6d: morph targets (shape keys). Empty vec means the mesh
+    /// has no morph deformation. Every entry's `position_offsets`
+    /// array must have `vertex_count * 3` floats so the GLB writer
+    /// can emit one accessor per target without re-validating against
+    /// the mesh positions.
+    pub morph_targets: Vec<MorphTarget>,
+    /// Phase 6d: initial weight for each morph target, length must
+    /// equal `morph_targets.len()`. Emitted as `mesh.weights` in the
+    /// glTF JSON. yw-look currently populates this with zeros (rest
+    /// pose); animation that drives the weights at runtime is a
+    /// follow-up (SkelAnimation `blendShapeWeights` track).
+    pub morph_weights: Vec<f32>,
 }
 
 impl MeshInput {
@@ -344,6 +378,30 @@ impl MeshInput {
                 ));
             }
         }
+        // Phase 6d: morph target invariants. Each target's delta array
+        // must be parallel to the mesh positions, and `morph_weights`
+        // must be parallel to `morph_targets`. glTF itself validates
+        // these at load time but we catch authoring errors closer to
+        // the source.
+        for (i, target) in self.morph_targets.iter().enumerate() {
+            if target.position_offsets.len() != vc * 3 {
+                return Err(format!(
+                    "mesh '{}' morph target [{}] has {} position floats but {} are required",
+                    self.name,
+                    i,
+                    target.position_offsets.len(),
+                    vc * 3
+                ));
+            }
+        }
+        if self.morph_weights.len() != self.morph_targets.len() {
+            return Err(format!(
+                "mesh '{}' has {} morph weights but {} targets",
+                self.name,
+                self.morph_weights.len(),
+                self.morph_targets.len()
+            ));
+        }
         Ok(())
     }
 
@@ -362,6 +420,27 @@ impl MeshInput {
         }
         (min, max)
     }
+}
+
+/// Returns the axis-wise `(min, max)` over a flat `[x, y, z, x, y, z, ...]`
+/// slice. Used for morph-target accessor bounds; callers must guarantee
+/// `data.len() % 3 == 0`. An empty slice returns the identity-style
+/// `(INFINITY, -INFINITY)` pair — glTF forbids that, but the serializer
+/// only calls this when at least one vertex exists.
+fn vec3_min_max(data: &[f32]) -> ([f32; 3], [f32; 3]) {
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for chunk in data.chunks_exact(3) {
+        for axis in 0..3 {
+            if chunk[axis] < min[axis] {
+                min[axis] = chunk[axis];
+            }
+            if chunk[axis] > max[axis] {
+                max[axis] = chunk[axis];
+            }
+        }
+    }
+    (min, max)
 }
 
 const GLB_MAGIC: u32 = 0x46546C67; // "glTF"
@@ -716,16 +795,85 @@ pub fn build_glb(
             attributes.insert("WEIGHTS_0".to_string(), json!(idx));
         }
 
+        // Phase 6d: morph targets. Each target produces one accessor
+        // (per-vertex position deltas); glTF stores the pointer array
+        // as `primitive.targets: [{POSITION: accessor_idx}]`. The
+        // per-target `mesh.weights` parallel array is assembled below
+        // at the mesh object level. Empty `morph_targets` means we
+        // emit no `targets` field at all — keeping the GLB minimal
+        // for the (common) no-blendshape case.
+        let mut morph_target_json: Vec<Value> = Vec::with_capacity(mesh.morph_targets.len());
+        for target in &mesh.morph_targets {
+            // Validation already confirmed target.position_offsets.len()
+            // == vertex_count * 3, so we can embed it as-is.
+            let view = buffer_views.len();
+            let off = bin.len() as u64;
+            for f in &target.position_offsets {
+                bin.extend_from_slice(&f.to_le_bytes());
+            }
+            let len = (bin.len() as u64) - off;
+            pad_to_4(&mut bin);
+            buffer_views.push(json!({
+                "buffer": 0,
+                "byteOffset": off,
+                "byteLength": len,
+                "target": 34962, // ARRAY_BUFFER
+            }));
+            // Per the glTF spec, morph target accessors must carry
+            // `min` / `max` so renderers can compute a tight
+            // bounding volume for the deformed mesh; we supply them.
+            let (min, max) = vec3_min_max(&target.position_offsets);
+            let acc = accessors.len();
+            accessors.push(json!({
+                "bufferView": view,
+                "componentType": COMPONENT_TYPE_FLOAT,
+                "count": vertex_count,
+                "type": "VEC3",
+                "min": [min[0], min[1], min[2]],
+                "max": [max[0], max[1], max[2]],
+            }));
+            morph_target_json.push(json!({
+                "POSITION": acc,
+            }));
+        }
+
+        let mut primitive = json!({
+            "attributes": Value::Object(attributes),
+            "indices": index_accessor_idx,
+            "material": mesh.material_index,
+            "mode": 4, // TRIANGLES
+        });
+        if !morph_target_json.is_empty() {
+            primitive["targets"] = Value::Array(morph_target_json);
+        }
+
         let mesh_idx_in_doc = gltf_meshes.len();
-        gltf_meshes.push(json!({
+        let mut mesh_json = json!({
             "name": mesh.name,
-            "primitives": [{
-                "attributes": Value::Object(attributes),
-                "indices": index_accessor_idx,
-                "material": mesh.material_index,
-                "mode": 4, // TRIANGLES
-            }],
-        }));
+            "primitives": [primitive],
+        });
+        // glTF `mesh.weights` is parallel to `primitive.targets`.
+        // Emit only when the mesh has morph targets so the no-morph
+        // GLB stays byte-identical to the pre-Phase-6d output.
+        if !mesh.morph_weights.is_empty() {
+            mesh_json["weights"] = json!(mesh.morph_weights);
+        }
+        // Emit `extras.targetNames` so renderers with shape-key
+        // inspector UIs (Blender glTF importer, Three.js editor) can
+        // label the sliders. Missing names fall back to anonymous
+        // entries, which glTF permits.
+        let names: Vec<Value> = mesh
+            .morph_targets
+            .iter()
+            .map(|t| match &t.name {
+                Some(n) => json!(n),
+                None => Value::Null,
+            })
+            .collect();
+        if names.iter().any(|n| !n.is_null()) {
+            mesh_json["extras"] = json!({ "targetNames": names });
+        }
+        gltf_meshes.push(mesh_json);
 
         // -- node --------------------------------------------------------
         // The mesh node always carries the composed world transform
@@ -1363,6 +1511,8 @@ mod tests {
             joint_weights: None,
             material_index: 0,
             skin_index: None,
+            morph_targets: Vec::new(),
+            morph_weights: Vec::new(),
         }
     }
 
