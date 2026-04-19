@@ -1314,7 +1314,7 @@ fn build_skin_input_cpp(
     // Unflatten to one 16-element matrix per joint; pad with
     // identity when the source array is short (malformed rigs from
     // hand-authored USD are surprisingly common).
-    let mut rest_local_matrices = unflatten_mat4_or_identity(&rest_flat, joint_count);
+    let rest_local_matrices = unflatten_mat4_or_identity(&rest_flat, joint_count);
     let bind_world_matrices = unflatten_mat4_or_identity(&bind_flat, joint_count);
     let inverse_bind_matrices: Vec<[f32; 16]> = bind_world_matrices
         .iter()
@@ -1326,44 +1326,27 @@ fn build_skin_input_cpp(
         ]))
         .collect();
 
-    // **Phase 2.P**: bake the skeleton's ancestor-composed
-    // world transform into each root joint's rest matrix so
-    // skinned meshes render in the same world-space scale as
-    // unskinned meshes.
+    // **Phase 2.P**: capture the Skeleton prim's composed world
+    // transform so the glTF side can parent every root joint
+    // under a wrapper node carrying that transform. glTF's skin
+    // formula drops the mesh node's `matrixWorld` on skinned
+    // vertices (the shader's implicit `inverse(meshNode.matrixWorld)`
+    // prefactor cancels it), so whatever `prim_world_matrix` bakes
+    // into the mesh node — ancestor xforms, `metersPerUnit` — is
+    // invisible to the rig. Unskinned meshes (e.g. the stick in
+    // Apple ARKit's chameleon USDZ) still get the full transform,
+    // so without a wrapper the skinned body and the stick end up
+    // in wildly different world scales.
     //
-    // glTF's skinning formula is
-    //   `rendered_vertex = Σ (weight_i * jointWorld_i * IBM_i * v_local)`
-    // and the mesh node's own `matrix` is **ignored** on skinned
-    // vertices (the spec's implicit `inverse(meshNode.matrixWorld)`
-    // prefactor cancels it in the shader). Unskinned meshes get
-    // the full `mesh.matrixWorld * v_local` path.
-    //
-    // yw-look bakes the USD xform chain + metersPerUnit into the
-    // mesh node matrix. For unskinned meshes (stick) that lands
-    // vertices at the right world scale. For skinned meshes
-    // (chameleon) the node matrix is ignored, so the skin output
-    // stays in USD-authored space — easily 100× bigger than the
-    // stick on ARKit assets where `chameleon_idle` is authored
-    // with a 0.01 scale override.
-    //
-    // Fix: read the Skeleton prim's own composed world transform
-    // (same helper the mesh node uses) and left-multiply each
-    // **root** joint's rest matrix by it. Children inherit the
-    // transform through the scene graph, so every joint's world
-    // matrix ends up in the same space the unskinned meshes
-    // already live in. IBMs stay as authored — the extra
-    // transform cancels cleanly when rest == bind.
-    if let Some(skel_world) = stage.prim_world_matrix(skel_path) {
-        let skel_world_f32 = mat4_f64_to_f32(&skel_world);
-        if !is_identity_mat4_f32(&skel_world_f32) {
-            for (i, parent) in parents.iter().enumerate() {
-                if parent.is_none() {
-                    rest_local_matrices[i] =
-                        mat4_mul_f32_column_major(&skel_world_f32, &rest_local_matrices[i]);
-                }
-            }
-        }
-    }
+    // Baking into the rest matrices alone doesn't work: the
+    // animation's TRS tracks overwrite root joint translations per
+    // frame, which would strip the bake back out on every
+    // playback step. A parent wrapper node leaves the authored
+    // rest / animation tracks untouched and lets the scene graph
+    // carry the scale down to every joint.
+    let skel_root_matrix = stage
+        .prim_world_matrix(skel_path)
+        .map(|m| mat4_f64_to_f32(&m));
 
     Some(glb::SkinInput {
         name: format!("usd:{skel_path}"),
@@ -1371,37 +1354,8 @@ fn build_skin_input_cpp(
         parents,
         rest_local_matrices,
         inverse_bind_matrices,
+        skel_root_matrix,
     })
-}
-
-/// Column-major 4×4 `f32` matrix product, `a * b`. Matches the
-/// layout produced by the shim and expected by `glb::SkinInput`
-/// (`a_col_major[col*4+row]`).
-fn mat4_mul_f32_column_major(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
-    let mut out = [0.0_f32; 16];
-    for col in 0..4 {
-        for row in 0..4 {
-            let mut sum = 0.0_f32;
-            for k in 0..4 {
-                sum += a[k * 4 + row] * b[col * 4 + k];
-            }
-            out[col * 4 + row] = sum;
-        }
-    }
-    out
-}
-
-fn is_identity_mat4_f32(m: &[f32; 16]) -> bool {
-    const EPS: f32 = 1e-6;
-    for i in 0..4 {
-        for j in 0..4 {
-            let expected = if i == j { 1.0 } else { 0.0 };
-            if (m[i * 4 + j] - expected).abs() > EPS {
-                return false;
-            }
-        }
-    }
-    true
 }
 
 /// Split a flat `[f32]` of `joint_count * 16` values into one 16-

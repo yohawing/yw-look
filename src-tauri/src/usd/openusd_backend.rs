@@ -1225,6 +1225,15 @@ fn skin_input_from_skel(
         parents: skel.parents.clone(),
         rest_local_matrices,
         inverse_bind_matrices,
+        // The Rust fork doesn't expose the Skeleton prim's
+        // composed world transform through `SkeletonData`, so we
+        // can't easily recover the wrapper-node transform yw-look
+        // uses on the cpp side to fix the scale mismatch between
+        // skinned and unskinned meshes. Leave `None` until the
+        // fork grows the field — assets that need it (ARKit
+        // chameleon) should switch to the cpp backend in the
+        // meantime.
+        skel_root_matrix: None,
     }
 }
 

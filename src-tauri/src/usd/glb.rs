@@ -222,6 +222,20 @@ pub struct SkinInput {
     /// are world-space bind transforms) before constructing this
     /// vector — the GLB writer takes the values verbatim.
     pub inverse_bind_matrices: Vec<[f32; 16]>,
+    /// Phase 2.P: composed world transform of the Skeleton prim
+    /// (ancestor xforms + `metersPerUnit` already baked in).
+    /// Emitted as a wrapper node that becomes the **parent** of
+    /// every root joint, so animation TRS on the root joint stays
+    /// authored-as-is while the hierarchy still inherits the
+    /// skeleton's world-space placement.
+    ///
+    /// `None` or identity → no wrapper is emitted (the joint roots
+    /// sit directly under the scene root). Required for ARKit USDZ
+    /// assets like `chameleon_anim_mtl_variant` that author a
+    /// `scale` on `/Root/chameleon_idle`; without the wrapper the
+    /// skinned body renders 100× bigger than sibling unskinned
+    /// meshes (glTF's skin formula ignores the mesh node matrix).
+    pub skel_root_matrix: Option<[f32; 16]>,
 }
 
 /// One UsdSkelSkelAnimation flattened to glTF animation channels.
@@ -1106,9 +1120,34 @@ pub fn build_glb(
             nodes.push(joint_node);
         }
 
-        // Roots become scene-level nodes alongside mesh nodes.
-        for root in &roots {
-            scene_nodes.push(json!(root));
+        // Phase 2.P: emit an optional wrapper node that carries the
+        // skeleton prim's composed world transform. Root joints
+        // become children of the wrapper so animation on the root
+        // joint TRS stays in the authored local skeleton space
+        // while every joint's `matrixWorld` inherits the wrapper's
+        // placement (skeleton's ancestor xform chain +
+        // `metersPerUnit`). Without this wrapper, glTF's skin
+        // formula drops the mesh node matrix and the skinned body
+        // renders at authored USD scale (e.g. 100× bigger than
+        // unskinned siblings on ARKit assets that author a scale
+        // on their SkelRoot container).
+        let wrapper_not_identity = match skin.skel_root_matrix {
+            Some(m) => !is_identity_mat4_f32(&m),
+            None => false,
+        };
+        if wrapper_not_identity {
+            let wrapper_idx = nodes.len();
+            let m = skin.skel_root_matrix.expect("checked above");
+            nodes.push(json!({
+                "name": format!("{}_skel_root", skin.name),
+                "matrix": m.iter().copied().collect::<Vec<f32>>(),
+                "children": roots.clone(),
+            }));
+            scene_nodes.push(json!(wrapper_idx));
+        } else {
+            for root in &roots {
+                scene_nodes.push(json!(root));
+            }
         }
 
         // Inverse bind matrices accessor: one VEC4 mat4 per joint,
@@ -1683,6 +1722,22 @@ fn pad_to_4(buf: &mut Vec<u8>) {
     while buf.len() % 4 != 0 {
         buf.push(0);
     }
+}
+
+/// Phase 2.P: column-major 4×4 identity check with a small epsilon
+/// so floating-point residuals from USD matrix composition don't
+/// spuriously emit a skel wrapper node.
+fn is_identity_mat4_f32(m: &[f32; 16]) -> bool {
+    const EPS: f32 = 1e-6;
+    for i in 0..4 {
+        for j in 0..4 {
+            let expected = if i == j { 1.0 } else { 0.0 };
+            if (m[i * 4 + j] - expected).abs() > EPS {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Phase 5c E: decompose a column-major 4×4 affine into glTF TRS
