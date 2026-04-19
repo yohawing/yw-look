@@ -1794,3 +1794,26 @@ usdc_skel_anim_scales_at(UsdcStage *stage,
         emit_empty_floats(cb, user);
     }
 }
+
+extern "C" USDC_API void
+usdc_skel_anim_blend_shape_weights_at(UsdcStage *stage,
+                                      const char *anim_path,
+                                      double time_code,
+                                      UsdcFloatBufferCallback cb,
+                                      void *user) {
+    UsdPrim prim = prim_at(stage, anim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdSkelAnimation anim(prim);
+        if (!anim) { emit_empty_floats(cb, user); return; }
+        VtArray<float> arr;
+        UsdAttribute a = anim.GetBlendShapeWeightsAttr();
+        if (!a || !a.Get(&arr, UsdTimeCode(time_code)) || arr.empty()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        cb(arr.cdata(), arr.size(), user);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}

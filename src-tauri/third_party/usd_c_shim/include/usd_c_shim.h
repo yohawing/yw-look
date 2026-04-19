@@ -615,6 +615,17 @@ USDC_API void usdc_skel_anim_scales_at(UsdcStage *stage,
                                        UsdcFloatBufferCallback cb,
                                        void *user);
 
+/* Samples `UsdSkelAnimation.blendShapeWeights` at `time_code` as a
+ * flat `float[]` — one weight per entry in the animation's
+ * `blendShapes` token array (use `usdc_prim_attr_token_array` with
+ * `"blendShapes"` on `anim_path` to recover the parallel names).
+ * Emits `(NULL, 0)` when unauthored or empty at this time. */
+USDC_API void usdc_skel_anim_blend_shape_weights_at(UsdcStage *stage,
+                                                    const char *anim_path,
+                                                    double time_code,
+                                                    UsdcFloatBufferCallback cb,
+                                                    void *user);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

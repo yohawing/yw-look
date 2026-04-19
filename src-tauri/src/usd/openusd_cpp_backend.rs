@@ -459,6 +459,20 @@ impl UsdBackend for OpenusdCppBackend {
         }
 
         let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
+        // Phase 2.O: parallel tracking for the blend-shape weight-
+        // animation attach pass that runs after every MeshInput has
+        // been produced. Each record ties an authored mesh to the
+        // MeshInput indices it contributed (subsets fan out), plus
+        // the blend-shape channel names in the order they were fed
+        // into `mesh_data_to_input` — glTF `morph_targets` inherit
+        // that ordering and the animation weights must be remapped
+        // into it before emission.
+        struct MorphRecord {
+            mesh_path: String,
+            channel_names: Vec<String>,
+            mesh_input_indices: Vec<usize>,
+        }
+        let mut morph_records: Vec<MorphRecord> = Vec::new();
 
         for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
             let Some(mut raw) = build_mesh_data_from_shim(&stage, prim_path) else {
@@ -550,6 +564,12 @@ impl UsdBackend for OpenusdCppBackend {
             let point_count = raw.points.len() / 3;
             let blend_shapes = resolve_blend_shapes_cpp(&stage, prim_path, point_count);
 
+            // Track MeshInput indices emitted by this mesh path so
+            // the post-loop morph-weight attach can target all of
+            // them (subsets fan out; a single blend-shape animation
+            // drives every piece).
+            let record_start = inputs.len();
+
             let subsets = collect_material_bind_subsets(&stage, prim_path);
             if subsets.is_empty() {
                 let mut triangulated = mesh_data_to_input(
@@ -630,12 +650,110 @@ impl UsdBackend for OpenusdCppBackend {
                     inputs.push(tri);
                 }
             }
+
+            // Phase 2.O: record this mesh's blend-shape channel
+            // order + the MeshInput indices it contributed, so the
+            // attach pass below can emit `MorphWeightChannel`s.
+            if !blend_shapes.is_empty() {
+                let indices: Vec<usize> = (record_start..inputs.len()).collect();
+                if !indices.is_empty() {
+                    morph_records.push(MorphRecord {
+                        mesh_path: prim_path.clone(),
+                        channel_names: blend_shapes
+                            .iter()
+                            .map(|b| b.name.clone())
+                            .collect(),
+                        mesh_input_indices: indices,
+                    });
+                }
+            }
         }
 
         if inputs.is_empty() {
             return Err(UsdError::Parse(
                 "all renderable meshes failed to build".to_string(),
             ));
+        }
+
+        // Phase 2.O: attach `UsdSkelAnimation.blendShapeWeights`
+        // time samples as glTF weight-animation channels. Runs after
+        // the mesh loop because we need MeshInput indices (subsets
+        // fan out) to target the right glTF node. Each morph record
+        // maps back to its animated skeleton by path-matching; the
+        // weights are remapped from the animation's `blendShapes`
+        // order into the mesh's own morph-target order so a mesh
+        // that authors blend shapes out-of-order or a subset of
+        // what the animation drives still animates correctly.
+        for animation in &mut animations {
+            let skin_idx = animation.skin_index;
+            let Some((skel_path, _)) = skin_slots
+                .iter()
+                .find(|(_, &idx)| idx == skin_idx)
+                .map(|(p, i)| (p.clone(), *i))
+            else {
+                continue;
+            };
+            let Some(anim_path) = stage.skel_animation_source(&skel_path) else {
+                continue;
+            };
+            let anim_blend_shapes =
+                stage.prim_attr_token_array(&anim_path, "blendShapes");
+            if anim_blend_shapes.is_empty() {
+                continue;
+            }
+            let times_usd = stage.skel_anim_times(&anim_path);
+            if times_usd.is_empty() {
+                continue;
+            }
+            // Pre-sample once per frame so we don't cross the FFI
+            // boundary `frames × records × targets` times.
+            let per_frame: Vec<Vec<f32>> = times_usd
+                .iter()
+                .map(|&t| stage.skel_anim_blend_shape_weights_at(&anim_path, t as f64))
+                .collect();
+
+            for record in &morph_records {
+                // Limit each record to the animation that actually
+                // drives its bound skeleton — one stage can host
+                // multiple (skeleton, animation) pairs and the
+                // weights must not cross-contaminate.
+                let Some(rec_skel) = stage.mesh_bound_skeleton(&record.mesh_path) else {
+                    continue;
+                };
+                if rec_skel != skel_path {
+                    continue;
+                }
+                let target_count = record.channel_names.len();
+                if target_count == 0 {
+                    continue;
+                }
+                let anim_idx_for: Vec<Option<usize>> = record
+                    .channel_names
+                    .iter()
+                    .map(|n| anim_blend_shapes.iter().position(|a| a == n))
+                    .collect();
+                // No mesh→anim channel overlap → skip (would emit
+                // all-zero weights, which drops the mesh to rest).
+                if anim_idx_for.iter().all(|x| x.is_none()) {
+                    continue;
+                }
+                let mut flat: Vec<f32> =
+                    Vec::with_capacity(times_usd.len() * target_count);
+                for frame in &per_frame {
+                    for &maybe_anim_i in &anim_idx_for {
+                        match maybe_anim_i {
+                            Some(ai) => flat.push(frame.get(ai).copied().unwrap_or(0.0)),
+                            None => flat.push(0.0),
+                        }
+                    }
+                }
+                for &mi_idx in &record.mesh_input_indices {
+                    animation.weight_channels.push(glb::MorphWeightChannel {
+                        mesh_index: mi_idx,
+                        weights: flat.clone(),
+                    });
+                }
+            }
         }
 
         // Phase 2.F: resolve every material's `inputs:diffuseColor`
@@ -1154,6 +1272,11 @@ fn build_animation_input_cpp(
         translations,
         rotations,
         scales,
+        // Filled in by `attach_weight_channels_cpp` once the mesh
+        // loop has built every `MeshInput` (we need the mesh index
+        // to know which glTF node a weight channel targets, and
+        // the mesh-to-morph-target mapping is only finalized there).
+        weight_channels: Vec::new(),
     })
 }
 

@@ -782,6 +782,31 @@ impl CStage {
         out
     }
 
+    /// Sample `UsdSkelAnimation.blendShapeWeights` at a time code.
+    /// Flat `float[]` parallel to the animation's `blendShapes`
+    /// token array — map each weight back to a channel name by
+    /// reading `blendShapes` via `prim_attr_token_array`.
+    pub fn skel_anim_blend_shape_weights_at(
+        &self,
+        anim_path: &str,
+        time: f64,
+    ) -> Vec<f32> {
+        let Ok(c) = CString::new(anim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<f32>::new();
+        unsafe {
+            usdc_skel_anim_blend_shape_weights_at(
+                self.raw,
+                c.as_ptr(),
+                time,
+                Some(float_buffer_trampoline),
+                &mut out as *mut Vec<f32> as *mut c_void,
+            )
+        };
+        out
+    }
+
     /// Sample scales at a time code. Stride 3.
     pub fn skel_anim_scales_at(&self, anim_path: &str, time: f64) -> Vec<f32> {
         let Ok(c) = CString::new(anim_path) else {

@@ -248,6 +248,28 @@ pub struct AnimationInput {
     pub rotations: Vec<Option<Vec<f32>>>,
     /// Per-joint scale channels (VEC3). Same shape rules.
     pub scales: Vec<Option<Vec<f32>>>,
+    /// Phase 2.O: per-mesh morph-target weight channels driven by
+    /// `UsdSkelAnimation.blendShapeWeights`. Each entry targets one
+    /// mesh (by `MeshInput` index) and carries the full weight
+    /// vector at every time in `times`. Empty when the animation
+    /// drives only skeleton joints.
+    pub weight_channels: Vec<MorphWeightChannel>,
+}
+
+/// Phase 2.O: one mesh's morph-target weight timeline. glTF
+/// animates mesh weights by targeting the node hosting the mesh
+/// with `path = "weights"`; the output accessor carries
+/// `times.len() × mesh.morph_targets.len()` floats.
+#[derive(Debug, Clone)]
+pub struct MorphWeightChannel {
+    /// Index into the `meshes` slice passed to `build_glb`. Must
+    /// point at a mesh whose `morph_targets` is non-empty.
+    pub mesh_index: usize,
+    /// Flattened weights: `times.len() × morph_targets.len()`,
+    /// laid out time-major (so frame `t` starts at
+    /// `t * morph_targets.len()`). Same shape convention as glTF's
+    /// weights accessor.
+    pub weights: Vec<f32>,
 }
 
 /// Phase 6d: one morph target attached to a mesh. glTF stores morph
@@ -706,6 +728,12 @@ pub fn build_glb(
     let mut gltf_meshes: Vec<Value> = Vec::new();
     let mut nodes: Vec<Value> = Vec::new();
     let mut scene_nodes: Vec<Value> = Vec::new();
+    // Phase 2.O: map each MeshInput index to the glTF node index
+    // that hosts it, so weight-animation channels can target the
+    // right node with `path = "weights"`. A mesh without morph
+    // targets keeps the entry but the animation resolver only
+    // reads it when a weight channel references that mesh.
+    let mut mesh_node_indices: Vec<usize> = Vec::with_capacity(meshes.len());
 
     for (mesh_idx, mesh) in meshes.iter().enumerate() {
         let vertex_count = mesh.vertex_count() as u64;
@@ -1018,6 +1046,7 @@ pub fn build_glb(
         }
         nodes.push(node_obj);
         scene_nodes.push(json!(node_idx));
+        mesh_node_indices.push(node_idx);
 
         let _ = mesh_idx; // silence unused if compiler complains
     }
@@ -1250,6 +1279,61 @@ pub fn build_glb(
                     "scale",
                 );
             }
+        }
+
+        // Phase 2.O: morph-target weight channels. Each channel
+        // targets one mesh node with `path = "weights"`; the
+        // output accessor holds `frames × morph_target_count`
+        // floats (time-major). Silently skip channels pointing at
+        // a mesh without morph targets — malformed authoring, no
+        // sensible output.
+        for wc in &animation.weight_channels {
+            let Some(&node_idx) = mesh_node_indices.get(wc.mesh_index) else {
+                continue;
+            };
+            let target_count = meshes[wc.mesh_index].morph_targets.len();
+            if target_count == 0 {
+                continue;
+            }
+            // Each frame contributes `target_count` weights; accessor
+            // count is frames × targets (glTF spec). When sample
+            // counts don't line up we drop the channel rather than
+            // emitting garbage.
+            if wc.weights.len() != animation.times.len() * target_count {
+                continue;
+            }
+            let off = bin.len() as u64;
+            for &w in &wc.weights {
+                bin.extend_from_slice(&w.to_le_bytes());
+            }
+            let len = (bin.len() as u64) - off;
+            pad_to_4(&mut bin);
+            let view_idx = buffer_views.len();
+            buffer_views.push(json!({
+                "buffer": 0,
+                "byteOffset": off,
+                "byteLength": len,
+            }));
+            let acc_idx = accessors.len();
+            accessors.push(json!({
+                "bufferView": view_idx,
+                "componentType": COMPONENT_TYPE_FLOAT,
+                "count": wc.weights.len(),
+                "type": "SCALAR",
+            }));
+            let sampler_idx = samplers.len();
+            samplers.push(json!({
+                "input": time_accessor,
+                "output": acc_idx,
+                "interpolation": "LINEAR",
+            }));
+            channels.push(json!({
+                "sampler": sampler_idx,
+                "target": {
+                    "node": node_idx,
+                    "path": "weights",
+                },
+            }));
         }
 
         gltf_animations.push(json!({

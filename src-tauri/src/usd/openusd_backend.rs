@@ -1387,6 +1387,12 @@ fn animation_input_from_skel(
         translations,
         rotations,
         scales,
+        // Phase 2.O: morph-target weight channels are resolved at
+        // the cpp-backend level today (the fork's SkelAnimationData
+        // doesn't yet expose `blendShapeWeights`). Rust-fork
+        // animations stay static-rest for blend shapes until the
+        // fork grows the field.
+        weight_channels: Vec::new(),
     })
 }
 
