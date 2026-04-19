@@ -525,6 +525,69 @@ USDC_API void usdc_mesh_joint_weights(UsdcStage *stage,
 USDC_API int usdc_mesh_joints_per_vertex(UsdcStage *stage,
                                          const char *mesh_path);
 
+/* Stage `timeCodesPerSecond` metadata (USD spec default 24.0). Used
+ * to convert USD time codes to glTF seconds. Returns 24.0 when the
+ * stage has no root layer or metadata access fails. */
+USDC_API double usdc_stage_time_codes_per_second(UsdcStage *stage);
+
+/* Returns the SdfPath of the `UsdSkelAnimation` bound to a
+ * `UsdSkelSkeleton` via `skel:animationSource`. Walks
+ * `UsdSkelBindingAPI::GetInheritedAnimationSource` so animation
+ * sources authored on an ancestor (the common SkelRoot pattern)
+ * resolve correctly. Scratch-buffer lifetime. Returns NULL when no
+ * animation is bound. */
+USDC_API const char *usdc_skel_animation_source(UsdcStage *stage,
+                                                const char *skel_path);
+
+/* Enumerates the `UsdSkelAnimation.joints` token array. Animations
+ * often target a subset of the full skeleton joint list, so callers
+ * must map each animated joint by name back to the owning
+ * skeleton's joint order. */
+USDC_API void usdc_skel_anim_joints(UsdcStage *stage,
+                                    const char *anim_path,
+                                    UsdcStringCallback cb,
+                                    void *user);
+
+/* Emits the union of USD time codes authored across `translations`,
+ * `rotations`, and `scales` attributes — i.e. every frame the
+ * animation mentions, in ascending order. f32 precision is enough
+ * for the preview (sub-frame drift is imperceptible under 24fps);
+ * callers convert to glTF seconds by dividing by
+ * `usdc_stage_time_codes_per_second`. Emits `(NULL, 0)` when the
+ * animation has no authored samples. */
+USDC_API void usdc_skel_anim_times(UsdcStage *stage,
+                                   const char *anim_path,
+                                   UsdcFloatBufferCallback cb,
+                                   void *user);
+
+/* Samples `UsdSkelAnimation.translations` at `time_code` as a flat
+ * vec3f array (stride 3 per joint). Emits `(NULL, 0)` when the
+ * attribute is unauthored or empty at this time. */
+USDC_API void usdc_skel_anim_translations_at(UsdcStage *stage,
+                                             const char *anim_path,
+                                             double time_code,
+                                             UsdcFloatBufferCallback cb,
+                                             void *user);
+
+/* Samples `UsdSkelAnimation.rotations` at `time_code` as a flat
+ * quaternion array in **glTF order (x, y, z, w)** — the shim
+ * reorders from USD's `(w, x, y, z)` layout so the Rust side and
+ * the eventual GLB writer don't have to juggle conventions. Stride
+ * 4 per joint. */
+USDC_API void usdc_skel_anim_rotations_at(UsdcStage *stage,
+                                          const char *anim_path,
+                                          double time_code,
+                                          UsdcFloatBufferCallback cb,
+                                          void *user);
+
+/* Samples `UsdSkelAnimation.scales` at `time_code` as flat vec3h /
+ * vec3f (converted to f32) with stride 3. */
+USDC_API void usdc_skel_anim_scales_at(UsdcStage *stage,
+                                       const char *anim_path,
+                                       double time_code,
+                                       UsdcFloatBufferCallback cb,
+                                       void *user);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

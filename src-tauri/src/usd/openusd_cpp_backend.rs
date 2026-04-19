@@ -414,6 +414,7 @@ impl UsdBackend for OpenusdCppBackend {
         let mut skins: Vec<glb::SkinInput> = Vec::new();
         let mut skin_slots: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
+        let mut animations: Vec<glb::AnimationInput> = Vec::new();
         let mut mesh_skin_slots: Vec<Option<usize>> = vec![None; mesh_paths.len()];
         for (i, prim_path) in mesh_paths.iter().enumerate() {
             let Some(skel_path) = stage.mesh_bound_skeleton(prim_path) else {
@@ -427,9 +428,20 @@ impl UsdBackend for OpenusdCppBackend {
                 else {
                     continue;
                 };
+                let joint_names = skin_input.joint_names.clone();
                 let s = skins.len();
                 skins.push(skin_input);
                 skin_slots.insert(skel_path.clone(), s);
+                // Phase 2.G.3: resolve the bound SkelAnimation (if
+                // any) and flatten its samples into a
+                // `glb::AnimationInput`. Runs once per skin so a
+                // stage that shares one rig across many meshes
+                // produces exactly one animation channel bundle.
+                if let Some(anim_input) =
+                    build_animation_input_cpp(&stage, &skel_path, s, &joint_names)
+                {
+                    animations.push(anim_input);
+                }
                 s
             };
             mesh_skin_slots[i] = Some(slot);
@@ -645,7 +657,7 @@ impl UsdBackend for OpenusdCppBackend {
         let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref());
         let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref());
 
-        glb::build_glb(&inputs, &materials, &textures, &skins, &[], &lights, &cameras)
+        glb::build_glb(&inputs, &materials, &textures, &skins, &animations, &lights, &cameras)
             .map_err(|e| UsdError::Parse(e.to_string()))
     }
 }
@@ -836,6 +848,94 @@ fn skin_index_from_payload(mesh: &MeshInput, skin_slot: Option<usize>) -> Option
     } else {
         None
     }
+}
+
+/// Phase 2.G.3: resolve the SkelAnimation bound to a skeleton and
+/// flatten its samples into a `glb::AnimationInput`. Returns `None`
+/// when the skeleton has no animation source or the source has no
+/// time samples.
+///
+/// USD's `UsdSkelAnimation` may target a *subset* of the full
+/// skeleton joints in any order, so each skin joint is looked up by
+/// name in the animation's joint list and gets an `Option<Vec<f32>>`
+/// channel. Joints not mentioned stay at their rest pose at runtime.
+///
+/// **Sparse per-frame authoring**: if a given time code yields
+/// shorter translations / rotations / scales than the animation's
+/// joint list (malformed but seen in the wild), we drop the
+/// entire channel for that joint rather than writing in zeros —
+/// glTF interpolation on partial [0,0,0,0] quaternions or zero
+/// scales looks catastrophic, so preferring rest-pose fallback is
+/// safer. Mirrors the Rust fork's `animation_input_from_skel`
+/// behavior.
+fn build_animation_input_cpp(
+    stage: &CStage,
+    skel_path: &str,
+    skin_index: usize,
+    skin_joint_names: &[String],
+) -> Option<glb::AnimationInput> {
+    let anim_path = stage.skel_animation_source(skel_path)?;
+    let times_usd = stage.skel_anim_times(&anim_path);
+    if times_usd.is_empty() {
+        return None;
+    }
+    let anim_joints = stage.skel_anim_joints(&anim_path);
+    if anim_joints.is_empty() {
+        return None;
+    }
+    let tcps = stage.time_codes_per_second();
+    let inv_tcps = if tcps > 0.0 { 1.0 / tcps as f32 } else { 1.0 };
+    let times: Vec<f32> = times_usd.iter().map(|&t| t * inv_tcps).collect();
+    let frame_count = times.len();
+
+    // Pre-sample every frame's three channels once so the per-joint
+    // extraction below only iterates Vec<f32> slices instead of
+    // crossing the shim boundary frame×joint times.
+    let mut trans_frames: Vec<Vec<f32>> = Vec::with_capacity(frame_count);
+    let mut rot_frames: Vec<Vec<f32>> = Vec::with_capacity(frame_count);
+    let mut scale_frames: Vec<Vec<f32>> = Vec::with_capacity(frame_count);
+    for &t in &times_usd {
+        let time_code = t as f64;
+        trans_frames.push(stage.skel_anim_translations_at(&anim_path, time_code));
+        rot_frames.push(stage.skel_anim_rotations_at(&anim_path, time_code));
+        scale_frames.push(stage.skel_anim_scales_at(&anim_path, time_code));
+    }
+
+    let anim_index_for: Vec<Option<usize>> = skin_joint_names
+        .iter()
+        .map(|name| anim_joints.iter().position(|j| j == name))
+        .collect();
+
+    let extract_channel = |samples: &[Vec<f32>], stride: usize| -> Vec<Option<Vec<f32>>> {
+        anim_index_for
+            .iter()
+            .map(|maybe_idx| {
+                let Some(anim_idx) = *maybe_idx else { return None };
+                let mut out = Vec::with_capacity(frame_count * stride);
+                for frame in samples.iter().take(frame_count) {
+                    let off = anim_idx * stride;
+                    if frame.is_empty() || off + stride > frame.len() {
+                        return None;
+                    }
+                    out.extend_from_slice(&frame[off..off + stride]);
+                }
+                Some(out)
+            })
+            .collect()
+    };
+
+    let translations = extract_channel(&trans_frames, 3);
+    let rotations = extract_channel(&rot_frames, 4);
+    let scales = extract_channel(&scale_frames, 3);
+
+    Some(glb::AnimationInput {
+        name: format!("usd:{anim_path}"),
+        times,
+        skin_index,
+        translations,
+        rotations,
+        scales,
+    })
 }
 
 /// Phase 2.G: build a `glb::SkinInput` from the shim's skeleton

@@ -21,7 +21,9 @@
 #include <cmath>
 #include <exception>
 #include <mutex>
+#include <set>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
 /* NOMINMAX keeps <windows.h> from defining `min`/`max` macros that
@@ -71,6 +73,11 @@
 #include <pxr/usd/usdShade/output.h>
 #include <pxr/usd/usdShade/shader.h>
 #include <pxr/usd/usdShade/tokens.h>
+#include <pxr/base/gf/quatd.h>
+#include <pxr/base/gf/quatf.h>
+#include <pxr/base/gf/quath.h>
+#include <pxr/base/gf/vec3h.h>
+#include <pxr/usd/usdSkel/animation.h>
 #include <pxr/usd/usdSkel/bindingAPI.h>
 #include <pxr/usd/usdSkel/skeleton.h>
 #include <pxr/usd/usdSkel/tokens.h>
@@ -1499,5 +1506,226 @@ usdc_mesh_joints_per_vertex(UsdcStage *stage, const char *mesh_path) {
         return sz > 1 ? sz : 0;
     } catch (...) {
         return 0;
+    }
+}
+
+/* -------------------- UsdSkel animation (Phase 2.G.3) -------------------- */
+
+extern "C" USDC_API double
+usdc_stage_time_codes_per_second(UsdcStage *stage) {
+    if (!stage || !stage->stage) return 24.0;
+    try {
+        double v = stage->stage->GetTimeCodesPerSecond();
+        return v > 0.0 ? v : 24.0;
+    } catch (...) {
+        return 24.0;
+    }
+}
+
+extern "C" USDC_API const char *
+usdc_skel_animation_source(UsdcStage *stage, const char *skel_path) {
+    UsdPrim prim = prim_at(stage, skel_path);
+    if (!prim) return nullptr;
+    try {
+        UsdSkelBindingAPI binding(prim);
+        UsdPrim anim_prim = binding.GetInheritedAnimationSource();
+        if (!anim_prim) {
+            /* `GetInheritedAnimationSource` only resolves the rel
+             * when UsdSkelBindingAPI is applied as an API schema.
+             * Assets in the wild (tiny_rigged fixture, older Pixar
+             * examples) frequently author `rel skel:animationSource`
+             * directly on a Skeleton without the apiSchemas stanza.
+             * Walk the rel manually as a fallback so those still
+             * animate. */
+            UsdRelationship rel = prim.GetRelationship(TfToken("skel:animationSource"));
+            if (rel) {
+                SdfPathVector targets;
+                if (rel.GetForwardedTargets(&targets) && !targets.empty()) {
+                    anim_prim = stage->stage->GetPrimAtPath(targets.front());
+                }
+            }
+            if (!anim_prim) return nullptr;
+        }
+        UsdSkelAnimation anim(anim_prim);
+        if (!anim) return nullptr;
+        stage->scratch = anim.GetPath().GetString();
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API void
+usdc_skel_anim_joints(UsdcStage *stage,
+                      const char *anim_path,
+                      UsdcStringCallback cb,
+                      void *user) {
+    UsdPrim prim = prim_at(stage, anim_path);
+    if (!prim || !cb) return;
+    try {
+        UsdSkelAnimation anim(prim);
+        if (!anim) return;
+        emit_token_array(anim.GetJointsAttr(), cb, user);
+    } catch (...) {
+        /* drop silently */
+    }
+}
+
+namespace {
+
+/* Merge the time samples from the three per-channel attributes into
+ * a single ascending-order vector. We inspect each attribute's
+ * authored samples (via `UsdAttribute::GetTimeSamples`) and union
+ * them; duplicate time codes collapse. This matches how the Rust
+ * fork's `align_samples_to_times` exposes a single per-animation
+ * frame grid to the preview. */
+std::vector<double> collect_anim_times(const UsdSkelAnimation &anim) {
+    std::vector<double> out;
+    const UsdAttribute attrs[] = {
+        anim.GetTranslationsAttr(),
+        anim.GetRotationsAttr(),
+        anim.GetScalesAttr(),
+    };
+    std::set<double> times;
+    for (const UsdAttribute &a : attrs) {
+        if (!a) continue;
+        std::vector<double> samples;
+        if (!a.GetTimeSamples(&samples)) continue;
+        for (double t : samples) times.insert(t);
+    }
+    out.reserve(times.size());
+    for (double t : times) out.push_back(t);
+    return out;
+}
+
+} /* anonymous namespace */
+
+extern "C" USDC_API void
+usdc_skel_anim_times(UsdcStage *stage,
+                     const char *anim_path,
+                     UsdcFloatBufferCallback cb,
+                     void *user) {
+    UsdPrim prim = prim_at(stage, anim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdSkelAnimation anim(prim);
+        if (!anim) { emit_empty_floats(cb, user); return; }
+        std::vector<double> times = collect_anim_times(anim);
+        if (times.empty()) { emit_empty_floats(cb, user); return; }
+        std::vector<float> f32;
+        f32.reserve(times.size());
+        for (double t : times) f32.push_back(static_cast<float>(t));
+        cb(f32.data(), f32.size(), user);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_skel_anim_translations_at(UsdcStage *stage,
+                               const char *anim_path,
+                               double time_code,
+                               UsdcFloatBufferCallback cb,
+                               void *user) {
+    UsdPrim prim = prim_at(stage, anim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdSkelAnimation anim(prim);
+        if (!anim) { emit_empty_floats(cb, user); return; }
+        VtArray<GfVec3f> arr;
+        UsdAttribute a = anim.GetTranslationsAttr();
+        if (!a || !a.Get(&arr, UsdTimeCode(time_code)) || arr.empty()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        emit_float_array(arr, cb, user, 3);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_skel_anim_rotations_at(UsdcStage *stage,
+                            const char *anim_path,
+                            double time_code,
+                            UsdcFloatBufferCallback cb,
+                            void *user) {
+    UsdPrim prim = prim_at(stage, anim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdSkelAnimation anim(prim);
+        if (!anim) { emit_empty_floats(cb, user); return; }
+        /* UsdSkelAnimation authors rotations as `quatf` (vec4, real
+         * first). glTF wants (x, y, z, w); reorder during the copy
+         * so the Rust side doesn't have to know about USD's
+         * convention. */
+        VtArray<GfQuatf> arr;
+        UsdAttribute a = anim.GetRotationsAttr();
+        if (!a || !a.Get(&arr, UsdTimeCode(time_code)) || arr.empty()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        std::vector<float> flat;
+        flat.reserve(arr.size() * 4);
+        for (const GfQuatf &q : arr) {
+            const GfVec3f &img = q.GetImaginary();
+            flat.push_back(img[0]);
+            flat.push_back(img[1]);
+            flat.push_back(img[2]);
+            flat.push_back(q.GetReal());
+        }
+        cb(flat.data(), flat.size(), user);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_skel_anim_scales_at(UsdcStage *stage,
+                         const char *anim_path,
+                         double time_code,
+                         UsdcFloatBufferCallback cb,
+                         void *user) {
+    UsdPrim prim = prim_at(stage, anim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdSkelAnimation anim(prim);
+        if (!anim) { emit_empty_floats(cb, user); return; }
+        /* UsdSkelAnimation authors `scales` as `half3[]` (half-float
+         * vec3) per the schema; handle GfVec3h first, then fall back
+         * to GfVec3f which some assets author despite the schema. */
+        UsdAttribute a = anim.GetScalesAttr();
+        if (!a) { emit_empty_floats(cb, user); return; }
+        VtValue v;
+        if (!a.Get(&v, UsdTimeCode(time_code))) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        std::vector<float> flat;
+        if (v.IsHolding<VtArray<GfVec3h>>()) {
+            const auto &arr = v.UncheckedGet<VtArray<GfVec3h>>();
+            if (arr.empty()) { emit_empty_floats(cb, user); return; }
+            flat.reserve(arr.size() * 3);
+            for (const GfVec3h &s : arr) {
+                flat.push_back(static_cast<float>(s[0]));
+                flat.push_back(static_cast<float>(s[1]));
+                flat.push_back(static_cast<float>(s[2]));
+            }
+        } else if (v.IsHolding<VtArray<GfVec3f>>()) {
+            const auto &arr = v.UncheckedGet<VtArray<GfVec3f>>();
+            if (arr.empty()) { emit_empty_floats(cb, user); return; }
+            flat.reserve(arr.size() * 3);
+            for (const GfVec3f &s : arr) {
+                flat.push_back(s[0]);
+                flat.push_back(s[1]);
+                flat.push_back(s[2]);
+            }
+        } else {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        cb(flat.data(), flat.size(), user);
+    } catch (...) {
+        emit_empty_floats(cb, user);
     }
 }

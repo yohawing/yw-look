@@ -640,6 +640,101 @@ impl CStage {
         })
     }
 
+    /// Stage `timeCodesPerSecond` metadata (spec default 24.0).
+    pub fn time_codes_per_second(&self) -> f64 {
+        unsafe { usdc_stage_time_codes_per_second(self.raw) }
+    }
+
+    /// SkelAnimation path bound to this skeleton via
+    /// `skel:animationSource`. `None` when no animation is bound.
+    pub fn skel_animation_source(&self, skel_path: &str) -> Option<String> {
+        let c = CString::new(skel_path).ok()?;
+        let p = unsafe { usdc_skel_animation_source(self.raw, c.as_ptr()) };
+        ptr_to_opt_string(p)
+    }
+
+    /// Joint subset the SkelAnimation targets (token array).
+    pub fn skel_anim_joints(&self, anim_path: &str) -> Vec<String> {
+        let Ok(c) = CString::new(anim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_skel_anim_joints(
+                self.raw,
+                c.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// Union of time codes (as f32) across translations / rotations
+    /// / scales for a SkelAnimation, ascending.
+    pub fn skel_anim_times(&self, anim_path: &str) -> Vec<f32> {
+        self.read_float_attr(anim_path, |s, cb, u| unsafe {
+            usdc_skel_anim_times(self.raw, s, cb, u)
+        })
+    }
+
+    /// Sample translations at a time code. Flat stride-3 f32 per
+    /// joint, in the SkelAnimation's joint order.
+    pub fn skel_anim_translations_at(&self, anim_path: &str, time: f64) -> Vec<f32> {
+        let Ok(c) = CString::new(anim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<f32>::new();
+        unsafe {
+            usdc_skel_anim_translations_at(
+                self.raw,
+                c.as_ptr(),
+                time,
+                Some(float_buffer_trampoline),
+                &mut out as *mut Vec<f32> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// Sample rotations at a time code. Stride 4, **glTF order
+    /// (x, y, z, w)** — the shim has already reordered USD's
+    /// `(w, x, y, z)` layout for us.
+    pub fn skel_anim_rotations_at(&self, anim_path: &str, time: f64) -> Vec<f32> {
+        let Ok(c) = CString::new(anim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<f32>::new();
+        unsafe {
+            usdc_skel_anim_rotations_at(
+                self.raw,
+                c.as_ptr(),
+                time,
+                Some(float_buffer_trampoline),
+                &mut out as *mut Vec<f32> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// Sample scales at a time code. Stride 3.
+    pub fn skel_anim_scales_at(&self, anim_path: &str, time: f64) -> Vec<f32> {
+        let Ok(c) = CString::new(anim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<f32>::new();
+        unsafe {
+            usdc_skel_anim_scales_at(
+                self.raw,
+                c.as_ptr(),
+                time,
+                Some(float_buffer_trampoline),
+                &mut out as *mut Vec<f32> as *mut c_void,
+            )
+        };
+        out
+    }
+
     /// Bone influences per vertex (the primvar's `elementSize`
     /// metadata). 0 means "no skinning authored" — yw-look treats the
     /// spec-default 1 as unskinned because single-influence rigs
