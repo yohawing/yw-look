@@ -40,6 +40,9 @@
 | UsdSkel rigid-follow (skel:joints only)    | ✅   | Beyond-rs: ARKit eye/tongue 対応 |
 | UsdSkelAnimation (time-sampled TRS)        | ✅   | Phase 2.G.3                      |
 | UsdSkel blend shapes (rest pose morph)     | ✅   | Phase 2.G.4                      |
+| alphaMode / alphaCutoff                    | ✅   | Beyond-rs: Phase 2.M             |
+| metallic / roughness ORM texture           | ✅   | Beyond-rs: Phase 2.N             |
+| blendShapeWeights time-sampled animation   | ✅   | Beyond-rs: Phase 2.O             |
 
 ### 既知の未実装（残タスク候補、優先度順）
 
@@ -47,17 +50,14 @@
 
 - [ ] `UsdUVTexture.inputs:sourceColorSpace` の尊重（sRGB vs raw）
   - 現状 base color は sRGB 前提で linearize。normal / roughness / metallic マップは raw で来てほしいがタグなし
-  - 影響: 非 color3 なマテリアルで色空間ズレ。低リスクだが rigorous 対応したい
+  - 影響: 非 color3 なマテリアルで色空間ズレ。glTF は per-texture colorSpace を持たないので真面目に直すには pixel-space の decode / re-encode が必要（低リスクだが対応は重い）
 - [ ] MaterialX の別 surface shader — `ND_standard_surface_surfaceshader` (Arnold) / `ND_open_pbr_surface` の受理
-- [ ] UsdPreviewSurface の `metallic` / `roughness` テクスチャ接続（現状スカラーのみ）
 - [ ] UsdPreviewSurface の `occlusion` / `ior` / `specularColor` 入力
-- [ ] UsdPreviewSurface の alpha mode (`opacityThreshold` → glTF alphaMode OPAQUE/MASK/BLEND)
+- [ ] metallic と roughness が別アセットに authored されているケース（現状は同アセットなら emit、別アセットはスカラー fallback）
+  - glTF は 1 枚の MR テクスチャしか受け付けないので、別アセットを combine したいときは load-time で合成する必要あり
 
 **animation / skeleton**
 
-- [ ] UsdSkelAnimation `blendShapeWeights` time-sampled 重みアニメーション
-  - 現在 blend shape は rest pose のみ。アニメ再生時の顔表情等が動かない
-  - Rust fork も未実装、両 backend 共通の次フェーズ
 - [ ] UsdSkelBlendShape の `inbetweens` (fractional weight targets)
 - [ ] UsdSkel の `normalOffsets` (blend shape 法線デルタ — 現状は位置のみ)
 
