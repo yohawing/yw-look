@@ -747,6 +747,7 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
     // no reachable Skeleton is effectively unrigged for preview
     // purposes).
     let jpv = stage.mesh_joints_per_vertex(prim_path);
+    let point_count = points.len() / 3;
     let (joint_indices, joint_weights, joints_per_vertex) = if jpv > 0 {
         let indices_i32 = stage.mesh_joint_indices(prim_path);
         let weights = stage.mesh_joint_weights(prim_path);
@@ -766,7 +767,25 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
             (Some(indices), Some(weights), jpv)
         }
     } else {
-        (None, None, 0)
+        // Phase 2.G rigid-follow: a mesh inside a SkelRoot can
+        // author `skel:joints = [<joint>]` (usually a single joint)
+        // without any `primvars:skel:jointIndices` primvar. The
+        // UsdSkel convention says every vertex is rigidly bound to
+        // `skel:joints[0]` with weight 1.0 in that case. Apple ARKit
+        // exports (chameleon eyes / tongue, seahorse eye meshes) use
+        // this pattern heavily; without synthesis those meshes stay
+        // at their bind-pose world matrix while the animated body
+        // walks away. Synthesize the full-weight binding here so the
+        // rest of the skin pipeline (remap → mesh_data_to_input →
+        // skin_index) treats them uniformly.
+        let skel_joints = stage.mesh_skel_joints(prim_path);
+        if !skel_joints.is_empty() && point_count > 0 {
+            let indices: Vec<u32> = vec![0; point_count];
+            let weights: Vec<f32> = vec![1.0; point_count];
+            (Some(indices), Some(weights), 1)
+        } else {
+            (None, None, 0)
+        }
     };
 
     Some(MeshData {
@@ -1318,11 +1337,13 @@ fn resolve_material_slot_cpp(
         Some(p) => p,
         None => return 0,
     };
-    // Only UsdPreviewSurface is wired up here. MaterialX / custom
-    // shaders fall through to the default slot until we grow an
-    // explicit mapping for each `info:id`.
+    // Accept both the USD-native `UsdPreviewSurface` id and the
+    // MaterialX-flavored `ND_UsdPreviewSurface_surfaceshader` the
+    // MaterialX standard library emits. Pixar / Apple tools mix
+    // and match these; rejecting the MaterialX form silently
+    // drops textures on assets like `glove_baseball_mtl_variant.usdz`.
     match stage.shader_id(&shader_path).as_deref() {
-        Some("UsdPreviewSurface") => {}
+        Some("UsdPreviewSurface") | Some("ND_UsdPreviewSurface_surfaceshader") => {}
         _ => return 0,
     }
 
@@ -1382,13 +1403,20 @@ fn resolve_material_slot_cpp(
     let texture_asset_path = if has_diffuse_texture {
         stage
             .shader_input_connected_source_prim(&shader_path, "inputs:diffuseColor")
-            .and_then(|src_shader_path| {
-                match stage.shader_id(&src_shader_path).as_deref() {
-                    Some("UsdUVTexture") => {
-                        stage.shader_input_asset(&src_shader_path, "inputs:file")
-                    }
-                    _ => None,
+            .and_then(|src_shader_path| match stage.shader_id(&src_shader_path).as_deref() {
+                // USD-native texture node + MaterialX equivalents
+                // (MaterialX emits `ND_image_*` for file-backed
+                // image samplers; color3 is the typical diffuse
+                // flavor, color4 carries alpha). All of them store
+                // the asset path on `inputs:file`.
+                Some("UsdUVTexture")
+                | Some("ND_image_color3")
+                | Some("ND_image_color4")
+                | Some("ND_image_vector3")
+                | Some("ND_image_vector4") => {
+                    stage.shader_input_asset(&src_shader_path, "inputs:file")
                 }
+                _ => None,
             })
     } else {
         None
