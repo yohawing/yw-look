@@ -7,6 +7,13 @@ tsconfig.node.tsbuildinfo
 .tauri/
 artifacts/updater-feed/
 
+# C++ backend (feature: backend-openusd-cpp)
+# vcpkg installs OpenUSD + deps here on first build; build.rs stages
+# shared libraries into cpp-artifacts/<triplet>/ for Tauri bundling.
+# Both directories are regenerated on every build.
+src-tauri/vcpkg_installed/
+src-tauri/cpp-artifacts/
+
 artifacts/screenshots/*
 !artifacts/screenshots/.gitkeep
 artifacts/logs/*

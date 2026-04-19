@@ -335,7 +335,8 @@ async function runSingleModelMode(rawPath: string) {
     const animations = ((object as Object3D).userData?.animations ??
       []) as AnimationClip[];
     let animationFrames = 0;
-    if (animations.length > 0) {
+    const skipAnim = new URLSearchParams(location.search).get("noanim") === "1";
+    if (animations.length > 0 && !skipAnim) {
       const mixer = new AnimationMixer(object as Object3D);
       for (const clip of animations) {
         mixer.clipAction(clip).play();

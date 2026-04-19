@@ -1,0 +1,287 @@
+name: CI — USD C++ backend (PoC)
+
+# The C++ backend builds OpenUSD from source through vcpkg. First run
+# is 30–60 min; subsequent runs restore from the GHA binary cache in
+# seconds. We keep this off the main `ci.yml` so PR authors aren't
+# blocked on a PoC-stage pipeline, and we gate it on path filters +
+# an opt-in workflow_dispatch.
+#
+# See docs/usd-cpp.md (CI section) and docs/usd-cpp-poc.md for the
+# full design.
+
+on:
+  # Phase 2.J flipped the C++ backend to default, so `develop` pushes
+  # now trigger this workflow too (the previous alpha-period carve-out
+  # is gone — if cpp ships as the default it has to stay green on the
+  # dev branch).
+  #
+  # Path filters stay scoped to files that actually affect the C++
+  # build: the shim, the vcpkg manifests, the Rust bindgen/cpp side,
+  # the dedicated integration tests, and the sample fixtures the
+  # tests open. Module wiring (`mod.rs`, `lib.rs`) is now included
+  # because the default-feature flip means it gates the build graph.
+  push:
+    branches:
+      - main
+      - develop
+      - "claude/openusd-cpp-wrapper-**"
+    paths:
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/build.rs"
+      - "src-tauri/vcpkg.json"
+      - "src-tauri/vcpkg-configuration.json"
+      - "src-tauri/third_party/usd_c_shim/**"
+      - "src-tauri/src/lib.rs"
+      - "src-tauri/src/usd/backend.rs"
+      - "src-tauri/src/usd/cpp_sys/**"
+      - "src-tauri/src/usd/glb.rs"
+      - "src-tauri/src/usd/glb/**"
+      - "src-tauri/src/usd/mod.rs"
+      - "src-tauri/src/usd/openusd_backend.rs"
+      - "src-tauri/src/usd/openusd_cpp_backend.rs"
+      - "src-tauri/src/usd/types.rs"
+      - "src-tauri/tests/cpp_backend_*.rs"
+      - "samples/assets/usd/**"
+      - ".github/workflows/ci-cpp-backend.yml"
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/build.rs"
+      - "src-tauri/vcpkg.json"
+      - "src-tauri/vcpkg-configuration.json"
+      - "src-tauri/third_party/usd_c_shim/**"
+      - "src-tauri/src/lib.rs"
+      - "src-tauri/src/usd/backend.rs"
+      - "src-tauri/src/usd/cpp_sys/**"
+      - "src-tauri/src/usd/glb.rs"
+      - "src-tauri/src/usd/glb/**"
+      - "src-tauri/src/usd/mod.rs"
+      - "src-tauri/src/usd/openusd_backend.rs"
+      - "src-tauri/src/usd/openusd_cpp_backend.rs"
+      - "src-tauri/src/usd/types.rs"
+      - "src-tauri/tests/cpp_backend_*.rs"
+      - "samples/assets/usd/**"
+      - ".github/workflows/ci-cpp-backend.yml"
+  workflow_dispatch:
+
+# Cancel an in-flight run when a newer commit lands on the same ref.
+# Important for the PoC branches where rapid pushes are common — the
+# 30-60 min build is expensive to keep running for a superseded SHA.
+concurrency:
+  group: ci-cpp-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cpp-backend-check:
+    # PoC gate: never block the parent PR/branch on failures here.
+    # Flip to required once Exit rule items in docs/usd-cpp-poc.md
+    # are cleared and binary-cache times are stable.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x86_64
+            runner: windows-latest
+            triplet: x64-windows
+          - platform: macos-aarch64
+            runner: macos-14
+            triplet: arm64-osx
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+
+    env:
+      # Cache OpenUSD binaries in GitHub Actions cache. First build on
+      # each new vcpkg baseline populates the cache (~1 GB); subsequent
+      # runs restore in seconds.
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      # vcpkg's x-gha binary source reads ACTIONS_CACHE_URL and
+      # ACTIONS_RUNTIME_TOKEN from the environment. These are only
+      # exposed to JavaScript steps by default; this snippet re-exports
+      # them so the subsequent shell step can see them.
+      - name: Export GitHub Actions cache env vars
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Guard against placeholder vcpkg baseline
+        shell: bash
+        run: |
+          if grep -q REPLACE_WITH_VCPKG_COMMIT_SHA src-tauri/vcpkg.json src-tauri/vcpkg-configuration.json; then
+            echo "::error::src-tauri/vcpkg.json still contains the REPLACE_WITH_VCPKG_COMMIT_SHA placeholder. See docs/usd-cpp.md step 3."
+            exit 1
+          fi
+
+      # Bootstrap is split per-os because bootstrap-vcpkg.bat is a
+      # native cmd script and does not run reliably under Git Bash,
+      # while the macOS `.sh` counterpart expects a POSIX shell. Both
+      # steps read the baseline SHA from the manifest so the vcpkg
+      # tree we check out matches the pin developers use locally.
+      - name: Bootstrap vcpkg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git clone --depth=1 https://github.com/microsoft/vcpkg "$env:USERPROFILE\vcpkg"
+          $baseline = (Get-Content src-tauri/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          git -C "$env:USERPROFILE\vcpkg" fetch --depth=1 origin $baseline
+          git -C "$env:USERPROFILE\vcpkg" checkout FETCH_HEAD
+          & "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
+          "VCPKG_ROOT=$env:USERPROFILE\vcpkg" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Bootstrap vcpkg (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          git clone --depth=1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
+          BASELINE=$(python3 -c "import json,sys; print(json.load(open('src-tauri/vcpkg.json'))['builtin-baseline'])")
+          git -C "$HOME/vcpkg" fetch --depth=1 origin "$BASELINE"
+          git -C "$HOME/vcpkg" checkout FETCH_HEAD
+          "$HOME/vcpkg/bootstrap-vcpkg.sh"
+          echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cache cargo registry, git deps, and target/ across runs.
+      # `shared-key` keeps the cache keyed per feature set so the
+      # `cpp-only` artifacts (no default features, backend-openusd-cpp)
+      # do not thrash with the parity job's mixed-feature build below.
+      # `Swatinem/rust-cache` hashes `Cargo.lock` + toolchain + OS
+      # automatically, so cross-platform runs stay isolated.
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: cpp-only
+          cache-on-failure: true
+
+      # bindgen's libclang dependency: the standalone LLVM distribution
+      # ships `libclang.dll` / `libclang.dylib`, which the
+      # `clang-format` / `clang-tidy` bundled inside Visual Studio or
+      # Xcode do not. `windows-latest` images ship LLVM under
+      # `C:\Program Files\LLVM`; `macos-14` has Homebrew's llvm cask
+      # available behind `brew --prefix llvm`.
+      - name: Set LIBCLANG_PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Set LIBCLANG_PATH (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # brew ships llvm as an explicit formula; install if missing,
+          # then expose its lib/ to bindgen.
+          brew list --formula llvm >/dev/null 2>&1 || brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Cargo check (default — now cpp backend post-Phase-2.J)
+        working-directory: src-tauri
+        shell: bash
+        run: cargo check
+
+      - name: Cargo check (Rust fork backend, opt-in)
+        working-directory: src-tauri
+        shell: bash
+        run: cargo check --no-default-features --features backend-openusd-rs
+
+      - name: Cargo test (cpp backend integration tests)
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          # Run every `cpp_backend_*` integration test. The inspector
+          # test covers Phase 1 surfaces; `cpp_backend_geometry` covers
+          # Phase 2.C–2.I.1 (geometry, materials, textures, displayColor
+          # fallback). Parity tests that need both backends live in the
+          # parity job below.
+          cargo test \
+            --no-default-features \
+            --features backend-openusd-cpp \
+            --test cpp_backend_inspector \
+            --test cpp_backend_geometry
+
+  cpp-backend-parity:
+    # Runs only when both backends can be built together so the
+    # parity integration tests in src-tauri/tests/ have both concrete
+    # types available.
+    continue-on-error: true
+    runs-on: windows-latest
+    timeout-minutes: 120
+    needs: cpp-backend-check
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Export GitHub Actions cache env vars
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Guard against placeholder vcpkg baseline
+        shell: bash
+        run: |
+          if grep -q REPLACE_WITH_VCPKG_COMMIT_SHA src-tauri/vcpkg.json src-tauri/vcpkg-configuration.json; then
+            echo "::error::placeholder baseline not replaced"
+            exit 1
+          fi
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth=1 https://github.com/microsoft/vcpkg "$env:USERPROFILE\vcpkg"
+          $baseline = (Get-Content src-tauri/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          git -C "$env:USERPROFILE\vcpkg" fetch --depth=1 origin $baseline
+          git -C "$env:USERPROFILE\vcpkg" checkout FETCH_HEAD
+          & "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
+          "VCPKG_ROOT=$env:USERPROFILE\vcpkg" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: parity-both
+          cache-on-failure: true
+
+      - name: Set LIBCLANG_PATH
+        shell: pwsh
+        run: |
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Cargo test (both backends enabled, parity tests only)
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          # Parity tests are the only ones that exercise both concrete
+          # backends side-by-side; scoping to the integration tests
+          # keeps the signal targeted. `cpp_backend_geometry` carries
+          # the Phase 2.D parity test (tiny_usda_glb_parity_with_rust_backend)
+          # which is gated behind both features being on.
+          cargo test \
+            --features "backend-openusd-rs backend-openusd-cpp" \
+            --test cpp_backend_inspector \
+            --test cpp_backend_geometry

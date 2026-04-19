@@ -1,3 +1,10 @@
+# Normalize line endings: LF in repo, LF in working copy on all OSes.
+# Windows-only scripts keep CRLF.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
 *.glb filter=lfs diff=lfs merge=lfs -text
 *.gltf filter=lfs diff=lfs merge=lfs -text
 *.bin filter=lfs diff=lfs merge=lfs -text
@@ -27,6 +34,13 @@
 # App icons are small and committed as regular blobs so CI (which may
 # not have LFS configured) can read them during cargo check / build.
 src-tauri/icons/* binary -filter
+
+# Frontend static assets (small icon variants, logos) stay as regular
+# blobs for the same reason — avoids the pre-receive hook rejecting
+# LFS pointers for files that are tiny and change rarely.
+public/*.png binary -filter
+public/*.ico binary -filter
+public/*.svg binary -filter
 
 # Basis Universal transcoder ships as a regular blob (~515 KB) so the
 # KTX2Loader transcoder is readable without LFS checkout.

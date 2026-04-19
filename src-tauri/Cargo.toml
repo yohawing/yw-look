@@ -1,9 +1,13 @@
 [package]
 name = "yw-look"
-version = "0.1.1"
+version = "0.1.2"
 description = "Quick look style asset viewer for CG workflows"
 authors = ["OpenAI Codex"]
 edition = "2021"
+# Pin the default binary so `cargo run` (invoked by `tauri dev`) never
+# ambiguates between the main Tauri bin (`yw-look`) and helper CLIs
+# like `src/bin/usd_to_glb.rs`.
+default-run = "yw-look"
 
 [package.metadata]
 
@@ -13,6 +17,35 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.1.0", features = [] }
+# Optional build-time deps enabled by the `backend-openusd-cpp`
+# feature. They are kept out of `default` so feature-off builds never
+# require a C++ toolchain, CMake, or vcpkg.
+bindgen = { version = "0.70", optional = true }
+cmake = { version = "0.1", optional = true }
+
+[features]
+# Phase 2.J: the C++ backend (Pixar OpenUSD via vcpkg + a handwritten
+# C shim) is now the default. Pre-Phase-2.J builds used the pure-Rust
+# `yohawing/openusd` fork as the default; that backend still compiles
+# under the opt-in `backend-openusd-rs` feature for parity testing
+# and for targets that cannot (yet) consume the C++ toolchain.
+#
+# To build the pure-Rust flavor explicitly, pass:
+#   cargo build --no-default-features --features backend-openusd-rs
+default = ["backend-openusd-cpp"]
+# Pure-Rust backend (yohawing/openusd fork). Keeps the existing
+# `OpenusdBackend` compiled in and wired up.
+backend-openusd-rs = []
+# C++ backend (Pixar OpenUSD via vcpkg + a handwritten C shim).
+# Enabling this pulls in the build-time dependencies above and
+# requires VCPKG_ROOT to be set at build time. See
+# `docs/usd-cpp.md` for setup.
+#
+# Linux is intentionally unsupported while the vcpkg + OpenUSD build
+# is still Windows-first; the C++ backend compile-errors out on
+# `target_os = "linux"` so Linux builders must drop back to the Rust
+# backend via `--no-default-features --features backend-openusd-rs`.
+backend-openusd-cpp = ["dep:bindgen", "dep:cmake"]
 
 [dependencies]
 # Phase 5e F3 fix on `yw-look-phase4`. Carries every Phase 4/5 fork

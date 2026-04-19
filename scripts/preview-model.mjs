@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
@@ -16,10 +17,27 @@ const SUPPORTED = new Set([
   "dds",
   "hdr",
   "exr",
+  // USD family: handled by converting to GLB via the `usd_to_glb`
+  // Rust bin before feeding the existing glTF preview path. This
+  // exercises the same `OpenusdBackend::extract_geometry_glb`
+  // pipeline that the Tauri command uses in production, so Phase
+  // 6/7 features (normal maps, UsdTransform2d, morph targets,
+  // KHR_lights_punctual, cameras) are validated end-to-end.
+  "usd",
+  "usda",
+  "usdc",
+  "usdz",
 ]);
 
+const USD_EXTS = new Set(["usd", "usda", "usdc", "usdz"]);
+
 const args = process.argv.slice(2);
-const modelArg = args[0];
+const modelArg = args.find((a, i) => {
+  if (a.startsWith("--")) return false;
+  // Skip values that follow known option flags (--out <dir>, --url <u>).
+  const prev = i > 0 ? args[i - 1] : "";
+  return prev !== "--out" && prev !== "--url";
+});
 
 if (!modelArg || modelArg === "--help" || modelArg === "-h") {
   console.error(
@@ -32,6 +50,7 @@ const outIdx = args.indexOf("--out");
 const outDir = outIdx >= 0 ? args[outIdx + 1] : "artifacts/preview";
 const urlIdx = args.indexOf("--url");
 const devUrl = urlIdx >= 0 ? args[urlIdx + 1] : "http://localhost:1420";
+const noAnim = args.includes("--no-anim");
 
 const absModel = path.resolve(modelArg);
 try {
@@ -67,11 +86,52 @@ if (!SUPPORTED.has(ext)) {
   process.exit(1);
 }
 
-const fsUrlPath = "/@fs/" + absModel.replace(/\\/g, "/");
-const targetUrl = `${devUrl.replace(/\/$/, "")}/selftest.html?path=${encodeURIComponent(fsUrlPath)}`;
-
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const baseName = path.basename(absModel, path.extname(absModel));
+
+// USD inputs are converted to GLB via the `usd_to_glb` cargo bin
+// before we hand them to the Vite-hosted selftest. The converted
+// file lands alongside the screenshot / log so it's inspectable
+// (drag it into gltf-viewer etc.) when something looks off.
+let previewPath = absModel;
+let convertedGlb = null;
+let convertLog = null;
+if (USD_EXTS.has(ext)) {
+  await mkdir(outDir, { recursive: true });
+  convertedGlb = path.resolve(
+    path.join(outDir, `${baseName}-${timestamp}.glb`),
+  );
+  const result = await runUsdToGlb(absModel, convertedGlb);
+  convertLog = result;
+  if (!result.ok) {
+    const logFile = path.join(outDir, `${baseName}-${timestamp}.convert.log`);
+    await writeFile(
+      logFile,
+      `cmd: ${result.cmd}\nexitCode: ${result.exitCode}\n\n[stdout]\n${result.stdout}\n\n[stderr]\n${result.stderr}\n`,
+    );
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          model: absModel,
+          stage: "usd_to_glb",
+          exitCode: result.exitCode,
+          stderr: result.stderr.slice(0, 2000),
+          log: logFile,
+        },
+        null,
+        2,
+      ),
+    );
+    process.exit(1);
+  }
+  previewPath = convertedGlb;
+}
+
+const fsUrlPath = "/@fs/" + previewPath.replace(/\\/g, "/");
+const qsExtra = noAnim ? "&noanim=1" : "";
+const targetUrl = `${devUrl.replace(/\/$/, "")}/selftest.html?path=${encodeURIComponent(fsUrlPath)}${qsExtra}`;
+
 const shotPath = path.join(outDir, `${baseName}-${timestamp}.png`);
 const logPath = path.join(outDir, `${baseName}-${timestamp}.log.jsonl`);
 
@@ -159,5 +219,79 @@ const verdict = {
   errorLogs: errorLogs.slice(0, 10),
 };
 
+if (convertedGlb) {
+  verdict.convertedGlb = convertedGlb;
+  verdict.convertStage = {
+    durationMs: convertLog?.durationMs ?? null,
+    cmd: convertLog?.cmd ?? null,
+  };
+}
+
 console.log(JSON.stringify(verdict, null, 2));
 process.exit(verdict.ok ? 0 : 1);
+
+async function runUsdToGlb(inputAbs, outputAbs) {
+  const cargoManifest = path.resolve("src-tauri/Cargo.toml");
+  // Backend is chosen at build time via Cargo features. Phase 2.J
+  // flipped the default from the Rust fork to the C++ backend, so
+  // the selection now works as:
+  //   YW_LOOK_USD_BACKEND=cpp  → explicit C++ backend (vcpkg OpenUSD
+  //                              via usd_c_shim; requires VCPKG_ROOT
+  //                              + LLVM locally). Same as unset,
+  //                              but kept for clarity in scripts.
+  //   YW_LOOK_USD_BACKEND=rs   → explicit Rust fork (yohawing/openusd),
+  //                              for parity comparisons or on hosts
+  //                              without vcpkg/LLVM.
+  //   unset                    → default features = cpp backend.
+  // `usd_to_glb` uses `DefaultBackend`, which resolves per feature in
+  // src/usd/mod.rs, so toggling this env var is enough to drive the
+  // two backends through the same preview-model skill.
+  const backend = (process.env.YW_LOOK_USD_BACKEND || "").toLowerCase();
+  const features = [];
+  const noDefault = backend === "cpp" || backend === "rs";
+  if (backend === "cpp") {
+    features.push("backend-openusd-cpp");
+  } else if (backend === "rs") {
+    features.push("backend-openusd-rs");
+  }
+  const args = [
+    "run",
+    "--quiet",
+    "--release",
+    "--manifest-path",
+    cargoManifest,
+    ...(noDefault ? ["--no-default-features"] : []),
+    ...(features.length > 0 ? ["--features", features.join(",")] : []),
+    "--bin",
+    "usd_to_glb",
+    "--",
+    inputAbs,
+    outputAbs,
+  ];
+  const started = Date.now();
+  const child = spawn("cargo", args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: false,
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+  const exitCode = await new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (code) => resolve(code ?? -1));
+  });
+  const durationMs = Date.now() - started;
+  return {
+    ok: exitCode === 0,
+    cmd: ["cargo", ...args].join(" "),
+    exitCode,
+    stdout,
+    stderr,
+    durationMs,
+  };
+}

@@ -1,0 +1,100 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    timeCodesPerSecond = 24
+    startTimeCode = 0
+    endTimeCode = 24
+    doc = "Phase 2.O fixture: a quad with two UsdSkelBlendShape targets driven by a UsdSkelAnimation.blendShapeWeights track. Verifies cpp backend's morph-target weight channel emission (target.path = 'weights')."
+)
+
+def Xform "Root"
+{
+    def SkelRoot "Rig"
+    {
+        def Mesh "Body" (
+            prepend apiSchemas = ["SkelBindingAPI"]
+        )
+        {
+            int[] faceVertexCounts = [3, 3]
+            int[] faceVertexIndices = [0, 1, 2, 1, 3, 2]
+            point3f[] points = [
+                (-0.5, 0, 0),
+                (0.5, 0, 0),
+                (-0.5, 1, 0),
+                (0.5, 1, 0),
+            ]
+
+            # Every vertex rigidly follows the one authored joint so
+            # the mesh stays in place while the animation drives its
+            # blend-shape weights. Without this, the cpp backend
+            # treats the mesh as static (no skin) and the weight
+            # channel still applies — both are valid.
+            uniform token[] skel:joints = ["Hip"]
+            rel skel:skeleton = </Root/Rig/Skel>
+
+            rel skel:blendShapeTargets = [
+                </Root/Rig/Body/PuffUp>,
+                </Root/Rig/Body/Wider>,
+            ]
+            uniform token[] skel:blendShapes = ["puff", "wide"]
+
+            def BlendShape "PuffUp"
+            {
+                uniform vector3f[] offsets = [
+                    (0, 0, 0.5),
+                    (0, 0, 0.5),
+                    (0, 0, 0.5),
+                    (0, 0, 0.5),
+                ]
+            }
+
+            def BlendShape "Wider"
+            {
+                uniform vector3f[] offsets = [
+                    (-0.5, 0, 0),
+                    (0.5, 0, 0),
+                    (-0.5, 0, 0),
+                    (0.5, 0, 0),
+                ]
+            }
+        }
+
+        def Skeleton "Skel"
+        {
+            uniform token[] joints = ["Hip"]
+            uniform matrix4d[] bindTransforms = [
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1)),
+            ]
+            uniform matrix4d[] restTransforms = [
+                ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1)),
+            ]
+            rel skel:animationSource = </Root/Rig/Anim>
+        }
+
+        def SkelAnimation "Anim"
+        {
+            uniform token[] joints = ["Hip"]
+            uniform token[] blendShapes = ["puff", "wide"]
+
+            float3[] translations.timeSamples = {
+                0: [(0, 0, 0)],
+                24: [(0, 0, 0)],
+            }
+            quatf[] rotations.timeSamples = {
+                0: [(1, 0, 0, 0)],
+                24: [(1, 0, 0, 0)],
+            }
+            float3[] scales.timeSamples = {
+                0: [(1, 1, 1)],
+                24: [(1, 1, 1)],
+            }
+
+            float[] blendShapeWeights.timeSamples = {
+                0: [0.0, 0.0],
+                12: [1.0, 0.5],
+                24: [0.0, 0.0],
+            }
+        }
+    }
+}

@@ -1,0 +1,68 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    metersPerUnit = 1.0
+    doc = "Phase 2.M fixture: two quads with UsdPreviewSurface opacity / opacityThreshold authoring, exercising the cpp backend's glTF alphaMode BLEND / MASK emission."
+)
+
+def Xform "Root" (
+    kind = "component"
+)
+{
+    # Quad 1: translucent glass (opacity=0.4) → alphaMode=BLEND
+    def Mesh "GlassQuad" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-1, 0, -1), (1, 0, -1), (1, 0, 1), (-1, 0, 1)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </Root/Looks/GlassMat>
+    }
+
+    # Quad 2: alpha-masked leaf (opacityThreshold=0.5) → alphaMode=MASK
+    def Mesh "LeafQuad" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-1, 2, -1), (1, 2, -1), (1, 2, 1), (-1, 2, 1)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </Root/Looks/LeafMat>
+    }
+
+    def Scope "Looks"
+    {
+        def Material "GlassMat"
+        {
+            token outputs:surface.connect = </Root/Looks/GlassMat/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.2, 0.6, 0.9)
+                float inputs:opacity = 0.4
+                float inputs:roughness = 0.1
+                token outputs:surface
+            }
+        }
+
+        def Material "LeafMat"
+        {
+            token outputs:surface.connect = </Root/Looks/LeafMat/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.1, 0.7, 0.2)
+                float inputs:opacity = 1.0
+                float inputs:opacityThreshold = 0.5
+                float inputs:roughness = 0.8
+                token outputs:surface
+            }
+        }
+    }
+}
