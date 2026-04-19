@@ -13,24 +13,36 @@ yw-look の USD パースを Pixar OpenUSD C++ 経由で行うための手順書
 - 対応プラットフォーム: **Windows MSVC x64** / **macOS arm64** のみ
   - Linux は `compile_error!` で明示的に切り捨て（`src/usd/mod.rs`）。Linux で
     ビルドする場合は上記 opt-in で Rust fork へ切り替える必要がある
-- 実装範囲（Phase 2.A〜2.J 完了時点）:
+- 実装範囲（Phase 2.A〜2.L 完了時点）:
   - **Inspector**: `inspect_stage` / `summarize_stage` /
     `collect_asset_issues` / `root_layer_is_binary`（Phase 1）
   - **Geometry → GLB**: `requires_glb_preview` / `extract_geometry_glb`
     は Rust fork と同経路（`mesh_data_to_input` を共有）で動作。mesh /
     xform / visibility / orientation / UV の index-expansion をカバー。
   - **Material**: UsdPreviewSurface スカラー入力 (diffuseColor /
-    metallic / roughness / opacity / emissiveColor) + 接続先
-    UsdUVTexture の asset path 解決。テクスチャは USDZ archive と
-    filesystem 両方から解決（`TextureLoader` を共通化）。
+    metallic / roughness / opacity / emissiveColor) + UsdUVTexture /
+    MaterialX (`ND_image_*`, `ND_tiledimage_*`, `ND_normalmap`) の
+    asset path 解決。base color + normal map、`wrapS`/`wrapT`、
+    `UsdTransform2d` → `KHR_texture_transform`（base / normal 独立）
+    まで対応。テクスチャは USDZ archive と filesystem 両方から解決。
+  - **GeomSubset**: per-face material split（`materialBind` family）。
+    Apple ARKit の eye / body / dorsal 分割、Pixar Kitchen_set 相当。
+  - **UsdSkel**: Skeleton + per-vertex skinning、
+    ARKit rigid-follow (skel:joints のみ authored) の合成、
+    UsdSkelAnimation 時間サンプル TRS、UsdSkelBlendShape の rest pose
+    morph target。
   - **Light / Camera**: UsdLux DistantLight → Directional,
     SphereLight → Point、UsdGeomCamera の perspective。
   - **displayColor**: constant interpolation → material fallback,
     per-vertex / faceVarying → glTF COLOR_0（triangulator 経由）。
-- 既知の未対応（将来フェーズ）:
-  - UsdSkel（skeleton / skinning / animation / blend shapes）
-  - GeomSubset（per-face material 分割）
-  - UsdTransform2d, normal map, wrapS/wrapT 対応
+
+- 既知の未対応 — 詳細な残タスク一覧は [`docs/usd.md`](./usd.md) の
+  「既知の未実装」節を参照。主要なもの:
+  - UsdSkelAnimation の `blendShapeWeights` time-sampled
+  - `UsdUVTexture.inputs:sourceColorSpace` の尊重
+  - metallic / roughness / occlusion のテクスチャ接続
+  - UsdGeomCamera orthographic
+  - DomeLight / RectLight / DiskLight / spot light
 
 ## 仕組み
 

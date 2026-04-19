@@ -1,15 +1,100 @@
 # USD 対応 設計・記録ドキュメント
 
-`yw-look` の USD サポートを Phase ごとに記録する。方針決定・実装記録・次フェーズの計画をこのファイルに一元管理する。
-
-> **Note (Phase 2.J / 2026-04 以降)**: default backend は Pixar OpenUSD
-> via vcpkg の **C++ backend** に切り替わった。この `usd.md` に書かれて
-> いる Phase 0〜Phase 7 の実装は `yohawing/openusd` fork (pure Rust) 側
-> の記録で、現在は `backend-openusd-rs` feature を明示的に opt-in した
-> 場合に動く。
-> C++ backend の設計・手順は [`docs/usd-cpp.md`](./usd-cpp.md) を参照。
+`yw-look` の USD サポートを記録する。方針決定・実装記録・残タスクをこのファイルに
+集約する。
 
 ---
+
+## 現状サマリ (2026-04-19 時点)
+
+### バックエンド構成
+
+| feature               | 位置づけ                         | 実装場所                            |
+| --------------------- | -------------------------------- | ----------------------------------- |
+| `backend-openusd-cpp` | **default** (Phase 2.J 以降)     | Pixar OpenUSD via vcpkg + C shim    |
+| `backend-openusd-rs`  | opt-in（parity 検証 / Linux 用） | `yohawing/openusd` fork (pure Rust) |
+
+- `cargo build` 素で cpp backend。Rust fork は `--no-default-features --features backend-openusd-rs` で opt-in。
+- Linux は `compile_error!` で cpp を切り捨て済。Rust fork へ退避する必要あり。
+- C++ backend の設計・手順: [`docs/usd-cpp.md`](./usd-cpp.md)
+- C++ backend の PoC 当時の計画: [`docs/usd-cpp-poc.md`](./usd-cpp-poc.md)
+
+### 機能カバレッジ（2026-04 時点、cpp backend）
+
+| 機能領域                                   | 状態 | 備考                             |
+| ------------------------------------------ | ---- | -------------------------------- |
+| Inspector (stage metadata, prims, layers)  | ✅   | Phase 1                          |
+| Geometry (mesh / xform / visibility)       | ✅   | Phase 2.C                        |
+| faceVarying UV index expansion             | ✅   | Phase 2.C                        |
+| UsdPreviewSurface scalar inputs            | ✅   | Phase 2.E.1                      |
+| MaterialX UsdPreviewSurface flavors        | ✅   | Beyond-rs: ND\_\* variants       |
+| Texture resolve (USDZ + filesystem)        | ✅   | Phase 2.F                        |
+| Normal maps + ND_normalmap wrapper         | ✅   | Beyond-rs (cpp のみ)             |
+| wrapS / wrapT → glTF sampler               | ✅   | Beyond-rs                        |
+| UsdTransform2d → KHR_texture_transform     | ✅   | Beyond-rs (base+normal)          |
+| GeomSubset per-face material split         | ✅   | Phase 2.I.2                      |
+| displayColor fallback + per-vertex COLOR_0 | ✅   | Phase 2.I.1                      |
+| UsdLux DistantLight / SphereLight          | ✅   | Phase 2.H                        |
+| UsdGeomCamera perspective                  | ✅   | Phase 2.H                        |
+| UsdSkel Skeleton + per-vertex skinning     | ✅   | Phase 2.G.1/2                    |
+| UsdSkel rigid-follow (skel:joints only)    | ✅   | Beyond-rs: ARKit eye/tongue 対応 |
+| UsdSkelAnimation (time-sampled TRS)        | ✅   | Phase 2.G.3                      |
+| UsdSkel blend shapes (rest pose morph)     | ✅   | Phase 2.G.4                      |
+
+### 既知の未実装（残タスク候補、優先度順）
+
+**material / shading**
+
+- [ ] `UsdUVTexture.inputs:sourceColorSpace` の尊重（sRGB vs raw）
+  - 現状 base color は sRGB 前提で linearize。normal / roughness / metallic マップは raw で来てほしいがタグなし
+  - 影響: 非 color3 なマテリアルで色空間ズレ。低リスクだが rigorous 対応したい
+- [ ] MaterialX の別 surface shader — `ND_standard_surface_surfaceshader` (Arnold) / `ND_open_pbr_surface` の受理
+- [ ] UsdPreviewSurface の `metallic` / `roughness` テクスチャ接続（現状スカラーのみ）
+- [ ] UsdPreviewSurface の `occlusion` / `ior` / `specularColor` 入力
+- [ ] UsdPreviewSurface の alpha mode (`opacityThreshold` → glTF alphaMode OPAQUE/MASK/BLEND)
+
+**animation / skeleton**
+
+- [ ] UsdSkelAnimation `blendShapeWeights` time-sampled 重みアニメーション
+  - 現在 blend shape は rest pose のみ。アニメ再生時の顔表情等が動かない
+  - Rust fork も未実装、両 backend 共通の次フェーズ
+- [ ] UsdSkelBlendShape の `inbetweens` (fractional weight targets)
+- [ ] UsdSkel の `normalOffsets` (blend shape 法線デルタ — 現状は位置のみ)
+
+**geometry**
+
+- [ ] UsdGeomPointInstancer (未対応)
+- [ ] UsdGeomNurbsCurves / BasisCurves (髪・ワイヤフレーム)
+- [ ] UsdGeomSubdivisionSurface (Pixar Kitchen_set など)
+- [ ] UsdGeomPoints (point-cloud primvar → glTF points mode)
+
+**lights / camera**
+
+- [ ] UsdGeomCamera orthographic projection (両 backend とも未対応; 現状常に perspective)
+- [ ] UsdLux DiskLight / RectLight / CylinderLight (glTF の area light 拡張必要)
+- [ ] UsdLux DomeLight → environment map (IBL)
+- [ ] UsdLux SphereLight の `shaping:cone:*` → glTF spot light
+
+**infrastructure / UX**
+
+- [ ] Variant set selection UI (現状 `defaultPrim` の default variant)
+- [ ] Stage 開閉時のキャッシュ（同じ USDZ の連続 open で shim 再 init を避ける）
+- [ ] EXR / HDR / TGA / DDS テクスチャの正式対応（現状 `guess_image_mime` 側で rejected）
+- [ ] Multi-stage composition (`references` / `payloads` が外部 USD を指すアセット)
+
+**ビルド / 配布**
+
+- [ ] `OPENUSD_PREBUILT_DIR` env 経由でのビルド済み OpenUSD 取り込み（30 分短縮）
+- [ ] Linux 向け C++ backend 復活（vcpkg usd port が Linux 安定したら）
+
+---
+
+## 実装履歴
+
+Phase 0 〜 7 は `yohawing/openusd` fork (pure Rust) 側の実装記録。
+`backend-openusd-rs` feature が有効なときに走る経路。
+
+C++ backend (Phase 1 / 2.A〜2.L) は [`docs/usd-cpp.md`](./usd-cpp.md) を参照。
 
 ## Phase 0 — PoC（完了）
 
