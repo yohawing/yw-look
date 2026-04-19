@@ -29,8 +29,8 @@ use super::backend::{UsdBackend, UsdError};
 use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation};
 use super::glb::{self, MaterialInput, MeshInput};
 use super::openusd_backend::{
-    invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mesh_data_to_input, remap_mesh_skin_indices,
-    srgb_to_linear, z_up_to_y_up_mat4, MeshOrientation,
+    filter_mesh_by_face_indices, invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mesh_data_to_input,
+    remap_mesh_skin_indices, srgb_to_linear, z_up_to_y_up_mat4, MeshOrientation,
 };
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
@@ -387,6 +387,7 @@ impl UsdBackend for OpenusdCppBackend {
             ));
         }
 
+
         // Slot 0 is the yw-look default preview material, matching the
         // Rust backend's convention. Phase 2.E.1 added UsdPreviewSurface
         // scalar resolution; Phase 2.F bolts on texture resolution for
@@ -493,59 +494,77 @@ impl UsdBackend for OpenusdCppBackend {
                 .map(|s| s.joint_names.len())
                 .unwrap_or(usize::MAX);
 
-            let mut triangulated = mesh_data_to_input(
-                &sdf_path,
-                world_f32,
-                &raw,
-                orientation,
-                max_joint,
-                &[],
-            )?;
-
-            // Phase 2.E.1: resolve the bound material's
-            // UsdPreviewSurface scalars into a `MaterialInput` slot,
-            // deduping identical bindings across meshes. Falls back
-            // to slot 0 (yw-look default) when the mesh has no
-            // material binding or the surface shader is not a
-            // UsdPreviewSurface.
-            let bound_slot = resolve_material_slot_cpp(
-                &stage,
-                prim_path,
-                &mut materials,
-                &mut material_slots,
-                &mut material_texture_paths,
-            );
-            // Phase 2.I.1: when the mesh has no bound material and
-            // carries a constant `primvars:displayColor`, promote the
-            // color into a dedicated material slot so unshaded meshes
-            // still pick up the authored tint. Per-vertex / varying
-            // interpolations already flow through to COLOR_0 via the
-            // shared triangulator in `mesh_data_to_input`.
-            triangulated.material_index = apply_display_color_fallback_cpp(
-                bound_slot,
-                &raw,
-                prim_path,
-                &mut materials,
-                &mut material_slots,
-                &mut material_texture_paths,
-            );
-            // Only attach skin_index when the mesh actually carries
-            // per-vertex joint influences. Rigid-follow meshes (an
-            // eye rigidly parented to a head joint is a common ARKit
-            // pattern) have `primvars:skel:jointIndices` unauthored,
-            // so the MeshData's joint_indices / joint_weights are
-            // None and the glTF skin payload must stay empty —
-            // otherwise `glb::build_glb`'s consistency check rejects
-            // the blob. Mesh skipping the skin means it renders with
-            // its static world matrix, which is exactly what rigid-
-            // follow semantics want.
-            triangulated.skin_index =
-                if triangulated.joint_indices.is_some() && triangulated.joint_weights.is_some() {
-                    skin_slot
-                } else {
-                    None
-                };
-            inputs.push(triangulated);
+            // Phase 2.I.2: materialBind GeomSubsets split the mesh
+            // into per-face partitions, each with its own material
+            // binding. Seahorse / Kitchen_set use this pattern
+            // heavily. When subsets are present, emit one MeshInput
+            // per subset (filtered by faceIndices); when absent,
+            // fall through to the whole-mesh path.
+            let subsets = collect_material_bind_subsets(&stage, prim_path);
+            if subsets.is_empty() {
+                let mut triangulated = mesh_data_to_input(
+                    &sdf_path,
+                    world_f32,
+                    &raw,
+                    orientation,
+                    max_joint,
+                    &[],
+                )?;
+                let bound_slot = resolve_material_slot_cpp(
+                    &stage,
+                    prim_path,
+                    &mut materials,
+                    &mut material_slots,
+                    &mut material_texture_paths,
+                );
+                triangulated.material_index = apply_display_color_fallback_cpp(
+                    bound_slot,
+                    &raw,
+                    prim_path,
+                    &mut materials,
+                    &mut material_slots,
+                    &mut material_texture_paths,
+                );
+                triangulated.skin_index = skin_index_from_payload(&triangulated, skin_slot);
+                inputs.push(triangulated);
+            } else {
+                for subset in &subsets {
+                    let filtered = filter_mesh_by_face_indices(&raw, &subset.face_indices);
+                    let Ok(subset_sdf_path) = SdfPath::new(&subset.path) else {
+                        continue;
+                    };
+                    let Ok(mut tri) = mesh_data_to_input(
+                        &subset_sdf_path,
+                        world_f32,
+                        &filtered,
+                        orientation,
+                        max_joint,
+                        &[],
+                    ) else {
+                        continue;
+                    };
+                    // Binding is authored on the GeomSubset prim, not
+                    // the parent mesh — look it up at the subset path
+                    // so each partition picks up its own material.
+                    let bound_slot = resolve_material_slot_cpp(
+                        &stage,
+                        &subset.path,
+                        &mut materials,
+                        &mut material_slots,
+                        &mut material_texture_paths,
+                    );
+                    tri.material_index = apply_display_color_fallback_cpp(
+                        bound_slot,
+                        &filtered,
+                        &subset.path,
+                        &mut materials,
+                        &mut material_slots,
+                        &mut material_texture_paths,
+                    );
+                    tri.skin_index = skin_index_from_payload(&tri, skin_slot);
+                    inputs.push(tri);
+                }
+            }
         }
 
         if inputs.is_empty() {
@@ -732,6 +751,91 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
         joints_per_vertex,
         display_color,
     })
+}
+
+/// Phase 2.I.2: one materialBind GeomSubset resolved to its prim
+/// path + face indices. `face_indices` drives
+/// `filter_mesh_by_face_indices` so the outer mesh's shared point
+/// buffer is triangulated once but emitted per subset.
+struct GeomSubsetBinding {
+    path: String,
+    face_indices: Vec<u32>,
+}
+
+/// Enumerate GeomSubset children of a mesh whose `familyName` is
+/// `materialBind` (the UsdShadeMaterialBindingAPI convention).
+/// Subsets without the right family, with `elementType != "face"`, or
+/// with an empty `faceIndices` array are dropped — those cases
+/// belong to other subset consumers (proxy geometry, crease masks,
+/// etc.) and are out of scope for materialBind splitting.
+fn collect_material_bind_subsets(stage: &CStage, mesh_path: &str) -> Vec<GeomSubsetBinding> {
+    // Traverse returns every prim; filter to direct children of the
+    // mesh by path prefix. A GeomSubset always lives as a direct
+    // child of its parent mesh (UsdGeomSubset schema).
+    let prefix = format!("{mesh_path}/");
+    let mut out = Vec::new();
+    for p in stage.traverse() {
+        if !p.starts_with(&prefix) {
+            continue;
+        }
+        // Require exactly one additional path segment so deeper
+        // descendants (e.g. shader children of a Material nested in
+        // the mesh hierarchy, unusual but possible) don't leak in.
+        let tail = &p[prefix.len()..];
+        if tail.contains('/') {
+            continue;
+        }
+        if stage.prim_type_name(&p).as_deref() != Some("GeomSubset") {
+            continue;
+        }
+        // materialBind family. When unauthored, UsdGeomSubset defaults
+        // to an empty family token which we treat as non-materialBind.
+        let family = stage.prim_attr_token(&p, "familyName").unwrap_or_default();
+        if family != "materialBind" {
+            continue;
+        }
+        // Element type defaults to "face"; respect explicit values
+        // but accept the unauthored case since the default is what
+        // we want anyway.
+        let element = stage
+            .prim_attr_token(&p, "elementType")
+            .unwrap_or_else(|| "face".to_string());
+        if element != "face" {
+            continue;
+        }
+        let face_indices_i32 = stage.prim_attr_i32_array(&p, "indices");
+        if face_indices_i32.is_empty() {
+            continue;
+        }
+        let face_indices: Vec<u32> = face_indices_i32
+            .into_iter()
+            .filter_map(|i| if i >= 0 { Some(i as u32) } else { None })
+            .collect();
+        if face_indices.is_empty() {
+            continue;
+        }
+        out.push(GeomSubsetBinding {
+            path: p,
+            face_indices,
+        });
+    }
+    out
+}
+
+/// Only attach `skin_index` when the mesh actually carries per-
+/// vertex joint influences. Rigid-follow meshes (e.g. an eye
+/// parented to a head joint — common in ARKit exports) have no
+/// `primvars:skel:jointIndices`, so their MeshData's joint_indices
+/// / joint_weights are `None` and the glTF skin payload must stay
+/// empty — otherwise `glb::build_glb`'s consistency check rejects
+/// the blob. Skipping the skin on such a mesh renders it with its
+/// static world matrix, which is what rigid-follow semantics want.
+fn skin_index_from_payload(mesh: &MeshInput, skin_slot: Option<usize>) -> Option<usize> {
+    if mesh.joint_indices.is_some() && mesh.joint_weights.is_some() {
+        skin_slot
+    } else {
+        None
+    }
 }
 
 /// Phase 2.G: build a `glb::SkinInput` from the shim's skeleton

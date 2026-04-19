@@ -365,6 +365,22 @@ USDC_API int usdc_prim_attr_color3f(UsdcStage *stage,
                                     const char *attr_name,
                                     float out[3]);
 
+/* Reads a token attribute on a prim (e.g. `GeomSubset.familyName`,
+ * `GeomSubset.elementType`). Scratch-buffer lifetime. Returns NULL
+ * when unauthored or the wrong type. */
+USDC_API const char *usdc_prim_attr_token(UsdcStage *stage,
+                                          const char *prim_path,
+                                          const char *attr_name);
+
+/* Emits an `int[]` attribute (e.g. `GeomSubset.faceIndices`) as a
+ * flat callback buffer. Emits `(NULL, 0)` when unauthored / missing
+ * / wrong type. */
+USDC_API void usdc_prim_attr_i32_array(UsdcStage *stage,
+                                       const char *prim_path,
+                                       const char *attr_name,
+                                       UsdcI32BufferCallback cb,
+                                       void *user);
+
 /* -------------------- material / shading (Phase 2.E.1) -------------------- */
 
 /* Returns the SdfPath of the Material prim bound (direct binding,

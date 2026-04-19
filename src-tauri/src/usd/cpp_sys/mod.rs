@@ -428,6 +428,37 @@ impl CStage {
         if ok == 1 { Some(out) } else { None }
     }
 
+    /// Reads a token attribute on a prim (e.g.
+    /// `GeomSubset.familyName`, `GeomSubset.elementType`). `None`
+    /// when unauthored or the wrong type.
+    pub fn prim_attr_token(&self, prim_path: &str, attr_name: &str) -> Option<String> {
+        let pp = CString::new(prim_path).ok()?;
+        let an = CString::new(attr_name).ok()?;
+        let p = unsafe { usdc_prim_attr_token(self.raw, pp.as_ptr(), an.as_ptr()) };
+        ptr_to_opt_string(p)
+    }
+
+    /// Reads an `int[]` attribute (e.g. `GeomSubset.faceIndices`).
+    pub fn prim_attr_i32_array(&self, prim_path: &str, attr_name: &str) -> Vec<i32> {
+        let Ok(pp) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let Ok(an) = CString::new(attr_name) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<i32>::new();
+        unsafe {
+            usdc_prim_attr_i32_array(
+                self.raw,
+                pp.as_ptr(),
+                an.as_ptr(),
+                Some(i32_buffer_trampoline),
+                &mut out as *mut Vec<i32> as *mut c_void,
+            )
+        };
+        out
+    }
+
     /// color3f / color3d attribute (e.g. a UsdLux `inputs:color`
     /// authored directly on the light prim).
     pub fn prim_attr_color3f(&self, prim_path: &str, attr_name: &str) -> Option<[f32; 3]> {

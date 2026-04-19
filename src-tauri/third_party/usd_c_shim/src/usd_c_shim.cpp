@@ -1031,6 +1031,54 @@ usdc_prim_attr_color3f(UsdcStage *stage,
     }
 }
 
+extern "C" USDC_API const char *
+usdc_prim_attr_token(UsdcStage *stage,
+                     const char *prim_path,
+                     const char *attr_name) {
+    if (!attr_name) return nullptr;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return nullptr;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return nullptr;
+        VtValue v;
+        if (!attr.Get(&v)) return nullptr;
+        if (v.IsHolding<TfToken>()) {
+            stage->scratch = v.UncheckedGet<TfToken>().GetString();
+            if (stage->scratch.empty()) return nullptr;
+            return stage->scratch.c_str();
+        }
+        if (v.IsHolding<std::string>()) {
+            stage->scratch = v.UncheckedGet<std::string>();
+            if (stage->scratch.empty()) return nullptr;
+            return stage->scratch.c_str();
+        }
+        return nullptr;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API void
+usdc_prim_attr_i32_array(UsdcStage *stage,
+                         const char *prim_path,
+                         const char *attr_name,
+                         UsdcI32BufferCallback cb,
+                         void *user) {
+    if (!attr_name) { emit_empty_ints(cb, user); return; }
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { emit_empty_ints(cb, user); return; }
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) { emit_empty_ints(cb, user); return; }
+        VtArray<int> arr;
+        if (!attr.Get(&arr) || arr.empty()) { emit_empty_ints(cb, user); return; }
+        cb(arr.cdata(), arr.size(), user);
+    } catch (...) {
+        emit_empty_ints(cb, user);
+    }
+}
+
 /* -------------------- material / shading (Phase 2.E.1) -------------------- */
 
 extern "C" USDC_API const char *

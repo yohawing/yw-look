@@ -2232,7 +2232,7 @@ fn apply_display_color_fallback(
 /// shared (face_vertex_indices still reference the same point
 /// indices); only face_vertex_counts / face_vertex_indices /
 /// face-varying attributes are sliced.
-fn filter_mesh_by_face_indices(
+pub(crate) fn filter_mesh_by_face_indices(
     mesh: &MeshData,
     face_indices: &[u32],
 ) -> MeshData {
