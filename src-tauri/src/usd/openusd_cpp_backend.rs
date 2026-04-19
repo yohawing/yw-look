@@ -31,7 +31,7 @@ use super::glb::{self, MaterialInput, MeshInput};
 use super::openusd_backend::DenseBlendShape;
 use super::openusd_backend::{
     filter_mesh_by_face_indices, invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mesh_data_to_input,
-    remap_mesh_skin_indices, srgb_to_linear, z_up_to_y_up_mat4, MeshOrientation,
+    remap_mesh_skin_indices, srgb_to_linear, usd_wrap_to_gltf, z_up_to_y_up_mat4, MeshOrientation,
 };
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
@@ -1475,23 +1475,49 @@ fn resolve_material_slot_cpp(
     // `inputs:file` asset path so the outer loop can hand it to the
     // shared TextureLoader. Keeps the scalar fallback path intact
     // when no texture is wired up.
-    let texture_asset_path = if has_diffuse_texture {
+    let diffuse_tex = if has_diffuse_texture {
         resolve_shader_texture_asset(stage, &shader_path, "inputs:diffuseColor")
     } else {
         None
     };
 
+    // Phase 2.L: read the sampler's wrapS / wrapT tokens directly
+    // from the (possibly MaterialX-wrapped) image node. USD's
+    // schema default is `useMetadata` which we treat as REPEAT —
+    // same convention as the Rust backend's `usd_wrap_to_gltf`.
+    // Reading from the diffuse node matches glTF's one-wrap-per-
+    // material assumption; normal-map wrap is very rarely authored
+    // differently in practice so we apply the diffuse settings to
+    // the whole material slot.
+    if let Some(tex) = &diffuse_tex {
+        let ws = stage.prim_attr_token(&tex.node_path, "inputs:wrapS");
+        let wt = stage.prim_attr_token(&tex.node_path, "inputs:wrapT");
+        mi.wrap_s = usd_wrap_to_gltf(ws.as_deref());
+        mi.wrap_t = usd_wrap_to_gltf(wt.as_deref());
+    }
+
+    // Phase 2.L: UsdTransform2d (`inputs:st` hop between the texture
+    // node and the PrimvarReader). When present, emit the authored
+    // translation / rotation / scale as glTF's KHR_texture_transform.
+    // Identity transforms drop back to `None` so the serializer
+    // omits the extension.
+    if let Some(tex) = &diffuse_tex {
+        mi.base_color_texture_transform = resolve_uv_transform_cpp(stage, &tex.node_path);
+    }
+
     // Phase 2.L (beyond Rust-fork parity): normal map. UsdPreviewSurface
     // authors tangent-space normals on `inputs:normal`; we chase the
     // connection through the same set of accepted texture nodes as
     // the diffuse path.
-    let normal_asset_path =
-        resolve_shader_texture_asset(stage, &shader_path, "inputs:normal");
+    let normal_tex = resolve_shader_texture_asset(stage, &shader_path, "inputs:normal");
+    if let Some(tex) = &normal_tex {
+        mi.normal_texture_transform = resolve_uv_transform_cpp(stage, &tex.node_path);
+    }
 
     let slot = materials.len();
     materials.push(mi);
-    material_texture_paths.push(texture_asset_path);
-    material_normal_paths.push(normal_asset_path);
+    material_texture_paths.push(diffuse_tex.map(|t| t.asset_path));
+    material_normal_paths.push(normal_tex.map(|t| t.asset_path));
     material_slots.insert(mat_path, slot);
     slot
 }
@@ -1504,16 +1530,70 @@ fn resolve_material_slot_cpp(
 /// `ND_image_*` family; both store the asset on `inputs:file` so
 /// the caller can feed the result straight into `TextureLoader`
 /// without branching per source type.
+/// Phase 2.L: resolve a `UsdTransform2d` node attached to a
+/// texture node's `inputs:st`, returning a `glb::TextureTransform`
+/// ready to emit as `KHR_texture_transform`. Returns `None` when:
+///   - `inputs:st` has no connection, or the connected source is
+///     not a `UsdTransform2d` (common case: direct PrimvarReader
+///     wiring), or
+///   - every authored channel matches the schema default (identity
+///     transform; emitting the extension would be a no-op).
+///
+/// USD's UsdTransform2d applies `scale → rotate → translate` in that
+/// order, matching glTF's `KHR_texture_transform` convention so the
+/// three inputs map 1:1. Rotation is authored in **degrees** per the
+/// UsdPreviewSurface spec; convert once to radians here.
+fn resolve_uv_transform_cpp(
+    stage: &CStage,
+    texture_node_path: &str,
+) -> Option<glb::TextureTransform> {
+    let xform_prim =
+        stage.shader_input_connected_source_prim(texture_node_path, "inputs:st")?;
+    if stage.shader_id(&xform_prim).as_deref() != Some("UsdTransform2d") {
+        return None;
+    }
+    let translation = stage
+        .prim_attr_float2(&xform_prim, "inputs:translation")
+        .unwrap_or([0.0, 0.0]);
+    let rotation_deg = stage
+        .prim_attr_float(&xform_prim, "inputs:rotation")
+        .unwrap_or(0.0);
+    let scale = stage
+        .prim_attr_float2(&xform_prim, "inputs:scale")
+        .unwrap_or([1.0, 1.0]);
+    let transform = glb::TextureTransform {
+        offset: translation,
+        rotation: rotation_deg.to_radians(),
+        scale,
+    };
+    if transform.is_identity() {
+        None
+    } else {
+        Some(transform)
+    }
+}
+
+/// Resolved texture reference: the image's authored asset path plus
+/// the shader prim path of the actual image-sampler node (after
+/// walking through any MaterialX wrappers). The node path is where
+/// `wrapS` / `wrapT` / `sourceColorSpace` metadata live; keeping it
+/// around lets the material builder read them without redoing the
+/// walk.
+struct ResolvedTexture {
+    asset_path: String,
+    node_path: String,
+}
+
 fn resolve_shader_texture_asset(
     stage: &CStage,
     shader_path: &str,
     input_name: &str,
-) -> Option<String> {
+) -> Option<ResolvedTexture> {
     if !stage.shader_input_has_connection(shader_path, input_name) {
         return None;
     }
     let src = stage.shader_input_connected_source_prim(shader_path, input_name)?;
-    resolve_texture_node_asset(stage, &src, 0)
+    resolve_texture_node(stage, &src, 0)
 }
 
 /// Walk from a shader prim through MaterialX normal-map wrappers
@@ -1525,7 +1605,7 @@ fn resolve_shader_texture_asset(
 /// API doesn't forbid them explicitly and authoring mistakes do
 /// happen. Two hops (normalmap → image) is enough for every shape
 /// yw-look has seen in the wild.
-fn resolve_texture_node_asset(stage: &CStage, prim: &str, depth: u32) -> Option<String> {
+fn resolve_texture_node(stage: &CStage, prim: &str, depth: u32) -> Option<ResolvedTexture> {
     if depth > 4 {
         return None;
     }
@@ -1533,9 +1613,19 @@ fn resolve_texture_node_asset(stage: &CStage, prim: &str, depth: u32) -> Option<
         Some("UsdUVTexture")
         | Some("ND_image_color3")
         | Some("ND_image_color4")
+        | Some("ND_image_vector2")
         | Some("ND_image_vector3")
         | Some("ND_image_vector4")
-        | Some("ND_image_float") => stage.shader_input_asset(prim, "inputs:file"),
+        | Some("ND_image_float")
+        // Substance Painter USD exports emit tiledimage for
+        // tiling textures; identical asset-path shape.
+        | Some("ND_tiledimage_color3")
+        | Some("ND_tiledimage_color4") => stage
+            .shader_input_asset(prim, "inputs:file")
+            .map(|asset_path| ResolvedTexture {
+                asset_path,
+                node_path: prim.to_string(),
+            }),
         // MaterialX normal-map wrapper. It sits between a
         // tangent-space vector3 image and UsdPreviewSurface's
         // `inputs:normal`. glTF's `normalTexture` already handles
@@ -1543,7 +1633,7 @@ fn resolve_texture_node_asset(stage: &CStage, prim: &str, depth: u32) -> Option<
         // texture's asset path — chase `inputs:in`.
         Some("ND_normalmap") => {
             let next = stage.shader_input_connected_source_prim(prim, "inputs:in")?;
-            resolve_texture_node_asset(stage, &next, depth + 1)
+            resolve_texture_node(stage, &next, depth + 1)
         }
         _ => None,
     }

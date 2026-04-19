@@ -2325,7 +2325,7 @@ pub(crate) fn filter_mesh_by_face_indices(
 /// `"clamp"` (33071 CLAMP_TO_EDGE), `"mirror"` (33648
 /// MIRRORED_REPEAT), `"useMetadata"` / None → REPEAT (the glTF
 /// default, matching most DCC texture file defaults).
-fn usd_wrap_to_gltf(token: Option<&str>) -> u32 {
+pub(crate) fn usd_wrap_to_gltf(token: Option<&str>) -> u32 {
     match token {
         Some("clamp") => 33071,            // CLAMP_TO_EDGE
         Some("mirror") => 33648,           // MIRRORED_REPEAT
