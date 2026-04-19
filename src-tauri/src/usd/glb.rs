@@ -72,6 +72,35 @@ pub struct MaterialInput {
     pub wrap_s: u32,
     /// Same as `wrap_s` for the T axis.
     pub wrap_t: u32,
+    /// Phase 2.N: ORM-packed metallic / roughness texture. glTF
+    /// samples roughness from the G channel and metallic from the B
+    /// channel of a single texture. When both UsdPreviewSurface
+    /// inputs connect to the same asset (the common ORM workflow),
+    /// we emit one shared texture slot; when only one of the two is
+    /// authored, the other channel falls back to the scalar factor.
+    /// `None` keeps the pre-Phase-2.N behavior (scalar factors only).
+    pub metallic_roughness_texture: Option<usize>,
+    /// Phase 2.M: UsdPreviewSurface-derived alpha mode.
+    /// `None` → omit (glTF default OPAQUE) / `Some("MASK")` / `Some("BLEND")`.
+    /// Authored scalar opacity < 1.0 implies BLEND; any non-zero
+    /// `opacityThreshold` implies MASK with the threshold forwarded
+    /// into `alpha_cutoff`.
+    pub alpha_mode: Option<AlphaMode>,
+    /// MASK-mode cutoff threshold (ignored for OPAQUE / BLEND). glTF
+    /// default `0.5` matches the UsdPreviewSurface spec when
+    /// `opacityThreshold` is unauthored.
+    pub alpha_cutoff: f32,
+}
+
+/// Phase 2.M: glTF alphaMode enumeration. UsdPreviewSurface's
+/// opacity / opacityThreshold pair maps directly:
+///   - `opacityThreshold > 0` → `Mask(threshold)`
+///   - `opacity < 1.0`         → `Blend`
+///   - otherwise               → unset (glTF default OPAQUE)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlphaMode {
+    Mask,
+    Blend,
 }
 
 /// Phase 6b: glTF `KHR_texture_transform` payload. USD's
@@ -147,6 +176,9 @@ impl MaterialInput {
             normal_texture_transform: None,
             wrap_s: 10497,
             wrap_t: 10497,
+            alpha_mode: None,
+            alpha_cutoff: 0.5,
+            metallic_roughness_texture: None,
         }
     }
 }
@@ -1295,6 +1327,17 @@ pub fn build_glb(
             }
             pbr["baseColorTexture"] = entry;
         }
+        // Phase 2.N: ORM-packed metallic/roughness texture. glTF
+        // spec samples the G channel for roughness and B for metallic
+        // from the same image. yw-look's callers dedupe by asset
+        // identity before reaching here, so the index is already
+        // pointing at the right texture slot.
+        if let Some(tex_idx) = m.metallic_roughness_texture {
+            pbr["metallicRoughnessTexture"] = json!({
+                "index": tex_idx,
+                "texCoord": 0,
+            });
+        }
         let mut material = json!({
             "name": m.name,
             "pbrMetallicRoughness": pbr,
@@ -1321,15 +1364,29 @@ pub fn build_glb(
             material["emissiveFactor"] =
                 json!([emissive[0], emissive[1], emissive[2]]);
         }
-        // glTF's default `alphaMode` is OPAQUE, which means the alpha
-        // channel of baseColorFactor is ignored and the object always
-        // renders fully opaque. `UsdPreviewSurface`'s `inputs:opacity`
-        // flows into `base_color_factor[3]`, so whenever that value is
-        // below 1 we need `BLEND` mode for the preview to actually
-        // look translucent. A small epsilon avoids flipping modes on
-        // floating-point noise around 1.0.
-        if m.base_color_factor[3] < 1.0 - 1e-4 {
-            material["alphaMode"] = json!("BLEND");
+        // Phase 2.M: alpha mode selection. UsdPreviewSurface has two
+        // dimensions — a scalar `opacity` that lands on
+        // `base_color_factor[3]`, and an `opacityThreshold` that
+        // turns the material into a MASK (alpha test). Explicit
+        // `MaterialInput.alpha_mode` wins when set (so `MASK` from
+        // `opacityThreshold` overrides the implicit BLEND a
+        // sub-1.0 scalar opacity would otherwise emit). When
+        // unset, fall back to the scalar-opacity → BLEND heuristic
+        // so pre-Phase-2.M materials (and the Rust fork) keep
+        // working unchanged.
+        match m.alpha_mode {
+            Some(AlphaMode::Mask) => {
+                material["alphaMode"] = json!("MASK");
+                material["alphaCutoff"] = json!(m.alpha_cutoff);
+            }
+            Some(AlphaMode::Blend) => {
+                material["alphaMode"] = json!("BLEND");
+            }
+            None => {
+                if m.base_color_factor[3] < 1.0 - 1e-4 {
+                    material["alphaMode"] = json!("BLEND");
+                }
+            }
         }
         gltf_materials.push(material);
     }
@@ -1803,6 +1860,9 @@ mod tests {
             normal_texture_transform: None,
             wrap_s: 10497,
             wrap_t: 10497,
+            alpha_mode: None,
+            alpha_cutoff: 0.5,
+            metallic_roughness_texture: None,
         }];
         let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
 
@@ -1867,6 +1927,9 @@ mod tests {
                 wrap_t: 10497,
                 base_color_texture_transform: None,
                 normal_texture_transform: None,
+                alpha_mode: None,
+                alpha_cutoff: 0.5,
+                metallic_roughness_texture: None,
             },
             MaterialInput {
                 name: "blue_emissive".to_string(),
@@ -1881,6 +1944,9 @@ mod tests {
                 wrap_t: 10497,
                 base_color_texture_transform: None,
                 normal_texture_transform: None,
+                alpha_mode: None,
+                alpha_cutoff: 0.5,
+                metallic_roughness_texture: None,
             },
         ];
 

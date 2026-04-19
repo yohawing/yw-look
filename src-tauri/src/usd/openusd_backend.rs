@@ -2216,6 +2216,9 @@ fn apply_display_color_fallback(
                 normal_texture_transform: None,
                 wrap_s: 10497,
                 wrap_t: 10497,
+                alpha_mode: None,
+                alpha_cutoff: 0.5,
+                metallic_roughness_texture: None,
             });
             material_texture_paths.push(None);
             material_normal_paths.push(None);
@@ -2427,6 +2430,18 @@ fn material_input_from_data(
         // typically the texture file itself and we don't read it.
         wrap_s: usd_wrap_to_gltf(data.wrap_s.as_deref()),
         wrap_t: usd_wrap_to_gltf(data.wrap_t.as_deref()),
+        // Phase 2.M: alpha mode is resolved at the cpp-backend
+        // level (UsdPreviewSurface's `opacityThreshold` input is
+        // not surfaced by the Rust fork's `MaterialData` yet).
+        // Rust-backend materials stay at default (OPAQUE / BLEND
+        // based on opacity alpha) until the fork adds the field.
+        alpha_mode: None,
+        alpha_cutoff: 0.5,
+        // Phase 2.N: same story as alpha_mode — the Rust fork's
+        // `MaterialData` does not yet surface metallic/roughness
+        // texture connections, so the cpp backend owns this channel
+        // until the fork catches up.
+        metallic_roughness_texture: None,
     }
 }
 

@@ -27,7 +27,7 @@ use openusd::stage::MeshData;
 
 use super::backend::{UsdBackend, UsdError};
 use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation};
-use super::glb::{self, MaterialInput, MeshInput};
+use super::glb::{self, AlphaMode, MaterialInput, MeshInput};
 use super::openusd_backend::DenseBlendShape;
 use super::openusd_backend::{
     filter_mesh_by_face_indices, invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mesh_data_to_input,
@@ -409,6 +409,10 @@ impl UsdBackend for OpenusdCppBackend {
         // combined texture pool, so a single asset shared by two
         // channels embeds only once.
         let mut material_normal_paths: Vec<Option<String>> = vec![None];
+        // Phase 2.N: metallic/roughness channel. Same layout as the
+        // other two; if a slot has a shared ORM texture asset, this
+        // is where it lands.
+        let mut material_metal_rough_paths: Vec<Option<String>> = vec![None];
 
         // Phase 2.G: UsdSkel skin resolution. A first pass walks
         // meshes, resolves each bound Skeleton via the shim, and
@@ -563,6 +567,7 @@ impl UsdBackend for OpenusdCppBackend {
                     &mut material_slots,
                     &mut material_texture_paths,
                     &mut material_normal_paths,
+                    &mut material_metal_rough_paths,
                 );
                 triangulated.material_index = apply_display_color_fallback_cpp(
                     bound_slot,
@@ -572,6 +577,7 @@ impl UsdBackend for OpenusdCppBackend {
                     &mut material_slots,
                     &mut material_texture_paths,
                     &mut material_normal_paths,
+                    &mut material_metal_rough_paths,
                 );
                 triangulated.skin_index = skin_index_from_payload(&triangulated, skin_slot);
                 inputs.push(triangulated);
@@ -608,6 +614,7 @@ impl UsdBackend for OpenusdCppBackend {
                         &mut material_slots,
                         &mut material_texture_paths,
                         &mut material_normal_paths,
+                        &mut material_metal_rough_paths,
                     );
                     tri.material_index = apply_display_color_fallback_cpp(
                         bound_slot,
@@ -617,6 +624,7 @@ impl UsdBackend for OpenusdCppBackend {
                         &mut material_slots,
                         &mut material_texture_paths,
                         &mut material_normal_paths,
+                        &mut material_metal_rough_paths,
                     );
                     tri.skin_index = skin_index_from_payload(&tri, skin_slot);
                     inputs.push(tri);
@@ -718,6 +726,35 @@ impl UsdBackend for OpenusdCppBackend {
                 Err(err) => {
                     eprintln!(
                         "[usd-cpp] normal map '{}' for material[{mat_idx}] failed: {err}",
+                        tex_path
+                    );
+                }
+            }
+        }
+
+        // Phase 2.N: metallic/roughness (ORM) third pass. Same
+        // dedup semantics; the same asset can be referenced from all
+        // three channels (base / normal / ORM) and only embedded
+        // once. Load failure silently leaves the scalar factors in
+        // play.
+        for (mat_idx, tex_path) in material_metal_rough_paths.iter().enumerate() {
+            let Some(tex_path) = tex_path else { continue };
+            match texture_loader.load(tex_path) {
+                Ok(loaded) => {
+                    let new_idx =
+                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                            existing
+                        } else {
+                            let idx = textures.len();
+                            textures.push(loaded.input);
+                            texture_dedup.insert(loaded.identity, idx);
+                            idx
+                        };
+                    materials[mat_idx].metallic_roughness_texture = Some(new_idx);
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[usd-cpp] ORM texture '{}' for material[{mat_idx}] failed: {err}",
                         tex_path
                     );
                 }
@@ -1231,6 +1268,7 @@ fn apply_display_color_fallback_cpp(
     material_slots: &mut std::collections::HashMap<String, usize>,
     material_texture_paths: &mut Vec<Option<String>>,
     material_normal_paths: &mut Vec<Option<String>>,
+    material_metal_rough_paths: &mut Vec<Option<String>>,
 ) -> usize {
     if slot != 0 {
         return slot;
@@ -1266,6 +1304,7 @@ fn apply_display_color_fallback_cpp(
     materials.push(mi);
     material_texture_paths.push(None);
     material_normal_paths.push(None);
+    material_metal_rough_paths.push(None);
     material_slots.insert(key, s);
     s
 }
@@ -1394,6 +1433,7 @@ fn resolve_material_slot_cpp(
     material_slots: &mut std::collections::HashMap<String, usize>,
     material_texture_paths: &mut Vec<Option<String>>,
     material_normal_paths: &mut Vec<Option<String>>,
+    material_metal_rough_paths: &mut Vec<Option<String>>,
 ) -> usize {
     let Some(mat_path) = stage.prim_bound_material(prim_path) else {
         return 0;
@@ -1448,6 +1488,16 @@ fn resolve_material_slot_cpp(
         .shader_input_float(&shader_path, "inputs:opacity")
         .unwrap_or(OPACITY_DEFAULT)
         .clamp(0.0, 1.0);
+    // Phase 2.M: UsdPreviewSurface.opacityThreshold — scalar cutoff
+    // in [0, 1]. A non-zero authored value means MASK mode (alpha
+    // test). Zero is the UsdPreviewSurface schema default for
+    // "no alpha test, BLEND if opacity < 1", which is exactly the
+    // behavior downstream `glb::build_glb` falls back to when we
+    // leave `alpha_mode = None`.
+    let opacity_threshold = stage
+        .shader_input_float(&shader_path, "inputs:opacityThreshold")
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
     let metallic = stage
         .shader_input_float(&shader_path, "inputs:metallic")
         .unwrap_or(METALLIC_DEFAULT);
@@ -1469,6 +1519,17 @@ fn resolve_material_slot_cpp(
     mi.metallic_factor = metallic;
     mi.roughness_factor = roughness;
     mi.emissive_factor = emissive;
+    // Phase 2.M: resolve alpha mode. Explicit
+    // `opacityThreshold > 0` → MASK; scalar `opacity < 1.0` → BLEND;
+    // otherwise leave `alpha_mode = None` so glb emits OPAQUE
+    // (default) or falls through to the legacy BLEND heuristic if
+    // the alpha factor is sub-1 for any reason.
+    if opacity_threshold > 0.0 {
+        mi.alpha_mode = Some(AlphaMode::Mask);
+        mi.alpha_cutoff = opacity_threshold;
+    } else if opacity < 1.0 {
+        mi.alpha_mode = Some(AlphaMode::Blend);
+    }
 
     // Walk the UsdShade graph for the diffuseColor connection's
     // target shader; if it's a UsdUVTexture, pull its authored
@@ -1514,10 +1575,46 @@ fn resolve_material_slot_cpp(
         mi.normal_texture_transform = resolve_uv_transform_cpp(stage, &tex.node_path);
     }
 
+    // Phase 2.N: metallic / roughness texture connections. glTF packs
+    // both channels into a single `metallicRoughnessTexture`
+    // (G = roughness, B = metallic). The common ORM workflow
+    // authors both UsdPreviewSurface inputs connected to the *same*
+    // texture asset; when that's the case we hand a single shared
+    // texture path down and the factor defaults to 1.0 so the
+    // shader reads the full texture contribution. Splitting onto
+    // two different assets would need runtime pixel combining we
+    // don't do in preview; in that case we fall back to scalar
+    // factors on whichever channel isn't shared.
+    let metallic_tex = resolve_shader_texture_asset(stage, &shader_path, "inputs:metallic");
+    let roughness_tex =
+        resolve_shader_texture_asset(stage, &shader_path, "inputs:roughness");
+    let metal_rough_asset = match (metallic_tex.as_ref(), roughness_tex.as_ref()) {
+        (Some(m), Some(r)) if m.asset_path == r.asset_path => {
+            // ORM / packed case: one texture drives both.
+            mi.metallic_factor = 1.0;
+            mi.roughness_factor = 1.0;
+            Some(m.asset_path.clone())
+        }
+        (None, Some(r)) => {
+            // Roughness-only. glTF will still sample R/G/B so the
+            // metallic-factor multiplier keeps the B channel quiet
+            // at 0, but the G channel drives roughness.
+            mi.roughness_factor = 1.0;
+            Some(r.asset_path.clone())
+        }
+        (Some(m), None) => {
+            // Metallic-only, parallel logic.
+            mi.metallic_factor = 1.0;
+            Some(m.asset_path.clone())
+        }
+        _ => None,
+    };
+
     let slot = materials.len();
     materials.push(mi);
     material_texture_paths.push(diffuse_tex.map(|t| t.asset_path));
     material_normal_paths.push(normal_tex.map(|t| t.asset_path));
+    material_metal_rough_paths.push(metal_rough_asset);
     material_slots.insert(mat_path, slot);
     slot
 }
