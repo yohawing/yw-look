@@ -1711,24 +1711,40 @@ fn resolve_material_slot_cpp(
     let metallic_tex = resolve_shader_texture_asset(stage, &shader_path, "inputs:metallic");
     let roughness_tex =
         resolve_shader_texture_asset(stage, &shader_path, "inputs:roughness");
+    // glTF packs both channels into one `metallicRoughnessTexture`
+    // (G = roughness, B = metallic). We have three meaningful
+    // cases to handle without the B / G channels leaking into a
+    // channel the user didn't author:
+    //
+    //   1. Both connected to the SAME asset → canonical ORM.
+    //      Emit the texture, neutralize both factors to 1.0 so the
+    //      shader reads the full contribution of both channels.
+    //   2. Only `inputs:roughness` connected → emit the texture,
+    //      but pin `metallic_factor = 0` so glTF's
+    //      `metalness = sampled(B) * metallicFactor` collapses to
+    //      zero and the B-channel junk in the roughness image
+    //      can't leak in as fake metalness. `roughness_factor = 1`
+    //      lets the G channel drive roughness normally. This is
+    //      the Apple ARKit `_r.jpg` pattern (seahorse uses it).
+    //   3. Only `inputs:metallic` connected → there's no
+    //      equivalent trick: `roughness = sampled(G) * roughnessFactor`
+    //      can't ignore the G channel without emitting a dedicated
+    //      extension, and `roughness_factor = 0` would render as a
+    //      mirror surface. Fall back to scalar factors and drop
+    //      the texture; authored metallic-only textures are rare
+    //      enough that this trade-off is acceptable until we grow
+    //      runtime pixel combining.
+    //   4. Different assets per channel → same fallback as (3).
     let metal_rough_asset = match (metallic_tex.as_ref(), roughness_tex.as_ref()) {
         (Some(m), Some(r)) if m.asset_path == r.asset_path => {
-            // ORM / packed case: one texture drives both.
             mi.metallic_factor = 1.0;
             mi.roughness_factor = 1.0;
             Some(m.asset_path.clone())
         }
         (None, Some(r)) => {
-            // Roughness-only. glTF will still sample R/G/B so the
-            // metallic-factor multiplier keeps the B channel quiet
-            // at 0, but the G channel drives roughness.
+            mi.metallic_factor = 0.0;
             mi.roughness_factor = 1.0;
             Some(r.asset_path.clone())
-        }
-        (Some(m), None) => {
-            // Metallic-only, parallel logic.
-            mi.metallic_factor = 1.0;
-            Some(m.asset_path.clone())
         }
         _ => None,
     };
