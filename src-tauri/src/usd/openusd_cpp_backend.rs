@@ -28,6 +28,7 @@ use openusd::stage::MeshData;
 use super::backend::{UsdBackend, UsdError};
 use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation};
 use super::glb::{self, MaterialInput, MeshInput};
+use super::openusd_backend::DenseBlendShape;
 use super::openusd_backend::{
     filter_mesh_by_face_indices, invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mesh_data_to_input,
     remap_mesh_skin_indices, srgb_to_linear, z_up_to_y_up_mat4, MeshOrientation,
@@ -512,6 +513,15 @@ impl UsdBackend for OpenusdCppBackend {
             // heavily. When subsets are present, emit one MeshInput
             // per subset (filtered by faceIndices); when absent,
             // fall through to the whole-mesh path.
+            // Phase 2.G.4: resolve any blend-shape targets on this
+            // mesh once, so both the whole-mesh and per-subset
+            // branches below can feed them into `mesh_data_to_input`.
+            // Point count is derived from the raw (pre-triangulated)
+            // MeshData since sparse `pointIndices` reference the
+            // original vertex order.
+            let point_count = raw.points.len() / 3;
+            let blend_shapes = resolve_blend_shapes_cpp(&stage, prim_path, point_count);
+
             let subsets = collect_material_bind_subsets(&stage, prim_path);
             if subsets.is_empty() {
                 let mut triangulated = mesh_data_to_input(
@@ -520,7 +530,7 @@ impl UsdBackend for OpenusdCppBackend {
                     &raw,
                     orientation,
                     max_joint,
-                    &[],
+                    &blend_shapes,
                 )?;
                 let bound_slot = resolve_material_slot_cpp(
                     &stage,
@@ -545,13 +555,20 @@ impl UsdBackend for OpenusdCppBackend {
                     let Ok(subset_sdf_path) = SdfPath::new(&subset.path) else {
                         continue;
                     };
+                    // Subsets share the outer mesh's point buffer, so
+                    // the blend shapes computed above still index
+                    // correctly into `filtered.points`. No filter is
+                    // needed on the delta arrays — `mesh_data_to_input`
+                    // indexes blend shapes by point index during its
+                    // triangle-soup expansion, using whatever points
+                    // land in the emitted primitive.
                     let Ok(mut tri) = mesh_data_to_input(
                         &subset_sdf_path,
                         world_f32,
                         &filtered,
                         orientation,
                         max_joint,
-                        &[],
+                        &blend_shapes,
                     ) else {
                         continue;
                     };
@@ -763,6 +780,86 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
         joints_per_vertex,
         display_color,
     })
+}
+
+/// Phase 2.G.4: resolve every `UsdSkelBlendShape` target bound to a
+/// mesh into a dense per-vertex offset array. Returns `Vec::new()`
+/// when the mesh has no blend-shape rig or the authored data is
+/// malformed. Mirrors the Rust fork's `resolve_blend_shapes` scope:
+/// positions only, no `normalOffsets`, no `inbetweens`.
+///
+/// Sparse authoring via `pointIndices` is expanded to dense
+/// offsets (length = point_count * 3); authored indices past the
+/// point count are dropped silently to keep broken assets
+/// renderable.
+fn resolve_blend_shapes_cpp(
+    stage: &CStage,
+    mesh_path: &str,
+    point_count: usize,
+) -> Vec<DenseBlendShape> {
+    let targets = stage.prim_rel_targets(mesh_path, "skel:blendShapeTargets");
+    if targets.is_empty() {
+        return Vec::new();
+    }
+    // Parallel naming: `skel:blendShapes` gives each channel a
+    // stable token so UsdSkelAnimation.blendShapes can find it.
+    // Unauthored → fall back to the target prim's leaf name.
+    let channel_names = stage.prim_attr_token_array(mesh_path, "skel:blendShapes");
+
+    let mut out = Vec::with_capacity(targets.len());
+    for (i, target) in targets.iter().enumerate() {
+        // Guard: the rel target must actually be a BlendShape prim.
+        // Authored typos pointing at random Xforms are common in
+        // production exports — skip rather than propagate garbage.
+        if stage.prim_type_name(target).as_deref() != Some("BlendShape") {
+            continue;
+        }
+        let offsets_flat = stage.prim_attr_vec3f_array(target, "offsets");
+        if offsets_flat.is_empty() || offsets_flat.len() % 3 != 0 {
+            continue;
+        }
+        let offset_count = offsets_flat.len() / 3;
+        let point_indices_i32 = stage.prim_attr_i32_array(target, "pointIndices");
+
+        let mut dense = vec![0.0_f32; point_count * 3];
+        if !point_indices_i32.is_empty() {
+            // Sparse: offsets[i] applies to pointIndices[i].
+            if point_indices_i32.len() != offset_count {
+                continue;
+            }
+            for (pi_raw, k) in point_indices_i32.iter().zip(0..offset_count) {
+                let pi = *pi_raw;
+                if pi < 0 {
+                    continue;
+                }
+                let pi = pi as usize;
+                if pi >= point_count {
+                    continue;
+                }
+                dense[pi * 3] = offsets_flat[k * 3];
+                dense[pi * 3 + 1] = offsets_flat[k * 3 + 1];
+                dense[pi * 3 + 2] = offsets_flat[k * 3 + 2];
+            }
+        } else {
+            // Dense: offsets.len() must equal point_count.
+            if offset_count != point_count {
+                continue;
+            }
+            dense.copy_from_slice(&offsets_flat);
+        }
+
+        let name = channel_names
+            .get(i)
+            .cloned()
+            .or_else(|| target.rsplit('/').next().map(|s| s.to_string()))
+            .unwrap_or_else(|| format!("blend_shape_{i}"));
+
+        out.push(DenseBlendShape {
+            name,
+            offsets: dense,
+        });
+    }
+    out
 }
 
 /// Phase 2.I.2: one materialBind GeomSubset resolved to its prim

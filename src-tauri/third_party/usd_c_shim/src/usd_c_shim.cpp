@@ -670,6 +670,20 @@ void emit_empty_ints(UsdcI32BufferCallback cb, void *user) {
     if (cb) cb(nullptr, 0, user);
 }
 
+/* Enumerate a `token[]` / `string[]` attribute one entry at a time
+ * via the string callback. Defined here (not in a later anonymous
+ * namespace) so earlier extern "C" shims can reuse it. */
+void emit_token_array(const UsdAttribute &attr,
+                      UsdcStringCallback cb,
+                      void *user) {
+    if (!cb) return;
+    VtArray<TfToken> arr;
+    if (!attr || !attr.Get(&arr)) return;
+    for (const TfToken &t : arr) {
+        cb(t.GetString().c_str(), user);
+    }
+}
+
 /* Walks the imageable ancestor chain, returning false if any ancestor
  * deactivates the subtree. `active` is not strictly inheritable, but
  * UsdPrim::IsActive already collapses that — a deactivated ancestor
@@ -1086,6 +1100,68 @@ usdc_prim_attr_i32_array(UsdcStage *stage,
     }
 }
 
+extern "C" USDC_API void
+usdc_prim_attr_vec3f_array(UsdcStage *stage,
+                           const char *prim_path,
+                           const char *attr_name,
+                           UsdcFloatBufferCallback cb,
+                           void *user) {
+    if (!attr_name) { emit_empty_floats(cb, user); return; }
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) { emit_empty_floats(cb, user); return; }
+        VtArray<GfVec3f> arr;
+        if (!attr.Get(&arr) || arr.empty()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        emit_float_array(arr, cb, user, 3);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
+extern "C" USDC_API void
+usdc_prim_attr_token_array(UsdcStage *stage,
+                           const char *prim_path,
+                           const char *attr_name,
+                           UsdcStringCallback cb,
+                           void *user) {
+    if (!attr_name || !cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        emit_token_array(attr, cb, user);
+    } catch (...) {
+        /* drop silently */
+    }
+}
+
+extern "C" USDC_API void
+usdc_prim_rel_targets(UsdcStage *stage,
+                      const char *prim_path,
+                      const char *rel_name,
+                      UsdcStringCallback cb,
+                      void *user) {
+    if (!rel_name || !cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+    try {
+        UsdRelationship rel = prim.GetRelationship(TfToken(rel_name));
+        if (!rel) return;
+        SdfPathVector targets;
+        if (!rel.GetForwardedTargets(&targets)) return;
+        for (const SdfPath &p : targets) {
+            cb(p.GetString().c_str(), user);
+        }
+    } catch (...) {
+        /* drop silently */
+    }
+}
+
 /* -------------------- material / shading (Phase 2.E.1) -------------------- */
 
 extern "C" USDC_API const char *
@@ -1355,17 +1431,6 @@ void emit_matrix_array_column_major(const UsdAttribute &attr,
         push_matrix_column_major_f32(flat, m);
     }
     cb(flat.data(), flat.size(), user);
-}
-
-void emit_token_array(const UsdAttribute &attr,
-                      UsdcStringCallback cb,
-                      void *user) {
-    if (!cb) return;
-    VtArray<TfToken> arr;
-    if (!attr || !attr.Get(&arr)) return;
-    for (const TfToken &t : arr) {
-        cb(t.GetString().c_str(), user);
-    }
 }
 
 } /* anonymous namespace */

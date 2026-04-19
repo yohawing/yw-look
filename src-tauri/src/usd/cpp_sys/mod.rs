@@ -438,6 +438,71 @@ impl CStage {
         ptr_to_opt_string(p)
     }
 
+    /// Reads a `vector3f[]` / `point3f[]` / `color3f[]` attribute
+    /// (e.g. `UsdSkelBlendShape.offsets`) as stride-3 floats.
+    pub fn prim_attr_vec3f_array(&self, prim_path: &str, attr_name: &str) -> Vec<f32> {
+        let Ok(pp) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let Ok(an) = CString::new(attr_name) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<f32>::new();
+        unsafe {
+            usdc_prim_attr_vec3f_array(
+                self.raw,
+                pp.as_ptr(),
+                an.as_ptr(),
+                Some(float_buffer_trampoline),
+                &mut out as *mut Vec<f32> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// Reads a `token[]` / `string[]` attribute as owned strings.
+    pub fn prim_attr_token_array(&self, prim_path: &str, attr_name: &str) -> Vec<String> {
+        let Ok(pp) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let Ok(an) = CString::new(attr_name) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_prim_attr_token_array(
+                self.raw,
+                pp.as_ptr(),
+                an.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// Enumerates the forwarded target paths of a relationship (e.g.
+    /// `skel:blendShapeTargets`, `material:binding`).
+    pub fn prim_rel_targets(&self, prim_path: &str, rel_name: &str) -> Vec<String> {
+        let Ok(pp) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let Ok(rn) = CString::new(rel_name) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_prim_rel_targets(
+                self.raw,
+                pp.as_ptr(),
+                rn.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            )
+        };
+        out
+    }
+
     /// Reads an `int[]` attribute (e.g. `GeomSubset.faceIndices`).
     pub fn prim_attr_i32_array(&self, prim_path: &str, attr_name: &str) -> Vec<i32> {
         let Ok(pp) = CString::new(prim_path) else {

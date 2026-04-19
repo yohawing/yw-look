@@ -381,6 +381,33 @@ USDC_API void usdc_prim_attr_i32_array(UsdcStage *stage,
                                        UsdcI32BufferCallback cb,
                                        void *user);
 
+/* Emits a `vector3f[]` / `point3f[]` / `color3f[]` array attribute
+ * (e.g. `UsdSkelBlendShape.offsets`) as a flat stride-3 float
+ * buffer. Emits `(NULL, 0)` when unauthored / missing / wrong type. */
+USDC_API void usdc_prim_attr_vec3f_array(UsdcStage *stage,
+                                         const char *prim_path,
+                                         const char *attr_name,
+                                         UsdcFloatBufferCallback cb,
+                                         void *user);
+
+/* Enumerates a `token[]` / `string[]` array attribute (e.g.
+ * `skel:blendShapes`) one entry per callback. */
+USDC_API void usdc_prim_attr_token_array(UsdcStage *stage,
+                                         const char *prim_path,
+                                         const char *attr_name,
+                                         UsdcStringCallback cb,
+                                         void *user);
+
+/* Enumerates the forwarded target paths of a relationship (e.g.
+ * `skel:blendShapeTargets`, `material:binding`) one path per
+ * callback. Uses `UsdRelationship::GetForwardedTargets` so
+ * pass-through relationships are resolved. */
+USDC_API void usdc_prim_rel_targets(UsdcStage *stage,
+                                    const char *prim_path,
+                                    const char *rel_name,
+                                    UsdcStringCallback cb,
+                                    void *user);
+
 /* -------------------- material / shading (Phase 2.E.1) -------------------- */
 
 /* Returns the SdfPath of the Material prim bound (direct binding,
