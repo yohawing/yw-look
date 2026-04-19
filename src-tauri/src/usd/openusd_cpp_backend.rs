@@ -403,6 +403,12 @@ impl UsdBackend for OpenusdCppBackend {
         // diffuse texture). The texture-loading pass below walks this
         // once `mesh_paths` have been processed.
         let mut material_texture_paths: Vec<Option<String>> = vec![None];
+        // Phase 2.L: same shape as `material_texture_paths` but for
+        // normal maps. The loader pass below populates each slot's
+        // `MaterialInput.normal_texture` after deduping across the
+        // combined texture pool, so a single asset shared by two
+        // channels embeds only once.
+        let mut material_normal_paths: Vec<Option<String>> = vec![None];
 
         // Phase 2.G: UsdSkel skin resolution. A first pass walks
         // meshes, resolves each bound Skeleton via the shim, and
@@ -485,7 +491,7 @@ impl UsdBackend for OpenusdCppBackend {
             // seahorse) use this heavily — skipping it leaves
             // eyeball / tongue meshes pointing at the wrong joint
             // and produces the "exploded" look.
-            let skin_slot = mesh_skin_slots[mesh_idx];
+            let mut skin_slot = mesh_skin_slots[mesh_idx];
             if let Some(slot) = skin_slot {
                 let local_joints = stage.mesh_skel_joints(prim_path);
                 if !local_joints.is_empty() {
@@ -497,6 +503,24 @@ impl UsdBackend for OpenusdCppBackend {
                         );
                     }
                 }
+            }
+            // Post-remap sanity: if none of the local `skel:joints`
+            // matched the bound skeleton, `remap_mesh_skin_indices`
+            // zeroes every weight → the skinned mesh collapses to
+            // the origin. That's worse than falling back to the
+            // static-xform path, so drop the skin payload entirely
+            // in that case. Matches the graceful-degradation intent
+            // of the Rust fork's remap comment.
+            let all_weights_zero = raw
+                .joint_weights
+                .as_ref()
+                .map(|w| !w.is_empty() && w.iter().all(|&x| x == 0.0))
+                .unwrap_or(false);
+            if all_weights_zero {
+                raw.joint_indices = None;
+                raw.joint_weights = None;
+                raw.joints_per_vertex = 0;
+                skin_slot = None;
             }
 
             // Clamp joint indices to the skeleton's joint count so
@@ -538,6 +562,7 @@ impl UsdBackend for OpenusdCppBackend {
                     &mut materials,
                     &mut material_slots,
                     &mut material_texture_paths,
+                    &mut material_normal_paths,
                 );
                 triangulated.material_index = apply_display_color_fallback_cpp(
                     bound_slot,
@@ -546,6 +571,7 @@ impl UsdBackend for OpenusdCppBackend {
                     &mut materials,
                     &mut material_slots,
                     &mut material_texture_paths,
+                    &mut material_normal_paths,
                 );
                 triangulated.skin_index = skin_index_from_payload(&triangulated, skin_slot);
                 inputs.push(triangulated);
@@ -581,6 +607,7 @@ impl UsdBackend for OpenusdCppBackend {
                         &mut materials,
                         &mut material_slots,
                         &mut material_texture_paths,
+                        &mut material_normal_paths,
                     );
                     tri.material_index = apply_display_color_fallback_cpp(
                         bound_slot,
@@ -589,6 +616,7 @@ impl UsdBackend for OpenusdCppBackend {
                         &mut materials,
                         &mut material_slots,
                         &mut material_texture_paths,
+                        &mut material_normal_paths,
                     );
                     tri.skin_index = skin_index_from_payload(&tri, skin_slot);
                     inputs.push(tri);
@@ -662,6 +690,34 @@ impl UsdBackend for OpenusdCppBackend {
                 Err(err) => {
                     eprintln!(
                         "[usd-cpp] texture '{}' for material[{mat_idx}] failed: {err}",
+                        tex_path
+                    );
+                }
+            }
+        }
+
+        // Phase 2.L: normal-map second pass. Shares `texture_dedup`
+        // with the diffuse pass so an asset referenced from both
+        // channels is embedded once. Failures only drop the normal
+        // channel; the diffuse output established above is preserved.
+        for (mat_idx, tex_path) in material_normal_paths.iter().enumerate() {
+            let Some(tex_path) = tex_path else { continue };
+            match texture_loader.load(tex_path) {
+                Ok(loaded) => {
+                    let new_idx =
+                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                            existing
+                        } else {
+                            let idx = textures.len();
+                            textures.push(loaded.input);
+                            texture_dedup.insert(loaded.identity, idx);
+                            idx
+                        };
+                    materials[mat_idx].normal_texture = Some(new_idx);
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[usd-cpp] normal map '{}' for material[{mat_idx}] failed: {err}",
                         tex_path
                     );
                 }
@@ -778,8 +834,18 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
         // walks away. Synthesize the full-weight binding here so the
         // rest of the skin pipeline (remap → mesh_data_to_input →
         // skin_index) treats them uniformly.
+        // Guard against orphan `skel:joints` authoring (no bound
+        // Skeleton on the prim hierarchy). Without this check, a
+        // mesh that happens to author `skel:joints` but lives
+        // outside a SkelRoot would produce MeshData with a joint
+        // payload while the outer loop's `skin_slot` stays `None`,
+        // and `glb::build_glb`'s consistency check at glb.rs:346
+        // rejects the whole export. Keeping the static-xform
+        // fallback path healthy for those assets matters more than
+        // recovering from broken rigs.
         let skel_joints = stage.mesh_skel_joints(prim_path);
-        if !skel_joints.is_empty() && point_count > 0 {
+        let has_bound_skel = stage.mesh_bound_skeleton(prim_path).is_some();
+        if has_bound_skel && !skel_joints.is_empty() && point_count > 0 {
             let indices: Vec<u32> = vec![0; point_count];
             let weights: Vec<f32> = vec![1.0; point_count];
             (Some(indices), Some(weights), 1)
@@ -1164,6 +1230,7 @@ fn apply_display_color_fallback_cpp(
     materials: &mut Vec<MaterialInput>,
     material_slots: &mut std::collections::HashMap<String, usize>,
     material_texture_paths: &mut Vec<Option<String>>,
+    material_normal_paths: &mut Vec<Option<String>>,
 ) -> usize {
     if slot != 0 {
         return slot;
@@ -1198,6 +1265,7 @@ fn apply_display_color_fallback_cpp(
     let s = materials.len();
     materials.push(mi);
     material_texture_paths.push(None);
+    material_normal_paths.push(None);
     material_slots.insert(key, s);
     s
 }
@@ -1325,6 +1393,7 @@ fn resolve_material_slot_cpp(
     materials: &mut Vec<MaterialInput>,
     material_slots: &mut std::collections::HashMap<String, usize>,
     material_texture_paths: &mut Vec<Option<String>>,
+    material_normal_paths: &mut Vec<Option<String>>,
 ) -> usize {
     let Some(mat_path) = stage.prim_bound_material(prim_path) else {
         return 0;
@@ -1343,7 +1412,13 @@ fn resolve_material_slot_cpp(
     // and match these; rejecting the MaterialX form silently
     // drops textures on assets like `glove_baseball_mtl_variant.usdz`.
     match stage.shader_id(&shader_path).as_deref() {
-        Some("UsdPreviewSurface") | Some("ND_UsdPreviewSurface_surfaceshader") => {}
+        // USD native; MaterialX wrapper variants emitted by
+        // usdMtlx / Pixar exporters (both the `_surfaceshader`
+        // suffixed form and the bare node-def name turn up in the
+        // wild — accept both).
+        Some("UsdPreviewSurface")
+        | Some("ND_UsdPreviewSurface_surfaceshader")
+        | Some("ND_UsdPreviewSurface") => {}
         _ => return 0,
     }
 
@@ -1401,32 +1476,77 @@ fn resolve_material_slot_cpp(
     // shared TextureLoader. Keeps the scalar fallback path intact
     // when no texture is wired up.
     let texture_asset_path = if has_diffuse_texture {
-        stage
-            .shader_input_connected_source_prim(&shader_path, "inputs:diffuseColor")
-            .and_then(|src_shader_path| match stage.shader_id(&src_shader_path).as_deref() {
-                // USD-native texture node + MaterialX equivalents
-                // (MaterialX emits `ND_image_*` for file-backed
-                // image samplers; color3 is the typical diffuse
-                // flavor, color4 carries alpha). All of them store
-                // the asset path on `inputs:file`.
-                Some("UsdUVTexture")
-                | Some("ND_image_color3")
-                | Some("ND_image_color4")
-                | Some("ND_image_vector3")
-                | Some("ND_image_vector4") => {
-                    stage.shader_input_asset(&src_shader_path, "inputs:file")
-                }
-                _ => None,
-            })
+        resolve_shader_texture_asset(stage, &shader_path, "inputs:diffuseColor")
     } else {
         None
     };
 
+    // Phase 2.L (beyond Rust-fork parity): normal map. UsdPreviewSurface
+    // authors tangent-space normals on `inputs:normal`; we chase the
+    // connection through the same set of accepted texture nodes as
+    // the diffuse path.
+    let normal_asset_path =
+        resolve_shader_texture_asset(stage, &shader_path, "inputs:normal");
+
     let slot = materials.len();
     materials.push(mi);
     material_texture_paths.push(texture_asset_path);
+    material_normal_paths.push(normal_asset_path);
     material_slots.insert(mat_path, slot);
     slot
+}
+
+/// Chase a `UsdPreviewSurface` input connection to the connected
+/// texture node and return its `inputs:file` asset path, or `None`
+/// if the input isn't connected to a texture we recognize.
+///
+/// Accepts the USD-native `UsdUVTexture` as well as the MaterialX
+/// `ND_image_*` family; both store the asset on `inputs:file` so
+/// the caller can feed the result straight into `TextureLoader`
+/// without branching per source type.
+fn resolve_shader_texture_asset(
+    stage: &CStage,
+    shader_path: &str,
+    input_name: &str,
+) -> Option<String> {
+    if !stage.shader_input_has_connection(shader_path, input_name) {
+        return None;
+    }
+    let src = stage.shader_input_connected_source_prim(shader_path, input_name)?;
+    resolve_texture_node_asset(stage, &src, 0)
+}
+
+/// Walk from a shader prim through MaterialX normal-map wrappers
+/// (`ND_normalmap`) into the image-sampler node and pull its
+/// `inputs:file` asset path. `UsdUVTexture` and the `ND_image_*`
+/// family terminate the walk directly.
+///
+/// `depth` guards against cyclic graphs — MaterialX's connectable
+/// API doesn't forbid them explicitly and authoring mistakes do
+/// happen. Two hops (normalmap → image) is enough for every shape
+/// yw-look has seen in the wild.
+fn resolve_texture_node_asset(stage: &CStage, prim: &str, depth: u32) -> Option<String> {
+    if depth > 4 {
+        return None;
+    }
+    match stage.shader_id(prim).as_deref() {
+        Some("UsdUVTexture")
+        | Some("ND_image_color3")
+        | Some("ND_image_color4")
+        | Some("ND_image_vector3")
+        | Some("ND_image_vector4")
+        | Some("ND_image_float") => stage.shader_input_asset(prim, "inputs:file"),
+        // MaterialX normal-map wrapper. It sits between a
+        // tangent-space vector3 image and UsdPreviewSurface's
+        // `inputs:normal`. glTF's `normalTexture` already handles
+        // the range remap internally, so we just need the embedded
+        // texture's asset path — chase `inputs:in`.
+        Some("ND_normalmap") => {
+            let next = stage.shader_input_connected_source_prim(prim, "inputs:in")?;
+            resolve_texture_node_asset(stage, &next, depth + 1)
+        }
+        _ => None,
+    }
 }
 
 /// A root-level prim has exactly one `/` and no further separator. We
