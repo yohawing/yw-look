@@ -16,14 +16,22 @@ jobs:
         # was dropped because vcpkg's `usd` port does not build on
         # Intel macOS without extra wrangling, and the ARKit assets
         # yw-look targets run natively on Apple Silicon anyway.
+        # `args` must include the per-OS overlay config so the C++
+        # backend's runtime libraries (staged into
+        # `src-tauri/cpp-artifacts/<triplet>/` by build.rs) get picked
+        # up by the bundler. Without `--config`, tauri build reads
+        # only tauri.conf.json and the installer ships without the
+        # OpenUSD DLLs / dylibs — the app launches but every USD
+        # open fails with a missing-library error on end-user
+        # machines.
         include:
           - platform: windows-x86_64
             runner: windows-latest
-            args: ""
+            args: --config src-tauri/tauri.windows.json
           - platform: macos-aarch64
             runner: macos-latest
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --config src-tauri/tauri.macos.json
 
     runs-on: ${{ matrix.runner }}
     permissions:
