@@ -308,12 +308,24 @@ mod cpp_backend {
         //    `--x-manifest-root` picks up those two files.
         //    On first run this builds OpenUSD from source (30-60 min);
         //    subsequent runs restore from the vcpkg binary cache.
+        //
+        //    `--overlay-triplets` points at our `triplets/` directory,
+        //    which patches the upstream `arm64-osx` triplet to set
+        //    `VCPKG_OSX_DEPLOYMENT_TARGET=11.0`. Without the overlay,
+        //    the baseline triplet leaves the target unset and OpenUSD's
+        //    CMake falls back to 10.13 — too old for libc++'s
+        //    `<filesystem>`, which breaks the pegtl compile. The overlay
+        //    is also consulted for the Windows triplet, but that file
+        //    is omitted; vcpkg falls back to the upstream definition
+        //    automatically when the overlay does not override it.
+        let overlay_triplets = manifest_dir.join("triplets");
         let status = Command::new(vcpkg_exe(&vcpkg_root, &target_os))
             .args([
                 "install",
                 "--x-manifest-root=.",
                 &format!("--triplet={triplet}"),
                 &format!("--x-install-root={}", manifest_dir.join("vcpkg_installed").display()),
+                &format!("--overlay-triplets={}", overlay_triplets.display()),
             ])
             .current_dir(&manifest_dir)
             .status()
