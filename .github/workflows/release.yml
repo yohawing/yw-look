@@ -133,11 +133,9 @@ jobs:
       # Sanity gate: tauri-action runs `tauri build`, which triggers
       # build.rs, which stages the USD runtime libraries into
       # `src-tauri/cpp-artifacts/<triplet>/`. The overlay configs
-      # reference that directory from `bundle.resources`, so if it is
-      # empty the installer would be built without USD support and
-      # silently shipped. Pre-create an empty sentinel so the post-
-      # build verification step (below) can detect whether build.rs
-      # actually populated the tree.
+      # reference that directory so the installer can find the USD
+      # runtime libraries. The post-build verification step below
+      # fails the job if build.rs failed to populate the tree.
       - name: Prepare cpp-artifacts sentinel
         shell: bash
         run: |
@@ -148,6 +146,90 @@ jobs:
             *) echo "unknown platform: ${{ matrix.platform }}"; exit 1 ;;
           esac
           echo "CPP_ARTIFACTS_TRIPLET=$triplet" >> "$GITHUB_ENV"
+
+      # macOS-only: tauri-bundler's `bundle.macOS.frameworks` field
+      # does NOT glob — each entry must be a literal `.dylib` path
+      # (see tauri-bundler/src/bundle/macos/app.rs::copy_frameworks_to_bundle).
+      # The list of USD runtime dylibs produced by the vcpkg `usd`
+      # port varies between port revisions (26.03 split the old
+      # monolithic `libusd_ms.dylib` into ~45 `libusd_*.dylib`
+      # fragments), so we refuse to enumerate them by hand. Instead
+      # we run `vcpkg install` ahead of the tauri build, scan the
+      # resulting `lib/` directory for every dylib the shim could
+      # load, and emit a fresh `src-tauri/tauri.macos.json` whose
+      # frameworks array lists those files explicitly — plus
+      # `libusd_c_shim.dylib`, which build.rs will produce during
+      # the subsequent tauri-action invocation.
+      #
+      # Running vcpkg here is free on repeat builds: the `x-gha`
+      # binary cache shares state with the nested vcpkg call
+      # build.rs will make later, so only the first tag on a fresh
+      # baseline pays the ~17-minute OpenUSD compile.
+      - name: Pre-stage USD dylibs + generate tauri.macos.json (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd src-tauri
+
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-manifest-root=. \
+            --triplet=arm64-osx \
+            --x-install-root=vcpkg_installed \
+            --overlay-triplets=triplets
+
+          mkdir -p cpp-artifacts/arm64-osx
+          for pattern in 'libusd_*.dylib' 'libtbb*.dylib' 'libhwloc*.dylib' 'libz.*.dylib'; do
+            for src in vcpkg_installed/arm64-osx/lib/$pattern; do
+              [ -f "$src" ] || continue
+              cp -f "$src" cpp-artifacts/arm64-osx/
+            done
+          done
+
+          # Build the frameworks list: every staged `libusd_*.dylib`
+          # plus the shim dylib (produced later by build.rs's cmake
+          # step). Sort for reproducible diffs.
+          frameworks=$(
+            {
+              for f in cpp-artifacts/arm64-osx/*.dylib; do
+                [ -f "$f" ] || continue
+                basename "$f"
+              done
+              echo "libusd_c_shim.dylib"
+            } | sort -u | while read -r name; do
+              printf '    "cpp-artifacts/arm64-osx/%s",\n' "$name"
+            done | sed '$s/,$//'
+          )
+
+          # Hard guard: refuse to bundle a USD-less installer.
+          count=$(printf '%s\n' "$frameworks" | grep -c '^' || true)
+          if [ "$count" -lt 10 ]; then
+            echo "::error::only $count dylibs discovered under cpp-artifacts/arm64-osx/; vcpkg install likely failed silently"
+            exit 1
+          fi
+          if ! printf '%s' "$frameworks" | grep -q 'libusd_c_shim.dylib'; then
+            echo "::error::generated frameworks list is missing libusd_c_shim.dylib"
+            exit 1
+          fi
+
+          cat > tauri.macos.json <<JSON
+          {
+            "\$schema": "https://schema.tauri.app/config/2",
+            "bundle": {
+              "resources": {
+                "cpp-artifacts/arm64-osx/usd/": "usd/"
+              },
+              "macOS": {
+                "frameworks": [
+          $frameworks
+                ]
+              }
+            }
+          }
+          JSON
+
+          echo "Generated tauri.macos.json with $count frameworks entries:"
+          cat tauri.macos.json
 
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
