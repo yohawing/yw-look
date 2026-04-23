@@ -948,6 +948,38 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!isTauri) {
+      return;
+    }
+
+    let isDisposed = false;
+    let unlisten: UnlistenFn | undefined;
+
+    listen<string>("yw-look://open-file", (event) => {
+      const path = event.payload;
+      if (!path) {
+        return;
+      }
+      void selectFilePathFromEffect(path, "startup");
+    })
+      .then((dispose) => {
+        if (isDisposed) {
+          dispose();
+          return;
+        }
+        unlisten = dispose;
+      })
+      .catch(() => {
+        // Tauri API unavailable (browser dev mode)
+      });
+
+    return () => {
+      isDisposed = true;
+      unlisten?.();
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
     let unlisten: (() => void) | undefined;
 
     try {

@@ -97,6 +97,12 @@ struct UpdateInstallPayload {
 #[derive(Default)]
 struct PendingUpdateState(Mutex<Option<Update>>);
 
+#[cfg(desktop)]
+const OPEN_FILE_EVENT: &str = "yw-look://open-file";
+
+#[derive(Default)]
+struct PendingOpenFiles(Mutex<Vec<PathBuf>>);
+
 /// Active USD inspection backend. Held behind an `Arc` so each async
 /// Tauri command can clone a handle and move it into a blocking task
 /// without borrowing from `tauri::State`.
@@ -1016,7 +1022,22 @@ fn read_binary_file(path: String) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
-fn get_startup_file(app: tauri::AppHandle) -> Result<Option<SelectedFilePayload>, String> {
+fn get_startup_file(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingOpenFiles>,
+) -> Result<Option<SelectedFilePayload>, String> {
+    let queued: Vec<PathBuf> = {
+        let mut guard = pending.0.lock().unwrap();
+        std::mem::take(&mut *guard)
+    };
+
+    for path in queued {
+        if let Ok(file) = build_selected_file_payload(path) {
+            sync_recent_file(&app, &file)?;
+            return Ok(Some(file));
+        }
+    }
+
     for argument in std::env::args().skip(1) {
         if let Ok(file) = build_selected_file_payload(PathBuf::from(argument)) {
             sync_recent_file(&app, &file)?;
@@ -1263,7 +1284,7 @@ pub fn run() {
         });
     }
 
-    builder
+    let app = builder
         .setup(|app| {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1279,6 +1300,7 @@ pub fn run() {
             }
 
             app.manage(PendingUpdateState::default());
+            app.manage(PendingOpenFiles::default());
             app.manage(UsdBackendState::new(DefaultBackend::new()));
             Ok(())
         })
@@ -1305,6 +1327,45 @@ pub fn run() {
             requires_glb_preview,
             extract_geometry
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running yw-look");
+        .build(tauri::generate_context!())
+        .expect("error while building yw-look");
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Opened { urls } = event {
+            handle_opened_urls(app_handle, urls);
+        }
+    });
+
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    app.run(|_, _| {});
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn handle_opened_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
+    let paths: Vec<PathBuf> = urls
+        .into_iter()
+        .filter_map(|url| {
+            if url.scheme() == "file" {
+                url.to_file_path().ok()
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if paths.is_empty() {
+        return;
+    }
+
+    if let Some(pending) = app.try_state::<PendingOpenFiles>() {
+        pending.0.lock().unwrap().extend(paths.iter().cloned());
+    }
+
+    for path in &paths {
+        let payload = path.display().to_string();
+        if let Err(error) = app.emit(OPEN_FILE_EVENT, payload) {
+            eprintln!("failed to emit open-file event: {error}");
+        }
+    }
 }
