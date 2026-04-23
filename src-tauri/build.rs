@@ -1,8 +1,17 @@
 fn main() {
-    tauri_build::build();
-
+    // Stage the C++ backend's runtime libraries into
+    // `src-tauri/cpp-artifacts/<triplet>/` *before* handing control to
+    // `tauri_build::build()`. The per-OS overlay configs
+    // (`tauri.{macos,windows}.json`) reference that directory from
+    // `bundle.resources`, and `tauri_build` validates every resource
+    // path in the build script — if the directory does not yet exist
+    // it aborts with `resource path '...' doesn't exist` before
+    // cpp_backend has a chance to populate it. Reversing the order
+    // guarantees the tree is on disk by the time tauri validates.
     #[cfg(feature = "backend-openusd-cpp")]
     cpp_backend::build();
+
+    tauri_build::build();
 }
 
 #[cfg(feature = "backend-openusd-cpp")]
