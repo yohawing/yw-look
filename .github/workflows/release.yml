@@ -24,12 +24,20 @@ jobs:
         # OpenUSD DLLs / dylibs — the app launches but every USD
         # open fails with a missing-library error on end-user
         # machines.
+        # Pin macOS to `macos-14` to match `ci-cpp-backend.yml`.
+        # `macos-latest` advanced to macOS 15 + Xcode 16, which ships
+        # a libc++ that gates `<filesystem>` behind an explicit
+        # `MACOSX_DEPLOYMENT_TARGET`; without it, pegtl inside
+        # OpenUSD fails to compile with `'path' is unavailable:
+        # introduced in macOS 10.15 unknown`. We also export
+        # `MACOSX_DEPLOYMENT_TARGET=11.0` as a belt-and-braces
+        # (ignored on Windows).
         include:
           - platform: windows-x86_64
             runner: windows-latest
             args: --config src-tauri/tauri.windows.json
           - platform: macos-aarch64
-            runner: macos-latest
+            runner: macos-14
             target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin --config src-tauri/tauri.macos.json
 
@@ -42,6 +50,12 @@ jobs:
       # populates ~1 GB into the GHA cache; subsequent runs restore
       # in seconds.
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      # Anchor macOS builds to a deployment target that allows
+      # `<filesystem>` (introduced in 10.15). vcpkg's `arm64-osx`
+      # triplet does not export this itself; without it, libc++
+      # conservatively marks `std::filesystem::path` as unavailable
+      # and OpenUSD's pegtl file_reader.hpp fails to compile.
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
 
     steps:
       - uses: actions/checkout@v4
@@ -116,6 +130,25 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Sanity gate: tauri-action runs `tauri build`, which triggers
+      # build.rs, which stages the USD runtime libraries into
+      # `src-tauri/cpp-artifacts/<triplet>/`. The overlay configs
+      # reference that directory from `bundle.resources`, so if it is
+      # empty the installer would be built without USD support and
+      # silently shipped. Pre-create an empty sentinel so the post-
+      # build verification step (below) can detect whether build.rs
+      # actually populated the tree.
+      - name: Prepare cpp-artifacts sentinel
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.platform }}" in
+            windows-x86_64) triplet=x64-windows ;;
+            macos-aarch64)  triplet=arm64-osx ;;
+            *) echo "unknown platform: ${{ matrix.platform }}"; exit 1 ;;
+          esac
+          echo "CPP_ARTIFACTS_TRIPLET=$triplet" >> "$GITHUB_ENV"
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -135,3 +168,25 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      # Post-build sanity check: the overlay configs wire
+      # `cpp-artifacts/<triplet>/` into the installer, so the bundled
+      # payload is only correct if build.rs actually staged files
+      # there. Fail the job loudly if the directory is empty, rather
+      # than quietly shipping a USD-less installer.
+      - name: Verify USD runtime libs were staged
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="src-tauri/cpp-artifacts/${CPP_ARTIFACTS_TRIPLET}"
+          if [ ! -d "$dir" ]; then
+            echo "::error::$dir does not exist — build.rs did not stage USD runtime libraries"
+            exit 1
+          fi
+          count=$(find "$dir" -type f | wc -l | tr -d ' ')
+          echo "Staged $count files under $dir"
+          find "$dir" -maxdepth 2 -type f | sort
+          if [ "$count" -eq 0 ]; then
+            echo "::error::$dir is empty — USD runtime libraries would be missing from the installer"
+            exit 1
+          fi
