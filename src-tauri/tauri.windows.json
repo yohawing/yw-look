@@ -1,6 +1,5 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "_comment": "Overlay applied with `tauri build --config tauri.windows.json` when building the C++-backend flavor on Windows. Merges on top of tauri.conf.json. The `cpp-artifacts/x64-windows/` tree is produced by build.rs and contains every runtime library the shim loads — the exact set varies by vcpkg `usd` port flavor (monolithic `usd_ms.dll` vs the current split `usd_*.dll`), so we ship the whole staging directory rather than enumerating individual filenames that drift between ports. The `usd/` subdirectory inside carries the OpenUSD plugin tree (with a synthesized top-level `plugInfo.json` manifest) that the shim registers at startup via `PlugRegistry::RegisterPlugins`.",
   "bundle": {
     "resources": {
       "cpp-artifacts/x64-windows/": "./"
