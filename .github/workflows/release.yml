@@ -237,6 +237,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Bake the default updater endpoint + pubkey into the release
+          # build. Rust reads these via `option_env!` in lib.rs's
+          # `build_updater` flow (tauri.conf.json's plugins.updater
+          # entries are intentionally unused — the custom flow lets the
+          # endpoint be overridden at runtime via AppSettings).
+          # `releases/latest/download/latest.json` is a GitHub redirect
+          # that always points at the newest non-prerelease's
+          # `latest.json` asset, so we never have to bump this URL on
+          # each tag.
+          YW_LOOK_UPDATER_ENDPOINT: https://github.com/yohawing/yw-look/releases/latest/download/latest.json
+          YW_LOOK_UPDATER_PUBLIC_KEY: dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCQ0M2RDM1Qzc5RkE4REEKUldUYXFKL0hOVzNNSzNMbmRwUXpPazlRa3NZRzJtTVlKSVFvVHRDK05CellrYXZSRGJlTGR6elYK
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}

@@ -1,4 +1,10 @@
 fn main() {
+    // Updater defaults are baked in via `option_env!` in lib.rs; tell
+    // cargo to rebuild if they flip so dev machines don't accidentally
+    // ship stale endpoints.
+    println!("cargo:rerun-if-env-changed=YW_LOOK_UPDATER_ENDPOINT");
+    println!("cargo:rerun-if-env-changed=YW_LOOK_UPDATER_PUBLIC_KEY");
+
     // Stage the C++ backend's runtime libraries into
     // `src-tauri/cpp-artifacts/<triplet>/` *before* handing control to
     // `tauri_build::build()`. The per-OS overlay configs
