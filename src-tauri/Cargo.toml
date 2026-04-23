@@ -1,6 +1,6 @@
 [package]
 name = "yw-look"
-version = "0.1.6"
+version = "0.1.7"
 description = "Quick look style asset viewer for CG workflows"
 authors = ["OpenAI Codex"]
 edition = "2021"
