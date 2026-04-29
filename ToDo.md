@@ -213,7 +213,7 @@
 - [x] UsdInspectorCard に Loaded / Deferred segmented control
 - [x] viewer の policy 切替 → extract_geometry 再走 + dispose
 - [ ] Kitchen Set で初回表示時間計測
-- [ ] per-prim payload load/unload（stateful session、延期中）
+- [ ] per-prim payload load/unload（stateful session、延期中） → #44
 
 #### Phase 5 — Preview 品質向上（実装済）
 
@@ -229,13 +229,25 @@
 
 #### 今後の USD 課題
 
-- [ ] per-vertex displayColor → GLB `COLOR_0` attribute
-- [ ] variant set 一覧表示・切り替え UI
-- [ ] purpose (`default` / `render` / `proxy` / `guide`) 表示ポリシー
-- [ ] `PointInstancer` preview
-- [ ] `GeomSubset` / face subset material binding
-- [ ] stage 内 camera の列挙と切替
-- [ ] `USDLoader.parse` を Web Worker に退避
+USD-view パリティの取り組みは tracking issue #27 配下で進める。
+
+- [ ] per-vertex displayColor → GLB `COLOR_0` attribute → #43
+- [ ] variant set 一覧表示・切り替え UI → #31
+- [ ] purpose (`default` / `render` / `proxy` / `guide`) 表示ポリシー → #32
+- [ ] `PointInstancer` preview → #41
+- [ ] `GeomSubset` / face subset material binding → #42
+- [ ] stage 内 camera の列挙と切替 → #34
+- [ ] `USDLoader.parse` を Web Worker に退避 → #45
+- [ ] Per-prim attribute inspector → #28
+- [ ] Layer stack panel → #29
+- [ ] Composition arc viewer → #30
+- [ ] Viewport picking → prim selection sync → #33
+- [ ] Light enumeration & list panel → #35
+- [ ] Material binding panel → #36
+- [ ] Time samples inspector → #37
+- [ ] Stage statistics 充実 → #38
+- [ ] usdcat-like flattened text view → #39
+- [ ] Stage metadata panel → #40
 
 ## 15. OS 統合（Windows / macOS）
 
