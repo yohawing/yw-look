@@ -323,6 +323,11 @@ export function App() {
   const [textureWhitePoint, setTextureWhitePoint] = useState(1);
   const [textureTileCount, setTextureTileCount] = useState(1);
   const [textureGamma, setTextureGamma] = useState(2.2);
+  // Default = flat 2D viewer framing for textures. The 3D toggle
+  // re-uses the asset orbit controls so the same texture plane can
+  // be rotated/zoomed as a 3D quad — useful for inspecting how a
+  // texture behaves at glancing angles or with the env reflection.
+  const [texturePreview3D, setTexturePreview3D] = useState(false);
   const [recentFilesPayload, setRecentFilesPayload] =
     useState<RecentFilesPayload | null>(null);
   const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
@@ -1576,6 +1581,7 @@ export function App() {
             environmentPreset={environmentPreset}
             cameraSpeedMultiplier={cameraSpeedMultiplier}
             usdLoadPolicy={usdLoadPolicy}
+            texturePreview3D={texturePreview3D}
           />
 
           {/* ViewModeControls overlay */}
@@ -1845,6 +1851,27 @@ export function App() {
               </div>
               {viewerSurfaceMode === "texture" ? (
                 <>
+                  <div className="view-mode-section">
+                    <span className="view-mode-section-label">View</span>
+                    <div className="preset-chip-row">
+                      <button
+                        className={`preset-chip${!texturePreview3D ? " is-active" : ""}`}
+                        onClick={() => setTexturePreview3D(false)}
+                        type="button"
+                        title="Flat 2D viewer: pan and zoom"
+                      >
+                        2D
+                      </button>
+                      <button
+                        className={`preset-chip${texturePreview3D ? " is-active" : ""}`}
+                        onClick={() => setTexturePreview3D(true)}
+                        type="button"
+                        title="Orbit the texture as a 3D plane"
+                      >
+                        3D
+                      </button>
+                    </div>
+                  </div>
                   <div className="view-mode-section">
                     <span className="view-mode-section-label">Channel</span>
                     <div className="preset-chip-row">

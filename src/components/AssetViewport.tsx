@@ -188,11 +188,12 @@ function frameMountedObject(
   showAxes: boolean,
   sensitivityMultiplier = 1,
   rawMaxDimension?: number,
+  texturePreview3D = false,
 ) {
   syncGridVisibility(context, showGrid, viewerSurfaceMode);
   syncAxesVisibility(context, showAxes, viewerSurfaceMode);
 
-  if (viewerSurfaceMode === "texture") {
+  if (viewerSurfaceMode === "texture" && !texturePreview3D) {
     configureTextureControls(context.controls);
     applyTextureView(context.camera, context.controls, object);
     // Use neutral (dim=1) sensitivity for texture pan/zoom so the hidden
@@ -258,6 +259,14 @@ type AssetViewportProps = {
    * the new policy so deferred payloads take effect.
    */
   usdLoadPolicy?: import("../lib/usd").StageLoadPolicy;
+  /**
+   * When `true`, the texture preview plane is framed with the same
+   * orbit-style controls as a 3D asset so the user can rotate/zoom
+   * around it. Defaults to `false` (flat 2D pan/zoom view) which is
+   * the canonical image-viewer behavior and matches what users expect
+   * for a quick texture inspection.
+   */
+  texturePreview3D: boolean;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -453,6 +462,7 @@ export function AssetViewport({
   environmentPreset,
   cameraSpeedMultiplier,
   usdLoadPolicy,
+  texturePreview3D,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -500,6 +510,7 @@ export function AssetViewport({
   const showEnvironmentBackgroundRef = useRef(showEnvironmentBackground);
   const backgroundPresetRef = useRef(backgroundPreset);
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
+  const texturePreview3DRef = useRef(texturePreview3D);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -571,6 +582,10 @@ export function AssetViewport({
   useEffect(() => {
     backgroundPresetRef.current = backgroundPreset;
   }, [backgroundPreset]);
+
+  useEffect(() => {
+    texturePreview3DRef.current = texturePreview3D;
+  }, [texturePreview3D]);
 
   useEffect(() => {
     cameraSpeedMultiplierRef.current = cameraSpeedMultiplier;
@@ -970,6 +985,8 @@ export function AssetViewport({
         showGridRef.current,
         showAxesRef.current,
         cameraSpeedMultiplierRef.current,
+        undefined,
+        texturePreview3DRef.current,
       );
     });
 
@@ -1279,6 +1296,7 @@ export function AssetViewport({
       showAxesRef.current,
       cameraSpeedMultiplierRef.current,
       context.rawMaxDimension,
+      texturePreview3DRef.current,
     );
     resetCameraRef.current = () => {
       const targetContext = sceneContextRef.current;
@@ -1296,6 +1314,7 @@ export function AssetViewport({
         showAxesRef.current,
         cameraSpeedMultiplierRef.current,
         targetContext.rawMaxDimension,
+        texturePreview3DRef.current,
       );
     };
   }, [currentFile, showGrid, showAxes, viewerSurfaceMode]);
@@ -1429,6 +1448,7 @@ export function AssetViewport({
           showAxesRef.current,
           cameraSpeedMultiplierRef.current,
           context.rawMaxDimension,
+          texturePreview3DRef.current,
         );
         setActivePreviewPath(currentFile.path);
         setOverlayMode("ready");
@@ -1481,6 +1501,7 @@ export function AssetViewport({
             showAxesRef.current,
             cameraSpeedMultiplierRef.current,
             targetContext.rawMaxDimension,
+            texturePreview3DRef.current,
           );
         };
 
@@ -1709,6 +1730,7 @@ export function AssetViewport({
         showAxesRef.current,
         cameraSpeedMultiplierRef.current,
         context.rawMaxDimension,
+        texturePreview3DRef.current,
       );
       return;
     }
@@ -1738,6 +1760,8 @@ export function AssetViewport({
       showGridRef.current,
       showAxesRef.current,
       cameraSpeedMultiplierRef.current,
+      undefined,
+      texturePreview3DRef.current,
     );
   }, [
     selectedTextureId,
@@ -1749,6 +1773,27 @@ export function AssetViewport({
     textureWhitePoint,
     viewerSurfaceMode,
   ]);
+
+  // Toggling between flat 2D image-viewer framing and orbitable 3D
+  // plane preview only takes effect when a texture is currently
+  // mounted; otherwise the viewport is showing the asset and the
+  // flag is irrelevant until the user enters texture mode.
+  useEffect(() => {
+    const context = sceneContextRef.current;
+    if (!context?.mountedObject || viewerSurfaceModeRef.current !== "texture") {
+      return;
+    }
+    frameMountedObject(
+      context,
+      context.mountedObject,
+      viewerSurfaceModeRef.current,
+      showGridRef.current,
+      showAxesRef.current,
+      cameraSpeedMultiplierRef.current,
+      undefined,
+      texturePreview3D,
+    );
+  }, [texturePreview3D]);
 
   useEffect(() => {
     resetCameraRef.current?.();
