@@ -5,6 +5,47 @@ import type {
   StageSummary,
 } from "../lib/usd";
 
+/** Pretty-print a numeric metadatum, falling back to "(default)" when
+ * the stage didn't author the field. The fallback wording is shared
+ * across timeCodesPerSecond / framesPerSecond / start/endTimeCode so
+ * the metadata table reads consistently. */
+function formatAuthoredNumber(value: number | null): string {
+  return value === null ? "(default)" : String(value);
+}
+
+/** Strip a `file://` prefix and trim USDZ archive suffixes for display.
+ * The composed-layer list returned by the backend uses Sdf identifiers
+ * verbatim, which on Windows commonly shows up as
+ * `file:///F:/Develop/.../foo.usda`. The inspector wants something
+ * compact for humans, but we keep the original on the title so users
+ * can copy the full path on hover. */
+function shortLayerLabel(identifier: string): string {
+  let label = identifier;
+  if (label.startsWith("file:///")) {
+    label = label.slice("file:///".length);
+  } else if (label.startsWith("file://")) {
+    label = label.slice("file://".length);
+  }
+  return label;
+}
+
+/** Map the stage path + binary flag to a user-facing layer-format
+ * label. The backend reports `rootLayerIsBinary` as `true` for both
+ * USDC and USDZ (USDZ is routed through the GLB pipeline the same
+ * way), so a plain "binary → USDC" mapping mislabels USDZ archives.
+ * We disambiguate via the file extension and fall back to the boolean
+ * only when the extension is missing or non-standard. */
+function rootLayerFormatLabel(path: string, isBinary: boolean): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".usdz")) return "USDZ (package)";
+  if (lower.endsWith(".usdc")) return "USDC (binary)";
+  if (lower.endsWith(".usda")) return "USDA (text)";
+  if (lower.endsWith(".usd")) {
+    return isBinary ? "USDC (binary)" : "USDA (text)";
+  }
+  return isBinary ? "binary" : "text";
+}
+
 type UsdInspectorCardProps = {
   summary: StageSummary | null;
   inspection: StageInspection | null;
@@ -81,6 +122,10 @@ export function UsdInspectorCard({
               <dd>{summary.rootPrimCount}</dd>
               <dt>Meshes</dt>
               <dd>{summary.meshCount}</dd>
+              <dt>Vertices</dt>
+              <dd>{summary.totalVertices.toLocaleString()}</dd>
+              <dt>Triangles</dt>
+              <dd>{summary.totalTriangles.toLocaleString()}</dd>
               <dt>Payloads</dt>
               <dd>
                 {summary.payloadCount}
@@ -92,18 +137,95 @@ export function UsdInspectorCard({
                 )}
               </dd>
               <dt>Variants</dt>
-              <dd>{summary.hasVariants ? "yes" : "no"}</dd>
+              <dd>
+                {summary.hasVariants ? "yes" : "no"}
+                {summary.variantSetCount > 0 && (
+                  <span className="muted">
+                    {" "}
+                    ({summary.variantSetCount} sets)
+                  </span>
+                )}
+              </dd>
             </dl>
+          )}
+          {summary && summary.primTypeCounts.length > 0 && (
+            <details className="card-details">
+              <summary className="card-path">
+                Prim Types{" "}
+                <span className="muted">({summary.primTypeCounts.length})</span>
+              </summary>
+              <dl className="card-grid">
+                {summary.primTypeCounts.map((entry) => (
+                  <span key={entry.typeName} style={{ display: "contents" }}>
+                    <dt>{entry.typeName}</dt>
+                    <dd>{entry.count}</dd>
+                  </span>
+                ))}
+              </dl>
+            </details>
           )}
           {inspection && (
             <>
-              {inspection.defaultPrim && (
-                <p className="card-path">
-                  defaultPrim: {inspection.defaultPrim}
-                </p>
-              )}
-              {inspection.upAxis && (
-                <p className="card-path">upAxis: {inspection.upAxis}</p>
+              <details className="card-details" open>
+                <summary className="card-path">Metadata</summary>
+                <dl className="card-grid">
+                  <dt>defaultPrim</dt>
+                  <dd>{inspection.defaultPrim ?? "(unset)"}</dd>
+                  <dt>upAxis</dt>
+                  <dd>{inspection.upAxis ?? "(default)"}</dd>
+                  <dt>metersPerUnit</dt>
+                  <dd>
+                    {inspection.metersPerUnit !== null
+                      ? inspection.metersPerUnit
+                      : "(default)"}
+                  </dd>
+                  <dt>timeCodesPerSecond</dt>
+                  <dd>{formatAuthoredNumber(inspection.timeCodesPerSecond)}</dd>
+                  <dt>framesPerSecond</dt>
+                  <dd>{formatAuthoredNumber(inspection.framesPerSecond)}</dd>
+                  <dt>startTimeCode</dt>
+                  <dd>{formatAuthoredNumber(inspection.startTimeCode)}</dd>
+                  <dt>endTimeCode</dt>
+                  <dd>{formatAuthoredNumber(inspection.endTimeCode)}</dd>
+                  <dt>rootLayer</dt>
+                  <dd>
+                    {rootLayerFormatLabel(
+                      inspection.path,
+                      inspection.rootLayerIsBinary,
+                    )}
+                  </dd>
+                </dl>
+                {inspection.comment && (
+                  <p className="card-path" style={{ whiteSpace: "pre-wrap" }}>
+                    <span className="muted">comment: </span>
+                    {inspection.comment}
+                  </p>
+                )}
+              </details>
+              {inspection.composedLayers.length > 0 && (
+                <details className="card-details">
+                  <summary className="card-path">
+                    Layer Stack{" "}
+                    <span className="muted">
+                      ({inspection.composedLayers.length + 1})
+                    </span>
+                  </summary>
+                  <ul className="card-list">
+                    <li className="issue" title={inspection.path}>
+                      <strong>root</strong>{" "}
+                      <span className="muted">
+                        {shortLayerLabel(inspection.path)}
+                      </span>
+                    </li>
+                    {inspection.composedLayers.map((layer, i) => (
+                      <li key={`${layer}:${i}`} className="issue" title={layer}>
+                        <span className="muted">
+                          ↳ {shortLayerLabel(layer)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               )}
               {inspection.variantSets.length > 0 && (
                 <details className="card-details">

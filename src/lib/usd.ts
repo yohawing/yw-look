@@ -37,6 +37,22 @@ export type StageInspection = {
   defaultPrim: string | null;
   upAxis: string | null;
   metersPerUnit: number | null;
+  /**
+   * Stage-level time metadata authored on the root layer. Each
+   * field is `null` when the metadatum is unauthored — the
+   * inspector surfaces "(default)" in that case so users can tell
+   * implicit defaults apart from authored values. Spec defaults:
+   * `timeCodesPerSecond=24`, `framesPerSecond=24`,
+   * `startTimeCode=0`, `endTimeCode=0`.
+   */
+  timeCodesPerSecond: number | null;
+  framesPerSecond: number | null;
+  startTimeCode: number | null;
+  endTimeCode: number | null;
+  /** `comment` metadata authored on the root layer. */
+  comment: string | null;
+  /** `true` when the root layer is binary USDC, `false` for text USDA. */
+  rootLayerIsBinary: boolean;
   rootPrims: string[];
   composedLayers: string[];
   references: CompositionArc[];
@@ -44,6 +60,11 @@ export type StageInspection = {
   missingAssets: string[];
   variantSets: VariantSetInfo[];
   loadPolicy: StageLoadPolicy;
+};
+
+export type PrimTypeCount = {
+  typeName: string;
+  count: number;
 };
 
 export type StageSummary = {
@@ -54,6 +75,14 @@ export type StageSummary = {
   payloadCount: number;
   unloadedPayloadCount: number;
   hasVariants: boolean;
+  /** Histogram of prim `typeName` → count, in first-seen order. */
+  primTypeCounts: PrimTypeCount[];
+  /** Sum of `points.length` across every authored Mesh prim. */
+  totalVertices: number;
+  /** Sum of post-fan-triangulation triangle counts across all Meshes. */
+  totalTriangles: number;
+  /** Total variant sets across every prim that authors at least one. */
+  variantSetCount: number;
   warnings: string[];
   loadPolicy: StageLoadPolicy;
 };

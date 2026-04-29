@@ -35,7 +35,7 @@ use super::openusd_backend::{
 };
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
-    StageInspection, StageLoadPolicy, StageSummary, VariantSetInfo,
+    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary, VariantSetInfo,
 };
 use super::cpp_sys::UpAxis;
 
@@ -193,11 +193,24 @@ impl UsdBackend for OpenusdCppBackend {
             }
         }
 
+        let time_codes_per_second = stage.authored_time_codes_per_second();
+        let frames_per_second = stage.authored_frames_per_second();
+        let start_time_code = stage.authored_start_time_code();
+        let end_time_code = stage.authored_end_time_code();
+        let comment = stage.comment();
+        let root_layer_is_binary = stage.root_layer_is_binary().unwrap_or(false);
+
         Ok(StageInspection {
             path: path.display().to_string(),
             default_prim,
             up_axis,
             meters_per_unit,
+            time_codes_per_second,
+            frames_per_second,
+            start_time_code,
+            end_time_code,
+            comment,
+            root_layer_is_binary,
             root_prims,
             composed_layers,
             references,
@@ -223,10 +236,59 @@ impl UsdBackend for OpenusdCppBackend {
         let mut mesh_count = 0usize;
         let mut payload_count = 0usize;
         let mut has_variants = false;
+        let mut variant_set_count = 0usize;
+        let mut total_vertices = 0usize;
+        let mut total_triangles = 0usize;
+
+        // Histogram keyed by USD `typeName`. We use a Vec rather than a
+        // HashMap to keep first-seen ordering — the inspector renders
+        // entries directly and stable ordering across reloads is nicer
+        // than alphabetical churn. Linear search is fine because the
+        // unique-type fan-out is small (typical stages have under 30
+        // distinct typeName tokens even at production scale).
+        let mut prim_type_counts: Vec<PrimTypeCount> = Vec::new();
 
         for prim_path in &all_prims {
+            // Skip the pseudo-root: it has no authored typeName and
+            // would just bloat the histogram with an empty key.
+            if prim_path == "/" {
+                continue;
+            }
+
+            if let Some(type_name) = stage.prim_type_name(prim_path) {
+                if !type_name.is_empty() {
+                    if let Some(slot) = prim_type_counts
+                        .iter_mut()
+                        .find(|c| c.type_name == type_name)
+                    {
+                        slot.count += 1;
+                    } else {
+                        prim_type_counts.push(PrimTypeCount {
+                            type_name,
+                            count: 1,
+                        });
+                    }
+                }
+            }
+
             if stage.prim_type_is_mesh(prim_path) {
                 mesh_count += 1;
+                // Vertex count = points / 3. Triangle count is the
+                // post-fan-triangulation total for non-triangular faces
+                // (face with N vertices triangulates into N-2 tris).
+                // Both the Rust fork backend and the cpp backend expose
+                // points / faceVertexCounts, so we read them here once
+                // per mesh prim and accumulate.
+                let points = stage.mesh_points(prim_path);
+                if !points.is_empty() {
+                    total_vertices += points.len() / 3;
+                }
+                let counts = stage.mesh_face_vertex_counts(prim_path);
+                for n in counts {
+                    if n >= 3 {
+                        total_triangles += (n as usize) - 2;
+                    }
+                }
             }
             let payloads = stage.payloads_in(prim_path);
             if !payloads.is_empty() {
@@ -234,6 +296,7 @@ impl UsdBackend for OpenusdCppBackend {
             }
             if stage.prim_has_variants(prim_path) {
                 has_variants = true;
+                variant_set_count += stage.variant_set_names(prim_path).len();
             }
         }
 
@@ -251,6 +314,10 @@ impl UsdBackend for OpenusdCppBackend {
             payload_count,
             unloaded_payload_count: stage.skipped_payloads().len(),
             has_variants,
+            prim_type_counts,
+            total_vertices,
+            total_triangles,
+            variant_set_count,
             warnings,
             load_policy: policy,
         })

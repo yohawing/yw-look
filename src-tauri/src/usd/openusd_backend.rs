@@ -19,7 +19,7 @@ use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
-    StageInspection, StageLoadPolicy, StageSummary,
+    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
 };
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
@@ -27,6 +27,27 @@ use super::types::{
 /// function so the conversion is in one place and the two enum types
 /// can evolve independently if the fork adds a variant yw-look does
 /// not yet expose to the frontend.
+/// Reads a stage-level metadatum authored on the pseudoroot (`/`) as
+/// a double. Returns `None` when the field is not authored on the
+/// root layer or when the value is some unrelated type. Float values
+/// (some DCCs author `framesPerSecond` as `Float` instead of the
+/// USD-spec `Double`) are widened so the inspector can still surface
+/// them. This is the Rust-fork backend equivalent of the C shim's
+/// `usdc_stage_authored_*` family — see
+/// `usd_c_shim.cpp::read_authored_root_field_double`.
+fn read_root_double_field(
+    stage: &Stage,
+    pseudo_root: &SdfPath,
+    field: FieldKey,
+) -> Option<f64> {
+    let value = stage.field::<SdfValue>(pseudo_root.clone(), field).ok()??;
+    match value {
+        SdfValue::Double(v) => Some(v),
+        SdfValue::Float(v) => Some(v as f64),
+        _ => None,
+    }
+}
+
 fn to_openusd_policy(policy: StageLoadPolicy) -> OpenusdLoadPolicy {
     match policy {
         StageLoadPolicy::LoadAll => OpenusdLoadPolicy::LoadAll,
@@ -199,11 +220,49 @@ impl UsdBackend for OpenusdBackend {
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
 
+        // Stage timing metadata authored on the root layer. The Rust
+        // fork doesn't expose dedicated accessors for these, so we
+        // query the pseudoroot's field directly via `Stage::field`.
+        // Each returns `None` when the metadatum is unauthored.
+        let pseudo_root = SdfPath::from("/");
+        let time_codes_per_second = read_root_double_field(
+            &stage,
+            &pseudo_root,
+            FieldKey::TimeCodesPerSecond,
+        );
+        let frames_per_second = read_root_double_field(
+            &stage,
+            &pseudo_root,
+            FieldKey::FramesPerSecond,
+        );
+        let start_time_code = read_root_double_field(
+            &stage,
+            &pseudo_root,
+            FieldKey::StartTimeCode,
+        );
+        let end_time_code = read_root_double_field(
+            &stage,
+            &pseudo_root,
+            FieldKey::EndTimeCode,
+        );
+        let comment = stage
+            .field::<String>(pseudo_root, FieldKey::Comment)
+            .ok()
+            .flatten()
+            .filter(|s| !s.is_empty());
+        let root_layer_is_binary = stage.root_layer_is_binary();
+
         Ok(StageInspection {
             path: path.display().to_string(),
             default_prim,
             up_axis,
             meters_per_unit,
+            time_codes_per_second,
+            frames_per_second,
+            start_time_code,
+            end_time_code,
+            comment,
+            root_layer_is_binary,
             root_prims,
             composed_layers,
             references: references.into_inner(),
@@ -230,14 +289,64 @@ impl UsdBackend for OpenusdBackend {
         let mesh_count = RefCell::new(0usize);
         let payload_count = RefCell::new(0usize);
         let has_variants = RefCell::new(false);
+        let variant_set_count = RefCell::new(0usize);
+        let total_vertices = RefCell::new(0usize);
+        let total_triangles = RefCell::new(0usize);
+        let prim_type_counts = RefCell::new(Vec::<PrimTypeCount>::new());
 
         stage
             .traverse(|prim_path| {
                 if let Ok(Some(type_name)) =
                     stage.field::<String>(prim_path.clone(), FieldKey::TypeName)
                 {
+                    if !type_name.is_empty() {
+                        let mut buckets = prim_type_counts.borrow_mut();
+                        if let Some(slot) =
+                            buckets.iter_mut().find(|c| c.type_name == type_name)
+                        {
+                            slot.count += 1;
+                        } else {
+                            buckets.push(PrimTypeCount {
+                                type_name: type_name.clone(),
+                                count: 1,
+                            });
+                        }
+                    }
                     if type_name == "Mesh" {
                         *mesh_count.borrow_mut() += 1;
+                        // Read points + faceVertexCounts on this Mesh
+                        // prim to accumulate authored vertex / triangle
+                        // totals. The values are read directly from the
+                        // composed layer stack — we don't need full
+                        // `mesh_of` (no skinning / xform / triangulation)
+                        // because we're only counting authored data.
+                        if let Ok(points_path) = prim_path.append_property("points") {
+                            if let Ok(Some(value)) =
+                                stage.field::<SdfValue>(points_path, FieldKey::Default)
+                            {
+                                let count = match value {
+                                    SdfValue::Vec3fVec(v) => v.len(),
+                                    SdfValue::Vec3dVec(v) => v.len(),
+                                    SdfValue::Vec3hVec(v) => v.len(),
+                                    _ => 0,
+                                };
+                                *total_vertices.borrow_mut() += count;
+                            }
+                        }
+                        if let Ok(counts_path) =
+                            prim_path.append_property("faceVertexCounts")
+                        {
+                            if let Ok(Some(SdfValue::IntVec(counts))) =
+                                stage.field::<SdfValue>(counts_path, FieldKey::Default)
+                            {
+                                for n in counts {
+                                    if n >= 3 {
+                                        *total_triangles.borrow_mut() +=
+                                            (n as usize) - 2;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 let payloads = stage.payloads_in(prim_path.clone());
@@ -247,10 +356,13 @@ impl UsdBackend for OpenusdBackend {
                 // VariantSetNames may be authored as several different
                 // value types depending on the layer; we only care that
                 // *something* is authored, so query as raw Value.
-                if let Ok(Some(_)) =
+                if let Ok(Some(value)) =
                     stage.field::<SdfValue>(prim_path.clone(), FieldKey::VariantSetNames)
                 {
                     *has_variants.borrow_mut() = true;
+                    if let SdfValue::TokenVec(set_names) = value {
+                        *variant_set_count.borrow_mut() += set_names.len();
+                    }
                 }
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
@@ -269,6 +381,10 @@ impl UsdBackend for OpenusdBackend {
             payload_count: payload_count.into_inner(),
             unloaded_payload_count: stage.skipped_payloads().len(),
             has_variants: has_variants.into_inner(),
+            prim_type_counts: prim_type_counts.into_inner(),
+            total_vertices: total_vertices.into_inner(),
+            total_triangles: total_triangles.into_inner(),
+            variant_set_count: variant_set_count.into_inner(),
             warnings,
             load_policy: policy,
         })

@@ -45,6 +45,27 @@ pub struct StageInspection {
     pub default_prim: Option<String>,
     pub up_axis: Option<String>,
     pub meters_per_unit: Option<f64>,
+    /// Stage-level time metadata. `time_codes_per_second` is the
+    /// authoring frame-rate USD applies to time-sampled data; the
+    /// remaining fields define the playback range and authoring
+    /// frame-rate for tooling. Each is `None` when the stage's root
+    /// layer does not author the metadatum (USD spec defaults
+    /// kick in elsewhere — `timeCodesPerSecond` defaults to 24.0,
+    /// `framesPerSecond` to 24.0, `startTimeCode`/`endTimeCode`
+    /// to 0.0). The inspector surfaces the authored value, not the
+    /// implicit default, so users can tell when a stage relies on
+    /// the spec defaults.
+    pub time_codes_per_second: Option<f64>,
+    pub frames_per_second: Option<f64>,
+    pub start_time_code: Option<f64>,
+    pub end_time_code: Option<f64>,
+    /// Stage-level `comment` metadata authored on the root layer.
+    /// Free-form text; rendered as-is in the inspector.
+    pub comment: Option<String>,
+    /// `true` when the stage's root layer is binary USDC, `false`
+    /// when it is text USDA. Used by the Metadata panel to show the
+    /// layer format and by the GLB-preview decision elsewhere.
+    pub root_layer_is_binary: bool,
     pub root_prims: Vec<String>,
     pub composed_layers: Vec<String>,
     pub references: Vec<CompositionArc>,
@@ -58,6 +79,20 @@ pub struct StageInspection {
     /// Reflected back to the frontend so UI controls can render their
     /// current state from a single source of truth.
     pub load_policy: StageLoadPolicy,
+}
+
+/// One entry in the prim-type histogram exposed by `StageSummary`.
+/// Stored as a Vec so the wire payload preserves authored ordering
+/// without forcing the frontend to sort. Frontend renders each entry
+/// directly, so an ordered list of `(typeName, count)` pairs is the
+/// most ergonomic shape on both sides.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrimTypeCount {
+    /// USD `typeName` token authored on the prim (e.g. `"Mesh"`,
+    /// `"Xform"`, `"Camera"`, `"DistantLight"`, `"GeomSubset"`).
+    pub type_name: String,
+    pub count: usize,
 }
 
 /// Lightweight stage header. Returned by `summarize_stage` for the
@@ -74,6 +109,21 @@ pub struct StageSummary {
     /// `LoadAll` mode this is always 0.
     pub unloaded_payload_count: usize,
     pub has_variants: bool,
+    /// USD-view-style stage statistics (#38). Populated alongside the
+    /// existing scalar counters during the summary traversal.
+    /// `prim_type_counts` is a histogram keyed by USD `typeName`;
+    /// `total_vertices` / `total_triangles` are the post-fan-
+    /// triangulation totals across every authored Mesh prim, regardless
+    /// of visibility / purpose (so unrendered helper geometry still
+    /// contributes to the budget — matching how usdview's stats panel
+    /// reports authored-data totals, not render budget).
+    pub prim_type_counts: Vec<PrimTypeCount>,
+    pub total_vertices: usize,
+    pub total_triangles: usize,
+    /// Total number of variant sets across every prim (each set is
+    /// counted once per prim that authors it). Distinct from
+    /// `has_variants` which is just the boolean.
+    pub variant_set_count: usize,
     pub warnings: Vec<String>,
     /// Phase 4: the load policy used when summarizing.
     pub load_policy: StageLoadPolicy,
