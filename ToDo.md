@@ -237,13 +237,13 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [ ] purpose (`default` / `render` / `proxy` / `guide`) 表示ポリシー → #32
 - [ ] `PointInstancer` preview → #41
 - [ ] `GeomSubset` / face subset material binding → #42
-- [ ] stage 内 camera の列挙と切替 → #34
+- [x] stage 内 camera の列挙と切替 → #34（initial — Scene Fixtures カードに gltf.scene 由来の Camera を一覧表示。切替 UI は未実装）
 - [ ] `USDLoader.parse` を Web Worker に退避 → #45
 - [ ] Per-prim attribute inspector → #28
 - [x] Layer stack panel → #29（initial — composedLayers をカード内に階層表示）
-- [ ] Composition arc viewer → #30
+- [x] Composition arc viewer → #30（CompositionArcsCard で source prim ごとに references / payloads を集約、loaded / missing / unloaded を badge で区別）
 - [ ] Viewport picking → prim selection sync → #33
-- [ ] Light enumeration & list panel → #35
+- [x] Light enumeration & list panel → #35（Scene Fixtures カードに gltf.scene 由来の Light を一覧表示、type / intensity / color を表示）
 - [ ] Material binding panel → #36
 - [ ] Time samples inspector → #37
 - [x] Stage statistics 充実 → #38（prim type counts / vertices / triangles / variant set count）

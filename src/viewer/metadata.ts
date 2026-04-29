@@ -1,18 +1,24 @@
 import {
   AnimationClip,
+  Camera,
   Group,
+  Light,
   Material,
   Mesh,
   MeshBasicMaterial,
   MeshPhongMaterial,
   MeshStandardMaterial,
   Object3D,
+  OrthographicCamera,
+  PerspectiveCamera,
   Texture,
 } from "three";
 import type { SelectedFile } from "../lib/files";
 import type {
   AssetMetadata,
+  CameraEntry,
   HierarchyNode,
+  LightEntry,
   MaterialEntry,
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
@@ -35,13 +41,17 @@ function getObjectKind(object: Object3D) {
   return object.type.toLowerCase();
 }
 
-function buildHierarchyNode(object: Object3D): HierarchyNode {
-  // Some loaders (notably ColladaLoader) leave Object3D.name as null when the
-  // source document has no name attribute, so guard against non-string values
-  // before calling trim().
+/** Trim `Object3D.name` while tolerating loaders that leave the field as
+ * `null` (notably ColladaLoader). Returns an empty string when the input
+ * is non-string so callers can fall back to type names. */
+function safeTrimmedName(object: Object3D): string {
   const rawName = typeof object.name === "string" ? object.name : "";
+  return rawName.trim();
+}
+
+function buildHierarchyNode(object: Object3D): HierarchyNode {
   return {
-    name: rawName.trim() || "(unnamed)",
+    name: safeTrimmedName(object) || "(unnamed)",
     kind: getObjectKind(object),
     children: object.children.map((child) => buildHierarchyNode(child)),
   };
@@ -161,6 +171,70 @@ function inferTextureSourceKind(
   return "unknown";
 }
 
+/** Strip the wrapper-node suffix that the Phase 7a/7b USD→GLB backend
+ * appends to host-node names (`<authored>_light_node` /
+ * `<authored>_camera_node` in `src-tauri/src/usd/glb.rs`). GLTFLoader
+ * copies the node name onto the Three.js fixture object, so without
+ * this strip the Scene Fixtures card would show the wrapper-node label
+ * instead of the authored USD prim name. Keeps the original string
+ * verbatim for non-USD assets. */
+function stripFixtureSuffix(
+  name: string,
+  suffix: "_light_node" | "_camera_node",
+): string {
+  return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
+}
+
+function buildLightEntry(light: Light): LightEntry {
+  const colorHex =
+    "color" in light && light.color
+      ? `#${(light.color as { getHexString(): string }).getHexString()}`
+      : null;
+  const trimmed = stripFixtureSuffix(safeTrimmedName(light), "_light_node");
+  return {
+    id: light.uuid,
+    name: trimmed || light.type,
+    type: light.type,
+    color: colorHex,
+    intensity: light.intensity,
+  };
+}
+
+function buildCameraEntry(camera: Camera): CameraEntry {
+  const trimmed = stripFixtureSuffix(safeTrimmedName(camera), "_camera_node");
+  if (camera instanceof PerspectiveCamera) {
+    return {
+      id: camera.uuid,
+      name: trimmed || "PerspectiveCamera",
+      projection: "perspective",
+      fov: camera.fov,
+      aspect: camera.aspect,
+      near: camera.near,
+      far: camera.far,
+    };
+  }
+  if (camera instanceof OrthographicCamera) {
+    return {
+      id: camera.uuid,
+      name: trimmed || "OrthographicCamera",
+      projection: "orthographic",
+      fov: null,
+      aspect: null,
+      near: camera.near,
+      far: camera.far,
+    };
+  }
+  return {
+    id: camera.uuid,
+    name: trimmed || camera.type,
+    projection: "perspective",
+    fov: null,
+    aspect: null,
+    near: 0,
+    far: 0,
+  };
+}
+
 export function collectAssetMetadata(
   object: Group | Mesh,
   currentFile: SelectedFile,
@@ -172,9 +246,21 @@ export function collectAssetMetadata(
   const materials = new Set<Material>();
   const textures = new Map<string, AssetMetadata["textures"][number]>();
   const textureRegistry = new Map<string, Texture>();
+  const lights: LightEntry[] = [];
+  const cameras: CameraEntry[] = [];
 
   object.traverse((child: Object3D) => {
     nodeCount += 1;
+
+    if (child instanceof Light) {
+      lights.push(buildLightEntry(child));
+      return;
+    }
+
+    if (child instanceof Camera) {
+      cameras.push(buildCameraEntry(child));
+      return;
+    }
 
     if (!(child instanceof Mesh)) {
       return;
@@ -230,6 +316,8 @@ export function collectAssetMetadata(
       hierarchy: [buildHierarchyNode(object)],
       textures: [...textures.values()],
       materials: [...materials].map(buildMaterialEntry),
+      lights,
+      cameras,
     },
     textureRegistry,
   };
@@ -260,6 +348,8 @@ export function buildMissingReferenceMetadata(
     hasAnimation: false,
     hierarchy: [],
     materials: [],
+    lights: [],
+    cameras: [],
     textures:
       textureEntries.length > 0
         ? textureEntries

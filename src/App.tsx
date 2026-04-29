@@ -35,6 +35,7 @@ import {
   PerformanceCard,
   type PerformanceSnapshot,
 } from "./components/PerformanceCard";
+import { SceneLightsCamerasCard } from "./components/SceneLightsCamerasCard";
 import { TextureListCard } from "./components/TextureListCard";
 import { UsdInspectorCard } from "./components/UsdInspectorCard";
 import { WarningsCard } from "./components/WarningsCard";
@@ -1434,6 +1435,12 @@ export function App() {
                   />
                 </Suspense>
               </>
+            )}
+            {assetMetadata && (
+              <SceneLightsCamerasCard
+                lights={assetMetadata.lights}
+                cameras={assetMetadata.cameras}
+              />
             )}
             <PerformanceCard snapshot={performanceSnapshot} />
           </>
