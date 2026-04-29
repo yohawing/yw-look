@@ -372,6 +372,11 @@ export function App() {
   // inspector and GLB pipeline with payloads deferred.
   const [usdLoadPolicy, setUsdLoadPolicy] =
     useState<StageLoadPolicy>("loadAll");
+  // #33: selected mesh from a viewport click, identified by its
+  // Three.js Object3D.name. The HierarchyCard scrolls to and highlights
+  // the matching node; when the user clicks empty space the value
+  // resets to null and the highlight clears.
+  const [selectedMeshName, setSelectedMeshName] = useState<string | null>(null);
   const isTauri = isTauriEnvironment();
   // Browser mode needs recent files immediately for the always-visible MenuBar.
   // Tauri can keep this deferred until the sidebar is opened.
@@ -789,6 +794,13 @@ export function App() {
     settingsPayload?.settings.fileAssociationsEnabled,
     shouldLoadDeferredData,
   ]);
+
+  useEffect(() => {
+    // #33: a fresh file invalidates the prior viewport pick. The
+    // selection refers to a Three.js Object3D.name, and the next
+    // asset's hierarchy will not contain the same node.
+    setSelectedMeshName(null);
+  }, [currentFile?.path]);
 
   useEffect(() => {
     if (!currentFile) {
@@ -1446,7 +1458,13 @@ export function App() {
           </>
         );
       case "hierarchy":
-        return <HierarchyCard hierarchy={assetMetadata?.hierarchy ?? []} />;
+        return (
+          <HierarchyCard
+            hierarchy={assetMetadata?.hierarchy ?? []}
+            selectedName={selectedMeshName}
+            onSelectName={setSelectedMeshName}
+          />
+        );
       case "materials":
         return <MaterialListCard materials={assetMetadata?.materials ?? []} />;
       case "textures":
@@ -1589,6 +1607,7 @@ export function App() {
             cameraSpeedMultiplier={cameraSpeedMultiplier}
             usdLoadPolicy={usdLoadPolicy}
             texturePreview3D={texturePreview3D}
+            onSelectMesh={setSelectedMeshName}
           />
 
           {/* ViewModeControls overlay */}

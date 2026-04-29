@@ -1486,6 +1486,23 @@ textarea {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.tree-row.is-clickable {
+  cursor: pointer;
+}
+
+.tree-row.is-selected {
+  background: rgba(86, 156, 214, 0.18);
+  outline: 1px solid rgba(86, 156, 214, 0.55);
+}
+
+.tree-row.is-selected:hover {
+  background: rgba(86, 156, 214, 0.24);
+}
+
+.tree-row.is-selected .tree-node-name {
+  color: #d6e6ff;
+}
+
 .tree-chevron {
   display: grid;
   place-items: center;

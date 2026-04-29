@@ -1,29 +1,72 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HierarchyNode } from "./assetMetadata";
 
 type HierarchyCardProps = {
   hierarchy: HierarchyNode[];
+  /** #33: name of the currently picked mesh (Object3D.name). When the
+   * tree contains a node with this name it gets a highlight class and
+   * is scrolled into view. `null` clears the selection. */
+  selectedName?: string | null;
+  /** #33: invoked when the user clicks a node in the tree. Lets the
+   * tree push selections back up to the same `selectedMeshName` state
+   * the viewport-picking path drives, so both directions stay in sync.
+   * The `null` overload deselects when the user clicks the active row
+   * a second time. */
+  onSelectName?: (name: string | null) => void;
 };
 
 function HierarchyBranch({
   node,
   depth,
+  selectedName,
+  onSelectName,
+  forceExpanded,
+  selectedRef,
 }: {
   node: HierarchyNode;
   depth: number;
+  selectedName: string | null;
+  onSelectName?: (name: string | null) => void;
+  forceExpanded: boolean;
+  selectedRef: React.RefObject<HTMLLIElement | null>;
 }) {
   const hasChildren = node.children.length > 0;
   const [expanded, setExpanded] = useState(depth < 2);
+  const isSelected = selectedName !== null && node.name === selectedName;
+  // When the picker selects something deep in the tree we need to
+  // force-open every ancestor so the row is actually visible. We pass
+  // `forceExpanded` from above and OR it into the local state instead
+  // of overwriting it, so once the user collapses something
+  // re-selecting the same prim doesn't snap their layout back open.
+  const showChildren = hasChildren && (expanded || forceExpanded);
 
   return (
-    <li className="tree-item">
-      <div className="tree-row">
+    <li
+      className={`tree-item${isSelected ? " is-selected" : ""}`}
+      ref={isSelected ? selectedRef : undefined}
+    >
+      <div
+        className={`tree-row${isSelected ? " is-selected" : ""}${
+          onSelectName ? " is-clickable" : ""
+        }`}
+        onClick={
+          onSelectName
+            ? (event) => {
+                event.stopPropagation();
+                onSelectName(isSelected ? null : node.name);
+              }
+            : undefined
+        }
+      >
         {hasChildren ? (
           <button
             className="tree-chevron"
-            onClick={() => setExpanded((v) => !v)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpanded((v) => !v);
+            }}
             type="button"
-            aria-label={expanded ? "Collapse" : "Expand"}
+            aria-label={showChildren ? "Collapse" : "Expand"}
           >
             <svg
               viewBox="0 0 16 16"
@@ -31,7 +74,7 @@ function HierarchyBranch({
               xmlns="http://www.w3.org/2000/svg"
               width="12"
               height="12"
-              className={expanded ? "tree-chevron-open" : ""}
+              className={showChildren ? "tree-chevron-open" : ""}
             >
               <path
                 d="M6 4l4 4-4 4"
@@ -48,13 +91,24 @@ function HierarchyBranch({
         <span className="tree-node-name">{node.name || "(unnamed)"}</span>
         <span className="tree-node-kind">{node.kind}</span>
       </div>
-      {hasChildren && expanded ? (
+      {showChildren ? (
         <ul className="tree-children">
           {node.children.map((child, index) => (
             <HierarchyBranch
               key={`${node.name}-${child.name}-${index}`}
               node={child}
               depth={depth + 1}
+              selectedName={selectedName}
+              onSelectName={onSelectName}
+              // Each child decides force-open from its own subtree only.
+              // Inheriting `forceExpanded` from the parent would
+              // unfold every sibling once a single deep node is
+              // selected; the chain we actually want to open is just
+              // the ancestor path of the selection.
+              forceExpanded={
+                selectedName !== null && hasDescendant(child, selectedName)
+              }
+              selectedRef={selectedRef}
             />
           ))}
         </ul>
@@ -63,7 +117,37 @@ function HierarchyBranch({
   );
 }
 
-export function HierarchyCard({ hierarchy }: HierarchyCardProps) {
+/** Walks the subtree rooted at `node` looking for a descendant that
+ * matches `name`. Used to decide whether to force-open an ancestor
+ * branch so the selected row is visible without the user clicking
+ * through. We do not memoize because the hierarchy is small (USD prim
+ * counts in the thousands at most) and selection changes rarely. */
+function hasDescendant(node: HierarchyNode, name: string): boolean {
+  if (node.name === name) return true;
+  return node.children.some((child) => hasDescendant(child, name));
+}
+
+export function HierarchyCard({
+  hierarchy,
+  selectedName,
+  onSelectName,
+}: HierarchyCardProps) {
+  const selectedRef = useRef<HTMLLIElement | null>(null);
+
+  useEffect(() => {
+    if (!selectedName) return;
+    const el = selectedRef.current;
+    if (!el) return;
+    // `nearest` keeps an already-visible row from jumping; the tree
+    // only auto-scrolls when the picked node would otherwise be off
+    // screen. Smooth scroll is intentional — instant jumps make it
+    // hard to follow which row was selected when the tree is dense.
+    // jsdom doesn't implement scrollIntoView, so we guard the call.
+    el.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+  }, [selectedName]);
+
+  const normalizedSelected = selectedName ?? null;
+
   return (
     <article className="card hierarchy-card">
       <p className="card-title">Scene Hierarchy</p>
@@ -74,6 +158,13 @@ export function HierarchyCard({ hierarchy }: HierarchyCardProps) {
               key={`${node.name}-${index}`}
               node={node}
               depth={0}
+              selectedName={normalizedSelected}
+              onSelectName={onSelectName}
+              forceExpanded={
+                normalizedSelected !== null &&
+                hasDescendant(node, normalizedSelected)
+              }
+              selectedRef={selectedRef}
             />
           ))}
         </ul>

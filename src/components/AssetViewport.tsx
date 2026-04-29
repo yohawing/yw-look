@@ -13,9 +13,11 @@ import {
   Mesh,
   MeshBasicMaterial,
   MOUSE,
+  Object3D,
   PCFSoftShadowMap,
   PerspectiveCamera,
   PMREMGenerator,
+  Raycaster,
   ReinhardToneMapping,
   Scene,
   SphereGeometry,
@@ -267,6 +269,18 @@ type AssetViewportProps = {
    * for a quick texture inspection.
    */
   texturePreview3D: boolean;
+  /**
+   * Fired when the user single-clicks the viewport (#33). Receives the
+   * `Object3D.name` of the picked mesh, or `null` when the click misses
+   * any geometry. Drags are not treated as clicks (a small movement
+   * threshold filters orbit/pan gestures out). The string is the live
+   * Three.js object name — for the GLB-routed USD path this is the
+   * authored prim path the Rust backend stamps on each mesh node, and
+   * for the Three.js USDLoader path it is whatever the loader assigned.
+   * App.tsx feeds the value into the hierarchy panel so the tree can
+   * scroll to and highlight the picked prim.
+   */
+  onSelectMesh?: (meshName: string | null) => void;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -463,6 +477,7 @@ export function AssetViewport({
   cameraSpeedMultiplier,
   usdLoadPolicy,
   texturePreview3D,
+  onSelectMesh,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -511,6 +526,7 @@ export function AssetViewport({
   const backgroundPresetRef = useRef(backgroundPreset);
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
   const texturePreview3DRef = useRef(texturePreview3D);
+  const onSelectMeshRef = useRef(onSelectMesh);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -586,6 +602,10 @@ export function AssetViewport({
   useEffect(() => {
     texturePreview3DRef.current = texturePreview3D;
   }, [texturePreview3D]);
+
+  useEffect(() => {
+    onSelectMeshRef.current = onSelectMesh;
+  }, [onSelectMesh]);
 
   useEffect(() => {
     cameraSpeedMultiplierRef.current = cameraSpeedMultiplier;
@@ -911,7 +931,75 @@ export function AssetViewport({
       controls.enabled = Boolean(sceneContextRef.current?.mountedObject);
     };
 
+    // #33: viewport picking. We track the LMB-down position on the
+    // canvas and treat the pointerup as a "click" only if the pointer
+    // moved < CLICK_DRAG_PX between the two events. That keeps orbit /
+    // pan gestures from firing a selection update on every release.
+    // The raycaster lives at handler scope so we don't allocate one
+    // per click — Three.js encourages reuse for GC pressure reasons.
+    const CLICK_DRAG_PX = 4;
+    const pickRaycaster = new Raycaster();
+    const pickNdc = new Vector2();
+    let clickStart: { x: number; y: number; button: number } | null = null;
+
+    const performPick = (event: PointerEvent): void => {
+      const callback = onSelectMeshRef.current;
+      if (!callback) return;
+      const mounted = sceneContextRef.current?.mountedObject;
+      if (!mounted) {
+        callback(null);
+        return;
+      }
+      const rect = renderer.domElement.getBoundingClientRect();
+      // Map clientX/Y → normalized device coords. The canvas may be
+      // letterboxed inside its host so we use getBoundingClientRect
+      // rather than offsetWidth/Height, which would miss the offset.
+      pickNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pickNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      pickRaycaster.setFromCamera(pickNdc, camera);
+      const hits = pickRaycaster.intersectObject(mounted, true);
+      if (hits.length === 0) {
+        callback(null);
+        return;
+      }
+      // Walk up from the hit object to the first Mesh ancestor,
+      // INCLUDING the mounted root itself — PLY and STL load as a
+      // single `Mesh` rather than a `Group`, so `hits[0].object` and
+      // `mounted` are the same object and an early `node !== mounted`
+      // check would skip the only mesh in the scene. Internal helpers
+      // (SkeletonHelper line segments, BoundingBox helpers) are
+      // LineSegments / Lines, so the `instanceof Mesh` gate filters
+      // them out. The shadow catcher is a Mesh but is dropped here by
+      // name so a click on the ground plane reads as "missed". The
+      // emitted name is trimmed and falls back to "(unnamed)" — that
+      // matches `safeTrimmedName` + `"(unnamed)"` in viewer/metadata.ts
+      // (`buildHierarchyNode`), so a picker hit on a mesh whose
+      // authored name has leading/trailing whitespace still resolves
+      // to the same key the hierarchy row renders under.
+      let node: Object3D | null = hits[0].object;
+      while (node) {
+        if (node instanceof Mesh && node.name !== "__yw_shadow_catcher") {
+          const raw = typeof node.name === "string" ? node.name.trim() : "";
+          callback(raw.length > 0 ? raw : "(unnamed)");
+          return;
+        }
+        if (node === mounted) break;
+        node = node.parent;
+      }
+      callback(null);
+    };
+
     const pointerDownHandler = (event: PointerEvent) => {
+      if (event.button === 0) {
+        clickStart = {
+          x: event.clientX,
+          y: event.clientY,
+          button: event.button,
+        };
+      } else {
+        clickStart = null;
+      }
+
       if (!sceneContextRef.current?.mountedObject) {
         controls.enabled = false;
         return;
@@ -936,6 +1024,20 @@ export function AssetViewport({
         exitFlyMode();
         return;
       }
+      // #33: classify as a click if LMB-up matches the LMB-down position
+      // and the user is in asset mode. Texture mode keeps its 2D pan
+      // gestures and has no concept of a picked mesh.
+      if (
+        clickStart &&
+        event.button === 0 &&
+        clickStart.button === 0 &&
+        Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) <
+          CLICK_DRAG_PX &&
+        viewerSurfaceModeRef.current !== "texture"
+      ) {
+        performPick(event);
+      }
+      clickStart = null;
       controls.enabled = Boolean(sceneContextRef.current?.mountedObject);
     };
 
