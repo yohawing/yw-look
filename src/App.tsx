@@ -759,6 +759,23 @@ export function App() {
     void refreshUpdateConfiguration();
   }, [shouldLoadDeferredData]);
 
+  // #26: when the user has opted in via Settings, run a single
+  // `check_for_update` call once `settingsPayload` has loaded.
+  // Intentionally NOT gated on `shouldLoadDeferredData` (the sidebar
+  // toggle) — the user may run with the sidebar collapsed, and a
+  // pending update should still surface on startup. `check_for_update`
+  // returns the update configuration alongside the result, so we do
+  // not need a separate `load_update_configuration` round-trip first.
+  // The auto-check is one-shot per session; a polling enhancement is
+  // out of scope for #26's first surface.
+  const autoUpdateCheckedRef = useRef(false);
+  useEffect(() => {
+    if (autoUpdateCheckedRef.current) return;
+    if (!settingsPayload?.settings.autoCheckForUpdates) return;
+    autoUpdateCheckedRef.current = true;
+    void handleCheckForUpdate();
+  }, [settingsPayload?.settings.autoCheckForUpdates]);
+
   useEffect(() => {
     if (!shouldLoadDeferredData) {
       return;
@@ -1357,6 +1374,27 @@ export function App() {
     }
   };
 
+  const handleToggleAutoCheckForUpdates = async () => {
+    if (!settingsPayload) {
+      return;
+    }
+
+    try {
+      const nextPayload = await saveSettings({
+        ...settingsPayload.settings,
+        autoCheckForUpdates: !settingsPayload.settings.autoCheckForUpdates,
+      });
+      setSettingsPayload(nextPayload);
+      setSettingsError(null);
+    } catch (error: unknown) {
+      setSettingsError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update auto-update setting.",
+      );
+    }
+  };
+
   const handleSaveUpdateSettings = async ({
     endpoint,
     publicKey,
@@ -1494,6 +1532,9 @@ export function App() {
                 settingsError={settingsError}
                 onToggleFileAssociations={() =>
                   void handleToggleFileAssociations()
+                }
+                onToggleAutoCheckForUpdates={() =>
+                  void handleToggleAutoCheckForUpdates()
                 }
               />
             </Suspense>

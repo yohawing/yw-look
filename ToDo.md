@@ -183,6 +183,10 @@
 - [ ] 重いファイル連続表示時のメモリ挙動を確認する
 - [ ] EXR / HDR / DDS の重いケースを試験する
 
+### 自動アップデート（#26）
+
+- [x] Settings に「Auto-check for updates」トグルを追加（initial — schema v4 で `auto_check_for_updates` 永続化、起動後 1 度 `check_for_update` を呼ぶ。install は引き続き手動ボタン）
+
 ### 起動高速化
 
 - [x] 外部フォント読み込みを最適化する（`preload` + `display=fallback`、またはローカルフォントに変更）

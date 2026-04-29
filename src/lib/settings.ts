@@ -8,6 +8,14 @@ export type AppSettings = {
   updateEndpointOverride?: string | null;
   updatePublicKeyOverride?: string | null;
   allowInsecureUpdateEndpoint: boolean;
+  /**
+   * #26: when `true`, App.tsx fires a single `check_for_update` call
+   * during deferred startup so a pending build is surfaced without the
+   * user opening the Updates card. The Rust backend defaults this to
+   * `false`; existing on-disk settings files predate the field and
+   * fall through `serde(default)` to the same `false`.
+   */
+  autoCheckForUpdates: boolean;
 };
 
 export type SettingsPayload = {

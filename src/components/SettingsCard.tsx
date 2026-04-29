@@ -4,12 +4,15 @@ type SettingsCardProps = {
   settingsPayload: SettingsPayload | null;
   settingsError: string | null;
   onToggleFileAssociations: () => void;
+  /** #26: flips `autoCheckForUpdates` and persists via save_settings. */
+  onToggleAutoCheckForUpdates: () => void;
 };
 
 export function SettingsCard({
   settingsPayload,
   settingsError,
   onToggleFileAssociations,
+  onToggleAutoCheckForUpdates,
 }: SettingsCardProps) {
   if (settingsError) {
     return (
@@ -62,6 +65,14 @@ export function SettingsCard({
               : "Disabled"}
           </span>
         </div>
+        <div className="card-row">
+          <span className="card-row-label">Auto-check for updates</span>
+          <span
+            className={`card-row-badge ${settingsPayload.settings.autoCheckForUpdates ? "badge-active" : ""}`}
+          >
+            {settingsPayload.settings.autoCheckForUpdates ? "On" : "Off"}
+          </span>
+        </div>
       </div>
       <div className="card-actions">
         <button
@@ -70,6 +81,15 @@ export function SettingsCard({
           type="button"
         >
           Toggle File Associations
+        </button>
+        <button
+          className="btn-ghost"
+          onClick={onToggleAutoCheckForUpdates}
+          type="button"
+        >
+          {settingsPayload.settings.autoCheckForUpdates
+            ? "Disable Auto-Update Check"
+            : "Enable Auto-Update Check"}
         </button>
       </div>
     </article>

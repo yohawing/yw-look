@@ -53,6 +53,12 @@ struct AppSettings {
     update_endpoint_override: Option<String>,
     update_public_key_override: Option<String>,
     allow_insecure_update_endpoint: bool,
+    /// #26: when `true`, the frontend runs `check_for_update` once on
+    /// startup so a stale build can surface a "Install Update" affordance
+    /// without the user opening the Updates card. Existing settings
+    /// files written before this field shipped fall back to the
+    /// `Default::default()` value via `#[serde(default)]`.
+    auto_check_for_updates: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -257,13 +263,18 @@ enum NativeMenuEventPayload {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            version: 3,
+            version: 4,
             recent_files_limit: 20,
             diagnostics_log_level: "info".to_string(),
             file_associations_enabled: false,
             update_endpoint_override: None,
             update_public_key_override: None,
             allow_insecure_update_endpoint: false,
+            // #26: opt-in by default so first-run users do not pay the
+            // network cost of an update probe before they have decided
+            // they want one. The Settings card flips it; saved
+            // settings persist the choice.
+            auto_check_for_updates: false,
         }
     }
 }
@@ -414,7 +425,7 @@ fn normalize_optional_text(value: Option<String>) -> Option<String> {
 
 fn sanitize_settings(settings: AppSettings) -> AppSettings {
     AppSettings {
-        version: settings.version.max(3),
+        version: settings.version.max(4),
         recent_files_limit: settings.recent_files_limit.max(1),
         diagnostics_log_level: if settings.diagnostics_log_level.trim().is_empty() {
             "info".to_string()
@@ -425,6 +436,7 @@ fn sanitize_settings(settings: AppSettings) -> AppSettings {
         update_endpoint_override: normalize_optional_text(settings.update_endpoint_override),
         update_public_key_override: normalize_optional_text(settings.update_public_key_override),
         allow_insecure_update_endpoint: settings.allow_insecure_update_endpoint,
+        auto_check_for_updates: settings.auto_check_for_updates,
     }
 }
 
