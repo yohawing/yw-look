@@ -7,7 +7,9 @@ import {
   BoxGeometry,
   Color,
   DirectionalLight,
+  Euler,
   LinearToneMapping,
+  MathUtils,
   Mesh,
   MeshBasicMaterial,
   MOUSE,
@@ -20,6 +22,7 @@ import {
   Texture,
   type ToneMapping,
   Vector2,
+  Vector3,
   WebGLRenderTarget,
   WebGLRenderer,
 } from "three";
@@ -688,6 +691,211 @@ export function AssetViewport({
     controls.target.set(0, 0, 0);
     controls.enabled = true;
 
+    // ── UE-style fly camera (#25) ────────────────────────────────
+    // Right-click held = fly mode: mouse-look while RMB is down, WASD
+    // for translation, Q/E for down/up, mouse wheel adjusts speed.
+    // This replaces OrbitControls' DOLLY-on-right-button behavior
+    // because the activation gesture is identical (RMB hold), and a
+    // mode toggle is the simpler UX than trying to time-out into one
+    // or the other.
+    //
+    // The camera's Euler is read into a YXZ Euler so the yaw stays
+    // aligned with world-up (Y) and the pitch never introduces
+    // unintended roll. We clamp pitch to ±89° so the camera never
+    // flips through the pole the way an unconstrained Euler would.
+    const flyState = {
+      active: false,
+      lastFrameTime: 0,
+      // Local-axis translation. Each component is -1, 0, or 1 based
+      // on which keys are held. The render loop integrates this
+      // against `speed * dt` to produce the per-frame delta.
+      input: new Vector3(0, 0, 0),
+      // Authored speed in scene units per second. Wheel events
+      // multiply this by ~10% per detent, clamped to a sane range
+      // so the user can't end up at a stuck-on-zero or warp-speed
+      // setting and have to reload to escape.
+      speed: 5,
+      euler: new Euler(0, 0, 0, "YXZ"),
+      // Orbit pivot distance captured at fly entry. Used on exit to
+      // place `controls.target` a sensible distance ahead of the
+      // camera. We can't reuse the live `target.distanceTo(position)`
+      // at exit because the user may have flown far past the
+      // original orbit target, which would land the new pivot at an
+      // arbitrary distant point instead of near the framed asset.
+      orbitRadius: 5,
+    };
+    const FLY_MIN_SPEED = 0.1;
+    const FLY_MAX_SPEED = 200;
+    const FLY_PITCH_LIMIT = MathUtils.degToRad(89);
+    // Reused vector to avoid per-frame allocations in the render loop.
+    const flyForward = new Vector3();
+    const flyRight = new Vector3();
+
+    /** Snap OrbitControls' target back onto the camera's forward
+     * vector at a sensible distance so re-engaging Orbit after a fly
+     * traversal pivots around what the user just framed up. Without
+     * this the target stays at the world origin and orbiting feels
+     * disconnected from the new viewpoint. We use the orbit radius
+     * captured when fly mode was entered (rather than the live
+     * camera-to-target distance) so a long fly traversal doesn't
+     * place the new pivot far past the visible subject. */
+    const restoreOrbitTargetFromCamera = () => {
+      flyForward.set(0, 0, -1).applyEuler(flyState.euler);
+      const distance = MathUtils.clamp(flyState.orbitRadius, 1, 50);
+      controls.target
+        .copy(camera.position)
+        .addScaledVector(flyForward, distance);
+    };
+
+    const handleFlyMouseMove = (event: MouseEvent) => {
+      if (!flyState.active) return;
+      // movementX/Y are pointer-lock deltas in CSS pixels; the
+      // 0.002 multiplier keeps the look sensitivity in the same
+      // ballpark as OrbitControls' `rotateSpeed = 1.0` while still
+      // letting `controlSensitivity` tune the orbit speed
+      // independently — fly look feels different from orbit drag,
+      // and yoking them together produces the wrong response when
+      // the user dials orbit way down for fine framing work.
+      const sensitivity = 0.002;
+      flyState.euler.y -= event.movementX * sensitivity;
+      flyState.euler.x -= event.movementY * sensitivity;
+      flyState.euler.x = MathUtils.clamp(
+        flyState.euler.x,
+        -FLY_PITCH_LIMIT,
+        FLY_PITCH_LIMIT,
+      );
+      camera.quaternion.setFromEuler(flyState.euler);
+    };
+
+    /** Tracks every fly-relevant key currently held down. Recomputing
+     * `flyState.input` from this set on every keydown/keyup avoids
+     * the classic "press W, press S, release S → motion stops"
+     * bug that plain ±1 axis assignment produces with overlapping
+     * keys. */
+    const flyHeldKeys = new Set<string>();
+    const FLY_KEYS = new Set(["KeyW", "KeyS", "KeyA", "KeyD", "KeyQ", "KeyE"]);
+
+    const recomputeFlyInput = () => {
+      let x = 0;
+      let y = 0;
+      let z = 0;
+      if (flyHeldKeys.has("KeyW")) z -= 1;
+      if (flyHeldKeys.has("KeyS")) z += 1;
+      if (flyHeldKeys.has("KeyA")) x -= 1;
+      if (flyHeldKeys.has("KeyD")) x += 1;
+      if (flyHeldKeys.has("KeyE")) y += 1;
+      if (flyHeldKeys.has("KeyQ")) y -= 1;
+      flyState.input.set(x, y, z);
+    };
+
+    const handleFlyKeyDown = (event: KeyboardEvent) => {
+      if (!flyState.active) return;
+      if (!FLY_KEYS.has(event.code)) return;
+      flyHeldKeys.add(event.code);
+      recomputeFlyInput();
+      // Stop the keystroke from triggering any global keyboard
+      // shortcut while fly is active (the Settings panel binds
+      // single-letter accelerators that would otherwise fire as
+      // the user navigates the scene).
+      event.preventDefault();
+    };
+
+    const handleFlyKeyUp = (event: KeyboardEvent) => {
+      if (!FLY_KEYS.has(event.code)) return;
+      flyHeldKeys.delete(event.code);
+      recomputeFlyInput();
+    };
+
+    const handleFlyWheel = (event: WheelEvent) => {
+      if (!flyState.active) return;
+      // Each wheel detent multiplies/divides speed by ~1.1× so the
+      // user can sweep across the whole range with a few flicks
+      // without overshooting. Negative deltaY = wheel-up = faster.
+      const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+      flyState.speed = MathUtils.clamp(
+        flyState.speed * factor,
+        FLY_MIN_SPEED,
+        FLY_MAX_SPEED,
+      );
+      // Prevent the page from scrolling while fly is engaged. This
+      // is the same prevention logic the OrbitControls wheel handler
+      // applies internally; we mirror it because we've taken over
+      // the wheel during fly mode.
+      event.preventDefault();
+    };
+
+    /** Bidirectional guard for the asynchronous Pointer Lock API.
+     *
+     * Two cases this needs to handle:
+     *
+     * 1. Late-acquisition cleanup. `requestPointerLock()` resolves
+     *    asynchronously, so a quick RMB tap can run
+     *    `enterFlyMode` → `exitFlyMode` synchronously before pointer
+     *    lock has actually been granted. Without intervention the
+     *    late acquisition would leave the cursor stuck until the
+     *    user pressed Esc. → release the lock when it lands and fly
+     *    mode is already inactive.
+     *
+     * 2. External lock loss while flying. The user can press Esc
+     *    (or the OS can yank the lock for tab-switch / focus-loss /
+     *    device disconnect reasons), in which case
+     *    `pointerLockElement` becomes null while RMB is still
+     *    physically held. Without intervention `flyState.active`
+     *    would stay true, `controls.enabled` would stay false, and
+     *    the viewport would be stuck in fly mode until the user
+     *    happened to release RMB. → end fly mode the same way a
+     *    pointerup would.
+     */
+    const handlePointerLockChange = () => {
+      const locked = document.pointerLockElement === renderer.domElement;
+      if (locked && !flyState.active) {
+        document.exitPointerLock?.();
+      } else if (!locked && flyState.active) {
+        exitFlyMode();
+      }
+    };
+
+    const enterFlyMode = () => {
+      if (flyState.active) return;
+      flyState.active = true;
+      flyHeldKeys.clear();
+      flyState.input.set(0, 0, 0);
+      flyState.euler.setFromQuaternion(camera.quaternion, "YXZ");
+      flyState.lastFrameTime = performance.now();
+      // Capture the orbit pivot distance now (before flying away
+      // from it) so `restoreOrbitTargetFromCamera` can place the new
+      // pivot at a sensible distance on exit.
+      flyState.orbitRadius = controls.target.distanceTo(camera.position);
+      controls.enabled = false;
+      // Capture the cursor so the user can keep dragging across the
+      // screen edge without the OS clamping the pointer. Some
+      // browsers (older Safari / WebView2 builds) don't expose
+      // pointer lock; in that case we just operate on raw movement
+      // events and the cursor stays visible — usable, if not ideal.
+      const target = renderer.domElement;
+      target.requestPointerLock?.();
+      window.addEventListener("mousemove", handleFlyMouseMove);
+      window.addEventListener("keydown", handleFlyKeyDown);
+      window.addEventListener("keyup", handleFlyKeyUp);
+      target.addEventListener("wheel", handleFlyWheel, { passive: false });
+    };
+
+    const exitFlyMode = () => {
+      if (!flyState.active) return;
+      flyState.active = false;
+      flyHeldKeys.clear();
+      flyState.input.set(0, 0, 0);
+      if (document.pointerLockElement === renderer.domElement) {
+        document.exitPointerLock?.();
+      }
+      window.removeEventListener("mousemove", handleFlyMouseMove);
+      window.removeEventListener("keydown", handleFlyKeyDown);
+      window.removeEventListener("keyup", handleFlyKeyUp);
+      renderer.domElement.removeEventListener("wheel", handleFlyWheel);
+      restoreOrbitTargetFromCamera();
+      controls.enabled = Boolean(sceneContextRef.current?.mountedObject);
+    };
+
     const pointerDownHandler = (event: PointerEvent) => {
       if (!sceneContextRef.current?.mountedObject) {
         controls.enabled = false;
@@ -699,16 +907,34 @@ export function AssetViewport({
         return;
       }
 
-      controls.enabled =
-        event.button === 0 || event.button === 1 || event.button === 2;
+      // Asset mode + RMB → fly mode (overrides OrbitControls dolly).
+      if (event.button === 2) {
+        enterFlyMode();
+        return;
+      }
+
+      controls.enabled = event.button === 0 || event.button === 1;
     };
 
-    const pointerUpHandler = () => {
+    const pointerUpHandler = (event: PointerEvent) => {
+      if (event.button === 2 && flyState.active) {
+        exitFlyMode();
+        return;
+      }
       controls.enabled = Boolean(sceneContextRef.current?.mountedObject);
+    };
+
+    // Suppress the browser context menu over the viewport so a quick
+    // RMB tap doesn't pop a menu mid-fly. The mode toggle would still
+    // work without this, but the visual flicker is unwelcome.
+    const contextMenuHandler = (event: MouseEvent) => {
+      event.preventDefault();
     };
 
     renderer.domElement.addEventListener("pointerdown", pointerDownHandler);
     window.addEventListener("pointerup", pointerUpHandler);
+    renderer.domElement.addEventListener("contextmenu", contextMenuHandler);
+    document.addEventListener("pointerlockchange", handlePointerLockChange);
     host.appendChild(renderer.domElement);
 
     const resizeObserver = new ResizeObserver(() => {
@@ -759,7 +985,36 @@ export function AssetViewport({
     let animationFrame = 0;
     const renderLoop = () => {
       animationFrame = window.requestAnimationFrame(renderLoop);
-      controls.update();
+
+      // Fly mode integrates WASD/QE input each frame. We skip the
+      // OrbitControls update entirely while flying because
+      // `controls.update()` is **not** gated by `controls.enabled` —
+      // it always recomputes the camera transform and calls
+      // `lookAt(controls.target)`, which would clobber the mouse-look
+      // orientation we set in the fly handlers. On fly exit we
+      // re-sync `controls.target` to the new viewpoint so the next
+      // orbit interaction pivots around what the user just framed.
+      if (flyState.active) {
+        const now = performance.now();
+        const dt = Math.min(0.1, (now - flyState.lastFrameTime) / 1000);
+        flyState.lastFrameTime = now;
+        const input = flyState.input;
+        if (dt > 0 && (input.x !== 0 || input.y !== 0 || input.z !== 0)) {
+          // Build forward / right vectors from the current Euler.
+          // World-up Y is used for vertical translation so Q/E always
+          // moves perpendicular to the ground plane regardless of
+          // pitch — this matches UE/Unity fly-cam conventions.
+          flyForward.set(0, 0, -1).applyEuler(flyState.euler);
+          flyRight.set(1, 0, 0).applyEuler(flyState.euler);
+          const distance = flyState.speed * dt;
+          camera.position
+            .addScaledVector(flyForward, -input.z * distance)
+            .addScaledVector(flyRight, input.x * distance);
+          camera.position.y += input.y * distance;
+        }
+      } else {
+        controls.update();
+      }
       if (fxaaEnabledRef.current && fxaaStateRef.current) {
         fxaaStateRef.current.composer.render();
       } else {
@@ -810,11 +1065,23 @@ export function AssetViewport({
     return () => {
       window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
+      // Drop fly-mode listeners *before* removing the pointer
+      // handlers so a teardown mid-fly doesn't leave dangling
+      // mousemove/keyboard listeners on `window`.
+      exitFlyMode();
       renderer.domElement.removeEventListener(
         "pointerdown",
         pointerDownHandler,
       );
       window.removeEventListener("pointerup", pointerUpHandler);
+      renderer.domElement.removeEventListener(
+        "contextmenu",
+        contextMenuHandler,
+      );
+      document.removeEventListener(
+        "pointerlockchange",
+        handlePointerLockChange,
+      );
       if (sceneContextRef.current) {
         stopAnimations(sceneContextRef.current);
         resetSceneObjects(sceneContextRef.current);
