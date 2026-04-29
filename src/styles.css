@@ -1363,6 +1363,45 @@ textarea {
   font-family: var(--font-mono);
 }
 
+.material-bindings {
+  margin-top: 4px;
+}
+
+.material-bindings > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.material-bindings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.material-bindings > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.material-bindings[open] > summary::before {
+  content: "▾ ";
+}
+
+.material-bindings-list {
+  list-style: none;
+  padding: 4px 0 0 12px;
+  margin: 0;
+}
+
+.material-binding {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #8a8f98;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── Recent Files ── */
 
 .recent-list {

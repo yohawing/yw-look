@@ -86,7 +86,10 @@ function countMaterialTextures(material: Material): number {
   return count;
 }
 
-function buildMaterialEntry(material: Material): MaterialEntry {
+function buildMaterialEntry(
+  material: Material,
+  boundMeshes: string[],
+): MaterialEntry {
   const typeName = material.type
     .replace("Material", "")
     .replace(/([a-z])([A-Z])/g, "$1 $2");
@@ -99,6 +102,7 @@ function buildMaterialEntry(material: Material): MaterialEntry {
     opacity: material.opacity,
     transparent: material.transparent,
     textureCount: countMaterialTextures(material),
+    boundMeshes,
   };
 }
 
@@ -244,6 +248,11 @@ export function collectAssetMetadata(
   let nodeCount = 0;
   let meshCount = 0;
   const materials = new Set<Material>();
+  // Material → mesh-name list. Insertion-ordered so the UI shows binds
+  // in scene-graph traversal order. A mesh that authors an array
+  // material is registered once per array slot, matching the way USD
+  // surfaces multiple bindings on a single Mesh prim.
+  const materialBindings = new Map<Material, string[]>();
   const textures = new Map<string, AssetMetadata["textures"][number]>();
   const textureRegistry = new Map<string, Texture>();
   const lights: LightEntry[] = [];
@@ -268,8 +277,17 @@ export function collectAssetMetadata(
 
     meshCount += 1;
 
+    const meshName = safeTrimmedName(child) || "(unnamed mesh)";
+
     for (const material of getMaterials(child.material)) {
       materials.add(material);
+
+      const existing = materialBindings.get(material);
+      if (existing) {
+        existing.push(meshName);
+      } else {
+        materialBindings.set(material, [meshName]);
+      }
 
       const textureSlots = [
         ["Base Color", "map"],
@@ -315,7 +333,9 @@ export function collectAssetMetadata(
       hasAnimation: clips.length > 0,
       hierarchy: [buildHierarchyNode(object)],
       textures: [...textures.values()],
-      materials: [...materials].map(buildMaterialEntry),
+      materials: [...materials].map((material) =>
+        buildMaterialEntry(material, materialBindings.get(material) ?? []),
+      ),
       lights,
       cameras,
     },

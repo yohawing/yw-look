@@ -21,6 +21,13 @@ export type MaterialEntry = {
   opacity: number;
   transparent: boolean;
   textureCount: number;
+  /** Names of meshes that bind this material. Derived from the live
+   * Three.js scene graph because the GLB → glTF → Three.js round-trip
+   * drops authored USD prim paths; mesh names are the closest stand-in
+   * the inspector can recover. Multiple meshes may share a material,
+   * and a single mesh authoring an array material appears once per
+   * slot. Empty when no mesh references the material (rare). */
+  boundMeshes: string[];
 };
 
 /** One light surfaced in the scene panel. Authored by USD as

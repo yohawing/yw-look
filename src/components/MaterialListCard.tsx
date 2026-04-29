@@ -36,7 +36,31 @@ export function MaterialListCard({ materials }: MaterialListCardProps) {
                       a:{mat.opacity.toFixed(2)}
                     </span>
                   ) : null}
+                  {mat.boundMeshes.length > 0 ? (
+                    <span
+                      className="material-detail"
+                      title={mat.boundMeshes.join("\n")}
+                    >
+                      {mat.boundMeshes.length} bind
+                      {mat.boundMeshes.length === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
                 </span>
+                {mat.boundMeshes.length > 0 && (
+                  <details className="material-bindings">
+                    <summary className="material-detail">bound meshes</summary>
+                    <ul className="material-bindings-list">
+                      {mat.boundMeshes.map((meshName, index) => (
+                        <li
+                          key={`${meshName}:${index}`}
+                          className="material-binding"
+                        >
+                          {meshName}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
             </li>
           ))}

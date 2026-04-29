@@ -244,7 +244,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] Composition arc viewer → #30（CompositionArcsCard で source prim ごとに references / payloads を集約、loaded / missing / unloaded を badge で区別）
 - [ ] Viewport picking → prim selection sync → #33
 - [x] Light enumeration & list panel → #35（Scene Fixtures カードに gltf.scene 由来の Light を一覧表示、type / intensity / color を表示）
-- [ ] Material binding panel → #36
+- [x] Material binding panel → #36（initial — MaterialListCard に bound mesh 一覧を表示。USD prim path は GLB round-trip で失われるので mesh 名で代替、shader 種別／input slot 詳細は後続）
 - [ ] Time samples inspector → #37
 - [x] Stage statistics 充実 → #38（prim type counts / vertices / triangles / variant set count）
 - [ ] usdcat-like flattened text view → #39

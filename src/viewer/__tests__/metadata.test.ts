@@ -115,6 +115,46 @@ describe("collectAssetMetadata", () => {
     expect(camEntry.far).toBe(5000);
   });
 
+  it("records mesh bindings on each material entry (#36)", () => {
+    const root = new Group();
+    const sharedMat = new MeshBasicMaterial();
+    sharedMat.name = "Body";
+    const trim = new MeshBasicMaterial();
+    trim.name = "Trim";
+
+    const torso = new Mesh(new BufferGeometry(), sharedMat);
+    torso.name = "Torso";
+    const arm = new Mesh(new BufferGeometry(), sharedMat);
+    arm.name = "Arm";
+    const collar = new Mesh(new BufferGeometry(), trim);
+    collar.name = "Collar";
+    root.add(torso);
+    root.add(arm);
+    root.add(collar);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    const body = result.metadata.materials.find((m) => m.name === "Body");
+    const trimEntry = result.metadata.materials.find((m) => m.name === "Trim");
+    expect(body?.boundMeshes).toEqual(["Torso", "Arm"]);
+    expect(trimEntry?.boundMeshes).toEqual(["Collar"]);
+  });
+
+  it("uses (unnamed mesh) for binding entries without a name", () => {
+    const root = new Group();
+    const mat = new MeshBasicMaterial();
+    mat.name = "M";
+    const mesh = new Mesh(new BufferGeometry(), mat);
+    (mesh as unknown as { name: unknown }).name = null;
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.materials[0].boundMeshes).toEqual([
+      "(unnamed mesh)",
+    ]);
+  });
+
   it("strips USD-backend wrapper-node suffixes from fixture names", () => {
     // The Rust USD→GLB backend wraps lights/cameras in host nodes named
     // `<authored>_light_node` / `<authored>_camera_node`. GLTFLoader copies
