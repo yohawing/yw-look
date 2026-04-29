@@ -67,6 +67,7 @@
 - [x] `右ドラッグ = Zoom` を実装する（Alt なし）
 - [x] モデルのバウンディングボックスに応じてカメラ操作感度（Orbit / Pan / Zoom）を自動調整する
 - [x] カメラ操作感度を手動で微調整できるオプションを追加する
+- [x] UE-style fly camera（RMB+WASD、マウスホイールで速度調整） → #25
 
 ## 6. 3D フォーマットローダー
 
@@ -239,15 +240,15 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [ ] stage 内 camera の列挙と切替 → #34
 - [ ] `USDLoader.parse` を Web Worker に退避 → #45
 - [ ] Per-prim attribute inspector → #28
-- [ ] Layer stack panel → #29
+- [x] Layer stack panel → #29（initial — composedLayers をカード内に階層表示）
 - [ ] Composition arc viewer → #30
 - [ ] Viewport picking → prim selection sync → #33
 - [ ] Light enumeration & list panel → #35
 - [ ] Material binding panel → #36
 - [ ] Time samples inspector → #37
-- [ ] Stage statistics 充実 → #38
+- [x] Stage statistics 充実 → #38（prim type counts / vertices / triangles / variant set count）
 - [ ] usdcat-like flattened text view → #39
-- [ ] Stage metadata panel → #40
+- [x] Stage metadata panel → #40（time codes / frames per second / start・end time code / comment / root layer format）
 
 ## 15. OS 統合（Windows / macOS）
 
