@@ -194,6 +194,45 @@ impl CStage {
         unsafe { usdc_stage_layer_count(self.raw) }
     }
 
+    /// Stage `timeCodesPerSecond` authored on the root layer, or
+    /// `None` when unauthored. The shim's
+    /// `usdc_stage_time_codes_per_second` returns the spec default
+    /// (24.0) unconditionally; this entry-point preserves the
+    /// "authored vs default" distinction the inspector needs.
+    pub fn authored_time_codes_per_second(&self) -> Option<f64> {
+        let mut out: f64 = 0.0;
+        let ok = unsafe { usdc_stage_authored_time_codes_per_second(self.raw, &mut out) };
+        if ok != 0 { Some(out) } else { None }
+    }
+
+    /// Stage `framesPerSecond` authored on the root layer.
+    pub fn authored_frames_per_second(&self) -> Option<f64> {
+        let mut out: f64 = 0.0;
+        let ok = unsafe { usdc_stage_authored_frames_per_second(self.raw, &mut out) };
+        if ok != 0 { Some(out) } else { None }
+    }
+
+    /// Stage `startTimeCode` authored on the root layer.
+    pub fn authored_start_time_code(&self) -> Option<f64> {
+        let mut out: f64 = 0.0;
+        let ok = unsafe { usdc_stage_authored_start_time_code(self.raw, &mut out) };
+        if ok != 0 { Some(out) } else { None }
+    }
+
+    /// Stage `endTimeCode` authored on the root layer.
+    pub fn authored_end_time_code(&self) -> Option<f64> {
+        let mut out: f64 = 0.0;
+        let ok = unsafe { usdc_stage_authored_end_time_code(self.raw, &mut out) };
+        if ok != 0 { Some(out) } else { None }
+    }
+
+    /// Stage `comment` authored on the root layer, or `None` when
+    /// unauthored / empty.
+    pub fn comment(&self) -> Option<String> {
+        let p = unsafe { usdc_stage_comment(self.raw) };
+        ptr_to_opt_string(p)
+    }
+
     pub fn traverse(&self) -> Vec<String> {
         let mut out = Vec::<String>::new();
         unsafe {

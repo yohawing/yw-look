@@ -113,6 +113,28 @@ USDC_API int usdc_stage_root_layer_is_binary(UsdcStage *stage);
  * layer and every sublayer / reference / payload). */
 USDC_API size_t usdc_stage_layer_count(UsdcStage *stage);
 
+/* Stage-level time metadata authored on the root layer. Each function
+ * returns 1 and writes the authored value to `*out` on success;
+ * returns 0 when the metadatum is not authored on the root layer.
+ * Callers fall back to the USD spec defaults
+ * (`timeCodesPerSecond=24`, `framesPerSecond=24`, time codes = 0)
+ * when 0 is returned, but the inspector surfaces the authored vs
+ * default distinction so users can tell a stage apart from one that
+ * relies on implicit defaults. */
+USDC_API int usdc_stage_authored_time_codes_per_second(UsdcStage *stage,
+                                                       double *out);
+USDC_API int usdc_stage_authored_frames_per_second(UsdcStage *stage,
+                                                   double *out);
+USDC_API int usdc_stage_authored_start_time_code(UsdcStage *stage,
+                                                 double *out);
+USDC_API int usdc_stage_authored_end_time_code(UsdcStage *stage,
+                                               double *out);
+
+/* Returns the stage's authored `comment` metadatum on the root layer,
+ * or NULL if not authored. Scratch-buffer lifetime; copy before the
+ * next shim call on this stage. */
+USDC_API const char *usdc_stage_comment(UsdcStage *stage);
+
 /* -------------------- enumeration callbacks -------------------- */
 
 /* Receives one C string per call. The `s` pointer is valid only

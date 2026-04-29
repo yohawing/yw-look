@@ -45,6 +45,7 @@
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/schema.h>
 #include <pxr/usd/sdf/payload.h>
 #include <pxr/usd/sdf/reference.h>
 #include <pxr/usd/usd/payloads.h>
@@ -332,6 +333,74 @@ extern "C" USDC_API int usdc_stage_root_layer_is_binary(UsdcStage *stage) {
         return (fmt == kUsdc || fmt == kUsdz) ? 1 : 0;
     } catch (...) {
         return -1;
+    }
+}
+
+/* -------------------- stage metadata (#40) -------------------- */
+
+namespace {
+/* Shared body for the four authored-time-metadata readers. Returns 1
+ * iff the root layer authors `field` and the value is convertible to
+ * a double. We deliberately query the root layer directly (via
+ * `HasField` / `Get`) rather than `UsdStage::GetMetadata` because the
+ * latter substitutes spec defaults for unauthored fields, which the
+ * inspector wants to distinguish. */
+int read_authored_root_field_double(UsdcStage *stage,
+                                    const TfToken &field,
+                                    double *out) {
+    if (!stage || !out) return 0;
+    try {
+        SdfLayerHandle root = stage->stage->GetRootLayer();
+        if (!root) return 0;
+        VtValue v;
+        if (!root->HasField(SdfPath::AbsoluteRootPath(), field, &v)) return 0;
+        if (v.IsHolding<double>()) {
+            *out = v.UncheckedGet<double>();
+            return 1;
+        }
+        if (v.IsHolding<float>()) {
+            *out = static_cast<double>(v.UncheckedGet<float>());
+            return 1;
+        }
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+} /* namespace */
+
+extern "C" USDC_API int
+usdc_stage_authored_time_codes_per_second(UsdcStage *stage, double *out) {
+    return read_authored_root_field_double(stage, SdfFieldKeys->TimeCodesPerSecond, out);
+}
+
+extern "C" USDC_API int
+usdc_stage_authored_frames_per_second(UsdcStage *stage, double *out) {
+    return read_authored_root_field_double(stage, SdfFieldKeys->FramesPerSecond, out);
+}
+
+extern "C" USDC_API int
+usdc_stage_authored_start_time_code(UsdcStage *stage, double *out) {
+    return read_authored_root_field_double(stage, SdfFieldKeys->StartTimeCode, out);
+}
+
+extern "C" USDC_API int
+usdc_stage_authored_end_time_code(UsdcStage *stage, double *out) {
+    return read_authored_root_field_double(stage, SdfFieldKeys->EndTimeCode, out);
+}
+
+extern "C" USDC_API const char *
+usdc_stage_comment(UsdcStage *stage) {
+    if (!stage) return nullptr;
+    try {
+        SdfLayerHandle root = stage->stage->GetRootLayer();
+        if (!root) return nullptr;
+        const std::string &comment = root->GetComment();
+        if (comment.empty()) return nullptr;
+        stage->scratch = comment;
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
     }
 }
 
