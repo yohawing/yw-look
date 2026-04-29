@@ -196,7 +196,7 @@ Phase 1 で実装した Rust コマンドをフロントエンドに反映し、
 2. ✅ `collect_asset_issues` の結果を既存 WarningsCard に合流
 3. ✅ `USDLoader.parse` 前に `rAF + setTimeout(0)` で 1 フレーム譲りサマリを先に paint
 4. ✅ USDC バイナリ検出時に明示エラーを出す（黙って空描画になるのを防ぐ）
-5. ✅ Web Worker scaffold を `VITE_USD_WORKER=1` で有効化できる状態で用意（default OFF）
+5. ✅ Web Worker scaffold を `VITE_USD_WORKER=1` で有効化できる状態で用意（Phase 2 時点 default OFF。Phase 3 完了後 #45 で default ON、`VITE_USD_WORKER=0` で OFF）
 
 ### 読み込みパイプライン設計
 
@@ -219,12 +219,13 @@ currentFile 変更
 
 USDC の 3D 描画は Three.js では不可能。Phase 3 で Rust → カスタムバイナリ → 専用 Loader パイプラインで対応する。
 
-### Web Worker スケルトン（`VITE_USD_WORKER=1`）
+### Web Worker（default ON、#45）
 
 - `src/workers/usdLoader.worker.ts` — USDLoader.parse → `Group.toJSON()` を worker 内で実行
 - `src/viewer/usdWorkerLoader.ts` — worker 呼び出し + `ObjectLoader` 再構築 wrapper
 - 失敗時は同期 parse にフォールバック。binary buffer は `slice(0)` でコピーして渡す（transfer で detach しない）
-- toJSON/fromJSON の material 再現度は Phase 3 で検証してから正式 ON にする
+- Phase 3 完了後、worker が触るのは単一バッファ USDA のみ（USDC・USDZ・composition は Rust GLB 経路に流れる）。toJSON/fromJSON の lossy 領域から外れたため #45 で default ON に切替えた
+- `VITE_USD_WORKER=0` を build 時に渡すと worker を OFF にできる。worker-only な回帰を bisect するときの escape hatch
 
 ---
 

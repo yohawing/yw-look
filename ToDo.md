@@ -238,7 +238,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [ ] `PointInstancer` preview → #41
 - [ ] `GeomSubset` / face subset material binding → #42
 - [x] stage 内 camera の列挙と切替 → #34（initial — Scene Fixtures カードに gltf.scene 由来の Camera を一覧表示。切替 UI は未実装）
-- [ ] `USDLoader.parse` を Web Worker に退避 → #45
+- [x] `USDLoader.parse` を Web Worker に退避 → #45（Phase 2 で scaffold 済み、Phase 3 で USDC/USDZ/composition が Rust GLB 経路に移ったため worker 担当は単一バッファ USDA のみ。default ON、`VITE_USD_WORKER=0` で OFF。失敗時は同期 parse へフォールバック）
 - [ ] Per-prim attribute inspector → #28
 - [x] Layer stack panel → #29（initial — composedLayers をカード内に階層表示）
 - [x] Composition arc viewer → #30（CompositionArcsCard で source prim ごとに references / payloads を集約、loaded / missing / unloaded を badge で区別）

@@ -1,12 +1,16 @@
 /**
- * Main-thread wrapper around the experimental USD parse worker.
+ * Main-thread wrapper around the USD parse worker.
  *
- * Phase 2 deliverable: the scaffold and call site, behind a hard off
- * switch. `isUsdWorkerEnabled()` is the single gate — everywhere else
- * we pretend the worker doesn't exist until Phase 3 validates the
- * toJSON/fromJSON roundtrip against real assets.
+ * Default ON since #45. The worker only handles single-buffer USDA
+ * — anything that needs USDC decoding or external composition is
+ * already routed to the Rust GLB pipeline via `requires_glb_preview`,
+ * so the toJSON/fromJSON roundtrip the worker uses doesn't have to
+ * cope with USDZ-embedded textures or layered references in practice.
+ * Worker errors fall back to the synchronous main-thread parse in
+ * `loaders.ts`, so flipping this off via env should only be necessary
+ * if a regression is suspected.
  *
- * See docs/usd.md.
+ * See docs/usd.md §"Web Worker スケルトン".
  */
 
 import { ObjectLoader, type Object3D } from "three";
@@ -16,17 +20,18 @@ import type {
 } from "../workers/usdLoader.worker";
 
 /**
- * Phase 2 default: OFF. Flip `VITE_USD_WORKER=1` at build time to
- * opt-in locally. We intentionally do not expose this in Settings yet
- * — fall-through still goes to the synchronous path in `loaders.ts`.
+ * `true` unless `VITE_USD_WORKER=0` is set at build time. The default
+ * was flipped from OFF → ON in #45; the env override is kept as a
+ * one-line escape hatch for diagnosing worker-only regressions
+ * without rebuilding from a different commit.
  */
 export function isUsdWorkerEnabled(): boolean {
   try {
     const env = (import.meta as unknown as { env?: Record<string, unknown> })
       .env;
-    return env?.VITE_USD_WORKER === "1";
+    return env?.VITE_USD_WORKER !== "0";
   } catch {
-    return false;
+    return true;
   }
 }
 

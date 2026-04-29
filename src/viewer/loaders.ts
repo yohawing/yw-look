@@ -743,9 +743,11 @@ export async function loadPreviewObject(
       // Three.js parse. See docs/usd-phase2.md for the 2-stage load design.
       await yieldToPaint();
 
-      // Phase 2: optionally route the parse to a Web Worker. Default OFF.
-      // On any worker failure we silently fall back to the synchronous
-      // main-thread parse so the feature flag can never regress.
+      // Route the parse to a Web Worker by default (#45). On any worker
+      // failure we silently fall back to the synchronous main-thread
+      // parse so the worker can never make things worse than the
+      // pre-#45 behavior. Disable with `VITE_USD_WORKER=0` at build
+      // time when bisecting a worker-only regression.
       let workerObject: Object3D | null = null;
       if (isUsdWorkerEnabled()) {
         try {

@@ -1,5 +1,5 @@
 /**
- * Experimental USD parse worker (Phase 2 scaffold).
+ * USD parse worker.
  *
  * Goal: move the synchronous `USDLoader.parse(buffer)` call off the main
  * thread so the UI stays responsive while Three.js walks the USD scene
@@ -7,14 +7,14 @@
  * serialize via `Object3D.toJSON()` in the worker and rebuild on the
  * main thread with `ObjectLoader.parse()`.
  *
- * Status: OFF by default. `src/viewer/usdWorkerLoader.ts` only routes
- * traffic here when `import.meta.env.VITE_USD_WORKER === "1"`. The
- * toJSON/fromJSON roundtrip has known lossy cases (custom materials,
- * USDZ-embedded textures) that will be validated in Phase 3 before we
- * enable it for real users.
+ * Status: ON by default since #45. Anything that would have hit the
+ * lossy roundtrip cases (USDC decoding, USDZ archives, layered
+ * composition) already goes through the Rust GLB pipeline, so this
+ * worker only sees single-buffer USDA. `usdWorkerLoader.ts` rejects
+ * worker failures into a synchronous fallback, so flipping
+ * `VITE_USD_WORKER=0` is only needed for diagnosing regressions.
  *
- * See docs/usd.md §"Web Worker スケルトン" for the rationale and
- * the Phase 3 acceptance criteria.
+ * See docs/usd.md §"Web Worker スケルトン".
  */
 
 import { USDLoader } from "three/examples/jsm/loaders/USDLoader.js";
