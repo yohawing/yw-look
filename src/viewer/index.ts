@@ -48,7 +48,7 @@ export type {
   TextureFilterMode,
 } from "./scene";
 
-export { loadPreviewObject } from "./loaders";
+export { loadPreviewObject, tryExtractUsdaText } from "./loaders";
 
 export {
   collectAssetMetadata,

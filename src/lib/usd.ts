@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { readBinaryFile } from "./files";
 
 /**
  * Phase 4 wire-level load policy. `loadAll` keeps the Phase 3 behavior
@@ -130,6 +131,51 @@ export async function collectAssetIssues(path: string) {
  */
 export async function requiresGlbPreview(path: string) {
   return invoke<boolean>("requires_glb_preview", { path });
+}
+
+/**
+ * #39 — initial: pull the USDA text for `path` directly from disk so
+ * the inspector can show the authored source. Resolves to:
+ *
+ *   - `{ kind: "text", source: "..." }` for `.usda`, `.usd` whose root
+ *     is text USDA, or `.usdz` whose first archive entry is a USDA
+ *     layer.
+ *   - `{ kind: "binary" }` for `.usdc`, `.usd` with a USDC root, or
+ *     `.usdz` whose first entry is binary. The Rust backend will need
+ *     a real `flatten_stage` API before these can be surfaced — issue
+ *     #39 captures that follow-up.
+ *
+ * Note that this is **not** a true `usdcat --flatten`. References,
+ * payloads, and sublayers are NOT composed in; the user only sees the
+ * authored root layer. We name the helper `loadUsdSource` rather than
+ * `flattenUsd` to keep the distinction honest until the fork API
+ * lands.
+ */
+export type UsdSourcePayload =
+  | { kind: "text"; source: string }
+  | { kind: "binary" };
+
+export async function loadUsdSource(
+  path: string,
+  extension: string,
+): Promise<UsdSourcePayload> {
+  // Short-circuit on extensions that are guaranteed binary so we
+  // never round-trip a multi-MB `.usdc` (or other future binary
+  // formats) through the JS number-array IPC just to discard it.
+  // Other extensions still need a content sniff: `.usd` may be
+  // either USDA or USDC, and `.usdz` is a zip whose first layer
+  // could be either.
+  if (extension === "usdc") {
+    return { kind: "binary" };
+  }
+  const { tryExtractUsdaText } = await import("../viewer");
+  const bytes = await readBinaryFile(path);
+  // `read_binary_file` ships the payload as a JSON number array; copy
+  // into a typed buffer once so the fflate USDZ path receives the
+  // same shape it gets through the regular load pipeline.
+  const buffer = Uint8Array.from(bytes).buffer;
+  const text = await tryExtractUsdaText(extension, buffer);
+  return text === null ? { kind: "binary" } : { kind: "text", source: text };
 }
 
 /**

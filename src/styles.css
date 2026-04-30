@@ -1402,6 +1402,45 @@ textarea {
   text-overflow: ellipsis;
 }
 
+/* ── USD Source ── (#39) */
+
+.usd-source {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  color: #c8ccd2;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+  max-height: 360px;
+}
+
+.usd-source .usd-keyword {
+  color: #c586c0;
+  font-weight: 510;
+}
+
+.usd-source .usd-type {
+  color: #4ec9b0;
+}
+
+.usd-source .usd-string {
+  color: #ce9178;
+}
+
+.usd-source .usd-number {
+  color: #b5cea8;
+}
+
+.usd-source .usd-comment {
+  color: #6a9955;
+  font-style: italic;
+}
+
 /* ── Recent Files ── */
 
 .recent-list {

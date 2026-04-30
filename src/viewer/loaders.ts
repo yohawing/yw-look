@@ -334,7 +334,7 @@ function isUsdcCrateBuffer(buffer: ArrayBuffer) {
   return crateHeader.every((value, index) => view[index] === value);
 }
 
-async function tryExtractUsdaText(
+export async function tryExtractUsdaText(
   extension: string,
   buffer: ArrayBuffer,
 ): Promise<string | null> {

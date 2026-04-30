@@ -251,7 +251,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] Material binding panel → #36（initial — MaterialListCard に bound mesh 一覧を表示。USD prim path は GLB round-trip で失われるので mesh 名で代替、shader 種別／input slot 詳細は後続）
 - [ ] Time samples inspector → #37
 - [x] Stage statistics 充実 → #38（prim type counts / vertices / triangles / variant set count）
-- [ ] usdcat-like flattened text view → #39
+- [x] usdcat-like flattened text view → #39（initial — UsdSourceCard で .usda / .usd(text) / .usdz(text root) の root layer を表示。regex syntax highlight、256k chars truncation。USDC / USDZ-USDC root は backend `flatten_stage` 待ち）
 - [x] Stage metadata panel → #40（time codes / frames per second / start・end time code / comment / root layer format）
 
 ## 15. OS 統合（Windows / macOS）
