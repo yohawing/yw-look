@@ -430,15 +430,50 @@ impl UsdBackend for OpenusdCppBackend {
             _ => None,
         };
 
-        // Pass 1: collect every renderable Mesh prim path. The shim's
-        // `prim_is_renderable_mesh` delegates to UsdGeomImageable
-        // inheritance so this already respects active / visibility /
-        // purpose the way usdview's default purpose does.
-        let all_prims = stage.traverse();
-        let mut mesh_paths: Vec<String> = all_prims
+        // Pass 1: collect every Mesh prim. We use two sub-passes:
+        //   a) `prim_is_renderable_mesh` — already handles active /
+        //      visibility / purpose={default,render} via UsdGeomImageable.
+        //   b) A second pass picks up purpose={proxy,guide} meshes that
+        //      `prim_is_renderable_mesh` would skip. We record these with
+        //      their purpose token so the GLB node extras can tag them for
+        //      frontend dynamic visibility (#32).
+        // Active/visibility filtering for (b) is best-effort: a proxy mesh
+        // inside an invisible or deactivated parent is still included; the
+        // frontend's purposeModes default (render=true, proxy=false,
+        // guide=false) hides them by default, so any over-inclusion is not
+        // user-visible at startup.
+        let all_prims_a = stage.traverse();
+        let mut mesh_paths: Vec<String> = all_prims_a
             .into_iter()
             .filter(|p| stage.prim_is_renderable_mesh(p))
             .collect();
+
+        // Collect proxy/guide meshes not covered by prim_is_renderable_mesh.
+        // NOTE (known limitation, #32): `prim_attr_token` reads the authored
+        // attribute on the prim itself and does not resolve USD purpose
+        // inheritance from ancestor Xforms. A mesh whose purpose is set via an
+        // ancestor will therefore not appear in this pass. Additionally, the
+        // active/invisible checks from `prim_is_renderable_mesh` are not
+        // repeated here, so a proxy/guide mesh under an invisible imageable
+        // will still be extracted. Both gaps require C-shim or USD API changes
+        // to fix properly and are deferred.
+        let all_prims_b = stage.traverse();
+        let extra_paths: Vec<String> = all_prims_b
+            .into_iter()
+            .filter(|p| {
+                if mesh_paths.contains(p) {
+                    return false; // already present
+                }
+                if !stage.prim_type_is_mesh(p) {
+                    return false;
+                }
+                let purpose = stage
+                    .prim_attr_token(p, "purpose")
+                    .unwrap_or_default();
+                purpose == "proxy" || purpose == "guide"
+            })
+            .collect();
+        mesh_paths.extend(extra_paths);
 
         // Drop "leaked" root prims from referenced / payloaded layers
         // when the stage authors a defaultPrim. Matches the Rust
@@ -674,6 +709,12 @@ impl UsdBackend for OpenusdCppBackend {
                     &mut material_metal_rough_paths,
                 );
                 triangulated.skin_index = skin_index_from_payload(&triangulated, skin_slot);
+                // #32: attach the USD purpose token for dynamic
+                // frontend visibility toggle.
+                triangulated.purpose = Some(
+                    stage.prim_attr_token(prim_path, "purpose")
+                        .unwrap_or_else(|| "default".to_string()),
+                );
                 inputs.push(triangulated);
             } else {
                 for subset in &subsets {
@@ -722,6 +763,11 @@ impl UsdBackend for OpenusdCppBackend {
                         &mut material_metal_rough_paths,
                     );
                     tri.skin_index = skin_index_from_payload(&tri, skin_slot);
+                    // #32: subsets inherit parent mesh's purpose.
+                    tri.purpose = Some(
+                        stage.prim_attr_token(prim_path, "purpose")
+                            .unwrap_or_else(|| "default".to_string()),
+                    );
                     inputs.push(tri);
                 }
             }

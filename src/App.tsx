@@ -44,6 +44,7 @@ import {
   inspectStage,
   summarizeStage,
   type AssetIssue,
+  type PurposeModes,
   type StageInspection,
   type StageLoadPolicy,
   type StageSummary,
@@ -382,6 +383,13 @@ export function App() {
   // the matching node; when the user clicks empty space the value
   // resets to null and the highlight clears.
   const [selectedMeshName, setSelectedMeshName] = useState<string | null>(null);
+  // #32: USD purpose visibility. Defaults match pre-#32 behavior:
+  // render ON, proxy/guide OFF.
+  const [purposeModes, setPurposeModes] = useState<PurposeModes>({
+    render: true,
+    proxy: false,
+    guide: false,
+  });
   const isTauri = isTauriEnvironment();
   // Browser mode needs recent files immediately for the always-visible MenuBar.
   // Tauri can keep this deferred until the sidebar is opened.
@@ -1672,6 +1680,7 @@ export function App() {
             texturePreview3D={texturePreview3D}
             onSelectMesh={setSelectedMeshName}
             selectedMeshName={selectedMeshName}
+            purposeModes={purposeModes}
           />
 
           {/* ViewModeControls overlay */}
@@ -1808,6 +1817,64 @@ export function App() {
                   className={`toggle-switch${showNormals ? " is-on" : ""}`}
                 />
               </button>
+              {isUsdFile(currentFile) ? (
+                <div
+                  aria-label="USD Purpose"
+                  className="view-mode-section"
+                  role="group"
+                  title="Toggle USD geometry purpose visibility (GLB pipeline only)"
+                >
+                  <span className="view-mode-section-label">Purpose</span>
+                  <button
+                    className={`view-mode-toggle${purposeModes.render ? " is-active" : ""}`}
+                    onClick={() =>
+                      setPurposeModes((prev) => ({
+                        ...prev,
+                        render: !prev.render,
+                      }))
+                    }
+                    type="button"
+                    title="Show / hide render-purpose geometry"
+                  >
+                    <span>Render</span>
+                    <span
+                      className={`toggle-switch${purposeModes.render ? " is-on" : ""}`}
+                    />
+                  </button>
+                  <button
+                    className={`view-mode-toggle${purposeModes.proxy ? " is-active" : ""}`}
+                    onClick={() =>
+                      setPurposeModes((prev) => ({
+                        ...prev,
+                        proxy: !prev.proxy,
+                      }))
+                    }
+                    type="button"
+                    title="Show / hide proxy-purpose geometry"
+                  >
+                    <span>Proxy</span>
+                    <span
+                      className={`toggle-switch${purposeModes.proxy ? " is-on" : ""}`}
+                    />
+                  </button>
+                  <button
+                    className={`view-mode-toggle${purposeModes.guide ? " is-active" : ""}`}
+                    onClick={() =>
+                      setPurposeModes((prev) => ({
+                        ...prev,
+                        guide: !prev.guide,
+                      }))
+                    }
+                    type="button"
+                    title="Show / hide guide-purpose geometry"
+                  >
+                    <span>Guide</span>
+                    <span
+                      className={`toggle-switch${purposeModes.guide ? " is-on" : ""}`}
+                    />
+                  </button>
+                </div>
+              ) : null}
               <div
                 aria-label="Background"
                 className="view-mode-section"

@@ -432,22 +432,20 @@ impl UsdBackend for OpenusdBackend {
             _ => None,
         };
 
-        // Pass 1: collect every renderable Mesh prim path. We filter by
-        // USD renderability metadata here so hidden scaffolding doesn't
-        // show up in the preview:
-        //   - active == false            → prim is disabled
-        //   - visibility == "invisible"  → prim and descendants hidden
-        //   - purpose in {proxy, guide}  → helper geometry for DCC tools
-        // These match what Hydra / usdview use for the `default` viewer
-        // purpose, which is what yw-look emulates.
+        // Pass 1: collect every Mesh prim that is active and visible.
+        // We intentionally do NOT filter by purpose here so that all
+        // four USD purposes (default / render / proxy / guide) land in
+        // the GLB. Each MeshInput gets the resolved purpose token
+        // written into its `purpose` field so the frontend can toggle
+        // visibility dynamically without re-extracting the GLB (#32).
         //
-        // We can't call mesh_of from inside the traverse closure because
-        // both borrow the stage, so we gather paths first and process
-        // them after the walk completes.
+        // (The legacy `is_renderable_mesh` helper also excluded proxy /
+        // guide — that behaviour now lives on the frontend via the
+        // `purposeModes` default render=true, proxy=false, guide=false.)
         let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
         stage
             .traverse(|prim_path| {
-                if !is_renderable_mesh(&stage, prim_path) {
+                if !is_mesh_active_and_visible(&stage, prim_path) {
                     return;
                 }
                 mesh_paths.borrow_mut().push(prim_path.clone());
@@ -718,6 +716,8 @@ impl UsdBackend for OpenusdBackend {
                         }
                     }
                     tri.skin_index = mesh_skin_slots[mesh_idx];
+                    // #32: inherit parent mesh's purpose for subsets.
+                    tri.purpose = Some(resolve_purpose(&stage, prim_path));
                     inputs.push(tri);
                 }
                 continue; // skip whole-mesh path
@@ -777,6 +777,12 @@ impl UsdBackend for OpenusdBackend {
             // primitive. The mesh is rendered statically when no
             // skin is bound.
             triangulated.skin_index = mesh_skin_slots[mesh_idx];
+
+            // #32: resolve the USD purpose token for this prim and
+            // attach it to the MeshInput so the GLB writer can embed
+            // it in node extras. The frontend reads `userData.purpose`
+            // after GLTFLoader copies node extras → userData.
+            triangulated.purpose = Some(resolve_purpose(&stage, prim_path));
 
             inputs.push(triangulated);
         }
@@ -2821,6 +2827,13 @@ fn read_mesh_orientation(stage: &Stage, prim_path: &SdfPath) -> MeshOrientation 
 /// `active` is not technically inherited but deactivating an ancestor
 /// conceptually removes the whole subtree from composition, so we treat
 /// it the same way.
+///
+/// NOTE: no longer used by `extract_geometry_glb` (superseded by
+/// `is_mesh_active_and_visible` which skips the purpose filter so all
+/// four purposes land in the GLB for dynamic #32 frontend toggle).
+/// Kept as a reference implementation; call sites outside this module
+/// may still find it useful for non-GLB paths.
+#[allow(dead_code)]
 fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
     // Must be a Mesh at the leaf.
     match stage.field::<String>(prim_path.clone(), FieldKey::TypeName) {
@@ -2884,6 +2897,84 @@ fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
     true
 }
 
+/// Like `is_renderable_mesh` but does NOT filter on `purpose`. Used by
+/// `extract_geometry_glb_with_options` (plan A) which embeds the purpose
+/// token in the GLB node extras so the frontend can toggle visibility
+/// dynamically without re-extracting. The caller is responsible for
+/// writing the resolved purpose onto each `MeshInput`.
+fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> bool {
+    // Must be a Mesh at the leaf.
+    match stage.field::<String>(prim_path.clone(), FieldKey::TypeName) {
+        Ok(Some(type_name)) if type_name == "Mesh" => {}
+        _ => return false,
+    }
+
+    let mut path_str = prim_path.as_str().to_string();
+    loop {
+        let Ok(ancestor) = SdfPath::new(&path_str) else {
+            break;
+        };
+
+        if let Ok(Some(false)) =
+            stage.field::<bool>(ancestor.clone(), FieldKey::Active)
+        {
+            return false;
+        }
+
+        if let Ok(prop) = ancestor.append_property("visibility") {
+            if let Ok(Some(value)) = stage.field::<SdfValue>(prop, FieldKey::Default) {
+                if let SdfValue::Token(token) | SdfValue::String(token) = value {
+                    if token == "invisible" {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        let Some(slash_idx) = path_str.rfind('/') else {
+            break;
+        };
+        if slash_idx == 0 {
+            break;
+        }
+        path_str.truncate(slash_idx);
+    }
+
+    true
+}
+
+/// Read the effective `purpose` token for `prim_path` by walking toward
+/// the pseudo-root, returning the first authored non-"inherited" purpose
+/// found. Returns `"default"` when no ancestor authors a purpose.
+fn resolve_purpose(stage: &Stage, prim_path: &SdfPath) -> String {
+    let mut path_str = prim_path.as_str().to_string();
+    loop {
+        let Ok(ancestor) = SdfPath::new(&path_str) else {
+            break;
+        };
+
+        if let Ok(prop) = ancestor.append_property("purpose") {
+            if let Ok(Some(value)) = stage.field::<SdfValue>(prop, FieldKey::Default) {
+                if let SdfValue::Token(token) | SdfValue::String(token) = value {
+                    // "inherited" means "inherit from parent" — keep walking.
+                    if !token.is_empty() && token != "inherited" {
+                        return token;
+                    }
+                }
+            }
+        }
+
+        let Some(slash_idx) = path_str.rfind('/') else {
+            break;
+        };
+        if slash_idx == 0 {
+            break;
+        }
+        path_str.truncate(slash_idx);
+    }
+
+    "default".to_string()
+}
 
 /// Walks `prim_path` toward the pseudo-root, multiplying each ancestor's
 /// `local_xform_of` to obtain a composed world matrix in column-major order.
@@ -3992,6 +4083,11 @@ pub(crate) fn mesh_data_to_input(
             })
             .collect(),
         morph_weights: vec![0.0f32; blend_shapes.len()],
+        // #32: purpose is patched in after traversal (the field lives
+        // on the prim, not in the MeshData struct), so default None
+        // here. The extract_geometry_glb_with_options override fills
+        // this in for the Rust backend path.
+        purpose: None,
     })
 }
 

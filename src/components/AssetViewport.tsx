@@ -289,6 +289,13 @@ type AssetViewportProps = {
    * selection tint to the matching mesh; `null` clears any active tint.
    */
   selectedMeshName?: string | null;
+  /**
+   * #32: USD purpose visibility filter. `default` purpose is always shown.
+   * Each of render / proxy / guide is independently toggled. When undefined
+   * the viewport behaves as if render=true, proxy=false, guide=false which
+   * matches the pre-#32 behavior.
+   */
+  purposeModes?: import("../lib/usd").PurposeModes;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -487,6 +494,7 @@ export function AssetViewport({
   texturePreview3D,
   onSelectMesh,
   selectedMeshName,
+  purposeModes,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -536,6 +544,7 @@ export function AssetViewport({
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
   const texturePreview3DRef = useRef(texturePreview3D);
   const onSelectMeshRef = useRef(onSelectMesh);
+  const purposeModesRef = useRef(purposeModes);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -630,6 +639,53 @@ export function AssetViewport({
       applySelectionHighlight(mounted, selectedMeshName);
     }
   }, [selectedMeshName]);
+
+  // #32: USD purpose visibility. Traverse an object and set child.visible
+  // based on userData.purpose (written to GLB node extras by the Rust
+  // backend). `default` is always shown. render/proxy/guide are controlled
+  // by purposeModes. This is extracted as a plain function so it can be
+  // called both from the useEffect below (prop change) and from the load
+  // callback (initial scene mount, where the ref mutation won't re-trigger
+  // the effect).
+  function applyPurposeVisibility(
+    root: import("three").Object3D,
+    modes: import("../lib/usd").PurposeModes | undefined,
+  ) {
+    const render = modes?.render ?? true;
+    const proxy = modes?.proxy ?? false;
+    const guide = modes?.guide ?? false;
+
+    root.traverse((child) => {
+      const purpose: unknown = child.userData?.purpose;
+      if (typeof purpose !== "string") return;
+
+      let visible: boolean;
+      switch (purpose) {
+        case "default":
+          visible = true;
+          break;
+        case "render":
+          visible = render;
+          break;
+        case "proxy":
+          visible = proxy;
+          break;
+        case "guide":
+          visible = guide;
+          break;
+        default:
+          visible = true;
+      }
+      child.visible = visible;
+    });
+  }
+
+  useEffect(() => {
+    purposeModesRef.current = purposeModes;
+    const mounted = sceneContextRef.current?.mountedObject;
+    if (!mounted) return;
+    applyPurposeVisibility(mounted, purposeModes);
+  }, [purposeModes]);
 
   useEffect(() => {
     cameraSpeedMultiplierRef.current = cameraSpeedMultiplier;
@@ -1595,6 +1651,11 @@ export function AssetViewport({
           showBoundingBoxesRef.current,
         );
         applyNormalHelpers(context.scene, object, showNormalsRef.current);
+        // #32: Apply purpose visibility immediately after mount so that
+        // proxy/guide meshes are hidden by default without waiting for the
+        // purposeModes prop to change (the useEffect won't re-fire because
+        // ref mutations are transparent to React's dependency tracking).
+        applyPurposeVisibility(object, purposeModesRef.current);
 
         context.clips = clips;
         if (clips.length > 0) {

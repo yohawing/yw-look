@@ -365,6 +365,12 @@ pub struct MeshInput {
     /// pose); animation that drives the weights at runtime is a
     /// follow-up (SkelAnimation `blendShapeWeights` track).
     pub morph_weights: Vec<f32>,
+    /// #32: USD `UsdGeomImageable.purpose` token authored on this
+    /// mesh's prim (or an ancestor). One of `"default"`, `"render"`,
+    /// `"proxy"`, `"guide"`. `None` is treated as `"default"` by the
+    /// GLB writer so the frontend always sees a non-null string in
+    /// `node.extras.purpose`.
+    pub purpose: Option<String>,
 }
 
 impl MeshInput {
@@ -1060,6 +1066,17 @@ pub fn build_glb(
         });
         if let Some(skin_idx) = mesh.skin_index {
             node_obj["skin"] = json!(skin_idx);
+        }
+        // #32: embed purpose in node extras so the frontend can read
+        // `userData.purpose` after GLTFLoader copies extras → userData.
+        // Default to "default" when the caller did not supply a value
+        // so downstream JS always gets a non-null string.
+        {
+            let purpose_str = mesh
+                .purpose
+                .as_deref()
+                .unwrap_or("default");
+            node_obj["extras"] = json!({ "purpose": purpose_str });
         }
         nodes.push(node_obj);
         scene_nodes.push(json!(node_idx));
@@ -1903,6 +1920,7 @@ mod tests {
             skin_index: None,
             morph_targets: Vec::new(),
             morph_weights: Vec::new(),
+            purpose: None,
         }
     }
 
