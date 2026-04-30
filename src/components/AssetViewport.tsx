@@ -303,6 +303,15 @@ type AssetViewportProps = {
    * Ignored for non-USD files and the USDA single-buffer path.
    */
   variantSelections?: import("../lib/usd").VariantSelection[];
+  /**
+   * #34: Name of the USD camera to use as the active viewport camera.
+   * `null` (default) keeps the free-orbit PerspectiveCamera.
+   * When a value is set the viewport traverses the scene graph, finds the
+   * matching PerspectiveCamera node (by stripped name), uses it for
+   * rendering, and disables OrbitControls so the transform is USD-driven.
+   * The fly-cam (RMB+WASD) is also blocked while a USD camera is active.
+   */
+  activeCameraName?: string | null;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -503,6 +512,7 @@ export function AssetViewport({
   selectedMeshName,
   purposeModes,
   variantSelections,
+  activeCameraName = null,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -525,6 +535,10 @@ export function AssetViewport({
         uniforms: Record<string, { value: Vector2 }>;
       };
     };
+    /** The RenderPass stored so its `.camera` can be swapped when a
+     * USD camera is selected (#34). EffectComposer exposes `passes[]`
+     * but the typed shape is opaque here; we hold it separately. */
+    renderPass: { camera: import("three").Camera };
   };
   const fxaaStateRef = useRef<FxaaComposerState | null>(null);
   const fxaaEnabledRef = useRef(fxaaEnabled);
@@ -553,6 +567,13 @@ export function AssetViewport({
   const texturePreview3DRef = useRef(texturePreview3D);
   const onSelectMeshRef = useRef(onSelectMesh);
   const purposeModesRef = useRef(purposeModes);
+  // #34: active USD camera. null = free orbit.
+  // activeCameraNameRef is read inside the render loop / pointer handlers to
+  // guard fly mode without causing the big scene-init effect to re-run.
+  const activeCameraNameRef = useRef(activeCameraName);
+  // The actual Three.js PerspectiveCamera found by traversal. null = use the
+  // scene's own free camera (context.camera).
+  const activeCameraRef = useRef<PerspectiveCamera | null>(null);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -694,6 +715,65 @@ export function AssetViewport({
     if (!mounted) return;
     applyPurposeVisibility(mounted, purposeModes);
   }, [purposeModes]);
+
+  // #34: USD camera switching.
+  // When activeCameraName changes we traverse the mounted scene graph looking
+  // for a PerspectiveCamera whose stripped name matches. Found → set as the
+  // active render camera and disable OrbitControls (transform is USD-driven).
+  // null → revert to the free-orbit camera and re-enable controls.
+  useEffect(() => {
+    activeCameraNameRef.current = activeCameraName;
+    const context = sceneContextRef.current;
+    if (!context) return;
+
+    if (!activeCameraName) {
+      // Restore free-orbit camera
+      activeCameraRef.current = null;
+      const hasMounted = Boolean(context.mountedObject);
+      context.controls.enabled = hasMounted;
+      return;
+    }
+
+    // Traverse the full scene (not just mountedObject) so cameras that sit
+    // in the scene root (e.g. glTF cameras added directly by GLTFLoader) are
+    // also found.
+    let found: PerspectiveCamera | null = null;
+    context.scene.traverse((child) => {
+      if (found) return;
+      if (!(child instanceof PerspectiveCamera)) return;
+      // The backend appends `_camera_node` to the wrapper node name; the
+      // camera object itself carries the stripped (authored) name. We match
+      // both to be safe.
+      const rawName = typeof child.name === "string" ? child.name.trim() : "";
+      const strippedName = rawName.endsWith("_camera_node")
+        ? rawName.slice(0, -"_camera_node".length)
+        : rawName;
+      if (strippedName === activeCameraName || rawName === activeCameraName) {
+        found = child;
+      }
+    });
+
+    if (found) {
+      activeCameraRef.current = found;
+      context.controls.enabled = false;
+      // Sync aspect to the current viewport size so the USD camera renders
+      // without distortion. updateProjectionMatrix is called here; the
+      // ResizeObserver will keep it in sync on future resizes.
+      const host = hostRef.current;
+      if (host && host.clientWidth > 0 && host.clientHeight > 0) {
+        (found as PerspectiveCamera).aspect =
+          host.clientWidth / host.clientHeight;
+        (found as PerspectiveCamera).updateProjectionMatrix();
+      }
+    } else {
+      console.warn(
+        `[viewer] USD camera "${activeCameraName}" not found in scene graph — falling back to free camera`,
+      );
+      activeCameraRef.current = null;
+      const hasMounted = Boolean(context.mountedObject);
+      context.controls.enabled = hasMounted;
+    }
+  }, [activeCameraName]);
 
   useEffect(() => {
     cameraSpeedMultiplierRef.current = cameraSpeedMultiplier;
@@ -979,6 +1059,8 @@ export function AssetViewport({
     };
 
     const enterFlyMode = () => {
+      // #34: fly mode is only available for the free-orbit camera.
+      if (activeCameraNameRef.current) return;
       if (flyState.active) return;
       flyState.active = true;
       flyHeldKeys.clear();
@@ -1147,6 +1229,12 @@ export function AssetViewport({
       renderer.setSize(nextSize.x, nextSize.y);
       camera.aspect = nextSize.x / nextSize.y;
       camera.updateProjectionMatrix();
+      // #34: keep the active USD camera's aspect in sync on resize.
+      const usdCam = activeCameraRef.current;
+      if (usdCam && nextSize.y > 0) {
+        usdCam.aspect = nextSize.x / nextSize.y;
+        usdCam.updateProjectionMatrix();
+      }
 
       const fxaaState = fxaaStateRef.current;
       if (fxaaState) {
@@ -1222,10 +1310,15 @@ export function AssetViewport({
       } else {
         controls.update();
       }
+      // #34: use the active USD camera if one is selected; fall back to the
+      // free-orbit camera otherwise.
+      const renderCamera = activeCameraRef.current ?? camera;
       if (fxaaEnabledRef.current && fxaaStateRef.current) {
+        // Swap the RenderPass camera so FXAA also honours the active USD camera.
+        fxaaStateRef.current.renderPass.camera = renderCamera;
         fxaaStateRef.current.composer.render();
       } else {
-        renderer.render(scene, camera);
+        renderer.render(scene, renderCamera);
       }
 
       statsFrameCount += 1;
@@ -1522,6 +1615,9 @@ export function AssetViewport({
     context.cleanupUrls = [];
     context.controls.enabled = false;
     resetCameraRef.current = null;
+    // #34: clear USD camera override on every file change so we always start
+    // with the free-orbit camera for a fresh asset.
+    activeCameraRef.current = null;
 
     // Show/hide initial grid based on file state
     if (!currentFile) {
@@ -1703,6 +1799,51 @@ export function AssetViewport({
           );
         };
 
+        // #34: if a USD camera was already active (e.g. the scene was
+        // reloaded due to a variant / load-policy change), re-run the
+        // camera lookup now that the new object is in the scene.
+        // activeCameraRef was cleared by the file-change guard above, so
+        // the render loop is already back on the free camera; traversing
+        // here restores the override without waiting for another prop
+        // change (which would never come because activeCameraName didn't
+        // change).
+        const desiredCamera = activeCameraNameRef.current;
+        if (desiredCamera) {
+          let reFound: PerspectiveCamera | null = null;
+          context.scene.traverse((child) => {
+            if (reFound) return;
+            if (!(child instanceof PerspectiveCamera)) return;
+            const rawN =
+              typeof child.name === "string" ? child.name.trim() : "";
+            const stripped = rawN.endsWith("_camera_node")
+              ? rawN.slice(0, -"_camera_node".length)
+              : rawN;
+            if (stripped === desiredCamera || rawN === desiredCamera) {
+              reFound = child;
+            }
+          });
+          if (reFound) {
+            activeCameraRef.current = reFound;
+            context.controls.enabled = false;
+            const host2 = hostRef.current;
+            if (host2 && host2.clientWidth > 0 && host2.clientHeight > 0) {
+              (reFound as PerspectiveCamera).aspect =
+                host2.clientWidth / host2.clientHeight;
+              (reFound as PerspectiveCamera).updateProjectionMatrix();
+            }
+          } else {
+            // Camera not present in the reloaded asset — clear the name
+            // via the ref so the UI stays consistent. We cannot call the
+            // React state setter here (we are inside a Three.js async
+            // callback), but activeCameraRef is already null, so the
+            // renderer falls back gracefully. The mismatch will persist
+            // until the user manually deselects the camera in the UI.
+            console.warn(
+              `[viewer] USD camera "${desiredCamera}" not found after reload — free camera restored`,
+            );
+          }
+        }
+
         onFeedbackChange({
           mode: "ready",
           message: `Preview ready: ${currentFile.fileName}`,
@@ -1838,7 +1979,8 @@ export function AssetViewport({
       const host = hostRef.current;
       if (!host) return;
       const composer = new EffectComposer(context.renderer);
-      composer.addPass(new RenderPass(context.scene, context.camera));
+      const renderPass = new RenderPass(context.scene, context.camera);
+      composer.addPass(renderPass);
       const fxaaPass = new ShaderPass(FXAAShader);
       const pixelRatio = context.renderer.getPixelRatio();
       (fxaaPass.material.uniforms.resolution.value as Vector2).set(
@@ -1850,6 +1992,7 @@ export function AssetViewport({
       fxaaStateRef.current = {
         composer,
         fxaaPass: fxaaPass as unknown as FxaaComposerState["fxaaPass"],
+        renderPass,
       };
     })();
     return () => {
