@@ -19,8 +19,8 @@ use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
-    CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection, PrimTypeCount,
-    StageInspection, StageLoadPolicy, StageSummary,
+    CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection,
+    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
 };
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
@@ -197,6 +197,7 @@ impl UsdBackend for OpenusdBackend {
                         asset_path: r.asset_path,
                         target_prim: r.prim_path.to_string(),
                         state,
+                        kind: CompositionArcKind::Reference,
                     });
                 }
                 for p in stage.payloads_in(prim_path.clone()) {
@@ -217,6 +218,7 @@ impl UsdBackend for OpenusdBackend {
                         asset_path: p.asset_path,
                         target_prim,
                         state,
+                        kind: CompositionArcKind::Payload,
                     });
                 }
             })
@@ -299,6 +301,12 @@ impl UsdBackend for OpenusdBackend {
             layers,
             references: references.into_inner(),
             payloads: payloads.into_inner(),
+            // #30: Rust-fork backend does not expose GetInherits() /
+            // GetSpecializes() yet. Return empty Vecs so the wire type
+            // is valid; the C++ backend populates these.
+            inherits: Vec::new(),
+            specializes: Vec::new(),
+            variant_selection_arcs: Vec::new(),
             missing_assets,
             variant_sets: variant_sets_out.into_inner(),
             load_policy: policy,

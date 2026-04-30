@@ -20,11 +20,41 @@ export type StageLoadPolicy = "loadAll" | "noPayloads";
  */
 export type CompositionArcState = "loaded" | "missing" | "unloaded";
 
+/**
+ * #30 — the kind of composition arc. Ordered from strongest to weakest
+ * in LIVRPS strength order (simplified). `variantSelection` arcs have
+ * an empty `assetPath`; the selection is encoded in `targetPrim` as
+ * `"{setName}={variantName}"`. `inherits` and `specializes` also have
+ * an empty `assetPath` since they reference prims within the same stage.
+ */
+export type CompositionArcKind =
+  | "reference"
+  | "payload"
+  | "inherits"
+  | "specializes"
+  | "variantSelection"
+  | "over";
+
 export type CompositionArc = {
   sourcePrim: string;
+  /**
+   * For `reference`/`payload`: the external asset file path.
+   * For `inherits`/`specializes`/`variantSelection`: empty string.
+   */
   assetPath: string;
+  /**
+   * For `reference`/`payload`/`inherits`/`specializes`: target prim
+   * path inside the asset or stage. For `variantSelection`: the
+   * selection encoded as `"{setName}={variantName}"`.
+   */
   targetPrim: string;
   state: CompositionArcState;
+  /**
+   * #30 — arc kind. Optional for backwards compatibility: payloads from
+   * older backends that omit this field default to `"reference"` on the
+   * Rust side via `#[serde(default)]`.
+   */
+  kind?: CompositionArcKind;
 };
 
 export type VariantSetInfo = {
@@ -124,6 +154,21 @@ export type StageInspection = {
   layers?: LayerInfo[];
   references: CompositionArc[];
   payloads: CompositionArc[];
+  /**
+   * #30 — inherits arcs (always stage-internal, `assetPath` empty).
+   * Populated by the C++ backend; empty array for the Rust-fork backend.
+   */
+  inherits?: CompositionArc[];
+  /**
+   * #30 — specializes arcs. Same shape as `inherits`.
+   */
+  specializes?: CompositionArc[];
+  /**
+   * #30 — variant selections that have an authored value. `assetPath`
+   * is empty; `targetPrim` encodes the selection as
+   * `"{setName}={variantName}"`.
+   */
+  variantSelectionArcs?: CompositionArc[];
   missingAssets: string[];
   variantSets: VariantSetInfo[];
   loadPolicy: StageLoadPolicy;

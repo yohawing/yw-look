@@ -55,6 +55,8 @@
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/references.h>
+#include <pxr/usd/usd/inherits.h>
+#include <pxr/usd/usd/specializes.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usd/variantSets.h>
@@ -645,6 +647,70 @@ extern "C" USDC_API void usdc_stage_payloads_in(UsdcStage *stage,
                      * reference unresolved/skipped lists for the final
                      * state classification. */
                     arc.is_loaded = prim.IsLoaded() ? 1 : 0;
+                    cb(&arc, user);
+                });
+            }
+        }
+    });
+}
+
+extern "C" USDC_API void usdc_stage_inherits_in(UsdcStage *stage,
+                                                const char *prim_path,
+                                                UsdcArcCallback cb,
+                                                void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+
+    swallow([&] {
+        /* UsdInherits::GetAllDirectInherits() is available in this pxr
+         * version and returns all inherit paths from the local layer
+         * stack that directly compose into this prim (strong-to-weak).
+         * It is read-only and does not modify any stage state. */
+        UsdInherits inherits = prim.GetInherits();
+        SdfPathVector paths = inherits.GetAllDirectInherits();
+        const std::string source = prim.GetPath().GetAsString();
+        for (const SdfPath &target_path : paths) {
+            swallow([&] {
+                const std::string target = target_path.GetAsString();
+                UsdcArc arc;
+                arc.source_prim = source.c_str();
+                arc.asset_path  = "";          /* always stage-internal */
+                arc.target_prim = target.c_str();
+                arc.is_loaded   = 1;
+                cb(&arc, user);
+            });
+        }
+    });
+}
+
+extern "C" USDC_API void usdc_stage_specializes_in(UsdcStage *stage,
+                                                    const char *prim_path,
+                                                    UsdcArcCallback cb,
+                                                    void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+
+    swallow([&] {
+        /* UsdSpecializes has no GetAllDirectSpecializes() in this pxr
+         * version. Read the authored specializes paths directly from
+         * the prim's metadata using SdfFieldKeys->Specializes, which
+         * stores an SdfPathListOp — the same approach used by
+         * usdc_stage_references_in / usdc_stage_payloads_in above. */
+        SdfPathListOp op;
+        if (prim.GetMetadata(SdfFieldKeys->Specializes, &op)) {
+            std::vector<SdfPath> items;
+            op.ApplyOperations(&items);
+            const std::string source = prim.GetPath().GetAsString();
+            for (const SdfPath &target_path : items) {
+                swallow([&] {
+                    const std::string target = target_path.GetAsString();
+                    UsdcArc arc;
+                    arc.source_prim = source.c_str();
+                    arc.asset_path  = "";      /* always stage-internal */
+                    arc.target_prim = target.c_str();
+                    arc.is_loaded   = 1;
                     cb(&arc, user);
                 });
             }

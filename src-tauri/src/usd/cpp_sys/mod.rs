@@ -296,6 +296,24 @@ impl CStage {
         })
     }
 
+    /// Returns the direct inherits arcs authored on the prim at `prim_path`.
+    /// Each arc has `asset_path = ""` (inherits are always stage-internal)
+    /// and `target_prim` set to the inherited base prim path.
+    pub fn inherits_in(&self, prim_path: &str) -> Vec<Arc> {
+        self.arcs(prim_path, |s, cb, u| unsafe {
+            usdc_stage_inherits_in(self.raw, s, cb, u)
+        })
+    }
+
+    /// Returns the direct specializes arcs authored on the prim at `prim_path`.
+    /// Each arc has `asset_path = ""` and `target_prim` set to the specialized
+    /// base prim path.
+    pub fn specializes_in(&self, prim_path: &str) -> Vec<Arc> {
+        self.arcs(prim_path, |s, cb, u| unsafe {
+            usdc_stage_specializes_in(self.raw, s, cb, u)
+        })
+    }
+
     pub fn unresolved_assets(&self) -> Vec<String> {
         let mut out = Vec::<String>::new();
         unsafe {

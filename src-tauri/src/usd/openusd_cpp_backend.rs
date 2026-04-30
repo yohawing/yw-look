@@ -35,9 +35,9 @@ use super::openusd_backend::{
 };
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
-    CompositionArc, CompositionArcState, ExtractGeometryOptions, LayerInfo, MetadataEntry,
-    PrimInspection, PrimTypeCount, RelationshipInfo, StageInspection, StageLoadPolicy,
-    StageSummary, TimeSampleEntry, VariantSetInfo,
+    CompositionArc, CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo,
+    MetadataEntry, PrimInspection, PrimTypeCount, RelationshipInfo, StageInspection,
+    StageLoadPolicy, StageSummary, TimeSampleEntry, VariantSetInfo,
 };
 use super::cpp_sys::UpAxis;
 
@@ -156,12 +156,33 @@ impl UsdBackend for OpenusdCppBackend {
         let mut references = Vec::<CompositionArc>::new();
         let mut payloads = Vec::<CompositionArc>::new();
         let mut variant_sets = Vec::<VariantSetInfo>::new();
+        // #30: additional arc kinds collected into the shared
+        // `composition_arcs` field for new-style consumers. References
+        // and payloads are also duplicated here so the frontend has one
+        // flat list when it needs all arcs together.
+        let mut inherits_arcs = Vec::<CompositionArc>::new();
+        let mut specializes_arcs = Vec::<CompositionArc>::new();
+        let mut variant_selection_arcs = Vec::<CompositionArc>::new();
 
         for prim_path in &all_prims {
             if stage.prim_has_variants(prim_path) {
                 for set_name in stage.variant_set_names(prim_path) {
                     let selection = stage.variant_selection(prim_path, &set_name);
                     let variants = stage.variant_names(prim_path, &set_name);
+                    // #30: emit a VariantSelection arc for each set that
+                    // has an authored selection. `asset_path` is empty
+                    // (variant selections are always stage-local); the
+                    // selection is encoded in `target_prim` as
+                    // `"{setName}={variantName}"`.
+                    if let Some(ref sel) = selection {
+                        variant_selection_arcs.push(CompositionArc {
+                            source_prim: prim_path.clone(),
+                            asset_path: String::new(),
+                            target_prim: format!("{set_name}={sel}"),
+                            state: CompositionArcState::Loaded,
+                            kind: CompositionArcKind::VariantSelection,
+                        });
+                    }
                     variant_sets.push(VariantSetInfo {
                         prim_path: prim_path.clone(),
                         set_name,
@@ -178,6 +199,7 @@ impl UsdBackend for OpenusdCppBackend {
                     asset_path: r.asset_path,
                     target_prim: r.target_prim.unwrap_or_default(),
                     state,
+                    kind: CompositionArcKind::Reference,
                 });
             }
             for p in stage.payloads_in(prim_path) {
@@ -193,6 +215,25 @@ impl UsdBackend for OpenusdCppBackend {
                     asset_path: p.asset_path,
                     target_prim: p.target_prim.unwrap_or_default(),
                     state,
+                    kind: CompositionArcKind::Payload,
+                });
+            }
+            for inh in stage.inherits_in(prim_path) {
+                inherits_arcs.push(CompositionArc {
+                    source_prim: inh.source_prim,
+                    asset_path: inh.asset_path,
+                    target_prim: inh.target_prim.unwrap_or_default(),
+                    state: CompositionArcState::Loaded,
+                    kind: CompositionArcKind::Inherits,
+                });
+            }
+            for spec in stage.specializes_in(prim_path) {
+                specializes_arcs.push(CompositionArc {
+                    source_prim: spec.source_prim,
+                    asset_path: spec.asset_path,
+                    target_prim: spec.target_prim.unwrap_or_default(),
+                    state: CompositionArcState::Loaded,
+                    kind: CompositionArcKind::Specializes,
                 });
             }
         }
@@ -234,6 +275,9 @@ impl UsdBackend for OpenusdCppBackend {
             layers,
             references,
             payloads,
+            inherits: inherits_arcs,
+            specializes: specializes_arcs,
+            variant_selection_arcs,
             missing_assets,
             variant_sets,
             load_policy: policy,

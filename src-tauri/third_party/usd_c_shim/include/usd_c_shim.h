@@ -183,6 +183,28 @@ USDC_API void usdc_stage_payloads_in(UsdcStage *stage,
                                      UsdcArcCallback cb,
                                      void *user);
 
+/* Enumerates the direct inherits arcs authored on the prim at
+ * `prim_path`. For each inherit, the arc's `source_prim` is the prim
+ * that authors the inherit, `asset_path` is empty (inherits always
+ * reference a path within the same stage), and `target_prim` is the
+ * SdfPath of the base prim being inherited. `is_loaded` is always 1
+ * (inherits do not have a load/deferred state). Emits nothing when
+ * the prim does not exist or has no inherits. */
+USDC_API void usdc_stage_inherits_in(UsdcStage *stage,
+                                     const char *prim_path,
+                                     UsdcArcCallback cb,
+                                     void *user);
+
+/* Enumerates the direct specializes arcs authored on the prim at
+ * `prim_path`. Same field semantics as `usdc_stage_inherits_in` —
+ * `asset_path` is empty, `target_prim` is the specialized base prim
+ * path, `is_loaded` is always 1. Emits nothing when the prim does not
+ * exist or has no specializes arcs. */
+USDC_API void usdc_stage_specializes_in(UsdcStage *stage,
+                                        const char *prim_path,
+                                        UsdcArcCallback cb,
+                                        void *user);
+
 /* Asset paths that the stage's resolver could not locate. Useful for
  * populating BrokenReference / MissingSubLayer / MissingPayload
  * asset issues. */

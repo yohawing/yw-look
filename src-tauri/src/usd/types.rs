@@ -157,6 +157,20 @@ pub struct StageInspection {
     pub layers: Vec<LayerInfo>,
     pub references: Vec<CompositionArc>,
     pub payloads: Vec<CompositionArc>,
+    /// #30 — inherits arcs (stage-internal, `asset_path` always empty).
+    /// `target_prim` is the SdfPath of the base prim being inherited.
+    /// Populated by the C++ backend; empty for the Rust-fork backend
+    /// (the fork API does not expose `GetInherits` yet).
+    #[serde(default)]
+    pub inherits: Vec<CompositionArc>,
+    /// #30 — specializes arcs. Same shape as `inherits`.
+    #[serde(default)]
+    pub specializes: Vec<CompositionArc>,
+    /// #30 — variant selections that have an authored value.
+    /// `asset_path` is empty; `target_prim` encodes the selection as
+    /// `"{setName}={variantName}"`.
+    #[serde(default)]
+    pub variant_selection_arcs: Vec<CompositionArc>,
     pub missing_assets: Vec<String>,
     /// Variant sets found across all prims (read-only for now;
     /// interactive switching needs a fork API for session-layer
@@ -263,14 +277,51 @@ pub enum AssetIssueLevel {
     Error,
 }
 
-/// One composition arc (`reference` or `payload`) declared in a layer.
+/// The kind of composition arc.
+///
+/// Ordered from strongest to weakest in the LIVRPS strength order:
+/// Local (references/payloads), Inherits, VariantSelection,
+/// References (external), Payloads, Specializes. We surface a
+/// simplified subset: the six arc kinds visible in the inspector.
+///
+/// `over` is listed here for completeness (anonymous overs inside a
+/// reference) but is rarely authored explicitly — the frontend shows
+/// it as a fallback kind when the backend cannot classify further.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CompositionArcKind {
+    Reference,
+    Payload,
+    Inherits,
+    Specializes,
+    VariantSelection,
+    Over,
+}
+
+impl Default for CompositionArcKind {
+    fn default() -> Self {
+        Self::Reference
+    }
+}
+
+/// One composition arc (`reference`, `payload`, `inherits`, `specializes`,
+/// `variantSelection`, or `over`) declared in a layer.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompositionArc {
     pub source_prim: String,
+    /// For `inherits` and `specializes`, this is the target prim path
+    /// (same stage, no external asset). For `variantSelection`, this
+    /// is empty; the selection is encoded in `target_prim` as
+    /// `"{setName}={variantName}"`. For `reference`/`payload`, this is
+    /// the external asset file path.
     pub asset_path: String,
     pub target_prim: String,
     pub state: CompositionArcState,
+    /// Arc kind. Defaults to `Reference` when deserializing older
+    /// payloads that omit this field (backwards-compatible).
+    #[serde(default)]
+    pub kind: CompositionArcKind,
 }
 
 /// One attribute on a prim, returned by `inspect_prim` (#28).
