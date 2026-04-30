@@ -695,6 +695,85 @@ Kitchen Set / HumanFemale / Kitchen_set_instanced / USDZ 3 種で両 backend を
 
 ---
 
+## Phase 12 — PointInstancer preview（実装済み、issue #41）
+
+### 目的
+
+`UsdGeomPointInstancer` prim を GLB に変換し、Three.js の `THREE.InstancedMesh` として
+プレビューできるようにする。1 つのプロトタイプメッシュを複数個所に配置するアセット（森、群衆、
+石畳など）で GPU インスタンシングを活用して描画負荷を抑える。
+
+### 対応スコープ
+
+- **対象 prim タイプ**: `UsdGeomPointInstancer` のみ
+- **サンプル時刻**: デフォルト時刻 (`UsdTimeCode::Default()`) のみ。時系列アニメーション
+  (`protoIndices` / `positions` の時刻変化) は MVP 外
+- **invisibleIds**: bake at extract 時点で除外する（D7 決定）
+- **GLB 出力**: glTF 拡張 `EXT_mesh_gpu_instancing` を使用。Three.js r150+ が自動的に
+  `THREE.InstancedMesh` として解釈する（フロントエンド変更なし）
+
+### アーキテクチャ
+
+| レイヤー                 | 変更内容                                                                                                                                                                                                                                                         |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C shim                   | `usdc_prim_is_point_instancer` / `usdc_point_instancer_prototypes` / `usdc_point_instancer_proto_indices` / `usdc_point_instancer_positions` / `usdc_point_instancer_orientations` / `usdc_point_instancer_scales` / `usdc_point_instancer_invisible_ids` を追加 |
+| `cpp_sys`                | `CStage` に同名メソッドを追加。`i64_buffer_trampoline` を追加                                                                                                                                                                                                    |
+| `glb.rs`                 | `NodeKind::PointInstancer` 追加、`InstancingInput` 構造体追加、`build_glb` に `instancing` 引数追加、EXT_mesh_gpu_instancing アクセサ生成                                                                                                                        |
+| `openusd_cpp_backend.rs` | Pass 1 後に PointInstancer prim を収集し、prototype サブツリーの Mesh を `inputs` に追加、`InstancingInput` を生成                                                                                                                                               |
+| `openusd_backend.rs`     | 警告を出して PointInstancer をスキップ（Rust fork では非対応）                                                                                                                                                                                                   |
+
+### TRS 分解ゲート
+
+各インスタンスのスケールに負値または非有限値が含まれる場合、そのインスタンスを除外する。
+正常な成分のみ `EXT_mesh_gpu_instancing` に出力される。
+
+### Codex review で対応した correctness 案件
+
+- **instancer の world transform**: positions / orientations は instancer local space にあるため、
+  instancer prim の親チェーン xform（+ Z→Y 補正）を composite して各 instance TRS に bake する。
+  `mat4_mul_f32` で composite し、`decompose_trs_column_major` で TRS 戻し。
+- **protoIndices による prototype 振り分け**: 各 prototype は `protoIndices[i] == proto_idx` の
+  インスタンスのみを `InstancingInput` として受け取る。multi-prototype アセットで全 prototype が
+  全位置に出る不具合を防ぐ。
+- **prototype subtree 重複**: PointInstancer prototype の Mesh prim は通常メッシュ pass からも
+  拾われていたため、prototype subtree path を `mesh_paths` から除外する。さらに flat path は
+  `instancing` 参照済み mesh をスキップして prototype が standalone node + instanced で二重出力
+  される問題を防ぐ。
+- **prototype 内の local xform 保持**: prototype root → mesh prim の間に xform op が authored
+  されている場合、`proto_local = inv(proto_root_world) * proto_mesh_world` を per-instance TRS
+  に右乗算で合成して shape の placement を正しく出す。
+
+### 制約・TODOs
+
+- **C++ backend のみ対応**: Rust fork backend (`backend-openusd-rs`) では PointInstancer
+  prim をスキップして警告をコンソールに出力する。`EXT_mesh_gpu_instancing` は出力されない。
+- **インスタンス単位 picking は MVP 外**: `userData.primPath` は PointInstancer prim 全体
+  の SdfPath のみを持つ。インスタンス個別の picking は後続 issue で対応する（#41 参照）。
+- **時刻 0 のみ**: 時系列インスタンス変化（protoIndices / positions が時刻アニメーション）は未対応。
+- **フラット C++ レイアウト**: C++ backend は NodeInput tree を使わない（`parent_node_idx = None`）
+  ため、instanced node はシーンルート直下に配置される。
+- **prototype の material binding は未対応**: prototype mesh は default preview material slot
+  に固定される。authored UsdPreviewSurface / GeomSubset の binding は MVP 外（#41 follow-up）。
+  通常メッシュの material 解決パスを呼ぶ統合作業が必要。
+- **`invisibleIds` の id 解決は array index 限定**: USD は `ids` int64[] が authored されている
+  場合 `invisibleIds` は `ids[i]` を参照するが、現状は `i as i64` で比較する。`ids` を authored
+  していないアセット（共通ケース）では正しく動く。
+- **可視性チェックは instancer prim 自身のみ**: `visibility = "invisible"` を直接 instancer prim
+  に書いた場合はスキップされるが、ancestor Imageable からの inheritance は未解決。
+
+### ファイル一覧
+
+- `src-tauri/third_party/usd_c_shim/include/usd_c_shim.h` — shim 宣言 (PointInstancer セクション)
+- `src-tauri/third_party/usd_c_shim/src/usd_c_shim.cpp` — shim 実装
+- `src-tauri/src/usd/cpp_sys/mod.rs` — `CStage` メソッド + `i64_buffer_trampoline`
+- `src-tauri/src/usd/glb.rs` — `NodeKind::PointInstancer` / `InstancingInput` / `build_glb` 拡張
+- `src-tauri/src/usd/openusd_cpp_backend.rs` — PointInstancer 収集パス
+- `src-tauri/src/usd/openusd_backend.rs` — Rust fork スキップ警告
+- `samples/assets/usd/tiny_point_instancer.usda` — テスト用 fixture（1 プロトタイプ × 5 インスタンス）
+- `src-tauri/tests/cpp_backend_point_instancer.rs` — 統合テスト
+
+---
+
 ## 横断テーマ（各 Phase に散らす）
 
 - **Variant set インタラクティブ切替 UI**: 現状 read-only。session layer 経由で variant selection を上書きし、GLB を再生成する

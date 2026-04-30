@@ -559,6 +559,46 @@ pub enum NodeKind {
     /// already encodes `metersPerUnit` and ancestor xforms so the joint
     /// hierarchy underneath inherits the correct world placement.
     SkelRoot,
+    /// USD PointInstancer prim (#41). Acts as a pure hierarchy node in the
+    /// node tree (identity local_matrix); instanced geometry is emitted via
+    /// `EXT_mesh_gpu_instancing` on child nodes OR as per-instance group
+    /// nodes when the TRS fallback path fires (negative / non-finite scale).
+    ///
+    /// Instance-level picking is deferred to a follow-up issue; only the
+    /// instancer prim path is stored in `userData.primPath`, not
+    /// per-instance paths.
+    PointInstancer,
+}
+
+/// Per-(PointInstancer, prototype-mesh) instancing record (#41).
+///
+/// When the TRS decomposition gate passes (all scales positive and finite),
+/// `build_glb` emits a glTF node for the prototype mesh and attaches
+/// `EXT_mesh_gpu_instancing` accessors covering every instance's
+/// translation/rotation/scale. Three.js r150+ parses this natively into
+/// `THREE.InstancedMesh`.
+#[derive(Debug, Clone)]
+pub struct InstancingInput {
+    /// Index into the `meshes` slice passed to `build_glb`. The node
+    /// for this mesh gets `EXT_mesh_gpu_instancing` attached.
+    pub prototype_mesh_idx: usize,
+    /// Optional index into the `nodes` slice for a parent NodeInput.
+    /// When `Some`, the instanced node becomes a child of that NodeInput's
+    /// glTF node. When `None`, it is placed under the `__upAxis` root.
+    pub parent_node_idx: Option<usize>,
+    /// SdfPath of the source `UsdGeomPointInstancer` prim. Stamped onto
+    /// the instanced glTF node's `extras.primPath` so the frontend's
+    /// selection / metadata pipeline can map any clicked instance back
+    /// to the authoring instancer (instance-level picking is deferred,
+    /// per #41).
+    pub instancer_prim_path: String,
+    /// Per-instance translation in scene space (Y-up, metersPerUnit already
+    /// applied). Length == instance count.
+    pub translations: Vec<[f32; 3]>,
+    /// Per-instance rotation quaternion in glTF order `[x, y, z, w]`.
+    pub rotations: Vec<[f32; 4]>,
+    /// Per-instance scale `[sx, sy, sz]`.
+    pub scales: Vec<[f32; 3]>,
 }
 
 impl NodeInput {
@@ -733,6 +773,7 @@ pub fn build_glb(
     lights: &[LightInput],
     cameras: &[CameraInput],
     up_correction: Option<[f32; 16]>,
+    instancing: &[InstancingInput],
 ) -> Result<Vec<u8>, String> {
     if meshes.is_empty() {
         return Err("no meshes to export".to_string());
@@ -826,6 +867,27 @@ pub fn build_glb(
     }
     for m in meshes {
         m.validate()?;
+    }
+    // #41: validate instancing inputs
+    for (i, inst) in instancing.iter().enumerate() {
+        if inst.prototype_mesh_idx >= meshes.len() {
+            return Err(format!(
+                "instancing[{i}] prototype_mesh_idx {} is out of range (meshes.len={})",
+                inst.prototype_mesh_idx,
+                meshes.len()
+            ));
+        }
+        if inst.translations.len() != inst.rotations.len()
+            || inst.translations.len() != inst.scales.len()
+        {
+            return Err(format!(
+                "instancing[{i}] translations/rotations/scales length mismatch \
+                 ({}/{}/{})",
+                inst.translations.len(),
+                inst.rotations.len(),
+                inst.scales.len()
+            ));
+        }
     }
 
     // ---- Layout the binary buffer ---------------------------------------
@@ -1147,7 +1209,17 @@ pub fn build_glb(
         // When nodes slice is empty (legacy flat path), we emit a node
         // for every mesh now, carrying the full world_matrix and the
         // prim name without suffix.
-        if nodes.is_empty() {
+        //
+        // #41 fix: skip standalone scene-node emission for meshes that
+        // are referenced by an InstancingInput. The instancing pass below
+        // emits a node carrying `EXT_mesh_gpu_instancing` for each
+        // (instancer, prototype-mesh) pair — emitting an additional flat
+        // node here would render the prototype geometry twice (once at
+        // its authored origin, once per instance).
+        let is_instancing_prototype = instancing
+            .iter()
+            .any(|inst| inst.prototype_mesh_idx == mesh_idx);
+        if nodes.is_empty() && !is_instancing_prototype {
             let node_idx = gltf_nodes.len();
             let mut node_obj = json!({
                 "name": mesh.name,
@@ -1162,8 +1234,13 @@ pub fn build_glb(
             gltf_nodes.push(node_obj);
             scene_nodes.push(json!(node_idx));
             mesh_node_indices.push(node_idx);
+        } else if nodes.is_empty() {
+            // Instancing prototype in flat mode: no standalone node, but
+            // we still need a placeholder so the indices array stays
+            // aligned with the meshes slice.
+            mesh_node_indices.push(usize::MAX);
         } else {
-            // Placeholder; filled in during the node-tree building pass.
+            // Hierarchy-aware path: filled in during the node-tree pass.
             mesh_node_indices.push(usize::MAX);
         }
 
@@ -1809,6 +1886,22 @@ pub fn build_glb(
                     }
                     obj
                 }
+                NodeKind::PointInstancer => {
+                    // PointInstancer is emitted as a pure hierarchy group node.
+                    // Instanced geometry lives as child nodes with
+                    // EXT_mesh_gpu_instancing (emitted separately below in the
+                    // instancing pass). Instance-level picking is deferred (#41).
+                    let children_gltf: Vec<usize> = children_of[ni_idx].clone();
+                    let mut obj = json!({
+                        "name": ni.basename,
+                        "matrix": local_mat,
+                        "extras": extras,
+                    });
+                    if !children_gltf.is_empty() {
+                        obj["children"] = json!(children_gltf);
+                    }
+                    obj
+                }
             };
 
             gltf_nodes[gltf_idx] = node_json;
@@ -1925,6 +2018,172 @@ pub fn build_glb(
         }
     }
 
+    // ---- #41 EXT_mesh_gpu_instancing pass ---------------------------------
+    //
+    // For each InstancingInput we emit three binary accessors (TRANSLATION,
+    // ROTATION, SCALE) and a glTF node that references the prototype mesh
+    // plus the extension block. The node is wired as a child of the caller-
+    // specified parent NodeInput (or under the __upAxis synthetic root when
+    // parent_node_idx is None).
+    //
+    // Three.js r150+ parses EXT_mesh_gpu_instancing natively into
+    // THREE.InstancedMesh. No frontend code changes are required.
+    let mut has_instancing_ext = false;
+    for inst in instancing {
+        let instance_count = inst.translations.len();
+        if instance_count == 0 {
+            continue;
+        }
+
+        // ---- TRANSLATION accessor (VEC3 / FLOAT) ----
+        let t_offset = bin.len() as u64;
+        for t in &inst.translations {
+            for &f in t.iter() {
+                bin.extend_from_slice(&f.to_le_bytes());
+            }
+        }
+        let t_byte_len = (bin.len() as u64) - t_offset;
+        pad_to_4(&mut bin);
+        let t_view_idx = buffer_views.len();
+        buffer_views.push(json!({
+            "buffer": 0,
+            "byteOffset": t_offset,
+            "byteLength": t_byte_len,
+            "target": 34962, // ARRAY_BUFFER
+        }));
+        let t_acc_idx = accessors.len();
+        // Compute min/max for TRANSLATION (glTF validator requires them)
+        let (t_min, t_max) = inst.translations.iter().fold(
+            ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]),
+            |(mut mn, mut mx), t| {
+                for i in 0..3 {
+                    if t[i] < mn[i] { mn[i] = t[i]; }
+                    if t[i] > mx[i] { mx[i] = t[i]; }
+                }
+                (mn, mx)
+            },
+        );
+        accessors.push(json!({
+            "bufferView": t_view_idx,
+            "byteOffset": 0,
+            "componentType": 5126, // FLOAT
+            "count": instance_count,
+            "type": "VEC3",
+            "min": [t_min[0], t_min[1], t_min[2]],
+            "max": [t_max[0], t_max[1], t_max[2]],
+        }));
+
+        // ---- ROTATION accessor (VEC4 / FLOAT, x,y,z,w glTF order) ----
+        pad_to_4(&mut bin);
+        let r_offset = bin.len() as u64;
+        for r in &inst.rotations {
+            for &f in r.iter() {
+                bin.extend_from_slice(&f.to_le_bytes());
+            }
+        }
+        let r_byte_len = (bin.len() as u64) - r_offset;
+        pad_to_4(&mut bin);
+        let r_view_idx = buffer_views.len();
+        buffer_views.push(json!({
+            "buffer": 0,
+            "byteOffset": r_offset,
+            "byteLength": r_byte_len,
+            "target": 34962,
+        }));
+        let r_acc_idx = accessors.len();
+        accessors.push(json!({
+            "bufferView": r_view_idx,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": instance_count,
+            "type": "VEC4",
+        }));
+
+        // ---- SCALE accessor (VEC3 / FLOAT) ----
+        pad_to_4(&mut bin);
+        let s_offset = bin.len() as u64;
+        for s in &inst.scales {
+            for &f in s.iter() {
+                bin.extend_from_slice(&f.to_le_bytes());
+            }
+        }
+        let s_byte_len = (bin.len() as u64) - s_offset;
+        pad_to_4(&mut bin);
+        let s_view_idx = buffer_views.len();
+        buffer_views.push(json!({
+            "buffer": 0,
+            "byteOffset": s_offset,
+            "byteLength": s_byte_len,
+            "target": 34962,
+        }));
+        let s_acc_idx = accessors.len();
+        accessors.push(json!({
+            "bufferView": s_view_idx,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": instance_count,
+            "type": "VEC3",
+        }));
+
+        // ---- Emit a glTF node with EXT_mesh_gpu_instancing ----
+        let mesh_idx = inst.prototype_mesh_idx;
+        let inst_node_idx = gltf_nodes.len();
+        let inst_node_name = meshes
+            .get(mesh_idx)
+            .map(|m| format!("{}_instanced", m.name))
+            .unwrap_or_else(|| format!("instanced_{mesh_idx}"));
+        gltf_nodes.push(json!({
+            "name": inst_node_name,
+            "mesh": mesh_idx,
+            // #41: stamp the instancer's SdfPath into extras so the
+            // frontend selection pipeline can map any clicked instance
+            // back to the authoring PointInstancer prim (read via
+            // `Object3D.userData.primPath`). Instance-level picking is
+            // deferred — every instance shares the instancer's path.
+            "extras": {
+                "primPath": inst.instancer_prim_path,
+            },
+            "extensions": {
+                "EXT_mesh_gpu_instancing": {
+                    "attributes": {
+                        "TRANSLATION": t_acc_idx,
+                        "ROTATION": r_acc_idx,
+                        "SCALE": s_acc_idx,
+                    }
+                }
+            }
+        }));
+
+        // Wire the instanced node to the parent (if specified).
+        if let Some(parent_ni_idx) = inst.parent_node_idx {
+            // The NodeInput-aware path: gltf node index for parent_ni_idx
+            // was already allocated in the node-tree building pass above.
+            // The __upAxis node occupies gltf index 0 (when nodes is non-empty),
+            // then NodeInput nodes follow in order starting at index 1.
+            if !nodes.is_empty() {
+                let parent_gltf_idx = 1 + parent_ni_idx;
+                if let Some(parent_node) = gltf_nodes.get_mut(parent_gltf_idx) {
+                    if parent_node.get("children").is_some() {
+                        parent_node["children"]
+                            .as_array_mut()
+                            .unwrap()
+                            .push(json!(inst_node_idx));
+                    } else {
+                        parent_node["children"] = json!([inst_node_idx]);
+                    }
+                }
+            } else {
+                // No NodeInput tree — just add to scene root.
+                scene_nodes.push(json!(inst_node_idx));
+            }
+        } else {
+            // No explicit parent — attach to scene root.
+            scene_nodes.push(json!(inst_node_idx));
+        }
+
+        has_instancing_ext = true;
+    }
+
     // ---- Build GLTF JSON document --------------------------------------
     let total_bin_length = bin.len() as u64;
 
@@ -1962,6 +2221,11 @@ pub fn build_glb(
                 "lights": gltf_light_defs,
             }
         });
+    }
+    // #41: EXT_mesh_gpu_instancing was used if at least one InstancingInput
+    // produced a glTF node.
+    if has_instancing_ext {
+        extensions_used.push("EXT_mesh_gpu_instancing");
     }
     if !extensions_used.is_empty() {
         document["extensionsUsed"] = json!(extensions_used);
@@ -2072,7 +2336,7 @@ fn is_identity_mat4_f32(m: &[f32; 16]) -> bool {
 /// glTF disallows animating a node's `matrix` so every joint node
 /// has to be authored as TRS even when its rest pose has no
 /// rotation. Handles negative scale via the determinant sign.
-fn decompose_trs_column_major(m: &[f32; 16]) -> ([f32; 3], [f32; 4], [f32; 3]) {
+pub(crate) fn decompose_trs_column_major(m: &[f32; 16]) -> ([f32; 3], [f32; 4], [f32; 3]) {
     // Translation lives in the 4th column (indices 12, 13, 14).
     let translation = [m[12], m[13], m[14]];
 
@@ -2238,7 +2502,7 @@ mod tests {
     #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
-        let glb = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None, &[]).expect("build glb");
 
         // GLB header sanity check
         assert_eq!(&glb[0..4], b"glTF");
@@ -2281,7 +2545,7 @@ mod tests {
     fn rejects_mismatched_normal_count() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.normals = Some(vec![0.0; 6]); // wrong length
-        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None).unwrap_err();
+        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None, &[]).unwrap_err();
         assert!(err.contains("normal"));
     }
 
@@ -2289,7 +2553,7 @@ mod tests {
     fn rejects_out_of_range_index() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.indices = vec![0, 1, 99];
-        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None).unwrap_err();
+        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None, &[]).unwrap_err();
         assert!(err.contains("out of range"));
     }
 
@@ -2297,7 +2561,7 @@ mod tests {
     fn rejects_material_index_out_of_range() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.material_index = 5;
-        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None).unwrap_err();
+        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None, &[]).unwrap_err();
         assert!(
             err.contains("material_index"),
             "expected material_index error, got: {err}"
@@ -2307,7 +2571,7 @@ mod tests {
     #[test]
     fn rejects_empty_materials_array() {
         let mesh = unit_quad_split_into_two_triangles();
-        let err = build_glb(&[], &[mesh], &[], &[], &[], &[], &[], &[], None).unwrap_err();
+        let err = build_glb(&[], &[mesh], &[], &[], &[], &[], &[], &[], None, &[]).unwrap_err();
         assert!(err.contains("material"));
     }
 
@@ -2331,7 +2595,7 @@ mod tests {
             alpha_cutoff: 0.5,
             metallic_roughness_texture: None,
         }];
-        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None, &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -2349,7 +2613,7 @@ mod tests {
     fn omits_alpha_mode_for_opaque_material() {
         let mesh = unit_quad_split_into_two_triangles();
         let materials = vec![MaterialInput::default_preview()];
-        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None, &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -2417,7 +2681,7 @@ mod tests {
             },
         ];
 
-        let glb = build_glb(&[], &[red_mesh, blue_mesh], &materials, &[], &[], &[], &[], &[], None).expect("build glb");
+        let glb = build_glb(&[], &[red_mesh, blue_mesh], &materials, &[], &[], &[], &[], &[], None, &[]).expect("build glb");
         assert_eq!(&glb[0..4], b"glTF");
 
         let json_chunk_len =

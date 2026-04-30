@@ -1320,6 +1320,113 @@ impl CStage {
         }
         Ok(())
     }
+
+    // -------- #41 UsdGeomPointInstancer --------
+
+    /// Returns `true` if the prim at `prim_path` is typed as
+    /// `UsdGeomPointInstancer`, `false` for any other type or missing prim.
+    pub fn is_point_instancer(&self, prim_path: &str) -> bool {
+        let Ok(c) = CString::new(prim_path) else { return false };
+        unsafe { usdc_prim_is_point_instancer(self.raw, c.as_ptr()) != 0 }
+    }
+
+    /// Returns the `prototypes` relationship target paths from a
+    /// `UsdGeomPointInstancer` prim. Returns an empty `Vec` when the prim
+    /// does not exist, is not a PointInstancer, or has no prototypes.
+    pub fn point_instancer_prototypes(&self, prim_path: &str) -> Vec<String> {
+        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_point_instancer_prototypes(
+                self.raw,
+                c.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            );
+        }
+        out
+    }
+
+    /// Reads `protoIndices` (int[]) from a PointInstancer prim at the
+    /// default time code. Returns an empty `Vec` when unauthored.
+    pub fn point_instancer_proto_indices(&self, prim_path: &str) -> Vec<i32> {
+        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let mut out = Vec::<i32>::new();
+        unsafe {
+            usdc_point_instancer_proto_indices(
+                self.raw,
+                c.as_ptr(),
+                Some(i32_buffer_trampoline),
+                &mut out as *mut Vec<i32> as *mut c_void,
+            );
+        }
+        out
+    }
+
+    /// Reads `positions` (point3f[]) from a PointInstancer prim.
+    /// Returns a flat `[x0, y0, z0, x1, ...]` buffer; empty when unauthored.
+    pub fn point_instancer_positions(&self, prim_path: &str) -> Vec<f32> {
+        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let mut out = Vec::<f32>::new();
+        unsafe {
+            usdc_point_instancer_positions(
+                self.raw,
+                c.as_ptr(),
+                Some(float_buffer_trampoline),
+                &mut out as *mut Vec<f32> as *mut c_void,
+            );
+        }
+        out
+    }
+
+    /// Reads `orientations` (quath[]) from a PointInstancer prim, expanded
+    /// to f32 and reordered to glTF convention [x, y, z, w]. Returns a flat
+    /// buffer of length `count * 4`; empty when unauthored.
+    pub fn point_instancer_orientations(&self, prim_path: &str) -> Vec<f32> {
+        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let mut out = Vec::<f32>::new();
+        unsafe {
+            usdc_point_instancer_orientations(
+                self.raw,
+                c.as_ptr(),
+                Some(float_buffer_trampoline),
+                &mut out as *mut Vec<f32> as *mut c_void,
+            );
+        }
+        out
+    }
+
+    /// Reads `scales` (float3[]) from a PointInstancer prim.
+    /// Returns a flat `[sx0, sy0, sz0, ...]` buffer; empty when unauthored.
+    pub fn point_instancer_scales(&self, prim_path: &str) -> Vec<f32> {
+        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let mut out = Vec::<f32>::new();
+        unsafe {
+            usdc_point_instancer_scales(
+                self.raw,
+                c.as_ptr(),
+                Some(float_buffer_trampoline),
+                &mut out as *mut Vec<f32> as *mut c_void,
+            );
+        }
+        out
+    }
+
+    /// Reads `invisibleIds` (int64[]) from a PointInstancer prim.
+    /// Returns an empty `Vec` when unauthored.
+    pub fn point_instancer_invisible_ids(&self, prim_path: &str) -> Vec<i64> {
+        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let mut out = Vec::<i64>::new();
+        unsafe {
+            usdc_point_instancer_invisible_ids(
+                self.raw,
+                c.as_ptr(),
+                Some(i64_buffer_trampoline),
+                &mut out as *mut Vec<i64> as *mut c_void,
+            );
+        }
+        out
+    }
 }
 
 impl Drop for CStage {
@@ -1491,6 +1598,26 @@ unsafe extern "C" fn layer_info_trampoline(
         time_scale: r.offset_scale,
         comment,
     });
+}
+
+// Trampoline for UsdcI64BufferCallback (#41 PointInstancer invisibleIds):
+// extends a Vec<i64> with the emitted buffer. Null / empty calls are no-ops.
+//
+// Safety:
+//   - `data` must point to `count` contiguous valid `i64`s (or null / 0).
+//   - `user` must be a `*mut Vec<i64>` as set up by
+//     `CStage::point_instancer_invisible_ids`.
+unsafe extern "C" fn i64_buffer_trampoline(
+    data: *const i64,
+    count: usize,
+    user: *mut c_void,
+) {
+    if user.is_null() || data.is_null() || count == 0 {
+        return;
+    }
+    let out = unsafe { &mut *(user as *mut Vec<i64>) };
+    let slice = unsafe { std::slice::from_raw_parts(data, count) };
+    out.extend_from_slice(slice);
 }
 
 // Trampoline for UsdcLightInfoCallback (#35): copies each light info

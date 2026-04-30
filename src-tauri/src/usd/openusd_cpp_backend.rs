@@ -27,11 +27,12 @@ use openusd::stage::MeshData;
 
 use super::backend::{UsdBackend, UsdError};
 use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation};
-use super::glb::{self, AlphaMode, MaterialInput, MeshInput};
+use super::glb::{self, AlphaMode, InstancingInput, MaterialInput, MeshInput};
 use super::openusd_backend::DenseBlendShape;
 use super::openusd_backend::{
-    filter_mesh_by_face_indices, invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mesh_data_to_input,
-    remap_mesh_skin_indices, srgb_to_linear, usd_wrap_to_gltf, z_up_to_y_up_mat4, MeshOrientation,
+    filter_mesh_by_face_indices, invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mat4_mul_f32,
+    mesh_data_to_input, remap_mesh_skin_indices, srgb_to_linear, usd_wrap_to_gltf,
+    z_up_to_y_up_mat4, MeshOrientation,
 };
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
@@ -897,7 +898,50 @@ fn extract_from_stage_with_options(
             mesh_paths.retain(|p| p.starts_with(&prefix) || *p == root_path);
         }
 
-        if mesh_paths.is_empty() {
+        // #41 P2-2 fix: exclude prototype subtree paths from the regular
+        // mesh pass. PointInstancer prototypes live as concrete Mesh prims
+        // under the instancer; without this filter the regular pass would
+        // emit them as standalone geometry alongside the instanced copies,
+        // producing visible duplicates at the prototype's authored location
+        // plus N instances. The PointInstancer pass below re-builds and
+        // pushes prototype meshes into `inputs` directly, so the regular
+        // pass needs to skip them.
+        let prototype_subtree_paths: std::collections::HashSet<String> = {
+            let all_prims = stage.traverse();
+            let instancer_paths: Vec<String> = all_prims
+                .iter()
+                .filter(|p| stage.is_point_instancer(p))
+                .cloned()
+                .collect();
+            let mut set: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for inst_path in &instancer_paths {
+                for proto_path in stage.point_instancer_prototypes(inst_path) {
+                    let prefix = format!("{proto_path}/");
+                    for p in &all_prims {
+                        if p == &proto_path || p.starts_with(&prefix) {
+                            set.insert(p.clone());
+                        }
+                    }
+                }
+            }
+            set
+        };
+        if !prototype_subtree_paths.is_empty() {
+            mesh_paths.retain(|p| !prototype_subtree_paths.contains(p));
+        }
+
+        // Check for PointInstancer prims as a fallback geometry source (#41).
+        // If there are no regular meshes but there are PointInstancwers,
+        // we still proceed — the PointInstancer pass below will add prototype
+        // meshes to `inputs`. We only fail hard if there is truly nothing.
+        let has_point_instancers = if mesh_paths.is_empty() {
+            let prims = stage.traverse();
+            prims.iter().any(|p| stage.is_point_instancer(p))
+        } else {
+            false
+        };
+
+        if mesh_paths.is_empty() && !has_point_instancers {
             return Err(UsdError::Parse(
                 "no renderable Mesh prims found in stage".to_string(),
             ));
@@ -1202,11 +1246,10 @@ fn extract_from_stage_with_options(
             }
         }
 
-        if inputs.is_empty() {
-            return Err(UsdError::Parse(
-                "all renderable meshes failed to build".to_string(),
-            ));
-        }
+        // `inputs` may be empty here for a PointInstancer-only stage;
+        // prototype meshes are added in the #41 pass below. We defer the
+        // empty check until after that pass.
+        let regular_mesh_count = inputs.len();
 
         // Phase 2.O: attach `UsdSkelAnimation.blendShapeWeights`
         // time samples as glTF weight-animation channels. Runs after
@@ -1288,6 +1331,326 @@ fn extract_from_stage_with_options(
                 }
             }
         }
+
+        // ---- #41 PointInstancer pass -----------------------------------
+        //
+        // Traverses all prims to find UsdGeomPointInstancer prims. For
+        // each instancer:
+        //   1. Skip if `visibility = "invisible"` is authored on the
+        //      instancer prim itself (ancestor inheritance is deferred).
+        //   2. Compose `composite_inst_world = upAxis * world_xform_of(instancer)`
+        //      so the per-instance TRS reflects the instancer's parent chain.
+        //   3. For each instance: bake `composite_inst_world * (T·R·S of i)`,
+        //      decompose back to TRS for `EXT_mesh_gpu_instancing`. Skip
+        //      individual instances whose scale is non-finite.
+        //   4. Filter `invisibleIds` (compared against array index — `ids`
+        //      attribute support is deferred).
+        //   5. Resolve `prototypes` rel; for each prototype index, partition
+        //      the instance arrays by `protoIndices[i] == proto_idx`. For
+        //      each Mesh prim under the prototype subtree, compose the
+        //      prototype-internal local xform onto the instance TRS so the
+        //      mesh's position within the prototype subtree is preserved.
+        //
+        // Instance-level picking is out of MVP scope (issue #41 follow-up).
+        // The instancer prim itself gets no NodeInput here (flat C++ layout);
+        // the EXT_mesh_gpu_instancing node carries the prototype mesh index.
+        let mut instancing_inputs: Vec<InstancingInput> = Vec::new();
+        {
+            // #41: mirror the defaultPrim filter the regular mesh pass
+            // applies above so PointInstancer prims that leak from
+            // referenced / payloaded layer roots don't end up emitting
+            // duplicate geometry outside the authored defaultPrim subtree.
+            let default_prim_filter: Option<(String, String)> =
+                stage.default_prim().map(|dp| (format!("/{dp}"), format!("/{dp}/")));
+            let all_prims = stage.traverse();
+            let instancer_paths: Vec<String> = all_prims
+                .into_iter()
+                .filter(|p| {
+                    if let Some((root, prefix)) = &default_prim_filter {
+                        if !(p == root || p.starts_with(prefix)) {
+                            return false;
+                        }
+                    }
+                    stage.is_point_instancer(p)
+                })
+                .collect();
+
+            for inst_path in &instancer_paths {
+                // #41: skip instancers authored as invisible. We only
+                // probe the instancer prim itself, not its ancestors —
+                // ancestor visibility inheritance through UsdGeomImageable
+                // would need either a C-shim helper or an ancestor walk
+                // and is deferred to a follow-up. This still catches the
+                // common case where a level-design tool stamps
+                // `visibility = "invisible"` on the instancer prim
+                // directly to gate it.
+                let viz = stage
+                    .prim_attr_token(inst_path, "visibility")
+                    .unwrap_or_default();
+                if viz == "invisible" {
+                    eprintln!(
+                        "[usd-cpp] PointInstancer {inst_path} authored as invisible; skipping"
+                    );
+                    continue;
+                }
+
+                // Collect per-instance TRS from the shim.
+                let positions_flat = stage.point_instancer_positions(inst_path);
+                let orientations_flat = stage.point_instancer_orientations(inst_path);
+                let scales_flat = stage.point_instancer_scales(inst_path);
+                let proto_indices = stage.point_instancer_proto_indices(inst_path);
+                // NOTE: `invisibleIds` semantically references the authored
+                // `ids` int64 array when present, falling back to the
+                // zero-based array index when not. The shim does not yet
+                // expose `ids` so we treat the index as the id; this is
+                // correct for the common case where `ids` is unauthored.
+                // Stages that author a non-default `ids` array will see
+                // wrong instances filtered — TODO follow-up issue.
+                let invisible_ids: std::collections::HashSet<i64> = stage
+                    .point_instancer_invisible_ids(inst_path)
+                    .into_iter()
+                    .collect();
+
+                let instance_count = proto_indices.len();
+                if instance_count == 0 || positions_flat.len() < instance_count * 3 {
+                    eprintln!(
+                        "[usd-cpp] PointInstancer {inst_path}: no instances or no positions, skipping"
+                    );
+                    continue;
+                }
+
+                // #41 P1-1 fix: compose the instancer's world transform (its
+                // own xform plus every ancestor's) with the up-axis
+                // correction and bake it into each instance's TRS. Without
+                // this an instancer parented under a non-identity Xform
+                // would render its instances at the wrong place / orientation
+                // because positions / orientations are authored in the
+                // instancer's local space.
+                let inst_world_f64 = stage
+                    .prim_world_matrix(inst_path)
+                    .unwrap_or_else(identity_mat4);
+                let composite_world_f64 = match up_axis_correction.as_ref() {
+                    Some(corr) => mat4_mul(corr, &inst_world_f64),
+                    None => inst_world_f64,
+                };
+                let composite_world_f32 = mat4_f64_to_f32(&composite_world_f64);
+
+                // Convert flat buffers to per-instance arrays, composing each
+                // local TRS with the instancer world matrix and decomposing
+                // back to TRS for EXT_mesh_gpu_instancing.
+                let mut translations: Vec<[f32; 3]> = Vec::new();
+                let mut rotations: Vec<[f32; 4]> = Vec::new();
+                let mut scales_out: Vec<[f32; 3]> = Vec::new();
+                // Parallel array: which prototype this instance references.
+                let mut instance_proto_idx: Vec<i32> = Vec::new();
+
+                for i in 0..instance_count {
+                    if invisible_ids.contains(&(i as i64)) {
+                        continue;
+                    }
+
+                    let px = positions_flat[i * 3];
+                    let py = positions_flat[i * 3 + 1];
+                    let pz = positions_flat[i * 3 + 2];
+
+                    let (qx, qy, qz, qw) = if orientations_flat.len() >= instance_count * 4 {
+                        let b = i * 4;
+                        (
+                            orientations_flat[b],
+                            orientations_flat[b + 1],
+                            orientations_flat[b + 2],
+                            orientations_flat[b + 3],
+                        )
+                    } else {
+                        (0.0_f32, 0.0, 0.0, 1.0)
+                    };
+
+                    let (sx, sy, sz) = if scales_flat.len() >= instance_count * 3 {
+                        let b = i * 3;
+                        (scales_flat[b], scales_flat[b + 1], scales_flat[b + 2])
+                    } else {
+                        (1.0_f32, 1.0, 1.0)
+                    };
+
+                    if !sx.is_finite() || !sy.is_finite() || !sz.is_finite()
+                        || sx <= 0.0 || sy <= 0.0 || sz <= 0.0
+                    {
+                        eprintln!(
+                            "[usd-cpp] PointInstancer {inst_path} instance {i} has invalid scale ({sx},{sy},{sz}); skipping instance"
+                        );
+                        continue;
+                    }
+
+                    // Build local TRS matrix (column-major) and compose with
+                    // the instancer's world matrix.
+                    let local_mat = trs_to_mat4_f32([px, py, pz], [qx, qy, qz, qw], [sx, sy, sz]);
+                    let world_mat = mat4_mul_f32(&composite_world_f32, &local_mat);
+                    let (t, r, s) = glb::decompose_trs_column_major(&world_mat);
+
+                    // Decomposition can yield a negative scale component when
+                    // the composite world matrix has a flip (negative
+                    // determinant). EXT_mesh_gpu_instancing TRS cannot
+                    // represent mirroring cleanly — Three.js InstancedMesh
+                    // would render those instances inside-out — so we drop
+                    // them. The TRS gate doc claim now holds end-to-end.
+                    if !s[0].is_finite() || !s[1].is_finite() || !s[2].is_finite()
+                        || s[0] <= 0.0 || s[1] <= 0.0 || s[2] <= 0.0
+                    {
+                        continue;
+                    }
+
+                    translations.push(t);
+                    rotations.push(r);
+                    scales_out.push(s);
+                    instance_proto_idx.push(proto_indices.get(i).copied().unwrap_or(0));
+                }
+
+                if translations.is_empty() {
+                    eprintln!(
+                        "[usd-cpp] PointInstancer {inst_path}: empty after filter; skipping instancing"
+                    );
+                    continue;
+                }
+
+                // Resolve prototype mesh prims and build MeshInputs for them.
+                // #41 P1-2 fix: filter per-prototype using `protoIndices`.
+                // Each prototype only receives the subset of instances whose
+                // protoIndices[i] equals the prototype's index in the
+                // `prototypes` rel — without this every prototype would
+                // appear at every instance location.
+                let proto_paths = stage.point_instancer_prototypes(inst_path);
+                for (proto_idx, proto_path) in proto_paths.iter().enumerate() {
+                    let mut my_t: Vec<[f32; 3]> = Vec::new();
+                    let mut my_r: Vec<[f32; 4]> = Vec::new();
+                    let mut my_s: Vec<[f32; 3]> = Vec::new();
+                    for (out_idx, &pi) in instance_proto_idx.iter().enumerate() {
+                        if pi >= 0 && (pi as usize) == proto_idx {
+                            my_t.push(translations[out_idx]);
+                            my_r.push(rotations[out_idx]);
+                            my_s.push(scales_out[out_idx]);
+                        }
+                    }
+                    if my_t.is_empty() {
+                        continue;
+                    }
+
+                    let all_stage_prims = stage.traverse();
+                    let proto_prefix = format!("{proto_path}/");
+                    let proto_mesh_prims: Vec<String> = all_stage_prims
+                        .into_iter()
+                        .filter(|p| {
+                            (p == proto_path || p.starts_with(&proto_prefix))
+                                && stage.prim_type_is_mesh(p)
+                        })
+                        .collect();
+
+                    // #41 prototype-local-xform: per USD semantics each
+                    // instance is `M_inst_world * inst_TRS * proto_local`
+                    // where `proto_local = inv(inst_world) * proto_mesh_world`
+                    // — the mesh's xform expressed in the *instancer's*
+                    // coordinate frame, NOT the prototype root's. Using
+                    // `inv(proto_root_world)` would strip any xform authored
+                    // on the prototype root prim itself (a common pattern
+                    // when the prototype root has its own translate/rotate
+                    // ops or is an Xform wrapping a transformed mesh).
+                    let inv_inst_world_f32 = invert_mat4_f32(&mat4_f64_to_f32(&inst_world_f64))
+                        .unwrap_or_else(|| mat4_f64_to_f32(&identity_mat4()));
+
+                    for proto_mesh_path in &proto_mesh_prims {
+                        // TODO (#41 follow-up): resolve UsdPreviewSurface +
+                        // GeomSubset material bindings on prototype meshes.
+                        // The regular mesh pass calls a material-resolution
+                        // helper and slot-dedupes; the PointInstancer pass
+                        // currently leaves `material_index = 0` (default
+                        // preview material). Assets whose prototypes carry
+                        // authored materials will render gray instead of
+                        // their authored color/texture until this lands.
+                        let Some(raw_proto) = build_mesh_data_from_shim(&stage, proto_mesh_path)
+                        else {
+                            continue;
+                        };
+
+                        let proto_mesh_world = stage
+                            .prim_world_matrix(proto_mesh_path)
+                            .unwrap_or_else(identity_mat4);
+                        let proto_mesh_world_f32 = mat4_f64_to_f32(&proto_mesh_world);
+                        // proto_local = inv(inst_world) * proto_mesh_world
+                        let proto_local = mat4_mul_f32(&inv_inst_world_f32, &proto_mesh_world_f32);
+
+                        // Re-bake the per-instance TRS by composing
+                        //   composite_inst_world * instance_local * proto_local
+                        // and decomposing back. We rebuild on every
+                        // prototype mesh because proto_local differs per
+                        // mesh prim.
+                        let mut prim_t: Vec<[f32; 3]> = Vec::with_capacity(my_t.len());
+                        let mut prim_r: Vec<[f32; 4]> = Vec::with_capacity(my_t.len());
+                        let mut prim_s: Vec<[f32; 3]> = Vec::with_capacity(my_t.len());
+                        for ((t, r), s) in my_t.iter().zip(my_r.iter()).zip(my_s.iter()) {
+                            let inst_local = trs_to_mat4_f32(*t, *r, *s);
+                            // The per-instance values already include the
+                            // composite_inst_world bake from earlier; we
+                            // multiply by proto_local on the right to put
+                            // the prototype-internal xform on the mesh side.
+                            let composed = mat4_mul_f32(&inst_local, &proto_local);
+                            let (ct, cr, cs) = glb::decompose_trs_column_major(&composed);
+                            if !cs[0].is_finite() || !cs[1].is_finite() || !cs[2].is_finite()
+                                || cs[0] <= 0.0 || cs[1] <= 0.0 || cs[2] <= 0.0
+                            {
+                                continue;
+                            }
+                            prim_t.push(ct);
+                            prim_r.push(cr);
+                            prim_s.push(cs);
+                        }
+                        if prim_t.is_empty() {
+                            continue;
+                        }
+
+                        let world_f32 = mat4_f64_to_f32(&identity_mat4());
+
+                        let orientation = match stage.mesh_orientation(proto_mesh_path) {
+                            Orientation::LeftHanded => MeshOrientation::LeftHanded,
+                            Orientation::RightHanded => MeshOrientation::RightHanded,
+                        };
+
+                        let Ok(sdf_path) = SdfPath::new(proto_mesh_path) else {
+                            continue;
+                        };
+                        let Ok(proto_input) = mesh_data_to_input(
+                            &sdf_path,
+                            world_f32,
+                            &raw_proto,
+                            orientation,
+                            usize::MAX,
+                            &[],
+                            None,
+                        ) else {
+                            continue;
+                        };
+
+                        let prototype_mesh_idx = inputs.len();
+                        inputs.push(proto_input);
+
+                        instancing_inputs.push(InstancingInput {
+                            prototype_mesh_idx,
+                            parent_node_idx: None,
+                            instancer_prim_path: inst_path.clone(),
+                            translations: prim_t,
+                            rotations: prim_r,
+                            scales: prim_s,
+                        });
+                    }
+                }
+            }
+        }
+
+        // After the PointInstancer pass, check if we have any mesh at all.
+        if inputs.is_empty() {
+            return Err(UsdError::Parse(
+                "all renderable meshes failed to build".to_string(),
+            ));
+        }
+        let _ = regular_mesh_count; // used above for documentation, suppress unused warning
 
         // Phase 2.F: resolve every material's `inputs:diffuseColor`
         // texture path into actual image bytes and embed them in the
@@ -1421,7 +1784,7 @@ fn extract_from_stage_with_options(
         // #46: pass empty nodes slice for the C++ backend (hierarchy-aware
         // node tree is implemented in the Rust fork backend only for now).
         // The flat scene-root layout is used as a fallback.
-        glb::build_glb(&[], &inputs, &materials, &textures, &skins, &animations, &lights, &cameras, None)
+        glb::build_glb(&[], &inputs, &materials, &textures, &skins, &animations, &lights, &cameras, None, &instancing_inputs)
             .map_err(|e| UsdError::Parse(e.to_string()))
 }
 
@@ -1431,6 +1794,42 @@ fn identity_mat4() -> [f64; 16] {
         0.0, 1.0, 0.0, 0.0, //
         0.0, 0.0, 1.0, 0.0, //
         0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+/// #41: build a column-major 4x4 transform from glTF-style TRS
+/// (translation, rotation as `[x, y, z, w]` quaternion, scale).
+/// Used by the PointInstancer pass to compose per-instance local TRS
+/// with the instancer's world matrix before re-decomposing for
+/// `EXT_mesh_gpu_instancing`.
+fn trs_to_mat4_f32(t: [f32; 3], r: [f32; 4], s: [f32; 3]) -> [f32; 16] {
+    let (x, y, z, w) = (r[0], r[1], r[2], r[3]);
+    let xx = x * x;
+    let yy = y * y;
+    let zz = z * z;
+    let xy = x * y;
+    let xz = x * z;
+    let yz = y * z;
+    let wx = w * x;
+    let wy = w * y;
+    let wz = w * z;
+
+    // Rotation matrix from quaternion (column-major).
+    let r00 = 1.0 - 2.0 * (yy + zz);
+    let r10 = 2.0 * (xy + wz);
+    let r20 = 2.0 * (xz - wy);
+    let r01 = 2.0 * (xy - wz);
+    let r11 = 1.0 - 2.0 * (xx + zz);
+    let r21 = 2.0 * (yz + wx);
+    let r02 = 2.0 * (xz + wy);
+    let r12 = 2.0 * (yz - wx);
+    let r22 = 1.0 - 2.0 * (xx + yy);
+
+    [
+        r00 * s[0], r10 * s[0], r20 * s[0], 0.0, // col 0
+        r01 * s[1], r11 * s[1], r21 * s[1], 0.0, // col 1
+        r02 * s[2], r12 * s[2], r22 * s[2], 0.0, // col 2
+        t[0], t[1], t[2], 1.0,                   // col 3
     ]
 }
 

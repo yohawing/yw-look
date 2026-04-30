@@ -92,6 +92,8 @@
 #include <pxr/usd/usdLux/lightAPI.h>
 #include <pxr/usd/usdLux/domeLight.h>
 #include <pxr/usd/usdLux/shapingAPI.h>
+#include <pxr/usd/usdGeom/pointInstancer.h>
+#include <cstdint>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -2565,4 +2567,152 @@ int usdc_stage_unload_prim(UsdcStage *stage,
         }
         return 0;
     }
+}
+
+/* ---- #41 UsdGeomPointInstancer ------------------------------------------- */
+
+extern "C" USDC_API int usdc_prim_is_point_instancer(UsdcStage *stage,
+                                                      const char *prim_path) {
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return 0;
+    try {
+        return prim.IsA<UsdGeomPointInstancer>() ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" USDC_API void usdc_point_instancer_prototypes(UsdcStage *stage,
+                                                          const char *prim_path,
+                                                          UsdcStringCallback cb,
+                                                          void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+    swallow([&] {
+        UsdGeomPointInstancer instancer(prim);
+        if (!instancer) return;
+        UsdRelationship prototypesRel = instancer.GetPrototypesRel();
+        if (!prototypesRel) return;
+        SdfPathVector targets;
+        prototypesRel.GetForwardedTargets(&targets);
+        for (const SdfPath &p : targets) {
+            cb(p.GetString().c_str(), user);
+        }
+    });
+}
+
+extern "C" USDC_API void usdc_point_instancer_proto_indices(UsdcStage *stage,
+                                                             const char *prim_path,
+                                                             UsdcI32BufferCallback cb,
+                                                             void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { cb(nullptr, 0, user); return; }
+    swallow([&] {
+        UsdGeomPointInstancer instancer(prim);
+        if (!instancer) { cb(nullptr, 0, user); return; }
+        VtArray<int> indices;
+        UsdAttribute attr = instancer.GetProtoIndicesAttr();
+        if (!attr || !attr.Get(&indices, UsdTimeCode::Default())) {
+            cb(nullptr, 0, user);
+            return;
+        }
+        cb(indices.data(), indices.size(), user);
+    });
+}
+
+extern "C" USDC_API void usdc_point_instancer_positions(UsdcStage *stage,
+                                                         const char *prim_path,
+                                                         UsdcFloatBufferCallback cb,
+                                                         void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { cb(nullptr, 0, user); return; }
+    swallow([&] {
+        UsdGeomPointInstancer instancer(prim);
+        if (!instancer) { cb(nullptr, 0, user); return; }
+        VtArray<GfVec3f> positions;
+        UsdAttribute attr = instancer.GetPositionsAttr();
+        if (!attr || !attr.Get(&positions, UsdTimeCode::Default())) {
+            cb(nullptr, 0, user);
+            return;
+        }
+        /* Flat [x0,y0,z0, x1,y1,z1, ...]; stride=3 for GfVec3f */
+        emit_float_array(positions, cb, user, 3);
+    });
+}
+
+extern "C" USDC_API void usdc_point_instancer_orientations(UsdcStage *stage,
+                                                            const char *prim_path,
+                                                            UsdcFloatBufferCallback cb,
+                                                            void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { cb(nullptr, 0, user); return; }
+    swallow([&] {
+        UsdGeomPointInstancer instancer(prim);
+        if (!instancer) { cb(nullptr, 0, user); return; }
+        /* USD stores quath (half-precision, w,x,y,z order).
+         * We expand to f32 and reorder to glTF convention (x,y,z,w). */
+        VtArray<GfQuath> orientations;
+        UsdAttribute attr = instancer.GetOrientationsAttr();
+        if (!attr || !attr.Get(&orientations, UsdTimeCode::Default())) {
+            cb(nullptr, 0, user);
+            return;
+        }
+        std::vector<float> flat;
+        flat.reserve(orientations.size() * 4);
+        for (const GfQuath &q : orientations) {
+            /* GfQuath stores imaginary first (i,j,k), then real (w).
+             * GetImaginary() -> GfVec3h(x,y,z), GetReal() -> w */
+            GfVec3h imag = q.GetImaginary();
+            GfHalf  real = q.GetReal();
+            flat.push_back(static_cast<float>(imag[0])); /* x */
+            flat.push_back(static_cast<float>(imag[1])); /* y */
+            flat.push_back(static_cast<float>(imag[2])); /* z */
+            flat.push_back(static_cast<float>(real));    /* w */
+        }
+        cb(flat.data(), flat.size(), user);
+    });
+}
+
+extern "C" USDC_API void usdc_point_instancer_scales(UsdcStage *stage,
+                                                      const char *prim_path,
+                                                      UsdcFloatBufferCallback cb,
+                                                      void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { cb(nullptr, 0, user); return; }
+    swallow([&] {
+        UsdGeomPointInstancer instancer(prim);
+        if (!instancer) { cb(nullptr, 0, user); return; }
+        VtArray<GfVec3f> scales;
+        UsdAttribute attr = instancer.GetScalesAttr();
+        if (!attr || !attr.Get(&scales, UsdTimeCode::Default())) {
+            cb(nullptr, 0, user);
+            return;
+        }
+        emit_float_array(scales, cb, user, 3);
+    });
+}
+
+extern "C" USDC_API void usdc_point_instancer_invisible_ids(UsdcStage *stage,
+                                                             const char *prim_path,
+                                                             UsdcI64BufferCallback cb,
+                                                             void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { cb(nullptr, 0, user); return; }
+    swallow([&] {
+        UsdGeomPointInstancer instancer(prim);
+        if (!instancer) { cb(nullptr, 0, user); return; }
+        VtArray<int64_t> ids;
+        UsdAttribute attr = instancer.GetInvisibleIdsAttr();
+        if (!attr || !attr.Get(&ids, UsdTimeCode::Default())) {
+            cb(nullptr, 0, user);
+            return;
+        }
+        cb(ids.data(), ids.size(), user);
+    });
 }

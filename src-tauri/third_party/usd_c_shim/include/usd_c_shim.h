@@ -23,6 +23,7 @@
 #define USD_C_SHIM_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 /* Visibility / export control.
  *
@@ -910,6 +911,65 @@ USDC_API int usdc_stage_load_prim(UsdcStage *stage,
 USDC_API int usdc_stage_unload_prim(UsdcStage *stage,
                                     const char *prim_path,
                                     UsdcError **err_out);
+
+/* -------------------- UsdGeomPointInstancer (#41) -------------------- */
+
+/* Returns 1 if the prim at `prim_path` is typed as UsdGeomPointInstancer,
+ * 0 for any other type or if the prim does not exist. */
+USDC_API int usdc_prim_is_point_instancer(UsdcStage *stage,
+                                          const char *prim_path);
+
+/* Reads the `prototypes` relationship targets from a PointInstancer prim.
+ * Calls `cb(path, user)` once per prototype SdfPath. Emits nothing when
+ * the prim does not exist or has no prototypes relationship. */
+USDC_API void usdc_point_instancer_prototypes(UsdcStage *stage,
+                                              const char *prim_path,
+                                              UsdcStringCallback cb,
+                                              void *user);
+
+/* Reads `protoIndices` (int[]) from a PointInstancer prim at the default
+ * time code. Calls `cb(data, count, user)` with the flat int buffer.
+ * Emits `(NULL, 0)` when the attribute is unauthored. */
+USDC_API void usdc_point_instancer_proto_indices(UsdcStage *stage,
+                                                 const char *prim_path,
+                                                 UsdcI32BufferCallback cb,
+                                                 void *user);
+
+/* Reads `positions` (point3f[]) at the default time code.
+ * Flat layout: [x0, y0, z0, x1, y1, z1, ...].
+ * Emits `(NULL, 0)` when the attribute is unauthored. */
+USDC_API void usdc_point_instancer_positions(UsdcStage *stage,
+                                             const char *prim_path,
+                                             UsdcFloatBufferCallback cb,
+                                             void *user);
+
+/* Reads `orientations` (quath[]) at the default time code.
+ * Half-precision quaternions are expanded to f32. Output layout per
+ * quaternion: [x, y, z, w] (glTF order — USD stores [w, x, y, z]).
+ * Flat buffer length = count * 4.
+ * Emits `(NULL, 0)` when the attribute is unauthored. */
+USDC_API void usdc_point_instancer_orientations(UsdcStage *stage,
+                                                const char *prim_path,
+                                                UsdcFloatBufferCallback cb,
+                                                void *user);
+
+/* Reads `scales` (float3[]) at the default time code.
+ * Flat layout: [sx0, sy0, sz0, sx1, sy1, sz1, ...].
+ * Emits `(NULL, 0)` when the attribute is unauthored. */
+USDC_API void usdc_point_instancer_scales(UsdcStage *stage,
+                                          const char *prim_path,
+                                          UsdcFloatBufferCallback cb,
+                                          void *user);
+
+/* Reads `invisibleIds` (int64[]) at the default time code.
+ * Calls `cb(data, count, user)` with the flat int64 buffer.
+ * Emits `(NULL, 0)` when the attribute is unauthored or empty. */
+typedef void (*UsdcI64BufferCallback)(const int64_t *data, size_t count,
+                                     void *user);
+USDC_API void usdc_point_instancer_invisible_ids(UsdcStage *stage,
+                                                 const char *prim_path,
+                                                 UsdcI64BufferCallback cb,
+                                                 void *user);
 
 #ifdef __cplusplus
 } /* extern "C" */

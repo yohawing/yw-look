@@ -783,15 +783,45 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // (The legacy `is_renderable_mesh` helper also excluded proxy /
         // guide — that behaviour now lives on the frontend via the
         // `purposeModes` default render=true, proxy=false, guide=false.)
+        // #41: The Rust fork backend does not support UsdGeomPointInstancer.
+        // PointInstancer prims are silently skipped because they do not
+        // satisfy `is_mesh_active_and_visible`. Use the C++ backend
+        // (feature: backend-openusd-cpp) for EXT_mesh_gpu_instancing preview.
         let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
+        let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
         stage
             .traverse(|prim_path| {
+                // Detect PointInstancer type by path heuristic: the stage's
+                // type_name field. We emit a warning and skip rather than error.
+                if let Ok(Some(SdfValue::Token(type_name))) = stage.field::<SdfValue>(
+                    prim_path.clone(),
+                    FieldKey::TypeName,
+                ) {
+                    if type_name.as_str() == "PointInstancer" {
+                        instancer_paths.borrow_mut().push(prim_path.clone());
+                        return; // skip from mesh traversal
+                    }
+                }
                 if !is_mesh_active_and_visible(&stage, prim_path) {
                     return;
                 }
                 mesh_paths.borrow_mut().push(prim_path.clone());
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
+
+        // Emit a single warning if any PointInstancer prims were found.
+        {
+            let instancer_list = instancer_paths.into_inner();
+            if !instancer_list.is_empty() {
+                eprintln!(
+                    "[usd-rs] {} PointInstancer prim(s) found (e.g. '{}') — not supported by \
+                     the Rust fork backend; skipped. Use `--features backend-openusd-cpp` \
+                     for EXT_mesh_gpu_instancing preview (#41).",
+                    instancer_list.len(),
+                    instancer_list[0]
+                );
+            }
+        }
 
         let mesh_paths = mesh_paths.into_inner();
 
@@ -1324,6 +1354,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
             &lights,
             &cameras,
             up_correction_f32,
+            &[], // #41: Rust fork backend skips PointInstancer (no instancing support)
         )
         .map_err(UsdError::Parse)
 }
@@ -1683,7 +1714,7 @@ fn skin_input_from_skel(
 }
 
 #[allow(dead_code)]
-fn mat4_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
+pub(crate) fn mat4_mul_f32(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
     let mut out = [0.0_f32; 16];
     for col in 0..4 {
         for row in 0..4 {
