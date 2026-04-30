@@ -163,6 +163,7 @@ impl UsdBackend for OpenusdCppBackend {
                         prim_path: prim_path.clone(),
                         set_name,
                         selection,
+                        variants: Vec::new(),
                     });
                 }
             }

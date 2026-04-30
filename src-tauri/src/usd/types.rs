@@ -35,6 +35,87 @@ pub struct VariantSetInfo {
     /// prim does not explicitly author a selection (the first variant
     /// becomes the implicit default).
     pub selection: Option<String>,
+    /// Available variant names in this set. Empty when the backend
+    /// cannot enumerate them (e.g. the openusd Rust fork — only the
+    /// C++ shim populates this for now). The frontend uses this to
+    /// drive a switcher pulldown; an empty list disables the control.
+    #[serde(default)]
+    pub variants: Vec<String>,
+}
+
+/// One variant selection override carried into `extract_geometry_glb`
+/// so the frontend can switch a variant set without a full re-open
+/// from the user's perspective. Stateless: every extract call applies
+/// the full set of selections from scratch on a fresh stage.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VariantSelection {
+    /// Prim path that owns the variant set (`/World/Hero`).
+    pub prim_path: String,
+    /// Variant set name (`"modelingVariant"`).
+    pub set_name: String,
+    /// Variant to select within the set (`"red"`).
+    pub variant_name: String,
+}
+
+/// Per-purpose visibility filter applied when building the GLB. The
+/// `default` purpose is always rendered (USD spec). The remaining
+/// purposes are toggled independently — when `false`, prims authored
+/// with that purpose are skipped during traversal so they never reach
+/// the GLB output. Defaults: render on, proxy / guide off (matches the
+/// pre-#32 `skip_proxy_guide_purpose` behaviour for backwards
+/// compatibility).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PurposeModes {
+    pub render: bool,
+    pub proxy: bool,
+    pub guide: bool,
+}
+
+impl Default for PurposeModes {
+    fn default() -> Self {
+        Self {
+            render: true,
+            proxy: false,
+            guide: false,
+        }
+    }
+}
+
+/// Bundled options for `extract_geometry_glb`. Replaces the bare
+/// `policy` argument so #31 (variant selections) and #32 (purpose
+/// toggle) can plug into the same extract call without proliferating
+/// trait methods. Existing call sites construct this from a
+/// `StageLoadPolicy` via `From` so the test suite keeps the terse
+/// `extract_geometry_glb(&path, policy.into())` shape.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractGeometryOptions {
+    /// Stage load policy. Defaults to `LoadAll` when callers send an
+    /// options object without this key — matches the TS type's
+    /// `policy?` shape so `extractGeometry(path, { variantSelections })`
+    /// deserializes cleanly.
+    #[serde(default)]
+    pub policy: StageLoadPolicy,
+    /// #31 variant selections to apply before geometry extraction.
+    /// Empty by default — backend uses each prim's authored
+    /// selection (or pcp's implicit-first-variant fallback).
+    #[serde(default)]
+    pub variant_selections: Vec<VariantSelection>,
+    /// #32 per-purpose visibility filter. `Default::default()` matches
+    /// the pre-#32 behaviour (render on, proxy / guide off).
+    #[serde(default)]
+    pub purpose_modes: PurposeModes,
+}
+
+impl From<StageLoadPolicy> for ExtractGeometryOptions {
+    fn from(policy: StageLoadPolicy) -> Self {
+        Self {
+            policy,
+            ..Default::default()
+        }
+    }
 }
 
 /// Heavyweight stage detail. Returned by `inspect_stage`.

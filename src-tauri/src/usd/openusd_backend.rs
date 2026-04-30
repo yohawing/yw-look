@@ -183,6 +183,7 @@ impl UsdBackend for OpenusdBackend {
                                 prim_path: source.clone(),
                                 set_name: set_name.clone(),
                                 selection,
+                                variants: Vec::new(),
                             },
                         );
                     }

@@ -31,6 +31,46 @@ export type VariantSetInfo = {
   primPath: string;
   setName: string;
   selection: string | null;
+  /**
+   * Available variant names in this set. Empty when the backend can
+   * not enumerate them (e.g. the openusd Rust fork — only the C++
+   * shim populates this for now). UI should disable the switcher
+   * pulldown when this list is empty.
+   */
+  variants: string[];
+};
+
+/**
+ * Round 1.5 (#31): one variant override applied before geometry
+ * extraction. Stateless — every extract call applies the full set of
+ * selections from scratch on a fresh stage.
+ */
+export type VariantSelection = {
+  primPath: string;
+  setName: string;
+  variantName: string;
+};
+
+/**
+ * Round 1.5 (#32): per-purpose visibility. `default` is always
+ * rendered. The remaining purposes default to render-on, proxy/guide
+ * off, matching the pre-#32 `skipProxyGuidePurpose` filter.
+ */
+export type PurposeModes = {
+  render: boolean;
+  proxy: boolean;
+  guide: boolean;
+};
+
+/**
+ * Round 1.5: bundled options for the `extract_geometry` Tauri
+ * command. Replaces the bare `policy` arg so #31 (variant) and #32
+ * (purpose) can plug in without proliferating commands.
+ */
+export type ExtractGeometryOptions = {
+  policy?: StageLoadPolicy;
+  variantSelections?: VariantSelection[];
+  purposeModes?: PurposeModes;
 };
 
 export type StageInspection = {
@@ -190,6 +230,21 @@ export async function loadUsdSource(
  * the backend may throw if the stage has no renderable meshes without
  * its payloads, so callers should guard against that.
  */
-export async function extractGeometry(path: string, policy?: StageLoadPolicy) {
-  return invoke<ArrayBuffer>("extract_geometry", { path, policy });
+export async function extractGeometry(
+  path: string,
+  policyOrOptions?: StageLoadPolicy | ExtractGeometryOptions,
+) {
+  // Backwards compatible: callers can still pass a bare policy string.
+  // When an options object is supplied it goes through to the Tauri
+  // command's `options` arg, which takes precedence over `policy`.
+  if (typeof policyOrOptions === "object" && policyOrOptions !== null) {
+    return invoke<ArrayBuffer>("extract_geometry", {
+      path,
+      options: policyOrOptions,
+    });
+  }
+  return invoke<ArrayBuffer>("extract_geometry", {
+    path,
+    policy: policyOrOptions,
+  });
 }

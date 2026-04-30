@@ -8,7 +8,9 @@
 
 use std::path::Path;
 
-use super::types::{AssetIssue, StageInspection, StageLoadPolicy, StageSummary};
+use super::types::{
+    AssetIssue, ExtractGeometryOptions, StageInspection, StageLoadPolicy, StageSummary,
+};
 
 /// Errors a USD backend can produce. Kept intentionally narrow so the
 /// command layer can map them to user-facing diagnostics consistently.
@@ -97,4 +99,19 @@ pub trait UsdBackend: Send + Sync {
         path: &Path,
         policy: StageLoadPolicy,
     ) -> Result<Vec<u8>, UsdError>;
+
+    /// Round 1.5 (#32 / #31 plumbing): options-aware variant of
+    /// [`Self::extract_geometry_glb`]. Default delegates to the
+    /// policy-only method, ignoring `variant_selections` and
+    /// `purpose_modes`. Backends that support those features override
+    /// this method to consume the options. Frontend / Tauri command
+    /// callers should prefer this method so variant / purpose changes
+    /// take effect on backends that implement them.
+    fn extract_geometry_glb_with_options(
+        &self,
+        path: &Path,
+        options: &ExtractGeometryOptions,
+    ) -> Result<Vec<u8>, UsdError> {
+        self.extract_geometry_glb(path, options.policy)
+    }
 }

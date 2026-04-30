@@ -1197,6 +1197,12 @@ async fn requires_glb_preview(
 /// `GLTFLoader.parseAsync`. Use only after `root_layer_is_binary` returned
 /// `true` — for USDA stages the existing `USDLoader.parse` path is faster
 /// and more accurate (no triangulation, full xform graph).
+///
+/// Round 1.5 (#32 / #31): the frontend may pass `options` with
+/// `variant_selections` and `purpose_modes`. Backwards compatible —
+/// when `options` is `None` we fall back to the old `policy`-only
+/// behaviour. When both are passed, `options` takes precedence and
+/// `policy` is ignored.
 #[tauri::command]
 async fn extract_geometry(
     backend: tauri::State<'_, UsdBackendState>,
@@ -1204,12 +1210,17 @@ async fn extract_geometry(
     // Phase 4: `None` preserves Phase 3 behavior (LoadAll). Frontend
     // toggles Deferred to pass `{policy: "noPayloads"}`.
     policy: Option<StageLoadPolicy>,
+    options: Option<crate::usd::types::ExtractGeometryOptions>,
 ) -> Result<tauri::ipc::Response, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.handle();
-    let policy = policy.unwrap_or_default();
-    let bytes =
-        run_blocking_usd(move || handle.extract_geometry_glb(&normalized, policy)).await?;
+    let resolved_options = options.unwrap_or_else(|| {
+        crate::usd::types::ExtractGeometryOptions::from(policy.unwrap_or_default())
+    });
+    let bytes = run_blocking_usd(move || {
+        handle.extract_geometry_glb_with_options(&normalized, &resolved_options)
+    })
+    .await?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
