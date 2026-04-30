@@ -42,24 +42,29 @@ function HierarchyBranch({
 }) {
   const hasChildren = node.children.length > 0;
   const [expanded, setExpanded] = useState(depth < 2);
-  const isSelected = selectedName !== null && node.name === selectedName;
+  // #46: stable selection key — prefer the SdfPath stored in node.primPath
+  // (emitted by the hierarchy-aware GLB pipeline) so that selections
+  // survive node-name changes and stay consistent across the viewport
+  // picking path.  Falls back to node.name for non-USD assets.
+  const nodeSelectionKey = node.primPath ?? node.name;
+  const isSelected = selectedName !== null && nodeSelectionKey === selectedName;
   // When the picker selects something deep in the tree we need to
   // force-open every ancestor so the row is actually visible. We pass
   // `forceExpanded` from above and OR it into the local state instead
   // of overwriting it, so once the user collapses something
   // re-selecting the same prim doesn't snap their layout back open.
   const showChildren = hasChildren && (expanded || forceExpanded);
-  // Build the full SdfPath for this node.
-  // For USD-derived GLB meshes the Three.js node name IS the original
-  // SdfPath (e.g. "/World/Cube") — the C++ backend stores `prim_path`
-  // directly in `MeshInput.name`. In that case we must NOT prepend
-  // parentPath again or we get "//World/Cube". For plain hierarchy nodes
-  // whose name is just a component (e.g. "Cube") we chain normally.
-  const primPath = !node.name
-    ? parentPath
-    : node.name.startsWith("/")
-      ? node.name
-      : `${parentPath === "/" ? "" : parentPath}/${node.name}`;
+  // Build the full SdfPath for this node for the onSelectPrimPath callback.
+  // #46: when node.primPath is present we use it directly — it is the
+  // authoritative SdfPath from the GLB extras and needs no reconstruction.
+  // For non-USD assets we still reconstruct from parentPath + name.
+  const primPath = node.primPath
+    ? node.primPath
+    : !node.name
+      ? parentPath
+      : node.name.startsWith("/")
+        ? node.name
+        : `${parentPath === "/" ? "" : parentPath}/${node.name}`;
 
   return (
     <li
@@ -79,8 +84,12 @@ function HierarchyBranch({
           onSelectName && node.name
             ? (event) => {
                 event.stopPropagation();
-                const nextName = isSelected ? null : node.name;
-                onSelectName(nextName);
+                // #46: pass the stable selection key (primPath when present,
+                // node.name for non-USD assets) so the viewport highlight and
+                // the hierarchy selection stay in sync regardless of which
+                // direction drives the change.
+                const nextKey = isSelected ? null : nodeSelectionKey;
+                onSelectName(nextKey);
                 onSelectPrimPath?.(isSelected ? null : primPath);
               }
             : undefined
@@ -147,14 +156,16 @@ function HierarchyBranch({
   );
 }
 
-/** Walks the subtree rooted at `node` looking for a descendant that
- * matches `name`. Used to decide whether to force-open an ancestor
- * branch so the selected row is visible without the user clicking
- * through. We do not memoize because the hierarchy is small (USD prim
- * counts in the thousands at most) and selection changes rarely. */
-function hasDescendant(node: HierarchyNode, name: string): boolean {
-  if (node.name === name) return true;
-  return node.children.some((child) => hasDescendant(child, name));
+/** Walks the subtree rooted at `node` looking for a descendant whose
+ * selection key (primPath when present, name otherwise) matches `key`.
+ * Used to decide whether to force-open an ancestor branch so the
+ * selected row is visible without the user clicking through.
+ * We do not memoize because the hierarchy is small (USD prim counts in
+ * the thousands at most) and selection changes rarely. */
+function hasDescendant(node: HierarchyNode, key: string): boolean {
+  const nodeKey = node.primPath ?? node.name;
+  if (nodeKey === key) return true;
+  return node.children.some((child) => hasDescendant(child, key));
 }
 
 export function HierarchyCard({

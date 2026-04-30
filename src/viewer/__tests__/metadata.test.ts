@@ -159,16 +159,16 @@ describe("collectAssetMetadata", () => {
     ]);
   });
 
-  it("strips USD-backend wrapper-node suffixes from fixture names", () => {
-    // The Rust USD→GLB backend wraps lights/cameras in host nodes named
-    // `<authored>_light_node` / `<authored>_camera_node`. GLTFLoader copies
-    // those node names onto the fixture instances, so the inspector must
-    // peel the suffix off to surface the authored USD prim name.
+  it("uses GLB node basename directly as fixture name (#46 hierarchy-aware path)", () => {
+    // #46: the Rust USD→GLB backend now emits prim basenames directly as
+    // node names (e.g. "Key" instead of "Key_light_node"). GLTFLoader copies
+    // those names onto the Three.js fixture objects. The inspector no longer
+    // needs to strip any suffix — the raw name IS the authored USD prim basename.
     const root = new Group();
     const light = new DirectionalLight(0xffffff, 1);
-    light.name = "Key_light_node";
+    light.name = "Key";
     const cam = new PerspectiveCamera();
-    cam.name = "Hero_camera_node";
+    cam.name = "Hero";
     root.add(light);
     root.add(cam);
 

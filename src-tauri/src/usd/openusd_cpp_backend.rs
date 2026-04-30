@@ -1313,7 +1313,10 @@ fn extract_from_stage(stage: &CStage, path: &StdPath) -> Result<Vec<u8>, UsdErro
         let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref());
         let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref());
 
-        glb::build_glb(&inputs, &materials, &textures, &skins, &animations, &lights, &cameras)
+        // #46: pass empty nodes slice for the C++ backend (hierarchy-aware
+        // node tree is implemented in the Rust fork backend only for now).
+        // The flat scene-root layout is used as a fallback.
+        glb::build_glb(&[], &inputs, &materials, &textures, &skins, &animations, &lights, &cameras)
             .map_err(|e| UsdError::Parse(e.to_string()))
 }
 

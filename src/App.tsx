@@ -385,10 +385,12 @@ export function App() {
   // inspector and GLB pipeline with payloads deferred.
   const [usdLoadPolicy, setUsdLoadPolicy] =
     useState<StageLoadPolicy>("loadAll");
-  // #33: selected mesh from a viewport click, identified by its
-  // Three.js Object3D.name. The HierarchyCard scrolls to and highlights
-  // the matching node; when the user clicks empty space the value
-  // resets to null and the highlight clears.
+  // #33/#46: unified selection key — viewport pick or hierarchy row click.
+  // For USD assets that went through the hierarchy-aware GLB pipeline
+  // (#46) the value is a USD SdfPath (e.g. "/World/Cube") surfaced from
+  // userData.primPath; for non-USD / legacy assets it remains the
+  // Three.js Object3D.name.  Both HierarchyCard and the viewport tint
+  // path match on this same key, so the two directions stay in sync.
   const [selectedMeshName, setSelectedMeshName] = useState<string | null>(null);
   // #28: USD prim path selected in the hierarchy tree.
   // Drives the UsdPrimPropertyPanel. Separate from `selectedMeshName`

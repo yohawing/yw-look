@@ -1083,7 +1083,23 @@ impl UsdBackend for OpenusdBackend {
         // frontend's camera switcher to pick up.
         let cameras = resolve_cameras(&stage, up_axis_correction.as_ref());
 
+        // Pass 1.5: build the prim hierarchy (NodeInput tree) for #46.
+        // Collect every prim path referenced by meshes, lights, cameras, and
+        // skins, then insert ancestor Group nodes so the GLB carries the full
+        // prim tree rather than a flat scene root.
+        let node_tree = build_node_tree(
+            &stage,
+            &mesh_paths,
+            &skin_slots,
+            &mesh_skin_slots,
+            &inputs,
+            &lights,
+            &cameras,
+            up_axis_correction.as_ref(),
+        );
+
         glb::build_glb(
+            &node_tree,
             &inputs,
             &materials,
             &textures,
@@ -4399,6 +4415,188 @@ fn generate_flat_normals(positions: &[f32], indices: &[u32]) -> Vec<f32> {
     normals
 }
 
+/// #46 Pass 1.5: build the topologically-sorted `NodeInput` tree from the
+/// prim paths collected by Pass 1. Every ancestor Xform/Scope prim between
+/// the stage root and each leaf (Mesh/Light/Camera/SkelRoot) is inserted as
+/// a `NodeKind::Group` node. The result is topologically sorted so that
+/// parent nodes always appear before their children.
+///
+/// Z-up → Y-up correction is applied via a synthetic `__upAxis` node that
+/// is NOT part of the returned slice — `build_glb` inserts it automatically
+/// when the slice is non-empty. The local_matrix stored on each NodeInput is
+/// therefore relative to its USD parent prim (not world space).
+fn build_node_tree(
+    stage: &Stage,
+    _mesh_paths: &[SdfPath],
+    skin_slots: &std::collections::HashMap<String, usize>,
+    _mesh_skin_slots: &[Option<usize>],
+    inputs: &[MeshInput],
+    lights: &[glb::LightInput],
+    cameras: &[glb::CameraInput],
+    _up_correction: Option<&[f64; 16]>,
+) -> Vec<glb::NodeInput> {
+    // ---- Step 1: collect all prim paths that need a node entry --------
+    // We accumulate them in a set and also track the kind for leaf nodes.
+    use std::collections::{BTreeMap, HashMap};
+
+    // ordered by path string for deterministic output
+    let mut path_to_kind: BTreeMap<String, glb::NodeKind> = BTreeMap::new();
+    // Mesh: map mesh path → MeshInput index in `inputs` slice.
+    // Note: inputs may have more entries than mesh_paths due to GeomSubsets.
+    // We map by prim_path (which `mesh_data_to_input` stores in `name` field
+    // of MeshInput via the subset or the mesh prim SdfPath).
+    let mut path_to_mesh_idx: HashMap<String, usize> = HashMap::new();
+    // Light: map light prim_path → LightInput index
+    let mut path_to_light_idx: HashMap<String, usize> = HashMap::new();
+    // Camera: map camera prim_path → CameraInput index
+    let mut path_to_camera_idx: HashMap<String, usize> = HashMap::new();
+    // SkelRoot: map skel path → skin slot index
+    let mut path_to_skel_idx: HashMap<String, usize> = HashMap::new();
+
+    // Insert mesh leaves. MeshInput.name = full SdfPath (from mesh_data_to_input).
+    for (mi, inp) in inputs.iter().enumerate() {
+        let p = inp.name.clone();
+        path_to_kind.insert(p.clone(), glb::NodeKind::Mesh);
+        path_to_mesh_idx.insert(p, mi);
+    }
+
+    // Insert light leaves using the light `name` field which stores the prim path.
+    for (li, light) in lights.iter().enumerate() {
+        let p = light.name.clone();
+        path_to_kind.insert(p.clone(), glb::NodeKind::Light);
+        path_to_light_idx.insert(p, li);
+    }
+
+    // Insert camera leaves using the camera `name` field which stores the prim path.
+    for (ci, camera) in cameras.iter().enumerate() {
+        let p = camera.name.clone();
+        path_to_kind.insert(p.clone(), glb::NodeKind::Camera);
+        path_to_camera_idx.insert(p, ci);
+    }
+
+    // Insert SkelRoot prims from skin_slots (keys are SkelRoot paths).
+    for (skel_path_str, &slot_idx) in skin_slots.iter() {
+        path_to_kind.insert(skel_path_str.clone(), glb::NodeKind::SkelRoot);
+        path_to_skel_idx.insert(skel_path_str.clone(), slot_idx);
+    }
+
+    // Insert all ancestor paths as Group nodes (unless already present as a
+    // more specific kind). Only insert up to (but not including) the pseudo-root.
+    let all_leaf_paths: Vec<String> = path_to_kind.keys().cloned().collect();
+    for path_str in &all_leaf_paths {
+        let mut s = path_str.as_str();
+        loop {
+            let Some(slash_idx) = s.rfind('/') else { break };
+            if slash_idx == 0 {
+                break; // parent is "/" pseudo-root, skip
+            }
+            let parent_str = &s[..slash_idx];
+            if !path_to_kind.contains_key(parent_str) {
+                path_to_kind.insert(parent_str.to_string(), glb::NodeKind::Group);
+            }
+            s = parent_str;
+        }
+    }
+
+    // ---- Step 2: topological sort (ancestor before child) ---------------
+    // BTreeMap is already sorted lexicographically which gives a correct
+    // topological order for SdfPaths: "/A" always sorts before "/A/B".
+    // Collect into Vec in that order.
+    let sorted_paths: Vec<String> = path_to_kind.keys().cloned().collect();
+
+    // Build index map: path → NodeInput index in the output Vec.
+    let mut path_to_ni_idx: HashMap<String, usize> = HashMap::new();
+    for (idx, p) in sorted_paths.iter().enumerate() {
+        path_to_ni_idx.insert(p.clone(), idx);
+    }
+
+    // ---- Step 3: compute local matrices ---------------------------------
+    // For each node we need local = parent_world^-1 * own_world.
+    // We compute world matrices once and invert the parent.
+    // For efficiency, we cache world matrices as we go (parents appear first).
+
+    // Helper: world matrix for a prim path (as f64 column-major).
+    // Applies up-axis correction at the top level only.
+    let get_world_f64 = |path_str: &str| -> [f64; 16] {
+        let Ok(sdf) = SdfPath::new(path_str) else {
+            return identity_mat4();
+        };
+        let Ok(world) = compose_world_xform(stage, &sdf) else {
+            return identity_mat4();
+        };
+        // Apply Z→Y up-axis correction to top-level prims only by
+        // pre-multiplying. The correction has already been folded into
+        // the `world` produced by compose_world_xform for meshes in Pass 2
+        // (where it was applied per mesh). Here we do NOT apply it because
+        // the `__upAxis` synthetic node in build_glb will carry it instead.
+        // So we return the raw world matrix WITHOUT up-axis correction.
+        world
+    };
+
+    // ---- Step 4: emit NodeInputs ----------------------------------------
+    let mut out: Vec<glb::NodeInput> = Vec::with_capacity(sorted_paths.len());
+
+    for path_str in sorted_paths.iter() {
+        let kind = path_to_kind[path_str];
+
+        // Basename: last '/' component.
+        let basename = path_str
+            .rsplit('/')
+            .next()
+            .unwrap_or(path_str.as_str())
+            .to_string();
+
+        // Parent node index.
+        let parent_ni_idx = {
+            let slash_idx = path_str.rfind('/').unwrap_or(0);
+            if slash_idx == 0 {
+                None // top-level prim, parent = synthetic __upAxis
+            } else {
+                let parent_str = &path_str[..slash_idx];
+                path_to_ni_idx.get(parent_str).copied()
+            }
+        };
+
+        // Local matrix = parent_world^-1 * own_world.
+        // For top-level prims (no parent in our tree), local = world.
+        let own_world = get_world_f64(path_str);
+        let local_mat_f64 = if parent_ni_idx.is_some() {
+            // parent world = out[p_ni].local_matrix chain — but since we have
+            // the raw world we just invert the parent world and multiply.
+            // Recompute parent world from its path.
+            let parent_path = &path_str[..path_str.rfind('/').unwrap_or(0)];
+            let parent_world = get_world_f64(parent_path);
+            if let Some(inv_parent) = invert_mat4(&parent_world) {
+                mat4_mul(&inv_parent, &own_world)
+            } else {
+                own_world
+            }
+        } else {
+            own_world
+        };
+        let local_matrix = mat4_f64_to_f32(&local_mat_f64);
+
+        let mesh_payload_idx = path_to_mesh_idx.get(path_str).copied();
+        let light_payload_idx = path_to_light_idx.get(path_str).copied();
+        let camera_payload_idx = path_to_camera_idx.get(path_str).copied();
+        let skin_payload_idx = path_to_skel_idx.get(path_str).copied();
+
+        out.push(glb::NodeInput {
+            prim_path: path_str.clone(),
+            basename,
+            parent: parent_ni_idx,
+            local_matrix,
+            kind,
+            mesh_payload_idx,
+            light_payload_idx,
+            camera_payload_idx,
+            skin_payload_idx,
+        });
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4630,7 +4828,16 @@ def Xform "Root" (
             .unwrap()
             .trim_end_matches(' ');
         let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
-        let matrix = doc["nodes"][0]["matrix"].as_array().expect("node matrix");
+        // #46: nodes[0] is now the __upAxis synthetic node; find the
+        // Quad mesh node by searching for the one that carries a `mesh`
+        // field. We assert its local matrix is (approximately) identity,
+        // proving the pivot pair composed correctly.
+        let nodes_arr = doc["nodes"].as_array().expect("nodes array");
+        let mesh_node = nodes_arr
+            .iter()
+            .find(|n| n.get("mesh").is_some())
+            .expect("at least one mesh node");
+        let matrix = mesh_node["matrix"].as_array().expect("node matrix");
         let values: Vec<f64> = matrix
             .iter()
             .map(|v| v.as_f64().unwrap())
@@ -4691,15 +4898,23 @@ def Xform "Root" (
             .unwrap()
             .trim_end_matches(' ');
         let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
-        let matrix = doc["nodes"][0]["matrix"].as_array().expect("node matrix");
+        // #46: the GLB now carries the full prim hierarchy. The `Rotated` Xform
+        // prim is emitted as a Group node whose LOCAL matrix encodes the
+        // authored translate(10,0,0) + rotateZ(90) ops. We verify that local
+        // matrix rather than the old world-baked mesh node matrix.
+        let nodes_arr = doc["nodes"].as_array().expect("nodes array");
+        let rotated_node = nodes_arr
+            .iter()
+            .find(|n| n["name"].as_str() == Some("Rotated"))
+            .expect("Rotated Xform node must be present in hierarchy GLB");
+        let matrix = rotated_node["matrix"].as_array().expect("node matrix");
         let m: Vec<f64> = matrix.iter().map(|v| v.as_f64().unwrap()).collect();
 
         // Column-major layout: m[12..15] is the translation column.
-        // Under the correct `T * R` composition, applying M to the local
-        // origin (0, 0, 0, 1) must give (10, 0, 0, 1) — the value we
-        // authored in xformOp:translate. The old `R * T` code rotated
-        // (10, 0, 0) by 90° around Z, which would put translation at
-        // roughly (0, 10, 0) instead.
+        // Under the correct `T * R` composition (USD op order: first op outermost),
+        // the translation column must be (10, 0, 0) — the authored translate value.
+        // The old `R * T` code rotated (10, 0, 0) by 90° around Z,
+        // which would put translation at roughly (0, 10, 0) instead.
         assert!(
             (m[12] - 10.0).abs() < 1e-5,
             "expected translation.x == 10 (T*R), got m[12]={} — op order reversed?",

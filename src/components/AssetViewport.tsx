@@ -1178,8 +1178,17 @@ export function AssetViewport({
       let node: Object3D | null = hits[0].object;
       while (node) {
         if (node instanceof Mesh && node.name !== "__yw_shadow_catcher") {
+          // #46: prefer userData.primPath as the stable selection key so
+          // that viewport picks and HierarchyCard selections match even
+          // after the hierarchy-aware GLB pipeline changed node names from
+          // "/World/Cube" to just "Cube".
+          const primPath =
+            typeof node.userData?.primPath === "string"
+              ? node.userData.primPath
+              : undefined;
           const raw = typeof node.name === "string" ? node.name.trim() : "";
-          callback(raw.length > 0 ? raw : null);
+          const selectionKey = primPath ?? (raw.length > 0 ? raw : null);
+          callback(selectionKey);
           return;
         }
         if (node === mounted) break;

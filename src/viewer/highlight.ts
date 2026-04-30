@@ -90,27 +90,33 @@ function removeTintFromMesh(mesh: Mesh): void {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Walk `root` and apply the selection tint to the first Mesh whose
- * `Object3D.name` (trimmed) matches `meshName`.
+ * Walk `root` and apply the selection tint to Mesh nodes whose
+ * selection key matches `key`.
+ *
+ * The selection key is resolved as:
+ *   1. `child.userData.primPath` (USD primPath, set by #46 hierarchy GLB)
+ *   2. `child.name` (trimmed) — fallback for non-USD assets or old GLB
  *
  * Call {@link clearSelectionHighlight} first if a previous selection is still
  * active to avoid leaking cloned materials.
  */
 export function applySelectionHighlight(
   root: Object3D | Group,
-  meshName: string,
+  key: string,
 ): void {
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     if (child.name === "__yw_shadow_catcher") return;
-    const trimmed = typeof child.name === "string" ? child.name.trim() : "";
-    // Unnamed meshes are no longer selectable — picker / hierarchy
-    // both skip them — so a non-empty `meshName` can only match a
-    // real authored name. Skipping empty-named meshes here also
-    // prevents the highlight from leaking onto every anonymous mesh
-    // when the caller accidentally passes an empty string.
-    if (trimmed.length === 0) return;
-    if (trimmed === meshName) {
+    // Prefer primPath as the stable selection key (#46).
+    const primPath =
+      typeof child.userData?.primPath === "string"
+        ? child.userData.primPath
+        : undefined;
+    const matchKey =
+      primPath ?? (typeof child.name === "string" ? child.name.trim() : "");
+    // Unnamed meshes without a primPath are not selectable.
+    if (matchKey.length === 0) return;
+    if (matchKey === key) {
       applyTintToMesh(child);
     }
   });

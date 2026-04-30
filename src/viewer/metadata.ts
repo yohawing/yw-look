@@ -58,10 +58,15 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
   // the parens into USD prim path construction (#28) and trigger
   // `Ill-formed SdfPath` warnings when the C++ backend tries to
   // resolve `/(unnamed)/...`.
+  const primPath: string | undefined =
+    typeof object.userData?.primPath === "string"
+      ? object.userData.primPath
+      : undefined;
   return {
     name: safeTrimmedName(object),
     kind: getObjectKind(object),
     children: object.children.map((child) => buildHierarchyNode(child)),
+    ...(primPath !== undefined ? { primPath } : {}),
   };
 }
 
@@ -272,26 +277,12 @@ function inferTextureSourceKind(
   return "unknown";
 }
 
-/** Strip the wrapper-node suffix that the Phase 7a/7b USD→GLB backend
- * appends to host-node names (`<authored>_light_node` /
- * `<authored>_camera_node` in `src-tauri/src/usd/glb.rs`). GLTFLoader
- * copies the node name onto the Three.js fixture object, so without
- * this strip the Scene Fixtures card would show the wrapper-node label
- * instead of the authored USD prim name. Keeps the original string
- * verbatim for non-USD assets. */
-function stripFixtureSuffix(
-  name: string,
-  suffix: "_light_node" | "_camera_node",
-): string {
-  return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
-}
-
 function buildLightEntry(light: Light): LightEntry {
   const colorHex =
     "color" in light && light.color
       ? `#${(light.color as { getHexString(): string }).getHexString()}`
       : null;
-  const trimmed = stripFixtureSuffix(safeTrimmedName(light), "_light_node");
+  const trimmed = safeTrimmedName(light);
   return {
     id: light.uuid,
     name: trimmed || light.type,
@@ -302,12 +293,13 @@ function buildLightEntry(light: Light): LightEntry {
 }
 
 /**
- * Resolve the display name of a Camera for selection purposes. Strips
- * the `_camera_node` wrapper suffix that the GLB exporter appends, and
- * falls back to a sensible default when the camera is unnamed.
+ * Resolve the display name of a Camera for selection purposes.
+ * Falls back to a sensible default when the camera is unnamed.
+ * Note: #46 removed the `_camera_node` suffix from GLB node names,
+ * so no stripping is needed for USD-sourced cameras.
  */
 export function cameraDisplayName(camera: Camera): string {
-  const trimmed = stripFixtureSuffix(safeTrimmedName(camera), "_camera_node");
+  const trimmed = safeTrimmedName(camera);
   if (trimmed) return trimmed;
   if (camera instanceof PerspectiveCamera) return "PerspectiveCamera";
   if (camera instanceof OrthographicCamera) return "OrthographicCamera";
@@ -342,7 +334,7 @@ function buildCameraEntry(
   camera: Camera,
   seenCounts: Map<string, number>,
 ): CameraEntry {
-  const trimmed = stripFixtureSuffix(safeTrimmedName(camera), "_camera_node");
+  const trimmed = safeTrimmedName(camera);
   const id = cameraSelectionKey(camera, seenCounts);
   if (camera instanceof PerspectiveCamera) {
     return {

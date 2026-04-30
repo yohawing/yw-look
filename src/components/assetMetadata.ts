@@ -2,6 +2,10 @@ export type HierarchyNode = {
   name: string;
   kind: string;
   children: HierarchyNode[];
+  /** #46: full USD SdfPath surfaced from GLB node extras.primPath.
+   * Present only when the asset went through the hierarchy-aware GLB
+   * pipeline. `undefined` for non-USD assets (GLTF/FBX/OBJ). */
+  primPath?: string;
 };
 
 export type TextureEntry = {

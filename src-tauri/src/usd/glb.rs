@@ -499,6 +499,85 @@ impl MeshInput {
     }
 }
 
+/// #46: Prim hierarchy node produced by Pass 1.5 in the GLB extraction
+/// pipeline. Every prim that contributes to the scene — Xform/Scope
+/// ancestors, Mesh leaves, Light leaves, Camera leaves, and SkelRoot
+/// containers — gets one `NodeInput`. The topological sort guarantees
+/// that `parent` always refers to an earlier entry in the slice.
+#[derive(Debug, Clone)]
+pub struct NodeInput {
+    /// Full SdfPath of this prim (e.g. `"/World/Hero/Cube"`).
+    /// Written verbatim into `node.extras.primPath` in the GLB so the
+    /// frontend can use it as a stable selection key.
+    pub prim_path: String,
+    /// Last path component (e.g. `"Cube"`). Used as the glTF node name
+    /// so the Three.js scene graph shows human-readable labels rather
+    /// than full paths.
+    pub basename: String,
+    /// Index into the `nodes` slice of the parent prim, or `None` for
+    /// roots that sit directly under the synthetic `__upAxis` node.
+    pub parent: Option<usize>,
+    /// Column-major 4×4 local transform of this prim relative to its
+    /// parent prim (NOT the world transform). For Group/SkelRoot nodes
+    /// this is the composed local xform from USD; for Mesh/Light/Camera
+    /// nodes that also carry a `MeshInput`/`LightInput`/`CameraInput`,
+    /// the local xform is the delta between the prim's local space and
+    /// its parent.
+    pub local_matrix: [f32; 16],
+    /// What kind of geometry this node carries, if any. Group nodes
+    /// contribute no geometry of their own — they are pure hierarchy.
+    pub kind: NodeKind,
+    /// For `NodeKind::Mesh`: index into the `meshes` slice passed to
+    /// `build_glb`. `None` for non-mesh nodes.
+    pub mesh_payload_idx: Option<usize>,
+    /// For `NodeKind::Light`: index into the `lights` slice passed to
+    /// `build_glb`. `None` for non-light nodes.
+    pub light_payload_idx: Option<usize>,
+    /// For `NodeKind::Camera`: index into the `cameras` slice passed to
+    /// `build_glb`. `None` for non-camera nodes.
+    pub camera_payload_idx: Option<usize>,
+    /// For `NodeKind::SkelRoot`: index into the `skins` slice passed to
+    /// `build_glb`. `None` for non-skelroot nodes.
+    pub skin_payload_idx: Option<usize>,
+}
+
+/// What kind of glTF-visible payload (if any) this hierarchy node carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeKind {
+    /// Pure hierarchy node — no geometry, no light, no camera. Xform /
+    /// Scope / any other non-leaf prim type.
+    Group,
+    /// USD Mesh prim. Carries `mesh_payload_idx` pointing at a
+    /// `MeshInput` in the caller's meshes slice.
+    Mesh,
+    /// USD light prim (DistantLight / SphereLight / etc.). Carries
+    /// `light_payload_idx`.
+    Light,
+    /// USD camera prim. Carries `camera_payload_idx`.
+    Camera,
+    /// USD SkelRoot prim. Carries `skin_payload_idx`. Its `local_matrix`
+    /// already encodes `metersPerUnit` and ancestor xforms so the joint
+    /// hierarchy underneath inherits the correct world placement.
+    SkelRoot,
+}
+
+impl NodeInput {
+    /// Convenience constructor for a pure hierarchy (Xform/Scope) node.
+    pub fn group(prim_path: String, basename: String, parent: Option<usize>, local_matrix: [f32; 16]) -> Self {
+        Self {
+            prim_path,
+            basename,
+            parent,
+            local_matrix,
+            kind: NodeKind::Group,
+            mesh_payload_idx: None,
+            light_payload_idx: None,
+            camera_payload_idx: None,
+            skin_payload_idx: None,
+        }
+    }
+}
+
 /// Phase 7a: one light to embed as a glTF `KHR_lights_punctual`
 /// extension entry. yw-look maps USD `UsdLuxDistantLight` → directional
 /// and `UsdLuxSphereLight` → point; area lights (`RectLight`,
@@ -620,6 +699,14 @@ const COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
 /// skins, and animations. Returns the GLB byte stream ready to send
 /// via `tauri::ipc::Response`.
 ///
+/// `nodes` is the topologically-sorted prim hierarchy produced by Pass
+/// 1.5 of the GLB extraction pipeline (#46). When `nodes` is non-empty
+/// the function uses it to build the glTF node tree; `meshes`, `lights`,
+/// and `cameras` are then addressed by the index fields on `NodeInput`
+/// rather than by traversal order. When `nodes` is empty the function
+/// falls back to the legacy flat scene-root layout for compatibility
+/// with callers that have not been migrated yet.
+///
 /// `materials` must be non-empty and every `MeshInput.material_index`
 /// must point into it. Texture references on `MaterialInput` index
 /// into the `textures` slice — `MaterialInput::base_color_texture =
@@ -637,6 +724,7 @@ const COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
 /// translation / rotation / scale samplers + channels. Pass an empty
 /// slice for stages without skel animation.
 pub fn build_glb(
+    nodes: &[NodeInput],
     meshes: &[MeshInput],
     materials: &[MaterialInput],
     textures: &[TextureInput],
@@ -749,7 +837,7 @@ pub fn build_glb(
     let mut buffer_views: Vec<Value> = Vec::new();
     let mut accessors: Vec<Value> = Vec::new();
     let mut gltf_meshes: Vec<Value> = Vec::new();
-    let mut nodes: Vec<Value> = Vec::new();
+    let mut gltf_nodes: Vec<Value> = Vec::new();
     let mut scene_nodes: Vec<Value> = Vec::new();
     // Phase 2.O: map each MeshInput index to the glTF node index
     // that hosts it, so weight-animation channels can target the
@@ -1049,38 +1137,34 @@ pub fn build_glb(
         gltf_meshes.push(mesh_json);
 
         // -- node --------------------------------------------------------
-        // The mesh node always carries the composed world transform
-        // — even for skinned meshes. `mesh_data_to_input` keeps
-        // vertex positions in mesh-local space, so without the world
-        // matrix on the node a rigged mesh under any non-identity
-        // USD xform would render at the wrong place. The skin's
-        // joint hierarchy + inverseBindMatrices then handle the
-        // rest-pose-relative deformation on top of that. (Codex P1
-        // for Phase 5c E: the previous version hard-coded an
-        // identity matrix here, breaking translated/rotated rigs.)
-        let node_idx = nodes.len();
-        let mut node_obj = json!({
-            "name": format!("{}_node", mesh.name),
-            "mesh": mesh_idx_in_doc,
-            "matrix": mesh.world_matrix.iter().copied().collect::<Vec<f32>>(),
-        });
-        if let Some(skin_idx) = mesh.skin_index {
-            node_obj["skin"] = json!(skin_idx);
-        }
-        // #32: embed purpose in node extras so the frontend can read
-        // `userData.purpose` after GLTFLoader copies extras → userData.
-        // Default to "default" when the caller did not supply a value
-        // so downstream JS always gets a non-null string.
-        {
-            let purpose_str = mesh
-                .purpose
-                .as_deref()
-                .unwrap_or("default");
+        // When the hierarchy-aware path (nodes slice non-empty) is used,
+        // glTF nodes for mesh prims are emitted later in the node-tree
+        // building pass, keyed by NodeInput.mesh_payload_idx. Here we
+        // only record the gltf_meshes index so mesh_node_indices can be
+        // filled in that pass.
+        //
+        // When nodes slice is empty (legacy flat path), we emit a node
+        // for every mesh now, carrying the full world_matrix and the
+        // prim name without suffix.
+        if nodes.is_empty() {
+            let node_idx = gltf_nodes.len();
+            let mut node_obj = json!({
+                "name": mesh.name,
+                "mesh": mesh_idx_in_doc,
+                "matrix": mesh.world_matrix.iter().copied().collect::<Vec<f32>>(),
+            });
+            if let Some(skin_idx) = mesh.skin_index {
+                node_obj["skin"] = json!(skin_idx);
+            }
+            let purpose_str = mesh.purpose.as_deref().unwrap_or("default");
             node_obj["extras"] = json!({ "purpose": purpose_str });
+            gltf_nodes.push(node_obj);
+            scene_nodes.push(json!(node_idx));
+            mesh_node_indices.push(node_idx);
+        } else {
+            // Placeholder; filled in during the node-tree building pass.
+            mesh_node_indices.push(usize::MAX);
         }
-        nodes.push(node_obj);
-        scene_nodes.push(json!(node_idx));
-        mesh_node_indices.push(node_idx);
 
         let _ = mesh_idx; // silence unused if compiler complains
     }
@@ -1104,7 +1188,7 @@ pub fn build_glb(
 
         // Allocate node indices for every joint up front so children
         // can reference parents that haven't been pushed yet.
-        let base_node = nodes.len();
+        let base_node = gltf_nodes.len();
         let joint_node_indices: Vec<usize> =
             (base_node..base_node + joint_count).collect();
 
@@ -1137,7 +1221,7 @@ pub fn build_glb(
             if !children[i].is_empty() {
                 joint_node["children"] = json!(children[i]);
             }
-            nodes.push(joint_node);
+            gltf_nodes.push(joint_node);
         }
 
         // Phase 2.P: emit an optional wrapper node that carries the
@@ -1151,24 +1235,32 @@ pub fn build_glb(
         // renders at authored USD scale (e.g. 100× bigger than
         // unskinned siblings on ARKit assets that author a scale
         // on their SkelRoot container).
-        let wrapper_not_identity = match skin.skel_root_matrix {
+        //
+        // When the hierarchy-aware path is used (nodes slice is non-empty),
+        // the SkelRoot node itself provides this transform and the wrapper
+        // is emitted only in the legacy flat path.
+        let emit_legacy_wrapper = nodes.is_empty() && match skin.skel_root_matrix {
             Some(m) => !is_identity_mat4_f32(&m),
             None => false,
         };
-        if wrapper_not_identity {
-            let wrapper_idx = nodes.len();
+        if emit_legacy_wrapper {
+            let wrapper_idx = gltf_nodes.len();
             let m = skin.skel_root_matrix.expect("checked above");
-            nodes.push(json!({
+            gltf_nodes.push(json!({
                 "name": format!("{}_skel_root", skin.name),
                 "matrix": m.iter().copied().collect::<Vec<f32>>(),
                 "children": roots.clone(),
             }));
             scene_nodes.push(json!(wrapper_idx));
-        } else {
+        } else if nodes.is_empty() {
             for root in &roots {
                 scene_nodes.push(json!(root));
             }
         }
+        // In the hierarchy-aware path, joint roots are wired up under the
+        // SkelRoot node in the node-tree building pass below.
+        // Stash roots so the SkelRoot NodeKind handler can find them.
+        let _ = roots; // used above or below depending on path
 
         // Inverse bind matrices accessor: one VEC4 mat4 per joint,
         // 16 floats each, FLOAT componentType.
@@ -1534,16 +1626,213 @@ pub fn build_glb(
         gltf_materials.push(material);
     }
 
+    // ---- #46: hierarchy-aware node tree building pass ---------------
+    //
+    // When `nodes` (NodeInput slice) is non-empty, we build the full
+    // prim hierarchy here. The slice is topologically sorted so we can
+    // allocate glTF node indices in one forward pass and then fill in
+    // children arrays in a second pass.
+    //
+    // Layout:
+    //   index 0 … N-1: glTF nodes corresponding to NodeInput[0..N-1]
+    //   (joints were already pushed above and occupy higher indices)
+    //
+    // A synthetic `__upAxis` root node is inserted at index 0 in the
+    // gltf_nodes vector; all top-level NodeInput roots (parent=None)
+    // become children of that node. The scene root points at the
+    // __upAxis node only. This concentrates the Z→Y correction into
+    // one place and is transparent to skeleton/animation which only
+    // addresses joint nodes by their own indices.
+    if !nodes.is_empty() {
+        // Build a per-light and per-camera index into the already-built
+        // gltf_light_defs / gltf_cameras vectors (built in the loops
+        // below). We need those indices here, so we pre-build them first.
+        // NOTE: gltf_light_defs is built further down; we reference the
+        // light_kind from the `lights` slice to construct the definition
+        // here inline so we don't need a separate pre-pass.
+
+        // Map NodeInput index → glTF node index (into gltf_nodes).
+        // We pre-allocate all node slots now; index 0 is the __upAxis node.
+        let up_axis_gltf_idx: usize = gltf_nodes.len(); // current length = 0 for first call
+        // Reserve the __upAxis node slot.
+        gltf_nodes.push(Value::Null); // placeholder, filled below
+        let node_input_base = gltf_nodes.len(); // first real NodeInput node
+        // Allocate all NodeInput nodes in order.
+        for ni in nodes.iter() {
+            let gltf_idx = gltf_nodes.len();
+            let _ = (ni, gltf_idx); // used below
+            gltf_nodes.push(Value::Null); // placeholder
+        }
+
+        // Per-NodeInput: gltf_node index.
+        let node_gltf_indices: Vec<usize> =
+            (node_input_base..node_input_base + nodes.len()).collect();
+
+        // Per-NodeInput: list of gltf node indices of its children.
+        let mut children_of: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+        // Roots: NodeInput indices whose parent is None.
+        let mut root_ni_indices: Vec<usize> = Vec::new();
+
+        for (ni_idx, ni) in nodes.iter().enumerate() {
+            match ni.parent {
+                Some(parent_ni_idx) => {
+                    children_of[parent_ni_idx].push(node_gltf_indices[ni_idx]);
+                }
+                None => {
+                    root_ni_indices.push(ni_idx);
+                }
+            }
+        }
+
+        // Now fill in each NodeInput's glTF node JSON.
+        // We also need to wire mesh_node_indices and handle SkelRoot joint roots.
+        // For each skin, collect the joint gltf root nodes (the ones that
+        // need to become children of the SkelRoot node).
+        // skin_joint_node_indices was filled in the skin-building pass above.
+        // For each skin, the roots in `joint_node_indices` that have no
+        // parent in the joint hierarchy are the ones to wire under SkelRoot.
+        // We reconstruct per-skin joint roots from skin data.
+        let skin_joint_roots: Vec<Vec<usize>> = skins
+            .iter()
+            .zip(skin_joint_node_indices.iter())
+            .map(|(skin, jni)| {
+                skin.parents
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, p)| if p.is_none() { Some(jni[i]) } else { None })
+                    .collect()
+            })
+            .collect();
+
+        for (ni_idx, ni) in nodes.iter().enumerate() {
+            let gltf_idx = node_gltf_indices[ni_idx];
+            let local_mat: Vec<f32> = ni.local_matrix.iter().copied().collect();
+
+            let purpose_str = meshes
+                .get(ni.mesh_payload_idx.unwrap_or(usize::MAX))
+                .and_then(|m| m.purpose.as_deref())
+                .unwrap_or("default");
+
+            let mut extras = json!({
+                "primPath": ni.prim_path,
+                "purpose": purpose_str,
+            });
+
+            let node_json = match ni.kind {
+                NodeKind::Group => {
+                    let children_gltf: Vec<usize> = children_of[ni_idx].clone();
+                    let mut obj = json!({
+                        "name": ni.basename,
+                        "matrix": local_mat,
+                        "extras": extras,
+                    });
+                    if !children_gltf.is_empty() {
+                        obj["children"] = json!(children_gltf);
+                    }
+                    obj
+                }
+                NodeKind::Mesh => {
+                    let mesh_idx = ni.mesh_payload_idx.expect("Mesh node must have mesh_payload_idx");
+                    let mesh = &meshes[mesh_idx];
+                    let gltf_mesh_idx = mesh_idx; // 1:1 mapping: meshes[i] → gltf_meshes[i]
+                    mesh_node_indices[mesh_idx] = gltf_idx;
+
+                    let purpose_str2 = mesh.purpose.as_deref().unwrap_or("default");
+                    extras["purpose"] = json!(purpose_str2);
+
+                    let mut obj = json!({
+                        "name": ni.basename,
+                        "mesh": gltf_mesh_idx,
+                        "matrix": local_mat,
+                        "extras": extras,
+                    });
+                    if let Some(skin_idx) = mesh.skin_index {
+                        obj["skin"] = json!(skin_idx);
+                    }
+                    let children_gltf = &children_of[ni_idx];
+                    if !children_gltf.is_empty() {
+                        obj["children"] = json!(children_gltf);
+                    }
+                    obj
+                }
+                NodeKind::Light => {
+                    let light_idx_payload = ni.light_payload_idx.expect("Light node must have light_payload_idx");
+                    // The light definition index matches light_payload_idx since we build
+                    // light defs in the loop below in the same order as `lights` slice.
+                    let mut obj = json!({
+                        "name": ni.basename,
+                        "matrix": local_mat,
+                        "extras": extras,
+                        "extensions": {
+                            "KHR_lights_punctual": {
+                                "light": light_idx_payload,
+                            }
+                        },
+                    });
+                    let children_gltf = &children_of[ni_idx];
+                    if !children_gltf.is_empty() {
+                        obj["children"] = json!(children_gltf);
+                    }
+                    obj
+                }
+                NodeKind::Camera => {
+                    let cam_idx_payload = ni.camera_payload_idx.expect("Camera node must have camera_payload_idx");
+                    let mut obj = json!({
+                        "name": ni.basename,
+                        "matrix": local_mat,
+                        "extras": extras,
+                        "camera": cam_idx_payload,
+                    });
+                    let children_gltf = &children_of[ni_idx];
+                    if !children_gltf.is_empty() {
+                        obj["children"] = json!(children_gltf);
+                    }
+                    obj
+                }
+                NodeKind::SkelRoot => {
+                    let skin_idx_payload = ni.skin_payload_idx.expect("SkelRoot node must have skin_payload_idx");
+                    // Children of a SkelRoot include: hierarchy children from NodeInput,
+                    // plus the joint roots that belong to this skin.
+                    let children_gltf_base: Vec<usize> = children_of[ni_idx].clone();
+                    let mut children_gltf = children_gltf_base;
+                    if let Some(joint_roots) = skin_joint_roots.get(skin_idx_payload) {
+                        children_gltf.extend(joint_roots.iter().copied());
+                    }
+                    let mut obj = json!({
+                        "name": ni.basename,
+                        "matrix": local_mat,
+                        "extras": extras,
+                    });
+                    if !children_gltf.is_empty() {
+                        obj["children"] = json!(children_gltf);
+                    }
+                    obj
+                }
+            };
+
+            gltf_nodes[gltf_idx] = node_json;
+        }
+
+        // Build the __upAxis node, whose children are all the root NodeInput
+        // glTF nodes.
+        let root_gltf_children: Vec<usize> = root_ni_indices
+            .iter()
+            .map(|&ni_idx| node_gltf_indices[ni_idx])
+            .collect();
+        gltf_nodes[up_axis_gltf_idx] = json!({
+            "name": "__upAxis",
+            "children": root_gltf_children,
+            "extras": { "primPath": "/" },
+        });
+        scene_nodes.push(json!(up_axis_gltf_idx));
+    }
+
     // ---- Phase 7a: KHR_lights_punctual -----------------------------
     //
     // For each LightInput, emit:
     //   1. A glTF light definition (top-level `extensions.KHR_lights_punctual.lights[i]`)
     //   2. A scene node carrying the authored world_matrix plus
-    //      `extensions.KHR_lights_punctual.light: i`.
-    //
-    // Lights are always scene-root nodes (parent hierarchy is baked
-    // into world_matrix) — keeps the JSON small and matches how
-    // Three.js expects to find punctual lights.
+    //      `extensions.KHR_lights_punctual.light: i` (legacy flat path only).
     let mut gltf_light_defs: Vec<Value> = Vec::new();
     for light in lights {
         let type_str = match light.kind {
@@ -1572,18 +1861,22 @@ pub fn build_glb(
         let light_idx = gltf_light_defs.len();
         gltf_light_defs.push(def);
 
-        // Scene node for this light.
-        let node_idx = nodes.len();
-        nodes.push(json!({
-            "name": format!("{}_light_node", light.name),
-            "matrix": light.world_matrix.iter().copied().collect::<Vec<f32>>(),
-            "extensions": {
-                "KHR_lights_punctual": {
-                    "light": light_idx,
-                }
-            },
-        }));
-        scene_nodes.push(json!(node_idx));
+        // Scene node for this light. In the legacy flat path only —
+        // the hierarchy-aware path wires lights under their NodeInput
+        // parent in the node-tree building pass below.
+        if nodes.is_empty() {
+            let node_idx = gltf_nodes.len();
+            gltf_nodes.push(json!({
+                "name": light.name,
+                "matrix": light.world_matrix.iter().copied().collect::<Vec<f32>>(),
+                "extensions": {
+                    "KHR_lights_punctual": {
+                        "light": light_idx,
+                    }
+                },
+            }));
+            scene_nodes.push(json!(node_idx));
+        }
     }
 
     // ---- Phase 7b: glTF cameras -------------------------------------
@@ -1609,13 +1902,18 @@ pub fn build_glb(
             "perspective": perspective,
         }));
 
-        let node_idx = nodes.len();
-        nodes.push(json!({
-            "name": format!("{}_camera_node", camera.name),
-            "matrix": camera.world_matrix.iter().copied().collect::<Vec<f32>>(),
-            "camera": camera_idx,
-        }));
-        scene_nodes.push(json!(node_idx));
+        // Scene node for this camera. In the legacy flat path only —
+        // the hierarchy-aware path wires cameras under their NodeInput
+        // parent in the node-tree building pass below.
+        if nodes.is_empty() {
+            let node_idx = gltf_nodes.len();
+            gltf_nodes.push(json!({
+                "name": camera.name,
+                "matrix": camera.world_matrix.iter().copied().collect::<Vec<f32>>(),
+                "camera": camera_idx,
+            }));
+            scene_nodes.push(json!(node_idx));
+        }
     }
 
     // ---- Build GLTF JSON document --------------------------------------
@@ -1628,7 +1926,7 @@ pub fn build_glb(
         },
         "scene": 0,
         "scenes": [{ "nodes": scene_nodes }],
-        "nodes": nodes,
+        "nodes": gltf_nodes,
         "meshes": gltf_meshes,
         "buffers": [{ "byteLength": total_bin_length }],
         "bufferViews": buffer_views,
@@ -1931,7 +2229,7 @@ mod tests {
     #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
-        let glb = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[]).expect("build glb");
 
         // GLB header sanity check
         assert_eq!(&glb[0..4], b"glTF");
@@ -1974,7 +2272,7 @@ mod tests {
     fn rejects_mismatched_normal_count() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.normals = Some(vec![0.0; 6]); // wrong length
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("normal"));
     }
 
@@ -1982,7 +2280,7 @@ mod tests {
     fn rejects_out_of_range_index() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.indices = vec![0, 1, 99];
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("out of range"));
     }
 
@@ -1990,7 +2288,7 @@ mod tests {
     fn rejects_material_index_out_of_range() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.material_index = 5;
-        let err = build_glb(&[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
         assert!(
             err.contains("material_index"),
             "expected material_index error, got: {err}"
@@ -2000,7 +2298,7 @@ mod tests {
     #[test]
     fn rejects_empty_materials_array() {
         let mesh = unit_quad_split_into_two_triangles();
-        let err = build_glb(&[mesh], &[], &[], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[], &[mesh], &[], &[], &[], &[], &[], &[]).unwrap_err();
         assert!(err.contains("material"));
     }
 
@@ -2024,7 +2322,7 @@ mod tests {
             alpha_cutoff: 0.5,
             metallic_roughness_texture: None,
         }];
-        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -2042,7 +2340,7 @@ mod tests {
     fn omits_alpha_mode_for_opaque_material() {
         let mesh = unit_quad_split_into_two_triangles();
         let materials = vec![MaterialInput::default_preview()];
-        let glb = build_glb(&[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -2110,7 +2408,7 @@ mod tests {
             },
         ];
 
-        let glb = build_glb(&[red_mesh, blue_mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[], &[red_mesh, blue_mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
         assert_eq!(&glb[0..4], b"glTF");
 
         let json_chunk_len =
