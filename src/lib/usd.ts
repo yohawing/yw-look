@@ -264,6 +264,59 @@ export type PrimInspection = {
   metadata: MetadataEntry[];
 };
 
+/**
+ * #35 — Shaping cone parameters on a UsdLux light prim that applies
+ * `UsdLuxShapingAPI`.
+ */
+export type ShapingCone = {
+  /** `shaping:cone:angle` in degrees. */
+  angle: number;
+  /** `shaping:cone:softness` in [0, 1]. */
+  softness: number;
+};
+
+/**
+ * #35 — Detailed information about one UsdLux light prim, returned by
+ * `inspectUsdLights`.
+ *
+ * The C++ backend populates every field. The Rust-fork backend returns an
+ * error so callers should ignore failures gracefully.
+ */
+export type UsdLightInfo = {
+  /** SdfPath of the light prim (e.g. `"/World/Sun"`). */
+  primPath: string;
+  /**
+   * USD `typeName` token: `"DistantLight"`, `"SphereLight"`, `"RectLight"`,
+   * `"DiskLight"`, `"DomeLight"`, `"CylinderLight"`, etc.
+   */
+  lightKind: string;
+  /** `inputs:color` as linearized RGB floats. Default is `[1, 1, 1]`. */
+  color: [number, number, number];
+  /** `inputs:intensity`. Default 1.0. */
+  intensity: number;
+  /** `inputs:exposure` in stops. Default 0.0. */
+  exposure: number;
+  /**
+   * Color temperature in Kelvin when `enableColorTemperature` is true and
+   * `colorTemperature` is authored. `null` when disabled or missing.
+   */
+  colorTemperature: number | null;
+  /** `inputs:specular` multiplier. Default 1.0. */
+  specular: number;
+  /** `inputs:diffuse` multiplier. Default 1.0. */
+  diffuse: number;
+  /**
+   * `inputs:texture:file` asset path for `DomeLight` prims.
+   * `null` for all other light types or when unauthored.
+   */
+  domeTextureFile: string | null;
+  /**
+   * Cone shaping parameters when `UsdLuxShapingAPI` is applied.
+   * `null` for lights without explicit cone shaping.
+   */
+  shapingCone: ShapingCone | null;
+};
+
 /** #37 — one time sample on an attribute. */
 export type TimeSampleEntry = {
   /** USD time code (double precision). */
@@ -295,6 +348,19 @@ export type AttributeTimeSamples = {
   /** Arithmetic mean of the returned samples, or `null`. */
   numericMean: number | null;
 };
+
+/**
+ * #35 — enumerates all UsdLux light prims in the stage at `path` and
+ * returns their detailed attributes (intensity, color, exposure, color
+ * temperature, specular / diffuse multipliers, dome texture, shaping cone).
+ *
+ * Only available on the C++ backend. The Rust-fork backend returns an error
+ * that this wrapper re-throws. Callers should catch the error and fall back
+ * to the Three.js-derived `LightEntry` list gracefully.
+ */
+export async function inspectUsdLights(path: string): Promise<UsdLightInfo[]> {
+  return invoke<UsdLightInfo[]>("inspect_usd_lights", { path });
+}
 
 /**
  * #28 — inspect the attributes, relationships, and metadata for the
@@ -403,6 +469,19 @@ export async function loadUsdSource(
   const buffer = Uint8Array.from(bytes).buffer;
   const text = await tryExtractUsdaText(extension, buffer);
   return text === null ? { kind: "binary" } : { kind: "text", source: text };
+}
+
+/**
+ * #39 — returns the fully flattened USDA text for the stage at `path`,
+ * equivalent to `usdcat --flatten`. Every reference, payload, and sublayer
+ * is composed and inlined into the returned string.
+ *
+ * Only implemented on the C++ backend. On the Rust backend the promise
+ * rejects with a descriptive error — callers should handle that case
+ * gracefully (e.g. keep the "Binary stage" placeholder).
+ */
+export async function flattenStage(path: string): Promise<string> {
+  return invoke<string>("flatten_stage", { path });
 }
 
 /**

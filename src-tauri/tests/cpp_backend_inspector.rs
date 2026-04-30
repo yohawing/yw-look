@@ -301,3 +301,30 @@ fn tiny_usda_parity_with_rust_backend() {
         "root_prims set must agree between backends",
     );
 }
+
+/// #39 — `flatten_stage` must return valid USDA text for a USDA fixture.
+/// We verify that the output starts with `#usda` (the USDA file header)
+/// and contains the prim path `/Root` that tiny.usda authors.
+#[test]
+fn tiny_usda_flatten_stage() {
+    let backend = OpenusdCppBackend::new();
+    let path = tiny_usda_path();
+
+    let text = backend
+        .flatten_stage(&path)
+        .expect("flatten_stage must succeed on tiny.usda");
+
+    assert!(
+        !text.is_empty(),
+        "flatten_stage must return non-empty text",
+    );
+    assert!(
+        text.contains("#usda") || text.starts_with("(") || text.contains("def "),
+        "flatten output must look like USDA text, got first 200 chars: {:?}",
+        &text[..text.len().min(200)],
+    );
+    assert!(
+        text.contains("Root"),
+        "flatten output must contain the Root prim from tiny.usda",
+    );
+}

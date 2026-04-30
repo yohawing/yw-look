@@ -89,6 +89,9 @@
 #include <pxr/usd/usdSkel/skeleton.h>
 #include <pxr/usd/usdSkel/tokens.h>
 #include <pxr/base/vt/value.h>
+#include <pxr/usd/usdLux/lightAPI.h>
+#include <pxr/usd/usdLux/domeLight.h>
+#include <pxr/usd/usdLux/shapingAPI.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -276,6 +279,36 @@ extern "C" USDC_API UsdcStage *usdc_stage_open(const char *path,
 
 extern "C" USDC_API void usdc_stage_close(UsdcStage *stage) {
     delete stage;
+}
+
+/* -------------------- stage flatten (#39) -------------------- */
+
+extern "C" USDC_API const char *usdc_stage_flatten(UsdcStage *stage) {
+    if (!stage || !stage->stage) return nullptr;
+    try {
+        std::string text;
+        /* ExportToString writes the flattened stage to `text`.
+         * addSourceFileComment=false keeps the output clean (no
+         * "# Exported from ..." header that usdcat also omits by
+         * default). The result is a fully composed USDA string with
+         * every reference / payload / sublayer inlined. */
+        bool ok = stage->stage->ExportToString(&text,
+                                               /*addSourceFileComment=*/false);
+        if (!ok || text.empty()) return nullptr;
+        /* Heap-allocate an independent copy so the caller can safely
+         * free it via usdc_free_string without affecting stage->scratch
+         * or any other per-stage state. */
+        char *result = new char[text.size() + 1];
+        std::copy(text.begin(), text.end(), result);
+        result[text.size()] = '\0';
+        return result;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API void usdc_free_string(const char *str) {
+    delete[] str;
 }
 
 /* -------------------- scalar queries -------------------- */
@@ -2343,5 +2376,138 @@ usdc_prim_metadata_value_summary(UsdcStage *stage,
         return stage->scratch.c_str();
     } catch (...) {
         return nullptr;
+    }
+}
+
+/* -------------------- USD light enumeration (#35) -------------------- */
+
+extern "C" USDC_API void
+usdc_stage_lights(UsdcStage *stage,
+                  UsdcLightInfoCallback cb,
+                  void *user) {
+    if (!stage || !stage->stage || !cb) return;
+    try {
+        /* Traverse every prim; collect those that have UsdLuxLightAPI applied.
+         * We use UsdLuxLightAPI::Get() rather than prim.IsA<UsdLuxLightAPI>()
+         * because in USD 21+ UsdLux uses applied-API semantics and IsA<>
+         * only matches concrete schema types.  UsdLuxLightAPI::Get() returns
+         * an invalid schema object for prims that do not carry the API, so
+         * we gate on `if (!lightApi)` rather than catching exceptions. */
+        for (const UsdPrim &prim : stage->stage->Traverse()) {
+            /* Apply UsdLuxLightAPI to test if the prim carries the light
+             * API schema.  On OpenUSD 22+/23+ with applied-API the check
+             * is authoritative; on older USD the IsA<> path covers
+             * concrete typed lights. */
+            UsdLuxLightAPI lightApi = UsdLuxLightAPI::Get(stage->stage, prim.GetPath());
+            if (!lightApi) {
+                /* Fallback: prim typed as a concrete light (older USD). */
+                UsdLuxLightAPI typed(prim);
+                if (!typed) continue;
+                lightApi = typed;
+            }
+
+            /* Build the info struct using stack-local strings. */
+            std::string primPathStr   = prim.GetPath().GetString();
+            std::string typeNameStr   = prim.GetTypeName().GetString();
+            std::string domeTextureStr; /* only set for DomeLight */
+
+            UsdcLightInfo info{};
+            info.prim_path  = primPathStr.c_str();
+            info.light_kind = typeNameStr.c_str();
+
+            /* ---- colour ---- */
+            {
+                GfVec3f col(1.0f, 1.0f, 1.0f);
+                UsdAttribute colorAttr = lightApi.GetColorAttr();
+                if (colorAttr) colorAttr.Get(&col);
+                info.color[0] = col[0];
+                info.color[1] = col[1];
+                info.color[2] = col[2];
+            }
+
+            /* ---- intensity ---- */
+            {
+                float intensity = 1.0f;
+                UsdAttribute intensityAttr = lightApi.GetIntensityAttr();
+                if (intensityAttr) intensityAttr.Get(&intensity);
+                info.intensity = intensity;
+            }
+
+            /* ---- exposure ---- */
+            {
+                float exposure = 0.0f;
+                UsdAttribute exposureAttr = lightApi.GetExposureAttr();
+                if (exposureAttr) exposureAttr.Get(&exposure);
+                info.exposure = exposure;
+            }
+
+            /* ---- color temperature ---- */
+            {
+                bool enableTemp = false;
+                UsdAttribute enableAttr = lightApi.GetEnableColorTemperatureAttr();
+                if (enableAttr) enableAttr.Get(&enableTemp);
+                if (enableTemp) {
+                    float temp = 6500.0f;
+                    UsdAttribute tempAttr = lightApi.GetColorTemperatureAttr();
+                    if (tempAttr && tempAttr.Get(&temp)) {
+                        info.has_color_temperature = 1;
+                        info.color_temperature     = temp;
+                    }
+                }
+            }
+
+            /* ---- specular / diffuse ---- */
+            {
+                float specular = 1.0f;
+                UsdAttribute specAttr = lightApi.GetSpecularAttr();
+                if (specAttr) specAttr.Get(&specular);
+                info.specular = specular;
+            }
+            {
+                float diffuse = 1.0f;
+                UsdAttribute diffAttr = lightApi.GetDiffuseAttr();
+                if (diffAttr) diffAttr.Get(&diffuse);
+                info.diffuse = diffuse;
+            }
+
+            /* ---- DomeLight texture ---- */
+            {
+                UsdLuxDomeLight dome(prim);
+                if (dome) {
+                    UsdAttribute texAttr = dome.GetTextureFileAttr();
+                    if (texAttr) {
+                        SdfAssetPath assetPath;
+                        if (texAttr.Get(&assetPath)) {
+                            domeTextureStr = assetPath.GetAssetPath();
+                            if (!domeTextureStr.empty()) {
+                                info.dome_texture_file = domeTextureStr.c_str();
+                            }
+                        }
+                    }
+                }
+            }
+
+            /* ---- shaping cone (SpotLight / SphereLight with shaping) ---- */
+            {
+                UsdLuxShapingAPI shaping = UsdLuxShapingAPI::Get(
+                    stage->stage, prim.GetPath());
+                if (shaping) {
+                    float angle = 90.0f, softness = 0.0f;
+                    UsdAttribute angleAttr    = shaping.GetShapingConeAngleAttr();
+                    UsdAttribute softnessAttr = shaping.GetShapingConeSoftnessAttr();
+                    bool hasAngle    = angleAttr    && angleAttr.Get(&angle);
+                    bool hasSoftness = softnessAttr && softnessAttr.Get(&softness);
+                    if (hasAngle || hasSoftness) {
+                        info.has_shaping_cone      = 1;
+                        info.shaping_cone_angle    = angle;
+                        info.shaping_cone_softness = softness;
+                    }
+                }
+            }
+
+            cb(&info, user);
+        }
+    } catch (...) {
+        /* best-effort; silently drop remaining lights on exception */
     }
 }

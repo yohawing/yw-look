@@ -36,8 +36,8 @@ use super::openusd_backend::{
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
     CompositionArc, CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo,
-    MetadataEntry, PrimInspection, PrimTypeCount, RelationshipInfo, StageInspection,
-    StageLoadPolicy, StageSummary, TimeSampleEntry, VariantSetInfo,
+    MetadataEntry, PrimInspection, PrimTypeCount, RelationshipInfo, ShapingCone, StageInspection,
+    StageLoadPolicy, StageSummary, TimeSampleEntry, UsdLightInfo, VariantSetInfo,
 };
 use super::cpp_sys::UpAxis;
 
@@ -689,6 +689,42 @@ impl UsdBackend for OpenusdCppBackend {
             }
         }
         extract_from_stage(&stage, path)
+    }
+
+    fn flatten_stage(&self, path: &StdPath) -> Result<String, UsdError> {
+        // Use LoadAll so every composition arc is included in the
+        // flattened output, matching `usdcat --flatten` semantics.
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        stage.flatten().ok_or_else(|| {
+            UsdError::Parse(
+                "usdc_stage_flatten returned null — stage has no root layer or export failed"
+                    .to_string(),
+            )
+        })
+    }
+
+    fn inspect_usd_lights(&self, path: &StdPath) -> Result<Vec<UsdLightInfo>, UsdError> {
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        let lights = stage.lights();
+        let result = lights
+            .into_iter()
+            .map(|l| UsdLightInfo {
+                prim_path: l.prim_path,
+                light_kind: l.light_kind,
+                color: l.color,
+                intensity: l.intensity,
+                exposure: l.exposure,
+                color_temperature: l.color_temperature,
+                specular: l.specular,
+                diffuse: l.diffuse,
+                dome_texture_file: l.dome_texture_file,
+                shaping_cone: l.shaping_cone.map(|c| ShapingCone {
+                    angle: c.angle,
+                    softness: c.softness,
+                }),
+            })
+            .collect();
+        Ok(result)
     }
 }
 

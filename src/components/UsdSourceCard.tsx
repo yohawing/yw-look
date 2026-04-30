@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { loadUsdSource, type UsdSourcePayload } from "../lib/usd";
+import { flattenStage, loadUsdSource, type UsdSourcePayload } from "../lib/usd";
 import type { SelectedFile } from "../lib/files";
 
 type UsdSourceCardProps = {
@@ -14,6 +14,11 @@ type UsdSourceCardProps = {
  * a million-line `<pre>` and lock the renderer. The user can still
  * view the truncated head and an explanatory footer. */
 const MAX_RENDER_CHARS = 256_000;
+
+/** Threshold above which we show a confirmation dialog before loading
+ * the flattened stage text. Flatten output can be several MB for
+ * complex stages (references, payloads composed in). */
+const FLATTEN_WARN_BYTES = 1_000_000;
 
 const USDA_KEYWORDS = [
   "def",
@@ -102,6 +107,14 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
   // previous file cannot overwrite the latest result.
   const requestSeq = useRef(0);
 
+  // --- flatten state ---
+  /** Flattened USDA text returned by `flatten_stage`. */
+  const [flattenedSource, setFlattenedSource] = useState<string | null>(null);
+  const [flattenLoading, setFlattenLoading] = useState(false);
+  const [flattenError, setFlattenError] = useState<string | null>(null);
+  /** Path the cached `flattenedSource` was loaded for. */
+  const flattenCachedPath = useRef<string | null>(null);
+
   const isUsd =
     currentFile !== null &&
     ["usda", "usd", "usdc", "usdz"].includes(currentFile.extension);
@@ -140,6 +153,10 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
       setError(null);
       cachedPath.current = null;
       requestSeq.current += 1;
+      // Reset flatten state too.
+      setFlattenedSource(null);
+      setFlattenError(null);
+      flattenCachedPath.current = null;
       return;
     }
     if (cachedPath.current === currentFile.path) {
@@ -148,6 +165,12 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
     cachedPath.current = currentFile.path;
     setPayload(null);
     setError(null);
+    // Drop any cached flatten result for the previous file.
+    if (flattenCachedPath.current !== currentFile.path) {
+      setFlattenedSource(null);
+      setFlattenError(null);
+      flattenCachedPath.current = null;
+    }
     if (open && isUsd) {
       void loadFor(currentFile);
     } else {
@@ -171,6 +194,42 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
     if (currentFile) await loadFor(currentFile);
   };
 
+  /** Triggers a flatten_stage call. Warns the user if the result might
+   * be large (estimated by file size when available, otherwise proceeds
+   * directly). */
+  const onFlatten = async () => {
+    if (!currentFile) return;
+    // Already loaded for this file — just show it (toggle off if shown).
+    if (flattenCachedPath.current === currentFile.path && flattenedSource) {
+      // Clicking again while showing: hide the flattened view.
+      setFlattenedSource(null);
+      setFlattenError(null);
+      flattenCachedPath.current = null;
+      return;
+    }
+    setFlattenLoading(true);
+    setFlattenError(null);
+    try {
+      const text = await flattenStage(currentFile.path);
+      // Confirm load for very large results.
+      if (text.length > FLATTEN_WARN_BYTES) {
+        const ok = window.confirm(
+          `Large flatten — the stage exports to ${(text.length / 1_000_000).toFixed(1)} MB of USDA text. Load anyway?`,
+        );
+        if (!ok) {
+          setFlattenLoading(false);
+          return;
+        }
+      }
+      flattenCachedPath.current = currentFile.path;
+      setFlattenedSource(text);
+    } catch (err) {
+      setFlattenError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFlattenLoading(false);
+    }
+  };
+
   const truncated =
     payload?.kind === "text" && payload.source.length > MAX_RENDER_CHARS;
   const renderText =
@@ -180,17 +239,50 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
         : payload.source
       : "";
 
+  const flattenTruncated =
+    flattenedSource !== null && flattenedSource.length > MAX_RENDER_CHARS;
+  const flattenRenderText =
+    flattenedSource !== null
+      ? flattenTruncated
+        ? flattenedSource.slice(0, MAX_RENDER_CHARS)
+        : flattenedSource
+      : "";
+
+  // Show the "Show flattened" button only for binary stages so the
+  // extra button doesn't clutter the UI for USDA files (where the raw
+  // root-layer view is already correct and has no composition to expand).
+  const isBinaryStage = payload?.kind === "binary";
+  const showingFlattened =
+    flattenCachedPath.current === currentFile?.path && flattenedSource !== null;
+
   return (
     <article className="card">
       <header className="card-header">
         <p className="card-title">USD Source</p>
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() => void onToggle()}
-        >
-          {open ? "Hide" : loading ? "Loading…" : "Show"}
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          {open && isBinaryStage && (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => void onFlatten()}
+              disabled={flattenLoading}
+              title="Flatten stage via usdcat --flatten and show the composed USDA text"
+            >
+              {flattenLoading
+                ? "Flattening…"
+                : showingFlattened
+                  ? "Hide flattened"
+                  : "Show flattened"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => void onToggle()}
+          >
+            {open ? "Hide" : loading ? "Loading…" : "Show"}
+          </button>
+        </div>
       </header>
       {open && (
         <>
@@ -199,11 +291,31 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
           ) : loading ? (
             <p className="card-empty">Reading layer…</p>
           ) : payload?.kind === "binary" ? (
-            <p className="card-empty">
-              Binary stage. The Rust backend currently only exposes a
-              composed-geometry pipeline; a true <code>flatten_stage</code>
-              command for USDC / USDZ-USDC roots is the follow-up under #39.
-            </p>
+            <>
+              {flattenError && <p className="card-error">{flattenError}</p>}
+              {showingFlattened ? (
+                <>
+                  <pre
+                    className="usd-source"
+                    dangerouslySetInnerHTML={{
+                      __html: highlightUsda(flattenRenderText),
+                    }}
+                  />
+                  {flattenTruncated && (
+                    <p className="card-empty">
+                      Truncated at {MAX_RENDER_CHARS.toLocaleString()} chars (
+                      {flattenedSource!.length.toLocaleString()} total). Open
+                      the asset in an external editor for the full source.
+                    </p>
+                  )}
+                </>
+              ) : !flattenError ? (
+                <p className="card-empty">
+                  Binary stage — click <strong>Show flattened</strong> above to
+                  view the composed USDA text (requires the C++ backend).
+                </p>
+              ) : null}
+            </>
           ) : payload?.kind === "text" ? (
             <>
               <pre

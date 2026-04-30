@@ -20,7 +20,7 @@ use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
     CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection,
-    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
+    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary, UsdLightInfo,
 };
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
@@ -1115,6 +1115,29 @@ impl UsdBackend for OpenusdBackend {
             );
         }
         self.extract_geometry_glb(path, options.policy)
+    }
+
+    fn flatten_stage(&self, _path: &StdPath) -> Result<String, UsdError> {
+        // The `openusd` Rust fork crate does not expose an
+        // ExportToString-equivalent API yet. Return a descriptive error
+        // so the frontend can surface a graceful message rather than
+        // silently failing.
+        Err(UsdError::Parse(
+            "flatten_stage is not supported on the Rust openusd backend; \
+             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
+                .to_string(),
+        ))
+    }
+
+    fn inspect_usd_lights(&self, _path: &StdPath) -> Result<Vec<UsdLightInfo>, UsdError> {
+        // The openusd Rust fork crate does not expose UsdLux APIs yet.
+        // Return a descriptive error so the frontend can fall back to the
+        // Three.js-derived LightEntry list gracefully.
+        Err(UsdError::Parse(
+            "inspect_usd_lights is not supported on the Rust openusd backend; \
+             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
+                .to_string(),
+        ))
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {

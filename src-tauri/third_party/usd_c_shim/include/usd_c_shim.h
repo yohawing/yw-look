@@ -582,6 +582,60 @@ USDC_API const char *usdc_shader_input_asset(UsdcStage *stage,
                                              const char *shader_path,
                                              const char *input_name);
 
+/* -------------------- USD light enumeration (#35) -------------------- */
+
+/* Detailed information about one UsdLux light prim.
+ * All string fields (`prim_path`, `light_kind`, `dome_texture_file`) are
+ * valid only for the duration of the callback; callers must copy before
+ * returning.  `dome_texture_file` is NULL when the prim is not a DomeLight
+ * or the attribute is not authored.  `has_shaping_cone` is 0 unless the
+ * prim applies UsdLuxShapingAPI and both cone-angle attributes are authored.
+ * `has_color_temperature` is 1 when enableColorTemperature is true AND
+ * colorTemperature is authored on the prim. */
+typedef struct {
+    /* SdfPath string of the light prim (e.g. "/World/Sun"). */
+    const char *prim_path;
+    /* USD typeName token: "DistantLight" | "SphereLight" | "RectLight" |
+     * "DiskLight" | "DomeLight" | "CylinderLight" | "PortalLight" | ...
+     * May be an unknown string for exotic custom light schemas. */
+    const char *light_kind;
+    /* inputs:color, linearized [r, g, b]. Default is (1, 1, 1). */
+    float color[3];
+    /* inputs:intensity.  Default 1.0. */
+    float intensity;
+    /* inputs:exposure (stop units).  Default 0.0. */
+    float exposure;
+    /* 1 when enableColorTemperature is true AND colorTemperature authored. */
+    int has_color_temperature;
+    /* Color temperature in Kelvin (e.g. 6500).  Valid only when
+     * has_color_temperature != 0. */
+    float color_temperature;
+    /* inputs:specular multiplier.  Default 1.0. */
+    float specular;
+    /* inputs:diffuse multiplier.  Default 1.0. */
+    float diffuse;
+    /* inputs:texture:file for DomeLight, authored asset path string.
+     * NULL when not a DomeLight or the attribute is unauthored. */
+    const char *dome_texture_file;
+    /* 1 when the prim applies UsdLuxShapingAPI and has cone data. */
+    int has_shaping_cone;
+    /* shaping:cone:angle in degrees.  Valid when has_shaping_cone != 0. */
+    float shaping_cone_angle;
+    /* shaping:cone:softness [0-1].  Valid when has_shaping_cone != 0. */
+    float shaping_cone_softness;
+} UsdcLightInfo;
+
+typedef void (*UsdcLightInfoCallback)(const UsdcLightInfo *info, void *user);
+
+/* Traverses every UsdLux light prim in the composed stage and calls `cb`
+ * once per prim with a populated `UsdcLightInfo`.  Prims that do not
+ * inherit UsdLuxLightAPI are silently skipped.  Values are read at the
+ * default time code (UsdTimeCode::Default()).  All string fields in the
+ * emitted struct are valid only for the duration of the callback. */
+USDC_API void usdc_stage_lights(UsdcStage *stage,
+                                UsdcLightInfoCallback cb,
+                                void *user);
+
 /* -------------------- per-prim attribute inspector (#28) -------------------- */
 
 /* Enumerates all authored attributes on the prim at `prim_path`.
@@ -677,6 +731,26 @@ USDC_API void usdc_prim_metadata_keys(UsdcStage *stage,
 USDC_API const char *usdc_prim_metadata_value_summary(UsdcStage *stage,
                                                       const char *prim_path,
                                                       const char *key);
+
+/* -------------------- stage flatten (#39) -------------------- */
+
+/* Returns the flattened USDA text of the stage — equivalent to
+ * `usdcat --flatten`. References, payloads, and sublayers are fully
+ * composed and inlined into the returned string.
+ *
+ * Unlike the scalar string-returning functions above, the result may
+ * be several megabytes, so it is backed by a **heap-allocated**
+ * `std::string` rather than the per-stage scratch buffer. The caller
+ * must free the returned pointer with `usdc_free_string`; passing it
+ * to `free()` directly is undefined behaviour.
+ *
+ * Returns NULL when the stage has no root layer or export fails. */
+USDC_API const char *usdc_stage_flatten(UsdcStage *stage);
+
+/* Frees a string previously returned by `usdc_stage_flatten`. Safe to
+ * pass NULL. Must not be used to free scratch-buffer strings (those
+ * are owned by the stage and must not be freed by callers). */
+USDC_API void usdc_free_string(const char *str);
 
 /* -------------------- UsdSkel (Phase 2.G) -------------------- */
 

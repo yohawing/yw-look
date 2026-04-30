@@ -19,7 +19,7 @@ use url::Url;
 
 use crate::usd::{
     AssetIssue, AttributeTimeSamples, DefaultBackend, PrimInspection, StageInspection,
-    StageLoadPolicy, StageSummary, UsdBackend, UsdError,
+    StageLoadPolicy, StageSummary, UsdBackend, UsdError, UsdLightInfo,
 };
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -1185,6 +1185,23 @@ async fn inspect_prim(
     run_blocking_usd(move || handle.inspect_prim(&normalized, &prim_path)).await
 }
 
+/// #35 — enumerates all UsdLux light prims in the stage and returns their
+/// detailed attributes (intensity, color, exposure, color temperature, specular
+/// / diffuse multipliers, dome texture, shaping cone).
+///
+/// Only implemented on the C++ backend. The Rust-fork backend returns an error
+/// that the frontend should handle gracefully by falling back to the Three.js-
+/// derived `LightEntry` list.
+#[tauri::command]
+async fn inspect_usd_lights(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<Vec<UsdLightInfo>, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.inspect_usd_lights(&normalized)).await
+}
+
 #[tauri::command]
 async fn summarize_stage(
     backend: tauri::State<'_, UsdBackendState>,
@@ -1259,6 +1276,23 @@ async fn extract_geometry(
     })
     .await?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// #39 — returns the fully flattened USDA text for the stage at `path`,
+/// equivalent to `usdcat --flatten`. Every reference, payload, and
+/// sublayer is composed and inlined into the returned string.
+///
+/// Only implemented on the C++ backend. The Rust openusd fork backend
+/// returns an error; the frontend should handle it gracefully (e.g. keep
+/// displaying the existing "Binary stage" placeholder).
+#[tauri::command]
+async fn flatten_stage(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<String, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.flatten_stage(&normalized)).await
 }
 
 #[tauri::command]
@@ -1387,7 +1421,9 @@ pub fn run() {
             requires_glb_preview,
             extract_geometry,
             inspect_prim,
-            inspect_attribute_time_samples
+            inspect_attribute_time_samples,
+            flatten_stage,
+            inspect_usd_lights
         ])
         .build(tauri::generate_context!())
         .expect("error while building yw-look");

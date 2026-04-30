@@ -90,6 +90,29 @@ pub struct LayerInfo {
     pub comment: Option<String>,
 }
 
+/// Shaping cone extracted from `UsdLuxShapingAPI` (#35).
+#[derive(Debug, Clone)]
+pub struct ShapingConeRaw {
+    pub angle: f32,
+    pub softness: f32,
+}
+
+/// One UsdLux light prim as returned by `CStage::lights()` (#35).
+/// All owned-String fields have been copied from the shim's callback.
+#[derive(Debug, Clone)]
+pub struct LightInfoRaw {
+    pub prim_path: String,
+    pub light_kind: String,
+    pub color: [f32; 3],
+    pub intensity: f32,
+    pub exposure: f32,
+    pub color_temperature: Option<f32>,
+    pub specular: f32,
+    pub diffuse: f32,
+    pub dome_texture_file: Option<String>,
+    pub shaping_cone: Option<ShapingConeRaw>,
+}
+
 /// Primvar interpolation token returned alongside mesh attribute reads.
 /// Mirrors the shim's `UsdcInterpolation`; `Unknown` covers both
 /// "shim returned USDC_INTERP_UNKNOWN" and "attribute not authored".
@@ -1139,6 +1162,28 @@ impl CStage {
         ptr_to_opt_string(p)
     }
 
+    /// Returns the fully flattened USDA text of the stage — equivalent
+    /// to `usdcat --flatten`. Every reference, payload, and sublayer is
+    /// composed and inlined into a single USDA string.
+    ///
+    /// The returned string is heap-allocated by the shim and must be
+    /// freed via `usdc_free_string`; this method handles that internally
+    /// so callers receive an owned `String`.
+    ///
+    /// Returns `None` when the stage has no root layer, `ExportToString`
+    /// fails, or the C shim returns NULL for any other reason.
+    pub fn flatten(&self) -> Option<String> {
+        let raw = unsafe { usdc_stage_flatten(self.raw) };
+        if raw.is_null() {
+            return None;
+        }
+        let owned = unsafe { CStr::from_ptr(raw) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { usdc_free_string(raw) };
+        Some(owned)
+    }
+
     /// Bone influences per vertex (the primvar's `elementSize`
     /// metadata). 0 means "no skinning authored" — yw-look treats the
     /// spec-default 1 as unskinned because single-influence rigs
@@ -1208,6 +1253,22 @@ impl CStage {
             &mut interp,
         );
         (out, Interpolation::from_raw(interp))
+    }
+
+    // -------- USD light enumeration (#35) --------
+
+    /// Returns all UsdLux light prims in the stage as a `Vec<LightInfoRaw>`.
+    /// Prims that do not carry `UsdLuxLightAPI` are silently skipped.
+    pub fn lights(&self) -> Vec<LightInfoRaw> {
+        let mut out = Vec::<LightInfoRaw>::new();
+        unsafe {
+            usdc_stage_lights(
+                self.raw,
+                Some(light_info_trampoline),
+                &mut out as *mut Vec<LightInfoRaw> as *mut c_void,
+            );
+        }
+        out
     }
 }
 
@@ -1379,5 +1440,70 @@ unsafe extern "C" fn layer_info_trampoline(
         time_offset: r.offset_time,
         time_scale: r.offset_scale,
         comment,
+    });
+}
+
+// Trampoline for UsdcLightInfoCallback (#35): copies each light info
+// struct into a Vec<LightInfoRaw>.
+//
+// Safety:
+//   - `info` must point to a valid UsdcLightInfo for the duration of
+//     this call.
+//   - All string fields inside `info` are valid only for this call;
+//     we copy them immediately.
+//   - `user` must be a `*mut Vec<LightInfoRaw>` as set up by
+//     `CStage::lights`.
+unsafe extern "C" fn light_info_trampoline(
+    info: *const UsdcLightInfo,
+    user: *mut c_void,
+) {
+    if info.is_null() || user.is_null() {
+        return;
+    }
+    let out = unsafe { &mut *(user as *mut Vec<LightInfoRaw>) };
+    let r = unsafe { &*info };
+
+    let prim_path = if r.prim_path.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(r.prim_path) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    let light_kind = if r.light_kind.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(r.light_kind) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    let color_temperature = if r.has_color_temperature != 0 {
+        Some(r.color_temperature)
+    } else {
+        None
+    };
+    let dome_texture_file = ptr_to_opt_string(r.dome_texture_file).and_then(|s| {
+        if s.is_empty() { None } else { Some(s) }
+    });
+    let shaping_cone = if r.has_shaping_cone != 0 {
+        Some(ShapingConeRaw {
+            angle: r.shaping_cone_angle,
+            softness: r.shaping_cone_softness,
+        })
+    } else {
+        None
+    };
+
+    out.push(LightInfoRaw {
+        prim_path,
+        light_kind,
+        color: r.color,
+        intensity: r.intensity,
+        exposure: r.exposure,
+        color_temperature,
+        specular: r.specular,
+        diffuse: r.diffuse,
+        dome_texture_file,
+        shaping_cone,
     });
 }
