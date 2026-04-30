@@ -647,10 +647,58 @@ Kitchen Set / HumanFemale / Kitchen_set_instanced / USDZ 3 種で両 backend を
 
 ---
 
+## Phase 11 — Per-prim payload load / unload（実装済み、issue #44）
+
+### 目的
+
+`noPayloads` ポリシーで開いたステージのペイロード arc を個別に load / unload する、ステートフルな
+セッション API を追加する。ユーザーが重い payload を必要なタイミングだけ展開できるようになる。
+
+### アーキテクチャ
+
+| レイヤー            | 変更内容                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------- |
+| C shim              | `usdc_stage_load_prim` / `usdc_stage_unload_prim` を追加（`UsdStage::Load` / `Unload` を薄くラップ）          |
+| `cpp_sys`           | Rust 側の `CStage::load_prim` / `unload_prim` を追加                                                          |
+| `stage_state`       | `StageSessionHandle`、`OpenStage` (Rust/Cpp 両バリアント)、`StageRegistry`（`Mutex<HashMap>` ＋ Tauri state） |
+| `UsdBackend` trait  | `open_stage_session` / `load_payload` / `unload_payload` / `extract_geometry_from_session` を追加             |
+| Tauri commands      | `open_stage_session` / `close_stage_session` / `load_payload` / `unload_payload` / `extract_geometry_session` |
+| `src/lib/usd.ts`    | 上記 Tauri コマンドの TypeScript ラッパーと `StageSessionHandle` 型を追加                                     |
+| `HierarchyCard.tsx` | 各 prim row に load（hollow circle）/ unload（solid circle）ボタンを追加                                      |
+| `App.tsx`           | `stageSessionHandle` / `unloadedPayloadPaths` / `sessionGlbBuffer` state と session lifecycle 管理を追加      |
+| `AssetViewport`     | `glbOverride` prop を追加。セッション由来の GLB buffer を直接ロード可能に                                     |
+
+### 制約
+
+- **C++ backend のみ対応**: Rust fork backend は `open_stage_session` で `OpenStage::Rust` を返すが、
+  `load_payload` / `unload_payload` は `UsdError::Parse` を返す（API は共通、実装は stub）。
+- **セッション lifetime**: ファイルが変わるか `usdLoadPolicy` が変わると前セッションを自動 close。
+- **並行性**: `CStage` は `Send` だが `Sync` でないため `Mutex<CStage>` で包んで `OpenStage::Cpp` に格納。
+
+### ファイル一覧
+
+- `src-tauri/src/usd/stage_state.rs` — 新規作成
+- `src-tauri/src/usd/backend.rs` — trait 拡張
+- `src-tauri/src/usd/openusd_backend.rs` — stub 実装（単一 impl ブロックに整理）
+- `src-tauri/src/usd/openusd_cpp_backend.rs` — 実装
+- `src-tauri/src/usd/cpp_sys/mod.rs` — `load_prim` / `unload_prim` 追加
+- `src-tauri/third_party/usd_c_shim/include/usd_c_shim.h` — shim 宣言
+- `src-tauri/third_party/usd_c_shim/src/usd_c_shim.cpp` — shim 実装
+- `src-tauri/src/lib.rs` — Tauri コマンド 5 本 + `StageRegistry::new()` 登録
+- `src/lib/usd.ts` — TypeScript API
+- `src/components/HierarchyCard.tsx` — load/unload ボタン
+- `src/components/AssetViewport.tsx` — `glbOverride` prop
+- `src/viewer/loaders.ts` — `glbOverride` オプション対応
+- `src/App.tsx` — session state 管理
+- `samples/assets/usd/tiny_payload.usda` — テスト用 payload fixture
+- `src-tauri/tests/cpp_backend_payload_session.rs` — 統合テスト
+
+---
+
 ## 横断テーマ（各 Phase に散らす）
 
 - **Variant set インタラクティブ切替 UI**: 現状 read-only。session layer 経由で variant selection を上書きし、GLB を再生成する
-- **Per-prim payload load**: stateful session API (`open_stage` / `load_payloads` / `unload_payloads`)。UI で payload ツリーを表示し個別に load/unload
+- **Per-prim payload load** ✓ Phase 11 (issue #44) で実装済み。stateful session API (`open_stage_session` / `load_payload` / `unload_payload` / `extract_geometry_session`)。HierarchyCard に load/unload ボタンを追加。C++ backend のみ対応（Rust fork は stub）
 - **Performance**: Kitchen Set (2048 prims / 234ms) は OK。次の負荷帯 (10k prims / 100k poly) で測る
 - **回帰テスト資産**: 新しい機能を追加するたびに samples/manifest.json にテスト資産を追加する
 

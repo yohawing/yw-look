@@ -895,6 +895,22 @@ USDC_API void usdc_skel_anim_blend_shape_weights_at(UsdcStage *stage,
                                                     UsdcFloatBufferCallback cb,
                                                     void *user);
 
+/* #44 — per-prim payload load / unload.
+ *
+ * `usdc_stage_load_prim` calls UsdStage::Load(SdfPath, policy=LoadWithDescendants).
+ * `usdc_stage_unload_prim` calls UsdStage::Unload(SdfPath).
+ *
+ * Both return 1 on success, 0 on failure (e.g. path not found / no
+ * payload arc).  `err_out` is set on failure when non-NULL.
+ */
+USDC_API int usdc_stage_load_prim(UsdcStage *stage,
+                                  const char *prim_path,
+                                  UsdcError **err_out);
+
+USDC_API int usdc_stage_unload_prim(UsdcStage *stage,
+                                    const char *prim_path,
+                                    UsdcError **err_out);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

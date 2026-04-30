@@ -18,6 +18,31 @@ type HierarchyCardProps = {
    * the hierarchy selection to the `UsdPrimPropertyPanel`. `null` is
    * passed when the active row is clicked a second time (deselect). */
   onSelectPrimPath?: (primPath: string | null) => void;
+  // ---- #44 per-prim payload session controls --------------------------------
+  /**
+   * Set of SdfPaths that author a payload arc on this stage (load state
+   * irrespective). Only rows whose primPath appears here will show a
+   * load/unload button — prevents the controls from leaking onto regular
+   * meshes / Xforms that never authored a payload.
+   */
+  payloadPrimPaths?: ReadonlySet<string>;
+  /**
+   * Subset of `payloadPrimPaths` that is currently deferred (unloaded) in
+   * the active session. Rows in this set show the "Load" button; payload
+   * rows not in this set show "Unload".
+   */
+  unloadedPayloadPaths?: ReadonlySet<string>;
+  /**
+   * Invoked when the user clicks "Load payload" on a prim row. The parent
+   * is responsible for calling `loadPayload` and refreshing the GLB.
+   */
+  onLoadPayload?: (primPath: string) => void;
+  /**
+   * Invoked when the user clicks "Unload payload" on a prim row. The
+   * parent is responsible for calling `unloadPayload` and refreshing
+   * the GLB.
+   */
+  onUnloadPayload?: (primPath: string) => void;
 };
 
 function HierarchyBranch({
@@ -29,6 +54,10 @@ function HierarchyBranch({
   parentPath,
   forceExpanded,
   selectedRef,
+  payloadPrimPaths,
+  unloadedPayloadPaths,
+  onLoadPayload,
+  onUnloadPayload,
 }: {
   node: HierarchyNode;
   depth: number;
@@ -39,6 +68,10 @@ function HierarchyBranch({
   parentPath: string;
   forceExpanded: boolean;
   selectedRef: React.RefObject<HTMLLIElement | null>;
+  payloadPrimPaths?: ReadonlySet<string>;
+  unloadedPayloadPaths?: ReadonlySet<string>;
+  onLoadPayload?: (primPath: string) => void;
+  onUnloadPayload?: (primPath: string) => void;
 }) {
   const hasChildren = node.children.length > 0;
   const [expanded, setExpanded] = useState(depth < 2);
@@ -65,6 +98,21 @@ function HierarchyBranch({
       : node.name.startsWith("/")
         ? node.name
         : `${parentPath === "/" ? "" : parentPath}/${node.name}`;
+
+  // #44: determine payload status for this prim.
+  // A row only shows a load/unload button when the parent has both wired up
+  // session callbacks AND identified this primPath as authoring a payload
+  // arc (`payloadPrimPaths`). Without that gate every regular mesh / Xform
+  // would expose an unload button and clicking it would issue bogus backend
+  // unloads. Within the payload set, the unloaded subset gets the load
+  // button and the loaded remainder gets the unload button.
+  const isPayloadSource =
+    !!primPath && !!payloadPrimPaths && payloadPrimPaths.has(primPath);
+  const isUnloadedPayload =
+    isPayloadSource &&
+    !!unloadedPayloadPaths &&
+    unloadedPayloadPaths.has(primPath);
+  const isLoadedPayload = isPayloadSource && !isUnloadedPayload;
 
   return (
     <li
@@ -127,6 +175,49 @@ function HierarchyBranch({
         )}
         <span className="tree-node-name">{node.name || "(unnamed)"}</span>
         <span className="tree-node-kind">{node.kind}</span>
+        {/* #44: per-prim payload load/unload button — only shown when a
+            session is active (callbacks provided) and this prim is a known
+            payload source (its primPath is tracked by the parent). */}
+        {isUnloadedPayload && onLoadPayload && (
+          <button
+            className="tree-payload-btn tree-payload-btn--unloaded"
+            title={`Load payload at ${primPath}`}
+            aria-label="Load payload"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLoadPayload(primPath);
+            }}
+          >
+            {/* Hollow circle — payload deferred */}
+            <svg viewBox="0 0 10 10" width="10" height="10" fill="none">
+              <circle
+                cx="5"
+                cy="5"
+                r="4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              />
+            </svg>
+          </button>
+        )}
+        {isLoadedPayload && onUnloadPayload && (
+          <button
+            className="tree-payload-btn tree-payload-btn--loaded"
+            title={`Unload payload at ${primPath}`}
+            aria-label="Unload payload"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onUnloadPayload(primPath);
+            }}
+          >
+            {/* Solid circle — payload loaded */}
+            <svg viewBox="0 0 10 10" width="10" height="10">
+              <circle cx="5" cy="5" r="4" fill="currentColor" />
+            </svg>
+          </button>
+        )}
       </div>
       {showChildren ? (
         <ul className="tree-children">
@@ -148,6 +239,10 @@ function HierarchyBranch({
                 selectedName !== null && hasDescendant(child, selectedName)
               }
               selectedRef={selectedRef}
+              payloadPrimPaths={payloadPrimPaths}
+              unloadedPayloadPaths={unloadedPayloadPaths}
+              onLoadPayload={onLoadPayload}
+              onUnloadPayload={onUnloadPayload}
             />
           ))}
         </ul>
@@ -173,6 +268,10 @@ export function HierarchyCard({
   selectedName,
   onSelectName,
   onSelectPrimPath,
+  payloadPrimPaths,
+  unloadedPayloadPaths,
+  onLoadPayload,
+  onUnloadPayload,
 }: HierarchyCardProps) {
   const selectedRef = useRef<HTMLLIElement | null>(null);
 
@@ -209,6 +308,10 @@ export function HierarchyCard({
                 hasDescendant(node, normalizedSelected)
               }
               selectedRef={selectedRef}
+              payloadPrimPaths={payloadPrimPaths}
+              unloadedPayloadPaths={unloadedPayloadPaths}
+              onLoadPayload={onLoadPayload}
+              onUnloadPayload={onUnloadPayload}
             />
           ))}
         </ul>

@@ -1270,6 +1270,56 @@ impl CStage {
         }
         out
     }
+
+    // -------- #44 per-prim payload load / unload --------
+
+    /// Loads the payload arc(s) rooted at `prim_path`, composing the
+    /// target layers into the stage. Equivalent to
+    /// `UsdStage::Load(path, UsdLoadWithDescendants)`.
+    ///
+    /// Returns `Ok(())` on success. On failure the shim populates an
+    /// error string which is surfaced as `Err(CError(...))`.
+    pub fn load_prim(&self, prim_path: &str) -> Result<(), CError> {
+        let c = CString::new(prim_path)
+            .map_err(|_| CError("prim_path contains interior NUL byte".to_string()))?;
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = unsafe { usdc_stage_load_prim(self.raw, c.as_ptr(), &mut err) };
+        if ok == 0 {
+            let msg = if err.is_null() {
+                "usdc_stage_load_prim failed (no error message)".to_string()
+            } else {
+                let s = unsafe { CStr::from_ptr(usdc_error_message(err)) }
+                    .to_string_lossy()
+                    .into_owned();
+                unsafe { usdc_error_free(err) };
+                s
+            };
+            return Err(CError(msg));
+        }
+        Ok(())
+    }
+
+    /// Unloads the payload arc(s) rooted at `prim_path`.
+    /// Equivalent to `UsdStage::Unload(path)`.
+    pub fn unload_prim(&self, prim_path: &str) -> Result<(), CError> {
+        let c = CString::new(prim_path)
+            .map_err(|_| CError("prim_path contains interior NUL byte".to_string()))?;
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = unsafe { usdc_stage_unload_prim(self.raw, c.as_ptr(), &mut err) };
+        if ok == 0 {
+            let msg = if err.is_null() {
+                "usdc_stage_unload_prim failed (no error message)".to_string()
+            } else {
+                let s = unsafe { CStr::from_ptr(usdc_error_message(err)) }
+                    .to_string_lossy()
+                    .into_owned();
+                unsafe { usdc_error_free(err) };
+                s
+            };
+            return Err(CError(msg));
+        }
+        Ok(())
+    }
 }
 
 impl Drop for CStage {

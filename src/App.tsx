@@ -41,15 +41,22 @@ import { TextureListCard } from "./components/TextureListCard";
 import { UsdInspectorCard } from "./components/UsdInspectorCard";
 import { WarningsCard } from "./components/WarningsCard";
 import {
+  closeStageSession,
   collectAssetIssues,
+  extractGeometrySession,
   inspectStage,
   inspectUsdLights,
+  loadPayload,
+  openStageSession,
   summarizeStage,
+  unloadPayload,
   type AssetIssue,
+  type ExtractGeometryOptions,
   type PurposeModes,
   type StageInspection,
   type StageLoadPolicy,
   type StageSummary,
+  type StageSessionHandle,
   type UsdLightInfo,
   type VariantSelection,
 } from "./lib/usd";
@@ -414,6 +421,34 @@ export function App() {
   const [variantSelections, setVariantSelections] = useState<
     VariantSelection[]
   >([]);
+
+  // ---- #44 per-prim payload session ----------------------------------------
+  // When the user opens a USD file with `noPayloads` policy, we also open a
+  // stateful backend session so individual payload prims can be loaded and
+  // unloaded on demand.  The session is closed when the file changes or the
+  // component unmounts.
+  const [stageSessionHandle, setStageSessionHandle] =
+    useState<StageSessionHandle | null>(null);
+  // All SdfPaths that author a payload arc on the current stage. Used to
+  // gate the load/unload buttons in HierarchyCard so they only appear on
+  // genuine payload sources, not on every regular Xform / Mesh.
+  const [payloadPrimPaths, setPayloadPrimPaths] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  // Set of SdfPaths whose payload arcs are currently deferred. Derived from
+  // `stageInspection.payloads` + individual load/unload operations.
+  const [unloadedPayloadPaths, setUnloadedPayloadPaths] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  // GLB buffer produced by `extractGeometrySession` after a load/unload.
+  // When non-null, `AssetViewport` should use this buffer instead of
+  // re-extracting from disk. Reset to null on file change AND on variant /
+  // purpose changes (the cached buffer was built against a specific variant
+  // / purpose set; reusing it would freeze the viewport on the snapshot).
+  const [sessionGlbBuffer, setSessionGlbBuffer] = useState<ArrayBuffer | null>(
+    null,
+  );
+
   const isTauri = isTauriEnvironment();
   // Browser mode needs recent files immediately for the always-visible MenuBar.
   // Tauri can keep this deferred until the sidebar is opened.
@@ -549,6 +584,9 @@ export function App() {
     // pulldown reflects the authored defaults, not stale overrides from
     // the previous file.
     setVariantSelections([]);
+    // #44: reset session GLB buffer on every file / policy change so the
+    // viewport doesn't flash stale geometry from a previous session.
+    setSessionGlbBuffer(null);
 
     const path = currentFile.path;
 
@@ -638,6 +676,139 @@ export function App() {
       cancelled = true;
     };
   }, [currentFile, isTauri, usdLoadPolicy]);
+
+  // #44: open a stateful stage session when a USD file is loaded with
+  // `noPayloads` policy (enables per-prim load/unload). Close any previous
+  // session first. When `loadAll` is active no session is needed.
+  useEffect(() => {
+    if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
+      setStageSessionHandle(null);
+      setUnloadedPayloadPaths(new Set());
+      return;
+    }
+
+    // Only open a session when using noPayloads — loadAll doesn't need it.
+    if (usdLoadPolicy !== "noPayloads") {
+      setStageSessionHandle(null);
+      setUnloadedPayloadPaths(new Set());
+      return;
+    }
+
+    let cancelled = false;
+    const path = currentFile.path;
+
+    openStageSession(path, "noPayloads")
+      .then((handle) => {
+        if (cancelled) {
+          // Cleanup ran before this promise resolved — don't leak the
+          // handle on the backend. Issue close in the background and
+          // ignore errors (the registry tolerates missing handles).
+          closeStageSession(handle).catch(() => {});
+          return;
+        }
+        setStageSessionHandle(handle);
+        // Initially all payload sources are unloaded — the session was opened
+        // with noPayloads. The exact set of paths will be populated once
+        // stageInspection settles (via the effect below that syncs payloads).
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        console.warn(
+          "[usd] open_stage_session failed (per-prim load/unload unavailable):",
+          err,
+        );
+        setStageSessionHandle(null);
+      });
+
+    return () => {
+      cancelled = true;
+      // Close the session asynchronously — we don't await here to avoid
+      // blocking the cleanup. The backend will free the stage.
+      setStageSessionHandle((prev) => {
+        if (prev !== null) {
+          void closeStageSession(prev).catch(() => {
+            // Silently ignore close errors — the Tauri process is likely
+            // already shutting down or the file was closed.
+          });
+        }
+        return null;
+      });
+    };
+  }, [currentFile, isTauri, usdLoadPolicy]);
+
+  // #44: re-sync the session GLB cache when the user changes variants —
+  // but ONLY after the user has actually mutated payloads (i.e. an
+  // override is already in flight). For an untouched session the regular
+  // `requiresGlbPreview`/`extractGeometry` path in loaders.ts handles
+  // variants correctly; forcing a session re-extract here would bypass
+  // that path even on self-contained USDA files that should go through
+  // the Three.js USDLoader.
+  //
+  // Purpose toggles are deliberately NOT a dependency: AssetViewport
+  // applies purpose visibility client-side via `applyPurposeVisibility`,
+  // so the GLB does not need re-extraction when only purpose changes.
+  const sessionGlbBufferRef = useRef<ArrayBuffer | null>(sessionGlbBuffer);
+  useEffect(() => {
+    sessionGlbBufferRef.current = sessionGlbBuffer;
+  }, [sessionGlbBuffer]);
+
+  useEffect(() => {
+    if (stageSessionHandle === null) {
+      // No session: drop any leftover override; the stateless extract
+      // path picks up the latest variants on the next render.
+      setSessionGlbBuffer(null);
+      return;
+    }
+    if (sessionGlbBufferRef.current === null) {
+      // Session is open but the user has not yet load/unload-ed any
+      // payload. Leave the override null so loaders.ts uses the regular
+      // `requiresGlbPreview` decision tree.
+      return;
+    }
+    let cancelled = false;
+    extractGeometrySession(stageSessionHandle, {
+      policy: "noPayloads",
+      variantSelections,
+      purposeModes,
+    })
+      .then((buf) => {
+        if (!cancelled) setSessionGlbBuffer(buf);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        console.warn("[usd] session re-extract on variant change failed:", err);
+        setSessionGlbBuffer(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // `purposeModes` is captured by closure for defensive completeness
+    // but is intentionally NOT in the deps array — see comment above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variantSelections, stageSessionHandle]);
+
+  // #44: sync payload prim sets from `usdInspection`. `payloadPrimPaths`
+  // contains every prim that authors a payload arc (used to gate the
+  // HierarchyCard load/unload buttons). `unloadedPayloadPaths` is the
+  // currently-deferred subset; later individual load/unload operations
+  // mutate it directly.
+  useEffect(() => {
+    if (!usdInspection || usdLoadPolicy !== "noPayloads") {
+      setPayloadPrimPaths(new Set());
+      setUnloadedPayloadPaths(new Set());
+      return;
+    }
+    const allPayloads = new Set(
+      usdInspection.payloads.map((arc) => arc.sourcePrim),
+    );
+    const unloaded = new Set(
+      usdInspection.payloads
+        .filter((arc) => arc.state === "unloaded")
+        .map((arc) => arc.sourcePrim),
+    );
+    setPayloadPrimPaths(allPayloads);
+    setUnloadedPayloadPaths(unloaded);
+  }, [usdInspection, usdLoadPolicy]);
 
   useEffect(() => {
     setPerformanceSnapshot((previous) => ({
@@ -1535,6 +1706,96 @@ export function App() {
     }
   };
 
+  // #44: per-prim payload load/unload. Calls the backend, updates the local
+  // unloaded set optimistically, then re-extracts the GLB from the session.
+  // The re-extract carries the user's variantSelections / purposeModes so a
+  // payload toggle does not silently revert any non-default variant or
+  // purpose mode the user picked from the inspector.
+  //
+  // A ref mirrors the latest `stageSessionHandle` so the async handlers
+  // can detect when the user has navigated away (file change, policy
+  // toggle, app close) between the IPC dispatch and its resolution. In
+  // that case we drop the stale write rather than overwrite the new
+  // file's `sessionGlbBuffer` / `unloadedPayloadPaths` with values from
+  // a session that no longer exists.
+  const stageSessionHandleRef = useRef<StageSessionHandle | null>(
+    stageSessionHandle,
+  );
+  useEffect(() => {
+    stageSessionHandleRef.current = stageSessionHandle;
+  }, [stageSessionHandle]);
+
+  const buildSessionExtractOptions = (): ExtractGeometryOptions => ({
+    policy: "noPayloads",
+    variantSelections,
+    purposeModes,
+  });
+
+  const handleLoadPayload = async (primPath: string) => {
+    const captured = stageSessionHandle;
+    if (captured === null) return;
+    try {
+      await loadPayload(captured, primPath);
+      if (stageSessionHandleRef.current !== captured) return;
+      setUnloadedPayloadPaths((prev) => {
+        const next = new Set(prev);
+        next.delete(primPath);
+        return next;
+      });
+    } catch (err: unknown) {
+      console.error("[usd] load_payload failed:", err);
+      return;
+    }
+    // Re-extract is best-effort: if it fails (e.g. backend hits "no
+    // renderable Mesh prims"), drop the override so the viewport doesn't
+    // keep the pre-load geometry on screen and falls back to the
+    // stateless extract path.
+    try {
+      const glbBuffer = await extractGeometrySession(
+        captured,
+        buildSessionExtractOptions(),
+      );
+      if (stageSessionHandleRef.current !== captured) return;
+      setSessionGlbBuffer(glbBuffer);
+    } catch (err: unknown) {
+      if (stageSessionHandleRef.current !== captured) return;
+      console.warn("[usd] session re-extract after load failed:", err);
+      setSessionGlbBuffer(null);
+    }
+  };
+
+  const handleUnloadPayload = async (primPath: string) => {
+    const captured = stageSessionHandle;
+    if (captured === null) return;
+    try {
+      await unloadPayload(captured, primPath);
+      if (stageSessionHandleRef.current !== captured) return;
+      setUnloadedPayloadPaths((prev) => {
+        const next = new Set(prev);
+        next.add(primPath);
+        return next;
+      });
+    } catch (err: unknown) {
+      console.error("[usd] unload_payload failed:", err);
+      return;
+    }
+    // Same best-effort re-extract: if the unloaded stage has no
+    // renderable meshes the extract returns an error; clear the override
+    // so the viewport doesn't keep showing the pre-unload geometry.
+    try {
+      const glbBuffer = await extractGeometrySession(
+        captured,
+        buildSessionExtractOptions(),
+      );
+      if (stageSessionHandleRef.current !== captured) return;
+      setSessionGlbBuffer(glbBuffer);
+    } catch (err: unknown) {
+      if (stageSessionHandleRef.current !== captured) return;
+      console.warn("[usd] session re-extract after unload failed:", err);
+      setSessionGlbBuffer(null);
+    }
+  };
+
   const sidebarContent = (() => {
     switch (activeTab) {
       case "file":
@@ -1600,6 +1861,18 @@ export function App() {
                 isUsdFile(currentFile)
                   ? (primPath) => setSelectedUsdPrimPath(primPath)
                   : undefined
+              }
+              payloadPrimPaths={
+                stageSessionHandle !== null ? payloadPrimPaths : undefined
+              }
+              unloadedPayloadPaths={
+                stageSessionHandle !== null ? unloadedPayloadPaths : undefined
+              }
+              onLoadPayload={
+                stageSessionHandle !== null ? handleLoadPayload : undefined
+              }
+              onUnloadPayload={
+                stageSessionHandle !== null ? handleUnloadPayload : undefined
               }
             />
             {isUsdFile(currentFile) && (
@@ -1761,6 +2034,7 @@ export function App() {
             variantSelections={variantSelections}
             activeCameraId={activeCameraId}
             onActiveCameraReset={() => setActiveCameraId(null)}
+            glbOverride={sessionGlbBuffer}
           />
 
           {/* ViewModeControls overlay */}

@@ -18,9 +18,11 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 
 use crate::usd::{
-    AssetIssue, AttributeTimeSamples, DefaultBackend, PrimInspection, StageInspection,
-    StageLoadPolicy, StageSummary, UsdBackend, UsdError, UsdLightInfo,
+    AssetIssue, AttributeTimeSamples, DefaultBackend, OpenSession, PrimInspection,
+    StageInspection, StageLoadPolicy, StageRegistry, StageSummary, StageSessionHandle, UsdBackend,
+    UsdError, UsdLightInfo,
 };
+use crate::usd::types::ExtractGeometryOptions;
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
@@ -1295,6 +1297,160 @@ async fn flatten_stage(
     run_blocking_usd(move || handle.flatten_stage(&normalized)).await
 }
 
+// ---- #44 per-prim payload session commands ---------------------------------
+
+/// #44 — opens a USD stage and registers it in the `StageRegistry`.
+/// Returns a `StageSessionHandle` (opaque integer) the caller uses for
+/// follow-up `load_payload`, `unload_payload`, and
+/// `extract_geometry_session` commands.
+///
+/// The session is kept alive until `close_stage_session` is called or the
+/// app exits. If the same file is opened twice, two independent sessions
+/// are created (each has its own stage and load state).
+#[tauri::command]
+async fn open_stage_session(
+    backend: tauri::State<'_, UsdBackendState>,
+    registry: tauri::State<'_, StageRegistry>,
+    path: String,
+    policy: Option<StageLoadPolicy>,
+) -> Result<StageSessionHandle, String> {
+    let normalized = normalize_file_path(PathBuf::from(path.clone()))?;
+    let handle = backend.handle();
+    let policy = policy.unwrap_or_default();
+    let open_stage = run_blocking_usd(move || {
+        handle.open_stage_session(&normalized, policy)
+    })
+    .await?;
+
+    let session = OpenSession {
+        path: PathBuf::from(path),
+        policy,
+        stage: open_stage,
+    };
+    let sh = registry.insert(session);
+    Ok(sh)
+}
+
+/// #44 — removes and drops the session for `handle`. After this call the
+/// handle is invalid; any follow-up command that references it will return
+/// an error.
+#[tauri::command]
+async fn close_stage_session(
+    registry: tauri::State<'_, StageRegistry>,
+    handle: StageSessionHandle,
+) -> Result<(), String> {
+    registry
+        .remove(handle)
+        .ok_or_else(|| format!("close_stage_session: unknown handle {}", handle.0))?;
+    Ok(())
+}
+
+/// #44 — loads the payload arc(s) rooted at `prim_path` on the open stage
+/// identified by `handle`.
+///
+/// Only implemented on the C++ backend. The Rust-fork backend always
+/// returns an error (D6 in the plan).
+#[tauri::command]
+async fn load_payload(
+    app: tauri::AppHandle,
+    backend: tauri::State<'_, UsdBackendState>,
+    handle: StageSessionHandle,
+    prim_path: String,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let backend_handle = backend.handle();
+    // `UsdStage::Load` performs synchronous composition + I/O for
+    // potentially large layers; route it through the blocking pool so
+    // the async runtime stays responsive to other IPC traffic.
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let registry = app.state::<StageRegistry>();
+        registry
+            .with(handle, |session| {
+                backend_handle
+                    .load_payload(&session.stage, &prim_path)
+                    .map_err(|e| e.to_string())
+            })
+            .ok_or_else(|| format!("load_payload: unknown session handle {}", handle.0))?
+    })
+    .await
+    .map_err(|e| format!("USD task join error: {e}"))?
+}
+
+/// #44 — unloads the payload arc(s) rooted at `prim_path` on the open
+/// stage identified by `handle`.
+///
+/// Only implemented on the C++ backend. The Rust-fork backend always
+/// returns an error.
+#[tauri::command]
+async fn unload_payload(
+    app: tauri::AppHandle,
+    backend: tauri::State<'_, UsdBackendState>,
+    handle: StageSessionHandle,
+    prim_path: String,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let backend_handle = backend.handle();
+    // Unload is cheaper than load but still touches `UsdStage`'s
+    // composition cache; keep it off the async runtime for symmetry
+    // and to guarantee the registry mutex isn't held across `.await`.
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let registry = app.state::<StageRegistry>();
+        registry
+            .with(handle, |session| {
+                backend_handle
+                    .unload_payload(&session.stage, &prim_path)
+                    .map_err(|e| e.to_string())
+            })
+            .ok_or_else(|| format!("unload_payload: unknown session handle {}", handle.0))?
+    })
+    .await
+    .map_err(|e| format!("USD task join error: {e}"))?
+}
+
+/// #44 — extracts GLB geometry from the open stage identified by `handle`.
+/// This runs the same GLB pipeline as `extract_geometry` but does NOT
+/// reopen the file, so any per-prim payload mutations made via
+/// `load_payload` / `unload_payload` are reflected in the output.
+#[tauri::command]
+async fn extract_geometry_session(
+    app: tauri::AppHandle,
+    backend: tauri::State<'_, UsdBackendState>,
+    handle: StageSessionHandle,
+    options: Option<ExtractGeometryOptions>,
+    policy: Option<StageLoadPolicy>,
+) -> Result<tauri::ipc::Response, String> {
+    use tauri::Manager;
+    let resolved_options = options.unwrap_or_else(|| {
+        ExtractGeometryOptions::from(policy.unwrap_or_default())
+    });
+    let backend_handle = backend.handle();
+    // Heavy USD GLB extraction must not run on the async runtime's worker.
+    // Move it to a blocking task and look up the registry from `app` inside
+    // (avoids holding a `tauri::State` reference across `.await`).
+    let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let registry = app.state::<StageRegistry>();
+        registry
+            .with(handle, |session| {
+                backend_handle
+                    .extract_geometry_from_session(
+                        &session.stage,
+                        &session.path,
+                        &resolved_options,
+                    )
+                    .map_err(|e| e.to_string())
+            })
+            .ok_or_else(|| {
+                format!(
+                    "extract_geometry_session: unknown session handle {}",
+                    handle.0
+                )
+            })?
+    })
+    .await
+    .map_err(|e| format!("USD task join error: {e}"))??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 #[tauri::command]
 async fn check_for_update(
     app: tauri::AppHandle,
@@ -1396,6 +1552,8 @@ pub fn run() {
             app.manage(PendingUpdateState::default());
             app.manage(PendingOpenFiles::default());
             app.manage(UsdBackendState::new(DefaultBackend::new()));
+            // #44: register the stage registry so session commands can access it.
+            app.manage(StageRegistry::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1423,7 +1581,12 @@ pub fn run() {
             inspect_prim,
             inspect_attribute_time_samples,
             flatten_stage,
-            inspect_usd_lights
+            inspect_usd_lights,
+            open_stage_session,
+            close_stage_session,
+            load_payload,
+            unload_payload,
+            extract_geometry_session
         ])
         .build(tauri::generate_context!())
         .expect("error while building yw-look");

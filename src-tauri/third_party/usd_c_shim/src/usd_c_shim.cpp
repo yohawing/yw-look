@@ -2511,3 +2511,58 @@ usdc_stage_lights(UsdcStage *stage,
         /* best-effort; silently drop remaining lights on exception */
     }
 }
+
+/* ---- #44 per-prim payload load / unload ---------------------------------- */
+
+int usdc_stage_load_prim(UsdcStage *stage,
+                         const char *prim_path,
+                         UsdcError **err_out) {
+    if (!stage || !prim_path) {
+        if (err_out) {
+            *err_out = make_err("usdc_stage_load_prim: null argument");
+        }
+        return 0;
+    }
+    try {
+        pxr::SdfPath sdf_path(prim_path);
+        /* LoadWithDescendants mirrors UsdStage::Load default policy */
+        stage->stage->Load(sdf_path, pxr::UsdLoadWithDescendants);
+        return 1;
+    } catch (const std::exception &ex) {
+        if (err_out) {
+            *err_out = make_err(std::string("usdc_stage_load_prim: ") + ex.what());
+        }
+        return 0;
+    } catch (...) {
+        if (err_out) {
+            *err_out = make_err("usdc_stage_load_prim: unknown exception");
+        }
+        return 0;
+    }
+}
+
+int usdc_stage_unload_prim(UsdcStage *stage,
+                           const char *prim_path,
+                           UsdcError **err_out) {
+    if (!stage || !prim_path) {
+        if (err_out) {
+            *err_out = make_err("usdc_stage_unload_prim: null argument");
+        }
+        return 0;
+    }
+    try {
+        pxr::SdfPath sdf_path(prim_path);
+        stage->stage->Unload(sdf_path);
+        return 1;
+    } catch (const std::exception &ex) {
+        if (err_out) {
+            *err_out = make_err(std::string("usdc_stage_unload_prim: ") + ex.what());
+        }
+        return 0;
+    } catch (...) {
+        if (err_out) {
+            *err_out = make_err("usdc_stage_unload_prim: unknown exception");
+        }
+        return 0;
+    }
+}

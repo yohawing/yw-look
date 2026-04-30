@@ -324,6 +324,14 @@ type AssetViewportProps = {
    * callback lets App reset that state so the UI is consistent and fly
    * mode becomes available again. */
   onActiveCameraReset?: () => void;
+  /**
+   * #44: when non-null the viewport loads this pre-extracted GLB buffer
+   * directly instead of re-extracting from the file path. Used by the
+   * per-prim payload session so the viewport reflects the current payload
+   * load state without a full round-trip through the extraction pipeline.
+   * Setting to `null` or omitting reverts to the normal file-based path.
+   */
+  glbOverride?: ArrayBuffer | null;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -526,6 +534,7 @@ export function AssetViewport({
   variantSelections,
   activeCameraId = null,
   onActiveCameraReset,
+  glbOverride = null,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -1729,6 +1738,7 @@ export function AssetViewport({
     loadPreviewObject(currentFile, context.renderer, {
       usdLoadPolicy,
       variantSelections,
+      glbOverride: glbOverride ?? null,
     })
       .then(({ object, cleanupUrls, clips, formatVersion }) => {
         if (disposed) {
@@ -1957,6 +1967,7 @@ export function AssetViewport({
     showGrid,
     usdLoadPolicy,
     variantSelections,
+    glbOverride,
   ]);
 
   useEffect(() => {

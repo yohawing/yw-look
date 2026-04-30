@@ -514,3 +514,83 @@ export async function extractGeometry(
     policy: policyOrOptions,
   });
 }
+
+// ---------------------------------------------------------------------------
+// #44 — Stateful per-prim payload session API
+// ---------------------------------------------------------------------------
+
+/**
+ * Opaque session handle returned by `openStageSession`. Pass it to
+ * `loadPayload`, `unloadPayload`, `extractGeometrySession`, and
+ * `closeStageSession`.
+ */
+export type StageSessionHandle = number;
+
+/**
+ * Opens a USD stage and keeps it alive in the Tauri process for the
+ * duration of the session. Returns an opaque `StageSessionHandle` integer.
+ *
+ * The stage is opened with the given `policy`. When `policy` is
+ * `"noPayloads"` every payload is deferred; individual prims can then be
+ * loaded on demand with `loadPayload`.
+ *
+ * Call `closeStageSession` when you are done to free the backing stage.
+ *
+ * Note: per-prim load/unload is only supported when the C++ backend is
+ * active (`backend-openusd-cpp` Cargo feature). The Rust-fork backend
+ * accepts the call but returns an error from `loadPayload`/`unloadPayload`.
+ */
+export async function openStageSession(
+  path: string,
+  policy?: StageLoadPolicy,
+): Promise<StageSessionHandle> {
+  return invoke<StageSessionHandle>("open_stage_session", { path, policy });
+}
+
+/**
+ * Releases the stage session associated with `handle`. After this call
+ * the handle is invalid and all further operations on it will fail.
+ */
+export async function closeStageSession(
+  handle: StageSessionHandle,
+): Promise<void> {
+  return invoke<void>("close_stage_session", { handle });
+}
+
+/**
+ * Loads the payload arc at `primPath` in the open stage identified by
+ * `handle`. Descendants are loaded as well (`UsdLoadWithDescendants`).
+ *
+ * Only supported on the C++ backend; throws on the Rust-fork backend.
+ */
+export async function loadPayload(
+  handle: StageSessionHandle,
+  primPath: string,
+): Promise<void> {
+  return invoke<void>("load_payload", { handle, primPath });
+}
+
+/**
+ * Unloads the payload arc at `primPath` in the open stage identified by
+ * `handle`.
+ *
+ * Only supported on the C++ backend; throws on the Rust-fork backend.
+ */
+export async function unloadPayload(
+  handle: StageSessionHandle,
+  primPath: string,
+): Promise<void> {
+  return invoke<void>("unload_payload", { handle, primPath });
+}
+
+/**
+ * Extracts GLB geometry from the currently loaded state of the session
+ * stage. Use after calling `loadPayload` / `unloadPayload` to get a
+ * mesh that reflects the current payload state.
+ */
+export async function extractGeometrySession(
+  handle: StageSessionHandle,
+  options?: ExtractGeometryOptions,
+): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("extract_geometry_session", { handle, options });
+}

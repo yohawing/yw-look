@@ -726,9 +726,114 @@ impl UsdBackend for OpenusdCppBackend {
             .collect();
         Ok(result)
     }
+
+    // ---- #44 session methods -----------------------------------------------
+
+    fn open_stage_session(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+    ) -> Result<crate::usd::stage_state::OpenStage, UsdError> {
+        let stage = Self::open(path, policy)?;
+        Ok(crate::usd::stage_state::OpenStage::Cpp(
+            std::sync::Mutex::new(stage),
+        ))
+    }
+
+    fn load_payload(
+        &self,
+        stage: &crate::usd::stage_state::OpenStage,
+        prim_path: &str,
+    ) -> Result<(), UsdError> {
+        match stage {
+            crate::usd::stage_state::OpenStage::Cpp(mutex) => {
+                let locked = mutex
+                    .lock()
+                    .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
+                locked.load_prim(prim_path).map_err(|e| UsdError::Parse(e.0))
+            }
+            #[cfg(feature = "backend-openusd-rs")]
+            crate::usd::stage_state::OpenStage::Rust(_) => Err(UsdError::Parse(
+                "load_payload: Rust stage handle passed to C++ backend".to_string(),
+            )),
+        }
+    }
+
+    fn unload_payload(
+        &self,
+        stage: &crate::usd::stage_state::OpenStage,
+        prim_path: &str,
+    ) -> Result<(), UsdError> {
+        match stage {
+            crate::usd::stage_state::OpenStage::Cpp(mutex) => {
+                let locked = mutex
+                    .lock()
+                    .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
+                locked.unload_prim(prim_path).map_err(|e| UsdError::Parse(e.0))
+            }
+            #[cfg(feature = "backend-openusd-rs")]
+            crate::usd::stage_state::OpenStage::Rust(_) => Err(UsdError::Parse(
+                "unload_payload: Rust stage handle passed to C++ backend".to_string(),
+            )),
+        }
+    }
+
+    fn extract_geometry_from_session(
+        &self,
+        stage: &crate::usd::stage_state::OpenStage,
+        stage_path: &StdPath,
+        options: &ExtractGeometryOptions,
+    ) -> Result<Vec<u8>, UsdError> {
+        // Pass the original stage path through to the extractor so the
+        // texture loader can open USDZ archives and resolve relative
+        // asset paths. The session stores the original path; the Tauri
+        // command layer hands it to us alongside the stage handle.
+        match stage {
+            crate::usd::stage_state::OpenStage::Cpp(mutex) => {
+                let locked = mutex
+                    .lock()
+                    .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
+                extract_from_stage_with_options(&locked, stage_path, options)
+            }
+            #[cfg(feature = "backend-openusd-rs")]
+            crate::usd::stage_state::OpenStage::Rust(_) => Err(UsdError::Parse(
+                "extract_geometry_from_session: Rust stage handle passed to C++ backend"
+                    .to_string(),
+            )),
+        }
+    }
 }
 
 fn extract_from_stage(stage: &CStage, path: &StdPath) -> Result<Vec<u8>, UsdError> {
+    extract_from_stage_with_options(stage, path, &ExtractGeometryOptions::default())
+}
+
+fn extract_from_stage_with_options(
+    stage: &CStage,
+    path: &StdPath,
+    options: &ExtractGeometryOptions,
+) -> Result<Vec<u8>, UsdError> {
+    // #44: when the caller provides variant selections (e.g. the session
+    // path also routes through here after a payload toggle), push them to
+    // the stage's session layer before traversal so the GLB reflects the
+    // user's variant choices. The stateless `extract_geometry_glb_with_options`
+    // already applied the same selections before the call, so re-applying
+    // is idempotent there; the session path needs this to avoid silently
+    // reverting to authored variants on every payload load/unload.
+    for vs in &options.variant_selections {
+        let ok = stage.set_variant_selection(
+            &vs.prim_path,
+            &vs.set_name,
+            &vs.variant_name,
+        );
+        if !ok {
+            eprintln!(
+                "[usd-cpp] set_variant_selection failed: {} {} {}",
+                vs.prim_path, vs.set_name, vs.variant_name,
+            );
+        }
+    }
+
         // Z-up → Y-up baked into every mesh's world matrix so the GLB
         // is self-describing on the viewer side. Matches the Rust
         // fork backend's convention.

@@ -8,6 +8,7 @@
 
 use std::path::Path;
 
+use super::stage_state::OpenStage;
 use super::types::{
     AssetIssue, AttributeTimeSamples, ExtractGeometryOptions, PrimInspection, StageInspection,
     StageLoadPolicy, StageSummary, UsdLightInfo,
@@ -170,4 +171,60 @@ pub trait UsdBackend: Send + Sync {
     /// an error from this method as "no USD light detail available" and fall
     /// back to the Three.js-derived `LightEntry` list.
     fn inspect_usd_lights(&self, path: &Path) -> Result<Vec<UsdLightInfo>, UsdError>;
+
+    // -----------------------------------------------------------------------
+    // #44 — stateful per-prim payload session API
+    // -----------------------------------------------------------------------
+    //
+    // These methods must be in the same trait (not a sub-trait) so the existing
+    // `Arc<dyn UsdBackend>` state can call them without any downcasting.
+
+    /// Opens `path` under `policy` and returns a backend-specific stage
+    /// handle that the caller stores in `StageRegistry`. Unlike
+    /// `extract_geometry_glb`, this does NOT keep the stage alive only for
+    /// the duration of the call — the `OpenStage` is meant to persist until
+    /// `close_stage_session` / the registry drops it.
+    ///
+    /// The Rust-fork backend returns `OpenStage::Rust(...)`.
+    /// The C++ backend returns `OpenStage::Cpp(...)`.
+    fn open_stage_session(
+        &self,
+        path: &Path,
+        policy: StageLoadPolicy,
+    ) -> Result<OpenStage, UsdError>;
+
+    /// Loads the payload arc(s) rooted at `prim_path` on an open stage.
+    ///
+    /// The Rust-fork backend always returns
+    /// `Err(UsdError::Parse("per-prim payload load not supported …"))` because
+    /// the openusd crate only supports stage-wide load policies (D6 from the
+    /// plan). The C++ backend calls `UsdStage::Load(SdfPath, UsdLoadPolicy)`.
+    fn load_payload(
+        &self,
+        stage: &OpenStage,
+        prim_path: &str,
+    ) -> Result<(), UsdError>;
+
+    /// Unloads the payload arc(s) rooted at `prim_path` on an open stage.
+    ///
+    /// Same backend caveat as [`Self::load_payload`].
+    fn unload_payload(
+        &self,
+        stage: &OpenStage,
+        prim_path: &str,
+    ) -> Result<(), UsdError>;
+
+    /// Runs the GLB extraction pipeline on an already-open stage (i.e. the
+    /// same `extract_geometry_from_open_stage` helper, but reached through the
+    /// registry rather than reopening the file).
+    ///
+    /// `stage_path` is the original USD file path the session was opened
+    /// from — required by the texture loader so USDZ archives and relative
+    /// asset references resolve correctly.
+    fn extract_geometry_from_session(
+        &self,
+        stage: &OpenStage,
+        stage_path: &Path,
+        options: &ExtractGeometryOptions,
+    ) -> Result<Vec<u8>, UsdError>;
 }

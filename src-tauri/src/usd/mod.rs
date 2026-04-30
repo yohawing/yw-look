@@ -22,6 +22,7 @@
 pub mod backend;
 pub mod glb;
 pub mod openusd_backend;
+pub mod stage_state;
 pub mod types;
 
 #[cfg(feature = "backend-openusd-cpp")]
@@ -31,6 +32,7 @@ pub mod openusd_cpp_backend;
 
 pub use backend::{UsdBackend, UsdError};
 pub use openusd_backend::OpenusdBackend;
+pub use stage_state::{OpenSession, OpenStage, StageRegistry, StageSessionHandle};
 pub use types::{
     AssetIssue, AttributeTimeSamples, PrimInspection, StageInspection, StageLoadPolicy,
     StageSummary, UsdLightInfo,

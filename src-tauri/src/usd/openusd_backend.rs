@@ -13,7 +13,7 @@ use std::path::Path as StdPath;
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::stage::{MaterialData, MeshData, UpAxis};
-use openusd::{GeomSubsetData, Stage, StageLoadPolicy as OpenusdLoadPolicy};
+use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
 
 use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
@@ -545,7 +545,223 @@ impl UsdBackend for OpenusdBackend {
         policy: StageLoadPolicy,
     ) -> Result<Vec<u8>, UsdError> {
         let stage = Self::open(path, policy)?;
+        extract_geometry_from_open_stage_rs(&stage, path, &ExtractGeometryOptions::from(policy))
+    }
 
+    fn extract_geometry_glb_with_options(
+        &self,
+        path: &StdPath,
+        options: &ExtractGeometryOptions,
+    ) -> Result<Vec<u8>, UsdError> {
+        if !options.variant_selections.is_empty() {
+            eprintln!(
+                "[usd-rust] extract_geometry_glb_with_options: variant_selections are \
+                 not supported by the Rust openusd backend (degraded mode). The \
+                 authored variant selections will be used instead."
+            );
+        }
+        let stage = Self::open(path, options.policy)?;
+        extract_geometry_from_open_stage_rs(&stage, path, options)
+    }
+
+    fn flatten_stage(&self, _path: &StdPath) -> Result<String, UsdError> {
+        Err(UsdError::Parse(
+            "flatten_stage is not supported on the Rust openusd backend; \
+             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
+                .to_string(),
+        ))
+    }
+
+    fn inspect_usd_lights(&self, _path: &StdPath) -> Result<Vec<UsdLightInfo>, UsdError> {
+        Err(UsdError::Parse(
+            "inspect_usd_lights is not supported on the Rust openusd backend; \
+             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
+                .to_string(),
+        ))
+    }
+
+    fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        let mut issues = Vec::new();
+
+        if let Some(mpu) = stage.meters_per_unit() {
+            if mpu <= 0.0 || mpu > 100.0 {
+                issues.push(AssetIssue {
+                    code: AssetIssueCode::SuspiciousMetersPerUnit,
+                    level: AssetIssueLevel::Warning,
+                    message: format!("metersPerUnit = {mpu} is outside the typical range."),
+                    detail: None,
+                    context_path: None,
+                });
+            }
+        }
+
+        let unresolved_owned = stage.unresolved_assets();
+        let unresolved: HashSet<&str> =
+            unresolved_owned.iter().map(|s| s.as_str()).collect();
+
+        let collected: RefCell<Vec<AssetIssue>> = RefCell::new(Vec::new());
+        let covered: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+
+        stage
+            .traverse(|prim_path| {
+                let source = prim_path.as_str().to_string();
+                for r in stage.references_in(prim_path.clone()) {
+                    if reference_arc_state(&unresolved, &r.asset_path)
+                        == CompositionArcState::Missing
+                    {
+                        covered.borrow_mut().insert(r.asset_path.clone());
+                        collected.borrow_mut().push(AssetIssue {
+                            code: AssetIssueCode::BrokenReference,
+                            level: AssetIssueLevel::Error,
+                            message: format!("Broken reference: {}", r.asset_path),
+                            detail: None,
+                            context_path: Some(source.clone()),
+                        });
+                    }
+                }
+                for p in stage.payloads_in(prim_path.clone()) {
+                    if reference_arc_state(&unresolved, &p.asset_path)
+                        == CompositionArcState::Missing
+                    {
+                        covered.borrow_mut().insert(p.asset_path.clone());
+                        collected.borrow_mut().push(AssetIssue {
+                            code: AssetIssueCode::MissingPayload,
+                            level: AssetIssueLevel::Error,
+                            message: format!("Missing payload: {}", p.asset_path),
+                            detail: None,
+                            context_path: Some(source.clone()),
+                        });
+                    }
+                }
+            })
+            .map_err(|e| UsdError::Parse(e.to_string()))?;
+
+        issues.extend(collected.into_inner());
+
+        let covered = covered.into_inner();
+        for missing in &unresolved_owned {
+            if !covered.contains(missing.as_str()) {
+                issues.push(AssetIssue {
+                    code: AssetIssueCode::MissingSubLayer,
+                    level: AssetIssueLevel::Error,
+                    message: format!("Unresolved asset: {missing}"),
+                    detail: None,
+                    context_path: None,
+                });
+            }
+        }
+
+        Ok(issues)
+    }
+
+    // ---- #44 session methods -----------------------------------------------
+
+    fn open_stage_session(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+    ) -> Result<crate::usd::stage_state::OpenStage, UsdError> {
+        let stage = Self::open(path, policy)?;
+        // `OpenStage::Rust` only exists when the Rust-fork backend feature is
+        // compiled in. When only `backend-openusd-cpp` is enabled, this code
+        // path is unreachable because `DefaultBackend` resolves to
+        // `OpenusdCppBackend` — `OpenusdBackend` is never instantiated.
+        #[cfg(feature = "backend-openusd-rs")]
+        return Ok(crate::usd::stage_state::OpenStage::Rust(
+            std::sync::Mutex::new(stage),
+        ));
+        #[cfg(not(feature = "backend-openusd-rs"))]
+        {
+            drop(stage);
+            unreachable!(
+                "OpenusdBackend::open_stage_session called without backend-openusd-rs feature"
+            );
+        }
+    }
+
+    fn load_payload(
+        &self,
+        _stage: &crate::usd::stage_state::OpenStage,
+        _prim_path: &str,
+    ) -> Result<(), UsdError> {
+        Err(UsdError::Parse(
+            "per-prim payload load is not supported on the Rust openusd backend; \
+             switch to the C++ backend (backend-openusd-cpp feature)"
+                .to_string(),
+        ))
+    }
+
+    fn unload_payload(
+        &self,
+        _stage: &crate::usd::stage_state::OpenStage,
+        _prim_path: &str,
+    ) -> Result<(), UsdError> {
+        Err(UsdError::Parse(
+            "per-prim payload unload is not supported on the Rust openusd backend; \
+             switch to the C++ backend (backend-openusd-cpp feature)"
+                .to_string(),
+        ))
+    }
+
+    fn extract_geometry_from_session(
+        &self,
+        stage: &crate::usd::stage_state::OpenStage,
+        #[cfg(feature = "backend-openusd-rs")] stage_path: &StdPath,
+        #[cfg(not(feature = "backend-openusd-rs"))] _stage_path: &StdPath,
+        #[cfg(feature = "backend-openusd-rs")] options: &ExtractGeometryOptions,
+        #[cfg(not(feature = "backend-openusd-rs"))] _options: &ExtractGeometryOptions,
+    ) -> Result<Vec<u8>, UsdError> {
+        // Dispatch based on which OpenStage variant is actually compiled in.
+        // Only one variant exists per feature combination, so we match with
+        // exhaustive arms guarded by cfg.
+        #[cfg(all(feature = "backend-openusd-rs", not(feature = "backend-openusd-cpp")))]
+        {
+            let crate::usd::stage_state::OpenStage::Rust(mutex) = stage;
+            let locked = mutex
+                .lock()
+                .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
+            return extract_geometry_from_open_stage_rs(&locked, stage_path, options);
+        }
+        #[cfg(all(feature = "backend-openusd-rs", feature = "backend-openusd-cpp"))]
+        match stage {
+            crate::usd::stage_state::OpenStage::Rust(mutex) => {
+                let locked = mutex
+                    .lock()
+                    .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
+                return extract_geometry_from_open_stage_rs(&locked, stage_path, options);
+            }
+            crate::usd::stage_state::OpenStage::Cpp(_) => {
+                return Err(UsdError::Parse(
+                    "extract_geometry_from_session: Cpp stage handle passed to Rust backend"
+                        .to_string(),
+                ));
+            }
+        }
+        // When only the C++ backend is compiled in, the Rust variant does not
+        // exist — this arm is unreachable but required for exhaustiveness.
+        #[cfg(not(feature = "backend-openusd-rs"))]
+        {
+            let _ = stage;
+            Err(UsdError::Parse(
+                "extract_geometry_from_session: Cpp stage handle passed to Rust backend"
+                    .to_string(),
+            ))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Free function: the actual geometry-extraction pipeline, callable from both
+// `extract_geometry_glb`, `extract_geometry_glb_with_options`, and
+// `extract_geometry_from_session` without keeping a Stage alive inside a
+// trait impl block.
+// ---------------------------------------------------------------------------
+pub(crate) fn extract_geometry_from_open_stage_rs(
+    stage: &Stage,
+    stage_path: &StdPath,
+    _options: &ExtractGeometryOptions,
+) -> Result<Vec<u8>, UsdError> {
         // Pre-compute the Z-up → Y-up correction, if any. The viewer is
         // Y-up; Z-up USD scenes (Kitchen Set, most DCC exports from Maya
         // / Houdini) need rotating into viewer space. We bake the
@@ -973,7 +1189,7 @@ impl UsdBackend for OpenusdBackend {
         // known limitation tracked as Phase 5d (needs a fork API
         // for `Stage::layer_for_prim`).
         let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = stage_path.parent() {
             search_dirs.push(parent.to_path_buf());
         }
         for layer_id in stage.layer_identifiers() {
@@ -989,7 +1205,7 @@ impl UsdBackend for OpenusdBackend {
             }
         }
 
-        let mut texture_loader = TextureLoader::new(path, search_dirs);
+        let mut texture_loader = TextureLoader::new(stage_path, search_dirs);
         let mut textures: Vec<glb::TextureInput> = Vec::new();
         // Dedupe by **resolved source identity** (filesystem PathBuf or
         // USDZ entry name), not the authored relative string. Two
@@ -1110,141 +1326,6 @@ impl UsdBackend for OpenusdBackend {
             up_correction_f32,
         )
         .map_err(UsdError::Parse)
-    }
-
-    /// #31: degraded implementation for the Rust fork backend. The Rust
-    /// openusd fork does not expose a mutable `SetVariantSelection` API,
-    /// so variant overrides cannot be applied. If `variant_selections` is
-    /// non-empty, a warning is logged and the call falls back to the
-    /// authored variant selection (i.e., the default behavior). Purpose
-    /// modes are handled by the GLB pipeline via the `purpose` token
-    /// written on each MeshInput — no extra handling needed here.
-    fn extract_geometry_glb_with_options(
-        &self,
-        path: &StdPath,
-        options: &ExtractGeometryOptions,
-    ) -> Result<Vec<u8>, UsdError> {
-        if !options.variant_selections.is_empty() {
-            eprintln!(
-                "[usd-rust] extract_geometry_glb_with_options: variant_selections are \
-                 not supported by the Rust openusd backend (degraded mode). The \
-                 authored variant selections will be used instead."
-            );
-        }
-        self.extract_geometry_glb(path, options.policy)
-    }
-
-    fn flatten_stage(&self, _path: &StdPath) -> Result<String, UsdError> {
-        // The `openusd` Rust fork crate does not expose an
-        // ExportToString-equivalent API yet. Return a descriptive error
-        // so the frontend can surface a graceful message rather than
-        // silently failing.
-        Err(UsdError::Parse(
-            "flatten_stage is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
-                .to_string(),
-        ))
-    }
-
-    fn inspect_usd_lights(&self, _path: &StdPath) -> Result<Vec<UsdLightInfo>, UsdError> {
-        // The openusd Rust fork crate does not expose UsdLux APIs yet.
-        // Return a descriptive error so the frontend can fall back to the
-        // Three.js-derived LightEntry list gracefully.
-        Err(UsdError::Parse(
-            "inspect_usd_lights is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
-                .to_string(),
-        ))
-    }
-
-    fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
-        // Asset issues always inspect the fully-loaded stage — the UI
-        // wants a complete picture of what's broken regardless of which
-        // policy the frontend happens to be rendering.
-        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
-        let mut issues = Vec::new();
-
-        if let Some(mpu) = stage.meters_per_unit() {
-            if mpu <= 0.0 || mpu > 100.0 {
-                issues.push(AssetIssue {
-                    code: AssetIssueCode::SuspiciousMetersPerUnit,
-                    level: AssetIssueLevel::Warning,
-                    message: format!("metersPerUnit = {mpu} is outside the typical range."),
-                    detail: None,
-                    context_path: None,
-                });
-            }
-        }
-
-        // Build the set of unresolved assets for arc-level lookups.
-        let unresolved_owned = stage.unresolved_assets();
-        let unresolved: HashSet<&str> =
-            unresolved_owned.iter().map(|s| s.as_str()).collect();
-
-        // Walk references / payloads and emit one contextualized issue per
-        // arc that points at an unresolved asset. Track which assets were
-        // attributed so that we can fall back to a generic issue for any
-        // that aren't reachable via an explicit arc.
-        let collected: RefCell<Vec<AssetIssue>> = RefCell::new(Vec::new());
-        let covered: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-
-        stage
-            .traverse(|prim_path| {
-                let source = prim_path.as_str().to_string();
-                for r in stage.references_in(prim_path.clone()) {
-                    if reference_arc_state(&unresolved, &r.asset_path)
-                        == CompositionArcState::Missing
-                    {
-                        covered.borrow_mut().insert(r.asset_path.clone());
-                        collected.borrow_mut().push(AssetIssue {
-                            code: AssetIssueCode::BrokenReference,
-                            level: AssetIssueLevel::Error,
-                            message: format!("Broken reference: {}", r.asset_path),
-                            detail: None,
-                            context_path: Some(source.clone()),
-                        });
-                    }
-                }
-                for p in stage.payloads_in(prim_path.clone()) {
-                    // collect_asset_issues runs under LoadAll, so no
-                    // payload can be Unloaded here — only Missing vs
-                    // Loaded. Skip the skipped_set parameter to keep the
-                    // call site tight.
-                    if reference_arc_state(&unresolved, &p.asset_path)
-                        == CompositionArcState::Missing
-                    {
-                        covered.borrow_mut().insert(p.asset_path.clone());
-                        collected.borrow_mut().push(AssetIssue {
-                            code: AssetIssueCode::MissingPayload,
-                            level: AssetIssueLevel::Error,
-                            message: format!("Missing payload: {}", p.asset_path),
-                            detail: None,
-                            context_path: Some(source.clone()),
-                        });
-                    }
-                }
-            })
-            .map_err(|e| UsdError::Parse(e.to_string()))?;
-
-        issues.extend(collected.into_inner());
-
-        // Emit a generic (context-free) fallback only for unresolved assets
-        // that were not attributed to any specific arc during traversal.
-        let covered = covered.into_inner();
-        for missing in &unresolved_owned {
-            if !covered.contains(missing.as_str()) {
-                issues.push(AssetIssue {
-                    code: AssetIssueCode::MissingSubLayer,
-                    level: AssetIssueLevel::Error,
-                    message: format!("Unresolved asset: {missing}"),
-                    detail: None,
-                    context_path: None,
-                });
-            }
-        }
-
-        Ok(issues)
-    }
 }
 
 // ----- Arc state helpers ---------------------------------------------------

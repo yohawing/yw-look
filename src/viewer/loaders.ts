@@ -473,6 +473,13 @@ export async function loadPreviewObject(
     usdLoadPolicy?: import("../lib/usd").StageLoadPolicy;
     /** #31: variant selections to apply before GLB extraction. */
     variantSelections?: import("../lib/usd").VariantSelection[];
+    /**
+     * #44: when provided, skip the `extractGeometry` RPC and use this
+     * pre-extracted GLB buffer directly. Allows the per-prim payload
+     * session to push a freshly extracted buffer into the viewport after
+     * a load/unload operation without re-opening the stage.
+     */
+    glbOverride?: ArrayBuffer | null;
   } = {},
 ): Promise<LoadedPreview> {
   switch (file.extension) {
@@ -672,7 +679,7 @@ export async function loadPreviewObject(
         );
       }
 
-      if (useGlbPipeline) {
+      if (useGlbPipeline || options.glbOverride != null) {
         // ---- USDC pipeline -------------------------------------------
         // Yield a frame so the Rust-populated inspector sidebar has a
         // chance to paint before we block on the (potentially heavy)
@@ -680,18 +687,28 @@ export async function loadPreviewObject(
         await yieldToPaint();
 
         const started = performance.now();
-        // #31: pass variant selections through to the Tauri backend so
-        // the C++ shim can apply them on the session layer before
-        // geometry extraction. The options object is only constructed
-        // when there are actual selections to avoid redundant IPC shape.
-        const extractOptions =
-          options.variantSelections && options.variantSelections.length > 0
-            ? {
-                policy: usdPolicy,
-                variantSelections: options.variantSelections,
-              }
-            : usdPolicy;
-        const glbBuffer = await extractGeometry(file.path, extractOptions);
+        let glbBuffer: ArrayBuffer;
+        if (options.glbOverride != null) {
+          // #44: use the pre-extracted session buffer directly, skipping
+          // the extractGeometry RPC.
+          glbBuffer = options.glbOverride;
+          console.info(
+            `[usd] using session glb override (${glbBuffer.byteLength} bytes): ${file.fileName}`,
+          );
+        } else {
+          // #31: pass variant selections through to the Tauri backend so
+          // the C++ shim can apply them on the session layer before
+          // geometry extraction. The options object is only constructed
+          // when there are actual selections to avoid redundant IPC shape.
+          const extractOptions =
+            options.variantSelections && options.variantSelections.length > 0
+              ? {
+                  policy: usdPolicy,
+                  variantSelections: options.variantSelections,
+                }
+              : usdPolicy;
+          glbBuffer = await extractGeometry(file.path, extractOptions);
+        }
         console.info(
           `[usd] extract_geometry OK in ${Math.round(
             performance.now() - started,
