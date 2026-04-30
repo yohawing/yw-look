@@ -1107,6 +1107,7 @@ impl UsdBackend for OpenusdBackend {
             &animations,
             &lights,
             &cameras,
+            up_correction_f32,
         )
         .map_err(UsdError::Parse)
     }

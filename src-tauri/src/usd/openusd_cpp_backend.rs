@@ -1316,7 +1316,7 @@ fn extract_from_stage(stage: &CStage, path: &StdPath) -> Result<Vec<u8>, UsdErro
         // #46: pass empty nodes slice for the C++ backend (hierarchy-aware
         // node tree is implemented in the Rust fork backend only for now).
         // The flat scene-root layout is used as a fallback.
-        glb::build_glb(&[], &inputs, &materials, &textures, &skins, &animations, &lights, &cameras)
+        glb::build_glb(&[], &inputs, &materials, &textures, &skins, &animations, &lights, &cameras, None)
             .map_err(|e| UsdError::Parse(e.to_string()))
 }
 

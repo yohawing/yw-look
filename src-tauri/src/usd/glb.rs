@@ -732,6 +732,7 @@ pub fn build_glb(
     animations: &[AnimationInput],
     lights: &[LightInput],
     cameras: &[CameraInput],
+    up_correction: Option<[f32; 16]>,
 ) -> Result<Vec<u8>, String> {
     if meshes.is_empty() {
         return Err("no meshes to export".to_string());
@@ -1814,16 +1815,24 @@ pub fn build_glb(
         }
 
         // Build the __upAxis node, whose children are all the root NodeInput
-        // glTF nodes.
+        // glTF nodes. When the source stage is Z-up the caller passes the
+        // Z→Y rotation in `up_correction`; we apply it here as the synthetic
+        // root's matrix so every descendant inherits the correction. The
+        // legacy flat path bakes the same correction into per-mesh / per-
+        // light / per-camera world matrices, so it does not need this.
         let root_gltf_children: Vec<usize> = root_ni_indices
             .iter()
             .map(|&ni_idx| node_gltf_indices[ni_idx])
             .collect();
-        gltf_nodes[up_axis_gltf_idx] = json!({
+        let mut up_axis_node = json!({
             "name": "__upAxis",
             "children": root_gltf_children,
             "extras": { "primPath": "/" },
         });
+        if let Some(correction) = up_correction {
+            up_axis_node["matrix"] = json!(correction.iter().copied().collect::<Vec<f32>>());
+        }
+        gltf_nodes[up_axis_gltf_idx] = up_axis_node;
         scene_nodes.push(json!(up_axis_gltf_idx));
     }
 
@@ -2229,7 +2238,7 @@ mod tests {
     #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
-        let glb = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None).expect("build glb");
 
         // GLB header sanity check
         assert_eq!(&glb[0..4], b"glTF");
@@ -2272,7 +2281,7 @@ mod tests {
     fn rejects_mismatched_normal_count() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.normals = Some(vec![0.0; 6]); // wrong length
-        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None).unwrap_err();
         assert!(err.contains("normal"));
     }
 
@@ -2280,7 +2289,7 @@ mod tests {
     fn rejects_out_of_range_index() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.indices = vec![0, 1, 99];
-        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None).unwrap_err();
         assert!(err.contains("out of range"));
     }
 
@@ -2288,7 +2297,7 @@ mod tests {
     fn rejects_material_index_out_of_range() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.material_index = 5;
-        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None).unwrap_err();
         assert!(
             err.contains("material_index"),
             "expected material_index error, got: {err}"
@@ -2298,7 +2307,7 @@ mod tests {
     #[test]
     fn rejects_empty_materials_array() {
         let mesh = unit_quad_split_into_two_triangles();
-        let err = build_glb(&[], &[mesh], &[], &[], &[], &[], &[], &[]).unwrap_err();
+        let err = build_glb(&[], &[mesh], &[], &[], &[], &[], &[], &[], None).unwrap_err();
         assert!(err.contains("material"));
     }
 
@@ -2322,7 +2331,7 @@ mod tests {
             alpha_cutoff: 0.5,
             metallic_roughness_texture: None,
         }];
-        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -2340,7 +2349,7 @@ mod tests {
     fn omits_alpha_mode_for_opaque_material() {
         let mesh = unit_quad_split_into_two_triangles();
         let materials = vec![MaterialInput::default_preview()];
-        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None).expect("build glb");
 
         let json_chunk_len =
             u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
@@ -2408,7 +2417,7 @@ mod tests {
             },
         ];
 
-        let glb = build_glb(&[], &[red_mesh, blue_mesh], &materials, &[], &[], &[], &[], &[]).expect("build glb");
+        let glb = build_glb(&[], &[red_mesh, blue_mesh], &materials, &[], &[], &[], &[], &[], None).expect("build glb");
         assert_eq!(&glb[0..4], b"glTF");
 
         let json_chunk_len =
