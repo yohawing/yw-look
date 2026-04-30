@@ -163,6 +163,42 @@ export function UsdInspectorCard({
                   </span>
                 )}
               </dd>
+              {summary.durationSeconds !== null && (
+                <>
+                  <dt>Duration</dt>
+                  <dd>{summary.durationSeconds.toFixed(2)}s</dd>
+                </>
+              )}
+              {(summary.resolvedReferenceCount > 0 ||
+                summary.unresolvedReferenceCount > 0) && (
+                <>
+                  <dt>References</dt>
+                  <dd>
+                    {summary.resolvedReferenceCount} resolved
+                    {summary.unresolvedReferenceCount > 0 && (
+                      <span className="muted badge badge-error">
+                        {" "}
+                        {summary.unresolvedReferenceCount} unresolved
+                      </span>
+                    )}
+                  </dd>
+                </>
+              )}
+              {(summary.resolvedPayloadCount > 0 ||
+                summary.unresolvedPayloadCount > 0) && (
+                <>
+                  <dt>Payloads (resolved)</dt>
+                  <dd>
+                    {summary.resolvedPayloadCount} resolved
+                    {summary.unresolvedPayloadCount > 0 && (
+                      <span className="muted badge badge-error">
+                        {" "}
+                        {summary.unresolvedPayloadCount} unresolved
+                      </span>
+                    )}
+                  </dd>
+                </>
+              )}
             </dl>
           )}
           {summary && summary.primTypeCounts.length > 0 && (

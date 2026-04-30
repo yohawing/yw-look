@@ -124,6 +124,25 @@ export type StageSummary = {
   totalTriangles: number;
   /** Total variant sets across every prim that authors at least one. */
   variantSetCount: number;
+  /**
+   * #38 — wall-clock playback duration in seconds, derived from
+   * `(endTimeCode - startTimeCode) / framesPerSecond` when all three are
+   * authored. `null` when any of the three is missing so callers can
+   * distinguish "authored zero-length range" from "not authored".
+   */
+  durationSeconds: number | null;
+  /** #38 — reference arcs that resolved successfully. */
+  resolvedReferenceCount: number;
+  /** #38 — reference arcs whose asset path could not be resolved. */
+  unresolvedReferenceCount: number;
+  /** #38 — payload arcs that resolved and were composed. */
+  resolvedPayloadCount: number;
+  /**
+   * #38 — payload arcs whose asset path could not be resolved (Missing).
+   * Distinct from `unloadedPayloadCount` which tracks arcs deliberately
+   * skipped via the `noPayloads` policy.
+   */
+  unresolvedPayloadCount: number;
   warnings: string[];
   loadPolicy: StageLoadPolicy;
 };

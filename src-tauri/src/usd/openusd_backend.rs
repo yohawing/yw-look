@@ -295,6 +295,24 @@ impl UsdBackend for OpenusdBackend {
         let total_vertices = RefCell::new(0usize);
         let total_triangles = RefCell::new(0usize);
         let prim_type_counts = RefCell::new(Vec::<PrimTypeCount>::new());
+        // #38 reference / payload resolution counters.
+        let resolved_reference_count = RefCell::new(0usize);
+        let unresolved_reference_count = RefCell::new(0usize);
+        let resolved_payload_count = RefCell::new(0usize);
+        let unresolved_payload_count_stat = RefCell::new(0usize);
+
+        // #38: build unresolved-asset set upfront so arc classification
+        // in the traverse closure can borrow it without moving `stage`.
+        let unresolved_assets = stage.unresolved_assets();
+        let unresolved_set: HashSet<&str> =
+            unresolved_assets.iter().map(String::as_str).collect();
+
+        // #38: skipped payloads for NoPayloads policy classification.
+        let skipped_payloads = stage.skipped_payloads();
+        let skipped_set: HashSet<(String, String)> = skipped_payloads
+            .iter()
+            .map(|sp| (sp.asset_path.clone(), sp.prim_path.to_string()))
+            .collect();
 
         stage
             .traverse(|prim_path| {
@@ -351,7 +369,38 @@ impl UsdBackend for OpenusdBackend {
                         }
                     }
                 }
+                // #38: classify reference arcs.
+                for r in stage.references_in(prim_path.clone()) {
+                    if reference_arc_state(&unresolved_set, &r.asset_path)
+                        == CompositionArcState::Missing
+                    {
+                        *unresolved_reference_count.borrow_mut() += 1;
+                    } else {
+                        *resolved_reference_count.borrow_mut() += 1;
+                    }
+                }
+                // #38: classify payload arcs.
                 let payloads = stage.payloads_in(prim_path.clone());
+                for p in &payloads {
+                    let source = prim_path.as_str().to_string();
+                    let state = payload_arc_state(
+                        &unresolved_set,
+                        &skipped_set,
+                        &p.asset_path,
+                        &source,
+                    );
+                    match state {
+                        CompositionArcState::Missing => {
+                            *unresolved_payload_count_stat.borrow_mut() += 1;
+                        }
+                        CompositionArcState::Loaded => {
+                            *resolved_payload_count.borrow_mut() += 1;
+                        }
+                        // Unloaded (NoPayloads policy): still contributes
+                        // to payload_count but not to resolved/unresolved.
+                        CompositionArcState::Unloaded => {}
+                    }
+                }
                 if !payloads.is_empty() {
                     *payload_count.borrow_mut() += payloads.len();
                 }
@@ -369,8 +418,18 @@ impl UsdBackend for OpenusdBackend {
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
 
-        let warnings: Vec<String> = stage
-            .unresolved_assets()
+        // #38: duration_seconds = (end - start) / fps, only when all
+        // three time metadata fields are authored on the root layer.
+        let pseudo_root = SdfPath::from("/");
+        let fps = read_root_double_field(&stage, &pseudo_root, FieldKey::FramesPerSecond);
+        let start = read_root_double_field(&stage, &pseudo_root, FieldKey::StartTimeCode);
+        let end = read_root_double_field(&stage, &pseudo_root, FieldKey::EndTimeCode);
+        let duration_seconds = match (start, end, fps) {
+            (Some(s), Some(e), Some(f)) if f > 0.0 => Some((e - s) / f),
+            _ => None,
+        };
+
+        let warnings: Vec<String> = unresolved_assets
             .into_iter()
             .map(|a| format!("unresolved asset: {a}"))
             .collect();
@@ -387,6 +446,11 @@ impl UsdBackend for OpenusdBackend {
             total_vertices: total_vertices.into_inner(),
             total_triangles: total_triangles.into_inner(),
             variant_set_count: variant_set_count.into_inner(),
+            duration_seconds,
+            resolved_reference_count: resolved_reference_count.into_inner(),
+            unresolved_reference_count: unresolved_reference_count.into_inner(),
+            resolved_payload_count: resolved_payload_count.into_inner(),
+            unresolved_payload_count: unresolved_payload_count_stat.into_inner(),
             warnings,
             load_policy: policy,
         })

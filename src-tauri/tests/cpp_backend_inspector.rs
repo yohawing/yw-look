@@ -148,6 +148,113 @@ fn tiny_usda_root_layer_is_usda() {
     );
 }
 
+/// `tiny_usda_path` with no time metadata must produce `duration_seconds = None`.
+#[test]
+fn tiny_usda_summary_duration_none() {
+    let backend = OpenusdCppBackend::new();
+    let path = tiny_usda_path();
+
+    let summary = backend
+        .summarize_stage(&path, StageLoadPolicy::LoadAll)
+        .expect("summarize_stage must succeed on tiny.usda");
+
+    assert!(
+        summary.duration_seconds.is_none(),
+        "tiny.usda does not author time metadata, duration_seconds must be None, got {:?}",
+        summary.duration_seconds,
+    );
+    assert_eq!(
+        summary.resolved_reference_count, 0,
+        "tiny.usda has no references",
+    );
+    assert_eq!(
+        summary.unresolved_reference_count, 0,
+        "tiny.usda has no broken references",
+    );
+}
+
+/// `tiny_timed.usda` authors startTimeCode=0 / endTimeCode=48 / framesPerSecond=24,
+/// so duration_seconds must be 2.0.
+fn tiny_timed_usda_path() -> PathBuf {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    PathBuf::from(manifest_dir)
+        .join("..")
+        .join("samples")
+        .join("assets")
+        .join("usd")
+        .join("tiny_timed.usda")
+}
+
+#[test]
+fn tiny_timed_usda_summary_duration() {
+    let backend = OpenusdCppBackend::new();
+    let path = tiny_timed_usda_path();
+    assert!(
+        path.exists(),
+        "tiny_timed.usda fixture is missing at {}",
+        path.display()
+    );
+
+    let summary = backend
+        .summarize_stage(&path, StageLoadPolicy::LoadAll)
+        .expect("summarize_stage must succeed on tiny_timed.usda");
+
+    let duration = summary
+        .duration_seconds
+        .expect("tiny_timed.usda authors all three time fields, duration must be Some");
+    assert!(
+        (duration - 2.0).abs() < 1e-9,
+        "expected duration_seconds = 2.0 (48 frames / 24 fps), got {duration}",
+    );
+}
+
+/// `tiny_broken_ref.usda` has one resolved reference (to tiny.usda) and
+/// one unresolved reference (does_not_exist.usda). The summary must
+/// report resolved=1 / unresolved=1.
+fn tiny_broken_ref_usda_path() -> PathBuf {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    PathBuf::from(manifest_dir)
+        .join("..")
+        .join("samples")
+        .join("assets")
+        .join("usd")
+        .join("tiny_broken_ref.usda")
+}
+
+#[test]
+fn tiny_broken_ref_usda_summary_reference_counts() {
+    let backend = OpenusdCppBackend::new();
+    let path = tiny_broken_ref_usda_path();
+    assert!(
+        path.exists(),
+        "tiny_broken_ref.usda fixture is missing at {}",
+        path.display()
+    );
+
+    let summary = backend
+        .summarize_stage(&path, StageLoadPolicy::LoadAll)
+        .expect("summarize_stage must succeed on tiny_broken_ref.usda");
+
+    assert_eq!(
+        summary.resolved_reference_count, 1,
+        "tiny_broken_ref.usda has exactly one resolved reference (tiny.usda), got {}",
+        summary.resolved_reference_count,
+    );
+    assert_eq!(
+        summary.unresolved_reference_count, 1,
+        "tiny_broken_ref.usda has exactly one broken reference (does_not_exist.usda), got {}",
+        summary.unresolved_reference_count,
+    );
+    assert_eq!(
+        summary.resolved_payload_count, 0,
+        "tiny_broken_ref.usda has no payloads",
+    );
+    assert_eq!(
+        summary.unresolved_payload_count, 0,
+        "tiny_broken_ref.usda has no broken payloads",
+    );
+}
+
 /// Cross-backend parity smoke test. Only runs when both backend
 /// features are compiled in simultaneously, because the Rust fork
 /// backend (`OpenusdBackend`) is gated behind `backend-openusd-rs`. In

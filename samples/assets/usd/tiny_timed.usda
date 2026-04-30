@@ -1,0 +1,21 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    metersPerUnit = 0.01
+    startTimeCode = 0
+    endTimeCode = 48
+    framesPerSecond = 24
+    doc = "yw-look #38 fixture. Authors startTimeCode/endTimeCode/framesPerSecond so summarize_stage can compute duration_seconds = 2.0."
+)
+
+def Xform "Root"
+{
+    def Mesh "Quad"
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-1, 0, -1), (1, 0, -1), (1, 0, 1), (-1, 0, 1)]
+        uniform token subdivisionScheme = "none"
+    }
+}

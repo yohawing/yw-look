@@ -205,6 +205,26 @@ pub struct StageSummary {
     /// counted once per prim that authors it). Distinct from
     /// `has_variants` which is just the boolean.
     pub variant_set_count: usize,
+    /// #38 — playback time range derived from `startTimeCode`,
+    /// `endTimeCode`, and `framesPerSecond` authored on the root layer.
+    /// `Some(seconds)` only when all three are authored; `None` when any
+    /// of the three values is missing (fallback to USD spec defaults
+    /// would be misleading — a 0-second range is a legitimate value so
+    /// the caller can't tell "authored zero" from "not authored" without
+    /// the `Option` wrapper). Unit is wall-clock seconds.
+    pub duration_seconds: Option<f64>,
+    /// #38 — reference arcs that resolved successfully (state = Loaded).
+    pub resolved_reference_count: usize,
+    /// #38 — reference arcs whose asset path could not be resolved
+    /// (state = Missing, i.e. the path appears in `unresolved_assets`).
+    pub unresolved_reference_count: usize,
+    /// #38 — payload arcs that resolved and were composed (Loaded).
+    pub resolved_payload_count: usize,
+    /// #38 — payload arcs whose asset path could not be resolved
+    /// (Missing). Distinct from `unloaded_payload_count` which tracks
+    /// arcs that were deliberately skipped via `NoPayloads` — those are
+    /// still *resolvable*, just not loaded.
+    pub unresolved_payload_count: usize,
     pub warnings: Vec<String>,
     /// Phase 4: the load policy used when summarizing.
     pub load_policy: StageLoadPolicy,

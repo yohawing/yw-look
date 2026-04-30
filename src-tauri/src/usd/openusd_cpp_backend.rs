@@ -242,6 +242,11 @@ impl UsdBackend for OpenusdCppBackend {
         let mut variant_set_count = 0usize;
         let mut total_vertices = 0usize;
         let mut total_triangles = 0usize;
+        // #38 reference / payload resolution counters.
+        let mut resolved_reference_count = 0usize;
+        let mut unresolved_reference_count = 0usize;
+        let mut resolved_payload_count = 0usize;
+        let mut unresolved_payload_count_stat = 0usize;
 
         // Histogram keyed by USD `typeName`. We use a Vec rather than a
         // HashMap to keep first-seen ordering — the inspector renders
@@ -250,6 +255,18 @@ impl UsdBackend for OpenusdCppBackend {
         // unique-type fan-out is small (typical stages have under 30
         // distinct typeName tokens even at production scale).
         let mut prim_type_counts: Vec<PrimTypeCount> = Vec::new();
+
+        // #38: unresolved assets set for arc classification.
+        let unresolved_assets = stage.unresolved_assets();
+        let unresolved_set: HashSet<&str> =
+            unresolved_assets.iter().map(String::as_str).collect();
+
+        // #38: skipped payloads for NoPayloads policy classification.
+        let skipped_owned = stage.skipped_payloads();
+        let skipped_pairs: HashSet<(&str, &str)> = skipped_owned
+            .iter()
+            .map(|a| (a.asset_path.as_str(), a.source_prim.as_str()))
+            .collect();
 
         for prim_path in &all_prims {
             // Skip the pseudo-root: it has no authored typeName and
@@ -293,7 +310,34 @@ impl UsdBackend for OpenusdCppBackend {
                     }
                 }
             }
+            // #38: classify reference arcs.
+            for r in stage.references_in(prim_path) {
+                if classify_reference(&unresolved_set, &r.asset_path)
+                    == CompositionArcState::Missing
+                {
+                    unresolved_reference_count += 1;
+                } else {
+                    resolved_reference_count += 1;
+                }
+            }
+            // #38: classify payload arcs.
             let payloads = stage.payloads_in(prim_path);
+            for p in &payloads {
+                let state = classify_payload(
+                    &unresolved_set,
+                    &skipped_pairs,
+                    &p.asset_path,
+                    &p.source_prim,
+                    policy,
+                );
+                match state {
+                    CompositionArcState::Missing => unresolved_payload_count_stat += 1,
+                    CompositionArcState::Loaded => resolved_payload_count += 1,
+                    // Unloaded (NoPayloads policy) still counts toward
+                    // payload_count but not resolved/unresolved stats.
+                    CompositionArcState::Unloaded => {}
+                }
+            }
             if !payloads.is_empty() {
                 payload_count += payloads.len();
             }
@@ -303,8 +347,17 @@ impl UsdBackend for OpenusdCppBackend {
             }
         }
 
-        let warnings: Vec<String> = stage
-            .unresolved_assets()
+        // #38: duration_seconds = (end - start) / fps, only when all
+        // three time metadata fields are authored on the root layer.
+        let fps = stage.authored_frames_per_second();
+        let start = stage.authored_start_time_code();
+        let end = stage.authored_end_time_code();
+        let duration_seconds = match (start, end, fps) {
+            (Some(s), Some(e), Some(f)) if f > 0.0 => Some((e - s) / f),
+            _ => None,
+        };
+
+        let warnings: Vec<String> = unresolved_assets
             .into_iter()
             .map(|a| format!("unresolved asset: {a}"))
             .collect();
@@ -321,6 +374,11 @@ impl UsdBackend for OpenusdCppBackend {
             total_vertices,
             total_triangles,
             variant_set_count,
+            duration_seconds,
+            resolved_reference_count,
+            unresolved_reference_count,
+            resolved_payload_count,
+            unresolved_payload_count: unresolved_payload_count_stat,
             warnings,
             load_policy: policy,
         })
