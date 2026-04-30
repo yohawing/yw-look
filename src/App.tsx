@@ -43,12 +43,14 @@ import { WarningsCard } from "./components/WarningsCard";
 import {
   collectAssetIssues,
   inspectStage,
+  inspectUsdLights,
   summarizeStage,
   type AssetIssue,
   type PurposeModes,
   type StageInspection,
   type StageLoadPolicy,
   type StageSummary,
+  type UsdLightInfo,
   type VariantSelection,
 } from "./lib/usd";
 import {
@@ -375,6 +377,9 @@ export function App() {
   const [usdInspectorError, setUsdInspectorError] = useState<string | null>(
     null,
   );
+  // #35: USD light details fetched directly from USD (C++ backend only).
+  // `null` = not fetched yet or not a USD file; `[]` = no lights found.
+  const [usdLights, setUsdLights] = useState<UsdLightInfo[] | null>(null);
   // Phase 4: deferred-payload toggle. Defaults to `loadAll` to
   // preserve Phase 3 behavior; switching to `noPayloads` re-runs the
   // inspector and GLB pipeline with payloads deferred.
@@ -525,6 +530,7 @@ export function App() {
       setUsdSummary(null);
       setUsdInspection(null);
       setUsdIssues([]);
+      setUsdLights(null);
       setUsdInspectorLoading(false);
       setUsdInspectorError(null);
       return;
@@ -534,6 +540,7 @@ export function App() {
     setUsdSummary(null);
     setUsdInspection(null);
     setUsdIssues([]);
+    setUsdLights(null);
     setUsdInspectorLoading(true);
     setUsdInspectorError(null);
     // #31: reset variant selections when a new file is opened so the
@@ -598,10 +605,24 @@ export function App() {
         );
       });
 
+    // #35: fetch USD light details from the C++ backend.
+    // Errors are silently ignored — the Rust-fork backend returns an error
+    // and in that case we fall back to the Three.js LightEntry list.
+    const lightsPromise = inspectUsdLights(path)
+      .then((lights) => {
+        if (cancelled) return;
+        setUsdLights(lights);
+      })
+      .catch(() => {
+        // Degraded: C++ backend not available or backend error — leave
+        // usdLights as null so the UI falls back to Three.js LightEntry data.
+      });
+
     void Promise.allSettled([
       summarizePromise,
       inspectPromise,
       issuesPromise,
+      lightsPromise,
     ]).then(() => {
       if (cancelled) return;
       setUsdInspectorLoading(false);
@@ -1558,6 +1579,7 @@ export function App() {
               <SceneLightsCamerasCard
                 lights={assetMetadata.lights}
                 cameras={assetMetadata.cameras}
+                usdLights={usdLights ?? undefined}
                 activeCameraId={activeCameraId}
                 onSelectCamera={setActiveCameraId}
               />

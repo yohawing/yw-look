@@ -1,8 +1,14 @@
 import type { CameraEntry, LightEntry } from "./assetMetadata";
+import type { UsdLightInfo } from "../lib/usd";
 
 type SceneLightsCamerasCardProps = {
   lights: LightEntry[];
   cameras: CameraEntry[];
+  /** #35 — USD light details fetched via the C++ backend. When present,
+   * a "USD Lights" section is rendered alongside (or instead of) the
+   * Three.js-derived light list. `undefined` means the data has not
+   * been fetched yet or is unavailable (Rust-fork backend). */
+  usdLights?: UsdLightInfo[];
   /** Stable composite key (`CameraEntry.id`) of the USD camera currently
    * used as the active viewport camera. `null` means the default free-
    * orbit camera is active. The id is `cameraSelectionKey()` output —
@@ -28,13 +34,27 @@ function formatAspect(aspect: number | null): string {
   return aspect === null ? "—" : aspect.toFixed(3);
 }
 
+/** Convert a linear [0,1] float to a 2-digit hex string. */
+function linearToHex(v: number): string {
+  const clamped = Math.max(0, Math.min(1, v));
+  return Math.round(clamped * 255)
+    .toString(16)
+    .padStart(2, "0");
+}
+
+/** Format a linearized RGB triple as a CSS hex color string. */
+function rgbToHex(r: number, g: number, b: number): string {
+  return `#${linearToHex(r)}${linearToHex(g)}${linearToHex(b)}`;
+}
+
 export function SceneLightsCamerasCard({
   lights,
   cameras,
+  usdLights,
   activeCameraId = null,
   onSelectCamera,
 }: SceneLightsCamerasCardProps) {
-  if (lights.length === 0 && cameras.length === 0) {
+  if (lights.length === 0 && cameras.length === 0 && !usdLights?.length) {
     return null;
   }
 
@@ -43,11 +63,99 @@ export function SceneLightsCamerasCard({
       <p className="card-title">Scene Fixtures</p>
       <dl className="card-grid">
         <dt>Lights</dt>
-        <dd>{lights.length}</dd>
+        <dd>{usdLights ? usdLights.length : lights.length}</dd>
         <dt>Cameras</dt>
         <dd>{cameras.length}</dd>
       </dl>
-      {lights.length > 0 && (
+
+      {/* #35 — USD Lights section (C++ backend only) */}
+      {usdLights && usdLights.length > 0 && (
+        <details className="card-details" open>
+          <summary className="card-path">
+            USD Lights <span className="muted">({usdLights.length})</span>
+          </summary>
+          <ul className="card-list">
+            {usdLights.map((light) => {
+              const hex = rgbToHex(
+                light.color[0],
+                light.color[1],
+                light.color[2],
+              );
+              return (
+                <li key={light.primPath} className="issue">
+                  <strong>{light.primPath}</strong>{" "}
+                  <span className="badge badge-ok">
+                    {shortLightLabel(light.lightKind)}
+                  </span>{" "}
+                  <span className="muted">
+                    intensity {light.intensity.toFixed(2)}
+                  </span>
+                  {light.exposure !== 0 && (
+                    <>
+                      {" "}
+                      <span className="muted">
+                        exp {light.exposure > 0 ? "+" : ""}
+                        {light.exposure.toFixed(2)}
+                      </span>
+                    </>
+                  )}{" "}
+                  <span
+                    className="badge"
+                    style={{
+                      backgroundColor: hex,
+                      color: "#0e1116",
+                      fontFamily: "monospace",
+                    }}
+                    title="inputs:color"
+                  >
+                    {hex}
+                  </span>
+                  {light.colorTemperature !== null && (
+                    <>
+                      {" "}
+                      <span className="muted">
+                        {light.colorTemperature.toFixed(0)}K
+                      </span>
+                    </>
+                  )}
+                  {(light.specular !== 1 || light.diffuse !== 1) && (
+                    <>
+                      {" "}
+                      <span className="muted">
+                        spec {light.specular.toFixed(2)} diff{" "}
+                        {light.diffuse.toFixed(2)}
+                      </span>
+                    </>
+                  )}
+                  {light.domeTextureFile && (
+                    <>
+                      {" "}
+                      <span
+                        className="muted"
+                        title={light.domeTextureFile}
+                        style={{ fontFamily: "monospace", fontSize: "0.85em" }}
+                      >
+                        {light.domeTextureFile.split(/[\\/]/).pop()}
+                      </span>
+                    </>
+                  )}
+                  {light.shapingCone && (
+                    <>
+                      {" "}
+                      <span className="muted">
+                        cone {light.shapingCone.angle.toFixed(1)}°
+                      </span>
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
+
+      {/* Three.js-derived lights (shown when USD lights are unavailable) */}
+      {!usdLights && lights.length > 0 && (
         <details className="card-details" open>
           <summary className="card-path">
             Lights <span className="muted">({lights.length})</span>
@@ -82,6 +190,7 @@ export function SceneLightsCamerasCard({
           </ul>
         </details>
       )}
+
       {cameras.length > 0 && (
         <details className="card-details" open>
           <summary className="card-path">

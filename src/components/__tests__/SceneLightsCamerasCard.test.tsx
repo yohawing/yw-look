@@ -1,11 +1,13 @@
 /**
- * Tests for the USD camera switcher UI in SceneLightsCamerasCard (#34).
+ * Tests for the USD camera switcher UI in SceneLightsCamerasCard (#34)
+ * and USD light display (#35).
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { SceneLightsCamerasCard } from "../SceneLightsCamerasCard";
 import type { CameraEntry, LightEntry } from "../assetMetadata";
+import type { UsdLightInfo } from "../../lib/usd";
 
 const cameras: CameraEntry[] = [
   {
@@ -172,6 +174,185 @@ describe("SceneLightsCamerasCard – USD camera switcher (#34)", () => {
   it("returns null when there are no lights or cameras", () => {
     const { container } = render(
       <SceneLightsCamerasCard lights={[]} cameras={[]} />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* #35 — USD Lights section                                             */
+/* ------------------------------------------------------------------ */
+
+const usdLightSun: UsdLightInfo = {
+  primPath: "/World/Sun",
+  lightKind: "DistantLight",
+  color: [1.0, 0.9, 0.8],
+  intensity: 2.0,
+  exposure: 0.5,
+  colorTemperature: 6500,
+  specular: 1.0,
+  diffuse: 1.0,
+  domeTextureFile: null,
+  shapingCone: null,
+};
+
+const usdLightDome: UsdLightInfo = {
+  primPath: "/World/Dome",
+  lightKind: "DomeLight",
+  color: [1.0, 1.0, 1.0],
+  intensity: 1.0,
+  exposure: 0.0,
+  colorTemperature: null,
+  specular: 0.5,
+  diffuse: 0.8,
+  domeTextureFile: "/textures/studio.hdr",
+  shapingCone: null,
+};
+
+const usdLightSpot: UsdLightInfo = {
+  primPath: "/World/Spot",
+  lightKind: "SphereLight",
+  color: [1.0, 1.0, 1.0],
+  intensity: 1.0,
+  exposure: 0.0,
+  colorTemperature: null,
+  specular: 1.0,
+  diffuse: 1.0,
+  domeTextureFile: null,
+  shapingCone: { angle: 30.0, softness: 0.1 },
+};
+
+describe("SceneLightsCamerasCard – USD Lights section (#35)", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders a USD Lights section when usdLights is provided", () => {
+    const { getByText } = render(
+      <SceneLightsCamerasCard
+        lights={[]}
+        cameras={[]}
+        usdLights={[usdLightSun]}
+      />,
+    );
+    expect(getByText(/USD Lights/i)).toBeTruthy();
+    expect(getByText("/World/Sun")).toBeTruthy();
+  });
+
+  it("shows the lightKind badge without the 'Light' suffix", () => {
+    const { getByText } = render(
+      <SceneLightsCamerasCard
+        lights={[]}
+        cameras={[]}
+        usdLights={[usdLightSun]}
+      />,
+    );
+    // "DistantLight" → badge shows "Distant"
+    expect(getByText("Distant")).toBeTruthy();
+  });
+
+  it("shows intensity and exposure when non-zero", () => {
+    const { getByText } = render(
+      <SceneLightsCamerasCard
+        lights={[]}
+        cameras={[]}
+        usdLights={[usdLightSun]}
+      />,
+    );
+    expect(getByText(/intensity 2.00/)).toBeTruthy();
+    expect(getByText(/exp \+0\.50/)).toBeTruthy();
+  });
+
+  it("shows color temperature in Kelvin when present", () => {
+    const { getByText } = render(
+      <SceneLightsCamerasCard
+        lights={[]}
+        cameras={[]}
+        usdLights={[usdLightSun]}
+      />,
+    );
+    expect(getByText(/6500K/)).toBeTruthy();
+  });
+
+  it("shows dome texture filename for DomeLight", () => {
+    const { getByText } = render(
+      <SceneLightsCamerasCard
+        lights={[]}
+        cameras={[]}
+        usdLights={[usdLightDome]}
+      />,
+    );
+    expect(getByText("studio.hdr")).toBeTruthy();
+  });
+
+  it("shows specular/diffuse when not both 1.0", () => {
+    const { getByText } = render(
+      <SceneLightsCamerasCard
+        lights={[]}
+        cameras={[]}
+        usdLights={[usdLightDome]}
+      />,
+    );
+    expect(getByText(/spec 0\.50 diff 0\.80/)).toBeTruthy();
+  });
+
+  it("shows shaping cone angle", () => {
+    const { getByText } = render(
+      <SceneLightsCamerasCard
+        lights={[]}
+        cameras={[]}
+        usdLights={[usdLightSpot]}
+      />,
+    );
+    expect(getByText(/cone 30\.0°/)).toBeTruthy();
+  });
+
+  it("hides Three.js lights section when usdLights is provided", () => {
+    const threeLights: LightEntry[] = [
+      {
+        id: "l1",
+        name: "ThreeLight",
+        type: "PointLight",
+        intensity: 1,
+        color: "#ffffff",
+      },
+    ];
+    const { queryByText } = render(
+      <SceneLightsCamerasCard
+        lights={threeLights}
+        cameras={[]}
+        usdLights={[usdLightSun]}
+      />,
+    );
+    // Three.js light by name should NOT appear when usdLights is provided
+    expect(queryByText("ThreeLight")).toBeNull();
+    // USD light should appear
+    expect(queryByText("/World/Sun")).toBeTruthy();
+  });
+
+  it("shows Three.js lights when usdLights is undefined (fallback)", () => {
+    const threeLights: LightEntry[] = [
+      {
+        id: "l1",
+        name: "ThreeLight",
+        type: "PointLight",
+        intensity: 1,
+        color: "#ffffff",
+      },
+    ];
+    const { getByText } = render(
+      <SceneLightsCamerasCard
+        lights={threeLights}
+        cameras={[]}
+        usdLights={undefined}
+      />,
+    );
+    expect(getByText("ThreeLight")).toBeTruthy();
+  });
+
+  it("returns null when usdLights is empty and no Three.js lights or cameras", () => {
+    const { container } = render(
+      <SceneLightsCamerasCard lights={[]} cameras={[]} usdLights={[]} />,
     );
     expect(container.firstChild).toBeNull();
   });

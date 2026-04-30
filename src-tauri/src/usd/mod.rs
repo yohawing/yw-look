@@ -33,7 +33,7 @@ pub use backend::{UsdBackend, UsdError};
 pub use openusd_backend::OpenusdBackend;
 pub use types::{
     AssetIssue, AttributeTimeSamples, PrimInspection, StageInspection, StageLoadPolicy,
-    StageSummary,
+    StageSummary, UsdLightInfo,
 };
 
 #[cfg(feature = "backend-openusd-cpp")]
