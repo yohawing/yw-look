@@ -213,6 +213,44 @@ USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
                                           UsdcArcCallback cb,
                                           void *user);
 
+/* -------------------- layer stack (#29) -------------------- */
+
+/* Detailed information about one layer in the stage's layer stack.
+ * All string fields are valid only for the duration of the callback;
+ * callers must copy before returning. `comment` may be NULL when the
+ * layer has no authored comment. */
+typedef struct {
+    /* Layer identifier (file path or anonymous tag). */
+    const char *identifier;
+    /* Nesting depth: root layer = 0, its direct sublayers = 1, etc. */
+    int         depth;
+    /* 1 if the stage has muted this layer, 0 otherwise. */
+    int         muted;
+    /* SdfLayerOffset applied by the sublayer arc that introduced this
+     * layer. Zero/identity when the layer is the root. */
+    double      offset_time;
+    double      offset_scale;
+    /* Authored `comment` metadatum, or NULL when not authored. */
+    const char *comment;
+} UsdcLayerInfo;
+
+typedef void (*UsdcLayerInfoCallback)(const UsdcLayerInfo *info, void *user);
+
+/* Traverses the stage's layer stack in DFS order (root layer first,
+ * then sublayers depth-first) and calls `cb` once per layer.
+ * Each emission's `depth` field reflects how many sublayer hops
+ * separate this layer from the root. `offset_time`/`offset_scale`
+ * are the SdfLayerOffset authored on the sublayer arc that brought
+ * this layer into the stack (identity/zero for the root and for any
+ * layer introduced via reference/payload rather than explicit subLayers).
+ * Composed layers introduced only via reference/payload arcs are
+ * omitted — the traversal covers the subLayers graph only, matching
+ * the USD Layer Stack definition used in the usdview Layer Stack panel.
+ */
+USDC_API void usdc_stage_layer_stack(UsdcStage *stage,
+                                     UsdcLayerInfoCallback cb,
+                                     void *user);
+
 /* -------------------- per-prim queries -------------------- */
 
 /* Returns 1 if the prim at `prim_path` is typed as UsdGeomMesh.

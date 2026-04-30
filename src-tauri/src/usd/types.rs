@@ -149,6 +149,12 @@ pub struct StageInspection {
     pub root_layer_is_binary: bool,
     pub root_prims: Vec<String>,
     pub composed_layers: Vec<String>,
+    /// #29 — detailed per-layer information for the subLayers hierarchy.
+    /// Populated by the C++ backend; the Rust-fork backend fills this with
+    /// degraded entries (muted=false, offset=0/1) derived from
+    /// `composed_layers`. Never empty when `composed_layers` is non-empty.
+    #[serde(default)]
+    pub layers: Vec<LayerInfo>,
     pub references: Vec<CompositionArc>,
     pub payloads: Vec<CompositionArc>,
     pub missing_assets: Vec<String>,
@@ -319,6 +325,30 @@ pub enum CompositionArcState {
     Loaded,
     Missing,
     Unloaded,
+}
+
+/// One layer in the stage's subLayers hierarchy (#29).
+///
+/// Reflects the subLayers-only graph: reference/payload-introduced layers
+/// are not included. `depth` is 0 for the root layer, 1 for its direct
+/// sublayers, and so on.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayerInfo {
+    /// Layer identifier (absolute file path or anonymous tag).
+    pub identifier: String,
+    /// Nesting depth: root layer = 0, first sublayer level = 1, etc.
+    pub depth: usize,
+    /// `true` when the stage has muted this layer.
+    pub muted: bool,
+    /// `offset` from the `SdfLayerOffset` on the sublayer arc.
+    /// Zero for the root layer and for unsupported backends.
+    pub time_offset: f64,
+    /// `scale` from the `SdfLayerOffset` on the sublayer arc.
+    /// 1.0 for the root layer and for unsupported backends.
+    pub time_scale: f64,
+    /// Authored `comment` on this layer, or `None` when absent.
+    pub comment: Option<String>,
 }
 
 /// One time sample entry returned by `inspect_attribute_time_samples`

@@ -19,8 +19,8 @@ use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
-    CompositionArcState, ExtractGeometryOptions, PrimInspection, PrimTypeCount, StageInspection,
-    StageLoadPolicy, StageSummary,
+    CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection, PrimTypeCount,
+    StageInspection, StageLoadPolicy, StageSummary,
 };
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
@@ -254,6 +254,35 @@ impl UsdBackend for OpenusdBackend {
             .filter(|s| !s.is_empty());
         let root_layer_is_binary = stage.root_layer_is_binary();
 
+        // #29 — degraded layer info: the Rust fork doesn't expose
+        // per-layer muted / offset APIs, so we synthesise LayerInfo
+        // entries from composed_layers with identity offset and
+        // muted=false. Depth is always 1 for non-root layers since we
+        // can't reconstruct the subLayers nesting without the C++ shim.
+        let layers: Vec<LayerInfo> = {
+            let mut v = Vec::with_capacity(composed_layers.len() + 1);
+            // Root layer (depth 0) — use the stage path as identifier.
+            v.push(LayerInfo {
+                identifier: path.display().to_string(),
+                depth: 0,
+                muted: false,
+                time_offset: 0.0,
+                time_scale: 1.0,
+                comment: None,
+            });
+            for id in &composed_layers {
+                v.push(LayerInfo {
+                    identifier: id.clone(),
+                    depth: 1,
+                    muted: false,
+                    time_offset: 0.0,
+                    time_scale: 1.0,
+                    comment: None,
+                });
+            }
+            v
+        };
+
         Ok(StageInspection {
             path: path.display().to_string(),
             default_prim,
@@ -267,6 +296,7 @@ impl UsdBackend for OpenusdBackend {
             root_layer_is_binary,
             root_prims,
             composed_layers,
+            layers,
             references: references.into_inner(),
             payloads: payloads.into_inner(),
             missing_assets,

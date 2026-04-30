@@ -1,5 +1,6 @@
 import type {
   AssetIssue,
+  LayerInfo,
   StageInspection,
   StageLoadPolicy,
   StageSummary,
@@ -12,6 +13,65 @@ import type {
  * the metadata table reads consistently. */
 function formatAuthoredNumber(value: number | null): string {
   return value === null ? "(default)" : String(value);
+}
+
+/** Render one row in the layer stack list. Handles depth indentation,
+ * muted badge, offset display, and an expandable comment block. */
+function LayerRow({ layer }: { layer: LayerInfo }) {
+  const hasOffset = layer.timeOffset !== 0 || layer.timeScale !== 1;
+  return (
+    <li
+      className="issue"
+      title={layer.identifier}
+      style={{ paddingLeft: `${layer.depth * 12}px` }}
+    >
+      {layer.depth === 0 ? (
+        <strong>root</strong>
+      ) : (
+        <span className="muted">{"↳ "}</span>
+      )}
+      <span className="muted">{shortLayerLabel(layer.identifier)}</span>
+      {layer.muted && (
+        <span
+          className="badge badge-error"
+          style={{ marginLeft: "4px" }}
+          title="This layer is muted and does not contribute to the composed stage"
+        >
+          muted
+        </span>
+      )}
+      {hasOffset && (
+        <span
+          className="muted"
+          style={{ marginLeft: "4px", fontSize: "0.85em" }}
+        >
+          {layer.timeOffset !== 0 && `offset:${layer.timeOffset}`}
+          {layer.timeOffset !== 0 && layer.timeScale !== 1 && " "}
+          {layer.timeScale !== 1 && `scale:${layer.timeScale}`}
+        </span>
+      )}
+      {layer.comment && (
+        <details style={{ display: "inline", marginLeft: "4px" }}>
+          <summary
+            style={{ display: "inline", cursor: "pointer", fontSize: "0.85em" }}
+            className="muted"
+          >
+            comment
+          </summary>
+          <p
+            className="muted"
+            style={{
+              whiteSpace: "pre-wrap",
+              margin: "2px 0 0 0",
+              fontSize: "0.85em",
+            }}
+          >
+            {layer.comment}
+          </p>
+        </details>
+      )}
+    </li>
+  );
 }
 
 /** Strip a `file://` prefix and trim USDZ archive suffixes for display.
@@ -255,7 +315,26 @@ export function UsdInspectorCard({
                   </p>
                 )}
               </details>
-              {inspection.composedLayers.length > 0 && (
+              {/* #29 — Layer Stack: prefer rich `layers` data when available,
+                  fall back to flat composedLayers for older/degraded backends. */}
+              {(inspection.layers && inspection.layers.length > 0
+                ? inspection.layers
+                : null) !== null && inspection.layers!.length > 0 ? (
+                <details className="card-details">
+                  <summary className="card-path">
+                    Layer Stack{" "}
+                    <span className="muted">({inspection.layers!.length})</span>
+                  </summary>
+                  <ul className="card-list">
+                    {inspection.layers!.map((layer, i) => (
+                      <LayerRow
+                        key={`${layer.identifier}:${i}`}
+                        layer={layer}
+                      />
+                    ))}
+                  </ul>
+                </details>
+              ) : inspection.composedLayers.length > 0 ? (
                 <details className="card-details">
                   <summary className="card-path">
                     Layer Stack{" "}
@@ -279,7 +358,7 @@ export function UsdInspectorCard({
                     ))}
                   </ul>
                 </details>
-              )}
+              ) : null}
               {inspection.variantSets.length > 0 && (
                 <details className="card-details">
                   <summary className="card-path">

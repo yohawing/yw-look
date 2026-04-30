@@ -18,6 +18,7 @@
 
 #include "usd_c_shim.h"
 
+#include <algorithm>
 #include <cmath>
 #include <exception>
 #include <mutex>
@@ -472,6 +473,104 @@ extern "C" USDC_API void usdc_stage_layer_identifiers(UsdcStage *stage,
             if (layer == session) continue;
             cb(layer->GetIdentifier().c_str(), user);
         }
+    });
+}
+
+/* -------------------- layer stack (#29) -------------------- */
+
+namespace {
+
+/* Recursive DFS helper for usdc_stage_layer_stack. Walks the subLayers
+ * graph of `layer`, emitting each entry via `cb`. `depth` is the
+ * current nesting level (root = 0). `visited` prevents infinite loops
+ * in the rare case of cyclic sublayer references. The stage handle is
+ * needed to query the muted-layer set. */
+void emit_layer_info_recursive(UsdcStage *stage,
+                                const SdfLayerHandle &layer,
+                                int depth,
+                                const SdfLayerOffsetVector &offsets_from_parent,
+                                size_t sublayer_index,
+                                std::set<std::string> &visited,
+                                UsdcLayerInfoCallback cb,
+                                void *user) {
+    if (!layer) return;
+    const std::string &id = layer->GetIdentifier();
+    if (!visited.insert(id).second) return; /* cycle guard */
+
+    UsdcLayerInfo info{};
+    info.identifier = id.c_str();
+    info.depth      = depth;
+
+    /* Muted check: UsdStage maintains a muted-layers list. */
+    const std::vector<std::string> &muted = stage->stage->GetMutedLayers();
+    info.muted = (std::find(muted.begin(), muted.end(), id) != muted.end()) ? 1 : 0;
+
+    /* Offset from the parent's subLayerOffsets vector, if provided. */
+    if (!offsets_from_parent.empty() &&
+        sublayer_index < offsets_from_parent.size()) {
+        const SdfLayerOffset &off = offsets_from_parent[sublayer_index];
+        info.offset_time  = off.GetOffset();
+        info.offset_scale = off.GetScale();
+    } else {
+        info.offset_time  = 0.0;
+        info.offset_scale = 1.0;
+    }
+
+    /* Comment on this layer (not the stage comment — this is the
+     * layer-level SdfLayer::GetComment()). */
+    const std::string comment_str = layer->GetComment();
+    info.comment = comment_str.empty() ? nullptr : comment_str.c_str();
+
+    cb(&info, user);
+
+    /* Recurse into sublayers. GetSubLayerPaths returns identifiers in
+     * the order they appear in the layer's `subLayers` list (highest
+     * strength first). GetSubLayerOffsets is parallel to that list. */
+    swallow([&] {
+        const SdfSubLayerProxy sub_paths   = layer->GetSubLayerPaths();
+        const SdfLayerOffsetVector sub_offs = layer->GetSubLayerOffsets();
+
+        for (size_t i = 0; i < sub_paths.size(); ++i) {
+            swallow([&] {
+                /* Resolve the sublayer path relative to the parent layer
+                 * so that relative `subLayers` entries (the common case —
+                 * e.g. `subLayers = ["./materials.usda"]`) open correctly.
+                 * FindOrOpenRelativeToLayer calls the asset resolver with
+                 * the anchor layer's identifier as context, matching what
+                 * UsdStage itself does when composing the layer stack.
+                 * Fall back to the absolute FindOrOpen path if the relative
+                 * resolve returns null (e.g. anonymous layer identifiers). */
+                SdfLayerRefPtr sub =
+                    SdfLayer::FindOrOpenRelativeToLayer(layer, sub_paths[i]);
+                if (!sub) {
+                    sub = SdfLayer::FindOrOpen(sub_paths[i]);
+                }
+                if (!sub) return;
+                emit_layer_info_recursive(stage, sub,
+                                          depth + 1,
+                                          sub_offs, i,
+                                          visited, cb, user);
+            });
+        }
+    });
+}
+
+} /* namespace */
+
+extern "C" USDC_API void usdc_stage_layer_stack(UsdcStage *stage,
+                                                UsdcLayerInfoCallback cb,
+                                                void *user) {
+    if (!stage || !cb) return;
+    swallow([&] {
+        SdfLayerHandle root = stage->stage->GetRootLayer();
+        if (!root) return;
+        std::set<std::string> visited;
+        /* Root layer has no parent offset. */
+        SdfLayerOffsetVector empty_offsets;
+        emit_layer_info_recursive(stage, root,
+                                  /*depth=*/0,
+                                  empty_offsets, /*sublayer_index=*/0,
+                                  visited, cb, user);
     });
 }
 

@@ -79,6 +79,17 @@ pub struct Arc {
     pub is_loaded: bool,
 }
 
+/// One layer in the stage's subLayers hierarchy (#29).
+#[derive(Debug, Clone)]
+pub struct LayerInfo {
+    pub identifier: String,
+    pub depth: usize,
+    pub muted: bool,
+    pub time_offset: f64,
+    pub time_scale: f64,
+    pub comment: Option<String>,
+}
+
 /// Primvar interpolation token returned alongside mesh attribute reads.
 /// Mirrors the shim's `UsdcInterpolation`; `Unknown` covers both
 /// "shim returned USDC_INTERP_UNKNOWN" and "attribute not authored".
@@ -252,6 +263,22 @@ impl CStage {
                 self.raw,
                 Some(string_trampoline),
                 &mut out as *mut Vec<String> as *mut c_void,
+            );
+        }
+        out
+    }
+
+    /// Returns the subLayers hierarchy as a depth-first list of
+    /// [`LayerInfo`] entries. The root layer is emitted first (depth=0),
+    /// followed by its sublayers recursively. Only the subLayers graph
+    /// is walked — reference/payload-introduced layers are not included.
+    pub fn layer_stack(&self) -> Vec<LayerInfo> {
+        let mut out = Vec::<LayerInfo>::new();
+        unsafe {
+            usdc_stage_layer_stack(
+                self.raw,
+                Some(layer_info_trampoline),
+                &mut out as *mut Vec<LayerInfo> as *mut c_void,
             );
         }
         out
@@ -1296,4 +1323,43 @@ unsafe extern "C" fn i32_buffer_trampoline(
     let out = unsafe { &mut *(user as *mut Vec<i32>) };
     let slice = unsafe { std::slice::from_raw_parts(data as *const i32, count) };
     out.extend_from_slice(slice);
+}
+
+// Trampoline for UsdcLayerInfoCallback (#29): copies each layer info
+// struct into a Vec<LayerInfo>.
+//
+// Safety:
+//   - `info` must point to a valid UsdcLayerInfo for the duration of
+//     this call.
+//   - All string fields inside `info` are valid only for this call;
+//     we copy them immediately.
+//   - `user` must be a `*mut Vec<LayerInfo>` as set up by
+//     `CStage::layer_stack`.
+unsafe extern "C" fn layer_info_trampoline(
+    info: *const UsdcLayerInfo,
+    user: *mut c_void,
+) {
+    if info.is_null() || user.is_null() {
+        return;
+    }
+    let out = unsafe { &mut *(user as *mut Vec<LayerInfo>) };
+    let r = unsafe { &*info };
+
+    let identifier = if r.identifier.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(r.identifier) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    let comment = ptr_to_opt_string(r.comment);
+
+    out.push(LayerInfo {
+        identifier,
+        depth: r.depth as usize,
+        muted: r.muted != 0,
+        time_offset: r.offset_time,
+        time_scale: r.offset_scale,
+        comment,
+    });
 }

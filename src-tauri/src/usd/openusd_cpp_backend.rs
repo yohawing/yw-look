@@ -35,9 +35,9 @@ use super::openusd_backend::{
 };
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
-    CompositionArc, CompositionArcState, ExtractGeometryOptions, MetadataEntry, PrimInspection,
-    PrimTypeCount, RelationshipInfo, StageInspection, StageLoadPolicy, StageSummary,
-    TimeSampleEntry, VariantSetInfo,
+    CompositionArc, CompositionArcState, ExtractGeometryOptions, LayerInfo, MetadataEntry,
+    PrimInspection, PrimTypeCount, RelationshipInfo, StageInspection, StageLoadPolicy,
+    StageSummary, TimeSampleEntry, VariantSetInfo,
 };
 use super::cpp_sys::UpAxis;
 
@@ -204,6 +204,20 @@ impl UsdBackend for OpenusdCppBackend {
         let comment = stage.comment();
         let root_layer_is_binary = stage.root_layer_is_binary().unwrap_or(false);
 
+        // #29 — detailed layer stack (subLayers hierarchy only).
+        let raw_stack = stage.layer_stack();
+        let layers: Vec<LayerInfo> = raw_stack
+            .into_iter()
+            .map(|l| LayerInfo {
+                identifier: l.identifier,
+                depth: l.depth,
+                muted: l.muted,
+                time_offset: l.time_offset,
+                time_scale: l.time_scale,
+                comment: l.comment,
+            })
+            .collect();
+
         Ok(StageInspection {
             path: path.display().to_string(),
             default_prim,
@@ -217,6 +231,7 @@ impl UsdBackend for OpenusdCppBackend {
             root_layer_is_binary,
             root_prims,
             composed_layers,
+            layers,
             references,
             payloads,
             missing_assets,

@@ -73,6 +73,26 @@ export type ExtractGeometryOptions = {
   purposeModes?: PurposeModes;
 };
 
+/**
+ * #29 — detailed information about one layer in the subLayers hierarchy.
+ * The C++ backend populates all fields; the Rust-fork backend provides
+ * degraded entries (muted=false, timeOffset=0, timeScale=1, comment=null).
+ */
+export type LayerInfo = {
+  /** Layer identifier (absolute file path or anonymous tag). */
+  identifier: string;
+  /** Nesting depth: root layer = 0, first sublayer level = 1, etc. */
+  depth: number;
+  /** `true` when the stage has muted this layer. */
+  muted: boolean;
+  /** `offset` from the SdfLayerOffset on the sublayer arc. 0 for root. */
+  timeOffset: number;
+  /** `scale` from the SdfLayerOffset on the sublayer arc. 1 for root. */
+  timeScale: number;
+  /** Authored `comment` on this layer, or `null`. */
+  comment: string | null;
+};
+
 export type StageInspection = {
   path: string;
   defaultPrim: string | null;
@@ -96,6 +116,12 @@ export type StageInspection = {
   rootLayerIsBinary: boolean;
   rootPrims: string[];
   composedLayers: string[];
+  /**
+   * #29 — subLayers hierarchy with per-layer muted/offset/comment info.
+   * Falls back to an empty array for backends that don't populate it
+   * (should not happen in practice — both backends populate this now).
+   */
+  layers?: LayerInfo[];
   references: CompositionArc[];
   payloads: CompositionArc[];
   missingAssets: string[];
