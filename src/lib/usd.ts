@@ -193,6 +193,38 @@ export type PrimInspection = {
   metadata: MetadataEntry[];
 };
 
+/** #37 — one time sample on an attribute. */
+export type TimeSampleEntry = {
+  /** USD time code (double precision). */
+  time: number;
+  /**
+   * Human-readable value at this time code. Scalar types are
+   * stringified; arrays are reported as "[N elements]".
+   */
+  valueSummary: string;
+};
+
+/**
+ * #37 — result of `inspectAttributeTimeSamples`. Up to `maxSamples`
+ * samples are returned together with optional numeric statistics
+ * (available only for scalar-float attributes). `totalCount` is the
+ * actual authored count before any truncation.
+ */
+export type AttributeTimeSamples = {
+  primPath: string;
+  attributeName: string;
+  /** Up to `maxSamples` samples in ascending time-code order. */
+  samples: TimeSampleEntry[];
+  /** Full authored sample count before truncation. */
+  totalCount: number;
+  /** Minimum scalar value across the returned samples, or `null`. */
+  numericMin: number | null;
+  /** Maximum scalar value across the returned samples, or `null`. */
+  numericMax: number | null;
+  /** Arithmetic mean of the returned samples, or `null`. */
+  numericMean: number | null;
+};
+
 /**
  * #28 — inspect the attributes, relationships, and metadata for the
  * prim at `primPath` inside the USD file at `path`.
@@ -205,6 +237,27 @@ export async function inspectPrim(
   primPath: string,
 ): Promise<PrimInspection> {
   return invoke<PrimInspection>("inspect_prim", { path, primPath });
+}
+
+/**
+ * #37 — fetch up to `maxSamples` time samples for the named attribute
+ * on the prim at `primPath` inside the USD file at `path`.
+ *
+ * `maxSamples` defaults to 100 on the Rust side when omitted.
+ * Only available on the C++ backend; the Rust fork returns an error.
+ */
+export async function inspectAttributeTimeSamples(
+  path: string,
+  primPath: string,
+  attrName: string,
+  maxSamples?: number,
+): Promise<AttributeTimeSamples> {
+  return invoke<AttributeTimeSamples>("inspect_attribute_time_samples", {
+    path,
+    primPath,
+    attrName,
+    maxSamples,
+  });
 }
 
 export async function inspectStage(path: string, policy?: StageLoadPolicy) {

@@ -564,6 +564,28 @@ USDC_API int usdc_prim_attribute_time_sample_count(UsdcStage *stage,
                                                    const char *prim_path,
                                                    const char *attr_name);
 
+/* Callback invoked once per time sample by
+ * `usdc_prim_attribute_time_samples`. Both `time` and `value_summary`
+ * are valid only for the duration of the callback; `user` is the opaque
+ * pointer the caller passed in. */
+typedef void (*UsdcTimeSampleCallback)(double time,
+                                      const char *value_summary,
+                                      void *user);
+
+/* Enumerates up to `max_samples` time samples on the attribute at
+ * `attr_name` on the prim at `prim_path`, calling `cb` once per sample
+ * in the order pxr returns them (ascending time code). If the attribute
+ * has fewer samples than `max_samples` all are emitted; if it has more,
+ * only the first `max_samples` are emitted and the remaining are
+ * silently dropped. Emits nothing when the attribute does not exist or
+ * has no samples. */
+USDC_API void usdc_prim_attribute_time_samples(UsdcStage *stage,
+                                               const char *prim_path,
+                                               const char *attr_name,
+                                               size_t max_samples,
+                                               UsdcTimeSampleCallback cb,
+                                               void *user);
+
 /* Enumerates all authored relationships on the prim at `prim_path`.
  * Calls `cb(name, user)` once per relationship name.
  * Emits nothing when the prim does not exist. */

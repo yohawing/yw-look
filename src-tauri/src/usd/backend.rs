@@ -9,8 +9,8 @@
 use std::path::Path;
 
 use super::types::{
-    AssetIssue, ExtractGeometryOptions, PrimInspection, StageInspection, StageLoadPolicy,
-    StageSummary,
+    AssetIssue, AttributeTimeSamples, ExtractGeometryOptions, PrimInspection, StageInspection,
+    StageLoadPolicy, StageSummary,
 };
 
 /// Errors a USD backend can produce. Kept intentionally narrow so the
@@ -115,6 +115,21 @@ pub trait UsdBackend: Send + Sync {
         path: &Path,
         prim_path: &str,
     ) -> Result<PrimInspection, UsdError>;
+
+    /// #37: enumerates up to `max_samples` time samples on the named
+    /// attribute and computes optional numeric statistics. `path` is the
+    /// USD file; `prim_path` and `attr_name` identify the attribute.
+    /// `max_samples` caps the number of returned samples (statistics are
+    /// computed only over the returned subset). Backends that do not yet
+    /// implement this should return
+    /// `Err(UsdError::Parse("not supported on this backend".into()))`.
+    fn inspect_attribute_time_samples(
+        &self,
+        path: &Path,
+        prim_path: &str,
+        attr_name: &str,
+        max_samples: usize,
+    ) -> Result<AttributeTimeSamples, UsdError>;
 
     /// Round 1.5 (#32 / #31 plumbing): options-aware variant of
     /// [`Self::extract_geometry_glb`]. Default delegates to the

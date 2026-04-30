@@ -18,8 +18,8 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 
 use crate::usd::{
-    AssetIssue, DefaultBackend, PrimInspection, StageInspection, StageLoadPolicy, StageSummary,
-    UsdBackend, UsdError,
+    AssetIssue, AttributeTimeSamples, DefaultBackend, PrimInspection, StageInspection,
+    StageLoadPolicy, StageSummary, UsdBackend, UsdError,
 };
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -1148,6 +1148,28 @@ async fn inspect_stage(
     run_blocking_usd(move || handle.inspect_stage(&normalized, policy)).await
 }
 
+/// #37 — time-samples inspector for a single attribute.
+/// Returns up to `max_samples` time samples and optional numeric
+/// statistics (min / max / mean) for scalar-numeric attributes.
+/// Only implemented on the C++ backend; the Rust fork returns an error
+/// that the frontend should handle gracefully.
+#[tauri::command]
+async fn inspect_attribute_time_samples(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    prim_path: String,
+    attr_name: String,
+    max_samples: Option<usize>,
+) -> Result<AttributeTimeSamples, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let cap = max_samples.unwrap_or(100);
+    let handle = backend.handle();
+    run_blocking_usd(move || {
+        handle.inspect_attribute_time_samples(&normalized, &prim_path, &attr_name, cap)
+    })
+    .await
+}
+
 /// #28 — per-prim attribute / relationship / metadata inspector.
 /// Returns `PrimInspection` for the prim at `prim_path` in the USD file
 /// at `path`. Currently only implemented on the C++ backend; the Rust
@@ -1364,7 +1386,8 @@ pub fn run() {
             collect_asset_issues,
             requires_glb_preview,
             extract_geometry,
-            inspect_prim
+            inspect_prim,
+            inspect_attribute_time_samples
         ])
         .build(tauri::generate_context!())
         .expect("error while building yw-look");

@@ -18,9 +18,9 @@ use openusd::{GeomSubsetData, Stage, StageLoadPolicy as OpenusdLoadPolicy};
 use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
 use super::types::{
-    AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
-    ExtractGeometryOptions, PrimInspection, PrimTypeCount, StageInspection, StageLoadPolicy,
-    StageSummary,
+    AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
+    CompositionArcState, ExtractGeometryOptions, PrimInspection, PrimTypeCount, StageInspection,
+    StageLoadPolicy, StageSummary,
 };
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
@@ -486,6 +486,18 @@ impl UsdBackend for OpenusdBackend {
     ) -> Result<PrimInspection, UsdError> {
         Err(UsdError::Parse(
             "inspect_prim is not supported on the openusd Rust backend".into(),
+        ))
+    }
+
+    fn inspect_attribute_time_samples(
+        &self,
+        _path: &StdPath,
+        _prim_path: &str,
+        _attr_name: &str,
+        _max_samples: usize,
+    ) -> Result<AttributeTimeSamples, UsdError> {
+        Err(UsdError::Parse(
+            "inspect_attribute_time_samples is not supported on the openusd Rust backend".into(),
         ))
     }
 

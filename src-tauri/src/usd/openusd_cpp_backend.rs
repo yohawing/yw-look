@@ -34,9 +34,10 @@ use super::openusd_backend::{
     remap_mesh_skin_indices, srgb_to_linear, usd_wrap_to_gltf, z_up_to_y_up_mat4, MeshOrientation,
 };
 use super::types::{
-    AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, CompositionArc,
-    CompositionArcState, ExtractGeometryOptions, MetadataEntry, PrimInspection, PrimTypeCount,
-    RelationshipInfo, StageInspection, StageLoadPolicy, StageSummary, VariantSetInfo,
+    AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
+    CompositionArc, CompositionArcState, ExtractGeometryOptions, MetadataEntry, PrimInspection,
+    PrimTypeCount, RelationshipInfo, StageInspection, StageLoadPolicy, StageSummary,
+    TimeSampleEntry, VariantSetInfo,
 };
 use super::cpp_sys::UpAxis;
 
@@ -536,6 +537,58 @@ impl UsdBackend for OpenusdCppBackend {
             attributes,
             relationships,
             metadata,
+        })
+    }
+
+    fn inspect_attribute_time_samples(
+        &self,
+        path: &StdPath,
+        prim_path: &str,
+        attr_name: &str,
+        max_samples: usize,
+    ) -> Result<AttributeTimeSamples, UsdError> {
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        let total_count = stage.prim_attribute_time_sample_count(prim_path, attr_name);
+        let cap = if max_samples == 0 { total_count } else { max_samples };
+        let raw_pairs = stage.prim_attribute_time_samples(prim_path, attr_name, cap);
+
+        let samples: Vec<TimeSampleEntry> = raw_pairs
+            .iter()
+            .map(|(t, v)| TimeSampleEntry {
+                time: *t,
+                value_summary: v.clone(),
+            })
+            .collect();
+
+        // Attempt to derive numeric statistics by parsing value_summary
+        // as f64. Works for scalar float/double/int attributes; array
+        // attributes produce "[N elements]" which won't parse, so we
+        // get None for those types.
+        let numeric_values: Vec<f64> = samples
+            .iter()
+            .filter_map(|s| s.value_summary.parse::<f64>().ok())
+            .collect();
+
+        let (numeric_min, numeric_max, numeric_mean) = if numeric_values.is_empty() {
+            (None, None, None)
+        } else {
+            let min = numeric_values.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = numeric_values
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
+            let mean = numeric_values.iter().sum::<f64>() / numeric_values.len() as f64;
+            (Some(min), Some(max), Some(mean))
+        };
+
+        Ok(AttributeTimeSamples {
+            prim_path: prim_path.to_string(),
+            attribute_name: attr_name.to_string(),
+            samples,
+            total_count,
+            numeric_min,
+            numeric_max,
+            numeric_mean,
         })
     }
 

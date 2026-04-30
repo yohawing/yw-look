@@ -320,3 +320,37 @@ pub enum CompositionArcState {
     Missing,
     Unloaded,
 }
+
+/// One time sample entry returned by `inspect_attribute_time_samples`
+/// (#37).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeSampleEntry {
+    /// USD time code (double precision).
+    pub time: f64,
+    /// Human-readable string representation of the value at this time
+    /// code (scalars stringified, arrays reported as "[N elements]").
+    pub value_summary: String,
+}
+
+/// Result of `inspect_attribute_time_samples` (#37). Contains up to
+/// `max_samples` samples plus optional numeric statistics for
+/// scalar-numeric attributes. `total_count` is the full authored count
+/// before any truncation so the UI can display "Showing first N of M".
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttributeTimeSamples {
+    pub prim_path: String,
+    pub attribute_name: String,
+    /// Up to `max_samples` samples in ascending time-code order.
+    pub samples: Vec<TimeSampleEntry>,
+    /// Actual authored sample count (before truncation).
+    pub total_count: usize,
+    /// Minimum scalar value across all returned samples. `None` when
+    /// the value type is not a parseable scalar float.
+    pub numeric_min: Option<f64>,
+    /// Maximum scalar value across all returned samples.
+    pub numeric_max: Option<f64>,
+    /// Arithmetic mean of the returned samples' scalar values.
+    pub numeric_mean: Option<f64>,
+}

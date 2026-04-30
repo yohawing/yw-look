@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import {
+  inspectAttributeTimeSamples,
   inspectPrim,
   type AttributeInfo,
+  type AttributeTimeSamples,
   type MetadataEntry,
   type PrimInspection,
   type RelationshipInfo,
+  type TimeSampleEntry,
 } from "../lib/usd";
 
 type UsdPrimPropertyPanelProps = {
@@ -15,7 +18,206 @@ type UsdPrimPropertyPanelProps = {
   selectedPrimPath: string | null;
 };
 
-function AttributeRow({ attr }: { attr: AttributeInfo }) {
+const MAX_SAMPLES = 100;
+
+/** Inline SVG line chart for numeric time samples. viewBox is 200×50. */
+function TimeSampleLineChart({ samples }: { samples: TimeSampleEntry[] }) {
+  const numeric = samples
+    .map((s) => ({ time: s.time, value: parseFloat(s.valueSummary) }))
+    .filter((p) => isFinite(p.value));
+
+  if (numeric.length < 2) return null;
+
+  const times = numeric.map((p) => p.time);
+  const values = numeric.map((p) => p.value);
+  const tMin = Math.min(...times);
+  const tMax = Math.max(...times);
+  const vMin = Math.min(...values);
+  const vMax = Math.max(...values);
+  const tRange = tMax - tMin || 1;
+  const vRange = vMax - vMin || 1;
+
+  const W = 200;
+  const H = 50;
+  const PAD_X = 2;
+  const PAD_Y = 4;
+
+  const toX = (t: number) => PAD_X + ((t - tMin) / tRange) * (W - PAD_X * 2);
+  const toY = (v: number) =>
+    H - PAD_Y - ((v - vMin) / vRange) * (H - PAD_Y * 2);
+
+  const pointsStr = numeric
+    .map((p) => `${toX(p.time).toFixed(1)},${toY(p.value).toFixed(1)}`)
+    .join(" ");
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width={W}
+      height={H}
+      className="ts-chart"
+      aria-hidden="true"
+    >
+      {/* axis lines */}
+      <line
+        x1={PAD_X}
+        y1={H - PAD_Y}
+        x2={W - PAD_X}
+        y2={H - PAD_Y}
+        className="ts-chart-axis"
+      />
+      <line
+        x1={PAD_X}
+        y1={PAD_Y}
+        x2={PAD_X}
+        y2={H - PAD_Y}
+        className="ts-chart-axis"
+      />
+      {/* data polyline */}
+      <polyline points={pointsStr} className="ts-chart-line" fill="none" />
+      {/* data dots */}
+      {numeric.map((p, i) => (
+        <circle
+          key={i}
+          cx={toX(p.time).toFixed(1)}
+          cy={toY(p.value).toFixed(1)}
+          r="1.5"
+          className="ts-chart-dot"
+        />
+      ))}
+    </svg>
+  );
+}
+
+/** Expandable panel showing time samples for a single attribute. */
+function TimeSamplesPanel({
+  path,
+  primPath,
+  attrName,
+  onClose,
+}: {
+  path: string;
+  primPath: string;
+  attrName: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<AttributeTimeSamples | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => {
+        if (cancelled) return;
+        setLoading(true);
+        setError(null);
+        return inspectAttributeTimeSamples(
+          path,
+          primPath,
+          attrName,
+          MAX_SAMPLES,
+        );
+      })
+      .then((result) => {
+        if (!cancelled && result !== undefined) {
+          setData(result);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, primPath, attrName]);
+
+  return (
+    <div className="ts-panel">
+      <div className="ts-panel-header">
+        <span className="ts-panel-title">
+          Time Samples: <code>{attrName}</code>
+        </span>
+        <button
+          type="button"
+          className="ts-panel-close"
+          onClick={onClose}
+          aria-label="Close time samples"
+        >
+          ×
+        </button>
+      </div>
+
+      {loading && <p className="muted ts-panel-msg">Loading…</p>}
+      {error && (
+        <p className="muted ts-panel-msg" title={error}>
+          Time sample data not available.
+        </p>
+      )}
+
+      {data && !loading && (
+        <>
+          {/* ---- mini line chart (numeric types only) ---- */}
+          {data.numericMin !== null && data.samples.length >= 2 && (
+            <div className="ts-chart-wrap">
+              <TimeSampleLineChart samples={data.samples} />
+            </div>
+          )}
+
+          {/* ---- numeric statistics ---- */}
+          {data.numericMin !== null && (
+            <p className="ts-stats muted">
+              min&nbsp;{data.numericMin.toPrecision(5)}&ensp; max&nbsp;
+              {data.numericMax!.toPrecision(5)}&ensp; mean&nbsp;
+              {data.numericMean!.toPrecision(5)}
+            </p>
+          )}
+
+          {/* ---- truncation notice ---- */}
+          {data.totalCount > data.samples.length && (
+            <p className="ts-trunc-notice muted">
+              Showing first {data.samples.length} of {data.totalCount} samples
+            </p>
+          )}
+
+          {/* ---- sample table ---- */}
+          <div className="ts-table-wrap">
+            <table className="ts-table">
+              <thead>
+                <tr>
+                  <th className="ts-col-time">Time</th>
+                  <th className="ts-col-value">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.samples.map((s, i) => (
+                  <tr key={i} className="ts-table-row">
+                    <td className="ts-col-time">{s.time}</td>
+                    <td className="ts-col-value">
+                      {s.valueSummary || <span className="muted">(none)</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AttributeRow({
+  attr,
+  onViewSamples,
+}: {
+  attr: AttributeInfo;
+  onViewSamples: (attrName: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const isLong = attr.valueSummary.length > 40;
   return (
@@ -53,7 +255,14 @@ function AttributeRow({ attr }: { attr: AttributeInfo }) {
       </td>
       <td className="prop-table-samples">
         {attr.timeSampleCount > 0 ? (
-          <span className="prop-badge">{attr.timeSampleCount}s</span>
+          <button
+            type="button"
+            className="prop-badge prop-badge-samples"
+            onClick={() => onViewSamples(attr.name)}
+            title={`View ${attr.timeSampleCount} time sample(s)`}
+          >
+            {attr.timeSampleCount}s
+          </button>
         ) : null}
       </td>
     </tr>
@@ -115,6 +324,8 @@ export function UsdPrimPropertyPanel({
   const [inspection, setInspection] = useState<PrimInspection | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Attribute name whose samples are currently shown. `null` = none. */
+  const [activeSampleAttr, setActiveSampleAttr] = useState<string | null>(null);
 
   useEffect(() => {
     // When there is no active selection reset display state and bail.
@@ -125,6 +336,7 @@ export function UsdPrimPropertyPanel({
       Promise.resolve().then(() => {
         setInspection(null);
         setError(null);
+        setActiveSampleAttr(null);
       });
       return;
     }
@@ -134,6 +346,7 @@ export function UsdPrimPropertyPanel({
         if (cancelled) return;
         setLoading(true);
         setError(null);
+        setActiveSampleAttr(null);
         return inspectPrim(path, selectedPrimPath);
       })
       .then((result) => {
@@ -186,7 +399,15 @@ export function UsdPrimPropertyPanel({
                   </thead>
                   <tbody>
                     {inspection.attributes.map((attr) => (
-                      <AttributeRow key={attr.name} attr={attr} />
+                      <AttributeRow
+                        key={attr.name}
+                        attr={attr}
+                        onViewSamples={(name) =>
+                          setActiveSampleAttr((prev) =>
+                            prev === name ? null : name,
+                          )
+                        }
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -195,6 +416,17 @@ export function UsdPrimPropertyPanel({
           ) : (
             <p className="muted">No attributes authored.</p>
           )}
+
+          {/* ---- inline time-samples panel (shown below the table) ---- */}
+          {activeSampleAttr && (
+            <TimeSamplesPanel
+              path={path}
+              primPath={selectedPrimPath}
+              attrName={activeSampleAttr}
+              onClose={() => setActiveSampleAttr(null)}
+            />
+          )}
+
           <RelationshipSection relationships={inspection.relationships} />
           <MetadataSection entries={inspection.metadata} />
         </>

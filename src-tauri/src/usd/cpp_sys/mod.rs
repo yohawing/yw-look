@@ -996,6 +996,38 @@ impl CStage {
         if n < 0 { 0 } else { n as usize }
     }
 
+    /// Enumerates up to `max_samples` time samples on the attribute,
+    /// returning `(time_code, value_summary)` pairs in ascending order.
+    /// Partial results are returned on error (the C shim swallows
+    /// exceptions after emitting what it gathered). An empty `Vec`
+    /// means the attribute has no authored time samples or does not
+    /// exist.
+    pub fn prim_attribute_time_samples(
+        &self,
+        prim_path: &str,
+        attr_name: &str,
+        max_samples: usize,
+    ) -> Vec<(f64, String)> {
+        let Ok(pp) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let Ok(an) = CString::new(attr_name) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<(f64, String)>::new();
+        unsafe {
+            usdc_prim_attribute_time_samples(
+                self.raw,
+                pp.as_ptr(),
+                an.as_ptr(),
+                max_samples,
+                Some(time_sample_trampoline),
+                &mut out as *mut Vec<(f64, String)> as *mut c_void,
+            );
+        }
+        out
+    }
+
     /// All relationship names authored on the prim at `prim_path`.
     pub fn prim_relationship_names(&self, prim_path: &str) -> Vec<String> {
         let Ok(c) = CString::new(prim_path) else {
@@ -1221,6 +1253,33 @@ unsafe extern "C" fn float_buffer_trampoline(
     let out = unsafe { &mut *(user as *mut Vec<f32>) };
     let slice = unsafe { std::slice::from_raw_parts(data, count) };
     out.extend_from_slice(slice);
+}
+
+// Trampoline for UsdcTimeSampleCallback: collects (time, value_summary)
+// pairs into a Vec<(f64, String)>.
+//
+// Safety:
+//   - `value_summary` must be a valid null-terminated C string for the
+//     duration of this call (may be an empty string, must not be null).
+//   - `user` must be a `*mut Vec<(f64, String)>` as set up by
+//     `CStage::prim_attribute_time_samples`.
+unsafe extern "C" fn time_sample_trampoline(
+    time: f64,
+    value_summary: *const c_char,
+    user: *mut c_void,
+) {
+    if user.is_null() {
+        return;
+    }
+    let out = unsafe { &mut *(user as *mut Vec<(f64, String)>) };
+    let summary = if value_summary.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(value_summary) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    out.push((time, summary));
 }
 
 // Same pattern for i32 integer buffers (faceVertexCounts / indices).

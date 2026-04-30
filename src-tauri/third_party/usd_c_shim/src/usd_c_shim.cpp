@@ -2077,6 +2077,39 @@ usdc_prim_attribute_time_sample_count(UsdcStage *stage,
 }
 
 extern "C" USDC_API void
+usdc_prim_attribute_time_samples(UsdcStage *stage,
+                                 const char *prim_path,
+                                 const char *attr_name,
+                                 size_t max_samples,
+                                 UsdcTimeSampleCallback cb,
+                                 void *user) {
+    if (!cb || !attr_name) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim || !stage) return;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return;
+        std::vector<double> times;
+        if (!attr.GetTimeSamples(&times)) return;
+        size_t limit = (max_samples == 0 || max_samples > times.size())
+                       ? times.size()
+                       : max_samples;
+        for (size_t i = 0; i < limit; ++i) {
+            VtValue v;
+            std::string summary;
+            if (attr.Get(&v, times[i])) {
+                summary = vtvalue_summary(v);
+            }
+            cb(times[i], summary.c_str(), user);
+        }
+    } catch (...) {
+        /* silently drop on exception — we may have already emitted
+         * some samples before the error; partial results are
+         * preferable to a hard failure for an inspector display. */
+    }
+}
+
+extern "C" USDC_API void
 usdc_prim_relationship_names(UsdcStage *stage,
                              const char *prim_path,
                              UsdcStringCallback cb,
