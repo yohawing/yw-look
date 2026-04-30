@@ -18,8 +18,8 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 
 use crate::usd::{
-    AssetIssue, DefaultBackend, StageInspection, StageLoadPolicy, StageSummary, UsdBackend,
-    UsdError,
+    AssetIssue, DefaultBackend, PrimInspection, StageInspection, StageLoadPolicy, StageSummary,
+    UsdBackend, UsdError,
 };
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -1148,6 +1148,21 @@ async fn inspect_stage(
     run_blocking_usd(move || handle.inspect_stage(&normalized, policy)).await
 }
 
+/// #28 — per-prim attribute / relationship / metadata inspector.
+/// Returns `PrimInspection` for the prim at `prim_path` in the USD file
+/// at `path`. Currently only implemented on the C++ backend; the Rust
+/// fork backend returns an error that the frontend should handle gracefully.
+#[tauri::command]
+async fn inspect_prim(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    prim_path: String,
+) -> Result<PrimInspection, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.handle();
+    run_blocking_usd(move || handle.inspect_prim(&normalized, &prim_path)).await
+}
+
 #[tauri::command]
 async fn summarize_stage(
     backend: tauri::State<'_, UsdBackendState>,
@@ -1348,7 +1363,8 @@ pub fn run() {
             summarize_stage,
             collect_asset_issues,
             requires_glb_preview,
-            extract_geometry
+            extract_geometry,
+            inspect_prim
         ])
         .build(tauri::generate_context!())
         .expect("error while building yw-look");

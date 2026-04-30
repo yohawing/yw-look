@@ -522,6 +522,80 @@ USDC_API const char *usdc_shader_input_asset(UsdcStage *stage,
                                              const char *shader_path,
                                              const char *input_name);
 
+/* -------------------- per-prim attribute inspector (#28) -------------------- */
+
+/* Enumerates all authored attributes on the prim at `prim_path`.
+ * Calls `cb(name, user)` once per attribute name in no guaranteed order.
+ * Emits nothing when the prim does not exist. */
+USDC_API void usdc_prim_attribute_names(UsdcStage *stage,
+                                        const char *prim_path,
+                                        UsdcStringCallback cb,
+                                        void *user);
+
+/* Returns the USD type name of an attribute (e.g. "float3", "token",
+ * "asset"). Scratch-buffer lifetime. Returns NULL when the attribute
+ * does not exist. */
+USDC_API const char *usdc_prim_attribute_type_name(UsdcStage *stage,
+                                                   const char *prim_path,
+                                                   const char *attr_name);
+
+/* Returns a human-readable summary of the attribute's default value.
+ * Arrays are reported as "[N elements]"; scalar types are stringified
+ * via TfStringify. Scratch-buffer lifetime. Returns empty string ""
+ * when unauthored, NULL when the attribute does not exist. */
+USDC_API const char *usdc_prim_attribute_value_summary(UsdcStage *stage,
+                                                       const char *prim_path,
+                                                       const char *attr_name);
+
+/* Returns 1 if the attribute is custom (not schema-defined), 0 otherwise. */
+USDC_API int usdc_prim_attribute_is_custom(UsdcStage *stage,
+                                           const char *prim_path,
+                                           const char *attr_name);
+
+/* Returns "varying" or "uniform" for the attribute's variability.
+ * Scratch-buffer lifetime. Returns NULL when the attribute does not exist. */
+USDC_API const char *usdc_prim_attribute_variability(UsdcStage *stage,
+                                                     const char *prim_path,
+                                                     const char *attr_name);
+
+/* Returns the number of time samples authored on the attribute.
+ * Returns -1 when the attribute does not exist. */
+USDC_API int usdc_prim_attribute_time_sample_count(UsdcStage *stage,
+                                                   const char *prim_path,
+                                                   const char *attr_name);
+
+/* Enumerates all authored relationships on the prim at `prim_path`.
+ * Calls `cb(name, user)` once per relationship name.
+ * Emits nothing when the prim does not exist. */
+USDC_API void usdc_prim_relationship_names(UsdcStage *stage,
+                                           const char *prim_path,
+                                           UsdcStringCallback cb,
+                                           void *user);
+
+/* Enumerates the forwarded target paths of the named relationship.
+ * Calls `cb(path, user)` once per target SdfPath string.
+ * Emits nothing when the prim or relationship does not exist. */
+USDC_API void usdc_prim_relationship_targets(UsdcStage *stage,
+                                             const char *prim_path,
+                                             const char *rel_name,
+                                             UsdcStringCallback cb,
+                                             void *user);
+
+/* Enumerates the authored metadata keys on the prim.
+ * Calls `cb(key, user)` once per key.
+ * Emits nothing when the prim does not exist. */
+USDC_API void usdc_prim_metadata_keys(UsdcStage *stage,
+                                      const char *prim_path,
+                                      UsdcStringCallback cb,
+                                      void *user);
+
+/* Returns a human-readable summary of a prim's metadata value for `key`.
+ * Scratch-buffer lifetime. Returns NULL when the key is not authored or
+ * the prim does not exist. */
+USDC_API const char *usdc_prim_metadata_value_summary(UsdcStage *stage,
+                                                      const char *prim_path,
+                                                      const char *key);
+
 /* -------------------- UsdSkel (Phase 2.G) -------------------- */
 
 /* Returns the SdfPath of the `UsdSkelSkeleton` inherited-bound to a

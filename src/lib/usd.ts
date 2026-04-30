@@ -144,6 +144,50 @@ export type AssetIssue = {
   contextPath: string | null;
 };
 
+/** #28 — one attribute on a prim. */
+export type AttributeInfo = {
+  name: string;
+  typeName: string;
+  valueSummary: string;
+  variability: string;
+  custom: boolean;
+  timeSampleCount: number;
+};
+
+/** #28 — one relationship on a prim. */
+export type RelationshipInfo = {
+  name: string;
+  targets: string[];
+};
+
+/** #28 — one metadata entry on a prim. */
+export type MetadataEntry = {
+  key: string;
+  valueSummary: string;
+};
+
+/** #28 — per-prim inspection result. */
+export type PrimInspection = {
+  primPath: string;
+  attributes: AttributeInfo[];
+  relationships: RelationshipInfo[];
+  metadata: MetadataEntry[];
+};
+
+/**
+ * #28 — inspect the attributes, relationships, and metadata for the
+ * prim at `primPath` inside the USD file at `path`.
+ *
+ * Only available on the C++ backend; the Rust fork backend returns an
+ * error, which this wrapper re-throws so callers can handle gracefully.
+ */
+export async function inspectPrim(
+  path: string,
+  primPath: string,
+): Promise<PrimInspection> {
+  return invoke<PrimInspection>("inspect_prim", { path, primPath });
+}
+
 export async function inspectStage(path: string, policy?: StageLoadPolicy) {
   return invoke<StageInspection>("inspect_stage", { path, policy });
 }

@@ -31,7 +31,7 @@ pub mod openusd_cpp_backend;
 
 pub use backend::{UsdBackend, UsdError};
 pub use openusd_backend::OpenusdBackend;
-pub use types::{AssetIssue, StageInspection, StageLoadPolicy, StageSummary};
+pub use types::{AssetIssue, PrimInspection, StageInspection, StageLoadPolicy, StageSummary};
 
 #[cfg(feature = "backend-openusd-cpp")]
 pub use openusd_cpp_backend::OpenusdCppBackend;

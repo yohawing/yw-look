@@ -9,7 +9,8 @@
 use std::path::Path;
 
 use super::types::{
-    AssetIssue, ExtractGeometryOptions, StageInspection, StageLoadPolicy, StageSummary,
+    AssetIssue, ExtractGeometryOptions, PrimInspection, StageInspection, StageLoadPolicy,
+    StageSummary,
 };
 
 /// Errors a USD backend can produce. Kept intentionally narrow so the
@@ -99,6 +100,21 @@ pub trait UsdBackend: Send + Sync {
         path: &Path,
         policy: StageLoadPolicy,
     ) -> Result<Vec<u8>, UsdError>;
+
+    /// #28: per-prim attribute / relationship / metadata inspector.
+    /// Returns a [`PrimInspection`] containing all authored attributes,
+    /// relationships, and metadata on the prim at `prim_path`.
+    ///
+    /// `path` is the USD file; `prim_path` is a SdfPath string
+    /// (e.g. `"/World/Hero/Body"`).
+    ///
+    /// Backends that do not yet implement this should return
+    /// `Err(UsdError::Parse("not supported on this backend".into()))`.
+    fn inspect_prim(
+        &self,
+        path: &Path,
+        prim_path: &str,
+    ) -> Result<PrimInspection, UsdError>;
 
     /// Round 1.5 (#32 / #31 plumbing): options-aware variant of
     /// [`Self::extract_geometry_glb`]. Default delegates to the

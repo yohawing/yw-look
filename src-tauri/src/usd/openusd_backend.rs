@@ -19,7 +19,8 @@ use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
-    ExtractGeometryOptions, PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
+    ExtractGeometryOptions, PrimInspection, PrimTypeCount, StageInspection, StageLoadPolicy,
+    StageSummary,
 };
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
@@ -412,6 +413,16 @@ impl UsdBackend for OpenusdBackend {
         // and xform composition better than the GLB flattener, so prefer
         // the JS path.
         Ok(false)
+    }
+
+    fn inspect_prim(
+        &self,
+        _path: &StdPath,
+        _prim_path: &str,
+    ) -> Result<PrimInspection, UsdError> {
+        Err(UsdError::Parse(
+            "inspect_prim is not supported on the openusd Rust backend".into(),
+        ))
     }
 
     fn extract_geometry_glb(

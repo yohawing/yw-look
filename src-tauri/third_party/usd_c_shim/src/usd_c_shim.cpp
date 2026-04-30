@@ -22,6 +22,7 @@
 #include <exception>
 #include <mutex>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,7 @@
 #endif
 
 #include <pxr/base/plug/registry.h>
+#include <pxr/base/tf/stringUtils.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/layer.h>
@@ -83,6 +85,7 @@
 #include <pxr/usd/usdSkel/bindingAPI.h>
 #include <pxr/usd/usdSkel/skeleton.h>
 #include <pxr/usd/usdSkel/tokens.h>
+#include <pxr/base/vt/value.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -1929,5 +1932,218 @@ usdc_skel_anim_blend_shape_weights_at(UsdcStage *stage,
         cb(arr.cdata(), arr.size(), user);
     } catch (...) {
         emit_empty_floats(cb, user);
+    }
+}
+
+/* -------------------- per-prim attribute inspector (#28) -------------------- */
+
+namespace {
+
+/* Stringify a VtValue into a human-readable summary.
+ * Arrays are reported as "[N elements]"; scalars use TfStringify.
+ * Falls back to "<unprintable>" on exception. */
+std::string vtvalue_summary(const VtValue &v) {
+    if (v.IsEmpty()) return "";
+    try {
+        /* Check for array types by testing IsArrayValued() */
+        if (v.IsArrayValued()) {
+            size_t n = v.GetArraySize();
+            return "[" + std::to_string(n) + " elements]";
+        }
+        /* Stringify scalar via the VtValue streaming operator. */
+        std::ostringstream oss;
+        oss << v;
+        std::string s = oss.str();
+        /* Clamp very long strings to avoid flooding the UI. */
+        if (s.size() > 256) {
+            s = s.substr(0, 256) + "...";
+        }
+        return s;
+    } catch (...) {
+        return "<unprintable>";
+    }
+}
+
+} /* anonymous namespace */
+
+extern "C" USDC_API void
+usdc_prim_attribute_names(UsdcStage *stage,
+                          const char *prim_path,
+                          UsdcStringCallback cb,
+                          void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+    swallow([&] {
+        for (const UsdAttribute &attr : prim.GetAttributes()) {
+            cb(attr.GetName().GetText(), user);
+        }
+    });
+}
+
+extern "C" USDC_API const char *
+usdc_prim_attribute_type_name(UsdcStage *stage,
+                              const char *prim_path,
+                              const char *attr_name) {
+    if (!attr_name) return nullptr;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim || !stage) return nullptr;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return nullptr;
+        stage->scratch = attr.GetTypeName().GetAsToken().GetString();
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API const char *
+usdc_prim_attribute_value_summary(UsdcStage *stage,
+                                  const char *prim_path,
+                                  const char *attr_name) {
+    if (!attr_name) return nullptr;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim || !stage) return nullptr;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return nullptr;
+        VtValue v;
+        if (!attr.Get(&v)) {
+            stage->scratch = "";
+            return stage->scratch.c_str();
+        }
+        stage->scratch = vtvalue_summary(v);
+        return stage->scratch.c_str();
+    } catch (...) {
+        stage->scratch = "<unprintable>";
+        return stage->scratch.c_str();
+    }
+}
+
+extern "C" USDC_API int
+usdc_prim_attribute_is_custom(UsdcStage *stage,
+                              const char *prim_path,
+                              const char *attr_name) {
+    if (!attr_name) return 0;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return 0;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return 0;
+        return attr.IsCustom() ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" USDC_API const char *
+usdc_prim_attribute_variability(UsdcStage *stage,
+                                const char *prim_path,
+                                const char *attr_name) {
+    if (!attr_name) return nullptr;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim || !stage) return nullptr;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return nullptr;
+        SdfVariability var = attr.GetVariability();
+        if (var == SdfVariabilityUniform) {
+            stage->scratch = "uniform";
+        } else {
+            stage->scratch = "varying";
+        }
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" USDC_API int
+usdc_prim_attribute_time_sample_count(UsdcStage *stage,
+                                      const char *prim_path,
+                                      const char *attr_name) {
+    if (!attr_name) return -1;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return -1;
+    try {
+        UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
+        if (!attr) return -1;
+        size_t count = attr.GetNumTimeSamples();
+        return static_cast<int>(count);
+    } catch (...) {
+        return -1;
+    }
+}
+
+extern "C" USDC_API void
+usdc_prim_relationship_names(UsdcStage *stage,
+                             const char *prim_path,
+                             UsdcStringCallback cb,
+                             void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+    swallow([&] {
+        for (const UsdRelationship &rel : prim.GetRelationships()) {
+            cb(rel.GetName().GetText(), user);
+        }
+    });
+}
+
+extern "C" USDC_API void
+usdc_prim_relationship_targets(UsdcStage *stage,
+                               const char *prim_path,
+                               const char *rel_name,
+                               UsdcStringCallback cb,
+                               void *user) {
+    if (!cb || !rel_name) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+    swallow([&] {
+        UsdRelationship rel = prim.GetRelationship(TfToken(rel_name));
+        if (!rel) return;
+        SdfPathVector targets;
+        rel.GetForwardedTargets(&targets);
+        for (const SdfPath &p : targets) {
+            cb(p.GetString().c_str(), user);
+        }
+    });
+}
+
+extern "C" USDC_API void
+usdc_prim_metadata_keys(UsdcStage *stage,
+                        const char *prim_path,
+                        UsdcStringCallback cb,
+                        void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+    swallow([&] {
+        /* GetAllAuthoredMetadata returns a map of TfToken → VtValue.
+         * We emit only the keys here; values are fetched separately
+         * via usdc_prim_metadata_value_summary to avoid overwriting
+         * the scratch buffer mid-enumeration. */
+        UsdMetadataValueMap meta = prim.GetAllAuthoredMetadata();
+        for (const auto &kv : meta) {
+            cb(kv.first.GetText(), user);
+        }
+    });
+}
+
+extern "C" USDC_API const char *
+usdc_prim_metadata_value_summary(UsdcStage *stage,
+                                 const char *prim_path,
+                                 const char *key) {
+    if (!key) return nullptr;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim || !stage) return nullptr;
+    try {
+        VtValue v;
+        if (!prim.GetMetadata(TfToken(key), &v)) return nullptr;
+        stage->scratch = vtvalue_summary(v);
+        return stage->scratch.c_str();
+    } catch (...) {
+        return nullptr;
     }
 }

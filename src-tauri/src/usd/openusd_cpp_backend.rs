@@ -34,9 +34,9 @@ use super::openusd_backend::{
     remap_mesh_skin_indices, srgb_to_linear, usd_wrap_to_gltf, z_up_to_y_up_mat4, MeshOrientation,
 };
 use super::types::{
-    AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
-    ExtractGeometryOptions, PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
-    VariantSetInfo,
+    AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, CompositionArc,
+    CompositionArcState, ExtractGeometryOptions, MetadataEntry, PrimInspection, PrimTypeCount,
+    RelationshipInfo, StageInspection, StageLoadPolicy, StageSummary, VariantSetInfo,
 };
 use super::cpp_sys::UpAxis;
 
@@ -415,6 +415,70 @@ impl UsdBackend for OpenusdCppBackend {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    fn inspect_prim(
+        &self,
+        path: &StdPath,
+        prim_path: &str,
+    ) -> Result<PrimInspection, UsdError> {
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+
+        // Attributes
+        let attr_names = stage.prim_attribute_names(prim_path);
+        let mut attributes = Vec::with_capacity(attr_names.len());
+        for name in &attr_names {
+            let type_name = stage
+                .prim_attribute_type_name(prim_path, name)
+                .unwrap_or_default();
+            let value_summary = stage
+                .prim_attribute_value_summary(prim_path, name)
+                .unwrap_or_default();
+            let variability = stage
+                .prim_attribute_variability(prim_path, name)
+                .unwrap_or_else(|| "varying".to_string());
+            let custom = stage.prim_attribute_is_custom(prim_path, name);
+            let time_sample_count = stage.prim_attribute_time_sample_count(prim_path, name);
+            attributes.push(AttributeInfo {
+                name: name.clone(),
+                type_name,
+                value_summary,
+                variability,
+                custom,
+                time_sample_count,
+            });
+        }
+
+        // Relationships
+        let rel_names = stage.prim_relationship_names(prim_path);
+        let mut relationships = Vec::with_capacity(rel_names.len());
+        for name in &rel_names {
+            let targets = stage.prim_relationship_targets(prim_path, name);
+            relationships.push(RelationshipInfo {
+                name: name.clone(),
+                targets,
+            });
+        }
+
+        // Metadata
+        let meta_keys = stage.prim_metadata_keys(prim_path);
+        let mut metadata = Vec::with_capacity(meta_keys.len());
+        for key in &meta_keys {
+            let value_summary = stage
+                .prim_metadata_value_summary(prim_path, key)
+                .unwrap_or_default();
+            metadata.push(MetadataEntry {
+                key: key.clone(),
+                value_summary,
+            });
+        }
+
+        Ok(PrimInspection {
+            prim_path: prim_path.to_string(),
+            attributes,
+            relationships,
+            metadata,
+        })
     }
 
     fn extract_geometry_glb(

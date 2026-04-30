@@ -911,6 +911,157 @@ impl CStage {
         out
     }
 
+    // -------- prim attribute inspector (#28) --------
+
+    /// All attribute names authored on the prim at `prim_path`.
+    pub fn prim_attribute_names(&self, prim_path: &str) -> Vec<String> {
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_prim_attribute_names(
+                self.raw,
+                c.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// USD type name of an attribute (e.g. `"float3"`, `"token"`).
+    /// `None` when the attribute does not exist.
+    pub fn prim_attribute_type_name(&self, prim_path: &str, attr_name: &str) -> Option<String> {
+        let pp = CString::new(prim_path).ok()?;
+        let an = CString::new(attr_name).ok()?;
+        let p = unsafe { usdc_prim_attribute_type_name(self.raw, pp.as_ptr(), an.as_ptr()) };
+        ptr_to_opt_string(p)
+    }
+
+    /// Human-readable summary of an attribute's default value.
+    /// Arrays → `"[N elements]"`, scalars are stringified.
+    /// Returns empty string when unauthored, `None` when the attribute
+    /// does not exist.
+    pub fn prim_attribute_value_summary(
+        &self,
+        prim_path: &str,
+        attr_name: &str,
+    ) -> Option<String> {
+        let pp = CString::new(prim_path).ok()?;
+        let an = CString::new(attr_name).ok()?;
+        let p = unsafe {
+            usdc_prim_attribute_value_summary(self.raw, pp.as_ptr(), an.as_ptr())
+        };
+        // The shim returns "" for unauthored (not NULL), so we map
+        // that differently from the "attr not found" NULL case.
+        if p.is_null() {
+            None
+        } else {
+            Some(unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
+        }
+    }
+
+    /// `true` if the attribute is custom (not schema-defined).
+    pub fn prim_attribute_is_custom(&self, prim_path: &str, attr_name: &str) -> bool {
+        let Ok(pp) = CString::new(prim_path) else { return false; };
+        let Ok(an) = CString::new(attr_name) else { return false; };
+        unsafe { usdc_prim_attribute_is_custom(self.raw, pp.as_ptr(), an.as_ptr()) != 0 }
+    }
+
+    /// Variability string: `"varying"` or `"uniform"`.
+    /// `None` when the attribute does not exist.
+    pub fn prim_attribute_variability(
+        &self,
+        prim_path: &str,
+        attr_name: &str,
+    ) -> Option<String> {
+        let pp = CString::new(prim_path).ok()?;
+        let an = CString::new(attr_name).ok()?;
+        let p = unsafe {
+            usdc_prim_attribute_variability(self.raw, pp.as_ptr(), an.as_ptr())
+        };
+        ptr_to_opt_string(p)
+    }
+
+    /// Number of time samples authored on an attribute.
+    /// Returns `0` when there are no samples or the attribute does not
+    /// exist.
+    pub fn prim_attribute_time_sample_count(&self, prim_path: &str, attr_name: &str) -> usize {
+        let Ok(pp) = CString::new(prim_path) else { return 0; };
+        let Ok(an) = CString::new(attr_name) else { return 0; };
+        let n = unsafe {
+            usdc_prim_attribute_time_sample_count(self.raw, pp.as_ptr(), an.as_ptr())
+        };
+        if n < 0 { 0 } else { n as usize }
+    }
+
+    /// All relationship names authored on the prim at `prim_path`.
+    pub fn prim_relationship_names(&self, prim_path: &str) -> Vec<String> {
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_prim_relationship_names(
+                self.raw,
+                c.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// Forwarded target paths of the named relationship.
+    pub fn prim_relationship_targets(&self, prim_path: &str, rel_name: &str) -> Vec<String> {
+        let Ok(pp) = CString::new(prim_path) else { return Vec::new(); };
+        let Ok(rn) = CString::new(rel_name) else { return Vec::new(); };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_prim_relationship_targets(
+                self.raw,
+                pp.as_ptr(),
+                rn.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// All authored metadata keys on the prim at `prim_path`.
+    pub fn prim_metadata_keys(&self, prim_path: &str) -> Vec<String> {
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_prim_metadata_keys(
+                self.raw,
+                c.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            )
+        };
+        out
+    }
+
+    /// Human-readable summary of a prim's metadata value for `key`.
+    /// `None` when the key is not authored or the prim does not exist.
+    pub fn prim_metadata_value_summary(
+        &self,
+        prim_path: &str,
+        key: &str,
+    ) -> Option<String> {
+        let pp = CString::new(prim_path).ok()?;
+        let kk = CString::new(key).ok()?;
+        let p = unsafe {
+            usdc_prim_metadata_value_summary(self.raw, pp.as_ptr(), kk.as_ptr())
+        };
+        ptr_to_opt_string(p)
+    }
+
     /// Bone influences per vertex (the primvar's `elementSize`
     /// metadata). 0 means "no skinning authored" — yw-look treats the
     /// spec-default 1 as unskinned because single-influence rigs

@@ -247,6 +247,44 @@ pub struct CompositionArc {
     pub state: CompositionArcState,
 }
 
+/// One attribute on a prim, returned by `inspect_prim` (#28).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttributeInfo {
+    pub name: String,
+    pub type_name: String,
+    pub value_summary: String,
+    pub variability: String,
+    pub custom: bool,
+    pub time_sample_count: usize,
+}
+
+/// One relationship on a prim, returned by `inspect_prim` (#28).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationshipInfo {
+    pub name: String,
+    pub targets: Vec<String>,
+}
+
+/// One metadata entry on a prim, returned by `inspect_prim` (#28).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetadataEntry {
+    pub key: String,
+    pub value_summary: String,
+}
+
+/// Per-prim inspection result (#28).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrimInspection {
+    pub prim_path: String,
+    pub attributes: Vec<AttributeInfo>,
+    pub relationships: Vec<RelationshipInfo>,
+    pub metadata: Vec<MetadataEntry>,
+}
+
 /// Resolution state of a composition arc.
 /// - `Loaded`: asset was successfully composed into the stage.
 /// - `Missing`: resolver could not locate the asset (the arc appears in

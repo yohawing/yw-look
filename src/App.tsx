@@ -29,6 +29,7 @@ import {
 } from "./components/assetMetadata";
 import { CurrentFileCard } from "./components/CurrentFileCard";
 import { HierarchyCard } from "./components/HierarchyCard";
+import { UsdPrimPropertyPanel } from "./components/UsdPrimPropertyPanel";
 import { MaterialListCard } from "./components/MaterialListCard";
 import { MenuBar } from "./components/MenuBar";
 import {
@@ -384,6 +385,12 @@ export function App() {
   // the matching node; when the user clicks empty space the value
   // resets to null and the highlight clears.
   const [selectedMeshName, setSelectedMeshName] = useState<string | null>(null);
+  // #28: USD prim path selected in the hierarchy tree.
+  // Drives the UsdPrimPropertyPanel. Separate from `selectedMeshName`
+  // because the hierarchy tree can select any prim (not just meshes).
+  const [selectedUsdPrimPath, setSelectedUsdPrimPath] = useState<string | null>(
+    null,
+  );
   // #32: USD purpose visibility. Defaults match pre-#32 behavior:
   // render ON, proxy/guide OFF.
   const [purposeModes, setPurposeModes] = useState<PurposeModes>({
@@ -840,6 +847,9 @@ export function App() {
     // selection refers to a Three.js Object3D.name, and the next
     // asset's hierarchy will not contain the same node.
     setSelectedMeshName(null);
+    // #28: also clear the USD prim path selection so the property
+    // panel does not query the new file with the old prim path.
+    setSelectedUsdPrimPath(null);
   }, [currentFile?.path]);
 
   useEffect(() => {
@@ -1548,11 +1558,24 @@ export function App() {
         );
       case "hierarchy":
         return (
-          <HierarchyCard
-            hierarchy={assetMetadata?.hierarchy ?? []}
-            selectedName={selectedMeshName}
-            onSelectName={setSelectedMeshName}
-          />
+          <>
+            <HierarchyCard
+              hierarchy={assetMetadata?.hierarchy ?? []}
+              selectedName={selectedMeshName}
+              onSelectName={setSelectedMeshName}
+              onSelectPrimPath={
+                isUsdFile(currentFile)
+                  ? (primPath) => setSelectedUsdPrimPath(primPath)
+                  : undefined
+              }
+            />
+            {isUsdFile(currentFile) && (
+              <UsdPrimPropertyPanel
+                path={currentFile?.path ?? null}
+                selectedPrimPath={selectedUsdPrimPath}
+              />
+            )}
+          </>
         );
       case "materials":
         return <MaterialListCard materials={assetMetadata?.materials ?? []} />;

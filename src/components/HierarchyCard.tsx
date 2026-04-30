@@ -13,6 +13,11 @@ type HierarchyCardProps = {
    * The `null` overload deselects when the user clicks the active row
    * a second time. */
   onSelectName?: (name: string | null) => void;
+  /** #28: invoked alongside `onSelectName` with the full SdfPath of the
+   * clicked prim (e.g. `"/World/Hero"`). Allows the parent to connect
+   * the hierarchy selection to the `UsdPrimPropertyPanel`. `null` is
+   * passed when the active row is clicked a second time (deselect). */
+  onSelectPrimPath?: (primPath: string | null) => void;
 };
 
 function HierarchyBranch({
@@ -20,6 +25,8 @@ function HierarchyBranch({
   depth,
   selectedName,
   onSelectName,
+  onSelectPrimPath,
+  parentPath,
   forceExpanded,
   selectedRef,
 }: {
@@ -27,6 +34,9 @@ function HierarchyBranch({
   depth: number;
   selectedName: string | null;
   onSelectName?: (name: string | null) => void;
+  onSelectPrimPath?: (primPath: string | null) => void;
+  /** Accumulated SdfPath prefix of the parent node (e.g. `"/World"`). */
+  parentPath: string;
   forceExpanded: boolean;
   selectedRef: React.RefObject<HTMLLIElement | null>;
 }) {
@@ -39,6 +49,17 @@ function HierarchyBranch({
   // of overwriting it, so once the user collapses something
   // re-selecting the same prim doesn't snap their layout back open.
   const showChildren = hasChildren && (expanded || forceExpanded);
+  // Build the full SdfPath for this node.
+  // For USD-derived GLB meshes the Three.js node name IS the original
+  // SdfPath (e.g. "/World/Cube") — the C++ backend stores `prim_path`
+  // directly in `MeshInput.name`. In that case we must NOT prepend
+  // parentPath again or we get "//World/Cube". For plain hierarchy nodes
+  // whose name is just a component (e.g. "Cube") we chain normally.
+  const primPath = !node.name
+    ? parentPath
+    : node.name.startsWith("/")
+      ? node.name
+      : `${parentPath === "/" ? "" : parentPath}/${node.name}`;
 
   return (
     <li
@@ -53,7 +74,9 @@ function HierarchyBranch({
           onSelectName
             ? (event) => {
                 event.stopPropagation();
-                onSelectName(isSelected ? null : node.name);
+                const nextName = isSelected ? null : node.name;
+                onSelectName(nextName);
+                onSelectPrimPath?.(isSelected ? null : primPath);
               }
             : undefined
         }
@@ -100,6 +123,8 @@ function HierarchyBranch({
               depth={depth + 1}
               selectedName={selectedName}
               onSelectName={onSelectName}
+              onSelectPrimPath={onSelectPrimPath}
+              parentPath={primPath}
               // Each child decides force-open from its own subtree only.
               // Inheriting `forceExpanded` from the parent would
               // unfold every sibling once a single deep node is
@@ -131,6 +156,7 @@ export function HierarchyCard({
   hierarchy,
   selectedName,
   onSelectName,
+  onSelectPrimPath,
 }: HierarchyCardProps) {
   const selectedRef = useRef<HTMLLIElement | null>(null);
 
@@ -160,6 +186,8 @@ export function HierarchyCard({
               depth={0}
               selectedName={normalizedSelected}
               onSelectName={onSelectName}
+              onSelectPrimPath={onSelectPrimPath}
+              parentPath="/"
               forceExpanded={
                 normalizedSelected !== null &&
                 hasDescendant(node, normalizedSelected)
