@@ -52,8 +52,14 @@ function safeTrimmedName(object: Object3D): string {
 }
 
 function buildHierarchyNode(object: Object3D): HierarchyNode {
+  // Keep an empty string when the node has no authored name. The
+  // display layer (HierarchyCard) substitutes "(unnamed)" purely for
+  // the visible label; storing that placeholder in `name` would leak
+  // the parens into USD prim path construction (#28) and trigger
+  // `Ill-formed SdfPath` warnings when the C++ backend tries to
+  // resolve `/(unnamed)/...`.
   return {
-    name: safeTrimmedName(object) || "(unnamed)",
+    name: safeTrimmedName(object),
     kind: getObjectKind(object),
     children: object.children.map((child) => buildHierarchyNode(child)),
   };

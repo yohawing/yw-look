@@ -1168,17 +1168,18 @@ export function AssetViewport({
       // (SkeletonHelper line segments, BoundingBox helpers) are
       // LineSegments / Lines, so the `instanceof Mesh` gate filters
       // them out. The shadow catcher is a Mesh but is dropped here by
-      // name so a click on the ground plane reads as "missed". The
-      // emitted name is trimmed and falls back to "(unnamed)" — that
-      // matches `safeTrimmedName` + `"(unnamed)"` in viewer/metadata.ts
-      // (`buildHierarchyNode`), so a picker hit on a mesh whose
-      // authored name has leading/trailing whitespace still resolves
-      // to the same key the hierarchy row renders under.
+      // name so a click on the ground plane reads as "missed".
+      //
+      // For an unnamed mesh we report null (no selection) rather than
+      // the historical "(unnamed)" placeholder. The placeholder leaks
+      // into USD prim path construction in HierarchyCard (#28) and
+      // also collapses every unnamed mesh onto the same selection,
+      // which highlights every anonymous node at once.
       let node: Object3D | null = hits[0].object;
       while (node) {
         if (node instanceof Mesh && node.name !== "__yw_shadow_catcher") {
           const raw = typeof node.name === "string" ? node.name.trim() : "";
-          callback(raw.length > 0 ? raw : "(unnamed)");
+          callback(raw.length > 0 ? raw : null);
           return;
         }
         if (node === mounted) break;

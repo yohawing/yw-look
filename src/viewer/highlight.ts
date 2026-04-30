@@ -103,11 +103,14 @@ export function applySelectionHighlight(
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     if (child.name === "__yw_shadow_catcher") return;
-    const name =
-      typeof child.name === "string" && child.name.trim().length > 0
-        ? child.name.trim()
-        : "(unnamed)";
-    if (name === meshName) {
+    const trimmed = typeof child.name === "string" ? child.name.trim() : "";
+    // Unnamed meshes are no longer selectable — picker / hierarchy
+    // both skip them — so a non-empty `meshName` can only match a
+    // real authored name. Skipping empty-named meshes here also
+    // prevents the highlight from leaking onto every anonymous mesh
+    // when the caller accidentally passes an empty string.
+    if (trimmed.length === 0) return;
+    if (trimmed === meshName) {
       applyTintToMesh(child);
     }
   });

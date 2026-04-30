@@ -43,12 +43,16 @@ describe("collectAssetMetadata", () => {
     expect(() => collectAssetMetadata(root, fakeFile, [], null)).not.toThrow();
   });
 
-  it("renders null-named nodes as (unnamed) in the hierarchy", () => {
+  it("emits empty string for null-named nodes (HierarchyCard substitutes the (unnamed) display label)", () => {
+    // Storing the placeholder string in the data layer would leak it
+    // into USD prim path construction (#28) and trigger Ill-formed
+    // SdfPath warnings. The display layer adds the "(unnamed)" label
+    // purely for the visible row.
     const root = new Group();
     (root as unknown as { name: unknown }).name = null;
 
     const result = collectAssetMetadata(root, fakeFile, [], null);
-    expect(result.metadata.hierarchy[0]?.name).toBe("(unnamed)");
+    expect(result.metadata.hierarchy[0]?.name).toBe("");
   });
 
   it("preserves real names when present", () => {

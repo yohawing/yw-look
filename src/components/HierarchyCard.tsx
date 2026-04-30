@@ -68,10 +68,15 @@ function HierarchyBranch({
     >
       <div
         className={`tree-row${isSelected ? " is-selected" : ""}${
-          onSelectName ? " is-clickable" : ""
+          onSelectName && node.name ? " is-clickable" : ""
         }`}
         onClick={
-          onSelectName
+          // Unnamed nodes (e.g. anonymous Three.js wrappers) have no
+          // stable selection key, so skip the click rather than letting
+          // every unnamed row share the empty-string identity. This
+          // also prevents `(unnamed)` (the display label) from leaking
+          // into a USD prim path passed to the C++ backend.
+          onSelectName && node.name
             ? (event) => {
                 event.stopPropagation();
                 const nextName = isSelected ? null : node.name;
