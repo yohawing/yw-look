@@ -73,6 +73,8 @@ import {
   seekAction,
   stepAction,
   disposePreviewObject,
+  applySelectionHighlight,
+  clearSelectionHighlight,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
 import { AnimationBar } from "./AnimationBar";
@@ -281,6 +283,12 @@ type AssetViewportProps = {
    * scroll to and highlight the picked prim.
    */
   onSelectMesh?: (meshName: string | null) => void;
+  /**
+   * Currently selected mesh name driven by the hierarchy tree (#33 reverse
+   * direction: tree → viewport).  When this changes the viewport applies a
+   * selection tint to the matching mesh; `null` clears any active tint.
+   */
+  selectedMeshName?: string | null;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -478,6 +486,7 @@ export function AssetViewport({
   usdLoadPolicy,
   texturePreview3D,
   onSelectMesh,
+  selectedMeshName,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -606,6 +615,21 @@ export function AssetViewport({
   useEffect(() => {
     onSelectMeshRef.current = onSelectMesh;
   }, [onSelectMesh]);
+
+  // #33 reverse direction: tree → viewport highlight.
+  // When selectedMeshName changes we apply (or clear) a selection tint on the
+  // matching mesh in the live Three.js scene.
+  useEffect(() => {
+    const mounted = sceneContextRef.current?.mountedObject;
+    if (!mounted) return;
+
+    // Always clear any previous tint first.
+    clearSelectionHighlight(mounted);
+
+    if (selectedMeshName) {
+      applySelectionHighlight(mounted, selectedMeshName);
+    }
+  }, [selectedMeshName]);
 
   useEffect(() => {
     cameraSpeedMultiplierRef.current = cameraSpeedMultiplier;

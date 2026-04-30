@@ -67,3 +67,5 @@ export {
 } from "./animationController";
 
 export { getCachedBuffer, evictAll, prefetchAdjacent } from "./prefetchCache";
+
+export { applySelectionHighlight, clearSelectionHighlight } from "./highlight";

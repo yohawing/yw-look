@@ -1129,6 +1129,20 @@ export function App() {
     };
   }, [canNavigateNext, canNavigatePrev, directoryListing]);
 
+  // #33: Esc key clears the active mesh selection.
+  useEffect(() => {
+    if (!selectedMeshName) return;
+    const handleEscKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSelectedMeshName(null);
+      }
+    };
+    window.addEventListener("keydown", handleEscKey);
+    return () => {
+      window.removeEventListener("keydown", handleEscKey);
+    };
+  }, [selectedMeshName]);
+
   const handleOpenFile = async () => {
     try {
       const selectedFile = await openFileDialog();
@@ -1657,6 +1671,7 @@ export function App() {
             usdLoadPolicy={usdLoadPolicy}
             texturePreview3D={texturePreview3D}
             onSelectMesh={setSelectedMeshName}
+            selectedMeshName={selectedMeshName}
           />
 
           {/* ViewModeControls overlay */}
