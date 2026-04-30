@@ -469,7 +469,11 @@ export {
 export async function loadPreviewObject(
   file: SelectedFile,
   renderer?: import("three").WebGLRenderer,
-  options: { usdLoadPolicy?: import("../lib/usd").StageLoadPolicy } = {},
+  options: {
+    usdLoadPolicy?: import("../lib/usd").StageLoadPolicy;
+    /** #31: variant selections to apply before GLB extraction. */
+    variantSelections?: import("../lib/usd").VariantSelection[];
+  } = {},
 ): Promise<LoadedPreview> {
   switch (file.extension) {
     case "glb": {
@@ -676,7 +680,18 @@ export async function loadPreviewObject(
         await yieldToPaint();
 
         const started = performance.now();
-        const glbBuffer = await extractGeometry(file.path, usdPolicy);
+        // #31: pass variant selections through to the Tauri backend so
+        // the C++ shim can apply them on the session layer before
+        // geometry extraction. The options object is only constructed
+        // when there are actual selections to avoid redundant IPC shape.
+        const extractOptions =
+          options.variantSelections && options.variantSelections.length > 0
+            ? {
+                policy: usdPolicy,
+                variantSelections: options.variantSelections,
+              }
+            : usdPolicy;
+        const glbBuffer = await extractGeometry(file.path, extractOptions);
         console.info(
           `[usd] extract_geometry OK in ${Math.round(
             performance.now() - started,

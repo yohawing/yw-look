@@ -19,7 +19,7 @@ use super::backend::{UsdBackend, UsdError};
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
-    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
+    ExtractGeometryOptions, PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
 };
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
@@ -968,6 +968,28 @@ impl UsdBackend for OpenusdBackend {
             &cameras,
         )
         .map_err(UsdError::Parse)
+    }
+
+    /// #31: degraded implementation for the Rust fork backend. The Rust
+    /// openusd fork does not expose a mutable `SetVariantSelection` API,
+    /// so variant overrides cannot be applied. If `variant_selections` is
+    /// non-empty, a warning is logged and the call falls back to the
+    /// authored variant selection (i.e., the default behavior). Purpose
+    /// modes are handled by the GLB pipeline via the `purpose` token
+    /// written on each MeshInput — no extra handling needed here.
+    fn extract_geometry_glb_with_options(
+        &self,
+        path: &StdPath,
+        options: &ExtractGeometryOptions,
+    ) -> Result<Vec<u8>, UsdError> {
+        if !options.variant_selections.is_empty() {
+            eprintln!(
+                "[usd-rust] extract_geometry_glb_with_options: variant_selections are \
+                 not supported by the Rust openusd backend (degraded mode). The \
+                 authored variant selections will be used instead."
+            );
+        }
+        self.extract_geometry_glb(path, options.policy)
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {

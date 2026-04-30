@@ -235,6 +235,23 @@ USDC_API const char *usdc_prim_variant_selection(UsdcStage *stage,
                                                  const char *prim_path,
                                                  const char *set_name);
 
+/* Enumerates all variant names in the named variant set on `prim_path`.
+ * Calls `cb(name, user)` once per variant in authoring order. Emits
+ * nothing when the prim or set does not exist. */
+USDC_API void usdc_prim_variant_names(UsdcStage *stage,
+                                      const char *prim_path,
+                                      const char *set_name,
+                                      UsdcStringCallback cb,
+                                      void *user);
+
+/* Sets the variant selection for (prim, set) on the stage's session
+ * layer. Returns 1 on success, 0 on failure (prim not found, set not
+ * found, or an internal OpenUSD error). */
+USDC_API int usdc_prim_set_variant_selection(UsdcStage *stage,
+                                             const char *prim_path,
+                                             const char *set_name,
+                                             const char *variant_name);
+
 /* -------------------- geometry -------------------- */
 
 /* Primvar interpolation tokens, matching the pxr::UsdGeomTokens

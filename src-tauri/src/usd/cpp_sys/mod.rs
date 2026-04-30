@@ -340,6 +340,53 @@ impl CStage {
         ptr_to_opt_string(raw)
     }
 
+    /// Returns all variant names in `set_name` for the prim at `prim_path`.
+    /// Empty when the prim or set does not exist.
+    pub fn variant_names(&self, prim_path: &str, set_name: &str) -> Vec<String> {
+        let p = match CString::new(prim_path) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let s = match CString::new(set_name) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let mut out = Vec::<String>::new();
+        unsafe {
+            usdc_prim_variant_names(
+                self.raw,
+                p.as_ptr(),
+                s.as_ptr(),
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+            );
+        }
+        out
+    }
+
+    /// Applies `variant_name` as the session-layer selection for
+    /// (`prim_path`, `set_name`). Returns `true` on success.
+    pub fn set_variant_selection(
+        &self,
+        prim_path: &str,
+        set_name: &str,
+        variant_name: &str,
+    ) -> bool {
+        let p = match CString::new(prim_path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let s = match CString::new(set_name) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let v = match CString::new(variant_name) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        unsafe { usdc_prim_set_variant_selection(self.raw, p.as_ptr(), s.as_ptr(), v.as_ptr()) != 0 }
+    }
+
     fn arcs<F>(&self, prim_path: &str, call: F) -> Vec<Arc>
     where
         F: FnOnce(*const c_char, UsdcArcCallback, *mut c_void),

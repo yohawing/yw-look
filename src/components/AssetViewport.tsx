@@ -296,6 +296,13 @@ type AssetViewportProps = {
    * matches the pre-#32 behavior.
    */
   purposeModes?: import("../lib/usd").PurposeModes;
+  /**
+   * #31: USD variant selections applied before geometry extraction.
+   * When this array changes the GLB pipeline is re-run with the new
+   * selections so the variant switch is reflected in the viewport.
+   * Ignored for non-USD files and the USDA single-buffer path.
+   */
+  variantSelections?: import("../lib/usd").VariantSelection[];
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -495,6 +502,7 @@ export function AssetViewport({
   onSelectMesh,
   selectedMeshName,
   purposeModes,
+  variantSelections,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -1582,7 +1590,10 @@ export function AssetViewport({
     });
     onMetadataChange(emptyAssetMetadata);
 
-    loadPreviewObject(currentFile, context.renderer, { usdLoadPolicy })
+    loadPreviewObject(currentFile, context.renderer, {
+      usdLoadPolicy,
+      variantSelections,
+    })
       .then(({ object, cleanupUrls, clips, formatVersion }) => {
         if (disposed) {
           disposeObject(object);
@@ -1754,6 +1765,7 @@ export function AssetViewport({
     onMetadataChange,
     showGrid,
     usdLoadPolicy,
+    variantSelections,
   ]);
 
   useEffect(() => {

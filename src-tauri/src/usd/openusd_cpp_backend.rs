@@ -35,7 +35,8 @@ use super::openusd_backend::{
 };
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, CompositionArc, CompositionArcState,
-    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary, VariantSetInfo,
+    ExtractGeometryOptions, PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
+    VariantSetInfo,
 };
 use super::cpp_sys::UpAxis;
 
@@ -159,11 +160,12 @@ impl UsdBackend for OpenusdCppBackend {
             if stage.prim_has_variants(prim_path) {
                 for set_name in stage.variant_set_names(prim_path) {
                     let selection = stage.variant_selection(prim_path, &set_name);
+                    let variants = stage.variant_names(prim_path, &set_name);
                     variant_sets.push(VariantSetInfo {
                         prim_path: prim_path.clone(),
                         set_name,
                         selection,
-                        variants: Vec::new(),
+                        variants,
                     });
                 }
             }
@@ -421,7 +423,42 @@ impl UsdBackend for OpenusdCppBackend {
         policy: StageLoadPolicy,
     ) -> Result<Vec<u8>, UsdError> {
         let stage = Self::open(path, policy)?;
+        extract_from_stage(&stage, path)
+    }
 
+    /// #31: options-aware override. Opens the stage, applies variant
+    /// selections via `set_variant_selection` on the stage's session
+    /// layer, then runs the full geometry extraction pipeline. Stateless:
+    /// the stage handle is opened fresh on every call.
+    fn extract_geometry_glb_with_options(
+        &self,
+        path: &StdPath,
+        options: &ExtractGeometryOptions,
+    ) -> Result<Vec<u8>, UsdError> {
+        let stage = Self::open(path, options.policy)?;
+        // Apply variant selections before traversal. The C++ shim writes
+        // these to the stage's session layer via
+        // UsdVariantSet::SetVariantSelection, so subsequent
+        // GetPrimAtPath / traverse calls see the overridden variant
+        // composition.
+        for vs in &options.variant_selections {
+            let ok = stage.set_variant_selection(
+                &vs.prim_path,
+                &vs.set_name,
+                &vs.variant_name,
+            );
+            if !ok {
+                eprintln!(
+                    "[usd-cpp] set_variant_selection failed: {} {} {}",
+                    vs.prim_path, vs.set_name, vs.variant_name,
+                );
+            }
+        }
+        extract_from_stage(&stage, path)
+    }
+}
+
+fn extract_from_stage(stage: &CStage, path: &StdPath) -> Result<Vec<u8>, UsdError> {
         // Z-up → Y-up baked into every mesh's world matrix so the GLB
         // is self-describing on the viewer side. Matches the Rust
         // fork backend's convention.
@@ -1008,7 +1045,6 @@ impl UsdBackend for OpenusdCppBackend {
 
         glb::build_glb(&inputs, &materials, &textures, &skins, &animations, &lights, &cameras)
             .map_err(|e| UsdError::Parse(e.to_string()))
-    }
 }
 
 fn identity_mat4() -> [f64; 16] {

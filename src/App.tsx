@@ -48,6 +48,7 @@ import {
   type StageInspection,
   type StageLoadPolicy,
   type StageSummary,
+  type VariantSelection,
 } from "./lib/usd";
 import {
   loadDiagnosticsSnapshot,
@@ -390,6 +391,11 @@ export function App() {
     proxy: false,
     guide: false,
   });
+  // #31: variant selections applied before geometry extraction.
+  // Populated by the UsdInspectorCard switcher pulldown.
+  const [variantSelections, setVariantSelections] = useState<
+    VariantSelection[]
+  >([]);
   const isTauri = isTauriEnvironment();
   // Browser mode needs recent files immediately for the always-visible MenuBar.
   // Tauri can keep this deferred until the sidebar is opened.
@@ -519,6 +525,10 @@ export function App() {
     setUsdIssues([]);
     setUsdInspectorLoading(true);
     setUsdInspectorError(null);
+    // #31: reset variant selections when a new file is opened so the
+    // pulldown reflects the authored defaults, not stale overrides from
+    // the previous file.
+    setVariantSelections([]);
 
     const path = currentFile.path;
 
@@ -1504,6 +1514,17 @@ export function App() {
                   summary={usdSummary}
                   loadPolicy={usdLoadPolicy}
                   onLoadPolicyChange={setUsdLoadPolicy}
+                  variantSelections={variantSelections}
+                  onVariantChange={(primPath, setName, variantName) => {
+                    setVariantSelections((prev) => {
+                      const next = prev.filter(
+                        (s) =>
+                          !(s.primPath === primPath && s.setName === setName),
+                      );
+                      next.push({ primPath, setName, variantName });
+                      return next;
+                    });
+                  }}
                 />
                 <Suspense fallback={<SidebarCardFallback />}>
                   <CompositionArcsCard
@@ -1681,6 +1702,7 @@ export function App() {
             onSelectMesh={setSelectedMeshName}
             selectedMeshName={selectedMeshName}
             purposeModes={purposeModes}
+            variantSelections={variantSelections}
           />
 
           {/* ViewModeControls overlay */}

@@ -3,6 +3,7 @@ import type {
   StageInspection,
   StageLoadPolicy,
   StageSummary,
+  VariantSelection,
 } from "../lib/usd";
 
 /** Pretty-print a numeric metadatum, falling back to "(default)" when
@@ -59,6 +60,20 @@ type UsdInspectorCardProps = {
    */
   loadPolicy: StageLoadPolicy | null;
   onLoadPolicyChange: (policy: StageLoadPolicy) => void;
+  /**
+   * #31: called when the user selects a different variant in the
+   * inspector pulldown. The parent (App.tsx) accumulates selections
+   * and re-triggers geometry extraction.
+   * Only wired when the backend can enumerate variants (C++ path).
+   */
+  onVariantChange?: (
+    primPath: string,
+    setName: string,
+    variantName: string,
+  ) => void;
+  /** #31: current variant selections mirrored from App state. Used to
+   * keep the pulldowns in sync after a re-mount (e.g. file re-open). */
+  variantSelections?: VariantSelection[];
 };
 
 export function UsdInspectorCard({
@@ -69,6 +84,8 @@ export function UsdInspectorCard({
   error,
   loadPolicy,
   onLoadPolicyChange,
+  onVariantChange,
+  variantSelections,
 }: UsdInspectorCardProps) {
   const showControl = loadPolicy !== null;
   return (
@@ -236,24 +253,72 @@ export function UsdInspectorCard({
                     </span>
                   </summary>
                   <ul className="card-list">
-                    {inspection.variantSets.map((vs, i) => (
-                      <li
-                        key={`${vs.primPath}:${vs.setName}:${i}`}
-                        className="issue"
-                      >
-                        <strong>{vs.setName}</strong>
-                        {vs.selection && (
-                          <>
-                            {" "}
-                            ={" "}
-                            <span className="badge badge-ok">
-                              {vs.selection}
-                            </span>
-                          </>
-                        )}
-                        <span className="muted"> @ {vs.primPath}</span>
-                      </li>
-                    ))}
+                    {inspection.variantSets.map((vs, i) => {
+                      // Resolve the currently active selection: prefer
+                      // the overridden value from variantSelections state
+                      // (if the user already changed it), then fall back
+                      // to the authored selection reported by the backend.
+                      const overrideEntry = variantSelections?.find(
+                        (s) =>
+                          s.primPath === vs.primPath &&
+                          s.setName === vs.setName,
+                      );
+                      // Fall back to the first available variant when no
+                      // selection is authored — OpenUSD implicitly picks
+                      // the first variant in that case, so mirroring that
+                      // default keeps the pulldown value in sync with
+                      // what the stage actually composes.
+                      const activeSelection =
+                        overrideEntry?.variantName ??
+                        vs.selection ??
+                        vs.variants[0] ??
+                        "";
+                      const canSwitch =
+                        vs.variants.length > 0 &&
+                        typeof onVariantChange === "function";
+                      return (
+                        <li
+                          key={`${vs.primPath}:${vs.setName}:${i}`}
+                          className="issue"
+                        >
+                          <strong>{vs.setName}</strong>
+                          {canSwitch ? (
+                            <>
+                              {" "}
+                              <select
+                                className="variant-select"
+                                value={activeSelection}
+                                onChange={(e) =>
+                                  onVariantChange(
+                                    vs.primPath,
+                                    vs.setName,
+                                    e.target.value,
+                                  )
+                                }
+                                title={`Switch variant set "${vs.setName}" on ${vs.primPath}`}
+                              >
+                                {vs.variants.map((v) => (
+                                  <option key={v} value={v}>
+                                    {v}
+                                  </option>
+                                ))}
+                              </select>
+                            </>
+                          ) : (
+                            activeSelection && (
+                              <>
+                                {" "}
+                                ={" "}
+                                <span className="badge badge-ok">
+                                  {activeSelection}
+                                </span>
+                              </>
+                            )
+                          )}
+                          <span className="muted"> @ {vs.primPath}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </details>
               )}

@@ -53,6 +53,7 @@
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/references.h>
 #include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usd/variantSets.h>
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/vec2d.h>
@@ -694,6 +695,50 @@ extern "C" USDC_API const char *usdc_prim_variant_selection(UsdcStage *stage,
         return stage->scratch.c_str();
     } catch (...) {
         return nullptr;
+    }
+}
+
+extern "C" USDC_API void usdc_prim_variant_names(UsdcStage *stage,
+                                                  const char *prim_path,
+                                                  const char *set_name,
+                                                  UsdcStringCallback cb,
+                                                  void *user) {
+    if (!cb || !set_name) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return;
+    swallow([&] {
+        UsdVariantSet vset = prim.GetVariantSet(set_name);
+        if (!vset.IsValid()) return;
+        const std::vector<std::string> names = vset.GetVariantNames();
+        for (const std::string &n : names) {
+            cb(n.c_str(), user);
+        }
+    });
+}
+
+extern "C" USDC_API int usdc_prim_set_variant_selection(UsdcStage *stage,
+                                                        const char *prim_path,
+                                                        const char *set_name,
+                                                        const char *variant_name) {
+    if (!stage || !set_name || !variant_name) return 0;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) return 0;
+    try {
+        /* Switch the edit target to the session layer so that the
+         * selection is authored as a session-layer opinion, not into
+         * the root layer (which may be read-only for package-backed
+         * files like USDZ). The session layer is always anonymous and
+         * writable — this is the standard pattern for transient
+         * run-time overrides in OpenUSD. */
+        UsdStageRefPtr stageRef = stage->stage;
+        SdfLayerHandle sessionLayer = stageRef->GetSessionLayer();
+        if (!sessionLayer) return 0;
+        UsdEditContext ctx(stageRef, sessionLayer);
+        UsdVariantSet vset = prim.GetVariantSet(set_name);
+        if (!vset.IsValid()) return 0;
+        return vset.SetVariantSelection(variant_name) ? 1 : 0;
+    } catch (...) {
+        return 0;
     }
 }
 
