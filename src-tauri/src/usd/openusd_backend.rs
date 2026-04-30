@@ -612,6 +612,15 @@ impl UsdBackend for OpenusdBackend {
             let point_count = mesh_data.points.len() / 3;
             let blend_shapes = resolve_blend_shapes(&stage, prim_path, point_count);
 
+            // Issue #43 displayOpacity: read `primvars:displayOpacity`
+            // from the stage for this mesh prim. The values are scalar
+            // floats in the same interpolation topology as
+            // `primvars:displayColor` (vertex, faceVarying, constant,
+            // …). `None` when not authored — alpha falls back to 1.0.
+            let display_opacity_vec = read_display_opacity(&stage, prim_path);
+            let display_opacity: Option<&[f32]> =
+                display_opacity_vec.as_deref();
+
             // GeomSubset: if the mesh has face subsets with material
             // bindings, produce one MeshInput per subset so each face
             // group gets its own material. Otherwise fall through to
@@ -646,6 +655,15 @@ impl UsdBackend for OpenusdBackend {
                     if filtered.face_vertex_counts.is_empty() {
                         continue;
                     }
+                    // Issue #43: opacity must be filtered alongside
+                    // the mesh data so faceVarying / uniform topologies
+                    // classify correctly against the subset's face
+                    // count rather than the whole mesh's.
+                    let subset_opacity_vec = display_opacity.map(|op| {
+                        filter_display_opacity_for_subset(op, &mesh_data, &subset.indices)
+                    });
+                    let subset_opacity: Option<&[f32]> =
+                        subset_opacity_vec.as_deref();
                     let subset_name = SdfPath::new(
                         &format!("{}/{}", prim_path.as_str(), subset.name),
                     )
@@ -657,6 +675,7 @@ impl UsdBackend for OpenusdBackend {
                         orientation,
                         max_joint,
                         &blend_shapes,
+                        subset_opacity,
                     )?;
 
                     // Resolve material: try authored binding first,
@@ -682,6 +701,21 @@ impl UsdBackend for OpenusdBackend {
                         &mut material_normal_paths,
                         &mut material_slots,
                     );
+                    // Issue #43: upgrade material to BLEND when any vertex
+                    // alpha is < 1.0 (same logic as the whole-mesh path).
+                    if let Some(ref rgba) = tri.colors {
+                        let has_partial_alpha = rgba
+                            .chunks_exact(4)
+                            .any(|c| c[3] < 1.0 - 1e-4);
+                        if has_partial_alpha {
+                            let mi = tri.material_index;
+                            if let Some(mat) = materials.get_mut(mi) {
+                                if mat.alpha_mode != Some(glb::AlphaMode::Mask) {
+                                    mat.alpha_mode = Some(glb::AlphaMode::Blend);
+                                }
+                            }
+                        }
+                    }
                     tri.skin_index = mesh_skin_slots[mesh_idx];
                     inputs.push(tri);
                 }
@@ -695,6 +729,7 @@ impl UsdBackend for OpenusdBackend {
                 orientation,
                 max_joint,
                 &blend_shapes,
+                display_opacity,
             )?;
 
             // Resolve the material slot for this mesh. Unbound meshes
@@ -717,6 +752,25 @@ impl UsdBackend for OpenusdBackend {
                 &mut material_normal_paths,
                 &mut material_slots,
             );
+
+            // Issue #43: when displayOpacity yields any alpha < 1.0 on
+            // a per-vertex COLOR_0, the bound material must use
+            // alphaMode BLEND so the renderer actually applies the
+            // vertex alpha. Only upgrade to BLEND — never downgrade
+            // from MASK which was explicitly authored.
+            if let Some(ref rgba) = triangulated.colors {
+                let has_partial_alpha = rgba
+                    .chunks_exact(4)
+                    .any(|c| c[3] < 1.0 - 1e-4);
+                if has_partial_alpha {
+                    let mi = triangulated.material_index;
+                    if let Some(mat) = materials.get_mut(mi) {
+                        if mat.alpha_mode != Some(glb::AlphaMode::Mask) {
+                            mat.alpha_mode = Some(glb::AlphaMode::Blend);
+                        }
+                    }
+                }
+            }
 
             // Phase 5c E: attach the dedup'd skin slot to this mesh
             // primitive. The mesh is rendered statically when no
@@ -2307,6 +2361,95 @@ fn read_vec2_input(
     }
 }
 
+/// Issue #43 displayOpacity: read `primvars:displayOpacity` from the
+/// stage for a given mesh prim. Returns the flat scalar array on
+/// success, or `None` when the primvar is not authored. The caller
+/// determines interpolation by comparing the length against the mesh
+/// topology (same pattern as `classify_attribute` uses for normals /
+/// displayColor).
+fn read_display_opacity(stage: &Stage, prim_path: &SdfPath) -> Option<Vec<f32>> {
+    let prop_path = prim_path
+        .append_property("primvars:displayOpacity")
+        .ok()?;
+    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    match value {
+        SdfValue::Float(f) => Some(vec![f]),
+        SdfValue::FloatVec(v) if !v.is_empty() => Some(v),
+        SdfValue::Double(d) => Some(vec![d as f32]),
+        SdfValue::DoubleVec(v) if !v.is_empty() => {
+            Some(v.iter().map(|&d| d as f32).collect())
+        }
+        _ => None,
+    }
+}
+
+/// Issue #43: filter a per-mesh `displayOpacity` array down to the
+/// faces referenced by a GeomSubset. Required because
+/// `mesh_data_to_input` classifies opacity interpolation by length
+/// against the *filtered* mesh topology (face_count / total_fv) — if
+/// we keep the original opacity array, faceVarying / uniform alphas
+/// classify as Unknown and silently fall back to 1.0, dropping the
+/// transparency for subset meshes.
+///
+/// `original_mesh` is the pre-filter `MeshData` (before
+/// `filter_mesh_by_face_indices` was applied), used to compute the
+/// face-vertex offsets that match the original opacity array.
+fn filter_display_opacity_for_subset(
+    opacity: &[f32],
+    original_mesh: &MeshData,
+    face_indices: &[u32],
+) -> Vec<f32> {
+    let face_count = original_mesh.face_vertex_counts.len();
+    let point_count = original_mesh.points.len() / 3;
+    let total_fv: usize = original_mesh
+        .face_vertex_counts
+        .iter()
+        .map(|c| *c as usize)
+        .sum();
+
+    if opacity.len() == total_fv {
+        // FaceVarying: copy the per-corner slices for each kept face.
+        let mut fv_offsets: Vec<usize> = Vec::with_capacity(face_count);
+        let mut cursor: usize = 0;
+        for &c in &original_mesh.face_vertex_counts {
+            fv_offsets.push(cursor);
+            cursor += c as usize;
+        }
+        let mut out = Vec::new();
+        for &fi in face_indices {
+            let fi = fi as usize;
+            if fi >= face_count {
+                continue;
+            }
+            let off = fv_offsets[fi];
+            let end = off + original_mesh.face_vertex_counts[fi] as usize;
+            out.extend_from_slice(&opacity[off..end]);
+        }
+        out
+    } else if opacity.len() == face_count {
+        // Uniform (one per face): pick the entries for kept faces.
+        let mut out = Vec::with_capacity(face_indices.len());
+        for &fi in face_indices {
+            let fi = fi as usize;
+            if fi < face_count {
+                out.push(opacity[fi]);
+            }
+        }
+        out
+    } else if opacity.len() == point_count || opacity.len() == 1 {
+        // Vertex (points are reused unchanged) or Constant: pass
+        // through — `mesh_data_to_input` will classify correctly
+        // because point_count and 1-element are unaffected by
+        // face-subset filtering.
+        opacity.to_vec()
+    } else {
+        // Unknown topology: pass through and let
+        // `classify_attribute` resolve to Unknown; the caller will
+        // safely fall back to alpha 1.0.
+        opacity.to_vec()
+    }
+}
+
 /// displayColor fallback: when the mesh has no bound material
 /// (slot==0) but carries a constant `primvars:displayColor`, create
 /// a unique material slot with that color as baseColorFactor.
@@ -3465,6 +3608,12 @@ pub(crate) fn mesh_data_to_input(
     orientation: MeshOrientation,
     max_joint: usize,
     blend_shapes: &[DenseBlendShape],
+    // Optional `primvars:displayOpacity` values — flat scalar array.
+    // Stride depends on interpolation (same topology as display_color):
+    // point_count scalars for vertex, total_fv for faceVarying,
+    // face_count for uniform, or 1 for constant.
+    // Pass `None` when the primvar is absent; all alphas default to 1.0.
+    display_opacity: Option<&[f32]>,
 ) -> Result<MeshInput, UsdError> {
     let point_count = data.points.len() / 3;
     if data.points.len() % 3 != 0 || point_count == 0 {
@@ -3535,6 +3684,14 @@ pub(crate) fn mesh_data_to_input(
     let color_kind = classify_attribute(
         data.display_color.as_ref().map(Vec::as_slice),
         3,
+        point_count,
+        total_face_vertices,
+        face_count,
+    );
+    // `displayOpacity` scalar-per-element: stride 1.
+    let opacity_kind = classify_attribute(
+        display_opacity,
+        1,
         point_count,
         total_face_vertices,
         face_count,
@@ -3686,6 +3843,7 @@ pub(crate) fn mesh_data_to_input(
                 }
 
                 if let Some(src) = &data.display_color {
+                    // RGB from displayColor.
                     match color_kind {
                         AttrKind::Vertex => {
                             colors.extend_from_slice(
@@ -3707,6 +3865,21 @@ pub(crate) fn mesh_data_to_input(
                         }
                         AttrKind::None | AttrKind::Unknown => {}
                     }
+                    // Alpha from displayOpacity — same interpolation topology
+                    // as the RGB but stride 1. Falls back to 1.0 when absent
+                    // or when opacity_kind could not classify the array.
+                    let alpha = if let Some(op_src) = display_opacity {
+                        match opacity_kind {
+                            AttrKind::Vertex => *op_src.get(point_index).unwrap_or(&1.0),
+                            AttrKind::FaceVarying => *op_src.get(fv_index).unwrap_or(&1.0),
+                            AttrKind::Uniform => *op_src.get(face_idx).unwrap_or(&1.0),
+                            AttrKind::Constant => *op_src.first().unwrap_or(&1.0),
+                            AttrKind::None | AttrKind::Unknown => 1.0,
+                        }
+                    } else {
+                        1.0
+                    };
+                    colors.push(alpha);
                 }
 
                 if has_skin {
@@ -4116,6 +4289,7 @@ mod tests {
             MeshOrientation::RightHanded,
             usize::MAX,
             &[],
+            None,
         )
         .expect_err("negative faceVertexCounts must be rejected");
         let UsdError::Parse(msg) = err else {
@@ -5898,7 +6072,9 @@ def Xform "Root"
 
         let accessors = doc["accessors"].as_array().expect("accessors array");
         let color_acc = &accessors[color_accessor_idx as usize];
-        assert_eq!(color_acc["type"], "VEC3", "COLOR_0 must be VEC3");
+        // Issue #43: COLOR_0 is now VEC4 (RGBA) — alpha from
+        // displayOpacity (default 1.0 when not authored).
+        assert_eq!(color_acc["type"], "VEC4", "COLOR_0 must be VEC4 (RGBA)");
         // componentType 5126 = FLOAT (glTF uses integer enum values).
         assert_eq!(color_acc["componentType"], 5126);
         // 3 triangle corners → 3 vertices in the expanded per-corner
@@ -7197,6 +7373,7 @@ def Xform "Root" (
             super::MeshOrientation::RightHanded,
             usize::MAX,
             &[],
+            None,
         )
         .expect("mesh_data_to_input");
 

@@ -638,6 +638,11 @@ impl UsdBackend for OpenusdCppBackend {
             let record_start = inputs.len();
 
             let subsets = collect_material_bind_subsets(&stage, prim_path);
+            // TODO(#43): read `primvars:displayOpacity` via shim once
+            // `usdc_mesh_display_opacity` is added to usd_c_shim.cpp.
+            // Until then all vertex alphas default to 1.0 (fully
+            // opaque) in the C++ backend path.
+            let display_opacity_cpp: Option<&[f32]> = None;
             if subsets.is_empty() {
                 let mut triangulated = mesh_data_to_input(
                     &sdf_path,
@@ -646,6 +651,7 @@ impl UsdBackend for OpenusdCppBackend {
                     orientation,
                     max_joint,
                     &blend_shapes,
+                    display_opacity_cpp,
                 )?;
                 let bound_slot = resolve_material_slot_cpp(
                     &stage,
@@ -688,6 +694,7 @@ impl UsdBackend for OpenusdCppBackend {
                         orientation,
                         max_joint,
                         &blend_shapes,
+                        display_opacity_cpp,
                     ) else {
                         continue;
                     };

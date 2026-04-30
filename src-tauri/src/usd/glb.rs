@@ -325,11 +325,14 @@ pub struct MeshInput {
     pub normals: Option<Vec<f32>>,
     /// Optional UV coordinates, length = vertex_count * 2.
     pub uvs: Option<Vec<f32>>,
-    /// Per-vertex RGB colors, length = `vertex_count * 3`. `Some`
+    /// Per-vertex RGBA colors, length = `vertex_count * 4`. `Some`
     /// when the source mesh carries `primvars:displayColor` with
-    /// per-vertex interpolation. Values are sRGB floats (0-1); the
-    /// GLB writer emits them as-is because glTF's `COLOR_0` is
-    /// interpreted as sRGB by Three.js when `vertexColors = true`.
+    /// per-vertex interpolation. RGB from `displayColor` (sRGB floats
+    /// 0-1); alpha from `primvars:displayOpacity` when authored, or
+    /// 1.0 when absent. The GLB writer emits them as-is because
+    /// glTF's `COLOR_0` VEC4 FLOAT is interpreted as sRGB by Three.js
+    /// when `vertexColors = true`; the non-opaque alpha activates the
+    /// material's `alphaMode: BLEND` path in the renderer.
     pub colors: Option<Vec<f32>>,
     /// Phase 5c E: optional 4-influence joint indices, length =
     /// `vertex_count * 4`. `Some` only for skinned meshes; the
@@ -879,7 +882,7 @@ pub fn build_glb(
                 "bufferView": view_idx,
                 "componentType": COMPONENT_TYPE_FLOAT,
                 "count": vertex_count,
-                "type": "VEC3",
+                "type": "VEC4",
             }));
             Some(acc_idx)
         } else {
