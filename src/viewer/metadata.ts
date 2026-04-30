@@ -295,11 +295,52 @@ function buildLightEntry(light: Light): LightEntry {
   };
 }
 
-function buildCameraEntry(camera: Camera): CameraEntry {
+/**
+ * Resolve the display name of a Camera for selection purposes. Strips
+ * the `_camera_node` wrapper suffix that the GLB exporter appends, and
+ * falls back to a sensible default when the camera is unnamed.
+ */
+export function cameraDisplayName(camera: Camera): string {
   const trimmed = stripFixtureSuffix(safeTrimmedName(camera), "_camera_node");
+  if (trimmed) return trimmed;
+  if (camera instanceof PerspectiveCamera) return "PerspectiveCamera";
+  if (camera instanceof OrthographicCamera) return "OrthographicCamera";
+  return camera.type;
+}
+
+/**
+ * Build the stable selection key for a Camera. Two cameras with the
+ * same display name produce keys `Camera`, `Camera#1`, `Camera#2`, …
+ * (the first occurrence keeps the bare name for backwards compatibility
+ * with name-based selection from before #34 follow-up).
+ *
+ * Stable across reloads when the authored camera order is unchanged —
+ * unlike Three.js `Object3D.uuid`, which gets minted fresh on every
+ * load and would drop the user's selection on every variant change.
+ *
+ * Pass the same `seenCounts` Map to consecutive calls in traversal
+ * order so the indices stay consistent between the metadata
+ * collection pass and the viewport's selection-lookup pass.
+ */
+export function cameraSelectionKey(
+  camera: Camera,
+  seenCounts: Map<string, number>,
+): string {
+  const name = cameraDisplayName(camera);
+  const seen = seenCounts.get(name) ?? 0;
+  seenCounts.set(name, seen + 1);
+  return seen === 0 ? name : `${name}#${seen}`;
+}
+
+function buildCameraEntry(
+  camera: Camera,
+  seenCounts: Map<string, number>,
+): CameraEntry {
+  const trimmed = stripFixtureSuffix(safeTrimmedName(camera), "_camera_node");
+  const id = cameraSelectionKey(camera, seenCounts);
   if (camera instanceof PerspectiveCamera) {
     return {
-      id: camera.uuid,
+      id,
       name: trimmed || "PerspectiveCamera",
       projection: "perspective",
       fov: camera.fov,
@@ -310,7 +351,7 @@ function buildCameraEntry(camera: Camera): CameraEntry {
   }
   if (camera instanceof OrthographicCamera) {
     return {
-      id: camera.uuid,
+      id,
       name: trimmed || "OrthographicCamera",
       projection: "orthographic",
       fov: null,
@@ -320,7 +361,7 @@ function buildCameraEntry(camera: Camera): CameraEntry {
     };
   }
   return {
-    id: camera.uuid,
+    id,
     name: trimmed || camera.type,
     projection: "perspective",
     fov: null,
@@ -348,6 +389,9 @@ export function collectAssetMetadata(
   const textureRegistry = new Map<string, Texture>();
   const lights: LightEntry[] = [];
   const cameras: CameraEntry[] = [];
+  // Tracks camera-name occurrences during traversal so duplicate-named
+  // cameras get suffixed selection ids (#1, #2, …).
+  const cameraSeenCounts = new Map<string, number>();
 
   object.traverse((child: Object3D) => {
     nodeCount += 1;
@@ -358,7 +402,7 @@ export function collectAssetMetadata(
     }
 
     if (child instanceof Camera) {
-      cameras.push(buildCameraEntry(child));
+      cameras.push(buildCameraEntry(child, cameraSeenCounts));
       return;
     }
 

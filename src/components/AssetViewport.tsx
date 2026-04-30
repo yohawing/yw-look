@@ -5,6 +5,7 @@ import {
   AnimationMixer,
   BackSide,
   BoxGeometry,
+  Camera,
   Color,
   DirectionalLight,
   Euler,
@@ -66,6 +67,7 @@ import {
   loadPreviewObject,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
+  cameraSelectionKey,
   createTextureViewerObject,
   getClipLabel,
   activateClip,
@@ -310,8 +312,18 @@ type AssetViewportProps = {
    * matching PerspectiveCamera node (by stripped name), uses it for
    * rendering, and disables OrbitControls so the transform is USD-driven.
    * The fly-cam (RMB+WASD) is also blocked while a USD camera is active.
+   *
+   * Uses the camera's stable Three.js uuid rather than its authored name
+   * so duplicate or unnamed cameras stay independently selectable.
    */
-  activeCameraName?: string | null;
+  activeCameraId?: string | null;
+  /** Called when the previously-selected USD camera disappears after a
+   * reload (variant / load-policy change → new Three.js scene with fresh
+   * uuids). The viewport falls back to the free camera but the React
+   * state in App.tsx still points at a uuid that no longer exists; this
+   * callback lets App reset that state so the UI is consistent and fly
+   * mode becomes available again. */
+  onActiveCameraReset?: () => void;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -512,7 +524,8 @@ export function AssetViewport({
   selectedMeshName,
   purposeModes,
   variantSelections,
-  activeCameraName = null,
+  activeCameraId = null,
+  onActiveCameraReset,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -568,12 +581,19 @@ export function AssetViewport({
   const onSelectMeshRef = useRef(onSelectMesh);
   const purposeModesRef = useRef(purposeModes);
   // #34: active USD camera. null = free orbit.
-  // activeCameraNameRef is read inside the render loop / pointer handlers to
+  // activeCameraIdRef is read inside the render loop / pointer handlers to
   // guard fly mode without causing the big scene-init effect to re-run.
-  const activeCameraNameRef = useRef(activeCameraName);
-  // The actual Three.js PerspectiveCamera found by traversal. null = use the
-  // scene's own free camera (context.camera).
-  const activeCameraRef = useRef<PerspectiveCamera | null>(null);
+  const activeCameraIdRef = useRef(activeCameraId);
+  // #34 codex P2: callback used when a stale camera id survives a reload —
+  // the post-load callback runs inside a Three.js Promise chain that does
+  // not see prop changes, so we hold the latest setter in a ref.
+  const onActiveCameraResetRef = useRef(onActiveCameraReset);
+  onActiveCameraResetRef.current = onActiveCameraReset;
+  // The actual Three.js camera found by traversal. null = use the scene's
+  // own free camera (context.camera). Stored as `Camera` (not the narrower
+  // PerspectiveCamera) so OrthographicCamera USD cameras are also usable —
+  // both subtypes satisfy the WebGLRenderer.render(scene, camera) contract.
+  const activeCameraRef = useRef<Camera | null>(null);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -717,16 +737,19 @@ export function AssetViewport({
   }, [purposeModes]);
 
   // #34: USD camera switching.
-  // When activeCameraName changes we traverse the mounted scene graph looking
-  // for a PerspectiveCamera whose stripped name matches. Found → set as the
-  // active render camera and disable OrbitControls (transform is USD-driven).
-  // null → revert to the free-orbit camera and re-enable controls.
+  // When activeCameraId changes we traverse the mounted scene graph looking
+  // for the camera with that uuid. Found → set as the active render camera
+  // and disable OrbitControls (transform is USD-driven). null → revert to
+  // the free-orbit camera and re-enable controls.
+  //
+  // We accept both PerspectiveCamera and OrthographicCamera here — the
+  // renderer only needs a `Camera`. Aspect updates are PerspectiveCamera-only.
   useEffect(() => {
-    activeCameraNameRef.current = activeCameraName;
+    activeCameraIdRef.current = activeCameraId;
     const context = sceneContextRef.current;
     if (!context) return;
 
-    if (!activeCameraName) {
+    if (!activeCameraId) {
       // Restore free-orbit camera
       activeCameraRef.current = null;
       const hasMounted = Boolean(context.mountedObject);
@@ -736,44 +759,49 @@ export function AssetViewport({
 
     // Traverse the full scene (not just mountedObject) so cameras that sit
     // in the scene root (e.g. glTF cameras added directly by GLTFLoader) are
-    // also found.
-    let found: PerspectiveCamera | null = null;
+    // also found. Match by `cameraSelectionKey` — a (display-name,
+    // index-among-same-name) composite that survives variant / load-policy
+    // reloads (uuids would not) and still distinguishes duplicate-named
+    // cameras. The traversal order must mirror `collectAssetMetadata`'s so
+    // the index counters line up.
+    let found: Camera | null = null;
+    const seenCounts = new Map<string, number>();
     context.scene.traverse((child) => {
       if (found) return;
-      if (!(child instanceof PerspectiveCamera)) return;
-      // The backend appends `_camera_node` to the wrapper node name; the
-      // camera object itself carries the stripped (authored) name. We match
-      // both to be safe.
-      const rawName = typeof child.name === "string" ? child.name.trim() : "";
-      const strippedName = rawName.endsWith("_camera_node")
-        ? rawName.slice(0, -"_camera_node".length)
-        : rawName;
-      if (strippedName === activeCameraName || rawName === activeCameraName) {
+      if (!(child instanceof Camera)) return;
+      const key = cameraSelectionKey(child, seenCounts);
+      if (key === activeCameraId) {
         found = child;
       }
     });
 
     if (found) {
-      activeCameraRef.current = found;
+      const foundCamera: Camera = found;
+      activeCameraRef.current = foundCamera;
       context.controls.enabled = false;
       // Sync aspect to the current viewport size so the USD camera renders
-      // without distortion. updateProjectionMatrix is called here; the
-      // ResizeObserver will keep it in sync on future resizes.
+      // without distortion. Only meaningful for PerspectiveCamera; the
+      // OrthographicCamera frustum is authored, not aspect-driven, so we
+      // leave its left/right/top/bottom alone.
       const host = hostRef.current;
-      if (host && host.clientWidth > 0 && host.clientHeight > 0) {
-        (found as PerspectiveCamera).aspect =
-          host.clientWidth / host.clientHeight;
-        (found as PerspectiveCamera).updateProjectionMatrix();
+      if (
+        host &&
+        host.clientWidth > 0 &&
+        host.clientHeight > 0 &&
+        foundCamera instanceof PerspectiveCamera
+      ) {
+        foundCamera.aspect = host.clientWidth / host.clientHeight;
+        foundCamera.updateProjectionMatrix();
       }
     } else {
       console.warn(
-        `[viewer] USD camera "${activeCameraName}" not found in scene graph — falling back to free camera`,
+        `[viewer] USD camera "${activeCameraId}" not found in scene graph — falling back to free camera`,
       );
       activeCameraRef.current = null;
       const hasMounted = Boolean(context.mountedObject);
       context.controls.enabled = hasMounted;
     }
-  }, [activeCameraName]);
+  }, [activeCameraId]);
 
   useEffect(() => {
     cameraSpeedMultiplierRef.current = cameraSpeedMultiplier;
@@ -1060,7 +1088,7 @@ export function AssetViewport({
 
     const enterFlyMode = () => {
       // #34: fly mode is only available for the free-orbit camera.
-      if (activeCameraNameRef.current) return;
+      if (activeCameraIdRef.current) return;
       if (flyState.active) return;
       flyState.active = true;
       flyHeldKeys.clear();
@@ -1230,8 +1258,10 @@ export function AssetViewport({
       camera.aspect = nextSize.x / nextSize.y;
       camera.updateProjectionMatrix();
       // #34: keep the active USD camera's aspect in sync on resize.
+      // OrthographicCamera frustums are authored and don't follow window
+      // aspect, so we only re-apply this for PerspectiveCamera.
       const usdCam = activeCameraRef.current;
-      if (usdCam && nextSize.y > 0) {
+      if (usdCam instanceof PerspectiveCamera && nextSize.y > 0) {
         usdCam.aspect = nextSize.x / nextSize.y;
         usdCam.updateProjectionMatrix();
       }
@@ -1805,42 +1835,52 @@ export function AssetViewport({
         // activeCameraRef was cleared by the file-change guard above, so
         // the render loop is already back on the free camera; traversing
         // here restores the override without waiting for another prop
-        // change (which would never come because activeCameraName didn't
+        // change (which would never come because activeCameraId did not
         // change).
-        const desiredCamera = activeCameraNameRef.current;
-        if (desiredCamera) {
-          let reFound: PerspectiveCamera | null = null;
+        //
+        // After a real re-extraction Three.js mints fresh uuids, so we
+        // match by `cameraSelectionKey` (display-name + dup-index) — that
+        // key is computed from authored data and remains stable across
+        // reloads as long as the camera order in the scene graph does
+        // not change.
+        const desiredCameraId = activeCameraIdRef.current;
+        if (desiredCameraId) {
+          let reFound: Camera | null = null;
+          const reSeenCounts = new Map<string, number>();
           context.scene.traverse((child) => {
             if (reFound) return;
-            if (!(child instanceof PerspectiveCamera)) return;
-            const rawN =
-              typeof child.name === "string" ? child.name.trim() : "";
-            const stripped = rawN.endsWith("_camera_node")
-              ? rawN.slice(0, -"_camera_node".length)
-              : rawN;
-            if (stripped === desiredCamera || rawN === desiredCamera) {
+            if (!(child instanceof Camera)) return;
+            const key = cameraSelectionKey(child, reSeenCounts);
+            if (key === desiredCameraId) {
               reFound = child;
             }
           });
           if (reFound) {
-            activeCameraRef.current = reFound;
+            const reFoundCamera: Camera = reFound;
+            activeCameraRef.current = reFoundCamera;
             context.controls.enabled = false;
             const host2 = hostRef.current;
-            if (host2 && host2.clientWidth > 0 && host2.clientHeight > 0) {
-              (reFound as PerspectiveCamera).aspect =
-                host2.clientWidth / host2.clientHeight;
-              (reFound as PerspectiveCamera).updateProjectionMatrix();
+            if (
+              host2 &&
+              host2.clientWidth > 0 &&
+              host2.clientHeight > 0 &&
+              reFoundCamera instanceof PerspectiveCamera
+            ) {
+              reFoundCamera.aspect = host2.clientWidth / host2.clientHeight;
+              reFoundCamera.updateProjectionMatrix();
             }
           } else {
-            // Camera not present in the reloaded asset — clear the name
-            // via the ref so the UI stays consistent. We cannot call the
-            // React state setter here (we are inside a Three.js async
-            // callback), but activeCameraRef is already null, so the
-            // renderer falls back gracefully. The mismatch will persist
-            // until the user manually deselects the camera in the UI.
+            // Camera not present in the reloaded asset (typical after a
+            // variant / load-policy change because Three.js mints fresh
+            // uuids on every load). Clear the stale id locally so fly
+            // mode (which checks `activeCameraIdRef`) becomes available
+            // again, and bubble the reset to App.tsx so the React state +
+            // UI ("Free Orbit"/"Active" badges) match the renderer.
             console.warn(
-              `[viewer] USD camera "${desiredCamera}" not found after reload — free camera restored`,
+              `[viewer] USD camera id "${desiredCameraId}" not found after reload — free camera restored`,
             );
+            activeCameraIdRef.current = null;
+            onActiveCameraResetRef.current?.();
           }
         }
 

@@ -398,8 +398,10 @@ export function App() {
     proxy: false,
     guide: false,
   });
-  // #34: active USD camera name. null = free orbit.
-  const [activeCameraName, setActiveCameraName] = useState<string | null>(null);
+  // #34: active USD camera id (Three.js uuid). null = free orbit. Using
+  // the uuid rather than the authored name keeps duplicate / unnamed
+  // cameras independently selectable.
+  const [activeCameraId, setActiveCameraId] = useState<string | null>(null);
   // #31: variant selections applied before geometry extraction.
   // Populated by the UsdInspectorCard switcher pulldown.
   const [variantSelections, setVariantSelections] = useState<
@@ -854,7 +856,7 @@ export function App() {
     setSelectedUsdPrimPath(null);
     // #34: reset active camera to free orbit when a new file is opened so
     // the camera list in the new asset does not inherit a stale override.
-    setActiveCameraName(null);
+    setActiveCameraId(null);
   }, [currentFile?.path]);
 
   useEffect(() => {
@@ -1556,8 +1558,8 @@ export function App() {
               <SceneLightsCamerasCard
                 lights={assetMetadata.lights}
                 cameras={assetMetadata.cameras}
-                activeCameraName={activeCameraName}
-                onSelectCamera={setActiveCameraName}
+                activeCameraId={activeCameraId}
+                onSelectCamera={setActiveCameraId}
               />
             )}
             <PerformanceCard snapshot={performanceSnapshot} />
@@ -1733,7 +1735,8 @@ export function App() {
             selectedMeshName={selectedMeshName}
             purposeModes={purposeModes}
             variantSelections={variantSelections}
-            activeCameraName={activeCameraName}
+            activeCameraId={activeCameraId}
+            onActiveCameraReset={() => setActiveCameraId(null)}
           />
 
           {/* ViewModeControls overlay */}

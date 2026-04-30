@@ -53,6 +53,8 @@ export { loadPreviewObject, tryExtractUsdaText } from "./loaders";
 export {
   collectAssetMetadata,
   buildMissingReferenceMetadata,
+  cameraDisplayName,
+  cameraSelectionKey,
 } from "./metadata";
 export type { MetadataCollection } from "./metadata";
 

@@ -40,7 +40,7 @@ describe("SceneLightsCamerasCard – USD camera switcher (#34)", () => {
       <SceneLightsCamerasCard
         lights={lights}
         cameras={cameras}
-        activeCameraName={null}
+        activeCameraId={null}
         onSelectCamera={vi.fn()}
       />,
     );
@@ -53,7 +53,7 @@ describe("SceneLightsCamerasCard – USD camera switcher (#34)", () => {
       <SceneLightsCamerasCard
         lights={lights}
         cameras={cameras}
-        activeCameraName={null}
+        activeCameraId={null}
         onSelectCamera={vi.fn()}
       />,
     );
@@ -68,19 +68,19 @@ describe("SceneLightsCamerasCard – USD camera switcher (#34)", () => {
     expect(buttons).toHaveLength(0);
   });
 
-  it("calls onSelectCamera with the camera name when View is clicked", () => {
+  it("calls onSelectCamera with the camera id when View is clicked", () => {
     const onSelect = vi.fn();
     const { getAllByRole } = render(
       <SceneLightsCamerasCard
         lights={lights}
         cameras={cameras}
-        activeCameraName={null}
+        activeCameraId={null}
         onSelectCamera={onSelect}
       />,
     );
     const viewButtons = getAllByRole("button", { name: /View/i });
     fireEvent.click(viewButtons[0]);
-    expect(onSelect).toHaveBeenCalledWith("ShotCam");
+    expect(onSelect).toHaveBeenCalledWith("cam-1");
   });
 
   it("calls onSelectCamera with null when the active camera button is clicked (toggle off)", () => {
@@ -89,7 +89,7 @@ describe("SceneLightsCamerasCard – USD camera switcher (#34)", () => {
       <SceneLightsCamerasCard
         lights={lights}
         cameras={cameras}
-        activeCameraName="ShotCam"
+        activeCameraId="cam-1"
         onSelectCamera={onSelect}
       />,
     );
@@ -104,7 +104,7 @@ describe("SceneLightsCamerasCard – USD camera switcher (#34)", () => {
       <SceneLightsCamerasCard
         lights={lights}
         cameras={cameras}
-        activeCameraName="ShotCam"
+        activeCameraId="cam-1"
         onSelectCamera={onSelect}
       />,
     );
@@ -117,12 +117,56 @@ describe("SceneLightsCamerasCard – USD camera switcher (#34)", () => {
       <SceneLightsCamerasCard
         lights={lights}
         cameras={cameras}
-        activeCameraName="CloseUp"
+        activeCameraId="cam-2"
         onSelectCamera={vi.fn()}
       />,
     );
     const activeBtn = getByRole("button", { name: /Active/i });
     expect(activeBtn.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("keeps duplicate-named cameras independently selectable via id", () => {
+    // Regression for codex P2: when two cameras share a display name,
+    // matching by uuid (id) prevents both rows from looking active and
+    // both clicks from firing the same selection.
+    const dupes: CameraEntry[] = [
+      {
+        id: "dup-1",
+        name: "Camera",
+        projection: "perspective",
+        fov: 45,
+        aspect: 1.0,
+        near: 0.1,
+        far: 100,
+      },
+      {
+        id: "dup-2",
+        name: "Camera",
+        projection: "perspective",
+        fov: 60,
+        aspect: 1.0,
+        near: 0.1,
+        far: 100,
+      },
+    ];
+    const onSelect = vi.fn();
+    const { getAllByRole } = render(
+      <SceneLightsCamerasCard
+        lights={lights}
+        cameras={dupes}
+        activeCameraId="dup-2"
+        onSelectCamera={onSelect}
+      />,
+    );
+    const buttons = getAllByRole("button");
+    // Two camera rows + one Free Orbit button = 3 total.
+    expect(buttons).toHaveLength(3);
+    // Only the second camera shows "Active"; the first still shows "View".
+    expect(getAllByRole("button", { name: /Active/i })).toHaveLength(1);
+    expect(getAllByRole("button", { name: /View/i })).toHaveLength(1);
+    // Clicking the View button targets dup-1, not dup-2.
+    fireEvent.click(getAllByRole("button", { name: /View/i })[0]);
+    expect(onSelect).toHaveBeenCalledWith("dup-1");
   });
 
   it("returns null when there are no lights or cameras", () => {
