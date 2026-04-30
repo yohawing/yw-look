@@ -13,6 +13,16 @@ export type TextureEntry = {
   sourceKind: "embedded" | "external" | "standalone" | "unresolved" | "unknown";
 };
 
+/** A texture slot in a material, carrying only the name so the inspector
+ * can display the source without needing to transfer the GPU texture object
+ * across the viewer boundary. */
+export type MaterialTextureSlot = {
+  /** Three.js `Texture.name`, or the userData-derived path when available.
+   * Falls back to the slot label (e.g. `"Base Color"`) when no name is
+   * present on the texture. */
+  name: string;
+};
+
 export type MaterialEntry = {
   id: string;
   name: string;
@@ -28,6 +38,33 @@ export type MaterialEntry = {
    * and a single mesh authoring an array material appears once per
    * slot. Empty when no mesh references the material (rare). */
   boundMeshes: string[];
+
+  // ── Shader input slot detail (Issue #36) ──────────────────────────────
+  /** RGBA base color factor. Alpha is derived from `Material.opacity`.
+   * Present only for `MeshStandardMaterial` / `MeshPhongMaterial` /
+   * `MeshBasicMaterial`; `null` otherwise. */
+  baseColorFactor: [number, number, number, number] | null;
+  /** `MeshStandardMaterial.metalness`. `null` for non-standard materials. */
+  metallicFactor: number | null;
+  /** `MeshStandardMaterial.roughness`. `null` for non-standard materials. */
+  roughnessFactor: number | null;
+  /** RGB emissive factor. Present for Standard / Phong; `null` otherwise. */
+  emissiveFactor: [number, number, number] | null;
+  /** Base-color / albedo texture, or `null` when none is assigned. */
+  baseColorTexture: MaterialTextureSlot | null;
+  /** Combined metallic-roughness texture (`metalnessMap`), or `null`. */
+  metallicRoughnessTexture: MaterialTextureSlot | null;
+  /** Normal map texture, or `null`. */
+  normalTexture: MaterialTextureSlot | null;
+  /** Emissive texture, or `null`. */
+  emissiveTexture: MaterialTextureSlot | null;
+  /** Alpha handling mode inferred from Three.js material flags and
+   * `userData.gltfAlphaMode` when the glTF extras carry it. */
+  alphaMode: "OPAQUE" | "MASK" | "BLEND" | "unknown";
+  /** USD prim path surfaced through `material.userData.usdPrimPath` when
+   * the asset went through the Phase-7 USD→GLB pipeline. `null` when the
+   * round-trip drops the prim path (the common case for pure-GLB assets). */
+  usdPrimPath: string | null;
 };
 
 /** One light surfaced in the scene panel. Authored by USD as

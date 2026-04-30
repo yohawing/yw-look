@@ -1402,6 +1402,74 @@ textarea {
   text-overflow: ellipsis;
 }
 
+/* ── Material Shader Slot Detail ── (#36) */
+
+.material-shader-details {
+  margin-top: 4px;
+}
+
+.mat-slot-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.mat-slot-row td {
+  padding: 1px 0;
+  vertical-align: middle;
+}
+
+.mat-slot-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #62666d;
+  white-space: nowrap;
+  padding-right: 8px;
+  min-width: 72px;
+}
+
+.mat-slot-value {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #8a8f98;
+  word-break: break-all;
+}
+
+.mat-slot-hex {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #8a8f98;
+}
+
+.mat-slot-alpha {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #62666d;
+}
+
+.mat-slot-texture {
+  color: #7a7fad;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.mat-slot-prim-path {
+  color: #7a7fad;
+  word-break: break-all;
+}
+
+.mat-inline-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
 /* ── USD Source ── (#39) */
 
 .usd-source {

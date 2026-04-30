@@ -1,6 +1,7 @@
 import {
   AnimationClip,
   Camera,
+  Color,
   Group,
   Light,
   Material,
@@ -20,6 +21,7 @@ import type {
   HierarchyNode,
   LightEntry,
   MaterialEntry,
+  MaterialTextureSlot,
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { getMaterials } from "./scene";
@@ -86,6 +88,41 @@ function countMaterialTextures(material: Material): number {
   return count;
 }
 
+/** Extract a `MaterialTextureSlot` from a Three.js `Texture`, falling back
+ * to `slotLabel` when the texture has no meaningful name. Returns `null`
+ * when `texture` is falsy. */
+function textureSlot(
+  texture: Texture | null | undefined,
+  slotLabel: string,
+): MaterialTextureSlot | null {
+  if (!(texture instanceof Texture)) return null;
+  const name =
+    texture.name.trim() ||
+    (typeof texture.userData?.path === "string" && texture.userData.path
+      ? texture.userData.path
+      : slotLabel);
+  return { name };
+}
+
+/** Infer the glTF alpha mode from Three.js material flags. Prefers the
+ * value stored in `material.userData.gltfAlphaMode` if the GLTFLoader
+ * wrote it. Falls back to heuristics for non-glTF assets. */
+function inferAlphaMode(
+  material: Material,
+): "OPAQUE" | "MASK" | "BLEND" | "unknown" {
+  const ud = material.userData as Record<string, unknown>;
+  if (
+    ud.gltfAlphaMode === "OPAQUE" ||
+    ud.gltfAlphaMode === "MASK" ||
+    ud.gltfAlphaMode === "BLEND"
+  ) {
+    return ud.gltfAlphaMode as "OPAQUE" | "MASK" | "BLEND";
+  }
+  if (material.transparent) return "BLEND";
+  if (material.alphaTest > 0) return "MASK";
+  return "OPAQUE";
+}
+
 function buildMaterialEntry(
   material: Material,
   boundMeshes: string[],
@@ -93,6 +130,50 @@ function buildMaterialEntry(
   const typeName = material.type
     .replace("Material", "")
     .replace(/([a-z])([A-Z])/g, "$1 $2");
+
+  // ── Per-type shader slot extraction ──────────────────────────────────
+  let baseColorFactor: [number, number, number, number] | null = null;
+  let metallicFactor: number | null = null;
+  let roughnessFactor: number | null = null;
+  let emissiveFactor: [number, number, number] | null = null;
+  let baseColorTexture: MaterialTextureSlot | null = null;
+  let metallicRoughnessTexture: MaterialTextureSlot | null = null;
+  let normalTexture: MaterialTextureSlot | null = null;
+  let emissiveTexture: MaterialTextureSlot | null = null;
+
+  if (material instanceof MeshStandardMaterial) {
+    const c = material.color;
+    baseColorFactor = [c.r, c.g, c.b, material.opacity];
+    metallicFactor = material.metalness;
+    roughnessFactor = material.roughness;
+    const e = material.emissive as Color;
+    emissiveFactor = [e.r, e.g, e.b];
+    baseColorTexture = textureSlot(material.map, "Base Color");
+    metallicRoughnessTexture = textureSlot(
+      material.metalnessMap,
+      "Metallic-Roughness",
+    );
+    normalTexture = textureSlot(material.normalMap, "Normal");
+    emissiveTexture = textureSlot(material.emissiveMap, "Emissive");
+  } else if (material instanceof MeshPhongMaterial) {
+    const c = material.color;
+    baseColorFactor = [c.r, c.g, c.b, material.opacity];
+    const e = material.emissive as Color;
+    emissiveFactor = [e.r, e.g, e.b];
+    baseColorTexture = textureSlot(material.map, "Base Color");
+    normalTexture = textureSlot(material.normalMap, "Normal");
+    emissiveTexture = textureSlot(material.emissiveMap, "Emissive");
+  } else if (material instanceof MeshBasicMaterial) {
+    const c = material.color;
+    baseColorFactor = [c.r, c.g, c.b, material.opacity];
+    baseColorTexture = textureSlot(material.map, "Base Color");
+  }
+
+  const ud = material.userData as Record<string, unknown>;
+  const usdPrimPath =
+    typeof ud.usdPrimPath === "string" && ud.usdPrimPath
+      ? ud.usdPrimPath
+      : null;
 
   return {
     id: material.uuid,
@@ -103,6 +184,16 @@ function buildMaterialEntry(
     transparent: material.transparent,
     textureCount: countMaterialTextures(material),
     boundMeshes,
+    baseColorFactor,
+    metallicFactor,
+    roughnessFactor,
+    emissiveFactor,
+    baseColorTexture,
+    metallicRoughnessTexture,
+    normalTexture,
+    emissiveTexture,
+    alphaMode: inferAlphaMode(material),
+    usdPrimPath,
   };
 }
 
