@@ -43,11 +43,12 @@ describe("collectAssetMetadata", () => {
     expect(() => collectAssetMetadata(root, fakeFile, [], null)).not.toThrow();
   });
 
-  it("emits empty string for null-named nodes (HierarchyCard substitutes the (unnamed) display label)", () => {
-    // Storing the placeholder string in the data layer would leak it
-    // into USD prim path construction (#28) and trigger Ill-formed
-    // SdfPath warnings. The display layer adds the "(unnamed)" label
-    // purely for the visible row.
+  it("preserves an unnamed Group root for non-USD assets (DAE/OBJ unnamed groups stay visible)", () => {
+    // The synthetic-wrapper predicate is intentionally narrow: an
+    // unnamed Group is only collapsed when it sits next to a `__upAxis`
+    // child (the unique marker of yw-look's USD→GLB pipeline). DAE and
+    // OBJ loaders frequently produce legitimate unnamed Groups that
+    // must remain in the tree.
     const root = new Group();
     (root as unknown as { name: unknown }).name = null;
 
@@ -55,11 +56,70 @@ describe("collectAssetMetadata", () => {
     expect(result.metadata.hierarchy[0]?.name).toBe("");
   });
 
+  it("inlines an unnamed Group wrapper's children when it parents __upAxis (USD pipeline marker)", () => {
+    // The combination "unnamed Group with a __upAxis child" is a
+    // pipeline-internal wrapper from #46 and should be elided so the
+    // user-facing hierarchy starts at the actual USD stage root.
+    const root = new Group();
+    (root as unknown as { name: unknown }).name = null;
+    const upAxis = new Group();
+    upAxis.name = "__upAxis";
+    const stageRoot = new Group();
+    stageRoot.name = "Kitchen_set";
+    upAxis.add(stageRoot);
+    root.add(upAxis);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    expect(result.metadata.hierarchy.map((n) => n.name)).toEqual([
+      "Kitchen_set",
+    ]);
+  });
+
+  it("hides the __upAxis synthetic node from the user-facing hierarchy", () => {
+    // #46 inserts a single `__upAxis` node carrying the Z→Y rotation
+    // matrix; it is a plumbing detail and should never surface in the UI.
+    const root = new Group();
+    root.name = "scene";
+    const upAxis = new Group();
+    upAxis.name = "__upAxis";
+    const stageRoot = new Group();
+    stageRoot.name = "Kitchen_set";
+    upAxis.add(stageRoot);
+    root.add(upAxis);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    // The named outer "scene" Group IS surfaced (it has a name); the
+    // __upAxis wrapper is inlined so Kitchen_set becomes a direct child.
+    expect(result.metadata.hierarchy[0]?.name).toBe("scene");
+    expect(result.metadata.hierarchy[0]?.children.map((c) => c.name)).toEqual([
+      "Kitchen_set",
+    ]);
+  });
+
   it("preserves real names when present", () => {
     const root = new Group();
     root.name = "MyRoot";
     const result = collectAssetMetadata(root, fakeFile, [], null);
     expect(result.metadata.hierarchy[0]?.name).toBe("MyRoot");
+  });
+
+  it("derives display label from primPath basename to bypass GLTFLoader name suffixing", () => {
+    // Three.js GLTFLoader appends `_1`, `_2` ... when glTF node names
+    // collide globally (Kitchen_set has many sibling `Geom` xforms).
+    // For USD-sourced nodes we surface the SdfPath basename instead so
+    // the UI matches what usdview shows.
+    const root = new Group();
+    root.name = "scene";
+    const colliding = new Group();
+    colliding.name = "Geom_1";
+    colliding.userData.primPath = "/Kitchen_set/Props_grp/Ceiling_grp/Geom";
+    root.add(colliding);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    expect(result.metadata.hierarchy[0]?.children[0]?.name).toBe("Geom");
+    expect(result.metadata.hierarchy[0]?.children[0]?.primPath).toBe(
+      "/Kitchen_set/Props_grp/Ceiling_grp/Geom",
+    );
   });
 
   it("enumerates Three.js Light children as USD light entries (#35)", () => {

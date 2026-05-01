@@ -2520,9 +2520,9 @@ fn build_node_tree_cpp(
     skin_slots: &std::collections::HashMap<String, usize>,
     instancing: &[glb::InstancingInput],
 ) -> Vec<glb::NodeInput> {
-    use std::collections::{BTreeMap, HashMap, HashSet};
+    use std::collections::{HashMap, HashSet};
 
-    let mut path_to_kind: BTreeMap<String, glb::NodeKind> = BTreeMap::new();
+    let mut path_to_kind: HashMap<String, glb::NodeKind> = HashMap::new();
     let mut path_to_mesh_idx: HashMap<String, usize> = HashMap::new();
     let mut path_to_light_idx: HashMap<String, usize> = HashMap::new();
     let mut path_to_camera_idx: HashMap<String, usize> = HashMap::new();
@@ -2597,9 +2597,35 @@ fn build_node_tree_cpp(
         }
     }
 
-    // BTreeMap iteration is lexicographically sorted; for SdfPaths this
-    // is also a valid topological order (parent before child).
-    let sorted_paths: Vec<String> = path_to_kind.keys().cloned().collect();
+    // Order the NodeInput slice by USD *authored* order rather than
+    // lexicographic SdfPath sort. `CStage::traverse` walks the stage
+    // depth-first in scene-graph order (matching what usdview shows in
+    // its "Prim Hierarchy" panel), so a Kitchen_set whose Props_grp
+    // authors `Ceiling_grp / DiningTable_grp / North_grp / West_grp` in
+    // that order surfaces here in that order — not the alphabetical
+    // C/D/N/W a BTreeMap would produce. Paths in our `path_to_kind` set
+    // that are missing from the traverse output (rare; would imply a
+    // composition bug) are appended afterwards in lexicographic order
+    // so we still emit them deterministically.
+    let traversal_paths = stage.traverse();
+    let mut sorted_paths: Vec<String> = Vec::with_capacity(path_to_kind.len());
+    let mut emitted: HashSet<String> = HashSet::new();
+    for path in &traversal_paths {
+        if path_to_kind.contains_key(path) && !emitted.contains(path) {
+            emitted.insert(path.clone());
+            sorted_paths.push(path.clone());
+        }
+    }
+    if emitted.len() < path_to_kind.len() {
+        let mut leftovers: Vec<String> = path_to_kind
+            .keys()
+            .filter(|k| !emitted.contains(*k))
+            .cloned()
+            .collect();
+        leftovers.sort();
+        sorted_paths.extend(leftovers);
+    }
+
     let mut path_to_ni_idx: HashMap<String, usize> = HashMap::new();
     for (idx, p) in sorted_paths.iter().enumerate() {
         path_to_ni_idx.insert(p.clone(), idx);

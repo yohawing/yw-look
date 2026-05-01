@@ -51,6 +51,39 @@ function safeTrimmedName(object: Object3D): string {
   return rawName.trim();
 }
 
+/** Last component of a SdfPath (e.g. `"/A/B/Cube"` → `"Cube"`). */
+function basenameFromPrimPath(primPath: string): string {
+  const idx = primPath.lastIndexOf("/");
+  if (idx < 0) return primPath;
+  return primPath.slice(idx + 1);
+}
+
+/** True for nodes that yw-look's USD→GLB pipeline inserts internally
+ * and that should never appear in the user-facing hierarchy. The
+ * predicate is intentionally narrow so non-USD formats (DAE, OBJ, …)
+ * with their own legitimate unnamed groups are unaffected:
+ *  - `__upAxis`: synthetic Z→Y correction wrapper (#46)
+ *  - GLTFLoader's outer scene root, but ONLY when it is the parent of
+ *    a `__upAxis` node — that pairing uniquely identifies our pipeline
+ *    and avoids collapsing genuine unnamed Groups produced by other
+ *    loaders (ColladaLoader, GLTFLoader for non-yw-look glTF, …). */
+function isSyntheticWrapper(object: Object3D): boolean {
+  if (object.name === "__upAxis") return true;
+  if (
+    object instanceof Group &&
+    safeTrimmedName(object) === "" &&
+    typeof object.userData?.primPath !== "string" &&
+    object.children.some((child) => child.name === "__upAxis")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Recursively map an Object3D into a HierarchyNode, **inlining** any
+ * synthetic wrapper nodes so they are transparent to the user. The
+ * caller is expected to start from a non-wrapper root; if the root
+ * itself is a wrapper, use `buildHierarchyForest` to skip past it. */
 function buildHierarchyNode(object: Object3D): HierarchyNode {
   // Keep an empty string when the node has no authored name. The
   // display layer (HierarchyCard) substitutes "(unnamed)" purely for
@@ -62,12 +95,47 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
     typeof object.userData?.primPath === "string"
       ? object.userData.primPath
       : undefined;
+  // Three.js GLTFLoader appends `_1`, `_2`, ... to glTF node names that
+  // collide globally (Kitchen_set's many `Geom` siblings, for example).
+  // For USD-sourced nodes the SdfPath is globally unique, so derive the
+  // display label from the SdfPath basename. Falls back to the raw
+  // Three.js name for non-USD assets where primPath is absent.
+  const displayName = primPath
+    ? basenameFromPrimPath(primPath)
+    : safeTrimmedName(object);
   return {
-    name: safeTrimmedName(object),
+    name: displayName,
     kind: getObjectKind(object),
-    children: object.children.map((child) => buildHierarchyNode(child)),
+    children: collectHierarchyChildren(object),
     ...(primPath !== undefined ? { primPath } : {}),
   };
+}
+
+/** Build the children list of `parent`, inlining synthetic wrappers
+ * (the children of a wrapper appear as direct children of `parent`).
+ * Recursively flattens chains of wrappers in the rare case the GLB
+ * pipeline ever stacks more than one. */
+function collectHierarchyChildren(parent: Object3D): HierarchyNode[] {
+  const out: HierarchyNode[] = [];
+  for (const child of parent.children) {
+    if (isSyntheticWrapper(child)) {
+      out.push(...collectHierarchyChildren(child));
+    } else {
+      out.push(buildHierarchyNode(child));
+    }
+  }
+  return out;
+}
+
+/** Public entry: returns the user-visible hierarchy roots, skipping
+ * past any chain of synthetic wrapper nodes at the top of the scene
+ * graph so the first row the user sees is the actual USD stage root
+ * (e.g. `Kitchen_set`) rather than `(unnamed) → __upAxis → Kitchen_set`. */
+function buildHierarchyForest(root: Object3D): HierarchyNode[] {
+  if (isSyntheticWrapper(root)) {
+    return collectHierarchyChildren(root);
+  }
+  return [buildHierarchyNode(root)];
 }
 
 function getMaterialColor(material: Material): string | null {
@@ -464,7 +532,7 @@ export function collectAssetMetadata(
       materialCount: materials.size,
       textureCount: textures.size,
       hasAnimation: clips.length > 0,
-      hierarchy: [buildHierarchyNode(object)],
+      hierarchy: buildHierarchyForest(object),
       textures: [...textures.values()],
       materials: [...materials].map((material) =>
         buildMaterialEntry(material, materialBindings.get(material) ?? []),
