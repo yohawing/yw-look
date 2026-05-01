@@ -17,6 +17,8 @@ artifacts/
 
 samples/private/*
 !samples/private/.gitkeep
+!samples/private/models.json
+!samples/private/fetch.mjs
 
 experiments/
 

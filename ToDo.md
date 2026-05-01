@@ -110,7 +110,7 @@
 - [x] 背景色プリセット切り替えを実装する
 - [x] ビューポート設定パネルを作る（オーバーレイチップから独立したパネル UI、カテゴリ分けで整理）
 - [x] 既存のモード切替チップをパネルに統合する
-- [ ] パースペクティブ / オーソグラフィック切替を実装する
+- [ ] パースペクティブ / オーソグラフィック切替を実装する（USD / glTF 由来 camera の列挙・選択は実装済み。自由操作カメラ自体の projection 切替 UI は未実装）
 - [x] プリセットビューを実装する（Front / Back / Left / Right / Top / Bottom）
 - [x] バックフェースカリング ON/OFF を実装する
 - [x] 環境マップ背景表示 ON/OFF を実装する（HDRI 背景 or 灰色）
@@ -182,6 +182,12 @@
 - [x] `geometry / material / texture` 解放を点検する
 - [ ] 重いファイル連続表示時のメモリ挙動を確認する
 - [ ] EXR / HDR / DDS の重いケースを試験する
+- [ ] performance regression benchmark を整備する → #54
+
+現状:
+
+- `bench:load` と bench 用スクリーンショット保存経路はあるが、重い実アセットでの継続計測結果は未記録。
+- `scripts/batch-load-test.mjs` は現時点では静的列挙のみで、実 loader の成功 / 失敗を記録する実ロードテストではない。
 
 ### 自動アップデート（#26）
 
@@ -198,9 +204,10 @@
 
 ### 重い処理の Rust 側移行
 
-- [ ] Rust 側に移行する処理の優先度を整理する（ファイルパース・バウンディングボックス計算・メタデータ抽出等）
-- [ ] 最初の移行対象を決めて Tauri コマンドとして実装する
-- [ ] JS 側と Rust 側の責務分離方針をドキュメント化する
+- [x] Rust 側に移行する処理の優先度を整理する（USD inspection / geometry / composition を優先し、`docs/usd.md` に集約）
+- [x] 最初の移行対象を決めて Tauri コマンドとして実装する（USD inspection / geometry extraction / payload session）
+- [x] JS 側と Rust 側の責務分離方針をドキュメント化する（`docs/usd.md` / `docs/usd-cpp.md`）
+- [ ] USD 以外の重処理（EXR / DDS / 汎用メタデータ抽出など）を Rust 側へ移すか再評価する
 
 ### USD インスペクション（Rust バックエンド）
 
@@ -263,7 +270,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] 設定画面から関連付けオン / オフできる余地を作る
 - [x] 対象拡張子一覧を UI から参照できるようにする
 
-### macOS
+### macOS（#50）
 
 - [x] `tauri.conf.json` の `bundle.targets` を `"all"` に変更し、OS 別ビルドは `--bundles` フラグで制御する
 - [x] `src-tauri/icons/` に `.icns` アイコンを追加する
@@ -272,11 +279,11 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] macOS 上で `npm run tauri dev` が通ることを確認する
 - [x] macOS 上で `npm run bundle:mac` が通ることを確認する
 - [x] `tauri.conf.json` の identifier を `com.yohawing.ywlook` に変更する（`.app` 終端を回避）
-- [ ] `plugins.updater.windows.installMode` 相当の macOS 側設定を整理する
-- [ ] `scripts/prepare-local-update-feed.mjs` を OS 別成果物に対応させる
-  - [ ] `nsis` / `msi` だけでなく `macos` / `dmg` ディレクトリも走査する
-  - [ ] `.exe` / `.msi` / `.app.tar.gz` / `.dmg` を拡張子で振り分ける
-  - [ ] target キーを `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` で自動判定する
+- [ ] `plugins.updater.windows.installMode` 相当の macOS 側設定を整理する（Tauri updater は macOS に同等項目なし。不要なら削除判断する）
+- [x] `scripts/prepare-local-update-feed.mjs` を OS 別成果物に対応させる（Windows installer と macOS `.app.tar.gz` を target 別に処理）
+  - [x] `nsis` / `msi` だけでなく `macos` ディレクトリも走査する
+  - [x] `.exe` / `.msi` / `.app.tar.gz` を拡張子で振り分ける（`.dmg` は updater 対象外）
+  - [x] target キーを `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` で自動判定する
 - [ ] Finder からのファイル関連付け（`CFBundleDocumentTypes`）が登録されることを確認する
 - [ ] Finder の「このアプリで開く」一覧に出ることを確認する
 - [ ] メニュー / ヘルプの `CmdOrCtrl` 表記が macOS で `⌘` として表示されるか確認する
@@ -284,8 +291,8 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [ ] Rust 側の `\\?\` プレフィクス除去等の Windows 専用パス処理を OS 別に整理する
 - [ ] Apple Developer ID 証明書を調達する
 - [ ] `codesign` + `notarytool` のフローを実機で確認する
-- [ ] `xattr -dr com.apple.quarantine` が必要なケースを `docs/release-distribution.md` に追記する
-- [ ] macOS 配布の最終手順を `docs/release-distribution.md` に確定版として反映する
+- [x] `xattr -dr com.apple.quarantine` が必要なケースを `docs/release-distribution.md` に追記する
+- [ ] macOS 配布の最終手順を `docs/release-distribution.md` に確定版として反映する（現状は想定手順と未整備項目が混在）
 
 ## 16. ログと診断
 
@@ -368,40 +375,61 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
 ## 19. テスト整備
 
-### テストアセット
+### テストアセット（#52）
 
-- [ ] テスト用アセット置き場を決める（`tests/fixtures/` 等）
-- [ ] 各 3D フォーマットの最小テストファイルを用意する（glTF / FBX / OBJ / STL / PLY）
-- [ ] 各テクスチャフォーマットの最小テストファイルを用意する（PNG / JPG / TGA / HDR / EXR / DDS）
-- [ ] アニメーション付きモデルのテストファイルを用意する
-- [ ] 読み込み失敗を再現するための壊れたファイルを用意する
+- [x] テスト用アセット置き場を決める（`tests/fixtures/`）
+- [x] 最小モデル fixture を用意する（`tests/fixtures/models/`: glTF / OBJ / STL / PLY）
+- [ ] fixture 未配置のモデル形式を補う（GLB / FBX / DAE）
+- [x] 最小画像 fixture を用意する（`tests/fixtures/textures/`: PNG / JPG）
+- [ ] fixture 未配置のテクスチャ形式を補う（TGA / HDR / EXR / DDS / KTX2）
+- [x] アニメーション付きモデルのサンプルを用意する（`samples/assets/fbx/Samba Dancing.fbx`）
+- [ ] アニメーション付きモデルを `tests/fixtures/` 向けに最小化する
+- [x] 読み込み失敗を再現するための壊れたファイルを用意する（`tests/fixtures/broken/`）
 
-### バッチロードテスト（samples/private）
+### サンプル実ロードテスト（samples/manifest）（#52）
 
-- [ ] フリーアセットを一括取得するスクリプトを作る（Sketchfab / Poly Haven / KhronosGroup glTF-Sample-Assets 等）
-- [ ] `samples/private/` に DL したアセットを配置する（gitignore 済み）
-- [ ] 全ファイルを順に読み込んでエラー/警告を記録するバッチテストスクリプトを作る
-- [ ] 結果レポートを出力する（成功 / 失敗 / 警告をファイルごとに分類）
+- [x] `samples/manifest.json` で代表サンプルと期待値を管理する
+- [x] `selftest.html` / `src/selftest.ts` で主要サンプルを実 loader 経由で読み込む
+- [x] `scripts/run-selftest.mjs` で selftest 結果を Playwright から検査する
+- [ ] selftest 対象外フォーマットを整理する（現状 DAE / KTX2 / USD は manifest にあっても通常 selftest からは除外）
+- [ ] selftest の期待値検証を強化する（現状は読み込み成功 / 失敗中心で、manifest の `expect` 詳細は十分に検証していない）
+
+### バッチロード / ベンチ（samples/private）（#53 / #54）
+
+- [x] フリーアセットを一括取得するスクリプトを作る（`samples/private/fetch.mjs`）
+- [x] `samples/private/` に DL したアセットを配置する（gitignore 済み、`samples/private/models.json` で bench 対象を管理）
+- [ ] 全ファイルを順に読み込んでエラー/警告を記録するバッチテストスクリプトを作る（現状の `scripts/batch-load-test.mjs` は静的列挙のみ）
+- [ ] 結果レポートを出力する（静的列挙結果は `artifacts/logs/batch-load-report.json` に出力済み。実ロードの成功 / 失敗 / 警告分類は未実装）
 - [ ] エラーが出たアセットを原因別に分類・トリアージする
+- [x] private bench 実行導線を作る（`npm run bench:load` → `scripts/run-load-bench.mjs`）
+- [ ] bench 結果を継続比較できる形にする（しきい値 / baseline / trend は未整備）
 
 ### ユニットテスト / 統合テスト
 
-- [ ] テストフレームワークを導入する（Vitest 等）
-- [ ] ローダー選択ロジックのテストを書く（拡張子 → 正しいローダーが選ばれるか）
-- [ ] ファイルナビゲーション（前後移動）のテストを書く
-- [ ] 設定の読み書きのテストを書く
-- [ ] 最近開いたファイル管理のテストを書く
+- [x] テストフレームワークを導入する（Vitest）
+- [x] loader helper のテストを書く（MIME / sibling path / USDC header / USDZ header: `src/viewer/__tests__/loaders.test.ts`）
+- [x] KTX2 loader の dynamic import smoke test を書く（`src/viewer/__tests__/ktx2Loader.test.ts`）
+- [x] ファイルナビゲーション（前後移動）のテストを書く（`src/viewer/__tests__/prefetchCache.test.ts`）
+- [x] メタデータ抽出の回帰テストを書く（階層 / camera / light / material binding: `src/viewer/__tests__/metadata.test.ts`）
+- [x] マテリアル shader slot 抽出のテストを書く（`src/viewer/__tests__/materialShaderSlots.test.ts`）
+- [x] USD worker gate のテストを書く（`src/viewer/__tests__/usdWorkerLoader.test.ts`）
+- [x] UI コンポーネントの回帰テストを書く（Hierarchy / Material / SceneLightsCameras / UsdSource）
+- [ ] Rust / Tauri 側の設定読み書きテストを書く（`load_settings` / `save_settings`）
+- [ ] Rust / Tauri 側の最近開いたファイル管理テストを書く（`load_recent_files` / cleanup / limit / sync）
+- [ ] 実 loader 選択と `loadPreviewObject` の統合テストを書く（現状は helper と selftest に分かれている）
 
 ### ビジュアルリグレッションテスト
 
-- [ ] 画面キャプチャの仕組みを調査する（Playwright / Puppeteer / Tauri のスクリーンショット API 等）
-- [ ] 各フォーマットを読み込んだ画面のスナップショットテストを作る
+- [x] 画面キャプチャの仕組みを調査する（Playwright で `selftest.html` を撮影）
+- [x] selftest ページのスナップショットテストを作る（`tests/visual/snapshots/selftest-page-linux-chromium.png`）
+- [ ] 各フォーマットを読み込んだ viewer 画面のスナップショットテストを作る
 - [ ] エラー画面・空状態・ローディング状態のスナップショットテストを作る
-- [ ] CI でスナップショットを比較できる仕組みを検討する
+- [x] CI でスナップショットを比較できる仕組みを検討する（`visual-regression` job で selftest snapshot 比較）
 
-### 起動スピードテスト
+### 起動スピードテスト（#54）
 
-- [ ] 起動時間を自動計測するテストを書く（アプリ起動 → 初回描画までの時間）
+- [x] 起動時間の計測ポイントを実装する（First Paint / Interactive / PerformanceCard）
+- [ ] 起動時間を自動計測するテストを書く（アプリ起動 → 初回描画までを Playwright / Tauri で測る）
 - [ ] 起動時間のしきい値を決めてリグレッション検知できるようにする
 - [ ] CI で起動スピードテストを実行する仕組みを検討する
 
@@ -418,23 +446,23 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
 ### CD パイプライン
 
-- [ ] タグプッシュで Tauri ビルドを自動実行する（Windows / macOS / Linux）
-- [ ] ビルド成果物を GitHub Releases にアップロードする
-- [ ] 自動アップデート配信の仕組みを整備する（Tauri updater）
+- [x] タグプッシュで Tauri ビルドを自動実行する（Windows / macOS。Linux は配布対象外）
+- [x] ビルド成果物を GitHub Releases にアップロードする
+- [x] 自動アップデート配信の仕組みを整備する（Tauri updater artifact / local update feed）
 - [ ] リリースノートを自動生成する仕組みを検討する
 
-#### macOS リリース対応
+#### macOS リリース対応（#50）
 
-- [ ] `.github/workflows/release.yml` に `macos-latest` ランナーのジョブを追加する
-- [ ] Windows / macOS のジョブをマトリクス化して並列実行する
-- [ ] Apple 署名関連 Secrets を GitHub Secrets に登録する
+- [x] `.github/workflows/release.yml` に macOS runner のジョブを追加する（`macos-14` / `macos-aarch64`）
+- [x] Windows / macOS のジョブをマトリクス化して並列実行する
+- [ ] Apple 署名関連 Secrets を GitHub Secrets に登録する（workflow 側の参照は実装済み。Secrets 登録状態は GitHub 上で要確認）
   - [ ] `APPLE_CERTIFICATE`（`.p12` を base64 化）
   - [ ] `APPLE_CERTIFICATE_PASSWORD`
   - [ ] `APPLE_SIGNING_IDENTITY`
   - [ ] `APPLE_ID`
   - [ ] `APPLE_PASSWORD`（App-specific password）
   - [ ] `APPLE_TEAM_ID`
-- [ ] `latest.json` を Windows / macOS 統合フォーマットで生成する
+- [ ] `latest.json` を Windows / macOS 統合フォーマットで生成する（local feed は OS 別 target キー対応済み。release artifact の統合 manifest は実リリースで要確認）
       （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
 - [ ] macOS 公証ジョブの失敗時に updater feed を更新しないガードを入れる
 
@@ -447,17 +475,17 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
 ## 22. マテリアルプロパティ表示
 
-- [ ] シーン内のマテリアル一覧を取得するロジックを作る
-- [ ] マテリアルパネル UI を作る（名前・タイプ・プロパティ表示）
-- [ ] PBR プロパティを表示する（baseColor / roughness / metallic / normal / emissive 等）
+- [x] シーン内のマテリアル一覧を取得するロジックを作る
+- [x] マテリアルパネル UI を作る（名前・タイプ・プロパティ表示）
+- [x] PBR プロパティを表示する（baseColor / roughness / metallic / normal / emissive 等）
 - [ ] 使用テクスチャのプレビューサムネイルを表示する
 - [ ] マテリアルをクリックして該当メッシュをハイライトする
 
-## 23. 3D ビューポートスクリーンショット API
+## 23. 3D ビューポートスクリーンショット API（#48）
 
-- [ ] WebGL レンダラーから現在のフレームを PNG として書き出す機能を作る
-- [ ] Tauri コマンドとして外部から呼び出せるスクリーンショット API を公開する（CLI / IPC）
-- [ ] テストから API 経由でスクリーンショットを取得してスナップショット比較に使う
+- [x] WebGL レンダラーから現在のフレームを PNG として書き出す機能を作る（`src/viewer/screenshot.ts`）
+- [ ] Tauri コマンドとして外部から呼び出せるスクリーンショット API を公開する（CLI / IPC。bench 専用の保存コマンドはあるが汎用 API ではない）
+- [ ] テストから API 経由でスクリーンショットを取得してスナップショット比較に使う（現状は Playwright の page screenshot）
 
 ## 24. 将来対応の検討（フォーマット・パフォーマンス）
 
@@ -466,8 +494,8 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [ ] `Alembic (.abc)` の対応方針を調べる（Three.js 標準にはなし、外部ライブラリ要）
 - [ ] `ufbx` を使った native FBX パスの将来設計をまとめる（現在は Three.js FBXLoader）
 - [ ] `DDS` の native 展開が必要か検証する（現在は Three.js DDSLoader で対応済み）
-- [ ] `USD` の参照解決強化の方針をまとめる（現在は Three.js USDLoader の基本対応のみ）
-- [ ] サムネイルキャッシュが必要か再評価する（現在は prefetchCache によるファイルバッファのみ）
+- [x] `USD` の参照解決強化の方針をまとめる（Rust / C++ backend 方針は `docs/usd.md` / `docs/usd-cpp.md` に集約）
+- [ ] サムネイルキャッシュが必要か再評価する（現状は `prefetchCache` による隣接ファイルバッファ先読みのみ）
 
 ### ビューポート追加機能（後回し）
 
@@ -477,11 +505,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] バウンディングボックス表示（各メッシュ単位）
 - [x] 環境マップ回転
 - [x] 影の ON/OFF
-- [ ] SSAO（アンビエントオクルージョン）
-- [ ] スケールリファレンス（人体シルエット等のサイズ比較）
 - [x] FOV / ニアクリップ / ファークリップ調整
-- [ ] 被写界深度（DOF）
-- [ ] ブルーム（グロー効果）
 - [x] アンチエイリアス切替（None / FXAA / MSAA）
 - [x] 解像度スケール（0.5x / 1x / 2x）
 - [x] テクスチャフィルタリング切替（Nearest / Bilinear / Trilinear）

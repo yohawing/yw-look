@@ -21,6 +21,8 @@
     "test:batch": "node scripts/batch-load-test.mjs",
     "test:integration": "node scripts/run-selftest.mjs",
     "test:visual": "node scripts/visual-regression.mjs",
+    "samples:fetch": "node samples/private/fetch.mjs",
+    "bench:load": "node scripts/run-load-bench.mjs",
     "update:local:prepare": "node scripts/prepare-local-update-feed.mjs",
     "update:local:serve": "node scripts/serve-local-update-feed.mjs",
     "tauri": "tauri",
