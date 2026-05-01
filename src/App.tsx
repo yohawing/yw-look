@@ -251,7 +251,7 @@ const DEFAULT_EXPOSURE = 1.1;
 
 export function App() {
   const appStartRef = useRef(performance.now());
-  const [activeTab, setActiveTab] = useState<SidebarTab>("file");
+  const [activeTab, setActiveTab] = useState<SidebarTab>("properties");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const [showTexture, setShowTexture] = useState(true);
@@ -1781,45 +1781,13 @@ export function App() {
 
   const sidebarContent = (() => {
     switch (activeTab) {
-      case "file":
+      case "properties":
         return (
           <>
             <CurrentFileCard
               currentFile={sidebarCurrentFile}
               metadata={sidebarAssetMetadata}
             />
-            <FileBrowserCard
-              currentFile={sidebarCurrentFile}
-              directoryListing={sidebarDirectoryListing}
-              onOpenPath={(path) => {
-                void performSelectFilePath(path, "navigation").catch(
-                  (error: unknown) => {
-                    setRecentFilesError(
-                      error instanceof Error
-                        ? error.message
-                        : "Failed to open file.",
-                    );
-                  },
-                );
-              }}
-            />
-            <Suspense fallback={<SidebarCardFallback />}>
-              <RecentFilesCard
-                onOpenPath={(path) => {
-                  void performSelectFilePath(path, "recent").catch(
-                    (error: unknown) => {
-                      setRecentFilesError(
-                        error instanceof Error
-                          ? error.message
-                          : "Failed to open recent file.",
-                      );
-                    },
-                  );
-                }}
-                recentFilesError={sidebarRecentFilesError}
-                recentFilesPayload={sidebarRecentFilesPayload}
-              />
-            </Suspense>
             {isTauri && isUsdFile(currentFile) && (
               <>
                 <UsdInspectorCard
@@ -1885,6 +1853,43 @@ export function App() {
               />
             )}
             <PerformanceCard snapshot={performanceSnapshot} />
+          </>
+        );
+      case "file":
+        return (
+          <>
+            <FileBrowserCard
+              currentFile={sidebarCurrentFile}
+              directoryListing={sidebarDirectoryListing}
+              onOpenPath={(path) => {
+                void performSelectFilePath(path, "navigation").catch(
+                  (error: unknown) => {
+                    setRecentFilesError(
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to open file.",
+                    );
+                  },
+                );
+              }}
+            />
+            <Suspense fallback={<SidebarCardFallback />}>
+              <RecentFilesCard
+                onOpenPath={(path) => {
+                  void performSelectFilePath(path, "recent").catch(
+                    (error: unknown) => {
+                      setRecentFilesError(
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to open recent file.",
+                      );
+                    },
+                  );
+                }}
+                recentFilesError={sidebarRecentFilesError}
+                recentFilesPayload={sidebarRecentFilesPayload}
+              />
+            </Suspense>
           </>
         );
       case "hierarchy":

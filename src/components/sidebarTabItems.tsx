@@ -3,10 +3,14 @@ import { SidebarTabIcon, type SidebarTabId } from "./SidebarTabIcons";
 
 export function createSidebarTabs(): SidebarTabItem<SidebarTabId>[] {
   return [
-    { id: "file", label: "Files", icon: <SidebarTabIcon kind="file" /> },
+    {
+      id: "properties",
+      label: "Properties",
+      icon: <SidebarTabIcon kind="properties" />,
+    },
     {
       id: "hierarchy",
-      label: "Hierarchy",
+      label: "Outliner",
       icon: <SidebarTabIcon kind="hierarchy" />,
     },
     {
@@ -20,14 +24,15 @@ export function createSidebarTabs(): SidebarTabItem<SidebarTabId>[] {
       icon: <SidebarTabIcon kind="textures" />,
     },
     {
+      id: "warnings",
+      label: "Diagnostics",
+      icon: <SidebarTabIcon kind="warnings" />,
+    },
+    { id: "file", label: "Files", icon: <SidebarTabIcon kind="file" /> },
+    {
       id: "settings",
       label: "Settings",
       icon: <SidebarTabIcon kind="settings" />,
-    },
-    {
-      id: "warnings",
-      label: "Warnings",
-      icon: <SidebarTabIcon kind="warnings" />,
     },
   ];
 }

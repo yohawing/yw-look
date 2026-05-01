@@ -1,4 +1,5 @@
 export type SidebarTabId =
+  | "properties"
   | "file"
   | "hierarchy"
   | "materials"
@@ -8,6 +9,25 @@ export type SidebarTabId =
 
 export function SidebarTabIcon({ kind }: { kind: SidebarTabId }) {
   switch (kind) {
+    case "properties":
+      return (
+        <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle
+            cx="8"
+            cy="8"
+            r="5.8"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+          <path
+            d="M8 7.2v4.2"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="1.2"
+          />
+          <circle cx="8" cy="4.9" r="0.7" fill="currentColor" />
+        </svg>
+      );
     case "file":
       return (
         <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

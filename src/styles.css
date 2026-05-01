@@ -270,7 +270,7 @@ body.is-resizing-sidebar {
 
 .sidebar-tabs {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 0;
   align-items: center;
   padding: 0;
@@ -657,6 +657,99 @@ body.is-resizing-sidebar {
 }
 
 /* ── Viewer States ── */
+
+.viewer-empty-state {
+  display: flex;
+  max-width: 420px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: var(--yl-text-muted, #62666d);
+  text-align: center;
+}
+
+.viewer-empty-iso {
+  color: rgba(138, 143, 152, 0.58);
+  filter: drop-shadow(0 8px 24px rgba(113, 112, 255, 0.24));
+  animation: viewer-empty-bob 6s ease-in-out infinite;
+}
+
+.viewer-empty-target path {
+  fill: none;
+  stroke: var(--yl-accent, #7170ff);
+  stroke-dasharray: 3 3;
+  stroke-width: 1.2;
+}
+
+.viewer-empty-target .viewer-empty-arrow {
+  stroke-dasharray: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
+.viewer-empty-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.viewer-empty-copy h2 {
+  margin: 0;
+  color: var(--yl-text-primary, #f7f8f8);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.viewer-empty-copy p {
+  margin: 0;
+  color: var(--yl-text-tertiary, #8a8f98);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.viewer-empty-copy span {
+  color: var(--yl-text-secondary, #d0d6e0);
+  font-family: var(--yl-font-mono, var(--font-mono));
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.viewer-empty-formats {
+  display: flex;
+  max-width: 360px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 6px;
+}
+
+.viewer-empty-formats span {
+  min-height: 18px;
+  border: 1px solid var(--yl-border-subtle, rgba(255, 255, 255, 0.05));
+  border-radius: 3px;
+  padding: 1px 6px;
+  color: var(--yl-text-muted, #62666d);
+  font-family: var(--yl-font-mono, var(--font-mono));
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+@keyframes viewer-empty-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+}
 
 .viewer-state {
   max-width: 700px;

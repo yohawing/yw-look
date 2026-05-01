@@ -12,6 +12,21 @@ type ViewerStatePanelProps = {
   mode: ViewerMode;
 };
 
+const supportedFormats = [
+  "glb",
+  "gltf",
+  "fbx",
+  "obj",
+  "usd",
+  "usdz",
+  "vrm",
+  "png",
+  "jpg",
+  "exr",
+  "hdr",
+  "ktx2",
+];
+
 const stateContent: Record<
   ViewerMode,
   {
@@ -82,6 +97,54 @@ export function ViewerStatePanel({ mode }: ViewerStatePanelProps) {
 
   if (mode === "loading") {
     return <LoadingScreen />;
+  }
+
+  if (mode === "empty") {
+    return (
+      <div className="viewer-empty-state" aria-label="Drop file">
+        <div className="viewer-empty-iso" aria-hidden="true">
+          <svg width="160" height="160" viewBox="-80 -80 160 160" fill="none">
+            <g opacity="0.35">
+              <path
+                d="M0 -52 L52 -26 L0 0 L-52 -26 Z"
+                stroke="currentColor"
+                strokeWidth="0.8"
+              />
+              <path
+                d="M-52 -26 L0 0 L0 52 L-52 26 Z"
+                stroke="currentColor"
+                strokeWidth="0.8"
+              />
+              <path
+                d="M52 -26 L0 0 L0 52 L52 26 Z"
+                stroke="currentColor"
+                strokeWidth="0.8"
+              />
+            </g>
+            <g className="viewer-empty-target" transform="translate(0,-14)">
+              <path d="M0 -34 L30 -19 L0 -4 L-30 -19 Z" />
+              <path d="M-30 -19 L0 -4 L0 26 L-30 11 Z" opacity="0.72" />
+              <path d="M30 -19 L0 -4 L0 26 L30 11 Z" opacity="0.52" />
+              <path
+                className="viewer-empty-arrow"
+                d="M0 -22 L0 -10 M-4 -14 L0 -10 L4 -14"
+              />
+            </g>
+          </svg>
+        </div>
+        <div className="viewer-empty-copy">
+          <h2>Drop a file to inspect</h2>
+          <p>
+            Drag & drop here, or use <span>File / Open</span>.
+          </p>
+        </div>
+        <div className="viewer-empty-formats" aria-label="Supported formats">
+          {supportedFormats.map((format) => (
+            <span key={format}>{format}</span>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
