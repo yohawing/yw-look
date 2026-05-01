@@ -2371,7 +2371,10 @@ export function AssetViewport({
         <div
           className={`viewport-overlay${effectiveOverlayMode === "empty" ? " is-empty" : ""}`}
         >
-          <ViewerStatePanel mode={effectiveOverlayMode} />
+          <ViewerStatePanel
+            fileName={currentFile?.fileName}
+            mode={effectiveOverlayMode}
+          />
         </div>
       ) : null}
       {hasAnimation &&

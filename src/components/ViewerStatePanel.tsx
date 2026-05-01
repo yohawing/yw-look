@@ -10,6 +10,7 @@ export type ViewerMode =
 
 type ViewerStatePanelProps = {
   mode: ViewerMode;
+  fileName?: string | null;
 };
 
 const supportedFormats = [
@@ -92,11 +93,11 @@ const stateContent: Record<
   },
 };
 
-export function ViewerStatePanel({ mode }: ViewerStatePanelProps) {
+export function ViewerStatePanel({ fileName, mode }: ViewerStatePanelProps) {
   const content = stateContent[mode];
 
   if (mode === "loading") {
-    return <LoadingScreen />;
+    return <LoadingScreen fileName={fileName} />;
   }
 
   if (mode === "empty") {
