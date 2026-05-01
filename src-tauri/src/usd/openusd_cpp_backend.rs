@@ -1781,10 +1781,14 @@ fn extract_from_stage_with_options(
         let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref());
         let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref());
 
-        // #46: pass empty nodes slice for the C++ backend (hierarchy-aware
-        // node tree is implemented in the Rust fork backend only for now).
-        // The flat scene-root layout is used as a fallback.
-        glb::build_glb(&[], &inputs, &materials, &textures, &skins, &animations, &lights, &cameras, None, &instancing_inputs)
+        // #46 (C++ backend): build the prim hierarchy NodeInput tree so the
+        // GLB carries Kitchen_set / Sponza-style nested xform graphs rather
+        // than a flat scene-root list. The synthetic `__upAxis` root added
+        // by `build_glb` carries the Z→Y correction; node local matrices
+        // here are pure USD space.
+        let node_tree = build_node_tree_cpp(&stage, &inputs, &lights, &cameras, &skin_slots, &instancing_inputs);
+        let up_correction_f32 = up_axis_correction.as_ref().map(mat4_f64_to_f32);
+        glb::build_glb(&node_tree, &inputs, &materials, &textures, &skins, &animations, &lights, &cameras, up_correction_f32, &instancing_inputs)
             .map_err(|e| UsdError::Parse(e.to_string()))
 }
 
@@ -2495,6 +2499,246 @@ fn resolve_cameras_cpp(
         });
     }
     out
+}
+
+/// #46 (C++ backend port): build a topologically-sorted `NodeInput` tree
+/// from the prim paths collected by Pass 1. Mirrors `build_node_tree`
+/// in `openusd_backend.rs` (Rust fork backend) but uses
+/// `CStage::prim_world_matrix` (which delegates to
+/// `UsdGeomXformable::ComputeLocalToWorldTransform`) for the world
+/// transform queries.
+///
+/// Z-up→Y-up correction is **not** applied here. `build_glb` inserts a
+/// synthetic `__upAxis` node carrying the correction matrix when the
+/// returned slice is non-empty; the local matrices below are pure USD
+/// space (parent_world⁻¹ × own_world).
+fn build_node_tree_cpp(
+    stage: &CStage,
+    inputs: &[MeshInput],
+    lights: &[glb::LightInput],
+    cameras: &[glb::CameraInput],
+    skin_slots: &std::collections::HashMap<String, usize>,
+    instancing: &[glb::InstancingInput],
+) -> Vec<glb::NodeInput> {
+    use std::collections::{BTreeMap, HashMap, HashSet};
+
+    let mut path_to_kind: BTreeMap<String, glb::NodeKind> = BTreeMap::new();
+    let mut path_to_mesh_idx: HashMap<String, usize> = HashMap::new();
+    let mut path_to_light_idx: HashMap<String, usize> = HashMap::new();
+    let mut path_to_camera_idx: HashMap<String, usize> = HashMap::new();
+    let mut path_to_skel_idx: HashMap<String, usize> = HashMap::new();
+
+    // PointInstancer prototype MeshInputs must not appear in the prim
+    // hierarchy: `build_glb` emits them via `EXT_mesh_gpu_instancing`,
+    // and the flat-path code already skips standalone scene nodes for
+    // these. If we leak them into NodeInput, the prototype shape gets
+    // drawn twice — once at its authored location and once per instance.
+    let prototype_mesh_set: HashSet<usize> = instancing
+        .iter()
+        .map(|inst| inst.prototype_mesh_idx)
+        .collect();
+
+    // Mesh leaves. Subsets carry the subset SdfPath (one MeshInput each),
+    // so multiple inputs may live under the same parent mesh — the loop
+    // emits a Mesh node for each.
+    for (mi, inp) in inputs.iter().enumerate() {
+        if prototype_mesh_set.contains(&mi) {
+            continue;
+        }
+        let p = inp.name.clone();
+        // Skip non-prim-path names (defensive — synthetic morph targets
+        // would never reach here, but `inputs` is populated by code paths
+        // we do not strictly own).
+        if !p.starts_with('/') {
+            continue;
+        }
+        path_to_kind.insert(p.clone(), glb::NodeKind::Mesh);
+        path_to_mesh_idx.insert(p, mi);
+    }
+
+    for (li, light) in lights.iter().enumerate() {
+        let p = light.name.clone();
+        if !p.starts_with('/') {
+            continue;
+        }
+        path_to_kind.insert(p.clone(), glb::NodeKind::Light);
+        path_to_light_idx.insert(p, li);
+    }
+
+    for (ci, camera) in cameras.iter().enumerate() {
+        let p = camera.name.clone();
+        if !p.starts_with('/') {
+            continue;
+        }
+        path_to_kind.insert(p.clone(), glb::NodeKind::Camera);
+        path_to_camera_idx.insert(p, ci);
+    }
+
+    for (skel_path_str, &slot_idx) in skin_slots.iter() {
+        path_to_kind.insert(skel_path_str.clone(), glb::NodeKind::SkelRoot);
+        path_to_skel_idx.insert(skel_path_str.clone(), slot_idx);
+    }
+
+    // Insert ancestor Group nodes for every leaf, walking up to the
+    // pseudo-root.
+    let leaf_paths: Vec<String> = path_to_kind.keys().cloned().collect();
+    for path_str in &leaf_paths {
+        let mut s = path_str.as_str();
+        loop {
+            let Some(slash_idx) = s.rfind('/') else { break };
+            if slash_idx == 0 {
+                break;
+            }
+            let parent_str = &s[..slash_idx];
+            if !path_to_kind.contains_key(parent_str) {
+                path_to_kind.insert(parent_str.to_string(), glb::NodeKind::Group);
+            }
+            s = parent_str;
+        }
+    }
+
+    // BTreeMap iteration is lexicographically sorted; for SdfPaths this
+    // is also a valid topological order (parent before child).
+    let sorted_paths: Vec<String> = path_to_kind.keys().cloned().collect();
+    let mut path_to_ni_idx: HashMap<String, usize> = HashMap::new();
+    for (idx, p) in sorted_paths.iter().enumerate() {
+        path_to_ni_idx.insert(p.clone(), idx);
+    }
+
+    // Cache world matrices to avoid re-querying the shim for each
+    // parent during the local-matrix computation. The shim's
+    // `prim_world_matrix` returns `None` for non-Xformable prims
+    // (Scope, GeomSubset, materialBind subsets, …). For those we walk
+    // up the path until we hit an Xformable ancestor so the prim
+    // inherits the nearest authored transform — matching the way
+    // pxr's `UsdGeomImageable` traversal would resolve world space.
+    // Without this, materialBind GeomSubsets (Seahorse / Kitchen_set)
+    // resolve to identity here and `inv(parent) * identity` then
+    // negates the parent mesh's transform on the GLB side.
+    let mut world_cache: HashMap<String, [f64; 16]> = HashMap::new();
+    let mut get_world = |path: &str| -> [f64; 16] {
+        if let Some(m) = world_cache.get(path) {
+            return *m;
+        }
+        let mut cur = path.to_string();
+        let resolved = loop {
+            if let Some(m) = stage.prim_world_matrix(&cur) {
+                break m;
+            }
+            let Some(slash_idx) = cur.rfind('/') else {
+                break identity_mat4();
+            };
+            if slash_idx == 0 {
+                break identity_mat4();
+            }
+            cur = cur[..slash_idx].to_string();
+        };
+        world_cache.insert(path.to_string(), resolved);
+        resolved
+    };
+
+    let mut out: Vec<glb::NodeInput> = Vec::with_capacity(sorted_paths.len());
+    for path_str in sorted_paths.iter() {
+        let kind = path_to_kind[path_str];
+
+        let basename = path_str
+            .rsplit('/')
+            .next()
+            .unwrap_or(path_str.as_str())
+            .to_string();
+
+        let parent_ni_idx = {
+            let slash_idx = path_str.rfind('/').unwrap_or(0);
+            if slash_idx == 0 {
+                None
+            } else {
+                let parent_str = &path_str[..slash_idx];
+                path_to_ni_idx.get(parent_str).copied()
+            }
+        };
+
+        let own_world = get_world(path_str);
+        let local_mat_f64 = if parent_ni_idx.is_some() {
+            let parent_path = path_str[..path_str.rfind('/').unwrap_or(0)].to_string();
+            let parent_world = get_world(&parent_path);
+            if let Some(inv_parent) = invert_mat4_f64(&parent_world) {
+                mat4_mul(&inv_parent, &own_world)
+            } else {
+                own_world
+            }
+        } else {
+            own_world
+        };
+        let local_matrix = mat4_f64_to_f32(&local_mat_f64);
+
+        let mesh_payload_idx = path_to_mesh_idx.get(path_str).copied();
+        let light_payload_idx = path_to_light_idx.get(path_str).copied();
+        let camera_payload_idx = path_to_camera_idx.get(path_str).copied();
+        let skin_payload_idx = path_to_skel_idx.get(path_str).copied();
+
+        out.push(glb::NodeInput {
+            prim_path: path_str.clone(),
+            basename,
+            parent: parent_ni_idx,
+            local_matrix,
+            kind,
+            mesh_payload_idx,
+            light_payload_idx,
+            camera_payload_idx,
+            skin_payload_idx,
+        });
+    }
+
+    out
+}
+
+/// f64 4×4 matrix inverse used by `build_node_tree_cpp`. Mirrors the
+/// f32 `invert_mat4_f32` already exported from `openusd_backend.rs`,
+/// kept private here so the C++ backend stays self-contained.
+fn invert_mat4_f64(m: &[f64; 16]) -> Option<[f64; 16]> {
+    let mut inv = [0.0f64; 16];
+    inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15]
+        + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
+    inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15]
+        - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
+    inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15]
+        + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
+    inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14]
+        - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
+    inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15]
+        - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
+    inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15]
+        + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
+    inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15]
+        - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
+    inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14]
+        + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
+    inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15]
+        + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
+    inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15]
+        - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
+    inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15]
+        + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
+    inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14]
+        - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
+    inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11]
+        - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
+    inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11]
+        + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
+    inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11]
+        - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
+    inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10]
+        + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
+
+    let det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let inv_det = 1.0 / det;
+    for v in inv.iter_mut() {
+        *v *= inv_det;
+    }
+    Some(inv)
 }
 
 /// Phase 2.E.1: resolve a mesh's bound material into a
