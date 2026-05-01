@@ -15,6 +15,7 @@ import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
   LoadedPreview,
+  LoadingStageReporter,
   MissingReferenceError,
   TextureBundle,
 } from "./types";
@@ -480,13 +481,20 @@ export async function loadPreviewObject(
      * a load/unload operation without re-opening the stage.
      */
     glbOverride?: ArrayBuffer | null;
+    /** Reports coarse real loader stages for the viewport loading console. */
+    onStage?: LoadingStageReporter;
   } = {},
 ): Promise<LoadedPreview> {
+  const reportStage = options.onStage ?? (() => undefined);
+  reportStage("scan");
+
   switch (file.extension) {
     case "glb": {
+      reportStage("decode");
       const { GLTFLoader } =
         await import("three/examples/jsm/loaders/GLTFLoader.js");
       const buffer = await readArrayBuffer(file.path);
+      reportStage("gpu");
       const gltf = await new GLTFLoader().parseAsync(buffer, "");
       return {
         object: gltf.scene,
@@ -496,9 +504,11 @@ export async function loadPreviewObject(
       };
     }
     case "gltf": {
+      reportStage("resolve");
       const { GLTFLoader } =
         await import("three/examples/jsm/loaders/GLTFLoader.js");
       const materialized = await materializeGltf(file);
+      reportStage("gpu");
       const gltf = await new GLTFLoader().loadAsync(materialized.rootUrl);
       return {
         object: gltf.scene,
@@ -508,9 +518,11 @@ export async function loadPreviewObject(
       };
     }
     case "fbx": {
+      reportStage("decode");
       const { FBXLoader } =
         await import("three/examples/jsm/loaders/FBXLoader.js");
       const buffer = await readArrayBuffer(file.path);
+      reportStage("scene");
       const object = new FBXLoader().parse(buffer, "");
       return {
         object,
@@ -520,11 +532,14 @@ export async function loadPreviewObject(
       };
     }
     case "obj": {
+      reportStage("decode");
       const { OBJLoader } =
         await import("three/examples/jsm/loaders/OBJLoader.js");
       const text = await readTextFile(file.path);
+      reportStage("resolve");
       const object = new OBJLoader().parse(text);
       const bundle = await buildObjTextureBundle(file);
+      reportStage("scene");
       applyObjTextureBundle(object, bundle);
       return {
         object,
@@ -534,9 +549,11 @@ export async function loadPreviewObject(
       };
     }
     case "ply": {
+      reportStage("decode");
       const { PLYLoader } =
         await import("three/examples/jsm/loaders/PLYLoader.js");
       const buffer = await readArrayBuffer(file.path);
+      reportStage("scene");
       const geometry = new PLYLoader().parse(buffer);
       geometry.computeVertexNormals();
       return {
@@ -554,9 +571,11 @@ export async function loadPreviewObject(
       };
     }
     case "stl": {
+      reportStage("decode");
       const { STLLoader } =
         await import("three/examples/jsm/loaders/STLLoader.js");
       const buffer = await readArrayBuffer(file.path);
+      reportStage("scene");
       const geometry = new STLLoader().parse(buffer);
       geometry.computeVertexNormals();
       return {
@@ -574,6 +593,7 @@ export async function loadPreviewObject(
       };
     }
     case "dae": {
+      reportStage("decode");
       const [{ ColladaLoader }, { LoadingManager }] = await Promise.all([
         import("three/examples/jsm/loaders/ColladaLoader.js"),
         import("three"),
@@ -624,12 +644,14 @@ export async function loadPreviewObject(
         error.unresolvedImages = [];
         throw error;
       }
+      reportStage("resolve");
       const manager = new LoadingManager();
       manager.setURLModifier((url) => {
         if (/^(data:|blob:|https?:)/i.test(url)) return url;
         return blobCache.get(url) ?? url;
       });
       const loader = new ColladaLoader(manager);
+      reportStage("scene");
       const collada = loader.parse(text, file.parentDirectory);
       if (!collada) {
         throw new Error(
@@ -668,6 +690,7 @@ export async function loadPreviewObject(
       const usdPolicy = options.usdLoadPolicy ?? "loadAll";
       let useGlbPipeline = false;
       try {
+        reportStage("resolve");
         useGlbPipeline = await requiresGlbPreview(file.path);
       } catch (error) {
         // If the Rust check itself fails (e.g. a catastrophic parse
@@ -696,6 +719,7 @@ export async function loadPreviewObject(
             `[usd] using session glb override (${glbBuffer.byteLength} bytes): ${file.fileName}`,
           );
         } else {
+          reportStage("decode");
           // #31: pass variant selections through to the Tauri backend so
           // the C++ shim can apply them on the session layer before
           // geometry extraction. The options object is only constructed
@@ -717,6 +741,7 @@ export async function loadPreviewObject(
 
         const { GLTFLoader } =
           await import("three/examples/jsm/loaders/GLTFLoader.js");
+        reportStage("gpu");
         const gltf = await new GLTFLoader().parseAsync(glbBuffer, "");
         console.info(`[usd] GLTFLoader.parseAsync OK: ${file.fileName}`);
 
@@ -729,6 +754,7 @@ export async function loadPreviewObject(
         // come from the same Rust backend so the Phase 2 work continues
         // to apply uniformly.
         try {
+          reportStage("scene");
           const runtimeHints = await parseUsdRuntimeHints(file.path);
           applyUsdRuntimeHints(object, runtimeHints);
         } catch (error) {
@@ -746,6 +772,7 @@ export async function loadPreviewObject(
       // ---- USDA pipeline (existing) ------------------------------------
       const { USDLoader } =
         await import("three/examples/jsm/loaders/USDLoader.js");
+      reportStage("decode");
       const buffer = await readArrayBuffer(file.path);
       const loader = new USDLoader();
       const usdaText = await tryExtractUsdaText(file.extension, buffer);
@@ -783,6 +810,7 @@ export async function loadPreviewObject(
       let workerObject: Object3D | null = null;
       if (isUsdWorkerEnabled()) {
         try {
+          reportStage("gpu");
           workerObject = await parseUsdInWorker(
             file.path,
             usdaText
@@ -804,6 +832,7 @@ export async function loadPreviewObject(
       // nominal identity differs.
       let object: Group;
       try {
+        reportStage("scene");
         object =
           (workerObject as Group | null) ??
           (usdaText ? loader.parse(usdaText) : loader.parse(buffer));
@@ -830,7 +859,9 @@ export async function loadPreviewObject(
     case "png":
     case "jpg":
     case "jpeg": {
+      reportStage("decode");
       const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      reportStage("gpu");
       const texture = await new TextureLoader().loadAsync(objectUrl);
       texture.colorSpace = SRGBColorSpace;
       texture.name = file.fileName;
@@ -843,9 +874,11 @@ export async function loadPreviewObject(
       };
     }
     case "tga": {
+      reportStage("decode");
       const { TGALoader } =
         await import("three/examples/jsm/loaders/TGALoader.js");
       const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      reportStage("gpu");
       const texture = await new TGALoader().loadAsync(objectUrl);
       texture.colorSpace = SRGBColorSpace;
       texture.name = file.fileName;
@@ -858,9 +891,11 @@ export async function loadPreviewObject(
       };
     }
     case "dds": {
+      reportStage("decode");
       const { DDSLoader } =
         await import("three/examples/jsm/loaders/DDSLoader.js");
       const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      reportStage("gpu");
       const texture = await new DDSLoader().loadAsync(objectUrl);
       texture.colorSpace = SRGBColorSpace;
       texture.name = file.fileName;
@@ -873,9 +908,11 @@ export async function loadPreviewObject(
       };
     }
     case "hdr": {
+      reportStage("decode");
       const { RGBELoader } =
         await import("three/examples/jsm/loaders/RGBELoader.js");
       const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      reportStage("gpu");
       const texture = await new RGBELoader().loadAsync(objectUrl);
       texture.name = file.fileName;
       texture.userData.textureSourceKind = "standalone";
@@ -887,9 +924,11 @@ export async function loadPreviewObject(
       };
     }
     case "exr": {
+      reportStage("decode");
       const { EXRLoader } =
         await import("three/examples/jsm/loaders/EXRLoader.js");
       const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      reportStage("gpu");
       const texture = await new EXRLoader().loadAsync(objectUrl);
       texture.name = file.fileName;
       texture.userData.textureSourceKind = "standalone";
@@ -901,6 +940,7 @@ export async function loadPreviewObject(
       };
     }
     case "ktx2": {
+      reportStage("decode");
       const { KTX2Loader } =
         await import("three/examples/jsm/loaders/KTX2Loader.js");
       const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
@@ -934,6 +974,7 @@ export async function loadPreviewObject(
       // (the normal cleanupUrls path only runs when we return successfully).
       let texture;
       try {
+        reportStage("gpu");
         texture = await loader.loadAsync(objectUrl);
       } catch (error) {
         URL.revokeObjectURL(objectUrl);

@@ -6,6 +6,8 @@ export type {
   TextureViewMode,
   SceneContext,
   LoadedPreview,
+  LoadingStageId,
+  LoadingStageSnapshot,
   MissingReferenceError,
 } from "./types";
 

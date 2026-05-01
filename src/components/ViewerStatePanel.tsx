@@ -1,4 +1,5 @@
 import { LoadingScreen } from "./LoadingScreen";
+import type { LoadingStageSnapshot } from "../viewer";
 
 export type ViewerMode =
   | "empty"
@@ -11,6 +12,7 @@ export type ViewerMode =
 type ViewerStatePanelProps = {
   mode: ViewerMode;
   fileName?: string | null;
+  loadingStage?: LoadingStageSnapshot | null;
 };
 
 const supportedFormats = [
@@ -93,11 +95,15 @@ const stateContent: Record<
   },
 };
 
-export function ViewerStatePanel({ fileName, mode }: ViewerStatePanelProps) {
+export function ViewerStatePanel({
+  fileName,
+  loadingStage,
+  mode,
+}: ViewerStatePanelProps) {
   const content = stateContent[mode];
 
   if (mode === "loading") {
-    return <LoadingScreen fileName={fileName} />;
+    return <LoadingScreen fileName={fileName} stage={loadingStage} />;
   }
 
   if (mode === "empty") {

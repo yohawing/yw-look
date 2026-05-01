@@ -62,6 +62,23 @@ export type LoadedPreview = {
   formatVersion: string | null;
 };
 
+export type LoadingStageId =
+  | "scan"
+  | "resolve"
+  | "decode"
+  | "gpu"
+  | "scene"
+  | "ui";
+
+export type LoadingStageReporter = (stage: LoadingStageId) => void;
+
+export type LoadingStageSnapshot = {
+  activeStage: LoadingStageId;
+  activeStageStartedAt: number;
+  elapsedByStage: Partial<Record<LoadingStageId, number>>;
+  totalElapsedMs: number;
+};
+
 export type TextureBundle = {
   albedo: Texture | null;
   normal: Texture | null;

@@ -34,6 +34,8 @@ import type { SelectedFile } from "../lib/files";
 import {
   type CameraPreset,
   type DisplayMode,
+  type LoadingStageId,
+  type LoadingStageSnapshot,
   type MissingReferenceError,
   type SceneContext,
   type TextureFilterMode,
@@ -607,6 +609,9 @@ export function AssetViewport({
     null,
   );
   const [overlayMode, setOverlayMode] = useState<ViewerMode>("empty");
+  const [loadingStage, setLoadingStage] = useState<LoadingStageSnapshot | null>(
+    null,
+  );
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
   const shouldInitializeScene = currentFile !== null;
@@ -1700,6 +1705,7 @@ export function AssetViewport({
       context.controls.enabled = true;
       onFeedbackChange(neutralFeedback);
       onMetadataChange(emptyAssetMetadata);
+      setLoadingStage(null);
       return;
     }
 
@@ -1722,10 +1728,40 @@ export function AssetViewport({
         warning: null,
         canResetCamera: false,
       });
+      setLoadingStage(null);
       return;
     }
 
     let disposed = false;
+    const loadingStartedAt = performance.now();
+    const loadingClock: {
+      activeStage: LoadingStageId;
+      activeStartedAt: number;
+      elapsedByStage: Partial<Record<LoadingStageId, number>>;
+    } = {
+      activeStage: "scan",
+      activeStartedAt: loadingStartedAt,
+      elapsedByStage: {},
+    };
+    const reportLoadingStage = (stage: LoadingStageId) => {
+      if (disposed) return;
+
+      const now = performance.now();
+      if (stage !== loadingClock.activeStage) {
+        loadingClock.elapsedByStage[loadingClock.activeStage] =
+          (loadingClock.elapsedByStage[loadingClock.activeStage] ?? 0) +
+          (now - loadingClock.activeStartedAt);
+        loadingClock.activeStage = stage;
+        loadingClock.activeStartedAt = now;
+      }
+
+      setLoadingStage({
+        activeStage: stage,
+        activeStageStartedAt: loadingClock.activeStartedAt,
+        elapsedByStage: { ...loadingClock.elapsedByStage },
+        totalElapsedMs: now - loadingStartedAt,
+      });
+    };
 
     onFeedbackChange({
       mode: "loading",
@@ -1734,11 +1770,13 @@ export function AssetViewport({
       canResetCamera: false,
     });
     onMetadataChange(emptyAssetMetadata);
+    reportLoadingStage("scan");
 
     loadPreviewObject(currentFile, context.renderer, {
       usdLoadPolicy,
       variantSelections,
       glbOverride: glbOverride ?? null,
+      onStage: reportLoadingStage,
     })
       .then(({ object, cleanupUrls, clips, formatVersion }) => {
         if (disposed) {
@@ -1747,6 +1785,7 @@ export function AssetViewport({
           return;
         }
 
+        reportLoadingStage("scene");
         context.scene.add(object);
         context.mountedObject = object;
         context.sourceObject = object;
@@ -1791,6 +1830,7 @@ export function AssetViewport({
         );
         setActivePreviewPath(currentFile.path);
         setOverlayMode("ready");
+        reportLoadingStage("ui");
         // Collect metadata before adding SkeletonHelper children so the
         // bone helper meshes don't get counted as model meshes/nodes.
         const metadataCollection = collectAssetMetadata(
@@ -1910,6 +1950,7 @@ export function AssetViewport({
           warning: getScaleWarning(object, normalization),
           canResetCamera: true,
         });
+        setLoadingStage(null);
       })
       .catch((error: unknown) => {
         if (disposed) {
@@ -1950,10 +1991,12 @@ export function AssetViewport({
           warning: null,
           canResetCamera: false,
         });
+        setLoadingStage(null);
       });
 
     return () => {
       disposed = true;
+      setLoadingStage(null);
       stopAnimations(context);
       resetSceneObjects(context);
       revokeUrls(context.cleanupUrls);
@@ -2373,6 +2416,7 @@ export function AssetViewport({
         >
           <ViewerStatePanel
             fileName={currentFile?.fileName}
+            loadingStage={loadingStage}
             mode={effectiveOverlayMode}
           />
         </div>
