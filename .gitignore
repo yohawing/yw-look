@@ -14,13 +14,7 @@ artifacts/updater-feed/
 src-tauri/vcpkg_installed/
 src-tauri/cpp-artifacts/
 
-artifacts/screenshots/*
-!artifacts/screenshots/.gitkeep
-artifacts/logs/*
-!artifacts/logs/.gitkeep
-artifacts/preview/*
-!artifacts/preview/.gitkeep
-artifacts/tmp/
+artifacts/
 
 samples/private/*
 !samples/private/.gitkeep
