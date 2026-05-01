@@ -1,7 +1,17 @@
+// Fetches private benchmark samples into samples/private/.
+//
+// Manual fallback URLs for restricted networks:
+// - Khronos glTF assets: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models
+// - Sponza tree: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Sponza/glTF
+// - Flight Helmet tree: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/FlightHelmet/glTF
+// - Pixar Kitchen Set: https://openusd.org/release/dl/kitchen_set.zip
+// - Pixar Kitchen Set mirror candidate: https://graphics.pixar.com/usd/release/dl/Kitchen_set.zip
+// - Apple Toy Biplane: https://developer.apple.com/augmented-reality/quick-look/models/biplane/toy_biplane.usdz
+
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import {
-  copyFile,
+  cp,
   mkdir,
   readdir,
   readFile,
@@ -24,7 +34,7 @@ const tmpRoot = path.join(repoRoot, "samples", "private", ".tmp");
 
 function resolveRepoPath(value) {
   const resolved = path.resolve(repoRoot, value);
-  if (!resolved.startsWith(repoRoot + path.sep)) {
+  if (resolved !== repoRoot && !resolved.startsWith(repoRoot + path.sep)) {
     throw new Error(`refusing path outside repo: ${value}`);
   }
   return resolved;
@@ -37,13 +47,50 @@ async function sha256(filePath) {
   return hash.digest("hex");
 }
 
+function formatBytes(value) {
+  if (!Number.isFinite(value)) return "unknown bytes";
+  return `${value.toLocaleString("en-US")} bytes`;
+}
+
+function expectedValue(value) {
+  return value === "" || value === null || value === undefined ? null : value;
+}
+
+function describeError(error) {
+  if (!(error instanceof Error)) return String(error);
+  const cause =
+    error.cause instanceof Error
+      ? ` cause=${error.cause.message}`
+    : error.cause
+        ? ` cause=${JSON.stringify(error.cause)}`
+        : "";
+  return `${error.message}${cause}`;
+}
+
 async function download(url, outputPath) {
   await mkdir(path.dirname(outputPath), { recursive: true });
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: { "User-Agent": "yw-look-sample-fetch" },
+  });
   if (!response.ok || !response.body) {
-    throw new Error(`download failed ${response.status} ${response.statusText}: ${url}`);
+    throw new Error(
+      `download failed ${response.status} ${response.statusText}: ${url}`,
+    );
   }
+
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength)) {
+    console.log(`[samples] content-length ${formatBytes(contentLength)}: ${url}`);
+  } else {
+    console.log(`[samples] content-length unknown: ${url}`);
+  }
+
   await pipeline(response.body, createWriteStream(outputPath));
+  const size = (await stat(outputPath)).size;
+  return {
+    contentLength: Number.isFinite(contentLength) ? contentLength : null,
+    size,
+  };
 }
 
 function run(command, args, cwd) {
@@ -80,19 +127,124 @@ async function findByBasename(root, basename) {
   return null;
 }
 
+async function githubContents(repo, treePath) {
+  const encodedPath = treePath
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  const url = `https://api.github.com/repos/${repo}/contents/${encodedPath}?ref=main`;
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "yw-look-sample-fetch",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(
+      `GitHub contents failed ${response.status} ${response.statusText}: ${url}`,
+    );
+  }
+  const payload = await response.json();
+  if (!Array.isArray(payload)) {
+    throw new Error(`GitHub contents path is not a directory: ${url}`);
+  }
+  return payload;
+}
+
+async function collectGithubTreeFiles(repo, treePath, rootPath = treePath) {
+  const entries = await githubContents(repo, treePath);
+  const files = [];
+
+  for (const entry of entries) {
+    if (entry.type === "file") {
+      if (!entry.download_url) {
+        throw new Error(`GitHub file has no download_url: ${entry.path}`);
+      }
+      files.push({
+        downloadUrl: entry.download_url,
+        relativePath: path.posix.relative(rootPath, entry.path),
+      });
+    } else if (entry.type === "dir") {
+      files.push(...(await collectGithubTreeFiles(repo, entry.path, rootPath)));
+    }
+  }
+
+  return files;
+}
+
+async function fetchGithubTree(model, targetPath) {
+  if (!model.repo || !model.treePath) {
+    throw new Error(`${model.id} github-tree requires repo and treePath`);
+  }
+
+  const targetDir = resolveRepoPath(model.targetDir ?? path.dirname(model.path));
+  const files = await collectGithubTreeFiles(model.repo, model.treePath);
+  if (files.length === 0) {
+    throw new Error(`${model.id} GitHub tree is empty: ${model.treePath}`);
+  }
+
+  console.log(
+    `[samples] github-tree ${model.id}: ${model.repo}/${model.treePath} (${files.length} files)`,
+  );
+  await mkdir(targetDir, { recursive: true });
+
+  for (const file of files) {
+    const outputPath = path.join(targetDir, file.relativePath);
+    console.log(`[samples] file ${model.id}: ${file.relativePath}`);
+    await download(file.downloadUrl, outputPath);
+  }
+
+  if (!(await stat(targetPath).catch(() => null))?.isFile()) {
+    throw new Error(`GitHub tree did not produce target file: ${model.path}`);
+  }
+}
+
 async function fetchArchive(model, targetPath) {
-  const archivePath = path.join(tmpRoot, `${model.id}${path.extname(model.url) || ".zip"}`);
+  const archivePath = path.join(
+    tmpRoot,
+    `${model.id}${path.extname(model.url) || ".zip"}`,
+  );
   const extractDir = path.join(tmpRoot, model.id);
   await rm(extractDir, { recursive: true, force: true });
   await mkdir(extractDir, { recursive: true });
   await download(model.url, archivePath);
-  await run("tar", ["-xf", archivePath, "-C", extractDir], repoRoot);
+
+  let extractError = null;
+  try {
+    await run("unzip", ["-o", "-q", archivePath, "-d", extractDir], repoRoot);
+  } catch (error) {
+    extractError = error;
+    try {
+      const tarArgs = ["-xf", archivePath, "-C", extractDir];
+      if (process.platform === "win32") {
+        tarArgs.push("--force-local");
+      }
+      await run("tar", tarArgs, repoRoot);
+      extractError = null;
+    } catch (tarError) {
+      extractError = tarError;
+    }
+  }
+  if (extractError) {
+    throw new Error(
+      `${model.id} zip extraction failed (tried unzip then tar). Manual fallback: download ${model.url} and extract it so ${model.path} exists. Cause: ${
+        describeError(extractError)
+      }`,
+    );
+  }
+
   const found = await findByBasename(extractDir, path.basename(targetPath));
   if (!found) {
-    throw new Error(`archive did not contain ${path.basename(targetPath)}: ${model.url}`);
+    throw new Error(
+      `archive did not contain ${path.basename(targetPath)}: ${model.url}`,
+    );
   }
-  await mkdir(path.dirname(targetPath), { recursive: true });
-  await copyFile(found, targetPath);
+
+  const sourceDir = path.dirname(found);
+  const targetDir = path.dirname(targetPath);
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(path.dirname(targetDir), { recursive: true });
+  await cp(sourceDir, targetDir, { recursive: true });
 }
 
 async function fetchFile(model, targetPath) {
@@ -102,42 +254,78 @@ async function fetchFile(model, targetPath) {
   await rename(tmpPath, targetPath);
 }
 
-async function fetchModel(model) {
-  const targetPath = resolveRepoPath(model.path);
-  if ((await stat(targetPath).catch(() => null))?.isFile()) {
-    console.log(`[samples] exists ${model.id}: ${model.path}`);
-  } else if (model.url.toLowerCase().endsWith(".zip")) {
-    console.log(`[samples] archive ${model.id}: ${model.url}`);
-    await fetchArchive(model, targetPath);
-  } else {
-    console.log(`[samples] file ${model.id}: ${model.url}`);
-    await fetchFile(model, targetPath);
-  }
-
+async function verifyModel(model, targetPath) {
   const actual = await sha256(targetPath);
-  if (model.sha256 && actual !== model.sha256) {
+  const expectedSha = expectedValue(model.sha256);
+  if (expectedSha && actual !== expectedSha) {
     throw new Error(
-      `${model.id} sha256 mismatch: expected ${model.sha256}, got ${actual}`,
+      `${model.id} sha256 mismatch: expected ${expectedSha}, got ${actual}`,
     );
   }
 
   const size = (await stat(targetPath)).size;
-  if (model.sizeBytes && size !== model.sizeBytes) {
+  const expectedSize = expectedValue(model.sizeBytes);
+  if (expectedSize && size !== Number(expectedSize)) {
     throw new Error(
-      `${model.id} size mismatch: expected ${model.sizeBytes}, got ${size}`,
+      `${model.id} size mismatch: expected ${expectedSize}, got ${size}`,
     );
   }
 
-  console.log(`[samples] ready ${model.id}: ${model.path} (${size} bytes, ${actual})`);
+  if (!expectedSha) {
+    console.log(`[samples] sha256 ${model.id}: ${actual}`);
+  }
+  if (!expectedSize) {
+    console.log(`[samples] size ${model.id}: ${size}`);
+  }
+  console.log(`[samples] ready ${model.id}: ${model.path}`);
+}
+
+async function fetchModel(model) {
+  const targetPath = resolveRepoPath(model.path);
+  if ((await stat(targetPath).catch(() => null))?.isFile()) {
+    console.log(`[samples] exists ${model.id}: ${model.path}`);
+  } else if (model.kind === "github-tree") {
+    await fetchGithubTree(model, targetPath);
+  } else if (model.kind === "zip") {
+    console.log(`[samples] zip ${model.id}: ${model.url}`);
+    await fetchArchive(model, targetPath);
+  } else if (model.kind === "single") {
+    console.log(`[samples] file ${model.id}: ${model.url}`);
+    await fetchFile(model, targetPath);
+  } else {
+    throw new Error(
+      `${model.id} has unsupported kind '${model.kind}'. Expected single, github-tree, or zip.`,
+    );
+  }
+
+  await verifyModel(model, targetPath);
 }
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 await mkdir(tmpRoot, { recursive: true });
 
+const failures = [];
+
 try {
   for (const model of manifest.models) {
-    await fetchModel(model);
+    try {
+      await fetchModel(model);
+    } catch (error) {
+      const message = describeError(error);
+      failures.push({ id: model.id, message });
+      console.warn(`[samples] WARN ${model.id}: ${message}`);
+    }
   }
 } finally {
   await rm(tmpRoot, { recursive: true, force: true });
+}
+
+if (failures.length > 0) {
+  console.warn(`[samples] completed with ${failures.length} failure(s):`);
+  for (const failure of failures) {
+    console.warn(`[samples] - ${failure.id}: ${failure.message}`);
+  }
+  process.exitCode = 1;
+} else {
+  console.log(`[samples] completed ${manifest.models.length} model(s)`);
 }
