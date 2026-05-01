@@ -196,6 +196,35 @@ struct BenchCliConfig {
     node_version: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum ShotMode {
+    Shot,
+    Check,
+}
+
+#[derive(Debug, Clone)]
+struct ShotCliConfig {
+    mode: ShotMode,
+    input_path: PathBuf,
+    output_path: Option<PathBuf>,
+    width: u32,
+    height: u32,
+    background: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShotConfigPayload {
+    mode: ShotMode,
+    input_path: String,
+    file_name: String,
+    extension: String,
+    width: u32,
+    height: u32,
+    background: Option<String>,
+}
+
 fn repo_root() -> Result<PathBuf, String> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
@@ -327,6 +356,142 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
         repo_root: bench_repo_root,
         out_dir,
         node_version,
+    }))
+}
+
+fn parse_size_argument(value: &str) -> Result<(u32, u32), String> {
+    let (w, h) = value
+        .split_once(['x', 'X', '×'])
+        .ok_or_else(|| format!("--size expects WxH (e.g. 1920x1080), got '{value}'"))?;
+    let width: u32 = w
+        .trim()
+        .parse()
+        .map_err(|error| format!("--size width '{w}' is not a u32: {error}"))?;
+    let height: u32 = h
+        .trim()
+        .parse()
+        .map_err(|error| format!("--size height '{h}' is not a u32: {error}"))?;
+    if width == 0 || height == 0 {
+        return Err(format!("--size width/height must be > 0, got {width}x{height}"));
+    }
+    if width > 8192 || height > 8192 {
+        return Err(format!(
+            "--size width/height capped at 8192, got {width}x{height}"
+        ));
+    }
+    Ok((width, height))
+}
+
+fn resolve_shot_input(path: &Path) -> Result<PathBuf, String> {
+    let normalized = canonicalize_existing_path(path)
+        .map_err(|error| format!("--in {error}"))?;
+    if !normalized.is_file() {
+        return Err(format!(
+            "--in path '{}' is not a regular file",
+            normalized.display()
+        ));
+    }
+    Ok(normalized)
+}
+
+fn resolve_shot_output(path: &Path) -> Result<PathBuf, String> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    fs::create_dir_all(&parent).map_err(|error| {
+        format!(
+            "failed to create --out parent directory '{}': {error}",
+            parent.display()
+        )
+    })?;
+    let normalized_parent = canonicalize_existing_path(&parent)
+        .map_err(|error| format!("--out parent {error}"))?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| format!("--out path '{}' has no file name", path.display()))?;
+    Ok(normalized_parent.join(file_name))
+}
+
+fn parse_shot_cli_config() -> Result<Option<ShotCliConfig>, String> {
+    let args: Vec<String> = env::args().collect();
+    let shot_flag = args.iter().any(|arg| arg == "--shot");
+    let check_flag = args.iter().any(|arg| arg == "--check");
+    if !shot_flag && !check_flag {
+        return Ok(None);
+    }
+    if shot_flag && check_flag {
+        return Err("--shot and --check are mutually exclusive".to_string());
+    }
+    let mode = if shot_flag { ShotMode::Shot } else { ShotMode::Check };
+
+    let mut input_path: Option<PathBuf> = None;
+    let mut output_path: Option<PathBuf> = None;
+    let mut size: Option<(u32, u32)> = None;
+    let mut background: Option<String> = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--in" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--in requires a path".to_string())?;
+                input_path = Some(PathBuf::from(value));
+            }
+            "--out" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--out requires a path".to_string())?;
+                output_path = Some(PathBuf::from(value));
+            }
+            "--size" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--size requires WxH".to_string())?;
+                size = Some(parse_size_argument(value)?);
+            }
+            "--bg" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--bg requires a value".to_string())?;
+                background = Some(value.clone());
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+
+    let input_path = resolve_shot_input(
+        &input_path.ok_or_else(|| {
+            format!(
+                "--{} requires --in <path>",
+                if mode == ShotMode::Shot { "shot" } else { "check" }
+            )
+        })?,
+    )?;
+
+    let output_path = match mode {
+        ShotMode::Shot => Some(resolve_shot_output(
+            &output_path.ok_or_else(|| "--shot requires --out <path>".to_string())?,
+        )?),
+        ShotMode::Check => None,
+    };
+
+    let (width, height) = size.unwrap_or((1024, 768));
+
+    Ok(Some(ShotCliConfig {
+        mode,
+        input_path,
+        output_path,
+        width,
+        height,
+        background,
     }))
 }
 
@@ -1352,6 +1517,57 @@ fn finish_bench_run(app: tauri::AppHandle, exit_code: i32) {
     app.exit(exit_code);
 }
 
+#[tauri::command]
+fn finish_shot_run(app: tauri::AppHandle, exit_code: i32) {
+    app.exit(exit_code);
+}
+
+#[tauri::command]
+fn get_shot_config(
+    config: tauri::State<'_, Option<ShotCliConfig>>,
+) -> Result<Option<ShotConfigPayload>, String> {
+    let Some(config) = config.as_ref() else {
+        return Ok(None);
+    };
+    let file_name = config
+        .input_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let extension = config
+        .input_path
+        .extension()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    Ok(Some(ShotConfigPayload {
+        mode: config.mode,
+        input_path: config.input_path.display().to_string(),
+        file_name,
+        extension,
+        width: config.width,
+        height: config.height,
+        background: config.background.clone(),
+    }))
+}
+
+#[tauri::command]
+fn write_shot_output(
+    config: tauri::State<'_, Option<ShotCliConfig>>,
+    png_bytes: Vec<u8>,
+) -> Result<String, String> {
+    let Some(config) = config.as_ref() else {
+        return Err("shot mode is not enabled".to_string());
+    };
+    let Some(output_path) = config.output_path.as_ref() else {
+        return Err("--out is not configured (check mode does not write images)".to_string());
+    };
+    fs::write(output_path, &png_bytes)
+        .map_err(|error| format!("failed to write shot output: {error}"))?;
+    Ok(output_path.display().to_string())
+}
+
 fn map_usd_error(error: UsdError) -> String {
     error.to_string()
 }
@@ -1740,6 +1956,10 @@ pub fn run() {
     #[cfg(desktop)]
     let menu_action_ids = collect_menu_action_ids(&shared_menu_definition);
     let bench_cli_config = parse_bench_cli_config().expect("failed to parse bench CLI args");
+    let shot_cli_config = parse_shot_cli_config().expect("failed to parse shot CLI args");
+    if bench_cli_config.is_some() && shot_cli_config.is_some() {
+        panic!("--bench-load cannot be combined with --shot/--check");
+    }
 
     let mut builder = tauri::Builder::default();
     #[cfg(desktop)]
@@ -1787,8 +2007,17 @@ pub fn run() {
             // #44: register the stage registry so session commands can access it.
             app.manage(StageRegistry::new());
             app.manage(bench_cli_config.clone());
+            app.manage(shot_cli_config.clone());
 
-            if bench_cli_config.is_some() {
+            let entry_url: Option<&str> = if bench_cli_config.is_some() {
+                Some("http://localhost:1420/bench.html")
+            } else if shot_cli_config.is_some() {
+                Some("http://localhost:1420/shot.html")
+            } else {
+                None
+            };
+
+            if let Some(url) = entry_url {
                 let window = app.get_webview_window("main").ok_or_else(|| {
                     Box::<dyn std::error::Error>::from(std::io::Error::new(
                         std::io::ErrorKind::Other,
@@ -1797,7 +2026,7 @@ pub fn run() {
                 })?;
                 window
                     .navigate(
-                        Url::parse("http://localhost:1420/bench.html")
+                        Url::parse(url)
                             .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?,
                     )
                     .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
@@ -1821,6 +2050,9 @@ pub fn run() {
             write_bench_report,
             write_bench_screenshot,
             finish_bench_run,
+            get_shot_config,
+            write_shot_output,
+            finish_shot_run,
             check_for_update,
             install_pending_update,
             inspect_asset,

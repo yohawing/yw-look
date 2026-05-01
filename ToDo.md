@@ -484,8 +484,8 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 ## 23. 3D ビューポートスクリーンショット API（#48）
 
 - [x] WebGL レンダラーから現在のフレームを PNG として書き出す機能を作る（`src/viewer/screenshot.ts`）
-- [ ] Tauri コマンドとして外部から呼び出せるスクリーンショット API を公開する（CLI / IPC。bench 専用の保存コマンドはあるが汎用 API ではない）
-- [ ] テストから API 経由でスクリーンショットを取得してスナップショット比較に使う（現状は Playwright の page screenshot）
+- [x] CLI として外部から呼び出せるスクリーンショット機能を公開する（`yw-look --shot --in <model> --out <png>` / `--check`。`shot.html` + `src/shot/` + Tauri commands `get_shot_config` / `write_shot_output` / `finish_shot_run`。`npm run shot -- --in ... --out ...` から起動）
+- [ ] テストから shot CLI 経由でスクリーンショットを取得してスナップショット比較に使う（現状は Playwright の page screenshot）
 
 ## 24. 将来対応の検討（フォーマット・パフォーマンス）
 

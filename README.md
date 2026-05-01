@@ -139,6 +139,23 @@ npm run bundle:mac
 
 OS 別バンドル設定の詳細は [`docs/release-distribution.md`](docs/release-distribution.md) を参照。
 
+## CLI（ヘッドレスモード）
+
+開いたモデルをそのまま PNG として書き出す `shot` と、ロードのみ走らせて exit code を返す `check` を CLI から呼べる。GUI ビューアと同じ Three.js パイプラインを通すので、画面で見ている結果と一致する。
+
+```bash
+# モデルを開いて PNG に書き出す
+npm run shot -- --in path/to/model.glb --out out.png
+
+# サイズ・背景の指定
+npm run shot -- --in model.usdz --out shot.png --size 1920x1080 --bg transparent
+
+# ロードできるかだけ確認（exit code で判定）
+npm run shot:check -- --in model.fbx
+```
+
+`--shot` / `--check` は内部的に `tauri dev` 上で `shot.html` を起動して描画 → 書き出し → 終了する。ビルド済みバイナリへの組み込みは現状未対応（bench と同じく dev 経由）。
+
 ## コード品質
 
 ```bash
