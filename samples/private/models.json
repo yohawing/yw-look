@@ -1,0 +1,197 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "sponza",
+      "name": "Sponza",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Sponza/glTF-Binary/Sponza.glb",
+      "sha256": null,
+      "sizeBytes": null,
+      "license": "CC-BY 3.0 (Crytek)",
+      "tags": ["gltf", "scene", "geometry"],
+      "ext": "glb",
+      "path": "samples/private/gltf/Sponza.glb",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 10
+      },
+      "bench": {
+        "runs": 120,
+        "timeoutMs": 120000,
+        "settleFrames": 8,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
+      "id": "damaged-helmet",
+      "name": "Damaged Helmet",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
+      "sha256": null,
+      "sizeBytes": null,
+      "license": "CC-BY-NC",
+      "tags": ["gltf", "pbr", "normal-map"],
+      "ext": "glb",
+      "path": "samples/private/gltf/DamagedHelmet.glb",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 1
+      },
+      "bench": {
+        "runs": 120,
+        "timeoutMs": 60000,
+        "settleFrames": 8,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
+      "id": "flight-helmet",
+      "name": "Flight Helmet",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/FlightHelmet/glTF-Binary/FlightHelmet.glb",
+      "sha256": null,
+      "sizeBytes": null,
+      "license": "CC0",
+      "tags": ["gltf", "materials", "showcase"],
+      "ext": "glb",
+      "path": "samples/private/gltf/FlightHelmet.glb",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 5
+      },
+      "bench": {
+        "runs": 120,
+        "timeoutMs": 90000,
+        "settleFrames": 8,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
+      "id": "a-beautiful-game",
+      "name": "A Beautiful Game",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ABeautifulGame/glTF-Binary/ABeautifulGame.glb",
+      "sha256": null,
+      "sizeBytes": null,
+      "license": "CC-BY 4.0",
+      "tags": ["gltf", "transmission", "reflection"],
+      "ext": "glb",
+      "path": "samples/private/gltf/ABeautifulGame.glb",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 2
+      },
+      "bench": {
+        "runs": 120,
+        "timeoutMs": 60000,
+        "settleFrames": 8,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
+      "id": "boombox",
+      "name": "BoomBox",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BoomBox/glTF-Binary/BoomBox.glb",
+      "sha256": null,
+      "sizeBytes": null,
+      "license": "CC0",
+      "tags": ["gltf", "smoke", "pbr"],
+      "ext": "glb",
+      "path": "samples/private/gltf/BoomBox.glb",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 1
+      },
+      "bench": {
+        "runs": 120,
+        "timeoutMs": 60000,
+        "settleFrames": 8,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
+      "id": "toy-car",
+      "name": "Toy Car",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ToyCar/glTF-Binary/ToyCar.glb",
+      "sha256": null,
+      "sizeBytes": null,
+      "license": "CC0",
+      "tags": ["gltf", "clearcoat", "materials"],
+      "ext": "glb",
+      "path": "samples/private/gltf/ToyCar.glb",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 2
+      },
+      "bench": {
+        "runs": 120,
+        "timeoutMs": 60000,
+        "settleFrames": 8,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
+      "id": "pixar-kitchen-set",
+      "name": "Pixar Kitchen Set",
+      "url": "https://graphics.pixar.com/usd/files/Kitchen_set.zip",
+      "sha256": null,
+      "sizeBytes": null,
+      "license": "Apache-2.0",
+      "tags": ["usd", "composition", "scene"],
+      "ext": "usd",
+      "path": "samples/private/usd/Kitchen_set/Kitchen_set.usd",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 10
+      },
+      "bench": {
+        "runs": 90,
+        "timeoutMs": 180000,
+        "settleFrames": 12,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
+      "id": "apple-toy-biplane",
+      "name": "Apple Toy Biplane",
+      "url": "https://developer.apple.com/augmented-reality/quick-look/models/toy_biplane/toy_biplane.usdz",
+      "sha256": null,
+      "sizeBytes": null,
+      "license": "Apple sample (free)",
+      "tags": ["usdz", "quick-look", "animation"],
+      "ext": "usdz",
+      "path": "samples/private/usdz/toy_biplane.usdz",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 1
+      },
+      "bench": {
+        "runs": 90,
+        "timeoutMs": 90000,
+        "settleFrames": 12,
+        "screenshot": true,
+        "noAnimation": false,
+        "timeSeek": 0
+      }
+    }
+  ]
+}

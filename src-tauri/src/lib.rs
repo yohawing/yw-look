@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(desktop)]
 use std::collections::HashSet;
 use std::{
+    env,
     fs::{self, OpenOptions},
     io::{Read as IoRead, Write},
     path::{Path, PathBuf},
@@ -171,6 +172,133 @@ struct RecentFilesPayload {
 struct DiagnosticsPayload {
     diagnostics_log_path: String,
     diagnostics_snapshot: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BenchConfigPayload {
+    enabled: bool,
+    models_path: String,
+    out_dir: String,
+    mode: String,
+    app_version: String,
+    os: String,
+    arch: String,
+    node_version: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct BenchCliConfig {
+    models_path: PathBuf,
+    out_dir: PathBuf,
+    node_version: Option<String>,
+}
+
+fn repo_root() -> Result<PathBuf, String> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "failed to resolve repository root".to_string())
+}
+
+fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, String> {
+    path.canonicalize()
+        .map(|path| strip_verbatim_prefix(&path))
+        .map_err(|error| format!("failed to normalize path '{}': {error}", path.display()))
+}
+
+fn canonicalize_existing_parent(path: &Path) -> Result<PathBuf, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("path has no parent: {}", path.display()))?;
+    canonicalize_existing_path(parent)
+}
+
+fn ensure_path_within(path: &Path, root: &Path, label: &str) -> Result<(), String> {
+    if path.starts_with(root) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "{label} path '{}' must be under '{}'",
+        path.display(),
+        root.display()
+    ))
+}
+
+fn bench_artifacts_root() -> Result<PathBuf, String> {
+    Ok(repo_root()?.join("artifacts").join("bench"))
+}
+
+fn normalize_bench_models_path(path: &Path) -> Result<PathBuf, String> {
+    let normalized = canonicalize_existing_path(path)?;
+    let samples_root = canonicalize_existing_path(&repo_root()?.join("samples").join("private"))?;
+    ensure_path_within(&normalized, &samples_root, "bench models")?;
+    Ok(normalized)
+}
+
+fn normalize_bench_out_dir(path: &Path) -> Result<PathBuf, String> {
+    let parent = canonicalize_existing_parent(path)?;
+    let root = bench_artifacts_root()?;
+    fs::create_dir_all(&root)
+        .map_err(|error| format!("failed to create bench artifacts root: {error}"))?;
+    let normalized_root = canonicalize_existing_path(&root)?;
+    ensure_path_within(&parent, &normalized_root, "bench output")?;
+    fs::create_dir_all(path)
+        .map_err(|error| format!("failed to create bench output directory: {error}"))?;
+    canonicalize_existing_path(path)
+}
+
+fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
+    let args: Vec<String> = env::args().collect();
+    if !args.iter().any(|arg| arg == "--bench-load") {
+        return Ok(None);
+    }
+
+    let mut models_path: Option<PathBuf> = None;
+    let mut out_dir: Option<PathBuf> = None;
+    let mut node_version: Option<String> = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--bench-models" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--bench-models requires a path".to_string())?;
+                models_path = Some(PathBuf::from(value));
+            }
+            "--bench-out" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--bench-out requires a path".to_string())?;
+                out_dir = Some(PathBuf::from(value));
+            }
+            "--bench-node-version" => {
+                index += 1;
+                node_version = args.get(index).cloned();
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+
+    let models_path =
+        normalize_bench_models_path(&models_path.ok_or_else(|| {
+            "--bench-load requires --bench-models <path>".to_string()
+        })?)?;
+    let out_dir = normalize_bench_out_dir(
+        &out_dir.ok_or_else(|| "--bench-load requires --bench-out <dir>".to_string())?,
+    )?;
+
+    Ok(Some(BenchCliConfig {
+        models_path,
+        out_dir,
+        node_version,
+    }))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1121,6 +1249,79 @@ fn load_diagnostics_snapshot(app: tauri::AppHandle) -> Result<DiagnosticsPayload
     })
 }
 
+#[tauri::command]
+fn get_bench_config(
+    app: tauri::AppHandle,
+    config: tauri::State<'_, Option<BenchCliConfig>>,
+) -> Result<Option<BenchConfigPayload>, String> {
+    let Some(config) = config.as_ref() else {
+        return Ok(None);
+    };
+
+    Ok(Some(BenchConfigPayload {
+        enabled: true,
+        models_path: config.models_path.display().to_string(),
+        out_dir: config.out_dir.display().to_string(),
+        mode: if cfg!(debug_assertions) {
+            "dev".to_string()
+        } else {
+            "release".to_string()
+        },
+        app_version: current_app_version(&app),
+        os: env::consts::OS.to_string(),
+        arch: env::consts::ARCH.to_string(),
+        node_version: config.node_version.clone(),
+    }))
+}
+
+#[tauri::command]
+fn write_bench_report(
+    config: tauri::State<'_, Option<BenchCliConfig>>,
+    report_json: String,
+    report_markdown: String,
+) -> Result<(), String> {
+    let Some(config) = config.as_ref() else {
+        return Err("bench mode is not enabled".to_string());
+    };
+    let out_dir = normalize_bench_out_dir(&config.out_dir)?;
+    fs::write(out_dir.join("report.json"), report_json)
+        .map_err(|error| format!("failed to write report.json: {error}"))?;
+    fs::write(out_dir.join("report.md"), report_markdown)
+        .map_err(|error| format!("failed to write report.md: {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn write_bench_screenshot(
+    config: tauri::State<'_, Option<BenchCliConfig>>,
+    file_name: String,
+    png_bytes: Vec<u8>,
+) -> Result<(), String> {
+    let Some(config) = config.as_ref() else {
+        return Err("bench mode is not enabled".to_string());
+    };
+    if !file_name.ends_with(".png")
+        || file_name.contains('/')
+        || file_name.contains('\\')
+        || file_name.contains("..")
+    {
+        return Err(format!("invalid bench screenshot file name: {file_name}"));
+    }
+
+    let out_dir = normalize_bench_out_dir(&config.out_dir)?;
+    let screenshots_dir = out_dir.join("screenshots");
+    fs::create_dir_all(&screenshots_dir)
+        .map_err(|error| format!("failed to create screenshots directory: {error}"))?;
+    fs::write(screenshots_dir.join(file_name), png_bytes)
+        .map_err(|error| format!("failed to write screenshot: {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn finish_bench_run(app: tauri::AppHandle, exit_code: i32) {
+    app.exit(exit_code);
+}
+
 fn map_usd_error(error: UsdError) -> String {
     error.to_string()
 }
@@ -1508,6 +1709,7 @@ pub fn run() {
         load_shared_menu_definition().expect("failed to load shared menu definition");
     #[cfg(desktop)]
     let menu_action_ids = collect_menu_action_ids(&shared_menu_definition);
+    let bench_cli_config = parse_bench_cli_config().expect("failed to parse bench CLI args");
 
     let mut builder = tauri::Builder::default();
     #[cfg(desktop)]
@@ -1535,7 +1737,7 @@ pub fn run() {
     }
 
     let app = builder
-        .setup(|app| {
+        .setup(move |app| {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
@@ -1554,6 +1756,22 @@ pub fn run() {
             app.manage(UsdBackendState::new(DefaultBackend::new()));
             // #44: register the stage registry so session commands can access it.
             app.manage(StageRegistry::new());
+            app.manage(bench_cli_config.clone());
+
+            if bench_cli_config.is_some() {
+                let window = app.get_webview_window("main").ok_or_else(|| {
+                    Box::<dyn std::error::Error>::from(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "main window was not created",
+                    ))
+                })?;
+                window
+                    .navigate(
+                        Url::parse("http://localhost:1420/bench.html")
+                            .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?,
+                    )
+                    .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1569,6 +1787,10 @@ pub fn run() {
             load_supported_extensions,
             log_diagnostic_event,
             load_diagnostics_snapshot,
+            get_bench_config,
+            write_bench_report,
+            write_bench_screenshot,
+            finish_bench_run,
             check_for_update,
             install_pending_update,
             inspect_asset,

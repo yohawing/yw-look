@@ -51,6 +51,17 @@ export type {
 export { loadPreviewObject, tryExtractUsdaText } from "./loaders";
 
 export {
+  captureRendererScreenshot,
+  captureWebGLCanvasScreenshot,
+  isRendererCanvasNonBlank,
+} from "./screenshot";
+export type {
+  AssetViewportApi,
+  CanvasScreenshot,
+  CanvasScreenshotOptions,
+} from "./screenshot";
+
+export {
   collectAssetMetadata,
   buildMissingReferenceMetadata,
   cameraDisplayName,
