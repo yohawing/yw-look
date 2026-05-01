@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 type AnimationBarProps = {
   clipNames: string[];
   activeClipIndex: number;
@@ -34,108 +36,16 @@ export function AnimationBar({
 }: AnimationBarProps) {
   const safeDuration = duration > 0 ? duration : 0;
   const safeCurrentTime = Math.min(Math.max(currentTime, 0), safeDuration);
+  const activeClipName = clipNames[activeClipIndex] ?? "Animation";
+  const progress =
+    safeDuration > 0 ? (safeCurrentTime / safeDuration) * 100 : 0;
 
   return (
     <div className="animation-bar" role="group" aria-label="Animation controls">
-      <div className="animation-bar-row">
-        <div className="animation-primary-controls">
-          <button
-            onClick={() => onStep(-1)}
-            type="button"
-            title="Previous frame"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M10 2.5L5 7l5 4.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M4 3v8"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-          <button
-            className="animation-play-button"
-            onClick={onTogglePlayback}
-            type="button"
-            title={isPlaying ? "Pause" : "Play"}
-          >
-            {isPlaying ? (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <rect
-                  x="4"
-                  y="3"
-                  width="3"
-                  height="10"
-                  rx="0.5"
-                  fill="currentColor"
-                />
-                <rect
-                  x="9"
-                  y="3"
-                  width="3"
-                  height="10"
-                  rx="0.5"
-                  fill="currentColor"
-                />
-              </svg>
-            ) : (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path d="M5 3l8 5-8 5V3Z" fill="currentColor" />
-              </svg>
-            )}
-          </button>
-          <button onClick={() => onStep(1)} type="button" title="Next frame">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M4 2.5L9 7l-5 4.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M10 3v8"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        </div>
-
+      <div className="animation-clip">
         {clipNames.length > 1 ? (
-          <label className="animation-clip-select">
+          <label>
+            <span className="sr-only">Animation clip</span>
             <select
               onChange={(event) => onSelectClip(Number(event.target.value))}
               value={activeClipIndex}
@@ -147,14 +57,93 @@ export function AnimationBar({
               ))}
             </select>
           </label>
-        ) : null}
-
-        <div className="animation-time-readout">
-          <span>{formatTime(safeCurrentTime)}</span>
-        </div>
+        ) : (
+          <span title={activeClipName}>{activeClipName}</span>
+        )}
       </div>
 
-      <label className="animation-seek">
+      <div className="animation-primary-controls">
+        <button onClick={() => onStep(-1)} type="button" title="Previous frame">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M10 2.5L5 7l5 4.5"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M4 3v8"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="1.5"
+            />
+          </svg>
+        </button>
+        <button
+          className="animation-play-button"
+          onClick={onTogglePlayback}
+          type="button"
+          title={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? (
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect x="4" y="3" width="3" height="10" rx="0.5" />
+              <rect x="9" y="3" width="3" height="10" rx="0.5" />
+            </svg>
+          ) : (
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path d="M5 3l8 5-8 5V3Z" />
+            </svg>
+          )}
+        </button>
+        <button onClick={() => onStep(1)} type="button" title="Next frame">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M4 2.5L9 7l-5 4.5"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M10 3v8"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="1.5"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <label
+        className="animation-seek"
+        style={{ "--animation-progress": `${progress}%` } as CSSProperties}
+      >
         <span className="sr-only">Animation seek</span>
         <input
           max={safeDuration || 0}
@@ -165,6 +154,11 @@ export function AnimationBar({
           value={safeCurrentTime}
         />
       </label>
+
+      <div className="animation-time-readout">
+        <span>{formatTime(safeCurrentTime)}</span>
+        <span className="animation-time-total">{formatTime(safeDuration)}</span>
+      </div>
     </div>
   );
 }
