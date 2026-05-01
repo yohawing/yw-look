@@ -1,4 +1,11 @@
 import type { SettingsPayload } from "../lib/settings";
+import {
+  SidebarEmpty,
+  SidebarError,
+  SidebarKeyValueRows,
+  SidebarSection,
+  type SidebarKeyValueRow,
+} from "./sidebarPrimitives";
 
 type SettingsCardProps = {
   settingsPayload: SettingsPayload | null;
@@ -16,82 +23,91 @@ export function SettingsCard({
 }: SettingsCardProps) {
   if (settingsError) {
     return (
-      <article className="card">
-        <p className="card-title">Local Settings</p>
-        <p className="card-error">{settingsError}</p>
-      </article>
+      <SidebarSection title="Local Settings">
+        <SidebarError>{settingsError}</SidebarError>
+      </SidebarSection>
     );
   }
 
   if (!settingsPayload) {
     return (
-      <article className="card">
-        <p className="card-title">Local Settings</p>
-        <p className="card-empty">Loading settings.</p>
-      </article>
+      <SidebarSection title="Local Settings">
+        <SidebarEmpty>Loading settings.</SidebarEmpty>
+      </SidebarSection>
     );
   }
 
+  const configRows: SidebarKeyValueRow[] = [
+    {
+      id: "schema",
+      label: "Schema version",
+      value: settingsPayload.settings.version,
+      mono: true,
+    },
+    {
+      id: "recent",
+      label: "Recent files limit",
+      value: settingsPayload.settings.recentFilesLimit,
+      mono: true,
+    },
+    {
+      id: "log",
+      label: "Log level",
+      value: settingsPayload.settings.diagnosticsLogLevel,
+      tone: "muted",
+    },
+  ];
+
   return (
-    <article className="card">
-      <p className="card-title">Local Settings</p>
-      <p className="card-path">{settingsPayload.settingsPath}</p>
-      <div className="card-rows">
-        <div className="card-row">
-          <span className="card-row-label">Schema version</span>
-          <span className="card-row-badge-mono">
-            {settingsPayload.settings.version}
-          </span>
+    <>
+      <SidebarSection title="Local Settings">
+        <p className="sidebar-path">{settingsPayload.settingsPath}</p>
+        <SidebarKeyValueRows rows={configRows} />
+      </SidebarSection>
+      <SidebarSection title="Integration">
+        <div className="sidebar-kv">
+          <div className="sidebar-kv-row">
+            <span className="sidebar-kv-key">File associations</span>
+            <span className="sidebar-kv-value">
+              <button
+                aria-pressed={settingsPayload.settings.fileAssociationsEnabled}
+                className={`settings-switch ${
+                  settingsPayload.settings.fileAssociationsEnabled
+                    ? "is-on"
+                    : ""
+                }`}
+                onClick={onToggleFileAssociations}
+                type="button"
+              >
+                <span className="settings-switch-label">
+                  {settingsPayload.settings.fileAssociationsEnabled
+                    ? "Enabled"
+                    : "Disabled"}
+                </span>
+                <span className="settings-switch-track" aria-hidden="true" />
+              </button>
+            </span>
+          </div>
+          <div className="sidebar-kv-row">
+            <span className="sidebar-kv-key">Auto-check updates</span>
+            <span className="sidebar-kv-value">
+              <button
+                aria-pressed={settingsPayload.settings.autoCheckForUpdates}
+                className={`settings-switch ${
+                  settingsPayload.settings.autoCheckForUpdates ? "is-on" : ""
+                }`}
+                onClick={onToggleAutoCheckForUpdates}
+                type="button"
+              >
+                <span className="settings-switch-label">
+                  {settingsPayload.settings.autoCheckForUpdates ? "On" : "Off"}
+                </span>
+                <span className="settings-switch-track" aria-hidden="true" />
+              </button>
+            </span>
+          </div>
         </div>
-        <div className="card-row">
-          <span className="card-row-label">Recent files limit</span>
-          <span className="card-row-value-num">
-            {settingsPayload.settings.recentFilesLimit}
-          </span>
-        </div>
-        <div className="card-row">
-          <span className="card-row-label">Log level</span>
-          <span className="card-row-badge">
-            {settingsPayload.settings.diagnosticsLogLevel}
-          </span>
-        </div>
-        <div className="card-row">
-          <span className="card-row-label">File associations</span>
-          <span
-            className={`card-row-badge ${settingsPayload.settings.fileAssociationsEnabled ? "badge-active" : ""}`}
-          >
-            {settingsPayload.settings.fileAssociationsEnabled
-              ? "Enabled"
-              : "Disabled"}
-          </span>
-        </div>
-        <div className="card-row">
-          <span className="card-row-label">Auto-check for updates</span>
-          <span
-            className={`card-row-badge ${settingsPayload.settings.autoCheckForUpdates ? "badge-active" : ""}`}
-          >
-            {settingsPayload.settings.autoCheckForUpdates ? "On" : "Off"}
-          </span>
-        </div>
-      </div>
-      <div className="card-actions">
-        <button
-          className="btn-ghost"
-          onClick={onToggleFileAssociations}
-          type="button"
-        >
-          Toggle File Associations
-        </button>
-        <button
-          className="btn-ghost"
-          onClick={onToggleAutoCheckForUpdates}
-          type="button"
-        >
-          {settingsPayload.settings.autoCheckForUpdates
-            ? "Disable Auto-Update Check"
-            : "Enable Auto-Update Check"}
-        </button>
-      </div>
-    </article>
+      </SidebarSection>
+    </>
   );
 }

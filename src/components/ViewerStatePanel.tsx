@@ -1,3 +1,5 @@
+import { LoadingScreen } from "./LoadingScreen";
+
 export type ViewerMode =
   | "empty"
   | "loading"
@@ -78,6 +80,10 @@ const stateContent: Record<
 export function ViewerStatePanel({ mode }: ViewerStatePanelProps) {
   const content = stateContent[mode];
 
+  if (mode === "loading") {
+    return <LoadingScreen />;
+  }
+
   return (
     <div className={`viewer-state viewer-state-${content.tone}`}>
       <p className="viewer-label">{content.label}</p>
@@ -89,11 +95,6 @@ export function ViewerStatePanel({ mode }: ViewerStatePanelProps) {
             <li key={detail}>{detail}</li>
           ))}
         </ul>
-      ) : null}
-      {mode === "loading" ? (
-        <div aria-hidden="true" className="loading-bar">
-          <span />
-        </div>
       ) : null}
     </div>
   );

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { flattenStage, loadUsdSource, type UsdSourcePayload } from "../lib/usd";
 import type { SelectedFile } from "../lib/files";
+import {
+  SidebarEmpty,
+  SidebarError,
+  SidebarSection,
+} from "./sidebarPrimitives";
 
 type UsdSourceCardProps = {
   /** The currently open USD asset. The card is hidden when `null`
@@ -256,43 +261,40 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
     flattenCachedPath.current === currentFile?.path && flattenedSource !== null;
 
   return (
-    <article className="card">
-      <header className="card-header">
-        <p className="card-title">USD Source</p>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          {open && isBinaryStage && (
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => void onFlatten()}
-              disabled={flattenLoading}
-              title="Flatten stage via usdcat --flatten and show the composed USDA text"
-            >
-              {flattenLoading
-                ? "Flattening…"
-                : showingFlattened
-                  ? "Hide flattened"
-                  : "Show flattened"}
-            </button>
-          )}
+    <SidebarSection title="USD Source">
+      <div className="sidebar-action-row">
+        {open && isBinaryStage && (
           <button
             type="button"
             className="btn-ghost"
-            onClick={() => void onToggle()}
+            onClick={() => void onFlatten()}
+            disabled={flattenLoading}
+            title="Flatten stage via usdcat --flatten and show the composed USDA text"
           >
-            {open ? "Hide" : loading ? "Loading…" : "Show"}
+            {flattenLoading
+              ? "Flattening…"
+              : showingFlattened
+                ? "Hide flattened"
+                : "Show flattened"}
           </button>
-        </div>
-      </header>
+        )}
+        <button
+          type="button"
+          className="btn-ghost"
+          onClick={() => void onToggle()}
+        >
+          {open ? "Hide" : loading ? "Loading…" : "Show"}
+        </button>
+      </div>
       {open && (
         <>
           {error ? (
-            <p className="card-error">{error}</p>
+            <SidebarError>{error}</SidebarError>
           ) : loading ? (
-            <p className="card-empty">Reading layer…</p>
+            <SidebarEmpty>Reading layer…</SidebarEmpty>
           ) : payload?.kind === "binary" ? (
             <>
-              {flattenError && <p className="card-error">{flattenError}</p>}
+              {flattenError && <SidebarError>{flattenError}</SidebarError>}
               {showingFlattened ? (
                 <>
                   <pre
@@ -302,18 +304,18 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
                     }}
                   />
                   {flattenTruncated && (
-                    <p className="card-empty">
+                    <SidebarEmpty>
                       Truncated at {MAX_RENDER_CHARS.toLocaleString()} chars (
                       {flattenedSource!.length.toLocaleString()} total). Open
                       the asset in an external editor for the full source.
-                    </p>
+                    </SidebarEmpty>
                   )}
                 </>
               ) : !flattenError ? (
-                <p className="card-empty">
+                <SidebarEmpty>
                   Binary stage — click <strong>Show flattened</strong> above to
                   view the composed USDA text (requires the C++ backend).
-                </p>
+                </SidebarEmpty>
               ) : null}
             </>
           ) : payload?.kind === "text" ? (
@@ -329,16 +331,16 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
                 }}
               />
               {truncated && (
-                <p className="card-empty">
+                <SidebarEmpty>
                   Truncated at {MAX_RENDER_CHARS.toLocaleString()} chars (
                   {payload.source.length.toLocaleString()} total). Open the
                   asset in an external editor for the full source.
-                </p>
+                </SidebarEmpty>
               )}
             </>
           ) : null}
         </>
       )}
-    </article>
+    </SidebarSection>
   );
 }

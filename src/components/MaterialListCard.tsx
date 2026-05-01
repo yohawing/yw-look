@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { MaterialEntry, MaterialTextureSlot } from "./assetMetadata";
+import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
 
 type MaterialListCardProps = {
   materials: MaterialEntry[];
@@ -137,7 +139,7 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
             <tr className="mat-slot-row">
               <td className="mat-slot-label">Alpha</td>
               <td className="mat-slot-value">
-                <span className="card-row-badge">{mat.alphaMode}</span>
+                <span className="sidebar-chip">{mat.alphaMode}</span>
               </td>
             </tr>
           )}
@@ -155,71 +157,137 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
   );
 }
 
-export function MaterialListCard({ materials }: MaterialListCardProps) {
+function MaterialBaseColor({ mat }: { mat: MaterialEntry }) {
+  const color =
+    mat.baseColorFactor !== null
+      ? rgbToHex(
+          mat.baseColorFactor[0],
+          mat.baseColorFactor[1],
+          mat.baseColorFactor[2],
+        )
+      : mat.color;
+
   return (
-    <article className="card">
-      <p className="card-title">Materials</p>
-      {materials.length > 0 ? (
-        <ul className="material-list">
-          {materials.map((mat) => (
-            <li key={mat.id} className="material-item">
-              <div className="material-swatch-wrap">
-                {mat.color ? (
-                  <span
-                    className="material-swatch"
-                    style={{ background: mat.color }}
-                  />
-                ) : (
-                  <span className="material-swatch material-swatch-none" />
-                )}
-              </div>
-              <div className="material-info">
-                <span className="material-name">{mat.name}</span>
-                <span className="material-meta">
-                  <span className="card-row-badge">{mat.type}</span>
-                  {mat.textureCount > 0 ? (
-                    <span className="material-detail">
-                      {mat.textureCount} tex
-                    </span>
-                  ) : null}
-                  {mat.transparent ? (
-                    <span className="material-detail">
-                      a:{mat.opacity.toFixed(2)}
-                    </span>
-                  ) : null}
-                  {mat.boundMeshes.length > 0 ? (
-                    <span
-                      className="material-detail"
-                      title={mat.boundMeshes.join("\n")}
-                    >
-                      {mat.boundMeshes.length} bind
-                      {mat.boundMeshes.length === 1 ? "" : "s"}
-                    </span>
-                  ) : null}
-                </span>
-                {mat.boundMeshes.length > 0 && (
-                  <details className="material-bindings">
-                    <summary className="material-detail">bound meshes</summary>
-                    <ul className="material-bindings-list">
-                      {mat.boundMeshes.map((meshName, index) => (
-                        <li
-                          key={`${meshName}:${index}`}
-                          className="material-binding"
-                        >
-                          {meshName}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-                <ShaderDetails mat={mat} />
-              </div>
-            </li>
-          ))}
-        </ul>
+    <span className="material-detail-value material-detail-color">
+      {color ? (
+        <>
+          <span className="mat-inline-swatch" style={{ background: color }} />
+          {color.toUpperCase()}
+        </>
       ) : (
-        <p className="card-empty">No materials found.</p>
+        "unknown"
       )}
-    </article>
+    </span>
+  );
+}
+
+function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
+  return (
+    <section className="material-selected-panel" aria-label="Selected material">
+      <p className="material-selected-title">Selected material</p>
+      <dl className="material-detail-grid">
+        <div className="material-detail-row">
+          <dt>Shader</dt>
+          <dd>{mat.type}</dd>
+        </div>
+        <div className="material-detail-row">
+          <dt>Base color</dt>
+          <dd>
+            <MaterialBaseColor mat={mat} />
+          </dd>
+        </div>
+        {mat.metallicFactor !== null && (
+          <div className="material-detail-row">
+            <dt>Metallic</dt>
+            <dd>{mat.metallicFactor.toFixed(2)}</dd>
+          </div>
+        )}
+        {mat.roughnessFactor !== null && (
+          <div className="material-detail-row">
+            <dt>Roughness</dt>
+            <dd>{mat.roughnessFactor.toFixed(2)}</dd>
+          </div>
+        )}
+        <div className="material-detail-row">
+          <dt>Alpha mode</dt>
+          <dd className={mat.alphaMode === "OPAQUE" ? "muted-value" : ""}>
+            {mat.alphaMode}
+          </dd>
+        </div>
+        <div className="material-detail-row">
+          <dt>Opacity</dt>
+          <dd>{mat.opacity.toFixed(2)}</dd>
+        </div>
+        <div className="material-detail-row">
+          <dt>Textures</dt>
+          <dd>{mat.textureCount}</dd>
+        </div>
+        <div className="material-detail-row">
+          <dt>Bindings</dt>
+          <dd>{mat.boundMeshes.length}</dd>
+        </div>
+      </dl>
+      {mat.boundMeshes.length > 0 && (
+        <details className="material-bindings">
+          <summary className="material-detail">bound meshes</summary>
+          <ul className="material-bindings-list">
+            {mat.boundMeshes.map((meshName, index) => (
+              <li key={`${meshName}:${index}`} className="material-binding">
+                {meshName}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <ShaderDetails mat={mat} />
+    </section>
+  );
+}
+
+export function MaterialListCard({ materials }: MaterialListCardProps) {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const activeIndex =
+    materials.length > 0 ? Math.min(selectedIndex, materials.length - 1) : -1;
+  const selectedMaterial = activeIndex >= 0 ? materials[activeIndex] : null;
+
+  return (
+    <SidebarSection title="Materials" count={materials.length}>
+      {materials.length > 0 ? (
+        <>
+          <ul className="material-list">
+            {materials.map((mat, index) => (
+              <li key={mat.id} className="material-item">
+                <button
+                  className={`material-row${index === activeIndex ? " is-selected" : ""}`}
+                  onClick={() => setSelectedIndex(index)}
+                  type="button"
+                >
+                  <span
+                    className={`material-swatch${mat.color ? "" : " material-swatch-none"}`}
+                    style={mat.color ? { background: mat.color } : undefined}
+                  />
+                  <span className="material-info">
+                    <span className="material-name">{mat.name}</span>
+                    <span className="material-meta">
+                      {mat.type} · {mat.textureCount} tex
+                      {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
+                      {mat.boundMeshes.length > 0
+                        ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
+                        : ""}
+                    </span>
+                  </span>
+                  <span className="material-count-pill">
+                    {mat.textureCount}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {selectedMaterial && <MaterialDetailPanel mat={selectedMaterial} />}
+        </>
+      ) : (
+        <SidebarEmpty>No materials found.</SidebarEmpty>
+      )}
+    </SidebarSection>
   );
 }

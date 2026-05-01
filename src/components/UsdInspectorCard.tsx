@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type {
   AssetIssue,
   LayerInfo,
@@ -6,6 +7,13 @@ import type {
   StageSummary,
   VariantSelection,
 } from "../lib/usd";
+import {
+  SidebarEmpty,
+  SidebarError,
+  SidebarKeyValueRows,
+  SidebarSection,
+  type SidebarKeyValueRow,
+} from "./sidebarPrimitives";
 
 /** Pretty-print a numeric metadatum, falling back to "(default)" when
  * the stage didn't author the field. The fallback wording is shared
@@ -21,53 +29,37 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
   const hasOffset = layer.timeOffset !== 0 || layer.timeScale !== 1;
   return (
     <li
-      className="issue"
+      className="usd-layer-row"
       title={layer.identifier}
-      style={{ paddingLeft: `${layer.depth * 12}px` }}
+      style={{ "--layer-depth": layer.depth } as CSSProperties}
     >
-      {layer.depth === 0 ? (
-        <strong>root</strong>
-      ) : (
-        <span className="muted">{"↳ "}</span>
-      )}
-      <span className="muted">{shortLayerLabel(layer.identifier)}</span>
-      {layer.muted && (
-        <span
-          className="badge badge-error"
-          style={{ marginLeft: "4px" }}
-          title="This layer is muted and does not contribute to the composed stage"
-        >
-          muted
+      <div className="usd-layer-main">
+        <span className="usd-layer-prefix">
+          {layer.depth === 0 ? "root" : "↳ sublayer"}
         </span>
-      )}
-      {hasOffset && (
-        <span
-          className="muted"
-          style={{ marginLeft: "4px", fontSize: "0.85em" }}
-        >
-          {layer.timeOffset !== 0 && `offset:${layer.timeOffset}`}
-          {layer.timeOffset !== 0 && layer.timeScale !== 1 && " "}
-          {layer.timeScale !== 1 && `scale:${layer.timeScale}`}
-        </span>
-      )}
+        {layer.muted && (
+          <span
+            className="badge badge-error usd-inspector-chip"
+            title="This layer is muted and does not contribute to the composed stage"
+          >
+            muted
+          </span>
+        )}
+        {hasOffset && (
+          <span className="usd-inspector-note">
+            {layer.timeOffset !== 0 && `offset:${layer.timeOffset}`}
+            {layer.timeOffset !== 0 && layer.timeScale !== 1 && " "}
+            {layer.timeScale !== 1 && `scale:${layer.timeScale}`}
+          </span>
+        )}
+      </div>
+      <div className="usd-inspector-path">
+        {shortLayerLabel(layer.identifier)}
+      </div>
       {layer.comment && (
-        <details style={{ display: "inline", marginLeft: "4px" }}>
-          <summary
-            style={{ display: "inline", cursor: "pointer", fontSize: "0.85em" }}
-            className="muted"
-          >
-            comment
-          </summary>
-          <p
-            className="muted"
-            style={{
-              whiteSpace: "pre-wrap",
-              margin: "2px 0 0 0",
-              fontSize: "0.85em",
-            }}
-          >
-            {layer.comment}
-          </p>
+        <details className="usd-layer-comment">
+          <summary>comment</summary>
+          <p>{layer.comment}</p>
         </details>
       )}
     </li>
@@ -105,6 +97,12 @@ function rootLayerFormatLabel(path: string, isBinary: boolean): string {
     return isBinary ? "USDC (binary)" : "USDA (text)";
   }
   return isBinary ? "binary" : "text";
+}
+
+function asRows(
+  entries: Array<SidebarKeyValueRow | false | null | undefined>,
+): SidebarKeyValueRow[] {
+  return entries.filter(Boolean) as SidebarKeyValueRow[];
 }
 
 type UsdInspectorCardProps = {
@@ -149,9 +147,8 @@ export function UsdInspectorCard({
 }: UsdInspectorCardProps) {
   const showControl = loadPolicy !== null;
   return (
-    <article className="card">
-      <header className="card-header">
-        <p className="card-title">USD Inspector</p>
+    <>
+      <SidebarSection title="USD Inspector">
         {showControl && (
           <div
             className="segmented-control"
@@ -180,152 +177,203 @@ export function UsdInspectorCard({
             </button>
           </div>
         )}
-      </header>
-      {error ? (
-        <p className="card-error">{error}</p>
-      ) : loading ? (
-        <p className="card-empty">Inspecting stage…</p>
-      ) : !summary && !inspection ? (
-        <p className="card-empty">
-          Open a USD/USDA/USDC/USDZ asset to inspect its stage.
-        </p>
-      ) : (
+        {error ? (
+          <SidebarError>{error}</SidebarError>
+        ) : loading ? (
+          <SidebarEmpty>Inspecting stage…</SidebarEmpty>
+        ) : !summary && !inspection ? (
+          <SidebarEmpty>
+            Open a USD/USDA/USDC/USDZ asset to inspect its stage.
+          </SidebarEmpty>
+        ) : (
+          summary && (
+            <SidebarKeyValueRows
+              rows={asRows([
+                {
+                  id: "layers",
+                  label: "Layers",
+                  value: summary.layerCount,
+                  mono: true,
+                },
+                {
+                  id: "root-prims",
+                  label: "Root prims",
+                  value: summary.rootPrimCount,
+                  mono: true,
+                },
+                {
+                  id: "meshes",
+                  label: "Meshes",
+                  value: summary.meshCount,
+                  mono: true,
+                },
+                {
+                  id: "vertices",
+                  label: "Vertices",
+                  value: summary.totalVertices.toLocaleString(),
+                  mono: true,
+                },
+                {
+                  id: "triangles",
+                  label: "Triangles",
+                  value: summary.totalTriangles.toLocaleString(),
+                  mono: true,
+                },
+                {
+                  id: "payloads",
+                  label: "Payloads",
+                  value:
+                    summary.unloadedPayloadCount > 0
+                      ? `${summary.payloadCount} (${summary.unloadedPayloadCount} deferred)`
+                      : summary.payloadCount,
+                  mono: true,
+                  tone: summary.unloadedPayloadCount > 0 ? "warn" : "default",
+                },
+                {
+                  id: "variants",
+                  label: "Variants",
+                  value:
+                    summary.variantSetCount > 0
+                      ? `${summary.hasVariants ? "yes" : "no"} (${summary.variantSetCount} sets)`
+                      : summary.hasVariants
+                        ? "yes"
+                        : "no",
+                  tone: summary.hasVariants ? "default" : "muted",
+                },
+                summary.durationSeconds !== null && {
+                  id: "duration",
+                  label: "Duration",
+                  value: `${summary.durationSeconds.toFixed(2)}s`,
+                  mono: true,
+                },
+                (summary.resolvedReferenceCount > 0 ||
+                  summary.unresolvedReferenceCount > 0) && {
+                  id: "references",
+                  label: "References",
+                  value: `${summary.resolvedReferenceCount} resolved${
+                    summary.unresolvedReferenceCount > 0
+                      ? ` / ${summary.unresolvedReferenceCount} unresolved`
+                      : ""
+                  }`,
+                  tone:
+                    summary.unresolvedReferenceCount > 0 ? "danger" : "default",
+                },
+                (summary.resolvedPayloadCount > 0 ||
+                  summary.unresolvedPayloadCount > 0) && {
+                  id: "resolved-payloads",
+                  label: "Payloads resolved",
+                  value: `${summary.resolvedPayloadCount} resolved${
+                    summary.unresolvedPayloadCount > 0
+                      ? ` / ${summary.unresolvedPayloadCount} unresolved`
+                      : ""
+                  }`,
+                  tone:
+                    summary.unresolvedPayloadCount > 0 ? "danger" : "default",
+                },
+              ])}
+            />
+          )
+        )}
+      </SidebarSection>
+      {!error && !loading && (summary || inspection) ? (
         <>
-          {summary && (
-            <dl className="card-grid">
-              <dt>Layers</dt>
-              <dd>{summary.layerCount}</dd>
-              <dt>Root prims</dt>
-              <dd>{summary.rootPrimCount}</dd>
-              <dt>Meshes</dt>
-              <dd>{summary.meshCount}</dd>
-              <dt>Vertices</dt>
-              <dd>{summary.totalVertices.toLocaleString()}</dd>
-              <dt>Triangles</dt>
-              <dd>{summary.totalTriangles.toLocaleString()}</dd>
-              <dt>Payloads</dt>
-              <dd>
-                {summary.payloadCount}
-                {summary.unloadedPayloadCount > 0 && (
-                  <span className="muted">
-                    {" "}
-                    ({summary.unloadedPayloadCount} deferred)
-                  </span>
-                )}
-              </dd>
-              <dt>Variants</dt>
-              <dd>
-                {summary.hasVariants ? "yes" : "no"}
-                {summary.variantSetCount > 0 && (
-                  <span className="muted">
-                    {" "}
-                    ({summary.variantSetCount} sets)
-                  </span>
-                )}
-              </dd>
-              {summary.durationSeconds !== null && (
-                <>
-                  <dt>Duration</dt>
-                  <dd>{summary.durationSeconds.toFixed(2)}s</dd>
-                </>
-              )}
-              {(summary.resolvedReferenceCount > 0 ||
-                summary.unresolvedReferenceCount > 0) && (
-                <>
-                  <dt>References</dt>
-                  <dd>
-                    {summary.resolvedReferenceCount} resolved
-                    {summary.unresolvedReferenceCount > 0 && (
-                      <span className="muted badge badge-error">
-                        {" "}
-                        {summary.unresolvedReferenceCount} unresolved
-                      </span>
-                    )}
-                  </dd>
-                </>
-              )}
-              {(summary.resolvedPayloadCount > 0 ||
-                summary.unresolvedPayloadCount > 0) && (
-                <>
-                  <dt>Payloads (resolved)</dt>
-                  <dd>
-                    {summary.resolvedPayloadCount} resolved
-                    {summary.unresolvedPayloadCount > 0 && (
-                      <span className="muted badge badge-error">
-                        {" "}
-                        {summary.unresolvedPayloadCount} unresolved
-                      </span>
-                    )}
-                  </dd>
-                </>
-              )}
-            </dl>
-          )}
           {summary && summary.primTypeCounts.length > 0 && (
-            <details className="card-details">
-              <summary className="card-path">
-                Prim Types{" "}
-                <span className="muted">({summary.primTypeCounts.length})</span>
-              </summary>
-              <dl className="card-grid">
-                {summary.primTypeCounts.map((entry) => (
-                  <span key={entry.typeName} style={{ display: "contents" }}>
-                    <dt>{entry.typeName}</dt>
-                    <dd>{entry.count}</dd>
-                  </span>
-                ))}
-              </dl>
-            </details>
+            <SidebarSection
+              title="Prim Types"
+              count={summary.primTypeCounts.length}
+            >
+              <SidebarKeyValueRows
+                rows={summary.primTypeCounts.map((entry) => ({
+                  id: entry.typeName,
+                  label: entry.typeName,
+                  value: entry.count,
+                  mono: true,
+                }))}
+              />
+            </SidebarSection>
           )}
           {inspection && (
             <>
-              <details className="card-details" open>
-                <summary className="card-path">Metadata</summary>
-                <dl className="card-grid">
-                  <dt>defaultPrim</dt>
-                  <dd>{inspection.defaultPrim ?? "(unset)"}</dd>
-                  <dt>upAxis</dt>
-                  <dd>{inspection.upAxis ?? "(default)"}</dd>
-                  <dt>metersPerUnit</dt>
-                  <dd>
-                    {inspection.metersPerUnit !== null
-                      ? inspection.metersPerUnit
-                      : "(default)"}
-                  </dd>
-                  <dt>timeCodesPerSecond</dt>
-                  <dd>{formatAuthoredNumber(inspection.timeCodesPerSecond)}</dd>
-                  <dt>framesPerSecond</dt>
-                  <dd>{formatAuthoredNumber(inspection.framesPerSecond)}</dd>
-                  <dt>startTimeCode</dt>
-                  <dd>{formatAuthoredNumber(inspection.startTimeCode)}</dd>
-                  <dt>endTimeCode</dt>
-                  <dd>{formatAuthoredNumber(inspection.endTimeCode)}</dd>
-                  <dt>rootLayer</dt>
-                  <dd>
-                    {rootLayerFormatLabel(
-                      inspection.path,
-                      inspection.rootLayerIsBinary,
-                    )}
-                  </dd>
-                </dl>
+              <SidebarSection title="Metadata">
+                <SidebarKeyValueRows
+                  rows={[
+                    {
+                      id: "defaultPrim",
+                      label: "defaultPrim",
+                      value: inspection.defaultPrim ?? "(unset)",
+                      tone: inspection.defaultPrim ? "default" : "muted",
+                    },
+                    {
+                      id: "upAxis",
+                      label: "upAxis",
+                      value: inspection.upAxis ?? "(default)",
+                      tone: inspection.upAxis ? "default" : "muted",
+                    },
+                    {
+                      id: "metersPerUnit",
+                      label: "metersPerUnit",
+                      value:
+                        inspection.metersPerUnit !== null
+                          ? inspection.metersPerUnit
+                          : "(default)",
+                      mono: true,
+                    },
+                    {
+                      id: "timeCodesPerSecond",
+                      label: "timeCodesPerSecond",
+                      value: formatAuthoredNumber(
+                        inspection.timeCodesPerSecond,
+                      ),
+                      mono: true,
+                    },
+                    {
+                      id: "framesPerSecond",
+                      label: "framesPerSecond",
+                      value: formatAuthoredNumber(inspection.framesPerSecond),
+                      mono: true,
+                    },
+                    {
+                      id: "startTimeCode",
+                      label: "startTimeCode",
+                      value: formatAuthoredNumber(inspection.startTimeCode),
+                      mono: true,
+                    },
+                    {
+                      id: "endTimeCode",
+                      label: "endTimeCode",
+                      value: formatAuthoredNumber(inspection.endTimeCode),
+                      mono: true,
+                    },
+                    {
+                      id: "rootLayer",
+                      label: "rootLayer",
+                      value: rootLayerFormatLabel(
+                        inspection.path,
+                        inspection.rootLayerIsBinary,
+                      ),
+                    },
+                  ]}
+                />
                 {inspection.comment && (
-                  <p className="card-path" style={{ whiteSpace: "pre-wrap" }}>
+                  <p
+                    className="sidebar-path"
+                    style={{ whiteSpace: "pre-wrap" }}
+                  >
                     <span className="muted">comment: </span>
                     {inspection.comment}
                   </p>
                 )}
-              </details>
+              </SidebarSection>
               {/* #29 — Layer Stack: prefer rich `layers` data when available,
                   fall back to flat composedLayers for older/degraded backends. */}
               {(inspection.layers && inspection.layers.length > 0
                 ? inspection.layers
                 : null) !== null && inspection.layers!.length > 0 ? (
-                <details className="card-details">
-                  <summary className="card-path">
-                    Layer Stack{" "}
-                    <span className="muted">({inspection.layers!.length})</span>
-                  </summary>
-                  <ul className="card-list">
+                <SidebarSection
+                  title="Layer Stack"
+                  count={inspection.layers!.length}
+                >
+                  <ul className="usd-layer-list">
                     {inspection.layers!.map((layer, i) => (
                       <LayerRow
                         key={`${layer.identifier}:${i}`}
@@ -333,41 +381,45 @@ export function UsdInspectorCard({
                       />
                     ))}
                   </ul>
-                </details>
+                </SidebarSection>
               ) : inspection.composedLayers.length > 0 ? (
-                <details className="card-details">
-                  <summary className="card-path">
-                    Layer Stack{" "}
-                    <span className="muted">
-                      ({inspection.composedLayers.length + 1})
-                    </span>
-                  </summary>
-                  <ul className="card-list">
-                    <li className="issue" title={inspection.path}>
-                      <strong>root</strong>{" "}
-                      <span className="muted">
+                <SidebarSection
+                  title="Layer Stack"
+                  count={inspection.composedLayers.length + 1}
+                >
+                  <ul className="usd-layer-list">
+                    <li className="usd-layer-row" title={inspection.path}>
+                      <div className="usd-layer-main">
+                        <span className="usd-layer-prefix">root</span>
+                      </div>
+                      <div className="usd-inspector-path">
                         {shortLayerLabel(inspection.path)}
-                      </span>
+                      </div>
                     </li>
                     {inspection.composedLayers.map((layer, i) => (
-                      <li key={`${layer}:${i}`} className="issue" title={layer}>
-                        <span className="muted">
-                          ↳ {shortLayerLabel(layer)}
-                        </span>
+                      <li
+                        key={`${layer}:${i}`}
+                        className="usd-layer-row"
+                        title={layer}
+                        style={{ "--layer-depth": 1 } as CSSProperties}
+                      >
+                        <div className="usd-layer-main">
+                          <span className="usd-layer-prefix">↳</span>
+                        </div>
+                        <div className="usd-inspector-path">
+                          {shortLayerLabel(layer)}
+                        </div>
                       </li>
                     ))}
                   </ul>
-                </details>
+                </SidebarSection>
               ) : null}
               {inspection.variantSets.length > 0 && (
-                <details className="card-details">
-                  <summary className="card-path">
-                    Variant Sets{" "}
-                    <span className="muted">
-                      ({inspection.variantSets.length})
-                    </span>
-                  </summary>
-                  <ul className="card-list">
+                <SidebarSection
+                  title="Variant Sets"
+                  count={inspection.variantSets.length}
+                >
+                  <ul className="usd-variant-list">
                     {inspection.variantSets.map((vs, i) => {
                       // Resolve the currently active selection: prefer
                       // the overridden value from variantSelections state
@@ -394,12 +446,11 @@ export function UsdInspectorCard({
                       return (
                         <li
                           key={`${vs.primPath}:${vs.setName}:${i}`}
-                          className="issue"
+                          className="usd-variant-row"
                         >
-                          <strong>{vs.setName}</strong>
-                          {canSwitch ? (
-                            <>
-                              {" "}
+                          <div className="usd-variant-main">
+                            <strong>{vs.setName}</strong>
+                            {canSwitch ? (
                               <select
                                 className="variant-select"
                                 value={activeSelection}
@@ -418,46 +469,52 @@ export function UsdInspectorCard({
                                   </option>
                                 ))}
                               </select>
-                            </>
-                          ) : (
-                            activeSelection && (
-                              <>
-                                {" "}
-                                ={" "}
-                                <span className="badge badge-ok">
+                            ) : (
+                              activeSelection && (
+                                <span className="badge badge-ok usd-inspector-chip">
                                   {activeSelection}
                                 </span>
-                              </>
-                            )
-                          )}
-                          <span className="muted"> @ {vs.primPath}</span>
+                              )
+                            )}
+                          </div>
+                          <div className="usd-inspector-path">
+                            <span aria-hidden="true">@ </span>
+                            {vs.primPath}
+                          </div>
                         </li>
                       );
                     })}
                   </ul>
-                </details>
+                </SidebarSection>
               )}
               {inspection.missingAssets.length > 0 && (
-                <p className="card-error">
-                  Missing assets: {inspection.missingAssets.length}
-                </p>
+                <SidebarSection
+                  title="Missing Assets"
+                  count={inspection.missingAssets.length}
+                >
+                  <SidebarError>
+                    Missing assets: {inspection.missingAssets.length}
+                  </SidebarError>
+                </SidebarSection>
               )}
             </>
           )}
           {issues.length > 0 && (
-            <ul className="card-list">
-              {issues.map((issue) => (
-                <li
-                  key={`${issue.code}:${issue.contextPath ?? ""}:${issue.message}`}
-                  className={`issue issue-${issue.level}`}
-                >
-                  <strong>{issue.code}</strong>: {issue.message}
-                </li>
-              ))}
-            </ul>
+            <SidebarSection title="Issues" count={issues.length}>
+              <ul className="card-list">
+                {issues.map((issue) => (
+                  <li
+                    key={`${issue.code}:${issue.contextPath ?? ""}:${issue.message}`}
+                    className={`issue issue-${issue.level}`}
+                  >
+                    <strong>{issue.code}</strong>: {issue.message}
+                  </li>
+                ))}
+              </ul>
+            </SidebarSection>
           )}
         </>
-      )}
-    </article>
+      ) : null}
+    </>
   );
 }

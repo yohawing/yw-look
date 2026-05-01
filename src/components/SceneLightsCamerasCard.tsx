@@ -1,5 +1,10 @@
 import type { CameraEntry, LightEntry } from "./assetMetadata";
 import type { UsdLightInfo } from "../lib/usd";
+import {
+  SidebarKeyValueRows,
+  SidebarSection,
+  type SidebarKeyValueRow,
+} from "./sidebarPrimitives";
 
 type SceneLightsCamerasCardProps = {
   lights: LightEntry[];
@@ -58,23 +63,26 @@ export function SceneLightsCamerasCard({
     return null;
   }
 
+  const summaryRows: SidebarKeyValueRow[] = [
+    {
+      id: "lights",
+      label: "Lights",
+      value: usdLights ? usdLights.length : lights.length,
+      mono: true,
+    },
+    { id: "cameras", label: "Cameras", value: cameras.length, mono: true },
+  ];
+
   return (
-    <article className="card">
-      <p className="card-title">Scene Fixtures</p>
-      <dl className="card-grid">
-        <dt>Lights</dt>
-        <dd>{usdLights ? usdLights.length : lights.length}</dd>
-        <dt>Cameras</dt>
-        <dd>{cameras.length}</dd>
-      </dl>
+    <>
+      <SidebarSection title="Scene Fixtures">
+        <SidebarKeyValueRows rows={summaryRows} />
+      </SidebarSection>
 
       {/* #35 — USD Lights section (C++ backend only) */}
       {usdLights && usdLights.length > 0 && (
-        <details className="card-details" open>
-          <summary className="card-path">
-            USD Lights <span className="muted">({usdLights.length})</span>
-          </summary>
-          <ul className="card-list">
+        <SidebarSection title="USD Lights" count={usdLights.length}>
+          <ul className="scene-fixture-list">
             {usdLights.map((light) => {
               const hex = rgbToHex(
                 light.color[0],
@@ -82,25 +90,27 @@ export function SceneLightsCamerasCard({
                 light.color[2],
               );
               return (
-                <li key={light.primPath} className="issue">
-                  <strong>{light.primPath}</strong>{" "}
-                  <span className="badge badge-ok">
+                <li key={light.primPath} className="scene-fixture-item">
+                  <strong className="scene-fixture-name">
+                    {light.primPath}
+                  </strong>
+                  <span className="badge badge-ok scene-fixture-chip">
                     {shortLightLabel(light.lightKind)}
-                  </span>{" "}
-                  <span className="muted">
+                  </span>
+                  <span className="muted scene-fixture-detail">
                     intensity {light.intensity.toFixed(2)}
                   </span>
                   {light.exposure !== 0 && (
                     <>
                       {" "}
-                      <span className="muted">
+                      <span className="muted scene-fixture-detail">
                         exp {light.exposure > 0 ? "+" : ""}
                         {light.exposure.toFixed(2)}
                       </span>
                     </>
                   )}{" "}
                   <span
-                    className="badge"
+                    className="badge scene-fixture-chip"
                     style={{
                       backgroundColor: hex,
                       color: "#0e1116",
@@ -113,7 +123,7 @@ export function SceneLightsCamerasCard({
                   {light.colorTemperature !== null && (
                     <>
                       {" "}
-                      <span className="muted">
+                      <span className="muted scene-fixture-detail">
                         {light.colorTemperature.toFixed(0)}K
                       </span>
                     </>
@@ -121,7 +131,7 @@ export function SceneLightsCamerasCard({
                   {(light.specular !== 1 || light.diffuse !== 1) && (
                     <>
                       {" "}
-                      <span className="muted">
+                      <span className="muted scene-fixture-detail">
                         spec {light.specular.toFixed(2)} diff{" "}
                         {light.diffuse.toFixed(2)}
                       </span>
@@ -131,7 +141,7 @@ export function SceneLightsCamerasCard({
                     <>
                       {" "}
                       <span
-                        className="muted"
+                        className="muted scene-fixture-detail"
                         title={light.domeTextureFile}
                         style={{ fontFamily: "monospace", fontSize: "0.85em" }}
                       >
@@ -142,7 +152,7 @@ export function SceneLightsCamerasCard({
                   {light.shapingCone && (
                     <>
                       {" "}
-                      <span className="muted">
+                      <span className="muted scene-fixture-detail">
                         cone {light.shapingCone.angle.toFixed(1)}°
                       </span>
                     </>
@@ -151,30 +161,27 @@ export function SceneLightsCamerasCard({
               );
             })}
           </ul>
-        </details>
+        </SidebarSection>
       )}
 
       {/* Three.js-derived lights (shown when USD lights are unavailable) */}
       {!usdLights && lights.length > 0 && (
-        <details className="card-details" open>
-          <summary className="card-path">
-            Lights <span className="muted">({lights.length})</span>
-          </summary>
-          <ul className="card-list">
+        <SidebarSection title="Lights" count={lights.length}>
+          <ul className="scene-fixture-list">
             {lights.map((light) => (
-              <li key={light.id} className="issue">
-                <strong>{light.name}</strong>{" "}
-                <span className="badge badge-ok">
+              <li key={light.id} className="scene-fixture-item">
+                <strong className="scene-fixture-name">{light.name}</strong>
+                <span className="badge badge-ok scene-fixture-chip">
                   {shortLightLabel(light.type)}
-                </span>{" "}
-                <span className="muted">
+                </span>
+                <span className="muted scene-fixture-detail">
                   intensity {light.intensity.toFixed(2)}
                 </span>
                 {light.color && (
                   <>
                     {" "}
                     <span
-                      className="badge"
+                      className="badge scene-fixture-chip"
                       style={{
                         backgroundColor: light.color,
                         color: "#0e1116",
@@ -188,20 +195,16 @@ export function SceneLightsCamerasCard({
               </li>
             ))}
           </ul>
-        </details>
+        </SidebarSection>
       )}
 
       {cameras.length > 0 && (
-        <details className="card-details" open>
-          <summary className="card-path">
-            Cameras <span className="muted">({cameras.length})</span>
-          </summary>
-          <ul className="card-list">
+        <SidebarSection title="Cameras" count={cameras.length}>
+          <ul className="scene-fixture-list">
             {onSelectCamera && (
-              <li className="issue">
+              <li className="scene-fixture-item">
                 <button
-                  className={`badge${activeCameraId === null ? " badge-ok" : ""}`}
-                  style={{ cursor: "pointer", border: "none" }}
+                  className={`badge scene-fixture-button${activeCameraId === null ? " badge-ok" : ""}`}
                   onClick={() => onSelectCamera(null)}
                   type="button"
                   title="Switch to free-orbit camera"
@@ -214,20 +217,20 @@ export function SceneLightsCamerasCard({
             {cameras.map((camera) => {
               const isActive = activeCameraId === camera.id;
               return (
-                <li key={camera.id} className="issue">
-                  <strong>{camera.name}</strong>{" "}
-                  <span className="badge badge-ok">{camera.projection}</span>{" "}
-                  <span className="muted">
-                    fov {formatFov(camera.fov)} · aspect{" "}
-                    {formatAspect(camera.aspect)} · near{" "}
-                    {camera.near.toFixed(3)} · far {camera.far.toFixed(1)}
-                  </span>
-                  {onSelectCamera && (
-                    <>
-                      {" "}
+                <li
+                  key={camera.id}
+                  className="scene-fixture-item scene-fixture-item--camera"
+                >
+                  <div className="scene-fixture-title-row">
+                    <strong className="scene-fixture-name">
+                      {camera.name}
+                    </strong>
+                    <span className="badge badge-ok scene-fixture-chip">
+                      {camera.projection}
+                    </span>
+                    {onSelectCamera && (
                       <button
-                        className={`badge${isActive ? " badge-ok" : ""}`}
-                        style={{ cursor: "pointer", border: "none" }}
+                        className={`badge scene-fixture-button${isActive ? " badge-ok" : ""}`}
                         onClick={() =>
                           onSelectCamera(isActive ? null : camera.id)
                         }
@@ -241,14 +244,19 @@ export function SceneLightsCamerasCard({
                       >
                         {isActive ? "Active" : "View"}
                       </button>
-                    </>
-                  )}
+                    )}
+                  </div>
+                  <span className="muted scene-fixture-detail scene-fixture-detail--full">
+                    fov {formatFov(camera.fov)} · aspect{" "}
+                    {formatAspect(camera.aspect)} · near{" "}
+                    {camera.near.toFixed(3)} · far {camera.far.toFixed(1)}
+                  </span>
                 </li>
               );
             })}
           </ul>
-        </details>
+        </SidebarSection>
       )}
-    </article>
+    </>
   );
 }

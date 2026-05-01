@@ -1,3 +1,5 @@
+import { SidebarKeyValueRows, SidebarSection } from "./sidebarPrimitives";
+
 export type PerformanceSnapshot = {
   startupMs: number | null;
   loadMs: number | null;
@@ -16,40 +18,43 @@ function formatMetric(value: number | null) {
 
 export function PerformanceCard({ snapshot }: PerformanceCardProps) {
   return (
-    <article className="card">
-      <p className="card-title">Performance</p>
-      <div className="card-rows">
-        <div className="card-row">
-          <span className="card-row-label">Startup</span>
-          <span className="card-row-value-mono">
-            {formatMetric(snapshot.startupMs)}
-          </span>
-        </div>
-        <div className="card-row">
-          <span className="card-row-label">First Paint</span>
-          <span className="card-row-value-mono">
-            {formatMetric(snapshot.firstPaintMs)}
-          </span>
-        </div>
-        <div className="card-row">
-          <span className="card-row-label">Interactive</span>
-          <span className="card-row-value-mono">
-            {formatMetric(snapshot.interactiveMs)}
-          </span>
-        </div>
-        <div className="card-row">
-          <span className="card-row-label">Latest load</span>
-          <span className="card-row-value-mono">
-            {formatMetric(snapshot.loadMs)}
-          </span>
-        </div>
-        <div className="card-row">
-          <span className="card-row-label">Navigation</span>
-          <span className="card-row-value-mono">
-            {formatMetric(snapshot.navigationMs)}
-          </span>
-        </div>
-      </div>
-    </article>
+    <SidebarSection title="Performance">
+      <SidebarKeyValueRows
+        rows={[
+          {
+            id: "startup",
+            label: "Startup",
+            value: formatMetric(snapshot.startupMs),
+            mono: true,
+          },
+          {
+            id: "first-paint",
+            label: "First Paint",
+            value: formatMetric(snapshot.firstPaintMs),
+            mono: true,
+          },
+          {
+            id: "interactive",
+            label: "Interactive",
+            value: formatMetric(snapshot.interactiveMs),
+            mono: true,
+          },
+          {
+            id: "latest-load",
+            label: "Latest load",
+            value: formatMetric(snapshot.loadMs),
+            mono: true,
+            tone: snapshot.loadMs === null ? "muted" : "default",
+          },
+          {
+            id: "navigation",
+            label: "Navigation",
+            value: formatMetric(snapshot.navigationMs),
+            mono: true,
+            tone: snapshot.navigationMs === null ? "muted" : "default",
+          },
+        ]}
+      />
+    </SidebarSection>
   );
 }

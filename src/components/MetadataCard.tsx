@@ -1,4 +1,10 @@
 import type { AssetMetadata } from "./assetMetadata";
+import {
+  SidebarEmpty,
+  SidebarKeyValueRows,
+  SidebarSection,
+  type SidebarKeyValueRow,
+} from "./sidebarPrimitives";
 
 type MetadataCardProps = {
   metadata: AssetMetadata | null;
@@ -13,59 +19,58 @@ function renderValue(value: string | number | boolean | null) {
 }
 
 export function MetadataCard({ metadata }: MetadataCardProps) {
+  if (!metadata) {
+    return (
+      <SidebarSection title="Asset Metadata">
+        <SidebarEmpty>Open a supported file to inspect metadata.</SidebarEmpty>
+      </SidebarSection>
+    );
+  }
+
+  const rows: SidebarKeyValueRow[] = [
+    { id: "format", label: "Format", value: renderValue(metadata.formatLabel) },
+    {
+      id: "version",
+      label: "Version",
+      value: renderValue(metadata.formatVersion),
+      mono: true,
+      tone: metadata.formatVersion ? "default" : "muted",
+    },
+    {
+      id: "nodes",
+      label: "Nodes",
+      value: renderValue(metadata.nodeCount),
+      mono: true,
+    },
+    {
+      id: "meshes",
+      label: "Meshes",
+      value: renderValue(metadata.meshCount),
+      mono: true,
+    },
+    {
+      id: "materials",
+      label: "Materials",
+      value: renderValue(metadata.materialCount),
+      mono: true,
+    },
+    {
+      id: "textures",
+      label: "Textures",
+      value: renderValue(metadata.textureCount),
+      mono: true,
+    },
+    {
+      id: "animations",
+      label: "Animations",
+      value: renderValue(metadata.hasAnimation),
+      tone: metadata.hasAnimation ? "ok" : "muted",
+    },
+  ];
+
   return (
-    <article className="card">
-      <p className="card-title">Asset Metadata</p>
-      {metadata ? (
-        <div className="card-rows">
-          <div className="card-row">
-            <span className="card-row-label">Format</span>
-            <span className="card-row-value">
-              {renderValue(metadata.formatLabel)}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Version</span>
-            <span className="card-row-badge-mono">
-              {renderValue(metadata.formatVersion)}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Nodes</span>
-            <span className="card-row-value-num">
-              {renderValue(metadata.nodeCount)}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Meshes</span>
-            <span className="card-row-value-num">
-              {renderValue(metadata.meshCount)}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Materials</span>
-            <span className="card-row-value-num">
-              {renderValue(metadata.materialCount)}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Textures</span>
-            <span className="card-row-value-num">
-              {renderValue(metadata.textureCount)}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Animations</span>
-            <span
-              className={`card-row-badge ${metadata.hasAnimation ? "badge-active" : ""}`}
-            >
-              {renderValue(metadata.hasAnimation)}
-            </span>
-          </div>
-        </div>
-      ) : (
-        <p className="card-empty">Open a supported file to inspect metadata.</p>
-      )}
-    </article>
+    <SidebarSection title="Asset Metadata">
+      <SidebarKeyValueRows rows={rows} />
+    </SidebarSection>
   );
 }

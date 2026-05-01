@@ -4,6 +4,12 @@ import type {
   CompositionArcKind,
   StageInspection,
 } from "../lib/usd";
+import {
+  SidebarEmpty,
+  SidebarKeyValueRows,
+  SidebarSection,
+  type SidebarKeyValueRow,
+} from "./sidebarPrimitives";
 
 type CompositionArcsCardProps = {
   inspection: StageInspection | null;
@@ -63,8 +69,7 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
   if (arcs.length === 0) return null;
   const groups = groupBySourcePrim(arcs);
   return (
-    <section>
-      <p className="card-subtitle">{title}</p>
+    <SidebarSection title={title} count={arcs.length}>
       <ul className="card-list">
         {groups.map((group) => (
           <li key={group.sourcePrim}>
@@ -118,7 +123,7 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
           </li>
         ))}
       </ul>
-    </section>
+    </SidebarSection>
   );
 }
 
@@ -156,62 +161,70 @@ export function CompositionArcsCard({
     inheritsCount +
     specializesCount +
     variantSelectionCount;
+  const summaryRows: SidebarKeyValueRow[] = [
+    referenceCount > 0 && {
+      id: "references",
+      label: "References",
+      value: referenceCount,
+      mono: true,
+    },
+    payloadCount > 0 && {
+      id: "payloads",
+      label: "Payloads",
+      value: payloadCount,
+      mono: true,
+    },
+    inheritsCount > 0 && {
+      id: "inherits",
+      label: "Inherits",
+      value: inheritsCount,
+      mono: true,
+    },
+    specializesCount > 0 && {
+      id: "specializes",
+      label: "Specializes",
+      value: specializesCount,
+      mono: true,
+    },
+    variantSelectionCount > 0 && {
+      id: "variants",
+      label: "Variant Selections",
+      value: variantSelectionCount,
+      mono: true,
+    },
+    unloadedCount > 0 && {
+      id: "deferred",
+      label: "Deferred",
+      value: unloadedCount,
+      mono: true,
+      tone: "warn" as const,
+    },
+    missingCount > 0 && {
+      id: "missing",
+      label: "Missing",
+      value: missingCount,
+      mono: true,
+      tone: "danger" as const,
+    },
+  ].filter(Boolean) as SidebarKeyValueRow[];
 
   return (
-    <article className="card">
-      <p className="card-title">Composition Arcs</p>
-      {loading ? (
-        <p className="card-empty">Inspecting stage…</p>
-      ) : !inspection ? (
-        <p className="card-empty">Open a USD asset to view composition arcs.</p>
-      ) : totalCount === 0 ? (
-        <p className="card-empty">No composition arcs.</p>
-      ) : (
+    <>
+      <SidebarSection title="Composition Arcs" count={totalCount || undefined}>
+        {loading ? (
+          <SidebarEmpty>Inspecting stage…</SidebarEmpty>
+        ) : !inspection ? (
+          <SidebarEmpty>
+            Open a USD asset to view composition arcs.
+          </SidebarEmpty>
+        ) : totalCount === 0 ? (
+          <SidebarEmpty>No composition arcs.</SidebarEmpty>
+        ) : (
+          <SidebarKeyValueRows rows={summaryRows} />
+        )}
+      </SidebarSection>
+      {inspection && totalCount > 0 ? (
         <>
-          <dl className="card-grid">
-            {referenceCount > 0 && (
-              <>
-                <dt>References</dt>
-                <dd>{referenceCount}</dd>
-              </>
-            )}
-            {payloadCount > 0 && (
-              <>
-                <dt>Payloads</dt>
-                <dd>{payloadCount}</dd>
-              </>
-            )}
-            {inheritsCount > 0 && (
-              <>
-                <dt>Inherits</dt>
-                <dd>{inheritsCount}</dd>
-              </>
-            )}
-            {specializesCount > 0 && (
-              <>
-                <dt>Specializes</dt>
-                <dd>{specializesCount}</dd>
-              </>
-            )}
-            {variantSelectionCount > 0 && (
-              <>
-                <dt>Variant Selections</dt>
-                <dd>{variantSelectionCount}</dd>
-              </>
-            )}
-            {unloadedCount > 0 && (
-              <>
-                <dt>Deferred</dt>
-                <dd className="muted">{unloadedCount}</dd>
-              </>
-            )}
-            {missingCount > 0 && (
-              <>
-                <dt>Missing</dt>
-                <dd className="card-error">{missingCount}</dd>
-              </>
-            )}
-          </dl>
           <ArcSection title="References" arcs={inspection.references} />
           <ArcSection title="Payloads" arcs={inspection.payloads} />
           {inspection.inherits && (
@@ -227,7 +240,7 @@ export function CompositionArcsCard({
             />
           )}
         </>
-      )}
-    </article>
+      ) : null}
+    </>
   );
 }

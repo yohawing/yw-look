@@ -3,6 +3,13 @@ import type {
   UpdateCheckPayload,
   UpdateConfigurationPayload,
 } from "../lib/updater";
+import {
+  SidebarEmpty,
+  SidebarError,
+  SidebarKeyValueRows,
+  SidebarSection,
+  type SidebarKeyValueRow,
+} from "./sidebarPrimitives";
 
 type UpdateDraft = {
   endpoint: string;
@@ -38,145 +45,160 @@ export function UpdateCard({
   });
 
   const hasUpdate = Boolean(updateCheck?.update);
+  const configRows: SidebarKeyValueRow[] = updateConfiguration
+    ? [
+        {
+          id: "version",
+          label: "Version",
+          value: updateConfiguration.currentVersion,
+          mono: true,
+        },
+        {
+          id: "endpoint",
+          label: "Endpoint",
+          value: updateConfiguration.effectiveEndpoint ?? "not configured",
+          mono: true,
+          tone: updateConfiguration.effectiveEndpoint ? "default" : "muted",
+        },
+        {
+          id: "public-key",
+          label: "Public key",
+          value: updateConfiguration.effectivePubkeyAvailable
+            ? "Configured"
+            : "Missing",
+          tone: updateConfiguration.effectivePubkeyAvailable ? "ok" : "warn",
+        },
+        {
+          id: "source",
+          label: "Source",
+          value:
+            updateConfiguration.usingOverrideEndpoint ||
+            updateConfiguration.usingOverridePubkey
+              ? "Local override"
+              : "Bundled",
+          tone: "muted",
+        },
+      ]
+    : [];
+
+  const updateRows: SidebarKeyValueRow[] = updateCheck?.update
+    ? [
+        {
+          id: "available",
+          label: "Available",
+          value: updateCheck.update.version,
+          mono: true,
+        },
+        { id: "target", label: "Target", value: updateCheck.update.target },
+        ...(updateCheck.update.pubDate
+          ? [
+              {
+                id: "published",
+                label: "Published",
+                value: updateCheck.update.pubDate,
+                tone: "muted" as const,
+              },
+            ]
+          : []),
+      ]
+    : [];
 
   return (
-    <article className="card">
-      <p className="card-title">App Updates</p>
-      {updateError ? <p className="card-error">{updateError}</p> : null}
-      {updateConfiguration ? (
-        <div className="card-rows">
-          <div className="card-row">
-            <span className="card-row-label">Version</span>
-            <span className="card-row-badge-mono">
-              {updateConfiguration.currentVersion}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Endpoint</span>
-            <span className="card-row-value-mono">
-              {updateConfiguration.effectiveEndpoint ?? "not configured"}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Public key</span>
-            <span
-              className={`card-row-badge ${updateConfiguration.effectivePubkeyAvailable ? "badge-active" : ""}`}
+    <>
+      <SidebarSection title="App Updates">
+        {updateError ? <SidebarError>{updateError}</SidebarError> : null}
+        {updateConfiguration ? (
+          <SidebarKeyValueRows rows={configRows} />
+        ) : (
+          <SidebarEmpty>Loading updater configuration.</SidebarEmpty>
+        )}
+      </SidebarSection>
+
+      <SidebarSection title="Local override">
+        <div className="sidebar-form">
+          <label className="text-control">
+            <span>Update feed URL</span>
+            <input
+              onChange={(event) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  endpoint: event.target.value,
+                }))
+              }
+              placeholder="http://127.0.0.1:8765/latest.json"
+              type="text"
+              value={draft.endpoint}
+            />
+          </label>
+
+          <label className="text-control">
+            <span>Updater public key</span>
+            <textarea
+              onChange={(event) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  publicKey: event.target.value,
+                }))
+              }
+              placeholder="Paste PEM public key for local update signing."
+              rows={4}
+              value={draft.publicKey}
+            />
+          </label>
+
+          <label className="checkbox-control">
+            <input
+              checked={draft.allowInsecure}
+              onChange={(event) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  allowInsecure: event.target.checked,
+                }))
+              }
+              type="checkbox"
+            />
+            <span>Allow HTTP on localhost</span>
+          </label>
+
+          <div className="card-actions">
+            <button
+              className="btn-ghost"
+              onClick={() => onSaveOverride(draft)}
+              type="button"
             >
-              {updateConfiguration.effectivePubkeyAvailable
-                ? "Configured"
-                : "Missing"}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Source</span>
-            <span className="card-row-badge">
-              {updateConfiguration.usingOverrideEndpoint ||
-              updateConfiguration.usingOverridePubkey
-                ? "Local override"
-                : "Bundled"}
-            </span>
+              Save
+            </button>
+            <button
+              className="btn-ghost"
+              onClick={onCheckForUpdate}
+              type="button"
+            >
+              {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
+            </button>
+            <button
+              className="btn-primary"
+              disabled={!hasUpdate || isInstallingUpdate}
+              onClick={onInstallUpdate}
+              type="button"
+            >
+              {isInstallingUpdate ? "Installing..." : "Install Update"}
+            </button>
           </div>
         </div>
-      ) : (
-        <p className="card-empty">Loading updater configuration.</p>
-      )}
-
-      <div className="card-section-label">Local override</div>
-
-      <label className="text-control">
-        <span>Update feed URL</span>
-        <input
-          onChange={(event) =>
-            setDraft((previous) => ({
-              ...previous,
-              endpoint: event.target.value,
-            }))
-          }
-          placeholder="http://127.0.0.1:8765/latest.json"
-          type="text"
-          value={draft.endpoint}
-        />
-      </label>
-
-      <label className="text-control">
-        <span>Updater public key</span>
-        <textarea
-          onChange={(event) =>
-            setDraft((previous) => ({
-              ...previous,
-              publicKey: event.target.value,
-            }))
-          }
-          placeholder="Paste PEM public key for local update signing."
-          rows={4}
-          value={draft.publicKey}
-        />
-      </label>
-
-      <label className="checkbox-control">
-        <input
-          checked={draft.allowInsecure}
-          onChange={(event) =>
-            setDraft((previous) => ({
-              ...previous,
-              allowInsecure: event.target.checked,
-            }))
-          }
-          type="checkbox"
-        />
-        <span>Allow HTTP on localhost</span>
-      </label>
-
-      <div className="card-actions">
-        <button
-          className="btn-ghost"
-          onClick={() => onSaveOverride(draft)}
-          type="button"
-        >
-          Save
-        </button>
-        <button className="btn-ghost" onClick={onCheckForUpdate} type="button">
-          {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
-        </button>
-        <button
-          className="btn-primary"
-          disabled={!hasUpdate || isInstallingUpdate}
-          onClick={onInstallUpdate}
-          type="button"
-        >
-          {isInstallingUpdate ? "Installing..." : "Install Update"}
-        </button>
-      </div>
+      </SidebarSection>
 
       {updateCheck?.update ? (
-        <div className="card-rows" style={{ marginTop: 12 }}>
-          <div className="card-row">
-            <span className="card-row-label">Available</span>
-            <span className="card-row-badge-mono">
-              {updateCheck.update.version}
-            </span>
-          </div>
-          <div className="card-row">
-            <span className="card-row-label">Target</span>
-            <span className="card-row-value">{updateCheck.update.target}</span>
-          </div>
-          {updateCheck.update.pubDate ? (
-            <div className="card-row">
-              <span className="card-row-label">Published</span>
-              <span className="card-row-value">
-                {updateCheck.update.pubDate}
-              </span>
-            </div>
-          ) : null}
+        <SidebarSection title="Available update">
+          <SidebarKeyValueRows rows={updateRows} />
           {updateCheck.update.notes ? (
             <pre className="log-preview">{updateCheck.update.notes}</pre>
           ) : null}
-        </div>
+        </SidebarSection>
       ) : updateCheck ? (
-        <p className="card-empty" style={{ marginTop: 8 }}>
-          No newer update available.
-        </p>
+        <SidebarSection title="Available update">
+          <SidebarEmpty>No newer update available.</SidebarEmpty>
+        </SidebarSection>
       ) : null}
-    </article>
+    </>
   );
 }

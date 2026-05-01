@@ -1,11 +1,12 @@
+import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+
 type WarningsCardProps = {
   warnings: string[];
 };
 
 export function WarningsCard({ warnings }: WarningsCardProps) {
   return (
-    <article className="card">
-      <p className="card-title">Warnings</p>
+    <SidebarSection title="Warnings" count={warnings.length}>
       {warnings.length > 0 ? (
         <ul className="warning-list">
           {warnings.map((warning) => (
@@ -37,8 +38,8 @@ export function WarningsCard({ warnings }: WarningsCardProps) {
           ))}
         </ul>
       ) : (
-        <p className="card-empty">No active warnings.</p>
+        <SidebarEmpty>No active warnings.</SidebarEmpty>
       )}
-    </article>
+    </SidebarSection>
   );
 }

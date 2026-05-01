@@ -123,6 +123,7 @@ function HierarchyBranch({
         className={`tree-row${isSelected ? " is-selected" : ""}${
           onSelectName && node.name ? " is-clickable" : ""
         }`}
+        style={{ paddingLeft: 6 + depth * 14 }}
         onClick={
           // Unnamed nodes (e.g. anonymous Three.js wrappers) have no
           // stable selection key, so skip the click rather than letting
@@ -263,6 +264,27 @@ function hasDescendant(node: HierarchyNode, key: string): boolean {
   return node.children.some((child) => hasDescendant(child, key));
 }
 
+function findNodeByKey(
+  nodes: HierarchyNode[],
+  key: string | null,
+): HierarchyNode | null {
+  if (!key) return null;
+  for (const node of nodes) {
+    const nodeKey = node.primPath ?? node.name;
+    if (nodeKey === key) return node;
+    const child = findNodeByKey(node.children, key);
+    if (child) return child;
+  }
+  return null;
+}
+
+function countNodes(nodes: HierarchyNode[]): number {
+  return nodes.reduce(
+    (count, node) => count + 1 + countNodes(node.children),
+    0,
+  );
+}
+
 export function HierarchyCard({
   hierarchy,
   selectedName,
@@ -288,36 +310,131 @@ export function HierarchyCard({
   }, [selectedName]);
 
   const normalizedSelected = selectedName ?? null;
+  const selectedNode = findNodeByKey(hierarchy, normalizedSelected);
+  const totalNodeCount = countNodes(hierarchy);
+  const selectedPath = selectedNode?.primPath ?? normalizedSelected;
+  const selectedChildCount = selectedNode?.children.length ?? 0;
+  const selectedPayloadState =
+    selectedPath && payloadPrimPaths?.has(selectedPath)
+      ? unloadedPayloadPaths?.has(selectedPath)
+        ? "Deferred"
+        : "Loaded"
+      : null;
 
   return (
-    <article className="card hierarchy-card">
-      <p className="card-title">Scene Hierarchy</p>
-      {hierarchy.length > 0 ? (
-        <ul className="tree-root">
-          {hierarchy.map((node, index) => (
-            <HierarchyBranch
-              key={`${node.name}-${index}`}
-              node={node}
-              depth={0}
-              selectedName={normalizedSelected}
-              onSelectName={onSelectName}
-              onSelectPrimPath={onSelectPrimPath}
-              parentPath="/"
-              forceExpanded={
-                normalizedSelected !== null &&
-                hasDescendant(node, normalizedSelected)
-              }
-              selectedRef={selectedRef}
-              payloadPrimPaths={payloadPrimPaths}
-              unloadedPayloadPaths={unloadedPayloadPaths}
-              onLoadPayload={onLoadPayload}
-              onUnloadPayload={onUnloadPayload}
+    <div className="hierarchy-card">
+      <section className="hierarchy-section">
+        <div className="sec-head">
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            width="11"
+            height="11"
+            className="sec-head-chevron"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 6l4 4 4-4"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
-          ))}
-        </ul>
-      ) : (
-        <p className="muted">No hierarchy available for the current asset.</p>
-      )}
-    </article>
+          </svg>
+          <span>Outliner</span>
+          <span className="sec-head-count">{totalNodeCount}</span>
+        </div>
+        {hierarchy.length > 0 ? (
+          <ul className="tree-root">
+            {hierarchy.map((node, index) => (
+              <HierarchyBranch
+                key={`${node.name}-${index}`}
+                node={node}
+                depth={0}
+                selectedName={normalizedSelected}
+                onSelectName={onSelectName}
+                onSelectPrimPath={onSelectPrimPath}
+                parentPath="/"
+                forceExpanded={
+                  normalizedSelected !== null &&
+                  hasDescendant(node, normalizedSelected)
+                }
+                selectedRef={selectedRef}
+                payloadPrimPaths={payloadPrimPaths}
+                unloadedPayloadPaths={unloadedPayloadPaths}
+                onLoadPayload={onLoadPayload}
+                onUnloadPayload={onUnloadPayload}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="sidebar-empty">
+            No hierarchy available for the current asset.
+          </p>
+        )}
+      </section>
+
+      <section className="hierarchy-section">
+        <div className="sec-head">
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            width="11"
+            height="11"
+            className="sec-head-chevron"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 6l4 4 4-4"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span>Selected</span>
+        </div>
+        {selectedNode ? (
+          <div className="selected-kv">
+            <div className="selected-kv-row">
+              <span className="selected-kv-key">Name</span>
+              <span className="selected-kv-value">
+                {selectedNode.name || "(unnamed)"}
+              </span>
+            </div>
+            <div className="selected-kv-row">
+              <span className="selected-kv-key">Type</span>
+              <span className="selected-kv-value is-muted">
+                {selectedNode.kind}
+              </span>
+            </div>
+            {selectedPath ? (
+              <div className="selected-kv-row">
+                <span className="selected-kv-key">Path</span>
+                <span className="selected-kv-value is-muted">
+                  {selectedPath}
+                </span>
+              </div>
+            ) : null}
+            <div className="selected-kv-row">
+              <span className="selected-kv-key">Children</span>
+              <span className="selected-kv-value">{selectedChildCount}</span>
+            </div>
+            {selectedPayloadState ? (
+              <div className="selected-kv-row">
+                <span className="selected-kv-key">Payload</span>
+                <span className="selected-kv-value">
+                  {selectedPayloadState}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <p className="sidebar-empty">Select a row to inspect node details.</p>
+        )}
+      </section>
+    </div>
   );
 }

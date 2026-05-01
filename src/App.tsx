@@ -27,7 +27,22 @@ import {
   emptyAssetMetadata,
   type AssetMetadata,
 } from "./components/assetMetadata";
+import { AppStatusBar } from "./components/AppStatusBar";
+import {
+  buildStatusLeftItems,
+  buildStatusRightItems,
+} from "./components/appStatusItems";
 import { CurrentFileCard } from "./components/CurrentFileCard";
+import {
+  debugPanelDirectoryListing,
+  debugPanelFile,
+  debugPanelMetadata,
+  debugPanelRecentFiles,
+  debugPanelWarnings,
+  debugUsdInspection,
+  debugUsdSummary,
+} from "./components/debugPanelFixtures";
+import { FileBrowserCard } from "./components/FileBrowserCard";
 import { HierarchyCard } from "./components/HierarchyCard";
 import { UsdPrimPropertyPanel } from "./components/UsdPrimPropertyPanel";
 import { MaterialListCard } from "./components/MaterialListCard";
@@ -37,8 +52,13 @@ import {
   type PerformanceSnapshot,
 } from "./components/PerformanceCard";
 import { SceneLightsCamerasCard } from "./components/SceneLightsCamerasCard";
+import { SidebarTabs } from "./components/SidebarTabs";
+import { createSidebarTabs } from "./components/sidebarTabItems";
+import { SidebarEmpty, SidebarSection } from "./components/sidebarPrimitives";
+import type { SidebarTabId } from "./components/SidebarTabIcons";
 import { TextureListCard } from "./components/TextureListCard";
 import { UsdInspectorCard } from "./components/UsdInspectorCard";
+import { ViewportControls } from "./components/ViewportControls";
 import { WarningsCard } from "./components/WarningsCard";
 import {
   closeStageSession,
@@ -100,13 +120,7 @@ import {
   type SettingsPayload,
 } from "./lib/settings";
 
-type SidebarTab =
-  | "file"
-  | "hierarchy"
-  | "materials"
-  | "textures"
-  | "settings"
-  | "warnings";
+type SidebarTab = SidebarTabId;
 
 type WindowWithIdleCallback = Window & {
   requestIdleCallback?: (
@@ -199,9 +213,16 @@ const UsdSourceCard = lazy(() =>
 
 function SidebarCardFallback() {
   return (
-    <article className="card">
-      <p className="muted">Loading panel…</p>
-    </article>
+    <SidebarSection title="Loading">
+      <SidebarEmpty>Loading panel…</SidebarEmpty>
+    </SidebarSection>
+  );
+}
+
+function isDebugPanelsRequested(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("debugPanels") === "1" || params.get("uiDebug") === "panels"
   );
 }
 
@@ -226,61 +247,13 @@ const cameraPresetOptions: Array<{
   { id: "bottom", label: "Bottom" },
 ];
 
-const toneMappingOptions: Array<{
-  id: ToneMappingMode;
-  label: string;
-}> = [
-  { id: "linear", label: "Linear" },
-  { id: "aces", label: "ACES" },
-  { id: "reinhard", label: "Reinhard" },
-];
-
-const textureChannelOptions: Array<{
-  id: TextureViewMode;
-  label: string;
-}> = [
-  { id: "rgb", label: "RGB" },
-  { id: "rgba", label: "RGBA" },
-  { id: "r", label: "R" },
-  { id: "g", label: "G" },
-  { id: "b", label: "B" },
-  { id: "alpha", label: "A" },
-];
-
-const textureTileOptions: Array<{
-  count: number;
-  label: string;
-}> = [
-  { count: 1, label: "1x" },
-  { count: 2, label: "2x" },
-  { count: 4, label: "4x" },
-  { count: 8, label: "8x" },
-];
-
-const renderScaleOptions: Array<{
-  value: number;
-  label: string;
-}> = [
-  { value: 0.5, label: "0.5x" },
-  { value: 1, label: "1x" },
-  { value: 2, label: "2x" },
-];
-
-const textureFilterOptions: Array<{
-  id: TextureFilterMode;
-  label: string;
-}> = [
-  { id: "nearest", label: "Nearest" },
-  { id: "linear", label: "Bilinear" },
-  { id: "trilinear", label: "Trilinear" },
-];
-
 const DEFAULT_EXPOSURE = 1.1;
 
 export function App() {
   const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("file");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(350);
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
@@ -289,25 +262,23 @@ export function App() {
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(false);
   const [showNormals, setShowNormals] = useState(false);
   const [showVertexColors, setShowVertexColors] = useState(false);
-  const [viewportPanelOpen, setViewportPanelOpen] = useState(false);
+  const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
-  const [environmentRotation, setEnvironmentRotation] = useState(0);
+  const [environmentRotation] = useState(0);
   const [backfaceCulling, setBackfaceCulling] = useState(true);
-  const [textureFilterMode, setTextureFilterMode] =
-    useState<TextureFilterMode>("trilinear");
+  const [textureFilterMode] = useState<TextureFilterMode>("trilinear");
   const [cameraPresetRequest, setCameraPresetRequest] =
     useState<CameraPresetRequest | null>(null);
-  const [controlSensitivity, setControlSensitivity] = useState(1);
-  const [cameraFov, setCameraFov] = useState(45);
-  const [renderScale, setRenderScale] = useState(1);
+  const [controlSensitivity] = useState(1);
+  const [cameraFov] = useState(45);
+  const [renderScale] = useState(1);
   const [showShadows, setShowShadows] = useState(false);
-  const [fxaaEnabled, setFxaaEnabled] = useState(false);
-  const [showRendererStats, setShowRendererStats] = useState(false);
-  const [toneMappingMode, setToneMappingMode] =
-    useState<ToneMappingMode>("aces");
-  const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
-  const [cameraSpeedMultiplier, setCameraSpeedMultiplier] = useState(1);
+  const [fxaaEnabled] = useState(false);
+  const [showRendererStats] = useState(false);
+  const [toneMappingMode] = useState<ToneMappingMode>("aces");
+  const [exposure] = useState(DEFAULT_EXPOSURE);
+  const [cameraSpeedMultiplier] = useState(1);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
@@ -334,18 +305,17 @@ export function App() {
   const [selectedTextureId, setSelectedTextureId] = useState<string | null>(
     null,
   );
-  const [textureViewMode, setTextureViewMode] =
-    useState<TextureViewMode>("rgba");
-  const [textureExposure, setTextureExposure] = useState(0);
-  const [textureBlackPoint, setTextureBlackPoint] = useState(0);
-  const [textureWhitePoint, setTextureWhitePoint] = useState(1);
-  const [textureTileCount, setTextureTileCount] = useState(1);
-  const [textureGamma, setTextureGamma] = useState(2.2);
+  const [textureViewMode] = useState<TextureViewMode>("rgba");
+  const [textureExposure] = useState(0);
+  const [textureBlackPoint] = useState(0);
+  const [textureWhitePoint] = useState(1);
+  const [textureTileCount] = useState(1);
+  const [textureGamma] = useState(2.2);
   // Default = flat 2D viewer framing for textures. The 3D toggle
   // re-uses the asset orbit controls so the same texture plane can
   // be rotated/zoomed as a 3D quad — useful for inspecting how a
   // texture behaves at glancing angles or with the env reflection.
-  const [texturePreview3D, setTexturePreview3D] = useState(false);
+  const [texturePreview3D] = useState(false);
   const [recentFilesPayload, setRecentFilesPayload] =
     useState<RecentFilesPayload | null>(null);
   const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
@@ -450,6 +420,18 @@ export function App() {
   );
 
   const isTauri = isTauriEnvironment();
+  const debugPanelsEnabled = !isTauri && isDebugPanelsRequested();
+  const sidebarCurrentFile = debugPanelsEnabled ? debugPanelFile : currentFile;
+  const sidebarAssetMetadata = debugPanelsEnabled
+    ? debugPanelMetadata
+    : assetMetadata;
+  const sidebarDirectoryListing = debugPanelsEnabled
+    ? debugPanelDirectoryListing
+    : directoryListing;
+  const sidebarRecentFilesPayload = debugPanelsEnabled
+    ? debugPanelRecentFiles
+    : recentFilesPayload;
+  const sidebarRecentFilesError = debugPanelsEnabled ? null : recentFilesError;
   // Browser mode needs recent files immediately for the always-visible MenuBar.
   // Tauri can keep this deferred until the sidebar is opened.
   const shouldLoadRecentFiles = sidebarOpen || !isTauri;
@@ -473,19 +455,19 @@ export function App() {
   }, [viewerFeedback.mode]);
 
   const currentFileSummary = useMemo(() => {
-    if (!currentFile) {
+    if (!sidebarCurrentFile) {
       return "none";
     }
 
     if (
-      directoryListing?.currentIndex !== null &&
-      directoryListing?.files.length
+      sidebarDirectoryListing?.currentIndex !== null &&
+      sidebarDirectoryListing?.files.length
     ) {
-      return `${currentFile.fileName} (${directoryListing.currentIndex + 1}/${directoryListing.files.length})`;
+      return `${sidebarCurrentFile.fileName} (${sidebarDirectoryListing.currentIndex + 1}/${sidebarDirectoryListing.files.length})`;
     }
 
-    return `${currentFile.fileName} (${currentFile.kind})`;
-  }, [currentFile, directoryListing]);
+    return `${sidebarCurrentFile.fileName} (${sidebarCurrentFile.kind})`;
+  }, [sidebarDirectoryListing, sidebarCurrentFile]);
 
   const canNavigatePrev =
     directoryListing !== null &&
@@ -522,6 +504,7 @@ export function App() {
 
     return nextWarnings;
   }, [assetMetadata?.textures, usdIssues, viewerFeedback.warning]);
+  const sidebarWarnings = debugPanelsEnabled ? debugPanelWarnings : warnings;
   const shortcutLines = useMemo(
     () =>
       Object.entries(menuShortcuts).map(([actionId, definition]) => {
@@ -1802,9 +1785,41 @@ export function App() {
         return (
           <>
             <CurrentFileCard
-              currentFile={currentFile}
-              metadata={assetMetadata}
+              currentFile={sidebarCurrentFile}
+              metadata={sidebarAssetMetadata}
             />
+            <FileBrowserCard
+              currentFile={sidebarCurrentFile}
+              directoryListing={sidebarDirectoryListing}
+              onOpenPath={(path) => {
+                void performSelectFilePath(path, "navigation").catch(
+                  (error: unknown) => {
+                    setRecentFilesError(
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to open file.",
+                    );
+                  },
+                );
+              }}
+            />
+            <Suspense fallback={<SidebarCardFallback />}>
+              <RecentFilesCard
+                onOpenPath={(path) => {
+                  void performSelectFilePath(path, "recent").catch(
+                    (error: unknown) => {
+                      setRecentFilesError(
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to open recent file.",
+                      );
+                    },
+                  );
+                }}
+                recentFilesError={sidebarRecentFilesError}
+                recentFilesPayload={sidebarRecentFilesPayload}
+              />
+            </Suspense>
             {isTauri && isUsdFile(currentFile) && (
               <>
                 <UsdInspectorCard
@@ -1838,10 +1853,32 @@ export function App() {
                 </Suspense>
               </>
             )}
-            {assetMetadata && (
+            {debugPanelsEnabled && (
+              <UsdInspectorCard
+                error={null}
+                inspection={debugUsdInspection}
+                issues={[]}
+                loading={false}
+                summary={debugUsdSummary}
+                loadPolicy={usdLoadPolicy}
+                onLoadPolicyChange={setUsdLoadPolicy}
+                variantSelections={variantSelections}
+                onVariantChange={(primPath, setName, variantName) => {
+                  setVariantSelections((prev) => {
+                    const next = prev.filter(
+                      (s) =>
+                        !(s.primPath === primPath && s.setName === setName),
+                    );
+                    next.push({ primPath, setName, variantName });
+                    return next;
+                  });
+                }}
+              />
+            )}
+            {sidebarAssetMetadata && (
               <SceneLightsCamerasCard
-                lights={assetMetadata.lights}
-                cameras={assetMetadata.cameras}
+                lights={sidebarAssetMetadata.lights}
+                cameras={sidebarAssetMetadata.cameras}
                 usdLights={usdLights ?? undefined}
                 activeCameraId={activeCameraId}
                 onSelectCamera={setActiveCameraId}
@@ -1854,7 +1891,7 @@ export function App() {
         return (
           <>
             <HierarchyCard
-              hierarchy={assetMetadata?.hierarchy ?? []}
+              hierarchy={sidebarAssetMetadata?.hierarchy ?? []}
               selectedName={selectedMeshName}
               onSelectName={setSelectedMeshName}
               onSelectPrimPath={
@@ -1884,11 +1921,15 @@ export function App() {
           </>
         );
       case "materials":
-        return <MaterialListCard materials={assetMetadata?.materials ?? []} />;
+        return (
+          <MaterialListCard materials={sidebarAssetMetadata?.materials ?? []} />
+        );
       case "textures":
         return (
           <TextureListCard
-            activeTextureId={selectedTextureId}
+            activeTextureId={
+              selectedTextureId ?? sidebarAssetMetadata?.textures[0]?.id ?? null
+            }
             onSelectTexture={(textureId) => {
               if (
                 textureId === selectedTextureId &&
@@ -1900,7 +1941,7 @@ export function App() {
                 setViewerSurfaceMode("texture");
               }
             }}
-            textures={assetMetadata?.textures ?? []}
+            textures={sidebarAssetMetadata?.textures ?? []}
           />
         );
       case "settings":
@@ -1932,23 +1973,6 @@ export function App() {
               />
             </Suspense>
             <Suspense fallback={<SidebarCardFallback />}>
-              <RecentFilesCard
-                onOpenPath={(path) => {
-                  void performSelectFilePath(path, "recent").catch(
-                    (error: unknown) => {
-                      setRecentFilesError(
-                        error instanceof Error
-                          ? error.message
-                          : "Failed to open recent file.",
-                      );
-                    },
-                  );
-                }}
-                recentFilesError={recentFilesError}
-                recentFilesPayload={recentFilesPayload}
-              />
-            </Suspense>
-            <Suspense fallback={<SidebarCardFallback />}>
               <IntegrationCard
                 integrationError={integrationError}
                 integrationPayload={integrationPayload}
@@ -1959,7 +1983,7 @@ export function App() {
       case "warnings":
         return (
           <>
-            <WarningsCard warnings={warnings} />
+            <WarningsCard warnings={sidebarWarnings} />
             <Suspense fallback={<SidebarCardFallback />}>
               <DiagnosticsCard
                 diagnosticsError={diagnosticsError}
@@ -1970,6 +1994,64 @@ export function App() {
         );
     }
   })();
+
+  const sidebarTabs = useMemo(() => createSidebarTabs(), []);
+
+  const statusLeftItems = useMemo(
+    () =>
+      buildStatusLeftItems({
+        assetMetadata: sidebarAssetMetadata,
+        currentFile: sidebarCurrentFile,
+        gridUnitLabel,
+        settingsError,
+        showGrid,
+        viewerFeedback,
+        viewerStatusLabel,
+      }),
+    [
+      gridUnitLabel,
+      sidebarAssetMetadata,
+      sidebarCurrentFile,
+      settingsError,
+      showGrid,
+      viewerFeedback,
+      viewerStatusLabel,
+    ],
+  );
+
+  const statusRightItems = useMemo(
+    () =>
+      buildStatusRightItems({
+        currentFileSummary,
+        performanceSnapshot,
+      }),
+    [currentFileSummary, performanceSnapshot],
+  );
+
+  const handleSidebarResizeStart = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    const minWidth = 300;
+    const maxWidth = Math.min(560, Math.floor(window.innerWidth * 0.48));
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const nextWidth = startWidth + (startX - moveEvent.clientX);
+      setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, nextWidth)));
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      document.body.classList.remove("is-resizing-sidebar");
+    };
+
+    document.body.classList.add("is-resizing-sidebar");
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  };
 
   return (
     <main className="app-shell">
@@ -2037,547 +2119,54 @@ export function App() {
             glbOverride={sessionGlbBuffer}
           />
 
-          {/* ViewModeControls overlay */}
-          <div
-            className={`view-mode-controls${viewportPanelOpen ? "" : " is-collapsed"}`}
-          >
-            <button
-              className="view-mode-header"
-              onClick={() => setViewportPanelOpen((v) => !v)}
-              type="button"
-              title={viewportPanelOpen ? "Collapse panel" : "Expand panel"}
-              aria-expanded={viewportPanelOpen}
-            >
-              <span className="view-mode-header-label">Viewport</span>
-              <span
-                className={`view-mode-caret${viewportPanelOpen ? " is-open" : ""}`}
-                aria-hidden="true"
-              >
-                ▾
-              </span>
-            </button>
-            <div className="view-mode-body">
-              <button
-                className={`view-mode-toggle${showTexture ? " is-active" : ""}`}
-                onClick={() => setShowTexture((v) => !v)}
-                type="button"
-              >
-                <span>Texture</span>
-                <span
-                  className={`toggle-switch${showTexture ? " is-on" : ""}`}
-                />
-              </button>
-              <button
-                className={`view-mode-toggle${showWireframe ? " is-active" : ""}`}
-                onClick={() => setShowWireframe((v) => !v)}
-                type="button"
-              >
-                <span>Wireframe</span>
-                <span
-                  className={`toggle-switch${showWireframe ? " is-on" : ""}`}
-                />
-              </button>
-              <button
-                className={`view-mode-toggle${showGrid ? " is-active" : ""}`}
-                onClick={() => setShowGrid((v) => !v)}
-                type="button"
-              >
-                <span>Grid</span>
-                <span className={`toggle-switch${showGrid ? " is-on" : ""}`} />
-              </button>
-              <button
-                className={`view-mode-toggle${showAxes ? " is-active" : ""}`}
-                onClick={() => setShowAxes((v) => !v)}
-                type="button"
-                title="Show XYZ axis indicator at the origin"
-              >
-                <span>Axes</span>
-                <span className={`toggle-switch${showAxes ? " is-on" : ""}`} />
-              </button>
-              <button
-                className={`view-mode-toggle${showEnvironmentBackground ? " is-active" : ""}`}
-                onClick={() => setShowEnvironmentBackground((v) => !v)}
-                type="button"
-                title="Show the environment map as the viewport background"
-              >
-                <span>Env BG</span>
-                <span
-                  className={`toggle-switch${showEnvironmentBackground ? " is-on" : ""}`}
-                />
-              </button>
-              <button
-                className={`view-mode-toggle${showShadows ? " is-active" : ""}`}
-                onClick={() => setShowShadows((v) => !v)}
-                type="button"
-                title="Cast directional-light shadows onto a ground plane"
-              >
-                <span>Shadows</span>
-                <span
-                  className={`toggle-switch${showShadows ? " is-on" : ""}`}
-                />
-              </button>
-              <button
-                className={`view-mode-toggle${backfaceCulling ? " is-active" : ""}`}
-                onClick={() => setBackfaceCulling((v) => !v)}
-                type="button"
-                title="Hide polygons facing away from the camera"
-              >
-                <span>Cull</span>
-                <span
-                  className={`toggle-switch${backfaceCulling ? " is-on" : ""}`}
-                />
-              </button>
-              <button
-                className={`view-mode-toggle${showSkeleton ? " is-active" : ""}`}
-                onClick={() => setShowSkeleton((v) => !v)}
-                type="button"
-                title="Show bones of rigged / animated models"
-              >
-                <span>Skeleton</span>
-                <span
-                  className={`toggle-switch${showSkeleton ? " is-on" : ""}`}
-                />
-              </button>
-              <button
-                className={`view-mode-toggle${showBoundingBoxes ? " is-active" : ""}`}
-                onClick={() => setShowBoundingBoxes((v) => !v)}
-                type="button"
-                title="Show per-mesh bounding box outlines"
-              >
-                <span>BBox</span>
-                <span
-                  className={`toggle-switch${showBoundingBoxes ? " is-on" : ""}`}
-                />
-              </button>
-              <button
-                className={`view-mode-toggle${showVertexColors ? " is-active" : ""}`}
-                onClick={() => setShowVertexColors((v) => !v)}
-                type="button"
-                title="Render per-vertex colors when the geometry has a color attribute"
-              >
-                <span>Vertex Color</span>
-                <span
-                  className={`toggle-switch${showVertexColors ? " is-on" : ""}`}
-                />
-              </button>
-              <button
-                className={`view-mode-toggle${showNormals ? " is-active" : ""}`}
-                onClick={() => setShowNormals((v) => !v)}
-                type="button"
-                title="Show vertex normals as line indicators"
-              >
-                <span>Normals</span>
-                <span
-                  className={`toggle-switch${showNormals ? " is-on" : ""}`}
-                />
-              </button>
-              {isUsdFile(currentFile) ? (
-                <div
-                  aria-label="USD Purpose"
-                  className="view-mode-section"
-                  role="group"
-                  title="Toggle USD geometry purpose visibility (GLB pipeline only)"
-                >
-                  <span className="view-mode-section-label">Purpose</span>
-                  <button
-                    className={`view-mode-toggle${purposeModes.render ? " is-active" : ""}`}
-                    onClick={() =>
-                      setPurposeModes((prev) => ({
-                        ...prev,
-                        render: !prev.render,
-                      }))
-                    }
-                    type="button"
-                    title="Show / hide render-purpose geometry"
-                  >
-                    <span>Render</span>
-                    <span
-                      className={`toggle-switch${purposeModes.render ? " is-on" : ""}`}
-                    />
-                  </button>
-                  <button
-                    className={`view-mode-toggle${purposeModes.proxy ? " is-active" : ""}`}
-                    onClick={() =>
-                      setPurposeModes((prev) => ({
-                        ...prev,
-                        proxy: !prev.proxy,
-                      }))
-                    }
-                    type="button"
-                    title="Show / hide proxy-purpose geometry"
-                  >
-                    <span>Proxy</span>
-                    <span
-                      className={`toggle-switch${purposeModes.proxy ? " is-on" : ""}`}
-                    />
-                  </button>
-                  <button
-                    className={`view-mode-toggle${purposeModes.guide ? " is-active" : ""}`}
-                    onClick={() =>
-                      setPurposeModes((prev) => ({
-                        ...prev,
-                        guide: !prev.guide,
-                      }))
-                    }
-                    type="button"
-                    title="Show / hide guide-purpose geometry"
-                  >
-                    <span>Guide</span>
-                    <span
-                      className={`toggle-switch${purposeModes.guide ? " is-on" : ""}`}
-                    />
-                  </button>
-                </div>
-              ) : null}
-              <div
-                aria-label="Background"
-                className="view-mode-section"
-                role="group"
-              >
-                <span className="view-mode-section-label">Background</span>
-                <div className="preset-chip-row">
-                  {backgroundPresetOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      aria-pressed={backgroundPreset === option.id}
-                      className={`preset-chip${
-                        backgroundPreset === option.id ? " is-active" : ""
-                      }`}
-                      onClick={() => setBackgroundPreset(option.id)}
-                      type="button"
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="view-mode-section">
-                <span className="view-mode-section-label">Environment</span>
-                <div className="preset-chip-row">
-                  {environmentPresets.map((preset) => (
-                    <button
-                      key={preset.id}
-                      className={`preset-chip${environmentPreset === preset.id ? " is-active" : ""}`}
-                      onClick={() => setEnvironmentPreset(preset.id)}
-                      type="button"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-                <label className="range-control">
-                  <span>
-                    Rotation {Math.round((environmentRotation * 180) / Math.PI)}
-                    °
-                  </span>
-                  <input
-                    aria-label="Environment map rotation"
-                    max={Math.PI * 2}
-                    min={0}
-                    onChange={(event) =>
-                      setEnvironmentRotation(
-                        Number.parseFloat(event.target.value),
-                      )
-                    }
-                    onDoubleClick={() => setEnvironmentRotation(0)}
-                    step={Math.PI / 180}
-                    title="Rotate the environment map around the up axis (double-click to reset)"
-                    type="range"
-                    value={environmentRotation}
-                  />
-                </label>
-              </div>
-              <div className="view-mode-section">
-                <span className="view-mode-section-label">View</span>
-                <div className="preset-chip-row">
-                  {cameraPresetOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      className="preset-chip"
-                      onClick={() =>
-                        setCameraPresetRequest((previous) => ({
-                          preset: option.id,
-                          version: (previous?.version ?? 0) + 1,
-                        }))
-                      }
-                      type="button"
-                      title={`View from ${option.label.toLowerCase()}`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <label className="range-control">
-                  <span>Sensitivity {controlSensitivity.toFixed(2)}</span>
-                  <input
-                    aria-label="Camera control sensitivity"
-                    max={3}
-                    min={0.1}
-                    onChange={(event) =>
-                      setControlSensitivity(
-                        Number.parseFloat(event.target.value),
-                      )
-                    }
-                    onDoubleClick={() => setControlSensitivity(1)}
-                    step={0.05}
-                    title="Orbit / pan / zoom multiplier (double-click to reset)"
-                    type="range"
-                    value={controlSensitivity}
-                  />
-                </label>
-                <label className="range-control">
-                  <span>FOV {cameraFov.toFixed(0)}°</span>
-                  <input
-                    aria-label="Camera field of view"
-                    max={120}
-                    min={10}
-                    onChange={(event) =>
-                      setCameraFov(Number.parseFloat(event.target.value))
-                    }
-                    onDoubleClick={() => setCameraFov(45)}
-                    step={1}
-                    title="Vertical field of view (double-click to reset)"
-                    type="range"
-                    value={cameraFov}
-                  />
-                </label>
-                <label className="range-control">
-                  <span>Speed {cameraSpeedMultiplier.toFixed(2)}×</span>
-                  <input
-                    aria-label="Camera speed multiplier"
-                    max={2}
-                    min={-2}
-                    onChange={(event) =>
-                      setCameraSpeedMultiplier(
-                        Math.pow(2, Number.parseFloat(event.target.value)),
-                      )
-                    }
-                    onDoubleClick={() => setCameraSpeedMultiplier(1)}
-                    step={0.01}
-                    title="Camera movement speed multiplier (double-click to reset)"
-                    type="range"
-                    value={Math.log2(cameraSpeedMultiplier)}
-                  />
-                </label>
-              </div>
-              {viewerSurfaceMode === "texture" ? (
-                <>
-                  <div className="view-mode-section">
-                    <span className="view-mode-section-label">View</span>
-                    <div className="preset-chip-row">
-                      <button
-                        className={`preset-chip${!texturePreview3D ? " is-active" : ""}`}
-                        onClick={() => setTexturePreview3D(false)}
-                        type="button"
-                        title="Flat 2D viewer: pan and zoom"
-                      >
-                        2D
-                      </button>
-                      <button
-                        className={`preset-chip${texturePreview3D ? " is-active" : ""}`}
-                        onClick={() => setTexturePreview3D(true)}
-                        type="button"
-                        title="Orbit the texture as a 3D plane"
-                      >
-                        3D
-                      </button>
-                    </div>
-                  </div>
-                  <div className="view-mode-section">
-                    <span className="view-mode-section-label">Channel</span>
-                    <div className="preset-chip-row">
-                      {textureChannelOptions.map((option) => (
-                        <button
-                          key={option.id}
-                          className={`preset-chip${textureViewMode === option.id ? " is-active" : ""}`}
-                          onClick={() => setTextureViewMode(option.id)}
-                          type="button"
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="view-mode-section">
-                    <span className="view-mode-section-label">Tiling</span>
-                    <div className="preset-chip-row">
-                      {textureTileOptions.map((option) => (
-                        <button
-                          key={option.count}
-                          className={`preset-chip${textureTileCount === option.count ? " is-active" : ""}`}
-                          onClick={() => setTextureTileCount(option.count)}
-                          type="button"
-                          title={`Repeat the texture ${option.count}x in both directions`}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="view-mode-section">
-                    <span className="view-mode-section-label">
-                      Range (HDR/EXR)
-                    </span>
-                    <label className="range-control">
-                      <span>EV {textureExposure.toFixed(2)}</span>
-                      <input
-                        aria-label="Texture exposure (EV)"
-                        max={6}
-                        min={-6}
-                        onChange={(event) =>
-                          setTextureExposure(
-                            Number.parseFloat(event.target.value),
-                          )
-                        }
-                        onDoubleClick={() => setTextureExposure(0)}
-                        step={0.1}
-                        title="Double-click to reset"
-                        type="range"
-                        value={textureExposure}
-                      />
-                    </label>
-                    <label className="range-control">
-                      <span>Black {textureBlackPoint.toFixed(2)}</span>
-                      <input
-                        aria-label="Texture black point"
-                        max={1}
-                        min={-1}
-                        onChange={(event) =>
-                          setTextureBlackPoint(
-                            Number.parseFloat(event.target.value),
-                          )
-                        }
-                        onDoubleClick={() => setTextureBlackPoint(0)}
-                        step={0.01}
-                        title="Double-click to reset"
-                        type="range"
-                        value={textureBlackPoint}
-                      />
-                    </label>
-                    <label className="range-control">
-                      <span>White {textureWhitePoint.toFixed(2)}</span>
-                      <input
-                        aria-label="Texture white point"
-                        max={8}
-                        min={0.1}
-                        onChange={(event) =>
-                          setTextureWhitePoint(
-                            Number.parseFloat(event.target.value),
-                          )
-                        }
-                        onDoubleClick={() => setTextureWhitePoint(1)}
-                        step={0.05}
-                        title="Double-click to reset"
-                        type="range"
-                        value={textureWhitePoint}
-                      />
-                    </label>
-                    <div className="preset-chip-row">
-                      <button
-                        className={`preset-chip${Math.abs(textureGamma - 1) < 0.001 ? " is-active" : ""}`}
-                        onClick={() => setTextureGamma(1)}
-                        type="button"
-                        title="Show raw linear values without gamma correction"
-                      >
-                        Linear
-                      </button>
-                      <button
-                        className={`preset-chip${Math.abs(textureGamma - 2.2) < 0.001 ? " is-active" : ""}`}
-                        onClick={() => setTextureGamma(2.2)}
-                        type="button"
-                        title="Apply sRGB gamma (2.2)"
-                      >
-                        Gamma 2.2
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : null}
-              <div className="view-mode-section">
-                <span className="view-mode-section-label">Tone Mapping</span>
-                <div className="preset-chip-row">
-                  {toneMappingOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      className={`preset-chip${toneMappingMode === option.id ? " is-active" : ""}`}
-                      onClick={() => setToneMappingMode(option.id)}
-                      type="button"
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <label className="range-control">
-                  <span>Exposure {exposure.toFixed(2)}</span>
-                  <input
-                    aria-label="Exposure"
-                    max={4}
-                    min={0}
-                    onChange={(event) =>
-                      setExposure(Number.parseFloat(event.target.value))
-                    }
-                    onDoubleClick={() => setExposure(DEFAULT_EXPOSURE)}
-                    step={0.05}
-                    title="Double-click to reset"
-                    type="range"
-                    value={exposure}
-                  />
-                </label>
-              </div>
-              <div className="view-mode-section">
-                <span className="view-mode-section-label">Quality</span>
-                <div className="preset-chip-row">
-                  {renderScaleOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      className={`preset-chip${renderScale === option.value ? " is-active" : ""}`}
-                      onClick={() => setRenderScale(option.value)}
-                      type="button"
-                      title={`Render at ${option.label} of the device pixel ratio`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="preset-chip-row">
-                  {textureFilterOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      className={`preset-chip${textureFilterMode === option.id ? " is-active" : ""}`}
-                      onClick={() => setTextureFilterMode(option.id)}
-                      type="button"
-                      title={`Texture filtering: ${option.label}`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  className={`view-mode-toggle${fxaaEnabled ? " is-active" : ""}`}
-                  onClick={() => setFxaaEnabled((v) => !v)}
-                  type="button"
-                  title="Apply FXAA post-process anti-aliasing (MSAA is always on)"
-                >
-                  <span>FXAA</span>
-                  <span
-                    className={`toggle-switch${fxaaEnabled ? " is-on" : ""}`}
-                  />
-                </button>
-                <button
-                  className={`view-mode-toggle${showRendererStats ? " is-active" : ""}`}
-                  onClick={() => setShowRendererStats((v) => !v)}
-                  type="button"
-                  title="Show FPS / draw calls / triangles / memory HUD"
-                >
-                  <span>Stats</span>
-                  <span
-                    className={`toggle-switch${showRendererStats ? " is-on" : ""}`}
-                  />
-                </button>
-              </div>
-            </div>
-          </div>
-
+          <ViewportControls
+            isOpen={viewportPanelOpen}
+            onToggleOpen={() => setViewportPanelOpen((v) => !v)}
+            showTexture={showTexture}
+            onToggleTexture={() => setShowTexture((v) => !v)}
+            showWireframe={showWireframe}
+            onToggleWireframe={() => setShowWireframe((v) => !v)}
+            showGrid={showGrid}
+            onToggleGrid={() => setShowGrid((v) => !v)}
+            showAxes={showAxes}
+            onToggleAxes={() => setShowAxes((v) => !v)}
+            showEnvironmentBackground={showEnvironmentBackground}
+            onToggleEnvironmentBackground={() =>
+              setShowEnvironmentBackground((v) => !v)
+            }
+            showShadows={showShadows}
+            onToggleShadows={() => setShowShadows((v) => !v)}
+            backfaceCulling={backfaceCulling}
+            onToggleBackfaceCulling={() => setBackfaceCulling((v) => !v)}
+            showSkeleton={showSkeleton}
+            onToggleSkeleton={() => setShowSkeleton((v) => !v)}
+            showBoundingBoxes={showBoundingBoxes}
+            onToggleBoundingBoxes={() => setShowBoundingBoxes((v) => !v)}
+            showVertexColors={showVertexColors}
+            onToggleVertexColors={() => setShowVertexColors((v) => !v)}
+            showNormals={showNormals}
+            onToggleNormals={() => setShowNormals((v) => !v)}
+            purposeModes={isUsdFile(currentFile) ? purposeModes : undefined}
+            onTogglePurposeMode={(mode) =>
+              setPurposeModes((prev) => ({
+                ...prev,
+                [mode]: !prev[mode],
+              }))
+            }
+            backgroundPreset={backgroundPreset}
+            backgroundPresetOptions={backgroundPresetOptions}
+            onSelectBackgroundPreset={setBackgroundPreset}
+            environmentPreset={environmentPreset}
+            environmentPresetOptions={environmentPresets}
+            onSelectEnvironmentPreset={setEnvironmentPreset}
+            cameraPresetOptions={cameraPresetOptions}
+            onSelectCameraPreset={(preset) =>
+              setCameraPresetRequest((previous) => ({
+                preset,
+                version: (previous?.version ?? 0) + 1,
+              }))
+            }
+          />
           {/* InfoPanel toggle button */}
           <button
             className={`info-panel-toggle${sidebarOpen ? " is-active" : ""}`}
@@ -2645,187 +2234,26 @@ export function App() {
       </section>
 
       {/* ── Sidebar ── */}
-      <aside className={`sidebar${sidebarOpen ? " is-open" : ""}`}>
-        <nav className="sidebar-tabs">
-          <button
-            className={`tab-button${activeTab === "file" ? " is-active" : ""}`}
-            onClick={() => setActiveTab("file")}
-            type="button"
-            title="File Info"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M4 1.5h5.5L13 5v9.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1Z"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <path d="M9 1.5V5h3.5" stroke="currentColor" strokeWidth="1.2" />
-              <path
-                d="M5.5 8.5h5M5.5 10.5h5M5.5 12.5h3"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-          <button
-            className={`tab-button${activeTab === "hierarchy" ? " is-active" : ""}`}
-            onClick={() => setActiveTab("hierarchy")}
-            type="button"
-            title="Hierarchy"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle
-                cx="4"
-                cy="4"
-                r="2"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <circle
-                cx="12"
-                cy="4"
-                r="2"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <circle
-                cx="8"
-                cy="12"
-                r="2"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <path
-                d="M5 5.5L7 10.5M11 5.5L9 10.5"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-            </svg>
-          </button>
-          <button
-            className={`tab-button${activeTab === "materials" ? " is-active" : ""}`}
-            onClick={() => setActiveTab("materials")}
-            type="button"
-            title="Materials"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle
-                cx="8"
-                cy="8"
-                r="5.5"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <circle cx="8" cy="8" r="2" fill="currentColor" opacity="0.5" />
-              <path
-                d="M8 2.5v2M8 11.5v2M2.5 8h2M11.5 8h2"
-                stroke="currentColor"
-                strokeWidth="1"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-          <button
-            className={`tab-button${activeTab === "textures" ? " is-active" : ""}`}
-            onClick={() => setActiveTab("textures")}
-            type="button"
-            title="Textures"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect
-                x="2"
-                y="2"
-                width="12"
-                height="12"
-                rx="1"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <circle
-                cx="5.5"
-                cy="5.5"
-                r="1.5"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
-              <path
-                d="M2 11l3-3 2 2 3-4 4 5v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-1Z"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                fill="none"
-              />
-            </svg>
-          </button>
-          <button
-            className={`tab-button${activeTab === "settings" ? " is-active" : ""}`}
-            onClick={() => setActiveTab("settings")}
-            type="button"
-            title="Settings"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle
-                cx="8"
-                cy="8"
-                r="2.5"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <path
-                d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-          <button
-            className={`tab-button${activeTab === "warnings" ? " is-active" : ""}`}
-            onClick={() => setActiveTab("warnings")}
-            type="button"
-            title="Warnings"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M8 1.5L1.5 13.5h13L8 1.5Z"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M8 6v4"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
-              <circle cx="8" cy="11.5" r="0.6" fill="currentColor" />
-            </svg>
-          </button>
-        </nav>
+      <aside
+        className={`sidebar${sidebarOpen ? " is-open" : ""}`}
+        style={
+          sidebarOpen
+            ? ({
+                "--sidebar-width": `${sidebarWidth}px`,
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
+        <div
+          aria-hidden="true"
+          className="sidebar-resize-handle"
+          onPointerDown={handleSidebarResizeStart}
+        />
+        <SidebarTabs
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          tabs={sidebarTabs}
+        />
         <div className="sidebar-content">{sidebarContent}</div>
       </aside>
 
@@ -2859,55 +2287,7 @@ export function App() {
         </div>
       ) : null}
 
-      {/* ── StatusBar ── */}
-      <footer className="statusbar">
-        <div className="statusbar-group">
-          {currentFile ? (
-            <>
-              <span>
-                {viewerFeedback.mode === "loading"
-                  ? `Loading: ${currentFile.fileName}`
-                  : `Model loaded: ${currentFile.fileName}`}
-              </span>
-              {assetMetadata && assetMetadata.meshCount > 0 ? (
-                <>
-                  <span className="statusbar-separator" />
-                  <span>{assetMetadata.meshCount} meshes</span>
-                </>
-              ) : null}
-              {assetMetadata && assetMetadata.materialCount > 0 ? (
-                <>
-                  <span className="statusbar-separator" />
-                  <span>{assetMetadata.materialCount} materials</span>
-                </>
-              ) : null}
-              {showGrid ? (
-                <>
-                  <span className="statusbar-separator" />
-                  <span>Grid: {gridUnitLabel}</span>
-                </>
-              ) : null}
-            </>
-          ) : (
-            <span>
-              {settingsError
-                ? "Settings load failed"
-                : `Viewer: ${viewerStatusLabel}`}
-            </span>
-          )}
-        </div>
-        <div className="statusbar-group">
-          {performanceSnapshot.loadMs !== null ? (
-            <>
-              <span className="statusbar-mono">
-                Load: {performanceSnapshot.loadMs.toFixed(0)}ms
-              </span>
-              <span className="statusbar-separator" />
-            </>
-          ) : null}
-          <span className="statusbar-mono">{currentFileSummary}</span>
-        </div>
-      </footer>
+      <AppStatusBar leftItems={statusLeftItems} rightItems={statusRightItems} />
     </main>
   );
 }

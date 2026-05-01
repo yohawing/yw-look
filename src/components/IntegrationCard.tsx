@@ -1,4 +1,11 @@
 import type { IntegrationPayload } from "../lib/integrations";
+import {
+  SidebarEmpty,
+  SidebarError,
+  SidebarKeyValueRows,
+  SidebarSection,
+  type SidebarKeyValueRow,
+} from "./sidebarPrimitives";
 
 type IntegrationCardProps = {
   integrationPayload: IntegrationPayload | null;
@@ -9,43 +16,49 @@ export function IntegrationCard({
   integrationPayload,
   integrationError,
 }: IntegrationCardProps) {
+  if (integrationError) {
+    return (
+      <SidebarSection title="Windows Integration">
+        <SidebarError>{integrationError}</SidebarError>
+      </SidebarSection>
+    );
+  }
+
+  if (!integrationPayload) {
+    return (
+      <SidebarSection title="Windows Integration">
+        <SidebarEmpty>Loading Windows integration details.</SidebarEmpty>
+      </SidebarSection>
+    );
+  }
+
+  const rows: SidebarKeyValueRow[] = [
+    {
+      id: "strategy",
+      label: "Install strategy",
+      value: integrationPayload.installStrategy,
+      tone: "muted",
+    },
+    {
+      id: "associations",
+      label: "File associations",
+      value: integrationPayload.fileAssociationsEnabled
+        ? "Enabled"
+        : "Disabled",
+      tone: integrationPayload.fileAssociationsEnabled ? "ok" : "muted",
+    },
+  ];
+
   return (
-    <article className="card">
-      <p className="card-title">Windows Integration</p>
-      {integrationError ? (
-        <p className="card-error">{integrationError}</p>
-      ) : integrationPayload ? (
-        <>
-          <div className="card-rows">
-            <div className="card-row">
-              <span className="card-row-label">Install strategy</span>
-              <span className="card-row-badge">
-                {integrationPayload.installStrategy}
-              </span>
-            </div>
-            <div className="card-row">
-              <span className="card-row-label">File associations</span>
-              <span
-                className={`card-row-badge ${integrationPayload.fileAssociationsEnabled ? "badge-active" : ""}`}
-              >
-                {integrationPayload.fileAssociationsEnabled
-                  ? "Enabled"
-                  : "Disabled"}
-              </span>
-            </div>
-          </div>
-          <div className="card-section-label">Supported extensions</div>
-          <div className="extension-badges">
-            {integrationPayload.supportedExtensions.map((ext) => (
-              <span key={ext} className="card-row-badge-mono">
-                {ext}
-              </span>
-            ))}
-          </div>
-        </>
-      ) : (
-        <p className="card-empty">Loading Windows integration details.</p>
-      )}
-    </article>
+    <SidebarSection title="Windows Integration">
+      <SidebarKeyValueRows rows={rows} />
+      <div className="sidebar-chip-row">
+        {integrationPayload.supportedExtensions.map((ext) => (
+          <span key={ext} className="sidebar-chip is-mono">
+            {ext}
+          </span>
+        ))}
+      </div>
+    </SidebarSection>
   );
 }

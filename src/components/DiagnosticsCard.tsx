@@ -1,4 +1,9 @@
 import type { DiagnosticsPayload } from "../lib/diagnostics";
+import {
+  SidebarEmpty,
+  SidebarError,
+  SidebarSection,
+} from "./sidebarPrimitives";
 
 type DiagnosticsCardProps = {
   diagnosticsPayload: DiagnosticsPayload | null;
@@ -9,25 +14,35 @@ export function DiagnosticsCard({
   diagnosticsPayload,
   diagnosticsError,
 }: DiagnosticsCardProps) {
+  if (diagnosticsError) {
+    return (
+      <SidebarSection title="Diagnostics">
+        <SidebarError>{diagnosticsError}</SidebarError>
+      </SidebarSection>
+    );
+  }
+
+  if (!diagnosticsPayload) {
+    return (
+      <SidebarSection title="Diagnostics">
+        <SidebarEmpty>Loading diagnostics log.</SidebarEmpty>
+      </SidebarSection>
+    );
+  }
+
   return (
-    <article className="card">
-      <p className="card-title">Diagnostics</p>
-      {diagnosticsError ? (
-        <p className="card-error">{diagnosticsError}</p>
-      ) : diagnosticsPayload ? (
-        <>
-          <p className="card-path">{diagnosticsPayload.diagnosticsLogPath}</p>
-          {diagnosticsPayload.diagnosticsSnapshot.length > 0 ? (
-            <pre className="log-preview">
-              {diagnosticsPayload.diagnosticsSnapshot.join("\n")}
-            </pre>
-          ) : (
-            <p className="card-empty">No diagnostics events recorded yet.</p>
-          )}
-        </>
+    <SidebarSection
+      title="Diagnostics"
+      count={diagnosticsPayload.diagnosticsSnapshot.length}
+    >
+      <p className="sidebar-path">{diagnosticsPayload.diagnosticsLogPath}</p>
+      {diagnosticsPayload.diagnosticsSnapshot.length > 0 ? (
+        <pre className="log-preview">
+          {diagnosticsPayload.diagnosticsSnapshot.join("\n")}
+        </pre>
       ) : (
-        <p className="card-empty">Loading diagnostics log.</p>
+        <SidebarEmpty>No diagnostics events recorded yet.</SidebarEmpty>
       )}
-    </article>
+    </SidebarSection>
   );
 }

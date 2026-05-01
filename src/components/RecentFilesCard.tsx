@@ -1,4 +1,9 @@
 import type { RecentFilesPayload } from "../lib/recentFiles";
+import {
+  SidebarEmpty,
+  SidebarError,
+  SidebarSection,
+} from "./sidebarPrimitives";
 
 type RecentFilesCardProps = {
   recentFilesPayload: RecentFilesPayload | null;
@@ -6,44 +11,65 @@ type RecentFilesCardProps = {
   onOpenPath: (path: string) => void;
 };
 
+function basename(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
 export function RecentFilesCard({
   recentFilesPayload,
   recentFilesError,
   onOpenPath,
 }: RecentFilesCardProps) {
+  if (recentFilesError) {
+    return (
+      <SidebarSection title="Recent Files">
+        <SidebarError>{recentFilesError}</SidebarError>
+      </SidebarSection>
+    );
+  }
+
+  if (!recentFilesPayload) {
+    return (
+      <SidebarSection title="Recent Files">
+        <SidebarEmpty>Loading recent files.</SidebarEmpty>
+      </SidebarSection>
+    );
+  }
+
   return (
-    <article className="card">
-      <p className="card-title">Recent Files</p>
-      {recentFilesError ? (
-        <p className="card-error">{recentFilesError}</p>
-      ) : recentFilesPayload ? (
-        <>
-          <p className="card-path">{recentFilesPayload.recentFilesPath}</p>
-          {recentFilesPayload.entries.length > 0 ? (
-            <ul className="recent-list">
-              {recentFilesPayload.entries.map((entry) => (
-                <li key={entry.path}>
-                  <button
-                    className="recent-entry"
-                    onClick={() => onOpenPath(entry.path)}
-                    type="button"
-                  >
-                    <span className="recent-entry-path">{entry.path}</span>
-                    <span className="recent-entry-meta">
-                      <span className="card-row-badge">{entry.kind}</span>
-                      <span>{entry.lastAccessedAt}</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="card-empty">No recent files recorded yet.</p>
-          )}
-        </>
+    <SidebarSection
+      title="Recent Files"
+      count={recentFilesPayload.entries.length}
+    >
+      <p className="sidebar-path">{recentFilesPayload.recentFilesPath}</p>
+      {recentFilesPayload.entries.length > 0 ? (
+        <ul className="recent-list">
+          {recentFilesPayload.entries.map((entry) => (
+            <li key={entry.path}>
+              <button
+                className="recent-entry"
+                onClick={() => onOpenPath(entry.path)}
+                type="button"
+              >
+                <span className="recent-entry-thumb">
+                  {entry.kind.slice(0, 3).toUpperCase()}
+                </span>
+                <span className="recent-entry-info">
+                  <span className="recent-entry-name">
+                    {basename(entry.path)}
+                  </span>
+                  <span className="recent-entry-path">{entry.path}</span>
+                </span>
+                <span className="recent-entry-meta">
+                  {entry.lastAccessedAt}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : (
-        <p className="card-empty">Loading recent files.</p>
+        <SidebarEmpty>No recent files recorded yet.</SidebarEmpty>
       )}
-    </article>
+    </SidebarSection>
   );
 }
