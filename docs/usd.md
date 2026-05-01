@@ -63,7 +63,7 @@
 
 **geometry**
 
-- [ ] UsdGeomPointInstancer (未対応)
+- [x] UsdGeomPointInstancer (C++ backend / GLB `EXT_mesh_gpu_instancing`)
 - [ ] UsdGeomNurbsCurves / BasisCurves (髪・ワイヤフレーム)
 - [ ] UsdGeomSubdivisionSurface (Pixar Kitchen_set など)
 - [ ] UsdGeomPoints (point-cloud primvar → glTF points mode)
@@ -419,10 +419,10 @@ fork 側の API が粗い部分は yw-look 側で補完している:
 | **per-vertex displayColor** | 未実装              | constant (1 色/mesh) のみ対応。per-vertex → GLB `COLOR_0` は今後の課題                                             |
 | **multi-hop shader graph**  | 未実装              | 1-hop texture connection のみ。NodeGraph wrapping は別 asset で需要が出たら対応                                    |
 | **GeomSubset material**     | 未実装              | face subset 単位の material binding。Kitchen Set では不使用                                                        |
-| **PointInstancer**          | 未実装              | scatter/vegetation/crowd 用                                                                                        |
+| **PointInstancer**          | 実装済み            | C++ backend で `EXT_mesh_gpu_instancing` として GLB 出力                                                           |
 | **Purpose**                 | 未実装              | `default` / `render` / `proxy` / `guide` の表示切替                                                                |
 | **Stage Camera**            | 未実装              | authored camera の列挙と切替                                                                                       |
-| **per-prim payload load**   | 未実装              | stateful session (`open_stage` / `load_payloads`) は延期                                                           |
+| **per-prim payload load**   | 実装済み            | stateful session (`open_stage_session` / `load_payload` / `unload_payload`) で個別制御                             |
 
 ---
 
@@ -748,12 +748,12 @@ Kitchen Set / HumanFemale / Kitchen_set_instanced / USDZ 3 種で両 backend を
 - **C++ backend のみ対応**: Rust fork backend (`backend-openusd-rs`) では PointInstancer
   prim をスキップして警告をコンソールに出力する。`EXT_mesh_gpu_instancing` は出力されない。
 - **インスタンス単位 picking は MVP 外**: `userData.primPath` は PointInstancer prim 全体
-  の SdfPath のみを持つ。インスタンス個別の picking は後続 issue で対応する（#41 参照）。
+  の SdfPath のみを持つ。インスタンス個別の picking は後続 follow-up で対応する。
 - **時刻 0 のみ**: 時系列インスタンス変化（protoIndices / positions が時刻アニメーション）は未対応。
 - **フラット C++ レイアウト**: C++ backend は NodeInput tree を使わない（`parent_node_idx = None`）
   ため、instanced node はシーンルート直下に配置される。
 - **prototype の material binding は未対応**: prototype mesh は default preview material slot
-  に固定される。authored UsdPreviewSurface / GeomSubset の binding は MVP 外（#41 follow-up）。
+  に固定される。authored UsdPreviewSurface / GeomSubset の binding は MVP 外。
   通常メッシュの material 解決パスを呼ぶ統合作業が必要。
 - **`invisibleIds` の id 解決は array index 限定**: USD は `ids` int64[] が authored されている
   場合 `invisibleIds` は `ids[i]` を参照するが、現状は `i as i64` で比較する。`ids` を authored

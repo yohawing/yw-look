@@ -218,7 +218,7 @@
 - [x] UsdInspectorCard に Loaded / Deferred segmented control
 - [x] viewer の policy 切替 → extract_geometry 再走 + dispose
 - [ ] Kitchen Set で初回表示時間計測
-- [ ] per-prim payload load/unload（stateful session、延期中） → #44
+- [x] per-prim payload load/unload（stateful session） → #44
 
 #### Phase 5 — Preview 品質向上（実装済）
 
@@ -236,20 +236,20 @@
 
 USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
-- [ ] per-vertex displayColor → GLB `COLOR_0` attribute → #43
-- [ ] variant set 一覧表示・切り替え UI → #31
-- [ ] purpose (`default` / `render` / `proxy` / `guide`) 表示ポリシー → #32
-- [ ] `PointInstancer` preview → #41
-- [ ] `GeomSubset` / face subset material binding → #42
+- [x] per-vertex displayColor → GLB `COLOR_0` attribute → #43
+- [x] variant set 一覧表示・切り替え UI → #31
+- [x] purpose (`default` / `render` / `proxy` / `guide`) 表示ポリシー → #32
+- [x] `PointInstancer` preview → #41
+- [x] `GeomSubset` / face subset material binding → #42
 - [x] stage 内 camera の列挙と切替 → #34（initial — Scene Fixtures カードに gltf.scene 由来の Camera を一覧表示。切替 UI は未実装）
 - [x] `USDLoader.parse` を Web Worker に退避 → #45（Phase 2 で scaffold 済み、Phase 3 で USDC/USDZ/composition が Rust GLB 経路に移ったため worker 担当は単一バッファ USDA のみ。default ON、`VITE_USD_WORKER=0` で OFF。失敗時は同期 parse へフォールバック）
-- [ ] Per-prim attribute inspector → #28
+- [x] Per-prim attribute inspector → #28
 - [x] Layer stack panel → #29（initial — composedLayers をカード内に階層表示）
 - [x] Composition arc viewer → #30（CompositionArcsCard で source prim ごとに references / payloads を集約、loaded / missing / unloaded を badge で区別）
 - [x] Viewport picking → prim selection sync → #33（initial — viewport クリック → raycast → mesh 名で HierarchyCard をハイライト＆スクロール、tree 側クリックで双方向同期。outline 表示・USD prim path への解決は後続。drag は閾値で除外）
 - [x] Light enumeration & list panel → #35（Scene Fixtures カードに gltf.scene 由来の Light を一覧表示、type / intensity / color を表示）
 - [x] Material binding panel → #36（initial — MaterialListCard に bound mesh 一覧を表示。USD prim path は GLB round-trip で失われるので mesh 名で代替、shader 種別／input slot 詳細は後続）
-- [ ] Time samples inspector → #37
+- [x] Time samples inspector → #37
 - [x] Stage statistics 充実 → #38（prim type counts / vertices / triangles / variant set count）
 - [x] usdcat-like flattened text view → #39（initial — UsdSourceCard で .usda / .usd(text) / .usdz(text root) の root layer を表示。regex syntax highlight、256k chars truncation。USDC / USDZ-USDC root は backend `flatten_stage` 待ち）
 - [x] Stage metadata panel → #40（time codes / frames per second / start・end time code / comment / root layer format）
