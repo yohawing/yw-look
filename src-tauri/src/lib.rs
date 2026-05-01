@@ -179,6 +179,7 @@ struct DiagnosticsPayload {
 struct BenchConfigPayload {
     enabled: bool,
     models_path: String,
+    repo_root: String,
     out_dir: String,
     mode: String,
     app_version: String,
@@ -190,6 +191,7 @@ struct BenchConfigPayload {
 #[derive(Debug, Clone)]
 struct BenchCliConfig {
     models_path: PathBuf,
+    repo_root: PathBuf,
     out_dir: PathBuf,
     node_version: Option<String>,
 }
@@ -227,20 +229,33 @@ fn ensure_path_within(path: &Path, root: &Path, label: &str) -> Result<(), Strin
     ))
 }
 
-fn bench_artifacts_root() -> Result<PathBuf, String> {
-    Ok(repo_root()?.join("artifacts").join("bench"))
+fn normalize_bench_repo_root(path: &Path) -> Result<PathBuf, String> {
+    let normalized = canonicalize_existing_path(path)?;
+    let expected = canonicalize_existing_path(&repo_root()?)?;
+    if normalized != expected {
+        return Err(format!(
+            "bench repo root '{}' must match '{}'",
+            normalized.display(),
+            expected.display()
+        ));
+    }
+    Ok(normalized)
 }
 
-fn normalize_bench_models_path(path: &Path) -> Result<PathBuf, String> {
+fn bench_artifacts_root(repo_root: &Path) -> PathBuf {
+    repo_root.join("artifacts").join("bench")
+}
+
+fn normalize_bench_models_path(path: &Path, repo_root: &Path) -> Result<PathBuf, String> {
     let normalized = canonicalize_existing_path(path)?;
-    let samples_root = canonicalize_existing_path(&repo_root()?.join("samples").join("private"))?;
+    let samples_root = canonicalize_existing_path(&repo_root.join("samples").join("private"))?;
     ensure_path_within(&normalized, &samples_root, "bench models")?;
     Ok(normalized)
 }
 
-fn normalize_bench_out_dir(path: &Path) -> Result<PathBuf, String> {
+fn normalize_bench_out_dir(path: &Path, repo_root: &Path) -> Result<PathBuf, String> {
     let parent = canonicalize_existing_parent(path)?;
-    let root = bench_artifacts_root()?;
+    let root = bench_artifacts_root(repo_root);
     fs::create_dir_all(&root)
         .map_err(|error| format!("failed to create bench artifacts root: {error}"))?;
     let normalized_root = canonicalize_existing_path(&root)?;
@@ -257,6 +272,7 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
     }
 
     let mut models_path: Option<PathBuf> = None;
+    let mut bench_repo_root: Option<PathBuf> = None;
     let mut out_dir: Option<PathBuf> = None;
     let mut node_version: Option<String> = None;
     let mut index = 0;
@@ -269,6 +285,13 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
                     .get(index)
                     .ok_or_else(|| "--bench-models requires a path".to_string())?;
                 models_path = Some(PathBuf::from(value));
+            }
+            "--bench-repo-root" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--bench-repo-root requires a path".to_string())?;
+                bench_repo_root = Some(PathBuf::from(value));
             }
             "--bench-out" => {
                 index += 1;
@@ -286,16 +309,22 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
         index += 1;
     }
 
-    let models_path =
-        normalize_bench_models_path(&models_path.ok_or_else(|| {
-            "--bench-load requires --bench-models <path>".to_string()
-        })?)?;
+    let bench_repo_root = normalize_bench_repo_root(
+        &bench_repo_root
+            .ok_or_else(|| "--bench-load requires --bench-repo-root <path>".to_string())?,
+    )?;
+    let models_path = normalize_bench_models_path(
+        &models_path.ok_or_else(|| "--bench-load requires --bench-models <path>".to_string())?,
+        &bench_repo_root,
+    )?;
     let out_dir = normalize_bench_out_dir(
         &out_dir.ok_or_else(|| "--bench-load requires --bench-out <dir>".to_string())?,
+        &bench_repo_root,
     )?;
 
     Ok(Some(BenchCliConfig {
         models_path,
+        repo_root: bench_repo_root,
         out_dir,
         node_version,
     }))
@@ -1261,6 +1290,7 @@ fn get_bench_config(
     Ok(Some(BenchConfigPayload {
         enabled: true,
         models_path: config.models_path.display().to_string(),
+        repo_root: config.repo_root.display().to_string(),
         out_dir: config.out_dir.display().to_string(),
         mode: if cfg!(debug_assertions) {
             "dev".to_string()
@@ -1283,7 +1313,7 @@ fn write_bench_report(
     let Some(config) = config.as_ref() else {
         return Err("bench mode is not enabled".to_string());
     };
-    let out_dir = normalize_bench_out_dir(&config.out_dir)?;
+    let out_dir = normalize_bench_out_dir(&config.out_dir, &config.repo_root)?;
     fs::write(out_dir.join("report.json"), report_json)
         .map_err(|error| format!("failed to write report.json: {error}"))?;
     fs::write(out_dir.join("report.md"), report_markdown)
@@ -1308,7 +1338,7 @@ fn write_bench_screenshot(
         return Err(format!("invalid bench screenshot file name: {file_name}"));
     }
 
-    let out_dir = normalize_bench_out_dir(&config.out_dir)?;
+    let out_dir = normalize_bench_out_dir(&config.out_dir, &config.repo_root)?;
     let screenshots_dir = out_dir.join("screenshots");
     fs::create_dir_all(&screenshots_dir)
         .map_err(|error| format!("failed to create screenshots directory: {error}"))?;

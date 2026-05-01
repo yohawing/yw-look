@@ -35,6 +35,7 @@ export type BenchManifest = {
 export type BenchConfig = {
   enabled: boolean;
   modelsPath: string;
+  repoRoot: string;
   outDir: string;
   mode: "dev" | "release";
   appVersion: string;
@@ -93,6 +94,7 @@ export type BenchReport = {
   arch: string;
   nodeVersion: string | null;
   modelsPath: string;
+  repoRoot: string;
   outDir: string;
   summary: {
     total: number;

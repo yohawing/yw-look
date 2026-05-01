@@ -38,15 +38,37 @@ type PerformanceWithMemory = Performance & {
 
 const VIEWPORT_WIDTH = 1024;
 const VIEWPORT_HEIGHT = 768;
+let activeBenchRepoRoot = "";
 
 export async function loadBenchConfig() {
-  return invoke<BenchConfig | null>("get_bench_config");
+  const config = await invoke<BenchConfig | null>("get_bench_config");
+  activeBenchRepoRoot = config?.repoRoot ?? "";
+  return config;
 }
 
 export async function loadBenchManifest(path: string) {
   const bytes = await readBinaryFile(path);
   const text = new TextDecoder().decode(Uint8Array.from(bytes));
   return JSON.parse(text) as BenchManifest;
+}
+
+function isAbsolutePath(path: string) {
+  return (
+    path.startsWith("/") ||
+    path.startsWith("\\\\") ||
+    /^[A-Za-z]:[\\/]/.test(path)
+  );
+}
+
+function resolveBenchModelPath(modelPath: string, repoRoot: string) {
+  if (isAbsolutePath(modelPath) || repoRoot.trim() === "") {
+    return modelPath;
+  }
+
+  const root = repoRoot.replace(/[\\/]+$/, "");
+  const relative = modelPath.replace(/^[\\/]+/, "");
+  const separator = root.includes("\\") ? "\\" : "/";
+  return `${root}${separator}${relative}`;
 }
 
 function createRenderer() {
@@ -275,9 +297,10 @@ export async function runBenchCase(
 
   try {
     log(`loading ${model.id}`);
+    const modelPath = resolveBenchModelPath(model.path, activeBenchRepoRoot);
     const selected = selectedFileFromModel(
       model,
-      await resolveSelectedFile(model.path),
+      await resolveSelectedFile(modelPath),
     );
     const started = performance.now();
     const preview = await withTimeout(
@@ -366,6 +389,7 @@ export function buildReport(config: BenchConfig, cases: BenchCaseResult[]) {
     arch: config.arch,
     nodeVersion: config.nodeVersion,
     modelsPath: config.modelsPath,
+    repoRoot: config.repoRoot,
     outDir: config.outDir,
     summary: {
       total: cases.length,

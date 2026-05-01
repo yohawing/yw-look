@@ -14,7 +14,6 @@ const outDir = path.join(repoRoot, "artifacts", "bench", stamp);
 await mkdir(outDir, { recursive: true });
 
 const args = [
-  "run",
   "tauri",
   "dev",
   "--",
@@ -22,6 +21,8 @@ const args = [
   "--bench-load",
   "--bench-models",
   modelsPath,
+  "--bench-repo-root",
+  repoRoot,
   "--bench-out",
   outDir,
   "--bench-node-version",
@@ -30,7 +31,7 @@ const args = [
 
 console.log(`[bench] output: ${outDir}`);
 
-const child = spawn("npm", args, {
+const child = spawn("npx", args, {
   cwd: repoRoot,
   stdio: "inherit",
   shell: process.platform === "win32",
