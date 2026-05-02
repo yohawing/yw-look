@@ -423,7 +423,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
 - [x] 画面キャプチャの仕組みを調査する（Playwright で `selftest.html` を撮影）
 - [x] selftest ページのスナップショットテストを作る（`tests/visual/snapshots/selftest-page-linux-chromium.png`）
-- [ ] 各フォーマットを読み込んだ viewer 画面のスナップショットテストを作る（`test:viewport-snapshot` harness と `usda-tiny-sanity` baseline は追加済み。対象フォーマット拡張は後続）
+- [ ] 各フォーマットを読み込んだ viewer 画面のスナップショットテストを作る（`test:viewport-snapshot` harness に `samples/assets` 由来の USDA / GLB / OBJ / DAE / STL 低解像度 baseline を追加済み。対象フォーマット拡張は後続）
 - [ ] エラー画面・空状態・ローディング状態のスナップショットテストを作る
 - [x] CI でスナップショットを比較できる仕組みを検討する（`visual-regression` job で selftest snapshot と viewport snapshot を比較）
 

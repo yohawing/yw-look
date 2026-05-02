@@ -19,6 +19,39 @@ const cases = [
     size: "640x480",
     background: "default",
   },
+  {
+    id: "glb-box-textured",
+    input: "samples/assets/glb/BoxTextured.glb",
+    snapshot: "tests/visual/snapshots/viewport/glb-box-textured.png",
+    actual: "artifacts/screenshots/viewport/glb-box-textured-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
+    id: "obj-tiny-triangle",
+    input: "samples/assets/obj/TinyTriangle.obj",
+    snapshot: "tests/visual/snapshots/viewport/obj-tiny-triangle.png",
+    actual: "artifacts/screenshots/viewport/obj-tiny-triangle-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
+    id: "dae-tiny-tetrahedron",
+    input: "samples/assets/dae/TinyTetrahedron.dae",
+    snapshot: "tests/visual/snapshots/viewport/dae-tiny-tetrahedron.png",
+    actual: "artifacts/screenshots/viewport/dae-tiny-tetrahedron-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
+    id: "stl-tiny-tetrahedron-ascii",
+    input: "samples/assets/stl/TinyTetrahedronAscii.stl",
+    snapshot: "tests/visual/snapshots/viewport/stl-tiny-tetrahedron-ascii.png",
+    actual:
+      "artifacts/screenshots/viewport/stl-tiny-tetrahedron-ascii-current.png",
+    size: "384x288",
+    background: "default",
+  },
 ];
 
 const usage = `usage:
