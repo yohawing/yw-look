@@ -368,6 +368,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] `F11` — フルスクリーン切替を実装する
 - [x] 各表示モードのショートカットを割り当てる
 - [x] メニュー項目にショートカット表記を表示する
+- [x] #51: View / Selection / Visibility / Display 優先の単キーショートカットを整理する
 
 ### Settings 導線
 
