@@ -745,8 +745,10 @@ USDC_API const char *usdc_prim_metadata_value_summary(UsdcStage *stage,
  * must free the returned pointer with `usdc_free_string`; passing it
  * to `free()` directly is undefined behaviour.
  *
- * Returns NULL when the stage has no root layer or export fails. */
-USDC_API const char *usdc_stage_flatten(UsdcStage *stage);
+ * Returns NULL on failure and writes a non-null UsdcError* to *out_err.
+ * Caller must free the error with usdc_error_free(). */
+USDC_API const char *usdc_stage_flatten(UsdcStage *stage,
+                                        UsdcError **out_err);
 
 /* Frees a string previously returned by `usdc_stage_flatten`. Safe to
  * pass NULL. Must not be used to free scratch-buffer strings (those

@@ -676,12 +676,9 @@ impl UsdSourceBackend for OpenusdCppBackend {
         // Use LoadAll so every composition arc is included in the
         // flattened output, matching `usdcat --flatten` semantics.
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
-        stage.flatten().ok_or_else(|| {
-            UsdError::Parse(
-                "usdc_stage_flatten returned null — stage has no root layer or export failed"
-                    .to_string(),
-            )
-        })
+        stage
+            .flatten()
+            .map_err(|error| UsdError::Parse(error.to_string()))
     }
 }
 

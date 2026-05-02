@@ -285,8 +285,13 @@ extern "C" USDC_API void usdc_stage_close(UsdcStage *stage) {
 
 /* -------------------- stage flatten (#39) -------------------- */
 
-extern "C" USDC_API const char *usdc_stage_flatten(UsdcStage *stage) {
-    if (!stage || !stage->stage) return nullptr;
+extern "C" USDC_API const char *usdc_stage_flatten(UsdcStage *stage,
+                                                   UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_flatten: stage is null");
+        return nullptr;
+    }
     try {
         std::string text;
         /* ExportToString writes the flattened stage to `text`.
@@ -296,7 +301,14 @@ extern "C" USDC_API const char *usdc_stage_flatten(UsdcStage *stage) {
          * every reference / payload / sublayer inlined. */
         bool ok = stage->stage->ExportToString(&text,
                                                /*addSourceFileComment=*/false);
-        if (!ok || text.empty()) return nullptr;
+        if (!ok) {
+            if (out_err) *out_err = make_err("UsdStage::ExportToString returned false");
+            return nullptr;
+        }
+        if (text.empty()) {
+            if (out_err) *out_err = make_err("UsdStage::ExportToString returned empty output");
+            return nullptr;
+        }
         /* Heap-allocate an independent copy so the caller can safely
          * free it via usdc_free_string without affecting stage->scratch
          * or any other per-stage state. */
@@ -304,7 +316,11 @@ extern "C" USDC_API const char *usdc_stage_flatten(UsdcStage *stage) {
         std::copy(text.begin(), text.end(), result);
         result[text.size()] = '\0';
         return result;
+    } catch (const std::exception &e) {
+        if (out_err) *out_err = make_err(std::string("usdc_stage_flatten: ") + e.what());
+        return nullptr;
     } catch (...) {
+        if (out_err) *out_err = make_err("usdc_stage_flatten: unknown exception");
         return nullptr;
     }
 }

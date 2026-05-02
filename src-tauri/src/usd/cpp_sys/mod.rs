@@ -45,6 +45,18 @@ impl std::fmt::Display for CError {
 
 impl std::error::Error for CError {}
 
+fn take_c_error(err: *mut UsdcError, fallback: &str) -> CError {
+    if err.is_null() {
+        return CError(fallback.to_string());
+    }
+
+    let message = unsafe { CStr::from_ptr(usdc_error_message(err)) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { usdc_error_free(err) };
+    CError(message)
+}
+
 /// Mirror of [`super::types::StageLoadPolicy`] at the FFI layer. Kept
 /// separate from the wire enum so the two can evolve independently if
 /// the shim ever grows new load modes ahead of the frontend.
@@ -1201,18 +1213,22 @@ impl CStage {
     /// freed via `usdc_free_string`; this method handles that internally
     /// so callers receive an owned `String`.
     ///
-    /// Returns `None` when the stage has no root layer, `ExportToString`
-    /// fails, or the C shim returns NULL for any other reason.
-    pub fn flatten(&self) -> Option<String> {
-        let raw = unsafe { usdc_stage_flatten(self.raw) };
+    /// Returns an error when the stage has no root layer, `ExportToString`
+    /// fails, or the C shim surfaces an OpenUSD exception.
+    pub fn flatten(&self) -> Result<String, CError> {
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let raw = unsafe { usdc_stage_flatten(self.raw, &mut err) };
         if raw.is_null() {
-            return None;
+            return Err(take_c_error(
+                err,
+                "usdc_stage_flatten returned null without an error",
+            ));
         }
         let owned = unsafe { CStr::from_ptr(raw) }
             .to_string_lossy()
             .into_owned();
         unsafe { usdc_free_string(raw) };
-        Some(owned)
+        Ok(owned)
     }
 
     /// Bone influences per vertex (the primvar's `elementSize`
