@@ -132,6 +132,8 @@ type UsdInspectorCardProps = {
   /** #31: current variant selections mirrored from App state. Used to
    * keep the pulldowns in sync after a re-mount (e.g. file re-open). */
   variantSelections?: VariantSelection[];
+  /** Backend failure from applying the current variant selection. */
+  variantSelectionError?: string | null;
 };
 
 export function UsdInspectorCard({
@@ -144,6 +146,7 @@ export function UsdInspectorCard({
   onLoadPolicyChange,
   onVariantChange,
   variantSelections,
+  variantSelectionError,
 }: UsdInspectorCardProps) {
   const showControl = loadPolicy !== null;
   return (
@@ -419,6 +422,9 @@ export function UsdInspectorCard({
                   title="Variant Sets"
                   count={inspection.variantSets.length}
                 >
+                  {variantSelectionError && (
+                    <SidebarError>{variantSelectionError}</SidebarError>
+                  )}
                   <ul className="usd-variant-list">
                     {inspection.variantSets.map((vs, i) => {
                       // Resolve the currently active selection: prefer

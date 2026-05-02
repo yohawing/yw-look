@@ -20,10 +20,9 @@ use url::Url;
 
 use crate::usd::types::ExtractGeometryOptions;
 use crate::usd::{
-    AssetIssue, AttributeTimeSamples, DefaultBackend, OpenSession, PrimInspection,
-    StageInspection, StageLoadPolicy, StageRegistry, StageSummary, StageSessionHandle,
-    UsdGeometryBackend, UsdInspectBackend, UsdLightBackend, UsdSessionBackend, UsdSourceBackend,
-    UsdError, UsdLightInfo,
+    AssetIssue, AttributeTimeSamples, DefaultBackend, OpenSession, PrimInspection, StageInspection,
+    StageLoadPolicy, StageRegistry, StageSessionHandle, StageSummary, UsdError, UsdGeometryBackend,
+    UsdInspectBackend, UsdLightBackend, UsdLightInfo, UsdSessionBackend, UsdSourceBackend,
 };
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -146,17 +145,14 @@ impl UsdBackendState {
         }
     }
 
-    #[cfg(all(
-        feature = "backend-openusd-rs",
-        not(feature = "backend-openusd-cpp"),
-    ))]
+    #[cfg(all(feature = "backend-openusd-rs", not(feature = "backend-openusd-cpp"),))]
     fn new(backend: DefaultBackend) -> Self {
         let backend = Arc::new(backend);
         Self {
             inspect: backend.clone() as Arc<dyn UsdInspectBackend>,
-            geometry: Some(backend as Arc<dyn UsdGeometryBackend>),
+            geometry: Some(backend.clone() as Arc<dyn UsdGeometryBackend>),
             source: None,
-            session: None,
+            session: Some(backend as Arc<dyn UsdSessionBackend>),
             light: None,
         }
     }
@@ -448,7 +444,9 @@ fn parse_size_argument(value: &str) -> Result<(u32, u32), String> {
         .parse()
         .map_err(|error| format!("--size height '{h}' is not a u32: {error}"))?;
     if width == 0 || height == 0 {
-        return Err(format!("--size width/height must be > 0, got {width}x{height}"));
+        return Err(format!(
+            "--size width/height must be > 0, got {width}x{height}"
+        ));
     }
     if width > 8192 || height > 8192 {
         return Err(format!(
@@ -459,8 +457,7 @@ fn parse_size_argument(value: &str) -> Result<(u32, u32), String> {
 }
 
 fn resolve_shot_input(path: &Path) -> Result<PathBuf, String> {
-    let normalized = canonicalize_existing_path(path)
-        .map_err(|error| format!("--in {error}"))?;
+    let normalized = canonicalize_existing_path(path).map_err(|error| format!("--in {error}"))?;
     if !normalized.is_file() {
         return Err(format!(
             "--in path '{}' is not a regular file",
@@ -482,8 +479,8 @@ fn resolve_shot_output(path: &Path) -> Result<PathBuf, String> {
             parent.display()
         )
     })?;
-    let normalized_parent = canonicalize_existing_path(&parent)
-        .map_err(|error| format!("--out parent {error}"))?;
+    let normalized_parent =
+        canonicalize_existing_path(&parent).map_err(|error| format!("--out parent {error}"))?;
     let file_name = path
         .file_name()
         .ok_or_else(|| format!("--out path '{}' has no file name", path.display()))?;
@@ -500,7 +497,11 @@ fn parse_shot_cli_config() -> Result<Option<ShotCliConfig>, String> {
     if shot_flag && check_flag {
         return Err("--shot and --check are mutually exclusive".to_string());
     }
-    let mode = if shot_flag { ShotMode::Shot } else { ShotMode::Check };
+    let mode = if shot_flag {
+        ShotMode::Shot
+    } else {
+        ShotMode::Check
+    };
 
     let mut input_path: Option<PathBuf> = None;
     let mut output_path: Option<PathBuf> = None;
@@ -543,19 +544,23 @@ fn parse_shot_cli_config() -> Result<Option<ShotCliConfig>, String> {
         index += 1;
     }
 
-    let input_path = resolve_shot_input(
-        &input_path.ok_or_else(|| {
-            format!(
-                "--{} requires --in <path>",
-                if mode == ShotMode::Shot { "shot" } else { "check" }
-            )
-        })?,
-    )?;
+    let input_path = resolve_shot_input(&input_path.ok_or_else(|| {
+        format!(
+            "--{} requires --in <path>",
+            if mode == ShotMode::Shot {
+                "shot"
+            } else {
+                "check"
+            }
+        )
+    })?)?;
 
     let output_path = match mode {
-        ShotMode::Shot => Some(resolve_shot_output(
-            &output_path.ok_or_else(|| "--shot requires --out <path>".to_string())?,
-        )?),
+        ShotMode::Shot => {
+            Some(resolve_shot_output(&output_path.ok_or_else(|| {
+                "--shot requires --out <path>".to_string()
+            })?)?)
+        }
         ShotMode::Check => None,
     };
 
@@ -1848,10 +1853,8 @@ async fn open_stage_session(
     let normalized = normalize_file_path(PathBuf::from(path.clone()))?;
     let handle = backend.session()?;
     let policy = policy.unwrap_or_default();
-    let open_stage = run_blocking_usd(move || {
-        handle.open_stage_session(&normalized, policy)
-    })
-    .await?;
+    let open_stage =
+        run_blocking_usd(move || handle.open_stage_session(&normalized, policy)).await?;
 
     let session = OpenSession {
         path: PathBuf::from(path),
@@ -1949,29 +1952,22 @@ async fn extract_geometry_session(
     policy: Option<StageLoadPolicy>,
 ) -> Result<tauri::ipc::Response, String> {
     use tauri::Manager;
-    let resolved_options = options.unwrap_or_else(|| {
-        ExtractGeometryOptions::from(policy.unwrap_or_default())
-    });
+    let resolved_options =
+        options.unwrap_or_else(|| ExtractGeometryOptions::from(policy.unwrap_or_default()));
     let backend_handle = backend.session()?;
     // Heavy USD GLB extraction must not run on the async runtime's worker.
     // Move it to a blocking task and look up the registry from `app` inside
     // (avoids holding a `tauri::State` reference across `.await`).
     let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
         let registry = app.state::<StageRegistry>();
-        let session = registry
-            .get(handle)
-            .ok_or_else(|| {
-                format!(
-                    "extract_geometry_session: unknown session handle {}",
-                    handle.0
-                )
-            })?;
-        backend_handle
-            .extract_geometry_from_session(
-                &session.stage,
-                &session.path,
-                &resolved_options,
+        let session = registry.get(handle).ok_or_else(|| {
+            format!(
+                "extract_geometry_session: unknown session handle {}",
+                handle.0
             )
+        })?;
+        backend_handle
+            .extract_geometry_from_session(&session.stage, &session.path, &resolved_options)
             .map_err(|e| e.to_string())
     })
     .await

@@ -32,6 +32,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { SelectedFile } from "../lib/files";
+import { formatUsdErrorForDisplay } from "../lib/usd";
 import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 import {
   type CameraPreset,
@@ -294,22 +295,43 @@ function frameObjectBounds(
   context.controls.enabled = true;
 }
 
-function setSubtreeVisible(root: Object3D, visible: boolean) {
+const MANUAL_HIDDEN_KEY = "__ywManualHidden";
+
+function isManuallyHidden(object: Object3D) {
+  return object.userData?.[MANUAL_HIDDEN_KEY] === true;
+}
+
+function setSubtreeManualHidden(root: Object3D, hidden: boolean) {
   root.traverse((child) => {
     if (child.name === "__yw_shadow_catcher") {
       return;
     }
-    child.visible = visible;
+    if (hidden) {
+      child.userData[MANUAL_HIDDEN_KEY] = true;
+    } else {
+      delete child.userData[MANUAL_HIDDEN_KEY];
+    }
+  });
+}
+
+function applyManualVisibility(root: Object3D) {
+  root.traverse((child) => {
+    if (child.name === "__yw_shadow_catcher") {
+      return;
+    }
+    if (isManuallyHidden(child)) {
+      child.visible = false;
+    }
   });
 }
 
 function isolateObject(root: Object3D, selected: Object3D) {
-  setSubtreeVisible(root, false);
-  setSubtreeVisible(selected, true);
+  setSubtreeManualHidden(root, true);
+  setSubtreeManualHidden(selected, false);
 
   let ancestor = selected.parent;
   while (ancestor && ancestor !== root.parent) {
-    ancestor.visible = true;
+    delete ancestor.userData[MANUAL_HIDDEN_KEY];
     if (ancestor === root) break;
     ancestor = ancestor.parent;
   }
@@ -320,6 +342,7 @@ type AssetViewportProps = {
   displayMode: DisplayMode;
   backgroundPreset: BackgroundPreset;
   onFeedbackChange: (feedback: ViewerFeedback) => void;
+  onUsdError?: (error: unknown) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
   selectedTextureId: string | null;
   viewerSurfaceMode: ViewerSurfaceMode;
@@ -589,6 +612,7 @@ export function AssetViewport({
   displayMode,
   backgroundPreset,
   onFeedbackChange,
+  onUsdError,
   onMetadataChange,
   selectedTextureId,
   viewerSurfaceMode,
@@ -833,7 +857,7 @@ export function AssetViewport({
         default:
           visible = true;
       }
-      child.visible = visible;
+      child.visible = visible && !isManuallyHidden(child);
     });
   }
 
@@ -2054,9 +2078,12 @@ export function AssetViewport({
         // Log the raw error to the webview console so it is visible in
         // devtools (Tauri: Ctrl+Shift+I) and not just in Diagnostics.
         console.error("[viewer] load failed:", error);
+        onUsdError?.(error);
 
-        const message =
-          error instanceof Error ? error.message : "Failed to load preview.";
+        const message = formatUsdErrorForDisplay(
+          error,
+          "Failed to load preview.",
+        );
         const missingReferenceError = error as Partial<MissingReferenceError>;
         const mode =
           message.includes("404") || missingReferenceError.missingPaths?.length
@@ -2099,6 +2126,7 @@ export function AssetViewport({
   }, [
     currentFile,
     onFeedbackChange,
+    onUsdError,
     onGridUnitChange,
     onMetadataChange,
     showGrid,
@@ -2392,7 +2420,8 @@ export function AssetViewport({
           viewportShortcutCommand.selectionKey,
         );
         if (target) {
-          target.visible = false;
+          setSubtreeManualHidden(target, true);
+          applyManualVisibility(sourceObject);
         }
         return;
       }
@@ -2406,6 +2435,7 @@ export function AssetViewport({
         );
         if (target) {
           isolateObject(sourceObject, target);
+          applyPurposeVisibility(sourceObject, purposeModesRef.current);
         }
         return;
       }
@@ -2413,7 +2443,7 @@ export function AssetViewport({
         if (!sourceObject || viewerSurfaceModeRef.current !== "asset") {
           return;
         }
-        setSubtreeVisible(sourceObject, true);
+        setSubtreeManualHidden(sourceObject, false);
         applyPurposeVisibility(sourceObject, purposeModesRef.current);
         return;
     }

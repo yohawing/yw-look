@@ -1,6 +1,7 @@
 import {
   Suspense,
   lazy,
+  useCallback,
   useEffect,
   useEffectEvent,
   useMemo,
@@ -64,10 +65,13 @@ import {
   closeStageSession,
   collectAssetIssues,
   extractGeometrySession,
+  formatUsdErrorForDisplay,
   inspectStage,
   inspectUsdLights,
+  isInvalidVariantSelectionError,
   loadPayload,
   openStageSession,
+  parseUsdError,
   summarizeStage,
   unloadPayload,
   type AssetIssue,
@@ -401,6 +405,9 @@ export function App() {
   const [variantSelections, setVariantSelections] = useState<
     VariantSelection[]
   >([]);
+  const [variantSelectionError, setVariantSelectionError] = useState<
+    string | null
+  >(null);
 
   // ---- #44 per-prim payload session ----------------------------------------
   // When the user opens a USD file with `noPayloads` policy, we also open a
@@ -442,6 +449,33 @@ export function App() {
     ? debugPanelRecentFiles
     : recentFilesPayload;
   const sidebarRecentFilesError = debugPanelsEnabled ? null : recentFilesError;
+  const recordVariantSelectionError = useCallback((error: unknown): boolean => {
+    const parsed = parseUsdError(error);
+    if (!isInvalidVariantSelectionError(parsed)) {
+      return false;
+    }
+
+    const message = formatUsdErrorForDisplay(
+      error,
+      "Variant selection failed.",
+    );
+    console.error("[usd] variant selection failed:", error);
+    setVariantSelectionError(message);
+    return true;
+  }, []);
+  const applyVariantSelection = useCallback(
+    (primPath: string, setName: string, variantName: string) => {
+      setVariantSelectionError(null);
+      setVariantSelections((prev) => {
+        const next = prev.filter(
+          (s) => !(s.primPath === primPath && s.setName === setName),
+        );
+        next.push({ primPath, setName, variantName });
+        return next;
+      });
+    },
+    [],
+  );
   // Browser mode needs recent files immediately for the always-visible MenuBar.
   // Tauri can keep this deferred until the sidebar is opened.
   const shouldLoadRecentFiles = sidebarOpen || !isTauri;
@@ -579,6 +613,7 @@ export function App() {
     // pulldown reflects the authored defaults, not stale overrides from
     // the previous file.
     setVariantSelections([]);
+    setVariantSelectionError(null);
     // #44: reset session GLB buffer on every file / policy change so the
     // viewport doesn't flash stale geometry from a previous session.
     setSessionGlbBuffer(null);
@@ -772,6 +807,7 @@ export function App() {
       .catch((err: unknown) => {
         if (cancelled) return;
         console.warn("[usd] session re-extract on variant change failed:", err);
+        recordVariantSelectionError(err);
         setSessionGlbBuffer(null);
       });
     return () => {
@@ -1809,6 +1845,7 @@ export function App() {
     } catch (err: unknown) {
       if (stageSessionHandleRef.current !== captured) return;
       console.warn("[usd] session re-extract after load failed:", err);
+      recordVariantSelectionError(err);
       setSessionGlbBuffer(null);
     }
   };
@@ -1841,6 +1878,7 @@ export function App() {
     } catch (err: unknown) {
       if (stageSessionHandleRef.current !== captured) return;
       console.warn("[usd] session re-extract after unload failed:", err);
+      recordVariantSelectionError(err);
       setSessionGlbBuffer(null);
     }
   };
@@ -1864,17 +1902,9 @@ export function App() {
                   summary={usdSummary}
                   loadPolicy={usdLoadPolicy}
                   onLoadPolicyChange={setUsdLoadPolicy}
+                  variantSelectionError={variantSelectionError}
                   variantSelections={variantSelections}
-                  onVariantChange={(primPath, setName, variantName) => {
-                    setVariantSelections((prev) => {
-                      const next = prev.filter(
-                        (s) =>
-                          !(s.primPath === primPath && s.setName === setName),
-                      );
-                      next.push({ primPath, setName, variantName });
-                      return next;
-                    });
-                  }}
+                  onVariantChange={applyVariantSelection}
                 />
                 <Suspense fallback={<SidebarCardFallback />}>
                   <CompositionArcsCard
@@ -1896,17 +1926,9 @@ export function App() {
                 summary={debugUsdSummary}
                 loadPolicy={usdLoadPolicy}
                 onLoadPolicyChange={setUsdLoadPolicy}
+                variantSelectionError={variantSelectionError}
                 variantSelections={variantSelections}
-                onVariantChange={(primPath, setName, variantName) => {
-                  setVariantSelections((prev) => {
-                    const next = prev.filter(
-                      (s) =>
-                        !(s.primPath === primPath && s.setName === setName),
-                    );
-                    next.push({ primPath, setName, variantName });
-                    return next;
-                  });
-                }}
+                onVariantChange={applyVariantSelection}
               />
             )}
             {sidebarAssetMetadata && (
@@ -2178,6 +2200,7 @@ export function App() {
             toneMappingMode={toneMappingMode}
             exposure={exposure}
             onGridUnitChange={setGridUnitLabel}
+            onUsdError={recordVariantSelectionError}
             environmentPreset={environmentPreset}
             cameraSpeedMultiplier={cameraSpeedMultiplier}
             usdLoadPolicy={usdLoadPolicy}

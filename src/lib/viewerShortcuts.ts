@@ -77,11 +77,14 @@ export function isEditableShortcutTarget(target: EventTarget | null) {
   const contentEditableHost = target.closest(
     "[contenteditable=''], [contenteditable='true']",
   );
+  const contentEditable = target.contentEditable?.toLowerCase();
 
   return (
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target.isContentEditable ||
+    contentEditable === "true" ||
+    contentEditable === "" ||
     contentEditableHost !== null
   );
 }

@@ -3,50 +3,23 @@ name: CI — USD C++ backend (PoC)
 # The C++ backend builds OpenUSD from source through vcpkg. First run
 # is 30–60 min; subsequent runs restore from the GHA binary cache in
 # seconds. We keep this off the main `ci.yml` so PR authors aren't
-# blocked on a PoC-stage pipeline, and we gate it on path filters +
-# an opt-in workflow_dispatch.
+# blocked on a PoC-stage pipeline. Keep it on the release/main path
+# and available through workflow_dispatch; develop PR/push coverage is
+# handled by the normal CI Rust-backend checks.
 #
 # See docs/usd-cpp.md (CI section) and docs/usd-cpp-poc.md for the
 # full design.
 
 on:
-  # Phase 2.J flipped the C++ backend to default, so `develop` pushes
-  # now trigger this workflow too (the previous alpha-period carve-out
-  # is gone — if cpp ships as the default it has to stay green on the
-  # dev branch).
-  #
   # Path filters stay scoped to files that actually affect the C++
-  # build: the shim, the vcpkg manifests, the Rust bindgen/cpp side,
-  # the dedicated integration tests, and the sample fixtures the
-  # tests open. Module wiring (`mod.rs`, `lib.rs`) is now included
-  # because the default-feature flip means it gates the build graph.
+  # build. This workflow intentionally does not run for develop PRs or
+  # pushes: the vcpkg/OpenUSD build is still too expensive/noisy for
+  # the alpha-period merge loop. Run it manually when touching C++
+  # backend internals, and keep release/main coverage here.
   push:
     branches:
       - main
-      - develop
       - "claude/openusd-cpp-wrapper-**"
-    paths:
-      - "src-tauri/Cargo.toml"
-      - "src-tauri/build.rs"
-      - "src-tauri/vcpkg.json"
-      - "src-tauri/vcpkg-configuration.json"
-      - "src-tauri/third_party/usd_c_shim/**"
-      - "src-tauri/src/lib.rs"
-      - "src-tauri/src/usd/backend.rs"
-      - "src-tauri/src/usd/cpp_sys/**"
-      - "src-tauri/src/usd/glb.rs"
-      - "src-tauri/src/usd/glb/**"
-      - "src-tauri/src/usd/mod.rs"
-      - "src-tauri/src/usd/openusd_backend.rs"
-      - "src-tauri/src/usd/openusd_cpp_backend.rs"
-      - "src-tauri/src/usd/types.rs"
-      - "src-tauri/tests/cpp_backend_*.rs"
-      - "samples/assets/usd/**"
-      - ".github/workflows/ci-cpp-backend.yml"
-  pull_request:
-    branches:
-      - main
-      - develop
     paths:
       - "src-tauri/Cargo.toml"
       - "src-tauri/build.rs"

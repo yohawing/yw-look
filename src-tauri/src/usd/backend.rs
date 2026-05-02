@@ -22,6 +22,12 @@ pub enum UsdError {
     Io(String),
     /// The backend opened the file but failed to parse it.
     Parse(String),
+    /// The backend could not apply or validate a requested variant selection.
+    InvalidVariantSelection {
+        prim_path: String,
+        set_name: String,
+        variant_name: String,
+    },
 }
 
 impl std::fmt::Display for UsdError {
@@ -29,6 +35,15 @@ impl std::fmt::Display for UsdError {
         match self {
             UsdError::Io(message) => write!(f, "USD backend io error: {message}"),
             UsdError::Parse(message) => write!(f, "USD backend parse error: {message}"),
+            UsdError::InvalidVariantSelection {
+                prim_path,
+                set_name,
+                variant_name,
+            } => write!(
+                f,
+                "USD_INVALID_VARIANT_SELECTION\tprimPath={prim_path}\t\
+                 setName={set_name}\tvariantName={variant_name}"
+            ),
         }
     }
 }
@@ -219,4 +234,25 @@ pub trait UsdSessionBackend: Send + Sync {
         stage_path: &Path,
         options: &ExtractGeometryOptions,
     ) -> Result<Vec<u8>, UsdError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UsdError;
+
+    #[test]
+    fn invalid_variant_selection_display_is_stable_for_frontend_parsing() {
+        let message = UsdError::InvalidVariantSelection {
+            prim_path: "/World/Hero".to_string(),
+            set_name: "look".to_string(),
+            variant_name: "Damaged".to_string(),
+        }
+        .to_string();
+
+        assert_eq!(
+            message,
+            "USD_INVALID_VARIANT_SELECTION\tprimPath=/World/Hero\t\
+             setName=look\tvariantName=Damaged"
+        );
+    }
 }

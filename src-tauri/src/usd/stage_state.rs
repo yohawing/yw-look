@@ -131,7 +131,7 @@ impl Default for StageRegistry {
 #[cfg(all(test, feature = "backend-openusd-rs"))]
 mod tests {
     use super::*;
-    use crate::usd::{OpenusdBackend, UsdBackend};
+    use crate::usd::{OpenusdBackend, UsdSessionBackend};
     use std::sync::{mpsc, Arc};
     use std::time::Duration;
 

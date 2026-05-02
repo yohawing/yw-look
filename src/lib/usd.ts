@@ -89,6 +89,70 @@ export type VariantSelection = {
   variantName: string;
 };
 
+export type UsdInvalidVariantSelectionError = {
+  kind: "invalidVariantSelection";
+  primPath: string;
+  setName: string;
+  variantName: string;
+};
+
+export type UsdTypedError = UsdInvalidVariantSelectionError;
+
+const INVALID_VARIANT_SELECTION_PREFIX = "USD_INVALID_VARIANT_SELECTION\t";
+
+function tauriErrorMessage(error: unknown): string | null {
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  return null;
+}
+
+export function isInvalidVariantSelectionError(
+  error: UsdTypedError | null,
+): error is UsdInvalidVariantSelectionError {
+  return error?.kind === "invalidVariantSelection";
+}
+
+export function parseUsdError(error: unknown): UsdTypedError | null {
+  const message = tauriErrorMessage(error);
+  if (!message?.startsWith(INVALID_VARIANT_SELECTION_PREFIX)) {
+    return null;
+  }
+
+  const fields = new Map<string, string>();
+  const body = message.slice(INVALID_VARIANT_SELECTION_PREFIX.length);
+  for (const part of body.split("\t")) {
+    const separator = part.indexOf("=");
+    if (separator <= 0) continue;
+    fields.set(part.slice(0, separator), part.slice(separator + 1));
+  }
+
+  const primPath = fields.get("primPath");
+  const setName = fields.get("setName");
+  const variantName = fields.get("variantName");
+  if (!primPath || !setName || !variantName) {
+    return null;
+  }
+
+  return {
+    kind: "invalidVariantSelection",
+    primPath,
+    setName,
+    variantName,
+  };
+}
+
+export function formatUsdErrorForDisplay(
+  error: unknown,
+  fallback: string,
+): string {
+  const parsed = parseUsdError(error);
+  if (isInvalidVariantSelectionError(parsed)) {
+    return `Variant selection failed: ${parsed.setName}=${parsed.variantName} on ${parsed.primPath}`;
+  }
+
+  return tauriErrorMessage(error) ?? fallback;
+}
+
 /**
  * Round 1.5 (#32): per-purpose visibility. `default` is always
  * rendered. The remaining purposes default to render-on, proxy/guide

@@ -142,10 +142,7 @@ fn tiny_usda_root_layer_is_usda() {
         .root_layer_is_binary(&path)
         .expect("root_layer_is_binary must succeed on tiny.usda");
 
-    assert!(
-        !is_binary,
-        "tiny.usda is text USDA, not binary USDC",
-    );
+    assert!(!is_binary, "tiny.usda is text USDA, not binary USDC",);
 }
 
 /// `tiny_usda_path` with no time metadata must produce `duration_seconds = None`.
@@ -314,10 +311,7 @@ fn tiny_usda_flatten_stage() {
         .flatten_stage(&path)
         .expect("flatten_stage must succeed on tiny.usda");
 
-    assert!(
-        !text.is_empty(),
-        "flatten_stage must return non-empty text",
-    );
+    assert!(!text.is_empty(), "flatten_stage must return non-empty text",);
     assert!(
         text.contains("#usda") || text.starts_with("(") || text.contains("def "),
         "flatten output must look like USDA text, got first 200 chars: {:?}",
