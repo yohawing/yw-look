@@ -108,6 +108,14 @@ import {
   type MenuActionId,
 } from "./lib/menu";
 import {
+  applyViewerShortcutAction,
+  isEditableShortcutTarget,
+  resolveViewerShortcutAction,
+  viewerShortcutHelpLines,
+  type ViewportShortcutCommand,
+  type ViewerShortcutAction,
+} from "./lib/viewerShortcuts";
+import {
   checkForUpdate,
   installPendingUpdate,
   loadUpdateConfiguration,
@@ -294,6 +302,8 @@ export function App() {
   const [openError, setOpenError] = useState<string | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const [resetVersion, setResetVersion] = useState(0);
+  const [viewportShortcutCommand, setViewportShortcutCommand] =
+    useState<ViewportShortcutCommand | null>(null);
   const [settingsPayload, setSettingsPayload] =
     useState<SettingsPayload | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -506,11 +516,13 @@ export function App() {
   }, [assetMetadata?.textures, usdIssues, viewerFeedback.warning]);
   const sidebarWarnings = debugPanelsEnabled ? debugPanelWarnings : warnings;
   const shortcutLines = useMemo(
-    () =>
-      Object.entries(menuShortcuts).map(([actionId, definition]) => {
+    () => [
+      ...viewerShortcutHelpLines,
+      ...Object.entries(menuShortcuts).map(([actionId, definition]) => {
         const actionLabel = actionId.split(".").join(" > ");
         return `${formatShortcut(definition)}  ${actionLabel}`;
       }),
+    ],
     [],
   );
 
@@ -1341,19 +1353,30 @@ export function App() {
     };
   }, [canNavigateNext, canNavigatePrev, directoryListing]);
 
-  // #33: Esc key clears the active mesh selection.
   useEffect(() => {
-    if (!selectedMeshName) return;
-    const handleEscKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setSelectedMeshName(null);
+    const handleViewerShortcutDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
       }
+
+      if (isEditableShortcutTarget(event.target)) {
+        return;
+      }
+
+      const action = resolveViewerShortcutAction(event);
+      if (!action) {
+        return;
+      }
+
+      event.preventDefault();
+      runViewerShortcutAction(action);
     };
-    window.addEventListener("keydown", handleEscKey);
+
+    window.addEventListener("keydown", handleViewerShortcutDown);
     return () => {
-      window.removeEventListener("keydown", handleEscKey);
+      window.removeEventListener("keydown", handleViewerShortcutDown);
     };
-  }, [selectedMeshName]);
+  }, []);
 
   const handleOpenFile = async () => {
     try {
@@ -1478,9 +1501,57 @@ export function App() {
         return;
     }
   };
+
+  const executeViewerShortcutAction = (action: ViewerShortcutAction) => {
+    if (
+      action === "focusSelected" ||
+      action === "frameAll" ||
+      action === "resetView"
+    ) {
+      setActiveCameraId(null);
+    }
+
+    const nextState = applyViewerShortcutAction(
+      {
+        showTexture,
+        showWireframe,
+        showGrid,
+        selectedMeshName,
+        selectedUsdPrimPath,
+        viewportCommand: viewportShortcutCommand,
+      },
+      action,
+      displayMode,
+    );
+
+    if (nextState.showTexture !== showTexture) {
+      setShowTexture(nextState.showTexture);
+    }
+    if (nextState.showWireframe !== showWireframe) {
+      setShowWireframe(nextState.showWireframe);
+    }
+    if (nextState.showGrid !== showGrid) {
+      setShowGrid(nextState.showGrid);
+    }
+    if (nextState.selectedMeshName !== selectedMeshName) {
+      setSelectedMeshName(nextState.selectedMeshName);
+    }
+    if (nextState.selectedUsdPrimPath !== selectedUsdPrimPath) {
+      setSelectedUsdPrimPath(nextState.selectedUsdPrimPath);
+    }
+    if (nextState.viewportCommand !== viewportShortcutCommand) {
+      setViewportShortcutCommand(nextState.viewportCommand);
+    }
+  };
+
   const runMenuActionFromShortcut = useEffectEvent((actionId: MenuActionId) => {
     void executeMenuAction(actionId);
   });
+  const runViewerShortcutAction = useEffectEvent(
+    (action: ViewerShortcutAction) => {
+      executeViewerShortcutAction(action);
+    },
+  );
   const runMenuActionFromNativeMenu = useEffectEvent(
     (actionId: MenuActionId) => {
       void executeMenuAction(actionId);
@@ -1525,12 +1596,7 @@ export function App() {
         return;
       }
 
-      const target = event.target as HTMLElement | null;
-      const isTyping =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable;
-      if (isTyping) {
+      if (isEditableShortcutTarget(event.target)) {
         return;
       }
 
@@ -2091,6 +2157,7 @@ export function App() {
             textureTileCount={textureTileCount}
             textureGamma={textureGamma}
             resetVersion={resetVersion}
+            viewportShortcutCommand={viewportShortcutCommand}
             showGrid={showGrid}
             showAxes={showAxes}
             showSkeleton={showSkeleton}
