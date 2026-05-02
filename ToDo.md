@@ -279,7 +279,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] macOS 上で `npm run tauri dev` が通ることを確認する
 - [x] macOS 上で `npm run bundle:mac` が通ることを確認する
 - [x] `tauri.conf.json` の identifier を `com.yohawing.ywlook` に変更する（`.app` 終端を回避）
-- [ ] `plugins.updater.windows.installMode` 相当の macOS 側設定を整理する（Tauri updater は macOS に同等項目なし。不要なら削除判断する）
+- [x] `plugins.updater.windows.installMode` 相当の macOS 側設定を整理する（Tauri updater は macOS に同等項目なし。Windows 専用設定として維持）
 - [x] `scripts/prepare-local-update-feed.mjs` を OS 別成果物に対応させる（Windows installer と macOS `.app.tar.gz` を target 別に処理）
   - [x] `nsis` / `msi` だけでなく `macos` ディレクトリも走査する
   - [x] `.exe` / `.msi` / `.app.tar.gz` を拡張子で振り分ける（`.dmg` は updater 対象外）
@@ -287,12 +287,12 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [ ] Finder からのファイル関連付け（`CFBundleDocumentTypes`）が登録されることを確認する
 - [ ] Finder の「このアプリで開く」一覧に出ることを確認する
 - [ ] メニュー / ヘルプの `CmdOrCtrl` 表記が macOS で `⌘` として表示されるか確認する
-- [ ] Rust 側の Windows 限定文言（`load_supported_extensions` の説明等）を `cfg!(target_os)` で分岐する
-- [ ] Rust 側の `\\?\` プレフィクス除去等の Windows 専用パス処理を OS 別に整理する
+- [x] Rust 側の Windows 限定文言（`load_supported_extensions` の説明等）を `cfg!(target_os)` で分岐する
+- [x] Rust 側の `\\?\` プレフィクス除去等の Windows 専用パス処理を OS 別に整理する
 - [ ] Apple Developer ID 証明書を調達する
 - [ ] `codesign` + `notarytool` のフローを実機で確認する
 - [x] `xattr -dr com.apple.quarantine` が必要なケースを `docs/release-distribution.md` に追記する
-- [ ] macOS 配布の最終手順を `docs/release-distribution.md` に確定版として反映する（現状は想定手順と未整備項目が混在）
+- [x] macOS 配布の最終手順を `docs/release-distribution.md` に確定版として反映する（未完は Developer ID / 公証 / 実機確認として分離）
 
 ## 16. ログと診断
 

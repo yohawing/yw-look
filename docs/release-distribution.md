@@ -11,10 +11,10 @@
 
 ## 対応状況
 
-| OS      | 開発実行 | バンドル             | 署名                          | updater  | GitHub Releases |
-| ------- | -------- | -------------------- | ----------------------------- | -------- | --------------- |
-| Windows | 対応済み | NSIS / MSI 対応済み  | Authenticode は未整備         | 対応済み | 対応済み        |
-| macOS   | 対応中   | DMG / .app（実装中） | Developer ID + 公証（未整備） | 設計中   | 未整備          |
+| OS      | 開発実行 | バンドル            | 署名                          | updater  | GitHub Releases |
+| ------- | -------- | ------------------- | ----------------------------- | -------- | --------------- |
+| Windows | 対応済み | NSIS / MSI 対応済み | Authenticode は未整備         | 対応済み | 対応済み        |
+| macOS   | 対応済み | DMG / .app 対応済み | Developer ID + 公証（未整備） | 対応済み | 対応済み        |
 
 実装の進捗は `ToDo.md` の「OS 統合（Windows / macOS）」と「CI/CD 整備」セクションを参照してください。
 
@@ -251,9 +251,11 @@ $encoded = Get-Content $env:USERPROFILE\.tauri\yw-look-dev-pw.key.pub -Raw
 
 ---
 
-# macOS 配布（想定手順・実装中）
+# macOS 配布
 
-このセクションはまだ実装されていない手順を含みます。実装の進捗に合わせて差分を反映してください。最終確定までは「想定手順」として読んでください。
+macOS の bundle / release job / local update feed 導線は整備済みです。
+未完了なのは Apple Developer ID 証明書を使った本番署名・公証と、実機での
+Finder / Gatekeeper / updater 往復確認です。
 
 ## 必要なもの（macOS）
 
@@ -292,9 +294,15 @@ Windows 用の Secrets に加えて、次を追加します。
 
 これらは Tauri 公式の macOS 署名・公証フロー用に予約された環境変数名です。
 
-### 3. アイコンを用意する
+### 3. bundle 設定を確認する
 
-`src-tauri/icons/icon.icns` を生成し、`tauri.conf.json` の OS 別 `bundle.icon` に登録します。`.icns` 生成は `iconutil` または Tauri CLI の `tauri icon` から行えます。
+`tauri.conf.json` は `bundle.targets = "all"` と OS 別 icon を含みます。
+macOS の C++ backend 配布では `tauri.macos.json` overlay を併用し、
+OpenUSD dylib を `Contents/Frameworks/`、plugin tree を
+`Contents/Resources/usd/` に含めます。
+
+`plugins.updater.windows.installMode` は Windows 専用設定です。macOS updater
+には同等の install mode 設定はありません。
 
 ### 4. バージョンを更新する
 
@@ -311,7 +319,8 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-GitHub Actions の release workflow に `macos-latest` ランナーを追加し、Windows と macOS のジョブが並列で動くようにします。Tauri Action は前述の Secrets が揃っていれば codesign と公証を自動で実行します。
+GitHub Actions の release workflow が Windows と macOS のジョブを並列実行します。
+Tauri Action は前述の Secrets が揃っていれば codesign と公証を実行します。
 
 ### 想定成果物（macOS）
 
@@ -374,7 +383,9 @@ npm run bundle:mac
 npm run update:local:prepare
 ```
 
-`prepare-local-update-feed.mjs` は OS 別に成果物を探す前提で作り直します（ToDo 参照）。macOS では `.app.tar.gz` と `.app.tar.gz.sig` を拾い、`platforms.darwin-x86_64` または `platforms.darwin-aarch64` を生成します。
+`prepare-local-update-feed.mjs` は OS 別に成果物を探します。macOS では
+`.app.tar.gz` と `.app.tar.gz.sig` を拾い、`platforms.darwin-x86_64` または
+`platforms.darwin-aarch64` を生成します。
 
 ### 5. ローカル update feed を配信する
 
@@ -406,6 +417,16 @@ xcrun stapler validate src-tauri/target/release/bundle/macos/yw-look.app
 # 公証ジョブ履歴の確認
 xcrun notarytool history --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_PASSWORD"
 ```
+
+## Finder 連携の確認
+
+`tauri.conf.json` の `bundle.fileAssociations` は macOS bundle では
+`CFBundleDocumentTypes` に変換されます。実機で次を確認します。
+
+1. GitHub Release または local bundle から `yw-look.app` を `/Applications` に配置する
+2. `.glb` / `.usda` / `.png` など対象拡張子のファイルを Finder で選ぶ
+3. `Open With` に `yw-look` が表示されることを確認する
+4. ファイルを開いたとき、アプリ起動後に対象ファイルが preview されることを確認する
 
 ---
 
@@ -473,7 +494,8 @@ xattr -dr com.apple.quarantine src-tauri/target/release/bundle/macos/yw-look.app
 
 # 追加で残っていること
 
-今の実装で Windows updater は成立しますが、配布品質としてはまだ次が残っています。
+実装上の配布導線は Windows / macOS ともに揃っています。配布品質としては
+まだ次が残っています。
 
 ## Windows
 
@@ -485,13 +507,12 @@ xattr -dr com.apple.quarantine src-tauri/target/release/bundle/macos/yw-look.app
 
 ## macOS
 
-- `tauri.conf.json` の OS 別 bundle 設定分岐
-- `.icns` アイコン生成
-- `bundle:mac` npm script の追加
-- `prepare-local-update-feed.mjs` の OS 別対応
 - Apple Developer ID 証明書の調達
-- GitHub Actions に `macos-latest` ジョブ追加
-- 公証フローの実機確認
+- GitHub Secrets への Apple 署名・公証情報登録
+- codesign / notarytool / stapler の実機確認
+- Finder の `Open With` / 関連付け確認
+- GitHub Release artifact からの実インストール確認
+- updater feed の macOS artifact からの実更新確認
 
 ## 最低限の確認コマンド
 

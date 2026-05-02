@@ -999,13 +999,39 @@ fn normalize_file_path(path: PathBuf) -> Result<PathBuf, String> {
     Ok(strip_verbatim_prefix(&canonical))
 }
 
-/// Remove the `\\?\` extended-length prefix that `canonicalize()` adds on Windows.
 fn strip_verbatim_prefix(path: &Path) -> PathBuf {
-    let s = path.display().to_string();
-    if s.starts_with(r"\\?\") {
-        PathBuf::from(&s[4..])
-    } else {
-        path.to_path_buf()
+    #[cfg(windows)]
+    {
+        // Remove the `\\?\` extended-length prefix that `canonicalize()`
+        // adds on Windows. Other platforms must keep their paths untouched.
+        let s = path.display().to_string();
+        if s.starts_with(r"\\?\") {
+            return PathBuf::from(&s[4..]);
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+    }
+
+    path.to_path_buf()
+}
+
+fn file_association_install_strategy() -> String {
+    #[cfg(windows)]
+    {
+        return "NSIS and MSI installers register supported file associations on Windows. The runtime toggle remains as a local preference until installer-level opt-in wiring is added.".to_string();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return "macOS bundles register supported document types through CFBundleDocumentTypes. Runtime file-association toggles are not used on macOS.".to_string();
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        return "This platform does not currently install file associations.".to_string();
     }
 }
 
@@ -1481,7 +1507,7 @@ fn load_supported_extensions(app: tauri::AppHandle) -> Result<IntegrationPayload
 
     Ok(IntegrationPayload {
         file_associations_enabled: settings.file_associations_enabled,
-        install_strategy: "NSIS and MSI installers register supported file associations on Windows. The runtime toggle remains as a local preference until installer-level opt-in wiring is added.".to_string(),
+        install_strategy: file_association_install_strategy(),
         supported_extensions: FILE_ASSOCIATION_EXTENSIONS
             .iter()
             .map(|extension| format!(".{extension}"))
