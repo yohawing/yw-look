@@ -154,7 +154,7 @@ npm run shot -- --in model.usdz --out shot.png --size 1920x1080 --bg transparent
 npm run shot:check -- --in model.fbx
 ```
 
-`--shot` / `--check` は内部的に `tauri dev` 上で `shot.html` を起動して描画 → 書き出し → 終了する。ビルド済みバイナリへの組み込みは現状未対応（bench と同じく dev 経由）。
+`--shot` / `--check` は内部的に Vite dev server と `cargo run` を起動し、`shot.html` で描画 → 書き出し → 終了する。ビルド済みバイナリへの組み込みは現状未対応（bench と同じく dev 経由）。
 
 ## コード品質
 
@@ -186,6 +186,12 @@ npm run test:integration -- http://127.0.0.1:1420/selftest.html
 
 # 別ターミナルでビジュアルリグレッション（snapshot 比較）
 npm run test:visual -- http://127.0.0.1:1420/selftest.html
+
+# viewport screenshot API 由来の PNG snapshot 比較
+npm run test:viewport-snapshot
+
+# viewport snapshot baseline 更新
+npm run test:viewport-snapshot:update
 ```
 
 ## ディレクトリ構成

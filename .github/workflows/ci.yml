@@ -100,6 +100,14 @@ jobs:
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
 
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Run visual regression
         run: |
           npm run dev -- --host 127.0.0.1 > /tmp/vite-dev.log 2>&1 &
@@ -123,13 +131,17 @@ jobs:
           fi
 
           npm run test:visual -- http://127.0.0.1:1420/selftest.html tests/visual/snapshots/selftest-page-linux-chromium.png artifacts/screenshots/selftest-page-current.png
+          cleanup
+          trap - EXIT
+
+          xvfb-run -a npm run test:viewport-snapshot
 
       - name: Upload visual artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: selftest-visual-current
-          path: artifacts/screenshots/selftest-page-current.png
+          name: visual-regression-current
+          path: artifacts/screenshots/**/*.png
 
   rust-checks:
     runs-on: ubuntu-latest

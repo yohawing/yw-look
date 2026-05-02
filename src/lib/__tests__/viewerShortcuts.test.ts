@@ -125,7 +125,7 @@ describe("viewer shortcuts", () => {
     );
 
     const editable = document.createElement("div");
-    editable.contentEditable = "true";
+    editable.setAttribute("contenteditable", "true");
     expect(isEditableShortcutTarget(editable)).toBe(true);
   });
 
