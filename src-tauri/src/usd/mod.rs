@@ -3,8 +3,8 @@
 //! Splits cleanly into:
 //!
 //! - [`types`] — wire-level types shared with the frontend.
-//! - [`backend`] — the [`backend::UsdBackend`] trait every parser
-//!   implementation must satisfy.
+//! - [`backend`] — capability traits every parser implementation can
+//!   implement independently.
 //! - [`openusd_backend`] — the pure-Rust adapter over our fork of
 //!   `mxpv/openusd`. Now opt-in via `backend-openusd-rs`; kept for
 //!   parity testing and for Linux targets where the C++ backend is
@@ -30,7 +30,10 @@ pub mod cpp_sys;
 #[cfg(feature = "backend-openusd-cpp")]
 pub mod openusd_cpp_backend;
 
-pub use backend::{UsdBackend, UsdError};
+pub use backend::{
+    UsdError, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend, UsdSessionBackend,
+    UsdSourceBackend,
+};
 pub use openusd_backend::OpenusdBackend;
 pub use stage_state::{OpenSession, OpenStage, StageRegistry, StageSessionHandle};
 pub use types::{
@@ -77,10 +80,7 @@ pub use openusd_cpp_backend::OpenusdCppBackend;
 #[cfg(feature = "backend-openusd-cpp")]
 pub type DefaultBackend = OpenusdCppBackend;
 
-#[cfg(all(
-    feature = "backend-openusd-rs",
-    not(feature = "backend-openusd-cpp"),
-))]
+#[cfg(all(feature = "backend-openusd-rs", not(feature = "backend-openusd-cpp"),))]
 pub type DefaultBackend = OpenusdBackend;
 
 #[cfg(not(any(feature = "backend-openusd-rs", feature = "backend-openusd-cpp")))]

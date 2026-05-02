@@ -23,7 +23,7 @@
 
 use std::path::PathBuf;
 
-use yw_look_lib::usd::{OpenusdCppBackend, StageLoadPolicy, UsdBackend};
+use yw_look_lib::usd::{OpenusdCppBackend, StageLoadPolicy, UsdInspectBackend, UsdSourceBackend};
 
 /// Resolve the Phase 0 tiny fixture relative to the cargo manifest so
 /// `cargo test` works regardless of the current working directory that

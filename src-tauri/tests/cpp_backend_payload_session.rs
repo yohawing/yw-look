@@ -16,7 +16,7 @@
 use std::path::PathBuf;
 
 use yw_look_lib::usd::{
-    stage_state::OpenStage, OpenusdCppBackend, StageLoadPolicy, UsdBackend,
+    stage_state::OpenStage, OpenusdCppBackend, StageLoadPolicy, UsdSessionBackend,
 };
 
 fn tiny_payload_path() -> PathBuf {

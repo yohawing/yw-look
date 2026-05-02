@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 
-use yw_look_lib::usd::{OpenusdCppBackend, StageLoadPolicy, UsdBackend};
+use yw_look_lib::usd::{OpenusdCppBackend, StageLoadPolicy, UsdGeometryBackend};
 
 /// Fixture resolver shared with `cpp_backend_inspector.rs`.
 fn tiny_usda_path() -> PathBuf {

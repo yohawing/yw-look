@@ -35,12 +35,12 @@ impl std::fmt::Display for UsdError {
 
 impl std::error::Error for UsdError {}
 
-/// The single contract every USD parser implementation must satisfy.
+/// Stage and prim inspection capability.
 ///
 /// Implementations are expected to be cheap to construct and safe to
 /// share across threads — Tauri's command runtime may invoke them from
 /// a worker pool.
-pub trait UsdBackend: Send + Sync {
+pub trait UsdInspectBackend: Send + Sync {
     /// Heavyweight inspection. Walks references / payloads according to
     /// `policy`. `StageLoadPolicy::NoPayloads` causes payload arcs to
     /// be surfaced as `CompositionArcState::Unloaded` instead of being
@@ -70,7 +70,7 @@ pub trait UsdBackend: Send + Sync {
     /// Phase 3: returns `true` if the root layer of the stage is the binary
     /// USDC crate format, `false` if it's USDA text. Kept as a primitive
     /// for tests and diagnostics — the frontend should consult
-    /// [`Self::requires_glb_preview`] instead, which also accounts for
+    /// `requires_glb_preview` instead, which also accounts for
     /// composition arcs.
     #[allow(dead_code)] // diagnostic-only, exercised by `#[cfg(test)]` paths
     fn root_layer_is_binary(&self, path: &Path) -> Result<bool, UsdError>;
@@ -91,17 +91,6 @@ pub trait UsdBackend: Send + Sync {
     /// transparently handles references and (loaded-mode) payloads.
     fn requires_glb_preview(&self, path: &Path) -> Result<bool, UsdError>;
 
-    /// Phase 3: extracts all Mesh prims from the stage and serializes them
-    /// to a self-contained GLB binary, returned as raw bytes. The frontend
-    /// receives this via `tauri::ipc::Response` and feeds it to
-    /// `GLTFLoader.parseAsync`. `policy` is forwarded to the backend so
-    /// `NoPayloads` builds a GLB containing only payload-free meshes.
-    fn extract_geometry_glb(
-        &self,
-        path: &Path,
-        policy: StageLoadPolicy,
-    ) -> Result<Vec<u8>, UsdError>;
-
     /// #28: per-prim attribute / relationship / metadata inspector.
     /// Returns a [`PrimInspection`] containing all authored attributes,
     /// relationships, and metadata on the prim at `prim_path`.
@@ -111,11 +100,7 @@ pub trait UsdBackend: Send + Sync {
     ///
     /// Backends that do not yet implement this should return
     /// `Err(UsdError::Parse("not supported on this backend".into()))`.
-    fn inspect_prim(
-        &self,
-        path: &Path,
-        prim_path: &str,
-    ) -> Result<PrimInspection, UsdError>;
+    fn inspect_prim(&self, path: &Path, prim_path: &str) -> Result<PrimInspection, UsdError>;
 
     /// #37: enumerates up to `max_samples` time samples on the named
     /// attribute and computes optional numeric statistics. `path` is the
@@ -131,14 +116,27 @@ pub trait UsdBackend: Send + Sync {
         attr_name: &str,
         max_samples: usize,
     ) -> Result<AttributeTimeSamples, UsdError>;
+}
+
+/// Mesh extraction / GLB generation capability.
+pub trait UsdGeometryBackend: Send + Sync {
+    /// Phase 3: extracts all Mesh prims from the stage and serializes them
+    /// to a self-contained GLB binary, returned as raw bytes. The frontend
+    /// receives this via `tauri::ipc::Response` and feeds it to
+    /// `GLTFLoader.parseAsync`. `policy` is forwarded to the backend so
+    /// `NoPayloads` builds a GLB containing only payload-free meshes.
+    fn extract_geometry_glb(
+        &self,
+        path: &Path,
+        policy: StageLoadPolicy,
+    ) -> Result<Vec<u8>, UsdError>;
 
     /// Round 1.5 (#32 / #31 plumbing): options-aware variant of
-    /// [`Self::extract_geometry_glb`]. Default delegates to the
-    /// policy-only method, ignoring `variant_selections` and
-    /// `purpose_modes`. Backends that support those features override
-    /// this method to consume the options. Frontend / Tauri command
-    /// callers should prefer this method so variant / purpose changes
-    /// take effect on backends that implement them.
+    /// `extract_geometry_glb`. Default delegates to the policy-only method,
+    /// ignoring `variant_selections` and `purpose_modes`. Backends that
+    /// support those features override this method to consume the options.
+    /// Frontend / Tauri command callers should prefer this method so variant
+    /// / purpose changes take effect on backends that implement them.
     fn extract_geometry_glb_with_options(
         &self,
         path: &Path,
@@ -146,7 +144,10 @@ pub trait UsdBackend: Send + Sync {
     ) -> Result<Vec<u8>, UsdError> {
         self.extract_geometry_glb(path, options.policy)
     }
+}
 
+/// Source layer export / flattening capability.
+pub trait UsdSourceBackend: Send + Sync {
     /// #39 — returns the fully flattened USDA text of the stage,
     /// equivalent to `usdcat --flatten`. Every reference, payload, and
     /// sublayer is composed and inlined into the returned string.
@@ -160,7 +161,10 @@ pub trait UsdBackend: Send + Sync {
     /// `{ kind: "binary" }` — for USDA stages the raw layer text already
     /// provides the source view without the overhead of full composition.
     fn flatten_stage(&self, path: &Path) -> Result<String, UsdError>;
+}
 
+/// USD light detail inspection capability.
+pub trait UsdLightBackend: Send + Sync {
     /// #35 — enumerates all UsdLux light prims in the stage and returns
     /// their detailed attributes (intensity, color, exposure, color
     /// temperature, specular/diffuse multipliers, shaping cone, dome texture).
@@ -171,14 +175,10 @@ pub trait UsdBackend: Send + Sync {
     /// an error from this method as "no USD light detail available" and fall
     /// back to the Three.js-derived `LightEntry` list.
     fn inspect_usd_lights(&self, path: &Path) -> Result<Vec<UsdLightInfo>, UsdError>;
+}
 
-    // -----------------------------------------------------------------------
-    // #44 — stateful per-prim payload session API
-    // -----------------------------------------------------------------------
-    //
-    // These methods must be in the same trait (not a sub-trait) so the existing
-    // `Arc<dyn UsdBackend>` state can call them without any downcasting.
-
+/// Stateful stage session / per-prim payload capability.
+pub trait UsdSessionBackend: Send + Sync {
     /// Opens `path` under `policy` and returns a backend-specific stage
     /// handle that the caller stores in `StageRegistry`. Unlike
     /// `extract_geometry_glb`, this does NOT keep the stage alive only for
@@ -199,20 +199,12 @@ pub trait UsdBackend: Send + Sync {
     /// `Err(UsdError::Parse("per-prim payload load not supported …"))` because
     /// the openusd crate only supports stage-wide load policies (D6 from the
     /// plan). The C++ backend calls `UsdStage::Load(SdfPath, UsdLoadPolicy)`.
-    fn load_payload(
-        &self,
-        stage: &OpenStage,
-        prim_path: &str,
-    ) -> Result<(), UsdError>;
+    fn load_payload(&self, stage: &OpenStage, prim_path: &str) -> Result<(), UsdError>;
 
     /// Unloads the payload arc(s) rooted at `prim_path` on an open stage.
     ///
     /// Same backend caveat as [`Self::load_payload`].
-    fn unload_payload(
-        &self,
-        stage: &OpenStage,
-        prim_path: &str,
-    ) -> Result<(), UsdError>;
+    fn unload_payload(&self, stage: &OpenStage, prim_path: &str) -> Result<(), UsdError>;
 
     /// Runs the GLB extraction pipeline on an already-open stage (i.e. the
     /// same `extract_geometry_from_open_stage` helper, but reached through the

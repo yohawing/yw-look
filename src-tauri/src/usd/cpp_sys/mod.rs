@@ -166,12 +166,9 @@ impl CStage {
         // no longer matches the file on disk. The Rust fork backend
         // also errors out on non-UTF-8 paths, so the two backends
         // stay consistent for Tauri callers that compare results.
-        let path_str = path.to_str().ok_or_else(|| {
-            CError(format!(
-                "path is not valid UTF-8: {}",
-                path.display()
-            ))
-        })?;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| CError(format!("path is not valid UTF-8: {}", path.display())))?;
         let c_path = CString::new(path_str)
             .map_err(|_| CError("path contains interior NUL byte".to_string()))?;
         let mut err: *mut UsdcError = std::ptr::null_mut();
@@ -236,28 +233,44 @@ impl CStage {
     pub fn authored_time_codes_per_second(&self) -> Option<f64> {
         let mut out: f64 = 0.0;
         let ok = unsafe { usdc_stage_authored_time_codes_per_second(self.raw, &mut out) };
-        if ok != 0 { Some(out) } else { None }
+        if ok != 0 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     /// Stage `framesPerSecond` authored on the root layer.
     pub fn authored_frames_per_second(&self) -> Option<f64> {
         let mut out: f64 = 0.0;
         let ok = unsafe { usdc_stage_authored_frames_per_second(self.raw, &mut out) };
-        if ok != 0 { Some(out) } else { None }
+        if ok != 0 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     /// Stage `startTimeCode` authored on the root layer.
     pub fn authored_start_time_code(&self) -> Option<f64> {
         let mut out: f64 = 0.0;
         let ok = unsafe { usdc_stage_authored_start_time_code(self.raw, &mut out) };
-        if ok != 0 { Some(out) } else { None }
+        if ok != 0 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     /// Stage `endTimeCode` authored on the root layer.
     pub fn authored_end_time_code(&self) -> Option<f64> {
         let mut out: f64 = 0.0;
         let ok = unsafe { usdc_stage_authored_end_time_code(self.raw, &mut out) };
-        if ok != 0 { Some(out) } else { None }
+        if ok != 0 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     /// Stage `comment` authored on the root layer, or `None` when
@@ -452,7 +465,9 @@ impl CStage {
             Ok(c) => c,
             Err(_) => return false,
         };
-        unsafe { usdc_prim_set_variant_selection(self.raw, p.as_ptr(), s.as_ptr(), v.as_ptr()) != 0 }
+        unsafe {
+            usdc_prim_set_variant_selection(self.raw, p.as_ptr(), s.as_ptr(), v.as_ptr()) != 0
+        }
     }
 
     fn arcs<F>(&self, prim_path: &str, call: F) -> Vec<Arc>
@@ -568,7 +583,11 @@ impl CStage {
         let ok = unsafe {
             usdc_prim_attr_float(self.raw, pp.as_ptr(), an.as_ptr(), &mut out as *mut f32)
         };
-        if ok == 1 { Some(out) } else { None }
+        if ok == 1 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     /// float2 / double2 attribute (e.g. `UsdGeomCamera.clippingRange`).
@@ -576,10 +595,13 @@ impl CStage {
         let pp = CString::new(prim_path).ok()?;
         let an = CString::new(attr_name).ok()?;
         let mut out: [f32; 2] = [0.0; 2];
-        let ok = unsafe {
-            usdc_prim_attr_float2(self.raw, pp.as_ptr(), an.as_ptr(), out.as_mut_ptr())
-        };
-        if ok == 1 { Some(out) } else { None }
+        let ok =
+            unsafe { usdc_prim_attr_float2(self.raw, pp.as_ptr(), an.as_ptr(), out.as_mut_ptr()) };
+        if ok == 1 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     /// Reads a token attribute on a prim (e.g.
@@ -684,10 +706,13 @@ impl CStage {
         let pp = CString::new(prim_path).ok()?;
         let an = CString::new(attr_name).ok()?;
         let mut out: [f32; 3] = [0.0; 3];
-        let ok = unsafe {
-            usdc_prim_attr_color3f(self.raw, pp.as_ptr(), an.as_ptr(), out.as_mut_ptr())
-        };
-        if ok == 1 { Some(out) } else { None }
+        let ok =
+            unsafe { usdc_prim_attr_color3f(self.raw, pp.as_ptr(), an.as_ptr(), out.as_mut_ptr()) };
+        if ok == 1 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     /// Direct `UsdShadeMaterialBinding` lookup (allPurpose) on a prim.
@@ -725,7 +750,11 @@ impl CStage {
         let ok = unsafe {
             usdc_shader_input_float(self.raw, sp.as_ptr(), ip.as_ptr(), &mut out as *mut f32)
         };
-        if ok == 1 { Some(out) } else { None }
+        if ok == 1 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     /// First connected source prim for a named shader input. For
@@ -739,9 +768,8 @@ impl CStage {
     ) -> Option<String> {
         let sp = CString::new(shader_path).ok()?;
         let ip = CString::new(input_name).ok()?;
-        let p = unsafe {
-            usdc_shader_input_connected_source_prim(self.raw, sp.as_ptr(), ip.as_ptr())
-        };
+        let p =
+            unsafe { usdc_shader_input_connected_source_prim(self.raw, sp.as_ptr(), ip.as_ptr()) };
         ptr_to_opt_string(p)
     }
 
@@ -762,11 +790,13 @@ impl CStage {
     /// `UsdPreviewSurface.inputs:diffuseColor` is driven by a texture
     /// we have not yet loaded.
     pub fn shader_input_has_connection(&self, shader_path: &str, input_name: &str) -> bool {
-        let Ok(sp) = CString::new(shader_path) else { return false };
-        let Ok(ip) = CString::new(input_name) else { return false };
-        let ok = unsafe {
-            usdc_shader_input_has_connection(self.raw, sp.as_ptr(), ip.as_ptr())
+        let Ok(sp) = CString::new(shader_path) else {
+            return false;
         };
+        let Ok(ip) = CString::new(input_name) else {
+            return false;
+        };
+        let ok = unsafe { usdc_shader_input_has_connection(self.raw, sp.as_ptr(), ip.as_ptr()) };
         ok == 1
     }
 
@@ -779,7 +809,11 @@ impl CStage {
         let ok = unsafe {
             usdc_shader_input_color3f(self.raw, sp.as_ptr(), ip.as_ptr(), out.as_mut_ptr())
         };
-        if ok == 1 { Some(out) } else { None }
+        if ok == 1 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     // -------- UsdSkel (Phase 2.G) --------
@@ -940,11 +974,7 @@ impl CStage {
     /// Flat `float[]` parallel to the animation's `blendShapes`
     /// token array — map each weight back to a channel name by
     /// reading `blendShapes` via `prim_attr_token_array`.
-    pub fn skel_anim_blend_shape_weights_at(
-        &self,
-        anim_path: &str,
-        time: f64,
-    ) -> Vec<f32> {
+    pub fn skel_anim_blend_shape_weights_at(&self, anim_path: &str, time: f64) -> Vec<f32> {
         let Ok(c) = CString::new(anim_path) else {
             return Vec::new();
         };
@@ -1011,44 +1041,40 @@ impl CStage {
     /// Arrays → `"[N elements]"`, scalars are stringified.
     /// Returns empty string when unauthored, `None` when the attribute
     /// does not exist.
-    pub fn prim_attribute_value_summary(
-        &self,
-        prim_path: &str,
-        attr_name: &str,
-    ) -> Option<String> {
+    pub fn prim_attribute_value_summary(&self, prim_path: &str, attr_name: &str) -> Option<String> {
         let pp = CString::new(prim_path).ok()?;
         let an = CString::new(attr_name).ok()?;
-        let p = unsafe {
-            usdc_prim_attribute_value_summary(self.raw, pp.as_ptr(), an.as_ptr())
-        };
+        let p = unsafe { usdc_prim_attribute_value_summary(self.raw, pp.as_ptr(), an.as_ptr()) };
         // The shim returns "" for unauthored (not NULL), so we map
         // that differently from the "attr not found" NULL case.
         if p.is_null() {
             None
         } else {
-            Some(unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
+            Some(
+                unsafe { std::ffi::CStr::from_ptr(p) }
+                    .to_string_lossy()
+                    .into_owned(),
+            )
         }
     }
 
     /// `true` if the attribute is custom (not schema-defined).
     pub fn prim_attribute_is_custom(&self, prim_path: &str, attr_name: &str) -> bool {
-        let Ok(pp) = CString::new(prim_path) else { return false; };
-        let Ok(an) = CString::new(attr_name) else { return false; };
+        let Ok(pp) = CString::new(prim_path) else {
+            return false;
+        };
+        let Ok(an) = CString::new(attr_name) else {
+            return false;
+        };
         unsafe { usdc_prim_attribute_is_custom(self.raw, pp.as_ptr(), an.as_ptr()) != 0 }
     }
 
     /// Variability string: `"varying"` or `"uniform"`.
     /// `None` when the attribute does not exist.
-    pub fn prim_attribute_variability(
-        &self,
-        prim_path: &str,
-        attr_name: &str,
-    ) -> Option<String> {
+    pub fn prim_attribute_variability(&self, prim_path: &str, attr_name: &str) -> Option<String> {
         let pp = CString::new(prim_path).ok()?;
         let an = CString::new(attr_name).ok()?;
-        let p = unsafe {
-            usdc_prim_attribute_variability(self.raw, pp.as_ptr(), an.as_ptr())
-        };
+        let p = unsafe { usdc_prim_attribute_variability(self.raw, pp.as_ptr(), an.as_ptr()) };
         ptr_to_opt_string(p)
     }
 
@@ -1056,12 +1082,19 @@ impl CStage {
     /// Returns `0` when there are no samples or the attribute does not
     /// exist.
     pub fn prim_attribute_time_sample_count(&self, prim_path: &str, attr_name: &str) -> usize {
-        let Ok(pp) = CString::new(prim_path) else { return 0; };
-        let Ok(an) = CString::new(attr_name) else { return 0; };
-        let n = unsafe {
-            usdc_prim_attribute_time_sample_count(self.raw, pp.as_ptr(), an.as_ptr())
+        let Ok(pp) = CString::new(prim_path) else {
+            return 0;
         };
-        if n < 0 { 0 } else { n as usize }
+        let Ok(an) = CString::new(attr_name) else {
+            return 0;
+        };
+        let n =
+            unsafe { usdc_prim_attribute_time_sample_count(self.raw, pp.as_ptr(), an.as_ptr()) };
+        if n < 0 {
+            0
+        } else {
+            n as usize
+        }
     }
 
     /// Enumerates up to `max_samples` time samples on the attribute,
@@ -1115,8 +1148,12 @@ impl CStage {
 
     /// Forwarded target paths of the named relationship.
     pub fn prim_relationship_targets(&self, prim_path: &str, rel_name: &str) -> Vec<String> {
-        let Ok(pp) = CString::new(prim_path) else { return Vec::new(); };
-        let Ok(rn) = CString::new(rel_name) else { return Vec::new(); };
+        let Ok(pp) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let Ok(rn) = CString::new(rel_name) else {
+            return Vec::new();
+        };
         let mut out = Vec::<String>::new();
         unsafe {
             usdc_prim_relationship_targets(
@@ -1149,16 +1186,10 @@ impl CStage {
 
     /// Human-readable summary of a prim's metadata value for `key`.
     /// `None` when the key is not authored or the prim does not exist.
-    pub fn prim_metadata_value_summary(
-        &self,
-        prim_path: &str,
-        key: &str,
-    ) -> Option<String> {
+    pub fn prim_metadata_value_summary(&self, prim_path: &str, key: &str) -> Option<String> {
         let pp = CString::new(prim_path).ok()?;
         let kk = CString::new(key).ok()?;
-        let p = unsafe {
-            usdc_prim_metadata_value_summary(self.raw, pp.as_ptr(), kk.as_ptr())
-        };
+        let p = unsafe { usdc_prim_metadata_value_summary(self.raw, pp.as_ptr(), kk.as_ptr()) };
         ptr_to_opt_string(p)
     }
 
@@ -1193,7 +1224,11 @@ impl CStage {
             return 0;
         };
         let n = unsafe { usdc_mesh_joints_per_vertex(self.raw, c.as_ptr()) };
-        if n > 0 { n as usize } else { 0 }
+        if n > 0 {
+            n as usize
+        } else {
+            0
+        }
     }
 
     fn read_float_attr<F>(&self, prim_path: &str, call: F) -> Vec<f32>
@@ -1228,18 +1263,9 @@ impl CStage {
         out
     }
 
-    fn read_float_attr_with_interp<F>(
-        &self,
-        prim_path: &str,
-        call: F,
-    ) -> (Vec<f32>, Interpolation)
+    fn read_float_attr_with_interp<F>(&self, prim_path: &str, call: F) -> (Vec<f32>, Interpolation)
     where
-        F: FnOnce(
-            *const c_char,
-            UsdcFloatBufferCallback,
-            *mut c_void,
-            *mut UsdcInterpolation,
-        ),
+        F: FnOnce(*const c_char, UsdcFloatBufferCallback, *mut c_void, *mut UsdcInterpolation),
     {
         let Ok(c) = CString::new(prim_path) else {
             return (Vec::new(), Interpolation::Unknown);
@@ -1326,7 +1352,9 @@ impl CStage {
     /// Returns `true` if the prim at `prim_path` is typed as
     /// `UsdGeomPointInstancer`, `false` for any other type or missing prim.
     pub fn is_point_instancer(&self, prim_path: &str) -> bool {
-        let Ok(c) = CString::new(prim_path) else { return false };
+        let Ok(c) = CString::new(prim_path) else {
+            return false;
+        };
         unsafe { usdc_prim_is_point_instancer(self.raw, c.as_ptr()) != 0 }
     }
 
@@ -1334,7 +1362,9 @@ impl CStage {
     /// `UsdGeomPointInstancer` prim. Returns an empty `Vec` when the prim
     /// does not exist, is not a PointInstancer, or has no prototypes.
     pub fn point_instancer_prototypes(&self, prim_path: &str) -> Vec<String> {
-        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
         let mut out = Vec::<String>::new();
         unsafe {
             usdc_point_instancer_prototypes(
@@ -1350,7 +1380,9 @@ impl CStage {
     /// Reads `protoIndices` (int[]) from a PointInstancer prim at the
     /// default time code. Returns an empty `Vec` when unauthored.
     pub fn point_instancer_proto_indices(&self, prim_path: &str) -> Vec<i32> {
-        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
         let mut out = Vec::<i32>::new();
         unsafe {
             usdc_point_instancer_proto_indices(
@@ -1366,7 +1398,9 @@ impl CStage {
     /// Reads `positions` (point3f[]) from a PointInstancer prim.
     /// Returns a flat `[x0, y0, z0, x1, ...]` buffer; empty when unauthored.
     pub fn point_instancer_positions(&self, prim_path: &str) -> Vec<f32> {
-        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
         let mut out = Vec::<f32>::new();
         unsafe {
             usdc_point_instancer_positions(
@@ -1383,7 +1417,9 @@ impl CStage {
     /// to f32 and reordered to glTF convention [x, y, z, w]. Returns a flat
     /// buffer of length `count * 4`; empty when unauthored.
     pub fn point_instancer_orientations(&self, prim_path: &str) -> Vec<f32> {
-        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
         let mut out = Vec::<f32>::new();
         unsafe {
             usdc_point_instancer_orientations(
@@ -1399,7 +1435,9 @@ impl CStage {
     /// Reads `scales` (float3[]) from a PointInstancer prim.
     /// Returns a flat `[sx0, sy0, sz0, ...]` buffer; empty when unauthored.
     pub fn point_instancer_scales(&self, prim_path: &str) -> Vec<f32> {
-        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
         let mut out = Vec::<f32>::new();
         unsafe {
             usdc_point_instancer_scales(
@@ -1415,7 +1453,9 @@ impl CStage {
     /// Reads `invisibleIds` (int64[]) from a PointInstancer prim.
     /// Returns an empty `Vec` when unauthored.
     pub fn point_instancer_invisible_ids(&self, prim_path: &str) -> Vec<i64> {
-        let Ok(c) = CString::new(prim_path) else { return Vec::new() };
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
         let mut out = Vec::<i64>::new();
         unsafe {
             usdc_point_instancer_invisible_ids(
@@ -1459,9 +1499,7 @@ unsafe extern "C" fn string_trampoline(s: *const c_char, user: *mut c_void) {
     if s.is_null() {
         return;
     }
-    let value = unsafe { CStr::from_ptr(s) }
-        .to_string_lossy()
-        .into_owned();
+    let value = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
     out.push(value);
 }
 
@@ -1505,11 +1543,7 @@ unsafe extern "C" fn arc_trampoline(arc: *const UsdcArc, user: *mut c_void) {
 //   - `data` must point to `count` contiguous valid `f32`s (or be
 //     null with `count == 0`).
 //   - `user` must be a `*mut Vec<f32>` as set up by `read_float_attr`.
-unsafe extern "C" fn float_buffer_trampoline(
-    data: *const f32,
-    count: usize,
-    user: *mut c_void,
-) {
+unsafe extern "C" fn float_buffer_trampoline(data: *const f32, count: usize, user: *mut c_void) {
     if user.is_null() || data.is_null() || count == 0 {
         return;
     }
@@ -1548,11 +1582,7 @@ unsafe extern "C" fn time_sample_trampoline(
 // Same pattern for i32 integer buffers (faceVertexCounts / indices).
 // `c_int` on Windows MSVC and macOS x64/arm64 is 32-bit, so a reinterpret
 // to `i32` is safe for the platforms the C++ backend targets.
-unsafe extern "C" fn i32_buffer_trampoline(
-    data: *const c_int,
-    count: usize,
-    user: *mut c_void,
-) {
+unsafe extern "C" fn i32_buffer_trampoline(data: *const c_int, count: usize, user: *mut c_void) {
     if user.is_null() || data.is_null() || count == 0 {
         return;
     }
@@ -1571,10 +1601,7 @@ unsafe extern "C" fn i32_buffer_trampoline(
 //     we copy them immediately.
 //   - `user` must be a `*mut Vec<LayerInfo>` as set up by
 //     `CStage::layer_stack`.
-unsafe extern "C" fn layer_info_trampoline(
-    info: *const UsdcLayerInfo,
-    user: *mut c_void,
-) {
+unsafe extern "C" fn layer_info_trampoline(info: *const UsdcLayerInfo, user: *mut c_void) {
     if info.is_null() || user.is_null() {
         return;
     }
@@ -1607,11 +1634,7 @@ unsafe extern "C" fn layer_info_trampoline(
 //   - `data` must point to `count` contiguous valid `i64`s (or null / 0).
 //   - `user` must be a `*mut Vec<i64>` as set up by
 //     `CStage::point_instancer_invisible_ids`.
-unsafe extern "C" fn i64_buffer_trampoline(
-    data: *const i64,
-    count: usize,
-    user: *mut c_void,
-) {
+unsafe extern "C" fn i64_buffer_trampoline(data: *const i64, count: usize, user: *mut c_void) {
     if user.is_null() || data.is_null() || count == 0 {
         return;
     }
@@ -1630,10 +1653,7 @@ unsafe extern "C" fn i64_buffer_trampoline(
 //     we copy them immediately.
 //   - `user` must be a `*mut Vec<LightInfoRaw>` as set up by
 //     `CStage::lights`.
-unsafe extern "C" fn light_info_trampoline(
-    info: *const UsdcLightInfo,
-    user: *mut c_void,
-) {
+unsafe extern "C" fn light_info_trampoline(info: *const UsdcLightInfo, user: *mut c_void) {
     if info.is_null() || user.is_null() {
         return;
     }
@@ -1659,9 +1679,16 @@ unsafe extern "C" fn light_info_trampoline(
     } else {
         None
     };
-    let dome_texture_file = ptr_to_opt_string(r.dome_texture_file).and_then(|s| {
-        if s.is_empty() { None } else { Some(s) }
-    });
+    let dome_texture_file =
+        ptr_to_opt_string(r.dome_texture_file).and_then(
+            |s| {
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            },
+        );
     let shaping_cone = if r.has_shaping_cone != 0 {
         Some(ShapingConeRaw {
             angle: r.shaping_cone_angle,

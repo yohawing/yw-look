@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use yw_look_lib::usd::{OpenusdCppBackend, StageLoadPolicy, UsdBackend};
+use yw_look_lib::usd::{OpenusdCppBackend, StageLoadPolicy, UsdGeometryBackend};
 
 fn tiny_point_instancer_path() -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");

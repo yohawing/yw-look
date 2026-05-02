@@ -15,12 +15,12 @@ use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::stage::{MaterialData, MeshData, UpAxis};
 use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
 
-use super::backend::{UsdBackend, UsdError};
+use super::backend::{UsdGeometryBackend, UsdInspectBackend, UsdError};
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
     CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection,
-    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary, UsdLightInfo,
+    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
 };
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
@@ -102,7 +102,7 @@ impl Default for OpenusdBackend {
     }
 }
 
-impl UsdBackend for OpenusdBackend {
+impl UsdInspectBackend for OpenusdBackend {
     fn inspect_stage(
         &self,
         path: &StdPath,
@@ -539,47 +539,6 @@ impl UsdBackend for OpenusdBackend {
         ))
     }
 
-    fn extract_geometry_glb(
-        &self,
-        path: &StdPath,
-        policy: StageLoadPolicy,
-    ) -> Result<Vec<u8>, UsdError> {
-        let stage = Self::open(path, policy)?;
-        extract_geometry_from_open_stage_rs(&stage, path, &ExtractGeometryOptions::from(policy))
-    }
-
-    fn extract_geometry_glb_with_options(
-        &self,
-        path: &StdPath,
-        options: &ExtractGeometryOptions,
-    ) -> Result<Vec<u8>, UsdError> {
-        if !options.variant_selections.is_empty() {
-            eprintln!(
-                "[usd-rust] extract_geometry_glb_with_options: variant_selections are \
-                 not supported by the Rust openusd backend (degraded mode). The \
-                 authored variant selections will be used instead."
-            );
-        }
-        let stage = Self::open(path, options.policy)?;
-        extract_geometry_from_open_stage_rs(&stage, path, options)
-    }
-
-    fn flatten_stage(&self, _path: &StdPath) -> Result<String, UsdError> {
-        Err(UsdError::Parse(
-            "flatten_stage is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
-                .to_string(),
-        ))
-    }
-
-    fn inspect_usd_lights(&self, _path: &StdPath) -> Result<Vec<UsdLightInfo>, UsdError> {
-        Err(UsdError::Parse(
-            "inspect_usd_lights is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
-                .to_string(),
-        ))
-    }
-
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         let mut issues = Vec::new();
@@ -654,100 +613,32 @@ impl UsdBackend for OpenusdBackend {
 
         Ok(issues)
     }
+}
 
-    // ---- #44 session methods -----------------------------------------------
-
-    fn open_stage_session(
+impl UsdGeometryBackend for OpenusdBackend {
+    fn extract_geometry_glb(
         &self,
         path: &StdPath,
         policy: StageLoadPolicy,
-    ) -> Result<crate::usd::stage_state::OpenStage, UsdError> {
+    ) -> Result<Vec<u8>, UsdError> {
         let stage = Self::open(path, policy)?;
-        // `OpenStage::Rust` only exists when the Rust-fork backend feature is
-        // compiled in. When only `backend-openusd-cpp` is enabled, this code
-        // path is unreachable because `DefaultBackend` resolves to
-        // `OpenusdCppBackend` — `OpenusdBackend` is never instantiated.
-        #[cfg(feature = "backend-openusd-rs")]
-        return Ok(crate::usd::stage_state::OpenStage::Rust(
-            std::sync::Mutex::new(stage),
-        ));
-        #[cfg(not(feature = "backend-openusd-rs"))]
-        {
-            drop(stage);
-            unreachable!(
-                "OpenusdBackend::open_stage_session called without backend-openusd-rs feature"
+        extract_geometry_from_open_stage_rs(&stage, path, &ExtractGeometryOptions::from(policy))
+    }
+
+    fn extract_geometry_glb_with_options(
+        &self,
+        path: &StdPath,
+        options: &ExtractGeometryOptions,
+    ) -> Result<Vec<u8>, UsdError> {
+        if !options.variant_selections.is_empty() {
+            eprintln!(
+                "[usd-rust] extract_geometry_glb_with_options: variant_selections are \
+                 not supported by the Rust openusd backend (degraded mode). The \
+                 authored variant selections will be used instead."
             );
         }
-    }
-
-    fn load_payload(
-        &self,
-        _stage: &crate::usd::stage_state::OpenStage,
-        _prim_path: &str,
-    ) -> Result<(), UsdError> {
-        Err(UsdError::Parse(
-            "per-prim payload load is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature)"
-                .to_string(),
-        ))
-    }
-
-    fn unload_payload(
-        &self,
-        _stage: &crate::usd::stage_state::OpenStage,
-        _prim_path: &str,
-    ) -> Result<(), UsdError> {
-        Err(UsdError::Parse(
-            "per-prim payload unload is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature)"
-                .to_string(),
-        ))
-    }
-
-    fn extract_geometry_from_session(
-        &self,
-        stage: &crate::usd::stage_state::OpenStage,
-        #[cfg(feature = "backend-openusd-rs")] stage_path: &StdPath,
-        #[cfg(not(feature = "backend-openusd-rs"))] _stage_path: &StdPath,
-        #[cfg(feature = "backend-openusd-rs")] options: &ExtractGeometryOptions,
-        #[cfg(not(feature = "backend-openusd-rs"))] _options: &ExtractGeometryOptions,
-    ) -> Result<Vec<u8>, UsdError> {
-        // Dispatch based on which OpenStage variant is actually compiled in.
-        // Only one variant exists per feature combination, so we match with
-        // exhaustive arms guarded by cfg.
-        #[cfg(all(feature = "backend-openusd-rs", not(feature = "backend-openusd-cpp")))]
-        {
-            let crate::usd::stage_state::OpenStage::Rust(mutex) = stage;
-            let locked = mutex
-                .lock()
-                .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
-            return extract_geometry_from_open_stage_rs(&locked, stage_path, options);
-        }
-        #[cfg(all(feature = "backend-openusd-rs", feature = "backend-openusd-cpp"))]
-        match stage {
-            crate::usd::stage_state::OpenStage::Rust(mutex) => {
-                let locked = mutex
-                    .lock()
-                    .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
-                return extract_geometry_from_open_stage_rs(&locked, stage_path, options);
-            }
-            crate::usd::stage_state::OpenStage::Cpp(_) => {
-                return Err(UsdError::Parse(
-                    "extract_geometry_from_session: Cpp stage handle passed to Rust backend"
-                        .to_string(),
-                ));
-            }
-        }
-        // When only the C++ backend is compiled in, the Rust variant does not
-        // exist — this arm is unreachable but required for exhaustiveness.
-        #[cfg(not(feature = "backend-openusd-rs"))]
-        {
-            let _ = stage;
-            Err(UsdError::Parse(
-                "extract_geometry_from_session: Cpp stage handle passed to Rust backend"
-                    .to_string(),
-            ))
-        }
+        let stage = Self::open(path, options.policy)?;
+        extract_geometry_from_open_stage_rs(&stage, path, options)
     }
 }
 
