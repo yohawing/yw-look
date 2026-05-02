@@ -13,6 +13,7 @@ import {
   resolveSiblingPath,
   isUsdcCrateBuffer,
   readUsdzFirstFileName,
+  shouldFailClosedOnUsdPreviewDecisionFailure,
 } from "../loaders";
 
 // ---------------------------------------------------------------------------
@@ -150,6 +151,33 @@ describe("isUsdcCrateBuffer", () => {
 
   it("returns false for an empty buffer", () => {
     expect(isUsdcCrateBuffer(new ArrayBuffer(0))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldFailClosedOnUsdPreviewDecisionFailure
+// ---------------------------------------------------------------------------
+
+describe("shouldFailClosedOnUsdPreviewDecisionFailure", () => {
+  it.each(["usd", "usda", "usdz"])(
+    "fails closed for %s in the Tauri runtime",
+    (extension) => {
+      expect(shouldFailClosedOnUsdPreviewDecisionFailure(extension, true)).toBe(
+        true,
+      );
+    },
+  );
+
+  it("keeps the JS fallback available for browser selftests", () => {
+    expect(shouldFailClosedOnUsdPreviewDecisionFailure("usda", false)).toBe(
+      false,
+    );
+  });
+
+  it("does not change the existing USDC fail-fast path", () => {
+    expect(shouldFailClosedOnUsdPreviewDecisionFailure("usdc", true)).toBe(
+      false,
+    );
   });
 });
 
