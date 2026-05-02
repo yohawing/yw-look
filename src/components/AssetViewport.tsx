@@ -234,7 +234,10 @@ function selectionKeyForObject(object: Object3D) {
   return primPath ?? (raw.length > 0 ? raw : null);
 }
 
-function findObjectBySelectionKey(root: Object3D, selectionKey: string) {
+function findObjectBySelectionKey(
+  root: Object3D,
+  selectionKey: string,
+): Object3D | null {
   let match: Object3D | null = null;
 
   root.traverse((child) => {
@@ -261,8 +264,7 @@ function frameObjectBounds(
   const center = bounds.getCenter(new Vector3());
   const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
   const fitHeightDistance =
-    maxDimension /
-    (2 * Math.tan(MathUtils.degToRad(context.camera.fov * 0.5)));
+    maxDimension / (2 * Math.tan(MathUtils.degToRad(context.camera.fov * 0.5)));
   const fitDistance = fitHeightDistance * 1.5;
   const direction = context.camera.position
     .clone()
@@ -283,7 +285,11 @@ function frameObjectBounds(
   context.controls.target.copy(center);
   context.controls.minDistance = Math.max(maxDimension / 50, 0.05);
   context.controls.maxDistance = Math.max(maxDimension * 40, 50);
-  applyControlsSensitivity(context.controls, maxDimension, sensitivityMultiplier);
+  applyControlsSensitivity(
+    context.controls,
+    maxDimension,
+    sensitivityMultiplier,
+  );
   context.controls.update();
   context.controls.enabled = true;
 }
@@ -2357,11 +2363,7 @@ export function AssetViewport({
         );
         if (target) {
           configureAssetControls(context.controls);
-          frameObjectBounds(
-            context,
-            target,
-            cameraSpeedMultiplierRef.current,
-          );
+          frameObjectBounds(context, target, cameraSpeedMultiplierRef.current);
         }
         return;
       }

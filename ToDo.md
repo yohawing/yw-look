@@ -423,9 +423,9 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
 - [x] 画面キャプチャの仕組みを調査する（Playwright で `selftest.html` を撮影）
 - [x] selftest ページのスナップショットテストを作る（`tests/visual/snapshots/selftest-page-linux-chromium.png`）
-- [ ] 各フォーマットを読み込んだ viewer 画面のスナップショットテストを作る
+- [ ] 各フォーマットを読み込んだ viewer 画面のスナップショットテストを作る（`test:viewport-snapshot` harness と `usda-tiny-sanity` baseline は追加済み。対象フォーマット拡張は後続）
 - [ ] エラー画面・空状態・ローディング状態のスナップショットテストを作る
-- [x] CI でスナップショットを比較できる仕組みを検討する（`visual-regression` job で selftest snapshot 比較）
+- [x] CI でスナップショットを比較できる仕組みを検討する（`visual-regression` job で selftest snapshot と viewport snapshot を比較）
 
 ### 起動スピードテスト（#54）
 
@@ -486,7 +486,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
 - [x] WebGL レンダラーから現在のフレームを PNG として書き出す機能を作る（`src/viewer/screenshot.ts`）
 - [x] CLI として外部から呼び出せるスクリーンショット機能を公開する（`yw-look --shot --in <model> --out <png>` / `--check`。`shot.html` + `src/shot/` + Tauri commands `get_shot_config` / `write_shot_output` / `finish_shot_run`。`npm run shot -- --in ... --out ...` から起動）
-- [ ] テストから shot CLI 経由でスクリーンショットを取得してスナップショット比較に使う（現状は Playwright の page screenshot）
+- [x] テストから shot CLI 経由でスクリーンショットを取得してスナップショット比較に使う（`scripts/viewport-snapshot.mjs` + `tests/visual/snapshots/viewport/usda-tiny-sanity.png`）
 
 ## 24. 将来対応の検討（フォーマット・パフォーマンス）
 

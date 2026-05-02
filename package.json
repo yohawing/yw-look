@@ -21,6 +21,8 @@
     "test:batch": "node scripts/batch-load-test.mjs",
     "test:integration": "node scripts/run-selftest.mjs",
     "test:visual": "node scripts/visual-regression.mjs",
+    "test:viewport-snapshot": "node scripts/viewport-snapshot.mjs",
+    "test:viewport-snapshot:update": "node scripts/viewport-snapshot.mjs --update-snapshot",
     "samples:fetch": "node samples/private/fetch.mjs",
     "bench:load": "node scripts/run-load-bench.mjs",
     "shot": "node scripts/run-shot.mjs shot",

@@ -24,3 +24,6 @@ experiments/
 
 # Local Claude Code session state
 .claude/
+
+# Husky generated helper scripts
+.husky/_/
