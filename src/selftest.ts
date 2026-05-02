@@ -28,6 +28,11 @@ type SampleCase = {
   kind: "model" | "texture";
   format: string;
   path: string;
+  expect?: {
+    shouldLoad?: boolean;
+    hasAnimation?: boolean;
+    hasTextureList?: boolean;
+  };
 };
 
 type Manifest = {
@@ -40,6 +45,7 @@ type CaseResult = {
   path: string;
   ok: boolean;
   detail: string;
+  checks?: Record<string, boolean | number>;
 };
 
 const output = document.getElementById("output");
@@ -147,6 +153,15 @@ async function loadCase(sample: SampleCase) {
         await import("three/examples/jsm/loaders/FBXLoader.js");
       return new FBXLoader().loadAsync(url);
     }
+    case "dae": {
+      const { ColladaLoader } =
+        await import("three/examples/jsm/loaders/ColladaLoader.js");
+      const collada = await new ColladaLoader().loadAsync(url);
+      if (!collada) {
+        throw new Error("ColladaLoader returned no scene");
+      }
+      return collada.scene;
+    }
     case "obj": {
       const { OBJLoader } =
         await import("three/examples/jsm/loaders/OBJLoader.js");
@@ -212,6 +227,58 @@ async function loadCase(sample: SampleCase) {
   }
 }
 
+function countMeshes(object: Object3D) {
+  let count = 0;
+  object.traverse((child) => {
+    if (child instanceof Mesh) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function countMappedMaterials(object: Object3D) {
+  let count = 0;
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+    const materials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+    for (const material of materials) {
+      if (material && "map" in material && material.map) {
+        count += 1;
+      }
+    }
+  });
+  return count;
+}
+
+function validateExpectations(sample: SampleCase, object: Group | Mesh) {
+  const checks: Record<string, boolean | number> = {};
+  const expect = sample.expect ?? {};
+
+  const meshCount = countMeshes(object);
+  checks.meshCount = meshCount;
+  if (expect.hasAnimation !== undefined) {
+    const objectWithAnimations = object as Object3D & {
+      animations?: AnimationClip[];
+    };
+    const animations =
+      objectWithAnimations.animations ??
+      (((object as Object3D).userData?.animations ?? []) as AnimationClip[]);
+    checks.hasAnimation = animations.length > 0 === expect.hasAnimation;
+  }
+  if (expect.hasTextureList !== undefined && sample.format !== "obj") {
+    const mappedMaterials = countMappedMaterials(object);
+    checks.mappedMaterials = mappedMaterials;
+    checks.hasTextureList = mappedMaterials > 0 === expect.hasTextureList;
+  }
+
+  return checks;
+}
+
 async function main() {
   const manifestResponse = await fetch("/samples/manifest.json");
   const manifest = (await manifestResponse.json()) as Manifest;
@@ -223,6 +290,7 @@ async function main() {
       "obj",
       "ply",
       "stl",
+      "dae",
       "png",
       "jpg",
       "jpeg",
@@ -237,14 +305,23 @@ async function main() {
 
   for (const sample of supportedCases) {
     try {
-      const object = await loadCase(sample);
+      const object = (await loadCase(sample)) as Group | Mesh;
+      const checks =
+        sample.kind === "model" ? validateExpectations(sample, object) : {};
+      const failedChecks = Object.entries(checks).filter(
+        ([, value]) => value === false,
+      );
       disposeObject(object as Group | Mesh);
       results.push({
         id: sample.id,
         format: sample.format,
         path: sample.path,
-        ok: true,
-        detail: "loaded",
+        ok: failedChecks.length === 0,
+        detail:
+          failedChecks.length === 0
+            ? "loaded"
+            : `failed expectations: ${failedChecks.map(([key]) => key).join(", ")}`,
+        checks,
       });
     } catch (error: unknown) {
       results.push({

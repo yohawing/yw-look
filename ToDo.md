@@ -380,9 +380,9 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
 - [x] テスト用アセット置き場を決める（`tests/fixtures/`）
 - [x] 最小モデル fixture を用意する（`tests/fixtures/models/`: glTF / OBJ / STL / PLY）
-- [ ] fixture 未配置のモデル形式を補う（GLB / FBX / DAE）
+- [ ] fixture 未配置のモデル形式を補う（GLB / DAE は追加済み。FBX は fixture 向け最小 animation 生成方針を確定済みで、生成自体は後続）
 - [x] 最小画像 fixture を用意する（`tests/fixtures/textures/`: PNG / JPG）
-- [ ] fixture 未配置のテクスチャ形式を補う（TGA / HDR / EXR / DDS / KTX2）
+- [ ] fixture 未配置のテクスチャ形式を補う（TGA / DDS / KTX2 は追加済み。HDR / EXR は MB 単位のため最小 sample 取得方針を README に記録）
 - [x] アニメーション付きモデルのサンプルを用意する（`samples/assets/fbx/Samba Dancing.fbx`）
 - [ ] アニメーション付きモデルを `tests/fixtures/` 向けに最小化する
 - [x] 読み込み失敗を再現するための壊れたファイルを用意する（`tests/fixtures/broken/`）
@@ -392,8 +392,8 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] `samples/manifest.json` で代表サンプルと期待値を管理する
 - [x] `selftest.html` / `src/selftest.ts` で主要サンプルを実 loader 経由で読み込む
 - [x] `scripts/run-selftest.mjs` で selftest 結果を Playwright から検査する
-- [ ] selftest 対象外フォーマットを整理する（現状 DAE / KTX2 / USD は manifest にあっても通常 selftest からは除外）
-- [ ] selftest の期待値検証を強化する（現状は読み込み成功 / 失敗中心で、manifest の `expect` 詳細は十分に検証していない）
+- [x] selftest 対象外フォーマットを整理する（DAE は通常 selftest に追加。KTX2 / USD は loader 前提が違うため fixture / viewport snapshot 側で扱う）
+- [x] selftest の期待値検証を強化する（manifest `expect.hasAnimation` / `expect.hasTextureList` の主要項目を検証）
 
 ### バッチロード / ベンチ（samples/private）（#53 / #54）
 
