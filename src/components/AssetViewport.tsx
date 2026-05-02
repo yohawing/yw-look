@@ -4,6 +4,7 @@ import {
   AmbientLight,
   AnimationMixer,
   BackSide,
+  Box3,
   BoxGeometry,
   Camera,
   Color,
@@ -32,6 +33,7 @@ import {
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { SelectedFile } from "../lib/files";
 import { formatUsdErrorForDisplay } from "../lib/usd";
+import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 import {
   type CameraPreset,
   type DisplayMode,
@@ -224,6 +226,117 @@ function frameMountedObject(
   context.controls.enabled = true;
 }
 
+function selectionKeyForObject(object: Object3D) {
+  const primPath =
+    typeof object.userData?.primPath === "string"
+      ? object.userData.primPath
+      : undefined;
+  const raw = typeof object.name === "string" ? object.name.trim() : "";
+  return primPath ?? (raw.length > 0 ? raw : null);
+}
+
+function findObjectBySelectionKey(
+  root: Object3D,
+  selectionKey: string,
+): Object3D | null {
+  let match: Object3D | null = null;
+
+  root.traverse((child) => {
+    if (match) return;
+    if (selectionKeyForObject(child) === selectionKey) {
+      match = child;
+    }
+  });
+
+  return match;
+}
+
+function frameObjectBounds(
+  context: SceneContext,
+  object: Object3D,
+  sensitivityMultiplier = 1,
+) {
+  const bounds = new Box3().setFromObject(object);
+  if (bounds.isEmpty()) {
+    return;
+  }
+
+  const size = bounds.getSize(new Vector3());
+  const center = bounds.getCenter(new Vector3());
+  const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
+  const fitHeightDistance =
+    maxDimension / (2 * Math.tan(MathUtils.degToRad(context.camera.fov * 0.5)));
+  const fitDistance = fitHeightDistance * 1.5;
+  const direction = context.camera.position
+    .clone()
+    .sub(context.controls.target)
+    .normalize();
+  if (direction.lengthSq() === 0) {
+    direction.set(1.15, 0.8, 1.15).normalize();
+  }
+
+  context.camera.position.copy(
+    center.clone().add(direction.multiplyScalar(fitDistance)),
+  );
+  context.camera.near = Math.max(maxDimension / 500, 0.01);
+  context.camera.far = Math.max(maxDimension * 20, 200);
+  context.camera.lookAt(center);
+  context.camera.updateProjectionMatrix();
+
+  context.controls.target.copy(center);
+  context.controls.minDistance = Math.max(maxDimension / 50, 0.05);
+  context.controls.maxDistance = Math.max(maxDimension * 40, 50);
+  applyControlsSensitivity(
+    context.controls,
+    maxDimension,
+    sensitivityMultiplier,
+  );
+  context.controls.update();
+  context.controls.enabled = true;
+}
+
+const MANUAL_HIDDEN_KEY = "__ywManualHidden";
+
+function isManuallyHidden(object: Object3D) {
+  return object.userData?.[MANUAL_HIDDEN_KEY] === true;
+}
+
+function setSubtreeManualHidden(root: Object3D, hidden: boolean) {
+  root.traverse((child) => {
+    if (child.name === "__yw_shadow_catcher") {
+      return;
+    }
+    if (hidden) {
+      child.userData[MANUAL_HIDDEN_KEY] = true;
+    } else {
+      delete child.userData[MANUAL_HIDDEN_KEY];
+    }
+  });
+}
+
+function applyManualVisibility(root: Object3D) {
+  root.traverse((child) => {
+    if (child.name === "__yw_shadow_catcher") {
+      return;
+    }
+    if (isManuallyHidden(child)) {
+      child.visible = false;
+    }
+  });
+}
+
+function isolateObject(root: Object3D, selected: Object3D) {
+  setSubtreeManualHidden(root, true);
+  setSubtreeManualHidden(selected, false);
+
+  let ancestor = selected.parent;
+  while (ancestor && ancestor !== root.parent) {
+    delete ancestor.userData[MANUAL_HIDDEN_KEY];
+    if (ancestor === root) break;
+    ancestor = ancestor.parent;
+  }
+}
+
 type AssetViewportProps = {
   currentFile: SelectedFile | null;
   displayMode: DisplayMode;
@@ -240,6 +353,7 @@ type AssetViewportProps = {
   textureTileCount: number;
   textureGamma: number;
   resetVersion: number;
+  viewportShortcutCommand?: ViewportShortcutCommand | null;
   showGrid: boolean;
   showAxes: boolean;
   showSkeleton: boolean;
@@ -509,6 +623,7 @@ export function AssetViewport({
   textureTileCount,
   textureGamma,
   resetVersion,
+  viewportShortcutCommand,
   showGrid,
   showAxes,
   showSkeleton,
@@ -742,7 +857,7 @@ export function AssetViewport({
         default:
           visible = true;
       }
-      child.visible = visible;
+      child.visible = visible && !isManuallyHidden(child);
     });
   }
 
@@ -2251,6 +2366,88 @@ export function AssetViewport({
   useEffect(() => {
     resetCameraRef.current?.();
   }, [resetVersion]);
+
+  useEffect(() => {
+    if (!viewportShortcutCommand) {
+      return;
+    }
+
+    const context = sceneContextRef.current;
+    if (!context) {
+      return;
+    }
+
+    const mountedObject = context.mountedObject;
+    const sourceObject = context.sourceObject;
+
+    switch (viewportShortcutCommand.kind) {
+      case "focusSelected": {
+        if (!sourceObject || viewerSurfaceModeRef.current !== "asset") {
+          return;
+        }
+        const target = findObjectBySelectionKey(
+          sourceObject,
+          viewportShortcutCommand.selectionKey,
+        );
+        if (target) {
+          configureAssetControls(context.controls);
+          frameObjectBounds(context, target, cameraSpeedMultiplierRef.current);
+        }
+        return;
+      }
+      case "frameAll":
+      case "resetView":
+        if (!mountedObject) {
+          return;
+        }
+        frameMountedObject(
+          context,
+          mountedObject,
+          viewerSurfaceModeRef.current,
+          showGridRef.current,
+          showAxesRef.current,
+          cameraSpeedMultiplierRef.current,
+          context.rawMaxDimension,
+          texturePreview3DRef.current,
+        );
+        return;
+      case "hideSelected": {
+        if (!sourceObject || viewerSurfaceModeRef.current !== "asset") {
+          return;
+        }
+        const target = findObjectBySelectionKey(
+          sourceObject,
+          viewportShortcutCommand.selectionKey,
+        );
+        if (target) {
+          setSubtreeManualHidden(target, true);
+          applyManualVisibility(sourceObject);
+        }
+        return;
+      }
+      case "isolateSelected": {
+        if (!sourceObject || viewerSurfaceModeRef.current !== "asset") {
+          return;
+        }
+        const target = findObjectBySelectionKey(
+          sourceObject,
+          viewportShortcutCommand.selectionKey,
+        );
+        if (target) {
+          isolateObject(sourceObject, target);
+          applyPurposeVisibility(sourceObject, purposeModesRef.current);
+        }
+        return;
+      }
+      case "unhideAll":
+        if (!sourceObject || viewerSurfaceModeRef.current !== "asset") {
+          return;
+        }
+        setSubtreeManualHidden(sourceObject, false);
+        applyPurposeVisibility(sourceObject, purposeModesRef.current);
+        return;
+    }
+  }, [viewportShortcutCommand]);
 
   useEffect(() => {
     if (!cameraPresetRequest) {

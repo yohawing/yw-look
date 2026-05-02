@@ -13,7 +13,7 @@
 
 use std::{path::PathBuf, process::ExitCode};
 
-use yw_look_lib::usd::{DefaultBackend, StageLoadPolicy, UsdBackend};
+use yw_look_lib::usd::{DefaultBackend, StageLoadPolicy, UsdGeometryBackend};
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);

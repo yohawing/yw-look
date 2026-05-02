@@ -48,7 +48,12 @@ mod cpp_backend {
         fs::create_dir_all(dst_dir).expect("create_dir_all");
         let dst = dst_dir.join(src.file_name().expect("file_name"));
         fs::copy(src, &dst).unwrap_or_else(|e| {
-            panic!("failed to copy {} -> {}: {}", src.display(), dst.display(), e)
+            panic!(
+                "failed to copy {} -> {}: {}",
+                src.display(),
+                dst.display(),
+                e
+            )
         });
     }
 
@@ -71,16 +76,14 @@ mod cpp_backend {
             return;
         }
         let manifest = dir.join("plugInfo.json");
-        fs::write(
-            &manifest,
-            b"{\n    \"Includes\": [ \"*/resources/\" ]\n}\n",
-        )
-        .unwrap_or_else(|e| {
-            panic!(
-                "failed to write top-level plugInfo manifest {}: {e}",
-                manifest.display()
-            )
-        });
+        fs::write(&manifest, b"{\n    \"Includes\": [ \"*/resources/\" ]\n}\n").unwrap_or_else(
+            |e| {
+                panic!(
+                    "failed to write top-level plugInfo manifest {}: {e}",
+                    manifest.display()
+                )
+            },
+        );
     }
 
     /// Recursively mirrors `src` into `dst`, creating directories as
@@ -94,12 +97,10 @@ mod cpp_backend {
         if !src.exists() {
             return;
         }
-        fs::create_dir_all(dst).unwrap_or_else(|e| {
-            panic!("create_dir_all {} failed: {e}", dst.display())
-        });
-        let entries = fs::read_dir(src).unwrap_or_else(|e| {
-            panic!("read_dir {} failed: {e}", src.display())
-        });
+        fs::create_dir_all(dst)
+            .unwrap_or_else(|e| panic!("create_dir_all {} failed: {e}", dst.display()));
+        let entries =
+            fs::read_dir(src).unwrap_or_else(|e| panic!("read_dir {} failed: {e}", src.display()));
         for entry in entries.flatten() {
             let entry_path = entry.path();
             let entry_name = entry.file_name();
@@ -128,11 +129,7 @@ mod cpp_backend {
     /// passes `accept`. Used to pick up the full runtime-library
     /// closure without committing to a hardcoded filename list that
     /// drifts as vcpkg ports rename / split / merge their output.
-    fn collect_libs(
-        dir: &Path,
-        ext: &str,
-        accept: impl Fn(&str) -> bool,
-    ) -> Vec<PathBuf> {
+    fn collect_libs(dir: &Path, ext: &str, accept: impl Fn(&str) -> bool) -> Vec<PathBuf> {
         let Ok(entries) = fs::read_dir(dir) else {
             return Vec::new();
         };
@@ -272,8 +269,7 @@ mod cpp_backend {
         let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
 
         let vcpkg_root = PathBuf::from(
-            env::var("VCPKG_ROOT")
-                .expect("VCPKG_ROOT is not set. See docs/usd-cpp.md for setup."),
+            env::var("VCPKG_ROOT").expect("VCPKG_ROOT is not set. See docs/usd-cpp.md for setup."),
         );
         println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
         println!("cargo:rerun-if-env-changed=VCPKG_BINARY_SOURCES");
@@ -304,7 +300,10 @@ mod cpp_backend {
                 "install",
                 "--x-manifest-root=.",
                 &format!("--triplet={triplet}"),
-                &format!("--x-install-root={}", manifest_dir.join("vcpkg_installed").display()),
+                &format!(
+                    "--x-install-root={}",
+                    manifest_dir.join("vcpkg_installed").display()
+                ),
             ])
             .current_dir(&manifest_dir)
             .status()
@@ -527,7 +526,10 @@ mod cpp_backend {
             for src in &macos_dylibs {
                 copy_into(src, &staging);
             }
-            copy_into(&shim_install.join("lib").join("libusd_c_shim.dylib"), &staging);
+            copy_into(
+                &shim_install.join("lib").join("libusd_c_shim.dylib"),
+                &staging,
+            );
 
             // Plugin tree (see Windows branch for rationale). On macOS
             // vcpkg places it under `lib/usd/` next to the dylibs.

@@ -25,7 +25,10 @@ use std::path::Path as StdPath;
 use openusd::sdf::Path as SdfPath;
 use openusd::stage::MeshData;
 
-use super::backend::{UsdBackend, UsdError};
+use super::backend::{
+    UsdError, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend, UsdSessionBackend,
+    UsdSourceBackend,
+};
 use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation, UpAxis};
 use super::glb::{self, AlphaMode, InstancingInput, MaterialInput, MeshInput};
 use super::openusd_backend::DenseBlendShape;
@@ -38,8 +41,7 @@ use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
     CompositionArc, CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo,
     MetadataEntry, PrimInspection, PrimTypeCount, RelationshipInfo, ShapingCone, StageInspection,
-    StageLoadPolicy, StageSummary, TimeSampleEntry, UsdLightInfo, VariantSelection,
-    VariantSetInfo,
+    StageLoadPolicy, StageSummary, TimeSampleEntry, UsdLightInfo, VariantSelection, VariantSetInfo,
 };
 
 /// Real backend backed by Pixar OpenUSD via the C shim.
@@ -71,10 +73,7 @@ fn to_cpp_policy(policy: StageLoadPolicy) -> LoadPolicy {
 /// Matches the Rust-backend `reference_arc_state` rule: an authored
 /// arc is `Missing` iff its asset_path literal appears in the set of
 /// unresolved assets the shim reported for the stage.
-fn classify_reference(
-    unresolved: &HashSet<&str>,
-    asset_path: &str,
-) -> CompositionArcState {
+fn classify_reference(unresolved: &HashSet<&str>, asset_path: &str) -> CompositionArcState {
     if unresolved.contains(asset_path) {
         CompositionArcState::Missing
     } else {
@@ -98,15 +97,13 @@ fn classify_payload(
     if unresolved.contains(asset_path) {
         return CompositionArcState::Missing;
     }
-    if policy == StageLoadPolicy::NoPayloads
-        && skipped_pairs.contains(&(asset_path, source_prim))
-    {
+    if policy == StageLoadPolicy::NoPayloads && skipped_pairs.contains(&(asset_path, source_prim)) {
         return CompositionArcState::Unloaded;
     }
     CompositionArcState::Loaded
 }
 
-impl UsdBackend for OpenusdCppBackend {
+impl UsdInspectBackend for OpenusdCppBackend {
     fn inspect_stage(
         &self,
         path: &StdPath,
@@ -142,8 +139,7 @@ impl UsdBackend for OpenusdCppBackend {
         let composed_layers = layer_ids;
 
         let missing_assets = stage.unresolved_assets();
-        let unresolved_set: HashSet<&str> =
-            missing_assets.iter().map(String::as_str).collect();
+        let unresolved_set: HashSet<&str> = missing_assets.iter().map(String::as_str).collect();
 
         // Skipped-payloads key on (asset_path, source_prim) — see
         // `classify_payload`. Hold the owning Vec until classification
@@ -319,8 +315,7 @@ impl UsdBackend for OpenusdCppBackend {
 
         // #38: unresolved assets set for arc classification.
         let unresolved_assets = stage.unresolved_assets();
-        let unresolved_set: HashSet<&str> =
-            unresolved_assets.iter().map(String::as_str).collect();
+        let unresolved_set: HashSet<&str> = unresolved_assets.iter().map(String::as_str).collect();
 
         // #38: skipped payloads for NoPayloads policy classification.
         let skipped_owned = stage.skipped_payloads();
@@ -463,8 +458,7 @@ impl UsdBackend for OpenusdCppBackend {
         }
 
         let unresolved_owned = stage.unresolved_assets();
-        let unresolved_set: HashSet<&str> =
-            unresolved_owned.iter().map(String::as_str).collect();
+        let unresolved_set: HashSet<&str> = unresolved_owned.iter().map(String::as_str).collect();
 
         // Walk arcs and emit one contextualized issue per missing
         // reference / payload, tracking which asset paths we've
@@ -536,11 +530,7 @@ impl UsdBackend for OpenusdCppBackend {
         Ok(false)
     }
 
-    fn inspect_prim(
-        &self,
-        path: &StdPath,
-        prim_path: &str,
-    ) -> Result<PrimInspection, UsdError> {
+    fn inspect_prim(&self, path: &StdPath, prim_path: &str) -> Result<PrimInspection, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
 
         // Attributes
@@ -609,7 +599,11 @@ impl UsdBackend for OpenusdCppBackend {
     ) -> Result<AttributeTimeSamples, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         let total_count = stage.prim_attribute_time_sample_count(prim_path, attr_name);
-        let cap = if max_samples == 0 { total_count } else { max_samples };
+        let cap = if max_samples == 0 {
+            total_count
+        } else {
+            max_samples
+        };
         let raw_pairs = stage.prim_attribute_time_samples(prim_path, attr_name, cap);
 
         let samples: Vec<TimeSampleEntry> = raw_pairs
@@ -651,7 +645,9 @@ impl UsdBackend for OpenusdCppBackend {
             numeric_mean,
         })
     }
+}
 
+impl UsdGeometryBackend for OpenusdCppBackend {
     fn extract_geometry_glb(
         &self,
         path: &StdPath,
@@ -673,7 +669,9 @@ impl UsdBackend for OpenusdCppBackend {
         let stage = Self::open(path, options.policy)?;
         extract_from_stage_with_options(&stage, path, options)
     }
+}
 
+impl UsdSourceBackend for OpenusdCppBackend {
     fn flatten_stage(&self, path: &StdPath) -> Result<String, UsdError> {
         // Use LoadAll so every composition arc is included in the
         // flattened output, matching `usdcat --flatten` semantics.
@@ -685,7 +683,9 @@ impl UsdBackend for OpenusdCppBackend {
             )
         })
     }
+}
 
+impl UsdLightBackend for OpenusdCppBackend {
     fn inspect_usd_lights(&self, path: &StdPath) -> Result<Vec<UsdLightInfo>, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         let lights = stage.lights();
@@ -709,7 +709,9 @@ impl UsdBackend for OpenusdCppBackend {
             .collect();
         Ok(result)
     }
+}
 
+impl UsdSessionBackend for OpenusdCppBackend {
     // ---- #44 session methods -----------------------------------------------
 
     fn open_stage_session(
@@ -733,7 +735,9 @@ impl UsdBackend for OpenusdCppBackend {
                 let locked = mutex
                     .lock()
                     .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
-                locked.load_prim(prim_path).map_err(|e| UsdError::Parse(e.0))
+                locked
+                    .load_prim(prim_path)
+                    .map_err(|e| UsdError::Parse(e.0))
             }
             #[cfg(feature = "backend-openusd-rs")]
             crate::usd::stage_state::OpenStage::Rust(_) => Err(UsdError::Parse(
@@ -752,7 +756,9 @@ impl UsdBackend for OpenusdCppBackend {
                 let locked = mutex
                     .lock()
                     .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
-                locked.unload_prim(prim_path).map_err(|e| UsdError::Parse(e.0))
+                locked
+                    .unload_prim(prim_path)
+                    .map_err(|e| UsdError::Parse(e.0))
             }
             #[cfg(feature = "backend-openusd-rs")]
             crate::usd::stage_state::OpenStage::Rust(_) => Err(UsdError::Parse(
@@ -805,961 +811,970 @@ fn extract_from_stage_with_options(
     // payload load/unload.
     apply_and_validate_variant_selections(stage, &options.variant_selections)?;
 
-        // Z-up → Y-up baked into every mesh's world matrix so the GLB
-        // is self-describing on the viewer side. Matches the Rust
-        // fork backend's convention.
-        let up_axis_correction = match stage.up_axis() {
-            Some(UpAxis::Z) => Some(z_up_to_y_up_mat4()),
-            _ => None,
-        };
+    // Z-up → Y-up baked into every mesh's world matrix so the GLB
+    // is self-describing on the viewer side. Matches the Rust
+    // fork backend's convention.
+    let up_axis_correction = match stage.up_axis() {
+        Some(UpAxis::Z) => Some(z_up_to_y_up_mat4()),
+        _ => None,
+    };
 
-        // Pass 1: collect every Mesh prim. We use two sub-passes:
-        //   a) `prim_is_renderable_mesh` — already handles active /
-        //      visibility / purpose={default,render} via UsdGeomImageable.
-        //   b) A second pass picks up purpose={proxy,guide} meshes that
-        //      `prim_is_renderable_mesh` would skip. We record these with
-        //      their purpose token so the GLB node extras can tag them for
-        //      frontend dynamic visibility (#32).
-        // Active/visibility filtering for (b) is best-effort: a proxy mesh
-        // inside an invisible or deactivated parent is still included; the
-        // frontend's purposeModes default (render=true, proxy=false,
-        // guide=false) hides them by default, so any over-inclusion is not
-        // user-visible at startup.
-        let all_prims_a = stage.traverse();
-        let mut mesh_paths: Vec<String> = all_prims_a
-            .into_iter()
-            .filter(|p| stage.prim_is_renderable_mesh(p))
+    // Pass 1: collect every Mesh prim. We use two sub-passes:
+    //   a) `prim_is_renderable_mesh` — already handles active /
+    //      visibility / purpose={default,render} via UsdGeomImageable.
+    //   b) A second pass picks up purpose={proxy,guide} meshes that
+    //      `prim_is_renderable_mesh` would skip. We record these with
+    //      their purpose token so the GLB node extras can tag them for
+    //      frontend dynamic visibility (#32).
+    // Active/visibility filtering for (b) is best-effort: a proxy mesh
+    // inside an invisible or deactivated parent is still included; the
+    // frontend's purposeModes default (render=true, proxy=false,
+    // guide=false) hides them by default, so any over-inclusion is not
+    // user-visible at startup.
+    let all_prims_a = stage.traverse();
+    let mut mesh_paths: Vec<String> = all_prims_a
+        .into_iter()
+        .filter(|p| stage.prim_is_renderable_mesh(p))
+        .collect();
+
+    // Collect proxy/guide meshes not covered by prim_is_renderable_mesh.
+    // NOTE (known limitation, #32): `prim_attr_token` reads the authored
+    // attribute on the prim itself and does not resolve USD purpose
+    // inheritance from ancestor Xforms. A mesh whose purpose is set via an
+    // ancestor will therefore not appear in this pass. Additionally, the
+    // active/invisible checks from `prim_is_renderable_mesh` are not
+    // repeated here, so a proxy/guide mesh under an invisible imageable
+    // will still be extracted. Both gaps require C-shim or USD API changes
+    // to fix properly and are deferred.
+    let all_prims_b = stage.traverse();
+    let extra_paths: Vec<String> = all_prims_b
+        .into_iter()
+        .filter(|p| {
+            if mesh_paths.contains(p) {
+                return false; // already present
+            }
+            if !stage.prim_type_is_mesh(p) {
+                return false;
+            }
+            let purpose = stage.prim_attr_token(p, "purpose").unwrap_or_default();
+            purpose == "proxy" || purpose == "guide"
+        })
+        .collect();
+    mesh_paths.extend(extra_paths);
+
+    // Drop "leaked" root prims from referenced / payloaded layers
+    // when the stage authors a defaultPrim. Matches the Rust
+    // backend's filter — without it you see duplicate meshes at
+    // the origin from the raw root of each referenced layer.
+    if let Some(dp) = stage.default_prim() {
+        let prefix = format!("/{dp}/");
+        let root_path = format!("/{dp}");
+        mesh_paths.retain(|p| p.starts_with(&prefix) || *p == root_path);
+    }
+
+    // #41 P2-2 fix: exclude prototype subtree paths from the regular
+    // mesh pass. PointInstancer prototypes live as concrete Mesh prims
+    // under the instancer; without this filter the regular pass would
+    // emit them as standalone geometry alongside the instanced copies,
+    // producing visible duplicates at the prototype's authored location
+    // plus N instances. The PointInstancer pass below re-builds and
+    // pushes prototype meshes into `inputs` directly, so the regular
+    // pass needs to skip them.
+    let prototype_subtree_paths: std::collections::HashSet<String> = {
+        let all_prims = stage.traverse();
+        let instancer_paths: Vec<String> = all_prims
+            .iter()
+            .filter(|p| stage.is_point_instancer(p))
+            .cloned()
             .collect();
-
-        // Collect proxy/guide meshes not covered by prim_is_renderable_mesh.
-        // NOTE (known limitation, #32): `prim_attr_token` reads the authored
-        // attribute on the prim itself and does not resolve USD purpose
-        // inheritance from ancestor Xforms. A mesh whose purpose is set via an
-        // ancestor will therefore not appear in this pass. Additionally, the
-        // active/invisible checks from `prim_is_renderable_mesh` are not
-        // repeated here, so a proxy/guide mesh under an invisible imageable
-        // will still be extracted. Both gaps require C-shim or USD API changes
-        // to fix properly and are deferred.
-        let all_prims_b = stage.traverse();
-        let extra_paths: Vec<String> = all_prims_b
-            .into_iter()
-            .filter(|p| {
-                if mesh_paths.contains(p) {
-                    return false; // already present
-                }
-                if !stage.prim_type_is_mesh(p) {
-                    return false;
-                }
-                let purpose = stage
-                    .prim_attr_token(p, "purpose")
-                    .unwrap_or_default();
-                purpose == "proxy" || purpose == "guide"
-            })
-            .collect();
-        mesh_paths.extend(extra_paths);
-
-        // Drop "leaked" root prims from referenced / payloaded layers
-        // when the stage authors a defaultPrim. Matches the Rust
-        // backend's filter — without it you see duplicate meshes at
-        // the origin from the raw root of each referenced layer.
-        if let Some(dp) = stage.default_prim() {
-            let prefix = format!("/{dp}/");
-            let root_path = format!("/{dp}");
-            mesh_paths.retain(|p| p.starts_with(&prefix) || *p == root_path);
-        }
-
-        // #41 P2-2 fix: exclude prototype subtree paths from the regular
-        // mesh pass. PointInstancer prototypes live as concrete Mesh prims
-        // under the instancer; without this filter the regular pass would
-        // emit them as standalone geometry alongside the instanced copies,
-        // producing visible duplicates at the prototype's authored location
-        // plus N instances. The PointInstancer pass below re-builds and
-        // pushes prototype meshes into `inputs` directly, so the regular
-        // pass needs to skip them.
-        let prototype_subtree_paths: std::collections::HashSet<String> = {
-            let all_prims = stage.traverse();
-            let instancer_paths: Vec<String> = all_prims
-                .iter()
-                .filter(|p| stage.is_point_instancer(p))
-                .cloned()
-                .collect();
-            let mut set: std::collections::HashSet<String> = std::collections::HashSet::new();
-            for inst_path in &instancer_paths {
-                for proto_path in stage.point_instancer_prototypes(inst_path) {
-                    let prefix = format!("{proto_path}/");
-                    for p in &all_prims {
-                        if p == &proto_path || p.starts_with(&prefix) {
-                            set.insert(p.clone());
-                        }
+        let mut set: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for inst_path in &instancer_paths {
+            for proto_path in stage.point_instancer_prototypes(inst_path) {
+                let prefix = format!("{proto_path}/");
+                for p in &all_prims {
+                    if p == &proto_path || p.starts_with(&prefix) {
+                        set.insert(p.clone());
                     }
                 }
             }
-            set
-        };
-        if !prototype_subtree_paths.is_empty() {
-            mesh_paths.retain(|p| !prototype_subtree_paths.contains(p));
         }
+        set
+    };
+    if !prototype_subtree_paths.is_empty() {
+        mesh_paths.retain(|p| !prototype_subtree_paths.contains(p));
+    }
 
-        // Check for PointInstancer prims as a fallback geometry source (#41).
-        // If there are no regular meshes but there are PointInstancwers,
-        // we still proceed — the PointInstancer pass below will add prototype
-        // meshes to `inputs`. We only fail hard if there is truly nothing.
-        let has_point_instancers = if mesh_paths.is_empty() {
-            let prims = stage.traverse();
-            prims.iter().any(|p| stage.is_point_instancer(p))
+    // Check for PointInstancer prims as a fallback geometry source (#41).
+    // If there are no regular meshes but there are PointInstancwers,
+    // we still proceed — the PointInstancer pass below will add prototype
+    // meshes to `inputs`. We only fail hard if there is truly nothing.
+    let has_point_instancers = if mesh_paths.is_empty() {
+        let prims = stage.traverse();
+        prims.iter().any(|p| stage.is_point_instancer(p))
+    } else {
+        false
+    };
+
+    if mesh_paths.is_empty() && !has_point_instancers {
+        return Err(UsdError::Parse(
+            "no renderable Mesh prims found in stage".to_string(),
+        ));
+    }
+
+    // Slot 0 is the yw-look default preview material, matching the
+    // Rust backend's convention. Phase 2.E.1 added UsdPreviewSurface
+    // scalar resolution; Phase 2.F bolts on texture resolution for
+    // `inputs:diffuseColor` (USDZ archive + filesystem) via the
+    // shared `TextureLoader`, so bound-texture previews land with
+    // their actual image bytes.
+    let mut materials: Vec<MaterialInput> = vec![MaterialInput::default_preview()];
+    let mut material_slots: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    // Parallel to `materials`: each entry is the authored
+    // `inputs:file` asset path (or `None` when the material has no
+    // diffuse texture). The texture-loading pass below walks this
+    // once `mesh_paths` have been processed.
+    let mut material_texture_paths: Vec<Option<String>> = vec![None];
+    // Phase 2.L: same shape as `material_texture_paths` but for
+    // normal maps. The loader pass below populates each slot's
+    // `MaterialInput.normal_texture` after deduping across the
+    // combined texture pool, so a single asset shared by two
+    // channels embeds only once.
+    let mut material_normal_paths: Vec<Option<String>> = vec![None];
+    // Phase 2.N: metallic/roughness channel. Same layout as the
+    // other two; if a slot has a shared ORM texture asset, this
+    // is where it lands.
+    let mut material_metal_rough_paths: Vec<Option<String>> = vec![None];
+
+    // Phase 2.G: UsdSkel skin resolution. A first pass walks
+    // meshes, resolves each bound Skeleton via the shim, and
+    // builds a dedup'd `SkinInput`. `mesh_skin_slots` parallels
+    // `mesh_paths`. The Z-up→Y-up correction is applied to bind /
+    // rest transforms so the skeleton hierarchy ends up in the
+    // same Y-up space the mesh node matrices target.
+    let up_correction_f32: Option<[f32; 16]> = up_axis_correction.as_ref().map(mat4_f64_to_f32);
+    let mut skins: Vec<glb::SkinInput> = Vec::new();
+    let mut skin_slots: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut animations: Vec<glb::AnimationInput> = Vec::new();
+    let mut mesh_skin_slots: Vec<Option<usize>> = vec![None; mesh_paths.len()];
+    for (i, prim_path) in mesh_paths.iter().enumerate() {
+        let Some(skel_path) = stage.mesh_bound_skeleton(prim_path) else {
+            continue;
+        };
+        let slot = if let Some(&existing) = skin_slots.get(&skel_path) {
+            existing
         } else {
-            false
-        };
-
-        if mesh_paths.is_empty() && !has_point_instancers {
-            return Err(UsdError::Parse(
-                "no renderable Mesh prims found in stage".to_string(),
-            ));
-        }
-
-
-        // Slot 0 is the yw-look default preview material, matching the
-        // Rust backend's convention. Phase 2.E.1 added UsdPreviewSurface
-        // scalar resolution; Phase 2.F bolts on texture resolution for
-        // `inputs:diffuseColor` (USDZ archive + filesystem) via the
-        // shared `TextureLoader`, so bound-texture previews land with
-        // their actual image bytes.
-        let mut materials: Vec<MaterialInput> = vec![MaterialInput::default_preview()];
-        let mut material_slots: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        // Parallel to `materials`: each entry is the authored
-        // `inputs:file` asset path (or `None` when the material has no
-        // diffuse texture). The texture-loading pass below walks this
-        // once `mesh_paths` have been processed.
-        let mut material_texture_paths: Vec<Option<String>> = vec![None];
-        // Phase 2.L: same shape as `material_texture_paths` but for
-        // normal maps. The loader pass below populates each slot's
-        // `MaterialInput.normal_texture` after deduping across the
-        // combined texture pool, so a single asset shared by two
-        // channels embeds only once.
-        let mut material_normal_paths: Vec<Option<String>> = vec![None];
-        // Phase 2.N: metallic/roughness channel. Same layout as the
-        // other two; if a slot has a shared ORM texture asset, this
-        // is where it lands.
-        let mut material_metal_rough_paths: Vec<Option<String>> = vec![None];
-
-        // Phase 2.G: UsdSkel skin resolution. A first pass walks
-        // meshes, resolves each bound Skeleton via the shim, and
-        // builds a dedup'd `SkinInput`. `mesh_skin_slots` parallels
-        // `mesh_paths`. The Z-up→Y-up correction is applied to bind /
-        // rest transforms so the skeleton hierarchy ends up in the
-        // same Y-up space the mesh node matrices target.
-        let up_correction_f32: Option<[f32; 16]> =
-            up_axis_correction.as_ref().map(mat4_f64_to_f32);
-        let mut skins: Vec<glb::SkinInput> = Vec::new();
-        let mut skin_slots: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        let mut animations: Vec<glb::AnimationInput> = Vec::new();
-        let mut mesh_skin_slots: Vec<Option<usize>> = vec![None; mesh_paths.len()];
-        for (i, prim_path) in mesh_paths.iter().enumerate() {
-            let Some(skel_path) = stage.mesh_bound_skeleton(prim_path) else {
+            let Some(skin_input) =
+                build_skin_input_cpp(&stage, &skel_path, up_correction_f32.as_ref())
+            else {
                 continue;
             };
-            let slot = if let Some(&existing) = skin_slots.get(&skel_path) {
-                existing
-            } else {
-                let Some(skin_input) =
-                    build_skin_input_cpp(&stage, &skel_path, up_correction_f32.as_ref())
-                else {
+            let joint_names = skin_input.joint_names.clone();
+            let s = skins.len();
+            skins.push(skin_input);
+            skin_slots.insert(skel_path.clone(), s);
+            // Phase 2.G.3: resolve the bound SkelAnimation (if
+            // any) and flatten its samples into a
+            // `glb::AnimationInput`. Runs once per skin so a
+            // stage that shares one rig across many meshes
+            // produces exactly one animation channel bundle.
+            if let Some(anim_input) = build_animation_input_cpp(&stage, &skel_path, s, &joint_names)
+            {
+                animations.push(anim_input);
+            }
+            s
+        };
+        mesh_skin_slots[i] = Some(slot);
+    }
+
+    let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
+    // Phase 2.O: parallel tracking for the blend-shape weight-
+    // animation attach pass that runs after every MeshInput has
+    // been produced. Each record ties an authored mesh to the
+    // MeshInput indices it contributed (subsets fan out), plus
+    // the blend-shape channel names in the order they were fed
+    // into `mesh_data_to_input` — glTF `morph_targets` inherit
+    // that ordering and the animation weights must be remapped
+    // into it before emission.
+    struct MorphRecord {
+        mesh_path: String,
+        channel_names: Vec<String>,
+        mesh_input_indices: Vec<usize>,
+    }
+    let mut morph_records: Vec<MorphRecord> = Vec::new();
+
+    for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
+        let Some(mut raw) = build_mesh_data_from_shim(&stage, prim_path) else {
+            continue;
+        };
+
+        // World transform: shim delegates to
+        // UsdGeomXformable::ComputeLocalToWorldTransform, so the
+        // resetXformStack handling and multi-op composition come
+        // for free from pxr. Apply the Z-up correction on top.
+        let mut world = stage
+            .prim_world_matrix(prim_path)
+            .unwrap_or_else(identity_mat4);
+        if let Some(correction) = &up_axis_correction {
+            world = mat4_mul(correction, &world);
+        }
+        let world_f32 = mat4_f64_to_f32(&world);
+
+        let orientation = match stage.mesh_orientation(prim_path) {
+            Orientation::LeftHanded => MeshOrientation::LeftHanded,
+            Orientation::RightHanded => MeshOrientation::RightHanded,
+        };
+
+        // Pass a parsed SdfPath into the shared mesh builder; its
+        // validation layer uses the path only for error strings.
+        let Ok(sdf_path) = SdfPath::new(prim_path) else {
+            continue;
+        };
+
+        // Phase 2.G: apply the per-mesh `skel:joints` override,
+        // remapping the mesh's `primvars:skel:jointIndices` into
+        // the bound Skeleton's full joint order (what glTF
+        // `skin.joints` exposes). Apple ARKit exports (chameleon /
+        // seahorse) use this heavily — skipping it leaves
+        // eyeball / tongue meshes pointing at the wrong joint
+        // and produces the "exploded" look.
+        let mut skin_slot = mesh_skin_slots[mesh_idx];
+        if let Some(slot) = skin_slot {
+            let local_joints = stage.mesh_skel_joints(prim_path);
+            if !local_joints.is_empty() {
+                if let Some(skin) = skins.get(slot) {
+                    remap_mesh_skin_indices(&mut raw, &local_joints, &skin.joint_names);
+                }
+            }
+        }
+        // Post-remap sanity: if none of the local `skel:joints`
+        // matched the bound skeleton, `remap_mesh_skin_indices`
+        // zeroes every weight → the skinned mesh collapses to
+        // the origin. That's worse than falling back to the
+        // static-xform path, so drop the skin payload entirely
+        // in that case. Matches the graceful-degradation intent
+        // of the Rust fork's remap comment.
+        let all_weights_zero = raw
+            .joint_weights
+            .as_ref()
+            .map(|w| !w.is_empty() && w.iter().all(|&x| x == 0.0))
+            .unwrap_or(false);
+        if all_weights_zero {
+            raw.joint_indices = None;
+            raw.joint_weights = None;
+            raw.joints_per_vertex = 0;
+            skin_slot = None;
+        }
+
+        // Clamp joint indices to the skeleton's joint count so
+        // `mesh_data_to_input` doesn't reject the mesh. Matches
+        // the max_joint parameter the Rust backend passes.
+        let max_joint = skin_slot
+            .and_then(|si| skins.get(si))
+            .map(|s| s.joint_names.len())
+            .unwrap_or(usize::MAX);
+
+        // Phase 2.I.2: materialBind GeomSubsets split the mesh
+        // into per-face partitions, each with its own material
+        // binding. Seahorse / Kitchen_set use this pattern
+        // heavily. When subsets are present, emit one MeshInput
+        // per subset (filtered by faceIndices); when absent,
+        // fall through to the whole-mesh path.
+        // Phase 2.G.4: resolve any blend-shape targets on this
+        // mesh once, so both the whole-mesh and per-subset
+        // branches below can feed them into `mesh_data_to_input`.
+        // Point count is derived from the raw (pre-triangulated)
+        // MeshData since sparse `pointIndices` reference the
+        // original vertex order.
+        let point_count = raw.points.len() / 3;
+        let blend_shapes = resolve_blend_shapes_cpp(&stage, prim_path, point_count);
+
+        // Track MeshInput indices emitted by this mesh path so
+        // the post-loop morph-weight attach can target all of
+        // them (subsets fan out; a single blend-shape animation
+        // drives every piece).
+        let record_start = inputs.len();
+
+        let subsets = collect_material_bind_subsets(&stage, prim_path);
+        // TODO(#43): read `primvars:displayOpacity` via shim once
+        // `usdc_mesh_display_opacity` is added to usd_c_shim.cpp.
+        // Until then all vertex alphas default to 1.0 (fully
+        // opaque) in the C++ backend path.
+        let display_opacity_cpp: Option<&[f32]> = None;
+        if subsets.is_empty() {
+            let mut triangulated = mesh_data_to_input(
+                &sdf_path,
+                world_f32,
+                &raw,
+                orientation,
+                max_joint,
+                &blend_shapes,
+                display_opacity_cpp,
+            )?;
+            let bound_slot = resolve_material_slot_cpp(
+                &stage,
+                prim_path,
+                &mut materials,
+                &mut material_slots,
+                &mut material_texture_paths,
+                &mut material_normal_paths,
+                &mut material_metal_rough_paths,
+            );
+            triangulated.material_index = apply_display_color_fallback_cpp(
+                bound_slot,
+                &raw,
+                prim_path,
+                &mut materials,
+                &mut material_slots,
+                &mut material_texture_paths,
+                &mut material_normal_paths,
+                &mut material_metal_rough_paths,
+            );
+            triangulated.skin_index = skin_index_from_payload(&triangulated, skin_slot);
+            // #32: attach the USD purpose token for dynamic
+            // frontend visibility toggle.
+            triangulated.purpose = Some(
+                stage
+                    .prim_attr_token(prim_path, "purpose")
+                    .unwrap_or_else(|| "default".to_string()),
+            );
+            inputs.push(triangulated);
+        } else {
+            for subset in &subsets {
+                let filtered = filter_mesh_by_face_indices(&raw, &subset.face_indices);
+                let Ok(subset_sdf_path) = SdfPath::new(&subset.path) else {
                     continue;
                 };
-                let joint_names = skin_input.joint_names.clone();
-                let s = skins.len();
-                skins.push(skin_input);
-                skin_slots.insert(skel_path.clone(), s);
-                // Phase 2.G.3: resolve the bound SkelAnimation (if
-                // any) and flatten its samples into a
-                // `glb::AnimationInput`. Runs once per skin so a
-                // stage that shares one rig across many meshes
-                // produces exactly one animation channel bundle.
-                if let Some(anim_input) =
-                    build_animation_input_cpp(&stage, &skel_path, s, &joint_names)
-                {
-                    animations.push(anim_input);
-                }
-                s
-            };
-            mesh_skin_slots[i] = Some(slot);
-        }
-
-        let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
-        // Phase 2.O: parallel tracking for the blend-shape weight-
-        // animation attach pass that runs after every MeshInput has
-        // been produced. Each record ties an authored mesh to the
-        // MeshInput indices it contributed (subsets fan out), plus
-        // the blend-shape channel names in the order they were fed
-        // into `mesh_data_to_input` — glTF `morph_targets` inherit
-        // that ordering and the animation weights must be remapped
-        // into it before emission.
-        struct MorphRecord {
-            mesh_path: String,
-            channel_names: Vec<String>,
-            mesh_input_indices: Vec<usize>,
-        }
-        let mut morph_records: Vec<MorphRecord> = Vec::new();
-
-        for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
-            let Some(mut raw) = build_mesh_data_from_shim(&stage, prim_path) else {
-                continue;
-            };
-
-            // World transform: shim delegates to
-            // UsdGeomXformable::ComputeLocalToWorldTransform, so the
-            // resetXformStack handling and multi-op composition come
-            // for free from pxr. Apply the Z-up correction on top.
-            let mut world = stage
-                .prim_world_matrix(prim_path)
-                .unwrap_or_else(identity_mat4);
-            if let Some(correction) = &up_axis_correction {
-                world = mat4_mul(correction, &world);
-            }
-            let world_f32 = mat4_f64_to_f32(&world);
-
-            let orientation = match stage.mesh_orientation(prim_path) {
-                Orientation::LeftHanded => MeshOrientation::LeftHanded,
-                Orientation::RightHanded => MeshOrientation::RightHanded,
-            };
-
-            // Pass a parsed SdfPath into the shared mesh builder; its
-            // validation layer uses the path only for error strings.
-            let Ok(sdf_path) = SdfPath::new(prim_path) else {
-                continue;
-            };
-
-            // Phase 2.G: apply the per-mesh `skel:joints` override,
-            // remapping the mesh's `primvars:skel:jointIndices` into
-            // the bound Skeleton's full joint order (what glTF
-            // `skin.joints` exposes). Apple ARKit exports (chameleon /
-            // seahorse) use this heavily — skipping it leaves
-            // eyeball / tongue meshes pointing at the wrong joint
-            // and produces the "exploded" look.
-            let mut skin_slot = mesh_skin_slots[mesh_idx];
-            if let Some(slot) = skin_slot {
-                let local_joints = stage.mesh_skel_joints(prim_path);
-                if !local_joints.is_empty() {
-                    if let Some(skin) = skins.get(slot) {
-                        remap_mesh_skin_indices(
-                            &mut raw,
-                            &local_joints,
-                            &skin.joint_names,
-                        );
-                    }
-                }
-            }
-            // Post-remap sanity: if none of the local `skel:joints`
-            // matched the bound skeleton, `remap_mesh_skin_indices`
-            // zeroes every weight → the skinned mesh collapses to
-            // the origin. That's worse than falling back to the
-            // static-xform path, so drop the skin payload entirely
-            // in that case. Matches the graceful-degradation intent
-            // of the Rust fork's remap comment.
-            let all_weights_zero = raw
-                .joint_weights
-                .as_ref()
-                .map(|w| !w.is_empty() && w.iter().all(|&x| x == 0.0))
-                .unwrap_or(false);
-            if all_weights_zero {
-                raw.joint_indices = None;
-                raw.joint_weights = None;
-                raw.joints_per_vertex = 0;
-                skin_slot = None;
-            }
-
-            // Clamp joint indices to the skeleton's joint count so
-            // `mesh_data_to_input` doesn't reject the mesh. Matches
-            // the max_joint parameter the Rust backend passes.
-            let max_joint = skin_slot
-                .and_then(|si| skins.get(si))
-                .map(|s| s.joint_names.len())
-                .unwrap_or(usize::MAX);
-
-            // Phase 2.I.2: materialBind GeomSubsets split the mesh
-            // into per-face partitions, each with its own material
-            // binding. Seahorse / Kitchen_set use this pattern
-            // heavily. When subsets are present, emit one MeshInput
-            // per subset (filtered by faceIndices); when absent,
-            // fall through to the whole-mesh path.
-            // Phase 2.G.4: resolve any blend-shape targets on this
-            // mesh once, so both the whole-mesh and per-subset
-            // branches below can feed them into `mesh_data_to_input`.
-            // Point count is derived from the raw (pre-triangulated)
-            // MeshData since sparse `pointIndices` reference the
-            // original vertex order.
-            let point_count = raw.points.len() / 3;
-            let blend_shapes = resolve_blend_shapes_cpp(&stage, prim_path, point_count);
-
-            // Track MeshInput indices emitted by this mesh path so
-            // the post-loop morph-weight attach can target all of
-            // them (subsets fan out; a single blend-shape animation
-            // drives every piece).
-            let record_start = inputs.len();
-
-            let subsets = collect_material_bind_subsets(&stage, prim_path);
-            // TODO(#43): read `primvars:displayOpacity` via shim once
-            // `usdc_mesh_display_opacity` is added to usd_c_shim.cpp.
-            // Until then all vertex alphas default to 1.0 (fully
-            // opaque) in the C++ backend path.
-            let display_opacity_cpp: Option<&[f32]> = None;
-            if subsets.is_empty() {
-                let mut triangulated = mesh_data_to_input(
-                    &sdf_path,
+                // Subsets share the outer mesh's point buffer, so
+                // the blend shapes computed above still index
+                // correctly into `filtered.points`. No filter is
+                // needed on the delta arrays — `mesh_data_to_input`
+                // indexes blend shapes by point index during its
+                // triangle-soup expansion, using whatever points
+                // land in the emitted primitive.
+                let Ok(mut tri) = mesh_data_to_input(
+                    &subset_sdf_path,
                     world_f32,
-                    &raw,
+                    &filtered,
                     orientation,
                     max_joint,
                     &blend_shapes,
                     display_opacity_cpp,
-                )?;
+                ) else {
+                    continue;
+                };
+                // Binding is authored on the GeomSubset prim, not
+                // the parent mesh — look it up at the subset path
+                // so each partition picks up its own material.
                 let bound_slot = resolve_material_slot_cpp(
                     &stage,
-                    prim_path,
+                    &subset.path,
                     &mut materials,
                     &mut material_slots,
                     &mut material_texture_paths,
                     &mut material_normal_paths,
                     &mut material_metal_rough_paths,
                 );
-                triangulated.material_index = apply_display_color_fallback_cpp(
+                tri.material_index = apply_display_color_fallback_cpp(
                     bound_slot,
-                    &raw,
-                    prim_path,
+                    &filtered,
+                    &subset.path,
                     &mut materials,
                     &mut material_slots,
                     &mut material_texture_paths,
                     &mut material_normal_paths,
                     &mut material_metal_rough_paths,
                 );
-                triangulated.skin_index = skin_index_from_payload(&triangulated, skin_slot);
-                // #32: attach the USD purpose token for dynamic
-                // frontend visibility toggle.
-                triangulated.purpose = Some(
-                    stage.prim_attr_token(prim_path, "purpose")
+                tri.skin_index = skin_index_from_payload(&tri, skin_slot);
+                // #32: subsets inherit parent mesh's purpose.
+                tri.purpose = Some(
+                    stage
+                        .prim_attr_token(prim_path, "purpose")
                         .unwrap_or_else(|| "default".to_string()),
                 );
-                inputs.push(triangulated);
-            } else {
-                for subset in &subsets {
-                    let filtered = filter_mesh_by_face_indices(&raw, &subset.face_indices);
-                    let Ok(subset_sdf_path) = SdfPath::new(&subset.path) else {
+                inputs.push(tri);
+            }
+        }
+
+        // Phase 2.O: record this mesh's blend-shape channel
+        // order + the MeshInput indices it contributed, so the
+        // attach pass below can emit `MorphWeightChannel`s.
+        if !blend_shapes.is_empty() {
+            let indices: Vec<usize> = (record_start..inputs.len()).collect();
+            if !indices.is_empty() {
+                morph_records.push(MorphRecord {
+                    mesh_path: prim_path.clone(),
+                    channel_names: blend_shapes.iter().map(|b| b.name.clone()).collect(),
+                    mesh_input_indices: indices,
+                });
+            }
+        }
+    }
+
+    // `inputs` may be empty here for a PointInstancer-only stage;
+    // prototype meshes are added in the #41 pass below. We defer the
+    // empty check until after that pass.
+    let regular_mesh_count = inputs.len();
+
+    // Phase 2.O: attach `UsdSkelAnimation.blendShapeWeights`
+    // time samples as glTF weight-animation channels. Runs after
+    // the mesh loop because we need MeshInput indices (subsets
+    // fan out) to target the right glTF node. Each morph record
+    // maps back to its animated skeleton by path-matching; the
+    // weights are remapped from the animation's `blendShapes`
+    // order into the mesh's own morph-target order so a mesh
+    // that authors blend shapes out-of-order or a subset of
+    // what the animation drives still animates correctly.
+    for animation in &mut animations {
+        let skin_idx = animation.skin_index;
+        let Some((skel_path, _)) = skin_slots
+            .iter()
+            .find(|(_, &idx)| idx == skin_idx)
+            .map(|(p, i)| (p.clone(), *i))
+        else {
+            continue;
+        };
+        let Some(anim_path) = stage.skel_animation_source(&skel_path) else {
+            continue;
+        };
+        let anim_blend_shapes = stage.prim_attr_token_array(&anim_path, "blendShapes");
+        if anim_blend_shapes.is_empty() {
+            continue;
+        }
+        let times_usd = stage.skel_anim_times(&anim_path);
+        if times_usd.is_empty() {
+            continue;
+        }
+        // Pre-sample once per frame so we don't cross the FFI
+        // boundary `frames × records × targets` times.
+        let per_frame: Vec<Vec<f32>> = times_usd
+            .iter()
+            .map(|&t| stage.skel_anim_blend_shape_weights_at(&anim_path, t as f64))
+            .collect();
+
+        for record in &morph_records {
+            // Limit each record to the animation that actually
+            // drives its bound skeleton — one stage can host
+            // multiple (skeleton, animation) pairs and the
+            // weights must not cross-contaminate.
+            let Some(rec_skel) = stage.mesh_bound_skeleton(&record.mesh_path) else {
+                continue;
+            };
+            if rec_skel != skel_path {
+                continue;
+            }
+            let target_count = record.channel_names.len();
+            if target_count == 0 {
+                continue;
+            }
+            let anim_idx_for: Vec<Option<usize>> = record
+                .channel_names
+                .iter()
+                .map(|n| anim_blend_shapes.iter().position(|a| a == n))
+                .collect();
+            // No mesh→anim channel overlap → skip (would emit
+            // all-zero weights, which drops the mesh to rest).
+            if anim_idx_for.iter().all(|x| x.is_none()) {
+                continue;
+            }
+            let mut flat: Vec<f32> = Vec::with_capacity(times_usd.len() * target_count);
+            for frame in &per_frame {
+                for &maybe_anim_i in &anim_idx_for {
+                    match maybe_anim_i {
+                        Some(ai) => flat.push(frame.get(ai).copied().unwrap_or(0.0)),
+                        None => flat.push(0.0),
+                    }
+                }
+            }
+            for &mi_idx in &record.mesh_input_indices {
+                animation.weight_channels.push(glb::MorphWeightChannel {
+                    mesh_index: mi_idx,
+                    weights: flat.clone(),
+                });
+            }
+        }
+    }
+
+    // ---- #41 PointInstancer pass -----------------------------------
+    //
+    // Traverses all prims to find UsdGeomPointInstancer prims. For
+    // each instancer:
+    //   1. Skip if `visibility = "invisible"` is authored on the
+    //      instancer prim itself (ancestor inheritance is deferred).
+    //   2. Compose `composite_inst_world = upAxis * world_xform_of(instancer)`
+    //      so the per-instance TRS reflects the instancer's parent chain.
+    //   3. For each instance: bake `composite_inst_world * (T·R·S of i)`,
+    //      decompose back to TRS for `EXT_mesh_gpu_instancing`. Skip
+    //      individual instances whose scale is non-finite.
+    //   4. Filter `invisibleIds` (compared against array index — `ids`
+    //      attribute support is deferred).
+    //   5. Resolve `prototypes` rel; for each prototype index, partition
+    //      the instance arrays by `protoIndices[i] == proto_idx`. For
+    //      each Mesh prim under the prototype subtree, compose the
+    //      prototype-internal local xform onto the instance TRS so the
+    //      mesh's position within the prototype subtree is preserved.
+    //
+    // Instance-level picking is out of MVP scope (issue #41 follow-up).
+    // The instancer prim itself gets no NodeInput here (flat C++ layout);
+    // the EXT_mesh_gpu_instancing node carries the prototype mesh index.
+    let mut instancing_inputs: Vec<InstancingInput> = Vec::new();
+    {
+        // #41: mirror the defaultPrim filter the regular mesh pass
+        // applies above so PointInstancer prims that leak from
+        // referenced / payloaded layer roots don't end up emitting
+        // duplicate geometry outside the authored defaultPrim subtree.
+        let default_prim_filter: Option<(String, String)> = stage
+            .default_prim()
+            .map(|dp| (format!("/{dp}"), format!("/{dp}/")));
+        let all_prims = stage.traverse();
+        let instancer_paths: Vec<String> = all_prims
+            .into_iter()
+            .filter(|p| {
+                if let Some((root, prefix)) = &default_prim_filter {
+                    if !(p == root || p.starts_with(prefix)) {
+                        return false;
+                    }
+                }
+                stage.is_point_instancer(p)
+            })
+            .collect();
+
+        for inst_path in &instancer_paths {
+            // #41: skip instancers authored as invisible. We only
+            // probe the instancer prim itself, not its ancestors —
+            // ancestor visibility inheritance through UsdGeomImageable
+            // would need either a C-shim helper or an ancestor walk
+            // and is deferred to a follow-up. This still catches the
+            // common case where a level-design tool stamps
+            // `visibility = "invisible"` on the instancer prim
+            // directly to gate it.
+            let viz = stage
+                .prim_attr_token(inst_path, "visibility")
+                .unwrap_or_default();
+            if viz == "invisible" {
+                eprintln!("[usd-cpp] PointInstancer {inst_path} authored as invisible; skipping");
+                continue;
+            }
+
+            // Collect per-instance TRS from the shim.
+            let positions_flat = stage.point_instancer_positions(inst_path);
+            let orientations_flat = stage.point_instancer_orientations(inst_path);
+            let scales_flat = stage.point_instancer_scales(inst_path);
+            let proto_indices = stage.point_instancer_proto_indices(inst_path);
+            // NOTE: `invisibleIds` semantically references the authored
+            // `ids` int64 array when present, falling back to the
+            // zero-based array index when not. The shim does not yet
+            // expose `ids` so we treat the index as the id; this is
+            // correct for the common case where `ids` is unauthored.
+            // Stages that author a non-default `ids` array will see
+            // wrong instances filtered — TODO follow-up issue.
+            let invisible_ids: std::collections::HashSet<i64> = stage
+                .point_instancer_invisible_ids(inst_path)
+                .into_iter()
+                .collect();
+
+            let instance_count = proto_indices.len();
+            if instance_count == 0 || positions_flat.len() < instance_count * 3 {
+                eprintln!(
+                    "[usd-cpp] PointInstancer {inst_path}: no instances or no positions, skipping"
+                );
+                continue;
+            }
+
+            // #41 P1-1 fix: compose the instancer's world transform (its
+            // own xform plus every ancestor's) with the up-axis
+            // correction and bake it into each instance's TRS. Without
+            // this an instancer parented under a non-identity Xform
+            // would render its instances at the wrong place / orientation
+            // because positions / orientations are authored in the
+            // instancer's local space.
+            let inst_world_f64 = stage
+                .prim_world_matrix(inst_path)
+                .unwrap_or_else(identity_mat4);
+            let composite_world_f64 = match up_axis_correction.as_ref() {
+                Some(corr) => mat4_mul(corr, &inst_world_f64),
+                None => inst_world_f64,
+            };
+            let composite_world_f32 = mat4_f64_to_f32(&composite_world_f64);
+
+            // Convert flat buffers to per-instance arrays, composing each
+            // local TRS with the instancer world matrix and decomposing
+            // back to TRS for EXT_mesh_gpu_instancing.
+            let mut translations: Vec<[f32; 3]> = Vec::new();
+            let mut rotations: Vec<[f32; 4]> = Vec::new();
+            let mut scales_out: Vec<[f32; 3]> = Vec::new();
+            // Parallel array: which prototype this instance references.
+            let mut instance_proto_idx: Vec<i32> = Vec::new();
+
+            for i in 0..instance_count {
+                if invisible_ids.contains(&(i as i64)) {
+                    continue;
+                }
+
+                let px = positions_flat[i * 3];
+                let py = positions_flat[i * 3 + 1];
+                let pz = positions_flat[i * 3 + 2];
+
+                let (qx, qy, qz, qw) = if orientations_flat.len() >= instance_count * 4 {
+                    let b = i * 4;
+                    (
+                        orientations_flat[b],
+                        orientations_flat[b + 1],
+                        orientations_flat[b + 2],
+                        orientations_flat[b + 3],
+                    )
+                } else {
+                    (0.0_f32, 0.0, 0.0, 1.0)
+                };
+
+                let (sx, sy, sz) = if scales_flat.len() >= instance_count * 3 {
+                    let b = i * 3;
+                    (scales_flat[b], scales_flat[b + 1], scales_flat[b + 2])
+                } else {
+                    (1.0_f32, 1.0, 1.0)
+                };
+
+                if !sx.is_finite()
+                    || !sy.is_finite()
+                    || !sz.is_finite()
+                    || sx <= 0.0
+                    || sy <= 0.0
+                    || sz <= 0.0
+                {
+                    eprintln!(
+                            "[usd-cpp] PointInstancer {inst_path} instance {i} has invalid scale ({sx},{sy},{sz}); skipping instance"
+                        );
+                    continue;
+                }
+
+                // Build local TRS matrix (column-major) and compose with
+                // the instancer's world matrix.
+                let local_mat = trs_to_mat4_f32([px, py, pz], [qx, qy, qz, qw], [sx, sy, sz]);
+                let world_mat = mat4_mul_f32(&composite_world_f32, &local_mat);
+                let (t, r, s) = glb::decompose_trs_column_major(&world_mat);
+
+                // Decomposition can yield a negative scale component when
+                // the composite world matrix has a flip (negative
+                // determinant). EXT_mesh_gpu_instancing TRS cannot
+                // represent mirroring cleanly — Three.js InstancedMesh
+                // would render those instances inside-out — so we drop
+                // them. The TRS gate doc claim now holds end-to-end.
+                if !s[0].is_finite()
+                    || !s[1].is_finite()
+                    || !s[2].is_finite()
+                    || s[0] <= 0.0
+                    || s[1] <= 0.0
+                    || s[2] <= 0.0
+                {
+                    continue;
+                }
+
+                translations.push(t);
+                rotations.push(r);
+                scales_out.push(s);
+                instance_proto_idx.push(proto_indices.get(i).copied().unwrap_or(0));
+            }
+
+            if translations.is_empty() {
+                eprintln!(
+                    "[usd-cpp] PointInstancer {inst_path}: empty after filter; skipping instancing"
+                );
+                continue;
+            }
+
+            // Resolve prototype mesh prims and build MeshInputs for them.
+            // #41 P1-2 fix: filter per-prototype using `protoIndices`.
+            // Each prototype only receives the subset of instances whose
+            // protoIndices[i] equals the prototype's index in the
+            // `prototypes` rel — without this every prototype would
+            // appear at every instance location.
+            let proto_paths = stage.point_instancer_prototypes(inst_path);
+            for (proto_idx, proto_path) in proto_paths.iter().enumerate() {
+                let mut my_t: Vec<[f32; 3]> = Vec::new();
+                let mut my_r: Vec<[f32; 4]> = Vec::new();
+                let mut my_s: Vec<[f32; 3]> = Vec::new();
+                for (out_idx, &pi) in instance_proto_idx.iter().enumerate() {
+                    if pi >= 0 && (pi as usize) == proto_idx {
+                        my_t.push(translations[out_idx]);
+                        my_r.push(rotations[out_idx]);
+                        my_s.push(scales_out[out_idx]);
+                    }
+                }
+                if my_t.is_empty() {
+                    continue;
+                }
+
+                let all_stage_prims = stage.traverse();
+                let proto_prefix = format!("{proto_path}/");
+                let proto_mesh_prims: Vec<String> = all_stage_prims
+                    .into_iter()
+                    .filter(|p| {
+                        (p == proto_path || p.starts_with(&proto_prefix))
+                            && stage.prim_type_is_mesh(p)
+                    })
+                    .collect();
+
+                // #41 prototype-local-xform: per USD semantics each
+                // instance is `M_inst_world * inst_TRS * proto_local`
+                // where `proto_local = inv(inst_world) * proto_mesh_world`
+                // — the mesh's xform expressed in the *instancer's*
+                // coordinate frame, NOT the prototype root's. Using
+                // `inv(proto_root_world)` would strip any xform authored
+                // on the prototype root prim itself (a common pattern
+                // when the prototype root has its own translate/rotate
+                // ops or is an Xform wrapping a transformed mesh).
+                let inv_inst_world_f32 = invert_mat4_f32(&mat4_f64_to_f32(&inst_world_f64))
+                    .unwrap_or_else(|| mat4_f64_to_f32(&identity_mat4()));
+
+                for proto_mesh_path in &proto_mesh_prims {
+                    // TODO (#41 follow-up): resolve UsdPreviewSurface +
+                    // GeomSubset material bindings on prototype meshes.
+                    // The regular mesh pass calls a material-resolution
+                    // helper and slot-dedupes; the PointInstancer pass
+                    // currently leaves `material_index = 0` (default
+                    // preview material). Assets whose prototypes carry
+                    // authored materials will render gray instead of
+                    // their authored color/texture until this lands.
+                    let Some(raw_proto) = build_mesh_data_from_shim(&stage, proto_mesh_path) else {
                         continue;
                     };
-                    // Subsets share the outer mesh's point buffer, so
-                    // the blend shapes computed above still index
-                    // correctly into `filtered.points`. No filter is
-                    // needed on the delta arrays — `mesh_data_to_input`
-                    // indexes blend shapes by point index during its
-                    // triangle-soup expansion, using whatever points
-                    // land in the emitted primitive.
-                    let Ok(mut tri) = mesh_data_to_input(
-                        &subset_sdf_path,
+
+                    let proto_mesh_world = stage
+                        .prim_world_matrix(proto_mesh_path)
+                        .unwrap_or_else(identity_mat4);
+                    let proto_mesh_world_f32 = mat4_f64_to_f32(&proto_mesh_world);
+                    // proto_local = inv(inst_world) * proto_mesh_world
+                    let proto_local = mat4_mul_f32(&inv_inst_world_f32, &proto_mesh_world_f32);
+
+                    // Re-bake the per-instance TRS by composing
+                    //   composite_inst_world * instance_local * proto_local
+                    // and decomposing back. We rebuild on every
+                    // prototype mesh because proto_local differs per
+                    // mesh prim.
+                    let mut prim_t: Vec<[f32; 3]> = Vec::with_capacity(my_t.len());
+                    let mut prim_r: Vec<[f32; 4]> = Vec::with_capacity(my_t.len());
+                    let mut prim_s: Vec<[f32; 3]> = Vec::with_capacity(my_t.len());
+                    for ((t, r), s) in my_t.iter().zip(my_r.iter()).zip(my_s.iter()) {
+                        let inst_local = trs_to_mat4_f32(*t, *r, *s);
+                        // The per-instance values already include the
+                        // composite_inst_world bake from earlier; we
+                        // multiply by proto_local on the right to put
+                        // the prototype-internal xform on the mesh side.
+                        let composed = mat4_mul_f32(&inst_local, &proto_local);
+                        let (ct, cr, cs) = glb::decompose_trs_column_major(&composed);
+                        if !cs[0].is_finite()
+                            || !cs[1].is_finite()
+                            || !cs[2].is_finite()
+                            || cs[0] <= 0.0
+                            || cs[1] <= 0.0
+                            || cs[2] <= 0.0
+                        {
+                            continue;
+                        }
+                        prim_t.push(ct);
+                        prim_r.push(cr);
+                        prim_s.push(cs);
+                    }
+                    if prim_t.is_empty() {
+                        continue;
+                    }
+
+                    let world_f32 = mat4_f64_to_f32(&identity_mat4());
+
+                    let orientation = match stage.mesh_orientation(proto_mesh_path) {
+                        Orientation::LeftHanded => MeshOrientation::LeftHanded,
+                        Orientation::RightHanded => MeshOrientation::RightHanded,
+                    };
+
+                    let Ok(sdf_path) = SdfPath::new(proto_mesh_path) else {
+                        continue;
+                    };
+                    let Ok(proto_input) = mesh_data_to_input(
+                        &sdf_path,
                         world_f32,
-                        &filtered,
+                        &raw_proto,
                         orientation,
-                        max_joint,
-                        &blend_shapes,
-                        display_opacity_cpp,
+                        usize::MAX,
+                        &[],
+                        None,
                     ) else {
                         continue;
                     };
-                    // Binding is authored on the GeomSubset prim, not
-                    // the parent mesh — look it up at the subset path
-                    // so each partition picks up its own material.
-                    let bound_slot = resolve_material_slot_cpp(
-                        &stage,
-                        &subset.path,
-                        &mut materials,
-                        &mut material_slots,
-                        &mut material_texture_paths,
-                        &mut material_normal_paths,
-                        &mut material_metal_rough_paths,
-                    );
-                    tri.material_index = apply_display_color_fallback_cpp(
-                        bound_slot,
-                        &filtered,
-                        &subset.path,
-                        &mut materials,
-                        &mut material_slots,
-                        &mut material_texture_paths,
-                        &mut material_normal_paths,
-                        &mut material_metal_rough_paths,
-                    );
-                    tri.skin_index = skin_index_from_payload(&tri, skin_slot);
-                    // #32: subsets inherit parent mesh's purpose.
-                    tri.purpose = Some(
-                        stage.prim_attr_token(prim_path, "purpose")
-                            .unwrap_or_else(|| "default".to_string()),
-                    );
-                    inputs.push(tri);
-                }
-            }
 
-            // Phase 2.O: record this mesh's blend-shape channel
-            // order + the MeshInput indices it contributed, so the
-            // attach pass below can emit `MorphWeightChannel`s.
-            if !blend_shapes.is_empty() {
-                let indices: Vec<usize> = (record_start..inputs.len()).collect();
-                if !indices.is_empty() {
-                    morph_records.push(MorphRecord {
-                        mesh_path: prim_path.clone(),
-                        channel_names: blend_shapes
-                            .iter()
-                            .map(|b| b.name.clone())
-                            .collect(),
-                        mesh_input_indices: indices,
+                    let prototype_mesh_idx = inputs.len();
+                    inputs.push(proto_input);
+
+                    instancing_inputs.push(InstancingInput {
+                        prototype_mesh_idx,
+                        parent_node_idx: None,
+                        instancer_prim_path: inst_path.clone(),
+                        translations: prim_t,
+                        rotations: prim_r,
+                        scales: prim_s,
                     });
                 }
             }
         }
+    }
 
-        // `inputs` may be empty here for a PointInstancer-only stage;
-        // prototype meshes are added in the #41 pass below. We defer the
-        // empty check until after that pass.
-        let regular_mesh_count = inputs.len();
+    // After the PointInstancer pass, check if we have any mesh at all.
+    if inputs.is_empty() {
+        return Err(UsdError::Parse(
+            "all renderable meshes failed to build".to_string(),
+        ));
+    }
+    let _ = regular_mesh_count; // used above for documentation, suppress unused warning
 
-        // Phase 2.O: attach `UsdSkelAnimation.blendShapeWeights`
-        // time samples as glTF weight-animation channels. Runs after
-        // the mesh loop because we need MeshInput indices (subsets
-        // fan out) to target the right glTF node. Each morph record
-        // maps back to its animated skeleton by path-matching; the
-        // weights are remapped from the animation's `blendShapes`
-        // order into the mesh's own morph-target order so a mesh
-        // that authors blend shapes out-of-order or a subset of
-        // what the animation drives still animates correctly.
-        for animation in &mut animations {
-            let skin_idx = animation.skin_index;
-            let Some((skel_path, _)) = skin_slots
-                .iter()
-                .find(|(_, &idx)| idx == skin_idx)
-                .map(|(p, i)| (p.clone(), *i))
-            else {
-                continue;
-            };
-            let Some(anim_path) = stage.skel_animation_source(&skel_path) else {
-                continue;
-            };
-            let anim_blend_shapes =
-                stage.prim_attr_token_array(&anim_path, "blendShapes");
-            if anim_blend_shapes.is_empty() {
-                continue;
-            }
-            let times_usd = stage.skel_anim_times(&anim_path);
-            if times_usd.is_empty() {
-                continue;
-            }
-            // Pre-sample once per frame so we don't cross the FFI
-            // boundary `frames × records × targets` times.
-            let per_frame: Vec<Vec<f32>> = times_usd
-                .iter()
-                .map(|&t| stage.skel_anim_blend_shape_weights_at(&anim_path, t as f64))
-                .collect();
-
-            for record in &morph_records {
-                // Limit each record to the animation that actually
-                // drives its bound skeleton — one stage can host
-                // multiple (skeleton, animation) pairs and the
-                // weights must not cross-contaminate.
-                let Some(rec_skel) = stage.mesh_bound_skeleton(&record.mesh_path) else {
-                    continue;
-                };
-                if rec_skel != skel_path {
-                    continue;
-                }
-                let target_count = record.channel_names.len();
-                if target_count == 0 {
-                    continue;
-                }
-                let anim_idx_for: Vec<Option<usize>> = record
-                    .channel_names
-                    .iter()
-                    .map(|n| anim_blend_shapes.iter().position(|a| a == n))
-                    .collect();
-                // No mesh→anim channel overlap → skip (would emit
-                // all-zero weights, which drops the mesh to rest).
-                if anim_idx_for.iter().all(|x| x.is_none()) {
-                    continue;
-                }
-                let mut flat: Vec<f32> =
-                    Vec::with_capacity(times_usd.len() * target_count);
-                for frame in &per_frame {
-                    for &maybe_anim_i in &anim_idx_for {
-                        match maybe_anim_i {
-                            Some(ai) => flat.push(frame.get(ai).copied().unwrap_or(0.0)),
-                            None => flat.push(0.0),
-                        }
-                    }
-                }
-                for &mi_idx in &record.mesh_input_indices {
-                    animation.weight_channels.push(glb::MorphWeightChannel {
-                        mesh_index: mi_idx,
-                        weights: flat.clone(),
-                    });
-                }
-            }
+    // Phase 2.F: resolve every material's `inputs:diffuseColor`
+    // texture path into actual image bytes and embed them in the
+    // GLB. Failures log and fall back to the scalar base color —
+    // real assets commonly ship with broken texture references that
+    // the user still wants to preview. Search dirs include the
+    // stage file's parent plus every composed layer's parent so
+    // materials authored in a referenced layer resolve relative to
+    // that layer.
+    let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            search_dirs.push(parent.to_path_buf());
         }
-
-        // ---- #41 PointInstancer pass -----------------------------------
-        //
-        // Traverses all prims to find UsdGeomPointInstancer prims. For
-        // each instancer:
-        //   1. Skip if `visibility = "invisible"` is authored on the
-        //      instancer prim itself (ancestor inheritance is deferred).
-        //   2. Compose `composite_inst_world = upAxis * world_xform_of(instancer)`
-        //      so the per-instance TRS reflects the instancer's parent chain.
-        //   3. For each instance: bake `composite_inst_world * (T·R·S of i)`,
-        //      decompose back to TRS for `EXT_mesh_gpu_instancing`. Skip
-        //      individual instances whose scale is non-finite.
-        //   4. Filter `invisibleIds` (compared against array index — `ids`
-        //      attribute support is deferred).
-        //   5. Resolve `prototypes` rel; for each prototype index, partition
-        //      the instance arrays by `protoIndices[i] == proto_idx`. For
-        //      each Mesh prim under the prototype subtree, compose the
-        //      prototype-internal local xform onto the instance TRS so the
-        //      mesh's position within the prototype subtree is preserved.
-        //
-        // Instance-level picking is out of MVP scope (issue #41 follow-up).
-        // The instancer prim itself gets no NodeInput here (flat C++ layout);
-        // the EXT_mesh_gpu_instancing node carries the prototype mesh index.
-        let mut instancing_inputs: Vec<InstancingInput> = Vec::new();
-        {
-            // #41: mirror the defaultPrim filter the regular mesh pass
-            // applies above so PointInstancer prims that leak from
-            // referenced / payloaded layer roots don't end up emitting
-            // duplicate geometry outside the authored defaultPrim subtree.
-            let default_prim_filter: Option<(String, String)> =
-                stage.default_prim().map(|dp| (format!("/{dp}"), format!("/{dp}/")));
-            let all_prims = stage.traverse();
-            let instancer_paths: Vec<String> = all_prims
-                .into_iter()
-                .filter(|p| {
-                    if let Some((root, prefix)) = &default_prim_filter {
-                        if !(p == root || p.starts_with(prefix)) {
-                            return false;
-                        }
-                    }
-                    stage.is_point_instancer(p)
-                })
-                .collect();
-
-            for inst_path in &instancer_paths {
-                // #41: skip instancers authored as invisible. We only
-                // probe the instancer prim itself, not its ancestors —
-                // ancestor visibility inheritance through UsdGeomImageable
-                // would need either a C-shim helper or an ancestor walk
-                // and is deferred to a follow-up. This still catches the
-                // common case where a level-design tool stamps
-                // `visibility = "invisible"` on the instancer prim
-                // directly to gate it.
-                let viz = stage
-                    .prim_attr_token(inst_path, "visibility")
-                    .unwrap_or_default();
-                if viz == "invisible" {
-                    eprintln!(
-                        "[usd-cpp] PointInstancer {inst_path} authored as invisible; skipping"
-                    );
-                    continue;
-                }
-
-                // Collect per-instance TRS from the shim.
-                let positions_flat = stage.point_instancer_positions(inst_path);
-                let orientations_flat = stage.point_instancer_orientations(inst_path);
-                let scales_flat = stage.point_instancer_scales(inst_path);
-                let proto_indices = stage.point_instancer_proto_indices(inst_path);
-                // NOTE: `invisibleIds` semantically references the authored
-                // `ids` int64 array when present, falling back to the
-                // zero-based array index when not. The shim does not yet
-                // expose `ids` so we treat the index as the id; this is
-                // correct for the common case where `ids` is unauthored.
-                // Stages that author a non-default `ids` array will see
-                // wrong instances filtered — TODO follow-up issue.
-                let invisible_ids: std::collections::HashSet<i64> = stage
-                    .point_instancer_invisible_ids(inst_path)
-                    .into_iter()
-                    .collect();
-
-                let instance_count = proto_indices.len();
-                if instance_count == 0 || positions_flat.len() < instance_count * 3 {
-                    eprintln!(
-                        "[usd-cpp] PointInstancer {inst_path}: no instances or no positions, skipping"
-                    );
-                    continue;
-                }
-
-                // #41 P1-1 fix: compose the instancer's world transform (its
-                // own xform plus every ancestor's) with the up-axis
-                // correction and bake it into each instance's TRS. Without
-                // this an instancer parented under a non-identity Xform
-                // would render its instances at the wrong place / orientation
-                // because positions / orientations are authored in the
-                // instancer's local space.
-                let inst_world_f64 = stage
-                    .prim_world_matrix(inst_path)
-                    .unwrap_or_else(identity_mat4);
-                let composite_world_f64 = match up_axis_correction.as_ref() {
-                    Some(corr) => mat4_mul(corr, &inst_world_f64),
-                    None => inst_world_f64,
-                };
-                let composite_world_f32 = mat4_f64_to_f32(&composite_world_f64);
-
-                // Convert flat buffers to per-instance arrays, composing each
-                // local TRS with the instancer world matrix and decomposing
-                // back to TRS for EXT_mesh_gpu_instancing.
-                let mut translations: Vec<[f32; 3]> = Vec::new();
-                let mut rotations: Vec<[f32; 4]> = Vec::new();
-                let mut scales_out: Vec<[f32; 3]> = Vec::new();
-                // Parallel array: which prototype this instance references.
-                let mut instance_proto_idx: Vec<i32> = Vec::new();
-
-                for i in 0..instance_count {
-                    if invisible_ids.contains(&(i as i64)) {
-                        continue;
-                    }
-
-                    let px = positions_flat[i * 3];
-                    let py = positions_flat[i * 3 + 1];
-                    let pz = positions_flat[i * 3 + 2];
-
-                    let (qx, qy, qz, qw) = if orientations_flat.len() >= instance_count * 4 {
-                        let b = i * 4;
-                        (
-                            orientations_flat[b],
-                            orientations_flat[b + 1],
-                            orientations_flat[b + 2],
-                            orientations_flat[b + 3],
-                        )
-                    } else {
-                        (0.0_f32, 0.0, 0.0, 1.0)
-                    };
-
-                    let (sx, sy, sz) = if scales_flat.len() >= instance_count * 3 {
-                        let b = i * 3;
-                        (scales_flat[b], scales_flat[b + 1], scales_flat[b + 2])
-                    } else {
-                        (1.0_f32, 1.0, 1.0)
-                    };
-
-                    if !sx.is_finite() || !sy.is_finite() || !sz.is_finite()
-                        || sx <= 0.0 || sy <= 0.0 || sz <= 0.0
-                    {
-                        eprintln!(
-                            "[usd-cpp] PointInstancer {inst_path} instance {i} has invalid scale ({sx},{sy},{sz}); skipping instance"
-                        );
-                        continue;
-                    }
-
-                    // Build local TRS matrix (column-major) and compose with
-                    // the instancer's world matrix.
-                    let local_mat = trs_to_mat4_f32([px, py, pz], [qx, qy, qz, qw], [sx, sy, sz]);
-                    let world_mat = mat4_mul_f32(&composite_world_f32, &local_mat);
-                    let (t, r, s) = glb::decompose_trs_column_major(&world_mat);
-
-                    // Decomposition can yield a negative scale component when
-                    // the composite world matrix has a flip (negative
-                    // determinant). EXT_mesh_gpu_instancing TRS cannot
-                    // represent mirroring cleanly — Three.js InstancedMesh
-                    // would render those instances inside-out — so we drop
-                    // them. The TRS gate doc claim now holds end-to-end.
-                    if !s[0].is_finite() || !s[1].is_finite() || !s[2].is_finite()
-                        || s[0] <= 0.0 || s[1] <= 0.0 || s[2] <= 0.0
-                    {
-                        continue;
-                    }
-
-                    translations.push(t);
-                    rotations.push(r);
-                    scales_out.push(s);
-                    instance_proto_idx.push(proto_indices.get(i).copied().unwrap_or(0));
-                }
-
-                if translations.is_empty() {
-                    eprintln!(
-                        "[usd-cpp] PointInstancer {inst_path}: empty after filter; skipping instancing"
-                    );
-                    continue;
-                }
-
-                // Resolve prototype mesh prims and build MeshInputs for them.
-                // #41 P1-2 fix: filter per-prototype using `protoIndices`.
-                // Each prototype only receives the subset of instances whose
-                // protoIndices[i] equals the prototype's index in the
-                // `prototypes` rel — without this every prototype would
-                // appear at every instance location.
-                let proto_paths = stage.point_instancer_prototypes(inst_path);
-                for (proto_idx, proto_path) in proto_paths.iter().enumerate() {
-                    let mut my_t: Vec<[f32; 3]> = Vec::new();
-                    let mut my_r: Vec<[f32; 4]> = Vec::new();
-                    let mut my_s: Vec<[f32; 3]> = Vec::new();
-                    for (out_idx, &pi) in instance_proto_idx.iter().enumerate() {
-                        if pi >= 0 && (pi as usize) == proto_idx {
-                            my_t.push(translations[out_idx]);
-                            my_r.push(rotations[out_idx]);
-                            my_s.push(scales_out[out_idx]);
-                        }
-                    }
-                    if my_t.is_empty() {
-                        continue;
-                    }
-
-                    let all_stage_prims = stage.traverse();
-                    let proto_prefix = format!("{proto_path}/");
-                    let proto_mesh_prims: Vec<String> = all_stage_prims
-                        .into_iter()
-                        .filter(|p| {
-                            (p == proto_path || p.starts_with(&proto_prefix))
-                                && stage.prim_type_is_mesh(p)
-                        })
-                        .collect();
-
-                    // #41 prototype-local-xform: per USD semantics each
-                    // instance is `M_inst_world * inst_TRS * proto_local`
-                    // where `proto_local = inv(inst_world) * proto_mesh_world`
-                    // — the mesh's xform expressed in the *instancer's*
-                    // coordinate frame, NOT the prototype root's. Using
-                    // `inv(proto_root_world)` would strip any xform authored
-                    // on the prototype root prim itself (a common pattern
-                    // when the prototype root has its own translate/rotate
-                    // ops or is an Xform wrapping a transformed mesh).
-                    let inv_inst_world_f32 = invert_mat4_f32(&mat4_f64_to_f32(&inst_world_f64))
-                        .unwrap_or_else(|| mat4_f64_to_f32(&identity_mat4()));
-
-                    for proto_mesh_path in &proto_mesh_prims {
-                        // TODO (#41 follow-up): resolve UsdPreviewSurface +
-                        // GeomSubset material bindings on prototype meshes.
-                        // The regular mesh pass calls a material-resolution
-                        // helper and slot-dedupes; the PointInstancer pass
-                        // currently leaves `material_index = 0` (default
-                        // preview material). Assets whose prototypes carry
-                        // authored materials will render gray instead of
-                        // their authored color/texture until this lands.
-                        let Some(raw_proto) = build_mesh_data_from_shim(&stage, proto_mesh_path)
-                        else {
-                            continue;
-                        };
-
-                        let proto_mesh_world = stage
-                            .prim_world_matrix(proto_mesh_path)
-                            .unwrap_or_else(identity_mat4);
-                        let proto_mesh_world_f32 = mat4_f64_to_f32(&proto_mesh_world);
-                        // proto_local = inv(inst_world) * proto_mesh_world
-                        let proto_local = mat4_mul_f32(&inv_inst_world_f32, &proto_mesh_world_f32);
-
-                        // Re-bake the per-instance TRS by composing
-                        //   composite_inst_world * instance_local * proto_local
-                        // and decomposing back. We rebuild on every
-                        // prototype mesh because proto_local differs per
-                        // mesh prim.
-                        let mut prim_t: Vec<[f32; 3]> = Vec::with_capacity(my_t.len());
-                        let mut prim_r: Vec<[f32; 4]> = Vec::with_capacity(my_t.len());
-                        let mut prim_s: Vec<[f32; 3]> = Vec::with_capacity(my_t.len());
-                        for ((t, r), s) in my_t.iter().zip(my_r.iter()).zip(my_s.iter()) {
-                            let inst_local = trs_to_mat4_f32(*t, *r, *s);
-                            // The per-instance values already include the
-                            // composite_inst_world bake from earlier; we
-                            // multiply by proto_local on the right to put
-                            // the prototype-internal xform on the mesh side.
-                            let composed = mat4_mul_f32(&inst_local, &proto_local);
-                            let (ct, cr, cs) = glb::decompose_trs_column_major(&composed);
-                            if !cs[0].is_finite() || !cs[1].is_finite() || !cs[2].is_finite()
-                                || cs[0] <= 0.0 || cs[1] <= 0.0 || cs[2] <= 0.0
-                            {
-                                continue;
-                            }
-                            prim_t.push(ct);
-                            prim_r.push(cr);
-                            prim_s.push(cs);
-                        }
-                        if prim_t.is_empty() {
-                            continue;
-                        }
-
-                        let world_f32 = mat4_f64_to_f32(&identity_mat4());
-
-                        let orientation = match stage.mesh_orientation(proto_mesh_path) {
-                            Orientation::LeftHanded => MeshOrientation::LeftHanded,
-                            Orientation::RightHanded => MeshOrientation::RightHanded,
-                        };
-
-                        let Ok(sdf_path) = SdfPath::new(proto_mesh_path) else {
-                            continue;
-                        };
-                        let Ok(proto_input) = mesh_data_to_input(
-                            &sdf_path,
-                            world_f32,
-                            &raw_proto,
-                            orientation,
-                            usize::MAX,
-                            &[],
-                            None,
-                        ) else {
-                            continue;
-                        };
-
-                        let prototype_mesh_idx = inputs.len();
-                        inputs.push(proto_input);
-
-                        instancing_inputs.push(InstancingInput {
-                            prototype_mesh_idx,
-                            parent_node_idx: None,
-                            instancer_prim_path: inst_path.clone(),
-                            translations: prim_t,
-                            rotations: prim_r,
-                            scales: prim_s,
-                        });
-                    }
-                }
-            }
-        }
-
-        // After the PointInstancer pass, check if we have any mesh at all.
-        if inputs.is_empty() {
-            return Err(UsdError::Parse(
-                "all renderable meshes failed to build".to_string(),
-            ));
-        }
-        let _ = regular_mesh_count; // used above for documentation, suppress unused warning
-
-        // Phase 2.F: resolve every material's `inputs:diffuseColor`
-        // texture path into actual image bytes and embed them in the
-        // GLB. Failures log and fall back to the scalar base color —
-        // real assets commonly ship with broken texture references that
-        // the user still wants to preview. Search dirs include the
-        // stage file's parent plus every composed layer's parent so
-        // materials authored in a referenced layer resolve relative to
-        // that layer.
-        let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
+    }
+    for layer_id in stage.layer_identifiers() {
+        let layer_path = StdPath::new(&layer_id);
+        if let Some(parent) = layer_path.parent() {
+            // Bare-filename layer identifiers (e.g. anonymous
+            // layers or a single relative `.usd` path) yield
+            // `Some("")`, which would otherwise be pushed as a
+            // distinct CWD-relative search dir and shadow real
+            // parents. Drop them.
+            if !parent.as_os_str().is_empty() && !search_dirs.iter().any(|d| d == parent) {
                 search_dirs.push(parent.to_path_buf());
             }
         }
-        for layer_id in stage.layer_identifiers() {
-            let layer_path = StdPath::new(&layer_id);
-            if let Some(parent) = layer_path.parent() {
-                // Bare-filename layer identifiers (e.g. anonymous
-                // layers or a single relative `.usd` path) yield
-                // `Some("")`, which would otherwise be pushed as a
-                // distinct CWD-relative search dir and shadow real
-                // parents. Drop them.
-                if !parent.as_os_str().is_empty()
-                    && !search_dirs.iter().any(|d| d == parent)
-                {
-                    search_dirs.push(parent.to_path_buf());
-                }
+    }
+
+    let mut texture_loader = super::openusd_backend::TextureLoader::new(path, search_dirs);
+    let mut textures: Vec<glb::TextureInput> = Vec::new();
+    let mut texture_dedup: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for (mat_idx, tex_path) in material_texture_paths.iter().enumerate() {
+        let Some(tex_path) = tex_path else { continue };
+        match texture_loader.load(tex_path) {
+            Ok(loaded) => {
+                let new_idx = if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                    existing
+                } else {
+                    let idx = textures.len();
+                    textures.push(loaded.input);
+                    texture_dedup.insert(loaded.identity, idx);
+                    idx
+                };
+                materials[mat_idx].base_color_texture = Some(new_idx);
+                // Neutralize the factor to white exactly like the
+                // Rust backend does — UsdPreviewSurface treats
+                // diffuseColor as *either* scalar or texture, no
+                // multiplicative tint, so leaving the 0.18 schema
+                // default would render textured surfaces too dark.
+                let alpha = materials[mat_idx].base_color_factor[3];
+                materials[mat_idx].base_color_factor = [1.0, 1.0, 1.0, alpha];
+            }
+            Err(err) => {
+                eprintln!(
+                    "[usd-cpp] texture '{}' for material[{mat_idx}] failed: {err}",
+                    tex_path
+                );
             }
         }
+    }
 
-        let mut texture_loader =
-            super::openusd_backend::TextureLoader::new(path, search_dirs);
-        let mut textures: Vec<glb::TextureInput> = Vec::new();
-        let mut texture_dedup: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        for (mat_idx, tex_path) in material_texture_paths.iter().enumerate() {
-            let Some(tex_path) = tex_path else { continue };
-            match texture_loader.load(tex_path) {
-                Ok(loaded) => {
-                    let new_idx =
-                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
-                            existing
-                        } else {
-                            let idx = textures.len();
-                            textures.push(loaded.input);
-                            texture_dedup.insert(loaded.identity, idx);
-                            idx
-                        };
-                    materials[mat_idx].base_color_texture = Some(new_idx);
-                    // Neutralize the factor to white exactly like the
-                    // Rust backend does — UsdPreviewSurface treats
-                    // diffuseColor as *either* scalar or texture, no
-                    // multiplicative tint, so leaving the 0.18 schema
-                    // default would render textured surfaces too dark.
-                    let alpha = materials[mat_idx].base_color_factor[3];
-                    materials[mat_idx].base_color_factor = [1.0, 1.0, 1.0, alpha];
-                }
-                Err(err) => {
-                    eprintln!(
-                        "[usd-cpp] texture '{}' for material[{mat_idx}] failed: {err}",
-                        tex_path
-                    );
-                }
+    // Phase 2.L: normal-map second pass. Shares `texture_dedup`
+    // with the diffuse pass so an asset referenced from both
+    // channels is embedded once. Failures only drop the normal
+    // channel; the diffuse output established above is preserved.
+    for (mat_idx, tex_path) in material_normal_paths.iter().enumerate() {
+        let Some(tex_path) = tex_path else { continue };
+        match texture_loader.load(tex_path) {
+            Ok(loaded) => {
+                let new_idx = if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                    existing
+                } else {
+                    let idx = textures.len();
+                    textures.push(loaded.input);
+                    texture_dedup.insert(loaded.identity, idx);
+                    idx
+                };
+                materials[mat_idx].normal_texture = Some(new_idx);
+            }
+            Err(err) => {
+                eprintln!(
+                    "[usd-cpp] normal map '{}' for material[{mat_idx}] failed: {err}",
+                    tex_path
+                );
             }
         }
+    }
 
-        // Phase 2.L: normal-map second pass. Shares `texture_dedup`
-        // with the diffuse pass so an asset referenced from both
-        // channels is embedded once. Failures only drop the normal
-        // channel; the diffuse output established above is preserved.
-        for (mat_idx, tex_path) in material_normal_paths.iter().enumerate() {
-            let Some(tex_path) = tex_path else { continue };
-            match texture_loader.load(tex_path) {
-                Ok(loaded) => {
-                    let new_idx =
-                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
-                            existing
-                        } else {
-                            let idx = textures.len();
-                            textures.push(loaded.input);
-                            texture_dedup.insert(loaded.identity, idx);
-                            idx
-                        };
-                    materials[mat_idx].normal_texture = Some(new_idx);
-                }
-                Err(err) => {
-                    eprintln!(
-                        "[usd-cpp] normal map '{}' for material[{mat_idx}] failed: {err}",
-                        tex_path
-                    );
-                }
+    // Phase 2.N: metallic/roughness (ORM) third pass. Same
+    // dedup semantics; the same asset can be referenced from all
+    // three channels (base / normal / ORM) and only embedded
+    // once. Load failure silently leaves the scalar factors in
+    // play.
+    for (mat_idx, tex_path) in material_metal_rough_paths.iter().enumerate() {
+        let Some(tex_path) = tex_path else { continue };
+        match texture_loader.load(tex_path) {
+            Ok(loaded) => {
+                let new_idx = if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                    existing
+                } else {
+                    let idx = textures.len();
+                    textures.push(loaded.input);
+                    texture_dedup.insert(loaded.identity, idx);
+                    idx
+                };
+                materials[mat_idx].metallic_roughness_texture = Some(new_idx);
+            }
+            Err(err) => {
+                eprintln!(
+                    "[usd-cpp] ORM texture '{}' for material[{mat_idx}] failed: {err}",
+                    tex_path
+                );
             }
         }
+    }
 
-        // Phase 2.N: metallic/roughness (ORM) third pass. Same
-        // dedup semantics; the same asset can be referenced from all
-        // three channels (base / normal / ORM) and only embedded
-        // once. Load failure silently leaves the scalar factors in
-        // play.
-        for (mat_idx, tex_path) in material_metal_rough_paths.iter().enumerate() {
-            let Some(tex_path) = tex_path else { continue };
-            match texture_loader.load(tex_path) {
-                Ok(loaded) => {
-                    let new_idx =
-                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
-                            existing
-                        } else {
-                            let idx = textures.len();
-                            textures.push(loaded.input);
-                            texture_dedup.insert(loaded.identity, idx);
-                            idx
-                        };
-                    materials[mat_idx].metallic_roughness_texture = Some(new_idx);
-                }
-                Err(err) => {
-                    eprintln!(
-                        "[usd-cpp] ORM texture '{}' for material[{mat_idx}] failed: {err}",
-                        tex_path
-                    );
-                }
-            }
-        }
+    // Phase 2.H: resolve UsdLux lights and UsdGeomCamera cameras
+    // alongside meshes. Same up-axis baking applies so glTF node
+    // matrices stay self-describing.
+    let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref());
+    let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref());
 
-        // Phase 2.H: resolve UsdLux lights and UsdGeomCamera cameras
-        // alongside meshes. Same up-axis baking applies so glTF node
-        // matrices stay self-describing.
-        let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref());
-        let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref());
-
-        // #46 (C++ backend): build the prim hierarchy NodeInput tree so the
-        // GLB carries Kitchen_set / Sponza-style nested xform graphs rather
-        // than a flat scene-root list. The synthetic `__upAxis` root added
-        // by `build_glb` carries the Z→Y correction; node local matrices
-        // here are pure USD space.
-        let node_tree = build_node_tree_cpp(&stage, &inputs, &lights, &cameras, &skin_slots, &instancing_inputs);
-        let up_correction_f32 = up_axis_correction.as_ref().map(mat4_f64_to_f32);
-        glb::build_glb(&node_tree, &inputs, &materials, &textures, &skins, &animations, &lights, &cameras, up_correction_f32, &instancing_inputs)
-            .map_err(|e| UsdError::Parse(e.to_string()))
+    // #46 (C++ backend): build the prim hierarchy NodeInput tree so the
+    // GLB carries Kitchen_set / Sponza-style nested xform graphs rather
+    // than a flat scene-root list. The synthetic `__upAxis` root added
+    // by `build_glb` carries the Z→Y correction; node local matrices
+    // here are pure USD space.
+    let node_tree = build_node_tree_cpp(
+        &stage,
+        &inputs,
+        &lights,
+        &cameras,
+        &skin_slots,
+        &instancing_inputs,
+    );
+    let up_correction_f32 = up_axis_correction.as_ref().map(mat4_f64_to_f32);
+    glb::build_glb(
+        &node_tree,
+        &inputs,
+        &materials,
+        &textures,
+        &skins,
+        &animations,
+        &lights,
+        &cameras,
+        up_correction_f32,
+        &instancing_inputs,
+    )
+    .map_err(|e| UsdError::Parse(e.to_string()))
 }
 
 fn invalid_variant_selection(selection: &VariantSelection) -> UsdError {
@@ -1850,10 +1865,22 @@ fn trs_to_mat4_f32(t: [f32; 3], r: [f32; 4], s: [f32; 3]) -> [f32; 16] {
     let r22 = 1.0 - 2.0 * (xx + yy);
 
     [
-        r00 * s[0], r10 * s[0], r20 * s[0], 0.0, // col 0
-        r01 * s[1], r11 * s[1], r21 * s[1], 0.0, // col 1
-        r02 * s[2], r12 * s[2], r22 * s[2], 0.0, // col 2
-        t[0], t[1], t[2], 1.0,                   // col 3
+        r00 * s[0],
+        r10 * s[0],
+        r20 * s[0],
+        0.0, // col 0
+        r01 * s[1],
+        r11 * s[1],
+        r21 * s[1],
+        0.0, // col 1
+        r02 * s[2],
+        r12 * s[2],
+        r22 * s[2],
+        0.0, // col 2
+        t[0],
+        t[1],
+        t[2],
+        1.0, // col 3
     ]
 }
 
@@ -1884,7 +1911,8 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
     // so `classify_attribute` (in the shared builder) recognizes the
     // length and emits correct per-vertex expansions. Matches
     // `expand_indexed_uvs` on the Rust backend.
-    let uvs = if !uvs_raw.is_empty() && !uv_indices.is_empty()
+    let uvs = if !uvs_raw.is_empty()
+        && !uv_indices.is_empty()
         && uvs_interp == Interpolation::FaceVarying
     {
         let mut expanded = Vec::with_capacity(uv_indices.len() * 2);
@@ -1920,10 +1948,7 @@ fn build_mesh_data_from_shim(stage: &CStage, prim_path: &str) -> Option<MeshData
     let (joint_indices, joint_weights, joints_per_vertex) = if jpv > 0 {
         let indices_i32 = stage.mesh_joint_indices(prim_path);
         let weights = stage.mesh_joint_weights(prim_path);
-        if indices_i32.is_empty()
-            || weights.is_empty()
-            || indices_i32.len() != weights.len()
-        {
+        if indices_i32.is_empty() || weights.is_empty() || indices_i32.len() != weights.len() {
             (None, None, 0)
         } else {
             // USD authors int[]; glTF wants u16 (triangulator later
@@ -2205,7 +2230,9 @@ fn build_animation_input_cpp(
         anim_index_for
             .iter()
             .map(|maybe_idx| {
-                let Some(anim_idx) = *maybe_idx else { return None };
+                let Some(anim_idx) = *maybe_idx else {
+                    return None;
+                };
                 let mut out = Vec::with_capacity(frame_count * stride);
                 for frame in samples.iter().take(frame_count) {
                     let off = anim_idx * stride;
@@ -2276,12 +2303,14 @@ fn build_skin_input_cpp(
     let bind_world_matrices = unflatten_mat4_or_identity(&bind_flat, joint_count);
     let inverse_bind_matrices: Vec<[f32; 16]> = bind_world_matrices
         .iter()
-        .map(|m| invert_mat4_f32(m).unwrap_or([
-            1.0, 0.0, 0.0, 0.0, //
-            0.0, 1.0, 0.0, 0.0, //
-            0.0, 0.0, 1.0, 0.0, //
-            0.0, 0.0, 0.0, 1.0,
-        ]))
+        .map(|m| {
+            invert_mat4_f32(m).unwrap_or([
+                1.0, 0.0, 0.0, 0.0, //
+                0.0, 1.0, 0.0, 0.0, //
+                0.0, 0.0, 1.0, 0.0, //
+                0.0, 0.0, 0.0, 1.0,
+            ])
+        })
         .collect();
 
     // **Phase 2.P**: capture the Skeleton prim's composed world
@@ -2377,7 +2406,9 @@ fn apply_display_color_fallback_cpp(
     if slot != 0 {
         return slot;
     }
-    let Some(dc) = &mesh.display_color else { return 0 };
+    let Some(dc) = &mesh.display_color else {
+        return 0;
+    };
     // Only the constant-interpolation case makes sense as a material
     // fallback; per-vertex / faceVarying display colors flow into
     // COLOR_0 via `mesh_data_to_input` and don't need a material
@@ -2418,10 +2449,7 @@ fn apply_display_color_fallback_cpp(
 /// `SphereLight` (→ point) are mapped, matching the Rust backend's
 /// scope. Area lights and DomeLights are intentionally skipped —
 /// glTF's `KHR_lights_punctual` does not cover them.
-fn resolve_lights_cpp(
-    stage: &CStage,
-    up_correction: Option<&[f64; 16]>,
-) -> Vec<glb::LightInput> {
+fn resolve_lights_cpp(stage: &CStage, up_correction: Option<&[f64; 16]>) -> Vec<glb::LightInput> {
     let mut out = Vec::new();
     for prim_path in stage.traverse() {
         let kind = match stage.prim_type_name(&prim_path).as_deref() {
@@ -2466,10 +2494,7 @@ fn resolve_lights_cpp(
 /// are skipped like the Rust backend does. Spec defaults kick in
 /// when `focalLength` / `horizontalAperture` / `verticalAperture`
 /// are unauthored so every camera produces a valid glTF entry.
-fn resolve_cameras_cpp(
-    stage: &CStage,
-    up_correction: Option<&[f64; 16]>,
-) -> Vec<glb::CameraInput> {
+fn resolve_cameras_cpp(stage: &CStage, up_correction: Option<&[f64; 16]>) -> Vec<glb::CameraInput> {
     let mut out = Vec::new();
     for prim_path in stage.traverse() {
         if stage.prim_type_name(&prim_path).as_deref() != Some("Camera") {
@@ -2744,37 +2769,69 @@ fn build_node_tree_cpp(
 fn invert_mat4_f64(m: &[f64; 16]) -> Option<[f64; 16]> {
     let mut inv = [0.0f64; 16];
     inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15]
-        + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
+        + m[9] * m[7] * m[14]
+        + m[13] * m[6] * m[11]
+        - m[13] * m[7] * m[10];
     inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15]
-        - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
+        - m[8] * m[7] * m[14]
+        - m[12] * m[6] * m[11]
+        + m[12] * m[7] * m[10];
     inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15]
-        + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
+        + m[8] * m[7] * m[13]
+        + m[12] * m[5] * m[11]
+        - m[12] * m[7] * m[9];
     inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14]
-        - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
+        - m[8] * m[6] * m[13]
+        - m[12] * m[5] * m[10]
+        + m[12] * m[6] * m[9];
     inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15]
-        - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
+        - m[9] * m[3] * m[14]
+        - m[13] * m[2] * m[11]
+        + m[13] * m[3] * m[10];
     inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15]
-        + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
+        + m[8] * m[3] * m[14]
+        + m[12] * m[2] * m[11]
+        - m[12] * m[3] * m[10];
     inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15]
-        - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
+        - m[8] * m[3] * m[13]
+        - m[12] * m[1] * m[11]
+        + m[12] * m[3] * m[9];
     inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14]
-        + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
+        + m[8] * m[2] * m[13]
+        + m[12] * m[1] * m[10]
+        - m[12] * m[2] * m[9];
     inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15]
-        + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
+        + m[5] * m[3] * m[14]
+        + m[13] * m[2] * m[7]
+        - m[13] * m[3] * m[6];
     inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15]
-        - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
+        - m[4] * m[3] * m[14]
+        - m[12] * m[2] * m[7]
+        + m[12] * m[3] * m[6];
     inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15]
-        + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
+        + m[4] * m[3] * m[13]
+        + m[12] * m[1] * m[7]
+        - m[12] * m[3] * m[5];
     inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14]
-        - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
+        - m[4] * m[2] * m[13]
+        - m[12] * m[1] * m[6]
+        + m[12] * m[2] * m[5];
     inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11]
-        - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
+        - m[5] * m[3] * m[10]
+        - m[9] * m[2] * m[7]
+        + m[9] * m[3] * m[6];
     inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11]
-        + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
+        + m[4] * m[3] * m[10]
+        + m[8] * m[2] * m[7]
+        - m[8] * m[3] * m[6];
     inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11]
-        - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
+        - m[4] * m[3] * m[9]
+        - m[8] * m[1] * m[7]
+        + m[8] * m[3] * m[5];
     inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10]
-        + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
+        + m[4] * m[2] * m[9]
+        + m[8] * m[1] * m[6]
+        - m[8] * m[2] * m[5];
 
     let det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
     if det.abs() < 1e-12 {
@@ -2956,8 +3013,7 @@ fn resolve_material_slot_cpp(
     // don't do in preview; in that case we fall back to scalar
     // factors on whichever channel isn't shared.
     let metallic_tex = resolve_shader_texture_asset(stage, &shader_path, "inputs:metallic");
-    let roughness_tex =
-        resolve_shader_texture_asset(stage, &shader_path, "inputs:roughness");
+    let roughness_tex = resolve_shader_texture_asset(stage, &shader_path, "inputs:roughness");
     // glTF packs both channels into one `metallicRoughnessTexture`
     // (G = roughness, B = metallic). We have three meaningful
     // cases to handle without the B / G channels leaking into a
@@ -3030,8 +3086,7 @@ fn resolve_uv_transform_cpp(
     stage: &CStage,
     texture_node_path: &str,
 ) -> Option<glb::TextureTransform> {
-    let xform_prim =
-        stage.shader_input_connected_source_prim(texture_node_path, "inputs:st")?;
+    let xform_prim = stage.shader_input_connected_source_prim(texture_node_path, "inputs:st")?;
     if stage.shader_id(&xform_prim).as_deref() != Some("UsdTransform2d") {
         return None;
     }

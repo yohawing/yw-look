@@ -18,12 +18,12 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 
-use crate::usd::{
-    AssetIssue, AttributeTimeSamples, DefaultBackend, OpenSession, PrimInspection,
-    StageInspection, StageLoadPolicy, StageRegistry, StageSummary, StageSessionHandle, UsdBackend,
-    UsdError, UsdLightInfo,
-};
 use crate::usd::types::ExtractGeometryOptions;
+use crate::usd::{
+    AssetIssue, AttributeTimeSamples, DefaultBackend, OpenSession, PrimInspection, StageInspection,
+    StageLoadPolicy, StageRegistry, StageSessionHandle, StageSummary, UsdError, UsdGeometryBackend,
+    UsdInspectBackend, UsdLightBackend, UsdLightInfo, UsdSessionBackend, UsdSourceBackend,
+};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
@@ -112,19 +112,91 @@ const OPEN_FILE_EVENT: &str = "yw-look://open-file";
 #[derive(Default)]
 struct PendingOpenFiles(Mutex<Vec<PathBuf>>);
 
-/// Active USD inspection backend. Held behind an `Arc` so each async
-/// Tauri command can clone a handle and move it into a blocking task
-/// without borrowing from `tauri::State`.
-/// Currently `OpenusdBackend` (yohawing/openusd `yw-look-phase1`).
-struct UsdBackendState(Arc<dyn UsdBackend>);
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendCapabilities {
+    inspect: bool,
+    geometry: bool,
+    source: bool,
+    session: bool,
+    light: bool,
+}
+
+/// Active USD backend capabilities. Each optional slot advertises whether
+/// the selected backend can satisfy that command family.
+struct UsdBackendState {
+    inspect: Arc<dyn UsdInspectBackend>,
+    geometry: Option<Arc<dyn UsdGeometryBackend>>,
+    source: Option<Arc<dyn UsdSourceBackend>>,
+    session: Option<Arc<dyn UsdSessionBackend>>,
+    light: Option<Arc<dyn UsdLightBackend>>,
+}
 
 impl UsdBackendState {
-    fn new(backend: impl UsdBackend + 'static) -> Self {
-        Self(Arc::new(backend))
+    #[cfg(feature = "backend-openusd-cpp")]
+    fn new(backend: DefaultBackend) -> Self {
+        let backend = Arc::new(backend);
+        Self {
+            inspect: backend.clone() as Arc<dyn UsdInspectBackend>,
+            geometry: Some(backend.clone() as Arc<dyn UsdGeometryBackend>),
+            source: Some(backend.clone() as Arc<dyn UsdSourceBackend>),
+            session: Some(backend.clone() as Arc<dyn UsdSessionBackend>),
+            light: Some(backend as Arc<dyn UsdLightBackend>),
+        }
     }
 
-    fn handle(&self) -> Arc<dyn UsdBackend> {
-        Arc::clone(&self.0)
+    #[cfg(all(feature = "backend-openusd-rs", not(feature = "backend-openusd-cpp"),))]
+    fn new(backend: DefaultBackend) -> Self {
+        let backend = Arc::new(backend);
+        Self {
+            inspect: backend.clone() as Arc<dyn UsdInspectBackend>,
+            geometry: Some(backend.clone() as Arc<dyn UsdGeometryBackend>),
+            source: None,
+            session: Some(backend as Arc<dyn UsdSessionBackend>),
+            light: None,
+        }
+    }
+
+    fn capabilities(&self) -> BackendCapabilities {
+        BackendCapabilities {
+            inspect: true,
+            geometry: self.geometry.is_some(),
+            source: self.source.is_some(),
+            session: self.session.is_some(),
+            light: self.light.is_some(),
+        }
+    }
+
+    fn inspect(&self) -> Arc<dyn UsdInspectBackend> {
+        Arc::clone(&self.inspect)
+    }
+
+    fn geometry(&self) -> Result<Arc<dyn UsdGeometryBackend>, String> {
+        self.geometry
+            .as_ref()
+            .map(Arc::clone)
+            .ok_or_else(|| "USD backend capability unavailable: geometry".to_string())
+    }
+
+    fn source(&self) -> Result<Arc<dyn UsdSourceBackend>, String> {
+        self.source
+            .as_ref()
+            .map(Arc::clone)
+            .ok_or_else(|| "USD backend capability unavailable: source".to_string())
+    }
+
+    fn session(&self) -> Result<Arc<dyn UsdSessionBackend>, String> {
+        self.session
+            .as_ref()
+            .map(Arc::clone)
+            .ok_or_else(|| "USD backend capability unavailable: session".to_string())
+    }
+
+    fn light(&self) -> Result<Arc<dyn UsdLightBackend>, String> {
+        self.light
+            .as_ref()
+            .map(Arc::clone)
+            .ok_or_else(|| "USD backend capability unavailable: light".to_string())
     }
 }
 
@@ -372,7 +444,9 @@ fn parse_size_argument(value: &str) -> Result<(u32, u32), String> {
         .parse()
         .map_err(|error| format!("--size height '{h}' is not a u32: {error}"))?;
     if width == 0 || height == 0 {
-        return Err(format!("--size width/height must be > 0, got {width}x{height}"));
+        return Err(format!(
+            "--size width/height must be > 0, got {width}x{height}"
+        ));
     }
     if width > 8192 || height > 8192 {
         return Err(format!(
@@ -383,8 +457,7 @@ fn parse_size_argument(value: &str) -> Result<(u32, u32), String> {
 }
 
 fn resolve_shot_input(path: &Path) -> Result<PathBuf, String> {
-    let normalized = canonicalize_existing_path(path)
-        .map_err(|error| format!("--in {error}"))?;
+    let normalized = canonicalize_existing_path(path).map_err(|error| format!("--in {error}"))?;
     if !normalized.is_file() {
         return Err(format!(
             "--in path '{}' is not a regular file",
@@ -406,8 +479,8 @@ fn resolve_shot_output(path: &Path) -> Result<PathBuf, String> {
             parent.display()
         )
     })?;
-    let normalized_parent = canonicalize_existing_path(&parent)
-        .map_err(|error| format!("--out parent {error}"))?;
+    let normalized_parent =
+        canonicalize_existing_path(&parent).map_err(|error| format!("--out parent {error}"))?;
     let file_name = path
         .file_name()
         .ok_or_else(|| format!("--out path '{}' has no file name", path.display()))?;
@@ -424,7 +497,11 @@ fn parse_shot_cli_config() -> Result<Option<ShotCliConfig>, String> {
     if shot_flag && check_flag {
         return Err("--shot and --check are mutually exclusive".to_string());
     }
-    let mode = if shot_flag { ShotMode::Shot } else { ShotMode::Check };
+    let mode = if shot_flag {
+        ShotMode::Shot
+    } else {
+        ShotMode::Check
+    };
 
     let mut input_path: Option<PathBuf> = None;
     let mut output_path: Option<PathBuf> = None;
@@ -467,19 +544,23 @@ fn parse_shot_cli_config() -> Result<Option<ShotCliConfig>, String> {
         index += 1;
     }
 
-    let input_path = resolve_shot_input(
-        &input_path.ok_or_else(|| {
-            format!(
-                "--{} requires --in <path>",
-                if mode == ShotMode::Shot { "shot" } else { "check" }
-            )
-        })?,
-    )?;
+    let input_path = resolve_shot_input(&input_path.ok_or_else(|| {
+        format!(
+            "--{} requires --in <path>",
+            if mode == ShotMode::Shot {
+                "shot"
+            } else {
+                "check"
+            }
+        )
+    })?)?;
 
     let output_path = match mode {
-        ShotMode::Shot => Some(resolve_shot_output(
-            &output_path.ok_or_else(|| "--shot requires --out <path>".to_string())?,
-        )?),
+        ShotMode::Shot => {
+            Some(resolve_shot_output(&output_path.ok_or_else(|| {
+                "--shot requires --out <path>".to_string()
+            })?)?)
+        }
         ShotMode::Check => None,
     };
 
@@ -1583,6 +1664,14 @@ where
         .map_err(map_usd_error)
 }
 
+#[allow(non_snake_case)]
+#[tauri::command]
+async fn backendCapabilities(
+    backend: tauri::State<'_, UsdBackendState>,
+) -> Result<BackendCapabilities, String> {
+    Ok(backend.capabilities())
+}
+
 #[tauri::command]
 async fn inspect_stage(
     backend: tauri::State<'_, UsdBackendState>,
@@ -1592,7 +1681,7 @@ async fn inspect_stage(
     policy: Option<StageLoadPolicy>,
 ) -> Result<StageInspection, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.handle();
+    let handle = backend.inspect();
     let policy = policy.unwrap_or_default();
     run_blocking_usd(move || handle.inspect_stage(&normalized, policy)).await
 }
@@ -1612,7 +1701,7 @@ async fn inspect_attribute_time_samples(
 ) -> Result<AttributeTimeSamples, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let cap = max_samples.unwrap_or(100);
-    let handle = backend.handle();
+    let handle = backend.inspect();
     run_blocking_usd(move || {
         handle.inspect_attribute_time_samples(&normalized, &prim_path, &attr_name, cap)
     })
@@ -1630,7 +1719,7 @@ async fn inspect_prim(
     prim_path: String,
 ) -> Result<PrimInspection, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.handle();
+    let handle = backend.inspect();
     run_blocking_usd(move || handle.inspect_prim(&normalized, &prim_path)).await
 }
 
@@ -1647,7 +1736,7 @@ async fn inspect_usd_lights(
     path: String,
 ) -> Result<Vec<UsdLightInfo>, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.handle();
+    let handle = backend.light()?;
     run_blocking_usd(move || handle.inspect_usd_lights(&normalized)).await
 }
 
@@ -1658,7 +1747,7 @@ async fn summarize_stage(
     policy: Option<StageLoadPolicy>,
 ) -> Result<StageSummary, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.handle();
+    let handle = backend.inspect();
     let policy = policy.unwrap_or_default();
     run_blocking_usd(move || handle.summarize_stage(&normalized, policy)).await
 }
@@ -1670,7 +1759,7 @@ async fn collect_asset_issues(
 ) -> Result<Vec<AssetIssue>, String> {
     // Asset issues always run under LoadAll — see the backend impl.
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.handle();
+    let handle = backend.inspect();
     run_blocking_usd(move || handle.collect_asset_issues(&normalized)).await
 }
 
@@ -1690,7 +1779,7 @@ async fn requires_glb_preview(
     path: String,
 ) -> Result<bool, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.handle();
+    let handle = backend.inspect();
     run_blocking_usd(move || handle.requires_glb_preview(&normalized)).await
 }
 
@@ -1716,7 +1805,7 @@ async fn extract_geometry(
     options: Option<crate::usd::types::ExtractGeometryOptions>,
 ) -> Result<tauri::ipc::Response, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.handle();
+    let handle = backend.geometry()?;
     let resolved_options = options.unwrap_or_else(|| {
         crate::usd::types::ExtractGeometryOptions::from(policy.unwrap_or_default())
     });
@@ -1740,7 +1829,7 @@ async fn flatten_stage(
     path: String,
 ) -> Result<String, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.handle();
+    let handle = backend.source()?;
     run_blocking_usd(move || handle.flatten_stage(&normalized)).await
 }
 
@@ -1762,12 +1851,10 @@ async fn open_stage_session(
     policy: Option<StageLoadPolicy>,
 ) -> Result<StageSessionHandle, String> {
     let normalized = normalize_file_path(PathBuf::from(path.clone()))?;
-    let handle = backend.handle();
+    let handle = backend.session()?;
     let policy = policy.unwrap_or_default();
-    let open_stage = run_blocking_usd(move || {
-        handle.open_stage_session(&normalized, policy)
-    })
-    .await?;
+    let open_stage =
+        run_blocking_usd(move || handle.open_stage_session(&normalized, policy)).await?;
 
     let session = OpenSession {
         path: PathBuf::from(path),
@@ -1805,19 +1892,18 @@ async fn load_payload(
     prim_path: String,
 ) -> Result<(), String> {
     use tauri::Manager;
-    let backend_handle = backend.handle();
+    let backend_handle = backend.session()?;
     // `UsdStage::Load` performs synchronous composition + I/O for
     // potentially large layers; route it through the blocking pool so
     // the async runtime stays responsive to other IPC traffic.
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let registry = app.state::<StageRegistry>();
-        registry
-            .with(handle, |session| {
-                backend_handle
-                    .load_payload(&session.stage, &prim_path)
-                    .map_err(|e| e.to_string())
-            })
-            .ok_or_else(|| format!("load_payload: unknown session handle {}", handle.0))?
+        let session = registry
+            .get(handle)
+            .ok_or_else(|| format!("load_payload: unknown session handle {}", handle.0))?;
+        backend_handle
+            .load_payload(&session.stage, &prim_path)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("USD task join error: {e}"))?
@@ -1836,19 +1922,18 @@ async fn unload_payload(
     prim_path: String,
 ) -> Result<(), String> {
     use tauri::Manager;
-    let backend_handle = backend.handle();
+    let backend_handle = backend.session()?;
     // Unload is cheaper than load but still touches `UsdStage`'s
     // composition cache; keep it off the async runtime for symmetry
     // and to guarantee the registry mutex isn't held across `.await`.
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let registry = app.state::<StageRegistry>();
-        registry
-            .with(handle, |session| {
-                backend_handle
-                    .unload_payload(&session.stage, &prim_path)
-                    .map_err(|e| e.to_string())
-            })
-            .ok_or_else(|| format!("unload_payload: unknown session handle {}", handle.0))?
+        let session = registry
+            .get(handle)
+            .ok_or_else(|| format!("unload_payload: unknown session handle {}", handle.0))?;
+        backend_handle
+            .unload_payload(&session.stage, &prim_path)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("USD task join error: {e}"))?
@@ -1867,31 +1952,23 @@ async fn extract_geometry_session(
     policy: Option<StageLoadPolicy>,
 ) -> Result<tauri::ipc::Response, String> {
     use tauri::Manager;
-    let resolved_options = options.unwrap_or_else(|| {
-        ExtractGeometryOptions::from(policy.unwrap_or_default())
-    });
-    let backend_handle = backend.handle();
+    let resolved_options =
+        options.unwrap_or_else(|| ExtractGeometryOptions::from(policy.unwrap_or_default()));
+    let backend_handle = backend.session()?;
     // Heavy USD GLB extraction must not run on the async runtime's worker.
     // Move it to a blocking task and look up the registry from `app` inside
     // (avoids holding a `tauri::State` reference across `.await`).
     let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
         let registry = app.state::<StageRegistry>();
-        registry
-            .with(handle, |session| {
-                backend_handle
-                    .extract_geometry_from_session(
-                        &session.stage,
-                        &session.path,
-                        &resolved_options,
-                    )
-                    .map_err(|e| e.to_string())
-            })
-            .ok_or_else(|| {
-                format!(
-                    "extract_geometry_session: unknown session handle {}",
-                    handle.0
-                )
-            })?
+        let session = registry.get(handle).ok_or_else(|| {
+            format!(
+                "extract_geometry_session: unknown session handle {}",
+                handle.0
+            )
+        })?;
+        backend_handle
+            .extract_geometry_from_session(&session.stage, &session.path, &resolved_options)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("USD task join error: {e}"))??;
@@ -2057,6 +2134,7 @@ pub fn run() {
             install_pending_update,
             inspect_asset,
             load_format_support,
+            backendCapabilities,
             inspect_stage,
             summarize_stage,
             collect_asset_issues,

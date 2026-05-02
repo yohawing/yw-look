@@ -15,12 +15,12 @@ use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::stage::{MaterialData, MeshData, UpAxis};
 use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
 
-use super::backend::{UsdBackend, UsdError};
+use super::backend::{UsdError, UsdGeometryBackend, UsdInspectBackend, UsdSessionBackend};
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
     CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection,
-    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary, UsdLightInfo,
+    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
 };
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
@@ -36,11 +36,7 @@ use super::types::{
 /// them. This is the Rust-fork backend equivalent of the C shim's
 /// `usdc_stage_authored_*` family — see
 /// `usd_c_shim.cpp::read_authored_root_field_double`.
-fn read_root_double_field(
-    stage: &Stage,
-    pseudo_root: &SdfPath,
-    field: FieldKey,
-) -> Option<f64> {
+fn read_root_double_field(stage: &Stage, pseudo_root: &SdfPath, field: FieldKey) -> Option<f64> {
     let value = stage.field::<SdfValue>(pseudo_root.clone(), field).ok()??;
     match value {
         SdfValue::Double(v) => Some(v),
@@ -102,7 +98,7 @@ impl Default for OpenusdBackend {
     }
 }
 
-impl UsdBackend for OpenusdBackend {
+impl UsdInspectBackend for OpenusdBackend {
     fn inspect_stage(
         &self,
         path: &StdPath,
@@ -134,8 +130,7 @@ impl UsdBackend for OpenusdBackend {
         // authored `assetPath` appears in `unresolved_assets()` is reported
         // as `Missing`, everything else is `Loaded`.
         let missing_assets = stage.unresolved_assets();
-        let unresolved_set: HashSet<&str> =
-            missing_assets.iter().map(String::as_str).collect();
+        let unresolved_set: HashSet<&str> = missing_assets.iter().map(String::as_str).collect();
 
         // Phase 4: collect the payload arcs the layer collector skipped
         // under NoPayloads. The key here is `(asset_path, source_prim)`
@@ -179,14 +174,14 @@ impl UsdBackend for OpenusdBackend {
                         // the per-set selection query. For now the
                         // inspector shows the set name without the
                         // selection.
-                        variant_sets_out.borrow_mut().push(
-                            super::types::VariantSetInfo {
+                        variant_sets_out
+                            .borrow_mut()
+                            .push(super::types::VariantSetInfo {
                                 prim_path: source.clone(),
                                 set_name: set_name.clone(),
                                 selection,
                                 variants: Vec::new(),
-                            },
-                        );
+                            });
                     }
                 }
 
@@ -207,12 +202,8 @@ impl UsdBackend for OpenusdBackend {
                     // UI displays as the arc destination). They are usually
                     // but not always the same path.
                     let target_prim = p.prim_path.to_string();
-                    let state = payload_arc_state(
-                        &unresolved_set,
-                        &skipped_set,
-                        &p.asset_path,
-                        &source,
-                    );
+                    let state =
+                        payload_arc_state(&unresolved_set, &skipped_set, &p.asset_path, &source);
                     payloads.borrow_mut().push(CompositionArc {
                         source_prim: source.clone(),
                         asset_path: p.asset_path,
@@ -229,26 +220,12 @@ impl UsdBackend for OpenusdBackend {
         // query the pseudoroot's field directly via `Stage::field`.
         // Each returns `None` when the metadatum is unauthored.
         let pseudo_root = SdfPath::from("/");
-        let time_codes_per_second = read_root_double_field(
-            &stage,
-            &pseudo_root,
-            FieldKey::TimeCodesPerSecond,
-        );
-        let frames_per_second = read_root_double_field(
-            &stage,
-            &pseudo_root,
-            FieldKey::FramesPerSecond,
-        );
-        let start_time_code = read_root_double_field(
-            &stage,
-            &pseudo_root,
-            FieldKey::StartTimeCode,
-        );
-        let end_time_code = read_root_double_field(
-            &stage,
-            &pseudo_root,
-            FieldKey::EndTimeCode,
-        );
+        let time_codes_per_second =
+            read_root_double_field(&stage, &pseudo_root, FieldKey::TimeCodesPerSecond);
+        let frames_per_second =
+            read_root_double_field(&stage, &pseudo_root, FieldKey::FramesPerSecond);
+        let start_time_code = read_root_double_field(&stage, &pseudo_root, FieldKey::StartTimeCode);
+        let end_time_code = read_root_double_field(&stage, &pseudo_root, FieldKey::EndTimeCode);
         let comment = stage
             .field::<String>(pseudo_root, FieldKey::Comment)
             .ok()
@@ -342,8 +319,7 @@ impl UsdBackend for OpenusdBackend {
         // #38: build unresolved-asset set upfront so arc classification
         // in the traverse closure can borrow it without moving `stage`.
         let unresolved_assets = stage.unresolved_assets();
-        let unresolved_set: HashSet<&str> =
-            unresolved_assets.iter().map(String::as_str).collect();
+        let unresolved_set: HashSet<&str> = unresolved_assets.iter().map(String::as_str).collect();
 
         // #38: skipped payloads for NoPayloads policy classification.
         let skipped_payloads = stage.skipped_payloads();
@@ -359,9 +335,7 @@ impl UsdBackend for OpenusdBackend {
                 {
                     if !type_name.is_empty() {
                         let mut buckets = prim_type_counts.borrow_mut();
-                        if let Some(slot) =
-                            buckets.iter_mut().find(|c| c.type_name == type_name)
-                        {
+                        if let Some(slot) = buckets.iter_mut().find(|c| c.type_name == type_name) {
                             slot.count += 1;
                         } else {
                             buckets.push(PrimTypeCount {
@@ -391,16 +365,13 @@ impl UsdBackend for OpenusdBackend {
                                 *total_vertices.borrow_mut() += count;
                             }
                         }
-                        if let Ok(counts_path) =
-                            prim_path.append_property("faceVertexCounts")
-                        {
+                        if let Ok(counts_path) = prim_path.append_property("faceVertexCounts") {
                             if let Ok(Some(SdfValue::IntVec(counts))) =
                                 stage.field::<SdfValue>(counts_path, FieldKey::Default)
                             {
                                 for n in counts {
                                     if n >= 3 {
-                                        *total_triangles.borrow_mut() +=
-                                            (n as usize) - 2;
+                                        *total_triangles.borrow_mut() += (n as usize) - 2;
                                     }
                                 }
                             }
@@ -421,12 +392,8 @@ impl UsdBackend for OpenusdBackend {
                 let payloads = stage.payloads_in(prim_path.clone());
                 for p in &payloads {
                     let source = prim_path.as_str().to_string();
-                    let state = payload_arc_state(
-                        &unresolved_set,
-                        &skipped_set,
-                        &p.asset_path,
-                        &source,
-                    );
+                    let state =
+                        payload_arc_state(&unresolved_set, &skipped_set, &p.asset_path, &source);
                     match state {
                         CompositionArcState::Missing => {
                             *unresolved_payload_count_stat.borrow_mut() += 1;
@@ -517,11 +484,7 @@ impl UsdBackend for OpenusdBackend {
         Ok(false)
     }
 
-    fn inspect_prim(
-        &self,
-        _path: &StdPath,
-        _prim_path: &str,
-    ) -> Result<PrimInspection, UsdError> {
+    fn inspect_prim(&self, _path: &StdPath, _prim_path: &str) -> Result<PrimInspection, UsdError> {
         Err(UsdError::Parse(
             "inspect_prim is not supported on the openusd Rust backend".into(),
         ))
@@ -536,40 +499,6 @@ impl UsdBackend for OpenusdBackend {
     ) -> Result<AttributeTimeSamples, UsdError> {
         Err(UsdError::Parse(
             "inspect_attribute_time_samples is not supported on the openusd Rust backend".into(),
-        ))
-    }
-
-    fn extract_geometry_glb(
-        &self,
-        path: &StdPath,
-        policy: StageLoadPolicy,
-    ) -> Result<Vec<u8>, UsdError> {
-        let stage = Self::open(path, policy)?;
-        extract_geometry_from_open_stage_rs(&stage, path, &ExtractGeometryOptions::from(policy))
-    }
-
-    fn extract_geometry_glb_with_options(
-        &self,
-        path: &StdPath,
-        options: &ExtractGeometryOptions,
-    ) -> Result<Vec<u8>, UsdError> {
-        let stage = Self::open(path, options.policy)?;
-        extract_geometry_from_open_stage_rs(&stage, path, options)
-    }
-
-    fn flatten_stage(&self, _path: &StdPath) -> Result<String, UsdError> {
-        Err(UsdError::Parse(
-            "flatten_stage is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
-                .to_string(),
-        ))
-    }
-
-    fn inspect_usd_lights(&self, _path: &StdPath) -> Result<Vec<UsdLightInfo>, UsdError> {
-        Err(UsdError::Parse(
-            "inspect_usd_lights is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature) to use this command"
-                .to_string(),
         ))
     }
 
@@ -590,8 +519,7 @@ impl UsdBackend for OpenusdBackend {
         }
 
         let unresolved_owned = stage.unresolved_assets();
-        let unresolved: HashSet<&str> =
-            unresolved_owned.iter().map(|s| s.as_str()).collect();
+        let unresolved: HashSet<&str> = unresolved_owned.iter().map(|s| s.as_str()).collect();
 
         let collected: RefCell<Vec<AssetIssue>> = RefCell::new(Vec::new());
         let covered: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
@@ -647,30 +575,46 @@ impl UsdBackend for OpenusdBackend {
 
         Ok(issues)
     }
+}
 
-    // ---- #44 session methods -----------------------------------------------
+impl UsdGeometryBackend for OpenusdBackend {
+    fn extract_geometry_glb(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+    ) -> Result<Vec<u8>, UsdError> {
+        let stage = Self::open(path, policy)?;
+        extract_geometry_from_open_stage_rs(&stage, path, &ExtractGeometryOptions::from(policy))
+    }
 
+    fn extract_geometry_glb_with_options(
+        &self,
+        path: &StdPath,
+        options: &ExtractGeometryOptions,
+    ) -> Result<Vec<u8>, UsdError> {
+        if !options.variant_selections.is_empty() {
+            eprintln!(
+                "[usd-rust] extract_geometry_glb_with_options: variant_selections are \
+                 not supported by the Rust openusd backend (degraded mode). The \
+                 authored variant selections will be used instead."
+            );
+        }
+        let stage = Self::open(path, options.policy)?;
+        extract_geometry_from_open_stage_rs(&stage, path, options)
+    }
+}
+
+#[cfg(feature = "backend-openusd-rs")]
+impl UsdSessionBackend for OpenusdBackend {
     fn open_stage_session(
         &self,
         path: &StdPath,
         policy: StageLoadPolicy,
     ) -> Result<crate::usd::stage_state::OpenStage, UsdError> {
         let stage = Self::open(path, policy)?;
-        // `OpenStage::Rust` only exists when the Rust-fork backend feature is
-        // compiled in. When only `backend-openusd-cpp` is enabled, this code
-        // path is unreachable because `DefaultBackend` resolves to
-        // `OpenusdCppBackend` — `OpenusdBackend` is never instantiated.
-        #[cfg(feature = "backend-openusd-rs")]
-        return Ok(crate::usd::stage_state::OpenStage::Rust(
+        Ok(crate::usd::stage_state::OpenStage::Rust(
             std::sync::Mutex::new(stage),
-        ));
-        #[cfg(not(feature = "backend-openusd-rs"))]
-        {
-            drop(stage);
-            unreachable!(
-                "OpenusdBackend::open_stage_session called without backend-openusd-rs feature"
-            );
-        }
+        ))
     }
 
     fn load_payload(
@@ -700,46 +644,21 @@ impl UsdBackend for OpenusdBackend {
     fn extract_geometry_from_session(
         &self,
         stage: &crate::usd::stage_state::OpenStage,
-        #[cfg(feature = "backend-openusd-rs")] stage_path: &StdPath,
-        #[cfg(not(feature = "backend-openusd-rs"))] _stage_path: &StdPath,
-        #[cfg(feature = "backend-openusd-rs")] options: &ExtractGeometryOptions,
-        #[cfg(not(feature = "backend-openusd-rs"))] _options: &ExtractGeometryOptions,
+        stage_path: &StdPath,
+        options: &ExtractGeometryOptions,
     ) -> Result<Vec<u8>, UsdError> {
-        // Dispatch based on which OpenStage variant is actually compiled in.
-        // Only one variant exists per feature combination, so we match with
-        // exhaustive arms guarded by cfg.
-        #[cfg(all(feature = "backend-openusd-rs", not(feature = "backend-openusd-cpp")))]
-        {
-            let crate::usd::stage_state::OpenStage::Rust(mutex) = stage;
-            let locked = mutex
-                .lock()
-                .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
-            return extract_geometry_from_open_stage_rs(&locked, stage_path, options);
-        }
-        #[cfg(all(feature = "backend-openusd-rs", feature = "backend-openusd-cpp"))]
         match stage {
             crate::usd::stage_state::OpenStage::Rust(mutex) => {
                 let locked = mutex
                     .lock()
                     .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
-                return extract_geometry_from_open_stage_rs(&locked, stage_path, options);
+                extract_geometry_from_open_stage_rs(&locked, stage_path, options)
             }
-            crate::usd::stage_state::OpenStage::Cpp(_) => {
-                return Err(UsdError::Parse(
-                    "extract_geometry_from_session: Cpp stage handle passed to Rust backend"
-                        .to_string(),
-                ));
-            }
-        }
-        // When only the C++ backend is compiled in, the Rust variant does not
-        // exist — this arm is unreachable but required for exhaustiveness.
-        #[cfg(not(feature = "backend-openusd-rs"))]
-        {
-            let _ = stage;
-            Err(UsdError::Parse(
+            #[cfg(feature = "backend-openusd-cpp")]
+            crate::usd::stage_state::OpenStage::Cpp(_) => Err(UsdError::Parse(
                 "extract_geometry_from_session: Cpp stage handle passed to Rust backend"
                     .to_string(),
-            ))
+            )),
         }
     }
 }
@@ -763,601 +682,579 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         });
     }
 
-        // Pre-compute the Z-up → Y-up correction, if any. The viewer is
-        // Y-up; Z-up USD scenes (Kitchen Set, most DCC exports from Maya
-        // / Houdini) need rotating into viewer space. We bake the
-        // correction into every mesh's world matrix below so the GLB is
-        // self-describing — the frontend doesn't need to know the
-        // original stage's up-axis.
-        let up_axis_correction = match stage.up_axis() {
-            Some(UpAxis::Z) => Some(z_up_to_y_up_mat4()),
-            _ => None,
-        };
+    // Pre-compute the Z-up → Y-up correction, if any. The viewer is
+    // Y-up; Z-up USD scenes (Kitchen Set, most DCC exports from Maya
+    // / Houdini) need rotating into viewer space. We bake the
+    // correction into every mesh's world matrix below so the GLB is
+    // self-describing — the frontend doesn't need to know the
+    // original stage's up-axis.
+    let up_axis_correction = match stage.up_axis() {
+        Some(UpAxis::Z) => Some(z_up_to_y_up_mat4()),
+        _ => None,
+    };
 
-        // Pass 1: collect every Mesh prim that is active and visible.
-        // We intentionally do NOT filter by purpose here so that all
-        // four USD purposes (default / render / proxy / guide) land in
-        // the GLB. Each MeshInput gets the resolved purpose token
-        // written into its `purpose` field so the frontend can toggle
-        // visibility dynamically without re-extracting the GLB (#32).
-        //
-        // (The legacy `is_renderable_mesh` helper also excluded proxy /
-        // guide — that behaviour now lives on the frontend via the
-        // `purposeModes` default render=true, proxy=false, guide=false.)
-        // #41: The Rust fork backend does not support UsdGeomPointInstancer.
-        // PointInstancer prims are silently skipped because they do not
-        // satisfy `is_mesh_active_and_visible`. Use the C++ backend
-        // (feature: backend-openusd-cpp) for EXT_mesh_gpu_instancing preview.
-        let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
-        let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
-        stage
-            .traverse(|prim_path| {
-                // Detect PointInstancer type by path heuristic: the stage's
-                // type_name field. We emit a warning and skip rather than error.
-                if let Ok(Some(SdfValue::Token(type_name))) = stage.field::<SdfValue>(
-                    prim_path.clone(),
-                    FieldKey::TypeName,
-                ) {
-                    if type_name.as_str() == "PointInstancer" {
-                        instancer_paths.borrow_mut().push(prim_path.clone());
-                        return; // skip from mesh traversal
-                    }
+    // Pass 1: collect every Mesh prim that is active and visible.
+    // We intentionally do NOT filter by purpose here so that all
+    // four USD purposes (default / render / proxy / guide) land in
+    // the GLB. Each MeshInput gets the resolved purpose token
+    // written into its `purpose` field so the frontend can toggle
+    // visibility dynamically without re-extracting the GLB (#32).
+    //
+    // (The legacy `is_renderable_mesh` helper also excluded proxy /
+    // guide — that behaviour now lives on the frontend via the
+    // `purposeModes` default render=true, proxy=false, guide=false.)
+    // #41: The Rust fork backend does not support UsdGeomPointInstancer.
+    // PointInstancer prims are silently skipped because they do not
+    // satisfy `is_mesh_active_and_visible`. Use the C++ backend
+    // (feature: backend-openusd-cpp) for EXT_mesh_gpu_instancing preview.
+    let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
+    let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
+    stage
+        .traverse(|prim_path| {
+            // Detect PointInstancer type by path heuristic: the stage's
+            // type_name field. We emit a warning and skip rather than error.
+            if let Ok(Some(SdfValue::Token(type_name))) =
+                stage.field::<SdfValue>(prim_path.clone(), FieldKey::TypeName)
+            {
+                if type_name.as_str() == "PointInstancer" {
+                    instancer_paths.borrow_mut().push(prim_path.clone());
+                    return; // skip from mesh traversal
                 }
-                if !is_mesh_active_and_visible(&stage, prim_path) {
-                    return;
-                }
-                mesh_paths.borrow_mut().push(prim_path.clone());
-            })
-            .map_err(|e| UsdError::Parse(e.to_string()))?;
+            }
+            if !is_mesh_active_and_visible(&stage, prim_path) {
+                return;
+            }
+            mesh_paths.borrow_mut().push(prim_path.clone());
+        })
+        .map_err(|e| UsdError::Parse(e.to_string()))?;
 
-        // Emit a single warning if any PointInstancer prims were found.
-        {
-            let instancer_list = instancer_paths.into_inner();
-            if !instancer_list.is_empty() {
-                eprintln!(
-                    "[usd-rs] {} PointInstancer prim(s) found (e.g. '{}') — not supported by \
+    // Emit a single warning if any PointInstancer prims were found.
+    {
+        let instancer_list = instancer_paths.into_inner();
+        if !instancer_list.is_empty() {
+            eprintln!(
+                "[usd-rs] {} PointInstancer prim(s) found (e.g. '{}') — not supported by \
                      the Rust fork backend; skipped. Use `--features backend-openusd-cpp` \
                      for EXT_mesh_gpu_instancing preview (#41).",
-                    instancer_list.len(),
-                    instancer_list[0]
-                );
-            }
+                instancer_list.len(),
+                instancer_list[0]
+            );
         }
+    }
 
-        let mesh_paths = mesh_paths.into_inner();
+    let mesh_paths = mesh_paths.into_inner();
 
-        // Filter out "leaked" root prims from referenced/payloaded
-        // layers. When a layer is composed via `prepend references`,
-        // the fork's traverse exposes both the composed prim tree
-        // (under defaultPrim) AND the raw root prims from the
-        // external layers. The raw roots produce visual duplicates
-        // at the origin. Keep only prims under the stage's
-        // defaultPrim (if one is authored); for stages without a
-        // defaultPrim we keep everything.
-        let mesh_paths = if let Some(ref dp) = stage.default_prim() {
-            let prefix = format!("/{dp}/");
-            let root_path = format!("/{dp}");
-            mesh_paths
-                .into_iter()
-                .filter(|p| {
-                    let s = p.as_str();
-                    s.starts_with(&prefix) || s == root_path
-                })
-                .collect::<Vec<_>>()
-        } else {
-            mesh_paths
+    // Filter out "leaked" root prims from referenced/payloaded
+    // layers. When a layer is composed via `prepend references`,
+    // the fork's traverse exposes both the composed prim tree
+    // (under defaultPrim) AND the raw root prims from the
+    // external layers. The raw roots produce visual duplicates
+    // at the origin. Keep only prims under the stage's
+    // defaultPrim (if one is authored); for stages without a
+    // defaultPrim we keep everything.
+    let mesh_paths = if let Some(ref dp) = stage.default_prim() {
+        let prefix = format!("/{dp}/");
+        let root_path = format!("/{dp}");
+        mesh_paths
+            .into_iter()
+            .filter(|p| {
+                let s = p.as_str();
+                s.starts_with(&prefix) || s == root_path
+            })
+            .collect::<Vec<_>>()
+    } else {
+        mesh_paths
+    };
+
+    if mesh_paths.is_empty() {
+        return Err(UsdError::Parse(
+            "no renderable Mesh prims found in stage".to_string(),
+        ));
+    }
+
+    // Phase 5a material resolution + Phase 5c texture embedding.
+    // The GLB output holds a deduplicated materials array; slot 0
+    // is always the default preview material so unbound meshes
+    // have something to point at. Each bound Material prim
+    // (identified by its composed path) maps to exactly one
+    // additional slot, built from `Stage::material_of` output.
+    // A mesh whose `bound_material` path appears multiple times
+    // across the stage shares the slot, matching how glTF expects
+    // material reuse to work.
+    //
+    // Texture resolution happens after the mesh pass: we collect
+    // each material's authored texture asset path during pass 2,
+    // then a final pass loads PNG/JPEG bytes (USDZ archive entry
+    // or filesystem-relative file) and patches the material's
+    // `base_color_texture` to point at the new GLB image slot.
+    let mut materials: Vec<glb::MaterialInput> = vec![glb::MaterialInput::default_preview()];
+    let mut material_slots: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    // Per material slot: the authored diffuse_texture asset path,
+    // or `None` for "no texture / default slot".
+    let mut material_texture_paths: Vec<Option<String>> = vec![None];
+    // Phase 6a: same shape as `material_texture_paths` but for
+    // `UsdPreviewSurface.inputs:normal` texture asset paths. Each
+    // slot is `None` when the material has no normal map
+    // authored. The loading loop below populates
+    // `MaterialInput.normal_texture` after deduping across slots.
+    let mut material_normal_paths: Vec<Option<String>> = vec![None];
+
+    // Phase 5c E: resolve any UsdSkel rig bound to one of the
+    // collected meshes BEFORE the mesh build pass so each mesh's
+    // `skin_index` can be set inline. We dedupe by skeleton prim
+    // path so a stage with several meshes sharing one rig
+    // produces exactly one GLB skin object.
+    let mut skins: Vec<glb::SkinInput> = Vec::new();
+    let mut skin_slots: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut mesh_skin_slots: Vec<Option<usize>> = vec![None; mesh_paths.len()];
+    // Pre-compute the f32 Z-up → Y-up correction for skeleton
+    // transforms. We need this in both the bind-transform
+    // rotation and the root-joint rest-transform rotation so the
+    // joint hierarchy comes out Y-up in the GLB.
+    let up_correction_f32: Option<[f32; 16]> = up_axis_correction.map(|c| mat4_f64_to_f32(&c));
+
+    for (i, prim_path) in mesh_paths.iter().enumerate() {
+        if let Some((skel_path, skel_data)) = stage.skeleton_of(prim_path.clone()) {
+            let key = skel_path.to_string();
+            let slot = if let Some(&existing) = skin_slots.get(&key) {
+                existing
+            } else {
+                let slot = skins.len();
+                let skin_input = skin_input_from_skel(&key, &skel_data, up_correction_f32.as_ref());
+                skins.push(skin_input);
+                skin_slots.insert(key, slot);
+                slot
+            };
+            mesh_skin_slots[i] = Some(slot);
+        }
+    }
+
+    // Pass 2: build a MeshInput per Mesh prim (or per GeomSubset
+    // when the mesh has face-level material splits), composing the
+    // world transform along the parent chain and pre-applying the
+    // up-axis correction.
+    let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
+    for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
+        let Some(mut mesh_data) = stage
+            .mesh_of(prim_path.clone())
+            .map_err(|e| UsdError::Parse(e.to_string()))?
+        else {
+            continue;
         };
 
-        if mesh_paths.is_empty() {
-            return Err(UsdError::Parse(
-                "no renderable Mesh prims found in stage".to_string(),
-            ));
+        let mut world = compose_world_xform(&stage, prim_path)?;
+        if let Some(correction) = &up_axis_correction {
+            world = mat4_mul(correction, &world);
         }
+        let world_f32 = mat4_f64_to_f32(&world);
 
-        // Phase 5a material resolution + Phase 5c texture embedding.
-        // The GLB output holds a deduplicated materials array; slot 0
-        // is always the default preview material so unbound meshes
-        // have something to point at. Each bound Material prim
-        // (identified by its composed path) maps to exactly one
-        // additional slot, built from `Stage::material_of` output.
-        // A mesh whose `bound_material` path appears multiple times
-        // across the stage shares the slot, matching how glTF expects
-        // material reuse to work.
-        //
-        // Texture resolution happens after the mesh pass: we collect
-        // each material's authored texture asset path during pass 2,
-        // then a final pass loads PNG/JPEG bytes (USDZ archive entry
-        // or filesystem-relative file) and patches the material's
-        // `base_color_texture` to point at the new GLB image slot.
-        let mut materials: Vec<glb::MaterialInput> =
-            vec![glb::MaterialInput::default_preview()];
-        let mut material_slots: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        // Per material slot: the authored diffuse_texture asset path,
-        // or `None` for "no texture / default slot".
-        let mut material_texture_paths: Vec<Option<String>> = vec![None];
-        // Phase 6a: same shape as `material_texture_paths` but for
-        // `UsdPreviewSurface.inputs:normal` texture asset paths. Each
-        // slot is `None` when the material has no normal map
-        // authored. The loading loop below populates
-        // `MaterialInput.normal_texture` after deduping across slots.
-        let mut material_normal_paths: Vec<Option<String>> = vec![None];
+        // Expand indexed face-varying UVs: USD allows
+        // `primvars:st:indices` to map compact UV arrays to
+        // face vertices (UV seam handling). If present, expand
+        // the compact UVs to full face-varying layout so
+        // classify_attribute picks them up as FaceVarying.
+        expand_indexed_uvs(&stage, prim_path, &mut mesh_data);
 
-        // Phase 5c E: resolve any UsdSkel rig bound to one of the
-        // collected meshes BEFORE the mesh build pass so each mesh's
-        // `skin_index` can be set inline. We dedupe by skeleton prim
-        // path so a stage with several meshes sharing one rig
-        // produces exactly one GLB skin object.
-        let mut skins: Vec<glb::SkinInput> = Vec::new();
-        let mut skin_slots: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        let mut mesh_skin_slots: Vec<Option<usize>> = vec![None; mesh_paths.len()];
-        // Pre-compute the f32 Z-up → Y-up correction for skeleton
-        // transforms. We need this in both the bind-transform
-        // rotation and the root-joint rest-transform rotation so the
-        // joint hierarchy comes out Y-up in the GLB.
-        let up_correction_f32: Option<[f32; 16]> =
-            up_axis_correction.map(|c| mat4_f64_to_f32(&c));
-
-        for (i, prim_path) in mesh_paths.iter().enumerate() {
-            if let Some((skel_path, skel_data)) =
-                stage.skeleton_of(prim_path.clone())
-            {
-                let key = skel_path.to_string();
-                let slot = if let Some(&existing) = skin_slots.get(&key) {
-                    existing
-                } else {
-                    let slot = skins.len();
-                    let skin_input =
-                        skin_input_from_skel(&key, &skel_data, up_correction_f32.as_ref());
-                    skins.push(skin_input);
-                    skin_slots.insert(key, slot);
-                    slot
-                };
-                mesh_skin_slots[i] = Some(slot);
+        // UsdSkel per-mesh `skel:joints` override: when a mesh
+        // authors its own ordered joint subset, the mesh's
+        // `primvars:skel:jointIndices` index into that subset,
+        // not the bound Skeleton's full `joints` array. glTF's
+        // `skin.joints` list mirrors the full skeleton order, so
+        // the raw indices must be remapped before they reach
+        // `mesh_data_to_input`. Apple ARKit exports
+        // (chameleon / seahorse) use this pattern heavily —
+        // eyeball meshes bind to a single head-deep joint, etc.
+        // Skipping this step leaves every vertex pointing at the
+        // wrong joint and produces the classic "exploded" look.
+        if let Some(skin_slot) = mesh_skin_slots[mesh_idx] {
+            if let Some(local_joints) = read_mesh_skel_joints_override(&stage, prim_path) {
+                if let Some(skin) = skins.get(skin_slot) {
+                    remap_mesh_skin_indices(&mut mesh_data, &local_joints, &skin.joint_names);
+                }
             }
         }
 
-        // Pass 2: build a MeshInput per Mesh prim (or per GeomSubset
-        // when the mesh has face-level material splits), composing the
-        // world transform along the parent chain and pre-applying the
-        // up-axis correction.
-        let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
-        for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
-            let Some(mut mesh_data) = stage
-                .mesh_of(prim_path.clone())
-                .map_err(|e| UsdError::Parse(e.to_string()))?
-            else {
-                continue;
-            };
+        let orientation = read_mesh_orientation(&stage, prim_path);
+        let max_joint = mesh_skin_slots[mesh_idx]
+            .and_then(|si| skins.get(si))
+            .map(|s| s.joint_names.len())
+            .unwrap_or(usize::MAX);
 
-            let mut world = compose_world_xform(&stage, prim_path)?;
-            if let Some(correction) = &up_axis_correction {
-                world = mat4_mul(correction, &world);
+        // Phase 6d: resolve blend shape targets against the mesh's
+        // own point count (same point buffer is shared across
+        // subsets, so the filtered / whole-mesh paths below both
+        // reuse this result). Empty when the mesh has no
+        // `skel:blendShapeTargets` relationship.
+        let point_count = mesh_data.points.len() / 3;
+        let blend_shapes = resolve_blend_shapes(&stage, prim_path, point_count);
+
+        // Issue #43 displayOpacity: read `primvars:displayOpacity`
+        // from the stage for this mesh prim. The values are scalar
+        // floats in the same interpolation topology as
+        // `primvars:displayColor` (vertex, faceVarying, constant,
+        // …). `None` when not authored — alpha falls back to 1.0.
+        let display_opacity_vec = read_display_opacity(&stage, prim_path);
+        let display_opacity: Option<&[f32]> = display_opacity_vec.as_deref();
+
+        // GeomSubset: if the mesh has face subsets with material
+        // bindings, produce one MeshInput per subset so each face
+        // group gets its own material. Otherwise fall through to
+        // the whole-mesh path.
+        let subsets = stage.geom_subsets_of(prim_path.clone());
+        let has_subset_materials =
+            !subsets.is_empty() && subsets.iter().any(|s| s.material_binding.is_some());
+
+        // Fallback: if subsets have NO material bindings but
+        // Material prims exist under a sibling `Looks` scope,
+        // try matching subset names to Material names by prefix.
+        // This catches Maya/Apple exports where the authored
+        // binding relationship is missing but the naming
+        // convention `subset_name` → `Looks/subset_name_N` holds.
+        let has_subset_materials = has_subset_materials || {
+            if !subsets.is_empty() && subsets.iter().all(|s| s.material_binding.is_none()) {
+                // Check if name-based matching would work
+                subsets
+                    .iter()
+                    .any(|s| find_material_by_name_fallback(&stage, prim_path, &s.name).is_some())
+            } else {
+                false
             }
-            let world_f32 = mat4_f64_to_f32(&world);
+        };
 
-            // Expand indexed face-varying UVs: USD allows
-            // `primvars:st:indices` to map compact UV arrays to
-            // face vertices (UV seam handling). If present, expand
-            // the compact UVs to full face-varying layout so
-            // classify_attribute picks them up as FaceVarying.
-            expand_indexed_uvs(&stage, prim_path, &mut mesh_data);
-
-            // UsdSkel per-mesh `skel:joints` override: when a mesh
-            // authors its own ordered joint subset, the mesh's
-            // `primvars:skel:jointIndices` index into that subset,
-            // not the bound Skeleton's full `joints` array. glTF's
-            // `skin.joints` list mirrors the full skeleton order, so
-            // the raw indices must be remapped before they reach
-            // `mesh_data_to_input`. Apple ARKit exports
-            // (chameleon / seahorse) use this pattern heavily —
-            // eyeball meshes bind to a single head-deep joint, etc.
-            // Skipping this step leaves every vertex pointing at the
-            // wrong joint and produces the classic "exploded" look.
-            if let Some(skin_slot) = mesh_skin_slots[mesh_idx] {
-                if let Some(local_joints) =
-                    read_mesh_skel_joints_override(&stage, prim_path)
-                {
-                    if let Some(skin) = skins.get(skin_slot) {
-                        remap_mesh_skin_indices(
-                            &mut mesh_data,
-                            &local_joints,
-                            &skin.joint_names,
-                        );
-                    }
+        if has_subset_materials {
+            for subset in &subsets {
+                let filtered = filter_mesh_by_face_indices(&mesh_data, &subset.indices);
+                if filtered.face_vertex_counts.is_empty() {
+                    continue;
                 }
-            }
-
-            let orientation = read_mesh_orientation(&stage, prim_path);
-            let max_joint = mesh_skin_slots[mesh_idx]
-                .and_then(|si| skins.get(si))
-                .map(|s| s.joint_names.len())
-                .unwrap_or(usize::MAX);
-
-            // Phase 6d: resolve blend shape targets against the mesh's
-            // own point count (same point buffer is shared across
-            // subsets, so the filtered / whole-mesh paths below both
-            // reuse this result). Empty when the mesh has no
-            // `skel:blendShapeTargets` relationship.
-            let point_count = mesh_data.points.len() / 3;
-            let blend_shapes = resolve_blend_shapes(&stage, prim_path, point_count);
-
-            // Issue #43 displayOpacity: read `primvars:displayOpacity`
-            // from the stage for this mesh prim. The values are scalar
-            // floats in the same interpolation topology as
-            // `primvars:displayColor` (vertex, faceVarying, constant,
-            // …). `None` when not authored — alpha falls back to 1.0.
-            let display_opacity_vec = read_display_opacity(&stage, prim_path);
-            let display_opacity: Option<&[f32]> =
-                display_opacity_vec.as_deref();
-
-            // GeomSubset: if the mesh has face subsets with material
-            // bindings, produce one MeshInput per subset so each face
-            // group gets its own material. Otherwise fall through to
-            // the whole-mesh path.
-            let subsets = stage.geom_subsets_of(prim_path.clone());
-            let has_subset_materials = !subsets.is_empty()
-                && subsets.iter().any(|s| s.material_binding.is_some());
-
-            // Fallback: if subsets have NO material bindings but
-            // Material prims exist under a sibling `Looks` scope,
-            // try matching subset names to Material names by prefix.
-            // This catches Maya/Apple exports where the authored
-            // binding relationship is missing but the naming
-            // convention `subset_name` → `Looks/subset_name_N` holds.
-            let has_subset_materials = has_subset_materials || {
-                if !subsets.is_empty() && subsets.iter().all(|s| s.material_binding.is_none()) {
-                    // Check if name-based matching would work
-                    subsets.iter().any(|s| {
-                        find_material_by_name_fallback(&stage, prim_path, &s.name).is_some()
-                    })
-                } else {
-                    false
-                }
-            };
-
-            if has_subset_materials {
-                for subset in &subsets {
-                    let filtered = filter_mesh_by_face_indices(
-                        &mesh_data,
-                        &subset.indices,
-                    );
-                    if filtered.face_vertex_counts.is_empty() {
-                        continue;
-                    }
-                    // Issue #43: opacity must be filtered alongside
-                    // the mesh data so faceVarying / uniform topologies
-                    // classify correctly against the subset's face
-                    // count rather than the whole mesh's.
-                    let subset_opacity_vec = display_opacity.map(|op| {
-                        filter_display_opacity_for_subset(op, &mesh_data, &subset.indices)
-                    });
-                    let subset_opacity: Option<&[f32]> =
-                        subset_opacity_vec.as_deref();
-                    let subset_name = SdfPath::new(
-                        &format!("{}/{}", prim_path.as_str(), subset.name),
-                    )
+                // Issue #43: opacity must be filtered alongside
+                // the mesh data so faceVarying / uniform topologies
+                // classify correctly against the subset's face
+                // count rather than the whole mesh's.
+                let subset_opacity_vec = display_opacity
+                    .map(|op| filter_display_opacity_for_subset(op, &mesh_data, &subset.indices));
+                let subset_opacity: Option<&[f32]> = subset_opacity_vec.as_deref();
+                let subset_name = SdfPath::new(&format!("{}/{}", prim_path.as_str(), subset.name))
                     .unwrap_or_else(|_| prim_path.clone());
-                    let mut tri = mesh_data_to_input(
-                        &subset_name,
-                        world_f32,
-                        &filtered,
-                        orientation,
-                        max_joint,
-                        &blend_shapes,
-                        subset_opacity,
-                    )?;
+                let mut tri = mesh_data_to_input(
+                    &subset_name,
+                    world_f32,
+                    &filtered,
+                    orientation,
+                    max_joint,
+                    &blend_shapes,
+                    subset_opacity,
+                )?;
 
-                    // Resolve material: try authored binding first,
-                    // fall back to name-based matching if missing.
-                    let mat_ref = subset.material_binding.as_ref().cloned().or_else(|| {
+                // Resolve material: try authored binding first,
+                // fall back to name-based matching if missing.
+                let mat_ref =
+                    subset.material_binding.as_ref().cloned().or_else(|| {
                         find_material_by_name_fallback(&stage, prim_path, &subset.name)
                     });
-                    let slot = resolve_material_slot(
-                        &stage,
-                        mat_ref.as_ref(),
-                        &subset_name,
-                        &mut materials,
-                        &mut material_texture_paths,
-                        &mut material_normal_paths,
-                        &mut material_slots,
-                    );
-                    tri.material_index = apply_display_color_fallback(
-                        slot,
-                        &filtered,
-                        &subset_name,
-                        &mut materials,
-                        &mut material_texture_paths,
-                        &mut material_normal_paths,
-                        &mut material_slots,
-                    );
-                    // Issue #43: upgrade material to BLEND when any vertex
-                    // alpha is < 1.0 (same logic as the whole-mesh path).
-                    if let Some(ref rgba) = tri.colors {
-                        let has_partial_alpha = rgba
-                            .chunks_exact(4)
-                            .any(|c| c[3] < 1.0 - 1e-4);
-                        if has_partial_alpha {
-                            let mi = tri.material_index;
-                            if let Some(mat) = materials.get_mut(mi) {
-                                if mat.alpha_mode != Some(glb::AlphaMode::Mask) {
-                                    mat.alpha_mode = Some(glb::AlphaMode::Blend);
-                                }
+                let slot = resolve_material_slot(
+                    &stage,
+                    mat_ref.as_ref(),
+                    &subset_name,
+                    &mut materials,
+                    &mut material_texture_paths,
+                    &mut material_normal_paths,
+                    &mut material_slots,
+                );
+                tri.material_index = apply_display_color_fallback(
+                    slot,
+                    &filtered,
+                    &subset_name,
+                    &mut materials,
+                    &mut material_texture_paths,
+                    &mut material_normal_paths,
+                    &mut material_slots,
+                );
+                // Issue #43: upgrade material to BLEND when any vertex
+                // alpha is < 1.0 (same logic as the whole-mesh path).
+                if let Some(ref rgba) = tri.colors {
+                    let has_partial_alpha = rgba.chunks_exact(4).any(|c| c[3] < 1.0 - 1e-4);
+                    if has_partial_alpha {
+                        let mi = tri.material_index;
+                        if let Some(mat) = materials.get_mut(mi) {
+                            if mat.alpha_mode != Some(glb::AlphaMode::Mask) {
+                                mat.alpha_mode = Some(glb::AlphaMode::Blend);
                             }
                         }
                     }
-                    tri.skin_index = mesh_skin_slots[mesh_idx];
-                    // #32: inherit parent mesh's purpose for subsets.
-                    tri.purpose = Some(resolve_purpose(&stage, prim_path));
-                    inputs.push(tri);
                 }
-                continue; // skip whole-mesh path
+                tri.skin_index = mesh_skin_slots[mesh_idx];
+                // #32: inherit parent mesh's purpose for subsets.
+                tri.purpose = Some(resolve_purpose(&stage, prim_path));
+                inputs.push(tri);
             }
+            continue; // skip whole-mesh path
+        }
 
-            let mut triangulated = mesh_data_to_input(
-                prim_path,
-                world_f32,
-                &mesh_data,
-                orientation,
-                max_joint,
-                &blend_shapes,
-                display_opacity,
-            )?;
+        let mut triangulated = mesh_data_to_input(
+            prim_path,
+            world_f32,
+            &mesh_data,
+            orientation,
+            max_joint,
+            &blend_shapes,
+            display_opacity,
+        )?;
 
-            // Resolve the material slot for this mesh. Unbound meshes
-            // fall back to slot 0 (default).
-            let slot = resolve_material_slot(
-                &stage,
-                stage.bound_material(prim_path.clone()).as_ref(),
-                prim_path,
-                &mut materials,
-                &mut material_texture_paths,
-                &mut material_normal_paths,
-                &mut material_slots,
-            );
-            triangulated.material_index = apply_display_color_fallback(
-                slot,
-                &mesh_data,
-                prim_path,
-                &mut materials,
-                &mut material_texture_paths,
-                &mut material_normal_paths,
-                &mut material_slots,
-            );
+        // Resolve the material slot for this mesh. Unbound meshes
+        // fall back to slot 0 (default).
+        let slot = resolve_material_slot(
+            &stage,
+            stage.bound_material(prim_path.clone()).as_ref(),
+            prim_path,
+            &mut materials,
+            &mut material_texture_paths,
+            &mut material_normal_paths,
+            &mut material_slots,
+        );
+        triangulated.material_index = apply_display_color_fallback(
+            slot,
+            &mesh_data,
+            prim_path,
+            &mut materials,
+            &mut material_texture_paths,
+            &mut material_normal_paths,
+            &mut material_slots,
+        );
 
-            // Issue #43: when displayOpacity yields any alpha < 1.0 on
-            // a per-vertex COLOR_0, the bound material must use
-            // alphaMode BLEND so the renderer actually applies the
-            // vertex alpha. Only upgrade to BLEND — never downgrade
-            // from MASK which was explicitly authored.
-            if let Some(ref rgba) = triangulated.colors {
-                let has_partial_alpha = rgba
-                    .chunks_exact(4)
-                    .any(|c| c[3] < 1.0 - 1e-4);
-                if has_partial_alpha {
-                    let mi = triangulated.material_index;
-                    if let Some(mat) = materials.get_mut(mi) {
-                        if mat.alpha_mode != Some(glb::AlphaMode::Mask) {
-                            mat.alpha_mode = Some(glb::AlphaMode::Blend);
-                        }
+        // Issue #43: when displayOpacity yields any alpha < 1.0 on
+        // a per-vertex COLOR_0, the bound material must use
+        // alphaMode BLEND so the renderer actually applies the
+        // vertex alpha. Only upgrade to BLEND — never downgrade
+        // from MASK which was explicitly authored.
+        if let Some(ref rgba) = triangulated.colors {
+            let has_partial_alpha = rgba.chunks_exact(4).any(|c| c[3] < 1.0 - 1e-4);
+            if has_partial_alpha {
+                let mi = triangulated.material_index;
+                if let Some(mat) = materials.get_mut(mi) {
+                    if mat.alpha_mode != Some(glb::AlphaMode::Mask) {
+                        mat.alpha_mode = Some(glb::AlphaMode::Blend);
                     }
                 }
             }
-
-            // Phase 5c E: attach the dedup'd skin slot to this mesh
-            // primitive. The mesh is rendered statically when no
-            // skin is bound.
-            triangulated.skin_index = mesh_skin_slots[mesh_idx];
-
-            // #32: resolve the USD purpose token for this prim and
-            // attach it to the MeshInput so the GLB writer can embed
-            // it in node extras. The frontend reads `userData.purpose`
-            // after GLTFLoader copies node extras → userData.
-            triangulated.purpose = Some(resolve_purpose(&stage, prim_path));
-
-            inputs.push(triangulated);
         }
 
-        if inputs.is_empty() {
-            return Err(UsdError::Parse(
-                "stage has Mesh prims but none had usable points data".to_string(),
-            ));
-        }
+        // Phase 5c E: attach the dedup'd skin slot to this mesh
+        // primitive. The mesh is rendered statically when no
+        // skin is bound.
+        triangulated.skin_index = mesh_skin_slots[mesh_idx];
 
-        // Phase 5c E: per skin, resolve the bound SkelAnimation and
-        // convert it into a glTF animation. Stages without
-        // skel:animationSource skip the conversion silently. We
-        // also need the stage's `timeCodesPerSecond` so we can map
-        // USD time codes (which is what `Stage::skel_animation_of`
-        // returns) to glTF seconds — the spec defaults to 24 when
-        // not authored, so we mirror that fallback. (Codex P1.)
-        let time_codes_per_second: f64 = stage
-            .field::<f64>(SdfPath::abs_root(), FieldKey::TimeCodesPerSecond)
-            .ok()
-            .flatten()
-            .filter(|v| *v > 0.0)
-            .unwrap_or(24.0);
-        let mut animations: Vec<glb::AnimationInput> = Vec::new();
-        for (skin_idx, skin) in skins.iter().enumerate() {
-            // Look up the skel path key by reverse mapping. Cheap:
-            // there are typically 0–2 skins in a stage.
-            let skel_path_str = skin_slots
-                .iter()
-                .find_map(|(k, &v)| (v == skin_idx).then(|| k.clone()));
-            let Some(skel_path_str) = skel_path_str else { continue };
-            let Ok(skel_path) = SdfPath::new(&skel_path_str) else { continue };
-            if let Some(anim_data) = stage.skel_animation_of(skel_path) {
-                if let Some(anim_input) = animation_input_from_skel(
-                    skin_idx,
-                    &skin.joint_names,
-                    &anim_data,
-                    time_codes_per_second,
-                ) {
-                    animations.push(anim_input);
-                }
+        // #32: resolve the USD purpose token for this prim and
+        // attach it to the MeshInput so the GLB writer can embed
+        // it in node extras. The frontend reads `userData.purpose`
+        // after GLTFLoader copies node extras → userData.
+        triangulated.purpose = Some(resolve_purpose(&stage, prim_path));
+
+        inputs.push(triangulated);
+    }
+
+    if inputs.is_empty() {
+        return Err(UsdError::Parse(
+            "stage has Mesh prims but none had usable points data".to_string(),
+        ));
+    }
+
+    // Phase 5c E: per skin, resolve the bound SkelAnimation and
+    // convert it into a glTF animation. Stages without
+    // skel:animationSource skip the conversion silently. We
+    // also need the stage's `timeCodesPerSecond` so we can map
+    // USD time codes (which is what `Stage::skel_animation_of`
+    // returns) to glTF seconds — the spec defaults to 24 when
+    // not authored, so we mirror that fallback. (Codex P1.)
+    let time_codes_per_second: f64 = stage
+        .field::<f64>(SdfPath::abs_root(), FieldKey::TimeCodesPerSecond)
+        .ok()
+        .flatten()
+        .filter(|v| *v > 0.0)
+        .unwrap_or(24.0);
+    let mut animations: Vec<glb::AnimationInput> = Vec::new();
+    for (skin_idx, skin) in skins.iter().enumerate() {
+        // Look up the skel path key by reverse mapping. Cheap:
+        // there are typically 0–2 skins in a stage.
+        let skel_path_str = skin_slots
+            .iter()
+            .find_map(|(k, &v)| (v == skin_idx).then(|| k.clone()));
+        let Some(skel_path_str) = skel_path_str else {
+            continue;
+        };
+        let Ok(skel_path) = SdfPath::new(&skel_path_str) else {
+            continue;
+        };
+        if let Some(anim_data) = stage.skel_animation_of(skel_path) {
+            if let Some(anim_input) = animation_input_from_skel(
+                skin_idx,
+                &skin.joint_names,
+                &anim_data,
+                time_codes_per_second,
+            ) {
+                animations.push(anim_input);
             }
         }
+    }
 
-        // Phase 5c: resolve and embed each authored texture asset.
-        // `texture_loader` opens the USDZ archive lazily on the first
-        // texture lookup so non-textured stages don't pay the zip
-        // open cost.
-        //
-        // ### Layer-relative resolution: best effort, Phase 5d
-        //
-        // Ideally a `@./albedo.png@` authored on a Material that lives
-        // in a referenced layer should resolve relative to **that
-        // layer's** directory, not the top-level stage. The fork's
-        // `Stage::material_of` does not yet expose which layer a
-        // given material spec came from, so we approximate by
-        // searching every composed layer's parent directory in order
-        // (root first, then references / payloads / sublayers). For
-        // single-layer assets and self-contained USDZ this is
-        // identical to a layer-aware lookup. For composed scenes
-        // where two layers author the same relative path against
-        // different files, the closer-to-root layer wins; this is a
-        // known limitation tracked as Phase 5d (needs a fork API
-        // for `Stage::layer_for_prim`).
-        let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
-        if let Some(parent) = stage_path.parent() {
-            search_dirs.push(parent.to_path_buf());
-        }
-        for layer_id in stage.layer_identifiers() {
-            // layer_identifiers returns the root layer first, then the
-            // composed layers in order. Skip the root path's parent
-            // (already added) and convert each composed layer's
-            // identifier into a directory.
-            let layer_path = StdPath::new(&layer_id);
-            if let Some(parent) = layer_path.parent() {
-                if !search_dirs.iter().any(|d| d == parent) {
-                    search_dirs.push(parent.to_path_buf());
-                }
+    // Phase 5c: resolve and embed each authored texture asset.
+    // `texture_loader` opens the USDZ archive lazily on the first
+    // texture lookup so non-textured stages don't pay the zip
+    // open cost.
+    //
+    // ### Layer-relative resolution: best effort, Phase 5d
+    //
+    // Ideally a `@./albedo.png@` authored on a Material that lives
+    // in a referenced layer should resolve relative to **that
+    // layer's** directory, not the top-level stage. The fork's
+    // `Stage::material_of` does not yet expose which layer a
+    // given material spec came from, so we approximate by
+    // searching every composed layer's parent directory in order
+    // (root first, then references / payloads / sublayers). For
+    // single-layer assets and self-contained USDZ this is
+    // identical to a layer-aware lookup. For composed scenes
+    // where two layers author the same relative path against
+    // different files, the closer-to-root layer wins; this is a
+    // known limitation tracked as Phase 5d (needs a fork API
+    // for `Stage::layer_for_prim`).
+    let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(parent) = stage_path.parent() {
+        search_dirs.push(parent.to_path_buf());
+    }
+    for layer_id in stage.layer_identifiers() {
+        // layer_identifiers returns the root layer first, then the
+        // composed layers in order. Skip the root path's parent
+        // (already added) and convert each composed layer's
+        // identifier into a directory.
+        let layer_path = StdPath::new(&layer_id);
+        if let Some(parent) = layer_path.parent() {
+            if !search_dirs.iter().any(|d| d == parent) {
+                search_dirs.push(parent.to_path_buf());
             }
         }
+    }
 
-        let mut texture_loader = TextureLoader::new(stage_path, search_dirs);
-        let mut textures: Vec<glb::TextureInput> = Vec::new();
-        // Dedupe by **resolved source identity** (filesystem PathBuf or
-        // USDZ entry name), not the authored relative string. Two
-        // materials in different layers can author the same
-        // `@./albedo.png@` and resolve to different files; raw-string
-        // dedupe would silently merge them (Codex P2: dedupe key).
-        let mut texture_dedup: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        for (mat_idx, tex_path) in material_texture_paths.iter().enumerate() {
-            let Some(tex_path) = tex_path else { continue };
-            match texture_loader.load(tex_path) {
-                Ok(loaded) => {
-                    let new_idx =
-                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
-                            existing
-                        } else {
-                            let idx = textures.len();
-                            textures.push(loaded.input);
-                            texture_dedup.insert(loaded.identity, idx);
-                            idx
-                        };
-                    materials[mat_idx].base_color_texture = Some(new_idx);
-                    // Codex P1: when a base color texture is attached
-                    // we must neutralize the material's base color
-                    // factor to white. UsdPreviewSurface treats
-                    // diffuseColor as **either** a scalar value
-                    // **or** a UsdUVTexture connection — there is no
-                    // multiplicative tint in the standard preview
-                    // shader. Leaving the schema fallback (0.18, 0.18,
-                    // 0.18) in baseColorFactor would multiply the
-                    // sampled image by ~0.18 in glTF, rendering
-                    // textured surfaces 5× too dark. Preserve alpha
-                    // so opacity-driven alphaMode still works.
-                    let alpha = materials[mat_idx].base_color_factor[3];
-                    materials[mat_idx].base_color_factor = [1.0, 1.0, 1.0, alpha];
-                }
-                Err(err) => {
-                    // Don't fail the whole extraction over a missing
-                    // texture — log it and let the material fall back
-                    // to its scalar baseColorFactor. Real assets often
-                    // ship with broken texture references that the
-                    // user wants to see anyway.
-                    eprintln!(
-                        "[usd] failed to load texture '{}' for material[{mat_idx}]: {err}",
-                        tex_path
-                    );
-                }
+    let mut texture_loader = TextureLoader::new(stage_path, search_dirs);
+    let mut textures: Vec<glb::TextureInput> = Vec::new();
+    // Dedupe by **resolved source identity** (filesystem PathBuf or
+    // USDZ entry name), not the authored relative string. Two
+    // materials in different layers can author the same
+    // `@./albedo.png@` and resolve to different files; raw-string
+    // dedupe would silently merge them (Codex P2: dedupe key).
+    let mut texture_dedup: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for (mat_idx, tex_path) in material_texture_paths.iter().enumerate() {
+        let Some(tex_path) = tex_path else { continue };
+        match texture_loader.load(tex_path) {
+            Ok(loaded) => {
+                let new_idx = if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                    existing
+                } else {
+                    let idx = textures.len();
+                    textures.push(loaded.input);
+                    texture_dedup.insert(loaded.identity, idx);
+                    idx
+                };
+                materials[mat_idx].base_color_texture = Some(new_idx);
+                // Codex P1: when a base color texture is attached
+                // we must neutralize the material's base color
+                // factor to white. UsdPreviewSurface treats
+                // diffuseColor as **either** a scalar value
+                // **or** a UsdUVTexture connection — there is no
+                // multiplicative tint in the standard preview
+                // shader. Leaving the schema fallback (0.18, 0.18,
+                // 0.18) in baseColorFactor would multiply the
+                // sampled image by ~0.18 in glTF, rendering
+                // textured surfaces 5× too dark. Preserve alpha
+                // so opacity-driven alphaMode still works.
+                let alpha = materials[mat_idx].base_color_factor[3];
+                materials[mat_idx].base_color_factor = [1.0, 1.0, 1.0, alpha];
+            }
+            Err(err) => {
+                // Don't fail the whole extraction over a missing
+                // texture — log it and let the material fall back
+                // to its scalar baseColorFactor. Real assets often
+                // ship with broken texture references that the
+                // user wants to see anyway.
+                eprintln!(
+                    "[usd] failed to load texture '{}' for material[{mat_idx}]: {err}",
+                    tex_path
+                );
             }
         }
+    }
 
-        // Phase 6a: second pass for normal maps. Shares `texture_dedup`
-        // with the diffuse pass so a single image referenced from both
-        // channels (unusual, but seen in hand-authored fixtures)
-        // produces exactly one embedded copy. Failures only drop the
-        // normal channel; the diffuse output already established above
-        // is preserved.
-        for (mat_idx, tex_path) in material_normal_paths.iter().enumerate() {
-            let Some(tex_path) = tex_path else { continue };
-            match texture_loader.load(tex_path) {
-                Ok(loaded) => {
-                    let new_idx =
-                        if let Some(&existing) = texture_dedup.get(&loaded.identity) {
-                            existing
-                        } else {
-                            let idx = textures.len();
-                            textures.push(loaded.input);
-                            texture_dedup.insert(loaded.identity, idx);
-                            idx
-                        };
-                    materials[mat_idx].normal_texture = Some(new_idx);
-                }
-                Err(err) => {
-                    eprintln!(
-                        "[usd] failed to load normal map '{}' for material[{mat_idx}]: {err}",
-                        tex_path
-                    );
-                }
+    // Phase 6a: second pass for normal maps. Shares `texture_dedup`
+    // with the diffuse pass so a single image referenced from both
+    // channels (unusual, but seen in hand-authored fixtures)
+    // produces exactly one embedded copy. Failures only drop the
+    // normal channel; the diffuse output already established above
+    // is preserved.
+    for (mat_idx, tex_path) in material_normal_paths.iter().enumerate() {
+        let Some(tex_path) = tex_path else { continue };
+        match texture_loader.load(tex_path) {
+            Ok(loaded) => {
+                let new_idx = if let Some(&existing) = texture_dedup.get(&loaded.identity) {
+                    existing
+                } else {
+                    let idx = textures.len();
+                    textures.push(loaded.input);
+                    texture_dedup.insert(loaded.identity, idx);
+                    idx
+                };
+                materials[mat_idx].normal_texture = Some(new_idx);
+            }
+            Err(err) => {
+                eprintln!(
+                    "[usd] failed to load normal map '{}' for material[{mat_idx}]: {err}",
+                    tex_path
+                );
             }
         }
+    }
 
-        // Phase 7a: resolve authored UsdLux lights to glTF
-        // KHR_lights_punctual entries. Lights are always gathered at
-        // stage scope (independent of the mesh traversal above), so
-        // they come through even when the stage has no mesh prims —
-        // useful for USD lighting-only scenes that we may get in
-        // production.
-        let lights = resolve_lights(&stage, up_axis_correction.as_ref());
-        // Phase 7b: enumerate authored UsdGeomCamera prims. glTF
-        // cameras are emitted alongside meshes / lights; Three.js's
-        // GLTFLoader exposes them on `gltf.cameras` for the
-        // frontend's camera switcher to pick up.
-        let cameras = resolve_cameras(&stage, up_axis_correction.as_ref());
+    // Phase 7a: resolve authored UsdLux lights to glTF
+    // KHR_lights_punctual entries. Lights are always gathered at
+    // stage scope (independent of the mesh traversal above), so
+    // they come through even when the stage has no mesh prims —
+    // useful for USD lighting-only scenes that we may get in
+    // production.
+    let lights = resolve_lights(&stage, up_axis_correction.as_ref());
+    // Phase 7b: enumerate authored UsdGeomCamera prims. glTF
+    // cameras are emitted alongside meshes / lights; Three.js's
+    // GLTFLoader exposes them on `gltf.cameras` for the
+    // frontend's camera switcher to pick up.
+    let cameras = resolve_cameras(&stage, up_axis_correction.as_ref());
 
-        // Pass 1.5: build the prim hierarchy (NodeInput tree) for #46.
-        // Collect every prim path referenced by meshes, lights, cameras, and
-        // skins, then insert ancestor Group nodes so the GLB carries the full
-        // prim tree rather than a flat scene root.
-        let node_tree = build_node_tree(
-            &stage,
-            &mesh_paths,
-            &skin_slots,
-            &mesh_skin_slots,
-            &inputs,
-            &lights,
-            &cameras,
-            up_axis_correction.as_ref(),
-        );
+    // Pass 1.5: build the prim hierarchy (NodeInput tree) for #46.
+    // Collect every prim path referenced by meshes, lights, cameras, and
+    // skins, then insert ancestor Group nodes so the GLB carries the full
+    // prim tree rather than a flat scene root.
+    let node_tree = build_node_tree(
+        &stage,
+        &mesh_paths,
+        &skin_slots,
+        &mesh_skin_slots,
+        &inputs,
+        &lights,
+        &cameras,
+        up_axis_correction.as_ref(),
+    );
 
-        glb::build_glb(
-            &node_tree,
-            &inputs,
-            &materials,
-            &textures,
-            &skins,
-            &animations,
-            &lights,
-            &cameras,
-            up_correction_f32,
-            &[], // #41: Rust fork backend skips PointInstancer (no instancing support)
-        )
-        .map_err(UsdError::Parse)
+    glb::build_glb(
+        &node_tree,
+        &inputs,
+        &materials,
+        &textures,
+        &skins,
+        &animations,
+        &lights,
+        &cameras,
+        up_correction_f32,
+        &[], // #41: Rust fork backend skips PointInstancer (no instancing support)
+    )
+    .map_err(UsdError::Parse)
 }
 
 // ----- Arc state helpers ---------------------------------------------------
@@ -1409,10 +1306,7 @@ impl<'a> TextureLoader<'a> {
     /// Loads `asset_path` and returns a `LoadedTexture` ready to embed.
     /// The `identity` field of the result is what callers should key
     /// dedupe caches on (NOT the authored `asset_path` string).
-    pub(crate) fn load(
-        &mut self,
-        asset_path: &str,
-    ) -> Result<LoadedTexture, String> {
+    pub(crate) fn load(&mut self, asset_path: &str) -> Result<LoadedTexture, String> {
         let mime = guess_image_mime(asset_path)
             .ok_or_else(|| format!("unsupported texture extension: {asset_path}"))?;
 
@@ -1440,10 +1334,7 @@ impl<'a> TextureLoader<'a> {
             .unwrap_or(false)
     }
 
-    fn load_from_filesystem(
-        &self,
-        asset_path: &str,
-    ) -> Result<(Vec<u8>, String), String> {
+    fn load_from_filesystem(&self, asset_path: &str) -> Result<(Vec<u8>, String), String> {
         // Try absolute first, then each search dir in order.
         let candidate = StdPath::new(asset_path);
         if candidate.is_absolute() {
@@ -1466,8 +1357,7 @@ impl<'a> TextureLoader<'a> {
                     return Ok((bytes, canonical));
                 }
                 Err(e) => {
-                    last_err =
-                        Some(format!("{}: {e}", resolved.display()));
+                    last_err = Some(format!("{}: {e}", resolved.display()));
                 }
             }
         }
@@ -1478,19 +1368,13 @@ impl<'a> TextureLoader<'a> {
         ))
     }
 
-    fn load_from_usdz(
-        &mut self,
-        asset_path: &str,
-    ) -> Result<(Vec<u8>, String), String> {
+    fn load_from_usdz(&mut self, asset_path: &str) -> Result<(Vec<u8>, String), String> {
         if self.usdz_entries.is_none() && !self.usdz_open_failed {
             match Self::open_usdz_archive(self.source_path) {
                 Ok(map) => self.usdz_entries = Some(map),
                 Err(err) => {
                     self.usdz_open_failed = true;
-                    return Err(format!(
-                        "open usdz {}: {err}",
-                        self.source_path.display()
-                    ));
+                    return Err(format!("open usdz {}: {err}", self.source_path.display()));
                 }
             }
         }
@@ -1531,8 +1415,7 @@ impl<'a> TextureLoader<'a> {
             1 => {
                 let key = basename_matches[0];
                 let bytes = entries[key].clone();
-                let identity =
-                    format!("usdz:{}!{key}", self.source_path.display());
+                let identity = format!("usdz:{}!{key}", self.source_path.display());
                 Ok((bytes, identity))
             }
             n => Err(format!(
@@ -1546,10 +1429,8 @@ impl<'a> TextureLoader<'a> {
         source_path: &StdPath,
     ) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
         use std::io::Read;
-        let file = std::fs::File::open(source_path)
-            .map_err(|e| format!("open: {e}"))?;
-        let mut archive = zip::ZipArchive::new(file)
-            .map_err(|e| format!("zip header: {e}"))?;
+        let file = std::fs::File::open(source_path).map_err(|e| format!("open: {e}"))?;
+        let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("zip header: {e}"))?;
         let mut out = std::collections::HashMap::new();
         for i in 0..archive.len() {
             let mut entry = archive
@@ -1592,13 +1473,9 @@ fn guess_image_mime(asset_path: &str) -> Option<&'static str> {
 /// the caller that the mesh's joint indices are already in skeleton
 /// order (the common DCC case, e.g. the `tiny_rigged.usda` fixture
 /// and the `UsdSkelExamples/HumanFemale` rig).
-fn read_mesh_skel_joints_override(
-    stage: &Stage,
-    mesh_path: &SdfPath,
-) -> Option<Vec<String>> {
+fn read_mesh_skel_joints_override(stage: &Stage, mesh_path: &SdfPath) -> Option<Vec<String>> {
     let attr_path = mesh_path.append_property("skel:joints").ok()?;
-    let value: Option<SdfValue> =
-        stage.field(attr_path, FieldKey::Default).ok()?;
+    let value: Option<SdfValue> = stage.field(attr_path, FieldKey::Default).ok()?;
     match value? {
         SdfValue::TokenVec(v) | SdfValue::StringVec(v) => Some(v),
         _ => None,
@@ -1632,8 +1509,7 @@ pub(crate) fn remap_mesh_skin_indices(
         })
         .collect();
 
-    let (Some(indices), Some(weights)) =
-        (mesh.joint_indices.as_mut(), mesh.joint_weights.as_mut())
+    let (Some(indices), Some(weights)) = (mesh.joint_indices.as_mut(), mesh.joint_weights.as_mut())
     else {
         return;
     };
@@ -1691,11 +1567,7 @@ fn skin_input_from_skel(
     // identity so the GLB writer's parallel-length validation passes
     // even on slightly malformed assets.
     let rest_local_matrices = pad_to_len(rest_local_matrices, joint_count, IDENTITY_MAT4_F32);
-    let inverse_bind_matrices = pad_to_len(
-        inverse_bind_matrices,
-        joint_count,
-        IDENTITY_MAT4_F32,
-    );
+    let inverse_bind_matrices = pad_to_len(inverse_bind_matrices, joint_count, IDENTITY_MAT4_F32);
     glb::SkinInput {
         name: format!("usd:{name}"),
         joint_names: skel.joints.clone(),
@@ -1751,37 +1623,69 @@ fn pad_to_len<T: Clone>(mut v: Vec<T>, len: usize, fill: T) -> Vec<T> {
 pub(crate) fn invert_mat4_f32(m: &[f32; 16]) -> Option<[f32; 16]> {
     let inv: [f32; 16] = [
         m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15]
-            + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10],
+            + m[9] * m[7] * m[14]
+            + m[13] * m[6] * m[11]
+            - m[13] * m[7] * m[10],
         -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15]
-            - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10],
+            - m[9] * m[3] * m[14]
+            - m[13] * m[2] * m[11]
+            + m[13] * m[3] * m[10],
         m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15]
-            + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6],
+            + m[5] * m[3] * m[14]
+            + m[13] * m[2] * m[7]
+            - m[13] * m[3] * m[6],
         -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11]
-            - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6],
+            - m[5] * m[3] * m[10]
+            - m[9] * m[2] * m[7]
+            + m[9] * m[3] * m[6],
         -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15]
-            - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10],
+            - m[8] * m[7] * m[14]
+            - m[12] * m[6] * m[11]
+            + m[12] * m[7] * m[10],
         m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15]
-            + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10],
+            + m[8] * m[3] * m[14]
+            + m[12] * m[2] * m[11]
+            - m[12] * m[3] * m[10],
         -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15]
-            - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6],
+            - m[4] * m[3] * m[14]
+            - m[12] * m[2] * m[7]
+            + m[12] * m[3] * m[6],
         m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11]
-            + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6],
+            + m[4] * m[3] * m[10]
+            + m[8] * m[2] * m[7]
+            - m[8] * m[3] * m[6],
         m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15]
-            + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9],
+            + m[8] * m[7] * m[13]
+            + m[12] * m[5] * m[11]
+            - m[12] * m[7] * m[9],
         -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15]
-            - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9],
+            - m[8] * m[3] * m[13]
+            - m[12] * m[1] * m[11]
+            + m[12] * m[3] * m[9],
         m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15]
-            + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5],
+            + m[4] * m[3] * m[13]
+            + m[12] * m[1] * m[7]
+            - m[12] * m[3] * m[5],
         -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11]
-            - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5],
+            - m[4] * m[3] * m[9]
+            - m[8] * m[1] * m[7]
+            + m[8] * m[3] * m[5],
         -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14]
-            - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9],
+            - m[8] * m[6] * m[13]
+            - m[12] * m[5] * m[10]
+            + m[12] * m[6] * m[9],
         m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14]
-            + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9],
+            + m[8] * m[2] * m[13]
+            + m[12] * m[1] * m[10]
+            - m[12] * m[2] * m[9],
         -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14]
-            - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5],
+            - m[4] * m[2] * m[13]
+            - m[12] * m[1] * m[6]
+            + m[12] * m[2] * m[5],
         m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10]
-            + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5],
+            + m[4] * m[2] * m[9]
+            + m[8] * m[1] * m[6]
+            - m[8] * m[2] * m[5],
     ];
     let det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
     if det.abs() < 1e-8 || !det.is_finite() {
@@ -1841,7 +1745,9 @@ fn animation_input_from_skel(
         anim_index_for
             .iter()
             .map(|maybe_anim_idx| {
-                let Some(anim_idx) = *maybe_anim_idx else { return None };
+                let Some(anim_idx) = *maybe_anim_idx else {
+                    return None;
+                };
                 if samples.is_empty() || samples.len() < frame_count {
                     return None;
                 }
@@ -1888,11 +1794,7 @@ fn animation_input_from_skel(
 /// each face vertex to its UV entry. When present, expand the
 /// compact array to full face-varying layout so `classify_attribute`
 /// recognizes it and `mesh_data_to_input` emits `TEXCOORD_0`.
-fn expand_indexed_uvs(
-    stage: &Stage,
-    prim_path: &SdfPath,
-    mesh_data: &mut MeshData,
-) {
+fn expand_indexed_uvs(stage: &Stage, prim_path: &SdfPath, mesh_data: &mut MeshData) {
     let Some(ref uvs) = mesh_data.uvs else { return };
     let total_fv: usize = mesh_data
         .face_vertex_counts
@@ -1951,12 +1853,18 @@ fn find_material_by_name_fallback(
     // Walk up from the mesh to find a parent that has a `Looks` child.
     let mut parent_str = mesh_path.as_str().to_string();
     loop {
-        let Some(slash) = parent_str.rfind('/') else { break };
-        if slash == 0 { break; }
+        let Some(slash) = parent_str.rfind('/') else {
+            break;
+        };
+        if slash == 0 {
+            break;
+        }
         parent_str.truncate(slash);
 
         let looks_str = format!("{}/Looks", parent_str);
-        let Ok(looks_path) = SdfPath::new(&looks_str) else { continue };
+        let Ok(looks_path) = SdfPath::new(&looks_str) else {
+            continue;
+        };
 
         // Check if Looks prim exists by reading its specifier.
         if stage
@@ -1971,23 +1879,32 @@ fn find_material_by_name_fallback(
         // Found a Looks scope. Search its children for a Material
         // whose name starts with the subset name.
         let mut found: Option<SdfPath> = None;
-        stage.traverse(|prim_path| {
-            if found.is_some() { return; }
-            let path_str = prim_path.as_str();
-            if !path_str.starts_with(&looks_str) { return; }
-            // Direct child of Looks only (no deeper nesting)
-            let remainder = &path_str[looks_str.len()..];
-            if remainder.is_empty() || remainder.chars().filter(|c| *c == '/').count() != 1 {
-                return;
-            }
-            let child_name = remainder.trim_start_matches('/');
-            if child_name.starts_with(subset_name) {
-                let type_name: Option<String> = stage.field(prim_path.clone(), FieldKey::TypeName).ok().flatten();
-                if type_name.as_deref() == Some("Material") {
-                    found = Some(prim_path.clone());
+        stage
+            .traverse(|prim_path| {
+                if found.is_some() {
+                    return;
                 }
-            }
-        }).ok();
+                let path_str = prim_path.as_str();
+                if !path_str.starts_with(&looks_str) {
+                    return;
+                }
+                // Direct child of Looks only (no deeper nesting)
+                let remainder = &path_str[looks_str.len()..];
+                if remainder.is_empty() || remainder.chars().filter(|c| *c == '/').count() != 1 {
+                    return;
+                }
+                let child_name = remainder.trim_start_matches('/');
+                if child_name.starts_with(subset_name) {
+                    let type_name: Option<String> = stage
+                        .field(prim_path.clone(), FieldKey::TypeName)
+                        .ok()
+                        .flatten();
+                    if type_name.as_deref() == Some("Material") {
+                        found = Some(prim_path.clone());
+                    }
+                }
+            })
+            .ok();
 
         if found.is_some() {
             return found;
@@ -2036,8 +1953,7 @@ fn resolve_material_slot(
         // stays minimal.
         mi.base_color_texture_transform =
             resolve_texture_transform(stage, mat_path, "inputs:diffuseColor");
-        mi.normal_texture_transform =
-            resolve_texture_transform(stage, mat_path, "inputs:normal");
+        mi.normal_texture_transform = resolve_texture_transform(stage, mat_path, "inputs:normal");
         materials.push(mi);
         material_texture_paths.push(tex_path);
         material_normal_paths.push(normal_tex);
@@ -2084,13 +2000,10 @@ fn resolve_lights(stage: &Stage, up_correction: Option<&[f64; 16]>) -> Vec<glb::
         let Some(kind) = detect_light_kind(stage, &prim_path) else {
             continue;
         };
-        let intensity = read_shader_float(stage, &prim_path, "inputs:intensity")
-            .unwrap_or(1.0);
-        let exposure = read_shader_float(stage, &prim_path, "inputs:exposure")
-            .unwrap_or(0.0);
+        let intensity = read_shader_float(stage, &prim_path, "inputs:intensity").unwrap_or(1.0);
+        let exposure = read_shader_float(stage, &prim_path, "inputs:exposure").unwrap_or(0.0);
         let intensity = intensity * (2.0f32).powf(exposure);
-        let color = read_shader_color(stage, &prim_path, "inputs:color")
-            .unwrap_or([1.0, 1.0, 1.0]);
+        let color = read_shader_color(stage, &prim_path, "inputs:color").unwrap_or([1.0, 1.0, 1.0]);
 
         let Ok(world) = compose_world_xform(stage, &prim_path) else {
             continue;
@@ -2168,10 +2081,7 @@ fn read_shader_color(stage: &Stage, prim_path: &SdfPath, input_name: &str) -> Op
 /// payloads (those are already invisible to `traverse` under
 /// `NoPayloads` policy), and cameras that evaluate to
 /// non-perspective projections.
-fn resolve_cameras(
-    stage: &Stage,
-    up_correction: Option<&[f64; 16]>,
-) -> Vec<glb::CameraInput> {
+fn resolve_cameras(stage: &Stage, up_correction: Option<&[f64; 16]>) -> Vec<glb::CameraInput> {
     let camera_paths = RefCell::new(Vec::<SdfPath>::new());
     if stage
         .traverse(|prim_path| {
@@ -2197,8 +2107,7 @@ fn resolve_cameras(
         // glTF spec defaults: yfov = π/4, aspectRatio = 1.0,
         // znear = 0.1. Projection types differ from USD: glTF
         // `perspective` matches USD `perspective`.
-        let focal_length =
-            read_shader_float(stage, &prim_path, "focalLength").unwrap_or(50.0);
+        let focal_length = read_shader_float(stage, &prim_path, "focalLength").unwrap_or(50.0);
         let horizontal_aperture =
             read_shader_float(stage, &prim_path, "horizontalAperture").unwrap_or(20.955);
         let vertical_aperture =
@@ -2308,9 +2217,7 @@ pub(crate) fn resolve_blend_shapes(
     let mut out: Vec<DenseBlendShape> = Vec::new();
     for (i, target) in list_op.iter().enumerate() {
         let target_path = target.clone();
-        let Some(dense) =
-            read_dense_blend_shape(stage, &target_path, point_count)
-        else {
+        let Some(dense) = read_dense_blend_shape(stage, &target_path, point_count) else {
             continue;
         };
         let name = skel_blend_shapes
@@ -2334,7 +2241,11 @@ fn read_blend_shape_names(stage: &Stage, mesh_path: &SdfPath) -> Vec<String> {
         Ok(p) => p,
         Err(_) => return Vec::new(),
     };
-    match stage.field::<SdfValue>(prop_path, FieldKey::Default).ok().flatten() {
+    match stage
+        .field::<SdfValue>(prop_path, FieldKey::Default)
+        .ok()
+        .flatten()
+    {
         Some(SdfValue::TokenVec(names)) | Some(SdfValue::StringVec(names)) => names,
         _ => Vec::new(),
     }
@@ -2375,10 +2286,8 @@ fn read_dense_blend_shape(
     };
 
     let indices_path = target_path.append_property("pointIndices").ok()?;
-    let indices_value: Option<SdfValue> = stage
-        .field(indices_path, FieldKey::Default)
-        .ok()
-        .flatten();
+    let indices_value: Option<SdfValue> =
+        stage.field(indices_path, FieldKey::Default).ok().flatten();
 
     let mut dense = vec![0.0f32; point_count * 3];
 
@@ -2443,18 +2352,16 @@ fn find_preview_surface_shader(stage: &Stage, material_path: &SdfPath) -> Option
     for child_name in children {
         // SdfPath has no `append_child`; compose the child path via
         // string concat (same pattern used for GeomSubset names).
-        let child =
-            SdfPath::new(&format!("{}/{}", material_path.as_str(), child_name)).ok()?;
-        let type_name: Option<String> =
-            stage.field(child.clone(), FieldKey::TypeName).ok().flatten();
+        let child = SdfPath::new(&format!("{}/{}", material_path.as_str(), child_name)).ok()?;
+        let type_name: Option<String> = stage
+            .field(child.clone(), FieldKey::TypeName)
+            .ok()
+            .flatten();
         if type_name.as_deref() != Some("Shader") {
             continue;
         }
         let info_id_path = child.append_property("info:id").ok()?;
-        let info_id: Option<String> = stage
-            .field(info_id_path, FieldKey::Default)
-            .ok()
-            .flatten();
+        let info_id: Option<String> = stage.field(info_id_path, FieldKey::Default).ok().flatten();
         let is_preview_surface = matches!(
             info_id.as_deref(),
             Some("UsdPreviewSurface")
@@ -2474,10 +2381,7 @@ fn find_preview_surface_shader(stage: &Stage, material_path: &SdfPath) -> Option
 /// (or MaterialX image-node equivalent) shader's output, return the
 /// `inputs:file` asset path on that shader. Returns `None` for any
 /// missing step or unexpected type.
-fn follow_texture_connection_to_asset(
-    stage: &Stage,
-    input_path: &SdfPath,
-) -> Option<String> {
+fn follow_texture_connection_to_asset(stage: &Stage, input_path: &SdfPath) -> Option<String> {
     let connections: Option<SdfValue> = stage
         .field(input_path.clone(), FieldKey::ConnectionPaths)
         .ok()
@@ -2502,10 +2406,7 @@ fn follow_texture_connection_to_asset(
         return None;
     }
     let info_id_path = shader_path.append_property("info:id").ok()?;
-    let info_id: Option<String> = stage
-        .field(info_id_path, FieldKey::Default)
-        .ok()
-        .flatten();
+    let info_id: Option<String> = stage.field(info_id_path, FieldKey::Default).ok().flatten();
     let is_texture_shader = matches!(
         info_id.as_deref(),
         Some("UsdUVTexture")
@@ -2551,9 +2452,7 @@ fn resolve_texture_transform(
     surface_input_name: &str,
 ) -> Option<glb::TextureTransform> {
     let surface_shader = find_preview_surface_shader(stage, material_path)?;
-    let surface_input = surface_shader
-        .append_property(surface_input_name)
-        .ok()?;
+    let surface_input = surface_shader.append_property(surface_input_name).ok()?;
     let texture_shader = follow_connection_to_shader(stage, &surface_input)?;
     // Only UsdUVTexture / MaterialX image nodes carry an `inputs:st`
     // meaningfully. Bail out if the connected shader is anything else
@@ -2564,10 +2463,7 @@ fn resolve_texture_transform(
     let st_input = texture_shader.append_property("inputs:st").ok()?;
     let transform_shader = follow_connection_to_shader(stage, &st_input)?;
     let info_id_path = transform_shader.append_property("info:id").ok()?;
-    let info_id: Option<String> = stage
-        .field(info_id_path, FieldKey::Default)
-        .ok()
-        .flatten();
+    let info_id: Option<String> = stage.field(info_id_path, FieldKey::Default).ok().flatten();
     if info_id.as_deref() != Some("UsdTransform2d") {
         // Common case: `inputs:st` is wired straight to a
         // PrimvarReader with no transform in between. Identity =
@@ -2575,12 +2471,11 @@ fn resolve_texture_transform(
         return None;
     }
 
-    let translation = read_vec2_input(stage, &transform_shader, "inputs:translation")
-        .unwrap_or([0.0, 0.0]);
+    let translation =
+        read_vec2_input(stage, &transform_shader, "inputs:translation").unwrap_or([0.0, 0.0]);
     let rotation_deg =
         read_scalar_input(stage, &transform_shader, "inputs:rotation").unwrap_or(0.0);
-    let scale = read_vec2_input(stage, &transform_shader, "inputs:scale")
-        .unwrap_or([1.0, 1.0]);
+    let scale = read_vec2_input(stage, &transform_shader, "inputs:scale").unwrap_or([1.0, 1.0]);
 
     let transform = glb::TextureTransform {
         offset: translation,
@@ -2626,10 +2521,7 @@ fn shader_is_texture_node(stage: &Stage, shader_path: &SdfPath) -> bool {
         Ok(p) => p,
         Err(_) => return false,
     };
-    let info_id: Option<String> = stage
-        .field(info_id_path, FieldKey::Default)
-        .ok()
-        .flatten();
+    let info_id: Option<String> = stage.field(info_id_path, FieldKey::Default).ok().flatten();
     matches!(
         info_id.as_deref(),
         Some("UsdUVTexture")
@@ -2654,11 +2546,7 @@ fn read_scalar_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> 
 
 /// Read a vec2 float-like input on a shader prim. Accepts both
 /// `float2` and `double2` authoring; other types fall through.
-fn read_vec2_input(
-    stage: &Stage,
-    shader_path: &SdfPath,
-    input_name: &str,
-) -> Option<[f32; 2]> {
+fn read_vec2_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> Option<[f32; 2]> {
     let prop_path = shader_path.append_property(input_name).ok()?;
     let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
     match value {
@@ -2675,17 +2563,13 @@ fn read_vec2_input(
 /// topology (same pattern as `classify_attribute` uses for normals /
 /// displayColor).
 fn read_display_opacity(stage: &Stage, prim_path: &SdfPath) -> Option<Vec<f32>> {
-    let prop_path = prim_path
-        .append_property("primvars:displayOpacity")
-        .ok()?;
+    let prop_path = prim_path.append_property("primvars:displayOpacity").ok()?;
     let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
     match value {
         SdfValue::Float(f) => Some(vec![f]),
         SdfValue::FloatVec(v) if !v.is_empty() => Some(v),
         SdfValue::Double(d) => Some(vec![d as f32]),
-        SdfValue::DoubleVec(v) if !v.is_empty() => {
-            Some(v.iter().map(|&d| d as f32).collect())
-        }
+        SdfValue::DoubleVec(v) if !v.is_empty() => Some(v.iter().map(|&d| d as f32).collect()),
         _ => None,
     }
 }
@@ -2816,10 +2700,7 @@ fn apply_display_color_fallback(
 /// shared (face_vertex_indices still reference the same point
 /// indices); only face_vertex_counts / face_vertex_indices /
 /// face-varying attributes are sliced.
-pub(crate) fn filter_mesh_by_face_indices(
-    mesh: &MeshData,
-    face_indices: &[u32],
-) -> MeshData {
+pub(crate) fn filter_mesh_by_face_indices(mesh: &MeshData, face_indices: &[u32]) -> MeshData {
     let mut counts = Vec::new();
     let mut indices = Vec::new();
 
@@ -2911,10 +2792,10 @@ pub(crate) fn filter_mesh_by_face_indices(
 /// default, matching most DCC texture file defaults).
 pub(crate) fn usd_wrap_to_gltf(token: Option<&str>) -> u32 {
     match token {
-        Some("clamp") => 33071,            // CLAMP_TO_EDGE
-        Some("mirror") => 33648,           // MIRRORED_REPEAT
+        Some("clamp") => 33071,                               // CLAMP_TO_EDGE
+        Some("mirror") => 33648,                              // MIRRORED_REPEAT
         Some("repeat") | Some("useMetadata") | None => 10497, // REPEAT
-        Some(_) => 10497,                  // unknown → REPEAT fallback
+        Some(_) => 10497,                                     // unknown → REPEAT fallback
     }
 }
 
@@ -2957,10 +2838,7 @@ pub(crate) fn srgb_to_linear(c: f32) -> f32 {
 /// requires reading the file bytes and inserting them into the BIN
 /// chunk — a later-phase task. The slot is reserved on the
 /// `MaterialInput` design for when that lands.
-fn material_input_from_data(
-    name: &str,
-    data: &MaterialData,
-) -> glb::MaterialInput {
+fn material_input_from_data(name: &str, data: &MaterialData) -> glb::MaterialInput {
     // UsdPreviewSurface schema defaults — see
     // https://openusd.org/release/spec_usdpreviewsurface.html. These
     // are the values a Hydra renderer would substitute for any
@@ -3031,10 +2909,7 @@ fn material_input_from_data(
 /// `Missing` (appears in `unresolved_assets`). Shared by `inspect_stage`
 /// and `collect_asset_issues` to keep the exact-string match rule in
 /// one place.
-fn reference_arc_state(
-    unresolved: &HashSet<&str>,
-    asset_path: &str,
-) -> CompositionArcState {
+fn reference_arc_state(unresolved: &HashSet<&str>, asset_path: &str) -> CompositionArcState {
     if unresolved.contains(asset_path) {
         CompositionArcState::Missing
     } else {
@@ -3067,7 +2942,6 @@ fn payload_arc_state(
     }
     CompositionArcState::Loaded
 }
-
 
 // ----- Phase 3 helpers ------------------------------------------------------
 
@@ -3152,9 +3026,7 @@ fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         };
 
         // `active = false` at any level drops the whole subtree.
-        if let Ok(Some(false)) =
-            stage.field::<bool>(ancestor.clone(), FieldKey::Active)
-        {
+        if let Ok(Some(false)) = stage.field::<bool>(ancestor.clone(), FieldKey::Active) {
             return false;
         }
 
@@ -3215,9 +3087,7 @@ fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> bool {
             break;
         };
 
-        if let Ok(Some(false)) =
-            stage.field::<bool>(ancestor.clone(), FieldKey::Active)
-        {
+        if let Ok(Some(false)) = stage.field::<bool>(ancestor.clone(), FieldKey::Active) {
             return false;
         }
 
@@ -3558,15 +3428,10 @@ fn read_angle(value: &SdfValue) -> Option<f64> {
 fn read_quat(value: &SdfValue) -> Option<(f64, f64, f64, f64)> {
     match value {
         SdfValue::Quatd([x, y, z, w]) => Some((*w, *x, *y, *z)),
-        SdfValue::Quatf([x, y, z, w]) => {
-            Some((*w as f64, *x as f64, *y as f64, *z as f64))
+        SdfValue::Quatf([x, y, z, w]) => Some((*w as f64, *x as f64, *y as f64, *z as f64)),
+        SdfValue::Quath([x, y, z, w]) => {
+            Some((f64::from(*w), f64::from(*x), f64::from(*y), f64::from(*z)))
         }
-        SdfValue::Quath([x, y, z, w]) => Some((
-            f64::from(*w),
-            f64::from(*x),
-            f64::from(*y),
-            f64::from(*z),
-        )),
         _ => None,
     }
 }
@@ -3676,37 +3541,69 @@ fn invert_mat4(m: &[f64; 16]) -> Option<[f64; 16]> {
     // Indices assume column-major storage: m[col*4 + row].
     let mut inv = [0.0_f64; 16];
     inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15]
-        + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
+        + m[9] * m[7] * m[14]
+        + m[13] * m[6] * m[11]
+        - m[13] * m[7] * m[10];
     inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15]
-        - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
+        - m[8] * m[7] * m[14]
+        - m[12] * m[6] * m[11]
+        + m[12] * m[7] * m[10];
     inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15]
-        + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
+        + m[8] * m[7] * m[13]
+        + m[12] * m[5] * m[11]
+        - m[12] * m[7] * m[9];
     inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14]
-        - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
+        - m[8] * m[6] * m[13]
+        - m[12] * m[5] * m[10]
+        + m[12] * m[6] * m[9];
     inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15]
-        - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
+        - m[9] * m[3] * m[14]
+        - m[13] * m[2] * m[11]
+        + m[13] * m[3] * m[10];
     inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15]
-        + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
+        + m[8] * m[3] * m[14]
+        + m[12] * m[2] * m[11]
+        - m[12] * m[3] * m[10];
     inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15]
-        - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
+        - m[8] * m[3] * m[13]
+        - m[12] * m[1] * m[11]
+        + m[12] * m[3] * m[9];
     inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14]
-        + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
+        + m[8] * m[2] * m[13]
+        + m[12] * m[1] * m[10]
+        - m[12] * m[2] * m[9];
     inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15]
-        + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
+        + m[5] * m[3] * m[14]
+        + m[13] * m[2] * m[7]
+        - m[13] * m[3] * m[6];
     inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15]
-        - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
+        - m[4] * m[3] * m[14]
+        - m[12] * m[2] * m[7]
+        + m[12] * m[3] * m[6];
     inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15]
-        + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
+        + m[4] * m[3] * m[13]
+        + m[12] * m[1] * m[7]
+        - m[12] * m[3] * m[5];
     inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14]
-        - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
+        - m[4] * m[2] * m[13]
+        - m[12] * m[1] * m[6]
+        + m[12] * m[2] * m[5];
     inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11]
-        - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
+        - m[5] * m[3] * m[10]
+        - m[9] * m[2] * m[7]
+        + m[9] * m[3] * m[6];
     inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11]
-        + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
+        + m[4] * m[3] * m[10]
+        + m[8] * m[2] * m[7]
+        - m[8] * m[3] * m[6];
     inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11]
-        - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
+        - m[4] * m[3] * m[9]
+        - m[8] * m[1] * m[7]
+        + m[8] * m[3] * m[5];
     inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10]
-        + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
+        + m[4] * m[2] * m[9]
+        + m[8] * m[1] * m[6]
+        - m[8] * m[2] * m[5];
 
     let det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
     if det.abs() < 1e-20 {
@@ -3801,8 +3698,7 @@ fn triangulate_polygon(positions: &[[f32; 3]]) -> Vec<[usize; 3]> {
     }
 
     let (ax, ay) = pick_projection_axes(nx, ny, nz);
-    let proj: Vec<[f32; 2]> =
-        positions.iter().map(|p| [p[ax], p[ay]]).collect();
+    let proj: Vec<[f32; 2]> = positions.iter().map(|p| [p[ax], p[ay]]).collect();
 
     // Signed area in the picked projection. Sign tells us whether the
     // polygon is CCW (>0) or CW (<0) in this 2D basis; ear tests adapt
@@ -3828,8 +3724,7 @@ fn triangulate_polygon(positions: &[[f32; 3]]) -> Vec<[usize; 3]> {
         let a = proj[(i + n - 1) % n];
         let b = proj[i];
         let c = proj[(i + 1) % n];
-        let cross =
-            (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+        let cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
         if cross * ccw_sign < 0.0 {
             is_convex = false;
             break;
@@ -3873,8 +3768,7 @@ fn triangulate_polygon(positions: &[[f32; 3]]) -> Vec<[usize; 3]> {
             // Convex-corner test adapted for CW/CCW. A positive
             // cross * ccw_sign means the corner turns toward the
             // polygon interior.
-            let cross =
-                (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            let cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
             if cross * ccw_sign <= 0.0 {
                 continue;
             }
@@ -3963,19 +3857,10 @@ fn pick_projection_axes(nx: f32, ny: f32, nz: f32) -> (usize, usize) {
 /// a point counts as inside when it stays on the interior side of all
 /// three edges. Edge-hugging points are intentionally treated as inside
 /// to block ears whose cut would step on another vertex.
-fn point_in_triangle(
-    p: [f32; 2],
-    a: [f32; 2],
-    b: [f32; 2],
-    c: [f32; 2],
-    ccw_sign: f32,
-) -> bool {
-    let d1 = ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]))
-        * ccw_sign;
-    let d2 = ((c[0] - b[0]) * (p[1] - b[1]) - (c[1] - b[1]) * (p[0] - b[0]))
-        * ccw_sign;
-    let d3 = ((a[0] - c[0]) * (p[1] - c[1]) - (a[1] - c[1]) * (p[0] - c[0]))
-        * ccw_sign;
+fn point_in_triangle(p: [f32; 2], a: [f32; 2], b: [f32; 2], c: [f32; 2], ccw_sign: f32) -> bool {
+    let d1 = ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) * ccw_sign;
+    let d2 = ((c[0] - b[0]) * (p[1] - b[1]) - (c[1] - b[1]) * (p[0] - b[0])) * ccw_sign;
+    let d3 = ((a[0] - c[0]) * (p[1] - c[1]) - (a[1] - c[1]) * (p[0] - c[0])) * ccw_sign;
     d1 >= 0.0 && d2 >= 0.0 && d3 >= 0.0
 }
 
@@ -4038,8 +3923,7 @@ pub(crate) fn mesh_data_to_input(
         )));
     }
 
-    let total_face_vertices: usize =
-        data.face_vertex_counts.iter().map(|c| *c as usize).sum();
+    let total_face_vertices: usize = data.face_vertex_counts.iter().map(|c| *c as usize).sum();
     if total_face_vertices != data.face_vertex_indices.len() {
         return Err(UsdError::Parse(format!(
             "Mesh '{}' faceVertexIndices length {} doesn't match sum of faceVertexCounts ({})",
@@ -4100,8 +3984,7 @@ pub(crate) fn mesh_data_to_input(
     // inside the corner loop using the same `point_index` that drives
     // `positions`, so after the loop each entry holds per-vertex
     // position deltas in the same layout as `MeshInput::positions`.
-    let mut morph_corner_offsets: Vec<Vec<f32>> =
-        blend_shapes.iter().map(|_| Vec::new()).collect();
+    let mut morph_corner_offsets: Vec<Vec<f32>> = blend_shapes.iter().map(|_| Vec::new()).collect();
 
     // Phase 5c E: per-vertex skin payload. UsdSkel exposes one
     // (joint_indices, joint_weights) tuple per **point**, with
@@ -4109,9 +3992,8 @@ pub(crate) fn mesh_data_to_input(
     // per-corner triangle-soup layout the rest of the loop produces,
     // padding / truncating to glTF's 4 influences per vertex. The
     // arrays stay empty when the source mesh isn't rigged.
-    let has_skin = data.joint_indices.is_some()
-        && data.joint_weights.is_some()
-        && data.joints_per_vertex > 0;
+    let has_skin =
+        data.joint_indices.is_some() && data.joint_weights.is_some() && data.joints_per_vertex > 0;
     let mut joint_indices_out: Vec<u16> = Vec::new();
     let mut joint_weights_out: Vec<f32> = Vec::new();
 
@@ -4188,17 +4070,13 @@ pub(crate) fn mesh_data_to_input(
                 if let Some(src) = &data.normals {
                     match normal_kind {
                         AttrKind::Vertex => {
-                            normals.extend_from_slice(
-                                &src[point_index * 3..point_index * 3 + 3],
-                            );
+                            normals.extend_from_slice(&src[point_index * 3..point_index * 3 + 3]);
                         }
                         AttrKind::FaceVarying => {
-                            normals
-                                .extend_from_slice(&src[fv_index * 3..fv_index * 3 + 3]);
+                            normals.extend_from_slice(&src[fv_index * 3..fv_index * 3 + 3]);
                         }
                         AttrKind::Uniform => {
-                            normals
-                                .extend_from_slice(&src[face_idx * 3..face_idx * 3 + 3]);
+                            normals.extend_from_slice(&src[face_idx * 3..face_idx * 3 + 3]);
                         }
                         AttrKind::Constant => {
                             normals.extend_from_slice(&src[0..3]);
@@ -4238,19 +4116,13 @@ pub(crate) fn mesh_data_to_input(
                     // RGB from displayColor.
                     match color_kind {
                         AttrKind::Vertex => {
-                            colors.extend_from_slice(
-                                &src[point_index * 3..point_index * 3 + 3],
-                            );
+                            colors.extend_from_slice(&src[point_index * 3..point_index * 3 + 3]);
                         }
                         AttrKind::FaceVarying => {
-                            colors.extend_from_slice(
-                                &src[fv_index * 3..fv_index * 3 + 3],
-                            );
+                            colors.extend_from_slice(&src[fv_index * 3..fv_index * 3 + 3]);
                         }
                         AttrKind::Uniform => {
-                            colors.extend_from_slice(
-                                &src[face_idx * 3..face_idx * 3 + 3],
-                            );
+                            colors.extend_from_slice(&src[face_idx * 3..face_idx * 3 + 3]);
                         }
                         AttrKind::Constant => {
                             colors.extend_from_slice(&src[0..3]);
@@ -4342,8 +4214,10 @@ pub(crate) fn mesh_data_to_input(
     // Constant (1 color) is handled upstream as baseColorFactor and
     // should NOT appear here — otherwise the GLB would have both a
     // baseColorFactor tint AND vertex colors, double-applying the color.
-    let colors_out = if matches!(color_kind, AttrKind::Vertex | AttrKind::FaceVarying | AttrKind::Uniform)
-        && !colors.is_empty()
+    let colors_out = if matches!(
+        color_kind,
+        AttrKind::Vertex | AttrKind::FaceVarying | AttrKind::Uniform
+    ) && !colors.is_empty()
     {
         Some(colors)
     } else {
@@ -4427,8 +4301,7 @@ fn pack_skin_influences(
     }
     // n > 4: pick the four strongest weights. Stable sort by weight
     // desc keeps results deterministic across runs.
-    let mut pairs: Vec<(usize, f32)> =
-        (0..n).map(|i| (i, src_w[i])).collect();
+    let mut pairs: Vec<(usize, f32)> = (0..n).map(|i| (i, src_w[i])).collect();
     pairs.sort_by(|a, b| b.1.total_cmp(&a.1));
     for i in 0..4 {
         let (idx, w) = pairs[i];
@@ -4752,7 +4625,9 @@ mod tests {
     fn inspect_tiny_usda() {
         let path = tiny_usda();
         if is_lfs_pointer(&path) {
-            eprintln!("SKIP inspect_tiny_usda: tiny.usda is an LFS pointer (checkout without lfs: true)");
+            eprintln!(
+                "SKIP inspect_tiny_usda: tiny.usda is an LFS pointer (checkout without lfs: true)"
+            );
             return;
         }
         let backend = OpenusdBackend::new();
@@ -4776,9 +4651,7 @@ mod tests {
             return;
         }
         let backend = OpenusdBackend::new();
-        let issues = backend
-            .collect_asset_issues(&path)
-            .expect("collect issues");
+        let issues = backend.collect_asset_issues(&path).expect("collect issues");
         // tiny.usda is Y-up, metersPerUnit=0.01, no missing assets → no issues
         assert!(issues.is_empty(), "expected no issues, got {issues:?}");
     }
@@ -4934,8 +4807,7 @@ def Xform "Root" (
         // would carry a (10, 20, 30) translation.
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -4952,10 +4824,7 @@ def Xform "Root" (
             .find(|n| n.get("mesh").is_some())
             .expect("at least one mesh node");
         let matrix = mesh_node["matrix"].as_array().expect("node matrix");
-        let values: Vec<f64> = matrix
-            .iter()
-            .map(|v| v.as_f64().unwrap())
-            .collect();
+        let values: Vec<f64> = matrix.iter().map(|v| v.as_f64().unwrap()).collect();
         // Column-major identity: diagonal 1s, everything else 0 — in
         // particular the translation column (m[12..15]) must be zero,
         // not (10, 20, 30).
@@ -5004,8 +4873,7 @@ def Xform "Root" (
             .expect("extract_geometry tiny_trs.usda");
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -5070,7 +4938,10 @@ def Xform "Root" (
         let needs_glb = backend
             .requires_glb_preview(&path)
             .expect("requires_glb_preview tiny.usda");
-        assert!(!needs_glb, "tiny.usda is single-layer USDA — USDLoader handles it");
+        assert!(
+            !needs_glb,
+            "tiny.usda is single-layer USDA — USDLoader handles it"
+        );
     }
 
     #[test]
@@ -5127,9 +4998,7 @@ def Xform "Root" (
         // single GLB. The root layer is USDA so the frontend wouldn't take
         // this path during normal operation, but `extract_geometry_glb` is
         // root-format-agnostic and this is the largest available scene.
-        let path = PathBuf::from(
-            "../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd",
-        );
+        let path = PathBuf::from("../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd");
         if skip_if_missing(&path, "kitchen_set_full") {
             return;
         }
@@ -5167,9 +5036,8 @@ def Xform "Root" (
         // This is the fundamental check the user asked about — without it
         // the 228-ref Kitchen_set result could be misleading if it happened
         // to work through references alone.
-        let path = PathBuf::from(
-            "../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.usd",
-        );
+        let path =
+            PathBuf::from("../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.usd");
         if skip_if_missing(&path, "ball_usd_via_payload") {
             return;
         }
@@ -5248,14 +5116,14 @@ def Xform "Root" (
     #[test]
     #[ignore = "needs samples/private (Pixar license)"]
     fn summarize_kitchen_set() {
-        let path = PathBuf::from(
-            "../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd",
-        );
+        let path = PathBuf::from("../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd");
         if skip_if_missing(&path, "kitchen_set") {
             return;
         }
         let backend = OpenusdBackend::new();
-        let summary = backend.summarize_stage(&path, super::StageLoadPolicy::LoadAll).expect("summarize kitchen_set");
+        let summary = backend
+            .summarize_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("summarize kitchen_set");
         // Phase 0 observation: 229 layers, 77 root prims, 2048 traversed prims.
         assert_eq!(summary.layer_count, 229, "kitchen_set layer count");
         assert_eq!(summary.root_prim_count, 77, "kitchen_set root prim count");
@@ -5264,14 +5132,14 @@ def Xform "Root" (
     #[test]
     #[ignore = "needs samples/private (Pixar license)"]
     fn inspect_kitchen_set() {
-        let path = PathBuf::from(
-            "../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd",
-        );
+        let path = PathBuf::from("../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd");
         if skip_if_missing(&path, "kitchen_set") {
             return;
         }
         let backend = OpenusdBackend::new();
-        let inspection = backend.inspect_stage(&path, super::StageLoadPolicy::LoadAll).expect("inspect kitchen_set");
+        let inspection = backend
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("inspect kitchen_set");
         assert_eq!(inspection.default_prim.as_deref(), Some("Kitchen_set"));
         assert_eq!(inspection.up_axis.as_deref(), Some("Z"));
         // Phase 0 says references and payloads are heavily used.
@@ -5324,18 +5192,20 @@ def Xform "Root" (
     #[test]
     #[ignore = "needs samples/private (Apple AR Quick Look)"]
     fn inspect_chameleon_usdz() {
-        let path = PathBuf::from(
-            "../samples/private/usd/chameleon_anim_mtl_variant.usdz",
-        );
+        let path = PathBuf::from("../samples/private/usd/chameleon_anim_mtl_variant.usdz");
         if skip_if_missing(&path, "chameleon_usdz") {
             return;
         }
         let backend = OpenusdBackend::new();
-        let summary = backend.summarize_stage(&path, super::StageLoadPolicy::LoadAll).expect("summarize chameleon");
+        let summary = backend
+            .summarize_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("summarize chameleon");
         assert_eq!(summary.layer_count, 1, "usdz reports as a single layer");
         assert_eq!(summary.root_prim_count, 1);
 
-        let inspection = backend.inspect_stage(&path, super::StageLoadPolicy::LoadAll).expect("inspect chameleon");
+        let inspection = backend
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("inspect chameleon");
         assert_eq!(inspection.default_prim.as_deref(), Some("Root"));
     }
 
@@ -5348,8 +5218,7 @@ def Xform "Root" (
         // for a USDC-root usdz it silently renders nothing. A successful
         // GLB here proves both root_layer_is_binary and extract_geometry
         // work for the ZIP-wrapped USDC case.
-        let path =
-            PathBuf::from("../samples/private/usd/chameleon_anim_mtl_variant.usdz");
+        let path = PathBuf::from("../samples/private/usd/chameleon_anim_mtl_variant.usdz");
         if skip_if_missing(&path, "chameleon_usdz") {
             return;
         }
@@ -5445,18 +5314,20 @@ def Xform "Root" (
     #[test]
     #[ignore = "needs samples/private (Apple AR Quick Look)"]
     fn inspect_glove_usdz() {
-        let path = PathBuf::from(
-            "../samples/private/usd/glove_baseball_mtl_variant.usdz",
-        );
+        let path = PathBuf::from("../samples/private/usd/glove_baseball_mtl_variant.usdz");
         if skip_if_missing(&path, "glove_usdz") {
             return;
         }
         let backend = OpenusdBackend::new();
-        let summary = backend.summarize_stage(&path, super::StageLoadPolicy::LoadAll).expect("summarize glove");
+        let summary = backend
+            .summarize_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("summarize glove");
         assert_eq!(summary.layer_count, 1);
         assert_eq!(summary.root_prim_count, 1);
 
-        let inspection = backend.inspect_stage(&path, super::StageLoadPolicy::LoadAll).expect("inspect glove");
+        let inspection = backend
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("inspect glove");
         assert_eq!(inspection.default_prim.as_deref(), Some("glove_baseball"));
     }
 
@@ -5469,7 +5340,10 @@ def Xform "Root" (
     fn dump_tiny_rigged_glb_for_preview_model() -> std::io::Result<()> {
         let path = PathBuf::from("../samples/assets/usd/tiny_rigged.usda");
         if !path.exists() {
-            eprintln!("SKIP dump_tiny_rigged_glb: fixture missing at {}", path.display());
+            eprintln!(
+                "SKIP dump_tiny_rigged_glb: fixture missing at {}",
+                path.display()
+            );
             return Ok(());
         }
         let backend = OpenusdBackend::new();
@@ -5480,8 +5354,7 @@ def Xform "Root" (
 
         // Sanity-check the JSON chunk before persisting so a broken
         // GLB does not silently land in artifacts/tmp.
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -5529,9 +5402,7 @@ def Xform "Root" (
         // extraction may legitimately return "no renderable Mesh
         // prims". Treat that as a documented Phase 5d candidate
         // rather than a hard test failure.
-        let glb = match backend
-            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
-        {
+        let glb = match backend.extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll) {
             Ok(bytes) => bytes,
             Err(err) => {
                 eprintln!(
@@ -5559,10 +5430,10 @@ def Xform "Root" (
     #[test]
     #[ignore = "manual E2E — needs samples/private"]
     fn dump_seahorse_glb_for_preview_model() {
-        let path = PathBuf::from(
-            "../samples/private/usd/seahorse_anim_mtl_variant.usdz",
-        );
-        if skip_if_missing(&path, "seahorse_dump") { return; }
+        let path = PathBuf::from("../samples/private/usd/seahorse_anim_mtl_variant.usdz");
+        if skip_if_missing(&path, "seahorse_dump") {
+            return;
+        }
         let backend = OpenusdBackend::new();
         match backend.extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll) {
             Ok(glb) => {
@@ -5580,10 +5451,10 @@ def Xform "Root" (
     #[ignore = "manual debug — needs samples/private"]
     fn debug_seahorse_material() {
         use openusd::sdf::Value as SdfValue;
-        let path = PathBuf::from(
-            "../samples/private/usd/seahorse_anim_mtl_variant.usdz",
-        );
-        if skip_if_missing(&path, "seahorse_debug") { return; }
+        let path = PathBuf::from("../samples/private/usd/seahorse_anim_mtl_variant.usdz");
+        if skip_if_missing(&path, "seahorse_debug") {
+            return;
+        }
         let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
         let mesh_path = SdfPath::new("/seahorse_bind/seahorse/seahorse_combined_mesh").unwrap();
 
@@ -5593,12 +5464,25 @@ def Xform "Root" (
             let total_fv: usize = md.face_vertex_counts.iter().map(|c| *c as usize).sum();
             let point_count = md.points.len() / 3;
             let uv_len = md.uvs.as_ref().map(|u| u.len()).unwrap_or(0);
-            eprintln!("  meshdata: points={} faces={} total_fv={} uvs.len={} (fv*2={} pt*2={})",
-                point_count, md.face_vertex_counts.len(), total_fv, uv_len, total_fv * 2, point_count * 2);
+            eprintln!(
+                "  meshdata: points={} faces={} total_fv={} uvs.len={} (fv*2={} pt*2={})",
+                point_count,
+                md.face_vertex_counts.len(),
+                total_fv,
+                uv_len,
+                total_fv * 2,
+                point_count * 2
+            );
         }
 
         // Check UV primvar names
-        for uv_name in &["primvars:st", "primvars:st1", "primvars:UVMap", "primvars:map1", "primvars:uv"] {
+        for uv_name in &[
+            "primvars:st",
+            "primvars:st1",
+            "primvars:UVMap",
+            "primvars:map1",
+            "primvars:uv",
+        ] {
             if let Ok(prop) = mesh_path.append_property(uv_name) {
                 let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
                 if val.is_some() {
@@ -5616,18 +5500,29 @@ def Xform "Root" (
         let subsets = stage.geom_subsets_of(mesh_path.clone());
         eprintln!("GeomSubsets: {} found", subsets.len());
         for s in &subsets {
-            eprintln!("  {} indices={} mat={:?}",
-                s.name, s.indices.len(),
-                s.material_binding.as_ref().map(|p| p.to_string()));
+            eprintln!(
+                "  {} indices={} mat={:?}",
+                s.name,
+                s.indices.len(),
+                s.material_binding.as_ref().map(|p| p.to_string())
+            );
             // Check alternative binding names
             let subset_path = SdfPath::new(&format!("{}/{}", mesh_path.as_str(), s.name)).unwrap();
             // Brute-force: try bound_material directly on the subset
             let bm_sub = stage.bound_material(subset_path.clone());
-            eprintln!("    bound_material(subset) = {:?}", bm_sub.as_ref().map(|p| p.to_string()));
+            eprintln!(
+                "    bound_material(subset) = {:?}",
+                bm_sub.as_ref().map(|p| p.to_string())
+            );
 
-            for rel_name in &["material:binding", "material:binding:preview", "material:binding:full"] {
+            for rel_name in &[
+                "material:binding",
+                "material:binding:preview",
+                "material:binding:full",
+            ] {
                 if let Ok(prop) = subset_path.append_property(rel_name) {
-                    let val: Option<SdfValue> = stage.field(prop, FieldKey::TargetPaths).ok().flatten();
+                    let val: Option<SdfValue> =
+                        stage.field(prop, FieldKey::TargetPaths).ok().flatten();
                     if val.is_some() {
                         eprintln!("    {} = {:?}", rel_name, val);
                     }
@@ -5636,10 +5531,7 @@ def Xform "Root" (
         }
 
         // Check parent chain for material:binding
-        let parents = [
-            "/seahorse_bind/seahorse",
-            "/seahorse_bind",
-        ];
+        let parents = ["/seahorse_bind/seahorse", "/seahorse_bind"];
         for p in &parents {
             if let Ok(pp) = SdfPath::new(p) {
                 let bm = stage.bound_material(pp).map(|p| p.to_string());
@@ -5648,28 +5540,39 @@ def Xform "Root" (
         }
 
         // Check direct mesh bound_material
-        let bm = stage.bound_material(mesh_path.clone()).map(|p| p.to_string());
+        let bm = stage
+            .bound_material(mesh_path.clone())
+            .map(|p| p.to_string());
         eprintln!("mesh -> bound_material={:?}", bm);
 
         // List all Material prims
         eprintln!("\n--- All prims under /seahorse_bind with material in path ---");
-        stage.traverse(|prim_path| {
-            let path_str = prim_path.as_str();
-            if path_str.contains("mtl") || path_str.contains("Looks") || path_str.contains("Material") || path_str.contains("mat") {
-                let type_name: Option<String> = stage.field(prim_path.clone(), FieldKey::TypeName).ok().flatten();
-                eprintln!("  {} type={:?}", path_str, type_name);
-            }
-        }).unwrap();
+        stage
+            .traverse(|prim_path| {
+                let path_str = prim_path.as_str();
+                if path_str.contains("mtl")
+                    || path_str.contains("Looks")
+                    || path_str.contains("Material")
+                    || path_str.contains("mat")
+                {
+                    let type_name: Option<String> = stage
+                        .field(prim_path.clone(), FieldKey::TypeName)
+                        .ok()
+                        .flatten();
+                    eprintln!("  {} type={:?}", path_str, type_name);
+                }
+            })
+            .unwrap();
     }
 
     #[test]
     #[ignore = "manual debug — needs samples/private"]
     fn debug_glove_xform_ops() {
         use openusd::sdf::Value as SdfValue;
-        let path = PathBuf::from(
-            "../samples/private/usd/glove_baseball_mtl_variant.usdz",
-        );
-        if skip_if_missing(&path, "glove_xform") { return; }
+        let path = PathBuf::from("../samples/private/usd/glove_baseball_mtl_variant.usdz");
+        if skip_if_missing(&path, "glove_xform") {
+            return;
+        }
         let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
         let root = SdfPath::new("/glove_baseball").unwrap();
 
@@ -5679,8 +5582,14 @@ def Xform "Root" (
         eprintln!("xformOpOrder = {:?}", order);
 
         // Try reading individual xformOps
-        for op_name in &["xformOp:transform", "xformOp:rotateXYZ", "xformOp:rotateZ",
-                          "xformOp:scale", "xformOp:translate", "xformOp:orient"] {
+        for op_name in &[
+            "xformOp:transform",
+            "xformOp:rotateXYZ",
+            "xformOp:rotateZ",
+            "xformOp:scale",
+            "xformOp:translate",
+            "xformOp:orient",
+        ] {
             if let Ok(prop) = root.append_property(op_name) {
                 let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
                 if val.is_some() {
@@ -5697,10 +5606,10 @@ def Xform "Root" (
     #[test]
     #[ignore = "manual E2E — needs samples/private"]
     fn dump_glove_glb_for_preview_model() {
-        let path = PathBuf::from(
-            "../samples/private/usd/glove_baseball_mtl_variant.usdz",
-        );
-        if skip_if_missing(&path, "glove_dump") { return; }
+        let path = PathBuf::from("../samples/private/usd/glove_baseball_mtl_variant.usdz");
+        if skip_if_missing(&path, "glove_dump") {
+            return;
+        }
         let backend = OpenusdBackend::new();
         match backend.extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll) {
             Ok(glb) => {
@@ -5718,92 +5627,140 @@ def Xform "Root" (
     #[ignore = "manual debug — needs samples/private"]
     fn debug_glove_material_binding() {
         use openusd::sdf::Value as SdfValue;
-        let path = PathBuf::from(
-            "../samples/private/usd/glove_baseball_mtl_variant.usdz",
-        );
-        if skip_if_missing(&path, "glove_debug") { return; }
+        let path = PathBuf::from("../samples/private/usd/glove_baseball_mtl_variant.usdz");
+        if skip_if_missing(&path, "glove_debug") {
+            return;
+        }
         let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
         let mut checked = 0;
-        stage.traverse(|prim_path| {
-            if !super::is_renderable_mesh(&stage, prim_path) { return; }
-            checked += 1;
-            let bm = stage.bound_material(prim_path.clone()).map(|p| p.to_string());
-            let mo = stage.material_of(prim_path.clone());
-            let dc_path = prim_path.append_property("primvars:displayColor").ok();
-            let dc = dc_path.and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
-            eprintln!(
-                "  {} -> bound={:?} material_of={:?} displayColor={}",
-                prim_path.as_str(),
-                bm,
-                mo.as_ref().map(|m| format!("diffuse={:?} tex={:?}", m.diffuse_color, m.diffuse_texture)),
-                if dc.is_some() { "yes" } else { "no" }
-            );
-        }).unwrap();
+        stage
+            .traverse(|prim_path| {
+                if !super::is_renderable_mesh(&stage, prim_path) {
+                    return;
+                }
+                checked += 1;
+                let bm = stage
+                    .bound_material(prim_path.clone())
+                    .map(|p| p.to_string());
+                let mo = stage.material_of(prim_path.clone());
+                let dc_path = prim_path.append_property("primvars:displayColor").ok();
+                let dc = dc_path
+                    .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+                eprintln!(
+                    "  {} -> bound={:?} material_of={:?} displayColor={}",
+                    prim_path.as_str(),
+                    bm,
+                    mo.as_ref().map(|m| format!(
+                        "diffuse={:?} tex={:?}",
+                        m.diffuse_color, m.diffuse_texture
+                    )),
+                    if dc.is_some() { "yes" } else { "no" }
+                );
+            })
+            .unwrap();
         eprintln!("glove: {checked} meshes");
 
         // Check the Material prim's children to understand why material_of fails
         let mat_path = SdfPath::new("/glove_baseball/mtl/glove_new_mat_1").unwrap();
         eprintln!("\n--- Material children dump ---");
-        stage.traverse(|prim_path| {
-            // Only look under the material path
-            if !prim_path.as_str().starts_with("/glove_baseball/mtl/glove_new_mat_1") { return; }
-            let type_name: Option<String> = stage.field(prim_path.clone(), FieldKey::TypeName).ok().flatten();
-            let info_id_path = prim_path.append_property("info:id").ok();
-            let info_id: Option<String> = info_id_path.and_then(|p| stage.field(p, FieldKey::Default).ok().flatten());
-            // Check for inputs:diffuseColor
-            let dc_path = prim_path.append_property("inputs:diffuseColor").ok();
-            let dc: Option<SdfValue> = dc_path.and_then(|p| stage.field(p, FieldKey::Default).ok().flatten());
-            let dc_conn_path = prim_path.append_property("inputs:diffuseColor").ok();
-            let dc_conn: Option<SdfValue> = dc_conn_path.and_then(|p| stage.field::<SdfValue>(p, FieldKey::ConnectionPaths).ok().flatten());
-            eprintln!(
-                "  {} type={:?} info:id={:?} diffuseColor={:?} diffuseColor.connect={:?}",
-                prim_path.as_str(), type_name, info_id,
-                dc.as_ref().map(|v| format!("{:?}", v).chars().take(50).collect::<String>()),
-                dc_conn.as_ref().map(|v| format!("{:?}", v).chars().take(80).collect::<String>()),
-            );
-        }).unwrap();
+        stage
+            .traverse(|prim_path| {
+                // Only look under the material path
+                if !prim_path
+                    .as_str()
+                    .starts_with("/glove_baseball/mtl/glove_new_mat_1")
+                {
+                    return;
+                }
+                let type_name: Option<String> = stage
+                    .field(prim_path.clone(), FieldKey::TypeName)
+                    .ok()
+                    .flatten();
+                let info_id_path = prim_path.append_property("info:id").ok();
+                let info_id: Option<String> =
+                    info_id_path.and_then(|p| stage.field(p, FieldKey::Default).ok().flatten());
+                // Check for inputs:diffuseColor
+                let dc_path = prim_path.append_property("inputs:diffuseColor").ok();
+                let dc: Option<SdfValue> =
+                    dc_path.and_then(|p| stage.field(p, FieldKey::Default).ok().flatten());
+                let dc_conn_path = prim_path.append_property("inputs:diffuseColor").ok();
+                let dc_conn: Option<SdfValue> = dc_conn_path.and_then(|p| {
+                    stage
+                        .field::<SdfValue>(p, FieldKey::ConnectionPaths)
+                        .ok()
+                        .flatten()
+                });
+                eprintln!(
+                    "  {} type={:?} info:id={:?} diffuseColor={:?} diffuseColor.connect={:?}",
+                    prim_path.as_str(),
+                    type_name,
+                    info_id,
+                    dc.as_ref()
+                        .map(|v| format!("{:?}", v).chars().take(50).collect::<String>()),
+                    dc_conn
+                        .as_ref()
+                        .map(|v| format!("{:?}", v).chars().take(80).collect::<String>()),
+                );
+            })
+            .unwrap();
     }
 
     #[test]
     #[ignore = "manual debug — needs samples/private"]
     fn debug_kitchen_set_material_binding() {
-        use openusd::sdf::{Value as SdfValue};
-        let path = PathBuf::from(
-            "../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd",
-        );
-        if !path.exists() { return; }
+        use openusd::sdf::Value as SdfValue;
+        let path = PathBuf::from("../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd");
+        if !path.exists() {
+            return;
+        }
         let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
         let mut checked = 0;
         let mut bound = 0;
         let mut has_display_color = 0;
-        stage.traverse(|prim_path| {
-            if !super::is_renderable_mesh(&stage, prim_path) { return; }
-            checked += 1;
-            if checked <= 10 {
-                let bm = stage.bound_material(prim_path.clone()).map(|p| p.to_string());
-                // Check for primvars:displayColor
-                let dc_path = prim_path.append_property("primvars:displayColor").ok();
-                let dc = dc_path.and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
-                let dc_label = match &dc {
-                    Some(SdfValue::Vec3fVec(v)) => format!("Vec3f[{}]", v.len()),
-                    Some(SdfValue::Vec3f(v)) => format!("Vec3f({:.2},{:.2},{:.2})", v[0], v[1], v[2]),
-                    Some(other) => format!("{:?}", other).chars().take(40).collect(),
-                    None => "None".to_string(),
-                };
-                eprintln!("  {} -> bound={:?} displayColor={}", prim_path.as_str(), bm, dc_label);
-                if bm.is_some() { bound += 1; }
-                if dc.is_some() { has_display_color += 1; }
-            }
-        }).unwrap();
+        stage
+            .traverse(|prim_path| {
+                if !super::is_renderable_mesh(&stage, prim_path) {
+                    return;
+                }
+                checked += 1;
+                if checked <= 10 {
+                    let bm = stage
+                        .bound_material(prim_path.clone())
+                        .map(|p| p.to_string());
+                    // Check for primvars:displayColor
+                    let dc_path = prim_path.append_property("primvars:displayColor").ok();
+                    let dc = dc_path
+                        .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+                    let dc_label = match &dc {
+                        Some(SdfValue::Vec3fVec(v)) => format!("Vec3f[{}]", v.len()),
+                        Some(SdfValue::Vec3f(v)) => {
+                            format!("Vec3f({:.2},{:.2},{:.2})", v[0], v[1], v[2])
+                        }
+                        Some(other) => format!("{:?}", other).chars().take(40).collect(),
+                        None => "None".to_string(),
+                    };
+                    eprintln!(
+                        "  {} -> bound={:?} displayColor={}",
+                        prim_path.as_str(),
+                        bm,
+                        dc_label
+                    );
+                    if bm.is_some() {
+                        bound += 1;
+                    }
+                    if dc.is_some() {
+                        has_display_color += 1;
+                    }
+                }
+            })
+            .unwrap();
         eprintln!("Kitchen Set: {checked} meshes, first 10: {bound} bound, {has_display_color} displayColor");
     }
 
     #[test]
     #[ignore = "manual E2E helper — needs samples/private"]
     fn dump_kitchen_set_full_glb_for_preview_model() {
-        let path = PathBuf::from(
-            "../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd",
-        );
+        let path = PathBuf::from("../samples/private/usd/Kitchen_set/Kitchen_set/Kitchen_set.usd");
         if !path.exists() {
             eprintln!("SKIP dump_kitchen_set_full_glb: fixture missing");
             return;
@@ -5939,8 +5896,7 @@ def Xform "Root"
             .expect("extract rigged.usda");
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -5961,11 +5917,22 @@ def Xform "Root"
         let meshes = doc["meshes"].as_array().expect("meshes");
         let body = meshes
             .iter()
-            .find(|m| m["name"].as_str().map(|n| n.ends_with("Body")).unwrap_or(false))
+            .find(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.ends_with("Body"))
+                    .unwrap_or(false)
+            })
             .expect("Body mesh");
         let attrs = &body["primitives"][0]["attributes"];
-        assert!(attrs.get("JOINTS_0").is_some(), "missing JOINTS_0 attribute");
-        assert!(attrs.get("WEIGHTS_0").is_some(), "missing WEIGHTS_0 attribute");
+        assert!(
+            attrs.get("JOINTS_0").is_some(),
+            "missing JOINTS_0 attribute"
+        );
+        assert!(
+            attrs.get("WEIGHTS_0").is_some(),
+            "missing WEIGHTS_0 attribute"
+        );
 
         let nodes = doc["nodes"].as_array().expect("nodes");
         let mesh_node = nodes
@@ -6004,9 +5971,7 @@ def Xform "Root"
     #[test]
     #[ignore = "needs samples/private (Apple AR Quick Look)"]
     fn texture_loader_reads_chameleon_usdz_entry() {
-        let path = PathBuf::from(
-            "../samples/private/usd/chameleon_anim_mtl_variant.usdz",
-        );
+        let path = PathBuf::from("../samples/private/usd/chameleon_anim_mtl_variant.usdz");
         if skip_if_missing(&path, "texture_loader_chameleon") {
             return;
         }
@@ -6061,8 +6026,8 @@ def Xform "Root"
             0x08, 0x02, 0x00, 0x00, 0x00, // bit depth 8, color type 2 (RGB)
             0x90, 0x77, 0x53, 0xDE, // IHDR CRC
             0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, // IDAT length + type
-            0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01,
-            0x5C, 0xCD, 0xFF, 0x69, // IDAT CRC
+            0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5C, 0xCD,
+            0xFF, 0x69, // IDAT CRC
             0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND length + type
             0xAE, 0x42, 0x60, 0x82, // IEND CRC
         ];
@@ -6124,8 +6089,7 @@ def Xform "Root"
         assert_eq!(&glb[0..4], b"glTF");
 
         // Decode the JSON chunk and verify the texture pipeline.
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -6178,7 +6142,10 @@ def Xform "Root"
             .expect("RedMat slot");
         let red = &materials[red_slot];
         assert_eq!(red["pbrMetallicRoughness"]["baseColorTexture"]["index"], 0);
-        assert_eq!(red["pbrMetallicRoughness"]["baseColorTexture"]["texCoord"], 0);
+        assert_eq!(
+            red["pbrMetallicRoughness"]["baseColorTexture"]["texCoord"],
+            0
+        );
 
         // Codex P1: when baseColorTexture is attached, baseColorFactor
         // RGB must be neutral white so the texture is not multiplied
@@ -6217,12 +6184,11 @@ def Xform "Root"
         // content doesn't matter because we only check the glTF
         // plumbing, not any per-pixel rendering outcome.
         let png_bytes: &[u8] = &[
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
-            0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
-            0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
-            0x41, 0x54, 0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
-            0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
-            0xAE, 0x42, 0x60, 0x82,
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5C, 0xCD, 0xFF,
+            0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
         ];
         std::fs::write(&albedo_path, png_bytes)?;
         std::fs::write(&normal_path, png_bytes)?;
@@ -6290,8 +6256,7 @@ def Xform "Root"
             .expect("extract textured.usda with normal map");
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -6357,12 +6322,11 @@ def Xform "Root"
         // Reuse the 1x1 PNG bytes; pixel content is irrelevant to
         // the plumbing being exercised here.
         let png_bytes: &[u8] = &[
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
-            0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
-            0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
-            0x41, 0x54, 0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
-            0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
-            0xAE, 0x42, 0x60, 0x82,
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5C, 0xCD, 0xFF,
+            0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
         ];
         std::fs::write(&png_path, png_bytes)?;
 
@@ -6444,8 +6408,7 @@ def Xform "Root"
             .expect("extract tiled.usda");
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -6474,8 +6437,8 @@ def Xform "Root"
             .expect("TiledMat slot present");
         let pbr = &materials[pbr_slot];
 
-        let transform = &pbr["pbrMetallicRoughness"]["baseColorTexture"]["extensions"]
-            ["KHR_texture_transform"];
+        let transform =
+            &pbr["pbrMetallicRoughness"]["baseColorTexture"]["extensions"]["KHR_texture_transform"];
         assert!(transform.is_object(), "KHR_texture_transform missing");
 
         // offset = translation authored in USD → direct mapping
@@ -6512,12 +6475,11 @@ def Xform "Root"
         std::fs::create_dir_all(&tmp_dir)?;
         let png_path = tmp_dir.join("checker.png");
         let png_bytes: &[u8] = &[
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
-            0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02,
-            0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
-            0x41, 0x54, 0x08, 0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
-            0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
-            0xAE, 0x42, 0x60, 0x82,
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5C, 0xCD, 0xFF,
+            0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
         ];
         std::fs::write(&png_path, png_bytes)?;
 
@@ -6575,8 +6537,7 @@ def Xform "Root"
             .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
             .expect("extract plain.usda");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -6647,8 +6608,7 @@ def Xform "Root"
             .expect("extract vcolor.usda");
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -6721,8 +6681,7 @@ def Xform "Root"
             .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
             .expect("extract const_color.usda");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -6821,8 +6780,7 @@ def Xform "Root"
             .expect("extract blendshape.usda");
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -6859,7 +6817,7 @@ def Xform "Root"
         let pos_acc = &accessors[pos_acc_idx as usize];
         assert_eq!(pos_acc["type"], "VEC3");
         assert_eq!(pos_acc["componentType"], 5126); // FLOAT
-        // 3 triangle corners after expansion.
+                                                    // 3 triangle corners after expansion.
         assert_eq!(pos_acc["count"].as_u64().unwrap(), 3);
 
         // The axis-wise min/max cover the sparse delta: max_x = 0.5,
@@ -6909,8 +6867,7 @@ def Xform "Root"
             .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
             .expect("extract plain.usda");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -6987,8 +6944,7 @@ def Xform "Root"
             .expect("extract lights.usda");
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -7011,7 +6967,10 @@ def Xform "Root"
             .expect("KHR_lights_punctual.lights");
         assert_eq!(lights.len(), 2, "expected 2 lights, got {lights:?}");
 
-        let sun = lights.iter().find(|l| l["type"] == "directional").expect("directional");
+        let sun = lights
+            .iter()
+            .find(|l| l["type"] == "directional")
+            .expect("directional");
         // intensity = 3.0 * 2^1.0 = 6.0
         assert!(
             (sun["intensity"].as_f64().unwrap() - 6.0).abs() < 1e-5,
@@ -7097,8 +7056,7 @@ def Xform "Root"
             .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
             .expect("extract camera.usda");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -7129,10 +7087,7 @@ def Xform "Root"
 
         // Matching scene node with `camera` pointer.
         let nodes = doc["nodes"].as_array().unwrap();
-        let camera_nodes: Vec<_> = nodes
-            .iter()
-            .filter(|n| n.get("camera").is_some())
-            .collect();
+        let camera_nodes: Vec<_> = nodes.iter().filter(|n| n.get("camera").is_some()).collect();
         assert_eq!(
             camera_nodes.len(),
             1,
@@ -7176,8 +7131,7 @@ def Xform "Root"
             .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
             .expect("extract plain.usda");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -7229,8 +7183,7 @@ def Xform "Root"
             .extract_geometry_glb(&usda_path, super::StageLoadPolicy::LoadAll)
             .expect("extract plain.usda");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -7252,9 +7205,7 @@ def Xform "Root"
             );
         }
         assert!(
-            doc["extensions"]
-                .get("KHR_lights_punctual")
-                .is_none(),
+            doc["extensions"].get("KHR_lights_punctual").is_none(),
             "document.extensions must not carry KHR_lights_punctual when no lights authored"
         );
 
@@ -7302,9 +7253,7 @@ def Xform "Root"
     #[test]
     #[ignore = "needs samples/private + Phase 5d L2 NodeGraph walker for full pin"]
     fn extract_geometry_chameleon_textured_smoke() {
-        let path = PathBuf::from(
-            "../samples/private/usd/chameleon_anim_mtl_variant.usdz",
-        );
+        let path = PathBuf::from("../samples/private/usd/chameleon_anim_mtl_variant.usdz");
         if skip_if_missing(&path, "chameleon_textures") {
             return;
         }
@@ -7314,8 +7263,7 @@ def Xform "Root"
             .expect("extract chameleon usdz");
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -7402,8 +7350,7 @@ def Xform "Root"
         let glb = backend
             .extract_geometry_glb(&usda, super::StageLoadPolicy::LoadAll)
             .expect("extract partial.usda");
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -7511,8 +7458,7 @@ def Xform "Root" (
 
         // Pull the JSON chunk out so we can inspect materials + the
         // primitive's material index directly.
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -7567,8 +7513,14 @@ def Xform "Root" (
         let roughness = blue["pbrMetallicRoughness"]["roughnessFactor"]
             .as_f64()
             .unwrap();
-        assert!((metallic - 0.25).abs() < 1e-4, "metallicFactor = {metallic}");
-        assert!((roughness - 0.4).abs() < 1e-4, "roughnessFactor = {roughness}");
+        assert!(
+            (metallic - 0.25).abs() < 1e-4,
+            "metallicFactor = {metallic}"
+        );
+        assert!(
+            (roughness - 0.4).abs() < 1e-4,
+            "roughnessFactor = {roughness}"
+        );
 
         // And the Tri mesh must reference the BlueMat slot, not the
         // default. This exercises the dedup + slot assignment in
@@ -7576,7 +7528,12 @@ def Xform "Root" (
         let meshes = doc["meshes"].as_array().expect("meshes array");
         let tri = meshes
             .iter()
-            .find(|m| m["name"].as_str().map(|n| n.ends_with("Tri")).unwrap_or(false))
+            .find(|m| {
+                m["name"]
+                    .as_str()
+                    .map(|n| n.ends_with("Tri"))
+                    .unwrap_or(false)
+            })
             .expect("Tri mesh must appear");
         let material_idx = tri["primitives"][0]["material"]
             .as_u64()
@@ -7676,9 +7633,8 @@ def Xform "Root" (
     #[test]
     #[ignore = "needs samples/private (Pixar license)"]
     fn ball_usd_no_payloads_reports_unloaded_arc() {
-        let path = PathBuf::from(
-            "../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.usd",
-        );
+        let path =
+            PathBuf::from("../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.usd");
         if skip_if_missing(&path, "ball_usd") {
             return;
         }
@@ -7691,10 +7647,7 @@ def Xform "Root" (
             loaded_summary.unloaded_payload_count, 0,
             "LoadAll must never skip payloads"
         );
-        assert_eq!(
-            loaded_summary.load_policy,
-            super::StageLoadPolicy::LoadAll
-        );
+        assert_eq!(loaded_summary.load_policy, super::StageLoadPolicy::LoadAll);
 
         let deferred_summary = backend
             .summarize_stage(&path, super::StageLoadPolicy::NoPayloads)
@@ -7753,9 +7706,8 @@ def Xform "Root" (
     #[test]
     #[ignore = "needs samples/private (Pixar license)"]
     fn ball_usd_no_payloads_extract_geometry_is_empty() {
-        let path = PathBuf::from(
-            "../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.usd",
-        );
+        let path =
+            PathBuf::from("../samples/private/usd/Kitchen_set/Kitchen_set/assets/Ball/Ball.usd");
         if skip_if_missing(&path, "ball_usd_extract") {
             return;
         }
@@ -7792,11 +7744,7 @@ def Xform "Root" (
 
     #[test]
     fn triangulate_triangle_passthrough() {
-        let positions = vec![
-            [0.0_f32, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-        ];
+        let positions = vec![[0.0_f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
         let tris = super::triangulate_polygon(&positions);
         assert_eq!(tris, vec![[0, 1, 2]]);
     }
@@ -7812,11 +7760,8 @@ def Xform "Root" (
         let tris = super::triangulate_polygon(&positions);
         assert_eq!(tris.len(), 2);
         for tri in &tris {
-            let area = triangle_signed_area_xy(
-                positions[tri[0]],
-                positions[tri[1]],
-                positions[tri[2]],
-            );
+            let area =
+                triangle_signed_area_xy(positions[tri[0]], positions[tri[1]], positions[tri[2]]);
             assert!(area > 0.0, "tri {tri:?} area {area}");
         }
     }
@@ -7837,15 +7782,9 @@ def Xform "Root" (
         let tris = super::triangulate_polygon(&positions);
         assert_eq!(tris.len(), 2, "tris = {tris:?}");
         for tri in &tris {
-            let area = triangle_signed_area_xy(
-                positions[tri[0]],
-                positions[tri[1]],
-                positions[tri[2]],
-            );
-            assert!(
-                area > 0.0,
-                "triangle {tri:?} has non-positive area {area}"
-            );
+            let area =
+                triangle_signed_area_xy(positions[tri[0]], positions[tri[1]], positions[tri[2]]);
+            assert!(area > 0.0, "triangle {tri:?} has non-positive area {area}");
         }
         let mut seen = [false; 4];
         for tri in &tris {
@@ -7873,11 +7812,8 @@ def Xform "Root" (
 
         let mut total_area = 0.0_f32;
         for tri in &tris {
-            let area = triangle_signed_area_xy(
-                positions[tri[0]],
-                positions[tri[1]],
-                positions[tri[2]],
-            );
+            let area =
+                triangle_signed_area_xy(positions[tri[0]], positions[tri[1]], positions[tri[2]]);
             assert!(area > 0.0, "triangle {tri:?} area {area}");
             total_area += 0.5 * area;
         }
@@ -7902,11 +7838,8 @@ def Xform "Root" (
         let tris = super::triangulate_polygon(&positions);
         assert_eq!(tris.len(), 2);
         for tri in &tris {
-            let area = triangle_signed_area_xy(
-                positions[tri[0]],
-                positions[tri[1]],
-                positions[tri[2]],
-            );
+            let area =
+                triangle_signed_area_xy(positions[tri[0]], positions[tri[1]], positions[tri[2]]);
             assert!(
                 area < 0.0,
                 "CW input must produce CW triangles: {tri:?} area {area}"

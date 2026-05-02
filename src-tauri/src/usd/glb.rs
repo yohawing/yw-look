@@ -603,7 +603,12 @@ pub struct InstancingInput {
 
 impl NodeInput {
     /// Convenience constructor for a pure hierarchy (Xform/Scope) node.
-    pub fn group(prim_path: String, basename: String, parent: Option<usize>, local_matrix: [f32; 16]) -> Self {
+    pub fn group(
+        prim_path: String,
+        basename: String,
+        parent: Option<usize>,
+        local_matrix: [f32; 16],
+    ) -> Self {
         Self {
             prim_path,
             basename,
@@ -853,10 +858,7 @@ pub fn build_glb(
     }
     for (i, t) in textures.iter().enumerate() {
         if t.data.is_empty() {
-            return Err(format!(
-                "texture[{i}] '{}' has empty image data",
-                t.name
-            ));
+            return Err(format!("texture[{i}] '{}' has empty image data", t.name));
         }
         if t.mime_type != "image/png" && t.mime_type != "image/jpeg" {
             return Err(format!(
@@ -1047,58 +1049,56 @@ pub fn build_glb(
         };
 
         // -- joint indices / weights (Phase 5c E) ------------------------
-        let (joints_accessor_idx, weights_accessor_idx) = match (
-            mesh.joint_indices.as_ref(),
-            mesh.joint_weights.as_ref(),
-        ) {
-            (Some(joint_idx), Some(joint_w)) => {
-                // JOINTS_0: VEC4 of unsigned shorts (component 5123).
-                let off_j = bin.len() as u64;
-                for &v in joint_idx {
-                    bin.extend_from_slice(&v.to_le_bytes());
-                }
-                let len_j = (bin.len() as u64) - off_j;
-                pad_to_4(&mut bin);
-                let view_j = buffer_views.len();
-                buffer_views.push(json!({
-                    "buffer": 0,
-                    "byteOffset": off_j,
-                    "byteLength": len_j,
-                    "target": 34962,
-                }));
-                let acc_j = accessors.len();
-                accessors.push(json!({
-                    "bufferView": view_j,
-                    "componentType": 5123, // UNSIGNED_SHORT
-                    "count": vertex_count,
-                    "type": "VEC4",
-                }));
+        let (joints_accessor_idx, weights_accessor_idx) =
+            match (mesh.joint_indices.as_ref(), mesh.joint_weights.as_ref()) {
+                (Some(joint_idx), Some(joint_w)) => {
+                    // JOINTS_0: VEC4 of unsigned shorts (component 5123).
+                    let off_j = bin.len() as u64;
+                    for &v in joint_idx {
+                        bin.extend_from_slice(&v.to_le_bytes());
+                    }
+                    let len_j = (bin.len() as u64) - off_j;
+                    pad_to_4(&mut bin);
+                    let view_j = buffer_views.len();
+                    buffer_views.push(json!({
+                        "buffer": 0,
+                        "byteOffset": off_j,
+                        "byteLength": len_j,
+                        "target": 34962,
+                    }));
+                    let acc_j = accessors.len();
+                    accessors.push(json!({
+                        "bufferView": view_j,
+                        "componentType": 5123, // UNSIGNED_SHORT
+                        "count": vertex_count,
+                        "type": "VEC4",
+                    }));
 
-                // WEIGHTS_0: VEC4 of FLOAT.
-                let off_w = bin.len() as u64;
-                for &v in joint_w {
-                    bin.extend_from_slice(&v.to_le_bytes());
+                    // WEIGHTS_0: VEC4 of FLOAT.
+                    let off_w = bin.len() as u64;
+                    for &v in joint_w {
+                        bin.extend_from_slice(&v.to_le_bytes());
+                    }
+                    let len_w = (bin.len() as u64) - off_w;
+                    pad_to_4(&mut bin);
+                    let view_w = buffer_views.len();
+                    buffer_views.push(json!({
+                        "buffer": 0,
+                        "byteOffset": off_w,
+                        "byteLength": len_w,
+                        "target": 34962,
+                    }));
+                    let acc_w = accessors.len();
+                    accessors.push(json!({
+                        "bufferView": view_w,
+                        "componentType": COMPONENT_TYPE_FLOAT,
+                        "count": vertex_count,
+                        "type": "VEC4",
+                    }));
+                    (Some(acc_j), Some(acc_w))
                 }
-                let len_w = (bin.len() as u64) - off_w;
-                pad_to_4(&mut bin);
-                let view_w = buffer_views.len();
-                buffer_views.push(json!({
-                    "buffer": 0,
-                    "byteOffset": off_w,
-                    "byteLength": len_w,
-                    "target": 34962,
-                }));
-                let acc_w = accessors.len();
-                accessors.push(json!({
-                    "bufferView": view_w,
-                    "componentType": COMPONENT_TYPE_FLOAT,
-                    "count": vertex_count,
-                    "type": "VEC4",
-                }));
-                (Some(acc_j), Some(acc_w))
-            }
-            _ => (None, None),
-        };
+                _ => (None, None),
+            };
 
         // -- mesh primitive ----------------------------------------------
         let mut attributes = serde_json::Map::new();
@@ -1267,8 +1267,7 @@ pub fn build_glb(
         // Allocate node indices for every joint up front so children
         // can reference parents that haven't been pushed yet.
         let base_node = gltf_nodes.len();
-        let joint_node_indices: Vec<usize> =
-            (base_node..base_node + joint_count).collect();
+        let joint_node_indices: Vec<usize> = (base_node..base_node + joint_count).collect();
 
         // Build a children list per joint by walking parents.
         let mut children: Vec<Vec<usize>> = vec![Vec::new(); joint_count];
@@ -1317,10 +1316,11 @@ pub fn build_glb(
         // When the hierarchy-aware path is used (nodes slice is non-empty),
         // the SkelRoot node itself provides this transform and the wrapper
         // is emitted only in the legacy flat path.
-        let emit_legacy_wrapper = nodes.is_empty() && match skin.skel_root_matrix {
-            Some(m) => !is_identity_mat4_f32(&m),
-            None => false,
-        };
+        let emit_legacy_wrapper = nodes.is_empty()
+            && match skin.skel_root_matrix {
+                Some(m) => !is_identity_mat4_f32(&m),
+                None => false,
+            };
         if emit_legacy_wrapper {
             let wrapper_idx = gltf_nodes.len();
             let m = skin.skel_root_matrix.expect("checked above");
@@ -1674,8 +1674,7 @@ pub fn build_glb(
         // minimal for the (common) no-emission case.
         let emissive = m.emissive_factor;
         if emissive[0] > 0.0 || emissive[1] > 0.0 || emissive[2] > 0.0 {
-            material["emissiveFactor"] =
-                json!([emissive[0], emissive[1], emissive[2]]);
+            material["emissiveFactor"] = json!([emissive[0], emissive[1], emissive[2]]);
         }
         // Phase 2.M: alpha mode selection. UsdPreviewSurface has two
         // dimensions — a scalar `opacity` that lands on
@@ -1732,10 +1731,10 @@ pub fn build_glb(
         // Map NodeInput index → glTF node index (into gltf_nodes).
         // We pre-allocate all node slots now; index 0 is the __upAxis node.
         let up_axis_gltf_idx: usize = gltf_nodes.len(); // current length = 0 for first call
-        // Reserve the __upAxis node slot.
+                                                        // Reserve the __upAxis node slot.
         gltf_nodes.push(Value::Null); // placeholder, filled below
         let node_input_base = gltf_nodes.len(); // first real NodeInput node
-        // Allocate all NodeInput nodes in order.
+                                                // Allocate all NodeInput nodes in order.
         for ni in nodes.iter() {
             let gltf_idx = gltf_nodes.len();
             let _ = (ni, gltf_idx); // used below
@@ -1810,7 +1809,9 @@ pub fn build_glb(
                     obj
                 }
                 NodeKind::Mesh => {
-                    let mesh_idx = ni.mesh_payload_idx.expect("Mesh node must have mesh_payload_idx");
+                    let mesh_idx = ni
+                        .mesh_payload_idx
+                        .expect("Mesh node must have mesh_payload_idx");
                     let mesh = &meshes[mesh_idx];
                     let gltf_mesh_idx = mesh_idx; // 1:1 mapping: meshes[i] → gltf_meshes[i]
                     mesh_node_indices[mesh_idx] = gltf_idx;
@@ -1834,7 +1835,9 @@ pub fn build_glb(
                     obj
                 }
                 NodeKind::Light => {
-                    let light_idx_payload = ni.light_payload_idx.expect("Light node must have light_payload_idx");
+                    let light_idx_payload = ni
+                        .light_payload_idx
+                        .expect("Light node must have light_payload_idx");
                     // The light definition index matches light_payload_idx since we build
                     // light defs in the loop below in the same order as `lights` slice.
                     let mut obj = json!({
@@ -1854,7 +1857,9 @@ pub fn build_glb(
                     obj
                 }
                 NodeKind::Camera => {
-                    let cam_idx_payload = ni.camera_payload_idx.expect("Camera node must have camera_payload_idx");
+                    let cam_idx_payload = ni
+                        .camera_payload_idx
+                        .expect("Camera node must have camera_payload_idx");
                     let mut obj = json!({
                         "name": ni.basename,
                         "matrix": local_mat,
@@ -1868,7 +1873,9 @@ pub fn build_glb(
                     obj
                 }
                 NodeKind::SkelRoot => {
-                    let skin_idx_payload = ni.skin_payload_idx.expect("SkelRoot node must have skin_payload_idx");
+                    let skin_idx_payload = ni
+                        .skin_payload_idx
+                        .expect("SkelRoot node must have skin_payload_idx");
                     // Children of a SkelRoot include: hierarchy children from NodeInput,
                     // plus the joint roots that belong to this skin.
                     let children_gltf_base: Vec<usize> = children_of[ni_idx].clone();
@@ -2057,8 +2064,12 @@ pub fn build_glb(
             ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]),
             |(mut mn, mut mx), t| {
                 for i in 0..3 {
-                    if t[i] < mn[i] { mn[i] = t[i]; }
-                    if t[i] > mx[i] { mx[i] = t[i]; }
+                    if t[i] < mn[i] {
+                        mn[i] = t[i];
+                    }
+                    if t[i] > mx[i] {
+                        mx[i] = t[i];
+                    }
                 }
                 (mn, mx)
             },
@@ -2281,8 +2292,8 @@ pub fn build_glb(
         document["animations"] = Value::Array(gltf_animations);
     }
 
-    let mut json_bytes = serde_json::to_vec(&document)
-        .map_err(|e| format!("failed to serialize GLTF JSON: {e}"))?;
+    let mut json_bytes =
+        serde_json::to_vec(&document).map_err(|e| format!("failed to serialize GLTF JSON: {e}"))?;
     pad_chunk(&mut json_bytes, 0x20); // ASCII space for JSON chunk
     pad_chunk(&mut bin, 0x00); // zeros for BIN chunk
 
@@ -2502,7 +2513,19 @@ mod tests {
     #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
-        let glb = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None, &[]).expect("build glb");
+        let glb = build_glb(
+            &[],
+            &[mesh],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build glb");
 
         // GLB header sanity check
         assert_eq!(&glb[0..4], b"glTF");
@@ -2512,8 +2535,7 @@ mod tests {
         assert_eq!(total_length as usize, glb.len());
 
         // First chunk should be JSON
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_chunk_type = u32::from_le_bytes(glb[16..20].try_into().unwrap());
         assert_eq!(json_chunk_type, CHUNK_TYPE_JSON);
         let json_start = 20;
@@ -2521,8 +2543,7 @@ mod tests {
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
             .expect("json chunk is utf8")
             .trim_end_matches(' ');
-        let doc: serde_json::Value =
-            serde_json::from_str(json_text).expect("json chunk parses");
+        let doc: serde_json::Value = serde_json::from_str(json_text).expect("json chunk parses");
         assert_eq!(doc["asset"]["version"], "2.0");
         assert_eq!(doc["meshes"][0]["primitives"][0]["mode"], 4);
         assert_eq!(doc["accessors"].as_array().unwrap().len(), 4); // pos + normal + uv + idx
@@ -2531,11 +2552,15 @@ mod tests {
         // 4*3*4 (normals) + 4*2*4 (uvs) + 6*4 (indices) = 48 + 48 + 32 + 24 = 152
         // possibly padded.
         let bin_chunk_offset = json_end;
-        let bin_chunk_len =
-            u32::from_le_bytes(glb[bin_chunk_offset..bin_chunk_offset + 4].try_into().unwrap())
-                as usize;
+        let bin_chunk_len = u32::from_le_bytes(
+            glb[bin_chunk_offset..bin_chunk_offset + 4]
+                .try_into()
+                .unwrap(),
+        ) as usize;
         let bin_chunk_type = u32::from_le_bytes(
-            glb[bin_chunk_offset + 4..bin_chunk_offset + 8].try_into().unwrap(),
+            glb[bin_chunk_offset + 4..bin_chunk_offset + 8]
+                .try_into()
+                .unwrap(),
         );
         assert_eq!(bin_chunk_type, CHUNK_TYPE_BIN);
         assert!(bin_chunk_len >= 152, "bin chunk too small: {bin_chunk_len}");
@@ -2545,7 +2570,19 @@ mod tests {
     fn rejects_mismatched_normal_count() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.normals = Some(vec![0.0; 6]); // wrong length
-        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None, &[]).unwrap_err();
+        let err = build_glb(
+            &[],
+            &[mesh],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .unwrap_err();
         assert!(err.contains("normal"));
     }
 
@@ -2553,7 +2590,19 @@ mod tests {
     fn rejects_out_of_range_index() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.indices = vec![0, 1, 99];
-        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None, &[]).unwrap_err();
+        let err = build_glb(
+            &[],
+            &[mesh],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .unwrap_err();
         assert!(err.contains("out of range"));
     }
 
@@ -2561,7 +2610,19 @@ mod tests {
     fn rejects_material_index_out_of_range() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.material_index = 5;
-        let err = build_glb(&[], &[mesh], &default_materials(), &[], &[], &[], &[], &[], None, &[]).unwrap_err();
+        let err = build_glb(
+            &[],
+            &[mesh],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .unwrap_err();
         assert!(
             err.contains("material_index"),
             "expected material_index error, got: {err}"
@@ -2595,10 +2656,10 @@ mod tests {
             alpha_cutoff: 0.5,
             metallic_roughness_texture: None,
         }];
-        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None, &[]).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None, &[])
+            .expect("build glb");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -2613,10 +2674,10 @@ mod tests {
     fn omits_alpha_mode_for_opaque_material() {
         let mesh = unit_quad_split_into_two_triangles();
         let materials = vec![MaterialInput::default_preview()];
-        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None, &[]).expect("build glb");
+        let glb = build_glb(&[], &[mesh], &materials, &[], &[], &[], &[], &[], None, &[])
+            .expect("build glb");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
@@ -2681,11 +2742,22 @@ mod tests {
             },
         ];
 
-        let glb = build_glb(&[], &[red_mesh, blue_mesh], &materials, &[], &[], &[], &[], &[], None, &[]).expect("build glb");
+        let glb = build_glb(
+            &[],
+            &[red_mesh, blue_mesh],
+            &materials,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build glb");
         assert_eq!(&glb[0..4], b"glTF");
 
-        let json_chunk_len =
-            u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
         let json_text = std::str::from_utf8(&glb[json_start..json_end])
