@@ -10,6 +10,14 @@ import { readBinaryFile } from "./files";
  */
 export type StageLoadPolicy = "loadAll" | "noPayloads";
 
+export type BackendCapabilities = {
+  inspect: boolean;
+  geometry: boolean;
+  source: boolean;
+  session: boolean;
+  light: boolean;
+};
+
 /**
  * Resolution state of a composition arc.
  * - `loaded`: the arc is composed into the stage.
@@ -469,6 +477,10 @@ export async function loadUsdSource(
   const buffer = Uint8Array.from(bytes).buffer;
   const text = await tryExtractUsdaText(extension, buffer);
   return text === null ? { kind: "binary" } : { kind: "text", source: text };
+}
+
+export async function backendCapabilities(): Promise<BackendCapabilities> {
+  return invoke<BackendCapabilities>("backendCapabilities");
 }
 
 /**

@@ -25,7 +25,10 @@ use std::path::Path as StdPath;
 use openusd::sdf::Path as SdfPath;
 use openusd::stage::MeshData;
 
-use super::backend::{UsdBackend, UsdError};
+use super::backend::{
+    UsdGeometryBackend, UsdInspectBackend, UsdLightBackend, UsdSessionBackend, UsdSourceBackend,
+    UsdError,
+};
 use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation};
 use super::glb::{self, AlphaMode, InstancingInput, MaterialInput, MeshInput};
 use super::openusd_backend::DenseBlendShape;
@@ -106,7 +109,7 @@ fn classify_payload(
     CompositionArcState::Loaded
 }
 
-impl UsdBackend for OpenusdCppBackend {
+impl UsdInspectBackend for OpenusdCppBackend {
     fn inspect_stage(
         &self,
         path: &StdPath,
@@ -652,6 +655,9 @@ impl UsdBackend for OpenusdCppBackend {
         })
     }
 
+}
+
+impl UsdGeometryBackend for OpenusdCppBackend {
     fn extract_geometry_glb(
         &self,
         path: &StdPath,
@@ -692,6 +698,9 @@ impl UsdBackend for OpenusdCppBackend {
         extract_from_stage(&stage, path)
     }
 
+}
+
+impl UsdSourceBackend for OpenusdCppBackend {
     fn flatten_stage(&self, path: &StdPath) -> Result<String, UsdError> {
         // Use LoadAll so every composition arc is included in the
         // flattened output, matching `usdcat --flatten` semantics.
@@ -704,6 +713,9 @@ impl UsdBackend for OpenusdCppBackend {
         })
     }
 
+}
+
+impl UsdLightBackend for OpenusdCppBackend {
     fn inspect_usd_lights(&self, path: &StdPath) -> Result<Vec<UsdLightInfo>, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         let lights = stage.lights();
@@ -728,6 +740,9 @@ impl UsdBackend for OpenusdCppBackend {
         Ok(result)
     }
 
+}
+
+impl UsdSessionBackend for OpenusdCppBackend {
     // ---- #44 session methods -----------------------------------------------
 
     fn open_stage_session(
