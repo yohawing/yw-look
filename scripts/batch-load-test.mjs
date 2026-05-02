@@ -1,39 +1,26 @@
-/**
- * scripts/batch-load-test.mjs
- *
- * ⚠️  STATIC ENUMERATION ONLY — does NOT invoke any real loader.
- *
- * samples/private/ 以下のファイルを再帰列挙し、拡張子から対応ローダーを判定して
- * 結果を artifacts/logs/batch-load-report.json に出力する。実際の Three.js
- * loader / Tauri バックエンドは一切呼ばないため、本スクリプトの "supported"
- * 判定はファイルが**読める**ことを意味しない。あくまで対応拡張子の網羅性確認用。
- *
- * 実行: npm run test:batch
- *       または: node scripts/batch-load-test.mjs
- *
- * TODO: 将来は実際のローダーを呼び出して parse / load の成否を記録する。
- *       Node 単体では WebWorker / Three.js loader を直接 invoke できないため、
- *       Tauri アプリ内のテストハーネス or Playwright 経由の実行に差し替える想定。
- */
+import { spawn } from "node:child_process";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { readdirSync, statSync, mkdirSync, writeFileSync } from "fs";
-import { join, extname, relative } from "path";
-import { fileURLToPath } from "url";
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const projectRoot = join(__dirname, "..");
+const samplesDir = path.join(repoRoot, "samples", "private");
+const manifestPath = path.join(samplesDir, "models.json");
+const outputDir = path.join(repoRoot, "artifacts", "logs");
+const jsonReportPath = path.join(outputDir, "batch-load-report.json");
+const textReportPath = path.join(outputDir, "batch-load-report.md");
 
-const SAMPLES_DIR = join(projectRoot, "samples", "private");
-const OUTPUT_DIR = join(projectRoot, "artifacts", "logs");
-const OUTPUT_FILE = join(OUTPUT_DIR, "batch-load-report.json");
+const args = process.argv.slice(2);
+const listOnly = args.includes("--list");
+const useStaticEnumeration = args.includes("--static-enumeration");
+const selectedCaseId = readOption("--case");
+const timeoutMs = Number(readOption("--timeout-ms") ?? 180_000);
 
-// ---------------------------------------------------------------------------
-// ローダーマッピング (拡張子 → ローダー名)
-// src/viewer/loaders.ts の対応拡張子と一致させること。
-// ---------------------------------------------------------------------------
-/** @type {Record<string, string>} */
-const LOADER_MAP = {
-  // 3D モデル
+const loaderMap = {
   ".gltf": "GLTFLoader",
   ".glb": "GLTFLoader",
   ".fbx": "FBXLoader",
@@ -41,15 +28,10 @@ const LOADER_MAP = {
   ".stl": "STLLoader",
   ".ply": "PLYLoader",
   ".dae": "ColladaLoader",
-  // ".vrm": "VRMLoader", // 未実装 (ToDo.md #6)
-  // ".pmx": "MMDLoader", // 未実装 (ToDo.md #6)
-  // ".pmd": "MMDLoader", // 未実装 (ToDo.md #6)
-  // USD
   ".usd": "USDLoader",
   ".usda": "USDLoader",
-  ".usdc": "USDLoader (USDC — requires Rust backend Phase 3)",
+  ".usdc": "USDLoader",
   ".usdz": "USDLoader",
-  // テクスチャ
   ".png": "TextureLoader",
   ".jpg": "TextureLoader",
   ".jpeg": "TextureLoader",
@@ -60,104 +42,352 @@ const LOADER_MAP = {
   ".ktx2": "KTX2Loader",
 };
 
-// ---------------------------------------------------------------------------
-// ファイル再帰列挙
-// ---------------------------------------------------------------------------
-/**
- * @param {string} dir
- * @returns {string[]}
- */
-function walkDir(dir) {
-  let results = [];
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch (e) {
-    console.warn(`[warn] Cannot read directory: ${dir} — ${e.message}`);
-    return results;
+function readOption(name) {
+  const index = args.indexOf(name);
+  if (index === -1) return null;
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`);
   }
-  for (const entry of entries) {
-    if (entry.name.startsWith(".")) continue; // .gitkeep 等をスキップ
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results = results.concat(walkDir(fullPath));
-    } else if (entry.isFile()) {
-      results.push(fullPath);
-    }
-  }
-  return results;
+  return value;
 }
 
-// ---------------------------------------------------------------------------
-// メイン処理
-// ---------------------------------------------------------------------------
-const files = walkDir(SAMPLES_DIR);
+function normalizeRepoPath(filePath) {
+  return path.relative(repoRoot, filePath).replace(/\\/g, "/");
+}
 
-/** @type {{ path: string; ext: string; loader: string; status: "supported" | "unsupported" }[]} */
-const supported = [];
-/** @type {{ path: string; ext: string }[]} */
-const unsupported = [];
-/** @type {{ path: string; error: string }[]} */
-const errors = [];
+function loaderFor(filePath) {
+  return loaderMap[path.extname(filePath).toLowerCase()] ?? null;
+}
 
-for (const filePath of files) {
-  const relPath = relative(projectRoot, filePath).replace(/\\/g, "/");
-  const ext = extname(filePath).toLowerCase();
-
+async function pathExists(filePath) {
   try {
-    const stat = statSync(filePath);
-    if (!stat.isFile()) continue;
-
-    const loader = LOADER_MAP[ext];
-    if (loader) {
-      supported.push({
-        path: relPath,
-        ext,
-        loader,
-        status: "supported",
-        // TODO: ここで実際のローダーを呼び出して成否を記録する
-        //       例: const result = await invokeLoader(filePath, loader);
-        //       result.ok → "success", result.error → "error"
-        note: "static analysis only — loader not invoked yet",
-      });
-    } else {
-      unsupported.push({ path: relPath, ext });
-    }
-  } catch (e) {
-    errors.push({ path: relPath, error: String(e) });
+    await stat(filePath);
+    return true;
+  } catch {
+    return false;
   }
+}
+
+async function walkDir(dir) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const files = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await walkDir(fullPath)));
+    } else if (entry.isFile()) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+async function readManifestCases() {
+  const raw = await readFile(manifestPath, "utf8");
+  const manifest = JSON.parse(raw);
+  if (!Array.isArray(manifest.models)) {
+    throw new Error(`${normalizeRepoPath(manifestPath)} must contain models[]`);
+  }
+
+  return manifest.models.map((model) => {
+    const input = path.resolve(repoRoot, model.path);
+    return {
+      id: model.id,
+      name: model.name ?? model.id,
+      source: "manifest",
+      path: normalizeRepoPath(input),
+      absolutePath: input,
+      expected: model.expect ?? null,
+      loader: loaderFor(input),
+    };
+  });
+}
+
+async function readStaticCases() {
+  const files = await walkDir(samplesDir);
+  return files
+    .filter((filePath) => path.basename(filePath) !== "models.json")
+    .map((filePath) => ({
+      id: normalizeRepoPath(filePath),
+      name: path.basename(filePath),
+      source: "static-enumeration",
+      path: normalizeRepoPath(filePath),
+      absolutePath: filePath,
+      expected: null,
+      loader: loaderFor(filePath),
+    }));
+}
+
+function collectWarnings(output) {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /\b(warn|warning)\b/i.test(line))
+    .filter((line) => !line.startsWith("warning: constant "))
+    .filter((line) => !line.startsWith("warning: `yw-look` "))
+    .filter((line) => !line.startsWith("= note: `#[warn("));
+}
+
+function classifyFailure({ exitCode, error, output, loader }) {
+  const text = `${error ?? ""}\n${output ?? ""}`.toLowerCase();
+  if (!loader) return "unsupported";
+  if (text.includes("not found") || text.includes("no such file")) {
+    return "missing_reference";
+  }
+  if (
+    text.includes("texture") &&
+    (text.includes("missing") || text.includes("not found"))
+  ) {
+    return "texture_missing";
+  }
+  if (text.includes("unsupported") || text.includes("unknown extension")) {
+    return "unsupported";
+  }
+  if (
+    text.includes("tauri") ||
+    text.includes("backend") ||
+    text.includes("usd")
+  ) {
+    return "backend_error";
+  }
+  if (exitCode !== 0 && text.includes("loader")) return "loader_error";
+  if (error) return "process_error";
+  return "loader_error";
+}
+
+function runCheck(testCase) {
+  const startedAt = performance.now();
+  const runArgs = [
+    path.join(repoRoot, "scripts/run-shot.mjs"),
+    "check",
+    "--in",
+    testCase.absolutePath,
+  ];
+
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, runArgs, {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+        YW_LOOK_CARGO_FEATURES:
+          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+      },
+      shell: process.platform === "win32",
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      child.kill("SIGKILL");
+      resolve({
+        exitCode: null,
+        durationMs: Math.round(performance.now() - startedAt),
+        stdout,
+        stderr,
+        error: `timed out after ${timeoutMs}ms`,
+      });
+    }, timeoutMs);
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve({
+        exitCode: null,
+        durationMs: Math.round(performance.now() - startedAt),
+        stdout,
+        stderr,
+        error: error.message,
+      });
+    });
+    child.on("exit", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve({
+        exitCode: code,
+        durationMs: Math.round(performance.now() - startedAt),
+        stdout,
+        stderr,
+        error: signal ? `terminated by ${signal}` : null,
+      });
+    });
+  });
+}
+
+async function evaluateCase(testCase) {
+  if (!testCase.loader) {
+    return {
+      ...publicCaseFields(testCase),
+      status: "failed",
+      category: "unsupported",
+      durationMs: 0,
+      warnings: [],
+      error: "unsupported extension",
+    };
+  }
+
+  if (!(await pathExists(testCase.absolutePath))) {
+    return {
+      ...publicCaseFields(testCase),
+      status: "failed",
+      category: "missing_file",
+      durationMs: 0,
+      warnings: [],
+      error: `missing file: ${testCase.path}`,
+    };
+  }
+
+  const result = await runCheck(testCase);
+  const combinedOutput = `${result.stdout}\n${result.stderr}`;
+  const warnings = collectWarnings(combinedOutput);
+  const failed = result.exitCode !== 0 || result.error !== null;
+
+  return {
+    ...publicCaseFields(testCase),
+    status: failed ? "failed" : warnings.length > 0 ? "warning" : "success",
+    category: failed
+      ? classifyFailure({
+          exitCode: result.exitCode,
+          error: result.error,
+          output: combinedOutput,
+          loader: testCase.loader,
+        })
+      : null,
+    durationMs: result.durationMs,
+    warnings,
+    error: result.error,
+    exitCode: result.exitCode,
+    stdoutTail: tail(result.stdout),
+    stderrTail: tail(result.stderr),
+  };
+}
+
+function publicCaseFields(testCase) {
+  return {
+    id: testCase.id,
+    name: testCase.name,
+    source: testCase.source,
+    path: testCase.path,
+    loader: testCase.loader,
+    expected: testCase.expected,
+  };
+}
+
+function tail(value, maxLines = 40) {
+  const lines = value.trim().split(/\r?\n/).filter(Boolean);
+  return lines.slice(-maxLines);
+}
+
+function summarize(results) {
+  const summary = {
+    total: results.length,
+    success: 0,
+    warning: 0,
+    failed: 0,
+    categories: {},
+  };
+  for (const result of results) {
+    summary[result.status] += 1;
+    if (result.category) {
+      summary.categories[result.category] =
+        (summary.categories[result.category] ?? 0) + 1;
+    }
+  }
+  return summary;
+}
+
+function renderMarkdown(report) {
+  const lines = [
+    "# Batch Load Report",
+    "",
+    `Generated: ${report.generatedAt}`,
+    `Input: ${report.input}`,
+    "",
+    "## Summary",
+    "",
+    `- Total: ${report.summary.total}`,
+    `- Success: ${report.summary.success}`,
+    `- Warning: ${report.summary.warning}`,
+    `- Failed: ${report.summary.failed}`,
+    "",
+    "## Results",
+    "",
+    "| Status | Category | Loader | Duration | Path |",
+    "| --- | --- | --- | ---: | --- |",
+  ];
+
+  for (const result of report.results) {
+    lines.push(
+      `| ${result.status} | ${result.category ?? ""} | ${result.loader ?? ""} | ${result.durationMs}ms | ${result.path} |`,
+    );
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+let cases = useStaticEnumeration
+  ? await readStaticCases()
+  : await readManifestCases();
+
+if (selectedCaseId) {
+  cases = cases.filter((testCase) => testCase.id === selectedCaseId);
+  if (cases.length === 0) {
+    throw new Error(`unknown batch load case: ${selectedCaseId}`);
+  }
+}
+
+if (listOnly) {
+  for (const testCase of cases) {
+    console.log(`${testCase.id}: ${testCase.path}`);
+  }
+  process.exit(0);
+}
+
+const results = [];
+for (const testCase of cases) {
+  console.log(`[batch] ${testCase.id}: ${testCase.path}`);
+  results.push(await evaluateCase(testCase));
 }
 
 const report = {
   generatedAt: new Date().toISOString(),
-  samplesDir: relative(projectRoot, SAMPLES_DIR).replace(/\\/g, "/"),
-  summary: {
-    total: files.length,
-    supported: supported.length,
-    unsupported: unsupported.length,
-    errors: errors.length,
-  },
-  supported,
-  unsupported,
-  errors,
+  input: useStaticEnumeration
+    ? normalizeRepoPath(samplesDir)
+    : normalizeRepoPath(manifestPath),
+  reportSchemaVersion: 2,
+  summary: summarize(results),
+  results,
 };
 
-mkdirSync(OUTPUT_DIR, { recursive: true });
-writeFileSync(OUTPUT_FILE, JSON.stringify(report, null, 2), "utf-8");
+await mkdir(outputDir, { recursive: true });
+await writeFile(jsonReportPath, JSON.stringify(report, null, 2), "utf8");
+await writeFile(textReportPath, renderMarkdown(report), "utf8");
 
 console.log("=== batch-load-test ===");
-console.log(`Scanned: ${SAMPLES_DIR}`);
-console.log(`Total files : ${report.summary.total}`);
-console.log(`Supported   : ${report.summary.supported}`);
-console.log(`Unsupported : ${report.summary.unsupported}`);
-console.log(`Errors      : ${report.summary.errors}`);
-console.log(`Report written to: ${OUTPUT_FILE}`);
+console.log(`Total   : ${report.summary.total}`);
+console.log(`Success : ${report.summary.success}`);
+console.log(`Warning : ${report.summary.warning}`);
+console.log(`Failed  : ${report.summary.failed}`);
+console.log(`JSON    : ${jsonReportPath}`);
+console.log(`Summary : ${textReportPath}`);
 
-if (unsupported.length > 0) {
-  console.log("\nUnsupported extensions:");
-  for (const f of unsupported) console.log(`  ${f.ext}  ${f.path}`);
-}
-if (errors.length > 0) {
-  console.log("\nErrors:");
-  for (const f of errors) console.log(`  ${f.path}: ${f.error}`);
-}
+process.exit(report.summary.failed > 0 ? 1 : 0);

@@ -399,9 +399,9 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
 - [x] フリーアセットを一括取得するスクリプトを作る（`samples/private/fetch.mjs`）
 - [x] `samples/private/` に DL したアセットを配置する（gitignore 済み、`samples/private/models.json` で bench 対象を管理）
-- [ ] 全ファイルを順に読み込んでエラー/警告を記録するバッチテストスクリプトを作る（現状の `scripts/batch-load-test.mjs` は静的列挙のみ）
-- [ ] 結果レポートを出力する（静的列挙結果は `artifacts/logs/batch-load-report.json` に出力済み。実ロードの成功 / 失敗 / 警告分類は未実装）
-- [ ] エラーが出たアセットを原因別に分類・トリアージする
+- [x] 全ファイルを順に読み込んでエラー/警告を記録するバッチテストスクリプトを作る（`scripts/batch-load-test.mjs` が `samples/private/models.json` 由来の各モデルを `run-shot.mjs check` 経由で実 loader / Tauri backend に通す）
+- [x] 結果レポートを出力する（`artifacts/logs/batch-load-report.json` / `.md` に success / failed / warning と stdout/stderr tail を出力）
+- [x] エラーが出たアセットを原因別に分類・トリアージする（missing reference / texture missing / unsupported / backend error / loader error / process error / missing file の粗分類）
 - [x] private bench 実行導線を作る（`npm run bench:load` → `scripts/run-load-bench.mjs`）
 - [ ] bench 結果を継続比較できる形にする（しきい値 / baseline / trend は未整備）
 
