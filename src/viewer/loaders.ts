@@ -11,6 +11,7 @@ import {
   TextureLoader,
 } from "three";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
+import { isTauriEnvironment } from "../lib/platform";
 import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
@@ -335,6 +336,16 @@ function isUsdcCrateBuffer(buffer: ArrayBuffer) {
   return crateHeader.every((value, index) => view[index] === value);
 }
 
+function shouldFailClosedOnUsdPreviewDecisionFailure(
+  extension: string,
+  isTauriRuntime: boolean,
+) {
+  return (
+    isTauriRuntime &&
+    (extension === "usd" || extension === "usda" || extension === "usdz")
+  );
+}
+
 export async function tryExtractUsdaText(
   extension: string,
   buffer: ArrayBuffer,
@@ -465,6 +476,7 @@ export {
   resolveSiblingPath,
   isUsdcCrateBuffer,
   readUsdzFirstFileName,
+  shouldFailClosedOnUsdPreviewDecisionFailure,
 };
 
 export async function loadPreviewObject(
@@ -693,9 +705,23 @@ export async function loadPreviewObject(
         reportStage("resolve");
         useGlbPipeline = await requiresGlbPreview(file.path);
       } catch (error) {
+        if (
+          shouldFailClosedOnUsdPreviewDecisionFailure(
+            file.extension,
+            isTauriEnvironment(),
+          )
+        ) {
+          throw new Error(
+            `Unable to determine whether ${file.fileName} requires the USD composition backend. ` +
+              `JS fallback is disabled for .${file.extension} files because references, payloads, or sublayers could be omitted from the preview.`,
+            { cause: error },
+          );
+        }
+
         // If the Rust check itself fails (e.g. a catastrophic parse
-        // error) fall through to the JS-side magic-byte sniff so the
-        // load can still proceed and the user sees at least *something*.
+        // error) outside the Tauri app, fall through to the JS-side
+        // magic-byte sniff so browser selftests and mocked environments
+        // can still exercise the offline preview path.
         console.warn(
           "[usd] requires_glb_preview failed, falling back to JS detection:",
           error,
