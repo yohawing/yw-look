@@ -25,6 +25,8 @@
     "test:viewport-snapshot:update": "node scripts/viewport-snapshot.mjs --update-snapshot",
     "samples:fetch": "node samples/private/fetch.mjs",
     "bench:load": "node scripts/run-load-bench.mjs",
+    "bench:load:baseline": "node scripts/compare-load-bench.mjs --write-baseline artifacts/bench/load-baseline.json",
+    "bench:load:compare": "node scripts/compare-load-bench.mjs --baseline artifacts/bench/load-baseline.json",
     "shot": "node scripts/run-shot.mjs shot",
     "shot:check": "node scripts/run-shot.mjs check",
     "update:local:prepare": "node scripts/prepare-local-update-feed.mjs",

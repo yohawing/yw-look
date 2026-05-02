@@ -182,7 +182,7 @@
 - [x] `geometry / material / texture` 解放を点検する
 - [ ] 重いファイル連続表示時のメモリ挙動を確認する
 - [ ] EXR / HDR / DDS の重いケースを試験する
-- [ ] performance regression benchmark を整備する → #54
+- [x] performance regression benchmark を整備する → #54（`bench:load:baseline` / `bench:load:compare` と `docs/benchmarks.md` の手動運用を追加）
 
 現状:
 
@@ -403,7 +403,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] 結果レポートを出力する（`artifacts/logs/batch-load-report.json` / `.md` に success / failed / warning と stdout/stderr tail を出力）
 - [x] エラーが出たアセットを原因別に分類・トリアージする（missing reference / texture missing / unsupported / backend error / loader error / process error / missing file の粗分類）
 - [x] private bench 実行導線を作る（`npm run bench:load` → `scripts/run-load-bench.mjs`）
-- [ ] bench 結果を継続比較できる形にする（しきい値 / baseline / trend は未整備）
+- [x] bench 結果を継続比較できる形にする（`scripts/compare-load-bench.mjs` で latest report から baseline 作成 / threshold 比較）
 
 ### ユニットテスト / 統合テスト
 
@@ -430,9 +430,9 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 ### 起動スピードテスト（#54）
 
 - [x] 起動時間の計測ポイントを実装する（First Paint / Interactive / PerformanceCard）
-- [ ] 起動時間を自動計測するテストを書く（アプリ起動 → 初回描画までを Playwright / Tauri で測る）
-- [ ] 起動時間のしきい値を決めてリグレッション検知できるようにする
-- [ ] CI で起動スピードテストを実行する仕組みを検討する
+- [ ] 起動時間を自動計測するテストを書く（アプリ起動 → 初回描画までを Playwright / Tauri で測る。#54 では private load bench の手動 threshold 比較まで追加）
+- [x] 起動時間のしきい値を決めてリグレッション検知できるようにする（load bench は baseline `* 1.35 + 250ms` / frame p95 `* 1.20 + 2ms` を初期値にする。startup 専用 threshold は後続）
+- [x] CI で起動スピードテストを実行する仕組みを検討する（private assets / GPU 差分が大きいため #54 時点では手動 benchmark 運用）
 
 ## 20. CI/CD 整備
 
