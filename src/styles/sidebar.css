@@ -7,6 +7,33 @@
   place-items: center;
 }
 
+.sidebar-tab-badge {
+  position: absolute;
+  top: 7px;
+  right: max(8px, calc(50% - 15px));
+  display: inline-flex;
+  min-width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(15, 16, 17, 0.85);
+  border-radius: 999px;
+  padding: 0 3px;
+  color: #0f1011;
+  font-family: var(--yl-font-mono, ui-monospace);
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sidebar-tab-badge.is-warning {
+  background: #f2b84b;
+}
+
+.sidebar-tab-badge.is-danger {
+  background: #ff6b6b;
+}
+
 .tab-button.sidebar-tab-button::before {
   content: attr(data-tooltip);
 }
@@ -87,6 +114,32 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.app-statusbar-button {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  border: 0;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #d0d6e0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.app-statusbar-button:hover {
+  background: rgba(255, 255, 255, 0.065);
+  color: #f7f8f8;
+}
+
+.app-statusbar-button.is-warning {
+  color: #f2b84b;
+}
+
+.app-statusbar-button.is-danger {
+  color: #ff9a9a;
 }
 
 .sidebar-section {

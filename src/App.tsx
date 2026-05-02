@@ -549,6 +549,47 @@ export function App() {
     return nextWarnings;
   }, [assetMetadata?.textures, usdIssues, viewerFeedback.warning]);
   const sidebarWarnings = debugPanelsEnabled ? debugPanelWarnings : warnings;
+  const diagnosticCounts = useMemo(() => {
+    if (debugPanelsEnabled) {
+      return {
+        errorCount: 0,
+        warningCount: debugPanelWarnings.length,
+        total: debugPanelWarnings.length,
+      };
+    }
+
+    const loadErrorCount =
+      viewerFeedback.mode === "loadFailed" ||
+      viewerFeedback.mode === "missingReference"
+        ? 1
+        : 0;
+    const usdErrorCount = usdIssues.filter(
+      (issue) => issue.level === "error",
+    ).length;
+    const usdWarningCount = usdIssues.filter(
+      (issue) => issue.level === "warning",
+    ).length;
+    const unresolvedTextureCount =
+      assetMetadata?.textures.filter(
+        (texture) => texture.sourceKind === "unresolved",
+      ).length ?? 0;
+    const viewerWarningCount = viewerFeedback.warning ? 1 : 0;
+    const errorCount = loadErrorCount + usdErrorCount;
+    const warningCount =
+      usdWarningCount + unresolvedTextureCount + viewerWarningCount;
+
+    return {
+      errorCount,
+      warningCount,
+      total: errorCount + warningCount,
+    };
+  }, [
+    assetMetadata?.textures,
+    debugPanelsEnabled,
+    usdIssues,
+    viewerFeedback.mode,
+    viewerFeedback.warning,
+  ]);
   const shortcutLines = useMemo(
     () => [
       ...viewerShortcutHelpLines,
@@ -2088,29 +2129,68 @@ export function App() {
     }
   })();
 
-  const sidebarTabs = useMemo(() => createSidebarTabs(), []);
-
-  const statusLeftItems = useMemo(
+  const sidebarTabs = useMemo(
     () =>
-      buildStatusLeftItems({
-        assetMetadata: sidebarAssetMetadata,
-        currentFile: sidebarCurrentFile,
-        gridUnitLabel,
-        settingsError,
-        showGrid,
-        viewerFeedback,
-        viewerStatusLabel,
-      }),
-    [
+      createSidebarTabs().map((tab) =>
+        tab.id === "warnings" && diagnosticCounts.total > 0
+          ? {
+              ...tab,
+              badge: {
+                count: diagnosticCounts.total,
+                tone:
+                  diagnosticCounts.errorCount > 0
+                    ? ("danger" as const)
+                    : ("warning" as const),
+              },
+            }
+          : tab,
+      ),
+    [diagnosticCounts.errorCount, diagnosticCounts.total],
+  );
+
+  const openDiagnosticsPanel = useCallback(() => {
+    setSidebarOpen(true);
+    setActiveTab("warnings");
+  }, []);
+
+  const statusLeftItems = useMemo(() => {
+    const items = buildStatusLeftItems({
+      assetMetadata: sidebarAssetMetadata,
+      currentFile: sidebarCurrentFile,
       gridUnitLabel,
-      sidebarAssetMetadata,
-      sidebarCurrentFile,
       settingsError,
       showGrid,
       viewerFeedback,
       viewerStatusLabel,
-    ],
-  );
+    });
+
+    if (diagnosticCounts.total > 0) {
+      const label =
+        diagnosticCounts.errorCount > 0
+          ? `${diagnosticCounts.errorCount} error${diagnosticCounts.errorCount === 1 ? "" : "s"}`
+          : `${diagnosticCounts.warningCount} warning${diagnosticCounts.warningCount === 1 ? "" : "s"}`;
+      items.push({
+        id: "diagnostics",
+        content: `Diagnostics: ${label}`,
+        onClick: openDiagnosticsPanel,
+        tone: diagnosticCounts.errorCount > 0 ? "danger" : "warning",
+      });
+    }
+
+    return items;
+  }, [
+    diagnosticCounts.errorCount,
+    diagnosticCounts.total,
+    diagnosticCounts.warningCount,
+    gridUnitLabel,
+    openDiagnosticsPanel,
+    sidebarAssetMetadata,
+    sidebarCurrentFile,
+    settingsError,
+    showGrid,
+    viewerFeedback,
+    viewerStatusLabel,
+  ]);
 
   const statusRightItems = useMemo(
     () =>

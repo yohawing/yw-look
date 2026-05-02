@@ -5,6 +5,8 @@ export type AppStatusBarItem = {
   id: string;
   content: ReactNode;
   mono?: boolean;
+  onClick?: () => void;
+  tone?: "warning" | "danger";
 };
 
 type AppStatusBarProps = {
@@ -26,7 +28,23 @@ function StatusBarGroup({ items }: { items: readonly AppStatusBarItem[] }) {
           {index > 0 ? (
             <span className="statusbar-separator" aria-hidden="true" />
           ) : null}
-          <span className="app-statusbar-item-content">{item.content}</span>
+          {item.onClick ? (
+            <button
+              className={[
+                "app-statusbar-item-content",
+                "app-statusbar-button",
+                item.tone ? `is-${item.tone}` : null,
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={item.onClick}
+              type="button"
+            >
+              {item.content}
+            </button>
+          ) : (
+            <span className="app-statusbar-item-content">{item.content}</span>
+          )}
         </span>
       ))}
     </div>
