@@ -10,10 +10,7 @@ import type { DisplayMode } from "../../viewer";
 function event(
   key: string,
   modifiers: Partial<KeyboardEvent> = {},
-): Pick<
-  KeyboardEvent,
-  "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
-> {
+): Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"> {
   return {
     key,
     altKey: Boolean(modifiers.altKey),
@@ -128,7 +125,7 @@ describe("viewer shortcuts", () => {
     );
 
     const editable = document.createElement("div");
-    editable.contentEditable = "true";
+    editable.setAttribute("contenteditable", "true");
     expect(isEditableShortcutTarget(editable)).toBe(true);
   });
 
