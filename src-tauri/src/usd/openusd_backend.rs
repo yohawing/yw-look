@@ -553,13 +553,6 @@ impl UsdBackend for OpenusdBackend {
         path: &StdPath,
         options: &ExtractGeometryOptions,
     ) -> Result<Vec<u8>, UsdError> {
-        if !options.variant_selections.is_empty() {
-            eprintln!(
-                "[usd-rust] extract_geometry_glb_with_options: variant_selections are \
-                 not supported by the Rust openusd backend (degraded mode). The \
-                 authored variant selections will be used instead."
-            );
-        }
         let stage = Self::open(path, options.policy)?;
         extract_geometry_from_open_stage_rs(&stage, path, options)
     }
@@ -760,8 +753,16 @@ impl UsdBackend for OpenusdBackend {
 pub(crate) fn extract_geometry_from_open_stage_rs(
     stage: &Stage,
     stage_path: &StdPath,
-    _options: &ExtractGeometryOptions,
+    options: &ExtractGeometryOptions,
 ) -> Result<Vec<u8>, UsdError> {
+    if let Some(selection) = options.variant_selections.first() {
+        return Err(UsdError::InvalidVariantSelection {
+            prim_path: selection.prim_path.clone(),
+            set_name: selection.set_name.clone(),
+            variant_name: selection.variant_name.clone(),
+        });
+    }
+
         // Pre-compute the Z-up → Y-up correction, if any. The viewer is
         // Y-up; Z-up USD scenes (Kitchen Set, most DCC exports from Maya
         // / Houdini) need rotating into viewer space. We bake the

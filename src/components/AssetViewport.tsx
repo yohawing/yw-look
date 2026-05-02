@@ -31,6 +31,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { SelectedFile } from "../lib/files";
+import { formatUsdErrorForDisplay } from "../lib/usd";
 import {
   type CameraPreset,
   type DisplayMode,
@@ -228,6 +229,7 @@ type AssetViewportProps = {
   displayMode: DisplayMode;
   backgroundPreset: BackgroundPreset;
   onFeedbackChange: (feedback: ViewerFeedback) => void;
+  onUsdError?: (error: unknown) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
   selectedTextureId: string | null;
   viewerSurfaceMode: ViewerSurfaceMode;
@@ -496,6 +498,7 @@ export function AssetViewport({
   displayMode,
   backgroundPreset,
   onFeedbackChange,
+  onUsdError,
   onMetadataChange,
   selectedTextureId,
   viewerSurfaceMode,
@@ -1960,9 +1963,12 @@ export function AssetViewport({
         // Log the raw error to the webview console so it is visible in
         // devtools (Tauri: Ctrl+Shift+I) and not just in Diagnostics.
         console.error("[viewer] load failed:", error);
+        onUsdError?.(error);
 
-        const message =
-          error instanceof Error ? error.message : "Failed to load preview.";
+        const message = formatUsdErrorForDisplay(
+          error,
+          "Failed to load preview.",
+        );
         const missingReferenceError = error as Partial<MissingReferenceError>;
         const mode =
           message.includes("404") || missingReferenceError.missingPaths?.length
@@ -2005,6 +2011,7 @@ export function AssetViewport({
   }, [
     currentFile,
     onFeedbackChange,
+    onUsdError,
     onGridUnitChange,
     onMetadataChange,
     showGrid,

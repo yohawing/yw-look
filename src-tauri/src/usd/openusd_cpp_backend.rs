@@ -26,7 +26,7 @@ use openusd::sdf::Path as SdfPath;
 use openusd::stage::MeshData;
 
 use super::backend::{UsdBackend, UsdError};
-use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation};
+use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation, UpAxis};
 use super::glb::{self, AlphaMode, InstancingInput, MaterialInput, MeshInput};
 use super::openusd_backend::DenseBlendShape;
 use super::openusd_backend::{
@@ -38,9 +38,9 @@ use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
     CompositionArc, CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo,
     MetadataEntry, PrimInspection, PrimTypeCount, RelationshipInfo, ShapingCone, StageInspection,
-    StageLoadPolicy, StageSummary, TimeSampleEntry, UsdLightInfo, VariantSetInfo,
+    StageLoadPolicy, StageSummary, TimeSampleEntry, UsdLightInfo, VariantSelection,
+    VariantSetInfo,
 };
-use super::cpp_sys::UpAxis;
 
 /// Real backend backed by Pixar OpenUSD via the C shim.
 pub struct OpenusdCppBackend;
@@ -671,25 +671,7 @@ impl UsdBackend for OpenusdCppBackend {
         options: &ExtractGeometryOptions,
     ) -> Result<Vec<u8>, UsdError> {
         let stage = Self::open(path, options.policy)?;
-        // Apply variant selections before traversal. The C++ shim writes
-        // these to the stage's session layer via
-        // UsdVariantSet::SetVariantSelection, so subsequent
-        // GetPrimAtPath / traverse calls see the overridden variant
-        // composition.
-        for vs in &options.variant_selections {
-            let ok = stage.set_variant_selection(
-                &vs.prim_path,
-                &vs.set_name,
-                &vs.variant_name,
-            );
-            if !ok {
-                eprintln!(
-                    "[usd-cpp] set_variant_selection failed: {} {} {}",
-                    vs.prim_path, vs.set_name, vs.variant_name,
-                );
-            }
-        }
-        extract_from_stage(&stage, path)
+        extract_from_stage_with_options(&stage, path, options)
     }
 
     fn flatten_stage(&self, path: &StdPath) -> Result<String, UsdError> {
@@ -817,23 +799,11 @@ fn extract_from_stage_with_options(
     // #44: when the caller provides variant selections (e.g. the session
     // path also routes through here after a payload toggle), push them to
     // the stage's session layer before traversal so the GLB reflects the
-    // user's variant choices. The stateless `extract_geometry_glb_with_options`
-    // already applied the same selections before the call, so re-applying
-    // is idempotent there; the session path needs this to avoid silently
-    // reverting to authored variants on every payload load/unload.
-    for vs in &options.variant_selections {
-        let ok = stage.set_variant_selection(
-            &vs.prim_path,
-            &vs.set_name,
-            &vs.variant_name,
-        );
-        if !ok {
-            eprintln!(
-                "[usd-cpp] set_variant_selection failed: {} {} {}",
-                vs.prim_path, vs.set_name, vs.variant_name,
-            );
-        }
-    }
+    // user's variant choices. The stateless path opens a fresh stage and
+    // reaches this helper directly; the session path needs the same apply
+    // step to avoid silently reverting to authored variants on every
+    // payload load/unload.
+    apply_and_validate_variant_selections(stage, &options.variant_selections)?;
 
         // Z-up → Y-up baked into every mesh's world matrix so the GLB
         // is self-describing on the viewer side. Matches the Rust
@@ -1790,6 +1760,56 @@ fn extract_from_stage_with_options(
         let up_correction_f32 = up_axis_correction.as_ref().map(mat4_f64_to_f32);
         glb::build_glb(&node_tree, &inputs, &materials, &textures, &skins, &animations, &lights, &cameras, up_correction_f32, &instancing_inputs)
             .map_err(|e| UsdError::Parse(e.to_string()))
+}
+
+fn invalid_variant_selection(selection: &VariantSelection) -> UsdError {
+    UsdError::InvalidVariantSelection {
+        prim_path: selection.prim_path.clone(),
+        set_name: selection.set_name.clone(),
+        variant_name: selection.variant_name.clone(),
+    }
+}
+
+fn apply_and_validate_variant_selections(
+    stage: &CStage,
+    selections: &[VariantSelection],
+) -> Result<(), UsdError> {
+    let mut first_failed: Option<VariantSelection> = None;
+    let mut expected = Vec::<VariantSelection>::new();
+
+    for selection in selections {
+        let ok = stage.set_variant_selection(
+            &selection.prim_path,
+            &selection.set_name,
+            &selection.variant_name,
+        );
+        if !ok && first_failed.is_none() {
+            first_failed = Some(selection.clone());
+        }
+
+        if let Some(index) = expected.iter().position(|previous| {
+            previous.prim_path == selection.prim_path && previous.set_name == selection.set_name
+        }) {
+            expected.remove(index);
+        }
+        expected.push(selection.clone());
+    }
+
+    if let Some(selection) = first_failed {
+        return Err(invalid_variant_selection(&selection));
+    }
+
+    for selection in &expected {
+        if stage
+            .variant_selection(&selection.prim_path, &selection.set_name)
+            .as_deref()
+            != Some(selection.variant_name.as_str())
+        {
+            return Err(invalid_variant_selection(selection));
+        }
+    }
+
+    Ok(())
 }
 
 fn identity_mat4() -> [f64; 16] {
