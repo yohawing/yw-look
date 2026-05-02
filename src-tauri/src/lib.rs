@@ -1895,13 +1895,12 @@ async fn load_payload(
     // the async runtime stays responsive to other IPC traffic.
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let registry = app.state::<StageRegistry>();
-        registry
-            .with(handle, |session| {
-                backend_handle
-                    .load_payload(&session.stage, &prim_path)
-                    .map_err(|e| e.to_string())
-            })
-            .ok_or_else(|| format!("load_payload: unknown session handle {}", handle.0))?
+        let session = registry
+            .get(handle)
+            .ok_or_else(|| format!("load_payload: unknown session handle {}", handle.0))?;
+        backend_handle
+            .load_payload(&session.stage, &prim_path)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("USD task join error: {e}"))?
@@ -1926,13 +1925,12 @@ async fn unload_payload(
     // and to guarantee the registry mutex isn't held across `.await`.
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let registry = app.state::<StageRegistry>();
-        registry
-            .with(handle, |session| {
-                backend_handle
-                    .unload_payload(&session.stage, &prim_path)
-                    .map_err(|e| e.to_string())
-            })
-            .ok_or_else(|| format!("unload_payload: unknown session handle {}", handle.0))?
+        let session = registry
+            .get(handle)
+            .ok_or_else(|| format!("unload_payload: unknown session handle {}", handle.0))?;
+        backend_handle
+            .unload_payload(&session.stage, &prim_path)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("USD task join error: {e}"))?
@@ -1960,22 +1958,21 @@ async fn extract_geometry_session(
     // (avoids holding a `tauri::State` reference across `.await`).
     let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
         let registry = app.state::<StageRegistry>();
-        registry
-            .with(handle, |session| {
-                backend_handle
-                    .extract_geometry_from_session(
-                        &session.stage,
-                        &session.path,
-                        &resolved_options,
-                    )
-                    .map_err(|e| e.to_string())
-            })
+        let session = registry
+            .get(handle)
             .ok_or_else(|| {
                 format!(
                     "extract_geometry_session: unknown session handle {}",
                     handle.0
                 )
-            })?
+            })?;
+        backend_handle
+            .extract_geometry_from_session(
+                &session.stage,
+                &session.path,
+                &resolved_options,
+            )
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("USD task join error: {e}"))??;

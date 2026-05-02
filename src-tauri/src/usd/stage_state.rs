@@ -10,14 +10,16 @@
 //! Thread-safety note: `StageRegistry` wraps each `OpenStage` variant in a
 //! `Mutex` so the registry itself is `Send + Sync` — required by Tauri's
 //! `app.manage()`. The `CStage` handle is explicitly NOT `Sync` (only
-//! `Send`), so we keep it behind a per-session `Mutex<CStage>` and never
-//! hand out a reference that crosses a `.await` boundary.
+//! `Send`), so we keep it behind a per-session `Mutex<CStage>`. The
+//! registry map stores sessions behind `Arc` handles so lookup only holds
+//! the map lock long enough to clone the session pointer; heavyweight stage
+//! operations contend only on the individual session's stage mutex.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Mutex,
+    Arc, Mutex,
 };
 
 use super::types::StageLoadPolicy;
@@ -67,7 +69,7 @@ pub struct OpenSession {
 /// Tauri command as `tauri::State<'_, StageRegistry>`.
 pub struct StageRegistry {
     next: AtomicU64,
-    sessions: Mutex<HashMap<u64, OpenSession>>,
+    sessions: Mutex<HashMap<u64, Arc<OpenSession>>>,
 }
 
 impl StageRegistry {
@@ -83,15 +85,22 @@ impl StageRegistry {
     pub fn insert(&self, session: OpenSession) -> StageSessionHandle {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let mut map = self.sessions.lock().expect("StageRegistry lock poisoned");
-        map.insert(id, session);
+        map.insert(id, Arc::new(session));
         StageSessionHandle(id)
     }
 
-    /// Removes and returns the session for `handle`, or `None` if it
-    /// does not exist.
-    pub fn remove(&self, handle: StageSessionHandle) -> Option<OpenSession> {
+    /// Removes and returns the session handle for `handle`, or `None` if it
+    /// does not exist. In-flight operations that already cloned the `Arc`
+    /// keep the session alive until they finish; future lookups fail.
+    pub fn remove(&self, handle: StageSessionHandle) -> Option<Arc<OpenSession>> {
         let mut map = self.sessions.lock().expect("StageRegistry lock poisoned");
         map.remove(&handle.0)
+    }
+
+    /// Returns a cloned session handle for `handle`.
+    pub fn get(&self, handle: StageSessionHandle) -> Option<Arc<OpenSession>> {
+        let map = self.sessions.lock().expect("StageRegistry lock poisoned");
+        map.get(&handle.0).cloned()
     }
 
     /// Calls `f` with a shared reference to the session for `handle`.
@@ -100,18 +109,7 @@ impl StageRegistry {
     where
         F: FnOnce(&OpenSession) -> R,
     {
-        let map = self.sessions.lock().expect("StageRegistry lock poisoned");
-        map.get(&handle.0).map(f)
-    }
-
-    /// Calls `f` with a mutable reference to the session for `handle`.
-    /// Returns `None` when the handle is unknown.
-    pub fn with_mut<F, R>(&self, handle: StageSessionHandle, f: F) -> Option<R>
-    where
-        F: FnOnce(&mut OpenSession) -> R,
-    {
-        let mut map = self.sessions.lock().expect("StageRegistry lock poisoned");
-        map.get_mut(&handle.0).map(f)
+        self.get(handle).map(|session| f(&session))
     }
 
     /// Returns the number of open sessions.
@@ -127,5 +125,62 @@ impl StageRegistry {
 impl Default for StageRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(all(test, feature = "backend-openusd-rs"))]
+mod tests {
+    use super::*;
+    use crate::usd::{OpenusdBackend, UsdBackend};
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    fn tiny_usda_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("samples")
+            .join("assets")
+            .join("usd")
+            .join("tiny.usda")
+    }
+
+    fn open_test_session(backend: &OpenusdBackend) -> OpenSession {
+        let path = tiny_usda_path();
+        let policy = StageLoadPolicy::default();
+        let stage = backend
+            .open_stage_session(&path, policy)
+            .expect("open tiny.usda test session");
+        OpenSession {
+            path,
+            policy,
+            stage,
+        }
+    }
+
+    #[test]
+    fn with_does_not_hold_registry_lock_while_running_closure() {
+        let backend = OpenusdBackend::new();
+        let registry = Arc::new(StageRegistry::new());
+        let active = registry.insert(open_test_session(&backend));
+        let removable = registry.insert(open_test_session(&backend));
+
+        registry
+            .with(active, |_| {
+                let (tx, rx) = mpsc::channel();
+                let registry = Arc::clone(&registry);
+                std::thread::spawn(move || {
+                    let removed = registry.remove(removable).is_some();
+                    tx.send(removed).expect("send remove result");
+                });
+
+                assert_eq!(
+                    rx.recv_timeout(Duration::from_secs(1)),
+                    Ok(true),
+                    "registry map lock stayed held while with() closure was running"
+                );
+            })
+            .expect("active session exists");
+
+        assert_eq!(registry.len(), 1);
     }
 }
