@@ -1,6 +1,6 @@
 [package]
 name = "yw-look"
-version = "0.1.3"
+version = "0.1.9"
 description = "Quick look style asset viewer for CG workflows"
 authors = ["OpenAI Codex"]
 edition = "2021"
@@ -64,4 +64,3 @@ url = "2"
 # embed them into the glTF binary chunk. openusd already pulls zip 8
 # transitively, so this matches its version to share the build.
 zip = { version = "8", default-features = false, features = ["deflate"] }
-

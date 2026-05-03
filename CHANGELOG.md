@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.1.9 (2026-05-03)
+
+### USD workflow
+
+- Added USD variant-set switching, purpose filtering, payload
+  load/unload controls, per-prim metadata inspection, relationship and
+  attribute panels, layer-stack details, time-sample details, and USDA
+  root-layer source preview.
+- Improved USD preview parity with stable hierarchy selection keys,
+  viewport-to-tree mesh selection sync, camera switching, light
+  enumeration, bound-mesh material details, RGBA displayColor /
+  displayOpacity handling, PointInstancer previews, and Z-up correction
+  for synthetic up-axis nodes.
+- Ported more hierarchy construction to the C++ backend and propagated
+  typed errors through stage flattening, variant selection, and shim
+  callback paths.
+- Made the loader fail closed for composition-bearing USD files when a
+  JavaScript fallback would otherwise hide unsupported composition
+  semantics.
+
+### Viewer and desktop
+
+- Added Finder open-file handling on macOS.
+- Added an auto-check-for-updates toggle.
+- Added UE-style RMB + WASD fly camera controls.
+- Refined the loading experience with a console-style loading screen,
+  real loading-stage reporting, and diagnostics counts in the chrome.
+- Reworked sidebar, properties, files, and animation playback controls
+  against the design-system brushup.
+- Added a 2D / 3D toggle for texture preview.
+
+### Testing and release infrastructure
+
+- Added headless shot/check commands, viewport snapshot regression
+  tests, pixel comparison, and batch-load coverage.
+- Added load-regression benchmark scripts and sample-fetch support for
+  multi-file and zip-based reference models.
+- Clarified macOS distribution boundaries and release requirements.
+- Skipped the expensive C++ backend workflow on develop while keeping
+  release/main coverage.
+
 ## v0.1.2 (2026-04-19)
 
 ### USD backend
