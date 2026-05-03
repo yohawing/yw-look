@@ -1,8 +1,23 @@
 fn main() {
-    tauri_build::build();
+    // Updater defaults are baked in via `option_env!` in lib.rs; tell
+    // cargo to rebuild if they flip so dev machines don't accidentally
+    // ship stale endpoints.
+    println!("cargo:rerun-if-env-changed=YW_LOOK_UPDATER_ENDPOINT");
+    println!("cargo:rerun-if-env-changed=YW_LOOK_UPDATER_PUBLIC_KEY");
 
+    // Stage the C++ backend's runtime libraries into
+    // `src-tauri/cpp-artifacts/<triplet>/` *before* handing control to
+    // `tauri_build::build()`. The per-OS overlay configs
+    // (`tauri.{macos,windows}.json`) reference that directory from
+    // `bundle.resources`, and `tauri_build` validates every resource
+    // path in the build script — if the directory does not yet exist
+    // it aborts with `resource path '...' doesn't exist` before
+    // cpp_backend has a chance to populate it. Reversing the order
+    // guarantees the tree is on disk by the time tauri validates.
     #[cfg(feature = "backend-openusd-cpp")]
     cpp_backend::build();
+
+    tauri_build::build();
 }
 
 #[cfg(feature = "backend-openusd-cpp")]
@@ -275,11 +290,11 @@ mod cpp_backend {
         println!("cargo:rerun-if-env-changed=VCPKG_BINARY_SOURCES");
         println!("cargo:rerun-if-env-changed=LIBCLANG_PATH");
 
-        // Treat the manifest files as first-class build inputs: if a
-        // developer bumps the baseline SHA or the usd version>=
-        // constraint, Cargo needs to rerun the build script so vcpkg
-        // picks up the change. Without these declarations Cargo only
-        // reruns on source-file changes and we'd ship stale libs.
+        // Treat the vcpkg inputs as first-class build inputs: if a
+        // developer bumps the baseline SHA, usd version>= constraint,
+        // or overlay triplet, Cargo needs to rerun the build script so
+        // vcpkg picks up the change. Without these declarations Cargo
+        // only reruns on source-file changes and we'd ship stale libs.
         println!(
             "cargo:rerun-if-changed={}",
             manifest_dir.join("vcpkg.json").display()
@@ -288,6 +303,13 @@ mod cpp_backend {
             "cargo:rerun-if-changed={}",
             manifest_dir.join("vcpkg-configuration.json").display()
         );
+        println!(
+            "cargo:rerun-if-changed={}",
+            manifest_dir
+                .join("triplets")
+                .join("arm64-osx.cmake")
+                .display()
+        );
 
         // 1. Invoke vcpkg in manifest mode. Classic vcpkg users may
         //    not be used to this, but it's the mode the vcpkg.json +
@@ -295,6 +317,17 @@ mod cpp_backend {
         //    `--x-manifest-root` picks up those two files.
         //    On first run this builds OpenUSD from source (30-60 min);
         //    subsequent runs restore from the vcpkg binary cache.
+        //
+        //    `--overlay-triplets` points at our `triplets/` directory,
+        //    which patches the upstream `arm64-osx` triplet to set
+        //    `VCPKG_OSX_DEPLOYMENT_TARGET=11.0`. Without the overlay,
+        //    the baseline triplet leaves the target unset and OpenUSD's
+        //    CMake falls back to 10.13 — too old for libc++'s
+        //    `<filesystem>`, which breaks the pegtl compile. The overlay
+        //    is also consulted for the Windows triplet, but that file
+        //    is omitted; vcpkg falls back to the upstream definition
+        //    automatically when the overlay does not override it.
+        let overlay_triplets = manifest_dir.join("triplets");
         let status = Command::new(vcpkg_exe(&vcpkg_root, &target_os))
             .args([
                 "install",
@@ -304,6 +337,7 @@ mod cpp_backend {
                     "--x-install-root={}",
                     manifest_dir.join("vcpkg_installed").display()
                 ),
+                &format!("--overlay-triplets={}", overlay_triplets.display()),
             ])
             .current_dir(&manifest_dir)
             .status()

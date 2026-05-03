@@ -1,6 +1,5 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "_comment": "Overlay applied with `tauri build --config tauri.macos.json` when building the C++-backend flavor on macOS arm64. Dylibs land in Contents/Frameworks/ so the `@loader_path/../Frameworks` rpath baked into the binary resolves them; the plugin tree lives in Contents/Resources/usd/ because Tauri's macOS bundler routes `resources:` entries there, and the shim knows to probe `@loader_path/../Resources/usd` during startup (see `register_plugins_once` in usd_c_shim.cpp). Ad-hoc codesigning (base tauri.conf.json `signingIdentity: '-'`) re-signs the copied dylibs. Glob `*.dylib` tracks whatever transitive libraries build.rs actually staged — the exact set varies by vcpkg `usd` port flavor.",
   "bundle": {
     "resources": {
       "cpp-artifacts/arm64-osx/usd/": "usd/"
