@@ -161,28 +161,32 @@ typedef void (*UsdcArcCallback)(const UsdcArc *arc, void *user);
 
 /* Walks every prim in the composed stage. Calls `cb(path, user)` once
  * per prim with the prim's SdfPath as a C string (`"/World/Foo"`). */
-USDC_API void usdc_stage_traverse(UsdcStage *stage,
-                                  UsdcStringCallback cb,
-                                  void *user);
+USDC_API int usdc_stage_traverse(UsdcStage *stage,
+                                 UsdcStringCallback cb,
+                                 void *user,
+                                 UsdcError **out_err);
 
 /* Calls `cb` once per composed layer identifier. */
-USDC_API void usdc_stage_layer_identifiers(UsdcStage *stage,
-                                           UsdcStringCallback cb,
-                                           void *user);
+USDC_API int usdc_stage_layer_identifiers(UsdcStage *stage,
+                                          UsdcStringCallback cb,
+                                          void *user,
+                                          UsdcError **out_err);
 
 /* Enumerates references authored on a prim (not resolved references
  * across the composed stage — the locally authored list, matching the
  * behavior of the Rust fork's `references_in`). */
-USDC_API void usdc_stage_references_in(UsdcStage *stage,
-                                       const char *prim_path,
-                                       UsdcArcCallback cb,
-                                       void *user);
+USDC_API int usdc_stage_references_in(UsdcStage *stage,
+                                      const char *prim_path,
+                                      UsdcArcCallback cb,
+                                      void *user,
+                                      UsdcError **out_err);
 
 /* Same as references_in, but for payloads. */
-USDC_API void usdc_stage_payloads_in(UsdcStage *stage,
-                                     const char *prim_path,
-                                     UsdcArcCallback cb,
-                                     void *user);
+USDC_API int usdc_stage_payloads_in(UsdcStage *stage,
+                                    const char *prim_path,
+                                    UsdcArcCallback cb,
+                                    void *user,
+                                    UsdcError **out_err);
 
 /* Enumerates the direct inherits arcs authored on the prim at
  * `prim_path`. For each inherit, the arc's `source_prim` is the prim
@@ -191,27 +195,30 @@ USDC_API void usdc_stage_payloads_in(UsdcStage *stage,
  * SdfPath of the base prim being inherited. `is_loaded` is always 1
  * (inherits do not have a load/deferred state). Emits nothing when
  * the prim does not exist or has no inherits. */
-USDC_API void usdc_stage_inherits_in(UsdcStage *stage,
-                                     const char *prim_path,
-                                     UsdcArcCallback cb,
-                                     void *user);
+USDC_API int usdc_stage_inherits_in(UsdcStage *stage,
+                                    const char *prim_path,
+                                    UsdcArcCallback cb,
+                                    void *user,
+                                    UsdcError **out_err);
 
 /* Enumerates the direct specializes arcs authored on the prim at
  * `prim_path`. Same field semantics as `usdc_stage_inherits_in` —
  * `asset_path` is empty, `target_prim` is the specialized base prim
  * path, `is_loaded` is always 1. Emits nothing when the prim does not
  * exist or has no specializes arcs. */
-USDC_API void usdc_stage_specializes_in(UsdcStage *stage,
-                                        const char *prim_path,
-                                        UsdcArcCallback cb,
-                                        void *user);
+USDC_API int usdc_stage_specializes_in(UsdcStage *stage,
+                                       const char *prim_path,
+                                       UsdcArcCallback cb,
+                                       void *user,
+                                       UsdcError **out_err);
 
 /* Asset paths that the stage's resolver could not locate. Useful for
  * populating BrokenReference / MissingSubLayer / MissingPayload
  * asset issues. */
-USDC_API void usdc_stage_unresolved_assets(UsdcStage *stage,
-                                           UsdcStringCallback cb,
-                                           void *user);
+USDC_API int usdc_stage_unresolved_assets(UsdcStage *stage,
+                                          UsdcStringCallback cb,
+                                          void *user,
+                                          UsdcError **out_err);
 
 /* Payloads that were skipped under USDC_LOAD_NO_PAYLOADS, reported as
  * full composition arcs so callers can classify by (asset_path,
@@ -232,9 +239,10 @@ USDC_API void usdc_stage_unresolved_assets(UsdcStage *stage,
  *   - is_loaded   : always 0 (emissions represent skipped payloads).
  *
  * Empty under USDC_LOAD_ALL. */
-USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
-                                          UsdcArcCallback cb,
-                                          void *user);
+USDC_API int usdc_stage_skipped_payloads(UsdcStage *stage,
+                                         UsdcArcCallback cb,
+                                         void *user,
+                                         UsdcError **out_err);
 
 /* -------------------- layer stack (#29) -------------------- */
 
@@ -694,12 +702,13 @@ typedef void (*UsdcTimeSampleCallback)(double time,
  * only the first `max_samples` are emitted and the remaining are
  * silently dropped. Emits nothing when the attribute does not exist or
  * has no samples. */
-USDC_API void usdc_prim_attribute_time_samples(UsdcStage *stage,
-                                               const char *prim_path,
-                                               const char *attr_name,
-                                               size_t max_samples,
-                                               UsdcTimeSampleCallback cb,
-                                               void *user);
+USDC_API int usdc_prim_attribute_time_samples(UsdcStage *stage,
+                                              const char *prim_path,
+                                              const char *attr_name,
+                                              size_t max_samples,
+                                              UsdcTimeSampleCallback cb,
+                                              void *user,
+                                              UsdcError **out_err);
 
 /* Enumerates all authored relationships on the prim at `prim_path`.
  * Calls `cb(name, user)` once per relationship name.
@@ -721,10 +730,11 @@ USDC_API void usdc_prim_relationship_targets(UsdcStage *stage,
 /* Enumerates the authored metadata keys on the prim.
  * Calls `cb(key, user)` once per key.
  * Emits nothing when the prim does not exist. */
-USDC_API void usdc_prim_metadata_keys(UsdcStage *stage,
-                                      const char *prim_path,
-                                      UsdcStringCallback cb,
-                                      void *user);
+USDC_API int usdc_prim_metadata_keys(UsdcStage *stage,
+                                     const char *prim_path,
+                                     UsdcStringCallback cb,
+                                     void *user,
+                                     UsdcError **out_err);
 
 /* Returns a human-readable summary of a prim's metadata value for `key`.
  * Scratch-buffer lifetime. Returns NULL when the key is not authored or

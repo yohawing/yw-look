@@ -2,10 +2,9 @@
 //
 // usd_c_shim implementation. See include/usd_c_shim.h for API contract.
 //
-// All functions catch C++ exceptions at the FFI boundary. Best-effort
-// enumeration paths swallow exceptions silently after emitting whatever
-// was gathered before the failure; APIs that return a single value
-// surface the exception through UsdcError**.
+// All functions catch C++ exceptions at the FFI boundary. APIs that can
+// fail report failures through UsdcError** so Rust can distinguish
+// missing data from OpenUSD errors.
 
 // Must be defined before including the header so that USDC_API expands
 // to the "export" form (dllexport on Windows, default visibility on
@@ -228,6 +227,21 @@ void swallow(F &&f) {
         f();
     } catch (...) {
         /* best-effort */
+    }
+}
+
+template <typename F>
+int run_status(const char *name, UsdcError **out_err, F &&f) {
+    if (out_err) *out_err = nullptr;
+    try {
+        f();
+        return 1;
+    } catch (const std::exception &e) {
+        if (out_err) *out_err = make_err(std::string(name) + ": " + e.what());
+        return 0;
+    } catch (...) {
+        if (out_err) *out_err = make_err(std::string(name) + ": unknown exception");
+        return 0;
     }
 }
 
@@ -490,25 +504,41 @@ extern "C" USDC_API size_t usdc_stage_layer_count(UsdcStage *stage) {
 
 /* -------------------- enumeration -------------------- */
 
-extern "C" USDC_API void usdc_stage_traverse(UsdcStage *stage,
-                                             UsdcStringCallback cb,
-                                             void *user) {
-    if (!stage || !cb) return;
-    swallow([&] {
+extern "C" USDC_API int usdc_stage_traverse(UsdcStage *stage,
+                                            UsdcStringCallback cb,
+                                            void *user,
+                                            UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_traverse: stage is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_stage_traverse: callback is null");
+        return 0;
+    }
+    return run_status("usdc_stage_traverse", out_err, [&] {
         for (const UsdPrim &prim : stage->stage->Traverse()) {
-            swallow([&] {
-                const std::string s = prim.GetPath().GetAsString();
-                cb(s.c_str(), user);
-            });
+            const std::string s = prim.GetPath().GetAsString();
+            cb(s.c_str(), user);
         }
     });
 }
 
-extern "C" USDC_API void usdc_stage_layer_identifiers(UsdcStage *stage,
-                                                      UsdcStringCallback cb,
-                                                      void *user) {
-    if (!stage || !cb) return;
-    swallow([&] {
+extern "C" USDC_API int usdc_stage_layer_identifiers(UsdcStage *stage,
+                                                     UsdcStringCallback cb,
+                                                     void *user,
+                                                     UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_layer_identifiers: stage is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_stage_layer_identifiers: callback is null");
+        return 0;
+    }
+    return run_status("usdc_stage_layer_identifiers", out_err, [&] {
         const SdfLayerHandle session = stage->stage->GetSessionLayer();
         /* Emit the root layer first so the Rust backend can strip it
          * to derive the "composed layers" list in the same single-
@@ -627,15 +657,28 @@ extern "C" USDC_API void usdc_stage_layer_stack(UsdcStage *stage,
     });
 }
 
-extern "C" USDC_API void usdc_stage_references_in(UsdcStage *stage,
-                                                  const char *prim_path,
-                                                  UsdcArcCallback cb,
-                                                  void *user) {
-    if (!cb) return;
+extern "C" USDC_API int usdc_stage_references_in(UsdcStage *stage,
+                                                 const char *prim_path,
+                                                 UsdcArcCallback cb,
+                                                 void *user,
+                                                 UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_references_in: stage is null");
+        return 0;
+    }
+    if (!prim_path) {
+        if (out_err) *out_err = make_err("usdc_stage_references_in: prim_path is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_stage_references_in: callback is null");
+        return 0;
+    }
     UsdPrim prim = prim_at(stage, prim_path);
-    if (!prim) return;
+    if (!prim) return 1;
 
-    swallow([&] {
+    return run_status("usdc_stage_references_in", out_err, [&] {
         /* We walk the prim's authored metadata directly to collect
          * references without mutating anything (the editable proxy
          * from GetReferences() is not needed for a read-only pass). */
@@ -644,76 +687,98 @@ extern "C" USDC_API void usdc_stage_references_in(UsdcStage *stage,
             std::vector<SdfReference> items;
             op.ApplyOperations(&items);
             for (const SdfReference &r : items) {
-                swallow([&] {
-                    const std::string asset = r.GetAssetPath();
-                    const std::string source = prim.GetPath().GetAsString();
-                    std::string target;
-                    if (!r.GetPrimPath().IsEmpty()) {
-                        target = r.GetPrimPath().GetAsString();
-                    }
-                    UsdcArc arc;
-                    arc.source_prim = source.c_str();
-                    arc.asset_path = asset.c_str();
-                    arc.target_prim = target.empty() ? nullptr : target.c_str();
-                    /* references are always composed (no deferred load
-                     * mode for references in USD), so loaded = 1 unless
-                     * the asset is in unresolved_assets list (the
-                     * caller reclassifies). */
-                    arc.is_loaded = 1;
-                    cb(&arc, user);
-                });
+                const std::string asset = r.GetAssetPath();
+                const std::string source = prim.GetPath().GetAsString();
+                std::string target;
+                if (!r.GetPrimPath().IsEmpty()) {
+                    target = r.GetPrimPath().GetAsString();
+                }
+                UsdcArc arc;
+                arc.source_prim = source.c_str();
+                arc.asset_path = asset.c_str();
+                arc.target_prim = target.empty() ? nullptr : target.c_str();
+                /* references are always composed (no deferred load
+                 * mode for references in USD), so loaded = 1 unless
+                 * the asset is in unresolved_assets list (the
+                 * caller reclassifies). */
+                arc.is_loaded = 1;
+                cb(&arc, user);
             }
         }
     });
 }
 
-extern "C" USDC_API void usdc_stage_payloads_in(UsdcStage *stage,
-                                                const char *prim_path,
-                                                UsdcArcCallback cb,
-                                                void *user) {
-    if (!cb) return;
+extern "C" USDC_API int usdc_stage_payloads_in(UsdcStage *stage,
+                                               const char *prim_path,
+                                               UsdcArcCallback cb,
+                                               void *user,
+                                               UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_payloads_in: stage is null");
+        return 0;
+    }
+    if (!prim_path) {
+        if (out_err) *out_err = make_err("usdc_stage_payloads_in: prim_path is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_stage_payloads_in: callback is null");
+        return 0;
+    }
     UsdPrim prim = prim_at(stage, prim_path);
-    if (!prim) return;
+    if (!prim) return 1;
 
-    swallow([&] {
+    return run_status("usdc_stage_payloads_in", out_err, [&] {
         SdfPayloadListOp op;
         if (prim.GetMetadata(SdfFieldKeys->Payload, &op)) {
             std::vector<SdfPayload> items;
             op.ApplyOperations(&items);
             for (const SdfPayload &p : items) {
-                swallow([&] {
-                    const std::string asset = p.GetAssetPath();
-                    const std::string source = prim.GetPath().GetAsString();
-                    std::string target;
-                    if (!p.GetPrimPath().IsEmpty()) {
-                        target = p.GetPrimPath().GetAsString();
-                    }
-                    UsdcArc arc;
-                    arc.source_prim = source.c_str();
-                    arc.asset_path = asset.c_str();
-                    arc.target_prim = target.empty() ? nullptr : target.c_str();
-                    /* Loaded status depends on the stage's load set and
-                     * whether the resolver found the asset. Here we
-                     * report 1 if the prim is Loaded; callers cross-
-                     * reference unresolved/skipped lists for the final
-                     * state classification. */
-                    arc.is_loaded = prim.IsLoaded() ? 1 : 0;
-                    cb(&arc, user);
-                });
+                const std::string asset = p.GetAssetPath();
+                const std::string source = prim.GetPath().GetAsString();
+                std::string target;
+                if (!p.GetPrimPath().IsEmpty()) {
+                    target = p.GetPrimPath().GetAsString();
+                }
+                UsdcArc arc;
+                arc.source_prim = source.c_str();
+                arc.asset_path = asset.c_str();
+                arc.target_prim = target.empty() ? nullptr : target.c_str();
+                /* Loaded status depends on the stage's load set and
+                 * whether the resolver found the asset. Here we
+                 * report 1 if the prim is Loaded; callers cross-
+                 * reference unresolved/skipped lists for the final
+                 * state classification. */
+                arc.is_loaded = prim.IsLoaded() ? 1 : 0;
+                cb(&arc, user);
             }
         }
     });
 }
 
-extern "C" USDC_API void usdc_stage_inherits_in(UsdcStage *stage,
-                                                const char *prim_path,
-                                                UsdcArcCallback cb,
-                                                void *user) {
-    if (!cb) return;
+extern "C" USDC_API int usdc_stage_inherits_in(UsdcStage *stage,
+                                               const char *prim_path,
+                                               UsdcArcCallback cb,
+                                               void *user,
+                                               UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_inherits_in: stage is null");
+        return 0;
+    }
+    if (!prim_path) {
+        if (out_err) *out_err = make_err("usdc_stage_inherits_in: prim_path is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_stage_inherits_in: callback is null");
+        return 0;
+    }
     UsdPrim prim = prim_at(stage, prim_path);
-    if (!prim) return;
+    if (!prim) return 1;
 
-    swallow([&] {
+    return run_status("usdc_stage_inherits_in", out_err, [&] {
         /* UsdInherits::GetAllDirectInherits() is available in this pxr
          * version and returns all inherit paths from the local layer
          * stack that directly compose into this prim (strong-to-weak).
@@ -722,28 +787,39 @@ extern "C" USDC_API void usdc_stage_inherits_in(UsdcStage *stage,
         SdfPathVector paths = inherits.GetAllDirectInherits();
         const std::string source = prim.GetPath().GetAsString();
         for (const SdfPath &target_path : paths) {
-            swallow([&] {
-                const std::string target = target_path.GetAsString();
-                UsdcArc arc;
-                arc.source_prim = source.c_str();
-                arc.asset_path  = "";          /* always stage-internal */
-                arc.target_prim = target.c_str();
-                arc.is_loaded   = 1;
-                cb(&arc, user);
-            });
+            const std::string target = target_path.GetAsString();
+            UsdcArc arc;
+            arc.source_prim = source.c_str();
+            arc.asset_path  = "";          /* always stage-internal */
+            arc.target_prim = target.c_str();
+            arc.is_loaded   = 1;
+            cb(&arc, user);
         }
     });
 }
 
-extern "C" USDC_API void usdc_stage_specializes_in(UsdcStage *stage,
-                                                    const char *prim_path,
-                                                    UsdcArcCallback cb,
-                                                    void *user) {
-    if (!cb) return;
+extern "C" USDC_API int usdc_stage_specializes_in(UsdcStage *stage,
+                                                   const char *prim_path,
+                                                   UsdcArcCallback cb,
+                                                   void *user,
+                                                   UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_specializes_in: stage is null");
+        return 0;
+    }
+    if (!prim_path) {
+        if (out_err) *out_err = make_err("usdc_stage_specializes_in: prim_path is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_stage_specializes_in: callback is null");
+        return 0;
+    }
     UsdPrim prim = prim_at(stage, prim_path);
-    if (!prim) return;
+    if (!prim) return 1;
 
-    swallow([&] {
+    return run_status("usdc_stage_specializes_in", out_err, [&] {
         /* UsdSpecializes has no GetAllDirectSpecializes() in this pxr
          * version. Read the authored specializes paths directly from
          * the prim's metadata using SdfFieldKeys->Specializes, which
@@ -755,30 +831,37 @@ extern "C" USDC_API void usdc_stage_specializes_in(UsdcStage *stage,
             op.ApplyOperations(&items);
             const std::string source = prim.GetPath().GetAsString();
             for (const SdfPath &target_path : items) {
-                swallow([&] {
-                    const std::string target = target_path.GetAsString();
-                    UsdcArc arc;
-                    arc.source_prim = source.c_str();
-                    arc.asset_path  = "";      /* always stage-internal */
-                    arc.target_prim = target.c_str();
-                    arc.is_loaded   = 1;
-                    cb(&arc, user);
-                });
+                const std::string target = target_path.GetAsString();
+                UsdcArc arc;
+                arc.source_prim = source.c_str();
+                arc.asset_path  = "";      /* always stage-internal */
+                arc.target_prim = target.c_str();
+                arc.is_loaded   = 1;
+                cb(&arc, user);
             }
         }
     });
 }
 
-extern "C" USDC_API void usdc_stage_unresolved_assets(UsdcStage *stage,
-                                                      UsdcStringCallback cb,
-                                                      void *user) {
-    if (!stage || !cb) return;
+extern "C" USDC_API int usdc_stage_unresolved_assets(UsdcStage *stage,
+                                                     UsdcStringCallback cb,
+                                                     void *user,
+                                                     UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_unresolved_assets: stage is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_stage_unresolved_assets: callback is null");
+        return 0;
+    }
     /* OpenUSD has no direct "list of unresolved asset paths" API like
      * our Rust fork does. We approximate by walking every authored
      * reference / payload and emitting paths whose Ar resolver could
      * not resolve them. This is the minimum viable implementation
      * suitable for Inspector-only use; refine later. */
-    swallow([&] {
+    return run_status("usdc_stage_unresolved_assets", out_err, [&] {
         for (const UsdPrim &prim : stage->stage->TraverseAll()) {
             SdfReferenceListOp refOp;
             if (prim.GetMetadata(SdfFieldKeys->References, &refOp)) {
@@ -812,10 +895,19 @@ extern "C" USDC_API void usdc_stage_unresolved_assets(UsdcStage *stage,
     });
 }
 
-extern "C" USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
-                                                     UsdcArcCallback cb,
-                                                     void *user) {
-    if (!stage || !cb) return;
+extern "C" USDC_API int usdc_stage_skipped_payloads(UsdcStage *stage,
+                                                    UsdcArcCallback cb,
+                                                    void *user,
+                                                    UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_skipped_payloads: stage is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_stage_skipped_payloads: callback is null");
+        return 0;
+    }
     /* A stage opened with LoadNone leaves every payload unloaded.
      * Emit one UsdcArc per (prim, payload) pair so callers can
      * classify by (asset_path, source_prim) — matching the Rust
@@ -827,8 +919,8 @@ extern "C" USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
      * would be more "live" but the API surface for that has shifted
      * between OpenUSD releases, and the policy we were opened with
      * is stable for the handle's lifetime. */
-    if (stage->policy != USDC_LOAD_NO_PAYLOADS) return;
-    swallow([&] {
+    if (stage->policy != USDC_LOAD_NO_PAYLOADS) return 1;
+    return run_status("usdc_stage_skipped_payloads", out_err, [&] {
         for (const UsdPrim &prim : stage->stage->TraverseAll()) {
             SdfPayloadListOp op;
             if (!prim.GetMetadata(SdfFieldKeys->Payload, &op)) continue;
@@ -838,25 +930,23 @@ extern "C" USDC_API void usdc_stage_skipped_payloads(UsdcStage *stage,
 
             const std::string source = prim.GetPath().GetAsString();
             for (const SdfPayload &p : items) {
-                swallow([&] {
-                    const std::string asset = p.GetAssetPath();
-                    if (asset.empty()) return;
-                    std::string target;
-                    if (!p.GetPrimPath().IsEmpty()) {
-                        target = p.GetPrimPath().GetAsString();
-                    }
-                    UsdcArc arc;
-                    arc.source_prim = source.c_str();
-                    arc.asset_path = asset.c_str();
-                    arc.target_prim = target.empty() ? nullptr : target.c_str();
-                    /* Skipped-payload emissions always represent an
-                     * Unloaded arc; reference assets that were also
-                     * unresolved still get reclassified to Missing
-                     * on the Rust side by cross-checking against
-                     * unresolved_assets. */
-                    arc.is_loaded = 0;
-                    cb(&arc, user);
-                });
+                const std::string asset = p.GetAssetPath();
+                if (asset.empty()) continue;
+                std::string target;
+                if (!p.GetPrimPath().IsEmpty()) {
+                    target = p.GetPrimPath().GetAsString();
+                }
+                UsdcArc arc;
+                arc.source_prim = source.c_str();
+                arc.asset_path = asset.c_str();
+                arc.target_prim = target.empty() ? nullptr : target.c_str();
+                /* Skipped-payload emissions always represent an
+                 * Unloaded arc; reference assets that were also
+                 * unresolved still get reclassified to Missing
+                 * on the Rust side by cross-checking against
+                 * unresolved_assets. */
+                arc.is_loaded = 0;
+                cb(&arc, user);
             }
         }
     });
@@ -2292,17 +2382,34 @@ usdc_prim_attribute_time_sample_count(UsdcStage *stage,
     }
 }
 
-extern "C" USDC_API void
+extern "C" USDC_API int
 usdc_prim_attribute_time_samples(UsdcStage *stage,
                                  const char *prim_path,
                                  const char *attr_name,
                                  size_t max_samples,
                                  UsdcTimeSampleCallback cb,
-                                 void *user) {
-    if (!cb || !attr_name) return;
+                                 void *user,
+                                 UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_prim_attribute_time_samples: stage is null");
+        return 0;
+    }
+    if (!prim_path) {
+        if (out_err) *out_err = make_err("usdc_prim_attribute_time_samples: prim_path is null");
+        return 0;
+    }
+    if (!attr_name) {
+        if (out_err) *out_err = make_err("usdc_prim_attribute_time_samples: attr_name is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_prim_attribute_time_samples: callback is null");
+        return 0;
+    }
     UsdPrim prim = prim_at(stage, prim_path);
-    if (!prim || !stage) return;
-    try {
+    if (!prim) return 1;
+    return run_status("usdc_prim_attribute_time_samples", out_err, [&] {
         UsdAttribute attr = prim.GetAttribute(TfToken(attr_name));
         if (!attr) return;
         std::vector<double> times;
@@ -2318,11 +2425,7 @@ usdc_prim_attribute_time_samples(UsdcStage *stage,
             }
             cb(times[i], summary.c_str(), user);
         }
-    } catch (...) {
-        /* silently drop on exception — we may have already emitted
-         * some samples before the error; partial results are
-         * preferable to a hard failure for an inspector display. */
-    }
+    });
 }
 
 extern "C" USDC_API void
@@ -2360,15 +2463,28 @@ usdc_prim_relationship_targets(UsdcStage *stage,
     });
 }
 
-extern "C" USDC_API void
+extern "C" USDC_API int
 usdc_prim_metadata_keys(UsdcStage *stage,
                         const char *prim_path,
                         UsdcStringCallback cb,
-                        void *user) {
-    if (!cb) return;
+                        void *user,
+                        UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_prim_metadata_keys: stage is null");
+        return 0;
+    }
+    if (!prim_path) {
+        if (out_err) *out_err = make_err("usdc_prim_metadata_keys: prim_path is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_prim_metadata_keys: callback is null");
+        return 0;
+    }
     UsdPrim prim = prim_at(stage, prim_path);
-    if (!prim) return;
-    swallow([&] {
+    if (!prim) return 1;
+    return run_status("usdc_prim_metadata_keys", out_err, [&] {
         /* GetAllAuthoredMetadata returns a map of TfToken → VtValue.
          * We emit only the keys here; values are fetched separately
          * via usdc_prim_metadata_value_summary to avoid overwriting

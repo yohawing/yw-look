@@ -29,7 +29,7 @@ use super::backend::{
     UsdError, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend, UsdSessionBackend,
     UsdSourceBackend,
 };
-use super::cpp_sys::{CStage, Interpolation, LoadPolicy, Orientation, UpAxis};
+use super::cpp_sys::{CError, CStage, Interpolation, LoadPolicy, Orientation, UpAxis};
 use super::glb::{self, AlphaMode, InstancingInput, MaterialInput, MeshInput};
 use super::openusd_backend::DenseBlendShape;
 use super::openusd_backend::{
@@ -68,6 +68,10 @@ fn to_cpp_policy(policy: StageLoadPolicy) -> LoadPolicy {
         StageLoadPolicy::LoadAll => LoadPolicy::All,
         StageLoadPolicy::NoPayloads => LoadPolicy::NoPayloads,
     }
+}
+
+fn map_c_error(error: CError) -> UsdError {
+    UsdError::Parse(error.to_string())
 }
 
 /// Matches the Rust-backend `reference_arc_state` rule: an authored
@@ -122,7 +126,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
         // under the pseudo-root are emitted by traverse() as paths of
         // depth 1 (e.g. `/Foo`). Filter the traverse result to match
         // the Rust fork's behavior.
-        let all_prims = stage.traverse();
+        let all_prims = stage.traverse().map_err(map_c_error)?;
         let root_prims: Vec<String> = all_prims
             .iter()
             .filter(|p| is_root_prim_path(p))
@@ -132,19 +136,19 @@ impl UsdInspectBackend for OpenusdCppBackend {
         // Layer identifiers: first entry is the root layer, everything
         // after are composed dependencies. The inspector UI only shows
         // the composed set (sublayers, refs, payloads), so skip [0].
-        let mut layer_ids = stage.layer_identifiers();
+        let mut layer_ids = stage.layer_identifiers().map_err(map_c_error)?;
         if !layer_ids.is_empty() {
             layer_ids.remove(0);
         }
         let composed_layers = layer_ids;
 
-        let missing_assets = stage.unresolved_assets();
+        let missing_assets = stage.unresolved_assets().map_err(map_c_error)?;
         let unresolved_set: HashSet<&str> = missing_assets.iter().map(String::as_str).collect();
 
         // Skipped-payloads key on (asset_path, source_prim) — see
         // `classify_payload`. Hold the owning Vec until classification
         // is done so the borrowed `&str` pairs stay valid.
-        let skipped_owned = stage.skipped_payloads();
+        let skipped_owned = stage.skipped_payloads().map_err(map_c_error)?;
         let skipped_pairs: HashSet<(&str, &str)> = skipped_owned
             .iter()
             .map(|a| (a.asset_path.as_str(), a.source_prim.as_str()))
@@ -189,7 +193,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
                 }
             }
 
-            for r in stage.references_in(prim_path) {
+            for r in stage.references_in(prim_path).map_err(map_c_error)? {
                 let state = classify_reference(&unresolved_set, &r.asset_path);
                 references.push(CompositionArc {
                     source_prim: r.source_prim,
@@ -199,7 +203,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
                     kind: CompositionArcKind::Reference,
                 });
             }
-            for p in stage.payloads_in(prim_path) {
+            for p in stage.payloads_in(prim_path).map_err(map_c_error)? {
                 let state = classify_payload(
                     &unresolved_set,
                     &skipped_pairs,
@@ -215,7 +219,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
                     kind: CompositionArcKind::Payload,
                 });
             }
-            for inh in stage.inherits_in(prim_path) {
+            for inh in stage.inherits_in(prim_path).map_err(map_c_error)? {
                 inherits_arcs.push(CompositionArc {
                     source_prim: inh.source_prim,
                     asset_path: inh.asset_path,
@@ -224,7 +228,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
                     kind: CompositionArcKind::Inherits,
                 });
             }
-            for spec in stage.specializes_in(prim_path) {
+            for spec in stage.specializes_in(prim_path).map_err(map_c_error)? {
                 specializes_arcs.push(CompositionArc {
                     source_prim: spec.source_prim,
                     asset_path: spec.asset_path,
@@ -290,7 +294,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
 
         let layer_count = stage.layer_count();
 
-        let all_prims = stage.traverse();
+        let all_prims = stage.traverse().map_err(map_c_error)?;
         let root_prim_count = all_prims.iter().filter(|p| is_root_prim_path(p)).count();
 
         let mut mesh_count = 0usize;
@@ -314,11 +318,11 @@ impl UsdInspectBackend for OpenusdCppBackend {
         let mut prim_type_counts: Vec<PrimTypeCount> = Vec::new();
 
         // #38: unresolved assets set for arc classification.
-        let unresolved_assets = stage.unresolved_assets();
+        let unresolved_assets = stage.unresolved_assets().map_err(map_c_error)?;
         let unresolved_set: HashSet<&str> = unresolved_assets.iter().map(String::as_str).collect();
 
         // #38: skipped payloads for NoPayloads policy classification.
-        let skipped_owned = stage.skipped_payloads();
+        let skipped_owned = stage.skipped_payloads().map_err(map_c_error)?;
         let skipped_pairs: HashSet<(&str, &str)> = skipped_owned
             .iter()
             .map(|a| (a.asset_path.as_str(), a.source_prim.as_str()))
@@ -367,7 +371,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
                 }
             }
             // #38: classify reference arcs.
-            for r in stage.references_in(prim_path) {
+            for r in stage.references_in(prim_path).map_err(map_c_error)? {
                 if classify_reference(&unresolved_set, &r.asset_path)
                     == CompositionArcState::Missing
                 {
@@ -377,7 +381,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
                 }
             }
             // #38: classify payload arcs.
-            let payloads = stage.payloads_in(prim_path);
+            let payloads = stage.payloads_in(prim_path).map_err(map_c_error)?;
             for p in &payloads {
                 let state = classify_payload(
                     &unresolved_set,
@@ -424,7 +428,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
             root_prim_count,
             mesh_count,
             payload_count,
-            unloaded_payload_count: stage.skipped_payloads().len(),
+            unloaded_payload_count: stage.skipped_payloads().map_err(map_c_error)?.len(),
             has_variants,
             prim_type_counts,
             total_vertices,
@@ -457,7 +461,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
             }
         }
 
-        let unresolved_owned = stage.unresolved_assets();
+        let unresolved_owned = stage.unresolved_assets().map_err(map_c_error)?;
         let unresolved_set: HashSet<&str> = unresolved_owned.iter().map(String::as_str).collect();
 
         // Walk arcs and emit one contextualized issue per missing
@@ -466,8 +470,8 @@ impl UsdInspectBackend for OpenusdCppBackend {
         // double-report them.
         let mut covered = HashSet::<String>::new();
 
-        for prim_path in stage.traverse() {
-            for r in stage.references_in(&prim_path) {
+        for prim_path in stage.traverse().map_err(map_c_error)? {
+            for r in stage.references_in(&prim_path).map_err(map_c_error)? {
                 if unresolved_set.contains(r.asset_path.as_str()) {
                     covered.insert(r.asset_path.clone());
                     issues.push(AssetIssue {
@@ -479,7 +483,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
                     });
                 }
             }
-            for p in stage.payloads_in(&prim_path) {
+            for p in stage.payloads_in(&prim_path).map_err(map_c_error)? {
                 if unresolved_set.contains(p.asset_path.as_str()) {
                     covered.insert(p.asset_path.clone());
                     issues.push(AssetIssue {
@@ -570,7 +574,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
         }
 
         // Metadata
-        let meta_keys = stage.prim_metadata_keys(prim_path);
+        let meta_keys = stage.prim_metadata_keys(prim_path).map_err(map_c_error)?;
         let mut metadata = Vec::with_capacity(meta_keys.len());
         for key in &meta_keys {
             let value_summary = stage
@@ -604,7 +608,9 @@ impl UsdInspectBackend for OpenusdCppBackend {
         } else {
             max_samples
         };
-        let raw_pairs = stage.prim_attribute_time_samples(prim_path, attr_name, cap);
+        let raw_pairs = stage
+            .prim_attribute_time_samples(prim_path, attr_name, cap)
+            .map_err(map_c_error)?;
 
         let samples: Vec<TimeSampleEntry> = raw_pairs
             .iter()
@@ -828,7 +834,7 @@ fn extract_from_stage_with_options(
     // frontend's purposeModes default (render=true, proxy=false,
     // guide=false) hides them by default, so any over-inclusion is not
     // user-visible at startup.
-    let all_prims_a = stage.traverse();
+    let all_prims_a = stage.traverse().map_err(map_c_error)?;
     let mut mesh_paths: Vec<String> = all_prims_a
         .into_iter()
         .filter(|p| stage.prim_is_renderable_mesh(p))
@@ -843,7 +849,7 @@ fn extract_from_stage_with_options(
     // repeated here, so a proxy/guide mesh under an invisible imageable
     // will still be extracted. Both gaps require C-shim or USD API changes
     // to fix properly and are deferred.
-    let all_prims_b = stage.traverse();
+    let all_prims_b = stage.traverse().map_err(map_c_error)?;
     let extra_paths: Vec<String> = all_prims_b
         .into_iter()
         .filter(|p| {
@@ -878,7 +884,7 @@ fn extract_from_stage_with_options(
     // pushes prototype meshes into `inputs` directly, so the regular
     // pass needs to skip them.
     let prototype_subtree_paths: std::collections::HashSet<String> = {
-        let all_prims = stage.traverse();
+        let all_prims = stage.traverse().map_err(map_c_error)?;
         let instancer_paths: Vec<String> = all_prims
             .iter()
             .filter(|p| stage.is_point_instancer(p))
@@ -906,7 +912,7 @@ fn extract_from_stage_with_options(
     // we still proceed — the PointInstancer pass below will add prototype
     // meshes to `inputs`. We only fail hard if there is truly nothing.
     let has_point_instancers = if mesh_paths.is_empty() {
-        let prims = stage.traverse();
+        let prims = stage.traverse().map_err(map_c_error)?;
         prims.iter().any(|p| stage.is_point_instancer(p))
     } else {
         false
@@ -1092,7 +1098,7 @@ fn extract_from_stage_with_options(
         // drives every piece).
         let record_start = inputs.len();
 
-        let subsets = collect_material_bind_subsets(&stage, prim_path);
+        let subsets = collect_material_bind_subsets(stage, prim_path)?;
         // TODO(#43): read `primvars:displayOpacity` via shim once
         // `usdc_mesh_display_opacity` is added to usd_c_shim.cpp.
         // Until then all vertex alphas default to 1.0 (fully
@@ -1323,7 +1329,7 @@ fn extract_from_stage_with_options(
         let default_prim_filter: Option<(String, String)> = stage
             .default_prim()
             .map(|dp| (format!("/{dp}"), format!("/{dp}/")));
-        let all_prims = stage.traverse();
+        let all_prims = stage.traverse().map_err(map_c_error)?;
         let instancer_paths: Vec<String> = all_prims
             .into_iter()
             .filter(|p| {
@@ -1501,7 +1507,7 @@ fn extract_from_stage_with_options(
                     continue;
                 }
 
-                let all_stage_prims = stage.traverse();
+                let all_stage_prims = stage.traverse().map_err(map_c_error)?;
                 let proto_prefix = format!("{proto_path}/");
                 let proto_mesh_prims: Vec<String> = all_stage_prims
                     .into_iter()
@@ -1636,7 +1642,7 @@ fn extract_from_stage_with_options(
             search_dirs.push(parent.to_path_buf());
         }
     }
-    for layer_id in stage.layer_identifiers() {
+    for layer_id in stage.layer_identifiers().map_err(map_c_error)? {
         let layer_path = StdPath::new(&layer_id);
         if let Some(parent) = layer_path.parent() {
             // Bare-filename layer identifiers (e.g. anonymous
@@ -1742,8 +1748,8 @@ fn extract_from_stage_with_options(
     // Phase 2.H: resolve UsdLux lights and UsdGeomCamera cameras
     // alongside meshes. Same up-axis baking applies so glTF node
     // matrices stay self-describing.
-    let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref());
-    let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref());
+    let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref())?;
+    let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref())?;
 
     // #46 (C++ backend): build the prim hierarchy NodeInput tree so the
     // GLB carries Kitchen_set / Sponza-style nested xform graphs rather
@@ -1757,7 +1763,7 @@ fn extract_from_stage_with_options(
         &cameras,
         &skin_slots,
         &instancing_inputs,
-    );
+    )?;
     let up_correction_f32 = up_axis_correction.as_ref().map(mat4_f64_to_f32);
     glb::build_glb(
         &node_tree,
@@ -2097,13 +2103,16 @@ struct GeomSubsetBinding {
 /// with an empty `faceIndices` array are dropped — those cases
 /// belong to other subset consumers (proxy geometry, crease masks,
 /// etc.) and are out of scope for materialBind splitting.
-fn collect_material_bind_subsets(stage: &CStage, mesh_path: &str) -> Vec<GeomSubsetBinding> {
+fn collect_material_bind_subsets(
+    stage: &CStage,
+    mesh_path: &str,
+) -> Result<Vec<GeomSubsetBinding>, UsdError> {
     // Traverse returns every prim; filter to direct children of the
     // mesh by path prefix. A GeomSubset always lives as a direct
     // child of its parent mesh (UsdGeomSubset schema).
     let prefix = format!("{mesh_path}/");
     let mut out = Vec::new();
-    for p in stage.traverse() {
+    for p in stage.traverse().map_err(map_c_error)? {
         if !p.starts_with(&prefix) {
             continue;
         }
@@ -2148,7 +2157,7 @@ fn collect_material_bind_subsets(stage: &CStage, mesh_path: &str) -> Vec<GeomSub
             face_indices,
         });
     }
-    out
+    Ok(out)
 }
 
 /// Only attach `skin_index` when the mesh actually carries per-
@@ -2446,9 +2455,12 @@ fn apply_display_color_fallback_cpp(
 /// `SphereLight` (→ point) are mapped, matching the Rust backend's
 /// scope. Area lights and DomeLights are intentionally skipped —
 /// glTF's `KHR_lights_punctual` does not cover them.
-fn resolve_lights_cpp(stage: &CStage, up_correction: Option<&[f64; 16]>) -> Vec<glb::LightInput> {
+fn resolve_lights_cpp(
+    stage: &CStage,
+    up_correction: Option<&[f64; 16]>,
+) -> Result<Vec<glb::LightInput>, UsdError> {
     let mut out = Vec::new();
-    for prim_path in stage.traverse() {
+    for prim_path in stage.traverse().map_err(map_c_error)? {
         let kind = match stage.prim_type_name(&prim_path).as_deref() {
             Some("DistantLight") => glb::LightKind::Directional,
             Some("SphereLight") => glb::LightKind::Point,
@@ -2483,7 +2495,7 @@ fn resolve_lights_cpp(stage: &CStage, up_correction: Option<&[f64; 16]>) -> Vec<
             world_matrix: mat4_f64_to_f32(&world),
         });
     }
-    out
+    Ok(out)
 }
 
 /// Phase 2.H: enumerate `UsdGeomCamera` prims and resolve each to a
@@ -2491,9 +2503,12 @@ fn resolve_lights_cpp(stage: &CStage, up_correction: Option<&[f64; 16]>) -> Vec<
 /// are skipped like the Rust backend does. Spec defaults kick in
 /// when `focalLength` / `horizontalAperture` / `verticalAperture`
 /// are unauthored so every camera produces a valid glTF entry.
-fn resolve_cameras_cpp(stage: &CStage, up_correction: Option<&[f64; 16]>) -> Vec<glb::CameraInput> {
+fn resolve_cameras_cpp(
+    stage: &CStage,
+    up_correction: Option<&[f64; 16]>,
+) -> Result<Vec<glb::CameraInput>, UsdError> {
     let mut out = Vec::new();
-    for prim_path in stage.traverse() {
+    for prim_path in stage.traverse().map_err(map_c_error)? {
         if stage.prim_type_name(&prim_path).as_deref() != Some("Camera") {
             continue;
         }
@@ -2540,7 +2555,7 @@ fn resolve_cameras_cpp(stage: &CStage, up_correction: Option<&[f64; 16]>) -> Vec
             world_matrix: mat4_f64_to_f32(&world),
         });
     }
-    out
+    Ok(out)
 }
 
 /// #46 (C++ backend port): build a topologically-sorted `NodeInput` tree
@@ -2561,7 +2576,7 @@ fn build_node_tree_cpp(
     cameras: &[glb::CameraInput],
     skin_slots: &std::collections::HashMap<String, usize>,
     instancing: &[glb::InstancingInput],
-) -> Vec<glb::NodeInput> {
+) -> Result<Vec<glb::NodeInput>, UsdError> {
     use std::collections::{HashMap, HashSet};
 
     let mut path_to_kind: HashMap<String, glb::NodeKind> = HashMap::new();
@@ -2649,7 +2664,7 @@ fn build_node_tree_cpp(
     // that are missing from the traverse output (rare; would imply a
     // composition bug) are appended afterwards in lexicographic order
     // so we still emit them deterministically.
-    let traversal_paths = stage.traverse();
+    let traversal_paths = stage.traverse().map_err(map_c_error)?;
     let mut sorted_paths: Vec<String> = Vec::with_capacity(path_to_kind.len());
     let mut emitted: HashSet<String> = HashSet::new();
     for path in &traversal_paths {
@@ -2757,7 +2772,7 @@ fn build_node_tree_cpp(
         });
     }
 
-    out
+    Ok(out)
 }
 
 /// f64 4×4 matrix inverse used by `build_node_tree_cpp`. Mirrors the

@@ -57,6 +57,14 @@ fn take_c_error(err: *mut UsdcError, fallback: &str) -> CError {
     CError(message)
 }
 
+fn status_result(ok: c_int, err: *mut UsdcError, fallback: &str) -> Result<(), CError> {
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(take_c_error(err, fallback))
+    }
+}
+
 /// Mirror of [`super::types::StageLoadPolicy`] at the FFI layer. Kept
 /// separate from the wire enum so the two can evolve independently if
 /// the shim ever grows new load modes ahead of the frontend.
@@ -292,28 +300,38 @@ impl CStage {
         ptr_to_opt_string(p)
     }
 
-    pub fn traverse(&self) -> Vec<String> {
+    pub fn traverse(&self) -> Result<Vec<String>, CError> {
         let mut out = Vec::<String>::new();
-        unsafe {
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = unsafe {
             usdc_stage_traverse(
                 self.raw,
                 Some(string_trampoline),
                 &mut out as *mut Vec<String> as *mut c_void,
-            );
-        }
-        out
+                &mut err,
+            )
+        };
+        status_result(ok, err, "usdc_stage_traverse failed without an error")?;
+        Ok(out)
     }
 
-    pub fn layer_identifiers(&self) -> Vec<String> {
+    pub fn layer_identifiers(&self) -> Result<Vec<String>, CError> {
         let mut out = Vec::<String>::new();
-        unsafe {
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = unsafe {
             usdc_stage_layer_identifiers(
                 self.raw,
                 Some(string_trampoline),
                 &mut out as *mut Vec<String> as *mut c_void,
-            );
-        }
-        out
+                &mut err,
+            )
+        };
+        status_result(
+            ok,
+            err,
+            "usdc_stage_layer_identifiers failed without an error",
+        )?;
+        Ok(out)
     }
 
     /// Returns the subLayers hierarchy as a depth-first list of
@@ -332,46 +350,53 @@ impl CStage {
         out
     }
 
-    pub fn references_in(&self, prim_path: &str) -> Vec<Arc> {
+    pub fn references_in(&self, prim_path: &str) -> Result<Vec<Arc>, CError> {
         self.arcs(prim_path, |s, cb, u| unsafe {
-            usdc_stage_references_in(self.raw, s, cb, u)
+            usdc_stage_references_in(self.raw, s, cb, u.0, u.1)
         })
     }
 
-    pub fn payloads_in(&self, prim_path: &str) -> Vec<Arc> {
+    pub fn payloads_in(&self, prim_path: &str) -> Result<Vec<Arc>, CError> {
         self.arcs(prim_path, |s, cb, u| unsafe {
-            usdc_stage_payloads_in(self.raw, s, cb, u)
+            usdc_stage_payloads_in(self.raw, s, cb, u.0, u.1)
         })
     }
 
     /// Returns the direct inherits arcs authored on the prim at `prim_path`.
     /// Each arc has `asset_path = ""` (inherits are always stage-internal)
     /// and `target_prim` set to the inherited base prim path.
-    pub fn inherits_in(&self, prim_path: &str) -> Vec<Arc> {
+    pub fn inherits_in(&self, prim_path: &str) -> Result<Vec<Arc>, CError> {
         self.arcs(prim_path, |s, cb, u| unsafe {
-            usdc_stage_inherits_in(self.raw, s, cb, u)
+            usdc_stage_inherits_in(self.raw, s, cb, u.0, u.1)
         })
     }
 
     /// Returns the direct specializes arcs authored on the prim at `prim_path`.
     /// Each arc has `asset_path = ""` and `target_prim` set to the specialized
     /// base prim path.
-    pub fn specializes_in(&self, prim_path: &str) -> Vec<Arc> {
+    pub fn specializes_in(&self, prim_path: &str) -> Result<Vec<Arc>, CError> {
         self.arcs(prim_path, |s, cb, u| unsafe {
-            usdc_stage_specializes_in(self.raw, s, cb, u)
+            usdc_stage_specializes_in(self.raw, s, cb, u.0, u.1)
         })
     }
 
-    pub fn unresolved_assets(&self) -> Vec<String> {
+    pub fn unresolved_assets(&self) -> Result<Vec<String>, CError> {
         let mut out = Vec::<String>::new();
-        unsafe {
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = unsafe {
             usdc_stage_unresolved_assets(
                 self.raw,
                 Some(string_trampoline),
                 &mut out as *mut Vec<String> as *mut c_void,
-            );
-        }
-        out
+                &mut err,
+            )
+        };
+        status_result(
+            ok,
+            err,
+            "usdc_stage_unresolved_assets failed without an error",
+        )?;
+        Ok(out)
     }
 
     /// Returns one [`Arc`] per (prim, payload) pair that was skipped
@@ -381,16 +406,23 @@ impl CStage {
     /// `Missing` classification when appropriate.
     ///
     /// Empty under [`LoadPolicy::All`].
-    pub fn skipped_payloads(&self) -> Vec<Arc> {
+    pub fn skipped_payloads(&self) -> Result<Vec<Arc>, CError> {
         let mut out = Vec::<Arc>::new();
-        unsafe {
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = unsafe {
             usdc_stage_skipped_payloads(
                 self.raw,
                 Some(arc_trampoline),
                 &mut out as *mut Vec<Arc> as *mut c_void,
-            );
-        }
-        out
+                &mut err,
+            )
+        };
+        status_result(
+            ok,
+            err,
+            "usdc_stage_skipped_payloads failed without an error",
+        )?;
+        Ok(out)
     }
 
     pub fn prim_type_is_mesh(&self, prim_path: &str) -> bool {
@@ -482,21 +514,23 @@ impl CStage {
         }
     }
 
-    fn arcs<F>(&self, prim_path: &str, call: F) -> Vec<Arc>
+    fn arcs<F>(&self, prim_path: &str, call: F) -> Result<Vec<Arc>, CError>
     where
-        F: FnOnce(*const c_char, UsdcArcCallback, *mut c_void),
+        F: FnOnce(*const c_char, UsdcArcCallback, (*mut c_void, *mut *mut UsdcError)) -> c_int,
     {
         let c = match CString::new(prim_path) {
             Ok(c) => c,
-            Err(_) => return Vec::new(),
+            Err(_) => return Err(CError("prim_path contains interior NUL byte".to_string())),
         };
         let mut out = Vec::<Arc>::new();
-        call(
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = call(
             c.as_ptr(),
             Some(arc_trampoline),
-            &mut out as *mut Vec<Arc> as *mut c_void,
+            (&mut out as *mut Vec<Arc> as *mut c_void, &mut err),
         );
-        out
+        status_result(ok, err, "arc enumeration failed without an error")?;
+        Ok(out)
     }
 
     // ---------- geometry ----------
@@ -1111,24 +1145,24 @@ impl CStage {
 
     /// Enumerates up to `max_samples` time samples on the attribute,
     /// returning `(time_code, value_summary)` pairs in ascending order.
-    /// Partial results are returned on error (the C shim swallows
-    /// exceptions after emitting what it gathered). An empty `Vec`
-    /// means the attribute has no authored time samples or does not
-    /// exist.
+    /// Returns an empty `Vec` when the attribute has no authored time
+    /// samples or does not exist. OpenUSD exceptions are surfaced as
+    /// [`CError`] so callers can distinguish them from missing data.
     pub fn prim_attribute_time_samples(
         &self,
         prim_path: &str,
         attr_name: &str,
         max_samples: usize,
-    ) -> Vec<(f64, String)> {
+    ) -> Result<Vec<(f64, String)>, CError> {
         let Ok(pp) = CString::new(prim_path) else {
-            return Vec::new();
+            return Err(CError("prim_path contains interior NUL byte".to_string()));
         };
         let Ok(an) = CString::new(attr_name) else {
-            return Vec::new();
+            return Err(CError("attr_name contains interior NUL byte".to_string()));
         };
         let mut out = Vec::<(f64, String)>::new();
-        unsafe {
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = unsafe {
             usdc_prim_attribute_time_samples(
                 self.raw,
                 pp.as_ptr(),
@@ -1136,9 +1170,15 @@ impl CStage {
                 max_samples,
                 Some(time_sample_trampoline),
                 &mut out as *mut Vec<(f64, String)> as *mut c_void,
-            );
-        }
-        out
+                &mut err,
+            )
+        };
+        status_result(
+            ok,
+            err,
+            "usdc_prim_attribute_time_samples failed without an error",
+        )?;
+        Ok(out)
     }
 
     /// All relationship names authored on the prim at `prim_path`.
@@ -1180,20 +1220,23 @@ impl CStage {
     }
 
     /// All authored metadata keys on the prim at `prim_path`.
-    pub fn prim_metadata_keys(&self, prim_path: &str) -> Vec<String> {
+    pub fn prim_metadata_keys(&self, prim_path: &str) -> Result<Vec<String>, CError> {
         let Ok(c) = CString::new(prim_path) else {
-            return Vec::new();
+            return Err(CError("prim_path contains interior NUL byte".to_string()));
         };
         let mut out = Vec::<String>::new();
-        unsafe {
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = unsafe {
             usdc_prim_metadata_keys(
                 self.raw,
                 c.as_ptr(),
                 Some(string_trampoline),
                 &mut out as *mut Vec<String> as *mut c_void,
+                &mut err,
             )
         };
-        out
+        status_result(ok, err, "usdc_prim_metadata_keys failed without an error")?;
+        Ok(out)
     }
 
     /// Human-readable summary of a prim's metadata value for `key`.
