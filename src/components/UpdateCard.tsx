@@ -90,6 +90,12 @@ export function UpdateCard({
           mono: true,
         },
         { id: "target", label: "Target", value: updateCheck.update.target },
+        {
+          id: "download-url",
+          label: "Download",
+          value: updateCheck.update.downloadUrl,
+          mono: true,
+        },
         ...(updateCheck.update.pubDate
           ? [
               {

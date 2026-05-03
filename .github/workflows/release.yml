@@ -283,3 +283,40 @@ jobs:
             echo "::error::$dir is empty — USD runtime libraries would be missing from the installer"
             exit 1
           fi
+
+  patch-updater-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      # tauri-action emits both MSI and NSIS updater artifacts on Windows.
+      # Its generic `windows-x86_64` entry currently points at MSI, but
+      # yw-look's public Windows download path is the NSIS setup.exe.
+      # Keep installer-specific keys intact while making the default
+      # Windows updater path match what users are most likely running.
+      - name: Prefer NSIS for default Windows updater artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir manifest
+          gh release download "$TAG" --pattern latest.json --dir manifest --clobber
+
+          node <<'NODE'
+          const fs = require("fs");
+          const path = "manifest/latest.json";
+          const latest = JSON.parse(fs.readFileSync(path, "utf8"));
+          const nsis = latest.platforms?.["windows-x86_64-nsis"];
+          if (!nsis?.url || !nsis?.signature) {
+            throw new Error("latest.json is missing windows-x86_64-nsis updater metadata");
+          }
+          latest.platforms["windows-x86_64"] = { ...nsis };
+          fs.writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
+          NODE
+
+          gh release upload "$TAG" manifest/latest.json --clobber

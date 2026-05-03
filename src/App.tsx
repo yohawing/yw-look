@@ -144,6 +144,16 @@ type WindowWithIdleCallback = Window & {
 
 const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
 
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+  return fallback;
+}
+
 function isUsdFile(file: SelectedFile | null): boolean {
   return !!file && USD_EXTENSIONS.has(file.extension);
 }
@@ -1793,11 +1803,7 @@ export function App() {
       setSettingsError(null);
       await refreshUpdateConfiguration();
     } catch (error: unknown) {
-      setUpdateError(
-        error instanceof Error
-          ? error.message
-          : "Failed to save updater settings.",
-      );
+      setUpdateError(errorMessage(error, "Failed to save updater settings."));
     }
   };
 
@@ -1809,9 +1815,7 @@ export function App() {
       setUpdateConfiguration(payload.configuration);
       setUpdateError(null);
     } catch (error: unknown) {
-      setUpdateError(
-        error instanceof Error ? error.message : "Failed to check for updates.",
-      );
+      setUpdateError(errorMessage(error, "Failed to check for updates."));
     } finally {
       setIsCheckingForUpdate(false);
     }
@@ -1820,13 +1824,14 @@ export function App() {
   const handleInstallUpdate = async () => {
     try {
       setIsInstallingUpdate(true);
+      setUpdateError(
+        "Installing update. On Windows, yw-look may close and relaunch before this panel receives a final result.",
+      );
       const payload = await installPendingUpdate();
       setUpdateError(payload.note);
       setUpdateCheck(null);
     } catch (error: unknown) {
-      setUpdateError(
-        error instanceof Error ? error.message : "Failed to install update.",
-      );
+      setUpdateError(errorMessage(error, "Failed to install update."));
     } finally {
       setIsInstallingUpdate(false);
     }
