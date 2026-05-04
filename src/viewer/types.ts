@@ -112,6 +112,7 @@ export type PreviewSupportState =
 export const implementedPreviewExtensions = new Set([
   "glb",
   "gltf",
+  "vrm",
   "fbx",
   "obj",
   "ply",

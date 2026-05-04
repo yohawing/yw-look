@@ -84,6 +84,7 @@ describe("preview support classification", () => {
 
     expect(extensions.has("glb")).toBe(true);
     expect(extensions.has("gltf")).toBe(true);
+    expect(extensions.has("vrm")).toBe(true);
     expect(extensions.has("obj")).toBe(true);
     expect(extensions.has("usdz")).toBe(true);
     expect(extensions.has("ktx2")).toBe(true);
@@ -91,9 +92,21 @@ describe("preview support classification", () => {
 
   it("classifies implemented core loaders separately from optional packs", () => {
     expect(getPreviewSupportState("glb")).toBe("implemented");
-    expect(getPreviewSupportState("vrm")).toBe("missingOptionalLoader");
+    expect(getPreviewSupportState("vrm")).toBe("implemented");
+    expect(getPreviewSupportState("vrma")).toBe("missingOptionalLoader");
     expect(getPreviewSupportState("pmx")).toBe("missingOptionalLoader");
     expect(getPreviewSupportState("abc")).toBe("missingOptionalLoader");
+  });
+
+  it("marks the bundled VRM loader pack as optional but installed", () => {
+    expect(
+      listRegisteredLoaders().find((loader) => loader.extension === "vrm"),
+    ).toMatchObject({
+      id: "vrm-loader-pack",
+      name: "VRM Loader Pack",
+      optional: true,
+      installed: true,
+    });
   });
 
   it("keeps unknown extensions in the generic unsupported bucket", () => {
