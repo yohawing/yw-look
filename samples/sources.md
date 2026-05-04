@@ -25,6 +25,17 @@ They are intentionally not committed.
 - `samples/private/gltf/ToyCar.glb`
   Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/ToyCar/glTF-Binary
 
+## Private FBX benchmark samples
+
+These are manually placed under `samples/private/fbx/` and are intentionally
+not committed.
+
+- `samples/private/fbx/Bistro_v5_2/BistroExterior.fbx`
+- `samples/private/fbx/Bistro_v5_2/BistroInterior.fbx`
+- `samples/private/fbx/Bistro_v5_2/BistroInterior_Wine.fbx`
+  Source: Amazon Lumberyard Bistro, Open Research Content Archive (ORCA)
+  License: CC-BY 4.0
+
 ## Locally generated tiny samples
 
 - `samples/assets/obj/TinyTriangle.obj`
