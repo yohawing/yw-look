@@ -20,6 +20,7 @@ type ViewerStatePanelProps = {
   fileName?: string | null;
   fileExtension?: string | null;
   loadingStage?: LoadingStageSnapshot | null;
+  onOpenFile?: () => void;
 };
 
 const coreFormats = [
@@ -118,6 +119,7 @@ export function ViewerStatePanel({
   fileName,
   loadingStage,
   mode,
+  onOpenFile,
 }: ViewerStatePanelProps) {
   const baseContent = stateContent[mode];
   const unsupportedMessage =
@@ -171,24 +173,42 @@ export function ViewerStatePanel({
           </svg>
         </div>
         <div className="viewer-empty-copy">
-          <h2>Drop a file to inspect</h2>
-          <p>
-            Drag & drop here, or use <span>File / Open</span>.
-          </p>
+          <h2>Inspect a model or texture</h2>
+          <p>Open a file or drop one here to preview the asset.</p>
         </div>
-        <div className="viewer-empty-formats" aria-label="Supported formats">
-          {coreFormats.map((format) => (
-            <span key={format}>{format}</span>
-          ))}
+        <div className="viewer-empty-actions">
+          <button onClick={onOpenFile} type="button">
+            Open File
+          </button>
+          <span>Drag & Drop</span>
         </div>
-        <div
-          className="viewer-empty-formats viewer-empty-formats-optional"
-          aria-label="Optional formats"
-        >
-          {optionalFormats.map((format) => (
-            <span key={format}>{format}</span>
-          ))}
+        <div className="viewer-empty-format-groups">
+          <div>
+            <p>Core</p>
+            <div
+              className="viewer-empty-formats"
+              aria-label="Supported formats"
+            >
+              {coreFormats.map((format) => (
+                <span key={format}>{format}</span>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p>Optional packs</p>
+            <div
+              className="viewer-empty-formats viewer-empty-formats-optional"
+              aria-label="Optional formats"
+            >
+              {optionalFormats.map((format) => (
+                <span key={format}>{format}</span>
+              ))}
+            </div>
+          </div>
         </div>
+        <p className="viewer-empty-hint">
+          Use Left / Right after opening a file to browse nearby assets.
+        </p>
       </div>
     );
   }

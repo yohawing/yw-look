@@ -344,6 +344,7 @@ type AssetViewportProps = {
   displayMode: DisplayMode;
   backgroundPreset: BackgroundPreset;
   onFeedbackChange: (feedback: ViewerFeedback) => void;
+  onOpenFile?: () => void;
   onUsdError?: (error: unknown) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
   selectedTextureId: string | null;
@@ -614,6 +615,7 @@ export function AssetViewport({
   displayMode,
   backgroundPreset,
   onFeedbackChange,
+  onOpenFile,
   onUsdError,
   onMetadataChange,
   selectedTextureId,
@@ -2638,6 +2640,7 @@ export function AssetViewport({
             fileName={currentFile?.fileName}
             loadingStage={loadingStage}
             mode={effectiveOverlayMode}
+            onOpenFile={onOpenFile}
           />
         </div>
       ) : null}

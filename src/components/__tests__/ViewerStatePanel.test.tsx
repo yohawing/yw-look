@@ -1,10 +1,25 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { ViewerStatePanel } from "../ViewerStatePanel";
 
 describe("ViewerStatePanel", () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it("exposes the primary open-file action in the empty state", () => {
+    const onOpenFile = vi.fn();
+    const { getByRole, getByLabelText, getByText } = render(
+      <ViewerStatePanel mode="empty" onOpenFile={onOpenFile} />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Open File" }));
+
+    expect(onOpenFile).toHaveBeenCalledTimes(1);
+    expect(getByText("Core")).toBeTruthy();
+    expect(
+      within(getByLabelText("Optional formats")).getByText("vrm"),
+    ).toBeTruthy();
   });
 
   it("shows an action-oriented message for missing optional loaders", () => {

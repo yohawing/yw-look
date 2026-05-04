@@ -274,7 +274,9 @@ const DEFAULT_EXPOSURE = 1.1;
 export function App() {
   const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("properties");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => window.innerWidth >= 720,
+  );
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
@@ -2257,6 +2259,7 @@ export function App() {
             displayMode={displayMode}
             backgroundPreset={backgroundPreset}
             onFeedbackChange={setViewerFeedback}
+            onOpenFile={() => void handleOpenFile()}
             onMetadataChange={setAssetMetadata}
             selectedTextureId={selectedTextureId}
             viewerSurfaceMode={viewerSurfaceMode}
