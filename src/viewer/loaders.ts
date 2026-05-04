@@ -532,8 +532,7 @@ async function loadPreviewObjectCore(
     }
     case "fbx": {
       reportStage("decode");
-      const { FBXLoader } =
-        await import("three/examples/jsm/loaders/FBXLoader.js");
+      const { FBXLoader } = await import("../vendor/FBXLoaderPatched.js");
       const buffer = await readArrayBuffer(file.path);
       reportStage("scene");
       const object = new FBXLoader().parse(buffer, "");

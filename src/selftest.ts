@@ -149,8 +149,7 @@ async function loadCase(sample: SampleCase) {
       return gltf.scene;
     }
     case "fbx": {
-      const { FBXLoader } =
-        await import("three/examples/jsm/loaders/FBXLoader.js");
+      const { FBXLoader } = await import("./vendor/FBXLoaderPatched.js");
       return new FBXLoader().loadAsync(url);
     }
     case "dae": {

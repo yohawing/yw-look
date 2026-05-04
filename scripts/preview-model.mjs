@@ -51,6 +51,18 @@ const outDir = outIdx >= 0 ? args[outIdx + 1] : "artifacts/preview";
 const urlIdx = args.indexOf("--url");
 const devUrl = urlIdx >= 0 ? args[urlIdx + 1] : "http://localhost:1420";
 const noAnim = args.includes("--no-anim");
+const timeoutIdx = args.indexOf("--timeout-ms");
+const requestedTimeoutMs =
+  timeoutIdx >= 0 ? Number(args[timeoutIdx + 1]) : 180_000;
+const timeoutMs = Math.min(requestedTimeoutMs, 600_000);
+
+if (!Number.isFinite(requestedTimeoutMs) || requestedTimeoutMs <= 0) {
+  console.error("--timeout-ms must be a positive number");
+  process.exit(2);
+}
+if (timeoutMs !== requestedTimeoutMs) {
+  console.warn(`--timeout-ms capped at ${timeoutMs}ms`);
+}
 
 const absModel = path.resolve(modelArg);
 try {
@@ -172,7 +184,7 @@ try {
           globalThis.document?.getElementById("output")?.textContent ?? "";
         return text.includes('"mode": "single"') || text.includes('"fatal"');
       },
-      { timeout: 30_000 },
+      { timeout: timeoutMs },
     );
   } catch (error) {
     waitError = error instanceof Error ? error.message : String(error);

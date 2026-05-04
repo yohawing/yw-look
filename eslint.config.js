@@ -20,6 +20,7 @@ export default tseslint.config(
       "src-tauri/vcpkg_installed",
       "src-tauri/cpp-artifacts",
       "public",
+      "src/vendor/FBXLoaderPatched.js",
     ],
   },
   js.configs.recommended,
