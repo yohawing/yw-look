@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "description": "Public fixture regression catalog for yw-look asset loading.",
+  "cases": [
+    {
+      "id": "model-gltf-triangle",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/triangle.gltf",
+      "format": "gltf",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-glb-box-textured",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/box-textured.glb",
+      "format": "glb",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-obj-triangle",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/triangle.obj",
+      "format": "obj",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-stl-triangle",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/triangle.stl",
+      "format": "stl",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-ply-triangle",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/triangle.ply",
+      "format": "ply",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-dae-tetrahedron",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny-tetrahedron.dae",
+      "format": "dae",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-usda-tiny",
+      "category": "valid-minimal",
+      "path": "samples/assets/usd/tiny.usda",
+      "format": "usda",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-png-1x1",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/textures/1x1.png",
+      "format": "png",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-jpg-1x1",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/textures/1x1.jpg",
+      "format": "jpg",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-tga-crate",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/textures/crate-grey8.tga",
+      "format": "tga",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-dds-dxt1",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/textures/disturb-dxt1-nomip.dds",
+      "format": "dds",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-ktx2-uastc",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/textures/2d-uastc.ktx2",
+      "format": "ktx2",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "broken-gltf-truncated",
+      "category": "malformed",
+      "path": "tests/fixtures/broken/truncated.gltf",
+      "format": "gltf",
+      "expect": { "shouldLoad": false },
+      "knownFailure": "shot/check currently exits successfully for this malformed glTF; keep as regression target."
+    },
+    {
+      "id": "broken-obj-garbage",
+      "category": "malformed",
+      "path": "tests/fixtures/broken/garbage.obj",
+      "format": "obj",
+      "expect": { "shouldLoad": false },
+      "knownFailure": "shot/check currently exits successfully for OBJ files that parse to an empty scene; keep as regression target."
+    }
+  ]
+}

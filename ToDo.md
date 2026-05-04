@@ -417,7 +417,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] UI コンポーネントの回帰テストを書く（Hierarchy / Material / SceneLightsCameras / UsdSource）
 - [ ] Rust / Tauri 側の設定読み書きテストを書く（`load_settings` / `save_settings`）
 - [ ] Rust / Tauri 側の最近開いたファイル管理テストを書く（`load_recent_files` / cleanup / limit / sync）
-- [ ] 実 loader 選択と `loadPreviewObject` の統合テストを書く（現状は helper と selftest に分かれている）
+- [x] 実 loader 選択と `loadPreviewObject` の統合テストを書く（`tests/fixtures/catalog.json` + `npm run test:fixtures` で public fixture を real shot/check 経路に通す）
 
 ### ビジュアルリグレッションテスト
 

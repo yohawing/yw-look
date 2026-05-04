@@ -19,6 +19,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:batch": "node scripts/batch-load-test.mjs",
+    "test:fixtures": "node scripts/fixture-regression.mjs",
     "test:integration": "node scripts/run-selftest.mjs",
     "test:visual": "node scripts/visual-regression.mjs",
     "test:viewport-snapshot": "node scripts/viewport-snapshot.mjs",
