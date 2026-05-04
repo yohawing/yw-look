@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getMimeType,
+  listRegisteredLoaders,
   resolveSiblingPath,
   isUsdcCrateBuffer,
   readUsdzFirstFileName,
@@ -76,6 +77,18 @@ describe("getMimeType", () => {
 // ---------------------------------------------------------------------------
 
 describe("preview support classification", () => {
+  it("registers existing core preview formats through the loader registry", () => {
+    const extensions = new Set(
+      listRegisteredLoaders().map((loader) => loader.extension),
+    );
+
+    expect(extensions.has("glb")).toBe(true);
+    expect(extensions.has("gltf")).toBe(true);
+    expect(extensions.has("obj")).toBe(true);
+    expect(extensions.has("usdz")).toBe(true);
+    expect(extensions.has("ktx2")).toBe(true);
+  });
+
   it("classifies implemented core loaders separately from optional packs", () => {
     expect(getPreviewSupportState("glb")).toBe("implemented");
     expect(getPreviewSupportState("vrm")).toBe("missingOptionalLoader");

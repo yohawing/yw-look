@@ -56,7 +56,13 @@ export type {
   TextureFilterMode,
 } from "./scene";
 
-export { loadPreviewObject, tryExtractUsdaText } from "./loaders";
+export {
+  loadPreviewObject,
+  tryExtractUsdaText,
+  loaderRegistry,
+  listRegisteredLoaders,
+} from "./loaders";
+export type { LoaderContext, LoaderPlugin } from "./loaderRegistry";
 
 export {
   captureRendererScreenshot,

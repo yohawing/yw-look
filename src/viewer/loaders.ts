@@ -13,6 +13,7 @@ import {
 import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { isTauriEnvironment } from "../lib/platform";
 import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
+import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
   LoadedPreview,
@@ -479,7 +480,7 @@ export {
   shouldFailClosedOnUsdPreviewDecisionFailure,
 };
 
-export async function loadPreviewObject(
+async function loadPreviewObjectCore(
   file: SelectedFile,
   renderer?: import("three").WebGLRenderer,
   options: {
@@ -1022,4 +1023,61 @@ export async function loadPreviewObject(
         `Preview loader is not implemented for .${file.extension}`,
       );
   }
+}
+
+const coreLoaderExtensions = [
+  "glb",
+  "gltf",
+  "fbx",
+  "obj",
+  "ply",
+  "stl",
+  "dae",
+  "usd",
+  "usda",
+  "usdc",
+  "usdz",
+  "png",
+  "jpg",
+  "jpeg",
+  "tga",
+  "dds",
+  "hdr",
+  "exr",
+  "ktx2",
+] as const;
+
+export const loaderRegistry = new LoaderRegistry();
+
+loaderRegistry.register({
+  id: "core-preview-loader",
+  name: "Core Preview Loader",
+  extensions: coreLoaderExtensions,
+  loadPreviewObject: (file, context) =>
+    loadPreviewObjectCore(file, context.renderer, {
+      usdLoadPolicy: context.usdLoadPolicy,
+      variantSelections: context.variantSelections,
+      glbOverride: context.glbOverride,
+      onStage: context.onStage,
+    }),
+});
+
+export function listRegisteredLoaders() {
+  return loaderRegistry.list();
+}
+
+export async function loadPreviewObject(
+  file: SelectedFile,
+  renderer?: import("three").WebGLRenderer,
+  options: LoaderContext = {},
+): Promise<LoadedPreview> {
+  const loader = loaderRegistry.getByExtension(file.extension);
+  if (!loader || loader.installed === false) {
+    throw new Error(`Preview loader is not installed for .${file.extension}`);
+  }
+
+  return loader.loadPreviewObject(file, {
+    ...options,
+    renderer,
+  });
 }
