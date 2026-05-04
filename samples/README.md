@@ -40,3 +40,25 @@
 - `samples/manifest.json` で管理する
 - ライセンス不明の素材はコミットしない
 - 実案件ファイルを置くなら `samples/private/` を使う
+
+## Private samples
+
+`samples/private/` は git には含めないローカル検証用サンプル置き場である。
+
+Khronos glTF Sample Assets などの大きめの検証素材は次で取得する。
+
+```sh
+npm run samples:fetch
+```
+
+取得済み private サンプルの一覧は次で確認する。
+
+```sh
+npm run test:batch -- --list
+```
+
+単体ロードチェックは次のように実行する。
+
+```sh
+npm run test:batch -- --case boombox
+```
