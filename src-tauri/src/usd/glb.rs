@@ -780,9 +780,6 @@ pub fn build_glb(
     up_correction: Option<[f32; 16]>,
     instancing: &[InstancingInput],
 ) -> Result<Vec<u8>, String> {
-    if meshes.is_empty() {
-        return Err("no meshes to export".to_string());
-    }
     if materials.is_empty() {
         return Err("at least one material is required".to_string());
     }
@@ -2508,6 +2505,24 @@ mod tests {
 
     fn default_materials() -> Vec<MaterialInput> {
         vec![MaterialInput::default_preview()]
+    }
+
+    #[test]
+    fn build_glb_allows_empty_scene() {
+        let glb = build_glb(
+            &[],
+            &[],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build empty glb scene");
+        assert_eq!(&glb[0..4], b"glTF");
     }
 
     #[test]

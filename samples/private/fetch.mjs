@@ -211,7 +211,10 @@ async function fetchArchive(model, targetPath) {
 
   const extractAttempts =
     process.platform === "win32"
-      ? [["tar", ["-xf", archivePath, "-C", extractDir]]]
+      ? [
+          ["tar", ["-xf", archivePath, "-C", extractDir]],
+          ["tar", ["-xf", archivePath, "-C", extractDir, "--force-local"]],
+        ]
       : [
           ["unzip", ["-o", "-q", archivePath, "-d", extractDir]],
           ["tar", ["-xf", archivePath, "-C", extractDir]],

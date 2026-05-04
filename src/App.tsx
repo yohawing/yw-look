@@ -691,9 +691,7 @@ export function App() {
       .catch((error: unknown) => {
         if (cancelled) return;
         setUsdInspectorError(
-          error instanceof Error
-            ? error.message
-            : "Failed to summarize USD stage.",
+          errorMessage(error, "Failed to summarize USD stage."),
         );
       });
 
@@ -707,10 +705,7 @@ export function App() {
         // Keep any earlier summarize error; otherwise record this one.
         setUsdInspectorError(
           (previous) =>
-            previous ??
-            (error instanceof Error
-              ? error.message
-              : "Failed to inspect USD stage."),
+            previous ?? errorMessage(error, "Failed to inspect USD stage."),
         );
       });
 
@@ -724,9 +719,7 @@ export function App() {
         setUsdInspectorError(
           (previous) =>
             previous ??
-            (error instanceof Error
-              ? error.message
-              : "Failed to collect USD asset issues."),
+            errorMessage(error, "Failed to collect USD asset issues."),
         );
       });
 

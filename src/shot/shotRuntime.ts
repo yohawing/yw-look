@@ -13,6 +13,12 @@ import {
 } from "three";
 import { resolveSelectedFile } from "../lib/files";
 import {
+  collectAssetIssues,
+  inspectStage,
+  summarizeStage,
+  type StageLoadPolicy,
+} from "../lib/usd";
+import {
   captureRendererScreenshot,
   disposeObject,
   isRendererCanvasNonBlank,
@@ -43,6 +49,7 @@ export type ShotOutcome = {
 };
 
 const DEFAULT_BG = "#111318";
+const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
 
 export async function loadShotConfig() {
   return invoke<ShotConfig | null>("get_shot_config");
@@ -135,6 +142,62 @@ function countMeshes(object: Group | Mesh) {
   return count;
 }
 
+function describeError(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+  return fallback;
+}
+
+async function validateUsdInspection(path: string, policy: StageLoadPolicy) {
+  const [summary, inspection] = await Promise.all([
+    summarizeStage(path, policy),
+    inspectStage(path, policy),
+  ]);
+
+  if (summary.unresolvedReferenceCount > 0) {
+    throw new Error(
+      `USD inspection found ${summary.unresolvedReferenceCount} unresolved reference(s) under ${policy}.`,
+    );
+  }
+  if (policy === "loadAll" && summary.unresolvedPayloadCount > 0) {
+    throw new Error(
+      `USD inspection found ${summary.unresolvedPayloadCount} unresolved payload(s) under ${policy}.`,
+    );
+  }
+  if (policy === "loadAll" && inspection.missingAssets.length > 0) {
+    throw new Error(
+      `USD inspection found missing asset(s) under ${policy}: ${inspection.missingAssets.join(", ")}`,
+    );
+  }
+}
+
+async function validateUsdInspectorPipeline(path: string, extension: string) {
+  if (!USD_EXTENSIONS.has(extension)) {
+    return;
+  }
+
+  try {
+    await validateUsdInspection(path, "loadAll");
+    await validateUsdInspection(path, "noPayloads");
+    const issues = await collectAssetIssues(path);
+    const errors = issues.filter((issue) => issue.level === "error");
+    if (errors.length > 0) {
+      throw new Error(
+        `USD asset issue(s): ${errors.map((issue) => issue.message).join("; ")}`,
+      );
+    }
+  } catch (error) {
+    throw new Error(
+      `USD inspector validation failed: ${describeError(error, "unknown inspector error")}`,
+      { cause: error },
+    );
+  }
+}
+
 function waitFrame() {
   return new Promise<number>((resolve) => requestAnimationFrame(resolve));
 }
@@ -177,6 +240,9 @@ export async function runShot(config: ShotConfig): Promise<ShotOutcome> {
 
   try {
     const selected = await resolveSelectedFile(config.inputPath);
+    if (config.mode === "check") {
+      await validateUsdInspectorPipeline(selected.path, selected.extension);
+    }
     const started = performance.now();
     const preview = await loadPreviewObject(selected, renderer);
     object = preview.object;
