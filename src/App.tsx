@@ -499,6 +499,8 @@ export function App() {
         return "preview ready";
       case "unsupported":
         return "unsupported format";
+      case "missingOptionalLoader":
+        return "optional loader missing";
       case "loadFailed":
         return "preview failed";
       case "missingReference":
@@ -1201,7 +1203,8 @@ export function App() {
 
     const level =
       viewerFeedback.mode === "missingReference" ||
-      viewerFeedback.mode === "unsupported"
+      viewerFeedback.mode === "unsupported" ||
+      viewerFeedback.mode === "missingOptionalLoader"
         ? "warn"
         : "error";
 

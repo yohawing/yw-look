@@ -45,7 +45,9 @@ import {
   type TextureViewMode,
   type ViewerFeedback,
   type ViewerSurfaceMode,
-  implementedPreviewExtensions,
+  formatMissingOptionalLoaderMessage,
+  formatUnsupportedFormatMessage,
+  getPreviewSupportState,
   neutralFeedback,
   DEFAULT_SCENE_DIMENSION,
   revokeUrls,
@@ -733,14 +735,19 @@ export function AssetViewport({
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
   const shouldInitializeScene = currentFile !== null;
+  const previewSupportState = currentFile
+    ? getPreviewSupportState(currentFile.extension)
+    : "implemented";
   const effectiveOverlayMode =
     currentFile === null
       ? "empty"
-      : !implementedPreviewExtensions.has(currentFile.extension)
-        ? "unsupported"
-        : activePreviewPath === currentFile.path
-          ? overlayMode
-          : "loading";
+      : previewSupportState === "missingOptionalLoader"
+        ? "missingOptionalLoader"
+        : previewSupportState === "unsupported"
+          ? "unsupported"
+          : activePreviewPath === currentFile.path
+            ? overlayMode
+            : "loading";
 
   useEffect(() => {
     displayModeRef.current = displayMode;
@@ -1838,11 +1845,19 @@ export function AssetViewport({
       viewerSurfaceModeRef.current,
     );
 
-    if (!implementedPreviewExtensions.has(currentFile.extension)) {
+    const supportState = getPreviewSupportState(currentFile.extension);
+    if (supportState !== "implemented") {
+      const message =
+        supportState === "missingOptionalLoader"
+          ? formatMissingOptionalLoaderMessage(currentFile.extension)
+          : formatUnsupportedFormatMessage(currentFile.extension);
       onMetadataChange(emptyAssetMetadata);
       onFeedbackChange({
-        mode: "unsupported",
-        message: `Preview is not implemented yet for .${currentFile.extension}.`,
+        mode: supportState,
+        message:
+          message !== null
+            ? `${message.title} ${message.body}`
+            : `Preview is not implemented yet for .${currentFile.extension}.`,
         warning: null,
         canResetCamera: false,
       });
@@ -2619,6 +2634,7 @@ export function AssetViewport({
           className={`viewport-overlay${effectiveOverlayMode === "empty" ? " is-empty" : ""}`}
         >
           <ViewerStatePanel
+            fileExtension={currentFile?.extension}
             fileName={currentFile?.fileName}
             loadingStage={loadingStage}
             mode={effectiveOverlayMode}
