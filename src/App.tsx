@@ -2163,6 +2163,12 @@ export function App() {
     setActiveTab("warnings");
   }, []);
 
+  const openUpdatePanel = useCallback(() => {
+    setSidebarOpen(true);
+    setActiveTab("settings");
+    void refreshUpdateConfiguration();
+  }, []);
+
   const statusLeftItems = useMemo(() => {
     const items = buildStatusLeftItems({
       assetMetadata: sidebarAssetMetadata,
@@ -2202,14 +2208,28 @@ export function App() {
     viewerStatusLabel,
   ]);
 
-  const statusRightItems = useMemo(
-    () =>
-      buildStatusRightItems({
-        currentFileSummary,
-        performanceSnapshot,
-      }),
-    [currentFileSummary, performanceSnapshot],
-  );
+  const statusRightItems = useMemo(() => {
+    const items = buildStatusRightItems({
+      currentFileSummary,
+      performanceSnapshot,
+    });
+
+    if (updateCheck?.update) {
+      items.unshift({
+        id: "update-available",
+        content: `Update: ${updateCheck.update.version}`,
+        onClick: openUpdatePanel,
+        tone: "warning",
+      });
+    }
+
+    return items;
+  }, [
+    currentFileSummary,
+    openUpdatePanel,
+    performanceSnapshot,
+    updateCheck?.update,
+  ]);
 
   const handleSidebarResizeStart = (
     event: React.PointerEvent<HTMLDivElement>,
