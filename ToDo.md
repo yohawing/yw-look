@@ -207,7 +207,7 @@
 - [x] Rust 側に移行する処理の優先度を整理する（USD inspection / geometry / composition を優先し、`docs/usd.md` に集約）
 - [x] 最初の移行対象を決めて Tauri コマンドとして実装する（USD inspection / geometry extraction / payload session）
 - [x] JS 側と Rust 側の責務分離方針をドキュメント化する（`docs/usd.md` / `docs/usd-cpp.md`）
-- [ ] USD 以外の重処理（EXR / DDS / 汎用メタデータ抽出など）を Rust 側へ移すか再評価する
+- [x] USD 以外の重処理（EXR / DDS / 汎用メタデータ抽出など）を Rust 側へ移すか再評価する → #81（`docs/non-usd-rust-backend-evaluation.md` に決定記録を追加）
 
 ### USD インスペクション（Rust バックエンド）
 
