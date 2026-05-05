@@ -31,12 +31,12 @@ use super::backend::{
 };
 use super::cpp_sys::{CError, CStage, Interpolation, LoadPolicy, Orientation, UpAxis};
 use super::glb::{self, AlphaMode, InstancingInput, MaterialInput, MeshInput};
-use super::openusd_backend::DenseBlendShape;
 use super::openusd_backend::{
     filter_mesh_by_face_indices, invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mat4_mul_f32,
     mesh_data_to_input, remap_mesh_skin_indices, srgb_to_linear, usd_wrap_to_gltf,
     z_up_to_y_up_mat4, MeshOrientation,
 };
+use super::openusd_backend::{filter_resolvable_relative_assets, DenseBlendShape};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
     CompositionArc, CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo,
@@ -136,13 +136,18 @@ impl UsdInspectBackend for OpenusdCppBackend {
         // Layer identifiers: first entry is the root layer, everything
         // after are composed dependencies. The inspector UI only shows
         // the composed set (sublayers, refs, payloads), so skip [0].
-        let mut layer_ids = stage.layer_identifiers().map_err(map_c_error)?;
+        let all_layer_ids = stage.layer_identifiers().map_err(map_c_error)?;
+        let missing_assets = filter_resolvable_relative_assets(
+            path,
+            all_layer_ids.iter().cloned(),
+            stage.unresolved_assets().map_err(map_c_error)?,
+        );
+        let mut layer_ids = all_layer_ids;
         if !layer_ids.is_empty() {
             layer_ids.remove(0);
         }
         let composed_layers = layer_ids;
 
-        let missing_assets = stage.unresolved_assets().map_err(map_c_error)?;
         let unresolved_set: HashSet<&str> = missing_assets.iter().map(String::as_str).collect();
 
         // Skipped-payloads key on (asset_path, source_prim) — see
@@ -318,7 +323,11 @@ impl UsdInspectBackend for OpenusdCppBackend {
         let mut prim_type_counts: Vec<PrimTypeCount> = Vec::new();
 
         // #38: unresolved assets set for arc classification.
-        let unresolved_assets = stage.unresolved_assets().map_err(map_c_error)?;
+        let unresolved_assets = filter_resolvable_relative_assets(
+            path,
+            stage.layer_identifiers().map_err(map_c_error)?,
+            stage.unresolved_assets().map_err(map_c_error)?,
+        );
         let unresolved_set: HashSet<&str> = unresolved_assets.iter().map(String::as_str).collect();
 
         // #38: skipped payloads for NoPayloads policy classification.
@@ -461,7 +470,11 @@ impl UsdInspectBackend for OpenusdCppBackend {
             }
         }
 
-        let unresolved_owned = stage.unresolved_assets().map_err(map_c_error)?;
+        let unresolved_owned = filter_resolvable_relative_assets(
+            path,
+            stage.layer_identifiers().map_err(map_c_error)?,
+            stage.unresolved_assets().map_err(map_c_error)?,
+        );
         let unresolved_set: HashSet<&str> = unresolved_owned.iter().map(String::as_str).collect();
 
         // Walk arcs and emit one contextualized issue per missing
