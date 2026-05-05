@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
-import type { LoadingStageId, LoadingStageSnapshot } from "../viewer";
+import type {
+  DeferredTextureSnapshot,
+  LoadingStageId,
+  LoadingStageSnapshot,
+} from "../viewer";
 import "../styles/viewport.css";
 
 type LoadingScreenProps = {
   fileName?: string | null;
   stage?: LoadingStageSnapshot | null;
+  deferredTexture?: DeferredTextureSnapshot | null;
+  compact?: boolean;
 };
 
 const consoleRows: Array<{ id: LoadingStageId; text: string }> = [
@@ -16,17 +22,62 @@ const consoleRows: Array<{ id: LoadingStageId; text: string }> = [
   { id: "ui", text: "syncing inspector panels" },
 ];
 
+type ConsoleRow = {
+  id: LoadingStageId | "texture";
+  text: string;
+  time: string;
+  state: "is-active" | "is-done" | "is-pending";
+};
+
 function formatElapsed(ms: number) {
   if (ms < 1_000) return `${Math.max(0, Math.round(ms))}ms`;
   return `${(ms / 1_000).toFixed(1)}s`;
 }
 
-export function LoadingScreen({ fileName, stage }: LoadingScreenProps) {
+export function LoadingScreen({
+  compact = false,
+  deferredTexture = null,
+  fileName,
+  stage,
+}: LoadingScreenProps) {
   const displayName = fileName ?? "Asset preview";
   const [now, setNow] = useState(() => performance.now());
   const activeStage = stage?.activeStage ?? "scan";
   const activeElapsed = stage ? now - stage.activeStageStartedAt : 0;
   const totalElapsed = stage ? stage.totalElapsedMs + activeElapsed : 0;
+  const deferredTextureProgress = !stage ? deferredTexture : null;
+  const rows: ConsoleRow[] = deferredTextureProgress
+    ? [
+        ...consoleRows.map<ConsoleRow>((row) => ({
+          id: row.id,
+          text: row.text,
+          time: "",
+          state: "is-done" as const,
+        })),
+        {
+          id: "texture",
+          text: "streaming deferred textures",
+          time:
+            deferredTextureProgress.total > 0
+              ? `${deferredTextureProgress.loaded + deferredTextureProgress.failed}/${deferredTextureProgress.total}`
+              : "",
+          state: deferredTextureProgress.pending > 0 ? "is-active" : "is-done",
+        },
+      ]
+    : consoleRows.map((row) => {
+        const elapsed = stage?.elapsedByStage[row.id];
+        return {
+          id: row.id,
+          text: row.text,
+          time:
+            row.id === activeStage
+              ? formatElapsed(activeElapsed)
+              : elapsed !== undefined
+                ? formatElapsed(elapsed)
+                : "",
+          state: getRowState(row.id, stage),
+        };
+      });
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -37,7 +88,11 @@ export function LoadingScreen({ fileName, stage }: LoadingScreenProps) {
   }, []);
 
   return (
-    <div className="loader-root" role="status" aria-live="polite">
+    <div
+      className={`loader-root${compact ? " is-compact" : ""}`}
+      role="status"
+      aria-live="polite"
+    >
       <section className="loader-console" aria-label="Loading asset">
         <div className="loader-console-topbar" aria-hidden="true">
           <span />
@@ -51,30 +106,30 @@ export function LoadingScreen({ fileName, stage }: LoadingScreenProps) {
           </strong>
         </div>
         <ol className="loader-console-lines">
-          {consoleRows.map((row) => {
-            const elapsed = stage?.elapsedByStage[row.id];
-
-            return (
-              <li className={getRowClassName(row.id, stage)} key={row.id}>
-                <span className="loader-console-prompt">{row.id}</span>
-                <span className="loader-console-text">{row.text}</span>
-                <span className="loader-console-time">
-                  {row.id === activeStage
-                    ? formatElapsed(activeElapsed)
-                    : elapsed !== undefined
-                      ? formatElapsed(elapsed)
-                      : ""}
-                </span>
-              </li>
-            );
-          })}
+          {rows.map((row) => (
+            <li className={`loader-console-line ${row.state}`} key={row.id}>
+              <span className="loader-console-prompt">{row.id}</span>
+              <span className="loader-console-text">{row.text}</span>
+              <span className="loader-console-time">{row.time}</span>
+            </li>
+          ))}
         </ol>
         <div className="loader-console-progress" aria-hidden="true">
           <span />
         </div>
         <div className="loader-console-caret">
-          <span>await preview.ready</span>
-          <b>{formatElapsed(totalElapsed)}</b>
+          <span>
+            {deferredTextureProgress?.activeLabel
+              ? deferredTextureProgress.activeLabel
+              : deferredTextureProgress
+                ? "await textures.idle"
+                : "await preview.ready"}
+          </span>
+          <b>
+            {deferredTextureProgress
+              ? `${deferredTextureProgress.pending} pending`
+              : formatElapsed(totalElapsed)}
+          </b>
           <i aria-hidden="true" />
         </div>
       </section>
@@ -82,17 +137,17 @@ export function LoadingScreen({ fileName, stage }: LoadingScreenProps) {
   );
 }
 
-function getRowClassName(
+function getRowState(
   id: LoadingStageId,
   stage: LoadingStageSnapshot | null | undefined,
 ) {
   if (stage?.activeStage === id) {
-    return "loader-console-line is-active";
+    return "is-active";
   }
 
   if (stage?.elapsedByStage[id] !== undefined) {
-    return "loader-console-line is-done";
+    return "is-done";
   }
 
-  return "loader-console-line is-pending";
+  return "is-pending";
 }

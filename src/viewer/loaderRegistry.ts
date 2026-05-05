@@ -1,6 +1,10 @@
 import type { WebGLRenderer } from "three";
 import type { SelectedFile } from "../lib/files";
-import type { LoadedPreview, LoadingStageReporter } from "./types";
+import type {
+  DeferredTextureSnapshot,
+  LoadedPreview,
+  LoadingStageReporter,
+} from "./types";
 
 export type LoaderContext = {
   renderer?: WebGLRenderer;
@@ -8,6 +12,7 @@ export type LoaderContext = {
   variantSelections?: import("../lib/usd").VariantSelection[];
   glbOverride?: ArrayBuffer | null;
   onStage?: LoadingStageReporter;
+  onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void;
 };
 
 export type LoaderPlugin = {

@@ -43,6 +43,7 @@ export type SceneContext = {
   sourceObject: Group | Mesh | null;
   previewObject: Group | Mesh | null;
   cleanupUrls: string[];
+  cleanupCallbacks: Array<() => void>;
   mixer: AnimationMixer | null;
   clips: AnimationClip[];
   activeAction: AnimationAction | null;
@@ -58,8 +59,20 @@ export type SceneContext = {
 export type LoadedPreview = {
   object: Group | Mesh;
   cleanupUrls: string[];
+  cleanupCallbacks?: Array<() => void>;
   clips: AnimationClip[];
   formatVersion: string | null;
+};
+
+export type DeferredTextureSnapshot = {
+  total: number;
+  loaded: number;
+  failed: number;
+  pending: number;
+  activeLabel: string | null;
+  bytes?: number;
+  readMs?: number;
+  parseMs?: number;
 };
 
 export type LoadingStageId =

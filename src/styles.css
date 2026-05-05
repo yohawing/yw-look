@@ -539,6 +539,15 @@ body.is-resizing-sidebar {
   );
 }
 
+.viewport-deferred-console {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 11;
+  width: min(360px, calc(100vw - 96px));
+  pointer-events: none;
+}
+
 .drop-overlay {
   inset: 0;
   display: grid;
