@@ -243,7 +243,6 @@ function decodeDdsAti2NormalMap(buffer: ArrayBuffer) {
 
 type FbxTextureWithAlphaTargets = Texture & {
   userData: Texture["userData"] & {
-    fbxAlphaMaterialTargets?: Material[];
     fbxAlphaMode?: "blend" | "cutout";
     fbxDdsTexture?: boolean;
     fbxHasAlpha?: boolean;
@@ -252,6 +251,8 @@ type FbxTextureWithAlphaTargets = Texture & {
     fbxTgaTexture?: boolean;
   };
 };
+
+const fbxAlphaMaterialTargets = new WeakMap<Texture, Set<Material>>();
 
 function isAlphaTextureName(value: string) {
   return /(^|[_\-.])(?:alpha|opacity|transparent|cutout|mask)([_\-.]|$)/i.test(
@@ -294,7 +295,7 @@ function markFbxTextureHasAlpha(
   targetTexture.userData.fbxHasAlpha = true;
   targetTexture.userData.fbxAlphaMode = mode;
 
-  for (const material of targetTexture.userData.fbxAlphaMaterialTargets ?? []) {
+  for (const material of fbxAlphaMaterialTargets.get(texture) ?? []) {
     enableFbxMaterialTransparency(material, mode);
   }
 }
@@ -331,11 +332,12 @@ function registerFbxTextureTransparency(object: Object3D) {
           continue;
         }
 
-        const targets = targetTexture.userData.fbxAlphaMaterialTargets ?? [];
-        if (!targets.includes(material)) {
-          targets.push(material);
+        let targets = fbxAlphaMaterialTargets.get(targetTexture);
+        if (!targets) {
+          targets = new Set<Material>();
+          fbxAlphaMaterialTargets.set(targetTexture, targets);
         }
-        targetTexture.userData.fbxAlphaMaterialTargets = targets;
+        targets.add(material);
       }
     }
   });
