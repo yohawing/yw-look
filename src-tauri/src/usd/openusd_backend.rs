@@ -682,6 +682,16 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         });
     }
 
+    let skipped_payload_sources: Vec<String> = if options.policy == StageLoadPolicy::NoPayloads {
+        stage
+            .skipped_payloads()
+            .iter()
+            .map(|payload| payload.prim_path.to_string())
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     // Pre-compute the Z-up → Y-up correction, if any. The viewer is
     // Y-up; Z-up USD scenes (Kitchen Set, most DCC exports from Maya
     // / Houdini) need rotating into viewer space. We bake the
@@ -766,10 +776,28 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         mesh_paths
     };
 
+    let mesh_candidates_are_deferred = !mesh_paths.is_empty()
+        && mesh_paths.iter().all(|path| {
+            let value = path.as_str();
+            skipped_payload_sources.iter().any(|source| {
+                let descendant_prefix = format!("{source}/");
+                value == source || value.starts_with(&descendant_prefix)
+            })
+        });
+    let can_export_empty_scene =
+        options.policy == StageLoadPolicy::NoPayloads && !skipped_payload_sources.is_empty();
+    let empty_scene_has_no_mesh_candidates = mesh_paths.is_empty() && can_export_empty_scene;
+
     if mesh_paths.is_empty() {
-        return Err(UsdError::Parse(
-            "no renderable Mesh prims found in stage".to_string(),
-        ));
+        if can_export_empty_scene {
+            eprintln!(
+                "[usd-rs] no renderable Mesh prims found in deferred-payload stage; exporting an empty GLB scene"
+            );
+        } else {
+            return Err(UsdError::Parse(
+                "no renderable Mesh prims found in stage".to_string(),
+            ));
+        }
     }
 
     // Phase 5a material resolution + Phase 5c texture embedding.
@@ -1055,9 +1083,17 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     }
 
     if inputs.is_empty() {
-        return Err(UsdError::Parse(
-            "stage has Mesh prims but none had usable points data".to_string(),
-        ));
+        if empty_scene_has_no_mesh_candidates
+            || (can_export_empty_scene && mesh_candidates_are_deferred)
+        {
+            eprintln!(
+                "[usd-rs] deferred-payload stage has no usable mesh points; exporting an empty GLB scene"
+            );
+        } else {
+            return Err(UsdError::Parse(
+                "stage has Mesh prims but none had usable points data".to_string(),
+            ));
+        }
     }
 
     // Phase 5c E: per skin, resolve the bound SkelAnimation and
@@ -7700,9 +7736,8 @@ def Xform "Root" (
     /// `extract_geometry_glb` is the GLB pipeline entry point. Under
     /// `LoadAll` Ball.usd produces a non-trivial GLB (its payload mesh
     /// is composed); under `NoPayloads` the payload target is skipped,
-    /// so there are no renderable Mesh prims and we expect a clean
-    /// parse error — the backend explicitly flags empty stages rather
-    /// than returning a zero-byte GLB.
+    /// so there are no renderable Mesh prims and we return a valid empty
+    /// GLB scene instead of surfacing a load error in the viewer.
     #[test]
     #[ignore = "needs samples/private (Pixar license)"]
     fn ball_usd_no_payloads_extract_geometry_is_empty() {
@@ -7723,16 +7758,10 @@ def Xform "Root" (
             loaded_glb.len()
         );
 
-        let err = backend
+        let deferred_glb = backend
             .extract_geometry_glb(&path, super::StageLoadPolicy::NoPayloads)
-            .expect_err("NoPayloads should have no meshes to extract");
-        let UsdError::Parse(msg) = err else {
-            panic!("expected Parse error, got {err:?}");
-        };
-        assert!(
-            msg.contains("no renderable Mesh"),
-            "unexpected error message: {msg}"
-        );
+            .expect("NoPayloads should return an empty GLB scene");
+        assert_eq!(&deferred_glb[0..4], b"glTF");
     }
 
     /// Helper: every output triangle must have strictly positive signed

@@ -104,9 +104,15 @@ export type MissingReferenceError = Error & {
   unresolvedImages: string[];
 };
 
+export type PreviewSupportState =
+  | "implemented"
+  | "missingOptionalLoader"
+  | "unsupported";
+
 export const implementedPreviewExtensions = new Set([
   "glb",
   "gltf",
+  "vrm",
   "fbx",
   "obj",
   "ply",
@@ -125,6 +131,73 @@ export const implementedPreviewExtensions = new Set([
   "exr",
   "ktx2",
 ]);
+
+export const optionalPreviewLoaders = {
+  vrm: {
+    formatLabel: "VRM",
+    loaderPackName: "VRM Loader Pack",
+  },
+  vrma: {
+    formatLabel: "VRMA",
+    loaderPackName: "VRM Loader Pack",
+  },
+  pmd: {
+    formatLabel: "PMD",
+    loaderPackName: "MMD Loader Pack",
+  },
+  pmx: {
+    formatLabel: "PMX",
+    loaderPackName: "MMD Loader Pack",
+  },
+  vmd: {
+    formatLabel: "VMD",
+    loaderPackName: "MMD Loader Pack",
+  },
+  abc: {
+    formatLabel: "Alembic",
+    loaderPackName: "Alembic Loader Pack",
+  },
+} as const satisfies Record<
+  string,
+  {
+    formatLabel: string;
+    loaderPackName: string;
+  }
+>;
+
+export function getPreviewSupportState(extension: string): PreviewSupportState {
+  if (implementedPreviewExtensions.has(extension)) {
+    return "implemented";
+  }
+
+  if (extension in optionalPreviewLoaders) {
+    return "missingOptionalLoader";
+  }
+
+  return "unsupported";
+}
+
+export function formatMissingOptionalLoaderMessage(extension: string) {
+  const optionalLoader =
+    optionalPreviewLoaders[extension as keyof typeof optionalPreviewLoaders];
+
+  if (!optionalLoader) {
+    return null;
+  }
+
+  return {
+    title: `${optionalLoader.loaderPackName} is not installed.`,
+    body: `Install ${optionalLoader.loaderPackName} to preview ${optionalLoader.formatLabel} files.`,
+  };
+}
+
+export function formatUnsupportedFormatMessage(extension: string) {
+  const normalizedExtension = extension ? `.${extension}` : "this extension";
+  return {
+    title: "This file format is not supported yet.",
+    body: `No preview loader is available for ${normalizedExtension}. Supported core formats include GLB, glTF, FBX, OBJ, USD, STL, PLY, DAE, PNG, JPG, TGA, DDS, HDR, EXR, and KTX2.`,
+  };
+}
 
 export const neutralFeedback: ViewerFeedback = {
   mode: "empty",

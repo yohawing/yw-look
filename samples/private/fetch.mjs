@@ -209,25 +209,30 @@ async function fetchArchive(model, targetPath) {
   await mkdir(extractDir, { recursive: true });
   await download(model.url, archivePath);
 
+  const extractAttempts =
+    process.platform === "win32"
+      ? [
+          ["tar", ["-xf", archivePath, "-C", extractDir]],
+          ["tar", ["-xf", archivePath, "-C", extractDir, "--force-local"]],
+        ]
+      : [
+          ["unzip", ["-o", "-q", archivePath, "-d", extractDir]],
+          ["tar", ["-xf", archivePath, "-C", extractDir]],
+        ];
+
   let extractError = null;
-  try {
-    await run("unzip", ["-o", "-q", archivePath, "-d", extractDir], repoRoot);
-  } catch (error) {
-    extractError = error;
+  for (const [command, args] of extractAttempts) {
     try {
-      const tarArgs = ["-xf", archivePath, "-C", extractDir];
-      if (process.platform === "win32") {
-        tarArgs.push("--force-local");
-      }
-      await run("tar", tarArgs, repoRoot);
+      await run(command, args, repoRoot);
       extractError = null;
+      break;
     } catch (tarError) {
       extractError = tarError;
     }
   }
   if (extractError) {
     throw new Error(
-      `${model.id} zip extraction failed (tried unzip then tar). Manual fallback: download ${model.url} and extract it so ${model.path} exists. Cause: ${
+      `${model.id} zip extraction failed. Manual fallback: download ${model.url} and extract it so ${model.path} exists. Cause: ${
         describeError(extractError)
       }`,
     );
@@ -302,12 +307,29 @@ async function fetchModel(model) {
 }
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const args = process.argv.slice(2);
+const caseIndex = args.indexOf("--case");
+if (
+  caseIndex !== -1 &&
+  (!args[caseIndex + 1] || args[caseIndex + 1].startsWith("--"))
+) {
+  throw new Error("--case requires a sample id");
+}
+const selectedCaseId = caseIndex === -1 ? null : args[caseIndex + 1];
+const models = selectedCaseId
+  ? manifest.models.filter((model) => model.id === selectedCaseId)
+  : manifest.models;
+
+if (selectedCaseId && models.length === 0) {
+  throw new Error(`unknown sample case: ${selectedCaseId}`);
+}
+
 await mkdir(tmpRoot, { recursive: true });
 
 const failures = [];
 
 try {
-  for (const model of manifest.models) {
+  for (const model of models) {
     try {
       await fetchModel(model);
     } catch (error) {
@@ -327,5 +349,5 @@ if (failures.length > 0) {
   }
   process.exitCode = 1;
 } else {
-  console.log(`[samples] completed ${manifest.models.length} model(s)`);
+  console.log(`[samples] completed ${models.length} model(s)`);
 }

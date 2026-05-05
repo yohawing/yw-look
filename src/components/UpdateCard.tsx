@@ -45,6 +45,25 @@ export function UpdateCard({
   });
 
   const hasUpdate = Boolean(updateCheck?.update);
+  const updateState = updateError
+    ? "failed"
+    : isInstallingUpdate
+      ? "installing"
+      : isCheckingForUpdate
+        ? "checking"
+        : updateCheck?.update
+          ? "available"
+          : updateCheck
+            ? "up-to-date"
+            : "idle";
+  const updateStateText = {
+    failed: "Update check failed",
+    installing: "Installing update",
+    checking: "Checking for updates",
+    available: "Update available",
+    "up-to-date": "Up to date",
+    idle: "Ready to check",
+  }[updateState];
   const configRows: SidebarKeyValueRow[] = updateConfiguration
     ? [
         {
@@ -84,6 +103,13 @@ export function UpdateCard({
   const updateRows: SidebarKeyValueRow[] = updateCheck?.update
     ? [
         {
+          id: "current",
+          label: "Current",
+          value: updateCheck.update.currentVersion,
+          mono: true,
+          tone: "muted",
+        },
+        {
           id: "available",
           label: "Available",
           value: updateCheck.update.version,
@@ -108,11 +134,37 @@ export function UpdateCard({
           : []),
       ]
     : [];
+  const statusRows: SidebarKeyValueRow[] = [
+    {
+      id: "state",
+      label: "State",
+      value: updateStateText,
+      tone:
+        updateState === "available"
+          ? "warn"
+          : updateState === "failed"
+            ? "danger"
+            : updateState === "up-to-date"
+              ? "ok"
+              : "muted",
+    },
+    ...(updateCheck?.update
+      ? [
+          {
+            id: "version-path",
+            label: "Version",
+            value: `${updateCheck.update.currentVersion} -> ${updateCheck.update.version}`,
+            mono: true,
+          } satisfies SidebarKeyValueRow,
+        ]
+      : []),
+  ];
 
   return (
     <>
       <SidebarSection title="App Updates">
         {updateError ? <SidebarError>{updateError}</SidebarError> : null}
+        <SidebarKeyValueRows rows={statusRows} />
         {updateConfiguration ? (
           <SidebarKeyValueRows rows={configRows} />
         ) : (
@@ -194,11 +246,24 @@ export function UpdateCard({
       </SidebarSection>
 
       {updateCheck?.update ? (
-        <SidebarSection title="Available update">
+        <SidebarSection
+          title="Available update"
+          count={updateCheck.update.version}
+        >
           <SidebarKeyValueRows rows={updateRows} />
           {updateCheck.update.notes ? (
             <pre className="log-preview">{updateCheck.update.notes}</pre>
           ) : null}
+          <div className="card-actions">
+            <button
+              className="btn-primary"
+              disabled={isInstallingUpdate}
+              onClick={onInstallUpdate}
+              type="button"
+            >
+              {isInstallingUpdate ? "Installing..." : "Install Update"}
+            </button>
+          </div>
         </SidebarSection>
       ) : updateCheck ? (
         <SidebarSection title="Available update">

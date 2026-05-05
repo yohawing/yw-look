@@ -207,7 +207,7 @@
 - [x] Rust 側に移行する処理の優先度を整理する（USD inspection / geometry / composition を優先し、`docs/usd.md` に集約）
 - [x] 最初の移行対象を決めて Tauri コマンドとして実装する（USD inspection / geometry extraction / payload session）
 - [x] JS 側と Rust 側の責務分離方針をドキュメント化する（`docs/usd.md` / `docs/usd-cpp.md`）
-- [ ] USD 以外の重処理（EXR / DDS / 汎用メタデータ抽出など）を Rust 側へ移すか再評価する
+- [x] USD 以外の重処理（EXR / DDS / 汎用メタデータ抽出など）を Rust 側へ移すか再評価する → #81（`docs/non-usd-rust-backend-evaluation.md` に決定記録を追加）
 
 ### USD インスペクション（Rust バックエンド）
 
@@ -417,7 +417,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] UI コンポーネントの回帰テストを書く（Hierarchy / Material / SceneLightsCameras / UsdSource）
 - [ ] Rust / Tauri 側の設定読み書きテストを書く（`load_settings` / `save_settings`）
 - [ ] Rust / Tauri 側の最近開いたファイル管理テストを書く（`load_recent_files` / cleanup / limit / sync）
-- [ ] 実 loader 選択と `loadPreviewObject` の統合テストを書く（現状は helper と selftest に分かれている）
+- [x] 実 loader 選択と `loadPreviewObject` の統合テストを書く（`tests/fixtures/catalog.json` + `npm run test:fixtures` で public fixture を real shot/check 経路に通す）
 
 ### ビジュアルリグレッションテスト
 

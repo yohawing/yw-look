@@ -45,7 +45,9 @@ import {
   type TextureViewMode,
   type ViewerFeedback,
   type ViewerSurfaceMode,
-  implementedPreviewExtensions,
+  formatMissingOptionalLoaderMessage,
+  formatUnsupportedFormatMessage,
+  getPreviewSupportState,
   neutralFeedback,
   DEFAULT_SCENE_DIMENSION,
   revokeUrls,
@@ -109,6 +111,31 @@ const backgroundPresetColors: Record<BackgroundPreset, string> = {
   charcoal: "#0f1011",
   light: "#d9dee7",
 };
+
+type RuntimePreviewUpdater = {
+  update: (deltaSeconds: number) => void;
+};
+
+function isRuntimePreviewUpdater(
+  value: unknown,
+): value is RuntimePreviewUpdater {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "update" in value &&
+    typeof value.update === "function"
+  );
+}
+
+function updateRuntimePreview(
+  context: SceneContext | null,
+  deltaSeconds: number,
+) {
+  const updater = context?.sourceObject?.userData.vrm;
+  if (isRuntimePreviewUpdater(updater)) {
+    updater.update(deltaSeconds);
+  }
+}
 
 function applyViewportBackground(
   renderer: WebGLRenderer,
@@ -342,6 +369,7 @@ type AssetViewportProps = {
   displayMode: DisplayMode;
   backgroundPreset: BackgroundPreset;
   onFeedbackChange: (feedback: ViewerFeedback) => void;
+  onOpenFile?: () => void;
   onUsdError?: (error: unknown) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
   selectedTextureId: string | null;
@@ -612,6 +640,7 @@ export function AssetViewport({
   displayMode,
   backgroundPreset,
   onFeedbackChange,
+  onOpenFile,
   onUsdError,
   onMetadataChange,
   selectedTextureId,
@@ -733,14 +762,19 @@ export function AssetViewport({
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
   const shouldInitializeScene = currentFile !== null;
+  const previewSupportState = currentFile
+    ? getPreviewSupportState(currentFile.extension)
+    : "implemented";
   const effectiveOverlayMode =
     currentFile === null
       ? "empty"
-      : !implementedPreviewExtensions.has(currentFile.extension)
-        ? "unsupported"
-        : activePreviewPath === currentFile.path
-          ? overlayMode
-          : "loading";
+      : previewSupportState === "missingOptionalLoader"
+        ? "missingOptionalLoader"
+        : previewSupportState === "unsupported"
+          ? "unsupported"
+          : activePreviewPath === currentFile.path
+            ? overlayMode
+            : "loading";
 
   useEffect(() => {
     displayModeRef.current = displayMode;
@@ -1450,8 +1484,15 @@ export function AssetViewport({
     let statsLastFps = 0;
 
     let animationFrame = 0;
+    let previousRenderTimestamp = performance.now();
     const renderLoop = () => {
       animationFrame = window.requestAnimationFrame(renderLoop);
+      const frameNow = performance.now();
+      const deltaSeconds = Math.min(
+        0.1,
+        (frameNow - previousRenderTimestamp) / 1000,
+      );
+      previousRenderTimestamp = frameNow;
 
       // Fly mode integrates WASD/QE input each frame. We skip the
       // OrbitControls update entirely while flying because
@@ -1462,9 +1503,8 @@ export function AssetViewport({
       // re-sync `controls.target` to the new viewpoint so the next
       // orbit interaction pivots around what the user just framed.
       if (flyState.active) {
-        const now = performance.now();
-        const dt = Math.min(0.1, (now - flyState.lastFrameTime) / 1000);
-        flyState.lastFrameTime = now;
+        const dt = Math.min(0.1, (frameNow - flyState.lastFrameTime) / 1000);
+        flyState.lastFrameTime = frameNow;
         const input = flyState.input;
         if (dt > 0 && (input.x !== 0 || input.y !== 0 || input.z !== 0)) {
           // Build forward / right vectors from the current Euler.
@@ -1482,6 +1522,11 @@ export function AssetViewport({
       } else {
         controls.update();
       }
+
+      if (viewerSurfaceModeRef.current === "asset") {
+        updateRuntimePreview(sceneContextRef.current, deltaSeconds);
+      }
+
       // #34: use the active USD camera if one is selected; fall back to the
       // free-orbit camera otherwise.
       const renderCamera = activeCameraRef.current ?? camera;
@@ -1494,12 +1539,11 @@ export function AssetViewport({
       }
 
       statsFrameCount += 1;
-      const now = performance.now();
-      const elapsed = now - statsLastSampled;
+      const elapsed = frameNow - statsLastSampled;
       if (elapsed >= 250) {
         statsLastFps = (statsFrameCount * 1000) / elapsed;
         statsFrameCount = 0;
-        statsLastSampled = now;
+        statsLastSampled = frameNow;
         const statsNode = statsRef.current;
         if (statsNode) {
           const info = renderer.info;
@@ -1838,11 +1882,19 @@ export function AssetViewport({
       viewerSurfaceModeRef.current,
     );
 
-    if (!implementedPreviewExtensions.has(currentFile.extension)) {
+    const supportState = getPreviewSupportState(currentFile.extension);
+    if (supportState !== "implemented") {
+      const message =
+        supportState === "missingOptionalLoader"
+          ? formatMissingOptionalLoaderMessage(currentFile.extension)
+          : formatUnsupportedFormatMessage(currentFile.extension);
       onMetadataChange(emptyAssetMetadata);
       onFeedbackChange({
-        mode: "unsupported",
-        message: `Preview is not implemented yet for .${currentFile.extension}.`,
+        mode: supportState,
+        message:
+          message !== null
+            ? `${message.title} ${message.body}`
+            : `Preview is not implemented yet for .${currentFile.extension}.`,
         warning: null,
         canResetCamera: false,
       });
@@ -2619,9 +2671,11 @@ export function AssetViewport({
           className={`viewport-overlay${effectiveOverlayMode === "empty" ? " is-empty" : ""}`}
         >
           <ViewerStatePanel
+            fileExtension={currentFile?.extension}
             fileName={currentFile?.fileName}
             loadingStage={loadingStage}
             mode={effectiveOverlayMode}
+            onOpenFile={onOpenFile}
           />
         </div>
       ) : null}

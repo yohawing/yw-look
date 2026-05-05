@@ -1,34 +1,43 @@
 import { LoadingScreen } from "./LoadingScreen";
-import type { LoadingStageSnapshot } from "../viewer";
+import {
+  formatMissingOptionalLoaderMessage,
+  formatUnsupportedFormatMessage,
+  optionalPreviewLoaders,
+  type LoadingStageSnapshot,
+} from "../viewer";
 
 export type ViewerMode =
   | "empty"
   | "loading"
   | "ready"
   | "unsupported"
+  | "missingOptionalLoader"
   | "loadFailed"
   | "missingReference";
 
 type ViewerStatePanelProps = {
   mode: ViewerMode;
   fileName?: string | null;
+  fileExtension?: string | null;
   loadingStage?: LoadingStageSnapshot | null;
+  onOpenFile?: () => void;
 };
 
-const supportedFormats = [
+const coreFormats = [
   "glb",
   "gltf",
   "fbx",
   "obj",
   "usd",
   "usdz",
-  "vrm",
   "png",
   "jpg",
   "exr",
   "hdr",
   "ktx2",
 ];
+
+const optionalFormats = Object.keys(optionalPreviewLoaders);
 
 const stateContent: Record<
   ViewerMode,
@@ -68,8 +77,18 @@ const stateContent: Record<
     body: "The app should clearly show that the file was opened, but the current build does not have a compatible reader for this extension.",
     tone: "warning",
     details: [
-      "Show the file extension and path in the final implementation.",
-      "Offer retry after future loader support lands.",
+      "Core loader support is built into this app.",
+      "Optional formats are listed separately when they require a loader pack.",
+    ],
+  },
+  missingOptionalLoader: {
+    label: "Optional Loader Missing",
+    title: "A loader pack is required for this file.",
+    body: "The file extension is recognized, but this installation does not include the optional loader needed to preview it.",
+    tone: "warning",
+    details: [
+      "Install the matching loader pack when it becomes available.",
+      "Technical details are recorded in Diagnostics.",
     ],
   },
   loadFailed: {
@@ -96,11 +115,25 @@ const stateContent: Record<
 };
 
 export function ViewerStatePanel({
+  fileExtension,
   fileName,
   loadingStage,
   mode,
+  onOpenFile,
 }: ViewerStatePanelProps) {
-  const content = stateContent[mode];
+  const baseContent = stateContent[mode];
+  const unsupportedMessage =
+    mode === "unsupported" && fileExtension
+      ? formatUnsupportedFormatMessage(fileExtension)
+      : null;
+  const optionalLoaderMessage =
+    mode === "missingOptionalLoader" && fileExtension
+      ? formatMissingOptionalLoaderMessage(fileExtension)
+      : null;
+  const content = {
+    ...baseContent,
+    ...(unsupportedMessage ?? optionalLoaderMessage ?? {}),
+  };
 
   if (mode === "loading") {
     return <LoadingScreen fileName={fileName} stage={loadingStage} />;
@@ -140,16 +173,42 @@ export function ViewerStatePanel({
           </svg>
         </div>
         <div className="viewer-empty-copy">
-          <h2>Drop a file to inspect</h2>
-          <p>
-            Drag & drop here, or use <span>File / Open</span>.
-          </p>
+          <h2>Inspect a model or texture</h2>
+          <p>Open a file or drop one here to preview the asset.</p>
         </div>
-        <div className="viewer-empty-formats" aria-label="Supported formats">
-          {supportedFormats.map((format) => (
-            <span key={format}>{format}</span>
-          ))}
+        <div className="viewer-empty-actions">
+          <button onClick={onOpenFile} type="button">
+            Open File
+          </button>
+          <span>Drag & Drop</span>
         </div>
+        <div className="viewer-empty-format-groups">
+          <div>
+            <p>Core</p>
+            <div
+              className="viewer-empty-formats"
+              aria-label="Supported formats"
+            >
+              {coreFormats.map((format) => (
+                <span key={format}>{format}</span>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p>Optional packs</p>
+            <div
+              className="viewer-empty-formats viewer-empty-formats-optional"
+              aria-label="Optional formats"
+            >
+              {optionalFormats.map((format) => (
+                <span key={format}>{format}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <p className="viewer-empty-hint">
+          Use Left / Right after opening a file to browse nearby assets.
+        </p>
       </div>
     );
   }

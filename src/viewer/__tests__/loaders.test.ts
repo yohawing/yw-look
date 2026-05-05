@@ -10,11 +10,17 @@
 import { describe, it, expect } from "vitest";
 import {
   getMimeType,
+  listRegisteredLoaders,
   resolveSiblingPath,
   isUsdcCrateBuffer,
   readUsdzFirstFileName,
   shouldFailClosedOnUsdPreviewDecisionFailure,
 } from "../loaders";
+import {
+  formatMissingOptionalLoaderMessage,
+  formatUnsupportedFormatMessage,
+  getPreviewSupportState,
+} from "../types";
 
 // ---------------------------------------------------------------------------
 // getMimeType
@@ -63,6 +69,61 @@ describe("getMimeType", () => {
 
   it("returns image/ktx2 for ktx2", () => {
     expect(getMimeType("ktx2")).toBe("image/ktx2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// preview support classification
+// ---------------------------------------------------------------------------
+
+describe("preview support classification", () => {
+  it("registers existing core preview formats through the loader registry", () => {
+    const extensions = new Set(
+      listRegisteredLoaders().map((loader) => loader.extension),
+    );
+
+    expect(extensions.has("glb")).toBe(true);
+    expect(extensions.has("gltf")).toBe(true);
+    expect(extensions.has("vrm")).toBe(true);
+    expect(extensions.has("obj")).toBe(true);
+    expect(extensions.has("usdz")).toBe(true);
+    expect(extensions.has("ktx2")).toBe(true);
+  });
+
+  it("classifies implemented core loaders separately from optional packs", () => {
+    expect(getPreviewSupportState("glb")).toBe("implemented");
+    expect(getPreviewSupportState("vrm")).toBe("implemented");
+    expect(getPreviewSupportState("vrma")).toBe("missingOptionalLoader");
+    expect(getPreviewSupportState("pmx")).toBe("missingOptionalLoader");
+    expect(getPreviewSupportState("abc")).toBe("missingOptionalLoader");
+  });
+
+  it("marks the bundled VRM loader pack as optional but installed", () => {
+    expect(
+      listRegisteredLoaders().find((loader) => loader.extension === "vrm"),
+    ).toMatchObject({
+      id: "vrm-loader-pack",
+      name: "VRM Loader Pack",
+      optional: true,
+      installed: true,
+    });
+  });
+
+  it("keeps unknown extensions in the generic unsupported bucket", () => {
+    expect(getPreviewSupportState("assetbundle")).toBe("unsupported");
+  });
+
+  it("formats missing optional loader copy without exposing technical details", () => {
+    expect(formatMissingOptionalLoaderMessage("vrm")).toEqual({
+      title: "VRM Loader Pack is not installed.",
+      body: "Install VRM Loader Pack to preview VRM files.",
+    });
+  });
+
+  it("formats unsupported extension copy with the attempted extension", () => {
+    expect(formatUnsupportedFormatMessage("assetbundle").body).toContain(
+      ".assetbundle",
+    );
   });
 });
 

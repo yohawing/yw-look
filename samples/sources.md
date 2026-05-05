@@ -7,6 +7,35 @@
 - `fbx`, `obj`, `ply`, `stl`, `tga`, `dds`, `ktx2`, `hdr`, `exr`
   Source: `three.js` example assets
 
+## Private glTF benchmark samples
+
+These are downloaded by `npm run samples:fetch` into `samples/private/gltf/`.
+They are intentionally not committed.
+
+- `samples/private/gltf/Sponza/glTF/Sponza.gltf`
+  Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Sponza/glTF
+- `samples/private/gltf/FlightHelmet/glTF/FlightHelmet.gltf`
+  Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/FlightHelmet/glTF
+- `samples/private/gltf/DamagedHelmet.glb`
+  Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/DamagedHelmet/glTF-Binary
+- `samples/private/gltf/ABeautifulGame.glb`
+  Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/ABeautifulGame/glTF-Binary
+- `samples/private/gltf/BoomBox.glb`
+  Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/BoomBox/glTF-Binary
+- `samples/private/gltf/ToyCar.glb`
+  Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/ToyCar/glTF-Binary
+
+## Private FBX benchmark samples
+
+These are manually placed under `samples/private/fbx/` and are intentionally
+not committed.
+
+- `samples/private/fbx/Bistro_v5_2/BistroExterior.fbx`
+- `samples/private/fbx/Bistro_v5_2/BistroInterior.fbx`
+- `samples/private/fbx/Bistro_v5_2/BistroInterior_Wine.fbx`
+  Source: Amazon Lumberyard Bistro, Open Research Content Archive (ORCA)
+  License: CC-BY 4.0
+
 ## Locally generated tiny samples
 
 - `samples/assets/obj/TinyTriangle.obj`

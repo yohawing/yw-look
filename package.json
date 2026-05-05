@@ -19,6 +19,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:batch": "node scripts/batch-load-test.mjs",
+    "test:fixtures": "node scripts/fixture-regression.mjs",
     "test:integration": "node scripts/run-selftest.mjs",
     "test:visual": "node scripts/visual-regression.mjs",
     "test:viewport-snapshot": "node scripts/viewport-snapshot.mjs",
@@ -35,6 +36,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@pixiv/three-vrm": "^3.5.2",
     "@tauri-apps/api": "^2.8.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

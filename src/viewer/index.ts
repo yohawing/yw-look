@@ -12,6 +12,12 @@ export type {
 } from "./types";
 
 export { implementedPreviewExtensions, neutralFeedback } from "./types";
+export {
+  optionalPreviewLoaders,
+  getPreviewSupportState,
+  formatMissingOptionalLoaderMessage,
+  formatUnsupportedFormatMessage,
+} from "./types";
 
 export {
   DEFAULT_SCENE_DIMENSION,
@@ -50,7 +56,13 @@ export type {
   TextureFilterMode,
 } from "./scene";
 
-export { loadPreviewObject, tryExtractUsdaText } from "./loaders";
+export {
+  loadPreviewObject,
+  tryExtractUsdaText,
+  loaderRegistry,
+  listRegisteredLoaders,
+} from "./loaders";
+export type { LoaderContext, LoaderPlugin } from "./loaderRegistry";
 
 export {
   captureRendererScreenshot,

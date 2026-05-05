@@ -274,7 +274,9 @@ const DEFAULT_EXPOSURE = 1.1;
 export function App() {
   const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("properties");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => window.innerWidth >= 720,
+  );
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
@@ -499,6 +501,8 @@ export function App() {
         return "preview ready";
       case "unsupported":
         return "unsupported format";
+      case "missingOptionalLoader":
+        return "optional loader missing";
       case "loadFailed":
         return "preview failed";
       case "missingReference":
@@ -687,9 +691,7 @@ export function App() {
       .catch((error: unknown) => {
         if (cancelled) return;
         setUsdInspectorError(
-          error instanceof Error
-            ? error.message
-            : "Failed to summarize USD stage.",
+          errorMessage(error, "Failed to summarize USD stage."),
         );
       });
 
@@ -703,10 +705,7 @@ export function App() {
         // Keep any earlier summarize error; otherwise record this one.
         setUsdInspectorError(
           (previous) =>
-            previous ??
-            (error instanceof Error
-              ? error.message
-              : "Failed to inspect USD stage."),
+            previous ?? errorMessage(error, "Failed to inspect USD stage."),
         );
       });
 
@@ -720,9 +719,7 @@ export function App() {
         setUsdInspectorError(
           (previous) =>
             previous ??
-            (error instanceof Error
-              ? error.message
-              : "Failed to collect USD asset issues."),
+            errorMessage(error, "Failed to collect USD asset issues."),
         );
       });
 
@@ -1201,7 +1198,8 @@ export function App() {
 
     const level =
       viewerFeedback.mode === "missingReference" ||
-      viewerFeedback.mode === "unsupported"
+      viewerFeedback.mode === "unsupported" ||
+      viewerFeedback.mode === "missingOptionalLoader"
         ? "warn"
         : "error";
 
@@ -2158,6 +2156,12 @@ export function App() {
     setActiveTab("warnings");
   }, []);
 
+  const openUpdatePanel = useCallback(() => {
+    setSidebarOpen(true);
+    setActiveTab("settings");
+    void refreshUpdateConfiguration();
+  }, []);
+
   const statusLeftItems = useMemo(() => {
     const items = buildStatusLeftItems({
       assetMetadata: sidebarAssetMetadata,
@@ -2197,14 +2201,28 @@ export function App() {
     viewerStatusLabel,
   ]);
 
-  const statusRightItems = useMemo(
-    () =>
-      buildStatusRightItems({
-        currentFileSummary,
-        performanceSnapshot,
-      }),
-    [currentFileSummary, performanceSnapshot],
-  );
+  const statusRightItems = useMemo(() => {
+    const items = buildStatusRightItems({
+      currentFileSummary,
+      performanceSnapshot,
+    });
+
+    if (updateCheck?.update) {
+      items.unshift({
+        id: "update-available",
+        content: `Update: ${updateCheck.update.version}`,
+        onClick: openUpdatePanel,
+        tone: "warning",
+      });
+    }
+
+    return items;
+  }, [
+    currentFileSummary,
+    openUpdatePanel,
+    performanceSnapshot,
+    updateCheck?.update,
+  ]);
 
   const handleSidebarResizeStart = (
     event: React.PointerEvent<HTMLDivElement>,
@@ -2254,6 +2272,7 @@ export function App() {
             displayMode={displayMode}
             backgroundPreset={backgroundPreset}
             onFeedbackChange={setViewerFeedback}
+            onOpenFile={() => void handleOpenFile()}
             onMetadataChange={setAssetMetadata}
             selectedTextureId={selectedTextureId}
             viewerSurfaceMode={viewerSurfaceMode}

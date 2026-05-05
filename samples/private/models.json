@@ -156,6 +156,78 @@
       }
     },
     {
+      "id": "bistro-exterior",
+      "name": "Amazon Lumberyard Bistro Exterior",
+      "kind": "manual",
+      "sha256": "471991629c7e35a88338c48f3565390ad19cc5d1d7c7e067fc2a60b4f3b5f195",
+      "sizeBytes": 119845216,
+      "license": "CC-BY 4.0",
+      "tags": ["fbx", "scene", "heavy", "orca", "bistro"],
+      "ext": "fbx",
+      "path": "samples/private/fbx/Bistro_v5_2/BistroExterior.fbx",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 10
+      },
+      "bench": {
+        "runs": 30,
+        "timeoutMs": 300000,
+        "settleFrames": 12,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
+      "id": "bistro-interior",
+      "name": "Amazon Lumberyard Bistro Interior",
+      "kind": "manual",
+      "sha256": "f18aea42854112e59752f14596e557c3d011e3526caf6a1bd55ce0e51881c11e",
+      "sizeBytes": 41822352,
+      "license": "CC-BY 4.0",
+      "tags": ["fbx", "scene", "heavy", "orca", "bistro"],
+      "ext": "fbx",
+      "path": "samples/private/fbx/Bistro_v5_2/BistroInterior.fbx",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 10
+      },
+      "bench": {
+        "runs": 30,
+        "timeoutMs": 300000,
+        "settleFrames": 12,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
+      "id": "bistro-interior-wine",
+      "name": "Amazon Lumberyard Bistro Interior Wine",
+      "kind": "manual",
+      "sha256": "e5f4549548b0ec05c1f534551dcc7053d5286e0b48c9798c985ac1a7fa87cb1c",
+      "sizeBytes": 48742272,
+      "license": "CC-BY 4.0",
+      "tags": ["fbx", "scene", "heavy", "orca", "bistro"],
+      "ext": "fbx",
+      "path": "samples/private/fbx/Bistro_v5_2/BistroInterior_Wine.fbx",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 10
+      },
+      "bench": {
+        "runs": 30,
+        "timeoutMs": 300000,
+        "settleFrames": 12,
+        "screenshot": true,
+        "noAnimation": true,
+        "timeSeek": null
+      }
+    },
+    {
       "id": "pixar-kitchen-set",
       "name": "Pixar Kitchen Set",
       "kind": "zip",

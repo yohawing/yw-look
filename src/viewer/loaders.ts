@@ -13,6 +13,7 @@ import {
 import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { isTauriEnvironment } from "../lib/platform";
 import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
+import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
   LoadedPreview,
@@ -479,7 +480,7 @@ export {
   shouldFailClosedOnUsdPreviewDecisionFailure,
 };
 
-export async function loadPreviewObject(
+async function loadPreviewObjectCore(
   file: SelectedFile,
   renderer?: import("three").WebGLRenderer,
   options: {
@@ -531,8 +532,7 @@ export async function loadPreviewObject(
     }
     case "fbx": {
       reportStage("decode");
-      const { FBXLoader } =
-        await import("three/examples/jsm/loaders/FBXLoader.js");
+      const { FBXLoader } = await import("../vendor/FBXLoaderPatched.js");
       const buffer = await readArrayBuffer(file.path);
       reportStage("scene");
       const object = new FBXLoader().parse(buffer, "");
@@ -1022,4 +1022,117 @@ export async function loadPreviewObject(
         `Preview loader is not implemented for .${file.extension}`,
       );
   }
+}
+
+async function loadVrmPreviewObject(
+  file: SelectedFile,
+  context: LoaderContext,
+): Promise<LoadedPreview> {
+  const reportStage = context.onStage ?? (() => undefined);
+  reportStage("scan");
+
+  try {
+    const [{ GLTFLoader }, { VRMLoaderPlugin, VRMUtils }] = await Promise.all([
+      import("three/examples/jsm/loaders/GLTFLoader.js"),
+      import("@pixiv/three-vrm"),
+    ]);
+
+    const loader = new GLTFLoader();
+    loader.register((parser) => new VRMLoaderPlugin(parser));
+
+    reportStage("decode");
+    const buffer = await readArrayBuffer(file.path);
+    reportStage("gpu");
+    const gltf = await loader.parseAsync(buffer, "");
+    const vrm = gltf.userData.vrm as import("@pixiv/three-vrm").VRM | undefined;
+
+    if (!vrm) {
+      throw new Error(
+        "The file loaded as glTF, but no VRM extension data was found.",
+      );
+    }
+
+    reportStage("scene");
+    VRMUtils.rotateVRM0(vrm);
+
+    const modelName = "name" in vrm.meta ? vrm.meta.name : vrm.meta.title;
+    vrm.scene.name = modelName || file.fileName;
+    vrm.scene.userData.vrm = vrm;
+
+    return {
+      object: vrm.scene,
+      cleanupUrls: [],
+      clips: gltf.animations,
+      formatVersion: `VRM ${vrm.meta.metaVersion ?? "unknown"}`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to load VRM preview: ${message}`, { cause: error });
+  }
+}
+
+const coreLoaderExtensions = [
+  "glb",
+  "gltf",
+  "fbx",
+  "obj",
+  "ply",
+  "stl",
+  "dae",
+  "usd",
+  "usda",
+  "usdc",
+  "usdz",
+  "png",
+  "jpg",
+  "jpeg",
+  "tga",
+  "dds",
+  "hdr",
+  "exr",
+  "ktx2",
+] as const;
+
+export const loaderRegistry = new LoaderRegistry();
+
+loaderRegistry.register({
+  id: "core-preview-loader",
+  name: "Core Preview Loader",
+  extensions: coreLoaderExtensions,
+  loadPreviewObject: (file, context) =>
+    loadPreviewObjectCore(file, context.renderer, {
+      usdLoadPolicy: context.usdLoadPolicy,
+      variantSelections: context.variantSelections,
+      glbOverride: context.glbOverride,
+      onStage: context.onStage,
+    }),
+});
+
+loaderRegistry.register({
+  id: "vrm-loader-pack",
+  name: "VRM Loader Pack",
+  extensions: ["vrm"],
+  optional: true,
+  installed: true,
+  loadPreviewObject: loadVrmPreviewObject,
+});
+
+export function listRegisteredLoaders() {
+  return loaderRegistry.list();
+}
+
+export async function loadPreviewObject(
+  file: SelectedFile,
+  renderer?: import("three").WebGLRenderer,
+  options: LoaderContext = {},
+): Promise<LoadedPreview> {
+  const loader = loaderRegistry.getByExtension(file.extension);
+  if (!loader || loader.installed === false) {
+    throw new Error(`Preview loader is not installed for .${file.extension}`);
+  }
+
+  return loader.loadPreviewObject(file, {
+    ...options,
+    renderer,
+  });
 }

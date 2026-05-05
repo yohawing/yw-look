@@ -813,6 +813,16 @@ fn extract_from_stage_with_options(
     // step to avoid silently reverting to authored variants on every
     // payload load/unload.
     apply_and_validate_variant_selections(stage, &options.variant_selections)?;
+    let skipped_payload_sources: Vec<String> = if options.policy == StageLoadPolicy::NoPayloads {
+        stage
+            .skipped_payloads()
+            .map_err(map_c_error)?
+            .into_iter()
+            .map(|payload| payload.source_prim)
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     // Z-up → Y-up baked into every mesh's world matrix so the GLB
     // is self-describing on the viewer side. Matches the Rust
@@ -918,10 +928,27 @@ fn extract_from_stage_with_options(
         false
     };
 
+    let mesh_candidates_are_deferred = !mesh_paths.is_empty()
+        && mesh_paths.iter().all(|value| {
+            skipped_payload_sources.iter().any(|source| {
+                let descendant_prefix = format!("{source}/");
+                value == source || value.starts_with(&descendant_prefix)
+            })
+        });
+    let can_export_empty_scene =
+        options.policy == StageLoadPolicy::NoPayloads && !skipped_payload_sources.is_empty();
+    let empty_scene_has_no_mesh_candidates = mesh_paths.is_empty() && can_export_empty_scene;
+
     if mesh_paths.is_empty() && !has_point_instancers {
-        return Err(UsdError::Parse(
-            "no renderable Mesh prims found in stage".to_string(),
-        ));
+        if can_export_empty_scene {
+            eprintln!(
+                "[usd-cpp] no renderable Mesh prims found in deferred-payload stage; exporting an empty GLB scene"
+            );
+        } else {
+            return Err(UsdError::Parse(
+                "no renderable Mesh prims found in stage".to_string(),
+            ));
+        }
     }
 
     // Slot 0 is the yw-look default preview material, matching the
@@ -1620,11 +1647,21 @@ fn extract_from_stage_with_options(
         }
     }
 
-    // After the PointInstancer pass, check if we have any mesh at all.
+    // After the PointInstancer pass, allow a valid empty GLB scene. This
+    // happens when the user defers payloads and all renderable geometry lives
+    // behind those payloads.
     if inputs.is_empty() {
-        return Err(UsdError::Parse(
-            "all renderable meshes failed to build".to_string(),
-        ));
+        if empty_scene_has_no_mesh_candidates
+            || (can_export_empty_scene && mesh_candidates_are_deferred)
+        {
+            eprintln!(
+                "[usd-cpp] deferred-payload stage has no usable mesh points; exporting an empty GLB scene"
+            );
+        } else {
+            return Err(UsdError::Parse(
+                "all renderable meshes failed to build".to_string(),
+            ));
+        }
     }
     let _ = regular_mesh_count; // used above for documentation, suppress unused warning
 

@@ -10,6 +10,7 @@ tests/fixtures/
 ├── models/          # 3D モデルフォーマット (1 三角形)
 ├── textures/        # テクスチャフォーマット (1×1 pixel)
 ├── broken/          # 壊れた / 切り詰めたファイル (エラーハンドリングテスト用)
+├── catalog.json     # fixture regression runner の公開カタログ
 ├── _generate.mjs    # PNG / JPG を生成する Node スクリプト
 └── README.md        # このファイル
 ```
@@ -68,6 +69,33 @@ node tests/fixtures/_generate.mjs
 ```
 
 PNG / JPG のみ再生成される。モデルファイルは手書きのため再生成不要。
+
+---
+
+## Fixture regression
+
+`tests/fixtures/catalog.json` は、公開 repo に載せられる小型 fixture を
+実 loader に通すための構造化カタログである。
+
+```sh
+npm run test:fixtures -- --list
+npm run test:fixtures -- --case model-obj-triangle
+npm run test:fixtures
+```
+
+`npm run test:fixtures` は `scripts/fixture-regression.mjs` から
+`scripts/run-shot.mjs check` を呼び、実際の viewer loader / Tauri backend
+経路でロード可否を確認する。結果は次に出力する。
+
+- `artifacts/logs/fixture-regression-report.json`
+- `artifacts/logs/fixture-regression-report.md`
+
+巨大・非公開・ライセンス上 commit できない fixture は `samples/private/`
+と `samples/private/models.json` に残し、public catalog には追加しない。
+
+`knownFailure` を持つケースは、現時点で再現済みだがまだ修正していない
+edge case である。runner は XFAIL として report に残し、通常 fixture が
+壊れた場合とは分けて扱う。
 
 ---
 
