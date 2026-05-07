@@ -2113,9 +2113,9 @@ pub fn run() {
             app.manage(shot_cli_config.clone());
 
             let entry_url: Option<&str> = if bench_cli_config.is_some() {
-                Some("http://localhost:1420/bench.html")
+                Some("http://localhost:1420/?entry=bench")
             } else if shot_cli_config.is_some() {
-                Some("http://localhost:1420/shot.html")
+                Some("http://localhost:1420/?entry=shot")
             } else {
                 None
             };

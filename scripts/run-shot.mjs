@@ -76,7 +76,7 @@ function waitForUrl(url, timeoutMs = 60_000) {
   });
 }
 
-const devUrl = "http://127.0.0.1:1420/shot.html";
+const devUrl = "http://127.0.0.1:1420/?entry=shot";
 const reuseDevServer = await probeUrl(devUrl);
 const devServer = reuseDevServer
   ? null

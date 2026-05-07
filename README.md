@@ -164,14 +164,14 @@ npm run check
 ## テスト
 
 ```bash
-# 先に dev server を起動して selftest.html を配信する
+# 先に dev server を起動して selftest entry を配信する
 npm run dev
 
 # 別ターミナルでローダー統合セルフテスト（Playwright）
-npm run test:integration -- http://127.0.0.1:1420/selftest.html
+npm run test:integration -- "http://127.0.0.1:1420/?entry=selftest"
 
 # 別ターミナルでビジュアルリグレッション（snapshot 比較）
-npm run test:visual -- http://127.0.0.1:1420/selftest.html
+npm run test:visual -- "http://127.0.0.1:1420/?entry=selftest"
 
 # viewport screenshot API 由来の PNG snapshot 比較
 npm run test:viewport-snapshot

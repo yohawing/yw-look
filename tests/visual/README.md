@@ -1,6 +1,6 @@
 # Visual regression tests
 
-`npm run test:visual` captures the `selftest.html` page through Playwright and
+`npm run test:visual` captures the `?entry=selftest` page through Playwright and
 compares it with `tests/visual/snapshots/selftest-page-linux-chromium.png`.
 
 `npm run test:viewport-snapshot` renders representative 3D viewport cases
