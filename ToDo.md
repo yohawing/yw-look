@@ -464,8 +464,8 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
   - [ ] `APPLE_PASSWORD`（App-specific password）
   - [ ] `APPLE_TEAM_ID`
 - [ ] `latest.json` を Windows / macOS 統合フォーマットで生成する（local feed は OS 別 target キー対応済み。release artifact の統合 manifest は実リリースで要確認）
-      （`platforms` に `windows-x86_64` / `darwin-x86_64` / `darwin-aarch64` を並べる）
-- [ ] macOS 公証ジョブの失敗時に updater feed を更新しないガードを入れる
+      （公開 release では `platforms` に `windows-x86_64` / `darwin-aarch64` を並べる。Intel macOS は非スコープ）
+- [x] macOS 公証ジョブの失敗時に updater feed を更新しないガードを入れる（macOS 署名 Secrets の preflight と `darwin-aarch64` manifest 検証を release workflow に追加）
 
 ## 21. 多言語対応（i18n）
 

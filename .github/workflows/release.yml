@@ -130,6 +130,40 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Refuse to publish a tagged macOS release without the Developer
+      # ID + notarization secrets. The base tauri.conf.json intentionally
+      # does not pin `bundle.macOS.signingIdentity`; Tauri infers the
+      # imported certificate identity from APPLE_CERTIFICATE on CI.
+      - name: Validate macOS signing secrets
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::missing required macOS signing secret: %s\n' "${missing[@]}"
+            exit 1
+          fi
+
       # Sanity gate: tauri-action runs `tauri build`, which triggers
       # build.rs, which stages the USD runtime libraries into
       # `src-tauri/cpp-artifacts/<triplet>/`. The overlay configs
@@ -314,6 +348,10 @@ jobs:
           const nsis = latest.platforms?.["windows-x86_64-nsis"];
           if (!nsis?.url || !nsis?.signature) {
             throw new Error("latest.json is missing windows-x86_64-nsis updater metadata");
+          }
+          const macos = latest.platforms?.["darwin-aarch64"];
+          if (!macos?.url || !macos?.signature) {
+            throw new Error("latest.json is missing darwin-aarch64 updater metadata");
           }
           latest.platforms["windows-x86_64"] = { ...nsis };
           fs.writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);

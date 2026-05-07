@@ -293,6 +293,9 @@ Windows 用の Secrets に加えて、次を追加します。
 - `APPLE_TEAM_ID` — Apple Developer Team ID
 
 これらは Tauri 公式の macOS 署名・公証フロー用に予約された環境変数名です。
+tag release の macOS job は、これらの Secrets が 1 つでも欠けている場合に
+build 前に失敗します。未署名または ad-hoc 署名の macOS artifact を GitHub
+Release に載せないためです。
 
 ### 3. bundle 設定を確認する
 
@@ -300,6 +303,11 @@ Windows 用の Secrets に加えて、次を追加します。
 macOS の C++ backend 配布では `tauri.macos.json` overlay を併用し、
 OpenUSD dylib を `Contents/Frameworks/`、plugin tree を
 `Contents/Resources/usd/` に含めます。
+
+`bundle.macOS.signingIdentity` は通常設定しません。CI では
+`APPLE_CERTIFICATE` から import された Developer ID 証明書を Tauri が推論します。
+ローカル build で ad-hoc 署名を試す場合だけ、一時 overlay で
+`signingIdentity = "-"` を指定します。
 
 `plugins.updater.windows.installMode` は Windows 専用設定です。macOS updater
 には同等の install mode 設定はありません。
@@ -324,7 +332,6 @@ Tauri Action は前述の Secrets が揃っていれば codesign と公証を実
 
 ### 想定成果物（macOS）
 
-- `yw-look_<version>_x64.dmg`
 - `yw-look_<version>_aarch64.dmg`
 - `yw-look.app.tar.gz`（updater 用）
 - `yw-look.app.tar.gz.sig`（minisign 署名）
@@ -336,7 +343,6 @@ Tauri Action は前述の Secrets が揃っていれば codesign と公証を実
 {
   "platforms": {
     "windows-x86_64": { "...": "..." },
-    "darwin-x86_64": { "...": "..." },
     "darwin-aarch64": { "...": "..." }
   }
 }
@@ -375,7 +381,7 @@ npm run bundle:mac
 - `src-tauri/target/release/bundle/macos/yw-look.app`
 - `src-tauri/target/release/bundle/macos/yw-look.app.tar.gz`
 - `src-tauri/target/release/bundle/macos/yw-look.app.tar.gz.sig`
-- `src-tauri/target/release/bundle/dmg/yw-look_<version>_x64.dmg`
+- `src-tauri/target/release/bundle/dmg/yw-look_<version>_aarch64.dmg`
 
 ### 4. ローカル update feed を作る
 
@@ -385,7 +391,8 @@ npm run update:local:prepare
 
 `prepare-local-update-feed.mjs` は OS 別に成果物を探します。macOS では
 `.app.tar.gz` と `.app.tar.gz.sig` を拾い、`platforms.darwin-x86_64` または
-`platforms.darwin-aarch64` を生成します。
+`platforms.darwin-aarch64` を生成します。公開 release では Apple Silicon
+macOS のみを対象にするため、通常は `platforms.darwin-aarch64` だけを確認します。
 
 ### 5. ローカル update feed を配信する
 
