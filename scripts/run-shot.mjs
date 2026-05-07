@@ -58,16 +58,29 @@ function probeUrl(url) {
   });
 }
 
-function waitForUrl(url, timeoutMs = 60_000) {
+function waitForUrl(url, timeoutMs = 60_000, serverProcess = null) {
   const startedAt = Date.now();
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      serverProcess?.off("exit", onServerExit);
+      callback(value);
+    };
+    const onServerExit = (code, signal) => {
+      const reason =
+        signal ?? (code === null ? "unknown status" : `exit code ${code}`);
+      finish(reject, new Error(`dev server exited before ready: ${reason}`));
+    };
+    serverProcess?.once("exit", onServerExit);
     const poll = async () => {
       if (await probeUrl(url)) {
-        resolve();
+        finish(resolve);
         return;
       }
       if (Date.now() - startedAt > timeoutMs) {
-        reject(new Error(`dev server did not become ready: ${url}`));
+        finish(reject, new Error(`dev server did not become ready: ${url}`));
         return;
       }
       setTimeout(poll, 500);
@@ -107,7 +120,7 @@ devServer?.on("error", (error) => {
 });
 
 try {
-  await waitForUrl(devUrl);
+  await waitForUrl(devUrl, 60_000, devServer);
 } catch (error) {
   stopDevServer();
   console.error(error);

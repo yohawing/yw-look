@@ -15,12 +15,14 @@ const markdownReportPath = path.join(outputDir, "fixture-regression-report.md");
 const args = process.argv.slice(2);
 const listOnly = args.includes("--list");
 const selectedCaseId = readOption("--case");
-const timeoutMs = Number(readOption("--timeout-ms") ?? 120_000);
+const timeoutOption = readOption("--timeout-ms");
+const timeoutMs = timeoutOption === null ? null : Number(timeoutOption);
 
 const usage = `usage:
   npm run test:fixtures
   npm run test:fixtures -- --case <id>
   npm run test:fixtures -- --list
+  npm run test:fixtures -- --timeout-ms <ms>
 
 Runs fixture catalog cases through the real shot/check loader path and writes
 artifacts/logs/fixture-regression-report.{json,md}.`;
@@ -103,17 +105,20 @@ function runCheck(testCase) {
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const timeout = setTimeout(() => {
-      settled = true;
-      child.kill("SIGKILL");
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: `timed out after ${timeoutMs}ms`,
-      });
-    }, timeoutMs);
+    const timeout =
+      timeoutMs === null
+        ? null
+        : setTimeout(() => {
+            settled = true;
+            child.kill("SIGKILL");
+            resolve({
+              exitCode: null,
+              durationMs: Math.round(performance.now() - startedAt),
+              stdout,
+              stderr,
+              error: `timed out after ${timeoutMs}ms`,
+            });
+          }, timeoutMs);
 
     child.stdout?.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -124,7 +129,7 @@ function runCheck(testCase) {
     child.on("error", (error) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       resolve({
         exitCode: null,
         durationMs: Math.round(performance.now() - startedAt),
@@ -136,7 +141,7 @@ function runCheck(testCase) {
     child.on("exit", (code) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       resolve({
         exitCode: code,
         durationMs: Math.round(performance.now() - startedAt),
@@ -198,6 +203,12 @@ function toMarkdown(report) {
 if (args.includes("--help") || args.includes("-h")) {
   console.log(usage);
   process.exit(0);
+}
+
+if (timeoutMs !== null && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+  console.error("--timeout-ms must be a positive number");
+  console.error(usage);
+  process.exit(2);
 }
 
 let cases;
