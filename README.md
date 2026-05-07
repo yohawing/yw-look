@@ -2,12 +2,8 @@
 
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 ![Development](https://img.shields.io/badge/development-active-blue)
-![Tauri](https://img.shields.io/badge/Tauri-Desktop-blue)
-![React](https://img.shields.io/badge/React-UI-61dafb)
-![TypeScript](https://img.shields.io/badge/TypeScript-3178c6)
 ![Tests](https://img.shields.io/badge/tests-231-brightgreen)
 ![Formats](https://img.shields.io/badge/formats-14-informational)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
 
 Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動せず、3Dモデル、テクスチャ、HDR / EXR、メタデータ、欠損参照をすばやく確認するためのデスクトップアプリである。
 
@@ -178,23 +174,6 @@ npm run test:viewport-snapshot
 
 # viewport snapshot baseline 更新
 npm run test:viewport-snapshot:update
-```
-
-## ディレクトリ構成
-
-```
-yw-look/
-├── src/                  # フロントエンド (React / Three.js)
-│   ├── components/       # UI コンポーネント
-│   ├── viewer/           # ビューア・ローダー・シーン管理
-│   ├── lib/              # Tauri IPC ラッパー
-│   └── App.tsx
-├── src-tauri/            # Tauri バックエンド (Rust)
-│   ├── src/              # Rust ソース
-│   └── tauri.conf.json   # Tauri 設定
-├── docs/                 # ドキュメント
-├── samples/              # 検証用サンプルアセット
-└── artifacts/            # ビルド成果物・ログ・スクリーンショット
 ```
 
 ## ライセンス

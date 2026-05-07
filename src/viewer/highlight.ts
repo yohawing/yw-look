@@ -17,7 +17,7 @@
 import { Color, Mesh, type Material, type Object3D } from "three";
 import type { Group } from "three";
 
-/** Accent Violet from the yw-look design system (DESIGN.md). */
+/** Accent Violet from the yw-look design system (docs/DESIGN.md). */
 const SELECTION_TINT = new Color(0x7170ff);
 /** Additive emissive intensity added to the original emissive value. */
 const EMISSIVE_INTENSITY = 0.35;
