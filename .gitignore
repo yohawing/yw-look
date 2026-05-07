@@ -24,6 +24,7 @@ experiments/
 
 # Local Claude Code session state
 .claude/
+CLAUDE.md
 
 # Local Codex session state and ad-hoc debug logs
 .codex/
