@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.1.10 (2026-05-07)
+
+### Viewer and loaders
+
+- Added VRM preview support through the loader registry.
+- Improved optional loader error handling so missing optional formats are
+  reported distinctly from real load failures.
+- Made USD loading tolerate deferred payload-only stages and suppress
+  warnings for nested payloads that resolve successfully.
+- Tolerated Bistro FBX animation curve gaps during preview loading.
+
+### Updates and release infrastructure
+
+- Surfaced available app updates in the UI.
+- Preferred the NSIS artifact in the public Windows updater manifest.
+- Added macOS release guards so tagged releases fail before publishing if
+  Developer ID / notarization secrets or `darwin-aarch64` updater metadata
+  are missing.
+- Recorded the current macOS signing-secret status and Apple Silicon release
+  boundary in the distribution docs.
+
+### Testing and docs
+
+- Added a fixture regression catalog and private sample cases for Bistro and
+  Kitchen Set coverage.
+- Added private sample fetch targeting and documented the private glTF sample
+  workflow.
+- Documented optional loader pack strategy and non-USD Rust backend scope.
+
 ## v0.1.9 (2026-05-03)
 
 ### USD workflow
