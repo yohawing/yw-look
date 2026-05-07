@@ -326,6 +326,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
+      - uses: actions/checkout@v4
+
       # tauri-action emits both MSI and NSIS updater artifacts on Windows.
       # Its generic `windows-x86_64` entry currently points at MSI, but
       # yw-look's public Windows download path is the NSIS setup.exe.
