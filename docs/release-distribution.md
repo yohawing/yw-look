@@ -515,8 +515,8 @@ xattr -dr com.apple.quarantine src-tauri/target/release/bundle/macos/yw-look.app
 ## macOS
 
 - Apple Developer ID 証明書の調達
-- GitHub Secrets への Apple 署名・公証情報登録
-- codesign / notarytool / stapler の実機確認
+- Apple 署名・公証 Secrets の実リリース検証（Secrets 登録自体は 2026-05-07 に確認済み）
+- codesign / notarytool / stapler の実リリース確認
 - Finder の `Open With` / 関連付け確認
 - GitHub Release artifact からの実インストール確認
 - updater feed の macOS artifact からの実更新確認
