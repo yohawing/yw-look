@@ -106,7 +106,7 @@ struct UpdateInstallPayload {
 #[derive(Default)]
 struct PendingUpdateState(Mutex<Option<Update>>);
 
-#[cfg(desktop)]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 const OPEN_FILE_EVENT: &str = "yw-look://open-file";
 
 #[derive(Default)]
@@ -2112,6 +2112,7 @@ pub fn run() {
             app.manage(bench_cli_config.clone());
             app.manage(shot_cli_config.clone());
 
+            let is_cli = bench_cli_config.is_some() || shot_cli_config.is_some();
             let entry_url: Option<&str> = if bench_cli_config.is_some() {
                 Some("http://localhost:1420/?entry=bench")
             } else if shot_cli_config.is_some() {
@@ -2120,13 +2121,30 @@ pub fn run() {
                 None
             };
 
+            let window = app.get_webview_window("main").ok_or_else(|| {
+                Box::<dyn std::error::Error>::from(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "main window was not created",
+                ))
+            })?;
+
+            if is_cli {
+                window
+                    .set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                        x: -20000,
+                        y: -20000,
+                    }))
+                    .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+                window
+                    .show()
+                    .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            } else {
+                window
+                    .show()
+                    .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            }
+
             if let Some(url) = entry_url {
-                let window = app.get_webview_window("main").ok_or_else(|| {
-                    Box::<dyn std::error::Error>::from(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "main window was not created",
-                    ))
-                })?;
                 window
                     .navigate(
                         Url::parse(url)

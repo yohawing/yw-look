@@ -199,7 +199,7 @@ async function validateUsdInspectorPipeline(path: string, extension: string) {
 }
 
 function waitFrame() {
-  return new Promise<number>((resolve) => requestAnimationFrame(resolve));
+  return new Promise<void>((resolve) => setTimeout(resolve, 16));
 }
 
 async function settleFrames(

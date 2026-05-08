@@ -2,12 +2,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  root: "scripts",
   plugins: [react()],
   clearScreen: false,
-  publicDir: "../public",
   build: {
-    outDir: "../dist",
     emptyOutDir: true,
     rollupOptions: {
       output: {
