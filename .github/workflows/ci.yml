@@ -108,6 +108,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Build flip_compare helper
+        run: >-
+          cargo build --manifest-path src-tauri/Cargo.toml
+          --bin flip_compare
+          --no-default-features --features flip-compare,backend-openusd-rs
+
       - name: Run visual regression
         run: |
           npm run dev -- --host 127.0.0.1 > /tmp/vite-dev.log 2>&1 &
@@ -136,12 +142,14 @@ jobs:
 
           xvfb-run -a npm run test:viewport-snapshot
 
-      - name: Upload visual artifact
+      - name: Upload visual artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: visual-regression-current
-          path: artifacts/screenshots/**/*.png
+          path: |
+            artifacts/screenshots/**/*.png
+            artifacts/screenshots/**/*-flip-report.json
 
   rust-checks:
     runs-on: ubuntu-latest

@@ -11,6 +11,11 @@ default-run = "yw-look"
 
 [package.metadata]
 
+[[bin]]
+name = "flip_compare"
+path = "src/bin/flip_compare.rs"
+required-features = ["flip-compare"]
+
 [lib]
 name = "yw_look_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -46,6 +51,9 @@ backend-openusd-rs = []
 # `target_os = "linux"` so Linux builders must drop back to the Rust
 # backend via `--no-default-features --features backend-openusd-rs`.
 backend-openusd-cpp = ["dep:bindgen", "dep:cmake"]
+# Flip comparison helper (flip_compare bin). Optional to avoid pulling
+# nv-flip and image into the main Tauri binary build.
+flip-compare = ["dep:nv-flip", "dep:image"]
 
 [dependencies]
 # Phase 5e F3 fix on `yw-look-phase4`. Carries every Phase 4/5 fork
@@ -64,3 +72,7 @@ url = "2"
 # embed them into the glTF binary chunk. openusd already pulls zip 8
 # transitively, so this matches its version to share the build.
 zip = { version = "8", default-features = false, features = ["deflate"] }
+# Visual regression: NVIDIA FLIP perceptual image diff for viewport snapshots.
+# Gated behind the `flip-compare` feature so only the flip_compare bin pulls them in.
+nv-flip = { version = "0.1", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
