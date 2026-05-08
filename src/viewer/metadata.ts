@@ -1,10 +1,13 @@
 import {
   AnimationClip,
+  Box3,
   Camera,
   Color,
+  Euler,
   Group,
   Light,
   Material,
+  MathUtils,
   Mesh,
   MeshBasicMaterial,
   MeshPhongMaterial,
@@ -18,6 +21,7 @@ import type { SelectedFile } from "../lib/files";
 import type {
   AssetMetadata,
   CameraEntry,
+  ObjectInfo,
   HierarchyNode,
   LightEntry,
   MaterialEntry,
@@ -437,6 +441,125 @@ function buildCameraEntry(
   };
 }
 
+/** Resolve the stable selection key for an Object3D, matching the logic
+ * in both AssetViewport picking and highlight.ts.  Prefers
+ * `userData.primPath` for USD-sourced nodes; falls back to the
+ * trimmed `Object3D.name` for non-USD assets.  Returns `null` for
+ * unnamed meshes / groups that cannot be meaningfully selected. */
+function resolveSelectionKey(object: Object3D): string | null {
+  const primPath =
+    typeof object.userData?.primPath === "string"
+      ? object.userData.primPath
+      : undefined;
+  if (primPath !== undefined) return primPath;
+  const name = safeTrimmedName(object);
+  return name.length > 0 ? name : null;
+}
+
+/** Build an `ObjectInfo` entry for one traversed Object3D.  Handles
+ * Meshes (with geometry stats and material refs), Groups (with child
+ * count), and other node types by falling back to sensible defaults. */
+function buildObjectInfo(
+  object: Object3D,
+  clips: AnimationClip[],
+  key: string,
+): ObjectInfo {
+  const p = object.position;
+  const e = new Euler().setFromQuaternion(object.quaternion, "YXZ");
+  const s = object.scale;
+
+  let bbox: ObjectInfo["boundingBox"] = null;
+  let vertexCount: number | null = null;
+  let triangleCount: number | null = null;
+  let materialNames: string[] = [];
+  let materialIds: string[] = [];
+  let childCount: number | null = null;
+
+  if (object instanceof Mesh) {
+    // Bbox from mesh geometry only — avoids O(N²) when called on
+    // Group nodes inside `object.traverse()` (#80 codex-review).
+    try {
+      const box = new Box3().setFromObject(object);
+      if (!box.isEmpty()) {
+        bbox = [
+          box.min.x,
+          box.min.y,
+          box.min.z,
+          box.max.x,
+          box.max.y,
+          box.max.z,
+        ];
+      }
+    } catch {
+      /* degenerate geometry — leave null */
+    }
+
+    const geom = object.geometry;
+    if (geom) {
+      vertexCount = geom.attributes.position?.count ?? null;
+      if (geom.index) {
+        triangleCount = Math.round(geom.index.count / 3);
+      } else if (vertexCount) {
+        triangleCount = Math.round(vertexCount / 3);
+      }
+    }
+    const mats = getMaterials(object.material);
+    materialNames = mats.map((m) => m.name.trim() || m.type);
+    materialIds = mats.map((m) => m.uuid);
+  } else if (object instanceof Group) {
+    childCount = object.children.length;
+  }
+
+  const clipNames: string[] = [];
+  for (const clip of clips) {
+    for (const track of clip.tracks) {
+      const targetName = track.name.split(".")[0];
+      if (targetName === key || targetName === object.name) {
+        clipNames.push(clip.name || `Clip ${clipNames.length}`);
+        break;
+      }
+    }
+  }
+
+  // Surface userData fields while filtering out internal sentinel keys
+  const userKeys = Object.keys(object.userData).filter(
+    (k) =>
+      !k.startsWith("__") &&
+      k !== "primPath" &&
+      k !== "purpose" &&
+      k !== "textureSourceKind",
+  );
+  const userData =
+    userKeys.length > 0
+      ? (Object.fromEntries(
+          userKeys.map((k) => [k, object.userData[k]]),
+        ) as Record<string, unknown>)
+      : null;
+
+  const kind = getObjectKind(object);
+
+  return {
+    name: safeTrimmedName(object) || kind,
+    kind,
+    visible: object.visible,
+    position: [p.x, p.y, p.z],
+    rotation: [
+      MathUtils.radToDeg(e.x),
+      MathUtils.radToDeg(e.y),
+      MathUtils.radToDeg(e.z),
+    ],
+    scale: [s.x, s.y, s.z],
+    boundingBox: bbox,
+    vertexCount,
+    triangleCount,
+    materialNames,
+    materialIds,
+    childCount,
+    animatesWithClips: clipNames,
+    userData,
+  };
+}
+
 export function collectAssetMetadata(
   object: Group | Mesh,
   currentFile: SelectedFile,
@@ -458,9 +581,19 @@ export function collectAssetMetadata(
   // Tracks camera-name occurrences during traversal so duplicate-named
   // cameras get suffixed selection ids (#1, #2, …).
   const cameraSeenCounts = new Map<string, number>();
+  // Selection key → per-object info for the shared inspector (#80)
+  const objectInfoMap = new Map<string, ObjectInfo>();
 
   object.traverse((child: Object3D) => {
+    if (isSyntheticWrapper(child)) return;
     nodeCount += 1;
+
+    // Collect ObjectInfo for every traversed node that has a stable
+    // selection key (meshes, named groups, lights, cameras).
+    const infoKey = resolveSelectionKey(child);
+    if (infoKey) {
+      objectInfoMap.set(infoKey, buildObjectInfo(child, clips, infoKey));
+    }
 
     if (child instanceof Light) {
       lights.push(buildLightEntry(child));
@@ -539,6 +672,7 @@ export function collectAssetMetadata(
       ),
       lights,
       cameras,
+      objectInfo: Object.fromEntries(objectInfoMap),
     },
     textureRegistry,
   };
@@ -571,6 +705,7 @@ export function buildMissingReferenceMetadata(
     materials: [],
     lights: [],
     cameras: [],
+    objectInfo: {},
     textures:
       textureEntries.length > 0
         ? textureEntries

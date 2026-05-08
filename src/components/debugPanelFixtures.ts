@@ -78,6 +78,7 @@ export const debugPanelMetadata: AssetMetadata = {
   materialCount: 4,
   textureCount: 5,
   hasAnimation: true,
+  objectInfo: {},
   hierarchy: [
     {
       name: "World",

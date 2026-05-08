@@ -113,6 +113,23 @@ export type CameraEntry = {
   far: number;
 };
 
+export type ObjectInfo = {
+  name: string;
+  kind: string;
+  visible: boolean;
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale: [number, number, number];
+  boundingBox: [number, number, number, number, number, number] | null;
+  vertexCount: number | null;
+  triangleCount: number | null;
+  materialNames: string[];
+  materialIds: string[];
+  childCount: number | null;
+  animatesWithClips: string[];
+  userData: Record<string, unknown> | null;
+};
+
 export type AssetMetadata = {
   formatLabel: string;
   formatVersion: string | null;
@@ -126,6 +143,7 @@ export type AssetMetadata = {
   materials: MaterialEntry[];
   lights: LightEntry[];
   cameras: CameraEntry[];
+  objectInfo: Record<string, ObjectInfo>;
 };
 
 export const emptyAssetMetadata: AssetMetadata | null = null;
