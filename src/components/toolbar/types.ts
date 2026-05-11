@@ -28,7 +28,7 @@ export type ToolbarAction = {
   disabled?: boolean;
   shortcut?: string;
   onRun?: () => void;
-  children?: ToolbarAction[];
+  children?: ToolbarItem[];
 };
 
 export type ToolbarSeparator = { kind: "separator" };

@@ -35,6 +35,12 @@ export type Build3DToolbarOptions = {
   onCycleEnvironment?: () => void;
   cameraCycleLabel: string | null;
   onCycleCamera?: () => void;
+  cameraPreset: string | null;
+  cameraPresetOptions: Array<{ id: string; label: string }>;
+  onSelectCameraPreset?: (preset: string) => void;
+  environmentPreset: string;
+  environmentPresetOptions: Array<{ id: string; label: string }>;
+  onSelectEnvironmentPreset?: (preset: string) => void;
 };
 
 export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
@@ -66,10 +72,19 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       id: "camera",
       mode: "common",
       group: "camera",
-      kind: "cycle",
+      kind: "popover",
       label: cameraLabel,
       iconId: "camera",
       onRun: options.onCycleCamera,
+      children: options.cameraPresetOptions.map((preset) => ({
+        id: `camera-${preset.id}`,
+        mode: "common",
+        group: "camera",
+        kind: "button",
+        label: preset.label,
+        active: options.cameraPreset === preset.id,
+        onRun: () => options.onSelectCameraPreset?.(preset.id),
+      })),
     });
   }
 
@@ -128,31 +143,52 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
     });
   }
 
-  if (options.environmentCycleLabel !== null && options.onCycleEnvironment) {
-    groupSep("shading");
-    push({
-      id: "environment",
-      mode: "3d",
-      group: "shading",
-      kind: "cycle",
-      label: "Environment preset",
-      iconId: "light",
-      onRun: options.onCycleEnvironment,
-    });
-  }
-
-  if (options.showShadows !== undefined && options.onToggleShadows) {
-    groupSep("shading");
-    push({
-      id: "shadows",
-      mode: "3d",
-      group: "shading",
-      kind: "toggle",
-      label: "Shadows",
-      iconId: "light",
-      active: options.showShadows,
-      onRun: options.onToggleShadows,
-    });
+  {
+    const hasEnv =
+      options.environmentCycleLabel !== null && options.onCycleEnvironment;
+    const hasShadows =
+      options.showShadows !== undefined && options.onToggleShadows;
+    if (hasEnv || hasShadows) {
+      groupSep("shading");
+      const children: ToolbarItem[] = [];
+      if (hasEnv) {
+        for (const preset of options.environmentPresetOptions) {
+          children.push({
+            id: `env-${preset.id}`,
+            mode: "3d",
+            group: "shading",
+            kind: "button",
+            label: preset.label,
+            active: options.environmentPreset === preset.id,
+            onRun: () => options.onSelectEnvironmentPreset?.(preset.id),
+          });
+        }
+      }
+      if (hasEnv && hasShadows) {
+        children.push({ kind: "separator" });
+      }
+      if (hasShadows) {
+        children.push({
+          id: "shadows",
+          mode: "3d",
+          group: "shading",
+          kind: "toggle",
+          label: "Shadows",
+          iconId: "light",
+          active: options.showShadows ?? false,
+          onRun: options.onToggleShadows,
+        });
+      }
+      push({
+        id: "shading",
+        mode: "3d",
+        group: "shading",
+        kind: "popover",
+        label: "Shading",
+        iconId: "light",
+        children,
+      });
+    }
   }
 
   groupSep("look");

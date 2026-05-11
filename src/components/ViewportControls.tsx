@@ -2,8 +2,10 @@ import { Fragment, type ReactNode } from "react";
 
 import { ViewportToolSvg } from "./ViewportToolIcons";
 import type { ToolbarAction, ToolbarItem } from "./toolbar/types";
+import { PopoverTool } from "./toolbar/PopoverTool";
 
 import "../styles/viewport.css";
+import "../styles/toolbar-popover.css";
 
 export type ViewportControlsProps = {
   isOpen?: boolean;
@@ -53,6 +55,10 @@ function isSeparator(item: ToolbarItem): item is { kind: "separator" } {
   return item.kind === "separator";
 }
 
+function hasPopover(action: ToolbarAction): boolean {
+  return action.children !== undefined && action.children.length > 0;
+}
+
 export function ViewportControls({
   isOpen = true,
   onToggleOpen,
@@ -98,17 +104,21 @@ export function ViewportControls({
         <Fragment key={group[0]?.id ?? groupIndex}>
           {groupIndex > 0 ? <Separator /> : null}
           <ViewportToolGroup>
-            {group.map((action) => (
-              <ViewportTool
-                key={action.id}
-                active={action.active}
-                iconId={action.iconId}
-                kind={action.kind}
-                label={action.label}
-                onClick={action.onRun ?? (() => {})}
-                title={action.description}
-              />
-            ))}
+            {group.map((action) =>
+              hasPopover(action) ? (
+                <PopoverTool key={action.id} action={action} />
+              ) : (
+                <ViewportTool
+                  key={action.id}
+                  active={action.active}
+                  iconId={action.iconId}
+                  kind={action.kind}
+                  label={action.label}
+                  onClick={action.onRun ?? (() => {})}
+                  title={action.description}
+                />
+              ),
+            )}
           </ViewportToolGroup>
         </Fragment>
       ))}

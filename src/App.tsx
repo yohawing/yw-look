@@ -2310,12 +2310,23 @@ export function App() {
     return next?.label ?? "Environment";
   }, [environmentPreset]);
 
+  const handleSelectCameraPreset = useCallback((preset: string) => {
+    setCameraPresetRequest((previous) => ({
+      preset: preset as CameraPreset,
+      version: (previous?.version ?? 0) + 1,
+    }));
+  }, []);
+
   const handleCycleEnvironment = useCallback(() => {
     const next = nextCycleOption(environmentPresets, environmentPreset);
     if (next) {
       setEnvironmentPreset(next.id);
     }
   }, [environmentPreset]);
+
+  const handleSelectEnvironmentPreset = useCallback((preset: string) => {
+    setEnvironmentPreset(preset as EnvironmentPreset);
+  }, []);
 
   const viewportToolbarItems = useMemo<ToolbarItem[]>(() => {
     return build3DToolbar({
@@ -2356,6 +2367,12 @@ export function App() {
       onCycleEnvironment: handleCycleEnvironment,
       cameraCycleLabel,
       onCycleCamera: handleCycleCamera,
+      cameraPreset: cameraPresetRequest?.preset ?? null,
+      cameraPresetOptions,
+      onSelectCameraPreset: handleSelectCameraPreset,
+      environmentPreset,
+      environmentPresetOptions: environmentPresets,
+      onSelectEnvironmentPreset: handleSelectEnvironmentPreset,
     });
   }, [
     showTexture,
@@ -2377,6 +2394,10 @@ export function App() {
     handleCycleBackground,
     handleCycleCamera,
     handleCycleEnvironment,
+    handleSelectCameraPreset,
+    handleSelectEnvironmentPreset,
+    cameraPresetRequest,
+    environmentPreset,
   ]);
 
   return (
