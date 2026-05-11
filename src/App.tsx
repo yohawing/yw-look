@@ -61,6 +61,8 @@ import type { SidebarTabId } from "./components/SidebarTabIcons";
 import { TextureListCard } from "./components/TextureListCard";
 import { UsdInspectorCard } from "./components/UsdInspectorCard";
 import { ViewportControls } from "./components/ViewportControls";
+import { build3DToolbar } from "./components/toolbar/build3DToolbar";
+import type { ToolbarItem } from "./components/toolbar/types";
 import { WarningsCard } from "./components/WarningsCard";
 import {
   closeStageSession,
@@ -269,6 +271,15 @@ const cameraPresetOptions: Array<{
   { id: "top", label: "Top" },
   { id: "bottom", label: "Bottom" },
 ];
+
+function nextCycleOption<T extends string>(
+  options: Array<{ id: T; label: string }>,
+  currentId: T | undefined,
+): { id: T; label: string } | null {
+  if (!options.length) return null;
+  const idx = options.findIndex((o) => o.id === currentId);
+  return options[(idx + 1) % options.length] ?? null;
+}
 
 const DEFAULT_EXPOSURE = 1.1;
 
@@ -2261,6 +2272,113 @@ export function App() {
     window.addEventListener("pointerup", handlePointerUp);
   };
 
+  const cameraCycleLabel = useMemo(() => {
+    const next = nextCycleOption(
+      cameraPresetOptions,
+      cameraPresetRequest?.preset,
+    );
+    return next ? `${next.label} view` : "Camera";
+  }, [cameraPresetRequest?.preset]);
+
+  const handleCycleCamera = useCallback(() => {
+    const next = nextCycleOption(
+      cameraPresetOptions,
+      cameraPresetRequest?.preset,
+    );
+    if (next) {
+      setCameraPresetRequest((previous) => ({
+        preset: next.id,
+        version: (previous?.version ?? 0) + 1,
+      }));
+    }
+  }, [cameraPresetRequest?.preset]);
+
+  const backgroundCycleLabel = useMemo(() => {
+    const next = nextCycleOption(backgroundPresetOptions, backgroundPreset);
+    return next?.label ?? "Background";
+  }, [backgroundPreset]);
+
+  const handleCycleBackground = useCallback(() => {
+    const next = nextCycleOption(backgroundPresetOptions, backgroundPreset);
+    if (next) {
+      setBackgroundPreset(next.id);
+    }
+  }, [backgroundPreset]);
+
+  const environmentCycleLabel = useMemo(() => {
+    const next = nextCycleOption(environmentPresets, environmentPreset);
+    return next?.label ?? "Environment";
+  }, [environmentPreset]);
+
+  const handleCycleEnvironment = useCallback(() => {
+    const next = nextCycleOption(environmentPresets, environmentPreset);
+    if (next) {
+      setEnvironmentPreset(next.id);
+    }
+  }, [environmentPreset]);
+
+  const viewportToolbarItems = useMemo<ToolbarItem[]>(() => {
+    return build3DToolbar({
+      showTexture,
+      onToggleTexture: () => setShowTexture((v) => !v),
+      showWireframe,
+      onToggleWireframe: () => setShowWireframe((v) => !v),
+      showGrid,
+      onToggleGrid: () => setShowGrid((v) => !v),
+      showAxes,
+      onToggleAxes: () => setShowAxes((v) => !v),
+      showEnvironmentBackground,
+      onToggleEnvironmentBackground: () =>
+        setShowEnvironmentBackground((v) => !v),
+      showShadows,
+      onToggleShadows: () => setShowShadows((v) => !v),
+      backfaceCulling,
+      onToggleBackfaceCulling: () => setBackfaceCulling((v) => !v),
+      showSkeleton,
+      onToggleSkeleton: () => setShowSkeleton((v) => !v),
+      showBoundingBoxes,
+      onToggleBoundingBoxes: () => setShowBoundingBoxes((v) => !v),
+      showVertexColors,
+      onToggleVertexColors: () => setShowVertexColors((v) => !v),
+      showNormals,
+      onToggleNormals: () => setShowNormals((v) => !v),
+      purposeModes: isUsdFile(currentFile) ? purposeModes : undefined,
+      onTogglePurposeMode: isUsdFile(currentFile)
+        ? (mode) =>
+            setPurposeModes((prev) => ({
+              ...prev,
+              [mode]: !prev[mode],
+            }))
+        : undefined,
+      backgroundCycleLabel,
+      onCycleBackground: handleCycleBackground,
+      environmentCycleLabel,
+      onCycleEnvironment: handleCycleEnvironment,
+      cameraCycleLabel,
+      onCycleCamera: handleCycleCamera,
+    });
+  }, [
+    showTexture,
+    showWireframe,
+    showGrid,
+    showAxes,
+    showEnvironmentBackground,
+    showShadows,
+    backfaceCulling,
+    showSkeleton,
+    showBoundingBoxes,
+    showVertexColors,
+    showNormals,
+    purposeModes,
+    currentFile,
+    backgroundCycleLabel,
+    environmentCycleLabel,
+    cameraCycleLabel,
+    handleCycleBackground,
+    handleCycleCamera,
+    handleCycleEnvironment,
+  ]);
+
   return (
     <main className="app-shell">
       {/* ── MenuBar ── */}
@@ -2333,50 +2451,7 @@ export function App() {
           <ViewportControls
             isOpen={viewportPanelOpen}
             onToggleOpen={() => setViewportPanelOpen((v) => !v)}
-            showTexture={showTexture}
-            onToggleTexture={() => setShowTexture((v) => !v)}
-            showWireframe={showWireframe}
-            onToggleWireframe={() => setShowWireframe((v) => !v)}
-            showGrid={showGrid}
-            onToggleGrid={() => setShowGrid((v) => !v)}
-            showAxes={showAxes}
-            onToggleAxes={() => setShowAxes((v) => !v)}
-            showEnvironmentBackground={showEnvironmentBackground}
-            onToggleEnvironmentBackground={() =>
-              setShowEnvironmentBackground((v) => !v)
-            }
-            showShadows={showShadows}
-            onToggleShadows={() => setShowShadows((v) => !v)}
-            backfaceCulling={backfaceCulling}
-            onToggleBackfaceCulling={() => setBackfaceCulling((v) => !v)}
-            showSkeleton={showSkeleton}
-            onToggleSkeleton={() => setShowSkeleton((v) => !v)}
-            showBoundingBoxes={showBoundingBoxes}
-            onToggleBoundingBoxes={() => setShowBoundingBoxes((v) => !v)}
-            showVertexColors={showVertexColors}
-            onToggleVertexColors={() => setShowVertexColors((v) => !v)}
-            showNormals={showNormals}
-            onToggleNormals={() => setShowNormals((v) => !v)}
-            purposeModes={isUsdFile(currentFile) ? purposeModes : undefined}
-            onTogglePurposeMode={(mode) =>
-              setPurposeModes((prev) => ({
-                ...prev,
-                [mode]: !prev[mode],
-              }))
-            }
-            backgroundPreset={backgroundPreset}
-            backgroundPresetOptions={backgroundPresetOptions}
-            onSelectBackgroundPreset={setBackgroundPreset}
-            environmentPreset={environmentPreset}
-            environmentPresetOptions={environmentPresets}
-            onSelectEnvironmentPreset={setEnvironmentPreset}
-            cameraPresetOptions={cameraPresetOptions}
-            onSelectCameraPreset={(preset) =>
-              setCameraPresetRequest((previous) => ({
-                preset,
-                version: (previous?.version ?? 0) + 1,
-              }))
-            }
+            items={viewportToolbarItems}
           />
           {/* InfoPanel toggle button */}
           <button
