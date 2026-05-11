@@ -142,7 +142,7 @@ if (USD_EXTS.has(ext)) {
 
 const fsUrlPath = "/@fs/" + previewPath.replace(/\\/g, "/");
 const qsExtra = noAnim ? "&noanim=1" : "";
-const targetUrl = `${devUrl.replace(/\/$/, "")}/selftest.html?path=${encodeURIComponent(fsUrlPath)}${qsExtra}`;
+const targetUrl = `${devUrl.replace(/\/$/, "")}/?entry=selftest&path=${encodeURIComponent(fsUrlPath)}${qsExtra}`;
 
 const shotPath = path.join(outDir, `${baseName}-${timestamp}.png`);
 const logPath = path.join(outDir, `${baseName}-${timestamp}.log.jsonl`);

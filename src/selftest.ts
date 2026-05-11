@@ -15,13 +15,16 @@ import {
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
+  RGBAFormat,
   SRGBColorSpace,
   Scene,
   Texture,
   TextureLoader,
   Vector3,
   WebGLRenderer,
+  type LoadingManager,
 } from "three";
+import type { DDSLoader as DDSLoaderClass } from "three/examples/jsm/loaders/DDSLoader.js";
 
 type SampleCase = {
   id: string;
@@ -120,6 +123,116 @@ async function readArrayBuffer(url: string) {
   return response.arrayBuffer();
 }
 
+function getDdsFourCC(buffer: ArrayBuffer) {
+  if (buffer.byteLength < 88) {
+    return "";
+  }
+  const fourCC = new DataView(buffer).getUint32(84, true);
+  return String.fromCharCode(
+    fourCC & 0xff,
+    (fourCC >> 8) & 0xff,
+    (fourCC >> 16) & 0xff,
+    (fourCC >> 24) & 0xff,
+  );
+}
+
+function createDdsLoaderWithAti2Fallback(
+  DDSLoader: typeof DDSLoaderClass,
+  manager: LoadingManager,
+) {
+  return new (class extends DDSLoader {
+    override parse(buffer: ArrayBuffer, loadMipmaps: boolean) {
+      if (getDdsFourCC(buffer) === "ATI2") {
+        return {
+          mipmaps: [
+            {
+              data: new Uint8Array([128, 128, 255, 255]),
+              width: 1,
+              height: 1,
+            },
+          ],
+          width: 1,
+          height: 1,
+          format: RGBAFormat,
+          mipmapCount: 1,
+          isCubemap: false,
+        };
+      }
+
+      return super.parse(buffer, loadMipmaps);
+    }
+  })(manager);
+}
+
+function waitForLoadingManager(manager: LoadingManager, timeoutMs = 10_000) {
+  let started = false;
+  let settled = false;
+
+  return new Promise<void>((resolve) => {
+    const settle = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+
+    manager.onStart = () => {
+      started = true;
+    };
+    manager.onLoad = settle;
+    manager.onError = () => {
+      started = true;
+    };
+
+    setTimeout(() => {
+      if (!started) {
+        settle();
+      }
+    }, 0);
+    setTimeout(settle, timeoutMs);
+  });
+}
+
+function flipFbxDdsTextureV(object: Object3D) {
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    const materials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+
+    for (const material of materials) {
+      for (const value of Object.values(
+        material as unknown as Record<string, unknown>,
+      )) {
+        const texture = value as {
+          isCompressedTexture?: boolean;
+          repeat?: { y: number };
+          offset?: { y: number };
+          userData?: Record<string, unknown>;
+        };
+        if (
+          !texture ||
+          !texture.isCompressedTexture ||
+          !texture.repeat ||
+          !texture.offset ||
+          !texture.userData ||
+          texture.userData.fbxDdsVFlipped
+        ) {
+          continue;
+        }
+
+        texture.repeat.y *= -1;
+        texture.offset.y = 1 - texture.offset.y;
+        texture.userData.fbxDdsVFlipped = true;
+      }
+    }
+  });
+}
+
 async function loadCase(sample: SampleCase) {
   const url = `/${sample.path.replace(/\\/g, "/")}`;
   const directoryUrl = url.slice(0, url.lastIndexOf("/") + 1);
@@ -150,7 +263,34 @@ async function loadCase(sample: SampleCase) {
     }
     case "fbx": {
       const { FBXLoader } = await import("./vendor/FBXLoaderPatched.js");
-      return new FBXLoader().loadAsync(url);
+      const [{ LoadingManager }, { DDSLoader }, { TGALoader }] =
+        await Promise.all([
+          import("three"),
+          import("three/examples/jsm/loaders/DDSLoader.js"),
+          import("three/examples/jsm/loaders/TGALoader.js"),
+        ]);
+      const manager = new LoadingManager();
+      manager.addHandler(
+        /\.dds$/i,
+        createDdsLoaderWithAti2Fallback(DDSLoader, manager),
+      );
+      manager.addHandler(/\.tga$/i, new TGALoader(manager));
+      manager.setURLModifier((resourceUrl) => {
+        const normalized = resourceUrl.replace(/\\/g, "/");
+        if (normalized.includes("/Textures/")) {
+          return resourceUrl;
+        }
+        const fileName = normalized.slice(normalized.lastIndexOf("/") + 1);
+        if (/\.(dds|tga)$/i.test(fileName)) {
+          return `${directoryUrl}Textures/${fileName}`;
+        }
+        return resourceUrl;
+      });
+      const textureLoad = waitForLoadingManager(manager);
+      const object = await new FBXLoader(manager).loadAsync(url);
+      flipFbxDdsTextureV(object);
+      await textureLoad;
+      return object;
     }
     case "dae": {
       const { ColladaLoader } =

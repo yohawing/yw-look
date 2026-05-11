@@ -16,7 +16,8 @@
         "title": "yw-look",
         "width": 1440,
         "height": 960,
-        "resizable": true
+        "resizable": true,
+        "visible": false
       }
     ],
     "security": {

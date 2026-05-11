@@ -3,6 +3,7 @@ import {
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
   optionalPreviewLoaders,
+  type DeferredTextureSnapshot,
   type LoadingStageSnapshot,
 } from "../viewer";
 
@@ -20,6 +21,7 @@ type ViewerStatePanelProps = {
   fileName?: string | null;
   fileExtension?: string | null;
   loadingStage?: LoadingStageSnapshot | null;
+  deferredTexture?: DeferredTextureSnapshot | null;
   onOpenFile?: () => void;
 };
 
@@ -115,6 +117,7 @@ const stateContent: Record<
 };
 
 export function ViewerStatePanel({
+  deferredTexture,
   fileExtension,
   fileName,
   loadingStage,
@@ -136,7 +139,13 @@ export function ViewerStatePanel({
   };
 
   if (mode === "loading") {
-    return <LoadingScreen fileName={fileName} stage={loadingStage} />;
+    return (
+      <LoadingScreen
+        deferredTexture={deferredTexture}
+        fileName={fileName}
+        stage={loadingStage}
+      />
+    );
   }
 
   if (mode === "empty") {

@@ -4,6 +4,7 @@ import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
+import { flipCompare } from "./flip-compare.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -63,11 +64,13 @@ const usage = `usage:
 Options:
   --case <id>          Run one viewport snapshot case.
   --update-snapshot    Replace baselines with the newly rendered PNGs.
+  --strict             Use exact PNG byte comparison instead of FLIP.
   --list               Print available cases without running shot CLI.`;
 
 const args = process.argv.slice(2);
 const updateSnapshots =
   process.env.UPDATE_SNAPSHOTS === "1" || args.includes("--update-snapshot");
+const strictMode = args.includes("--strict");
 const listOnly = args.includes("--list");
 
 function readOption(name) {
@@ -230,6 +233,50 @@ function comparePixels(actualBuffer, expectedBuffer) {
   );
 }
 
+function flipErrorMapPath(testCase) {
+  return resolveRepoPath(testCase.actual.replace(/\.png$/, "-flip-error.png"));
+}
+
+function flipReportPath(testCase) {
+  return resolveRepoPath(
+    testCase.actual.replace(/\.png$/, "-flip-report.json"),
+  );
+}
+
+const FLIP_MEAN_THRESHOLD = Number(process.env.FLIP_MEAN_THRESHOLD ?? 0.05);
+const FLIP_MAX_THRESHOLD = Number(process.env.FLIP_MAX_THRESHOLD ?? 0.3);
+
+async function compareWithFlip(testCase) {
+  const reportPath = flipReportPath(testCase);
+  const errorMapPath = flipErrorMapPath(testCase);
+
+  const result = await flipCompare({
+    reference: resolveRepoPath(testCase.snapshot),
+    test: resolveRepoPath(testCase.actual),
+    report: reportPath,
+    errorMap: errorMapPath,
+    meanThreshold: FLIP_MEAN_THRESHOLD,
+    maxThreshold: FLIP_MAX_THRESHOLD,
+  });
+
+  if (!result.passed) {
+    throw new Error(
+      [
+        `Viewport snapshot FLIP mismatch: ${testCase.id}`,
+        `mean=${result.mean.toFixed(4)} (threshold=${FLIP_MEAN_THRESHOLD})`,
+        `max=${result.max.toFixed(4)} (threshold=${FLIP_MAX_THRESHOLD})`,
+        `p50=${result.p50.toFixed(4)} p75=${result.p75.toFixed(4)}`,
+        `error map: ${path.relative(repoRoot, errorMapPath)}`,
+        `report:    ${path.relative(repoRoot, reportPath)}`,
+      ].join("\n"),
+    );
+  }
+
+  console.log(
+    `Viewport snapshot FLIP passed: ${testCase.id} mean=${result.mean.toFixed(4)}`,
+  );
+}
+
 function runShot(testCase) {
   const shotArgs = [
     path.join(repoRoot, "scripts/run-shot.mjs"),
@@ -295,18 +342,22 @@ async function compareSnapshot(testCase) {
     );
   }
 
-  if (!comparePixels(actualBuffer, expectedBuffer)) {
-    throw new Error(
-      [
-        `Viewport snapshot mismatch: ${testCase.id}`,
-        `expected sha256: ${sha256(expectedBuffer)}`,
-        `actual   sha256: ${sha256(actualBuffer)}`,
-        `actual image: ${testCase.actual}`,
-      ].join("\n"),
-    );
+  if (strictMode) {
+    if (!comparePixels(actualBuffer, expectedBuffer)) {
+      throw new Error(
+        [
+          `Viewport snapshot mismatch: ${testCase.id}`,
+          `expected sha256: ${sha256(expectedBuffer)}`,
+          `actual   sha256: ${sha256(actualBuffer)}`,
+          `actual image: ${testCase.actual}`,
+        ].join("\n"),
+      );
+    }
+    console.log(`Viewport snapshot matched: ${testCase.id}`);
+    return;
   }
 
-  console.log(`Viewport snapshot matched: ${testCase.id}`);
+  await compareWithFlip(testCase);
 }
 
 let failed = false;

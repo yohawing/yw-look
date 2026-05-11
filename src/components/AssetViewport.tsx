@@ -36,6 +36,7 @@ import { formatUsdErrorForDisplay } from "../lib/usd";
 import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 import {
   type CameraPreset,
+  type DeferredTextureSnapshot,
   type DisplayMode,
   type LoadingStageId,
   type LoadingStageSnapshot,
@@ -88,6 +89,7 @@ import {
 import type { ViewerMode } from "../viewer";
 import { AnimationBar } from "./AnimationBar";
 import { emptyAssetMetadata, type AssetMetadata } from "./assetMetadata";
+import { LoadingScreen } from "./LoadingScreen";
 import { emptyAnimationState, type AnimationState } from "./animation";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
@@ -134,6 +136,12 @@ function updateRuntimePreview(
   const updater = context?.sourceObject?.userData.vrm;
   if (isRuntimePreviewUpdater(updater)) {
     updater.update(deltaSeconds);
+  }
+}
+
+function runCleanupCallbacks(callbacks: Array<() => void>) {
+  for (const cleanup of callbacks) {
+    cleanup();
   }
 }
 
@@ -759,6 +767,8 @@ export function AssetViewport({
   const [loadingStage, setLoadingStage] = useState<LoadingStageSnapshot | null>(
     null,
   );
+  const [deferredTexture, setDeferredTexture] =
+    useState<DeferredTextureSnapshot | null>(null);
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
   const shouldInitializeScene = currentFile !== null;
@@ -1568,6 +1578,7 @@ export function AssetViewport({
       sourceObject: null,
       previewObject: null,
       cleanupUrls: [],
+      cleanupCallbacks: [],
       mixer: null,
       clips: [],
       activeAction: null,
@@ -1599,6 +1610,8 @@ export function AssetViewport({
         handlePointerLockChange,
       );
       if (sceneContextRef.current) {
+        runCleanupCallbacks(sceneContextRef.current.cleanupCallbacks);
+        sceneContextRef.current.cleanupCallbacks = [];
         stopAnimations(sceneContextRef.current);
         resetSceneObjects(sceneContextRef.current);
       }
@@ -1825,6 +1838,8 @@ export function AssetViewport({
       return;
     }
 
+    runCleanupCallbacks(context.cleanupCallbacks);
+    context.cleanupCallbacks = [];
     stopAnimations(context);
     resetSceneObjects(context);
     revokeUrls(context.cleanupUrls);
@@ -1868,6 +1883,7 @@ export function AssetViewport({
       onFeedbackChange(neutralFeedback);
       onMetadataChange(emptyAssetMetadata);
       setLoadingStage(null);
+      setDeferredTexture(null);
       return;
     }
 
@@ -1899,6 +1915,7 @@ export function AssetViewport({
         canResetCamera: false,
       });
       setLoadingStage(null);
+      setDeferredTexture(null);
       return;
     }
 
@@ -1940,6 +1957,7 @@ export function AssetViewport({
       canResetCamera: false,
     });
     onMetadataChange(emptyAssetMetadata);
+    setDeferredTexture(null);
     reportLoadingStage("scan");
 
     loadPreviewObject(currentFile, context.renderer, {
@@ -1947,181 +1965,195 @@ export function AssetViewport({
       variantSelections,
       glbOverride: glbOverride ?? null,
       onStage: reportLoadingStage,
+      onDeferredTexture: (snapshot) => {
+        if (disposed) return;
+        setDeferredTexture(snapshot.pending > 0 ? snapshot : null);
+      },
     })
-      .then(({ object, cleanupUrls, clips, formatVersion }) => {
-        if (disposed) {
-          disposeObject(object);
-          revokeUrls(cleanupUrls);
-          return;
-        }
-
-        reportLoadingStage("scene");
-        context.scene.add(object);
-        context.mountedObject = object;
-        context.sourceObject = object;
-        context.cleanupUrls = cleanupUrls;
-        const normalization = normalizeObjectScale(object);
-        // Store the original (pre-normalization) dimension so camera sensitivity
-        // can reflect the asset's real world scale rather than the clamped size.
-        context.rawMaxDimension =
-          normalization.originalMaxDimension > 0
-            ? normalization.originalMaxDimension
-            : normalization.normalizedMaxDimension;
-        const gridConfig = applyDynamicGrid(
-          context.scene,
-          normalization.normalizedMaxDimension,
-          showGrid,
-        );
-        onGridUnitChange(gridConfig.label);
-        applyDynamicAxes(
-          context.scene,
-          normalization.normalizedMaxDimension,
-          showAxesRef.current,
-        );
-        applyDisplayMode(object, displayModeRef.current);
-        applyBackfaceCulling(object, backfaceCullingRef.current);
-        applyTextureFilter(object, textureFilterModeRef.current);
-        applyVertexColors(object, showVertexColorsRef.current);
-        applyShadows(
-          context.scene,
+      .then(
+        ({
           object,
-          keyLightRef.current,
-          showShadowsRef.current,
-        );
-        frameMountedObject(
-          context,
-          object,
-          viewerSurfaceModeRef.current,
-          showGridRef.current,
-          showAxesRef.current,
-          cameraSpeedMultiplierRef.current,
-          context.rawMaxDimension,
-          texturePreview3DRef.current,
-        );
-        setActivePreviewPath(currentFile.path);
-        setOverlayMode("ready");
-        reportLoadingStage("ui");
-        // Collect metadata before adding SkeletonHelper children so the
-        // bone helper meshes don't get counted as model meshes/nodes.
-        const metadataCollection = collectAssetMetadata(
-          object,
-          currentFile,
+          cleanupCallbacks = [],
+          cleanupUrls,
           clips,
           formatVersion,
-        );
-        context.textureRegistry = metadataCollection.textureRegistry;
-        onMetadataChange(metadataCollection.metadata);
-        applySkeletonHelpers(context.scene, object, showSkeletonRef.current);
-        applyBoundingBoxHelpers(
-          context.scene,
-          object,
-          showBoundingBoxesRef.current,
-        );
-        applyNormalHelpers(context.scene, object, showNormalsRef.current);
-        // #32: Apply purpose visibility immediately after mount so that
-        // proxy/guide meshes are hidden by default without waiting for the
-        // purposeModes prop to change (the useEffect won't re-fire because
-        // ref mutations are transparent to React's dependency tracking).
-        applyPurposeVisibility(object, purposeModesRef.current);
-
-        context.clips = clips;
-        if (clips.length > 0) {
-          context.mixer = new AnimationMixer(object);
-          const activated = activateClip(context, 0, true);
-          setAnimationState({
-            clipNames: clips.map(getClipLabel),
-            activeClipIndex: activated?.clipIndex ?? 0,
-            currentTime: activated?.currentTime ?? 0,
-            duration: activated?.duration ?? clips[0]?.duration ?? 0,
-            isPlaying: activated?.isPlaying ?? false,
-          });
-        } else {
-          setAnimationState(emptyAnimationState);
-        }
-
-        resetCameraRef.current = () => {
-          const targetContext = sceneContextRef.current;
-          const targetObject = targetContext?.mountedObject;
-
-          if (!targetContext || !targetObject) {
+        }) => {
+          if (disposed) {
+            runCleanupCallbacks(cleanupCallbacks);
+            disposeObject(object);
+            revokeUrls(cleanupUrls);
             return;
           }
 
+          reportLoadingStage("scene");
+          context.scene.add(object);
+          context.mountedObject = object;
+          context.sourceObject = object;
+          context.cleanupUrls = cleanupUrls;
+          context.cleanupCallbacks = cleanupCallbacks;
+          const normalization = normalizeObjectScale(object);
+          // Store the original (pre-normalization) dimension so camera sensitivity
+          // can reflect the asset's real world scale rather than the clamped size.
+          context.rawMaxDimension =
+            normalization.originalMaxDimension > 0
+              ? normalization.originalMaxDimension
+              : normalization.normalizedMaxDimension;
+          const gridConfig = applyDynamicGrid(
+            context.scene,
+            normalization.normalizedMaxDimension,
+            showGrid,
+          );
+          onGridUnitChange(gridConfig.label);
+          applyDynamicAxes(
+            context.scene,
+            normalization.normalizedMaxDimension,
+            showAxesRef.current,
+          );
+          applyDisplayMode(object, displayModeRef.current);
+          applyBackfaceCulling(object, backfaceCullingRef.current);
+          applyTextureFilter(object, textureFilterModeRef.current);
+          applyVertexColors(object, showVertexColorsRef.current);
+          applyShadows(
+            context.scene,
+            object,
+            keyLightRef.current,
+            showShadowsRef.current,
+          );
           frameMountedObject(
-            targetContext,
-            targetObject,
+            context,
+            object,
             viewerSurfaceModeRef.current,
             showGridRef.current,
             showAxesRef.current,
             cameraSpeedMultiplierRef.current,
-            targetContext.rawMaxDimension,
+            context.rawMaxDimension,
             texturePreview3DRef.current,
           );
-        };
+          setActivePreviewPath(currentFile.path);
+          setOverlayMode("ready");
+          reportLoadingStage("ui");
+          // Collect metadata before adding SkeletonHelper children so the
+          // bone helper meshes don't get counted as model meshes/nodes.
+          const metadataCollection = collectAssetMetadata(
+            object,
+            currentFile,
+            clips,
+            formatVersion,
+          );
+          context.textureRegistry = metadataCollection.textureRegistry;
+          onMetadataChange(metadataCollection.metadata);
+          applySkeletonHelpers(context.scene, object, showSkeletonRef.current);
+          applyBoundingBoxHelpers(
+            context.scene,
+            object,
+            showBoundingBoxesRef.current,
+          );
+          applyNormalHelpers(context.scene, object, showNormalsRef.current);
+          // #32: Apply purpose visibility immediately after mount so that
+          // proxy/guide meshes are hidden by default without waiting for the
+          // purposeModes prop to change (the useEffect won't re-fire because
+          // ref mutations are transparent to React's dependency tracking).
+          applyPurposeVisibility(object, purposeModesRef.current);
 
-        // #34: if a USD camera was already active (e.g. the scene was
-        // reloaded due to a variant / load-policy change), re-run the
-        // camera lookup now that the new object is in the scene.
-        // activeCameraRef was cleared by the file-change guard above, so
-        // the render loop is already back on the free camera; traversing
-        // here restores the override without waiting for another prop
-        // change (which would never come because activeCameraId did not
-        // change).
-        //
-        // After a real re-extraction Three.js mints fresh uuids, so we
-        // match by `cameraSelectionKey` (display-name + dup-index) — that
-        // key is computed from authored data and remains stable across
-        // reloads as long as the camera order in the scene graph does
-        // not change.
-        const desiredCameraId = activeCameraIdRef.current;
-        if (desiredCameraId) {
-          let reFound: Camera | null = null;
-          const reSeenCounts = new Map<string, number>();
-          context.scene.traverse((child) => {
-            if (reFound) return;
-            if (!(child instanceof Camera)) return;
-            const key = cameraSelectionKey(child, reSeenCounts);
-            if (key === desiredCameraId) {
-              reFound = child;
-            }
-          });
-          if (reFound) {
-            const reFoundCamera: Camera = reFound;
-            activeCameraRef.current = reFoundCamera;
-            context.controls.enabled = false;
-            const host2 = hostRef.current;
-            if (
-              host2 &&
-              host2.clientWidth > 0 &&
-              host2.clientHeight > 0 &&
-              reFoundCamera instanceof PerspectiveCamera
-            ) {
-              reFoundCamera.aspect = host2.clientWidth / host2.clientHeight;
-              reFoundCamera.updateProjectionMatrix();
-            }
+          context.clips = clips;
+          if (clips.length > 0) {
+            context.mixer = new AnimationMixer(object);
+            const activated = activateClip(context, 0, true);
+            setAnimationState({
+              clipNames: clips.map(getClipLabel),
+              activeClipIndex: activated?.clipIndex ?? 0,
+              currentTime: activated?.currentTime ?? 0,
+              duration: activated?.duration ?? clips[0]?.duration ?? 0,
+              isPlaying: activated?.isPlaying ?? false,
+            });
           } else {
-            // Camera not present in the reloaded asset (typical after a
-            // variant / load-policy change because Three.js mints fresh
-            // uuids on every load). Clear the stale id locally so fly
-            // mode (which checks `activeCameraIdRef`) becomes available
-            // again, and bubble the reset to App.tsx so the React state +
-            // UI ("Free Orbit"/"Active" badges) match the renderer.
-            console.warn(
-              `[viewer] USD camera id "${desiredCameraId}" not found after reload — free camera restored`,
-            );
-            activeCameraIdRef.current = null;
-            onActiveCameraResetRef.current?.();
+            setAnimationState(emptyAnimationState);
           }
-        }
 
-        onFeedbackChange({
-          mode: "ready",
-          message: `Preview ready: ${currentFile.fileName}`,
-          warning: getScaleWarning(object, normalization),
-          canResetCamera: true,
-        });
-        setLoadingStage(null);
-      })
+          resetCameraRef.current = () => {
+            const targetContext = sceneContextRef.current;
+            const targetObject = targetContext?.mountedObject;
+
+            if (!targetContext || !targetObject) {
+              return;
+            }
+
+            frameMountedObject(
+              targetContext,
+              targetObject,
+              viewerSurfaceModeRef.current,
+              showGridRef.current,
+              showAxesRef.current,
+              cameraSpeedMultiplierRef.current,
+              targetContext.rawMaxDimension,
+              texturePreview3DRef.current,
+            );
+          };
+
+          // #34: if a USD camera was already active (e.g. the scene was
+          // reloaded due to a variant / load-policy change), re-run the
+          // camera lookup now that the new object is in the scene.
+          // activeCameraRef was cleared by the file-change guard above, so
+          // the render loop is already back on the free camera; traversing
+          // here restores the override without waiting for another prop
+          // change (which would never come because activeCameraId did not
+          // change).
+          //
+          // After a real re-extraction Three.js mints fresh uuids, so we
+          // match by `cameraSelectionKey` (display-name + dup-index) — that
+          // key is computed from authored data and remains stable across
+          // reloads as long as the camera order in the scene graph does
+          // not change.
+          const desiredCameraId = activeCameraIdRef.current;
+          if (desiredCameraId) {
+            let reFound: Camera | null = null;
+            const reSeenCounts = new Map<string, number>();
+            context.scene.traverse((child) => {
+              if (reFound) return;
+              if (!(child instanceof Camera)) return;
+              const key = cameraSelectionKey(child, reSeenCounts);
+              if (key === desiredCameraId) {
+                reFound = child;
+              }
+            });
+            if (reFound) {
+              const reFoundCamera: Camera = reFound;
+              activeCameraRef.current = reFoundCamera;
+              context.controls.enabled = false;
+              const host2 = hostRef.current;
+              if (
+                host2 &&
+                host2.clientWidth > 0 &&
+                host2.clientHeight > 0 &&
+                reFoundCamera instanceof PerspectiveCamera
+              ) {
+                reFoundCamera.aspect = host2.clientWidth / host2.clientHeight;
+                reFoundCamera.updateProjectionMatrix();
+              }
+            } else {
+              // Camera not present in the reloaded asset (typical after a
+              // variant / load-policy change because Three.js mints fresh
+              // uuids on every load). Clear the stale id locally so fly
+              // mode (which checks `activeCameraIdRef`) becomes available
+              // again, and bubble the reset to App.tsx so the React state +
+              // UI ("Free Orbit"/"Active" badges) match the renderer.
+              console.warn(
+                `[viewer] USD camera id "${desiredCameraId}" not found after reload — free camera restored`,
+              );
+              activeCameraIdRef.current = null;
+              onActiveCameraResetRef.current?.();
+            }
+          }
+
+          onFeedbackChange({
+            mode: "ready",
+            message: `Preview ready: ${currentFile.fileName}`,
+            warning: getScaleWarning(object, normalization),
+            canResetCamera: true,
+          });
+          setLoadingStage(null);
+        },
+      )
       .catch((error: unknown) => {
         if (disposed) {
           return;
@@ -2165,11 +2197,15 @@ export function AssetViewport({
           canResetCamera: false,
         });
         setLoadingStage(null);
+        setDeferredTexture(null);
       });
 
     return () => {
       disposed = true;
       setLoadingStage(null);
+      setDeferredTexture(null);
+      runCleanupCallbacks(context.cleanupCallbacks);
+      context.cleanupCallbacks = [];
       stopAnimations(context);
       resetSceneObjects(context);
       revokeUrls(context.cleanupUrls);
@@ -2671,11 +2707,23 @@ export function AssetViewport({
           className={`viewport-overlay${effectiveOverlayMode === "empty" ? " is-empty" : ""}`}
         >
           <ViewerStatePanel
+            deferredTexture={deferredTexture}
             fileExtension={currentFile?.extension}
             fileName={currentFile?.fileName}
             loadingStage={loadingStage}
             mode={effectiveOverlayMode}
             onOpenFile={onOpenFile}
+          />
+        </div>
+      ) : null}
+      {effectiveOverlayMode === "ready" &&
+      viewerSurfaceMode === "asset" &&
+      deferredTexture ? (
+        <div className="viewport-deferred-console">
+          <LoadingScreen
+            compact
+            deferredTexture={deferredTexture}
+            fileName={currentFile?.fileName}
           />
         </div>
       ) : null}

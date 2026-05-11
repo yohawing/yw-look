@@ -125,6 +125,12 @@
     rgba(1, 1, 2, 0.22);
 }
 
+.loader-root.is-compact {
+  position: static;
+  display: block;
+  background: transparent;
+}
+
 .loader-console {
   width: min(430px, calc(100vw - 96px));
   overflow: hidden;
@@ -138,6 +144,23 @@
     0 1px 0 rgba(255, 255, 255, 0.05) inset,
     0 24px 58px rgba(0, 0, 0, 0.46);
   backdrop-filter: blur(18px) saturate(132%);
+}
+
+.loader-root.is-compact .loader-console {
+  width: 100%;
+  background: rgba(15, 16, 17, 0.78);
+}
+
+.loader-root.is-compact .loader-console-topbar {
+  height: 24px;
+}
+
+.loader-root.is-compact .loader-console-head {
+  padding-top: 10px;
+}
+
+.loader-root.is-compact .loader-console-lines {
+  margin-top: 10px;
 }
 
 .loader-console-topbar {

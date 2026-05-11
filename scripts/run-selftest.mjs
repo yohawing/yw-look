@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 
-const url = process.argv[2] ?? "http://127.0.0.1:1420/selftest.html";
+const url = process.argv[2] ?? "http://127.0.0.1:1420/?entry=selftest";
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();

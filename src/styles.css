@@ -539,6 +539,15 @@ body.is-resizing-sidebar {
   );
 }
 
+.viewport-deferred-console {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 11;
+  width: min(360px, calc(100vw - 96px));
+  pointer-events: none;
+}
+
 .drop-overlay {
   inset: 0;
   display: grid;
@@ -1621,6 +1630,57 @@ body.is-resizing-sidebar {
   border: 1px solid rgba(255, 255, 255, 0.12);
   margin-right: 4px;
   vertical-align: middle;
+}
+
+/* ── Object Inspector ── (#80) */
+
+.oi-material-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.oi-material-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.oi-material-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.oi-material-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e4e7ed;
+}
+
+.oi-material-type {
+  font-size: 10px;
+  color: #858da0;
+  font-family: var(--font-mono);
+}
+
+.oi-material-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-left: 16px;
+}
+
+.oi-material-detail {
+  font-size: 10px;
+  color: #a8b0bf;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 /* ── USD Source ── (#39) */

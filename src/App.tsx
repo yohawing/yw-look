@@ -34,6 +34,7 @@ import {
   buildStatusRightItems,
 } from "./components/appStatusItems";
 import { CurrentFileCard } from "./components/CurrentFileCard";
+import { ObjectInspectorCard } from "./components/ObjectInspectorCard";
 import {
   debugPanelDirectoryListing,
   debugPanelFile,
@@ -1936,6 +1937,17 @@ export function App() {
               currentFile={sidebarCurrentFile}
               metadata={sidebarAssetMetadata}
             />
+            {sidebarAssetMetadata &&
+              !isUsdFile(currentFile) &&
+              selectedMeshName && (
+                <ObjectInspectorCard
+                  selectedKey={selectedMeshName}
+                  objectInfo={
+                    sidebarAssetMetadata.objectInfo[selectedMeshName] ?? null
+                  }
+                  metadata={sidebarAssetMetadata}
+                />
+              )}
             {isTauri && isUsdFile(currentFile) && (
               <>
                 <UsdInspectorCard
