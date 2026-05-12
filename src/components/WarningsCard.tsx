@@ -9,8 +9,8 @@ export function WarningsCard({ warnings }: WarningsCardProps) {
     <SidebarSection title="Warnings" count={warnings.length}>
       {warnings.length > 0 ? (
         <ul className="warning-list">
-          {warnings.map((warning) => (
-            <li key={warning} className="warning-item">
+          {warnings.map((warning, index) => (
+            <li key={`${warning}:${index}`} className="warning-item">
               <svg
                 viewBox="0 0 16 16"
                 fill="none"

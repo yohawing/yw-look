@@ -177,6 +177,15 @@ function formatAssetIssue(issue: AssetIssue): string {
   return `${prefix}: ${issue.message}${context}`;
 }
 
+function splitViewerWarnings(warning: string | null): string[] {
+  return (
+    warning
+      ?.split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean) ?? []
+  );
+}
+
 const initialViewerFeedback: ViewerFeedback = {
   mode: "empty",
   message: "Open a supported asset to initialize the preview scene.",
@@ -569,12 +578,14 @@ export function App() {
     directoryListing !== null &&
     directoryListing.currentIndex !== null &&
     directoryListing.currentIndex < directoryListing.files.length - 1;
+  const viewerWarningLines = useMemo(
+    () => splitViewerWarnings(viewerFeedback.warning),
+    [viewerFeedback.warning],
+  );
   const warnings = useMemo(() => {
     const nextWarnings: string[] = [];
 
-    if (viewerFeedback.warning) {
-      nextWarnings.push(viewerFeedback.warning);
-    }
+    nextWarnings.push(...viewerWarningLines);
 
     for (const texture of assetMetadata?.textures ?? []) {
       if (texture.sourceKind === "unresolved") {
@@ -594,7 +605,7 @@ export function App() {
     }
 
     return nextWarnings;
-  }, [assetMetadata?.textures, usdIssues, viewerFeedback.warning]);
+  }, [assetMetadata?.textures, usdIssues, viewerWarningLines]);
   const sidebarWarnings = debugPanelsEnabled ? debugPanelWarnings : warnings;
   const diagnosticCounts = useMemo(() => {
     if (debugPanelsEnabled) {
@@ -620,7 +631,7 @@ export function App() {
       assetMetadata?.textures.filter(
         (texture) => texture.sourceKind === "unresolved",
       ).length ?? 0;
-    const viewerWarningCount = viewerFeedback.warning ? 1 : 0;
+    const viewerWarningCount = viewerWarningLines.length;
     const errorCount = loadErrorCount + usdErrorCount;
     const warningCount =
       usdWarningCount + unresolvedTextureCount + viewerWarningCount;
@@ -634,8 +645,8 @@ export function App() {
     assetMetadata?.textures,
     debugPanelsEnabled,
     usdIssues,
+    viewerWarningLines,
     viewerFeedback.mode,
-    viewerFeedback.warning,
   ]);
   const shortcutLines = useMemo(
     () => [
