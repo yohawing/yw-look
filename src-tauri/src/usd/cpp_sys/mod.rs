@@ -315,6 +315,25 @@ impl CStage {
         Ok(out)
     }
 
+    pub fn traverse_instance_proxies(&self) -> Result<Vec<String>, CError> {
+        let mut out = Vec::<String>::new();
+        let mut err: *mut UsdcError = std::ptr::null_mut();
+        let ok = unsafe {
+            usdc_stage_traverse_instance_proxies(
+                self.raw,
+                Some(string_trampoline),
+                &mut out as *mut Vec<String> as *mut c_void,
+                &mut err,
+            )
+        };
+        status_result(
+            ok,
+            err,
+            "usdc_stage_traverse_instance_proxies failed without an error",
+        )?;
+        Ok(out)
+    }
+
     pub fn layer_identifiers(&self) -> Result<Vec<String>, CError> {
         let mut out = Vec::<String>::new();
         let mut err: *mut UsdcError = std::ptr::null_mut();

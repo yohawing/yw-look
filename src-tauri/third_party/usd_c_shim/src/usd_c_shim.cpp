@@ -525,6 +525,29 @@ extern "C" USDC_API int usdc_stage_traverse(UsdcStage *stage,
     });
 }
 
+extern "C" USDC_API int usdc_stage_traverse_instance_proxies(
+    UsdcStage *stage,
+    UsdcStringCallback cb,
+    void *user,
+    UsdcError **out_err) {
+    if (out_err) *out_err = nullptr;
+    if (!stage || !stage->stage) {
+        if (out_err) *out_err = make_err("usdc_stage_traverse_instance_proxies: stage is null");
+        return 0;
+    }
+    if (!cb) {
+        if (out_err) *out_err = make_err("usdc_stage_traverse_instance_proxies: callback is null");
+        return 0;
+    }
+    return run_status("usdc_stage_traverse_instance_proxies", out_err, [&] {
+        for (const UsdPrim &prim :
+             UsdPrimRange::Stage(stage->stage, UsdTraverseInstanceProxies())) {
+            const std::string s = prim.GetPath().GetAsString();
+            cb(s.c_str(), user);
+        }
+    });
+}
+
 extern "C" USDC_API int usdc_stage_layer_identifiers(UsdcStage *stage,
                                                      UsdcStringCallback cb,
                                                      void *user,

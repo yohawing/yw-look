@@ -166,6 +166,15 @@ USDC_API int usdc_stage_traverse(UsdcStage *stage,
                                  void *user,
                                  UsdcError **out_err);
 
+/* Walks every prim in the composed stage, including USD native instance
+ * proxy prims. This is required for scenes whose visible geometry only
+ * appears through `instanceable = true` references while the prototype
+ * definitions themselves are hidden. */
+USDC_API int usdc_stage_traverse_instance_proxies(UsdcStage *stage,
+                                                  UsdcStringCallback cb,
+                                                  void *user,
+                                                  UsdcError **out_err);
+
 /* Calls `cb` once per composed layer identifier. */
 USDC_API int usdc_stage_layer_identifiers(UsdcStage *stage,
                                           UsdcStringCallback cb,

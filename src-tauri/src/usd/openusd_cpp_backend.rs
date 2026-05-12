@@ -857,7 +857,7 @@ fn extract_from_stage_with_options(
     // frontend's purposeModes default (render=true, proxy=false,
     // guide=false) hides them by default, so any over-inclusion is not
     // user-visible at startup.
-    let all_prims_a = stage.traverse().map_err(map_c_error)?;
+    let all_prims_a = stage.traverse_instance_proxies().map_err(map_c_error)?;
     let mut mesh_paths: Vec<String> = all_prims_a
         .into_iter()
         .filter(|p| stage.prim_is_renderable_mesh(p))
@@ -872,7 +872,7 @@ fn extract_from_stage_with_options(
     // repeated here, so a proxy/guide mesh under an invisible imageable
     // will still be extracted. Both gaps require C-shim or USD API changes
     // to fix properly and are deferred.
-    let all_prims_b = stage.traverse().map_err(map_c_error)?;
+    let all_prims_b = stage.traverse_instance_proxies().map_err(map_c_error)?;
     let extra_paths: Vec<String> = all_prims_b
         .into_iter()
         .filter(|p| {
