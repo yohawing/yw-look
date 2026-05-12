@@ -511,6 +511,42 @@ body.is-resizing-sidebar {
   background: rgba(255, 255, 255, 0.14);
 }
 
+/* ── Cancel Scale Normalize Button (#91) ── */
+
+.cancel-scale-normalize-button {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: rgba(113, 112, 255, 0.14);
+  border: 1px solid rgba(113, 112, 255, 0.3);
+  color: #7170ff;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.cancel-scale-normalize-button:hover {
+  background: rgba(113, 112, 255, 0.24);
+  border-color: rgba(113, 112, 255, 0.5);
+  color: #8f8fff;
+}
+
+.cancel-scale-normalize-button svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 /* ── Viewport Overlays ── */
 
 .viewport-overlay,

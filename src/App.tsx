@@ -320,6 +320,12 @@ export function App() {
   const [openError, setOpenError] = useState<string | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const [resetVersion, setResetVersion] = useState(0);
+  const [scaleNormalization, setScaleNormalization] = useState<{
+    applied: boolean;
+    factor: number;
+  } | null>(null);
+  const [cancelScaleNormalizeVersion, setCancelScaleNormalizeVersion] =
+    useState(0);
   const [viewportShortcutCommand, setViewportShortcutCommand] =
     useState<ViewportShortcutCommand | null>(null);
   const [settingsPayload, setSettingsPayload] =
@@ -2466,6 +2472,8 @@ export function App() {
             activeCameraId={activeCameraId}
             onActiveCameraReset={() => setActiveCameraId(null)}
             glbOverride={sessionGlbBuffer}
+            onScaleNormalizationChange={setScaleNormalization}
+            cancelScaleNormalizationVersion={cancelScaleNormalizeVersion}
           />
 
           <ViewportControls
@@ -2473,6 +2481,39 @@ export function App() {
             onToggleOpen={() => setViewportPanelOpen((v) => !v)}
             items={viewportToolbarItems}
           />
+          {/* #91: Cancel Scale Normalize — appears when auto-scale was applied */}
+          {scaleNormalization?.applied && (
+            <button
+              className="cancel-scale-normalize-button"
+              onClick={() => setCancelScaleNormalizeVersion((v) => v + 1)}
+              type="button"
+              title="Revert the auto-applied scale normalization to the original size"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M3 5.5L1 3.5L3 1.5"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M1 3.5h9a3 3 0 010 6H8"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Cancel Scale Normalize
+            </button>
+          )}
           {/* InfoPanel toggle button */}
           <button
             className={`info-panel-toggle${sidebarOpen ? " is-active" : ""}`}

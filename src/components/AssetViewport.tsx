@@ -59,6 +59,7 @@ import {
   applyPresetView,
   applyControlsSensitivity,
   normalizeObjectScale,
+  cancelScaleNormalization,
   applyDynamicGrid,
   applyDynamicAxes,
   applyTextureView,
@@ -488,6 +489,19 @@ type AssetViewportProps = {
    * Setting to `null` or omitting reverts to the normal file-based path.
    */
   glbOverride?: ArrayBuffer | null;
+  /**
+   * #91: Called when scale normalization is applied or reverted.
+   * Parent can use this to show/hide the "Cancel Scale Normalize" button.
+   */
+  onScaleNormalizationChange?: (
+    normalization: { applied: boolean; factor: number } | null,
+  ) => void;
+  /**
+   * #91: Version counter. When incremented, the viewport cancels
+   * (reverts) the current scale normalization and resets the object
+   * to its original size. Follows the same pattern as resetVersion.
+   */
+  cancelScaleNormalizationVersion?: number;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -695,6 +709,8 @@ export function AssetViewport({
   activeCameraId = null,
   onActiveCameraReset,
   glbOverride = null,
+  onScaleNormalizationChange,
+  cancelScaleNormalizationVersion = 0,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -726,6 +742,10 @@ export function AssetViewport({
   const fxaaEnabledRef = useRef(fxaaEnabled);
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
+  const scaleNormalizationRef = useRef<{
+    applied: boolean;
+    originalScale: import("three").Vector3;
+  } | null>(null);
   const environmentTargetRef = useRef<WebGLRenderTarget | null>(null);
   const environmentTargetsRef = useRef<Map<
     EnvironmentPreset,
@@ -1995,6 +2015,18 @@ export function AssetViewport({
           context.cleanupUrls = cleanupUrls;
           context.cleanupCallbacks = cleanupCallbacks;
           const normalization = normalizeObjectScale(object);
+          if (normalization.applied && normalization.originalScale) {
+            scaleNormalizationRef.current = {
+              applied: true,
+              originalScale: normalization.originalScale,
+            };
+          } else {
+            scaleNormalizationRef.current = null;
+          }
+          onScaleNormalizationChange?.({
+            applied: normalization.applied,
+            factor: normalization.factor,
+          });
           // Store the original (pre-normalization) dimension so camera sensitivity
           // can reflect the asset's real world scale rather than the clamped size.
           context.rawMaxDimension =
@@ -2220,6 +2252,7 @@ export function AssetViewport({
     onUsdError,
     onGridUnitChange,
     onMetadataChange,
+    onScaleNormalizationChange,
     showGrid,
     usdLoadPolicy,
     variantSelections,
@@ -2467,6 +2500,27 @@ export function AssetViewport({
   useEffect(() => {
     resetCameraRef.current?.();
   }, [resetVersion]);
+
+  useEffect(() => {
+    if (cancelScaleNormalizationVersion === 0) return;
+    const context = sceneContextRef.current;
+    const object = context?.mountedObject ?? null;
+    const info = scaleNormalizationRef.current;
+    if (!object || !info?.applied) return;
+    cancelScaleNormalization(object, info.originalScale);
+    scaleNormalizationRef.current = null;
+    onScaleNormalizationChange?.({ applied: false, factor: 1 });
+    onFeedbackChange({
+      mode: "ready",
+      message: `Scale normalization canceled.`,
+      warning: null,
+      canResetCamera: true,
+    });
+  }, [
+    cancelScaleNormalizationVersion,
+    onScaleNormalizationChange,
+    onFeedbackChange,
+  ]);
 
   useEffect(() => {
     if (!viewportShortcutCommand) {

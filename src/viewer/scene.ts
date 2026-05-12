@@ -66,6 +66,7 @@ export type ScaleNormalizationResult = {
   factor: number;
   originalMaxDimension: number;
   normalizedMaxDimension: number;
+  originalScale: Vector3 | null;
 };
 
 // Grid density presets tuned for inspection workflows:
@@ -368,17 +369,44 @@ export function normalizeObjectScale(
       factor: 1,
       originalMaxDimension: 0,
       normalizedMaxDimension: 0,
+      originalScale: null,
     };
   }
 
+  // Only normalize when the object is outside the acceptable viewing range.
+  if (
+    originalMaxDimension >= MIN_NORMALIZED_DIMENSION &&
+    originalMaxDimension <= MAX_NORMALIZED_DIMENSION
+  ) {
+    return {
+      applied: false,
+      factor: 1,
+      originalMaxDimension,
+      normalizedMaxDimension: originalMaxDimension,
+      originalScale: null,
+    };
+  }
+
+  // Pick a power-of-10 scale factor that brings the object into
+  // [MIN, MAX].  This way the factor itself is always 10ⁿ, making
+  // it immediately obvious how much the scale was adjusted.
   let factor = 1;
   if (originalMaxDimension < MIN_NORMALIZED_DIMENSION) {
-    factor = MIN_NORMALIZED_DIMENSION / originalMaxDimension;
-  } else if (originalMaxDimension > MAX_NORMALIZED_DIMENSION) {
-    factor = MAX_NORMALIZED_DIMENSION / originalMaxDimension;
+    const targetPower = Math.ceil(
+      Math.log10(MIN_NORMALIZED_DIMENSION / originalMaxDimension),
+    );
+    factor = Math.pow(10, targetPower);
+  } else {
+    const targetPower = Math.floor(
+      Math.log10(MAX_NORMALIZED_DIMENSION / originalMaxDimension),
+    );
+    factor = Math.pow(10, targetPower);
   }
 
   const applied = Math.abs(factor - 1) > SCALE_EPSILON;
+
+  const originalScale = applied ? object.scale.clone() : null;
+
   if (applied) {
     object.scale.multiplyScalar(factor);
     object.updateMatrixWorld(true);
@@ -388,8 +416,19 @@ export function normalizeObjectScale(
     applied,
     factor,
     originalMaxDimension,
-    normalizedMaxDimension: getObjectMaxDimension(object),
+    normalizedMaxDimension: applied
+      ? getObjectMaxDimension(object)
+      : originalMaxDimension,
+    originalScale,
   };
+}
+
+export function cancelScaleNormalization(
+  object: Group | Mesh,
+  originalScale: Vector3,
+): void {
+  object.scale.copy(originalScale);
+  object.updateMatrixWorld(true);
 }
 
 export function getGridConfig(maxDimension: number): GridConfig {
@@ -472,9 +511,17 @@ export function applyDynamicAxes(
   return axes;
 }
 
-function formatScaleFactor(factor: number) {
+export function formatScaleFactor(factor: number) {
   if (!Number.isFinite(factor) || factor === 0) {
     return "0";
+  }
+
+  const log10 = Math.log10(Math.abs(factor));
+  const isExactPower = Math.abs(log10 - Math.round(log10)) < 1e-9;
+  if (isExactPower) {
+    const exp = Math.round(log10);
+    if (exp >= 0) return String(Math.pow(10, exp));
+    return factor.toFixed(Math.abs(exp));
   }
 
   const magnitude = Math.abs(factor);
@@ -482,7 +529,7 @@ function formatScaleFactor(factor: number) {
     return factor.toExponential(4);
   }
 
-  return factor.toFixed(4);
+  return factor.toPrecision(4);
 }
 
 export function getScaleWarning(
@@ -490,7 +537,7 @@ export function getScaleWarning(
   normalized: ScaleNormalizationResult | null = null,
 ) {
   if (normalized?.applied) {
-    return `Scale normalized automatically (x${formatScaleFactor(normalized.factor)}).`;
+    return `Scale normalized (${formatScaleFactor(normalized.factor)}×). Click "Cancel Scale Normalize" to revert.`;
   }
 
   const maxDimension = getObjectMaxDimension(object);

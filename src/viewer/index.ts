@@ -33,6 +33,8 @@ export {
   computeAutoSensitivity,
   getObjectMaxDimension,
   normalizeObjectScale,
+  cancelScaleNormalization,
+  formatScaleFactor,
   applyDynamicGrid,
   applyDynamicAxes,
   applyTextureView,
