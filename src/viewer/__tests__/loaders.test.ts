@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { BufferGeometry, Mesh, MeshStandardMaterial, Texture } from "three";
 import {
   getMimeType,
   listRegisteredLoaders,
@@ -16,7 +17,9 @@ import {
   readUsdzFirstFileName,
   shouldFailClosedOnUsdPreviewDecisionFailure,
   applyMissingGltfTextureFallbacks,
+  applyMissingTextureMaterialFallback,
   formatMissingTextureWarnings,
+  registerFbxTextureMaterialFallbacks,
   resolveColladaTextureUrl,
   type GltfDocument,
 } from "../loaders";
@@ -320,6 +323,28 @@ describe("missing texture fallback", () => {
         missingPaths,
       ),
     ).toBe("textures/untracked.png");
+  });
+
+  it("removes failed FBX texture slots from registered materials", () => {
+    const texture = new Texture();
+    const material = new MeshStandardMaterial({
+      map: texture,
+      normalMap: texture,
+      bumpMap: texture,
+      metalness: 1,
+      roughness: 0.1,
+    });
+    const mesh = new Mesh(new BufferGeometry(), material);
+
+    registerFbxTextureMaterialFallbacks(mesh);
+    applyMissingTextureMaterialFallback(texture);
+
+    expect(material.map).toBeNull();
+    expect(material.normalMap).toBeNull();
+    expect(material.bumpMap).toBeNull();
+    expect(material.color.getHexString()).toBe("c7d2e3");
+    expect(material.metalness).toBe(0.08);
+    expect(material.roughness).toBe(0.72);
   });
 
   it("formats missing texture warnings with a bounded path list", () => {

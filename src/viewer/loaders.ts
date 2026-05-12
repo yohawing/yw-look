@@ -1,4 +1,5 @@
 import {
+  Color,
   CompressedTexture,
   DataTexture,
   Group,
@@ -277,6 +278,42 @@ function createPendingCompressedTexture() {
   return new PendingCompressedTexture();
 }
 
+function createFallbackTexture(name: string) {
+  const texture = new DataTexture(new Uint8Array([199, 210, 227, 255]), 1, 1);
+  texture.name = filenameFromUrl(name);
+  texture.colorSpace = SRGBColorSpace;
+  texture.needsUpdate = true;
+  texture.userData.textureSourceKind = "unresolved";
+  return texture;
+}
+
+function copyTextureInto(target: Texture, source: Texture) {
+  target.image = source.image;
+  target.mipmaps = source.mipmaps;
+  target.mapping = source.mapping;
+  target.channel = source.channel;
+  target.wrapS = source.wrapS;
+  target.wrapT = source.wrapT;
+  target.magFilter = source.magFilter;
+  target.minFilter = source.minFilter;
+  target.anisotropy = source.anisotropy;
+  target.format = source.format;
+  target.internalFormat = source.internalFormat;
+  target.type = source.type;
+  target.offset.copy(source.offset);
+  target.repeat.copy(source.repeat);
+  target.center.copy(source.center);
+  target.rotation = source.rotation;
+  target.matrix.copy(source.matrix);
+  target.matrixAutoUpdate = source.matrixAutoUpdate;
+  target.generateMipmaps = source.generateMipmaps;
+  target.premultiplyAlpha = source.premultiplyAlpha;
+  target.flipY = source.flipY;
+  target.unpackAlignment = source.unpackAlignment;
+  target.colorSpace = source.colorSpace;
+  target.needsUpdate = true;
+}
+
 function enableFbxMaterialTransparency(
   material: Material,
   mode: "blend" | "cutout" = "cutout",
@@ -346,6 +383,68 @@ function registerFbxTextureTransparency(object: Object3D) {
   });
 }
 
+const fbxTextureMaterialTargets = new WeakMap<Texture, Set<Material>>();
+function applyMissingTextureMaterialFallback(texture: Texture) {
+  texture.userData.fbxMissingTexture = true;
+  const targets = fbxTextureMaterialTargets.get(texture);
+  if (!targets) {
+    return;
+  }
+
+  for (const material of targets) {
+    const texturedMaterial = material as unknown as Record<string, unknown>;
+    for (const [key, value] of Object.entries(texturedMaterial)) {
+      if (value === texture) {
+        texturedMaterial[key] = null;
+      }
+    }
+    if ("color" in material && material.color instanceof Color) {
+      material.color.set("#c7d2e3");
+    }
+    if ("metalness" in material && typeof material.metalness === "number") {
+      material.metalness = 0.08;
+    }
+    if ("roughness" in material && typeof material.roughness === "number") {
+      material.roughness = 0.72;
+    }
+    material.needsUpdate = true;
+  }
+}
+
+function registerFbxTextureMaterialFallbacks(object: Object3D) {
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    const materials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+
+    for (const material of materials) {
+      for (const value of Object.values(
+        material as unknown as Record<string, unknown>,
+      )) {
+        const texture = value as Texture | null;
+        if (!texture?.isTexture) {
+          continue;
+        }
+
+        let targets = fbxTextureMaterialTargets.get(texture);
+        if (!targets) {
+          targets = new Set<Material>();
+          fbxTextureMaterialTargets.set(texture, targets);
+        }
+        targets.add(material);
+
+        if (texture.userData.fbxMissingTexture) {
+          applyMissingTextureMaterialFallback(texture);
+        }
+      }
+    }
+  });
+}
+
 function flipFbxDdsTextureV(object: Object3D) {
   object.traverse((child) => {
     if (!(child instanceof Mesh)) {
@@ -389,6 +488,7 @@ function flipFbxDdsTextureV(object: Object3D) {
 async function createFbxLoadingManager(
   file: SelectedFile,
   onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void,
+  onWarning?: (warning: string) => void,
 ) {
   const [{ DDSLoader }, { TGALoader }] = await Promise.all([
     import("three/examples/jsm/loaders/DDSLoader.js"),
@@ -410,6 +510,19 @@ async function createFbxLoadingManager(
     bytes: 0,
     readMs: 0,
     parseMs: 0,
+  };
+  const reportedMissingTextures = new Set<string>();
+
+  const reportMissingTexture = (url: string, texture?: Texture) => {
+    const label = stripUrlSuffix(url);
+    if (texture) {
+      applyMissingTextureMaterialFallback(texture);
+    }
+    if (reportedMissingTextures.has(label)) {
+      return;
+    }
+    reportedMissingTextures.add(label);
+    onWarning?.(formatMissingTextureWarnings([label])[0]);
   };
 
   const reportDeferredTexture = () => {
@@ -556,12 +669,7 @@ async function createFbxLoadingManager(
       super(manager);
     }
 
-    override load(
-      url: string,
-      onLoad?: (texture: Texture) => void,
-      onProgress?: (event: ProgressEvent) => void,
-      onError?: (error: unknown) => void,
-    ) {
+    override load(url: string, onLoad?: (texture: Texture) => void) {
       const resourceUrl = `${this.path ?? ""}${url}`;
       const isLikelyNormalMap = /(^|[_\-.])(?:normal|nrm|n)([_\-.]|$)/i.test(
         filenameFromUrl(resourceUrl),
@@ -672,7 +780,7 @@ async function createFbxLoadingManager(
               url: resourceUrl,
               error,
             });
-            onError?.(error);
+            reportMissingTexture(resourceUrl, texture);
             trackTextureFailed();
           })
           .finally(() => manager.itemEnd(resourceUrl));
@@ -694,12 +802,7 @@ async function createFbxLoadingManager(
       super(manager);
     }
 
-    override load(
-      url: string,
-      onLoad?: (texture: DataTexture) => void,
-      onProgress?: (event: ProgressEvent) => void,
-      onError?: (error: unknown) => void,
-    ) {
+    override load(url: string, onLoad?: (texture: DataTexture) => void) {
       const texture = new DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
       const resourceUrl = `${this.path ?? ""}${url}`;
       const textureLabel = filenameFromUrl(resourceUrl);
@@ -792,7 +895,70 @@ async function createFbxLoadingManager(
             url: resourceUrl,
             error,
           });
-          onError?.(error);
+          reportMissingTexture(resourceUrl, texture);
+          trackTextureFailed();
+        })
+        .finally(() => manager.itemEnd(resourceUrl));
+
+      return texture;
+    }
+  }
+
+  class LocalImageLoader extends ThreeLoader<Texture> {
+    constructor() {
+      super(manager);
+    }
+
+    override load(url: string, onLoad?: (texture: Texture) => void) {
+      const resourceUrl = `${this.path ?? ""}${url}`;
+      const textureLabel = filenameFromUrl(resourceUrl);
+      const texture = createFallbackTexture(resourceUrl);
+      texture.userData.fbxSourceName = textureLabel;
+
+      trackTextureStart(textureLabel);
+      trackTextureActive(textureLabel);
+      manager.itemStart(resourceUrl);
+
+      readResolvedTextureBuffer(resourceUrl)
+        .then(({ buffer, path }) => {
+          if (cancelled) {
+            return;
+          }
+          const extension = path.split(".").pop()?.toLowerCase() ?? "bin";
+          const objectUrl = URL.createObjectURL(
+            new Blob([buffer], { type: getMimeType(extension) }),
+          );
+          return new TextureLoader()
+            .loadAsync(objectUrl)
+            .then((loadedTexture) => {
+              URL.revokeObjectURL(objectUrl);
+              if (cancelled) {
+                return;
+              }
+              copyTextureInto(texture, loadedTexture);
+              loadedTexture.dispose();
+              texture.name = textureLabel;
+              texture.userData.fbxSourceName = textureLabel;
+              texture.userData.textureSourceKind = "external";
+              onLoad?.(texture);
+              trackTextureDone();
+            })
+            .catch((error: unknown) => {
+              URL.revokeObjectURL(objectUrl);
+              throw error;
+            });
+        })
+        .catch((error: unknown) => {
+          if (cancelled) {
+            return;
+          }
+          manager.itemError(resourceUrl);
+          console.warn("[fbx] Failed to load texture; using fallback:", {
+            url: resourceUrl,
+            error,
+          });
+          reportMissingTexture(resourceUrl, texture);
+          onLoad?.(texture);
           trackTextureFailed();
         })
         .finally(() => manager.itemEnd(resourceUrl));
@@ -803,6 +969,7 @@ async function createFbxLoadingManager(
 
   manager.addHandler(/\.dds$/i, new LocalDdsLoader());
   manager.addHandler(/\.tga$/i, new LocalTgaLoader());
+  manager.addHandler(/\.(?:png|jpe?g|webp|bmp|gif)$/i, new LocalImageLoader());
   const cleanup = () => {
     cancelled = true;
     deferredTextureQueue.length = 0;
@@ -1351,6 +1518,8 @@ export {
   applyMissingGltfTextureFallbacks,
   formatMissingTextureWarnings,
   resolveColladaTextureUrl,
+  applyMissingTextureMaterialFallback,
+  registerFbxTextureMaterialFallbacks,
 };
 
 async function loadPreviewObjectCore(
@@ -1371,6 +1540,8 @@ async function loadPreviewObjectCore(
     onStage?: LoadingStageReporter;
     /** Reports non-blocking texture work that continues after the scene mounts. */
     onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void;
+    /** Reports non-fatal loader warnings, including async texture fallback. */
+    onWarning?: (warning: string) => void;
   } = {},
 ): Promise<LoadedPreview> {
   const reportStage = options.onStage ?? (() => undefined);
@@ -1413,7 +1584,11 @@ async function loadPreviewObjectCore(
       const buffer = await readArrayBuffer(file.path);
       const readMs = performance.now() - readStartedAt;
       const { manager, cleanupCallbacks, cleanupUrls } =
-        await createFbxLoadingManager(file, options.onDeferredTexture);
+        await createFbxLoadingManager(
+          file,
+          options.onDeferredTexture,
+          options.onWarning,
+        );
       reportStage("scene");
       await yieldToPaint();
       const parseStartedAt = performance.now();
@@ -1423,6 +1598,7 @@ async function loadPreviewObjectCore(
       );
       const parseMs = performance.now() - parseStartedAt;
       flipFbxDdsTextureV(object);
+      registerFbxTextureMaterialFallbacks(object);
       registerFbxTextureTransparency(object);
       console.info("[fbx] timing", {
         file: file.fileName,
@@ -1997,6 +2173,7 @@ loaderRegistry.register({
       glbOverride: context.glbOverride,
       onStage: context.onStage,
       onDeferredTexture: context.onDeferredTexture,
+      onWarning: context.onWarning,
     }),
 });
 

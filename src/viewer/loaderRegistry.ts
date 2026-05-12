@@ -13,6 +13,7 @@ export type LoaderContext = {
   glbOverride?: ArrayBuffer | null;
   onStage?: LoadingStageReporter;
   onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void;
+  onWarning?: (warning: string) => void;
 };
 
 export type LoaderPlugin = {
