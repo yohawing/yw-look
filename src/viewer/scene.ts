@@ -14,6 +14,7 @@ import {
   Material,
   MathUtils,
   Mesh,
+  MeshBasicMaterial,
   type MinificationTextureFilter,
   NearestFilter,
   NearestMipMapNearestFilter,
@@ -964,6 +965,72 @@ export function applyDisplayMode(
       }
 
       material.needsUpdate = true;
+    }
+  });
+}
+
+const UNLIT_ORIGINAL_KEY = "_ywUnlitOriginal";
+
+export function applyUnlitMaterial(
+  object: Group | Mesh | null,
+  enabled: boolean,
+) {
+  if (!object) return;
+
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof Mesh)) return;
+    if (child.material instanceof ShadowMaterial) return;
+
+    if (enabled) {
+      if (child.userData[UNLIT_ORIGINAL_KEY] !== undefined) return;
+
+      const materials = getMaterials(child.material);
+      const unlitMaterials: MeshBasicMaterial[] = [];
+
+      for (const mat of materials) {
+        const unlit = new MeshBasicMaterial();
+
+        // Restore the original texture even if applyDisplayMode nulled
+        // the current map (e.g. during "untextured" mode).
+        const originalMap =
+          mat.userData.originalMap instanceof Texture
+            ? mat.userData.originalMap
+            : null;
+        const effectiveMap = originalMap ?? ("map" in mat ? mat.map : null);
+        if (effectiveMap) {
+          unlit.map = effectiveMap;
+        }
+
+        if ("color" in mat && mat.color) {
+          unlit.color.copy(mat.color);
+        }
+        unlit.transparent = mat.transparent;
+        unlit.opacity = mat.opacity;
+        unlit.alphaTest = mat.alphaTest;
+        unlit.side = mat.side;
+        unlit.depthWrite = mat.depthWrite;
+        unlit.depthTest = mat.depthTest;
+        unlit.wireframe = mat.wireframe;
+
+        unlitMaterials.push(unlit);
+      }
+
+      child.userData[UNLIT_ORIGINAL_KEY] = child.material;
+      child.material =
+        unlitMaterials.length === 1 ? unlitMaterials[0] : unlitMaterials;
+    } else {
+      const original = child.userData[UNLIT_ORIGINAL_KEY];
+      if (original === undefined) return;
+
+      const currentMats = getMaterials(child.material);
+      for (const mat of currentMats) {
+        if (mat instanceof MeshBasicMaterial) {
+          mat.dispose();
+        }
+      }
+
+      child.material = original;
+      delete child.userData[UNLIT_ORIGINAL_KEY];
     }
   });
 }

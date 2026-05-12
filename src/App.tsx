@@ -62,6 +62,10 @@ import { TextureListCard } from "./components/TextureListCard";
 import { UsdInspectorCard } from "./components/UsdInspectorCard";
 import { ViewportControls } from "./components/ViewportControls";
 import { build3DToolbar } from "./components/toolbar/build3DToolbar";
+import {
+  buildImageToolbar,
+  type TextureColorSpace,
+} from "./components/toolbar/buildImageToolbar";
 import type { ToolbarItem } from "./components/toolbar/types";
 import { WarningsCard } from "./components/WarningsCard";
 import {
@@ -251,15 +255,6 @@ function isDebugPanelsRequested(): boolean {
   );
 }
 
-const backgroundPresetOptions: Array<{
-  id: BackgroundPreset;
-  label: string;
-}> = [
-  { id: "gray", label: "Gray" },
-  { id: "charcoal", label: "Dark" },
-  { id: "light", label: "Light" },
-];
-
 const cameraPresetOptions: Array<{
   id: CameraPreset;
   label: string;
@@ -272,15 +267,6 @@ const cameraPresetOptions: Array<{
   { id: "bottom", label: "Bottom" },
 ];
 
-function nextCycleOption<T extends string>(
-  options: Array<{ id: T; label: string }>,
-  currentId: T | undefined,
-): { id: T; label: string } | null {
-  if (!options.length) return null;
-  const idx = options.findIndex((o) => o.id === currentId);
-  return options[(idx + 1) % options.length] ?? null;
-}
-
 const DEFAULT_EXPOSURE = 1.1;
 
 export function App() {
@@ -292,7 +278,9 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const [showTexture, setShowTexture] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
+  const [showUnlit, setShowUnlit] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [showAxes, setShowAxes] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(false);
@@ -302,6 +290,7 @@ export function App() {
   const [showEnvironmentBackground, setShowEnvironmentBackground] =
     useState(false);
   const [environmentRotation] = useState(0);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [backfaceCulling, setBackfaceCulling] = useState(true);
   const [textureFilterMode] = useState<TextureFilterMode>("trilinear");
   const [cameraPresetRequest, setCameraPresetRequest] =
@@ -315,6 +304,7 @@ export function App() {
   const [toneMappingMode] = useState<ToneMappingMode>("aces");
   const [exposure] = useState(DEFAULT_EXPOSURE);
   const [cameraSpeedMultiplier] = useState(1);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
@@ -343,12 +333,15 @@ export function App() {
   const [selectedTextureId, setSelectedTextureId] = useState<string | null>(
     null,
   );
-  const [textureViewMode] = useState<TextureViewMode>("rgba");
+  const [textureViewMode, setTextureViewMode] =
+    useState<TextureViewMode>("rgba");
+  const [textureColorSpace, setTextureColorSpace] =
+    useState<TextureColorSpace>("srgb");
   const [textureExposure] = useState(0);
   const [textureBlackPoint] = useState(0);
   const [textureWhitePoint] = useState(1);
   const [textureTileCount] = useState(1);
-  const [textureGamma] = useState(2.2);
+  const [textureGamma, setTextureGamma] = useState(2.2);
   // Default = flat 2D viewer framing for textures. The 3D toggle
   // re-uses the asset orbit controls so the same texture plane can
   // be rotated/zoomed as a 3D quad — useful for inspecting how a
@@ -415,6 +408,7 @@ export function App() {
   );
   // #32: USD purpose visibility. Defaults match pre-#32 behavior:
   // render ON, proxy/guide OFF.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [purposeModes, setPurposeModes] = useState<PurposeModes>({
     render: true,
     proxy: false,
@@ -2272,44 +2266,6 @@ export function App() {
     window.addEventListener("pointerup", handlePointerUp);
   };
 
-  const cameraCycleLabel = useMemo(() => {
-    const next = nextCycleOption(
-      cameraPresetOptions,
-      cameraPresetRequest?.preset,
-    );
-    return next ? `${next.label} view` : "Camera";
-  }, [cameraPresetRequest?.preset]);
-
-  const handleCycleCamera = useCallback(() => {
-    const next = nextCycleOption(
-      cameraPresetOptions,
-      cameraPresetRequest?.preset,
-    );
-    if (next) {
-      setCameraPresetRequest((previous) => ({
-        preset: next.id,
-        version: (previous?.version ?? 0) + 1,
-      }));
-    }
-  }, [cameraPresetRequest?.preset]);
-
-  const backgroundCycleLabel = useMemo(() => {
-    const next = nextCycleOption(backgroundPresetOptions, backgroundPreset);
-    return next?.label ?? "Background";
-  }, [backgroundPreset]);
-
-  const handleCycleBackground = useCallback(() => {
-    const next = nextCycleOption(backgroundPresetOptions, backgroundPreset);
-    if (next) {
-      setBackgroundPreset(next.id);
-    }
-  }, [backgroundPreset]);
-
-  const environmentCycleLabel = useMemo(() => {
-    const next = nextCycleOption(environmentPresets, environmentPreset);
-    return next?.label ?? "Environment";
-  }, [environmentPreset]);
-
   const handleSelectCameraPreset = useCallback((preset: string) => {
     setCameraPresetRequest((previous) => ({
       preset: preset as CameraPreset,
@@ -2317,87 +2273,129 @@ export function App() {
     }));
   }, []);
 
-  const handleCycleEnvironment = useCallback(() => {
-    const next = nextCycleOption(environmentPresets, environmentPreset);
-    if (next) {
-      setEnvironmentPreset(next.id);
-    }
-  }, [environmentPreset]);
-
   const handleSelectEnvironmentPreset = useCallback((preset: string) => {
     setEnvironmentPreset(preset as EnvironmentPreset);
   }, []);
 
+  // Cycle camera presets on toolbar click
+  const handleCycleCamera = useCallback(() => {
+    if (cameraPresetOptions.length === 0) return;
+    const currentIdx = cameraPresetOptions.findIndex(
+      (p) => p.id === cameraPresetRequest?.preset,
+    );
+    const nextIdx = (currentIdx + 1) % cameraPresetOptions.length;
+    setCameraPresetRequest({
+      preset: cameraPresetOptions[nextIdx].id,
+      version: (cameraPresetRequest?.version ?? 0) + 1,
+    });
+  }, [cameraPresetRequest]);
+
+  // Image mode handlers
+  const channelOptions = useMemo(
+    () => [
+      { id: "rgb", label: "RGB" },
+      { id: "r", label: "R" },
+      { id: "g", label: "G" },
+      { id: "b", label: "B" },
+      { id: "a", label: "A" },
+    ],
+    [],
+  );
+
+  const handleSelectChannel = useCallback((mode: string) => {
+    if (mode === "a") {
+      setTextureViewMode("alpha");
+    } else {
+      setTextureViewMode(mode as TextureViewMode);
+    }
+  }, []);
+
+  const handleSelectColorSpace = useCallback((mode: TextureColorSpace) => {
+    setTextureColorSpace(mode);
+    switch (mode) {
+      case "srgb":
+        setTextureGamma(2.2);
+        break;
+      case "linear":
+        setTextureGamma(1.0);
+        break;
+      case "raw":
+        setTextureGamma(1.0);
+        break;
+    }
+  }, []);
+
   const viewportToolbarItems = useMemo<ToolbarItem[]>(() => {
+    if (viewerSurfaceMode === "texture") {
+      return buildImageToolbar({
+        channelMode: textureViewMode,
+        channelOptions,
+        onSelectChannel: handleSelectChannel,
+        colorSpace: textureColorSpace,
+        onSelectColorSpace: handleSelectColorSpace,
+        exposure: textureExposure,
+        bgMode: "checker",
+        tilingMode: "clamp",
+        tileCount: textureTileCount,
+      });
+    }
+
     return build3DToolbar({
-      showTexture,
-      onToggleTexture: () => setShowTexture((v) => !v),
-      showWireframe,
-      onToggleWireframe: () => setShowWireframe((v) => !v),
-      showGrid,
-      onToggleGrid: () => setShowGrid((v) => !v),
-      showAxes,
-      onToggleAxes: () => setShowAxes((v) => !v),
-      showEnvironmentBackground,
-      onToggleEnvironmentBackground: () =>
-        setShowEnvironmentBackground((v) => !v),
-      showShadows,
-      onToggleShadows: () => setShowShadows((v) => !v),
-      backfaceCulling,
-      onToggleBackfaceCulling: () => setBackfaceCulling((v) => !v),
-      showSkeleton,
-      onToggleSkeleton: () => setShowSkeleton((v) => !v),
-      showBoundingBoxes,
-      onToggleBoundingBoxes: () => setShowBoundingBoxes((v) => !v),
-      showVertexColors,
-      onToggleVertexColors: () => setShowVertexColors((v) => !v),
-      showNormals,
-      onToggleNormals: () => setShowNormals((v) => !v),
-      purposeModes: isUsdFile(currentFile) ? purposeModes : undefined,
-      onTogglePurposeMode: isUsdFile(currentFile)
-        ? (mode) =>
-            setPurposeModes((prev) => ({
-              ...prev,
-              [mode]: !prev[mode],
-            }))
-        : undefined,
-      backgroundCycleLabel,
-      onCycleBackground: handleCycleBackground,
-      environmentCycleLabel,
-      onCycleEnvironment: handleCycleEnvironment,
-      cameraCycleLabel,
-      onCycleCamera: handleCycleCamera,
+      // Camera
       cameraPreset: cameraPresetRequest?.preset ?? null,
       cameraPresetOptions,
       onSelectCameraPreset: handleSelectCameraPreset,
+      onCycleCamera: handleCycleCamera,
+      // Shading
+      showTexture,
+      onToggleTexture: () => setShowTexture((v) => !v),
+      showUnlit,
+      onToggleUnlit: () => setShowUnlit((v) => !v),
+      showNormals,
+      onToggleNormals: () => setShowNormals((v) => !v),
+      showVertexColors,
+      onToggleVertexColors: () => setShowVertexColors((v) => !v),
+      // Wireframe
+      showWireframe,
+      onToggleWireframe: () => setShowWireframe((v) => !v),
+      // Look
       environmentPreset,
       environmentPresetOptions: environmentPresets,
       onSelectEnvironmentPreset: handleSelectEnvironmentPreset,
+      showShadows,
+      onToggleShadows: () => setShowShadows((v) => !v),
+      showEnvironmentBackground,
+      onToggleEnvironmentBackground: () =>
+        setShowEnvironmentBackground((v) => !v),
+      // Overlay
+      showBoundingBoxes,
+      onToggleBoundingBoxes: () => setShowBoundingBoxes((v) => !v),
+      showSkeleton,
+      onToggleSkeleton: () => setShowSkeleton((v) => !v),
     });
   }, [
-    showTexture,
-    showWireframe,
-    showGrid,
-    showAxes,
-    showEnvironmentBackground,
-    showShadows,
-    backfaceCulling,
-    showSkeleton,
-    showBoundingBoxes,
-    showVertexColors,
-    showNormals,
-    purposeModes,
-    currentFile,
-    backgroundCycleLabel,
-    environmentCycleLabel,
-    cameraCycleLabel,
-    handleCycleBackground,
-    handleCycleCamera,
-    handleCycleEnvironment,
-    handleSelectCameraPreset,
-    handleSelectEnvironmentPreset,
     cameraPresetRequest,
+    handleSelectCameraPreset,
+    handleCycleCamera,
+    showTexture,
+    showUnlit,
+    showNormals,
+    showVertexColors,
+    showWireframe,
     environmentPreset,
+    handleSelectEnvironmentPreset,
+    showShadows,
+    showEnvironmentBackground,
+    showBoundingBoxes,
+    showSkeleton,
+    viewerSurfaceMode,
+    textureViewMode,
+    channelOptions,
+    handleSelectChannel,
+    textureColorSpace,
+    handleSelectColorSpace,
+    textureExposure,
+    textureTileCount,
   ]);
 
   return (
@@ -2450,6 +2448,7 @@ export function App() {
             cameraFov={cameraFov}
             renderScale={renderScale}
             showShadows={showShadows}
+            showUnlit={showUnlit}
             fxaaEnabled={fxaaEnabled}
             showRendererStats={showRendererStats}
             toneMappingMode={toneMappingMode}

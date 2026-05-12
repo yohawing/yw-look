@@ -64,6 +64,7 @@ export function PopoverTool({ action }: PopoverToolProps) {
     }
     if (action.onRun) {
       action.onRun();
+      return;
     }
     if (open) {
       setOpen(false);

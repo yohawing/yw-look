@@ -49,6 +49,7 @@ export {
   removeNormalHelpers,
   ensureShadowCatcher,
   applyShadows,
+  applyUnlitMaterial,
 } from "./scene";
 export type {
   CameraPreset,

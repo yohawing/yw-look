@@ -85,6 +85,7 @@ import {
   disposePreviewObject,
   applySelectionHighlight,
   clearSelectionHighlight,
+  applyUnlitMaterial,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
 import { AnimationBar } from "./AnimationBar";
@@ -405,6 +406,7 @@ type AssetViewportProps = {
   cameraFov: number;
   renderScale: number;
   showShadows: boolean;
+  showUnlit: boolean;
   fxaaEnabled: boolean;
   showRendererStats: boolean;
   toneMappingMode: ToneMappingMode;
@@ -676,6 +678,7 @@ export function AssetViewport({
   cameraFov,
   renderScale,
   showShadows,
+  showUnlit,
   fxaaEnabled,
   showRendererStats,
   toneMappingMode,
@@ -2232,6 +2235,16 @@ export function AssetViewport({
 
     applyDisplayMode(context.sourceObject, displayMode);
   }, [displayMode]);
+
+  useEffect(() => {
+    const context = sceneContextRef.current;
+
+    if (!context?.sourceObject) {
+      return;
+    }
+
+    applyUnlitMaterial(context.sourceObject, showUnlit);
+  }, [showUnlit]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
