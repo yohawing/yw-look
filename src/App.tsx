@@ -95,6 +95,7 @@ import {
   loadDiagnosticsSnapshot,
   logDiagnosticEvent,
   type DiagnosticsPayload,
+  type ResourceDiagnosticsSnapshot,
 } from "./lib/diagnostics";
 import {
   getStartupFile,
@@ -372,6 +373,8 @@ export function App() {
   const [diagnosticsPayload, setDiagnosticsPayload] =
     useState<DiagnosticsPayload | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [resourceDiagnostics, setResourceDiagnostics] =
+    useState<ResourceDiagnosticsSnapshot | null>(null);
   const [integrationPayload, setIntegrationPayload] =
     useState<IntegrationPayload | null>(null);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
@@ -2216,6 +2219,7 @@ export function App() {
               <DiagnosticsCard
                 diagnosticsError={diagnosticsError}
                 diagnosticsPayload={diagnosticsPayload}
+                resourceDiagnostics={resourceDiagnostics}
               />
             </Suspense>
           </>
@@ -2497,6 +2501,7 @@ export function App() {
             onFeedbackChange={setViewerFeedback}
             onOpenFile={() => void handleOpenFile()}
             onMetadataChange={setAssetMetadata}
+            onResourceDiagnosticsChange={setResourceDiagnostics}
             selectedTextureId={selectedTextureId}
             viewerSurfaceMode={viewerSurfaceMode}
             textureViewMode={textureViewMode}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ACESFilmicToneMapping,
   AmbientLight,
@@ -32,6 +32,10 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { SelectedFile } from "../lib/files";
+import type {
+  AssetResourceMetrics,
+  ResourceDiagnosticsSnapshot,
+} from "../lib/diagnostics";
 import { formatUsdErrorForDisplay } from "../lib/usd";
 import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 import {
@@ -174,6 +178,8 @@ const toneMappingModeMap: Record<ToneMappingMode, ToneMapping> = {
 
 const INITIAL_GRID_NAME = "__yw_initial_grid";
 const AXES_HELPER_NAME = "__yw_axes_helper";
+const RESOURCE_DIAGNOSTICS_SAMPLE_MS = 2000;
+const MEMORY_SAMPLE_GRANULARITY_BYTES = 1024 * 1024;
 
 function configureAssetControls(controls: OrbitControls) {
   controls.enableRotate = true;
@@ -383,6 +389,9 @@ type AssetViewportProps = {
   onOpenFile?: () => void;
   onUsdError?: (error: unknown) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
+  onResourceDiagnosticsChange?: (
+    snapshot: ResourceDiagnosticsSnapshot | null,
+  ) => void;
   selectedTextureId: string | null;
   viewerSurfaceMode: ViewerSurfaceMode;
   textureViewMode: TextureViewMode;
@@ -505,6 +514,48 @@ type AssetViewportProps = {
    */
   cancelScaleNormalizationVersion?: number;
 };
+
+type PerformanceWithMemory = Performance & {
+  memory?: {
+    usedJSHeapSize?: number;
+    totalJSHeapSize?: number;
+    jsHeapSizeLimit?: number;
+  };
+};
+
+function readMemoryMetrics(): ResourceDiagnosticsSnapshot["memory"] {
+  const memory = (performance as PerformanceWithMemory).memory;
+  const stableBytes = (value: number | undefined) =>
+    typeof value === "number"
+      ? Math.round(value / MEMORY_SAMPLE_GRANULARITY_BYTES) *
+        MEMORY_SAMPLE_GRANULARITY_BYTES
+      : null;
+
+  return {
+    jsHeapUsedBytes: stableBytes(memory?.usedJSHeapSize),
+    jsHeapTotalBytes: stableBytes(memory?.totalJSHeapSize),
+    jsHeapLimitBytes: stableBytes(memory?.jsHeapSizeLimit),
+  };
+}
+
+function collectAssetResourceMetrics(
+  metadata: AssetMetadata,
+): AssetResourceMetrics {
+  let vertices = 0;
+  let triangles = 0;
+
+  for (const objectInfo of Object.values(metadata.objectInfo)) {
+    vertices += objectInfo.vertexCount ?? 0;
+    triangles += objectInfo.triangleCount ?? 0;
+  }
+
+  return {
+    vertices,
+    triangles,
+    materials: metadata.materialCount,
+    textures: metadata.textureCount,
+  };
+}
 
 function disposeEnvironmentScene(scene: Scene) {
   scene.traverse((child) => {
@@ -669,6 +720,7 @@ export function AssetViewport({
   onOpenFile,
   onUsdError,
   onMetadataChange,
+  onResourceDiagnosticsChange,
   selectedTextureId,
   viewerSurfaceMode,
   textureViewMode,
@@ -717,6 +769,9 @@ export function AssetViewport({
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
+  const assetResourceMetricsRef = useRef<AssetResourceMetrics | null>(null);
+  const lastResourceDiagnosticsRef = useRef<string | null>(null);
+  const onResourceDiagnosticsChangeRef = useRef(onResourceDiagnosticsChange);
   const keyLightRef = useRef<DirectionalLight | null>(null);
   const showShadowsRef = useRef(showShadows);
   // EffectComposer lives behind a lazy import; only materialized the
@@ -798,6 +853,52 @@ export function AssetViewport({
     useState<DeferredTextureSnapshot | null>(null);
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
+
+  onResourceDiagnosticsChangeRef.current = onResourceDiagnosticsChange;
+
+  const publishResourceDiagnostics = useCallback(
+    (context: SceneContext | null) => {
+      const callback = onResourceDiagnosticsChangeRef.current;
+      if (!callback || !context) {
+        return;
+      }
+
+      const info = context.renderer.info;
+      const programs = info.programs;
+      const snapshot: ResourceDiagnosticsSnapshot = {
+        sampledAt: performance.now(),
+        webgl: {
+          geometries: info.memory.geometries,
+          textures: info.memory.textures,
+          programs: Array.isArray(programs) ? programs.length : null,
+          calls: info.render.calls,
+          triangles: info.render.triangles,
+          points: info.render.points,
+          lines: info.render.lines,
+        },
+        memory: readMemoryMetrics(),
+        asset: assetResourceMetricsRef.current,
+      };
+      const signature = JSON.stringify({
+        webgl: snapshot.webgl,
+        memory: snapshot.memory,
+        asset: snapshot.asset,
+      });
+      if (signature === lastResourceDiagnosticsRef.current) {
+        return;
+      }
+      lastResourceDiagnosticsRef.current = signature;
+      callback(snapshot);
+    },
+    [],
+  );
+
+  const clearResourceDiagnostics = useCallback(() => {
+    assetResourceMetricsRef.current = null;
+    lastResourceDiagnosticsRef.current = null;
+    onResourceDiagnosticsChangeRef.current?.(null);
+  }, []);
+
   const shouldInitializeScene = currentFile !== null;
   const previewSupportState = currentFile
     ? getPreviewSupportState(currentFile.extension)
@@ -1529,6 +1630,7 @@ export function AssetViewport({
     let statsLastSampled = performance.now();
     let statsFrameCount = 0;
     let statsLastFps = 0;
+    let resourceDiagnosticsLastSampled = 0;
 
     let animationFrame = 0;
     let previousRenderTimestamp = performance.now();
@@ -1601,6 +1703,13 @@ export function AssetViewport({
             `${info.memory.geometries} geo / ${info.memory.textures} tex`,
           ].join("  •  ");
         }
+        if (
+          frameNow - resourceDiagnosticsLastSampled >=
+          RESOURCE_DIAGNOSTICS_SAMPLE_MS
+        ) {
+          resourceDiagnosticsLastSampled = frameNow;
+          publishResourceDiagnostics(sceneContextRef.current);
+        }
       }
     };
     renderLoop();
@@ -1625,6 +1734,7 @@ export function AssetViewport({
 
     onFeedbackChange(neutralFeedback);
     onMetadataChange(emptyAssetMetadata);
+    publishResourceDiagnostics(sceneContextRef.current);
 
     return () => {
       window.cancelAnimationFrame(animationFrame);
@@ -1666,11 +1776,14 @@ export function AssetViewport({
       host.removeChild(renderer.domElement);
       sceneContextRef.current = null;
       resetCameraRef.current = null;
+      clearResourceDiagnostics();
     };
   }, [
+    clearResourceDiagnostics,
     onFeedbackChange,
     onGridUnitChange,
     onMetadataChange,
+    publishResourceDiagnostics,
     shouldInitializeScene,
   ]);
 
@@ -1881,6 +1994,8 @@ export function AssetViewport({
     resetSceneObjects(context);
     revokeUrls(context.cleanupUrls);
     context.cleanupUrls = [];
+    assetResourceMetricsRef.current = null;
+    publishResourceDiagnostics(context);
     context.controls.enabled = false;
     resetCameraRef.current = null;
     // #34: clear USD camera override on every file change so we always start
@@ -1919,6 +2034,8 @@ export function AssetViewport({
       context.controls.enabled = true;
       onFeedbackChange(neutralFeedback);
       onMetadataChange(emptyAssetMetadata);
+      assetResourceMetricsRef.current = null;
+      publishResourceDiagnostics(context);
       setLoadingStage(null);
       setDeferredTexture(null);
       return;
@@ -1942,6 +2059,8 @@ export function AssetViewport({
           ? formatMissingOptionalLoaderMessage(currentFile.extension)
           : formatUnsupportedFormatMessage(currentFile.extension);
       onMetadataChange(emptyAssetMetadata);
+      assetResourceMetricsRef.current = null;
+      publishResourceDiagnostics(context);
       onFeedbackChange({
         mode: supportState,
         message:
@@ -1994,6 +2113,8 @@ export function AssetViewport({
       canResetCamera: false,
     });
     onMetadataChange(emptyAssetMetadata);
+    assetResourceMetricsRef.current = null;
+    publishResourceDiagnostics(context);
     setDeferredTexture(null);
     reportLoadingStage("scan");
     const runtimeWarnings: string[] = [];
@@ -2122,7 +2243,11 @@ export function AssetViewport({
             formatVersion,
           );
           context.textureRegistry = metadataCollection.textureRegistry;
+          assetResourceMetricsRef.current = collectAssetResourceMetrics(
+            metadataCollection.metadata,
+          );
           onMetadataChange(metadataCollection.metadata);
+          publishResourceDiagnostics(context);
           applySkeletonHelpers(context.scene, object, showSkeletonRef.current);
           applyBoundingBoxHelpers(
             context.scene,
@@ -2282,6 +2407,8 @@ export function AssetViewport({
               )
             : emptyAssetMetadata,
         );
+        assetResourceMetricsRef.current = null;
+        publishResourceDiagnostics(context);
 
         onFeedbackChange({
           mode,
@@ -2303,6 +2430,8 @@ export function AssetViewport({
       resetSceneObjects(context);
       revokeUrls(context.cleanupUrls);
       context.cleanupUrls = [];
+      assetResourceMetricsRef.current = null;
+      publishResourceDiagnostics(context);
     };
   }, [
     currentFile,
@@ -2315,6 +2444,7 @@ export function AssetViewport({
     usdLoadPolicy,
     variantSelections,
     glbOverride,
+    publishResourceDiagnostics,
   ]);
 
   useEffect(() => {
