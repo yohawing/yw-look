@@ -98,9 +98,11 @@ import {
 } from "./lib/diagnostics";
 import {
   getStartupFile,
+  inspectAsset,
   listSupportedSiblings,
   openFileDialog,
   resolveSelectedFile,
+  type AssetInspection,
   type DirectoryListing,
   type SelectedFile,
 } from "./lib/files";
@@ -320,6 +322,8 @@ export function App() {
     useState<EnvironmentPreset>("studio");
   const [gridUnitLabel, setGridUnitLabel] = useState("1 m");
   const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
+  const [assetInspection, setAssetInspection] =
+    useState<AssetInspection | null>(null);
   const [directoryListing, setDirectoryListing] =
     useState<DirectoryListing | null>(null);
   const [viewerFeedback, setViewerFeedback] = useState<ViewerFeedback>(
@@ -1177,6 +1181,29 @@ export function App() {
   }, [currentFile?.path]);
 
   useEffect(() => {
+    if (!isTauri || !currentFile) {
+      setAssetInspection(null);
+      return;
+    }
+
+    let isActive = true;
+    setAssetInspection(null);
+    void inspectAsset(currentFile.path)
+      .then((inspection) => {
+        if (isActive) {
+          setAssetInspection(inspection);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn("[file] inspect_asset failed:", error);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentFile, isTauri]);
+
+  useEffect(() => {
     if (!currentFile) {
       if (selectedTextureId !== null) {
         setSelectedTextureId(null);
@@ -1977,8 +2004,14 @@ export function App() {
         return (
           <>
             <CurrentFileCard
+              assetInspection={assetInspection}
               currentFile={sidebarCurrentFile}
               metadata={sidebarAssetMetadata}
+              performanceSnapshot={performanceSnapshot}
+              usdPayloadSummary={
+                debugPanelsEnabled ? debugUsdSummary : usdSummary
+              }
+              warnings={sidebarWarnings}
             />
             {sidebarAssetMetadata &&
               !isUsdFile(currentFile) &&

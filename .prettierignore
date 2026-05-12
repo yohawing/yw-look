@@ -5,3 +5,4 @@ src-tauri/gen/
 samples/
 tests/fixtures/broken/
 public/basis/
+src/vendor/FBXLoaderPatched.js

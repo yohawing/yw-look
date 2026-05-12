@@ -6,7 +6,7 @@
 // テストランナーを起動せずに静的にカウントするため、動的生成された
 // テストケースは無視される。値は README 用の概算。
 
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 

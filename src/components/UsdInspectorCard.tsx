@@ -150,140 +150,139 @@ export function UsdInspectorCard({
 }: UsdInspectorCardProps) {
   const showControl = loadPolicy !== null;
   return (
-    <>
-      <SidebarSection title="USD Inspector">
-        {showControl && (
-          <div
-            className="segmented-control"
-            role="group"
-            aria-label="USD load policy"
+    <SidebarSection title="USD Details" collapsible defaultOpen={false}>
+      {showControl && (
+        <div
+          className="segmented-control"
+          role="group"
+          aria-label="USD load policy"
+        >
+          <button
+            type="button"
+            className={`segmented-option${
+              loadPolicy === "loadAll" ? " is-active" : ""
+            }`}
+            aria-pressed={loadPolicy === "loadAll"}
+            onClick={() => onLoadPolicyChange("loadAll")}
           >
-            <button
-              type="button"
-              className={`segmented-option${
-                loadPolicy === "loadAll" ? " is-active" : ""
-              }`}
-              aria-pressed={loadPolicy === "loadAll"}
-              onClick={() => onLoadPolicyChange("loadAll")}
-            >
-              Loaded
-            </button>
-            <button
-              type="button"
-              className={`segmented-option${
-                loadPolicy === "noPayloads" ? " is-active" : ""
-              }`}
-              aria-pressed={loadPolicy === "noPayloads"}
-              onClick={() => onLoadPolicyChange("noPayloads")}
-            >
-              Deferred
-            </button>
-          </div>
-        )}
-        {error ? (
-          <SidebarError>{error}</SidebarError>
-        ) : loading ? (
-          <SidebarEmpty>Inspecting stage…</SidebarEmpty>
-        ) : !summary && !inspection ? (
-          <SidebarEmpty>
-            Open a USD/USDA/USDC/USDZ asset to inspect its stage.
-          </SidebarEmpty>
-        ) : (
-          summary && (
-            <SidebarKeyValueRows
-              rows={asRows([
-                {
-                  id: "layers",
-                  label: "Layers",
-                  value: summary.layerCount,
-                  mono: true,
-                },
-                {
-                  id: "root-prims",
-                  label: "Root prims",
-                  value: summary.rootPrimCount,
-                  mono: true,
-                },
-                {
-                  id: "meshes",
-                  label: "Meshes",
-                  value: summary.meshCount,
-                  mono: true,
-                },
-                {
-                  id: "vertices",
-                  label: "Vertices",
-                  value: summary.totalVertices.toLocaleString(),
-                  mono: true,
-                },
-                {
-                  id: "triangles",
-                  label: "Triangles",
-                  value: summary.totalTriangles.toLocaleString(),
-                  mono: true,
-                },
-                {
-                  id: "payloads",
-                  label: "Payloads",
-                  value:
-                    summary.unloadedPayloadCount > 0
-                      ? `${summary.payloadCount} (${summary.unloadedPayloadCount} deferred)`
-                      : summary.payloadCount,
-                  mono: true,
-                  tone: summary.unloadedPayloadCount > 0 ? "warn" : "default",
-                },
-                {
-                  id: "variants",
-                  label: "Variants",
-                  value:
-                    summary.variantSetCount > 0
-                      ? `${summary.hasVariants ? "yes" : "no"} (${summary.variantSetCount} sets)`
-                      : summary.hasVariants
-                        ? "yes"
-                        : "no",
-                  tone: summary.hasVariants ? "default" : "muted",
-                },
-                summary.durationSeconds !== null && {
-                  id: "duration",
-                  label: "Duration",
-                  value: `${summary.durationSeconds.toFixed(2)}s`,
-                  mono: true,
-                },
-                (summary.resolvedReferenceCount > 0 ||
-                  summary.unresolvedReferenceCount > 0) && {
-                  id: "references",
-                  label: "References",
-                  value: `${summary.resolvedReferenceCount} resolved${
-                    summary.unresolvedReferenceCount > 0
-                      ? ` / ${summary.unresolvedReferenceCount} unresolved`
-                      : ""
-                  }`,
-                  tone:
-                    summary.unresolvedReferenceCount > 0 ? "danger" : "default",
-                },
-                (summary.resolvedPayloadCount > 0 ||
-                  summary.unresolvedPayloadCount > 0) && {
-                  id: "resolved-payloads",
-                  label: "Payloads resolved",
-                  value: `${summary.resolvedPayloadCount} resolved${
-                    summary.unresolvedPayloadCount > 0
-                      ? ` / ${summary.unresolvedPayloadCount} unresolved`
-                      : ""
-                  }`,
-                  tone:
-                    summary.unresolvedPayloadCount > 0 ? "danger" : "default",
-                },
-              ])}
-            />
-          )
-        )}
-      </SidebarSection>
+            Loaded
+          </button>
+          <button
+            type="button"
+            className={`segmented-option${
+              loadPolicy === "noPayloads" ? " is-active" : ""
+            }`}
+            aria-pressed={loadPolicy === "noPayloads"}
+            onClick={() => onLoadPolicyChange("noPayloads")}
+          >
+            Deferred
+          </button>
+        </div>
+      )}
+      {error ? (
+        <SidebarError>{error}</SidebarError>
+      ) : loading ? (
+        <SidebarEmpty>Inspecting stage…</SidebarEmpty>
+      ) : !summary && !inspection ? (
+        <SidebarEmpty>
+          Open a USD/USDA/USDC/USDZ asset to inspect its stage.
+        </SidebarEmpty>
+      ) : (
+        summary && (
+          <SidebarKeyValueRows
+            rows={asRows([
+              {
+                id: "layers",
+                label: "Layers",
+                value: summary.layerCount,
+                mono: true,
+              },
+              {
+                id: "root-prims",
+                label: "Root prims",
+                value: summary.rootPrimCount,
+                mono: true,
+              },
+              {
+                id: "meshes",
+                label: "Meshes",
+                value: summary.meshCount,
+                mono: true,
+              },
+              {
+                id: "vertices",
+                label: "Vertices",
+                value: summary.totalVertices.toLocaleString(),
+                mono: true,
+              },
+              {
+                id: "triangles",
+                label: "Triangles",
+                value: summary.totalTriangles.toLocaleString(),
+                mono: true,
+              },
+              {
+                id: "payloads",
+                label: "Payloads",
+                value:
+                  summary.unloadedPayloadCount > 0
+                    ? `${summary.payloadCount} (${summary.unloadedPayloadCount} deferred)`
+                    : summary.payloadCount,
+                mono: true,
+                tone: summary.unloadedPayloadCount > 0 ? "warn" : "default",
+              },
+              {
+                id: "variants",
+                label: "Variants",
+                value:
+                  summary.variantSetCount > 0
+                    ? `${summary.hasVariants ? "yes" : "no"} (${summary.variantSetCount} sets)`
+                    : summary.hasVariants
+                      ? "yes"
+                      : "no",
+                tone: summary.hasVariants ? "default" : "muted",
+              },
+              summary.durationSeconds !== null && {
+                id: "duration",
+                label: "Duration",
+                value: `${summary.durationSeconds.toFixed(2)}s`,
+                mono: true,
+              },
+              (summary.resolvedReferenceCount > 0 ||
+                summary.unresolvedReferenceCount > 0) && {
+                id: "references",
+                label: "References",
+                value: `${summary.resolvedReferenceCount} resolved${
+                  summary.unresolvedReferenceCount > 0
+                    ? ` / ${summary.unresolvedReferenceCount} unresolved`
+                    : ""
+                }`,
+                tone:
+                  summary.unresolvedReferenceCount > 0 ? "danger" : "default",
+              },
+              (summary.resolvedPayloadCount > 0 ||
+                summary.unresolvedPayloadCount > 0) && {
+                id: "resolved-payloads",
+                label: "Payloads resolved",
+                value: `${summary.resolvedPayloadCount} resolved${
+                  summary.unresolvedPayloadCount > 0
+                    ? ` / ${summary.unresolvedPayloadCount} unresolved`
+                    : ""
+                }`,
+                tone: summary.unresolvedPayloadCount > 0 ? "danger" : "default",
+              },
+            ])}
+          />
+        )
+      )}
       {!error && !loading && (summary || inspection) ? (
         <>
           {summary && summary.primTypeCounts.length > 0 && (
             <SidebarSection
               title="Prim Types"
               count={summary.primTypeCounts.length}
+              collapsible
+              defaultOpen={false}
             >
               <SidebarKeyValueRows
                 rows={summary.primTypeCounts.map((entry) => ({
@@ -297,7 +296,11 @@ export function UsdInspectorCard({
           )}
           {inspection && (
             <>
-              <SidebarSection title="Metadata">
+              <SidebarSection
+                title="Stage Metadata"
+                collapsible
+                defaultOpen={false}
+              >
                 <SidebarKeyValueRows
                   rows={[
                     {
@@ -375,6 +378,8 @@ export function UsdInspectorCard({
                 <SidebarSection
                   title="Layer Stack"
                   count={inspection.layers!.length}
+                  collapsible
+                  defaultOpen={false}
                 >
                   <ul className="usd-layer-list">
                     {inspection.layers!.map((layer, i) => (
@@ -389,6 +394,8 @@ export function UsdInspectorCard({
                 <SidebarSection
                   title="Layer Stack"
                   count={inspection.composedLayers.length + 1}
+                  collapsible
+                  defaultOpen={false}
                 >
                   <ul className="usd-layer-list">
                     <li className="usd-layer-row" title={inspection.path}>
@@ -421,6 +428,8 @@ export function UsdInspectorCard({
                 <SidebarSection
                   title="Variant Sets"
                   count={inspection.variantSets.length}
+                  collapsible
+                  defaultOpen={false}
                 >
                   {variantSelectionError && (
                     <SidebarError>{variantSelectionError}</SidebarError>
@@ -497,6 +506,8 @@ export function UsdInspectorCard({
                 <SidebarSection
                   title="Missing Assets"
                   count={inspection.missingAssets.length}
+                  collapsible
+                  defaultOpen={false}
                 >
                   <SidebarError>
                     Missing assets: {inspection.missingAssets.length}
@@ -506,7 +517,12 @@ export function UsdInspectorCard({
             </>
           )}
           {issues.length > 0 && (
-            <SidebarSection title="Issues" count={issues.length}>
+            <SidebarSection
+              title="Issues"
+              count={issues.length}
+              collapsible
+              defaultOpen={false}
+            >
               <ul className="card-list">
                 {issues.map((issue) => (
                   <li
@@ -521,6 +537,6 @@ export function UsdInspectorCard({
           )}
         </>
       ) : null}
-    </>
+    </SidebarSection>
   );
 }

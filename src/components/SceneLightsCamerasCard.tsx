@@ -74,14 +74,17 @@ export function SceneLightsCamerasCard({
   ];
 
   return (
-    <>
-      <SidebarSection title="Scene Fixtures">
-        <SidebarKeyValueRows rows={summaryRows} />
-      </SidebarSection>
+    <SidebarSection title="Scene" collapsible defaultOpen={false}>
+      <SidebarKeyValueRows rows={summaryRows} />
 
       {/* #35 — USD Lights section (C++ backend only) */}
       {usdLights && usdLights.length > 0 && (
-        <SidebarSection title="USD Lights" count={usdLights.length}>
+        <SidebarSection
+          title="USD Lights"
+          count={usdLights.length}
+          collapsible
+          defaultOpen={false}
+        >
           <ul className="scene-fixture-list">
             {usdLights.map((light) => {
               const hex = rgbToHex(
@@ -166,7 +169,12 @@ export function SceneLightsCamerasCard({
 
       {/* Three.js-derived lights (shown when USD lights are unavailable) */}
       {!usdLights && lights.length > 0 && (
-        <SidebarSection title="Lights" count={lights.length}>
+        <SidebarSection
+          title="Lights"
+          count={lights.length}
+          collapsible
+          defaultOpen={false}
+        >
           <ul className="scene-fixture-list">
             {lights.map((light) => (
               <li key={light.id} className="scene-fixture-item">
@@ -199,7 +207,12 @@ export function SceneLightsCamerasCard({
       )}
 
       {cameras.length > 0 && (
-        <SidebarSection title="Cameras" count={cameras.length}>
+        <SidebarSection
+          title="Cameras"
+          count={cameras.length}
+          collapsible
+          defaultOpen={false}
+        >
           <ul className="scene-fixture-list">
             {onSelectCamera && (
               <li className="scene-fixture-item">
@@ -257,6 +270,6 @@ export function SceneLightsCamerasCard({
           </ul>
         </SidebarSection>
       )}
-    </>
+    </SidebarSection>
   );
 }

@@ -18,7 +18,7 @@ function formatMetric(value: number | null) {
 
 export function PerformanceCard({ snapshot }: PerformanceCardProps) {
   return (
-    <SidebarSection title="Performance">
+    <SidebarSection title="Performance" collapsible defaultOpen={false}>
       <SidebarKeyValueRows
         rows={[
           {

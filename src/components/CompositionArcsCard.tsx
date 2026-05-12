@@ -69,7 +69,12 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
   if (arcs.length === 0) return null;
   const groups = groupBySourcePrim(arcs);
   return (
-    <SidebarSection title={title} count={arcs.length}>
+    <SidebarSection
+      title={title}
+      count={arcs.length}
+      collapsible
+      defaultOpen={false}
+    >
       <ul className="card-list">
         {groups.map((group) => (
           <li key={group.sourcePrim}>
@@ -208,21 +213,26 @@ export function CompositionArcsCard({
     },
   ].filter(Boolean) as SidebarKeyValueRow[];
 
+  if (!loading && (!inspection || totalCount === 0)) {
+    return null;
+  }
+
   return (
-    <>
-      <SidebarSection title="Composition Arcs" count={totalCount || undefined}>
-        {loading ? (
-          <SidebarEmpty>Inspecting stage…</SidebarEmpty>
-        ) : !inspection ? (
-          <SidebarEmpty>
-            Open a USD asset to view composition arcs.
-          </SidebarEmpty>
-        ) : totalCount === 0 ? (
-          <SidebarEmpty>No composition arcs.</SidebarEmpty>
-        ) : (
-          <SidebarKeyValueRows rows={summaryRows} />
-        )}
-      </SidebarSection>
+    <SidebarSection
+      title="Composition Arcs"
+      count={totalCount || undefined}
+      collapsible
+      defaultOpen={false}
+    >
+      {loading ? (
+        <SidebarEmpty>Inspecting stage…</SidebarEmpty>
+      ) : !inspection ? (
+        <SidebarEmpty>Open a USD asset to view composition arcs.</SidebarEmpty>
+      ) : totalCount === 0 ? (
+        <SidebarEmpty>No composition arcs.</SidebarEmpty>
+      ) : (
+        <SidebarKeyValueRows rows={summaryRows} />
+      )}
       {inspection && totalCount > 0 ? (
         <>
           <ArcSection title="References" arcs={inspection.references} />
@@ -241,6 +251,6 @@ export function CompositionArcsCard({
           )}
         </>
       ) : null}
-    </>
+    </SidebarSection>
   );
 }

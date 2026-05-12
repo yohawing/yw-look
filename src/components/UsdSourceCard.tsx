@@ -261,7 +261,7 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
     flattenCachedPath.current === currentFile?.path && flattenedSource !== null;
 
   return (
-    <SidebarSection title="USD Source">
+    <SidebarSection title="USD Source" collapsible defaultOpen={false}>
       <div className="sidebar-action-row">
         {open && isBinaryStage && (
           <button
