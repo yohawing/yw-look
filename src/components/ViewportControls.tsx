@@ -38,6 +38,8 @@ export type ViewportControlsProps<
   onToggleWireframe: () => void;
   showGrid: boolean;
   onToggleGrid: () => void;
+  orthoMode?: boolean;
+  onToggleOrthoMode?: () => void;
   showAxes?: boolean;
   onToggleAxes?: () => void;
   showEnvironmentBackground?: boolean;
@@ -127,6 +129,8 @@ export function ViewportControls<
   onToggleWireframe,
   showGrid,
   onToggleGrid,
+  orthoMode,
+  onToggleOrthoMode,
   showAxes,
   onToggleAxes,
   showEnvironmentBackground,
@@ -203,6 +207,16 @@ export function ViewportControls<
               onSelectCameraPreset(nextCameraPreset);
             }}
             title={`${nextCameraLabel} view`}
+          />
+        ) : null}
+        {onToggleOrthoMode && typeof orthoMode === "boolean" ? (
+          <ViewportTool
+            active={orthoMode}
+            icon="ortho"
+            key="ortho-mode"
+            label={orthoMode ? "Perspective" : "Orthographic"}
+            onClick={onToggleOrthoMode}
+            title={orthoMode ? "Switch to perspective" : "Switch to orthographic"}
           />
         ) : null}
         {nextBackground && onSelectBackgroundPreset ? (

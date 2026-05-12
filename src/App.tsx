@@ -303,6 +303,7 @@ export function App() {
   const [toneMappingMode] = useState<ToneMappingMode>("aces");
   const [exposure] = useState(DEFAULT_EXPOSURE);
   const [cameraSpeedMultiplier] = useState(1);
+  const [orthoMode, setOrthoMode] = useState(false);
   const [backgroundPreset, setBackgroundPreset] =
     useState<BackgroundPreset>("gray");
   const [environmentPreset, setEnvironmentPreset] =
@@ -1588,6 +1589,11 @@ export function App() {
   };
 
   const executeViewerShortcutAction = (action: ViewerShortcutAction) => {
+    if (action === "toggleProjection") {
+      setOrthoMode((prev) => !prev);
+      return;
+    }
+
     if (
       action === "focusSelected" ||
       action === "frameAll" ||
@@ -2316,6 +2322,7 @@ export function App() {
             activeCameraId={activeCameraId}
             onActiveCameraReset={() => setActiveCameraId(null)}
             glbOverride={sessionGlbBuffer}
+            orthoMode={orthoMode}
           />
 
           <ViewportControls
@@ -2327,6 +2334,8 @@ export function App() {
             onToggleWireframe={() => setShowWireframe((v) => !v)}
             showGrid={showGrid}
             onToggleGrid={() => setShowGrid((v) => !v)}
+            orthoMode={orthoMode}
+            onToggleOrthoMode={() => setOrthoMode((v) => !v)}
             showAxes={showAxes}
             onToggleAxes={() => setShowAxes((v) => !v)}
             showEnvironmentBackground={showEnvironmentBackground}

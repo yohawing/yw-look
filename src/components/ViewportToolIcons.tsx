@@ -7,6 +7,7 @@ export type ViewportToolIcon =
   | "grid"
   | "light"
   | "normals"
+  | "ortho"
   | "palette"
   | "skeleton"
   | "texture"
@@ -66,6 +67,13 @@ export function ViewportToolSvg({ icon }: { icon: ViewportToolIcon }) {
       return (
         <svg viewBox="0 0 16 16" aria-hidden="true">
           <path d="M3 12h10L8 4zM8 8V2M8 2l2 2M8 2 6 4" />
+        </svg>
+      );
+    case "ortho":
+      return (
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="3" y="3" width="10" height="10" />
+          <path d="M3 3h10M3 13h10M3 3v10M13 3v10" />
         </svg>
       );
     case "palette":

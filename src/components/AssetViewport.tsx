@@ -16,6 +16,7 @@ import {
   MeshBasicMaterial,
   MOUSE,
   Object3D,
+  OrthographicCamera,
   PCFSoftShadowMap,
   PerspectiveCamera,
   PMREMGenerator,
@@ -478,6 +479,13 @@ type AssetViewportProps = {
    * Setting to `null` or omitting reverts to the normal file-based path.
    */
   glbOverride?: ArrayBuffer | null;
+  /**
+   * When `true` the viewport renders with an orthographic projection instead
+   * of the default perspective camera. OrbitControls still drives the free
+   * camera; the orthographic frustum is derived from the camera–target
+   * distance and FOV each frame so zoom/orbit/pan feel consistent.
+   */
+  orthoMode?: boolean;
 };
 
 function disposeEnvironmentScene(scene: Scene) {
@@ -684,6 +692,7 @@ export function AssetViewport({
   activeCameraId = null,
   onActiveCameraReset,
   glbOverride = null,
+  orthoMode = false,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -752,6 +761,8 @@ export function AssetViewport({
   // PerspectiveCamera) so OrthographicCamera USD cameras are also usable —
   // both subtypes satisfy the WebGLRenderer.render(scene, camera) contract.
   const activeCameraRef = useRef<Camera | null>(null);
+  const orthoCameraRef = useRef<OrthographicCamera | null>(null);
+  const orthoModeRef = useRef(orthoMode);
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
@@ -835,6 +846,10 @@ export function AssetViewport({
   useEffect(() => {
     texturePreview3DRef.current = texturePreview3D;
   }, [texturePreview3D]);
+
+  useEffect(() => {
+    orthoModeRef.current = orthoMode;
+  }, [orthoMode]);
 
   useEffect(() => {
     onSelectMeshRef.current = onSelectMesh;
@@ -1023,6 +1038,13 @@ export function AssetViewport({
       2000,
     );
     camera.up.set(0, 1, 0);
+
+    // OrthographicCamera used when orthoMode is active. Its frustum is
+    // recomputed every frame from the perspective camera's position and FOV
+    // so zoom / orbit / pan feel identical in both projection modes.
+    const orthoCamera = new OrthographicCamera(-1, 1, 1, -1, 0.01, 2000);
+    orthoCamera.up.set(0, 1, 0);
+    orthoCameraRef.current = orthoCamera;
 
     const pmremGenerator = new PMREMGenerator(renderer);
     environmentTargetsRef.current = new Map();
@@ -1433,6 +1455,17 @@ export function AssetViewport({
       renderer.setSize(nextSize.x, nextSize.y);
       camera.aspect = nextSize.x / nextSize.y;
       camera.updateProjectionMatrix();
+      // Keep the ortho camera aspect in sync. The full frustum is recomputed
+      // per-frame; here we just preserve the current zoom level at the new
+      // aspect ratio so the first frame after resize looks right.
+      const oc = orthoCameraRef.current;
+      if (oc && nextSize.x > 0 && nextSize.y > 0) {
+        const aspect = nextSize.x / nextSize.y;
+        const halfH = Math.max((oc.top - oc.bottom) / 2, 0.001);
+        oc.left = -halfH * aspect;
+        oc.right = halfH * aspect;
+        oc.updateProjectionMatrix();
+      }
       // #34: keep the active USD camera's aspect in sync on resize.
       // OrthographicCamera frustums are authored and don't follow window
       // aspect, so we only re-apply this for PerspectiveCamera.
@@ -1527,9 +1560,33 @@ export function AssetViewport({
         updateRuntimePreview(sceneContextRef.current, deltaSeconds);
       }
 
+      // Sync the orthographic camera each frame when ortho mode is active.
+      // OrbitControls always drives the perspective camera; the ortho camera
+      // just mirrors the same viewpoint with a frustum derived from the
+      // perspective distance×FOV so zoom / orbit / pan feel consistent.
+      const oc = orthoCameraRef.current;
+      if (oc && orthoModeRef.current) {
+        const distance = camera.position.distanceTo(controls.target);
+        const fovRad = MathUtils.degToRad(camera.fov);
+        const frustumHeight = 2 * distance * Math.tan(fovRad / 2);
+        const aspect =
+          host.clientHeight > 0 ? host.clientWidth / host.clientHeight : 1;
+        oc.left = (-frustumHeight * aspect) / 2;
+        oc.right = (frustumHeight * aspect) / 2;
+        oc.top = frustumHeight / 2;
+        oc.bottom = -frustumHeight / 2;
+        oc.near = camera.near;
+        oc.far = camera.far;
+        oc.position.copy(camera.position);
+        oc.quaternion.copy(camera.quaternion);
+        oc.updateProjectionMatrix();
+      }
+
       // #34: use the active USD camera if one is selected; fall back to the
-      // free-orbit camera otherwise.
-      const renderCamera = activeCameraRef.current ?? camera;
+      // free-orbit camera (perspective or orthographic) otherwise.
+      const freeCamera =
+        oc && orthoModeRef.current ? (oc as Camera) : camera;
+      const renderCamera = activeCameraRef.current ?? freeCamera;
       if (fxaaEnabledRef.current && fxaaStateRef.current) {
         // Swap the RenderPass camera so FXAA also honours the active USD camera.
         fxaaStateRef.current.renderPass.camera = renderCamera;
@@ -1611,6 +1668,7 @@ export function AssetViewport({
       fxaaStateRef.current?.composer.dispose();
       fxaaStateRef.current = null;
       keyLightRef.current = null;
+      orthoCameraRef.current = null;
       pmremGenerator.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);

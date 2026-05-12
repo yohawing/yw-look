@@ -9,7 +9,8 @@ export type ViewerShortcutAction =
   | "isolateSelected"
   | "unhideAll"
   | "cycleDisplayMode"
-  | "toggleGrid";
+  | "toggleGrid"
+  | "toggleProjection";
 
 export type ViewportShortcutCommand =
   | { kind: "focusSelected"; selectionKey: string; version: number }
@@ -38,11 +39,12 @@ export const viewerShortcutHelpLines = [
   "Alt+H  Visibility > Unhide all",
   "Z  Display > Cycle display mode",
   "G  Display > Toggle grid",
+  "Numpad5  Display > Toggle perspective / orthographic",
 ];
 
 type KeyboardShortcutEvent = Pick<
   KeyboardEvent,
-  "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
+  "key" | "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
 >;
 
 const displayModeCycle: DisplayMode[] = [
@@ -104,6 +106,10 @@ export function resolveViewerShortcutAction(
 
   if (!hasOnlyModifiers(event)) {
     return null;
+  }
+
+  if (event.code === "Numpad5") {
+    return "toggleProjection";
   }
 
   switch (key) {
@@ -223,5 +229,8 @@ export function applyViewerShortcutAction(
         ...state,
         showGrid: !state.showGrid,
       };
+    case "toggleProjection":
+      // Handled directly in App.tsx (setOrthoMode); no ViewerShortcutState change needed.
+      return state;
   }
 }
