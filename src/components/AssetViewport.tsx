@@ -2014,6 +2014,7 @@ export function AssetViewport({
           cleanupUrls,
           clips,
           formatVersion,
+          warnings = [],
         }) => {
           if (disposed) {
             runCleanupCallbacks(cleanupCallbacks);
@@ -2195,10 +2196,15 @@ export function AssetViewport({
             }
           }
 
+          const scaleWarning = getScaleWarning(object, normalization);
+          const previewWarning = [scaleWarning, ...warnings]
+            .filter((warning): warning is string => Boolean(warning))
+            .join("\n");
+
           onFeedbackChange({
             mode: "ready",
             message: `Preview ready: ${currentFile.fileName}`,
-            warning: getScaleWarning(object, normalization),
+            warning: previewWarning || null,
             canResetCamera: true,
           });
           setLoadingStage(null);

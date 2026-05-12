@@ -142,6 +142,9 @@ function stripUrlSuffix(value: string) {
   return value.replace(/\\/g, "/").split(/[?#]/, 1)[0];
 }
 
+const FALLBACK_TEXTURE_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lZ8hdwAAAABJRU5ErkJggg==";
+
 function isAbsoluteTexturePath(value: string) {
   return /^[a-zA-Z]:\//.test(value) || value.startsWith("/");
 }
@@ -820,11 +823,7 @@ async function createFbxLoadingManager(
 
 async function materializeGltf(file: SelectedFile) {
   const rawText = await readTextFile(file.path);
-  const json = JSON.parse(rawText) as {
-    asset?: { version?: string };
-    buffers?: Array<{ uri?: string }>;
-    images?: Array<{ uri?: string }>;
-  };
+  const json = JSON.parse(rawText) as GltfDocument;
   const cleanupUrls: string[] = [];
   const missingPaths: string[] = [];
   const unresolvedImages: string[] = [];
@@ -838,17 +837,10 @@ async function materializeGltf(file: SelectedFile) {
     const extension = uri.includes(".")
       ? (uri.split(".").pop() ?? "bin")
       : "bin";
-    let objectUrl: string;
-
-    try {
-      objectUrl = await createBlobUrlFromPath(
-        resourcePath,
-        extension.toLowerCase(),
-      );
-    } catch {
-      missingPaths.push(uri);
-      throw new Error(`Missing reference: ${uri}`);
-    }
+    const objectUrl = await createBlobUrlFromPath(
+      resourcePath,
+      extension.toLowerCase(),
+    );
 
     cleanupUrls.push(objectUrl);
     return objectUrl;
@@ -856,22 +848,42 @@ async function materializeGltf(file: SelectedFile) {
 
   if (json.buffers) {
     for (const buffer of json.buffers) {
-      if (buffer.uri) {
+      if (!buffer.uri) {
+        continue;
+      }
+      try {
         buffer.uri = await rewriteUri(buffer.uri);
+      } catch {
+        missingPaths.push(buffer.uri);
       }
     }
   }
 
+  const missingImageIndices = new Set<number>();
   if (json.images) {
-    for (const image of json.images) {
-      if (image.uri) {
-        try {
-          image.uri = await rewriteUri(image.uri);
-        } catch {
-          unresolvedImages.push(image.uri);
-        }
+    for (const [index, image] of json.images.entries()) {
+      if (!image.uri) {
+        continue;
+      }
+      try {
+        image.uri = await rewriteUri(image.uri);
+      } catch {
+        unresolvedImages.push(image.uri);
+        missingImageIndices.add(index);
+        image.uri = FALLBACK_TEXTURE_DATA_URL;
       }
     }
+  }
+
+  if (missingImageIndices.size > 0) {
+    applyMissingGltfTextureFallbacks(json, missingImageIndices);
+    console.warn(
+      "[gltf] missing texture references; using fallback material:",
+      {
+        file: file.fileName,
+        missingTextures: unresolvedImages,
+      },
+    );
   }
 
   if (missingPaths.length > 0) {
@@ -896,7 +908,171 @@ async function materializeGltf(file: SelectedFile) {
     rootUrl,
     cleanupUrls,
     formatVersion: json.asset?.version ?? null,
+    warnings: formatMissingTextureWarnings(unresolvedImages),
   };
+}
+
+type GltfTextureInfo = {
+  index?: number;
+};
+
+type GltfMaterial = {
+  name?: string;
+  pbrMetallicRoughness?: {
+    baseColorTexture?: GltfTextureInfo;
+    metallicRoughnessTexture?: GltfTextureInfo;
+    baseColorFactor?: [number, number, number, number];
+    metallicFactor?: number;
+    roughnessFactor?: number;
+  };
+  normalTexture?: GltfTextureInfo;
+  occlusionTexture?: GltfTextureInfo;
+  emissiveTexture?: GltfTextureInfo;
+  extensions?: Record<string, unknown>;
+  doubleSided?: boolean;
+};
+
+export type GltfDocument = {
+  asset?: { version?: string };
+  buffers?: Array<{ uri?: string }>;
+  images?: Array<{ uri?: string }>;
+  textures?: Array<{ source?: number }>;
+  materials?: GltfMaterial[];
+};
+
+const GLTF_MISSING_TEXTURE_FALLBACK = {
+  pbrMetallicRoughness: {
+    baseColorFactor: [0.78, 0.82, 0.9, 1] as [number, number, number, number],
+    metallicFactor: 0,
+    roughnessFactor: 0.72,
+  },
+};
+
+function textureInfoUsesMissingImage(
+  textureInfo: GltfTextureInfo | undefined,
+  textures: GltfDocument["textures"],
+  missingImageIndices: ReadonlySet<number>,
+) {
+  if (
+    !textureInfo ||
+    typeof textureInfo.index !== "number" ||
+    !textures?.[textureInfo.index]
+  ) {
+    return false;
+  }
+
+  const source = textures[textureInfo.index].source;
+  return typeof source === "number" && missingImageIndices.has(source);
+}
+
+function materialUsesMissingGltfTexture(
+  material: GltfMaterial,
+  textures: GltfDocument["textures"],
+  missingImageIndices: ReadonlySet<number>,
+) {
+  return valueUsesMissingGltfTexture(
+    material,
+    textures,
+    missingImageIndices,
+    new Set(),
+  );
+}
+
+function valueUsesMissingGltfTexture(
+  value: unknown,
+  textures: GltfDocument["textures"],
+  missingImageIndices: ReadonlySet<number>,
+  seen: Set<object>,
+): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  if (seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.some((item) =>
+      valueUsesMissingGltfTexture(item, textures, missingImageIndices, seen),
+    );
+  }
+
+  return Object.entries(value).some(([key, item]) => {
+    if (
+      key.endsWith("Texture") &&
+      textureInfoUsesMissingImage(
+        item as GltfTextureInfo,
+        textures,
+        missingImageIndices,
+      )
+    ) {
+      return true;
+    }
+
+    return valueUsesMissingGltfTexture(
+      item,
+      textures,
+      missingImageIndices,
+      seen,
+    );
+  });
+}
+
+function applyMissingGltfTextureFallbacks(
+  json: GltfDocument,
+  missingImageIndices: ReadonlySet<number>,
+) {
+  if (missingImageIndices.size === 0 || !json.materials?.length) {
+    return;
+  }
+
+  for (const material of json.materials) {
+    if (
+      !materialUsesMissingGltfTexture(
+        material,
+        json.textures,
+        missingImageIndices,
+      )
+    ) {
+      continue;
+    }
+
+    material.pbrMetallicRoughness = {
+      ...GLTF_MISSING_TEXTURE_FALLBACK.pbrMetallicRoughness,
+    };
+    delete material.normalTexture;
+    delete material.occlusionTexture;
+    delete material.emissiveTexture;
+    delete material.extensions;
+  }
+}
+
+function formatMissingTextureWarnings(paths: string[]) {
+  if (paths.length === 0) {
+    return [];
+  }
+
+  const uniquePaths = [...new Set(paths)];
+  const listedPaths = uniquePaths.slice(0, 5).join(", ");
+  const suffix =
+    uniquePaths.length > 5 ? `, +${uniquePaths.length - 5} more` : "";
+  return [
+    `Missing texture reference${uniquePaths.length === 1 ? "" : "s"}: ${listedPaths}${suffix}. Fallback material was used.`,
+  ];
+}
+
+function resolveColladaTextureUrl(
+  url: string,
+  blobCache: ReadonlyMap<string, string>,
+  missingPaths: ReadonlySet<string>,
+) {
+  if (/^(data:|blob:|https?:)/i.test(url)) return url;
+  return (
+    blobCache.get(url) ??
+    (missingPaths.has(url) ? FALLBACK_TEXTURE_DATA_URL : url)
+  );
 }
 
 function createTexturePreview(
@@ -1172,6 +1348,9 @@ export {
   isUsdcCrateBuffer,
   readUsdzFirstFileName,
   shouldFailClosedOnUsdPreviewDecisionFailure,
+  applyMissingGltfTextureFallbacks,
+  formatMissingTextureWarnings,
+  resolveColladaTextureUrl,
 };
 
 async function loadPreviewObjectCore(
@@ -1224,6 +1403,7 @@ async function loadPreviewObjectCore(
         cleanupUrls: materialized.cleanupUrls,
         clips: gltf.animations,
         formatVersion: materialized.formatVersion,
+        warnings: materialized.warnings,
       };
     }
     case "fbx": {
@@ -1361,22 +1541,16 @@ async function loadPreviewObjectCore(
         }
       }
       if (missingPaths.length > 0) {
-        for (const url of cleanupUrls) {
-          URL.revokeObjectURL(url);
-        }
-        const error = new Error(
-          `Missing reference: ${missingPaths.join(", ")}`,
-        ) as MissingReferenceError;
-        error.formatVersion = null;
-        error.missingPaths = missingPaths;
-        error.unresolvedImages = [];
-        throw error;
+        console.warn("[dae] missing texture references; continuing:", {
+          file: file.fileName,
+          missingTextures: missingPaths,
+        });
       }
       reportStage("resolve");
       const manager = new LoadingManager();
+      const missingPathSet = new Set(missingPaths);
       manager.setURLModifier((url) => {
-        if (/^(data:|blob:|https?:)/i.test(url)) return url;
-        return blobCache.get(url) ?? url;
+        return resolveColladaTextureUrl(url, blobCache, missingPathSet);
       });
       const loader = new ColladaLoader(manager);
       reportStage("scene");
@@ -1396,6 +1570,7 @@ async function loadPreviewObjectCore(
         cleanupUrls,
         clips: [],
         formatVersion: null,
+        warnings: formatMissingTextureWarnings(missingPaths),
       };
     }
     case "usd":

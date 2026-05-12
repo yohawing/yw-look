@@ -62,6 +62,7 @@ export type LoadedPreview = {
   cleanupCallbacks?: Array<() => void>;
   clips: AnimationClip[];
   formatVersion: string | null;
+  warnings?: string[];
 };
 
 export type DeferredTextureSnapshot = {

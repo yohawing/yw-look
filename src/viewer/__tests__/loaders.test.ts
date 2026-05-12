@@ -15,6 +15,10 @@ import {
   isUsdcCrateBuffer,
   readUsdzFirstFileName,
   shouldFailClosedOnUsdPreviewDecisionFailure,
+  applyMissingGltfTextureFallbacks,
+  formatMissingTextureWarnings,
+  resolveColladaTextureUrl,
+  type GltfDocument,
 } from "../loaders";
 import {
   formatMissingOptionalLoaderMessage,
@@ -179,6 +183,158 @@ describe("resolveSiblingPath", () => {
     expect(() => resolveSiblingPath("/home", "../../etc/passwd")).toThrow(
       "Path traversal beyond filesystem root",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// missing texture fallback
+// ---------------------------------------------------------------------------
+
+describe("missing texture fallback", () => {
+  it("replaces glTF materials that reference missing images with a fallback material", () => {
+    const json: GltfDocument = {
+      images: [{ uri: "missing.png" }, { uri: "present.png" }],
+      textures: [{ source: 0 }, { source: 1 }],
+      materials: [
+        {
+          name: "Broken",
+          pbrMetallicRoughness: {
+            baseColorTexture: { index: 0 },
+            baseColorFactor: [1, 0, 0, 1] as [number, number, number, number],
+          },
+          normalTexture: { index: 1 },
+        },
+        {
+          name: "Intact",
+          pbrMetallicRoughness: {
+            baseColorTexture: { index: 1 },
+          },
+        },
+      ],
+    };
+
+    applyMissingGltfTextureFallbacks(json, new Set([0]));
+    const materials = json.materials!;
+
+    expect(materials[0].pbrMetallicRoughness).toEqual({
+      baseColorFactor: [0.78, 0.82, 0.9, 1],
+      metallicFactor: 0,
+      roughnessFactor: 0.72,
+    });
+    expect(materials[0].normalTexture).toBeUndefined();
+    expect(materials[1].pbrMetallicRoughness).toEqual({
+      baseColorTexture: { index: 1 },
+    });
+  });
+
+  it("removes missing normal and emissive texture slots from glTF fallback materials", () => {
+    const json: GltfDocument = {
+      images: [{ uri: "missing-normal.png" }],
+      textures: [{ source: 0 }],
+      materials: [
+        {
+          normalTexture: { index: 0 },
+          emissiveTexture: { index: 0 },
+        },
+      ],
+    };
+
+    applyMissingGltfTextureFallbacks(json, new Set([0]));
+    const material = json.materials![0];
+
+    expect(material.pbrMetallicRoughness).toEqual({
+      baseColorFactor: [0.78, 0.82, 0.9, 1],
+      metallicFactor: 0,
+      roughnessFactor: 0.72,
+    });
+    expect(material.normalTexture).toBeUndefined();
+    expect(material.emissiveTexture).toBeUndefined();
+  });
+
+  it("falls back when missing textures are referenced through glTF material extensions", () => {
+    const json: GltfDocument = {
+      images: [{ uri: "missing-clearcoat.png" }],
+      textures: [{ source: 0 }],
+      materials: [
+        {
+          extensions: {
+            KHR_materials_clearcoat: {
+              clearcoatTexture: { index: 0 },
+            },
+          },
+        },
+      ],
+    };
+
+    applyMissingGltfTextureFallbacks(json, new Set([0]));
+    const material = json.materials![0];
+
+    expect(material.pbrMetallicRoughness).toEqual({
+      baseColorFactor: [0.78, 0.82, 0.9, 1],
+      metallicFactor: 0,
+      roughnessFactor: 0.72,
+    });
+    expect(material.extensions).toBeUndefined();
+  });
+
+  it("does not treat non-texture extension indexes as missing texture references", () => {
+    const json: GltfDocument = {
+      images: [{ uri: "missing-clearcoat.png" }],
+      textures: [{ source: 0 }],
+      materials: [
+        {
+          extensions: {
+            EXT_example: {
+              variantIndex: { index: 0 },
+            },
+          },
+        },
+      ],
+    };
+
+    applyMissingGltfTextureFallbacks(json, new Set([0]));
+    const material = json.materials![0];
+
+    expect(material.pbrMetallicRoughness).toBeUndefined();
+    expect(material.extensions).toEqual({
+      EXT_example: {
+        variantIndex: { index: 0 },
+      },
+    });
+  });
+
+  it("only maps known missing Collada texture URLs to the fallback texture", () => {
+    const blobCache = new Map([["textures/present.png", "blob:present"]]);
+    const missingPaths = new Set(["textures/missing.png"]);
+
+    expect(
+      resolveColladaTextureUrl("textures/present.png", blobCache, missingPaths),
+    ).toBe("blob:present");
+    expect(
+      resolveColladaTextureUrl("textures/missing.png", blobCache, missingPaths),
+    ).toContain("data:image/png;base64,");
+    expect(
+      resolveColladaTextureUrl(
+        "textures/untracked.png",
+        blobCache,
+        missingPaths,
+      ),
+    ).toBe("textures/untracked.png");
+  });
+
+  it("formats missing texture warnings with a bounded path list", () => {
+    expect(
+      formatMissingTextureWarnings([
+        "a.png",
+        "b.png",
+        "c.png",
+        "d.png",
+        "e.png",
+        "f.png",
+      ]),
+    ).toEqual([
+      "Missing texture references: a.png, b.png, c.png, d.png, e.png, +1 more. Fallback material was used.",
+    ]);
   });
 });
 
