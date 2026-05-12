@@ -2035,6 +2035,80 @@ body.is-resizing-sidebar {
   color: #8a8f98;
 }
 
+.selected-morph-section {
+  margin-top: 6px;
+  padding: 8px 16px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.selected-morph-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #8a8f98;
+  font-size: 10.5px;
+  font-weight: 510;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.selected-morph-reset {
+  margin-left: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  padding: 2px 7px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #d0d6e0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.selected-morph-reset:hover {
+  background: rgba(255, 255, 255, 0.065);
+  color: #f7f8f8;
+}
+
+.selected-morph-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.selected-morph-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 4px 8px;
+  align-items: center;
+}
+
+.selected-morph-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #d0d6e0;
+  font-size: 11.5px;
+  font-weight: 510;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-morph-value {
+  color: #8a8f98;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-align: right;
+}
+
+.selected-morph-slider {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: #7170ff;
+}
+
 /* ── Log Preview ── */
 
 .log-preview {

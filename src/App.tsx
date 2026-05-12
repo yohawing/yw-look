@@ -406,6 +406,9 @@ export function App() {
   // Three.js Object3D.name.  Both HierarchyCard and the viewport tint
   // path match on this same key, so the two directions stay in sync.
   const [selectedMeshName, setSelectedMeshName] = useState<string | null>(null);
+  const [morphTargetValues, setMorphTargetValues] = useState<
+    Record<string, Record<number, number>>
+  >({});
   // #28: USD prim path selected in the hierarchy tree.
   // Drives the UsdPrimPropertyPanel. Separate from `selectedMeshName`
   // because the hierarchy tree can select any prim (not just meshes).
@@ -487,6 +490,24 @@ export function App() {
     setVariantSelectionError(message);
     return true;
   }, []);
+  const handleMorphTargetChange = useCallback(
+    (selectionKey: string, morphTargetIndex: number, value: number) => {
+      const clamped = Math.min(1, Math.max(0, value));
+      setMorphTargetValues((previous) => ({
+        ...previous,
+        [selectionKey]: {
+          ...(previous[selectionKey] ?? {}),
+          [morphTargetIndex]: clamped,
+        },
+      }));
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setMorphTargetValues({});
+  }, [currentFile?.path]);
+
   const applyVariantSelection = useCallback(
     (primPath: string, setName: string, variantName: string) => {
       setVariantSelectionError(null);
@@ -2052,6 +2073,9 @@ export function App() {
           <>
             <HierarchyCard
               hierarchy={sidebarAssetMetadata?.hierarchy ?? []}
+              objectInfo={sidebarAssetMetadata?.objectInfo}
+              morphTargetValues={morphTargetValues}
+              onMorphTargetChange={handleMorphTargetChange}
               selectedName={selectedMeshName}
               onSelectName={setSelectedMeshName}
               onSelectPrimPath={
@@ -2467,6 +2491,7 @@ export function App() {
             texturePreview3D={texturePreview3D}
             onSelectMesh={setSelectedMeshName}
             selectedMeshName={selectedMeshName}
+            morphTargetValues={morphTargetValues}
             purposeModes={purposeModes}
             variantSelections={variantSelections}
             activeCameraId={activeCameraId}

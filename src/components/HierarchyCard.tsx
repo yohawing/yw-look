@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { HierarchyNode } from "./assetMetadata";
+import type { AssetMetadata, HierarchyNode, ObjectInfo } from "./assetMetadata";
 
 type HierarchyCardProps = {
   hierarchy: HierarchyNode[];
+  objectInfo?: AssetMetadata["objectInfo"];
+  morphTargetValues?: Record<string, Record<number, number>>;
+  onMorphTargetChange?: (
+    selectionKey: string,
+    morphTargetIndex: number,
+    value: number,
+  ) => void;
   /** #33: name of the currently picked mesh (Object3D.name). When the
    * tree contains a node with this name it gets a highlight class and
    * is scrolled into view. `null` clears the selection. */
@@ -44,6 +51,21 @@ type HierarchyCardProps = {
    */
   onUnloadPayload?: (primPath: string) => void;
 };
+
+function clampMorphValue(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+function selectedMorphValue(
+  selectedKey: string,
+  target: ObjectInfo["morphTargets"][number],
+  overrides?: Record<string, Record<number, number>>,
+): number {
+  return clampMorphValue(
+    overrides?.[selectedKey]?.[target.index] ?? target.value,
+  );
+}
 
 function HierarchyBranch({
   node,
@@ -287,6 +309,9 @@ function countNodes(nodes: HierarchyNode[]): number {
 
 export function HierarchyCard({
   hierarchy,
+  objectInfo,
+  morphTargetValues,
+  onMorphTargetChange,
   selectedName,
   onSelectName,
   onSelectPrimPath,
@@ -313,6 +338,10 @@ export function HierarchyCard({
   const selectedNode = findNodeByKey(hierarchy, normalizedSelected);
   const totalNodeCount = countNodes(hierarchy);
   const selectedPath = selectedNode?.primPath ?? normalizedSelected;
+  const selectedInfo = normalizedSelected
+    ? (objectInfo?.[normalizedSelected] ?? null)
+    : null;
+  const selectedMorphTargets = selectedInfo?.morphTargets ?? [];
   const selectedChildCount = selectedNode?.children.length ?? 0;
   const selectedPayloadState =
     selectedPath && payloadPrimPaths?.has(selectedPath)
@@ -428,6 +457,80 @@ export function HierarchyCard({
                 <span className="selected-kv-value">
                   {selectedPayloadState}
                 </span>
+              </div>
+            ) : null}
+            {selectedInfo?.vertexCount !== null &&
+            selectedInfo?.vertexCount !== undefined ? (
+              <div className="selected-kv-row">
+                <span className="selected-kv-key">Vertices</span>
+                <span className="selected-kv-value">
+                  {selectedInfo.vertexCount.toLocaleString()}
+                </span>
+              </div>
+            ) : null}
+            {selectedInfo && selectedInfo.materialNames.length > 0 ? (
+              <div className="selected-kv-row">
+                <span className="selected-kv-key">Material</span>
+                <span className="selected-kv-value">
+                  {selectedInfo.materialNames.join(", ")}
+                </span>
+              </div>
+            ) : null}
+            {normalizedSelected && selectedMorphTargets.length > 0 ? (
+              <div className="selected-morph-section">
+                <div className="selected-morph-head">
+                  <span>Shape Keys</span>
+                  <button
+                    className="selected-morph-reset"
+                    type="button"
+                    onClick={() => {
+                      for (const target of selectedMorphTargets) {
+                        onMorphTargetChange?.(
+                          normalizedSelected,
+                          target.index,
+                          0,
+                        );
+                      }
+                    }}
+                  >
+                    Reset All
+                  </button>
+                </div>
+                <div className="selected-morph-list">
+                  {selectedMorphTargets.map((target) => {
+                    const value = selectedMorphValue(
+                      normalizedSelected,
+                      target,
+                      morphTargetValues,
+                    );
+                    return (
+                      <label className="selected-morph-row" key={target.index}>
+                        <span className="selected-morph-name">
+                          {target.name}
+                        </span>
+                        <span className="selected-morph-value">
+                          {value.toFixed(2)}
+                        </span>
+                        <input
+                          aria-label={`Shape key ${target.name}`}
+                          className="selected-morph-slider"
+                          max="1"
+                          min="0"
+                          step="0.01"
+                          type="range"
+                          value={value}
+                          onChange={(event) =>
+                            onMorphTargetChange?.(
+                              normalizedSelected,
+                              target.index,
+                              Number(event.currentTarget.value),
+                            )
+                          }
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
           </div>

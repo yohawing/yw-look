@@ -3,6 +3,7 @@ import {
   Box3,
   Box3Helper,
   BufferGeometry,
+  Color,
   DirectionalLight,
   DoubleSide,
   FrontSide,
@@ -1043,12 +1044,14 @@ export function applyUnlitMaterial(
           mat.userData.originalMap instanceof Texture
             ? mat.userData.originalMap
             : null;
-        const effectiveMap = originalMap ?? ("map" in mat ? mat.map : null);
-        if (effectiveMap) {
+        const effectiveMap =
+          originalMap ??
+          ("map" in mat && mat.map instanceof Texture ? mat.map : null);
+        if (effectiveMap instanceof Texture) {
           unlit.map = effectiveMap;
         }
 
-        if ("color" in mat && mat.color) {
+        if ("color" in mat && mat.color instanceof Color) {
           unlit.color.copy(mat.color);
         }
         unlit.transparent = mat.transparent;
@@ -1057,7 +1060,9 @@ export function applyUnlitMaterial(
         unlit.side = mat.side;
         unlit.depthWrite = mat.depthWrite;
         unlit.depthTest = mat.depthTest;
-        unlit.wireframe = mat.wireframe;
+        if ("wireframe" in mat && typeof mat.wireframe === "boolean") {
+          unlit.wireframe = mat.wireframe;
+        }
 
         unlitMaterials.push(unlit);
       }

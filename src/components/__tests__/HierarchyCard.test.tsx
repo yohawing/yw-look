@@ -12,7 +12,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { HierarchyCard } from "../HierarchyCard";
-import type { HierarchyNode } from "../assetMetadata";
+import type { HierarchyNode, ObjectInfo } from "../assetMetadata";
 
 const tree: HierarchyNode[] = [
   {
@@ -30,6 +30,27 @@ const tree: HierarchyNode[] = [
     ],
   },
 ];
+
+const faceInfo: ObjectInfo = {
+  name: "Face",
+  kind: "mesh",
+  visible: true,
+  position: [0, 0, 0],
+  rotation: [0, 0, 0],
+  scale: [1, 1, 1],
+  boundingBox: null,
+  vertexCount: 12340,
+  triangleCount: null,
+  materialNames: ["Face_Mat"],
+  materialIds: [],
+  morphTargets: [
+    { index: 0, name: "blink_L", value: 0 },
+    { index: 1, name: "mouth_A", value: 0.65 },
+  ],
+  childCount: null,
+  animatesWithClips: [],
+  userData: null,
+};
 
 describe("HierarchyCard selection sync (#33)", () => {
   afterEach(() => {
@@ -126,5 +147,74 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(arm).toBeTruthy();
     fireEvent.click(arm!);
     expect(onSelect).toHaveBeenCalledWith("Arm");
+  });
+
+  it("renders morph target sliders for the selected mesh and forwards changes", () => {
+    const onMorphTargetChange = vi.fn();
+    const faceTree: HierarchyNode[] = [
+      { name: "Face", kind: "mesh", children: [] },
+    ];
+    const { getByLabelText, getByText } = render(
+      <HierarchyCard
+        hierarchy={faceTree}
+        objectInfo={{ Face: faceInfo }}
+        selectedName="Face"
+        morphTargetValues={{ Face: { 1: 0.2 } }}
+        onMorphTargetChange={onMorphTargetChange}
+      />,
+    );
+
+    expect(getByText("12,340")).toBeTruthy();
+    expect(getByText("Face_Mat")).toBeTruthy();
+    const mouth = getByLabelText("Shape key mouth_A") as HTMLInputElement;
+    expect(mouth.value).toBe("0.2");
+
+    fireEvent.change(mouth, { target: { value: "0.42" } });
+    expect(onMorphTargetChange).toHaveBeenCalledWith("Face", 1, 0.42);
+  });
+
+  it("resets every morph target to zero", () => {
+    const onMorphTargetChange = vi.fn();
+    const faceTree: HierarchyNode[] = [
+      { name: "Face", kind: "mesh", children: [] },
+    ];
+    const { getByRole } = render(
+      <HierarchyCard
+        hierarchy={faceTree}
+        objectInfo={{ Face: faceInfo }}
+        selectedName="Face"
+        onMorphTargetChange={onMorphTargetChange}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Reset All" }));
+    expect(onMorphTargetChange).toHaveBeenCalledWith("Face", 0, 0);
+    expect(onMorphTargetChange).toHaveBeenCalledWith("Face", 1, 0);
+  });
+
+  it("uses primPath as the morph target key for USD-sourced meshes", () => {
+    const onMorphTargetChange = vi.fn();
+    const faceTree: HierarchyNode[] = [
+      {
+        name: "Face",
+        kind: "mesh",
+        primPath: "/World/Face",
+        children: [],
+      },
+    ];
+    const { getByLabelText } = render(
+      <HierarchyCard
+        hierarchy={faceTree}
+        objectInfo={{ "/World/Face": faceInfo }}
+        selectedName="/World/Face"
+        morphTargetValues={{ "/World/Face": { 0: 0.25 } }}
+        onMorphTargetChange={onMorphTargetChange}
+      />,
+    );
+
+    const blink = getByLabelText("Shape key blink_L") as HTMLInputElement;
+    expect(blink.value).toBe("0.25");
+    fireEvent.change(blink, { target: { value: "0.75" } });
+    expect(onMorphTargetChange).toHaveBeenCalledWith("/World/Face", 0, 0.75);
   });
 });

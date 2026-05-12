@@ -93,6 +93,7 @@ import { AnimationBar } from "./AnimationBar";
 import { emptyAssetMetadata, type AssetMetadata } from "./assetMetadata";
 import { LoadingScreen } from "./LoadingScreen";
 import { emptyAnimationState, type AnimationState } from "./animation";
+import { applyMorphTargetValues } from "./morphTargets";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
 export type {
@@ -448,6 +449,7 @@ type AssetViewportProps = {
    * selection tint to the matching mesh; `null` clears any active tint.
    */
   selectedMeshName?: string | null;
+  morphTargetValues?: Record<string, Record<number, number>>;
   /**
    * #32: USD purpose visibility filter. `default` purpose is always shown.
    * Each of render / proxy / guide is independently toggled. When undefined
@@ -704,6 +706,7 @@ export function AssetViewport({
   texturePreview3D,
   onSelectMesh,
   selectedMeshName,
+  morphTargetValues,
   purposeModes,
   variantSelections,
   activeCameraId = null,
@@ -768,6 +771,7 @@ export function AssetViewport({
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
   const texturePreview3DRef = useRef(texturePreview3D);
   const onSelectMeshRef = useRef(onSelectMesh);
+  const morphTargetValuesRef = useRef(morphTargetValues);
   const purposeModesRef = useRef(purposeModes);
   // #34: active USD camera. null = free orbit.
   // activeCameraIdRef is read inside the render loop / pointer handlers to
@@ -872,6 +876,16 @@ export function AssetViewport({
   useEffect(() => {
     onSelectMeshRef.current = onSelectMesh;
   }, [onSelectMesh]);
+
+  useEffect(() => {
+    morphTargetValuesRef.current = morphTargetValues;
+  }, [morphTargetValues]);
+
+  useEffect(() => {
+    const source = sceneContextRef.current?.sourceObject;
+    if (!source) return;
+    applyMorphTargetValues(source, morphTargetValues);
+  }, [morphTargetValues]);
 
   // #33 reverse direction: tree → viewport highlight.
   // When selectedMeshName changes we apply (or clear) a selection tint on the
@@ -2048,6 +2062,7 @@ export function AssetViewport({
           applyBackfaceCulling(object, backfaceCullingRef.current);
           applyTextureFilter(object, textureFilterModeRef.current);
           applyVertexColors(object, showVertexColorsRef.current);
+          applyMorphTargetValues(object, morphTargetValuesRef.current);
           applyShadows(
             context.scene,
             object,
@@ -2642,6 +2657,12 @@ export function AssetViewport({
 
       if (animationState.isPlaying && viewerSurfaceMode === "asset") {
         context.mixer?.update(deltaSeconds);
+        if (context.sourceObject) {
+          applyMorphTargetValues(
+            context.sourceObject,
+            morphTargetValuesRef.current,
+          );
+        }
       }
 
       const clip = context.clips[animationState.activeClipIndex];

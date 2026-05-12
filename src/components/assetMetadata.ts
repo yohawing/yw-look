@@ -125,9 +125,16 @@ export type ObjectInfo = {
   triangleCount: number | null;
   materialNames: string[];
   materialIds: string[];
+  morphTargets: MorphTargetEntry[];
   childCount: number | null;
   animatesWithClips: string[];
   userData: Record<string, unknown> | null;
+};
+
+export type MorphTargetEntry = {
+  index: number;
+  name: string;
+  value: number;
 };
 
 export type AssetMetadata = {

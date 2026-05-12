@@ -473,6 +473,7 @@ function buildObjectInfo(
   let triangleCount: number | null = null;
   let materialNames: string[] = [];
   let materialIds: string[] = [];
+  let morphTargets: ObjectInfo["morphTargets"] = [];
   let childCount: number | null = null;
 
   if (object instanceof Mesh) {
@@ -506,6 +507,20 @@ function buildObjectInfo(
     const mats = getMaterials(object.material);
     materialNames = mats.map((m) => m.name.trim() || m.type);
     materialIds = mats.map((m) => m.uuid);
+
+    const influences = object.morphTargetInfluences ?? [];
+    const dictionary = object.morphTargetDictionary ?? {};
+    const namesByIndex = new Map<number, string>();
+    for (const [name, index] of Object.entries(dictionary)) {
+      if (Number.isInteger(index) && index >= 0) {
+        namesByIndex.set(index, name);
+      }
+    }
+    morphTargets = influences.map((value, index) => ({
+      index,
+      name: namesByIndex.get(index) ?? `Target ${index + 1}`,
+      value,
+    }));
   } else if (object instanceof Group) {
     childCount = object.children.length;
   }
@@ -554,6 +569,7 @@ function buildObjectInfo(
     triangleCount,
     materialNames,
     materialIds,
+    morphTargets,
     childCount,
     animatesWithClips: clipNames,
     userData,

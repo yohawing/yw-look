@@ -12,6 +12,7 @@ import { describe, it, expect } from "vitest";
 import {
   BufferGeometry,
   DirectionalLight,
+  Float32BufferAttribute,
   Group,
   Mesh,
   MeshBasicMaterial,
@@ -202,6 +203,35 @@ describe("collectAssetMetadata", () => {
     const trimEntry = result.metadata.materials.find((m) => m.name === "Trim");
     expect(body?.boundMeshes).toEqual(["Torso", "Arm"]);
     expect(trimEntry?.boundMeshes).toEqual(["Collar"]);
+  });
+
+  it("records morph target names and initial influences on mesh info", () => {
+    const root = new Group();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+    const blink = new Float32BufferAttribute(
+      [0, 0.1, 0, 1, 0.1, 0, 0, 1.1, 0],
+      3,
+    );
+    blink.name = "blink_L";
+    geometry.morphAttributes.position = [blink];
+
+    const mesh = new Mesh(geometry, new MeshBasicMaterial());
+    mesh.name = "Face";
+    mesh.updateMorphTargets();
+    if (mesh.morphTargetInfluences) {
+      mesh.morphTargetInfluences[0] = 0.65;
+    }
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.objectInfo.Face?.morphTargets).toEqual([
+      { index: 0, name: "blink_L", value: 0.65 },
+    ]);
   });
 
   it("uses (unnamed mesh) for binding entries without a name", () => {
