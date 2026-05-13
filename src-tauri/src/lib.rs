@@ -1221,8 +1221,8 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
 }
 
 const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "vrm", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga", "dds",
-    "ktx2", "hdr", "exr",
+    "glb", "gltf", "vrm", "pmd", "pmx", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg",
+    "tga", "dds", "ktx2", "hdr", "exr",
 ];
 
 fn system_time_to_unix_string(time: SystemTime) -> Option<String> {
@@ -1422,7 +1422,8 @@ fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<SelectedFilePayload>
             "Supported assets",
             &[
                 "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae",
-                "vrm", "pmd", "pmx", "abc", "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
+                "vrm", "pmd", "pmx", "abc", "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr",
+                "exr",
             ],
         )
         .pick_file();

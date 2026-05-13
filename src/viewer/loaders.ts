@@ -18,6 +18,7 @@ import {
   type Texture,
   Loader as ThreeLoader,
 } from "three";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { isTauriEnvironment } from "../lib/platform";
 import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
@@ -141,6 +142,10 @@ function filenameFromUrl(value: string) {
 
 function stripUrlSuffix(value: string) {
   return value.replace(/\\/g, "/").split(/[?#]/, 1)[0];
+}
+
+function isRemoteOrInlineUrl(value: string) {
+  return /^(data:|blob:|https?:|asset:)/i.test(value);
 }
 
 const FALLBACK_TEXTURE_DATA_URL =
@@ -1235,11 +1240,88 @@ function resolveColladaTextureUrl(
   blobCache: ReadonlyMap<string, string>,
   missingPaths: ReadonlySet<string>,
 ) {
-  if (/^(data:|blob:|https?:)/i.test(url)) return url;
+  if (isRemoteOrInlineUrl(url)) return url;
   return (
     blobCache.get(url) ??
     (missingPaths.has(url) ? FALLBACK_TEXTURE_DATA_URL : url)
   );
+}
+
+function normalizeMmdResourceBase(parentDirectory: string) {
+  return `${parentDirectory.replace(/\\/g, "/").replace(/\/+$/, "")}/`;
+}
+
+function decodeResourcePath(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function toPlatformLocalPath(path: string, baseDirectory: string) {
+  if (/^[a-zA-Z]:[\\/]/.test(baseDirectory)) {
+    return path.replace(/\//g, "\\");
+  }
+  return path;
+}
+
+function resolveMmdResourcePath(url: string, file: SelectedFile) {
+  const stripped = stripUrlSuffix(decodeResourcePath(url));
+  if (/^[a-zA-Z]:[\\/]/.test(stripped) || stripped.startsWith("/")) {
+    return toPlatformLocalPath(stripped, file.parentDirectory);
+  }
+  return resolveSiblingPath(file.parentDirectory, stripped);
+}
+
+function formatMissingMmdResourceWarning(path: string) {
+  return `Missing MMD external asset: ${path}. The model was loaded with a fallback or incomplete material.`;
+}
+
+function createMmdLoadingManager(
+  file: SelectedFile,
+  onWarning?: (warning: string) => void,
+) {
+  const manager = new LoadingManager();
+  const warnings: string[] = [];
+  const reportedMissingAssets = new Set<string>();
+  const localPathByResolvedUrl = new Map<string, string>();
+
+  const reportMissingAsset = (path: string) => {
+    const normalizedPath = path.split(/[?#]/, 1)[0];
+    if (reportedMissingAssets.has(normalizedPath)) {
+      return;
+    }
+    reportedMissingAssets.add(normalizedPath);
+    const warning = formatMissingMmdResourceWarning(normalizedPath);
+    warnings.push(warning);
+    onWarning?.(warning);
+  };
+
+  manager.setURLModifier((url) => {
+    if (isRemoteOrInlineUrl(url)) {
+      return url;
+    }
+
+    const localPath = resolveMmdResourcePath(url, file);
+    const resolvedUrl = convertFileSrc(localPath);
+    localPathByResolvedUrl.set(resolvedUrl, localPath);
+    return resolvedUrl;
+  });
+  manager.onError = (url) => {
+    const localPath = localPathByResolvedUrl.get(url);
+    if (localPath) {
+      reportMissingAsset(localPath);
+      return;
+    }
+    if (isRemoteOrInlineUrl(url)) {
+      reportMissingAsset(url);
+      return;
+    }
+    reportMissingAsset(resolveMmdResourcePath(url, file));
+  };
+
+  return { manager, warnings };
 }
 
 function createTexturePreview(
@@ -2138,6 +2220,55 @@ async function loadVrmPreviewObject(
   }
 }
 
+async function loadMmdPreviewObject(
+  file: SelectedFile,
+  context: LoaderContext,
+): Promise<LoadedPreview> {
+  const reportStage = context.onStage ?? (() => undefined);
+  reportStage("scan");
+
+  const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+  const { manager, warnings } = createMmdLoadingManager(
+    file,
+    context.onWarning,
+  );
+
+  try {
+    const { MMDLoader } = await import("@moeru/three-mmd");
+    const loader = new MMDLoader(undefined, manager);
+    loader.setResourcePath(normalizeMmdResourceBase(file.parentDirectory));
+
+    reportStage("decode");
+    const mmd = await loader.loadAsync(objectUrl);
+    reportStage("scene");
+
+    const object = mmd.mesh;
+    object.name =
+      mmd.pmx.header.englishModelName ||
+      mmd.pmx.header.modelName ||
+      file.fileName;
+    object.userData.mmd = mmd;
+    object.userData.mmdSourceFile = file.path;
+
+    const version =
+      typeof mmd.pmx.header.version === "number"
+        ? `${file.extension.toUpperCase()} ${mmd.pmx.header.version}`
+        : file.extension.toUpperCase();
+
+    return {
+      object,
+      cleanupUrls: [objectUrl],
+      clips: [],
+      formatVersion: version,
+      warnings,
+    };
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to load MMD preview: ${message}`, { cause: error });
+  }
+}
+
 const coreLoaderExtensions = [
   "glb",
   "gltf",
@@ -2184,6 +2315,15 @@ loaderRegistry.register({
   optional: true,
   installed: true,
   loadPreviewObject: loadVrmPreviewObject,
+});
+
+loaderRegistry.register({
+  id: "mmd-loader-pack",
+  name: "MMD Loader Pack",
+  extensions: ["pmx", "pmd"],
+  optional: true,
+  installed: true,
+  loadPreviewObject: loadMmdPreviewObject,
 });
 
 export function listRegisteredLoaders() {

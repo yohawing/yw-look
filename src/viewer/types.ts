@@ -127,6 +127,8 @@ export const implementedPreviewExtensions = new Set([
   "glb",
   "gltf",
   "vrm",
+  "pmd",
+  "pmx",
   "fbx",
   "obj",
   "ply",
