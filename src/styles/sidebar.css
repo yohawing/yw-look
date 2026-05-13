@@ -61,11 +61,27 @@
 }
 
 .compact-metric-rows {
-  gap: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 6px 10px;
 }
 
 .compact-metric-row {
-  min-height: 28px;
+  display: grid;
+  min-height: 26px;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  column-gap: 12px;
+  border-radius: var(--yl-radius-4, 4px);
+  padding: 4px 10px;
+  color: var(--yl-text-secondary, #d0d6e0);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.compact-metric-row:hover {
+  background: var(--yl-surface-glass-1, rgba(255, 255, 255, 0.02));
 }
 
 .compact-metric-row.is-good .compact-metric-value {
@@ -82,15 +98,31 @@
 
 .compact-metric-label {
   min-width: 0;
+  overflow: hidden;
+  color: var(--yl-text-tertiary, #8a8f98);
+  font-weight: 510;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .compact-metric-value {
   min-width: 0;
-  max-width: 58%;
+  max-width: 148px;
   overflow: hidden;
+  color: var(--yl-text-primary, #f7f8f8);
+  font-family: var(--yl-font-sans, Inter, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 510;
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.compact-metric-value.card-row-value-mono {
+  font-family: var(--yl-font-mono, ui-monospace);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .app-statusbar {
