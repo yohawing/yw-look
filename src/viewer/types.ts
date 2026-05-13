@@ -127,8 +127,6 @@ export const implementedPreviewExtensions = new Set([
   "glb",
   "gltf",
   "vrm",
-  "pmd",
-  "pmx",
   "fbx",
   "obj",
   "ply",
@@ -156,18 +154,6 @@ export const optionalPreviewLoaders = {
   vrma: {
     formatLabel: "VRMA",
     loaderPackName: "VRM Loader Pack",
-  },
-  pmd: {
-    formatLabel: "PMD",
-    loaderPackName: "MMD Loader Pack",
-  },
-  pmx: {
-    formatLabel: "PMX",
-    loaderPackName: "MMD Loader Pack",
-  },
-  vmd: {
-    formatLabel: "VMD",
-    loaderPackName: "MMD Loader Pack",
   },
   abc: {
     formatLabel: "Alembic",

@@ -37,8 +37,7 @@ const SHARED_MENU_DEFINITION_JSON: &str = include_str!("../../src/lib/menu-defin
 const DEFAULT_UPDATER_ENDPOINT: Option<&str> = option_env!("YW_LOOK_UPDATER_ENDPOINT");
 const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> = option_env!("YW_LOOK_UPDATER_PUBLIC_KEY");
 const MODEL_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "pmd",
-    "pmx", "abc",
+    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "abc",
 ];
 const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
 const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
@@ -1221,8 +1220,8 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
 }
 
 const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "vrm", "pmd", "pmx", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg",
-    "tga", "dds", "ktx2", "hdr", "exr",
+    "glb", "gltf", "vrm", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga", "dds",
+    "ktx2", "hdr", "exr",
 ];
 
 fn system_time_to_unix_string(time: SystemTime) -> Option<String> {
@@ -1422,8 +1421,7 @@ fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<SelectedFilePayload>
             "Supported assets",
             &[
                 "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae",
-                "vrm", "pmd", "pmx", "abc", "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr",
-                "exr",
+                "vrm", "abc", "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
             ],
         )
         .pick_file();

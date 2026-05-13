@@ -100,10 +100,14 @@ describe("preview support classification", () => {
   it("classifies implemented core loaders separately from optional packs", () => {
     expect(getPreviewSupportState("glb")).toBe("implemented");
     expect(getPreviewSupportState("vrm")).toBe("implemented");
-    expect(getPreviewSupportState("pmx")).toBe("implemented");
-    expect(getPreviewSupportState("pmd")).toBe("implemented");
     expect(getPreviewSupportState("vrma")).toBe("missingOptionalLoader");
     expect(getPreviewSupportState("abc")).toBe("missingOptionalLoader");
+  });
+
+  it("keeps the experimental MMD loader hidden from preview support state", () => {
+    expect(getPreviewSupportState("pmx")).toBe("unsupported");
+    expect(getPreviewSupportState("pmd")).toBe("unsupported");
+    expect(getPreviewSupportState("vmd")).toBe("unsupported");
   });
 
   it("marks the bundled VRM loader pack as optional but installed", () => {
@@ -117,7 +121,7 @@ describe("preview support classification", () => {
     });
   });
 
-  it("marks the bundled MMD loader pack as optional but installed", () => {
+  it("keeps the bundled MMD loader pack internal for direct loader coverage", () => {
     expect(
       listRegisteredLoaders().find((loader) => loader.extension === "pmx"),
     ).toMatchObject({
