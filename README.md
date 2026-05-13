@@ -150,8 +150,20 @@ npm run format:check
 # フォーマット実行
 npm run format
 
-# 型チェック (TypeScript + Cargo)
+# 型チェック (TypeScript + Rust fork backend)
 npm run typecheck
+
+# TypeScript だけ確認
+npm run typecheck:ts
+
+# Rust だけ確認（高速な Rust fork backend）
+npm run typecheck:rust
+
+# C++ OpenUSD backend を明示確認（通常より時間がかかる）
+npm run typecheck:rust:cpp
+
+# Cargo を直接使う場合の高速チェック
+cargo check-fast
 
 # lint + format:check + typecheck を一括実行
 npm run check
