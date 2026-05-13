@@ -34,7 +34,7 @@
     "shot:check": "node scripts/run-shot.mjs check",
     "update:local:prepare": "node scripts/prepare-local-update-feed.mjs",
     "update:local:serve": "node scripts/serve-local-update-feed.mjs",
-    "tauri": "tauri",
+    "tauri": "node scripts/run-tauri.mjs",
     "prepare": "husky"
   },
   "dependencies": {

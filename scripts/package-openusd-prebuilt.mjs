@@ -18,6 +18,16 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const prebuiltRoot = join(repoRoot, "third_party", "prebuilt", "openusd");
 const manifestPath = join(prebuiltRoot, "manifest.json");
 
+function shouldExcludePayloadPath(path) {
+  const lower = path.toLowerCase().replaceAll("\\", "/");
+  return (
+    lower.endsWith(".pdb") ||
+    lower.endsWith(".exe") ||
+    lower.includes("/debug/") ||
+    lower.endsWith("-debug.cmake")
+  );
+}
+
 function argValue(name, fallback) {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : fallback;
@@ -58,10 +68,7 @@ async function stagePayload(source, triplet, staging) {
       dereference: true,
       errorOnExist: false,
       force: true,
-      filter: (path) => {
-        const lower = path.toLowerCase();
-        return !lower.endsWith(".pdb") && !lower.endsWith(".exe");
-      },
+      filter: (path) => !shouldExcludePayloadPath(path),
     });
   }
 
@@ -73,7 +80,14 @@ async function stagePayload(source, triplet, staging) {
       if (!entry.isFile()) continue;
       const name = entry.name;
       const lower = name.toLowerCase();
-      const keep = lower.endsWith(".dll");
+      const keep =
+        lower.endsWith(".dll") ||
+        (lower.endsWith(".lib") &&
+          (lower.startsWith("usd_") ||
+            lower.startsWith("tbb") ||
+            lower.startsWith("hwloc") ||
+            lower === "zlib.lib" ||
+            lower === "usd_ms.lib"));
       if (!keep) continue;
       await cp(join(bin, name), join(stagedBin, name), {
         dereference: true,

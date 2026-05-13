@@ -3,13 +3,13 @@
   "artifacts": [
     {
       "triplet": "x64-windows",
-      "file": "openusd-x64-windows-25.5.1-b83a13444720-5.zip",
-      "sha256": "46c28f71538525a93cab360cbd218bd4b677ee8990d59d061c4ec6d1528b9ea9",
-      "size": 12042430,
+      "file": "openusd-x64-windows-25.5.1-b83a13444720-6.zip",
+      "sha256": "5673e6d888f97c46e846c5b1df6ed51dbcac4806821293a306c64f62f444cbcd",
+      "size": 12829256,
       "payloadRoot": "vcpkg_installed/x64-windows",
       "openusdVersion": "25.5.1",
       "vcpkgBaseline": "b83a134447208c35f740e4b6faf1263b0d6e860e",
-      "ywrev": "5"
+      "ywrev": "6"
     }
   ]
 }

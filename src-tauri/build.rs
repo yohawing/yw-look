@@ -126,6 +126,97 @@ mod cpp_backend {
         )
     }
 
+    fn executable_from_path(name: &str) -> Option<PathBuf> {
+        let path = env::var_os("PATH")?;
+        env::split_paths(&path)
+            .map(|dir| dir.join(name))
+            .find(|candidate| candidate.exists())
+    }
+
+    fn ninja_path() -> Option<PathBuf> {
+        let from_path = executable_from_path("ninja.exe").or_else(|| executable_from_path("ninja"));
+        if from_path.is_some() {
+            return from_path;
+        }
+        env::var_os("USERPROFILE")
+            .map(PathBuf::from)
+            .map(|home| {
+                home.join("AppData")
+                    .join("Local")
+                    .join("Microsoft")
+                    .join("WinGet")
+                    .join("Links")
+                    .join("ninja.exe")
+            })
+            .filter(|candidate| candidate.exists())
+    }
+
+    fn visual_studio_dev_env() -> Option<Vec<(String, String)>> {
+        let candidates = [
+            Path::new(
+                r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat",
+            ),
+            Path::new(
+                r"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat",
+            ),
+            Path::new(
+                r"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat",
+            ),
+            Path::new(
+                r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat",
+            ),
+            Path::new(
+                r"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\VsDevCmd.bat",
+            ),
+            Path::new(
+                r"C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\Tools\VsDevCmd.bat",
+            ),
+            Path::new(
+                r"C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\VsDevCmd.bat",
+            ),
+        ];
+        for script_path in candidates {
+            if !script_path.exists() {
+                continue;
+            }
+            let script = format!(
+                "call \"{}\" -arch=x64 -host_arch=x64 >nul && set",
+                script_path.display()
+            );
+            let output = Command::new("cmd")
+                .args(["/d", "/c", &script])
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                continue;
+            }
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let keep = [
+                "PATH",
+                "INCLUDE",
+                "LIB",
+                "LIBPATH",
+                "VCToolsInstallDir",
+                "VSINSTALLDIR",
+                "WindowsSdkDir",
+                "WindowsSDKLibVersion",
+                "WindowsSDKVersion",
+                "UCRTVersion",
+                "ExtensionSdkDir",
+            ];
+            let values = stdout
+                .lines()
+                .filter_map(|line| line.split_once('='))
+                .filter(|(key, _)| keep.iter().any(|name| key.eq_ignore_ascii_case(name)))
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect::<Vec<_>>();
+            if !values.is_empty() {
+                return Some(values);
+            }
+        }
+        None
+    }
+
     fn prebuilt_payload_ready(dest: &Path, sha256: &str) -> bool {
         let marker = dest.join(".yw-look-prebuilt.sha256");
         fs::read_to_string(&marker)
@@ -632,6 +723,7 @@ mod cpp_backend {
             assert!(status.success(), "vcpkg install failed: {status}");
         }
 
+        let using_prebuilt = prebuilt_installed_root.is_some();
         let vcpkg_installed_root =
             prebuilt_installed_root.unwrap_or_else(|| manifest_dir.join("vcpkg_installed"));
         let vcpkg_installed = vcpkg_installed_root.join(triplet);
@@ -666,6 +758,12 @@ mod cpp_backend {
         // short-circuits find_package() and guarantees we see exactly
         // the headers that match the libs the toolchain file links in.
         let pxr_dir = vcpkg_installed.join("share").join("pxr");
+        let windows_ninja = if target_os == "windows" && env::var_os("CMAKE_GENERATOR").is_none()
+        {
+            ninja_path().and_then(|path| visual_studio_dev_env().map(|env| (path, env)))
+        } else {
+            None
+        };
 
         // The `vcpkg install --x-install-root=...` we ran above puts
         // the triplet tree under `src-tauri/vcpkg_installed/`, which
@@ -677,12 +775,28 @@ mod cpp_backend {
         // the toolchain is looking in a different tree than the one
         // we actually installed into.
         let mut shim_config = cmake::Config::new(&shim_src);
+        if let Some((ninja, env_values)) = &windows_ninja {
+            println!(
+                "cargo:warning=building OpenUSD C shim with Ninja: {}",
+                ninja.display()
+            );
+            shim_config.generator("Ninja");
+            shim_config.define("CMAKE_MAKE_PROGRAM", ninja);
+            for (key, value) in env_values {
+                shim_config.env(key, value);
+            }
+        } else if target_os == "windows"
+            && env::var_os("CMAKE_GENERATOR").is_none()
+            && Path::new(r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools").exists()
+        {
+            shim_config.generator("Visual Studio 17 2022");
+        }
         shim_config
             .profile("Release")
             .define("VCPKG_TARGET_TRIPLET", triplet)
             .define("VCPKG_INSTALLED_DIR", &vcpkg_installed_root)
             .define("pxr_DIR", &pxr_dir);
-        if let Some(vcpkg_root) = &vcpkg_root {
+        if let Some(vcpkg_root) = vcpkg_root.as_ref().filter(|_| !using_prebuilt) {
             shim_config.define(
                 "CMAKE_TOOLCHAIN_FILE",
                 vcpkg_root
