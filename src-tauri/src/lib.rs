@@ -9,8 +9,10 @@ use std::{
     fs::{self, OpenOptions},
     io::{Read as IoRead, Write},
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -44,6 +46,24 @@ const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "usd", "usda", "usdc", "usdz", "png", "jpg",
     "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
 ];
+
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+const ALEMBIC_TOOL_PLATFORM_DIR: &str = "x64-windows";
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const ALEMBIC_TOOL_PLATFORM_DIR: &str = "arm64-osx";
+#[cfg(not(any(
+    all(target_os = "windows", target_arch = "x86_64"),
+    all(target_os = "macos", target_arch = "aarch64")
+)))]
+const ALEMBIC_TOOL_PLATFORM_DIR: &str = "";
+#[cfg(target_os = "windows")]
+const ALEMBIC_TO_OBJ_BINARY_NAME: &str = "abc_to_obj.exe";
+#[cfg(not(target_os = "windows"))]
+const ALEMBIC_TO_OBJ_BINARY_NAME: &str = "abc_to_obj";
+const ALEMBIC_MAX_INPUT_BYTES: u64 = 512 * 1024 * 1024;
+const ALEMBIC_MAX_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
+const ALEMBIC_MAX_STDERR_BYTES: u64 = 64 * 1024;
+const ALEMBIC_HELPER_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -983,6 +1003,38 @@ fn is_supported_extension(extension: &str) -> bool {
     MODEL_EXTENSIONS.contains(&extension) || TEXTURE_EXTENSIONS.contains(&extension)
 }
 
+fn resolve_alembic_tool_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if ALEMBIC_TOOL_PLATFORM_DIR.is_empty() {
+        return Err(format!(
+            "Alembic preview is not bundled for this platform ({}-{}).",
+            env::consts::OS,
+            env::consts::ARCH
+        ));
+    }
+
+    let relative_path = PathBuf::from("alembic-tools")
+        .join(ALEMBIC_TOOL_PLATFORM_DIR)
+        .join(ALEMBIC_TO_OBJ_BINARY_NAME);
+    let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&relative_path);
+    if dev_path.is_file() {
+        return Ok(dev_path);
+    }
+
+    let resource_path = app
+        .path()
+        .resource_dir()
+        .map_err(|error| format!("failed to resolve app resources directory: {error}"))?
+        .join(&relative_path);
+    if resource_path.is_file() {
+        return Ok(resource_path);
+    }
+
+    Err(format!(
+        "Alembic preview helper is not bundled for this platform: {}",
+        relative_path.display()
+    ))
+}
+
 fn normalize_file_path(path: PathBuf) -> Result<PathBuf, String> {
     if !path.exists() {
         return Err(format!("file does not exist: {}", path.display()));
@@ -1220,8 +1272,8 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
 }
 
 const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "vrm", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga", "dds",
-    "ktx2", "hdr", "exr",
+    "glb", "gltf", "vrm", "abc", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga",
+    "dds", "ktx2", "hdr", "exr",
 ];
 
 fn system_time_to_unix_string(time: SystemTime) -> Option<String> {
@@ -1461,6 +1513,185 @@ fn list_supported_siblings(path: String) -> Result<DirectoryListingPayload, Stri
 fn read_binary_file(path: String) -> Result<Vec<u8>, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     fs::read(normalized).map_err(|error| format!("failed to read file bytes: {error}"))
+}
+
+fn read_limited_file(path: &Path, max_bytes: u64, label: &str) -> Result<Vec<u8>, String> {
+    let size = fs::metadata(path)
+        .map_err(|error| format!("failed to inspect {label}: {error}"))?
+        .len();
+    if size > max_bytes {
+        return Err(format!(
+            "Alembic preview {label} exceeded {}.",
+            format_byte_limit(max_bytes)
+        ));
+    }
+
+    fs::read(path).map_err(|error| format!("failed to read {label}: {error}"))
+}
+
+fn format_byte_limit(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 {
+        format!("{} MiB", bytes / 1024 / 1024)
+    } else {
+        format!("{} KiB", bytes / 1024)
+    }
+}
+
+fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, String> {
+    let temp_root = env::temp_dir();
+    let nonce = format!(
+        "{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default()
+    );
+    let stdout_path = temp_root.join(format!("yw-look-alembic-{nonce}.obj"));
+    let stderr_path = temp_root.join(format!("yw-look-alembic-{nonce}.err"));
+
+    let cleanup = |stdout_path: &Path, stderr_path: &Path| {
+        let _ = fs::remove_file(stdout_path);
+        let _ = fs::remove_file(stderr_path);
+    };
+
+    let stdout_file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&stdout_path)
+        .map_err(|error| format!("failed to create Alembic helper stdout file: {error}"))?;
+    let stderr_file = match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&stderr_path)
+    {
+        Ok(file) => file,
+        Err(error) => {
+            cleanup(&stdout_path, &stderr_path);
+            return Err(format!(
+                "failed to create Alembic helper stderr file: {error}"
+            ));
+        }
+    };
+
+    let mut child = Command::new(tool_path)
+        .arg(input_path)
+        .current_dir(input_path.parent().unwrap_or_else(|| Path::new(".")))
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
+        .spawn()
+        .map_err(|error| {
+            cleanup(&stdout_path, &stderr_path);
+            format!(
+                "failed to launch Alembic preview helper {}: {error}",
+                tool_path.display()
+            )
+        })?;
+
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                for (path, max_bytes, label) in [
+                    (
+                        stdout_path.as_path(),
+                        ALEMBIC_MAX_OUTPUT_BYTES,
+                        "OBJ output",
+                    ),
+                    (stderr_path.as_path(), ALEMBIC_MAX_STDERR_BYTES, "stderr"),
+                ] {
+                    let size = fs::metadata(path)
+                        .map(|metadata| metadata.len())
+                        .unwrap_or(0);
+                    if size > max_bytes {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        cleanup(&stdout_path, &stderr_path);
+                        return Err(format!(
+                            "Alembic preview {label} exceeded {}.",
+                            format_byte_limit(max_bytes)
+                        ));
+                    }
+                }
+
+                if started.elapsed() > ALEMBIC_HELPER_TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    cleanup(&stdout_path, &stderr_path);
+                    return Err(format!(
+                        "Alembic preview helper timed out after {} seconds.",
+                        ALEMBIC_HELPER_TIMEOUT.as_secs()
+                    ));
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => {
+                cleanup(&stdout_path, &stderr_path);
+                return Err(format!(
+                    "failed to wait for Alembic preview helper: {error}"
+                ));
+            }
+        }
+    };
+
+    if !status.success() {
+        let stderr_bytes = match read_limited_file(&stderr_path, ALEMBIC_MAX_STDERR_BYTES, "stderr")
+        {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                cleanup(&stdout_path, &stderr_path);
+                return Err(error);
+            }
+        };
+        let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
+        cleanup(&stdout_path, &stderr_path);
+        return Err(if stderr.is_empty() {
+            format!("Alembic preview helper exited with status {status}.")
+        } else {
+            stderr
+        });
+    }
+
+    let stdout = match read_limited_file(&stdout_path, ALEMBIC_MAX_OUTPUT_BYTES, "OBJ output") {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            cleanup(&stdout_path, &stderr_path);
+            return Err(error);
+        }
+    };
+    cleanup(&stdout_path, &stderr_path);
+    String::from_utf8(stdout)
+        .map_err(|error| format!("Alembic preview helper returned non-UTF8 OBJ data: {error}"))
+}
+
+#[tauri::command]
+fn convert_alembic_to_obj(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let input_size = fs::metadata(&normalized)
+        .map_err(|error| format!("failed to inspect Alembic input: {error}"))?
+        .len();
+    if input_size > ALEMBIC_MAX_INPUT_BYTES {
+        return Err(format!(
+            "Alembic preview input exceeded {} MiB.",
+            ALEMBIC_MAX_INPUT_BYTES / 1024 / 1024
+        ));
+    }
+
+    let extension = normalized
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if extension != "abc" {
+        return Err(format!(
+            "Alembic preview only accepts .abc files: {}",
+            normalized.display()
+        ));
+    }
+
+    let tool_path = resolve_alembic_tool_path(&app)?;
+    run_alembic_helper(&tool_path, &normalized)
 }
 
 #[tauri::command]
@@ -2161,6 +2392,7 @@ pub fn run() {
             resolve_selected_file,
             list_supported_siblings,
             read_binary_file,
+            convert_alembic_to_obj,
             get_startup_file,
             load_recent_files,
             load_supported_extensions,

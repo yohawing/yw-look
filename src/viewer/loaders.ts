@@ -19,6 +19,7 @@ import {
   Loader as ThreeLoader,
 } from "three";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertAlembicToObj } from "../lib/alembic";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { isTauriEnvironment } from "../lib/platform";
 import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
@@ -1831,6 +1832,37 @@ async function loadPreviewObjectCore(
         warnings: formatMissingTextureWarnings(missingPaths),
       };
     }
+    case "abc": {
+      reportStage("decode");
+      const { OBJLoader } =
+        await import("three/examples/jsm/loaders/OBJLoader.js");
+      const objText = await convertAlembicToObj(file.path);
+      reportStage("scene");
+      const object = new OBJLoader().parse(objText);
+      let meshCount = 0;
+      object.traverse((child) => {
+        if (!(child instanceof Mesh)) {
+          return;
+        }
+        meshCount += 1;
+        child.material = new MeshStandardMaterial({
+          color: "#cfd6e3",
+          metalness: 0.04,
+          roughness: 0.76,
+        });
+        child.geometry.computeVertexNormals();
+      });
+      if (meshCount === 0) {
+        throw new Error("Alembic conversion returned no renderable mesh data.");
+      }
+      reportStage("gpu");
+      return {
+        object,
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: "Alembic static sample 0",
+      };
+    }
     case "usd":
     case "usda":
     case "usdc":
@@ -2281,6 +2313,7 @@ const coreLoaderExtensions = [
   "usda",
   "usdc",
   "usdz",
+  "abc",
   "png",
   "jpg",
   "jpeg",

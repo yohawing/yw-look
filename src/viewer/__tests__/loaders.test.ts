@@ -94,14 +94,15 @@ describe("preview support classification", () => {
     expect(extensions.has("vrm")).toBe(true);
     expect(extensions.has("obj")).toBe(true);
     expect(extensions.has("usdz")).toBe(true);
+    expect(extensions.has("abc")).toBe(true);
     expect(extensions.has("ktx2")).toBe(true);
   });
 
   it("classifies implemented core loaders separately from optional packs", () => {
     expect(getPreviewSupportState("glb")).toBe("implemented");
     expect(getPreviewSupportState("vrm")).toBe("implemented");
+    expect(getPreviewSupportState("abc")).toBe("implemented");
     expect(getPreviewSupportState("vrma")).toBe("missingOptionalLoader");
-    expect(getPreviewSupportState("abc")).toBe("missingOptionalLoader");
   });
 
   it("keeps the experimental MMD loader hidden from preview support state", () => {

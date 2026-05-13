@@ -136,6 +136,7 @@ export const implementedPreviewExtensions = new Set([
   "usda",
   "usdc",
   "usdz",
+  "abc",
   "png",
   "jpg",
   "jpeg",
@@ -154,10 +155,6 @@ export const optionalPreviewLoaders = {
   vrma: {
     formatLabel: "VRMA",
     loaderPackName: "VRM Loader Pack",
-  },
-  abc: {
-    formatLabel: "Alembic",
-    loaderPackName: "Alembic Loader Pack",
   },
 } as const satisfies Record<
   string,

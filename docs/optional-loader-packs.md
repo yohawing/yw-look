@@ -2,7 +2,9 @@
 
 This document records the packaging and installation strategy for optional
 format loaders such as VRM and MMD. It is a design boundary for #78, #70,
-#71, and the future Loader Plugin Registry work in #72.
+#71, and the future Loader Plugin Registry work in #72. Alembic `.abc` started
+as a candidate here, but #69 now ships it through a core native helper instead
+of an optional loader pack.
 
 ## Decision Summary
 
@@ -22,10 +24,6 @@ unsupported extensions and parse failures.
 | --------------- | ---------------------- | --------------------------------------- |
 | VRM Loader Pack | `.vrm`, `.vrma`        | VRM model and animation preview support |
 | MMD Loader Pack | `.pmd`, `.pmx`, `.vmd` | MikuMikuDance model / motion preview    |
-| Alembic Pack    | `.abc`                 | Future Alembic scene/cache preview      |
-
-The Alembic pack is listed for manifest and UI consistency, but implementation
-can remain later than VRM / MMD.
 
 ## Package Layout
 

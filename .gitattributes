@@ -45,3 +45,8 @@ public/*.svg binary -filter
 # Basis Universal transcoder ships as a regular blob (~515 KB) so the
 # KTX2Loader transcoder is readable without LFS checkout.
 public/basis/* binary -filter
+
+# Bundled Alembic helper binaries must be readable in release builds
+# without requiring an LFS checkout.
+src-tauri/alembic-tools/x64-windows/* binary -filter
+src-tauri/alembic-tools/arm64-osx/abc_to_obj binary -filter

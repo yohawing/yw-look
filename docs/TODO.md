@@ -492,7 +492,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 
 - [ ] `VRM` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
 - [ ] `PMD / PMX / VMD / VRMA` ローダーを実装する（Three.js 標準にはなし、外部ライブラリ要）
-- [ ] `Alembic (.abc)` の対応方針を調べる（Three.js 標準にはなし、外部ライブラリ要）
+- [x] `Alembic (.abc)` の対応方針を調べる（#69: 同梱 native helper で静的 OBJ preview に変換）
 - [ ] `ufbx` を使った native FBX パスの将来設計をまとめる（現在は Three.js FBXLoader）
 - [ ] `DDS` の native 展開が必要か検証する（現在は Three.js DDSLoader で対応済み）
 - [x] `USD` の参照解決強化の方針をまとめる（Rust / C++ backend 方針は `docs/usd.md` / `docs/usd-cpp.md` に集約）
