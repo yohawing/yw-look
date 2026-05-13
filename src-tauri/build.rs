@@ -561,9 +561,6 @@ mod cpp_backend {
             PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
         let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
 
-        let vcpkg_root = PathBuf::from(
-            env::var("VCPKG_ROOT").expect("VCPKG_ROOT is not set. See docs/usd-cpp.md for setup."),
-        );
         println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
         println!("cargo:rerun-if-env-changed=VCPKG_BINARY_SOURCES");
         println!("cargo:rerun-if-env-changed=LIBCLANG_PATH");
@@ -594,6 +591,7 @@ mod cpp_backend {
         //    building OpenUSD from source. Set OPENUSD_FORCE_VCPKG=1 when
         //    regenerating the payload or intentionally testing vcpkg.
         let prebuilt_installed_root = try_use_prebuilt_openusd(&manifest_dir, triplet);
+        let vcpkg_root = env::var_os("VCPKG_ROOT").map(PathBuf::from);
 
         // 1b. Invoke vcpkg in manifest mode when no prebuilt payload
         //     is available. Classic vcpkg users may
@@ -614,7 +612,10 @@ mod cpp_backend {
         //    automatically when the overlay does not override it.
         let overlay_triplets = manifest_dir.join("triplets");
         if prebuilt_installed_root.is_none() {
-            let status = Command::new(vcpkg_exe(&vcpkg_root, &target_os))
+            let vcpkg_root = vcpkg_root
+                .as_deref()
+                .expect("VCPKG_ROOT is not set. See docs/usd-cpp.md for setup.");
+            let status = Command::new(vcpkg_exe(vcpkg_root, &target_os))
                 .args([
                     "install",
                     "--x-manifest-root=.",
@@ -675,19 +676,24 @@ mod cpp_backend {
         // with "Could not find a package configuration file" because
         // the toolchain is looking in a different tree than the one
         // we actually installed into.
-        let shim_install = cmake::Config::new(&shim_src)
+        let mut shim_config = cmake::Config::new(&shim_src);
+        shim_config
             .profile("Release")
-            .define(
+            .define("VCPKG_TARGET_TRIPLET", triplet)
+            .define("VCPKG_INSTALLED_DIR", &vcpkg_installed_root)
+            .define("pxr_DIR", &pxr_dir);
+        if let Some(vcpkg_root) = &vcpkg_root {
+            shim_config.define(
                 "CMAKE_TOOLCHAIN_FILE",
                 vcpkg_root
                     .join("scripts")
                     .join("buildsystems")
                     .join("vcpkg.cmake"),
-            )
-            .define("VCPKG_TARGET_TRIPLET", triplet)
-            .define("VCPKG_INSTALLED_DIR", &vcpkg_installed_root)
-            .define("pxr_DIR", &pxr_dir)
-            .build();
+            );
+        } else {
+            shim_config.define("CMAKE_PREFIX_PATH", &vcpkg_installed);
+        }
+        let shim_install = shim_config.build();
 
         // 3. Generate Rust bindings from the shim's C header. The
         //    allowlist keeps bindgen output tight: only our usdc_*
