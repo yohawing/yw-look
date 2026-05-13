@@ -13,6 +13,11 @@ export type DiagnosticsPayload = {
   diagnosticsSnapshot: string[];
 };
 
+export type ProcessMemoryMetrics = {
+  residentSetBytes: number;
+  virtualMemoryBytes: number;
+};
+
 export type WebGLResourceMetrics = {
   geometries: number;
   textures: number;
@@ -49,4 +54,8 @@ export async function logDiagnosticEvent(record: DiagnosticRecordInput) {
 
 export async function loadDiagnosticsSnapshot() {
   return invoke<DiagnosticsPayload>("load_diagnostics_snapshot");
+}
+
+export async function loadProcessMemoryMetrics() {
+  return invoke<ProcessMemoryMetrics | null>("load_process_memory_metrics");
 }

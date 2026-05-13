@@ -93,8 +93,10 @@ import {
 } from "./lib/usd";
 import {
   loadDiagnosticsSnapshot,
+  loadProcessMemoryMetrics,
   logDiagnosticEvent,
   type DiagnosticsPayload,
+  type ProcessMemoryMetrics,
   type ResourceDiagnosticsSnapshot,
 } from "./lib/diagnostics";
 import {
@@ -375,6 +377,8 @@ export function App() {
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [resourceDiagnostics, setResourceDiagnostics] =
     useState<ResourceDiagnosticsSnapshot | null>(null);
+  const [processMemoryMetrics, setProcessMemoryMetrics] =
+    useState<ProcessMemoryMetrics | null>(null);
   const [integrationPayload, setIntegrationPayload] =
     useState<IntegrationPayload | null>(null);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
@@ -1094,6 +1098,43 @@ export function App() {
 
     void refreshDiagnostics();
   }, [shouldLoadDeferredData]);
+
+  const refreshProcessMemory = useEffectEvent(async () => {
+    if (!isTauri) {
+      setProcessMemoryMetrics(null);
+      return;
+    }
+
+    try {
+      const metrics = await loadProcessMemoryMetrics();
+      setProcessMemoryMetrics(metrics);
+    } catch {
+      setProcessMemoryMetrics(null);
+    }
+  });
+
+  useEffect(() => {
+    if (!isTauri) {
+      setProcessMemoryMetrics(null);
+      return;
+    }
+
+    void refreshProcessMemory();
+    const interval = window.setInterval(() => {
+      void refreshProcessMemory();
+    }, 2000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri || !resourceDiagnostics) {
+      return;
+    }
+
+    void refreshProcessMemory();
+  }, [isTauri, resourceDiagnostics]);
 
   const refreshUpdateConfiguration = async () => {
     try {
@@ -2219,6 +2260,7 @@ export function App() {
               <DiagnosticsCard
                 diagnosticsError={diagnosticsError}
                 diagnosticsPayload={diagnosticsPayload}
+                processMemoryMetrics={processMemoryMetrics}
                 resourceDiagnostics={resourceDiagnostics}
               />
             </Suspense>

@@ -14,6 +14,7 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use sysinfo::{Pid, ProcessesToUpdate, System};
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
@@ -263,6 +264,13 @@ struct RecentFilesPayload {
 struct DiagnosticsPayload {
     diagnostics_log_path: String,
     diagnostics_snapshot: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProcessMemoryPayload {
+    resident_set_bytes: u64,
+    virtual_memory_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1781,6 +1789,18 @@ fn load_diagnostics_snapshot(app: tauri::AppHandle) -> Result<DiagnosticsPayload
 }
 
 #[tauri::command]
+fn load_process_memory_metrics() -> Result<Option<ProcessMemoryPayload>, String> {
+    let pid = Pid::from_u32(std::process::id());
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+
+    Ok(system.process(pid).map(|process| ProcessMemoryPayload {
+        resident_set_bytes: process.memory(),
+        virtual_memory_bytes: process.virtual_memory(),
+    }))
+}
+
+#[tauri::command]
 fn get_bench_config(
     app: tauri::AppHandle,
     config: tauri::State<'_, Option<BenchCliConfig>>,
@@ -2398,6 +2418,7 @@ pub fn run() {
             load_supported_extensions,
             log_diagnostic_event,
             load_diagnostics_snapshot,
+            load_process_memory_metrics,
             get_bench_config,
             write_bench_report,
             write_bench_screenshot,

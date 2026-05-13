@@ -40,6 +40,7 @@ describe("DiagnosticsCard", () => {
           diagnosticsLogPath: "diagnostics.log",
           diagnosticsSnapshot: [],
         }}
+        processMemoryMetrics={null}
         resourceDiagnostics={resourceDiagnostics}
       />,
     );
@@ -61,6 +62,7 @@ describe("DiagnosticsCard", () => {
           diagnosticsLogPath: "diagnostics.log",
           diagnosticsSnapshot: [],
         }}
+        processMemoryMetrics={null}
         resourceDiagnostics={{
           ...resourceDiagnostics,
           memory: {
@@ -73,5 +75,27 @@ describe("DiagnosticsCard", () => {
     );
 
     expect(queryByText("JS heap used")).toBeNull();
+  });
+
+  it("renders process memory metrics when available", () => {
+    const { getByText } = render(
+      <DiagnosticsCard
+        diagnosticsError={null}
+        diagnosticsPayload={{
+          diagnosticsLogPath: "diagnostics.log",
+          diagnosticsSnapshot: [],
+        }}
+        processMemoryMetrics={{
+          residentSetBytes: 96 * 1024 * 1024,
+          virtualMemoryBytes: 512 * 1024 * 1024,
+        }}
+        resourceDiagnostics={null}
+      />,
+    );
+
+    expect(getByText("Process memory")).toBeTruthy();
+    expect(getByText("96 MB")).toBeTruthy();
+    expect(getByText("Virtual memory")).toBeTruthy();
+    expect(getByText("512 MB")).toBeTruthy();
   });
 });

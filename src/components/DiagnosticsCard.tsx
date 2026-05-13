@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type {
   DiagnosticsPayload,
+  ProcessMemoryMetrics,
   ResourceDiagnosticsSnapshot,
 } from "../lib/diagnostics";
 import { CompactMetricRows, type CompactMetricRow } from "./CompactMetricRows";
@@ -13,17 +14,19 @@ import {
 type DiagnosticsCardProps = {
   diagnosticsPayload: DiagnosticsPayload | null;
   diagnosticsError: string | null;
+  processMemoryMetrics: ProcessMemoryMetrics | null;
   resourceDiagnostics: ResourceDiagnosticsSnapshot | null;
 };
 
 export function DiagnosticsCard({
   diagnosticsPayload,
   diagnosticsError,
+  processMemoryMetrics,
   resourceDiagnostics,
 }: DiagnosticsCardProps) {
   const resourceRows = useMemo(
-    () => buildResourceRows(resourceDiagnostics),
-    [resourceDiagnostics],
+    () => buildResourceRows(resourceDiagnostics, processMemoryMetrics),
+    [processMemoryMetrics, resourceDiagnostics],
   );
 
   if (diagnosticsError) {
@@ -91,89 +94,105 @@ function ResourceDiagnosticsSection({
 
 function buildResourceRows(
   snapshot: ResourceDiagnosticsSnapshot | null,
+  processMemory: ProcessMemoryMetrics | null,
 ): CompactMetricRow[] {
-  if (!snapshot) {
-    return [];
-  }
+  const rows: CompactMetricRow[] = [];
 
-  const rows: CompactMetricRow[] = [
-    {
-      label: "WebGL geometry",
-      value: formatCount(snapshot.webgl.geometries),
-      mono: true,
-    },
-    {
-      label: "WebGL textures",
-      value: formatCount(snapshot.webgl.textures),
-      mono: true,
-    },
-    {
-      label: "WebGL programs",
-      value:
-        snapshot.webgl.programs === null
-          ? "unavailable"
-          : formatCount(snapshot.webgl.programs),
-      mono: true,
-    },
-    {
-      label: "Draw calls",
-      value: formatCount(snapshot.webgl.calls),
-      mono: true,
-    },
-    {
-      label: "Frame triangles",
-      value: formatCount(snapshot.webgl.triangles),
-      mono: true,
-    },
-    {
-      label: "Frame points / lines",
-      value: `${formatCount(snapshot.webgl.points)} / ${formatCount(snapshot.webgl.lines)}`,
-      mono: true,
-    },
-  ];
-
-  if (snapshot.asset) {
+  if (processMemory) {
     rows.push(
       {
-        label: "Asset vertices",
-        value: formatCount(snapshot.asset.vertices),
+        label: "Process memory",
+        value: formatBytes(processMemory.residentSetBytes),
         mono: true,
       },
       {
-        label: "Asset triangles",
-        value: formatCount(snapshot.asset.triangles),
-        mono: true,
-      },
-      {
-        label: "Asset materials / textures",
-        value: `${formatCount(snapshot.asset.materials)} / ${formatCount(snapshot.asset.textures)}`,
+        label: "Virtual memory",
+        value: formatBytes(processMemory.virtualMemoryBytes),
         mono: true,
       },
     );
   }
 
-  if (snapshot.memory.jsHeapUsedBytes !== null) {
-    rows.push({
-      label: "JS heap used",
-      value: formatBytes(snapshot.memory.jsHeapUsedBytes),
-      mono: true,
-    });
-  }
+  if (snapshot) {
+    rows.push(
+      {
+        label: "WebGL geometry",
+        value: formatCount(snapshot.webgl.geometries),
+        mono: true,
+      },
+      {
+        label: "WebGL textures",
+        value: formatCount(snapshot.webgl.textures),
+        mono: true,
+      },
+      {
+        label: "WebGL programs",
+        value:
+          snapshot.webgl.programs === null
+            ? "unavailable"
+            : formatCount(snapshot.webgl.programs),
+        mono: true,
+      },
+      {
+        label: "Draw calls",
+        value: formatCount(snapshot.webgl.calls),
+        mono: true,
+      },
+      {
+        label: "Frame triangles",
+        value: formatCount(snapshot.webgl.triangles),
+        mono: true,
+      },
+      {
+        label: "Frame points / lines",
+        value: `${formatCount(snapshot.webgl.points)} / ${formatCount(snapshot.webgl.lines)}`,
+        mono: true,
+      },
+    );
 
-  if (snapshot.memory.jsHeapTotalBytes !== null) {
-    rows.push({
-      label: "JS heap total",
-      value: formatBytes(snapshot.memory.jsHeapTotalBytes),
-      mono: true,
-    });
-  }
+    if (snapshot.asset) {
+      rows.push(
+        {
+          label: "Asset vertices",
+          value: formatCount(snapshot.asset.vertices),
+          mono: true,
+        },
+        {
+          label: "Asset triangles",
+          value: formatCount(snapshot.asset.triangles),
+          mono: true,
+        },
+        {
+          label: "Asset materials / textures",
+          value: `${formatCount(snapshot.asset.materials)} / ${formatCount(snapshot.asset.textures)}`,
+          mono: true,
+        },
+      );
+    }
 
-  if (snapshot.memory.jsHeapLimitBytes !== null) {
-    rows.push({
-      label: "JS heap limit",
-      value: formatBytes(snapshot.memory.jsHeapLimitBytes),
-      mono: true,
-    });
+    if (snapshot.memory.jsHeapUsedBytes !== null) {
+      rows.push({
+        label: "JS heap used",
+        value: formatBytes(snapshot.memory.jsHeapUsedBytes),
+        mono: true,
+      });
+    }
+
+    if (snapshot.memory.jsHeapTotalBytes !== null) {
+      rows.push({
+        label: "JS heap total",
+        value: formatBytes(snapshot.memory.jsHeapTotalBytes),
+        mono: true,
+      });
+    }
+
+    if (snapshot.memory.jsHeapLimitBytes !== null) {
+      rows.push({
+        label: "JS heap limit",
+        value: formatBytes(snapshot.memory.jsHeapLimitBytes),
+        mono: true,
+      });
+    }
   }
 
   return rows;
