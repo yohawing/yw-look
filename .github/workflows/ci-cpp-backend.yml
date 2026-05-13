@@ -79,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          lfs: false
+          lfs: true
 
       # vcpkg's x-gha binary source reads ACTIONS_CACHE_URL and
       # ACTIONS_RUNTIME_TOKEN from the environment. These are only

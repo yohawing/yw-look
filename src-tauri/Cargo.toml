@@ -27,6 +27,10 @@ tauri-build = { version = "2.1.0", features = [] }
 # require a C++ toolchain, CMake, or vcpkg.
 bindgen = { version = "0.70", optional = true }
 cmake = { version = "0.1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.10", optional = true }
+zip = { version = "8", default-features = false, features = ["deflate"], optional = true }
 
 [features]
 # Phase 2.J: the C++ backend (Pixar OpenUSD via vcpkg + a handwritten
@@ -50,7 +54,14 @@ backend-openusd-rs = []
 # is still Windows-first; the C++ backend compile-errors out on
 # `target_os = "linux"` so Linux builders must drop back to the Rust
 # backend via `--no-default-features --features backend-openusd-rs`.
-backend-openusd-cpp = ["dep:bindgen", "dep:cmake"]
+backend-openusd-cpp = [
+  "dep:bindgen",
+  "dep:cmake",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:sha2",
+  "dep:zip",
+]
 # Flip comparison helper (flip_compare bin). Optional to avoid pulling
 # nv-flip and image into the main Tauri binary build.
 flip-compare = ["dep:nv-flip", "dep:image"]

@@ -206,11 +206,17 @@ jobs:
           set -euo pipefail
           cd src-tauri
 
-          "$VCPKG_ROOT/vcpkg" install \
-            --x-manifest-root=. \
-            --triplet=arm64-osx \
-            --x-install-root=vcpkg_installed \
-            --overlay-triplets=triplets
+          if node ../scripts/extract-openusd-prebuilt.mjs \
+            --triplet arm64-osx \
+            --dest vcpkg_installed/arm64-osx; then
+            echo "Using prebuilt OpenUSD payload for arm64-osx"
+          else
+            "$VCPKG_ROOT/vcpkg" install \
+              --x-manifest-root=. \
+              --triplet=arm64-osx \
+              --x-install-root=vcpkg_installed \
+              --overlay-triplets=triplets
+          fi
 
           "$VCPKG_ROOT/vcpkg" install alembic \
             --triplet=arm64-osx \

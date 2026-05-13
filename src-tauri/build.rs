@@ -22,10 +22,29 @@ fn main() {
 
 #[cfg(feature = "backend-openusd-cpp")]
 mod cpp_backend {
+    use serde::Deserialize;
+    use sha2::{Digest, Sha256};
     use std::env;
-    use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::fs::{self, File};
+    use std::io::{self, Read};
+    use std::path::{Component, Path, PathBuf};
     use std::process::Command;
+    use zip::ZipArchive;
+
+    #[derive(Debug, Deserialize)]
+    struct PrebuiltManifest {
+        artifacts: Vec<PrebuiltArtifact>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct PrebuiltArtifact {
+        triplet: String,
+        file: String,
+        sha256: String,
+        size: u64,
+        payload_root: String,
+    }
 
     /// Triplet mapping is intentionally narrow: yw-look's C++ backend
     /// only targets Windows x64 and macOS arm64 for now. Adding a new
@@ -48,6 +67,265 @@ mod cpp_backend {
         } else {
             vcpkg_root.join("vcpkg")
         }
+    }
+
+    fn hex_sha256(path: &Path) -> io::Result<String> {
+        let mut file = File::open(path)?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read = file.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
+    fn is_git_lfs_pointer(path: &Path) -> bool {
+        let Ok(metadata) = fs::metadata(path) else {
+            return false;
+        };
+        if metadata.len() > 1024 {
+            return false;
+        }
+        fs::read_to_string(path)
+            .map(|content| content.starts_with("version https://git-lfs.github.com/spec/v1"))
+            .unwrap_or(false)
+    }
+
+    fn validate_manifest_relative_path(value: &str, label: &str) {
+        let path = Path::new(value);
+        assert!(
+            !value.is_empty()
+                && path
+                    .components()
+                    .all(|component| matches!(component, Component::Normal(_) | Component::CurDir)),
+            "invalid {label} in OpenUSD prebuilt manifest: {value}"
+        );
+    }
+
+    fn prebuilt_root(manifest_dir: &Path) -> PathBuf {
+        env::var_os("OPENUSD_PREBUILT_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                manifest_dir
+                    .parent()
+                    .expect("src-tauri has a repo root parent")
+                    .join("third_party")
+                    .join("prebuilt")
+                    .join("openusd")
+            })
+    }
+
+    fn should_force_vcpkg() -> bool {
+        matches!(
+            env::var("OPENUSD_FORCE_VCPKG").as_deref(),
+            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+        )
+    }
+
+    fn prebuilt_payload_ready(dest: &Path, sha256: &str) -> bool {
+        let marker = dest.join(".yw-look-prebuilt.sha256");
+        fs::read_to_string(&marker)
+            .map(|value| value.trim() == sha256)
+            .unwrap_or(false)
+            && dest.join("share").join("pxr").exists()
+            && dest.join("include").exists()
+            && dest.join("lib").exists()
+    }
+
+    fn extract_prebuilt_payload(
+        zip_path: &Path,
+        artifact: &PrebuiltArtifact,
+        manifest_dir: &Path,
+        triplet: &str,
+    ) -> PathBuf {
+        let prebuilt_root = manifest_dir.join("prebuilt-vcpkg_installed");
+        let dest = prebuilt_root.join(triplet);
+        if prebuilt_payload_ready(&dest, &artifact.sha256) {
+            println!(
+                "cargo:warning=using cached prebuilt OpenUSD payload for {triplet}: {}",
+                zip_path.display()
+            );
+            return prebuilt_root;
+        }
+
+        let file = File::open(zip_path).unwrap_or_else(|e| {
+            panic!(
+                "failed to open OpenUSD prebuilt zip {}: {e}",
+                zip_path.display()
+            )
+        });
+        let mut archive = ZipArchive::new(file).unwrap_or_else(|e| {
+            panic!(
+                "failed to read OpenUSD prebuilt zip {}: {e}",
+                zip_path.display()
+            )
+        });
+        let payload_root = Path::new(&artifact.payload_root);
+        let tmp_dest = manifest_dir
+            .join("prebuilt-vcpkg_installed")
+            .join(format!("{triplet}.prebuilt-tmp"));
+        fs::remove_dir_all(&tmp_dest).unwrap_or_else(|e| {
+            if tmp_dest.exists() {
+                panic!("failed to remove stale {}: {e}", tmp_dest.display());
+            }
+        });
+        fs::create_dir_all(&tmp_dest)
+            .unwrap_or_else(|e| panic!("failed to create {}: {e}", tmp_dest.display()));
+
+        let mut extracted = 0usize;
+        for index in 0..archive.len() {
+            let mut entry = archive
+                .by_index(index)
+                .unwrap_or_else(|e| panic!("failed to read zip entry #{index}: {e}"));
+            let Some(enclosed) = entry.enclosed_name() else {
+                continue;
+            };
+            let Ok(relative) = enclosed.strip_prefix(payload_root) else {
+                continue;
+            };
+            if relative.as_os_str().is_empty() {
+                continue;
+            }
+            let out_path = tmp_dest.join(relative);
+            if entry.is_dir() {
+                fs::create_dir_all(&out_path)
+                    .unwrap_or_else(|e| panic!("failed to create {}: {e}", out_path.display()));
+                continue;
+            }
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent)
+                    .unwrap_or_else(|e| panic!("failed to create {}: {e}", parent.display()));
+            }
+            let mut out = File::create(&out_path)
+                .unwrap_or_else(|e| panic!("failed to create {}: {e}", out_path.display()));
+            io::copy(&mut entry, &mut out)
+                .unwrap_or_else(|e| panic!("failed to extract {}: {e}", out_path.display()));
+            extracted += 1;
+        }
+
+        assert!(
+            extracted > 0,
+            "OpenUSD prebuilt zip {} did not contain payload root {}",
+            zip_path.display(),
+            artifact.payload_root
+        );
+        assert!(
+            tmp_dest.join("share").join("pxr").exists(),
+            "OpenUSD prebuilt payload {} is missing share/pxr",
+            zip_path.display()
+        );
+        assert!(
+            tmp_dest.join("include").exists() && tmp_dest.join("lib").exists(),
+            "OpenUSD prebuilt payload {} is missing include/ or lib/",
+            zip_path.display()
+        );
+
+        fs::remove_dir_all(&dest).unwrap_or_else(|e| {
+            if dest.exists() {
+                panic!("failed to remove stale {}: {e}", dest.display());
+            }
+        });
+        mirror_tree(&tmp_dest, &dest);
+        fs::remove_dir_all(&tmp_dest).unwrap_or_else(|e| {
+            panic!(
+                "failed to remove temporary OpenUSD extraction dir {}: {e}",
+                tmp_dest.display()
+            )
+        });
+        fs::write(dest.join(".yw-look-prebuilt.sha256"), &artifact.sha256).unwrap_or_else(|e| {
+            panic!(
+                "failed to write OpenUSD prebuilt marker under {}: {e}",
+                dest.display()
+            )
+        });
+        println!(
+            "cargo:warning=extracted prebuilt OpenUSD payload for {triplet}: {}",
+            zip_path.display()
+        );
+        prebuilt_root
+    }
+
+    fn try_use_prebuilt_openusd(manifest_dir: &Path, triplet: &str) -> Option<PathBuf> {
+        println!("cargo:rerun-if-env-changed=OPENUSD_PREBUILT_DIR");
+        println!("cargo:rerun-if-env-changed=OPENUSD_FORCE_VCPKG");
+        if should_force_vcpkg() {
+            println!("cargo:warning=OPENUSD_FORCE_VCPKG is set; skipping prebuilt OpenUSD payload");
+            return None;
+        }
+
+        let root = prebuilt_root(manifest_dir);
+        let manifest_path = root.join("manifest.json");
+        println!("cargo:rerun-if-changed={}", manifest_path.display());
+        if !manifest_path.exists() {
+            if env::var_os("OPENUSD_PREBUILT_DIR").is_some() {
+                panic!(
+                    "OPENUSD_PREBUILT_DIR was set but manifest is missing: {}",
+                    manifest_path.display()
+                );
+            }
+            return None;
+        }
+
+        let manifest: PrebuiltManifest = serde_json::from_slice(
+            &fs::read(&manifest_path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", manifest_path.display())),
+        )
+        .unwrap_or_else(|e| panic!("failed to parse {}: {e}", manifest_path.display()));
+        let Some(artifact) = manifest
+            .artifacts
+            .iter()
+            .find(|entry| entry.triplet == triplet)
+        else {
+            return None;
+        };
+        validate_manifest_relative_path(&artifact.file, "file");
+        validate_manifest_relative_path(&artifact.payload_root, "payloadRoot");
+        let zip_path = root.join(&artifact.file);
+        println!("cargo:rerun-if-changed={}", zip_path.display());
+        let metadata = fs::metadata(&zip_path).unwrap_or_else(|e| {
+            panic!(
+                "OpenUSD prebuilt zip is missing {}: {e}",
+                zip_path.display()
+            )
+        });
+        if is_git_lfs_pointer(&zip_path) {
+            if env::var_os("OPENUSD_PREBUILT_DIR").is_some() {
+                panic!(
+                    "OpenUSD prebuilt zip is still a Git LFS pointer: {}",
+                    zip_path.display()
+                );
+            }
+            println!(
+                "cargo:warning=OpenUSD prebuilt zip is a Git LFS pointer; falling back to vcpkg: {}",
+                zip_path.display()
+            );
+            return None;
+        }
+        assert_eq!(
+            metadata.len(),
+            artifact.size,
+            "OpenUSD prebuilt zip size mismatch for {}",
+            zip_path.display()
+        );
+        let actual_sha = hex_sha256(&zip_path)
+            .unwrap_or_else(|e| panic!("failed to hash {}: {e}", zip_path.display()));
+        assert_eq!(
+            actual_sha.to_ascii_lowercase(),
+            artifact.sha256.to_ascii_lowercase(),
+            "OpenUSD prebuilt zip sha256 mismatch for {}",
+            zip_path.display()
+        );
+
+        Some(extract_prebuilt_payload(
+            &zip_path,
+            artifact,
+            manifest_dir,
+            triplet,
+        ))
     }
 
     /// Copies one file, creating parent directories as needed. Used
@@ -311,7 +589,14 @@ mod cpp_backend {
                 .display()
         );
 
-        // 1. Invoke vcpkg in manifest mode. Classic vcpkg users may
+        // 1. Prefer a verified Git LFS prebuilt payload when present.
+        //    It restores a separate prebuilt vcpkg install tree without
+        //    building OpenUSD from source. Set OPENUSD_FORCE_VCPKG=1 when
+        //    regenerating the payload or intentionally testing vcpkg.
+        let prebuilt_installed_root = try_use_prebuilt_openusd(&manifest_dir, triplet);
+
+        // 1b. Invoke vcpkg in manifest mode when no prebuilt payload
+        //     is available. Classic vcpkg users may
         //    not be used to this, but it's the mode the vcpkg.json +
         //    vcpkg-configuration.json files at `manifest_dir` express.
         //    `--x-manifest-root` picks up those two files.
@@ -328,23 +613,27 @@ mod cpp_backend {
         //    is omitted; vcpkg falls back to the upstream definition
         //    automatically when the overlay does not override it.
         let overlay_triplets = manifest_dir.join("triplets");
-        let status = Command::new(vcpkg_exe(&vcpkg_root, &target_os))
-            .args([
-                "install",
-                "--x-manifest-root=.",
-                &format!("--triplet={triplet}"),
-                &format!(
-                    "--x-install-root={}",
-                    manifest_dir.join("vcpkg_installed").display()
-                ),
-                &format!("--overlay-triplets={}", overlay_triplets.display()),
-            ])
-            .current_dir(&manifest_dir)
-            .status()
-            .expect("failed to invoke vcpkg");
-        assert!(status.success(), "vcpkg install failed: {status}");
+        if prebuilt_installed_root.is_none() {
+            let status = Command::new(vcpkg_exe(&vcpkg_root, &target_os))
+                .args([
+                    "install",
+                    "--x-manifest-root=.",
+                    &format!("--triplet={triplet}"),
+                    &format!(
+                        "--x-install-root={}",
+                        manifest_dir.join("vcpkg_installed").display()
+                    ),
+                    &format!("--overlay-triplets={}", overlay_triplets.display()),
+                ])
+                .current_dir(&manifest_dir)
+                .status()
+                .expect("failed to invoke vcpkg");
+            assert!(status.success(), "vcpkg install failed: {status}");
+        }
 
-        let vcpkg_installed = manifest_dir.join("vcpkg_installed").join(triplet);
+        let vcpkg_installed_root =
+            prebuilt_installed_root.unwrap_or_else(|| manifest_dir.join("vcpkg_installed"));
+        let vcpkg_installed = vcpkg_installed_root.join(triplet);
         let vcpkg_lib = vcpkg_installed.join("lib");
         let vcpkg_bin = vcpkg_installed.join("bin");
 
@@ -386,8 +675,6 @@ mod cpp_backend {
         // with "Could not find a package configuration file" because
         // the toolchain is looking in a different tree than the one
         // we actually installed into.
-        let vcpkg_installed_root = manifest_dir.join("vcpkg_installed");
-
         let shim_install = cmake::Config::new(&shim_src)
             .profile("Release")
             .define(

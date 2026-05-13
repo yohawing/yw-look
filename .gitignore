@@ -11,6 +11,7 @@ tsconfig.node.tsbuildinfo
 # shared libraries into cpp-artifacts/<triplet>/ for Tauri bundling.
 # Both directories are regenerated on every build.
 src-tauri/vcpkg_installed/
+src-tauri/prebuilt-vcpkg_installed/
 src-tauri/cpp-artifacts/
 
 artifacts/

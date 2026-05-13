@@ -84,7 +84,7 @@
 
 **ビルド / 配布**
 
-- [ ] `OPENUSD_PREBUILT_DIR` env 経由でのビルド済み OpenUSD 取り込み（30 分短縮）
+- [x] `OPENUSD_PREBUILT_DIR` env 経由でのビルド済み OpenUSD 取り込み（30 分短縮）
 - [ ] Linux 向け C++ backend 復活（vcpkg usd port が Linux 安定したら）
 
 ---

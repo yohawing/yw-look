@@ -146,15 +146,62 @@ Visual Studio 2022 / 2026 に同梱の `clang-format` / `clang-tidy` には
 ```sh
 cd yw-look/src-tauri
 
-# Phase 2.J 以降は default が C++ backend。初回は vcpkg が OpenUSD を
-# source build するため 30〜60 分かかる。2 回目以降は vcpkg の binary
-# cache から秒で復元される。vcpkg.json / baseline SHA を書き換えた
-# ときだけ再ビルドが走る。
+# Phase 2.J 以降は default が C++ backend。
+# third_party/prebuilt/openusd/manifest.json に現在の triplet 用 payload が
+# ある場合、build.rs が sha256 を検証して vcpkg_installed/<triplet>/ に
+# 展開し、OpenUSD の source build をスキップする。
 cargo build
 
 # pure-Rust fork へ切り替えたい場合（パリティ確認 / Linux 等）
 cargo build --no-default-features --features backend-openusd-rs
 ```
+
+prebuilt payload がない場合は従来どおり vcpkg が OpenUSD を source build する。
+意図的に vcpkg 経路を使って payload を再生成したい場合は
+`OPENUSD_FORCE_VCPKG=1` を指定する。
+
+```powershell
+$env:OPENUSD_FORCE_VCPKG = "1"
+cargo build
+```
+
+prebuilt payload の置き場を変えたい場合は `OPENUSD_PREBUILT_DIR` で
+`manifest.json` を含むディレクトリを指定できる。
+
+### 6. prebuilt OpenUSD payload の更新
+
+Windows / macOS それぞれで `src-tauri/vcpkg_installed/<triplet>/` を生成した後、
+次のスクリプトで zip と manifest を更新する。zip は Git LFS 管理対象。
+
+```powershell
+node scripts/package-openusd-prebuilt.mjs `
+  --triplet x64-windows `
+  --source src-tauri/vcpkg_installed/x64-windows `
+  --openusd 25.5.1 `
+  --vcpkg-baseline b83a134447208c35f740e4b6faf1263b0d6e860e `
+  --ywrev 1
+```
+
+```sh
+node scripts/package-openusd-prebuilt.mjs \
+  --triplet arm64-osx \
+  --source src-tauri/vcpkg_installed/arm64-osx \
+  --openusd 25.5.1 \
+  --vcpkg-baseline b83a134447208c35f740e4b6faf1263b0d6e860e \
+  --ywrev 1
+```
+
+payload には build に必要な `include` / `lib` / `share` / `plugin` と、Windows
+runtime に必要な `bin/*.dll` / `bin/usd/**` だけを含める。macOS runtime の
+`.dylib` は `lib/` に含める。`debug` / `tools` / `.pdb` / helper `.exe` は除外する。
+build.rs は zip の size と sha256 を検証してから展開し、`share/pxr` / `include` /
+`lib` が欠けている場合は loud failure にする。
+
+現時点でリポジトリに同梱している payload は `x64-windows` のみ。`arm64-osx` は
+macOS runner / 開発機で同じスクリプトから生成して manifest に追加する。
+
+新しい payload を commit する前に
+`third_party/prebuilt/openusd/licenses/THIRD_PARTY_NOTICES.md` を更新する。
 
 ## 配布ビルド
 

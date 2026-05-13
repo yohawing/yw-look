@@ -18,6 +18,7 @@ export default tseslint.config(
       // only shuts up local runs on machines that built the C++
       // backend.
       "src-tauri/vcpkg_installed",
+      "src-tauri/prebuilt-vcpkg_installed",
       "src-tauri/cpp-artifacts",
       "public",
       "src/vendor/FBXLoaderPatched.js",

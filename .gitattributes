@@ -46,6 +46,10 @@ public/*.svg binary -filter
 # KTX2Loader transcoder is readable without LFS checkout.
 public/basis/* binary -filter
 
+# Prebuilt native payloads are large, versioned zip archives. CI and
+# release jobs checkout LFS before attempting to use them.
+third_party/prebuilt/openusd/*.zip filter=lfs diff=lfs merge=lfs -text
+
 # Bundled Alembic helper binaries must be readable in release builds
 # without requiring an LFS checkout.
 src-tauri/alembic-tools/x64-windows/* binary -filter
