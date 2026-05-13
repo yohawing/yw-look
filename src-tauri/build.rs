@@ -69,6 +69,56 @@ mod cpp_backend {
         }
     }
 
+    fn discover_vcpkg_root(target_os: &str) -> Option<PathBuf> {
+        if let Some(root) = env::var_os("VCPKG_ROOT").map(PathBuf::from) {
+            return Some(root);
+        }
+
+        let mut candidates = Vec::new();
+        if target_os == "windows" {
+            if let Some(home) = env::var_os("USERPROFILE").map(PathBuf::from) {
+                candidates.push(home.join("vcpkg"));
+                candidates.push(home.join(".vcpkg"));
+            }
+        } else if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+            candidates.push(home.join(".vcpkg"));
+            candidates.push(home.join("vcpkg"));
+        }
+
+        candidates
+            .into_iter()
+            .find(|candidate| vcpkg_exe(candidate, target_os).exists())
+    }
+
+    fn run_vcpkg_install(
+        manifest_dir: &Path,
+        vcpkg_root: &Path,
+        target_os: &str,
+        triplet: &str,
+        install_root: &Path,
+        overlay_triplets: &Path,
+        packages: &[&str],
+    ) {
+        let mut args = Vec::new();
+        args.push("install".to_string());
+        if packages.is_empty() {
+            args.push("--x-manifest-root=.".to_string());
+        } else {
+            args.extend(packages.iter().map(|package| (*package).to_string()));
+            args.push("--classic".to_string());
+        }
+        args.push(format!("--triplet={triplet}"));
+        args.push(format!("--x-install-root={}", install_root.display()));
+        args.push(format!("--overlay-triplets={}", overlay_triplets.display()));
+
+        let status = Command::new(vcpkg_exe(vcpkg_root, target_os))
+            .args(&args)
+            .current_dir(manifest_dir)
+            .status()
+            .unwrap_or_else(|e| panic!("failed to invoke vcpkg: {e}"));
+        assert!(status.success(), "vcpkg install failed: {status}");
+    }
+
     fn hex_sha256(path: &Path) -> io::Result<String> {
         let mut file = File::open(path)?;
         let mut hasher = Sha256::new();
@@ -122,6 +172,13 @@ mod cpp_backend {
     fn should_force_vcpkg() -> bool {
         matches!(
             env::var("OPENUSD_FORCE_VCPKG").as_deref(),
+            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+        )
+    }
+
+    fn should_force_alembic_tool_build() -> bool {
+        matches!(
+            env::var("ALEMBIC_FORCE_BUILD").as_deref(),
             Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
         )
     }
@@ -540,6 +597,118 @@ mod cpp_backend {
         out
     }
 
+    fn find_first_matching_lib(dir: &Path, prefix: &str, ext: &str) -> Option<PathBuf> {
+        collect_libs(dir, ext, |name| name.starts_with(prefix))
+            .into_iter()
+            .next()
+    }
+
+    fn ensure_macos_alembic_helper(
+        manifest_dir: &Path,
+        target_os: &str,
+        triplet: &str,
+        vcpkg_root: Option<&PathBuf>,
+        overlay_triplets: &Path,
+    ) {
+        if target_os != "macos" || triplet != "arm64-osx" {
+            return;
+        }
+
+        let tool_src = manifest_dir
+            .join("alembic-tools")
+            .join("src")
+            .join("abc_to_obj.cpp");
+        let tool_dir = manifest_dir.join("alembic-tools").join("arm64-osx");
+        let tool_path = tool_dir.join("abc_to_obj");
+        println!("cargo:rerun-if-env-changed=ALEMBIC_FORCE_BUILD");
+        println!("cargo:rerun-if-changed={}", tool_src.display());
+
+        if tool_path.exists() && !should_force_alembic_tool_build() {
+            println!(
+                "cargo:warning=using bundled Alembic preview helper: {}",
+                tool_path.display()
+            );
+            return;
+        }
+
+        let vcpkg_root = vcpkg_root
+            .as_deref()
+            .expect("VCPKG_ROOT is not set. Building the Alembic preview helper requires vcpkg.");
+        let install_root = manifest_dir.join("vcpkg_installed");
+
+        run_vcpkg_install(
+            manifest_dir,
+            vcpkg_root,
+            target_os,
+            triplet,
+            &install_root,
+            overlay_triplets,
+            &["alembic"],
+        );
+
+        let include_dir = install_root.join(triplet).join("include");
+        let lib_dir = install_root.join(triplet).join("lib");
+        let alembic_lib =
+            find_first_matching_lib(&lib_dir, "libAlembic", "a").unwrap_or_else(|| {
+                panic!("missing static Alembic library under {}", lib_dir.display())
+            });
+        let imath_lib = find_first_matching_lib(&lib_dir, "libImath", "a")
+            .unwrap_or_else(|| panic!("missing static Imath library under {}", lib_dir.display()));
+
+        fs::create_dir_all(&tool_dir)
+            .unwrap_or_else(|e| panic!("failed to create {}: {e}", tool_dir.display()));
+        let status = Command::new("clang++")
+            .args([
+                "-std=c++17",
+                "-O2",
+                "-I",
+                include_dir.to_str().expect("valid include path"),
+                tool_src.to_str().expect("valid Alembic helper source path"),
+                alembic_lib.to_str().expect("valid Alembic lib path"),
+                imath_lib.to_str().expect("valid Imath lib path"),
+                "-lz",
+                "-o",
+                tool_path
+                    .to_str()
+                    .expect("valid Alembic helper output path"),
+            ])
+            .status()
+            .expect("failed to invoke clang++ for Alembic preview helper");
+        assert!(
+            status.success(),
+            "failed to build Alembic preview helper: {status}"
+        );
+
+        let status = Command::new("codesign")
+            .args([
+                "--force",
+                "--sign",
+                "-",
+                tool_path.to_str().expect("valid tool path"),
+            ])
+            .status()
+            .expect("failed to invoke codesign for Alembic preview helper");
+        assert!(
+            status.success(),
+            "failed to ad-hoc sign Alembic preview helper: {status}"
+        );
+
+        let output = Command::new("otool")
+            .args(["-L", tool_path.to_str().expect("valid tool path")])
+            .output()
+            .expect("failed to inspect Alembic preview helper dylib dependencies");
+        assert!(
+            output.status.success(),
+            "failed to inspect Alembic preview helper dylib dependencies: {}",
+            output.status
+        );
+        let linked = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            !linked.contains("libAlembic") && !linked.contains("libImath"),
+            "Alembic preview helper must statically link Alembic and Imath:\n{linked}"
+        );
+    }
+
     /// Returns true when the two files exist and their byte contents
     /// are bit-identical. Uses a full read because the runtime libs we
     /// mirror are a handful of tens of MB at most — negligible next to
@@ -682,7 +851,7 @@ mod cpp_backend {
         //    building OpenUSD from source. Set OPENUSD_FORCE_VCPKG=1 when
         //    regenerating the payload or intentionally testing vcpkg.
         let prebuilt_installed_root = try_use_prebuilt_openusd(&manifest_dir, triplet);
-        let vcpkg_root = env::var_os("VCPKG_ROOT").map(PathBuf::from);
+        let vcpkg_root = discover_vcpkg_root(&target_os);
 
         // 1b. Invoke vcpkg in manifest mode when no prebuilt payload
         //     is available. Classic vcpkg users may
@@ -706,22 +875,24 @@ mod cpp_backend {
             let vcpkg_root = vcpkg_root
                 .as_deref()
                 .expect("VCPKG_ROOT is not set. See docs/usd-cpp.md for setup.");
-            let status = Command::new(vcpkg_exe(vcpkg_root, &target_os))
-                .args([
-                    "install",
-                    "--x-manifest-root=.",
-                    &format!("--triplet={triplet}"),
-                    &format!(
-                        "--x-install-root={}",
-                        manifest_dir.join("vcpkg_installed").display()
-                    ),
-                    &format!("--overlay-triplets={}", overlay_triplets.display()),
-                ])
-                .current_dir(&manifest_dir)
-                .status()
-                .expect("failed to invoke vcpkg");
-            assert!(status.success(), "vcpkg install failed: {status}");
+            run_vcpkg_install(
+                &manifest_dir,
+                vcpkg_root,
+                &target_os,
+                triplet,
+                &manifest_dir.join("vcpkg_installed"),
+                &overlay_triplets,
+                &[],
+            );
         }
+
+        ensure_macos_alembic_helper(
+            &manifest_dir,
+            &target_os,
+            triplet,
+            vcpkg_root.as_ref(),
+            &overlay_triplets,
+        );
 
         let using_prebuilt = prebuilt_installed_root.is_some();
         let vcpkg_installed_root =
@@ -758,8 +929,7 @@ mod cpp_backend {
         // short-circuits find_package() and guarantees we see exactly
         // the headers that match the libs the toolchain file links in.
         let pxr_dir = vcpkg_installed.join("share").join("pxr");
-        let windows_ninja = if target_os == "windows" && env::var_os("CMAKE_GENERATOR").is_none()
-        {
+        let windows_ninja = if target_os == "windows" && env::var_os("CMAKE_GENERATOR").is_none() {
             ninja_path().and_then(|path| visual_studio_dev_env().map(|env| (path, env)))
         } else {
             None

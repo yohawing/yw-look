@@ -217,31 +217,8 @@ jobs:
               --overlay-triplets=triplets
           fi
 
-          "$VCPKG_ROOT/vcpkg" install alembic \
-            --triplet=arm64-osx \
-            --x-install-root=vcpkg_installed \
-            --overlay-triplets=triplets
-
-          mkdir -p alembic-tools/arm64-osx
-          alembic_lib=$(find vcpkg_installed/arm64-osx/lib -maxdepth 1 -name 'libAlembic*.a' -print -quit)
-          imath_lib=$(find vcpkg_installed/arm64-osx/lib -maxdepth 1 -name 'libImath*.a' -print -quit)
-          if [ -z "${alembic_lib:-}" ] || [ -z "${imath_lib:-}" ]; then
-            echo "::error::missing static Alembic or Imath library after vcpkg install"
-            exit 1
-          fi
-          clang++ -std=c++17 -O2 \
-            -I vcpkg_installed/arm64-osx/include \
-            alembic-tools/src/abc_to_obj.cpp \
-            "$alembic_lib" "$imath_lib" -lz \
-            -o alembic-tools/arm64-osx/abc_to_obj
-          chmod +x alembic-tools/arm64-osx/abc_to_obj
-          codesign --force --sign - alembic-tools/arm64-osx/abc_to_obj
-          codesign --verify --strict --verbose=2 alembic-tools/arm64-osx/abc_to_obj
-          otool -L alembic-tools/arm64-osx/abc_to_obj
-          if otool -L alembic-tools/arm64-osx/abc_to_obj | grep -E 'lib(Alembic|Imath)'; then
-            echo "::error::abc_to_obj must not depend on Alembic or Imath dylibs"
-            exit 1
-          fi
+          # build.rs builds and ad-hoc signs alembic-tools/arm64-osx/abc_to_obj
+          # from the optional Alembic vcpkg package during the later tauri build.
 
           mkdir -p cpp-artifacts/arm64-osx
           for pattern in 'libusd_*.dylib' 'libtbb*.dylib' 'libhwloc*.dylib' 'libz.*.dylib'; do

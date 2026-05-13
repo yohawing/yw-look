@@ -84,8 +84,9 @@ handle で pxr 型を隠す。bindgen は C ヘッダしか見ない。
 ### 1. vcpkg を clone（fallback / payload 再生成時のみ）
 
 通常ビルドでは `third_party/prebuilt/openusd/` の Git LFS payload を使うため、
-OpenUSD の source build は走らない。prebuilt がない triplet を試す場合や payload を
-再生成する場合だけ vcpkg を用意する。
+OpenUSD の source build は走らない。prebuilt がない triplet を試す場合、payload を
+再生成する場合、または `ALEMBIC_FORCE_BUILD=1` で Alembic preview helper を
+再ビルドする場合だけ vcpkg を用意する。
 
 ```sh
 # 任意のパス。~/.vcpkg を推奨
@@ -94,7 +95,7 @@ git clone https://github.com/microsoft/vcpkg ~/.vcpkg
 # ~/.vcpkg/bootstrap-vcpkg.bat         # Windows PowerShell / cmd
 ```
 
-### 2. `VCPKG_ROOT` を export（fallback / payload 再生成時のみ）
+### 2. `VCPKG_ROOT` を export（fallback / payload / Alembic helper 再生成時のみ）
 
 ```sh
 # bash / zsh
@@ -170,6 +171,10 @@ cargo build
 
 prebuilt payload の置き場を変えたい場合は `OPENUSD_PREBUILT_DIR` で
 `manifest.json` を含むディレクトリを指定できる。
+
+macOS arm64 の Alembic preview helper は `src-tauri/alembic-tools/arm64-osx/abc_to_obj`
+を同梱している。`src-tauri/alembic-tools/src/abc_to_obj.cpp` を変更して再生成したい場合は、
+vcpkg を用意したうえで `ALEMBIC_FORCE_BUILD=1 cargo build` を実行する。
 
 ### 6. prebuilt OpenUSD payload の更新
 

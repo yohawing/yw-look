@@ -47,8 +47,9 @@ default = ["backend-openusd-cpp"]
 backend-openusd-rs = []
 # C++ backend (Pixar OpenUSD via vcpkg + a handwritten C shim).
 # Enabling this pulls in the build-time dependencies above and
-# requires VCPKG_ROOT to be set at build time. See
-# `docs/usd-cpp.md` for setup.
+# uses the Git LFS prebuilt OpenUSD payload when available. VCPKG_ROOT
+# is only needed for fallback/source rebuilds or forced helper regeneration.
+# See `docs/usd-cpp.md` for setup.
 #
 # Linux is intentionally unsupported while the vcpkg + OpenUSD build
 # is still Windows-first; the C++ backend compile-errors out on

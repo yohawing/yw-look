@@ -20,6 +20,7 @@ on:
     paths:
       - "src-tauri/Cargo.toml"
       - "src-tauri/build.rs"
+      - "src-tauri/alembic-tools/**"
       - "src-tauri/vcpkg.json"
       - "src-tauri/vcpkg-configuration.json"
       - "src-tauri/third_party/usd_c_shim/**"
