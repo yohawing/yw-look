@@ -1,7 +1,10 @@
 import {
+  AnimationClip,
+  BufferGeometry,
   Color,
   CompressedTexture,
   DataTexture,
+  Float32BufferAttribute,
   Group,
   LinearFilter,
   LinearMipmapLinearFilter,
@@ -9,6 +12,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  NumberKeyframeTrack,
   Object3D,
   PlaneGeometry,
   RGBAFormat,
@@ -19,7 +23,7 @@ import {
   Loader as ThreeLoader,
 } from "three";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { convertAlembicToObj } from "../lib/alembic";
+import { convertAlembicToPreview } from "../lib/alembic";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { isTauriEnvironment } from "../lib/platform";
 import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
@@ -63,6 +67,155 @@ async function yieldToPaint(): Promise<void> {
 async function readTextFile(path: string) {
   const buffer = await readArrayBuffer(path);
   return new TextDecoder().decode(buffer);
+}
+
+type AlembicPreviewFrame = {
+  time: number;
+  positions: number[];
+};
+
+type AlembicPreviewMesh = {
+  name: string;
+  positions: number[];
+  indices: number[];
+  frames?: AlembicPreviewFrame[];
+};
+
+type AlembicPreviewPayload = {
+  format: "yw-look-alembic-preview-v1";
+  meshes: AlembicPreviewMesh[];
+};
+
+function parseAlembicPreviewPayload(source: string): AlembicPreviewPayload {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(source);
+  } catch (error) {
+    throw new Error("Alembic helper returned malformed preview JSON.", {
+      cause: error,
+    });
+  }
+
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    (payload as { format?: unknown }).format !== "yw-look-alembic-preview-v1" ||
+    !Array.isArray((payload as { meshes?: unknown }).meshes)
+  ) {
+    throw new Error("Alembic helper returned an unsupported preview payload.");
+  }
+
+  return payload as AlembicPreviewPayload;
+}
+
+function createAlembicPreview(
+  payload: AlembicPreviewPayload,
+): Pick<LoadedPreview, "object" | "clips" | "formatVersion"> {
+  const object = new Group();
+  object.name = "Alembic Preview";
+  const tracks: NumberKeyframeTrack[] = [];
+  let animatedMeshCount = 0;
+
+  for (const [meshIndex, meshPayload] of payload.meshes.entries()) {
+    if (
+      !Array.isArray(meshPayload.positions) ||
+      !Array.isArray(meshPayload.indices) ||
+      meshPayload.positions.length === 0 ||
+      meshPayload.positions.length % 3 !== 0 ||
+      meshPayload.indices.length === 0 ||
+      meshPayload.indices.length % 3 !== 0
+    ) {
+      continue;
+    }
+
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute(meshPayload.positions, 3),
+    );
+    geometry.setIndex(meshPayload.indices);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+
+    const mesh = new Mesh(
+      geometry,
+      new MeshStandardMaterial({
+        color: "#cfd6e3",
+        metalness: 0.04,
+        roughness: 0.76,
+      }),
+    );
+    mesh.name = `AlembicMesh_${meshIndex + 1}`;
+    if (meshPayload.name) {
+      mesh.userData.sourceName = meshPayload.name;
+    }
+
+    const frames = (meshPayload.frames ?? [])
+      .filter(
+        (frame) =>
+          Number.isFinite(frame.time) &&
+          Array.isArray(frame.positions) &&
+          frame.positions.length === meshPayload.positions.length,
+      )
+      .sort((a, b) => a.time - b.time);
+
+    if (frames.length > 0) {
+      geometry.morphTargetsRelative = true;
+      geometry.morphAttributes.position = frames.map((frame) => {
+        const offsets = frame.positions.map(
+          (value, index) => value - meshPayload.positions[index],
+        );
+        return new Float32BufferAttribute(offsets, 3);
+      });
+      mesh.morphTargetInfluences = frames.map(() => 0);
+      mesh.morphTargetDictionary = Object.fromEntries(
+        frames.map((_, index) => [`sample_${index + 1}`, index]),
+      );
+
+      const startTime = Math.min(0, frames[0].time);
+      const times = [startTime, ...frames.map((frame) => frame.time)];
+      for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
+        tracks.push(
+          new NumberKeyframeTrack(
+            `${mesh.name}.morphTargetInfluences[${frameIndex}]`,
+            times,
+            times.map((_, timeIndex) => (timeIndex === frameIndex + 1 ? 1 : 0)),
+          ),
+        );
+      }
+      animatedMeshCount += 1;
+    }
+
+    object.add(mesh);
+  }
+
+  if (object.children.length === 0) {
+    throw new Error("Alembic conversion returned no renderable mesh data.");
+  }
+
+  const clips =
+    tracks.length > 0
+      ? [
+          new AnimationClip(
+            "Alembic Geometry Cache",
+            Math.max(
+              ...tracks.map(
+                (track) => track.times[track.times.length - 1] ?? 0,
+              ),
+            ),
+            tracks,
+          ),
+        ]
+      : [];
+
+  return {
+    object,
+    clips,
+    formatVersion:
+      animatedMeshCount > 0
+        ? "Alembic geometry cache"
+        : "Alembic static sample 0",
+  };
 }
 
 function getMimeType(extension: string) {
@@ -1834,33 +1987,17 @@ async function loadPreviewObjectCore(
     }
     case "abc": {
       reportStage("decode");
-      const { OBJLoader } =
-        await import("three/examples/jsm/loaders/OBJLoader.js");
-      const objText = await convertAlembicToObj(file.path);
+      const previewPayload = parseAlembicPreviewPayload(
+        await convertAlembicToPreview(file.path),
+      );
       reportStage("scene");
-      const object = new OBJLoader().parse(objText);
-      let meshCount = 0;
-      object.traverse((child) => {
-        if (!(child instanceof Mesh)) {
-          return;
-        }
-        meshCount += 1;
-        child.material = new MeshStandardMaterial({
-          color: "#cfd6e3",
-          metalness: 0.04,
-          roughness: 0.76,
-        });
-        child.geometry.computeVertexNormals();
-      });
-      if (meshCount === 0) {
-        throw new Error("Alembic conversion returned no renderable mesh data.");
-      }
+      const preview = createAlembicPreview(previewPayload);
       reportStage("gpu");
       return {
-        object,
+        object: preview.object,
         cleanupUrls: [],
-        clips: [],
-        formatVersion: "Alembic static sample 0",
+        clips: preview.clips,
+        formatVersion: preview.formatVersion,
       };
     }
     case "usd":

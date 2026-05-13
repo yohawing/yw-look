@@ -61,7 +61,7 @@ const ALEMBIC_TO_OBJ_BINARY_NAME: &str = "abc_to_obj.exe";
 #[cfg(not(target_os = "windows"))]
 const ALEMBIC_TO_OBJ_BINARY_NAME: &str = "abc_to_obj";
 const ALEMBIC_MAX_INPUT_BYTES: u64 = 512 * 1024 * 1024;
-const ALEMBIC_MAX_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
+const ALEMBIC_MAX_OUTPUT_BYTES: u64 = 128 * 1024 * 1024;
 const ALEMBIC_MAX_STDERR_BYTES: u64 = 64 * 1024;
 const ALEMBIC_HELPER_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -1597,7 +1597,7 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
                     (
                         stdout_path.as_path(),
                         ALEMBIC_MAX_OUTPUT_BYTES,
-                        "OBJ output",
+                        "preview output",
                     ),
                     (stderr_path.as_path(), ALEMBIC_MAX_STDERR_BYTES, "stderr"),
                 ] {
@@ -1653,7 +1653,7 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
         });
     }
 
-    let stdout = match read_limited_file(&stdout_path, ALEMBIC_MAX_OUTPUT_BYTES, "OBJ output") {
+    let stdout = match read_limited_file(&stdout_path, ALEMBIC_MAX_OUTPUT_BYTES, "preview output") {
         Ok(bytes) => bytes,
         Err(error) => {
             cleanup(&stdout_path, &stderr_path);
@@ -1662,11 +1662,11 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
     };
     cleanup(&stdout_path, &stderr_path);
     String::from_utf8(stdout)
-        .map_err(|error| format!("Alembic preview helper returned non-UTF8 OBJ data: {error}"))
+        .map_err(|error| format!("Alembic preview helper returned non-UTF8 preview data: {error}"))
 }
 
 #[tauri::command]
-fn convert_alembic_to_obj(app: tauri::AppHandle, path: String) -> Result<String, String> {
+fn convert_alembic_to_preview(app: tauri::AppHandle, path: String) -> Result<String, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let input_size = fs::metadata(&normalized)
         .map_err(|error| format!("failed to inspect Alembic input: {error}"))?
@@ -2392,7 +2392,7 @@ pub fn run() {
             resolve_selected_file,
             list_supported_siblings,
             read_binary_file,
-            convert_alembic_to_obj,
+            convert_alembic_to_preview,
             get_startup_file,
             load_recent_files,
             load_supported_extensions,
