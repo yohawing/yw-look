@@ -81,7 +81,11 @@ handle で pxr 型を隠す。bindgen は C ヘッダしか見ない。
 
 ## 初回セットアップ
 
-### 1. vcpkg を clone
+### 1. vcpkg を clone（fallback / payload 再生成時のみ）
+
+通常ビルドでは `third_party/prebuilt/openusd/` の Git LFS payload を使うため、
+OpenUSD の source build は走らない。prebuilt がない triplet を試す場合や payload を
+再生成する場合だけ vcpkg を用意する。
 
 ```sh
 # 任意のパス。~/.vcpkg を推奨
@@ -90,7 +94,7 @@ git clone https://github.com/microsoft/vcpkg ~/.vcpkg
 # ~/.vcpkg/bootstrap-vcpkg.bat         # Windows PowerShell / cmd
 ```
 
-### 2. `VCPKG_ROOT` を export
+### 2. `VCPKG_ROOT` を export（fallback / payload 再生成時のみ）
 
 ```sh
 # bash / zsh
@@ -147,9 +151,8 @@ Visual Studio 2022 / 2026 に同梱の `clang-format` / `clang-tidy` には
 cd yw-look/src-tauri
 
 # Phase 2.J 以降は default が C++ backend。
-# third_party/prebuilt/openusd/manifest.json に現在の triplet 用 payload が
-# ある場合、build.rs が sha256 を検証して vcpkg_installed/<triplet>/ に
-# 展開し、OpenUSD の source build をスキップする。
+# third_party/prebuilt/openusd/manifest.json の現在の triplet 用 payload を
+# build.rs が sha256 検証後に展開し、OpenUSD の source build をスキップする。
 cargo build
 
 # pure-Rust fork へ切り替えたい場合（パリティ確認 / Linux 等）
@@ -197,8 +200,9 @@ runtime に必要な `bin/*.dll` / `bin/usd/**` だけを含める。macOS runti
 build.rs は zip の size と sha256 を検証してから展開し、`share/pxr` / `include` /
 `lib` が欠けている場合は loud failure にする。
 
-現時点でリポジトリに同梱している payload は `x64-windows` のみ。`arm64-osx` は
-macOS runner / 開発機で同じスクリプトから生成して manifest に追加する。
+現時点でリポジトリに同梱している payload は `x64-windows` と `arm64-osx`。
+新しい vcpkg baseline / OpenUSD port / payload layout に更新した場合は、
+Windows / macOS それぞれで同じスクリプトから再生成して manifest に追加する。
 
 新しい payload を commit する前に
 `third_party/prebuilt/openusd/licenses/THIRD_PARTY_NOTICES.md` を更新する。

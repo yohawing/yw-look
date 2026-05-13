@@ -195,10 +195,9 @@ jobs:
       # `libusd_c_shim.dylib`, which build.rs will produce during
       # the subsequent tauri-action invocation.
       #
-      # Running vcpkg here is free on repeat builds: the `x-gha`
-      # binary cache shares state with the nested vcpkg call
-      # build.rs will make later, so only the first tag on a fresh
-      # baseline pays the ~17-minute OpenUSD compile.
+      # Prefer the Git LFS prebuilt payload. vcpkg remains as an
+      # explicit fallback / regeneration path if the manifest does not
+      # contain the requested triplet.
       - name: Pre-stage USD dylibs + generate tauri.macos.json (macOS)
         if: runner.os == 'macOS'
         shell: bash

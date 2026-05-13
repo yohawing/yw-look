@@ -1,11 +1,9 @@
 name: CI — USD C++ backend (PoC)
 
-# The C++ backend builds OpenUSD from source through vcpkg. First run
-# is 30–60 min; subsequent runs restore from the GHA binary cache in
-# seconds. We keep this off the main `ci.yml` so PR authors aren't
-# blocked on a PoC-stage pipeline. Keep it on the release/main path
-# and available through workflow_dispatch; develop PR/push coverage is
-# handled by the normal CI Rust-backend checks.
+# The C++ backend normally restores OpenUSD from the Git LFS prebuilt
+# payloads. vcpkg remains available as the explicit regeneration /
+# fallback path, so this workflow stays separate from the main CI while
+# native backend coverage is still relatively expensive.
 #
 # See docs/usd-cpp.md (CI section) and docs/usd-cpp-poc.md for the
 # full design.
@@ -13,9 +11,8 @@ name: CI — USD C++ backend (PoC)
 on:
   # Path filters stay scoped to files that actually affect the C++
   # build. This workflow intentionally does not run for develop PRs or
-  # pushes: the vcpkg/OpenUSD build is still too expensive/noisy for
-  # the alpha-period merge loop. Run it manually when touching C++
-  # backend internals, and keep release/main coverage here.
+  # pushes; run it manually when touching C++ backend internals, and
+  # keep release/main coverage here.
   push:
     branches:
       - main

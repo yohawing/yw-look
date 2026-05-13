@@ -2,6 +2,16 @@
   "version": 1,
   "artifacts": [
     {
+      "triplet": "arm64-osx",
+      "file": "openusd-arm64-osx-25.5.1-b83a13444720-6.zip",
+      "sha256": "59e43c4959986f57dd8a95e8ffcee76ab4477292498cf342c478a77329a1b5ad",
+      "size": 15053724,
+      "payloadRoot": "vcpkg_installed/arm64-osx",
+      "openusdVersion": "25.5.1",
+      "vcpkgBaseline": "b83a134447208c35f740e4b6faf1263b0d6e860e",
+      "ywrev": "6"
+    },
+    {
       "triplet": "x64-windows",
       "file": "openusd-x64-windows-25.5.1-b83a13444720-6.zip",
       "sha256": "5673e6d888f97c46e846c5b1df6ed51dbcac4806821293a306c64f62f444cbcd",
