@@ -454,7 +454,8 @@ impl UsdInspectBackend for OpenusdCppBackend {
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
-        // Asset issues always inspect the fully-loaded stage.
+        // Asset issues inspect the fully-loaded stage so problems inside
+        // payload layers are not hidden from the sidebar diagnostics.
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         let mut issues = Vec::new();
 
@@ -534,7 +535,10 @@ impl UsdInspectBackend for OpenusdCppBackend {
     }
 
     fn requires_glb_preview(&self, path: &StdPath) -> Result<bool, UsdError> {
-        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        // This is a routing check, not a render pass. Keep payloads
+        // deferred so heavy stages can decide quickly whether the JS
+        // USDLoader path is safe.
+        let stage = Self::open(path, StageLoadPolicy::NoPayloads)?;
         if stage.root_layer_is_binary().unwrap_or(false) {
             return Ok(true);
         }
@@ -542,6 +546,9 @@ impl UsdInspectBackend for OpenusdCppBackend {
         // means the USDA root depends on an external file the
         // Three.js USDLoader can't pull in, so route to the GLB path.
         if stage.layer_count() > 1 {
+            return Ok(true);
+        }
+        if !stage.skipped_payloads().map_err(map_c_error)?.is_empty() {
             return Ok(true);
         }
         Ok(false)

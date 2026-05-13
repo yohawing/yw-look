@@ -31,6 +31,7 @@ use crate::usd::{
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
 const DIAGNOSTICS_LOG_FILE_NAME: &str = "diagnostics.log";
+static USD_TASK_LOCK: Mutex<()> = Mutex::new(());
 #[cfg(desktop)]
 const MENU_ACTION_EVENT: &str = "yw-look://menu-action";
 #[cfg(desktop)]
@@ -1934,10 +1935,14 @@ where
     F: FnOnce() -> Result<T, UsdError> + Send + 'static,
     T: Send + 'static,
 {
-    tauri::async_runtime::spawn_blocking(task)
-        .await
-        .map_err(|e| format!("USD task join error: {e}"))?
-        .map_err(map_usd_error)
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = USD_TASK_LOCK
+            .lock()
+            .map_err(|_| "USD task lock was poisoned".to_string())?;
+        task().map_err(map_usd_error)
+    })
+    .await
+    .map_err(|e| format!("USD task join error: {e}"))?
 }
 
 #[allow(non_snake_case)]
@@ -2173,6 +2178,9 @@ async fn load_payload(
     // potentially large layers; route it through the blocking pool so
     // the async runtime stays responsive to other IPC traffic.
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let _guard = USD_TASK_LOCK
+            .lock()
+            .map_err(|_| "USD task lock was poisoned".to_string())?;
         let registry = app.state::<StageRegistry>();
         let session = registry
             .get(handle)
@@ -2203,6 +2211,9 @@ async fn unload_payload(
     // composition cache; keep it off the async runtime for symmetry
     // and to guarantee the registry mutex isn't held across `.await`.
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let _guard = USD_TASK_LOCK
+            .lock()
+            .map_err(|_| "USD task lock was poisoned".to_string())?;
         let registry = app.state::<StageRegistry>();
         let session = registry
             .get(handle)
@@ -2235,6 +2246,9 @@ async fn extract_geometry_session(
     // Move it to a blocking task and look up the registry from `app` inside
     // (avoids holding a `tauri::State` reference across `.await`).
     let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let _guard = USD_TASK_LOCK
+            .lock()
+            .map_err(|_| "USD task lock was poisoned".to_string())?;
         let registry = app.state::<StageRegistry>();
         let session = registry.get(handle).ok_or_else(|| {
             format!(

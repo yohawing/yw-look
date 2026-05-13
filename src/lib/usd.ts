@@ -491,8 +491,9 @@ export async function collectAssetIssues(path: string) {
  *     sublayers) — yw-look only hands USDLoader a single text buffer, so
  *     any external composition is invisible on the JS side.
  *
- * The Rust backend opens the stage once and inspects `layer_count`, so
- * this is cheap enough to call eagerly during the load pipeline.
+ * The backend opens the stage with payloads deferred and inspects
+ * `layer_count` / skipped payloads, so this is cheap enough to call
+ * eagerly during the load pipeline.
  */
 export async function requiresGlbPreview(path: string) {
   return invoke<boolean>("requires_glb_preview", { path });

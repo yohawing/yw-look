@@ -414,11 +414,11 @@ export function App() {
   // #35: USD light details fetched directly from USD (C++ backend only).
   // `null` = not fetched yet or not a USD file; `[]` = no lights found.
   const [usdLights, setUsdLights] = useState<UsdLightInfo[] | null>(null);
-  // Phase 4: deferred-payload toggle. Defaults to `loadAll` to
-  // preserve Phase 3 behavior; switching to `noPayloads` re-runs the
-  // inspector and GLB pipeline with payloads deferred.
+  // Phase 4: deferred-payload toggle. Defaults to `noPayloads` so large
+  // composed USD stages open responsively; switching to `loadAll` re-runs
+  // the inspector and GLB pipeline with every payload composed.
   const [usdLoadPolicy, setUsdLoadPolicy] =
-    useState<StageLoadPolicy>("loadAll");
+    useState<StageLoadPolicy>("noPayloads");
   // #33/#46: unified selection key — viewport pick or hierarchy row click.
   // For USD assets that went through the hierarchy-aware GLB pipeline
   // (#46) the value is a USD SdfPath (e.g. "/World/Cube") surfaced from
@@ -764,32 +764,38 @@ export function App() {
         );
       });
 
-    const issuesPromise = collectAssetIssues(path)
-      .then((issues) => {
-        if (cancelled) return;
-        setUsdIssues(issues);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setUsdInspectorError(
-          (previous) =>
-            previous ??
-            errorMessage(error, "Failed to collect USD asset issues."),
-        );
-      });
+    const issuesPromise =
+      usdLoadPolicy === "loadAll"
+        ? collectAssetIssues(path)
+            .then((issues) => {
+              if (cancelled) return;
+              setUsdIssues(issues);
+            })
+            .catch((error: unknown) => {
+              if (cancelled) return;
+              setUsdInspectorError(
+                (previous) =>
+                  previous ??
+                  errorMessage(error, "Failed to collect USD asset issues."),
+              );
+            })
+        : Promise.resolve();
 
     // #35: fetch USD light details from the C++ backend.
     // Errors are silently ignored — the Rust-fork backend returns an error
     // and in that case we fall back to the Three.js LightEntry list.
-    const lightsPromise = inspectUsdLights(path)
-      .then((lights) => {
-        if (cancelled) return;
-        setUsdLights(lights);
-      })
-      .catch(() => {
-        // Degraded: C++ backend not available or backend error — leave
-        // usdLights as null so the UI falls back to Three.js LightEntry data.
-      });
+    const lightsPromise =
+      usdLoadPolicy === "loadAll"
+        ? inspectUsdLights(path)
+            .then((lights) => {
+              if (cancelled) return;
+              setUsdLights(lights);
+            })
+            .catch(() => {
+              // Degraded: C++ backend not available or backend error — leave
+              // usdLights as null so the UI falls back to Three.js LightEntry data.
+            })
+        : Promise.resolve();
 
     void Promise.allSettled([
       summarizePromise,
