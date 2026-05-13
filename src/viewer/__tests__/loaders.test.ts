@@ -426,7 +426,7 @@ describe("isUsdcCrateBuffer", () => {
 // ---------------------------------------------------------------------------
 
 describe("shouldFailClosedOnUsdPreviewDecisionFailure", () => {
-  it.each(["usd", "usda", "usdz"])(
+  it.each(["usd", "usda", "usdc", "usdz"])(
     "fails closed for %s in the Tauri runtime",
     (extension) => {
       expect(shouldFailClosedOnUsdPreviewDecisionFailure(extension, true)).toBe(
@@ -441,8 +441,8 @@ describe("shouldFailClosedOnUsdPreviewDecisionFailure", () => {
     );
   });
 
-  it("does not change the existing USDC fail-fast path", () => {
-    expect(shouldFailClosedOnUsdPreviewDecisionFailure("usdc", true)).toBe(
+  it("keeps the USDC JS fallback available for browser selftests", () => {
+    expect(shouldFailClosedOnUsdPreviewDecisionFailure("usdc", false)).toBe(
       false,
     );
   });

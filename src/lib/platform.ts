@@ -1,7 +1,5 @@
-export function isTauriEnvironment() {
-  if (typeof window === "undefined") {
-    return false;
-  }
+import { isTauri } from "@tauri-apps/api/core";
 
-  return "__TAURI_INTERNALS__" in window;
+export function isTauriEnvironment() {
+  return isTauri();
 }

@@ -1616,7 +1616,10 @@ function shouldFailClosedOnUsdPreviewDecisionFailure(
 ) {
   return (
     isTauriRuntime &&
-    (extension === "usd" || extension === "usda" || extension === "usdz")
+    (extension === "usd" ||
+      extension === "usda" ||
+      extension === "usdc" ||
+      extension === "usdz")
   );
 }
 

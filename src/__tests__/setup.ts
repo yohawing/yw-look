@@ -12,6 +12,7 @@ import { vi } from "vitest";
 // Mock Tauri IPC
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
+  isTauri: vi.fn(() => false),
 }));
 
 // jsdom does not implement URL.createObjectURL
