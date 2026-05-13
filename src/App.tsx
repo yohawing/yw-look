@@ -414,11 +414,11 @@ export function App() {
   // #35: USD light details fetched directly from USD (C++ backend only).
   // `null` = not fetched yet or not a USD file; `[]` = no lights found.
   const [usdLights, setUsdLights] = useState<UsdLightInfo[] | null>(null);
-  // Phase 4: deferred-payload toggle. Defaults to `noPayloads` so large
-  // composed USD stages open responsively; switching to `loadAll` re-runs
-  // the inspector and GLB pipeline with every payload composed.
+  // Phase 4: deferred-payload toggle. Default to `loadAll` so payload-only
+  // component roots open with visible geometry; switching to `noPayloads`
+  // re-runs the inspector and GLB pipeline with payloads deferred.
   const [usdLoadPolicy, setUsdLoadPolicy] =
-    useState<StageLoadPolicy>("noPayloads");
+    useState<StageLoadPolicy>("loadAll");
   // #33/#46: unified selection key — viewport pick or hierarchy row click.
   // For USD assets that went through the hierarchy-aware GLB pipeline
   // (#46) the value is a USD SdfPath (e.g. "/World/Cube") surfaced from
