@@ -257,6 +257,9 @@ jobs:
           cat > tauri.macos.json <<JSON
           {
             "\$schema": "https://schema.tauri.app/config/2",
+            "build": {
+              "beforeBundleCommand": "bash ../scripts/sign-macos-release-helpers.sh"
+            },
             "bundle": {
               "resources": {
                 "alembic-tools/arm64-osx/": "alembic-tools/arm64-osx/",

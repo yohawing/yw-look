@@ -22,6 +22,7 @@
 - Bundled the macOS Alembic helper and allowed prebuilt OpenUSD startup without a local vcpkg root.
 - Built the FLIP comparison helper during release bundling so Tauri's package binary scan has all expected binaries.
 - Made local Windows update feed generation select the installer that matches the current release version.
+- Signed the bundled macOS Alembic helper before notarization.
 - Split the fast typecheck backend path.
 - Moved planning docs under `docs/`, refreshed README / CLI notes, and added MIT license metadata.
 
