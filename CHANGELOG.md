@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.1.11 (2026-05-14)
+
+### Loaders and preview
+
+- Added Alembic static previews and animated geometry-cache playback.
+- Added optional MMD preview support, then kept the experimental entry hidden from the default UI.
+- Improved missing texture fallback behavior for FBX and other texture references.
+- Added native USD instance-proxy support and kept heavy USD loads responsive.
+
+### Viewer and diagnostics
+
+- Added shared object inspection for non-USD formats and morph-target controls in the outliner.
+- Added viewport toolbar presets, hover submenus, and normalized model scale controls.
+- Added process memory and resource usage diagnostics, with clearer diagnostics resource rows.
+- Split viewer warning presentation in diagnostics and simplified file-info disclosure.
+
+### Build, release, and docs
+
+- Added prebuilt OpenUSD payload extraction and macOS OpenUSD payload support.
+- Bundled the macOS Alembic helper and allowed prebuilt OpenUSD startup without a local vcpkg root.
+- Built the FLIP comparison helper during release bundling so Tauri's package binary scan has all expected binaries.
+- Made local Windows update feed generation select the installer that matches the current release version.
+- Split the fast typecheck backend path.
+- Moved planning docs under `docs/`, refreshed README / CLI notes, and added MIT license metadata.
+
 ## v0.1.10 (2026-05-07)
 
 ### Viewer and loaders

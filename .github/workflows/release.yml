@@ -35,11 +35,11 @@ jobs:
         include:
           - platform: windows-x86_64
             runner: windows-latest
-            args: --config src-tauri/tauri.windows.json
+            args: --features flip-compare --config src-tauri/tauri.windows.json
           - platform: macos-aarch64
             runner: macos-14
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --config src-tauri/tauri.macos.json
+            args: --target aarch64-apple-darwin --features flip-compare --config src-tauri/tauri.macos.json
 
     runs-on: ${{ matrix.runner }}
     permissions:

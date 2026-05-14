@@ -1,15 +1,15 @@
 {
   "name": "yw-look",
   "private": true,
-  "version": "0.1.10",
+  "version": "0.1.11",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "build:desktop": "npm run build && npm run tauri build",
-    "bundle:win": "npm run tauri build -- --bundles nsis,msi",
-    "bundle:mac": "npm run tauri build -- --bundles app,dmg",
+    "bundle:win": "npm run tauri build -- --features flip-compare --bundles nsis,msi",
+    "bundle:mac": "npm run tauri build -- --features flip-compare --bundles app,dmg",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

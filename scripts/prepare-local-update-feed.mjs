@@ -36,7 +36,7 @@ function ensureDir(directoryPath) {
   fs.mkdirSync(directoryPath, { recursive: true });
 }
 
-function findWindowsBundle() {
+function findWindowsBundle(version) {
   const candidates = [
     path.join(bundleDir, "nsis"),
     path.join(bundleDir, "msi"),
@@ -49,7 +49,12 @@ function findWindowsBundle() {
 
     const installerName = fs
       .readdirSync(directory)
-      .find((entry) => /\.(exe|msi)$/i.test(entry) && !entry.endsWith(".sig"));
+      .find(
+        (entry) =>
+          /\.(exe|msi)$/i.test(entry) &&
+          !entry.endsWith(".sig") &&
+          entry.includes(`_${version}_`),
+      );
 
     if (!installerName) {
       continue;
@@ -68,7 +73,7 @@ function findWindowsBundle() {
   }
 
   throw new Error(
-    "No signed installer bundle found. Run `npm run bundle:win` with TAURI_SIGNING_PRIVATE_KEY configured first.",
+    `No signed installer bundle found for ${version}. Run \`npm run bundle:win\` with TAURI_SIGNING_PRIVATE_KEY configured first.`,
   );
 }
 
@@ -100,17 +105,17 @@ function findMacosBundle() {
   };
 }
 
-function findBundle() {
+function findBundle(version) {
   if (target.startsWith("darwin")) {
     return findMacosBundle();
   }
-  return findWindowsBundle();
+  return findWindowsBundle(version);
 }
 
 function main() {
   const tauriConfig = readJson(tauriConfigPath);
   const { version } = tauriConfig;
-  const bundle = findBundle();
+  const bundle = findBundle(version);
   const signature = fs.readFileSync(bundle.signaturePath, "utf8").trim();
 
   ensureDir(outputDir);
