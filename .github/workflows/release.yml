@@ -258,7 +258,7 @@ jobs:
           {
             "\$schema": "https://schema.tauri.app/config/2",
             "build": {
-              "beforeBundleCommand": "bash ../scripts/sign-macos-release-helpers.sh"
+              "beforeBundleCommand": "bash scripts/sign-macos-release-helpers.sh"
             },
             "bundle": {
               "resources": {
