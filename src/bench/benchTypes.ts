@@ -69,6 +69,9 @@ export type BenchCaseResult = {
   nonBlankCanvas: boolean;
   meshCount: number;
   minMeshCount: number;
+  openPipelineMs: number | null;
+  resolveFileMs: number | null;
+  listSiblingsMs: number | null;
   loadTimeMs: number | null;
   fps: number | null;
   frameTimeMs: {

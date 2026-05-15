@@ -49,12 +49,16 @@ The comparison checks the fixed report schema from `src/bench/benchTypes.ts`:
 - load success and non-blank canvas
 - console errors and captured error string
 - minimum mesh count
+- `openPipelineMs` (file resolve + sibling listing + preview load)
+- `resolveFileMs`
+- `listSiblingsMs`
 - `loadTimeMs`
 - `frameTimeMs.p95`
 
 The default thresholds are intentionally loose enough for local machine noise:
 
 - load time: baseline `* 1.35 + 250ms`
+- open pipeline time: baseline `* 1.35 + 250ms`
 - frame p95: baseline `* 1.20 + 2ms`
 
 Override thresholds when comparing:
@@ -62,6 +66,10 @@ Override thresholds when comparing:
 ```bash
 npm run bench:load:compare -- --load-ratio 1.2 --load-slack-ms 150
 ```
+
+For macOS "Open With" / Finder-open regressions, watch `openPipelineMs` first.
+If only `resolveFileMs` or `listSiblingsMs` moves, the slowdown is in the native
+open path rather than the Three.js / USD preview loader.
 
 ## Current Scope
 

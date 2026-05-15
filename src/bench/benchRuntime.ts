@@ -13,7 +13,11 @@ import {
   WebGLRenderer,
 } from "three";
 import type { SelectedFile } from "../lib/files";
-import { readBinaryFile, resolveSelectedFile } from "../lib/files";
+import {
+  listSupportedSiblings,
+  readBinaryFile,
+  resolveSelectedFile,
+} from "../lib/files";
 import {
   captureRendererScreenshot,
   disposeObject,
@@ -143,6 +147,15 @@ function roundMetric(value: number | null) {
   return value === null || !Number.isFinite(value)
     ? null
     : Math.round(value * 100) / 100;
+}
+
+async function measureAsync<T>(operation: () => Promise<T>) {
+  const started = performance.now();
+  const value = await operation();
+  return {
+    value,
+    elapsedMs: roundMetric(performance.now() - started),
+  };
 }
 
 function rendererMemoryMetrics(renderer: WebGLRenderer): RendererMemoryMetrics {
@@ -280,6 +293,9 @@ export async function runBenchCase(
     nonBlankCanvas: false,
     meshCount: 0,
     minMeshCount: model.expect.minMeshCount,
+    openPipelineMs: null,
+    resolveFileMs: null,
+    listSiblingsMs: null,
     loadTimeMs: null,
     fps: null,
     frameTimeMs: { avg: null, p50: null, p95: null },
@@ -298,11 +314,17 @@ export async function runBenchCase(
   try {
     log(`loading ${model.id}`);
     const modelPath = resolveBenchModelPath(model.path, activeBenchRepoRoot);
-    const selected = selectedFileFromModel(
-      model,
-      await resolveSelectedFile(modelPath),
-    );
-    const started = performance.now();
+    const openStarted = performance.now();
+    const [resolved, siblingListing] = await Promise.all([
+      measureAsync(() => resolveSelectedFile(modelPath)),
+      measureAsync(() => listSupportedSiblings(modelPath)),
+    ]);
+    void siblingListing.value;
+    baseResult.resolveFileMs = resolved.elapsedMs;
+    baseResult.listSiblingsMs = siblingListing.elapsedMs;
+
+    const selected = selectedFileFromModel(model, resolved.value);
+    const loadStarted = performance.now();
     const preview = await withTimeout(
       loadPreviewObject(selected, renderer),
       model.bench.timeoutMs,
@@ -310,7 +332,8 @@ export async function runBenchCase(
     );
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
-    baseResult.loadTimeMs = roundMetric(performance.now() - started);
+    baseResult.loadTimeMs = roundMetric(performance.now() - loadStarted);
+    baseResult.openPipelineMs = roundMetric(performance.now() - openStarted);
 
     normalizeObjectScale(object);
     scene.add(object);
@@ -411,8 +434,8 @@ export function renderReportMarkdown(report: BenchReport) {
     `- Platform: ${report.os}/${report.arch}`,
     `- Node: ${report.nodeVersion ?? "unknown"}`,
     "",
-    "| Case | Loaded | Non-blank | Console errors | Meshes | Load ms | FPS | p50 ms | p95 ms | Error |",
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+    "| Case | Loaded | Non-blank | Console errors | Meshes | Open ms | Resolve ms | Siblings ms | Preview load ms | FPS | p50 ms | p95 ms | Error |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
   ];
 
   for (const result of report.cases) {
@@ -423,6 +446,9 @@ export function renderReportMarkdown(report: BenchReport) {
         result.nonBlankCanvas ? "yes" : "no",
         result.consoleErrors,
         `${result.meshCount}/${result.minMeshCount}`,
+        result.openPipelineMs ?? result.loadTimeMs ?? "",
+        result.resolveFileMs ?? "",
+        result.listSiblingsMs ?? "",
         result.loadTimeMs ?? "",
         result.fps ?? "",
         result.frameTimeMs.p50 ?? "",

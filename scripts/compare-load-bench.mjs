@@ -26,6 +26,10 @@ Defaults:
 
 const loadTimeRatio = Number(readOption("--load-ratio") ?? 1.35);
 const loadTimeSlackMs = Number(readOption("--load-slack-ms") ?? 250);
+const openPipelineRatio = Number(readOption("--open-ratio") ?? loadTimeRatio);
+const openPipelineSlackMs = Number(
+  readOption("--open-slack-ms") ?? loadTimeSlackMs,
+);
 const frameP95Ratio = Number(readOption("--frame-p95-ratio") ?? 1.2);
 const frameP95SlackMs = Number(readOption("--frame-p95-slack-ms") ?? 2);
 const writeBaselinePath = readOption("--write-baseline") ?? readOption("--out");
@@ -93,6 +97,9 @@ function buildBaseline(report) {
         ext: benchCase.ext,
         shouldLoad: benchCase.shouldLoad,
         minMeshCount: benchCase.minMeshCount,
+        openPipelineMs: benchCase.openPipelineMs ?? benchCase.loadTimeMs,
+        resolveFileMs: benchCase.resolveFileMs ?? null,
+        listSiblingsMs: benchCase.listSiblingsMs ?? null,
         loadTimeMs: benchCase.loadTimeMs,
         frameTimeP95Ms: benchCase.frameTimeMs?.p95 ?? null,
         rendererMemory: benchCase.rendererInfo?.memory ?? null,
@@ -114,6 +121,8 @@ function buildBaseline(report) {
     thresholds: {
       loadTimeRatio,
       loadTimeSlackMs,
+      openPipelineRatio,
+      openPipelineSlackMs,
       frameP95Ratio,
       frameP95SlackMs,
     },
@@ -196,6 +205,30 @@ function compareReport(baseline, report) {
         current: current.loadTimeMs,
         limit: loadLimit,
         message: "load time exceeded threshold",
+      });
+    }
+
+    const openPipelineLimit = metricThreshold(
+      baseCase.openPipelineMs,
+      baseline.thresholds.openPipelineRatio ??
+        baseline.thresholds.loadTimeRatio,
+      baseline.thresholds.openPipelineSlackMs ??
+        baseline.thresholds.loadTimeSlackMs,
+    );
+    const currentOpenPipelineMs = current.openPipelineMs ?? current.loadTimeMs;
+    if (
+      openPipelineLimit !== null &&
+      typeof currentOpenPipelineMs === "number" &&
+      currentOpenPipelineMs > openPipelineLimit
+    ) {
+      findings.push({
+        level: "fail",
+        id,
+        metric: "openPipelineMs",
+        baseline: baseCase.openPipelineMs,
+        current: currentOpenPipelineMs,
+        limit: openPipelineLimit,
+        message: "open pipeline time exceeded threshold",
       });
     }
 
