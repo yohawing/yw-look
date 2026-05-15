@@ -21,6 +21,7 @@
 
 use std::collections::HashSet;
 use std::path::Path as StdPath;
+use std::time::Instant;
 
 use openusd::sdf::Path as SdfPath;
 use openusd::stage::MeshData;
@@ -43,6 +44,19 @@ use super::types::{
     MetadataEntry, PrimInspection, PrimTypeCount, RelationshipInfo, ShapingCone, StageInspection,
     StageLoadPolicy, StageSummary, TimeSampleEntry, UsdLightInfo, VariantSelection, VariantSetInfo,
 };
+
+fn usd_timing_enabled() -> bool {
+    std::env::var_os("YW_LOOK_USD_TIMING").is_some()
+}
+
+fn log_usd_timing(label: &str, started: Instant) {
+    if usd_timing_enabled() {
+        eprintln!(
+            "[usd-cpp timing] {label}: {}ms",
+            started.elapsed().as_millis()
+        );
+    }
+}
 
 /// Real backend backed by Pixar OpenUSD via the C shim.
 pub struct OpenusdCppBackend;
@@ -679,8 +693,15 @@ impl UsdGeometryBackend for OpenusdCppBackend {
         path: &StdPath,
         policy: StageLoadPolicy,
     ) -> Result<Vec<u8>, UsdError> {
+        let total_started = Instant::now();
+        let open_started = Instant::now();
         let stage = Self::open(path, policy)?;
-        extract_from_stage(&stage, path)
+        log_usd_timing("stage open", open_started);
+        let extract_started = Instant::now();
+        let result = extract_from_stage(&stage, path);
+        log_usd_timing("extract from open stage", extract_started);
+        log_usd_timing("extract_geometry_glb total", total_started);
+        result
     }
 
     /// #31: options-aware override. Opens the stage, applies variant
@@ -692,8 +713,15 @@ impl UsdGeometryBackend for OpenusdCppBackend {
         path: &StdPath,
         options: &ExtractGeometryOptions,
     ) -> Result<Vec<u8>, UsdError> {
+        let total_started = Instant::now();
+        let open_started = Instant::now();
         let stage = Self::open(path, options.policy)?;
-        extract_from_stage_with_options(&stage, path, options)
+        log_usd_timing("stage open", open_started);
+        let extract_started = Instant::now();
+        let result = extract_from_stage_with_options(&stage, path, options);
+        log_usd_timing("extract from open stage", extract_started);
+        log_usd_timing("extract_geometry_glb_with_options total", total_started);
+        result
     }
 }
 
@@ -825,6 +853,7 @@ fn extract_from_stage_with_options(
     path: &StdPath,
     options: &ExtractGeometryOptions,
 ) -> Result<Vec<u8>, UsdError> {
+    let setup_started = Instant::now();
     // #44: when the caller provides variant selections (e.g. the session
     // path also routes through here after a payload toggle), push them to
     // the stage's session layer before traversal so the GLB reflects the
@@ -851,7 +880,9 @@ fn extract_from_stage_with_options(
         Some(UpAxis::Z) => Some(z_up_to_y_up_mat4()),
         _ => None,
     };
+    log_usd_timing("extract setup", setup_started);
 
+    let collect_meshes_started = Instant::now();
     // Pass 1: collect every Mesh prim. We use two sub-passes:
     //   a) `prim_is_renderable_mesh` — already handles active /
     //      visibility / purpose={default,render} via UsdGeomImageable.
@@ -947,6 +978,7 @@ fn extract_from_stage_with_options(
     } else {
         false
     };
+    log_usd_timing("collect mesh candidates", collect_meshes_started);
 
     let mesh_candidates_are_deferred = !mesh_paths.is_empty()
         && mesh_paths.iter().all(|value| {
@@ -1003,6 +1035,7 @@ fn extract_from_stage_with_options(
     // rest transforms so the skeleton hierarchy ends up in the
     // same Y-up space the mesh node matrices target.
     let up_correction_f32: Option<[f32; 16]> = up_axis_correction.as_ref().map(mat4_f64_to_f32);
+    let skin_started = Instant::now();
     let mut skins: Vec<glb::SkinInput> = Vec::new();
     let mut skin_slots: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut animations: Vec<glb::AnimationInput> = Vec::new();
@@ -1036,7 +1069,9 @@ fn extract_from_stage_with_options(
         };
         mesh_skin_slots[i] = Some(slot);
     }
+    log_usd_timing("resolve skins and animations", skin_started);
 
+    let mesh_extract_started = Instant::now();
     let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
     // Phase 2.O: parallel tracking for the blend-shape weight-
     // animation attach pass that runs after every MeshInput has
@@ -1260,6 +1295,7 @@ fn extract_from_stage_with_options(
             }
         }
     }
+    log_usd_timing("extract regular meshes", mesh_extract_started);
 
     // `inputs` may be empty here for a PointInstancer-only stage;
     // prototype meshes are added in the #41 pass below. We defer the
@@ -1369,6 +1405,7 @@ fn extract_from_stage_with_options(
     // the EXT_mesh_gpu_instancing node carries the prototype mesh index.
     let mut instancing_inputs: Vec<InstancingInput> = Vec::new();
     {
+        let instancing_started = Instant::now();
         // #41: mirror the defaultPrim filter the regular mesh pass
         // applies above so PointInstancer prims that leak from
         // referenced / payloaded layer roots don't end up emitting
@@ -1665,6 +1702,7 @@ fn extract_from_stage_with_options(
                 }
             }
         }
+        log_usd_timing("extract point instancers", instancing_started);
     }
 
     // After the PointInstancer pass, allow a valid empty GLB scene. This
@@ -1694,6 +1732,7 @@ fn extract_from_stage_with_options(
     // materials authored in a referenced layer resolve relative to
     // that layer.
     let mut search_dirs: Vec<std::path::PathBuf> = Vec::new();
+    let texture_started = Instant::now();
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             search_dirs.push(parent.to_path_buf());
@@ -1801,10 +1840,12 @@ fn extract_from_stage_with_options(
             }
         }
     }
+    log_usd_timing("resolve textures", texture_started);
 
     // Phase 2.H: resolve UsdLux lights and UsdGeomCamera cameras
     // alongside meshes. Same up-axis baking applies so glTF node
     // matrices stay self-describing.
+    let scene_metadata_started = Instant::now();
     let lights = resolve_lights_cpp(&stage, up_axis_correction.as_ref())?;
     let cameras = resolve_cameras_cpp(&stage, up_axis_correction.as_ref())?;
 
@@ -1821,8 +1862,10 @@ fn extract_from_stage_with_options(
         &skin_slots,
         &instancing_inputs,
     )?;
+    log_usd_timing("resolve lights cameras node tree", scene_metadata_started);
     let up_correction_f32 = up_axis_correction.as_ref().map(mat4_f64_to_f32);
-    glb::build_glb(
+    let glb_started = Instant::now();
+    let glb = glb::build_glb(
         &node_tree,
         &inputs,
         &materials,
@@ -1834,7 +1877,9 @@ fn extract_from_stage_with_options(
         up_correction_f32,
         &instancing_inputs,
     )
-    .map_err(|e| UsdError::Parse(e.to_string()))
+    .map_err(|e| UsdError::Parse(e.to_string()))?;
+    log_usd_timing("serialize glb", glb_started);
+    Ok(glb)
 }
 
 fn invalid_variant_selection(selection: &VariantSelection) -> UsdError {
