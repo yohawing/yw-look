@@ -25,8 +25,12 @@ reports.
    To run only Pixar Kitchen Set:
 
    ```bash
-   npm run bench:load -- --case pixar-kitchen-set
+   npm run bench:load -- --case pixar-kitchen-set --visible
    ```
+
+   `--visible` keeps the Tauri WebView on-screen. Use it on macOS when
+   checking frame or screenshot metrics; an off-screen WebView can throttle
+   `requestAnimationFrame`.
 
 3. Create or update the local baseline from the latest report:
 

@@ -295,6 +295,7 @@ struct BenchCliConfig {
     repo_root: PathBuf,
     out_dir: PathBuf,
     case_ids: Vec<String>,
+    visible: bool,
     node_version: Option<String>,
 }
 
@@ -447,6 +448,7 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
     let mut bench_repo_root: Option<PathBuf> = None;
     let mut out_dir: Option<PathBuf> = None;
     let mut case_ids: Vec<String> = Vec::new();
+    let mut visible = false;
     let mut node_version: Option<String> = None;
     let mut index = 0;
 
@@ -484,6 +486,9 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
                     .ok_or_else(|| "--bench-case requires an id".to_string())?;
                 case_ids.push(value.clone());
             }
+            "--bench-visible" => {
+                visible = true;
+            }
             _ => {}
         }
         index += 1;
@@ -507,6 +512,7 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
         repo_root: bench_repo_root,
         out_dir,
         case_ids,
+        visible,
         node_version,
     }))
 }
@@ -1648,6 +1654,30 @@ fn read_limited_file(path: &Path, max_bytes: u64, label: &str) -> Result<Vec<u8>
     fs::read(path).map_err(|error| format!("failed to read {label}: {error}"))
 }
 
+fn fast_usd_requires_glb_preview(path: &Path) -> Option<bool> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if matches!(extension.as_str(), "usd" | "usdc") {
+        return Some(true);
+    }
+    if extension != "usda" {
+        return None;
+    }
+
+    let bytes = fs::read(path).ok()?;
+    if bytes.starts_with(b"PXR-USDC") {
+        return Some(true);
+    }
+    let source = std::str::from_utf8(&bytes).ok()?;
+    Some(
+        source.contains("subLayers") || source.contains("references") || source.contains("payload"),
+    )
+}
+
 fn format_byte_limit(bytes: u64) -> String {
     if bytes >= 1024 * 1024 {
         format!("{} MiB", bytes / 1024 / 1024)
@@ -1956,6 +1986,20 @@ fn write_bench_report(
 }
 
 #[tauri::command]
+fn write_bench_status(
+    config: tauri::State<'_, Option<BenchCliConfig>>,
+    status_json: String,
+) -> Result<(), String> {
+    let Some(config) = config.as_ref() else {
+        return Err("bench mode is not enabled".to_string());
+    };
+    let out_dir = normalize_bench_out_dir(&config.out_dir, &config.repo_root)?;
+    fs::write(out_dir.join("status.json"), status_json)
+        .map_err(|error| format!("failed to write status.json: {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 fn write_bench_screenshot(
     config: tauri::State<'_, Option<BenchCliConfig>>,
     file_name: String,
@@ -2192,6 +2236,9 @@ async fn requires_glb_preview(
     path: String,
 ) -> Result<bool, String> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
+    if let Some(decision) = fast_usd_requires_glb_preview(&normalized) {
+        return Ok(decision);
+    }
     let handle = backend.inspect();
     run_blocking_usd(move || handle.requires_glb_preview(&normalized)).await
 }
@@ -2524,7 +2571,11 @@ pub fn run() {
                 ))
             })?;
 
-            if is_cli {
+            let keep_window_visible = bench_cli_config
+                .as_ref()
+                .is_some_and(|config| config.visible);
+
+            if is_cli && !keep_window_visible {
                 window
                     .set_position(tauri::Position::Physical(tauri::PhysicalPosition {
                         x: -20000,
@@ -2567,6 +2618,7 @@ pub fn run() {
             load_process_memory_metrics,
             get_bench_config,
             write_bench_report,
+            write_bench_status,
             write_bench_screenshot,
             finish_bench_run,
             get_shot_config,

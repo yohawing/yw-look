@@ -2067,6 +2067,7 @@ async function loadPreviewObjectCore(
           );
         } else {
           reportStage("decode");
+          await yieldToPaint();
           // #31: pass variant selections through to the Tauri backend so
           // the C++ shim can apply them on the session layer before
           // geometry extraction. The options object is only constructed

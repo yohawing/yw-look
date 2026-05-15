@@ -295,6 +295,7 @@ export async function runBenchCase(
   let activeStageStartedAt = 0;
 
   const recordStage = (stage: BenchStageId) => {
+    log(`stage ${model.id}: ${stage}`);
     const now = performance.now();
     if (activeStage !== null) {
       stageTimeMs[activeStage] =
@@ -509,6 +510,12 @@ export async function writeBenchReport(report: BenchReport) {
   await invoke("write_bench_report", {
     reportJson: JSON.stringify(report, null, 2),
     reportMarkdown: renderReportMarkdown(report),
+  });
+}
+
+export async function writeBenchStatus(status: unknown) {
+  await invoke("write_bench_status", {
+    statusJson: JSON.stringify(status, null, 2),
   });
 }
 

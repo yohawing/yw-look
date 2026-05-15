@@ -6,6 +6,7 @@ import {
   loadBenchManifest,
   runBenchCase,
   writeBenchReport,
+  writeBenchStatus,
 } from "./benchRuntime";
 
 type BenchStatus = {
@@ -25,6 +26,18 @@ export function BenchRunner() {
 
   useEffect(() => {
     let cancelled = false;
+
+    const publishStatus = async (nextStatus: BenchStatus) => {
+      setStatus(nextStatus);
+      try {
+        await writeBenchStatus({
+          ...nextStatus,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch {
+        // Keep the benchmark running even if status diagnostics fail.
+      }
+    };
 
     const run = async () => {
       try {
@@ -52,7 +65,7 @@ export function BenchRunner() {
           if (cancelled) {
             return;
           }
-          setStatus({
+          await publishStatus({
             state: "running",
             message: `Running ${model.id}`,
             completed: results.length,
@@ -60,7 +73,7 @@ export function BenchRunner() {
           });
           results.push(
             await runBenchCase(model, (message) => {
-              setStatus({
+              void publishStatus({
                 state: "running",
                 message,
                 completed: results.length,
@@ -72,7 +85,7 @@ export function BenchRunner() {
 
         const report = buildReport(config, results);
         await writeBenchReport(report);
-        setStatus({
+        await publishStatus({
           state: report.summary.failed > 0 ? "failed" : "done",
           message: `Completed with ${report.summary.failed} failed case(s)`,
           completed: results.length,
@@ -81,7 +94,7 @@ export function BenchRunner() {
         await finishBenchRun(report.summary.failed > 0 ? 1 : 0);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        setStatus({
+        await publishStatus({
           state: "failed",
           message,
           completed: 0,

@@ -495,7 +495,44 @@ export async function collectAssetIssues(path: string) {
  * `layer_count` / skipped payloads, so this is cheap enough to call
  * eagerly during the load pipeline.
  */
+function extensionFromPath(path: string) {
+  return path.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() ?? "";
+}
+
+async function fastTextUsdRequiresGlbPreview(path: string) {
+  const extension = extensionFromPath(path);
+  if (extension === "usdc") {
+    return true;
+  }
+  if (extension === "usd") {
+    return true;
+  }
+  if (extension !== "usda") {
+    return null;
+  }
+
+  try {
+    const bytes = await readBinaryFile(path);
+    const buffer = Uint8Array.from(bytes);
+    if (new TextDecoder().decode(buffer.slice(0, 8)) === "PXR-USDC") {
+      return true;
+    }
+    const source = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    return (
+      source.includes("subLayers") ||
+      source.includes("references") ||
+      source.includes("payload")
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function requiresGlbPreview(path: string) {
+  const fastDecision = await fastTextUsdRequiresGlbPreview(path);
+  if (fastDecision !== null) {
+    return fastDecision;
+  }
   return invoke<boolean>("requires_glb_preview", { path });
 }
 

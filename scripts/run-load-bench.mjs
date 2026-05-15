@@ -10,7 +10,9 @@ const repoRoot = path.resolve(
 const modelsPath = path.join(repoRoot, "samples", "private", "models.json");
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outDir = path.join(repoRoot, "artifacts", "bench", stamp);
+const cliArgs = process.argv.slice(2);
 const benchCaseIds = readRepeatedOption("--case");
+const visible = cliArgs.includes("--visible");
 
 await mkdir(outDir, { recursive: true });
 
@@ -33,10 +35,16 @@ const args = [
 for (const id of benchCaseIds) {
   args.push("--bench-case", id);
 }
+if (visible) {
+  args.push("--bench-visible");
+}
 
 console.log(`[bench] output: ${outDir}`);
 if (benchCaseIds.length > 0) {
   console.log(`[bench] cases: ${benchCaseIds.join(", ")}`);
+}
+if (visible) {
+  console.log("[bench] visible window enabled");
 }
 
 const child = spawn("npx", args, {
@@ -60,7 +68,6 @@ child.on("error", (error) => {
 
 function readRepeatedOption(name) {
   const values = [];
-  const cliArgs = process.argv.slice(2);
   for (let index = 0; index < cliArgs.length; index += 1) {
     if (cliArgs[index] !== name) continue;
     const value = cliArgs[index + 1];
