@@ -101,6 +101,7 @@ function buildBaseline(report) {
         resolveFileMs: benchCase.resolveFileMs ?? null,
         listSiblingsMs: benchCase.listSiblingsMs ?? null,
         loadTimeMs: benchCase.loadTimeMs,
+        stageTimeMs: benchCase.stageTimeMs ?? {},
         frameTimeP95Ms: benchCase.frameTimeMs?.p95 ?? null,
         rendererMemory: benchCase.rendererInfo?.memory ?? null,
         renderCalls: benchCase.rendererInfo?.render?.calls ?? null,

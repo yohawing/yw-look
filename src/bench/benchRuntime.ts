@@ -32,6 +32,8 @@ import type {
   BenchManifest,
   BenchModel,
   BenchReport,
+  BenchStageId,
+  BenchStageMetrics,
   RendererMemoryMetrics,
   RendererRenderMetrics,
 } from "./benchTypes";
@@ -147,6 +149,15 @@ function roundMetric(value: number | null) {
   return value === null || !Number.isFinite(value)
     ? null
     : Math.round(value * 100) / 100;
+}
+
+function roundStageMetrics(metrics: BenchStageMetrics) {
+  return Object.fromEntries(
+    Object.entries(metrics).map(([stage, value]) => [
+      stage,
+      roundMetric(value),
+    ]),
+  ) as BenchStageMetrics;
 }
 
 async function measureAsync<T>(operation: () => Promise<T>) {
@@ -279,6 +290,30 @@ export async function runBenchCase(
 
   let object: Group | Mesh | null = null;
   let cleanupUrls: string[] = [];
+  const stageTimeMs: BenchStageMetrics = {};
+  let activeStage: BenchStageId | null = null;
+  let activeStageStartedAt = 0;
+
+  const recordStage = (stage: BenchStageId) => {
+    const now = performance.now();
+    if (activeStage !== null) {
+      stageTimeMs[activeStage] =
+        (stageTimeMs[activeStage] ?? 0) + now - activeStageStartedAt;
+    }
+    activeStage = stage;
+    activeStageStartedAt = now;
+  };
+
+  const finishActiveStage = () => {
+    if (activeStage === null) {
+      return;
+    }
+    stageTimeMs[activeStage] =
+      (stageTimeMs[activeStage] ?? 0) +
+      performance.now() -
+      activeStageStartedAt;
+    activeStage = null;
+  };
 
   const baseResult: BenchCaseResult = {
     id: model.id,
@@ -297,6 +332,7 @@ export async function runBenchCase(
     resolveFileMs: null,
     listSiblingsMs: null,
     loadTimeMs: null,
+    stageTimeMs: {},
     fps: null,
     frameTimeMs: { avg: null, p50: null, p95: null },
     rendererInfo: null,
@@ -326,10 +362,11 @@ export async function runBenchCase(
     const selected = selectedFileFromModel(model, resolved.value);
     const loadStarted = performance.now();
     const preview = await withTimeout(
-      loadPreviewObject(selected, renderer),
+      loadPreviewObject(selected, renderer, { onStage: recordStage }),
       model.bench.timeoutMs,
       model.id,
     );
+    finishActiveStage();
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
     baseResult.loadTimeMs = roundMetric(performance.now() - loadStarted);
@@ -388,6 +425,8 @@ export async function runBenchCase(
     renderer.dispose();
     host.remove();
     console.error = originalConsoleError;
+    finishActiveStage();
+    baseResult.stageTimeMs = roundStageMetrics(stageTimeMs);
   }
 
   return baseResult;
@@ -414,6 +453,7 @@ export function buildReport(config: BenchConfig, cases: BenchCaseResult[]) {
     modelsPath: config.modelsPath,
     repoRoot: config.repoRoot,
     outDir: config.outDir,
+    caseIds: config.caseIds,
     summary: {
       total: cases.length,
       loaded: cases.filter((result) => result.loaded).length,
@@ -434,8 +474,8 @@ export function renderReportMarkdown(report: BenchReport) {
     `- Platform: ${report.os}/${report.arch}`,
     `- Node: ${report.nodeVersion ?? "unknown"}`,
     "",
-    "| Case | Loaded | Non-blank | Console errors | Meshes | Open ms | Resolve ms | Siblings ms | Preview load ms | FPS | p50 ms | p95 ms | Error |",
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+    "| Case | Loaded | Non-blank | Console errors | Meshes | Open ms | Resolve ms | Siblings ms | Preview load ms | USD resolve ms | USD decode ms | WebView/GPU ms | Scene ms | FPS | p50 ms | p95 ms | Error |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
   ];
 
   for (const result of report.cases) {
@@ -450,6 +490,10 @@ export function renderReportMarkdown(report: BenchReport) {
         result.resolveFileMs ?? "",
         result.listSiblingsMs ?? "",
         result.loadTimeMs ?? "",
+        result.stageTimeMs.resolve ?? "",
+        result.stageTimeMs.decode ?? "",
+        result.stageTimeMs.gpu ?? "",
+        result.stageTimeMs.scene ?? "",
         result.fps ?? "",
         result.frameTimeMs.p50 ?? "",
         result.frameTimeMs.p95 ?? "",

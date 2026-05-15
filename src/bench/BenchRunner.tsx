@@ -34,9 +34,21 @@ export function BenchRunner() {
         }
 
         const manifest = await loadBenchManifest(config.modelsPath);
+        const models =
+          config.caseIds.length === 0
+            ? manifest.models
+            : manifest.models.filter((model) =>
+                config.caseIds.includes(model.id),
+              );
+        const missingIds = config.caseIds.filter(
+          (id) => !manifest.models.some((model) => model.id === id),
+        );
+        if (missingIds.length > 0) {
+          throw new Error(`bench case not found: ${missingIds.join(", ")}`);
+        }
         const results = [];
 
-        for (const model of manifest.models) {
+        for (const model of models) {
           if (cancelled) {
             return;
           }
@@ -44,7 +56,7 @@ export function BenchRunner() {
             state: "running",
             message: `Running ${model.id}`,
             completed: results.length,
-            total: manifest.models.length,
+            total: models.length,
           });
           results.push(
             await runBenchCase(model, (message) => {
@@ -52,7 +64,7 @@ export function BenchRunner() {
                 state: "running",
                 message,
                 completed: results.length,
-                total: manifest.models.length,
+                total: models.length,
               });
             }),
           );
@@ -64,7 +76,7 @@ export function BenchRunner() {
           state: report.summary.failed > 0 ? "failed" : "done",
           message: `Completed with ${report.summary.failed} failed case(s)`,
           completed: results.length,
-          total: manifest.models.length,
+          total: models.length,
         });
         await finishBenchRun(report.summary.failed > 0 ? 1 : 0);
       } catch (error) {

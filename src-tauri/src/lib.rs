@@ -281,6 +281,7 @@ struct BenchConfigPayload {
     models_path: String,
     repo_root: String,
     out_dir: String,
+    case_ids: Vec<String>,
     mode: String,
     app_version: String,
     os: String,
@@ -293,6 +294,7 @@ struct BenchCliConfig {
     models_path: PathBuf,
     repo_root: PathBuf,
     out_dir: PathBuf,
+    case_ids: Vec<String>,
     node_version: Option<String>,
 }
 
@@ -444,6 +446,7 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
     let mut models_path: Option<PathBuf> = None;
     let mut bench_repo_root: Option<PathBuf> = None;
     let mut out_dir: Option<PathBuf> = None;
+    let mut case_ids: Vec<String> = Vec::new();
     let mut node_version: Option<String> = None;
     let mut index = 0;
 
@@ -474,6 +477,13 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
                 index += 1;
                 node_version = args.get(index).cloned();
             }
+            "--bench-case" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--bench-case requires an id".to_string())?;
+                case_ids.push(value.clone());
+            }
             _ => {}
         }
         index += 1;
@@ -496,6 +506,7 @@ fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
         models_path,
         repo_root: bench_repo_root,
         out_dir,
+        case_ids,
         node_version,
     }))
 }
@@ -1914,6 +1925,7 @@ fn get_bench_config(
         models_path: config.models_path.display().to_string(),
         repo_root: config.repo_root.display().to_string(),
         out_dir: config.out_dir.display().to_string(),
+        case_ids: config.case_ids.clone(),
         mode: if cfg!(debug_assertions) {
             "dev".to_string()
         } else {

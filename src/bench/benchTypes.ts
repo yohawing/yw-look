@@ -37,6 +37,7 @@ export type BenchConfig = {
   modelsPath: string;
   repoRoot: string;
   outDir: string;
+  caseIds: string[];
   mode: "dev" | "release";
   appVersion: string;
   os: string;
@@ -56,6 +57,16 @@ export type RendererRenderMetrics = {
   lines: number;
 };
 
+export type BenchStageId =
+  | "scan"
+  | "resolve"
+  | "decode"
+  | "gpu"
+  | "scene"
+  | "ui";
+
+export type BenchStageMetrics = Partial<Record<BenchStageId, number>>;
+
 export type BenchCaseResult = {
   id: string;
   name: string;
@@ -73,6 +84,7 @@ export type BenchCaseResult = {
   resolveFileMs: number | null;
   listSiblingsMs: number | null;
   loadTimeMs: number | null;
+  stageTimeMs: BenchStageMetrics;
   fps: number | null;
   frameTimeMs: {
     avg: number | null;
@@ -99,6 +111,7 @@ export type BenchReport = {
   modelsPath: string;
   repoRoot: string;
   outDir: string;
+  caseIds: string[];
   summary: {
     total: number;
     loaded: number;

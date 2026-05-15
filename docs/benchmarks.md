@@ -22,6 +22,12 @@ reports.
    npm run bench:load
    ```
 
+   To run only Pixar Kitchen Set:
+
+   ```bash
+   npm run bench:load -- --case pixar-kitchen-set
+   ```
+
 3. Create or update the local baseline from the latest report:
 
    ```bash
@@ -53,6 +59,10 @@ The comparison checks the fixed report schema from `src/bench/benchTypes.ts`:
 - `resolveFileMs`
 - `listSiblingsMs`
 - `loadTimeMs`
+- `stageTimeMs.resolve` (USD backend preview decision / dependency scan)
+- `stageTimeMs.decode` (USD GLB extraction for composed stages)
+- `stageTimeMs.gpu` (WebView-side GLTF parse / upload stage)
+- `stageTimeMs.scene`
 - `frameTimeMs.p95`
 
 The default thresholds are intentionally loose enough for local machine noise:
