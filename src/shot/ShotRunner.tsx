@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   finishShotRun,
-  loadShotConfig,
+  loadShotBatchConfig,
   runShot,
   type ShotConfig,
   type ShotOutcome,
@@ -27,39 +27,59 @@ export function ShotRunner() {
 
     const run = async () => {
       try {
-        const config = await loadShotConfig();
-        if (!config) {
+        const configs = await loadShotBatchConfig();
+        if (configs.length === 0) {
           throw new Error("shot mode is not enabled");
         }
-        if (cancelled) {
-          return;
-        }
-        setStatus({
-          state: "running",
-          message: `Rendering ${config.fileName}`,
-          config,
-          outcome: null,
-        });
 
-        const outcome = await runShot(config);
-        if (cancelled) {
-          return;
-        }
+        let failed = false;
+        let lastConfig: ShotConfig | null = null;
+        let lastOutcome: ShotOutcome | null = null;
 
-        const failed =
-          outcome.error !== null ||
-          !outcome.loaded ||
-          (config.mode === "shot" && !outcome.nonBlankCanvas);
+        for (const [index, config] of configs.entries()) {
+          if (cancelled) {
+            return;
+          }
+          setStatus({
+            state: "running",
+            message: `Rendering ${index + 1}/${configs.length}: ${config.fileName}`,
+            config,
+            outcome: null,
+          });
+
+          const outcome = await runShot(config);
+          if (cancelled) {
+            return;
+          }
+
+          const caseFailed =
+            outcome.error !== null ||
+            !outcome.loaded ||
+            (config.mode === "shot" && !outcome.nonBlankCanvas);
+
+          failed ||= caseFailed;
+          lastConfig = config;
+          lastOutcome = outcome;
+
+          setStatus({
+            state: caseFailed ? "failed" : "running",
+            message:
+              outcome.error ??
+              (config.mode === "shot"
+                ? `Wrote ${outcome.outputPath}`
+                : `Loaded ${outcome.meshCount} mesh(es) in ${outcome.loadTimeMs}ms`),
+            config,
+            outcome,
+          });
+        }
 
         setStatus({
           state: failed ? "failed" : "done",
-          message:
-            outcome.error ??
-            (config.mode === "shot"
-              ? `Wrote ${outcome.outputPath}`
-              : `Loaded ${outcome.meshCount} mesh(es) in ${outcome.loadTimeMs}ms`),
-          config,
-          outcome,
+          message: failed
+            ? "One or more shot cases failed."
+            : `Rendered ${configs.length} shot case(s).`,
+          config: lastConfig,
+          outcome: lastOutcome,
         });
         await finishShotRun(failed ? 1 : 0);
       } catch (error) {

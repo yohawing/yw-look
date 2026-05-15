@@ -30,6 +30,7 @@ import {
 export type ShotMode = "shot" | "check";
 
 export type ShotConfig = {
+  caseIndex: number;
   mode: ShotMode;
   inputPath: string;
   fileName: string;
@@ -55,17 +56,27 @@ export async function loadShotConfig() {
   return invoke<ShotConfig | null>("get_shot_config");
 }
 
+export async function loadShotBatchConfig() {
+  return invoke<ShotConfig[]>("get_shot_batch_config");
+}
+
 export async function finishShotRun(exitCode: number) {
   await invoke("finish_shot_run", { exitCode });
 }
 
-async function writeShotOutput(dataUrl: string) {
+export async function writeShotOutput(dataUrl: string, caseIndex?: number) {
   const comma = dataUrl.indexOf(",");
   const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
+  }
+  if (caseIndex !== undefined) {
+    return invoke<string>("write_shot_batch_output", {
+      caseIndex,
+      pngBytes: Array.from(bytes),
+    });
   }
   return invoke<string>("write_shot_output", {
     pngBytes: Array.from(bytes),
@@ -214,7 +225,13 @@ async function settleFrames(
   }
 }
 
-export async function runShot(config: ShotConfig): Promise<ShotOutcome> {
+export async function runShot(
+  config: ShotConfig,
+  writeOutput: (
+    dataUrl: string,
+    caseIndex: number,
+  ) => Promise<string> = writeShotOutput,
+): Promise<ShotOutcome> {
   const renderer = createRenderer(
     config.width,
     config.height,
@@ -271,7 +288,10 @@ export async function runShot(config: ShotConfig): Promise<ShotOutcome> {
       const screenshot = await captureRendererScreenshot(renderer, {
         beforeCapture: () => renderer.render(scene, camera),
       });
-      outcome.outputPath = await writeShotOutput(screenshot.dataUrl);
+      outcome.outputPath = await writeOutput(
+        screenshot.dataUrl,
+        config.caseIndex,
+      );
     }
   } catch (error) {
     outcome.error = error instanceof Error ? error.message : String(error);

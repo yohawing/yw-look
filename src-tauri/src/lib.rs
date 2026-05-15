@@ -304,7 +304,7 @@ enum ShotMode {
 }
 
 #[derive(Debug, Clone)]
-struct ShotCliConfig {
+struct ShotCliCase {
     mode: ShotMode,
     input_path: PathBuf,
     output_path: Option<PathBuf>,
@@ -313,9 +313,15 @@ struct ShotCliConfig {
     background: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct ShotCliConfig {
+    cases: Vec<ShotCliCase>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ShotConfigPayload {
+    case_index: usize,
     mode: ShotMode,
     input_path: String,
     file_name: String,
@@ -323,6 +329,41 @@ struct ShotConfigPayload {
     width: u32,
     height: u32,
     background: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShotBatchCaseArgument {
+    input_path: PathBuf,
+    output_path: PathBuf,
+    width: u32,
+    height: u32,
+    background: Option<String>,
+}
+
+fn to_shot_config_payload(case_index: usize, config: &ShotCliCase) -> ShotConfigPayload {
+    let file_name = config
+        .input_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let extension = config
+        .input_path
+        .extension()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    ShotConfigPayload {
+        case_index,
+        mode: config.mode,
+        input_path: config.input_path.display().to_string(),
+        file_name,
+        extension,
+        width: config.width,
+        height: config.height,
+        background: config.background.clone(),
+    }
 }
 
 fn repo_root() -> Result<PathBuf, String> {
@@ -517,10 +558,66 @@ fn resolve_shot_output(path: &Path) -> Result<PathBuf, String> {
 
 fn parse_shot_cli_config() -> Result<Option<ShotCliConfig>, String> {
     let args: Vec<String> = env::args().collect();
+    let shot_batch_index = args.iter().position(|arg| arg == "--shot-batch");
+    let shot_batch_file_index = args.iter().position(|arg| arg == "--shot-batch-file");
     let shot_flag = args.iter().any(|arg| arg == "--shot");
     let check_flag = args.iter().any(|arg| arg == "--check");
-    if !shot_flag && !check_flag {
+    if shot_batch_index.is_none() && shot_batch_file_index.is_none() && !shot_flag && !check_flag {
         return Ok(None);
+    }
+    if shot_batch_index.is_some() && shot_batch_file_index.is_some() {
+        return Err("--shot-batch and --shot-batch-file are mutually exclusive".to_string());
+    }
+    if (shot_batch_index.is_some() || shot_batch_file_index.is_some()) && (shot_flag || check_flag)
+    {
+        return Err("--shot-batch cannot be combined with --shot or --check".to_string());
+    }
+    if let Some(index) = shot_batch_index.or(shot_batch_file_index) {
+        let raw_value = args.get(index + 1).ok_or_else(|| {
+            if shot_batch_index.is_some() {
+                "--shot-batch requires a JSON array".to_string()
+            } else {
+                "--shot-batch-file requires a JSON file path".to_string()
+            }
+        })?;
+        let value = if shot_batch_file_index.is_some() {
+            fs::read_to_string(raw_value).map_err(|error| {
+                format!("failed to read --shot-batch-file '{}': {error}", raw_value)
+            })?
+        } else {
+            raw_value.clone()
+        };
+        let batch_cases = serde_json::from_str::<Vec<ShotBatchCaseArgument>>(&value)
+            .map_err(|error| format!("failed to parse --shot-batch JSON: {error}"))?;
+        if batch_cases.is_empty() {
+            return Err("--shot-batch requires at least one case".to_string());
+        }
+        let cases = batch_cases
+            .into_iter()
+            .map(|case| {
+                if case.width == 0 || case.height == 0 {
+                    return Err(format!(
+                        "--shot-batch width/height must be > 0, got {}x{}",
+                        case.width, case.height
+                    ));
+                }
+                if case.width > 8192 || case.height > 8192 {
+                    return Err(format!(
+                        "--shot-batch width/height capped at 8192, got {}x{}",
+                        case.width, case.height
+                    ));
+                }
+                Ok(ShotCliCase {
+                    mode: ShotMode::Shot,
+                    input_path: resolve_shot_input(&case.input_path)?,
+                    output_path: Some(resolve_shot_output(&case.output_path)?),
+                    width: case.width,
+                    height: case.height,
+                    background: case.background,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        return Ok(Some(ShotCliConfig { cases }));
     }
     if shot_flag && check_flag {
         return Err("--shot and --check are mutually exclusive".to_string());
@@ -595,12 +692,14 @@ fn parse_shot_cli_config() -> Result<Option<ShotCliConfig>, String> {
     let (width, height) = size.unwrap_or((1024, 768));
 
     Ok(Some(ShotCliConfig {
-        mode,
-        input_path,
-        output_path,
-        width,
-        height,
-        background,
+        cases: vec![ShotCliCase {
+            mode,
+            input_path,
+            output_path,
+            width,
+            height,
+            background,
+        }],
     }))
 }
 
@@ -1887,27 +1986,25 @@ fn get_shot_config(
     let Some(config) = config.as_ref() else {
         return Ok(None);
     };
-    let file_name = config
-        .input_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or_default()
-        .to_string();
-    let extension = config
-        .input_path
-        .extension()
-        .and_then(|n| n.to_str())
-        .unwrap_or_default()
-        .to_lowercase();
-    Ok(Some(ShotConfigPayload {
-        mode: config.mode,
-        input_path: config.input_path.display().to_string(),
-        file_name,
-        extension,
-        width: config.width,
-        height: config.height,
-        background: config.background.clone(),
-    }))
+    Ok(config
+        .cases
+        .first()
+        .map(|shot_case| to_shot_config_payload(0, shot_case)))
+}
+
+#[tauri::command]
+fn get_shot_batch_config(
+    config: tauri::State<'_, Option<ShotCliConfig>>,
+) -> Result<Vec<ShotConfigPayload>, String> {
+    let Some(config) = config.as_ref() else {
+        return Ok(Vec::new());
+    };
+    Ok(config
+        .cases
+        .iter()
+        .enumerate()
+        .map(|(case_index, shot_case)| to_shot_config_payload(case_index, shot_case))
+        .collect())
 }
 
 #[tauri::command]
@@ -1918,11 +2015,34 @@ fn write_shot_output(
     let Some(config) = config.as_ref() else {
         return Err("shot mode is not enabled".to_string());
     };
-    let Some(output_path) = config.output_path.as_ref() else {
+    let Some(shot_case) = config.cases.first() else {
+        return Err("shot mode has no configured cases".to_string());
+    };
+    let Some(output_path) = shot_case.output_path.as_ref() else {
         return Err("--out is not configured (check mode does not write images)".to_string());
     };
     fs::write(output_path, &png_bytes)
         .map_err(|error| format!("failed to write shot output: {error}"))?;
+    Ok(output_path.display().to_string())
+}
+
+#[tauri::command]
+fn write_shot_batch_output(
+    config: tauri::State<'_, Option<ShotCliConfig>>,
+    case_index: usize,
+    png_bytes: Vec<u8>,
+) -> Result<String, String> {
+    let Some(config) = config.as_ref() else {
+        return Err("shot batch mode is not enabled".to_string());
+    };
+    let Some(shot_case) = config.cases.get(case_index) else {
+        return Err(format!("shot batch case index out of range: {case_index}"));
+    };
+    let Some(output_path) = shot_case.output_path.as_ref() else {
+        return Err("shot batch case has no output path".to_string());
+    };
+    fs::write(output_path, &png_bytes)
+        .map_err(|error| format!("failed to write shot batch output: {error}"))?;
     Ok(output_path.display().to_string())
 }
 
@@ -2438,7 +2558,9 @@ pub fn run() {
             write_bench_screenshot,
             finish_bench_run,
             get_shot_config,
+            get_shot_batch_config,
             write_shot_output,
+            write_shot_batch_output,
             finish_shot_run,
             check_for_update,
             install_pending_update,

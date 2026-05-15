@@ -10,11 +10,13 @@ const repoRoot = path.resolve(
 
 const usage = `usage:
   npm run shot -- --in <model> --out <png> [--size WxH] [--bg color]
+  npm run shot:batch -- --config <json>
+  npm run shot:batch -- --config-file <path>
   npm run check -- --in <model>
 
 Forwards extra args to the yw-look binary running with a local Vite dev server.
 The first positional argument is treated as the subcommand
-(\`shot\` or \`check\`); other tokens are forwarded verbatim.`;
+(\`shot\`, \`shot-batch\`, or \`check\`); other tokens are forwarded verbatim.`;
 
 const argv = process.argv.slice(2);
 if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
@@ -23,7 +25,11 @@ if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
 }
 
 const subcommand = argv[0];
-if (subcommand !== "shot" && subcommand !== "check") {
+if (
+  subcommand !== "shot" &&
+  subcommand !== "shot-batch" &&
+  subcommand !== "check"
+) {
   console.error(`unknown subcommand: ${subcommand}`);
   console.error(usage);
   process.exit(2);
@@ -42,7 +48,33 @@ if (process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES === "1") {
 if (cargoFeatures) {
   cargoArgs.push("--features", cargoFeatures);
 }
-cargoArgs.push("--", `--${subcommand}`, ...forwarded);
+if (subcommand === "shot-batch") {
+  const configIndex = forwarded.indexOf("--config");
+  const configFileIndex = forwarded.indexOf("--config-file");
+  if (configIndex !== -1 && configFileIndex !== -1) {
+    console.error(
+      "shot-batch accepts either --config or --config-file, not both",
+    );
+    console.error(usage);
+    process.exit(2);
+  }
+  const config = configIndex === -1 ? null : forwarded[configIndex + 1];
+  const configFile =
+    configFileIndex === -1 ? null : forwarded[configFileIndex + 1];
+  if (config && !config.startsWith("--")) {
+    cargoArgs.push("--", "--shot-batch", config);
+  } else if (configFile && !configFile.startsWith("--")) {
+    cargoArgs.push("--", "--shot-batch-file", configFile);
+  } else {
+    console.error(
+      "shot-batch requires --config <json> or --config-file <path>",
+    );
+    console.error(usage);
+    process.exit(2);
+  }
+} else {
+  cargoArgs.push("--", `--${subcommand}`, ...forwarded);
+}
 
 function probeUrl(url) {
   return new Promise((resolve) => {

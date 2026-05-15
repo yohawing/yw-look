@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
@@ -243,6 +243,17 @@ function flipReportPath(testCase) {
   );
 }
 
+function parseSize(size) {
+  const match = /^(\d+)x(\d+)$/.exec(size);
+  if (!match) {
+    throw new Error(`invalid viewport snapshot size: ${size}`);
+  }
+  return {
+    width: Number(match[1]),
+    height: Number(match[2]),
+  };
+}
+
 const FLIP_MEAN_THRESHOLD = Number(process.env.FLIP_MEAN_THRESHOLD ?? 0.05);
 const FLIP_MAX_THRESHOLD = Number(process.env.FLIP_MAX_THRESHOLD ?? 0.3);
 
@@ -321,6 +332,59 @@ function runShot(testCase) {
   });
 }
 
+async function runShotBatch(testCases) {
+  const batch = testCases.map((testCase) => {
+    const { width, height } = parseSize(testCase.size);
+    return {
+      inputPath: resolveRepoPath(testCase.input),
+      outputPath: resolveRepoPath(testCase.actual),
+      width,
+      height,
+      background: testCase.background,
+    };
+  });
+  const batchConfigPath = resolveRepoPath(
+    "artifacts/screenshots/viewport/shot-batch-config.json",
+  );
+  await mkdir(path.dirname(batchConfigPath), { recursive: true });
+  await writeFile(batchConfigPath, JSON.stringify(batch, null, 2));
+  const shotArgs = [
+    path.join(repoRoot, "scripts/run-shot.mjs"),
+    "shot-batch",
+    "--config-file",
+    batchConfigPath,
+  ];
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, shotArgs, {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+        YW_LOOK_CARGO_FEATURES:
+          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+      },
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    });
+
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        reject(new Error(`shot batch was terminated by ${signal}`));
+        return;
+      }
+      if (code !== 0) {
+        reject(new Error(`shot batch exited with code ${code ?? 1}`));
+        return;
+      }
+      resolve();
+    });
+
+    child.on("error", reject);
+  });
+}
+
 async function compareSnapshot(testCase) {
   const actualPath = resolveRepoPath(testCase.actual);
   const snapshotPath = resolveRepoPath(testCase.snapshot);
@@ -367,8 +431,32 @@ for (const testCase of selectedCases) {
       recursive: true,
     });
     await rm(resolveRepoPath(testCase.actual), { force: true });
-    console.log(`Rendering viewport snapshot: ${testCase.id}`);
-    await runShot(testCase);
+  } catch (error) {
+    failed = true;
+    console.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+if (!failed) {
+  try {
+    if (selectedCases.length === 1) {
+      console.log(`Rendering viewport snapshot: ${selectedCases[0].id}`);
+      await runShot(selectedCases[0]);
+    } else {
+      console.log(`Rendering ${selectedCases.length} viewport snapshots`);
+      await runShotBatch(selectedCases);
+    }
+  } catch (error) {
+    failed = true;
+    console.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+for (const testCase of selectedCases) {
+  try {
+    if (failed) {
+      continue;
+    }
     await compareSnapshot(testCase);
   } catch (error) {
     failed = true;

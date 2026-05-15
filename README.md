@@ -182,7 +182,11 @@ npm run test:integration -- "http://127.0.0.1:1420/?entry=selftest"
 npm run test:visual -- "http://127.0.0.1:1420/?entry=selftest"
 
 # viewport screenshot API 由来の PNG snapshot 比較
+# 複数ケースでは Tauri アプリを 1 回だけ開き、その中で連続撮影する
 npm run test:viewport-snapshot
+
+# 1 ケースだけ確認
+npm run test:viewport-snapshot -- --case glb-box-textured
 
 # viewport snapshot baseline 更新
 npm run test:viewport-snapshot:update

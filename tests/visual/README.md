@@ -5,7 +5,8 @@ compares it with `tests/visual/snapshots/selftest-page-linux-chromium.png`.
 
 `npm run test:viewport-snapshot` renders representative 3D viewport cases
 through the shot CLI and compares the generated PNGs with committed baselines in
-`tests/visual/snapshots/viewport/`.
+`tests/visual/snapshots/viewport/`. When multiple cases are selected, the shot
+CLI keeps one Tauri app instance open and captures every case in that batch.
 
 The viewport snapshot cases use small public samples from `samples/assets/` and
 write current renders to `artifacts/screenshots/viewport/`. On mismatch, keep
@@ -35,6 +36,20 @@ To fall back to exact PNG byte comparison, use `--strict`:
 
 ```bash
 npm run test:viewport-snapshot -- --strict
+```
+
+### Fast local loop
+
+Run the full viewport set without reopening the app for every model:
+
+```bash
+npm run test:viewport-snapshot
+```
+
+For a focused check, run one case:
+
+```bash
+npm run test:viewport-snapshot -- --case glb-box-textured
 ```
 
 ### Failure artifacts
