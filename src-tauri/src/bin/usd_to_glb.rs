@@ -16,15 +16,18 @@ use std::{path::PathBuf, process::ExitCode};
 use yw_look_lib::usd::{DefaultBackend, StageLoadPolicy, UsdGeometryBackend};
 
 fn main() -> ExitCode {
-    let mut args = std::env::args().skip(1);
-    let input = match args.next() {
-        Some(v) => v,
-        None => return usage(),
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let policy = if args.first().is_some_and(|arg| arg == "--no-payloads") {
+        args.remove(0);
+        StageLoadPolicy::NoPayloads
+    } else {
+        StageLoadPolicy::LoadAll
     };
-    let output = match args.next() {
-        Some(v) => v,
-        None => return usage(),
-    };
+    if args.len() != 2 {
+        return usage();
+    }
+    let input = &args[0];
+    let output = &args[1];
 
     let input_path = PathBuf::from(&input);
     if !input_path.exists() {
@@ -33,7 +36,7 @@ fn main() -> ExitCode {
     }
 
     let backend = DefaultBackend::new();
-    let bytes = match backend.extract_geometry_glb(&input_path, StageLoadPolicy::LoadAll) {
+    let bytes = match backend.extract_geometry_glb(&input_path, policy) {
         Ok(v) => v,
         Err(err) => {
             eprintln!("extract_geometry_glb failed: {err:?}");
@@ -51,6 +54,6 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> ExitCode {
-    eprintln!("usage: usd_to_glb <input.usd|usda|usdc|usdz> <output.glb>");
+    eprintln!("usage: usd_to_glb [--no-payloads] <input.usd|usda|usdc|usdz> <output.glb>");
     ExitCode::from(2)
 }

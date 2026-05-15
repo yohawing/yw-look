@@ -18,8 +18,11 @@
 #include "usd_c_shim.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <exception>
+#include <iostream>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -114,6 +117,20 @@ struct UsdcStage_s {
 };
 
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+bool usd_timing_enabled() {
+    return std::getenv("YW_LOOK_USD_TIMING") != nullptr;
+}
+
+void log_usd_timing(const char *label, Clock::time_point started) {
+    if (!usd_timing_enabled()) return;
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        Clock::now() - started);
+    std::cerr << "[usd-c-shim timing] " << label << ": "
+              << elapsed.count() << "ms" << std::endl;
+}
 
 /* Returns the directory containing the shim's own shared library, so
  * we can bootstrap OpenUSD's plugin registry against the `usd/`
@@ -269,20 +286,28 @@ extern "C" USDC_API UsdcStage *usdc_stage_open(const char *path,
         return nullptr;
     }
 
+    const auto total_start = Clock::now();
+    const auto register_start = Clock::now();
     register_plugins_once();
+    log_usd_timing("register_plugins_once", register_start);
 
     try {
         const auto load = (policy == USDC_LOAD_NO_PAYLOADS)
                               ? UsdStage::LoadNone
                               : UsdStage::LoadAll;
+        const auto open_start = Clock::now();
         UsdStageRefPtr stage = UsdStage::Open(path, load);
+        log_usd_timing("UsdStage::Open", open_start);
         if (!stage) {
             if (out_err) *out_err = make_err("UsdStage::Open returned null");
             return nullptr;
         }
+        const auto handle_start = Clock::now();
         auto *h = new UsdcStage_s();
         h->stage = stage;
         h->policy = policy;
+        log_usd_timing("stage handle create", handle_start);
+        log_usd_timing("usdc_stage_open total", total_start);
         return h;
     } catch (const std::exception &e) {
         if (out_err) *out_err = make_err(e.what());
