@@ -21,10 +21,6 @@ export type Build3DToolbarOptions = {
   showWireframe: boolean;
   onToggleWireframe: () => void;
 
-  // Motion
-  canLoadMmdMotion?: boolean;
-  onLoadMmdMotion?: () => void;
-
   // Look
   environmentPreset: string;
   environmentPresetOptions: Array<{ id: string; label: string }>;
@@ -281,24 +277,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       iconId: "wireframe",
       onRun: cycleWireframe,
       children,
-    });
-  }
-
-  // ── Look ────────────────────────────────────────────────
-  if (options.onLoadMmdMotion) {
-    groupSep("motion");
-    push({
-      id: "mmd-motion",
-      mode: "3d",
-      group: "motion",
-      kind: "button",
-      label: "Load VMD",
-      description: options.canLoadMmdMotion
-        ? "Load VMD motion"
-        : "Open an MMD model before loading VMD motion",
-      iconId: "motion",
-      disabled: !options.canLoadMmdMotion,
-      onRun: options.canLoadMmdMotion ? options.onLoadMmdMotion : undefined,
     });
   }
 

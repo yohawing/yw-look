@@ -19,10 +19,6 @@ export async function openFileDialog() {
   return invoke<SelectedFile | null>("open_file_dialog");
 }
 
-export async function openMotionFileDialog() {
-  return invoke<SelectedFile | null>("open_motion_file_dialog");
-}
-
 export async function resolveSelectedFile(path: string) {
   return invoke<SelectedFile>("resolve_selected_file", { path });
 }
@@ -64,7 +60,6 @@ export async function inspectAsset(path: string) {
 export type FormatSupport = {
   modelExtensions: string[];
   textureExtensions: string[];
-  motionExtensions: string[];
   previewImplemented: string[];
 };
 

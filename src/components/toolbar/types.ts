@@ -11,7 +11,6 @@ export type ToolbarActionGroup =
   | "color"
   | "inspect"
   | "look"
-  | "motion"
   | "overlay"
   | "shading"
   | "tiling"
