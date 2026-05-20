@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type AssetKind = "model" | "texture" | "unknown";
+export type AssetKind = "model" | "texture" | "motion" | "unknown";
 
 export type SelectedFile = {
   path: string;
@@ -17,6 +17,10 @@ export type DirectoryListing = {
 
 export async function openFileDialog() {
   return invoke<SelectedFile | null>("open_file_dialog");
+}
+
+export async function openMotionFileDialog() {
+  return invoke<SelectedFile | null>("open_motion_file_dialog");
 }
 
 export async function resolveSelectedFile(path: string) {
@@ -60,6 +64,7 @@ export async function inspectAsset(path: string) {
 export type FormatSupport = {
   modelExtensions: string[];
   textureExtensions: string[];
+  motionExtensions: string[];
   previewImplemented: string[];
 };
 

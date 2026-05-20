@@ -45,6 +45,7 @@ const MODEL_EXTENSIONS: &[&str] = &[
     "pmx", "pmd",
 ];
 const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
+const MOTION_EXTENSIONS: &[&str] = &["vmd"];
 const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "usd", "usda", "usdc", "usdz", "png", "jpg",
     "jpeg", "tga", "dds", "ktx2", "hdr", "exr", "pmx", "pmd",
@@ -1004,6 +1005,8 @@ fn infer_file_kind(extension: &str) -> String {
         "model".to_string()
     } else if TEXTURE_EXTENSIONS.contains(&extension) {
         "texture".to_string()
+    } else if MOTION_EXTENSIONS.contains(&extension) {
+        "motion".to_string()
     } else {
         "unknown".to_string()
     }
@@ -1107,6 +1110,39 @@ fn build_selected_file_payload(path: PathBuf) -> Result<SelectedFilePayload, Str
 
     if !is_supported_extension(&extension) {
         return Err(format!("unsupported file extension: {extension}"));
+    }
+
+    let file_name = normalized
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "failed to resolve file name".to_string())?
+        .to_string();
+
+    let parent_directory = normalized
+        .parent()
+        .map(|value| value.display().to_string())
+        .ok_or_else(|| "failed to resolve parent directory".to_string())?;
+
+    Ok(SelectedFilePayload {
+        path: normalized.display().to_string(),
+        file_name,
+        extension: extension.clone(),
+        kind: infer_file_kind(&extension),
+        parent_directory,
+    })
+}
+
+fn build_motion_file_payload(path: PathBuf) -> Result<SelectedFilePayload, String> {
+    let normalized = normalize_file_path(path)?;
+
+    let extension = normalized
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if !MOTION_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(format!("unsupported motion file extension: {extension}"));
     }
 
     let file_name = normalized
@@ -1432,6 +1468,7 @@ fn inspect_asset(path: String) -> Result<AssetInspection, String> {
 struct FormatSupportPayload {
     model_extensions: Vec<String>,
     texture_extensions: Vec<String>,
+    motion_extensions: Vec<String>,
     preview_implemented: Vec<String>,
 }
 
@@ -1440,6 +1477,7 @@ fn load_format_support() -> FormatSupportPayload {
     FormatSupportPayload {
         model_extensions: MODEL_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
         texture_extensions: TEXTURE_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
+        motion_extensions: MOTION_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
         preview_implemented: PREVIEW_IMPLEMENTED_EXTENSIONS
             .iter()
             .map(|e| e.to_string())
@@ -1496,6 +1534,16 @@ fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<SelectedFilePayload>
     }
 
     Ok(file)
+}
+
+#[tauri::command]
+fn open_motion_file_dialog() -> Result<Option<SelectedFilePayload>, String> {
+    FileDialog::new()
+        .set_title("Open MMD motion file")
+        .add_filter("MMD motion", &["vmd"])
+        .pick_file()
+        .map(build_motion_file_payload)
+        .transpose()
 }
 
 #[tauri::command]
@@ -2425,6 +2473,7 @@ pub fn run() {
             save_settings,
             load_update_configuration,
             open_file_dialog,
+            open_motion_file_dialog,
             resolve_selected_file,
             list_supported_siblings,
             read_binary_file,

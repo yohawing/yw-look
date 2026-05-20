@@ -31,11 +31,18 @@ import { MMD_EXAMPLE_LIGHTING_PRESET } from "./lighting";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
   DeferredTextureSnapshot,
+  LoadedMmdMotion,
   LoadedPreview,
   LoadingStageReporter,
   MissingReferenceError,
   TextureBundle,
 } from "./types";
+
+const MMD_FRAME_RATE = 30;
+const AMMO_SCRIPT_URL = new URL(
+  "../../node_modules/ammo.js/ammo.js",
+  import.meta.url,
+).href;
 
 async function readArrayBuffer(path: string) {
   const bytes = await readBinaryFile(path);
@@ -2423,6 +2430,38 @@ async function loadVrmPreviewObject(
   }
 }
 
+async function createMmdRuntimeOptions(context: LoaderContext) {
+  try {
+    const { createAmmoMmdPhysicsBackend, loadAmmoNamespace } =
+      await import("@yohawing/three-mmd-loader");
+    const ammo = await loadAmmoNamespace(AMMO_SCRIPT_URL);
+    const physicsBackend = createAmmoMmdPhysicsBackend(ammo);
+
+    return {
+      runtime: {
+        frameRate: MMD_FRAME_RATE,
+        physics: "external" as const,
+        physicsBackend,
+      },
+      cleanup: () => {
+        const maybeDisposable = physicsBackend as { dispose?: () => void };
+        maybeDisposable.dispose?.();
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    context.onWarning?.(
+      `MMD physics could not start with Ammo.js: ${message}. Motion playback will continue without physics.`,
+    );
+    return {
+      runtime: {
+        frameRate: MMD_FRAME_RATE,
+      },
+      cleanup: null,
+    };
+  }
+}
+
 async function loadMmdPreviewObject(
   file: SelectedFile,
   context: LoaderContext,
@@ -2440,8 +2479,10 @@ async function loadMmdPreviewObject(
         ? parsePmxMetadata(buffer)
         : parsePmdMetadata(buffer);
     const textureBlobCache = new Map<string, Promise<Blob | null>>();
+    const runtimeOptions = await createMmdRuntimeOptions(context);
     const loader = new ThreeMmdLoader({
       geometryAwareAlpha: true,
+      runtime: runtimeOptions.runtime,
       textureResolver: {
         async resolve(texturePath) {
           if (isRemoteOrInlineUrl(texturePath)) {
@@ -2514,15 +2555,39 @@ async function loadMmdPreviewObject(
 
     return {
       object,
+      cleanupCallbacks: runtimeOptions.cleanup ? [runtimeOptions.cleanup] : [],
       cleanupUrls: [],
       clips: [],
       formatVersion: `${metadata.format.toUpperCase()} ${metadata.header.version}`,
       lighting: MMD_EXAMPLE_LIGHTING_PRESET,
+      mmdModel: mmd,
       warnings,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Unable to load MMD preview: ${message}`, { cause: error });
+  }
+}
+
+export async function loadMmdMotion(
+  file: SelectedFile,
+): Promise<LoadedMmdMotion> {
+  try {
+    const { parseVmd } = await import("@yohawing/three-mmd-loader");
+    const buffer = await readArrayBuffer(file.path);
+    const animation = parseVmd(buffer);
+    const duration = Math.max(
+      (animation.metadata?.maxFrame ?? 0) / MMD_FRAME_RATE,
+      0,
+    );
+    return {
+      animation,
+      duration,
+      label: file.fileName,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to load MMD motion: ${message}`, { cause: error });
   }
 }
 

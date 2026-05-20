@@ -78,6 +78,7 @@ import {
   applyShadows,
   ensureShadowCatcher,
   loadPreviewObject,
+  loadMmdMotion,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
   cameraSelectionKey,
@@ -146,6 +147,23 @@ function updateRuntimePreview(
   if (isRuntimePreviewUpdater(updater)) {
     updater.update(deltaSeconds);
   }
+}
+
+function retargetMmdMotion(context: SceneContext, seconds: number) {
+  const model = context.mmdModel;
+  const motion = context.mmdMotion;
+  const runtime = model?.runtime;
+  if (!model || !motion || !runtime) {
+    return;
+  }
+
+  runtime.reset(0);
+  runtime.setAnimation(motion.animation, model.mesh);
+  runtime.tick(seconds, {
+    mesh: model.mesh,
+    ik: true,
+    physics: false,
+  });
 }
 
 function runCleanupCallbacks(callbacks: Array<() => void>) {
@@ -410,6 +428,10 @@ function isolateObject(root: Object3D, selected: Object3D) {
 
 type AssetViewportProps = {
   currentFile: SelectedFile | null;
+  mmdMotionRequest?: {
+    file: SelectedFile;
+    version: number;
+  } | null;
   displayMode: DisplayMode;
   backgroundPreset: BackgroundPreset;
   onFeedbackChange: (feedback: ViewerFeedback) => void;
@@ -741,6 +763,7 @@ function createEnvironmentTarget(
 
 export function AssetViewport({
   currentFile,
+  mmdMotionRequest,
   displayMode,
   backgroundPreset,
   onFeedbackChange,
@@ -1758,6 +1781,8 @@ export function AssetViewport({
       mixer: null,
       clips: [],
       activeAction: null,
+      mmdModel: null,
+      mmdMotion: null,
       textureRegistry: new Map<string, Texture>(),
       rawMaxDimension: 1,
     };
@@ -2023,6 +2048,7 @@ export function AssetViewport({
     runCleanupCallbacks(context.cleanupCallbacks);
     context.cleanupCallbacks = [];
     stopAnimations(context);
+    context.mmdModel = null;
     resetSceneObjects(context);
     revokeUrls(context.cleanupUrls);
     context.cleanupUrls = [];
@@ -2203,6 +2229,7 @@ export function AssetViewport({
           clips,
           formatVersion,
           lighting = DEFAULT_LIGHTING_PRESET,
+          mmdModel,
           warnings = [],
         }) => {
           if (disposed) {
@@ -2305,6 +2332,8 @@ export function AssetViewport({
           applyPurposeVisibility(object, purposeModesRef.current);
 
           context.clips = clips;
+          context.mmdModel = mmdModel ?? null;
+          context.mmdMotion = null;
           if (clips.length > 0) {
             context.mixer = new AnimationMixer(object);
             const activated = activateClip(context, 0, true);
@@ -2470,6 +2499,7 @@ export function AssetViewport({
       runCleanupCallbacks(context.cleanupCallbacks);
       context.cleanupCallbacks = [];
       stopAnimations(context);
+      context.mmdModel = null;
       resetSceneObjects(context);
       revokeUrls(context.cleanupUrls);
       context.cleanupUrls = [];
@@ -2489,6 +2519,88 @@ export function AssetViewport({
     glbOverride,
     publishResourceDiagnostics,
   ]);
+
+  useEffect(() => {
+    if (!mmdMotionRequest) {
+      return;
+    }
+
+    const context = sceneContextRef.current;
+    const model = context?.mmdModel;
+    const runtime = model?.runtime;
+
+    if (!context || !model || !runtime) {
+      onFeedbackChange({
+        mode: "loadFailed",
+        message: "VMD motion was not loaded.",
+        warning:
+          "VMD motion can only be loaded after an MMD model with runtime support is ready.",
+        canResetCamera: false,
+      });
+      return;
+    }
+
+    let disposed = false;
+    const motionFile = mmdMotionRequest.file;
+    onFeedbackChange({
+      mode: "ready",
+      message: `Loading MMD motion: ${motionFile.fileName}`,
+      warning: null,
+      canResetCamera: true,
+    });
+
+    loadMmdMotion(motionFile)
+      .then((motion) => {
+        if (disposed) {
+          return;
+        }
+
+        runtime.setAnimation(motion.animation, model.mesh);
+        runtime.tick(0, {
+          mesh: model.mesh,
+          ik: true,
+          physics: false,
+        });
+
+        const duration = Math.max(motion.duration, 1 / 30);
+        context.mmdMotion = {
+          animation: motion.animation,
+          duration,
+          currentTime: 0,
+          label: motion.label,
+        };
+        setAnimationState({
+          clipNames: [motion.label],
+          activeClipIndex: 0,
+          currentTime: 0,
+          duration,
+          isPlaying: true,
+        });
+        onFeedbackChange({
+          mode: "ready",
+          message: `Preview ready: ${currentFile?.fileName ?? "MMD model"}`,
+          warning: null,
+          canResetCamera: true,
+        });
+      })
+      .catch((error: unknown) => {
+        if (disposed) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : "Failed to load VMD motion.";
+        onFeedbackChange({
+          mode: "ready",
+          message: `Preview ready: ${currentFile?.fileName ?? "MMD model"}`,
+          warning: message,
+          canResetCamera: true,
+        });
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [currentFile?.fileName, mmdMotionRequest, onFeedbackChange]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -2859,7 +2971,10 @@ export function AssetViewport({
   useEffect(() => {
     const context = sceneContextRef.current;
 
-    if (!context?.mixer || context.clips.length === 0) {
+    if (
+      (!context?.mixer || context.clips.length === 0) &&
+      !context?.mmdMotion
+    ) {
       return;
     }
 
@@ -2872,7 +2987,25 @@ export function AssetViewport({
       previousTimestamp = timestamp;
 
       if (animationState.isPlaying && viewerSurfaceMode === "asset") {
-        context.mixer?.update(deltaSeconds);
+        if (context.mmdMotion && context.mmdModel?.runtime) {
+          const duration = Math.max(context.mmdMotion.duration, 1 / 30);
+          const previousTime = context.mmdMotion.currentTime;
+          const nextTime =
+            (context.mmdMotion.currentTime + deltaSeconds) % duration;
+          const wrapped = nextTime < previousTime;
+          if (wrapped) {
+            retargetMmdMotion(context, nextTime);
+          } else {
+            context.mmdModel.runtime.tick(nextTime, {
+              mesh: context.mmdModel.mesh,
+              ik: true,
+              physics: nextTime > 0,
+            });
+          }
+          context.mmdMotion.currentTime = nextTime;
+        } else {
+          context.mixer?.update(deltaSeconds);
+        }
         if (context.sourceObject) {
           applyMorphTargetValues(
             context.sourceObject,
@@ -2883,8 +3016,11 @@ export function AssetViewport({
 
       const clip = context.clips[animationState.activeClipIndex];
       const action = context.activeAction;
-      const nextTime = action?.time ?? 0;
-      const nextDuration = clip?.duration ?? animationState.duration;
+      const nextTime = context.mmdMotion?.currentTime ?? action?.time ?? 0;
+      const nextDuration =
+        context.mmdMotion?.duration ??
+        clip?.duration ??
+        animationState.duration;
 
       setAnimationState((previous) => {
         if (
@@ -2920,15 +3056,18 @@ export function AssetViewport({
 
   const handleTogglePlayback = () => {
     const context = sceneContextRef.current;
+    const mmdMotion = context?.mmdMotion;
     const action = context?.activeAction;
 
-    if (!context || !action) {
+    if (!context || (!action && !mmdMotion)) {
       return;
     }
 
     setAnimationState((previous) => {
       const nextIsPlaying = !previous.isPlaying;
-      setActionPlayback(action, nextIsPlaying);
+      if (action) {
+        setActionPlayback(action, nextIsPlaying);
+      }
       return {
         ...previous,
         isPlaying: nextIsPlaying,
@@ -2960,9 +3099,27 @@ export function AssetViewport({
 
   const handleSeek = (time: number) => {
     const context = sceneContextRef.current;
+    const mmdMotion = context?.mmdMotion;
     const action = context?.activeAction;
 
-    if (!context || !action) {
+    if (!context || (!action && !mmdMotion)) {
+      return;
+    }
+
+    if (mmdMotion && context.mmdModel?.runtime) {
+      const duration = Math.max(mmdMotion.duration, 1 / 30);
+      const nextTime = Math.min(Math.max(time, 0), duration);
+      retargetMmdMotion(context, nextTime);
+      mmdMotion.currentTime = nextTime;
+      setAnimationState((previous) => ({
+        ...previous,
+        currentTime: nextTime,
+        duration,
+      }));
+      return;
+    }
+
+    if (!action) {
       return;
     }
 
@@ -2978,9 +3135,31 @@ export function AssetViewport({
 
   const handleStep = (direction: -1 | 1) => {
     const context = sceneContextRef.current;
+    const mmdMotion = context?.mmdMotion;
     const action = context?.activeAction;
 
-    if (!context || !action) {
+    if (!context || (!action && !mmdMotion)) {
+      return;
+    }
+
+    if (mmdMotion && context.mmdModel?.runtime) {
+      const duration = Math.max(mmdMotion.duration, 1 / 30);
+      const nextTime = Math.min(
+        Math.max(mmdMotion.currentTime + (1 / 30) * direction, 0),
+        duration,
+      );
+      retargetMmdMotion(context, nextTime);
+      mmdMotion.currentTime = nextTime;
+      setAnimationState((previous) => ({
+        ...previous,
+        currentTime: nextTime,
+        duration,
+        isPlaying: false,
+      }));
+      return;
+    }
+
+    if (!action) {
       return;
     }
 

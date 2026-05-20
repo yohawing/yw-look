@@ -62,6 +62,7 @@ export type {
 
 export {
   loadPreviewObject,
+  loadMmdMotion,
   tryExtractUsdaText,
   loaderRegistry,
   listRegisteredLoaders,

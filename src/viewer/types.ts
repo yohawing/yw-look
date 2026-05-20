@@ -12,6 +12,7 @@ import type {
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PreviewLightingPreset } from "./lighting";
+import type { MmdAnimation, ThreeMmdModel } from "@yohawing/three-mmd-loader";
 
 import type { ViewerMode } from "../components/ViewerStatePanel";
 
@@ -48,6 +49,8 @@ export type SceneContext = {
   mixer: AnimationMixer | null;
   clips: AnimationClip[];
   activeAction: AnimationAction | null;
+  mmdModel: ThreeMmdModel | null;
+  mmdMotion: MmdMotionPlayback | null;
   textureRegistry: Map<string, Texture>;
   /**
    * Original (pre-normalization) max dimension of the last loaded asset in
@@ -55,6 +58,13 @@ export type SceneContext = {
    * scale-normalized still get speed values appropriate for their real size.
    */
   rawMaxDimension: number;
+};
+
+export type MmdMotionPlayback = {
+  animation: MmdAnimation;
+  duration: number;
+  currentTime: number;
+  label: string;
 };
 
 export type LoadedPreview = {
@@ -65,6 +75,13 @@ export type LoadedPreview = {
   formatVersion: string | null;
   warnings?: string[];
   lighting?: PreviewLightingPreset;
+  mmdModel?: ThreeMmdModel;
+};
+
+export type LoadedMmdMotion = {
+  animation: MmdAnimation;
+  duration: number;
+  label: string;
 };
 
 export type DeferredTextureSnapshot = {

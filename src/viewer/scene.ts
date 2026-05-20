@@ -157,6 +157,7 @@ export function stopAnimations(context: SceneContext) {
   context.activeAction = null;
   context.mixer = null;
   context.clips = [];
+  context.mmdMotion = null;
 }
 
 export function resetSceneObjects(context: SceneContext) {

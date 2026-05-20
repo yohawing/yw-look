@@ -104,6 +104,7 @@ import {
   inspectAsset,
   listSupportedSiblings,
   openFileDialog,
+  openMotionFileDialog,
   resolveSelectedFile,
   type AssetInspection,
   type DirectoryListing,
@@ -325,6 +326,10 @@ export function App() {
     useState<EnvironmentPreset>("studio");
   const [gridUnitLabel, setGridUnitLabel] = useState("1 m");
   const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
+  const [mmdMotionRequest, setMmdMotionRequest] = useState<{
+    file: SelectedFile;
+    version: number;
+  } | null>(null);
   const [assetInspection, setAssetInspection] =
     useState<AssetInspection | null>(null);
   const [directoryListing, setDirectoryListing] =
@@ -1370,6 +1375,7 @@ export function App() {
     ]);
 
     setCurrentFile(resolvedFile);
+    setMmdMotionRequest(null);
     setDirectoryListing(listing);
     prefetchAdjacent(listing.files, listing.currentIndex);
     const elapsed = performance.now() - startedAt;
@@ -1600,6 +1606,26 @@ export function App() {
       }));
     }
   };
+
+  const handleOpenMmdMotion = useCallback(async () => {
+    try {
+      const selectedFile = await openMotionFileDialog();
+      if (!selectedFile) return;
+      setMmdMotionRequest((previous) => ({
+        file: selectedFile,
+        version: (previous?.version ?? 0) + 1,
+      }));
+    } catch (error: unknown) {
+      setOpenError(
+        error instanceof Error ? error.message : "Failed to open VMD file.",
+      );
+      setViewerFeedback((previous) => ({
+        ...previous,
+        warning:
+          error instanceof Error ? error.message : "Failed to open VMD file.",
+      }));
+    }
+  }, []);
 
   const handleOpenRecentFile = async (path: string) => {
     try {
@@ -2484,6 +2510,16 @@ export function App() {
       // Wireframe
       showWireframe,
       onToggleWireframe: () => setShowWireframe((v) => !v),
+      // Motion
+      canLoadMmdMotion:
+        isTauri &&
+        currentFile !== null &&
+        (currentFile.extension === "pmx" || currentFile.extension === "pmd"),
+      onLoadMmdMotion: isTauri
+        ? () => {
+            void handleOpenMmdMotion();
+          }
+        : undefined,
       // Look
       environmentPreset,
       environmentPresetOptions: environmentPresets,
@@ -2503,6 +2539,9 @@ export function App() {
     cameraPresetRequest,
     handleSelectCameraPreset,
     handleCycleCamera,
+    currentFile,
+    handleOpenMmdMotion,
+    isTauri,
     showTexture,
     showUnlit,
     showNormals,
@@ -2544,6 +2583,7 @@ export function App() {
         <div className="viewer-panel">
           <AssetViewport
             currentFile={currentFile}
+            mmdMotionRequest={mmdMotionRequest}
             displayMode={displayMode}
             backgroundPreset={backgroundPreset}
             onFeedbackChange={setViewerFeedback}

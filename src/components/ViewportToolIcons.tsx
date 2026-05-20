@@ -12,6 +12,7 @@ export type ViewportToolIcon =
   | "light"
   | "look"
   | "matcap"
+  | "motion"
   | "normals"
   | "overlay"
   | "palette"
@@ -162,6 +163,14 @@ export function ViewportToolSvg({ icon }: { icon: ViewportToolIcon }) {
           <circle cx="8" cy="8" r="6" />
           <circle cx="5" cy="5" r="1.5" />
           <path d="M4 8.5a4 4 0 0 1 8 0" />
+        </svg>
+      );
+    case "motion":
+      return (
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 12.5c1.8-5 4.2-5 5-2s3.2 3 5-2" />
+          <path d="M3 3.5h4l1 3 1-3h4" />
+          <path d="M8 6.5v5" />
         </svg>
       );
     case "overlay":

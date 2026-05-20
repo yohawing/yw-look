@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   loadAsync: vi.fn(),
   readBinaryFile: vi.fn(),
   revokeObjectURL: vi.fn(),
+  physicsBackend: { dispose: vi.fn() },
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -20,6 +21,18 @@ vi.mock("../../lib/files", async (importOriginal) => ({
 }));
 
 vi.mock("@yohawing/three-mmd-loader", () => ({
+  loadAmmoNamespace: vi.fn(async () => ({})),
+  createAmmoMmdPhysicsBackend: vi.fn(() => mocks.physicsBackend),
+  parseVmd: vi.fn(() => ({
+    kind: "vmd",
+    metadata: { maxFrame: 60, modelName: "Hatsune Miku" },
+    boneTracks: {},
+    morphTracks: {},
+    cameraFrames: [],
+    lightFrames: [],
+    selfShadowFrames: [],
+    propertyFrames: [],
+  })),
   parsePmxMetadata: vi.fn(() => ({
     format: "pmx",
     header: { version: 2.1 },
@@ -41,7 +54,7 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
   },
 }));
 
-import { loadPreviewObject } from "../loaders";
+import { loadMmdMotion, loadPreviewObject } from "../loaders";
 
 const pmxFile: SelectedFile = {
   path: "C:\\mmd\\初音ミク.pmx",
@@ -59,6 +72,14 @@ const pmdFile: SelectedFile = {
   parentDirectory: "C:\\mmd",
 };
 
+const vmdFile: SelectedFile = {
+  path: "C:\\mmd\\motion.vmd",
+  fileName: "motion.vmd",
+  extension: "vmd",
+  kind: "motion",
+  parentDirectory: "C:\\mmd",
+};
+
 describe("MMD preview loader", () => {
   beforeEach(() => {
     mocks.convertFileSrc.mockClear();
@@ -66,6 +87,7 @@ describe("MMD preview loader", () => {
     mocks.readBinaryFile.mockReset();
     mocks.revokeObjectURL.mockReset();
     mocks.readBinaryFile.mockResolvedValue([0x50, 0x4d, 0x58, 0x20]);
+    mocks.physicsBackend.dispose.mockClear();
   });
 
   it("registers the optional MMD loader and returns a static mesh preview", async () => {
@@ -86,6 +108,11 @@ describe("MMD preview loader", () => {
     });
     mocks.loadAsync.mockImplementation(async (_source, loader) => {
       expect(loader.options.geometryAwareAlpha).toBe(true);
+      expect(loader.options.runtime).toMatchObject({
+        frameRate: 30,
+        physics: "external",
+        physicsBackend: mocks.physicsBackend,
+      });
       const resolver = loader.options.textureResolver;
       const diffuse = await resolver.resolve("textures/diffuse.bmp");
       expect(diffuse).toBeInstanceOf(Blob);
@@ -166,6 +193,7 @@ describe("MMD preview loader", () => {
     expect(renderOrderMesh.userData.__ywSelectionProxyTarget).toBe(mesh);
     expect(result).toMatchObject({
       cleanupUrls: [],
+      cleanupCallbacks: [expect.any(Function)],
       clips: [],
       formatVersion: "PMX 2.1",
       lighting: {
@@ -181,6 +209,8 @@ describe("MMD preview loader", () => {
     ]);
     expect(warnings).toEqual(result.warnings);
     expect(stages).toEqual(["scan", "decode", "scene"]);
+    result.cleanupCallbacks?.[0]?.();
+    expect(mocks.physicsBackend.dispose).toHaveBeenCalledTimes(1);
   });
 
   it("labels PMD previews by the opened source format", async () => {
@@ -205,5 +235,13 @@ describe("MMD preview loader", () => {
     await expect(loadPreviewObject(pmxFile)).rejects.toThrow(
       "Unable to load MMD preview: malformed PMX payload",
     );
+  });
+
+  it("loads VMD motion duration from MMD metadata", async () => {
+    const result = await loadMmdMotion(vmdFile);
+
+    expect(result.label).toBe("motion.vmd");
+    expect(result.duration).toBe(2);
+    expect(result.animation.metadata.maxFrame).toBe(60);
   });
 });
