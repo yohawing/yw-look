@@ -62,7 +62,18 @@ function basenameFromPrimPath(primPath: string): string {
   return primPath.slice(idx + 1);
 }
 
-/** True for nodes that yw-look's USD→GLB pipeline inserts internally
+function isInternalMmdProxy(object: Object3D): boolean {
+  if (object.userData?.mmdOutlineProxy !== undefined) return true;
+  if (object.userData?.mmdMaterialRenderProxy !== undefined) return true;
+  if (object instanceof Mesh) {
+    return getMaterials(object.material).some(
+      (material) => material.userData?.mmdOutlineMaterial !== undefined,
+    );
+  }
+  return false;
+}
+
+/** True for nodes that loaders insert internally
  * and that should never appear in the user-facing hierarchy. The
  * predicate is intentionally narrow so non-USD formats (DAE, OBJ, …)
  * with their own legitimate unnamed groups are unaffected:
@@ -70,8 +81,10 @@ function basenameFromPrimPath(primPath: string): string {
  *  - GLTFLoader's outer scene root, but ONLY when it is the parent of
  *    a `__upAxis` node — that pairing uniquely identifies our pipeline
  *    and avoids collapsing genuine unnamed Groups produced by other
- *    loaders (ColladaLoader, GLTFLoader for non-yw-look glTF, …). */
+ *    loaders (ColladaLoader, GLTFLoader for non-yw-look glTF, …)
+ *  - MMD outline / render-order proxy meshes from three-mmd-loader. */
 function isSyntheticWrapper(object: Object3D): boolean {
+  if (isInternalMmdProxy(object)) return true;
   if (object.name === "__upAxis") return true;
   if (
     object instanceof Group &&

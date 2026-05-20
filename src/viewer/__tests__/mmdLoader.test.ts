@@ -70,6 +70,8 @@ describe("MMD preview loader", () => {
 
   it("registers the optional MMD loader and returns a static mesh preview", async () => {
     const mesh = new Group();
+    const outlineMesh = new Group();
+    const renderOrderMesh = new Group();
     const stages: string[] = [];
     const warnings: string[] = [];
 
@@ -83,6 +85,7 @@ describe("MMD preview loader", () => {
       return [0x50, 0x4d, 0x58, 0x20];
     });
     mocks.loadAsync.mockImplementation(async (_source, loader) => {
+      expect(loader.options.geometryAwareAlpha).toBe(true);
       const resolver = loader.options.textureResolver;
       const diffuse = await resolver.resolve("textures/diffuse.bmp");
       expect(diffuse).toBeInstanceOf(Blob);
@@ -108,6 +111,8 @@ describe("MMD preview loader", () => {
       );
       return Promise.resolve({
         mesh,
+        outlineMeshes: [outlineMesh],
+        renderOrderMeshes: [renderOrderMesh],
         textureDiagnostics: [
           {
             level: "warning",
@@ -142,13 +147,24 @@ describe("MMD preview loader", () => {
     expect(mocks.loadAsync).toHaveBeenCalledWith(
       expect.any(ArrayBuffer),
       expect.any(Object),
-      { outlines: false },
+      { outlines: true, frustumCulled: false },
     );
     expect(mocks.convertFileSrc).not.toHaveBeenCalled();
+    expect(result.object.name).toBe("Hatsune Miku Preview");
     expect(mesh.name).toBe("Hatsune Miku");
+    expect(result.object.userData.__ywMmdModel).toBeDefined();
+    expect(result.object.userData.mmd).toBeUndefined();
+    expect(mesh.userData.__ywMmdModel).toBeDefined();
+    expect(mesh.userData.mmd).toBeUndefined();
     expect(mesh.userData.mmdSourceFile).toBe("C:\\mmd\\初音ミク.pmx");
+    expect(result.object.children).toEqual([
+      mesh,
+      outlineMesh,
+      renderOrderMesh,
+    ]);
+    expect(outlineMesh.userData.__ywSelectionProxyTarget).toBe(mesh);
+    expect(renderOrderMesh.userData.__ywSelectionProxyTarget).toBe(mesh);
     expect(result).toMatchObject({
-      object: mesh,
       cleanupUrls: [],
       clips: [],
       formatVersion: "PMX 2.1",
@@ -172,6 +188,8 @@ describe("MMD preview loader", () => {
 
     mocks.loadAsync.mockResolvedValue({
       mesh,
+      outlineMeshes: [],
+      renderOrderMeshes: [],
       textureDiagnostics: [],
     });
 

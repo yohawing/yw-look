@@ -85,6 +85,17 @@ export function getMaterials(material: Material | Material[]) {
   return Array.isArray(material) ? material : [material];
 }
 
+function isMmdOutlineMaterial(material: Material) {
+  return material.userData?.mmdOutlineMaterial !== undefined;
+}
+
+function isMmdOutlineMesh(mesh: Mesh) {
+  if (mesh.userData?.mmdOutlineProxy !== undefined) {
+    return true;
+  }
+  return getMaterials(mesh.material).some(isMmdOutlineMaterial);
+}
+
 function disposeMaterialTextures(material: Material) {
   for (const value of Object.values(material)) {
     if (value instanceof Texture) {
@@ -615,6 +626,7 @@ export function applyShadows(
   }
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) return;
+    if (isMmdOutlineMesh(child)) return;
     if (
       child.userData[SKELETON_HELPER_FLAG] === true ||
       child.userData[BBOX_HELPER_FLAG] === true ||
@@ -645,6 +657,9 @@ function collectSkeletonRoots(object: Group | Mesh): Object3D[] {
   const roots: Object3D[] = [];
   object.traverse((child: Object3D) => {
     if (!(child instanceof SkinnedMesh) || !child.skeleton) {
+      return;
+    }
+    if (isMmdOutlineMesh(child)) {
       return;
     }
     const firstBone = child.skeleton.bones[0];
@@ -753,6 +768,9 @@ export function applyBoundingBoxHelpers(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isMmdOutlineMesh(child)) {
+      return;
+    }
     // Ignore our own helper meshes — SkeletonHelper, AxesHelper and
     // Box3Helper all extend LineSegments which extends Mesh.
     if (
@@ -836,6 +854,9 @@ export function applyNormalHelpers(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isMmdOutlineMesh(child)) {
+      return;
+    }
     if (
       child.userData[SKELETON_HELPER_FLAG] === true ||
       child.userData[BBOX_HELPER_FLAG] === true ||
@@ -891,6 +912,9 @@ export function applyTextureFilter(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isMmdOutlineMesh(child)) {
+      return;
+    }
     if (
       child.userData[SKELETON_HELPER_FLAG] === true ||
       child.userData[BBOX_HELPER_FLAG] === true ||
@@ -921,6 +945,9 @@ export function applyVertexColors(
 ) {
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) {
+      return;
+    }
+    if (isMmdOutlineMesh(child)) {
       return;
     }
     // Skip helper meshes we add ourselves.
@@ -966,6 +993,9 @@ export function applyBackfaceCulling(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isMmdOutlineMesh(child)) {
+      return;
+    }
 
     for (const material of getMaterials(child.material)) {
       if (!material || !("side" in material)) {
@@ -991,6 +1021,9 @@ export function applyDisplayMode(
 ) {
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) {
+      return;
+    }
+    if (isMmdOutlineMesh(child)) {
       return;
     }
 
@@ -1027,6 +1060,7 @@ export function applyUnlitMaterial(
 
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) return;
+    if (isMmdOutlineMesh(child)) return;
     if (child.material instanceof ShadowMaterial) return;
 
     if (enabled) {

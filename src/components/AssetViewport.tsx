@@ -273,6 +273,10 @@ function frameMountedObject(
 }
 
 function selectionKeyForObject(object: Object3D) {
+  const proxyTarget = selectionProxyTarget(object);
+  if (proxyTarget) {
+    return selectionKeyForObject(proxyTarget);
+  }
   const primPath =
     typeof object.userData?.primPath === "string"
       ? object.userData.primPath
@@ -342,6 +346,12 @@ function frameObjectBounds(
 }
 
 const MANUAL_HIDDEN_KEY = "__ywManualHidden";
+const SELECTION_PROXY_TARGET_KEY = "__ywSelectionProxyTarget";
+
+function selectionProxyTarget(object: Object3D) {
+  const target = object.userData?.[SELECTION_PROXY_TARGET_KEY];
+  return target instanceof Object3D ? target : null;
+}
 
 function isManuallyHidden(object: Object3D) {
   return object.userData?.[MANUAL_HIDDEN_KEY] === true;
@@ -350,6 +360,21 @@ function isManuallyHidden(object: Object3D) {
 function setSubtreeManualHidden(root: Object3D, hidden: boolean) {
   root.traverse((child) => {
     if (child.name === "__yw_shadow_catcher") {
+      return;
+    }
+    if (hidden) {
+      child.userData[MANUAL_HIDDEN_KEY] = true;
+    } else {
+      delete child.userData[MANUAL_HIDDEN_KEY];
+    }
+  });
+
+  const parent = root.parent;
+  if (!parent) {
+    return;
+  }
+  parent.traverse((child) => {
+    if (selectionProxyTarget(child) !== root) {
       return;
     }
     if (hidden) {
@@ -1507,17 +1532,7 @@ export function AssetViewport({
       let node: Object3D | null = hits[0].object;
       while (node) {
         if (node instanceof Mesh && node.name !== "__yw_shadow_catcher") {
-          // #46: prefer userData.primPath as the stable selection key so
-          // that viewport picks and HierarchyCard selections match even
-          // after the hierarchy-aware GLB pipeline changed node names from
-          // "/World/Cube" to just "Cube".
-          const primPath =
-            typeof node.userData?.primPath === "string"
-              ? node.userData.primPath
-              : undefined;
-          const raw = typeof node.name === "string" ? node.name.trim() : "";
-          const selectionKey = primPath ?? (raw.length > 0 ? raw : null);
-          callback(selectionKey);
+          callback(selectionKeyForObject(node));
           return;
         }
         if (node === mounted) break;

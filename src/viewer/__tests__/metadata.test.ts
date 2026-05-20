@@ -205,6 +205,41 @@ describe("collectAssetMetadata", () => {
     expect(trimEntry?.boundMeshes).toEqual(["Collar"]);
   });
 
+  it("excludes MMD outline and render-order proxy meshes from metadata", () => {
+    const root = new Group();
+    root.name = "MMD Preview";
+    const sourceMat = new MeshBasicMaterial();
+    sourceMat.name = "Body";
+    const outlineMat = new MeshBasicMaterial();
+    outlineMat.name = "Outline";
+    outlineMat.userData.mmdOutlineMaterial = {};
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+
+    const source = new Mesh(geometry, sourceMat);
+    source.name = "Model";
+    const outline = new Mesh(geometry, outlineMat);
+    outline.name = "Model outline";
+    outline.userData.mmdOutlineProxy = { source: "combined" };
+    const renderProxy = new Mesh(geometry, sourceMat);
+    renderProxy.name = "Model material 0";
+    renderProxy.userData.mmdMaterialRenderProxy = { materialIndex: 0 };
+    root.add(source, outline, renderProxy);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(
+      result.metadata.hierarchy[0]?.children.map((node) => node.name),
+    ).toEqual(["Model"]);
+    expect(result.metadata.meshCount).toBe(1);
+    expect(result.metadata.materialCount).toBe(1);
+    expect(result.metadata.objectInfo["Model outline"]).toBeUndefined();
+    expect(result.metadata.objectInfo["Model material 0"]).toBeUndefined();
+  });
+
   it("records morph target names and initial influences on mesh info", () => {
     const root = new Group();
     const geometry = new BufferGeometry();

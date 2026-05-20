@@ -1439,6 +1439,9 @@ const mmdBuiltInToonTextureUrls = Object.fromEntries(
   }),
 ) as Record<string, string>;
 
+const MMD_SELECTION_PROXY_TARGET_KEY = "__ywSelectionProxyTarget";
+const MMD_MODEL_KEY = "__ywMmdModel";
+
 function resolveMmdBuiltInToonTextureUrl(texturePath: string) {
   const normalized = stripUrlSuffix(decodeResourcePath(texturePath))
     .replace(/\\/g, "/")
@@ -2438,6 +2441,7 @@ async function loadMmdPreviewObject(
         : parsePmdMetadata(buffer);
     const textureBlobCache = new Map<string, Promise<Blob | null>>();
     const loader = new ThreeMmdLoader({
+      geometryAwareAlpha: true,
       textureResolver: {
         async resolve(texturePath) {
           if (isRemoteOrInlineUrl(texturePath)) {
@@ -2466,13 +2470,31 @@ async function loadMmdPreviewObject(
     });
 
     reportStage("decode");
-    const mmd = await loader.loadModel(buffer, { outlines: false });
+    const mmd = await loader.loadModel(buffer, {
+      outlines: true,
+      frustumCulled: false,
+    });
     reportStage("scene");
 
-    const object = mmd.mesh;
-    object.name = metadata.englishName || metadata.name || file.fileName;
-    object.userData.mmd = mmd;
+    const displayName = metadata.englishName || metadata.name || file.fileName;
+    const object = new Group();
+    object.name = `${displayName} Preview`;
+    object.userData[MMD_MODEL_KEY] = mmd;
     object.userData.mmdSourceFile = file.path;
+    mmd.mesh.name = displayName;
+    mmd.mesh.userData[MMD_MODEL_KEY] = mmd;
+    mmd.mesh.userData.mmdSourceFile = file.path;
+    for (const proxy of [
+      ...(mmd.outlineMeshes ?? []),
+      ...(mmd.renderOrderMeshes ?? []),
+    ]) {
+      proxy.userData[MMD_SELECTION_PROXY_TARGET_KEY] = mmd.mesh;
+    }
+    object.add(
+      mmd.mesh,
+      ...(mmd.outlineMeshes ?? []),
+      ...(mmd.renderOrderMeshes ?? []),
+    );
 
     const warnings = [
       ...new Map(
