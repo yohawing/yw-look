@@ -77,6 +77,7 @@ export type LoadedPreview = {
   warnings?: string[];
   lighting?: PreviewLightingPreset;
   rendering?: PreviewRenderingPreset;
+  skipScaleNormalization?: boolean;
   mmdModel?: ThreeMmdModel;
 };
 

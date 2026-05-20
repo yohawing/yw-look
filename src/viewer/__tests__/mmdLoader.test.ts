@@ -196,6 +196,7 @@ describe("MMD preview loader", () => {
       cleanupCallbacks: [expect.any(Function)],
       clips: [],
       formatVersion: "PMX 2.1",
+      skipScaleNormalization: true,
       lighting: {
         ambientIntensity: 0.15,
         keyIntensity: 1,

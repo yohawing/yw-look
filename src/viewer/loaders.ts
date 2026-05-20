@@ -2562,6 +2562,7 @@ async function loadMmdPreviewObject(
       formatVersion: `${metadata.format.toUpperCase()} ${metadata.header.version}`,
       lighting: MMD_EXAMPLE_LIGHTING_PRESET,
       rendering: MMD_PREVIEW_RENDERING_PRESET,
+      skipScaleNormalization: true,
       mmdModel: mmd,
       warnings,
     };

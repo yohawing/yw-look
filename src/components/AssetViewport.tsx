@@ -62,6 +62,7 @@ import {
   applyInitialView,
   applyPresetView,
   applyControlsSensitivity,
+  getObjectMaxDimension,
   normalizeObjectScale,
   cancelScaleNormalization,
   applyDynamicGrid,
@@ -2290,6 +2291,7 @@ export function AssetViewport({
           formatVersion,
           lighting = DEFAULT_LIGHTING_PRESET,
           rendering,
+          skipScaleNormalization = false,
           mmdModel,
           warnings = [],
         }) => {
@@ -2314,7 +2316,18 @@ export function AssetViewport({
           if (rendering) {
             applyPreviewRenderingPreset(context.renderer, rendering);
           }
-          const normalization = normalizeObjectScale(object);
+          const normalization = skipScaleNormalization
+            ? (() => {
+                const maxDimension = getObjectMaxDimension(object);
+                return {
+                  applied: false,
+                  factor: 1,
+                  originalMaxDimension: maxDimension,
+                  normalizedMaxDimension: maxDimension,
+                  originalScale: null,
+                };
+              })()
+            : normalizeObjectScale(object);
           if (normalization.applied && normalization.originalScale) {
             scaleNormalizationRef.current = {
               applied: true,
