@@ -1424,6 +1424,39 @@ function resolveMmdResourcePath(url: string, file: SelectedFile) {
   return resolveSiblingPath(file.parentDirectory, stripped);
 }
 
+const mmdBuiltInToonTextureUrls = Object.fromEntries(
+  Array.from({ length: 10 }, (_, index) => {
+    const fileName = `toon${String(index + 1).padStart(2, "0")}.bmp`;
+    return [
+      fileName,
+      new URL(
+        `../../node_modules/@yohawing/three-mmd-loader/dist/three/assets/mmd/${fileName}`,
+        import.meta.url,
+      ).toString(),
+    ];
+  }),
+) as Record<string, string>;
+
+function resolveMmdBuiltInToonTextureUrl(texturePath: string) {
+  const normalized = stripUrlSuffix(decodeResourcePath(texturePath))
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .toLowerCase();
+  if (normalized.includes("/")) {
+    return undefined;
+  }
+  return mmdBuiltInToonTextureUrls[normalized];
+}
+
+async function canReadFile(path: string) {
+  try {
+    await readBinaryFile(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function formatMmdResourceDisplayPath(url: string, file: SelectedFile) {
   if (isRemoteOrInlineUrl(url)) {
     return url;
@@ -2373,6 +2406,13 @@ async function loadMmdPreviewObject(
             return texturePath;
           }
           const localPath = resolveMmdResourcePath(texturePath, file);
+          const builtInToonTextureUrl =
+            resolveMmdBuiltInToonTextureUrl(texturePath);
+          if (builtInToonTextureUrl) {
+            return (await canReadFile(localPath))
+              ? convertFileSrc(localPath)
+              : builtInToonTextureUrl;
+          }
           return convertFileSrc(localPath);
         },
       },

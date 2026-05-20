@@ -73,6 +73,12 @@ describe("MMD preview loader", () => {
     const stages: string[] = [];
     const warnings: string[] = [];
 
+    mocks.readBinaryFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("\\toon01.bmp")) {
+        throw new Error("missing built-in toon sibling");
+      }
+      return [0x50, 0x4d, 0x58, 0x20];
+    });
     mocks.loadAsync.mockImplementation(async (_source, loader) => {
       const resolver = loader.options.textureResolver;
       await expect(resolver.resolve("textures/missing.png")).resolves.toBe(
@@ -81,6 +87,12 @@ describe("MMD preview loader", () => {
       await expect(
         resolver.resolve("https://example.com/mmd/diffuse.png"),
       ).resolves.toBe("https://example.com/mmd/diffuse.png");
+      await expect(resolver.resolve("toon01.bmp")).resolves.toContain(
+        "three-mmd-loader/dist/three/assets/mmd/toon01.bmp",
+      );
+      await expect(resolver.resolve("toon02.bmp")).resolves.toBe(
+        "asset://localhost/C:\\mmd\\toon02.bmp",
+      );
       return Promise.resolve({
         mesh,
         textureDiagnostics: [
@@ -122,6 +134,10 @@ describe("MMD preview loader", () => {
     expect(mocks.convertFileSrc).toHaveBeenCalledWith(
       "C:\\mmd\\textures\\missing.png",
     );
+    expect(mocks.convertFileSrc).not.toHaveBeenCalledWith(
+      "C:\\mmd\\toon01.bmp",
+    );
+    expect(mocks.convertFileSrc).toHaveBeenCalledWith("C:\\mmd\\toon02.bmp");
     expect(mesh.name).toBe("Hatsune Miku");
     expect(mesh.userData.mmdSourceFile).toBe("C:\\mmd\\初音ミク.pmx");
     expect(result).toMatchObject({
