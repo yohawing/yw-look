@@ -54,7 +54,9 @@
           "usd",
           "usda",
           "usdc",
-          "usdz"
+          "usdz",
+          "pmx",
+          "pmd"
         ],
         "name": "yw-look Model Asset",
         "description": "3D model asset opened by yw-look"

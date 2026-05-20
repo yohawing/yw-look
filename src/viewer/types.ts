@@ -145,6 +145,8 @@ export const implementedPreviewExtensions = new Set([
   "hdr",
   "exr",
   "ktx2",
+  "pmx",
+  "pmd",
 ]);
 
 export const optionalPreviewLoaders = {
@@ -194,7 +196,7 @@ export function formatUnsupportedFormatMessage(extension: string) {
   const normalizedExtension = extension ? `.${extension}` : "this extension";
   return {
     title: "This file format is not supported yet.",
-    body: `No preview loader is available for ${normalizedExtension}. Supported core formats include GLB, glTF, FBX, OBJ, USD, STL, PLY, DAE, PNG, JPG, TGA, DDS, HDR, EXR, and KTX2.`,
+    body: `No preview loader is available for ${normalizedExtension}. Supported core formats include GLB, glTF, FBX, OBJ, USD, STL, PLY, DAE, PMX, PMD, PNG, JPG, TGA, DDS, HDR, EXR, and KTX2.`,
   };
 }
 
