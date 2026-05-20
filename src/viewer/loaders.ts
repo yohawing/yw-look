@@ -1401,10 +1401,6 @@ function resolveColladaTextureUrl(
   );
 }
 
-function normalizeMmdResourceBase(parentDirectory: string) {
-  return `${parentDirectory.replace(/\\/g, "/").replace(/\/+$/, "")}/`;
-}
-
 function decodeResourcePath(value: string) {
   try {
     return decodeURIComponent(value);
@@ -1428,54 +1424,19 @@ function resolveMmdResourcePath(url: string, file: SelectedFile) {
   return resolveSiblingPath(file.parentDirectory, stripped);
 }
 
+function formatMmdResourceDisplayPath(url: string, file: SelectedFile) {
+  if (isRemoteOrInlineUrl(url)) {
+    return url;
+  }
+  return resolveMmdResourcePath(url, file);
+}
+
 function formatMissingMmdResourceWarning(path: string) {
   return `Missing MMD external asset: ${path}. The model was loaded with a fallback or incomplete material.`;
 }
 
-function createMmdLoadingManager(
-  file: SelectedFile,
-  onWarning?: (warning: string) => void,
-) {
-  const manager = new LoadingManager();
-  const warnings: string[] = [];
-  const reportedMissingAssets = new Set<string>();
-  const localPathByResolvedUrl = new Map<string, string>();
-
-  const reportMissingAsset = (path: string) => {
-    const normalizedPath = path.split(/[?#]/, 1)[0];
-    if (reportedMissingAssets.has(normalizedPath)) {
-      return;
-    }
-    reportedMissingAssets.add(normalizedPath);
-    const warning = formatMissingMmdResourceWarning(normalizedPath);
-    warnings.push(warning);
-    onWarning?.(warning);
-  };
-
-  manager.setURLModifier((url) => {
-    if (isRemoteOrInlineUrl(url)) {
-      return url;
-    }
-
-    const localPath = resolveMmdResourcePath(url, file);
-    const resolvedUrl = convertFileSrc(localPath);
-    localPathByResolvedUrl.set(resolvedUrl, localPath);
-    return resolvedUrl;
-  });
-  manager.onError = (url) => {
-    const localPath = localPathByResolvedUrl.get(url);
-    if (localPath) {
-      reportMissingAsset(localPath);
-      return;
-    }
-    if (isRemoteOrInlineUrl(url)) {
-      reportMissingAsset(url);
-      return;
-    }
-    reportMissingAsset(resolveMmdResourcePath(url, file));
-  };
-
-  return { manager, warnings };
+function formatUnsupportedMmdSphereMapWarning(path: string) {
+  return `Unsupported MMD sphere texture: ${path}. The model was loaded without this sphere map.`;
 }
 
 function createTexturePreview(
@@ -2396,43 +2357,60 @@ async function loadMmdPreviewObject(
   const reportStage = context.onStage ?? (() => undefined);
   reportStage("scan");
 
-  const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
-  const { manager, warnings } = createMmdLoadingManager(
-    file,
-    context.onWarning,
-  );
-
   try {
-    const { MMDLoader } = await import("@moeru/three-mmd");
-    const loader = new MMDLoader(undefined, manager);
-    loader.setResourcePath(normalizeMmdResourceBase(file.parentDirectory));
+    const { ThreeMmdLoader, parsePmdMetadata, parsePmxMetadata } =
+      await import("@yohawing/three-mmd-loader");
+
+    const buffer = await readArrayBuffer(file.path);
+    const metadata =
+      file.extension === "pmx"
+        ? parsePmxMetadata(buffer)
+        : parsePmdMetadata(buffer);
+    const loader = new ThreeMmdLoader({
+      textureResolver: {
+        async resolve(texturePath) {
+          if (isRemoteOrInlineUrl(texturePath)) {
+            return texturePath;
+          }
+          const localPath = resolveMmdResourcePath(texturePath, file);
+          return convertFileSrc(localPath);
+        },
+      },
+    });
 
     reportStage("decode");
-    const mmd = await loader.loadAsync(objectUrl);
+    const mmd = await loader.loadModel(buffer, { outlines: false });
     reportStage("scene");
 
     const object = mmd.mesh;
-    object.name =
-      mmd.pmx.header.englishModelName ||
-      mmd.pmx.header.modelName ||
-      file.fileName;
+    object.name = metadata.englishName || metadata.name || file.fileName;
     object.userData.mmd = mmd;
     object.userData.mmdSourceFile = file.path;
 
-    const version =
-      typeof mmd.pmx.header.version === "number"
-        ? `${file.extension.toUpperCase()} ${mmd.pmx.header.version}`
-        : file.extension.toUpperCase();
+    const warnings = [
+      ...new Map(
+        mmd.textureDiagnostics.map((diagnostic) => {
+          const path = formatMmdResourceDisplayPath(diagnostic.path, file);
+          const warning =
+            diagnostic.code === "SPHERE_MAP_NOT_SUPPORTED"
+              ? formatUnsupportedMmdSphereMapWarning(path)
+              : formatMissingMmdResourceWarning(path);
+          return [`${diagnostic.code}:${path}`, warning] as const;
+        }),
+      ).values(),
+    ];
+    for (const warning of warnings) {
+      context.onWarning?.(warning);
+    }
 
     return {
       object,
-      cleanupUrls: [objectUrl],
+      cleanupUrls: [],
       clips: [],
-      formatVersion: version,
+      formatVersion: `${metadata.format.toUpperCase()} ${metadata.header.version}`,
       warnings,
     };
   } catch (error) {
-    URL.revokeObjectURL(objectUrl);
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Unable to load MMD preview: ${message}`, { cause: error });
   }

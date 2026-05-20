@@ -19,22 +19,24 @@ vi.mock("../../lib/files", async (importOriginal) => ({
   readBinaryFile: mocks.readBinaryFile,
 }));
 
-vi.mock("@moeru/three-mmd", () => ({
-  MMDLoader: class {
-    resourcePath = "";
+vi.mock("@yohawing/three-mmd-loader", () => ({
+  parsePmxMetadata: vi.fn(() => ({
+    format: "pmx",
+    header: { version: 2.1 },
+    name: "初音ミク",
+    englishName: "Hatsune Miku",
+  })),
+  parsePmdMetadata: vi.fn(() => ({
+    format: "pmd",
+    header: { version: 1 },
+    name: "Legacy Model",
+    englishName: "",
+  })),
+  ThreeMmdLoader: class {
+    constructor(readonly options?: unknown) {}
 
-    constructor(
-      readonly plugins?: unknown[],
-      readonly manager?: import("three").LoadingManager,
-    ) {}
-
-    setResourcePath(path: string) {
-      this.resourcePath = path;
-      return this;
-    }
-
-    loadAsync(url: string) {
-      return mocks.loadAsync(url, this);
+    loadModel(source: ArrayBuffer, options?: unknown) {
+      return mocks.loadAsync(source, this, options);
     }
   },
 }));
@@ -64,10 +66,6 @@ describe("MMD preview loader", () => {
     mocks.readBinaryFile.mockReset();
     mocks.revokeObjectURL.mockReset();
     mocks.readBinaryFile.mockResolvedValue([0x50, 0x4d, 0x58, 0x20]);
-    vi.stubGlobal("URL", {
-      createObjectURL: vi.fn(() => "blob:mmd-model"),
-      revokeObjectURL: mocks.revokeObjectURL,
-    });
   });
 
   it("registers the optional MMD loader and returns a static mesh preview", async () => {
@@ -75,20 +73,39 @@ describe("MMD preview loader", () => {
     const stages: string[] = [];
     const warnings: string[] = [];
 
-    mocks.loadAsync.mockImplementation((_url, loader) => {
-      const resolvedTextureUrl = loader.manager.resolveURL(
-        "C:/mmd/textures/missing.png",
+    mocks.loadAsync.mockImplementation(async (_source, loader) => {
+      const resolver = loader.options.textureResolver;
+      await expect(resolver.resolve("textures/missing.png")).resolves.toBe(
+        "asset://localhost/C:\\mmd\\textures\\missing.png",
       );
-      loader.manager.onError?.(resolvedTextureUrl);
+      await expect(
+        resolver.resolve("https://example.com/mmd/diffuse.png"),
+      ).resolves.toBe("https://example.com/mmd/diffuse.png");
       return Promise.resolve({
         mesh,
-        pmx: {
-          header: {
-            version: 2.1,
-            modelName: "初音ミク",
-            englishModelName: "Hatsune Miku",
+        textureDiagnostics: [
+          {
+            level: "warning",
+            code: "TEXTURE_RESOLVE_FAILED",
+            materialIndex: 0,
+            textureKind: "diffuse",
+            path: "textures/missing.png",
           },
-        },
+          {
+            level: "warning",
+            code: "TEXTURE_RESOLVE_FAILED",
+            materialIndex: 1,
+            textureKind: "diffuse",
+            path: "textures/missing.png",
+          },
+          {
+            level: "warning",
+            code: "SPHERE_MAP_NOT_SUPPORTED",
+            materialIndex: 2,
+            textureKind: "sphere",
+            path: "effects/unsupported.sph",
+          },
+        ],
       });
     });
 
@@ -98,8 +115,9 @@ describe("MMD preview loader", () => {
     });
 
     expect(mocks.loadAsync).toHaveBeenCalledWith(
-      "blob:mmd-model",
+      expect.any(ArrayBuffer),
       expect.any(Object),
+      { outlines: false },
     );
     expect(mocks.convertFileSrc).toHaveBeenCalledWith(
       "C:\\mmd\\textures\\missing.png",
@@ -108,12 +126,13 @@ describe("MMD preview loader", () => {
     expect(mesh.userData.mmdSourceFile).toBe("C:\\mmd\\初音ミク.pmx");
     expect(result).toMatchObject({
       object: mesh,
-      cleanupUrls: ["blob:mmd-model"],
+      cleanupUrls: [],
       clips: [],
       formatVersion: "PMX 2.1",
     });
     expect(result.warnings).toEqual([
       "Missing MMD external asset: C:\\mmd\\textures\\missing.png. The model was loaded with a fallback or incomplete material.",
+      "Unsupported MMD sphere texture: C:\\mmd\\effects\\unsupported.sph. The model was loaded without this sphere map.",
     ]);
     expect(warnings).toEqual(result.warnings);
     expect(stages).toEqual(["scan", "decode", "scene"]);
@@ -124,13 +143,7 @@ describe("MMD preview loader", () => {
 
     mocks.loadAsync.mockResolvedValue({
       mesh,
-      pmx: {
-        header: {
-          version: 1,
-          modelName: "Legacy Model",
-          englishModelName: "",
-        },
-      },
+      textureDiagnostics: [],
     });
 
     const result = await loadPreviewObject(pmdFile);
@@ -139,12 +152,11 @@ describe("MMD preview loader", () => {
     expect(result.formatVersion).toBe("PMD 1");
   });
 
-  it("revokes the model blob URL when parsing fails", async () => {
+  it("wraps parser failures with MMD context", async () => {
     mocks.loadAsync.mockRejectedValue(new Error("malformed PMX payload"));
 
     await expect(loadPreviewObject(pmxFile)).rejects.toThrow(
       "Unable to load MMD preview: malformed PMX payload",
     );
-    expect(mocks.revokeObjectURL).toHaveBeenCalledWith("blob:mmd-model");
   });
 });
