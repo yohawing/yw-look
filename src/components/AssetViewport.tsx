@@ -94,6 +94,9 @@ import {
   applyUnlitMaterial,
   applyPreviewLightingPreset,
   DEFAULT_LIGHTING_PRESET,
+  applyPreviewRenderingPreset,
+  DEFAULT_PREVIEW_RENDERING_PRESET,
+  getPreviewRenderingPresetForExtension,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
 import { AnimationBar } from "./AnimationBar";
@@ -164,6 +167,23 @@ function retargetMmdMotion(context: SceneContext, seconds: number) {
     ik: true,
     physics: false,
   });
+}
+
+function applyViewportRenderingSettings(
+  renderer: WebGLRenderer,
+  extension: string | undefined,
+  toneMappingMode: ToneMappingMode,
+  exposure: number,
+) {
+  const preset = getPreviewRenderingPresetForExtension(extension);
+  if (preset === DEFAULT_PREVIEW_RENDERING_PRESET) {
+    renderer.outputColorSpace = preset.outputColorSpace;
+    renderer.toneMapping = toneMappingModeMap[toneMappingMode];
+    renderer.toneMappingExposure = exposure;
+    return;
+  }
+
+  applyPreviewRenderingPreset(renderer, preset);
 }
 
 function runCleanupCallbacks(callbacks: Array<() => void>) {
@@ -875,6 +895,8 @@ export function AssetViewport({
   const showAxesRef = useRef(showAxes);
   const showEnvironmentBackgroundRef = useRef(showEnvironmentBackground);
   const backgroundPresetRef = useRef(backgroundPreset);
+  const toneMappingModeRef = useRef(toneMappingMode);
+  const exposureRef = useRef(exposure);
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
   const texturePreview3DRef = useRef(texturePreview3D);
   const onSelectMeshRef = useRef(onSelectMesh);
@@ -1021,6 +1043,14 @@ export function AssetViewport({
   useEffect(() => {
     backgroundPresetRef.current = backgroundPreset;
   }, [backgroundPreset]);
+
+  useEffect(() => {
+    toneMappingModeRef.current = toneMappingMode;
+  }, [toneMappingMode]);
+
+  useEffect(() => {
+    exposureRef.current = exposure;
+  }, [exposure]);
 
   useEffect(() => {
     texturePreview3DRef.current = texturePreview3D;
@@ -1201,11 +1231,22 @@ export function AssetViewport({
       return;
     }
 
-    const renderer = new WebGLRenderer({ antialias: true, alpha: false });
+    const initialRenderingPreset = getPreviewRenderingPresetForExtension(
+      currentFile?.extension,
+    );
+    const renderer = new WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      logarithmicDepthBuffer: initialRenderingPreset.logarithmicDepthBuffer,
+    });
     renderer.setPixelRatio(window.devicePixelRatio * renderScale);
     renderer.setSize(host.clientWidth, host.clientHeight);
-    renderer.toneMapping = toneMappingModeMap[toneMappingMode];
-    renderer.toneMappingExposure = exposure;
+    applyViewportRenderingSettings(
+      renderer,
+      currentFile?.extension,
+      toneMappingMode,
+      exposure,
+    );
     // Enable the shadow pipeline up-front so toggling shadows later
     // is just a light.castShadow flip — flipping shadowMap.enabled
     // at runtime forces every material to recompile shaders.
@@ -1837,6 +1878,7 @@ export function AssetViewport({
     };
   }, [
     clearResourceDiagnostics,
+    currentFile?.extension,
     onFeedbackChange,
     onGridUnitChange,
     onMetadataChange,
@@ -1866,16 +1908,28 @@ export function AssetViewport({
     if (!context) {
       return;
     }
+    if (
+      getPreviewRenderingPresetForExtension(currentFile?.extension) !==
+      DEFAULT_PREVIEW_RENDERING_PRESET
+    ) {
+      return;
+    }
     context.renderer.toneMapping = toneMappingModeMap[toneMappingMode];
-  }, [toneMappingMode]);
+  }, [currentFile?.extension, toneMappingMode]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
     if (!context) {
       return;
     }
+    if (
+      getPreviewRenderingPresetForExtension(currentFile?.extension) !==
+      DEFAULT_PREVIEW_RENDERING_PRESET
+    ) {
+      return;
+    }
     context.renderer.toneMappingExposure = exposure;
-  }, [exposure]);
+  }, [currentFile?.extension, exposure]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -2064,6 +2118,12 @@ export function AssetViewport({
       key: keyLightRef.current,
       fill: fillLightRef.current,
     });
+    applyViewportRenderingSettings(
+      context.renderer,
+      currentFile?.extension,
+      toneMappingModeRef.current,
+      exposureRef.current,
+    );
 
     // Show/hide initial grid based on file state
     if (!currentFile) {
@@ -2229,6 +2289,7 @@ export function AssetViewport({
           clips,
           formatVersion,
           lighting = DEFAULT_LIGHTING_PRESET,
+          rendering,
           mmdModel,
           warnings = [],
         }) => {
@@ -2250,6 +2311,9 @@ export function AssetViewport({
             key: keyLightRef.current,
             fill: fillLightRef.current,
           });
+          if (rendering) {
+            applyPreviewRenderingPreset(context.renderer, rendering);
+          }
           const normalization = normalizeObjectScale(object);
           if (normalization.applied && normalization.originalScale) {
             scaleNormalizationRef.current = {

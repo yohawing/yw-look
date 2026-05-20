@@ -95,6 +95,13 @@ export {
   MMD_EXAMPLE_LIGHTING_PRESET,
 } from "./lighting";
 export type { PreviewLightingPreset } from "./lighting";
+export {
+  applyPreviewRenderingPreset,
+  DEFAULT_PREVIEW_RENDERING_PRESET,
+  getPreviewRenderingPresetForExtension,
+  MMD_PREVIEW_RENDERING_PRESET,
+} from "./rendering";
+export type { PreviewRenderingPreset } from "./rendering";
 
 export {
   getClipLabel,

@@ -202,6 +202,12 @@ describe("MMD preview loader", () => {
         keyPosition: [3, 4, 5],
         fillIntensity: 0,
       },
+      rendering: {
+        logarithmicDepthBuffer: true,
+        outputColorSpace: "srgb",
+        toneMapping: 0,
+        toneMappingExposure: 1,
+      },
     });
     expect(result.warnings).toEqual([
       "Missing MMD external asset: C:\\mmd\\textures\\missing.png. The model was loaded with a fallback or incomplete material.",

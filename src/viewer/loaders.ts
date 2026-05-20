@@ -28,6 +28,7 @@ import { isTauriEnvironment } from "../lib/platform";
 import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
 import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
 import { MMD_EXAMPLE_LIGHTING_PRESET } from "./lighting";
+import { MMD_PREVIEW_RENDERING_PRESET } from "./rendering";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
   DeferredTextureSnapshot,
@@ -2560,6 +2561,7 @@ async function loadMmdPreviewObject(
       clips: [],
       formatVersion: `${metadata.format.toUpperCase()} ${metadata.header.version}`,
       lighting: MMD_EXAMPLE_LIGHTING_PRESET,
+      rendering: MMD_PREVIEW_RENDERING_PRESET,
       mmdModel: mmd,
       warnings,
     };
