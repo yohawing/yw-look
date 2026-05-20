@@ -77,6 +77,10 @@ describe("getMimeType", () => {
   it("returns image/ktx2 for ktx2", () => {
     expect(getMimeType("ktx2")).toBe("image/ktx2");
   });
+
+  it("returns image/bmp for bmp", () => {
+    expect(getMimeType("bmp")).toBe("image/bmp");
+  });
 });
 
 // ---------------------------------------------------------------------------

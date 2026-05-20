@@ -22,7 +22,6 @@ import {
   type Texture,
   Loader as ThreeLoader,
 } from "three";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { convertAlembicToPreview } from "../lib/alembic";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { isTauriEnvironment } from "../lib/platform";
@@ -235,6 +234,8 @@ function getMimeType(extension: string) {
       return "image/x-exr";
     case "ktx2":
       return "image/ktx2";
+    case "bmp":
+      return "image/bmp";
     case "bin":
       return "application/octet-stream";
     default:
@@ -1448,13 +1449,48 @@ function resolveMmdBuiltInToonTextureUrl(texturePath: string) {
   return mmdBuiltInToonTextureUrls[normalized];
 }
 
-async function canReadFile(path: string) {
-  try {
-    await readBinaryFile(path);
-    return true;
-  } catch {
-    return false;
+async function readTextureBlobFromPath(path: string) {
+  const extension =
+    stripUrlSuffix(path).split(".").pop()?.toLowerCase() ?? "bin";
+  const buffer = await readArrayBuffer(path);
+  return new Blob([buffer], { type: getMimeType(extension) });
+}
+
+function readCachedTextureBlobFromPath(
+  path: string,
+  cache: Map<string, Promise<Blob | null>>,
+) {
+  const cached = cache.get(path);
+  if (cached) {
+    return cached;
   }
+
+  const promise = readTextureBlobFromPath(path).catch(() => null);
+  cache.set(path, promise);
+  return promise;
+}
+
+async function resolveMmdLocalTextureBlob(
+  texturePath: string,
+  file: SelectedFile,
+  cache: Map<string, Promise<Blob | null>>,
+) {
+  const candidates = texturePath
+    .split("*")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    const blob = await readCachedTextureBlobFromPath(
+      resolveMmdResourcePath(candidate, file),
+      cache,
+    );
+    if (blob) {
+      return blob;
+    }
+  }
+
+  return null;
 }
 
 function formatMmdResourceDisplayPath(url: string, file: SelectedFile) {
@@ -2399,21 +2435,31 @@ async function loadMmdPreviewObject(
       file.extension === "pmx"
         ? parsePmxMetadata(buffer)
         : parsePmdMetadata(buffer);
+    const textureBlobCache = new Map<string, Promise<Blob | null>>();
     const loader = new ThreeMmdLoader({
       textureResolver: {
         async resolve(texturePath) {
           if (isRemoteOrInlineUrl(texturePath)) {
             return texturePath;
           }
-          const localPath = resolveMmdResourcePath(texturePath, file);
           const builtInToonTextureUrl =
             resolveMmdBuiltInToonTextureUrl(texturePath);
           if (builtInToonTextureUrl) {
-            return (await canReadFile(localPath))
-              ? convertFileSrc(localPath)
-              : builtInToonTextureUrl;
+            return (
+              (await resolveMmdLocalTextureBlob(
+                texturePath,
+                file,
+                textureBlobCache,
+              )) ?? builtInToonTextureUrl
+            );
           }
-          return convertFileSrc(localPath);
+          return (
+            (await resolveMmdLocalTextureBlob(
+              texturePath,
+              file,
+              textureBlobCache,
+            )) ?? undefined
+          );
         },
       },
     });
