@@ -152,6 +152,12 @@ describe("MMD preview loader", () => {
       cleanupUrls: [],
       clips: [],
       formatVersion: "PMX 2.1",
+      lighting: {
+        ambientIntensity: 0.15,
+        keyIntensity: 1,
+        keyPosition: [3, 4, 5],
+        fillIntensity: 0,
+      },
     });
     expect(result.warnings).toEqual([
       "Missing MMD external asset: C:\\mmd\\textures\\missing.png. The model was loaded with a fallback or incomplete material.",

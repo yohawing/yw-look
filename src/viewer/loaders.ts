@@ -27,6 +27,7 @@ import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { isTauriEnvironment } from "../lib/platform";
 import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
 import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
+import { MMD_EXAMPLE_LIGHTING_PRESET } from "./lighting";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
   DeferredTextureSnapshot,
@@ -2494,6 +2495,7 @@ async function loadMmdPreviewObject(
       cleanupUrls: [],
       clips: [],
       formatVersion: `${metadata.format.toUpperCase()} ${metadata.header.version}`,
+      lighting: MMD_EXAMPLE_LIGHTING_PRESET,
       warnings,
     };
   } catch (error) {

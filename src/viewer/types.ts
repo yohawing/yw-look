@@ -11,6 +11,7 @@ import type {
   WebGLRenderer,
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import type { PreviewLightingPreset } from "./lighting";
 
 import type { ViewerMode } from "../components/ViewerStatePanel";
 
@@ -63,6 +64,7 @@ export type LoadedPreview = {
   clips: AnimationClip[];
   formatVersion: string | null;
   warnings?: string[];
+  lighting?: PreviewLightingPreset;
 };
 
 export type DeferredTextureSnapshot = {

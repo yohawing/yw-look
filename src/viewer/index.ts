@@ -88,6 +88,12 @@ export {
 export type { MetadataCollection } from "./metadata";
 
 export { createTextureViewerObject } from "./texture";
+export {
+  applyPreviewLightingPreset,
+  DEFAULT_LIGHTING_PRESET,
+  MMD_EXAMPLE_LIGHTING_PRESET,
+} from "./lighting";
+export type { PreviewLightingPreset } from "./lighting";
 
 export {
   getClipLabel,

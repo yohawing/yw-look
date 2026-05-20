@@ -91,6 +91,8 @@ import {
   applySelectionHighlight,
   clearSelectionHighlight,
   applyUnlitMaterial,
+  applyPreviewLightingPreset,
+  DEFAULT_LIGHTING_PRESET,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
 import { AnimationBar } from "./AnimationBar";
@@ -121,20 +123,6 @@ const backgroundPresetColors: Record<BackgroundPreset, string> = {
   light: "#d9dee7",
 };
 
-const mmdPreviewExtensions = new Set(["pmx", "pmd"]);
-const defaultLighting = {
-  ambientIntensity: 1.8,
-  keyIntensity: 2.4,
-  keyPosition: new Vector3(6, 8, 5),
-  fillIntensity: 1.2,
-};
-const mmdExampleLighting = {
-  ambientIntensity: 0.15,
-  keyIntensity: 1.0,
-  keyPosition: new Vector3(3, 4, 5),
-  fillIntensity: 0,
-};
-
 type RuntimePreviewUpdater = {
   update: (deltaSeconds: number) => void;
 };
@@ -148,31 +136,6 @@ function isRuntimePreviewUpdater(
     "update" in value &&
     typeof value.update === "function"
   );
-}
-
-function applyPreviewLighting(
-  extension: string | null | undefined,
-  lights: {
-    ambient: AmbientLight | null;
-    key: DirectionalLight | null;
-    fill: DirectionalLight | null;
-  },
-) {
-  const preset =
-    extension && mmdPreviewExtensions.has(extension)
-      ? mmdExampleLighting
-      : defaultLighting;
-
-  if (lights.ambient) {
-    lights.ambient.intensity = preset.ambientIntensity;
-  }
-  if (lights.key) {
-    lights.key.intensity = preset.keyIntensity;
-    lights.key.position.copy(preset.keyPosition);
-  }
-  if (lights.fill) {
-    lights.fill.intensity = preset.fillIntensity;
-  }
 }
 
 function updateRuntimePreview(
@@ -1241,10 +1204,13 @@ export function AssetViewport({
 
     const ambient = new AmbientLight(
       "#ffffff",
-      defaultLighting.ambientIntensity,
+      DEFAULT_LIGHTING_PRESET.ambientIntensity,
     );
-    const key = new DirectionalLight("#ffffff", defaultLighting.keyIntensity);
-    key.position.copy(defaultLighting.keyPosition);
+    const key = new DirectionalLight(
+      "#ffffff",
+      DEFAULT_LIGHTING_PRESET.keyIntensity,
+    );
+    key.position.set(...DEFAULT_LIGHTING_PRESET.keyPosition);
     // Shadow camera sized for the default scene; re-framed per asset
     // when the user enables shadows (applyShadows → updateShadowCatcher).
     key.shadow.mapSize.set(2048, 2048);
@@ -1257,7 +1223,10 @@ export function AssetViewport({
     key.shadow.bias = -0.0005;
     ambientLightRef.current = ambient;
     keyLightRef.current = key;
-    const fill = new DirectionalLight("#cfd9ea", defaultLighting.fillIntensity);
+    const fill = new DirectionalLight(
+      "#cfd9ea",
+      DEFAULT_LIGHTING_PRESET.fillIntensity,
+    );
     fill.position.set(-5, 3, -4);
     fillLightRef.current = fill;
     scene.add(ambient, key, fill);
@@ -2049,7 +2018,7 @@ export function AssetViewport({
     // #34: clear USD camera override on every file change so we always start
     // with the free-orbit camera for a fresh asset.
     activeCameraRef.current = null;
-    applyPreviewLighting(currentFile?.extension, {
+    applyPreviewLightingPreset(DEFAULT_LIGHTING_PRESET, {
       ambient: ambientLightRef.current,
       key: keyLightRef.current,
       fill: fillLightRef.current,
@@ -2218,6 +2187,7 @@ export function AssetViewport({
           cleanupUrls,
           clips,
           formatVersion,
+          lighting = DEFAULT_LIGHTING_PRESET,
           warnings = [],
         }) => {
           if (disposed) {
@@ -2233,6 +2203,11 @@ export function AssetViewport({
           context.sourceObject = object;
           context.cleanupUrls = cleanupUrls;
           context.cleanupCallbacks = cleanupCallbacks;
+          applyPreviewLightingPreset(lighting, {
+            ambient: ambientLightRef.current,
+            key: keyLightRef.current,
+            fill: fillLightRef.current,
+          });
           const normalization = normalizeObjectScale(object);
           if (normalization.applied && normalization.originalScale) {
             scaleNormalizationRef.current = {
