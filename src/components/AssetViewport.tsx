@@ -121,6 +121,20 @@ const backgroundPresetColors: Record<BackgroundPreset, string> = {
   light: "#d9dee7",
 };
 
+const mmdPreviewExtensions = new Set(["pmx", "pmd"]);
+const defaultLighting = {
+  ambientIntensity: 1.8,
+  keyIntensity: 2.4,
+  keyPosition: new Vector3(6, 8, 5),
+  fillIntensity: 1.2,
+};
+const mmdExampleLighting = {
+  ambientIntensity: 0.15,
+  keyIntensity: 1.0,
+  keyPosition: new Vector3(3, 4, 5),
+  fillIntensity: 0,
+};
+
 type RuntimePreviewUpdater = {
   update: (deltaSeconds: number) => void;
 };
@@ -134,6 +148,31 @@ function isRuntimePreviewUpdater(
     "update" in value &&
     typeof value.update === "function"
   );
+}
+
+function applyPreviewLighting(
+  extension: string | null | undefined,
+  lights: {
+    ambient: AmbientLight | null;
+    key: DirectionalLight | null;
+    fill: DirectionalLight | null;
+  },
+) {
+  const preset =
+    extension && mmdPreviewExtensions.has(extension)
+      ? mmdExampleLighting
+      : defaultLighting;
+
+  if (lights.ambient) {
+    lights.ambient.intensity = preset.ambientIntensity;
+  }
+  if (lights.key) {
+    lights.key.intensity = preset.keyIntensity;
+    lights.key.position.copy(preset.keyPosition);
+  }
+  if (lights.fill) {
+    lights.fill.intensity = preset.fillIntensity;
+  }
 }
 
 function updateRuntimePreview(
@@ -772,7 +811,9 @@ export function AssetViewport({
   const assetResourceMetricsRef = useRef<AssetResourceMetrics | null>(null);
   const lastResourceDiagnosticsRef = useRef<string | null>(null);
   const onResourceDiagnosticsChangeRef = useRef(onResourceDiagnosticsChange);
+  const ambientLightRef = useRef<AmbientLight | null>(null);
   const keyLightRef = useRef<DirectionalLight | null>(null);
+  const fillLightRef = useRef<DirectionalLight | null>(null);
   const showShadowsRef = useRef(showShadows);
   // EffectComposer lives behind a lazy import; only materialized the
   // first time the user enables FXAA so the base renderer path has
@@ -1198,9 +1239,12 @@ export function AssetViewport({
         : null,
     );
 
-    const ambient = new AmbientLight("#ffffff", 1.8);
-    const key = new DirectionalLight("#ffffff", 2.4);
-    key.position.set(6, 8, 5);
+    const ambient = new AmbientLight(
+      "#ffffff",
+      defaultLighting.ambientIntensity,
+    );
+    const key = new DirectionalLight("#ffffff", defaultLighting.keyIntensity);
+    key.position.copy(defaultLighting.keyPosition);
     // Shadow camera sized for the default scene; re-framed per asset
     // when the user enables shadows (applyShadows → updateShadowCatcher).
     key.shadow.mapSize.set(2048, 2048);
@@ -1211,9 +1255,11 @@ export function AssetViewport({
     key.shadow.camera.top = 20;
     key.shadow.camera.bottom = -20;
     key.shadow.bias = -0.0005;
+    ambientLightRef.current = ambient;
     keyLightRef.current = key;
-    const fill = new DirectionalLight("#cfd9ea", 1.2);
+    const fill = new DirectionalLight("#cfd9ea", defaultLighting.fillIntensity);
     fill.position.set(-5, 3, -4);
+    fillLightRef.current = fill;
     scene.add(ambient, key, fill);
     ensureShadowCatcher(scene);
 
@@ -1770,7 +1816,9 @@ export function AssetViewport({
       environmentTargetRef.current = null;
       fxaaStateRef.current?.composer.dispose();
       fxaaStateRef.current = null;
+      ambientLightRef.current = null;
       keyLightRef.current = null;
+      fillLightRef.current = null;
       pmremGenerator.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);
@@ -2001,6 +2049,11 @@ export function AssetViewport({
     // #34: clear USD camera override on every file change so we always start
     // with the free-orbit camera for a fresh asset.
     activeCameraRef.current = null;
+    applyPreviewLighting(currentFile?.extension, {
+      ambient: ambientLightRef.current,
+      key: keyLightRef.current,
+      fill: fillLightRef.current,
+    });
 
     // Show/hide initial grid based on file state
     if (!currentFile) {
