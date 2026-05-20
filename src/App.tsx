@@ -156,6 +156,7 @@ type WindowWithIdleCallback = Window & {
 };
 
 const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
+const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
 
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof Error) {
@@ -169,6 +170,29 @@ function errorMessage(error: unknown, fallback: string) {
 
 function isUsdFile(file: SelectedFile | null): boolean {
   return !!file && USD_EXTENSIONS.has(file.extension);
+}
+
+function extensionFromPath(path: string) {
+  const fileName = path.split(/[\\/]/).pop() ?? path;
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex >= 0 ? fileName.slice(dotIndex + 1).toLowerCase() : "";
+}
+
+function selectedMotionFileFromPath(path: string): SelectedFile {
+  const parts = path.split(/[\\/]/);
+  const fileName = parts.pop() || path;
+  const parentDirectory = parts.join("\\");
+  return {
+    path,
+    fileName,
+    extension: extensionFromPath(path),
+    kind: "motion",
+    parentDirectory,
+  };
+}
+
+function canAttachMmdMotion(file: SelectedFile | null) {
+  return file !== null && MMD_MODEL_EXTENSIONS.has(file.extension);
 }
 
 /**
@@ -1395,6 +1419,31 @@ export function App() {
     },
   );
 
+  const handleDroppedFilePathFromEffect = useEffectEvent(
+    async (path: string) => {
+      if (extensionFromPath(path) === "vmd") {
+        if (!canAttachMmdMotion(currentFile)) {
+          setViewerFeedback((previous) => ({
+            ...previous,
+            mode: previous.mode === "empty" ? "empty" : "loadFailed",
+            message: "VMD motion was not loaded.",
+            warning:
+              "Drop a VMD file after opening a PMX or PMD model to attach it as motion.",
+          }));
+          return;
+        }
+
+        setMmdMotionRequest((previous) => ({
+          file: selectedMotionFileFromPath(path),
+          version: (previous?.version ?? 0) + 1,
+        }));
+        return;
+      }
+
+      await performSelectFilePath(path, "open");
+    },
+  );
+
   useEffect(() => {
     let isActive = true;
 
@@ -1478,20 +1527,18 @@ export function App() {
             return;
           }
 
-          selectFilePathFromEffect(firstPath, "open").catch(
-            (error: unknown) => {
-              setOpenError(
-                error instanceof Error
-                  ? error.message
-                  : "Failed to open dropped file.",
-              );
-              setViewerFeedback((previous) => ({
-                ...previous,
-                mode: "loadFailed",
-                message: "Dropped file could not be resolved.",
-              }));
-            },
-          );
+          handleDroppedFilePathFromEffect(firstPath).catch((error: unknown) => {
+            setOpenError(
+              error instanceof Error
+                ? error.message
+                : "Failed to open dropped file.",
+            );
+            setViewerFeedback((previous) => ({
+              ...previous,
+              mode: "loadFailed",
+              message: "Dropped file could not be resolved.",
+            }));
+          });
         })
         .then((dispose) => {
           unlisten = dispose;
@@ -2511,10 +2558,7 @@ export function App() {
       showWireframe,
       onToggleWireframe: () => setShowWireframe((v) => !v),
       // Motion
-      canLoadMmdMotion:
-        isTauri &&
-        currentFile !== null &&
-        (currentFile.extension === "pmx" || currentFile.extension === "pmd"),
+      canLoadMmdMotion: isTauri && canAttachMmdMotion(currentFile),
       onLoadMmdMotion: isTauri
         ? () => {
             void handleOpenMmdMotion();
@@ -2736,7 +2780,7 @@ export function App() {
           {/* Drop overlay */}
           {isDragActive ? (
             <div className="drop-overlay">
-              <p>Drop file to open</p>
+              <p>Drop file to open or attach motion</p>
             </div>
           ) : null}
         </div>
