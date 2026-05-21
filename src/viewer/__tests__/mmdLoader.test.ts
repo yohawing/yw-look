@@ -35,15 +35,64 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
   })),
   parsePmxMetadata: vi.fn(() => ({
     format: "pmx",
-    header: { version: 2.1 },
+    header: {
+      version: 2.1,
+      encoding: "utf-8",
+      additionalUvCount: 1,
+      indexSizes: { vertex: 4, texture: 1, material: 1, bone: 2 },
+    },
     name: "初音ミク",
     englishName: "Hatsune Miku",
+    comment: "Japanese comment",
+    englishComment: "English comment",
+    counts: {
+      vertices: 100,
+      faces: 200,
+      textures: 3,
+      materials: 2,
+      bones: 20,
+      morphs: 4,
+      displayFrames: 2,
+      rigidBodies: 3,
+      joints: 1,
+      softBodies: 0,
+    },
+    trailingBytes: 0,
+  })),
+  parsePmxSectionInventory: vi.fn(() => ({
+    format: "pmx",
+    trailingBytes: 0,
+    sections: [
+      { name: "vertices", count: 100, offset: 64, byteLength: 3200 },
+      { name: "materials", count: 2, offset: 4096, byteLength: 256 },
+    ],
   })),
   parsePmdMetadata: vi.fn(() => ({
     format: "pmd",
     header: { version: 1 },
+    encoding: "shift-jis",
     name: "Legacy Model",
     englishName: "",
+    comment: "",
+    englishComment: "",
+    counts: {
+      vertices: 10,
+      faces: 12,
+      materials: 1,
+      bones: 3,
+      iks: 1,
+      morphs: 0,
+      displayFrames: 1,
+      rigidBodies: 0,
+      joints: 0,
+      softBodies: 0,
+    },
+    trailingBytes: 0,
+  })),
+  parsePmdSectionInventory: vi.fn(() => ({
+    format: "pmd",
+    trailingBytes: 0,
+    sections: [{ name: "vertices", count: 10, offset: 283, byteLength: 380 }],
   })),
   ThreeMmdLoader: class {
     constructor(readonly options?: unknown) {}
@@ -92,6 +141,15 @@ describe("MMD preview loader", () => {
 
   it("registers the optional MMD loader and returns a static mesh preview", async () => {
     const mesh = new Group();
+    mesh.userData.mmdModel = {
+      diagnostics: [
+        {
+          level: "warning",
+          code: "UNSUPPORTED_MORPH",
+          message: "Unsupported morph types are present.",
+        },
+      ],
+    };
     const outlineMesh = new Group();
     const renderOrderMesh = new Group();
     const stages: string[] = [];
@@ -208,6 +266,40 @@ describe("MMD preview loader", () => {
         outputColorSpace: "srgb",
         toneMapping: 0,
         toneMappingExposure: 1,
+      },
+      mmdMetadata: {
+        format: "pmx",
+        version: 2.1,
+        encoding: "utf-8",
+        name: "初音ミク",
+        englishName: "Hatsune Miku",
+        comment: "Japanese comment",
+        englishComment: "English comment",
+        additionalUvCount: 1,
+        trailingBytes: 0,
+        counts: {
+          vertices: 100,
+          faces: 200,
+          textures: 3,
+          materials: 2,
+          bones: 20,
+          morphs: 4,
+          displayFrames: 2,
+          rigidBodies: 3,
+          joints: 1,
+          softBodies: 0,
+        },
+        sections: [
+          { name: "vertices", count: 100, offset: 64, byteLength: 3200 },
+          { name: "materials", count: 2, offset: 4096, byteLength: 256 },
+        ],
+        diagnostics: [
+          {
+            level: "warning",
+            code: "UNSUPPORTED_MORPH",
+            message: "Unsupported morph types are present.",
+          },
+        ],
       },
     });
     expect(result.warnings).toEqual([

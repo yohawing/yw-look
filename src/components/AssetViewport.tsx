@@ -2292,6 +2292,7 @@ export function AssetViewport({
           lighting = DEFAULT_LIGHTING_PRESET,
           rendering,
           skipScaleNormalization = false,
+          mmdMetadata,
           mmdModel,
           warnings = [],
         }) => {
@@ -2388,6 +2389,7 @@ export function AssetViewport({
             currentFile,
             clips,
             formatVersion,
+            mmdMetadata,
           );
           context.textureRegistry = metadataCollection.textureRegistry;
           assetResourceMetricsRef.current = collectAssetResourceMetrics(

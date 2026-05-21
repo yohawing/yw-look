@@ -113,6 +113,33 @@ export type CameraEntry = {
   far: number;
 };
 
+export type MmdSectionEntry = {
+  name: string;
+  count: number;
+  offset: number;
+  byteLength: number;
+};
+
+export type MmdAssetMetadata = {
+  format: "pmx" | "pmd";
+  version: number;
+  encoding: string | null;
+  name: string;
+  englishName: string;
+  comment: string;
+  englishComment: string;
+  counts: Record<string, number>;
+  additionalUvCount: number | null;
+  indexSizes: Record<string, number> | null;
+  trailingBytes: number;
+  sections: MmdSectionEntry[];
+  diagnostics: Array<{
+    level: "warning" | "error";
+    code: string;
+    message: string;
+  }>;
+};
+
 export type ObjectInfo = {
   name: string;
   kind: string;
@@ -151,6 +178,7 @@ export type AssetMetadata = {
   lights: LightEntry[];
   cameras: CameraEntry[];
   objectInfo: Record<string, ObjectInfo>;
+  mmd?: MmdAssetMetadata;
 };
 
 export const emptyAssetMetadata: AssetMetadata | null = null;

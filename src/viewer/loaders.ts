@@ -30,6 +30,7 @@ import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
 import { MMD_EXAMPLE_LIGHTING_PRESET } from "./lighting";
 import { MMD_PREVIEW_RENDERING_PRESET } from "./rendering";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
+import type { MmdAssetMetadata } from "../components/assetMetadata";
 import type {
   DeferredTextureSnapshot,
   LoadedMmdMotion,
@@ -44,6 +45,80 @@ const AMMO_SCRIPT_URL = new URL(
   "../../node_modules/ammo.js/ammo.js",
   import.meta.url,
 ).href;
+
+type ParsedMmdMetadata = {
+  format: "pmx" | "pmd";
+  header: {
+    version: number;
+    encoding?: string;
+    additionalUvCount?: number;
+    indexSizes?: object;
+  };
+  encoding?: string;
+  name: string;
+  englishName: string;
+  comment?: string;
+  englishComment?: string;
+  counts: object;
+  trailingBytes?: number;
+};
+
+type ParsedMmdInventory = {
+  trailingBytes?: number;
+  sections: Array<{
+    name: string;
+    count: number;
+    offset: number;
+    byteLength: number;
+  }>;
+};
+
+function normalizeMmdDiagnostics(
+  value: unknown,
+): MmdAssetMetadata["diagnostics"] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const record = entry as Record<string, unknown>;
+    const level = record.level === "error" ? "error" : "warning";
+    const code = typeof record.code === "string" ? record.code : "UNKNOWN";
+    const message =
+      typeof record.message === "string" ? record.message : "No message.";
+    return [{ level, code, message }];
+  });
+}
+
+function normalizeNumberRecord(
+  value: object | undefined,
+): Record<string, number> | null {
+  if (!value) return null;
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, number] => typeof entry[1] === "number",
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
+function buildMmdAssetMetadata(
+  metadata: ParsedMmdMetadata,
+  inventory: ParsedMmdInventory,
+  diagnostics: unknown,
+): MmdAssetMetadata {
+  return {
+    format: metadata.format,
+    version: metadata.header.version,
+    encoding: metadata.header.encoding ?? metadata.encoding ?? null,
+    name: metadata.name,
+    englishName: metadata.englishName,
+    comment: metadata.comment ?? "",
+    englishComment: metadata.englishComment ?? "",
+    counts: normalizeNumberRecord(metadata.counts) ?? {},
+    additionalUvCount: metadata.header.additionalUvCount ?? null,
+    indexSizes: normalizeNumberRecord(metadata.header.indexSizes),
+    trailingBytes: inventory.trailingBytes ?? metadata.trailingBytes ?? 0,
+    sections: inventory.sections.map((section) => ({ ...section })),
+    diagnostics: normalizeMmdDiagnostics(diagnostics),
+  };
+}
 
 async function readArrayBuffer(path: string) {
   const bytes = await readBinaryFile(path);
@@ -2471,14 +2546,23 @@ async function loadMmdPreviewObject(
   reportStage("scan");
 
   try {
-    const { ThreeMmdLoader, parsePmdMetadata, parsePmxMetadata } =
-      await import("@yohawing/three-mmd-loader");
+    const {
+      ThreeMmdLoader,
+      parsePmdMetadata,
+      parsePmdSectionInventory,
+      parsePmxMetadata,
+      parsePmxSectionInventory,
+    } = await import("@yohawing/three-mmd-loader");
 
     const buffer = await readArrayBuffer(file.path);
     const metadata =
       file.extension === "pmx"
         ? parsePmxMetadata(buffer)
         : parsePmdMetadata(buffer);
+    const inventory =
+      file.extension === "pmx"
+        ? parsePmxSectionInventory(buffer)
+        : parsePmdSectionInventory(buffer);
     const textureBlobCache = new Map<string, Promise<Blob | null>>();
     const runtimeOptions = await createMmdRuntimeOptions(context);
     const loader = new ThreeMmdLoader({
@@ -2563,6 +2647,12 @@ async function loadMmdPreviewObject(
       lighting: MMD_EXAMPLE_LIGHTING_PRESET,
       rendering: MMD_PREVIEW_RENDERING_PRESET,
       skipScaleNormalization: true,
+      mmdMetadata: buildMmdAssetMetadata(
+        metadata,
+        inventory,
+        (mmd.mesh.userData.mmdModel as { diagnostics?: unknown } | undefined)
+          ?.diagnostics,
+      ),
       mmdModel: mmd,
       warnings,
     };

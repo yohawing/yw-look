@@ -14,6 +14,7 @@ import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js
 import type { PreviewLightingPreset } from "./lighting";
 import type { PreviewRenderingPreset } from "./rendering";
 import type { MmdAnimation, ThreeMmdModel } from "@yohawing/three-mmd-loader";
+import type { MmdAssetMetadata } from "../components/assetMetadata";
 
 import type { ViewerMode } from "../components/ViewerStatePanel";
 
@@ -78,6 +79,7 @@ export type LoadedPreview = {
   lighting?: PreviewLightingPreset;
   rendering?: PreviewRenderingPreset;
   skipScaleNormalization?: boolean;
+  mmdMetadata?: MmdAssetMetadata;
   mmdModel?: ThreeMmdModel;
 };
 

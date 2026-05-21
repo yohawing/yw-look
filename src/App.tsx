@@ -48,6 +48,7 @@ import { FileBrowserCard } from "./components/FileBrowserCard";
 import { HierarchyCard } from "./components/HierarchyCard";
 import { UsdPrimPropertyPanel } from "./components/UsdPrimPropertyPanel";
 import { MaterialListCard } from "./components/MaterialListCard";
+import { MmdMetadataCard } from "./components/MmdMetadataCard";
 import { MenuBar } from "./components/MenuBar";
 import {
   PerformanceCard,
@@ -2126,6 +2127,9 @@ export function App() {
                   metadata={sidebarAssetMetadata}
                 />
               )}
+            {sidebarAssetMetadata?.mmd ? (
+              <MmdMetadataCard metadata={sidebarAssetMetadata.mmd} />
+            ) : null}
             {isTauri && isUsdFile(currentFile) && (
               <>
                 <UsdInspectorCard

@@ -26,6 +26,7 @@ import type {
   LightEntry,
   MaterialEntry,
   MaterialTextureSlot,
+  MmdAssetMetadata,
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { getMaterials } from "./scene";
@@ -594,6 +595,7 @@ export function collectAssetMetadata(
   currentFile: SelectedFile,
   clips: AnimationClip[],
   formatVersion: string | null,
+  mmdMetadata?: MmdAssetMetadata,
 ): MetadataCollection {
   let nodeCount = 0;
   let meshCount = 0;
@@ -702,6 +704,7 @@ export function collectAssetMetadata(
       lights,
       cameras,
       objectInfo: Object.fromEntries(objectInfoMap),
+      ...(mmdMetadata ? { mmd: mmdMetadata } : {}),
     },
     textureRegistry,
   };
