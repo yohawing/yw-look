@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Group } from "three";
+import { BufferGeometry, Group, Mesh, MeshBasicMaterial, Texture } from "three";
 import type { SelectedFile } from "../../lib/files";
 
 const mocks = vi.hoisted(() => ({
@@ -140,7 +140,13 @@ describe("MMD preview loader", () => {
   });
 
   it("registers the optional MMD loader and returns a static mesh preview", async () => {
-    const mesh = new Group();
+    const diffuseTexture = new Texture();
+    diffuseTexture.flipY = false;
+    const alphaTexture = new Texture();
+    alphaTexture.flipY = false;
+    const material = new MeshBasicMaterial({ map: diffuseTexture });
+    material.alphaMap = alphaTexture;
+    const mesh = new Mesh(new BufferGeometry(), material);
     mesh.userData.mmdModel = {
       diagnostics: [
         {
@@ -242,6 +248,10 @@ describe("MMD preview loader", () => {
     expect(mesh.userData.__ywMmdModel).toBeDefined();
     expect(mesh.userData.mmd).toBeUndefined();
     expect(mesh.userData.mmdSourceFile).toBe("C:\\mmd\\初音ミク.pmx");
+    expect(diffuseTexture.flipY).toBe(true);
+    expect(diffuseTexture.version).toBeGreaterThan(0);
+    expect(alphaTexture.flipY).toBe(false);
+    expect(alphaTexture.version).toBe(0);
     expect(result.object.children).toEqual([
       mesh,
       outlineMesh,

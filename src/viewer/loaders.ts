@@ -17,9 +17,9 @@ import {
   PlaneGeometry,
   RGBAFormat,
   SRGBColorSpace,
+  Texture,
   TextureLoader,
   type Material,
-  type Texture,
   Loader as ThreeLoader,
 } from "three";
 import { convertAlembicToPreview } from "../lib/alembic";
@@ -38,6 +38,7 @@ import type {
   LoadingStageReporter,
   MissingReferenceError,
   TextureBundle,
+  TexturedMaterial,
 } from "./types";
 
 const MMD_FRAME_RATE = 30;
@@ -118,6 +119,30 @@ function buildMmdAssetMetadata(
     sections: inventory.sections.map((section) => ({ ...section })),
     diagnostics: normalizeMmdDiagnostics(diagnostics),
   };
+}
+
+function invertMmdDiffuseTextures(object: Object3D) {
+  const touched = new WeakSet<Texture>();
+
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    const materials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+
+    for (const material of materials) {
+      const diffuseTexture = (material as TexturedMaterial).map;
+      if (!(diffuseTexture instanceof Texture) || touched.has(diffuseTexture)) {
+        continue;
+      }
+      diffuseTexture.flipY = true;
+      diffuseTexture.needsUpdate = true;
+      touched.add(diffuseTexture);
+    }
+  });
 }
 
 async function readArrayBuffer(path: string) {
@@ -2600,6 +2625,7 @@ async function loadMmdPreviewObject(
       outlines: true,
       frustumCulled: false,
     });
+    invertMmdDiffuseTextures(mmd.mesh);
     reportStage("scene");
 
     const displayName = metadata.englishName || metadata.name || file.fileName;
