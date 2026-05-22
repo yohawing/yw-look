@@ -4,6 +4,7 @@ import type {
   ProcessMemoryMetrics,
   ResourceDiagnosticsSnapshot,
 } from "../lib/diagnostics";
+import type { MmdAssetMetadata } from "./assetMetadata";
 import { CompactMetricRows, type CompactMetricRow } from "./CompactMetricRows";
 import {
   SidebarEmpty,
@@ -14,6 +15,7 @@ import {
 type DiagnosticsCardProps = {
   diagnosticsPayload: DiagnosticsPayload | null;
   diagnosticsError: string | null;
+  mmdDiagnostics?: MmdAssetMetadata["diagnostics"];
   processMemoryMetrics: ProcessMemoryMetrics | null;
   resourceDiagnostics: ResourceDiagnosticsSnapshot | null;
 };
@@ -21,6 +23,7 @@ type DiagnosticsCardProps = {
 export function DiagnosticsCard({
   diagnosticsPayload,
   diagnosticsError,
+  mmdDiagnostics = [],
   processMemoryMetrics,
   resourceDiagnostics,
 }: DiagnosticsCardProps) {
@@ -33,6 +36,7 @@ export function DiagnosticsCard({
     return (
       <>
         <ResourceDiagnosticsSection rows={resourceRows} />
+        <MmdDiagnosticsSection diagnostics={mmdDiagnostics} />
         <SidebarSection title="Diagnostics">
           <SidebarError>{diagnosticsError}</SidebarError>
         </SidebarSection>
@@ -44,6 +48,7 @@ export function DiagnosticsCard({
     return (
       <>
         <ResourceDiagnosticsSection rows={resourceRows} />
+        <MmdDiagnosticsSection diagnostics={mmdDiagnostics} />
         <SidebarSection title="Diagnostics">
           <SidebarEmpty>Loading diagnostics log.</SidebarEmpty>
         </SidebarSection>
@@ -54,6 +59,7 @@ export function DiagnosticsCard({
   return (
     <>
       <ResourceDiagnosticsSection rows={resourceRows} />
+      <MmdDiagnosticsSection diagnostics={mmdDiagnostics} />
       <SidebarSection
         title="Diagnostics"
         count={diagnosticsPayload.diagnosticsSnapshot.length}
@@ -68,6 +74,36 @@ export function DiagnosticsCard({
         )}
       </SidebarSection>
     </>
+  );
+}
+
+function MmdDiagnosticsSection({
+  diagnostics,
+}: {
+  diagnostics: MmdAssetMetadata["diagnostics"];
+}) {
+  if (diagnostics.length === 0) return null;
+
+  return (
+    <SidebarSection
+      title="MMD Diagnostics"
+      count={diagnostics.length}
+      collapsible
+      defaultOpen={false}
+    >
+      <div className="sidebar-kv">
+        {diagnostics.map((diagnostic, index) => (
+          <div className="sidebar-kv-row" key={`${diagnostic.code}:${index}`}>
+            <span className="sidebar-kv-key">{diagnostic.code}</span>
+            <span
+              className={`sidebar-kv-value is-${diagnostic.level === "error" ? "danger" : "warn"}`}
+            >
+              {diagnostic.message}
+            </span>
+          </div>
+        ))}
+      </div>
+    </SidebarSection>
   );
 }
 

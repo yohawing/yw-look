@@ -2,6 +2,7 @@ import type { MmdAssetMetadata } from "./assetMetadata";
 import {
   SidebarEmpty,
   SidebarKeyValueRows,
+  SidebarMultilineValue,
   SidebarSection,
   type SidebarKeyValueRow,
 } from "./sidebarPrimitives";
@@ -15,19 +16,8 @@ function renderValue(value: string | number | null | undefined) {
   return value;
 }
 
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  const kb = value / 1024;
-  if (kb < 1024) return `${kb.toFixed(kb >= 10 ? 1 : 2)} KB`;
-  const mb = kb / 1024;
-  return `${mb.toFixed(mb >= 10 ? 1 : 2)} MB`;
-}
-
-function formatRecord(record: Record<string, number> | null) {
-  if (!record) return "-";
-  const entries = Object.entries(record);
-  if (entries.length === 0) return "-";
-  return entries.map(([key, value]) => `${key}:${value}`).join(" / ");
+function renderMultiline(value: string) {
+  return <SidebarMultilineValue>{renderValue(value)}</SidebarMultilineValue>;
 }
 
 export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
@@ -51,12 +41,12 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
     {
       id: "comment",
       label: "Comment",
-      value: renderValue(metadata.comment),
+      value: renderMultiline(metadata.comment),
     },
     {
       id: "english-comment",
       label: "English comment",
-      value: renderValue(metadata.englishComment),
+      value: renderMultiline(metadata.englishComment),
     },
   ];
 
@@ -77,12 +67,6 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
       id: "additional-uv",
       label: "Additional UV",
       value: renderValue(metadata.additionalUvCount),
-      mono: true,
-    },
-    {
-      id: "index-sizes",
-      label: "Index sizes",
-      value: formatRecord(metadata.indexSizes),
       mono: true,
     },
     {
@@ -112,52 +96,6 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
       <SidebarSection title="MMD Format" collapsible defaultOpen={false}>
         <SidebarKeyValueRows rows={formatRows} />
       </SidebarSection>
-      <SidebarSection
-        title="MMD Sections"
-        count={metadata.sections.length}
-        collapsible
-        defaultOpen={false}
-      >
-        {metadata.sections.length > 0 ? (
-          <div className="sidebar-kv">
-            {metadata.sections.map((section) => (
-              <div className="sidebar-kv-row" key={section.name}>
-                <span className="sidebar-kv-key">{section.name}</span>
-                <span className="sidebar-kv-value is-mono">
-                  {section.count} / {formatBytes(section.byteLength)} @{" "}
-                  {section.offset}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <SidebarEmpty>No section inventory.</SidebarEmpty>
-        )}
-      </SidebarSection>
-      {metadata.diagnostics.length > 0 ? (
-        <SidebarSection
-          title="MMD Diagnostics"
-          count={metadata.diagnostics.length}
-          collapsible
-          defaultOpen={false}
-        >
-          <div className="sidebar-kv">
-            {metadata.diagnostics.map((diagnostic, index) => (
-              <div
-                className="sidebar-kv-row"
-                key={`${diagnostic.code}:${index}`}
-              >
-                <span className="sidebar-kv-key">{diagnostic.code}</span>
-                <span
-                  className={`sidebar-kv-value is-${diagnostic.level === "error" ? "danger" : "warn"}`}
-                >
-                  {diagnostic.message}
-                </span>
-              </div>
-            ))}
-          </div>
-        </SidebarSection>
-      ) : null}
     </>
   );
 }

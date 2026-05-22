@@ -672,9 +672,20 @@ export function App() {
         (texture) => texture.sourceKind === "unresolved",
       ).length ?? 0;
     const viewerWarningCount = viewerWarningLines.length;
-    const errorCount = loadErrorCount + usdErrorCount;
+    const mmdErrorCount =
+      assetMetadata?.mmd?.diagnostics.filter(
+        (diagnostic) => diagnostic.level === "error",
+      ).length ?? 0;
+    const mmdWarningCount =
+      assetMetadata?.mmd?.diagnostics.filter(
+        (diagnostic) => diagnostic.level === "warning",
+      ).length ?? 0;
+    const errorCount = loadErrorCount + usdErrorCount + mmdErrorCount;
     const warningCount =
-      usdWarningCount + unresolvedTextureCount + viewerWarningCount;
+      usdWarningCount +
+      unresolvedTextureCount +
+      viewerWarningCount +
+      mmdWarningCount;
 
     return {
       errorCount,
@@ -682,6 +693,7 @@ export function App() {
       total: errorCount + warningCount,
     };
   }, [
+    assetMetadata?.mmd?.diagnostics,
     assetMetadata?.textures,
     debugPanelsEnabled,
     usdIssues,
@@ -2322,6 +2334,7 @@ export function App() {
               <DiagnosticsCard
                 diagnosticsError={diagnosticsError}
                 diagnosticsPayload={diagnosticsPayload}
+                mmdDiagnostics={sidebarAssetMetadata?.mmd?.diagnostics}
                 processMemoryMetrics={processMemoryMetrics}
                 resourceDiagnostics={resourceDiagnostics}
               />

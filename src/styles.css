@@ -199,6 +199,16 @@ textarea {
   line-height: 1.6;
 }
 
+.sidebar-multiline-value {
+  display: block;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
+  line-height: 1.5;
+}
+
 .main-content {
   grid-column: 1;
   grid-row: 2;

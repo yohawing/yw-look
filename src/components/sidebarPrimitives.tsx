@@ -85,6 +85,10 @@ export function SidebarKeyValueRows({
   );
 }
 
+export function SidebarMultilineValue({ children }: { children: ReactNode }) {
+  return <span className="sidebar-multiline-value">{children}</span>;
+}
+
 export function SidebarEmpty({ children }: { children: ReactNode }) {
   return <p className="sidebar-empty">{children}</p>;
 }
