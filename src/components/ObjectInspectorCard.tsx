@@ -103,7 +103,13 @@ function MaterialInline({ mat }: { mat: MaterialEntry }) {
 function formatUserDataValue(v: unknown): string {
   if (v === null) return "null";
   if (v === undefined) return "undefined";
-  if (typeof v === "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return `Array(${v.length})`;
+  if (typeof v === "object") {
+    const keys = Object.keys(v);
+    return keys.length > 0
+      ? `Object(${keys.length}: ${keys.slice(0, 3).join(", ")}${keys.length > 3 ? ", ..." : ""})`
+      : "Object(0)";
+  }
   return String(v);
 }
 

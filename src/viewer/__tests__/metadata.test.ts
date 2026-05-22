@@ -269,6 +269,26 @@ describe("collectAssetMetadata", () => {
     ]);
   });
 
+  it("omits heavy runtime userData from object inspector metadata", () => {
+    const root = new Group();
+    const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    mesh.name = "RuntimeMesh";
+    mesh.userData.mmdModel = { huge: new Array(1000).fill(0) };
+    mesh.userData.mmdPhysics = { rigidBodies: new Array(1000).fill({}) };
+    mesh.userData.mmdMorphs = new Array(1000).fill({});
+    mesh.userData.mmdIkChains = new Array(1000).fill({});
+    mesh.userData.mmdSourceFile = "C:\\mmd\\model.pmx";
+    mesh.userData.vrm = { scene: root };
+    mesh.userData.author = "visible";
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.objectInfo.RuntimeMesh?.userData).toEqual({
+      author: "visible",
+    });
+  });
+
   it("uses (unnamed mesh) for binding entries without a name", () => {
     const root = new Group();
     const mat = new MeshBasicMaterial();

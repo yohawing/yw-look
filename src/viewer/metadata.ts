@@ -554,6 +554,8 @@ function buildObjectInfo(
   const userKeys = Object.keys(object.userData).filter(
     (k) =>
       !k.startsWith("__") &&
+      !k.startsWith("mmd") &&
+      k !== "vrm" &&
       k !== "primPath" &&
       k !== "purpose" &&
       k !== "textureSourceKind",
