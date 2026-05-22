@@ -2128,17 +2128,6 @@ export function App() {
               }
               warnings={sidebarWarnings}
             />
-            {sidebarAssetMetadata &&
-              !isUsdFile(currentFile) &&
-              selectedMeshName && (
-                <ObjectInspectorCard
-                  selectedKey={selectedMeshName}
-                  objectInfo={
-                    sidebarAssetMetadata.objectInfo[selectedMeshName] ?? null
-                  }
-                  metadata={sidebarAssetMetadata}
-                />
-              )}
             {sidebarAssetMetadata?.mmd ? (
               <MmdMetadataCard metadata={sidebarAssetMetadata.mmd} />
             ) : null}
@@ -2258,6 +2247,15 @@ export function App() {
                 stageSessionHandle !== null ? handleUnloadPayload : undefined
               }
             />
+            {sidebarAssetMetadata && selectedMeshName ? (
+              <ObjectInspectorCard
+                selectedKey={selectedMeshName}
+                objectInfo={
+                  sidebarAssetMetadata.objectInfo[selectedMeshName] ?? null
+                }
+                metadata={sidebarAssetMetadata}
+              />
+            ) : null}
             {isUsdFile(currentFile) && (
               <UsdPrimPropertyPanel
                 path={currentFile?.path ?? null}
