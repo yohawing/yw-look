@@ -14,6 +14,7 @@ export type TextureEntry = {
   channel: string;
   dimensions: string;
   thumbnailUrl: string | null;
+  previewFlipY?: boolean;
   sourceKind: "embedded" | "external" | "standalone" | "unresolved" | "unknown";
 };
 

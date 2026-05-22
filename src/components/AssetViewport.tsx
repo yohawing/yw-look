@@ -447,6 +447,16 @@ function isolateObject(root: Object3D, selected: Object3D) {
   }
 }
 
+function shouldFlipTexturePreviewY(
+  texture: Texture,
+  file: SelectedFile | null,
+): boolean {
+  return (
+    (file?.extension === "pmx" || file?.extension === "pmd") &&
+    texture.flipY === false
+  );
+}
+
 type AssetViewportProps = {
   currentFile: SelectedFile | null;
   mmdMotionRequest?: {
@@ -2872,6 +2882,7 @@ export function AssetViewport({
       textureWhitePoint,
       textureTileCount,
       textureGamma,
+      shouldFlipTexturePreviewY(selectedTexture, currentFile),
     );
     context.sourceObject.visible = false;
     context.previewObject = previewObject;
@@ -2895,6 +2906,7 @@ export function AssetViewport({
     textureTileCount,
     textureViewMode,
     textureWhitePoint,
+    currentFile,
     viewerSurfaceMode,
   ]);
 

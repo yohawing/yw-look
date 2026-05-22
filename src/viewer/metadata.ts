@@ -312,7 +312,17 @@ function getTextureDimensions(texture: Texture) {
 
 const THUMB_SIZE = 128;
 
-function generateThumbnailUrl(texture: Texture): string | null {
+function shouldFlipTexturePreviewY(
+  texture: Texture,
+  currentFile: SelectedFile,
+): boolean {
+  return (
+    (currentFile.extension === "pmx" || currentFile.extension === "pmd") &&
+    texture.flipY === false
+  );
+}
+
+function generateThumbnailUrl(texture: Texture, flipY: boolean): string | null {
   const image = texture.image as
     | HTMLImageElement
     | HTMLCanvasElement
@@ -328,6 +338,10 @@ function generateThumbnailUrl(texture: Texture): string | null {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
+    if (flipY) {
+      ctx.translate(0, THUMB_SIZE);
+      ctx.scale(1, -1);
+    }
     ctx.drawImage(image as CanvasImageSource, 0, 0, THUMB_SIZE, THUMB_SIZE);
     return canvas.toDataURL("image/jpeg", 0.7);
   } catch {
@@ -676,12 +690,17 @@ export function collectAssetMetadata(
           continue;
         }
 
+        const previewFlipY = shouldFlipTexturePreviewY(
+          textureValue,
+          currentFile,
+        );
         textures.set(textureId, {
           id: textureId,
           label: textureValue.name.trim() || `${channel} Texture`,
           channel,
           dimensions: getTextureDimensions(textureValue),
-          thumbnailUrl: generateThumbnailUrl(textureValue),
+          thumbnailUrl: generateThumbnailUrl(textureValue, previewFlipY),
+          ...(previewFlipY ? { previewFlipY } : {}),
           sourceKind: inferTextureSourceKind(textureValue, currentFile),
         });
         textureRegistry.set(textureId, textureValue);

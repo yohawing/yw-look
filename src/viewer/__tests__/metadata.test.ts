@@ -18,6 +18,7 @@ import {
   MeshBasicMaterial,
   PerspectiveCamera,
   PointLight,
+  Texture,
 } from "three";
 import { collectAssetMetadata } from "../metadata";
 import type { SelectedFile } from "../../lib/files";
@@ -26,6 +27,14 @@ const fakeFile: SelectedFile = {
   path: "/tmp/fake.dae",
   fileName: "fake.dae",
   extension: "dae",
+  kind: "model",
+  parentDirectory: "/tmp",
+};
+
+const fakeMmdFile: SelectedFile = {
+  path: "/tmp/miku.pmx",
+  fileName: "miku.pmx",
+  extension: "pmx",
   kind: "model",
   parentDirectory: "/tmp",
 };
@@ -302,6 +311,44 @@ describe("collectAssetMetadata", () => {
     expect(result.metadata.materials[0].boundMeshes).toEqual([
       "(unnamed mesh)",
     ]);
+  });
+
+  it("marks unflipped MMD textures for display-only vertical preview flipping", () => {
+    const texture = new Texture();
+    texture.name = "diffuse.bmp";
+    texture.flipY = false;
+    const material = new MeshBasicMaterial({ map: texture });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    mesh.name = "Miku";
+    const root = new Group();
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.textures[0]).toMatchObject({
+      label: "diffuse.bmp",
+      previewFlipY: true,
+    });
+    expect(texture.flipY).toBe(false);
+  });
+
+  it("does not re-flip MMD textures that already request flipY", () => {
+    const texture = new Texture();
+    texture.name = "toon.bmp";
+    texture.flipY = true;
+    const material = new MeshBasicMaterial({ map: texture });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    mesh.name = "Miku";
+    const root = new Group();
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.textures[0]).toMatchObject({
+      label: "toon.bmp",
+    });
+    expect(result.metadata.textures[0]?.previewFlipY).toBeUndefined();
+    expect(texture.flipY).toBe(true);
   });
 
   it("uses GLB node basename directly as fixture name (#46 hierarchy-aware path)", () => {
