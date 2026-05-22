@@ -1330,6 +1330,10 @@ body.is-resizing-sidebar {
   object-fit: cover;
 }
 
+.texture-card-preview img.is-preview-flipped-y {
+  transform: scaleY(-1);
+}
+
 .texture-card-preview-placeholder {
   font-size: 18px;
   font-weight: 510;

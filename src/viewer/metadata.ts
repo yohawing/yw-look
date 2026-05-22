@@ -322,7 +322,7 @@ function shouldFlipTexturePreviewY(
   );
 }
 
-function generateThumbnailUrl(texture: Texture, flipY: boolean): string | null {
+function generateThumbnailUrl(texture: Texture): string | null {
   const image = texture.image as
     | HTMLImageElement
     | HTMLCanvasElement
@@ -338,10 +338,6 @@ function generateThumbnailUrl(texture: Texture, flipY: boolean): string | null {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
-    if (flipY) {
-      ctx.translate(0, THUMB_SIZE);
-      ctx.scale(1, -1);
-    }
     ctx.drawImage(image as CanvasImageSource, 0, 0, THUMB_SIZE, THUMB_SIZE);
     return canvas.toDataURL("image/jpeg", 0.7);
   } catch {
@@ -699,7 +695,7 @@ export function collectAssetMetadata(
           label: textureValue.name.trim() || `${channel} Texture`,
           channel,
           dimensions: getTextureDimensions(textureValue),
-          thumbnailUrl: generateThumbnailUrl(textureValue, previewFlipY),
+          thumbnailUrl: generateThumbnailUrl(textureValue),
           ...(previewFlipY ? { previewFlipY } : {}),
           sourceKind: inferTextureSourceKind(textureValue, currentFile),
         });
