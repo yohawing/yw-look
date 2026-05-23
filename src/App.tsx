@@ -207,6 +207,13 @@ function formatAssetIssue(issue: AssetIssue): string {
   return `${prefix}: ${issue.message}${context}`;
 }
 
+function formatMmdDiagnostic(
+  diagnostic: NonNullable<AssetMetadata["mmd"]>["diagnostics"][number],
+): string {
+  const prefix = diagnostic.level === "error" ? "MMD error" : "MMD warning";
+  return `${prefix}: ${diagnostic.message} (${diagnostic.code})`;
+}
+
 function splitViewerWarnings(warning: string | null): string[] {
   return (
     warning
@@ -644,8 +651,17 @@ export function App() {
       nextWarnings.push(formatAssetIssue(issue));
     }
 
+    for (const diagnostic of assetMetadata?.mmd?.diagnostics ?? []) {
+      nextWarnings.push(formatMmdDiagnostic(diagnostic));
+    }
+
     return nextWarnings;
-  }, [assetMetadata?.textures, usdIssues, viewerWarningLines]);
+  }, [
+    assetMetadata?.mmd?.diagnostics,
+    assetMetadata?.textures,
+    usdIssues,
+    viewerWarningLines,
+  ]);
   const sidebarWarnings = debugPanelsEnabled ? debugPanelWarnings : warnings;
   const diagnosticCounts = useMemo(() => {
     if (debugPanelsEnabled) {
@@ -2332,7 +2348,6 @@ export function App() {
               <DiagnosticsCard
                 diagnosticsError={diagnosticsError}
                 diagnosticsPayload={diagnosticsPayload}
-                mmdDiagnostics={sidebarAssetMetadata?.mmd?.diagnostics}
                 processMemoryMetrics={processMemoryMetrics}
                 resourceDiagnostics={resourceDiagnostics}
               />
