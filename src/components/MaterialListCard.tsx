@@ -1,5 +1,10 @@
 import { useState } from "react";
-import type { MaterialEntry, MaterialTextureSlot } from "./assetMetadata";
+import type { ReactNode } from "react";
+import type {
+  MaterialEntry,
+  MaterialTextureSlot,
+  MmdMaterialEntry,
+} from "./assetMetadata";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
 
 type MaterialListCardProps = {
@@ -20,6 +25,26 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
+function fmtFloat(v: number): string {
+  return v.toFixed(3).replace(/\.?0+$/, "");
+}
+
+function fmtVec(values: readonly number[]): string {
+  return values.map(fmtFloat).join(", ");
+}
+
+function fmtTexturePath(path: string | null): string {
+  return path ?? "none";
+}
+
+function fmtFlags(flags: Record<string, boolean> | null): string {
+  if (!flags) return "none";
+  const enabled = Object.entries(flags)
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name);
+  return enabled.length > 0 ? enabled.join(", ") : "none";
+}
+
 function TextureSlotRow({
   label,
   slot,
@@ -33,6 +58,119 @@ function TextureSlotRow({
       <td className="mat-slot-label">{label}</td>
       <td className="mat-slot-value mat-slot-texture">{slot.name}</td>
     </tr>
+  );
+}
+
+function MmdValueRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <tr className="mat-slot-row">
+      <td className="mat-slot-label">{label}</td>
+      <td className="mat-slot-value">{children}</td>
+    </tr>
+  );
+}
+
+function MmdColorRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: [number, number, number] | [number, number, number, number] | null;
+}) {
+  if (!value) return null;
+  return (
+    <MmdValueRow label={label}>
+      <span
+        className="mat-inline-swatch"
+        style={{ background: rgbToHex(value[0], value[1], value[2]) }}
+      />
+      <span className="mat-slot-hex">
+        {rgbToHex(value[0], value[1], value[2])}
+      </span>
+      <span className="mat-slot-alpha"> ({fmtVec(value)})</span>
+    </MmdValueRow>
+  );
+}
+
+function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
+  if (!mmd) return null;
+  return (
+    <details className="material-bindings material-shader-details" open>
+      <summary className="material-detail">MMD material</summary>
+      <table className="mat-slot-table">
+        <tbody>
+          {mmd.materialIndex !== null && (
+            <MmdValueRow label="Index">{mmd.materialIndex}</MmdValueRow>
+          )}
+          {mmd.englishName && mmd.englishName !== mmd.name && (
+            <MmdValueRow label="English">{mmd.englishName}</MmdValueRow>
+          )}
+          <MmdColorRow label="Diffuse" value={mmd.diffuse} />
+          <MmdColorRow label="Specular" value={mmd.specular} />
+          {mmd.specularPower !== null && (
+            <MmdValueRow label="Spec Power">
+              {fmtFloat(mmd.specularPower)}
+            </MmdValueRow>
+          )}
+          <MmdColorRow label="Ambient" value={mmd.ambient} />
+          <MmdColorRow label="Edge" value={mmd.edgeColor} />
+          {mmd.edgeSize !== null && (
+            <MmdValueRow label="Edge Size">
+              {fmtFloat(mmd.edgeSize)}
+            </MmdValueRow>
+          )}
+          <MmdValueRow label="Texture">
+            <span className="mat-slot-texture">
+              {fmtTexturePath(mmd.texturePath)}
+            </span>
+          </MmdValueRow>
+          <MmdValueRow label="Sphere">
+            <span className="mat-slot-texture">
+              {fmtTexturePath(mmd.sphereTexturePath)}
+            </span>
+            {mmd.sphereMode && (
+              <span className="mat-slot-alpha"> ({mmd.sphereMode})</span>
+            )}
+          </MmdValueRow>
+          <MmdValueRow label="Toon">
+            <span className="mat-slot-texture">
+              {fmtTexturePath(mmd.toonTexturePath)}
+            </span>
+            {mmd.sharedToonIndex !== null && (
+              <span className="mat-slot-alpha">
+                {" "}
+                shared:{mmd.sharedToonIndex}
+              </span>
+            )}
+          </MmdValueRow>
+          {mmd.transparencyMode && (
+            <MmdValueRow label="Transparency">
+              <span className="sidebar-chip">{mmd.transparencyMode}</span>
+            </MmdValueRow>
+          )}
+          {mmd.renderOrderBucket && (
+            <MmdValueRow label="Render Order">
+              {mmd.renderOrderBucket}
+            </MmdValueRow>
+          )}
+          {mmd.faceCount !== null && (
+            <MmdValueRow label="Faces">{mmd.faceCount}</MmdValueRow>
+          )}
+          <MmdValueRow label="Flags">{fmtFlags(mmd.flags)}</MmdValueRow>
+          {mmd.unsupportedDrawFlags.length > 0 && (
+            <MmdValueRow label="Unsupported">
+              {mmd.unsupportedDrawFlags.join(", ")}
+            </MmdValueRow>
+          )}
+        </tbody>
+      </table>
+    </details>
   );
 }
 
@@ -239,6 +377,7 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
           </ul>
         </details>
       )}
+      <MmdMaterialDetails mmd={mat.mmd} />
       <ShaderDetails mat={mat} />
     </section>
   );

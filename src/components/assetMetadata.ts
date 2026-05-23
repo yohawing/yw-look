@@ -28,6 +28,28 @@ export type MaterialTextureSlot = {
   name: string;
 };
 
+export type MmdMaterialEntry = {
+  materialIndex: number | null;
+  name: string;
+  englishName: string | null;
+  diffuse: [number, number, number, number] | null;
+  specular: [number, number, number] | null;
+  ambient: [number, number, number] | null;
+  specularPower: number | null;
+  edgeColor: [number, number, number, number] | null;
+  edgeSize: number | null;
+  texturePath: string | null;
+  sphereTexturePath: string | null;
+  sphereMode: string | null;
+  toonTexturePath: string | null;
+  sharedToonIndex: number | null;
+  transparencyMode: string | null;
+  renderOrderBucket: string | null;
+  faceCount: number | null;
+  flags: Record<string, boolean> | null;
+  unsupportedDrawFlags: string[];
+};
+
 export type MaterialEntry = {
   id: string;
   name: string;
@@ -70,6 +92,8 @@ export type MaterialEntry = {
    * the asset went through the Phase-7 USD→GLB pipeline. `null` when the
    * round-trip drops the prim path (the common case for pure-GLB assets). */
   usdPrimPath: string | null;
+  /** MMD material metadata from `@yohawing/three-mmd-loader`, when present. */
+  mmd: MmdMaterialEntry | null;
 };
 
 /** One light surfaced in the scene panel. Authored by USD as

@@ -27,6 +27,7 @@ import type {
   MaterialEntry,
   MaterialTextureSlot,
   MmdAssetMetadata,
+  MmdMaterialEntry,
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { getMaterials, isViewportHelperObject } from "./scene";
@@ -221,6 +222,84 @@ function inferAlphaMode(
   return "OPAQUE";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stringValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function numberTuple3(value: unknown): [number, number, number] | null {
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const tuple = value.slice(0, 3).map(numberValue);
+  if (tuple.some((v) => v === null)) return null;
+  return tuple as [number, number, number];
+}
+
+function numberTuple4(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length < 4) return null;
+  const tuple = value.slice(0, 4).map(numberValue);
+  if (tuple.some((v) => v === null)) return null;
+  return tuple as [number, number, number, number];
+}
+
+function booleanRecord(value: unknown): Record<string, boolean> | null {
+  if (!isRecord(value)) return null;
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, boolean] => typeof entry[1] === "boolean",
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function buildMmdMaterialEntry(material: Material): MmdMaterialEntry | null {
+  const raw = (material.userData as Record<string, unknown>).mmdMaterial;
+  if (!isRecord(raw)) return null;
+
+  const name = stringValue(raw.name);
+  if (!name) return null;
+
+  return {
+    materialIndex: numberValue(raw.materialIndex),
+    name,
+    englishName: stringValue(raw.englishName),
+    diffuse: numberTuple4(raw.diffuse),
+    specular: numberTuple3(raw.specular),
+    ambient: numberTuple3(raw.ambient),
+    specularPower: numberValue(raw.specularPower),
+    edgeColor: numberTuple4(raw.edgeColor),
+    edgeSize: numberValue(raw.edgeSize),
+    texturePath: stringValue(raw.texturePath),
+    sphereTexturePath: stringValue(raw.sphereTexturePath),
+    sphereMode: stringValue(raw.sphereMode),
+    toonTexturePath: stringValue(raw.toonTexturePath),
+    sharedToonIndex: numberValue(raw.sharedToonIndex),
+    transparencyMode: stringValue(raw.transparencyMode),
+    renderOrderBucket: stringValue(raw.renderOrderBucket),
+    faceCount: numberValue(raw.faceCount),
+    flags: booleanRecord(raw.flags),
+    unsupportedDrawFlags: stringArray(raw.unsupportedDrawFlags),
+  };
+}
+
+function materialDisplayName(material: Material, fallbackType: string): string {
+  const mmd = buildMmdMaterialEntry(material);
+  if (mmd?.name) return mmd.name;
+  const trimmed = typeof material.name === "string" ? material.name.trim() : "";
+  return trimmed || fallbackType;
+}
+
 function buildMaterialEntry(
   material: Material,
   boundMeshes: string[],
@@ -272,10 +351,11 @@ function buildMaterialEntry(
     typeof ud.usdPrimPath === "string" && ud.usdPrimPath
       ? ud.usdPrimPath
       : null;
+  const mmd = buildMmdMaterialEntry(material);
 
   return {
     id: material.uuid,
-    name: material.name.trim() || typeName,
+    name: mmd?.name ?? (material.name.trim() || typeName),
     type: typeName,
     color: getMaterialColor(material),
     opacity: material.opacity,
@@ -292,6 +372,7 @@ function buildMaterialEntry(
     emissiveTexture,
     alphaMode: inferAlphaMode(material),
     usdPrimPath,
+    mmd,
   };
 }
 
@@ -530,7 +611,7 @@ function buildObjectInfo(
       }
     }
     const mats = getMaterials(object.material);
-    materialNames = mats.map((m) => m.name.trim() || m.type);
+    materialNames = mats.map((m) => materialDisplayName(m, m.type));
     materialIds = mats.map((m) => m.uuid);
 
     const influences = object.morphTargetInfluences ?? [];

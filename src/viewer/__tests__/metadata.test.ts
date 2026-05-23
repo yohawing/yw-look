@@ -216,6 +216,50 @@ describe("collectAssetMetadata", () => {
     expect(trimEntry?.boundMeshes).toEqual(["Collar"]);
   });
 
+  it("prefers MMD Japanese material names and records MMD parameters", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial();
+    material.name = "Body_EN";
+    material.userData.mmdMaterial = {
+      materialIndex: 2,
+      name: "体",
+      englishName: "Body_EN",
+      diffuse: [0.8, 0.7, 0.6, 0.5],
+      specular: [0.2, 0.25, 0.3],
+      ambient: [0.1, 0.12, 0.14],
+      specularPower: 12.5,
+      edgeColor: [0, 0, 0, 1],
+      edgeSize: 0.75,
+      texturePath: "textures/body.png",
+      sphereTexturePath: "textures/body.spa",
+      sphereMode: "add",
+      toonTexturePath: "toon/toon01.bmp",
+      sharedToonIndex: 1,
+      transparencyMode: "blend",
+      renderOrderBucket: "transparent",
+      faceCount: 1200,
+      flags: { doubleSided: true, castShadow: false },
+      unsupportedDrawFlags: ["pointDraw"],
+    };
+    const mesh = new Mesh(new BufferGeometry(), material);
+    mesh.name = "Miku";
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.materials[0]?.name).toBe("体");
+    expect(result.metadata.objectInfo.Miku?.materialNames).toEqual(["体"]);
+    expect(result.metadata.materials[0]?.mmd).toMatchObject({
+      materialIndex: 2,
+      name: "体",
+      englishName: "Body_EN",
+      diffuse: [0.8, 0.7, 0.6, 0.5],
+      texturePath: "textures/body.png",
+      sphereMode: "add",
+      unsupportedDrawFlags: ["pointDraw"],
+    });
+  });
+
   it("excludes MMD outline and render-order proxy meshes from metadata", () => {
     const root = new Group();
     root.name = "MMD Preview";
