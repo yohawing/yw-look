@@ -1125,13 +1125,11 @@ export function applyDisplayMode(
     if (!(child instanceof Mesh)) {
       return;
     }
-    if (isMmdOutlineMesh(child)) {
-      return;
-    }
     if (isViewportHelperObject(child)) {
       return;
     }
 
+    const isMmdOutline = isMmdOutlineMesh(child);
     const existingOverlays = child.children.filter(
       (candidate): candidate is LineSegments =>
         candidate instanceof LineSegments &&
@@ -1149,9 +1147,10 @@ export function applyDisplayMode(
 
     const useMaterialWireframe =
       displayMode === "wireframe" ||
-      (showWireframeOverlay && usesDeformedGeometry(child));
+      (!isMmdOutline && showWireframeOverlay && usesDeformedGeometry(child));
 
     if (
+      !isMmdOutline &&
       showWireframeOverlay &&
       !useMaterialWireframe &&
       child.geometry instanceof BufferGeometry &&

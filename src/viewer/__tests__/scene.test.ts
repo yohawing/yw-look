@@ -132,7 +132,7 @@ describe("scene material display helpers", () => {
     expect(material.wireframe).toBe(false);
   });
 
-  it("keeps MMD outline materials out of global material toggles", () => {
+  it("keeps MMD outline materials out of global lighting toggles but applies wireframe display", () => {
     const root = new Group();
     const regularMaterial = new MeshBasicMaterial({ side: FrontSide });
     const renderProxyMaterial = new MeshBasicMaterial({ side: FrontSide });
@@ -157,7 +157,11 @@ describe("scene material display helpers", () => {
     expect(renderProxyMaterial.wireframe).toBe(true);
     expect(renderProxy.material).not.toBe(renderProxyMaterial);
     expect(outlineMaterial.side).toBe(BackSide);
-    expect(outlineMaterial.wireframe).toBe(false);
+    expect(outlineMaterial.wireframe).toBe(true);
     expect(outline.material).toBe(outlineMaterial);
+
+    applyDisplayMode(root, "textured");
+
+    expect(outlineMaterial.wireframe).toBe(false);
   });
 });
