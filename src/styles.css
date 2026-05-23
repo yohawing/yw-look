@@ -1494,7 +1494,7 @@ body.is-resizing-sidebar {
 
 .material-detail {
   color: #62666d;
-  font-size: 10px;
+  font-size: 12px;
   font-family: var(--font-mono);
 }
 
@@ -1606,7 +1606,7 @@ body.is-resizing-sidebar {
 
 .material-binding {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: #8a8f98;
   line-height: 1.5;
   white-space: nowrap;
@@ -1617,45 +1617,47 @@ body.is-resizing-sidebar {
 /* ── Material Shader Slot Detail ── (#36) */
 
 .material-shader-details {
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .mat-slot-table {
   border-collapse: collapse;
   width: 100%;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .mat-slot-row td {
-  padding: 1px 0;
+  padding: 3px 0;
   vertical-align: middle;
 }
 
 .mat-slot-label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   color: #62666d;
   white-space: nowrap;
-  padding-right: 8px;
-  min-width: 72px;
+  padding-right: 12px;
+  min-width: 98px;
 }
 
 .mat-slot-value {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 510;
+  line-height: 1.35;
   color: #8a8f98;
   word-break: break-all;
 }
 
 .mat-slot-hex {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: #8a8f98;
 }
 
 .mat-slot-alpha {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: #62666d;
 }
 
@@ -1674,11 +1676,11 @@ body.is-resizing-sidebar {
 
 .mat-inline-swatch {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 2px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  margin-right: 4px;
+  margin-right: 6px;
   vertical-align: middle;
 }
 
