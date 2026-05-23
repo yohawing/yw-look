@@ -18,9 +18,11 @@ import {
   MeshBasicMaterial,
   PerspectiveCamera,
   PointLight,
+  SkinnedMesh,
   Texture,
 } from "three";
 import { collectAssetMetadata } from "../metadata";
+import { applyDisplayMode } from "../scene";
 import type { SelectedFile } from "../../lib/files";
 
 const fakeFile: SelectedFile = {
@@ -247,6 +249,35 @@ describe("collectAssetMetadata", () => {
     expect(result.metadata.materialCount).toBe(1);
     expect(result.metadata.objectInfo["Model outline"]).toBeUndefined();
     expect(result.metadata.objectInfo["Model material 0"]).toBeUndefined();
+  });
+
+  it("excludes viewport wireframe proxy meshes from metadata", () => {
+    const root = new Group();
+    root.name = "MMD Preview";
+    const material = new MeshBasicMaterial();
+    material.name = "Body";
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+
+    const source = new SkinnedMesh(geometry, material);
+    source.name = "Model";
+    root.add(source);
+
+    applyDisplayMode(root, "texturedWireframe");
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(
+      result.metadata.hierarchy[0]?.children.map((node) => node.name),
+    ).toEqual(["Model"]);
+    expect(result.metadata.meshCount).toBe(1);
+    expect(result.metadata.materialCount).toBe(1);
+    expect(
+      result.metadata.objectInfo.__yw_textured_wireframe_proxy,
+    ).toBeUndefined();
   });
 
   it("records morph target names and initial influences on mesh info", () => {

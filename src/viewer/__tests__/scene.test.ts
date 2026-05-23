@@ -2,6 +2,7 @@ import {
   BackSide,
   BufferAttribute,
   BufferGeometry,
+  DirectionalLight,
   DoubleSide,
   FrontSide,
   LineBasicMaterial,
@@ -11,13 +12,15 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Scene,
   SkinnedMesh,
   Texture,
 } from "three";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applyBackfaceCulling,
   applyDisplayMode,
+  applyShadows,
   applyUnlitMaterial,
   applyVertexColors,
 } from "../scene";
@@ -39,19 +42,19 @@ describe("scene material display helpers", () => {
     const overlays = mesh.children.filter(
       (child): child is LineSegments => child instanceof LineSegments,
     );
-    const overlayMaterial = overlays[0].material;
+    const overlayMaterial = overlays[0].material as LineBasicMaterial;
     expect(material.wireframe).toBe(false);
     expect(material.map).toBe(texture);
     expect(overlays).toHaveLength(1);
     expect(overlays[0].renderOrder).toBe(mesh.renderOrder + 1);
     expect(overlayMaterial).toBeInstanceOf(LineBasicMaterial);
-    expect((overlayMaterial as LineBasicMaterial).color.getHexString()).toBe(
-      "5e6ad2",
-    );
-    expect((overlayMaterial as LineBasicMaterial).opacity).toBe(0.78);
+    expect(overlayMaterial.color.getHexString()).toBe("5e6ad2");
+    expect(overlayMaterial.opacity).toBe(0.78);
+    const disposeOverlayMaterial = vi.spyOn(overlayMaterial, "dispose");
 
     applyDisplayMode(root, "texturedWireframe");
 
+    expect(disposeOverlayMaterial).toHaveBeenCalledTimes(1);
     expect(
       mesh.children.filter((child) => child instanceof LineSegments),
     ).toHaveLength(1);
@@ -124,7 +127,51 @@ describe("scene material display helpers", () => {
     expect(wireframeMaterial.opacity).toBe(0);
   });
 
-  it("keeps deformed textured wireframes on the material path", () => {
+  it("renders skinned textured wireframes with a following mesh proxy", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial({ color: 0xff3300 });
+    const skinned = new SkinnedMesh(new BufferGeometry(), material);
+    skinned.geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    skinned.morphTargetDictionary = { smile: 0 };
+    skinned.morphTargetInfluences = [0.5];
+    root.add(skinned);
+
+    applyDisplayMode(root, "texturedWireframe");
+
+    const proxies = skinned.children.filter(
+      (child): child is Mesh =>
+        child instanceof Mesh && !(child instanceof LineSegments),
+    );
+    expect(material.wireframe).toBe(false);
+    expect(material.color.getHexString()).toBe("ff3300");
+    expect(proxies).toHaveLength(1);
+    expect(proxies[0]).toBeInstanceOf(SkinnedMesh);
+    expect(proxies[0].geometry).toBe(skinned.geometry);
+    expect(proxies[0].morphTargetDictionary).toBe(
+      skinned.morphTargetDictionary,
+    );
+    expect(proxies[0].morphTargetInfluences).toBe(
+      skinned.morphTargetInfluences,
+    );
+    expect((proxies[0].material as MeshBasicMaterial).wireframe).toBe(true);
+    expect(
+      (proxies[0].material as MeshBasicMaterial).color.getHexString(),
+    ).toBe("5e6ad2");
+    expect((proxies[0].material as MeshBasicMaterial).transparent).toBe(false);
+    expect(
+      skinned.children.filter((child) => child instanceof LineSegments),
+    ).toHaveLength(0);
+
+    applyDisplayMode(root, "textured");
+
+    expect(skinned.children).toHaveLength(0);
+    expect(material.wireframe).toBe(false);
+  });
+
+  it("keeps wireframe proxies out of unlit material toggles", () => {
     const root = new Group();
     const material = new MeshBasicMaterial({ color: 0xff3300 });
     const skinned = new SkinnedMesh(new BufferGeometry(), material);
@@ -136,14 +183,74 @@ describe("scene material display helpers", () => {
 
     applyDisplayMode(root, "texturedWireframe");
 
-    expect(material.wireframe).toBe(true);
-    expect(material.color.getHexString()).toBe("ff3300");
-    expect(
-      skinned.children.filter((child) => child instanceof LineSegments),
-    ).toHaveLength(0);
+    const proxy = skinned.children.find(
+      (child): child is SkinnedMesh => child instanceof SkinnedMesh,
+    );
+    expect(proxy).toBeDefined();
+    const proxyMaterial = proxy?.material;
+
+    applyUnlitMaterial(root, true);
+
+    expect(proxy?.material).toBe(proxyMaterial);
+    expect(proxy?.userData._ywUnlitOriginal).toBeUndefined();
   });
 
-  it("keeps instanced textured wireframes on the material path", () => {
+  it("preserves authored material visibility on wireframe proxies", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial({
+      opacity: 0,
+      transparent: true,
+      side: BackSide,
+    });
+    material.visible = false;
+    const skinned = new SkinnedMesh(new BufferGeometry(), material);
+    skinned.geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    root.add(skinned);
+
+    applyDisplayMode(root, "texturedWireframe");
+
+    const proxy = skinned.children.find(
+      (child): child is SkinnedMesh => child instanceof SkinnedMesh,
+    );
+    const proxyMaterial = proxy?.material as MeshBasicMaterial;
+    expect(proxyMaterial.visible).toBe(false);
+    expect(proxyMaterial.transparent).toBe(true);
+    expect(proxyMaterial.opacity).toBe(0);
+    expect(proxyMaterial.side).toBe(BackSide);
+    expect(proxyMaterial.wireframe).toBe(true);
+  });
+
+  it("keeps wireframe proxies out of shadow toggles", () => {
+    const scene = new Scene();
+    const root = new Group();
+    const light = new DirectionalLight();
+    const material = new MeshBasicMaterial({ color: 0xff3300 });
+    const skinned = new SkinnedMesh(new BufferGeometry(), material);
+    skinned.geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    root.add(skinned);
+    scene.add(root);
+
+    applyDisplayMode(root, "texturedWireframe");
+
+    const proxy = skinned.children.find(
+      (child): child is SkinnedMesh => child instanceof SkinnedMesh,
+    );
+
+    applyShadows(scene, root, light, true);
+
+    expect(skinned.castShadow).toBe(true);
+    expect(skinned.receiveShadow).toBe(true);
+    expect(proxy?.castShadow).toBe(false);
+    expect(proxy?.receiveShadow).toBe(false);
+  });
+
+  it("renders instanced textured wireframes with a following mesh proxy", () => {
     const root = new Group();
     const material = new MeshBasicMaterial({ color: 0xff3300 });
     const instanced = new InstancedMesh(new BufferGeometry(), material, 2);
@@ -155,7 +262,15 @@ describe("scene material display helpers", () => {
 
     applyDisplayMode(root, "texturedWireframe");
 
-    expect(material.wireframe).toBe(true);
+    const proxies = instanced.children.filter(
+      (child): child is InstancedMesh =>
+        child instanceof InstancedMesh && !(child instanceof LineSegments),
+    );
+    expect(material.wireframe).toBe(false);
+    expect(proxies).toHaveLength(1);
+    expect(proxies[0].geometry).toBe(instanced.geometry);
+    expect(proxies[0].instanceMatrix).toBe(instanced.instanceMatrix);
+    expect((proxies[0].material as MeshBasicMaterial).wireframe).toBe(true);
     expect(
       instanced.children.filter((child) => child instanceof LineSegments),
     ).toHaveLength(0);

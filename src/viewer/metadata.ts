@@ -29,7 +29,7 @@ import type {
   MmdAssetMetadata,
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
-import { getMaterials } from "./scene";
+import { getMaterials, isViewportHelperObject } from "./scene";
 
 export type MetadataCollection = {
   metadata: AssetMetadata;
@@ -85,6 +85,7 @@ function isInternalMmdProxy(object: Object3D): boolean {
  *    loaders (ColladaLoader, GLTFLoader for non-yw-look glTF, …)
  *  - MMD outline / render-order proxy meshes from three-mmd-loader. */
 function isSyntheticWrapper(object: Object3D): boolean {
+  if (isViewportHelperObject(object)) return true;
   if (isInternalMmdProxy(object)) return true;
   if (object.name === "__upAxis") return true;
   if (

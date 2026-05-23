@@ -44,6 +44,7 @@ const SKELETON_HELPER_FLAG = "__yw_skeleton_helper";
 const BBOX_HELPER_FLAG = "__yw_bbox_helper";
 const NORMAL_HELPER_FLAG = "__yw_normal_helper";
 const WIREFRAME_OVERLAY_FLAG = "__yw_wireframe_overlay";
+const WIREFRAME_PROXY_FLAG = "__yw_wireframe_proxy";
 const WIREFRAME_OVERLAY_COLOR_TOKEN = "--yl-accent-bg";
 const WIREFRAME_OVERLAY_COLOR_FALLBACK = "#5e6ad2";
 const WIREFRAME_MATERIAL_COLOR_TOKEN = "--yl-text-primary";
@@ -114,12 +115,13 @@ function isMmdOutlineMesh(mesh: Mesh) {
   return materials.some(isMmdOutlineMaterial);
 }
 
-function isViewportHelperObject(child: Object3D) {
+export function isViewportHelperObject(child: Object3D) {
   return (
     child.userData[SKELETON_HELPER_FLAG] === true ||
     child.userData[BBOX_HELPER_FLAG] === true ||
     child.userData[NORMAL_HELPER_FLAG] === true ||
-    child.userData[WIREFRAME_OVERLAY_FLAG] === true
+    child.userData[WIREFRAME_OVERLAY_FLAG] === true ||
+    child.userData[WIREFRAME_PROXY_FLAG] === true
   );
 }
 
@@ -228,6 +230,105 @@ function restoreWireframeMaterialOverride(mesh: Mesh) {
   delete mesh.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY];
 }
 
+function createWireframeOverlayMeshMaterial(source: Material, color: Color) {
+  const material = new MeshBasicMaterial({
+    color,
+    wireframe: true,
+    side: source.side,
+    transparent: source.transparent || source.opacity < 1,
+    opacity: source.opacity,
+    depthTest: source.depthTest,
+    depthWrite: false,
+  });
+  material.visible = source.visible;
+  material.toneMapped = false;
+  return material;
+}
+
+function createWireframeOverlayMeshMaterialSet(
+  source: Material | Material[],
+  color: Color,
+) {
+  return Array.isArray(source)
+    ? source.map((material) =>
+        createWireframeOverlayMeshMaterial(material, color),
+      )
+    : createWireframeOverlayMeshMaterial(source, color);
+}
+
+function shareMorphTargetState(source: Mesh, proxy: Mesh) {
+  proxy.morphTargetDictionary = source.morphTargetDictionary;
+  proxy.morphTargetInfluences = source.morphTargetInfluences;
+}
+
+function createDeformedWireframeProxy(source: Mesh, color: Color) {
+  if (!(source.geometry instanceof BufferGeometry)) {
+    return null;
+  }
+  if (source.geometry.getAttribute("position") === undefined) {
+    return null;
+  }
+
+  const material = createWireframeOverlayMeshMaterialSet(
+    source.material,
+    color,
+  );
+  let proxy: Mesh;
+
+  if (source instanceof SkinnedMesh) {
+    const skinnedProxy = new SkinnedMesh(source.geometry, material);
+    skinnedProxy.bindMode = source.bindMode;
+    skinnedProxy.bind(source.skeleton, source.bindMatrix);
+    proxy = skinnedProxy;
+  } else if (source instanceof InstancedMesh) {
+    const instancedProxy = new InstancedMesh(
+      source.geometry,
+      material,
+      source.count,
+    );
+    instancedProxy.instanceMatrix = source.instanceMatrix;
+    instancedProxy.instanceColor = source.instanceColor;
+    instancedProxy.count = source.count;
+    proxy = instancedProxy;
+  } else {
+    proxy = new Mesh(source.geometry, material);
+  }
+
+  shareMorphTargetState(source, proxy);
+  proxy.name = "__yw_textured_wireframe_proxy";
+  proxy.userData[WIREFRAME_OVERLAY_FLAG] = true;
+  proxy.userData[WIREFRAME_PROXY_FLAG] = true;
+  proxy.frustumCulled = source.frustumCulled;
+  proxy.renderOrder = source.renderOrder + 1;
+  proxy.visible = source.visible;
+  return proxy;
+}
+
+function disposeWireframeOverlayObject(overlay: Object3D) {
+  if (
+    overlay instanceof LineSegments &&
+    overlay.geometry instanceof BufferGeometry
+  ) {
+    overlay.geometry.dispose();
+    for (const material of getMaterials(overlay.material)) {
+      material.dispose();
+    }
+  }
+
+  if (overlay instanceof Mesh) {
+    for (const material of getMaterials(overlay.material)) {
+      material.dispose();
+    }
+    const unlitOriginal = overlay.userData[UNLIT_ORIGINAL_KEY];
+    if (unlitOriginal instanceof Material || Array.isArray(unlitOriginal)) {
+      for (const material of getMaterials(unlitOriginal)) {
+        material.dispose();
+      }
+      delete overlay.userData[UNLIT_ORIGINAL_KEY];
+    }
+  }
+}
+
 function applyDisplayModeToMaterial(
   material: Material,
   displayMode: DisplayMode,
@@ -288,20 +389,13 @@ export function disposeObject(object: Group | Mesh | null) {
   }
 
   object.traverse((child: Object3D) => {
-    if (child instanceof Mesh && child.geometry instanceof BufferGeometry) {
-      child.geometry.dispose();
+    if (child.userData[WIREFRAME_OVERLAY_FLAG] === true) {
+      disposeWireframeOverlayObject(child);
+      return;
     }
 
-    if (
-      child instanceof LineSegments &&
-      child.userData[WIREFRAME_OVERLAY_FLAG] === true
-    ) {
-      if (child.geometry instanceof BufferGeometry) {
-        child.geometry.dispose();
-      }
-      for (const material of getMaterials(child.material)) {
-        material.dispose();
-      }
+    if (child instanceof Mesh && child.geometry instanceof BufferGeometry) {
+      child.geometry.dispose();
     }
 
     if (child instanceof Mesh) {
@@ -821,6 +915,7 @@ export function applyShadows(
   }
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) return;
+    if (isViewportHelperObject(child)) return;
     if (isMmdOutlineMesh(child)) return;
     if (
       child.userData[SKELETON_HELPER_FLAG] === true ||
@@ -963,6 +1058,9 @@ export function applyBoundingBoxHelpers(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
     if (isMmdOutlineMesh(child)) {
       return;
     }
@@ -1049,6 +1147,9 @@ export function applyNormalHelpers(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
     if (isMmdOutlineMesh(child)) {
       return;
     }
@@ -1107,6 +1208,9 @@ export function applyTextureFilter(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
     if (isMmdOutlineMesh(child)) {
       return;
     }
@@ -1140,6 +1244,9 @@ export function applyVertexColors(
 ) {
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) {
+      return;
+    }
+    if (isViewportHelperObject(child)) {
       return;
     }
     if (isMmdOutlineMesh(child)) {
@@ -1186,6 +1293,9 @@ export function applyBackfaceCulling(
 ) {
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) {
+      return;
+    }
+    if (isViewportHelperObject(child)) {
       return;
     }
     if (isMmdOutlineMesh(child)) {
@@ -1238,18 +1348,11 @@ export function applyDisplayMode(
 
     const isMmdOutline = isMmdOutlineMesh(child);
     const existingOverlays = child.children.filter(
-      (candidate): candidate is LineSegments =>
-        candidate instanceof LineSegments &&
-        candidate.userData[WIREFRAME_OVERLAY_FLAG] === true,
+      (candidate) => candidate.userData[WIREFRAME_OVERLAY_FLAG] === true,
     );
     for (const overlay of existingOverlays) {
       child.remove(overlay);
-      if (overlay.geometry instanceof BufferGeometry) {
-        overlay.geometry.dispose();
-      }
-      for (const material of getMaterials(overlay.material)) {
-        material.dispose();
-      }
+      disposeWireframeOverlayObject(overlay);
     }
 
     if (displayMode === "wireframe") {
@@ -1258,13 +1361,20 @@ export function applyDisplayMode(
     }
     restoreWireframeMaterialOverride(child);
 
-    const useMaterialWireframe =
-      !isMmdOutline && showWireframeOverlay && usesDeformedGeometry(child);
-
     if (
       !isMmdOutline &&
       showWireframeOverlay &&
-      !useMaterialWireframe &&
+      usesDeformedGeometry(child) &&
+      child.geometry instanceof BufferGeometry &&
+      child.geometry.getAttribute("position") !== undefined
+    ) {
+      const proxy = createDeformedWireframeProxy(child, wireframeColor);
+      if (proxy) {
+        child.add(proxy);
+      }
+    } else if (
+      !isMmdOutline &&
+      showWireframeOverlay &&
       child.geometry instanceof BufferGeometry &&
       child.geometry.getAttribute("position") !== undefined
     ) {
@@ -1285,12 +1395,7 @@ export function applyDisplayMode(
     }
 
     for (const material of getMaterials(child.material)) {
-      applyDisplayModeToMaterial(
-        material,
-        displayMode,
-        useMaterialWireframe,
-        wireframeColor,
-      );
+      applyDisplayModeToMaterial(material, displayMode, false, wireframeColor);
     }
 
     const unlitOriginal = child.userData[UNLIT_ORIGINAL_KEY];
@@ -1299,7 +1404,7 @@ export function applyDisplayMode(
         applyDisplayModeToMaterial(
           material,
           displayMode,
-          useMaterialWireframe,
+          false,
           wireframeColor,
         );
       }
@@ -1317,6 +1422,7 @@ export function applyUnlitMaterial(
 
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) return;
+    if (isViewportHelperObject(child)) return;
     if (isMmdOutlineMesh(child)) return;
     if (child.material instanceof ShadowMaterial) return;
 
