@@ -1,6 +1,7 @@
 import {
   AnimationClip,
   Box3,
+  Bone,
   Camera,
   Color,
   Euler,
@@ -15,6 +16,7 @@ import {
   Object3D,
   OrthographicCamera,
   PerspectiveCamera,
+  SkinnedMesh,
   Texture,
 } from "three";
 import type { SelectedFile } from "../lib/files";
@@ -27,6 +29,7 @@ import type {
   MaterialEntry,
   MaterialTextureSlot,
   MmdAssetMetadata,
+  MmdBoneEntry,
   MmdMaterialEntry,
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
@@ -300,6 +303,144 @@ function materialDisplayName(material: Material, fallbackType: string): string {
   return trimmed || fallbackType;
 }
 
+function boneDisplayName(bone: Bone): string {
+  return (
+    stringValue(bone.userData.mmdBoneName) ??
+    (typeof bone.name === "string" && bone.name.trim()
+      ? bone.name.trim()
+      : null) ??
+    "Bone"
+  );
+}
+
+function buildMmdBoneMetadata(root: Object3D): Map<Bone, MmdBoneEntry> {
+  const entries = new Map<Bone, MmdBoneEntry>();
+
+  root.traverse((object) => {
+    if (!(object instanceof SkinnedMesh) || !object.skeleton) return;
+    if (isSyntheticWrapper(object)) return;
+    const bones = object.skeleton.bones;
+    const ikChains = Array.isArray(object.userData.mmdIkChains)
+      ? object.userData.mmdIkChains.filter(isRecord)
+      : [];
+
+    bones.forEach((bone, boneIndex) => {
+      const parentIndex =
+        bone.parent instanceof Bone ? bones.indexOf(bone.parent) : -1;
+      const appendTransform = buildMmdBoneAppendTransform(
+        bone.userData.mmdAppendTransform,
+        bones,
+      );
+      const name = stringValue(bone.userData.mmdBoneName);
+      const englishName = stringValue(bone.userData.mmdEnglishBoneName);
+      const restPosition = numberTuple3(bone.userData.mmdRestPosition);
+      const layer = numberValue(bone.userData.mmdLayer);
+      const flags = booleanRecord(bone.userData.mmdFlags);
+      const ik = buildMmdBoneIkSummary(boneIndex, ikChains);
+
+      if (
+        name === null &&
+        englishName === null &&
+        restPosition === null &&
+        layer === null &&
+        appendTransform === null &&
+        flags === null &&
+        ik === null
+      ) {
+        return;
+      }
+
+      entries.set(bone, {
+        boneIndex,
+        parentIndex,
+        parentName:
+          parentIndex >= 0 && bones[parentIndex]
+            ? boneDisplayName(bones[parentIndex])
+            : null,
+        name,
+        englishName,
+        restPosition,
+        layer,
+        appendTransform,
+        flags,
+        ik,
+      });
+    });
+  });
+
+  return entries;
+}
+
+function buildMmdBoneAppendTransform(
+  value: unknown,
+  bones: readonly Bone[],
+): MmdBoneEntry["appendTransform"] {
+  if (!isRecord(value)) return null;
+  const parentIndex = numberValue(value.parentIndex);
+  const weight = numberValue(value.weight);
+  if (parentIndex === null || weight === null) return null;
+  return {
+    parentIndex,
+    parentName:
+      parentIndex >= 0 && bones[parentIndex]
+        ? boneDisplayName(bones[parentIndex])
+        : null,
+    weight,
+  };
+}
+
+function buildMmdBoneIkSummary(
+  boneIndex: number,
+  chains: readonly Record<string, unknown>[],
+): MmdBoneEntry["ik"] {
+  const roles = new Set<string>();
+  let selectedChain: Record<string, unknown> | null = null;
+
+  for (const chain of chains) {
+    const goalBoneIndex = numberValue(chain.goalBoneIndex);
+    const effectorBoneIndex = numberValue(chain.effectorBoneIndex);
+    const links = Array.isArray(chain.links)
+      ? chain.links.filter(isRecord)
+      : [];
+
+    if (goalBoneIndex === boneIndex) {
+      roles.add("goal");
+      selectedChain ??= chain;
+    }
+    if (effectorBoneIndex === boneIndex) {
+      roles.add("effector");
+      selectedChain ??= chain;
+    }
+    if (links.some((link) => numberValue(link.boneIndex) === boneIndex)) {
+      roles.add("link");
+      selectedChain ??= chain;
+    }
+  }
+
+  if (roles.size === 0 || selectedChain === null) return null;
+
+  const links = Array.isArray(selectedChain.links)
+    ? selectedChain.links.filter(isRecord)
+    : [];
+  const limitKinds = [
+    ...new Set(
+      links
+        .map((link) => stringValue(link.limitsKind))
+        .filter((value): value is string => value !== null),
+    ),
+  ];
+
+  return {
+    roles: [...roles],
+    goalBoneIndex: numberValue(selectedChain.goalBoneIndex),
+    effectorBoneIndex: numberValue(selectedChain.effectorBoneIndex),
+    iterationCount: numberValue(selectedChain.iterationCount),
+    maxAnglePerIteration: numberValue(selectedChain.maxAnglePerIteration),
+    linkCount: links.length,
+    limitKinds,
+  };
+}
+
 function buildMaterialEntry(
   material: Material,
   boundMeshes: string[],
@@ -569,6 +710,7 @@ function buildObjectInfo(
   object: Object3D,
   clips: AnimationClip[],
   key: string,
+  mmdBoneMetadata: Map<Bone, MmdBoneEntry>,
 ): ObjectInfo {
   const p = object.position;
   const e = new Euler().setFromQuaternion(object.quaternion, "YXZ");
@@ -681,6 +823,8 @@ function buildObjectInfo(
     childCount,
     animatesWithClips: clipNames,
     userData,
+    mmdBone:
+      object instanceof Bone ? (mmdBoneMetadata.get(object) ?? null) : null,
   };
 }
 
@@ -708,6 +852,7 @@ export function collectAssetMetadata(
   const cameraSeenCounts = new Map<string, number>();
   // Selection key → per-object info for the shared inspector (#80)
   const objectInfoMap = new Map<string, ObjectInfo>();
+  const mmdBoneMetadata = buildMmdBoneMetadata(object);
 
   object.traverse((child: Object3D) => {
     if (isSyntheticWrapper(child)) return;
@@ -717,7 +862,10 @@ export function collectAssetMetadata(
     // selection key (meshes, named groups, lights, cameras).
     const infoKey = resolveSelectionKey(child);
     if (infoKey) {
-      objectInfoMap.set(infoKey, buildObjectInfo(child, clips, infoKey));
+      objectInfoMap.set(
+        infoKey,
+        buildObjectInfo(child, clips, infoKey, mmdBoneMetadata),
+      );
     }
 
     if (child instanceof Light) {

@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { AssetMetadata, HierarchyNode, ObjectInfo } from "./assetMetadata";
+import type {
+  AssetMetadata,
+  HierarchyNode,
+  MmdBoneEntry,
+  ObjectInfo,
+} from "./assetMetadata";
 
 type HierarchyCardProps = {
   hierarchy: HierarchyNode[];
@@ -64,6 +69,124 @@ function selectedMorphValue(
 ): number {
   return clampMorphValue(
     overrides?.[selectedKey]?.[target.index] ?? target.value,
+  );
+}
+
+function fmtMmdNumber(value: number): string {
+  return value.toFixed(3).replace(/\.?0+$/, "");
+}
+
+function fmtMmdVec(value: readonly number[] | null): string {
+  return value ? value.map(fmtMmdNumber).join(", ") : "none";
+}
+
+function fmtMmdFlags(flags: Record<string, boolean> | null): string {
+  if (!flags) return "none";
+  const enabled = Object.entries(flags)
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name);
+  return enabled.length > 0 ? enabled.join(", ") : "none";
+}
+
+function SelectedMmdBone({ bone }: { bone: MmdBoneEntry | null }) {
+  if (!bone) return null;
+
+  return (
+    <div className="selected-mmd-section">
+      <div className="selected-mmd-head">MMD Bone</div>
+      {bone.boneIndex !== null ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">Index</span>
+          <span className="selected-kv-value">{bone.boneIndex}</span>
+        </div>
+      ) : null}
+      {bone.name ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">MMD Name</span>
+          <span className="selected-kv-value">{bone.name}</span>
+        </div>
+      ) : null}
+      {bone.englishName && bone.englishName !== bone.name ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">English</span>
+          <span className="selected-kv-value is-muted">{bone.englishName}</span>
+        </div>
+      ) : null}
+      <div className="selected-kv-row">
+        <span className="selected-kv-key">Parent</span>
+        <span className="selected-kv-value is-muted">
+          {bone.parentIndex !== null && bone.parentIndex >= 0
+            ? `${bone.parentIndex}${bone.parentName ? ` · ${bone.parentName}` : ""}`
+            : "none"}
+        </span>
+      </div>
+      <div className="selected-kv-row">
+        <span className="selected-kv-key">Rest Pos</span>
+        <span className="selected-kv-value">
+          {fmtMmdVec(bone.restPosition)}
+        </span>
+      </div>
+      {bone.layer !== null ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">Layer</span>
+          <span className="selected-kv-value">{bone.layer}</span>
+        </div>
+      ) : null}
+      {bone.appendTransform ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">Append</span>
+          <span className="selected-kv-value">
+            {bone.appendTransform.parentIndex}
+            {bone.appendTransform.parentName
+              ? ` · ${bone.appendTransform.parentName}`
+              : ""}{" "}
+            x{fmtMmdNumber(bone.appendTransform.weight)}
+          </span>
+        </div>
+      ) : null}
+      <div className="selected-kv-row">
+        <span className="selected-kv-key">Flags</span>
+        <span className="selected-kv-value">{fmtMmdFlags(bone.flags)}</span>
+      </div>
+      {bone.ik ? (
+        <>
+          <div className="selected-kv-row">
+            <span className="selected-kv-key">IK Role</span>
+            <span className="selected-kv-value">
+              {bone.ik.roles.join(", ")}
+            </span>
+          </div>
+          <div className="selected-kv-row">
+            <span className="selected-kv-key">IK Chain</span>
+            <span className="selected-kv-value">
+              goal:{bone.ik.goalBoneIndex ?? "?"} target:
+              {bone.ik.effectorBoneIndex ?? "?"} links:
+              {bone.ik.linkCount ?? "?"}
+            </span>
+          </div>
+          {bone.ik.iterationCount !== null ||
+          bone.ik.maxAnglePerIteration !== null ? (
+            <div className="selected-kv-row">
+              <span className="selected-kv-key">IK Solve</span>
+              <span className="selected-kv-value">
+                iter:{bone.ik.iterationCount ?? "?"} angle:
+                {bone.ik.maxAnglePerIteration !== null
+                  ? fmtMmdNumber(bone.ik.maxAnglePerIteration)
+                  : "?"}
+              </span>
+            </div>
+          ) : null}
+          {bone.ik.limitKinds.length > 0 ? (
+            <div className="selected-kv-row">
+              <span className="selected-kv-key">IK Limits</span>
+              <span className="selected-kv-value">
+                {bone.ik.limitKinds.join(", ")}
+              </span>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -476,6 +599,7 @@ export function HierarchyCard({
                 </span>
               </div>
             ) : null}
+            <SelectedMmdBone bone={selectedInfo?.mmdBone ?? null} />
             {normalizedSelected && selectedMorphTargets.length > 0 ? (
               <div className="selected-morph-section">
                 <div className="selected-morph-head">

@@ -165,6 +165,31 @@ export type MmdAssetMetadata = {
   }>;
 };
 
+export type MmdBoneEntry = {
+  boneIndex: number | null;
+  parentIndex: number | null;
+  parentName: string | null;
+  name: string | null;
+  englishName: string | null;
+  restPosition: [number, number, number] | null;
+  layer: number | null;
+  appendTransform: {
+    parentIndex: number;
+    parentName: string | null;
+    weight: number;
+  } | null;
+  flags: Record<string, boolean> | null;
+  ik: {
+    roles: string[];
+    goalBoneIndex: number | null;
+    effectorBoneIndex: number | null;
+    iterationCount: number | null;
+    maxAnglePerIteration: number | null;
+    linkCount: number | null;
+    limitKinds: string[];
+  } | null;
+};
+
 export type ObjectInfo = {
   name: string;
   kind: string;
@@ -181,6 +206,7 @@ export type ObjectInfo = {
   childCount: number | null;
   animatesWithClips: string[];
   userData: Record<string, unknown> | null;
+  mmdBone: MmdBoneEntry | null;
 };
 
 export type MorphTargetEntry = {

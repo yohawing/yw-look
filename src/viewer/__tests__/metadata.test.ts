@@ -11,6 +11,7 @@
 import { describe, it, expect } from "vitest";
 import {
   BufferGeometry,
+  Bone,
   DirectionalLight,
   Float32BufferAttribute,
   Group,
@@ -19,6 +20,7 @@ import {
   PerspectiveCamera,
   PointLight,
   SkinnedMesh,
+  Skeleton,
   Texture,
 } from "three";
 import { collectAssetMetadata } from "../metadata";
@@ -257,6 +259,82 @@ describe("collectAssetMetadata", () => {
       texturePath: "textures/body.png",
       sphereMode: "add",
       unsupportedDrawFlags: ["pointDraw"],
+    });
+  });
+
+  it("records MMD bone parameters for selected bone inspection", () => {
+    const root = new Group();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+    const mesh = new SkinnedMesh(geometry, new MeshBasicMaterial());
+    mesh.name = "Miku";
+
+    const center = new Bone();
+    center.name = "Center_EN";
+    center.userData.mmdBoneName = "センター";
+    center.userData.mmdEnglishBoneName = "Center_EN";
+    center.userData.mmdRestPosition = [0, 10, 0];
+    center.userData.mmdLayer = 0;
+
+    const arm = new Bone();
+    arm.name = "Arm_EN";
+    arm.userData.mmdBoneName = "腕";
+    arm.userData.mmdEnglishBoneName = "Arm_EN";
+    arm.userData.mmdRestPosition = [1, 12, 0];
+    arm.userData.mmdLayer = 1;
+    arm.userData.mmdAppendTransform = { parentIndex: 0, weight: 0.5 };
+    arm.userData.mmdFlags = {
+      appendRotate: true,
+      appendTranslate: false,
+      transformAfterPhysics: true,
+    };
+
+    center.add(arm);
+    mesh.add(center);
+    mesh.bind(new Skeleton([center, arm]));
+    mesh.userData.mmdIkChains = [
+      {
+        goalBoneIndex: 1,
+        effectorBoneIndex: 0,
+        iterationCount: 8,
+        maxAnglePerIteration: 0.25,
+        links: [{ boneIndex: 1, limitsKind: "pmxLinkLimit" }],
+      },
+    ];
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.objectInfo.Arm_EN?.mmdBone).toMatchObject({
+      boneIndex: 1,
+      parentIndex: 0,
+      parentName: "センター",
+      name: "腕",
+      englishName: "Arm_EN",
+      restPosition: [1, 12, 0],
+      layer: 1,
+      appendTransform: {
+        parentIndex: 0,
+        parentName: "センター",
+        weight: 0.5,
+      },
+      flags: {
+        appendRotate: true,
+        appendTranslate: false,
+        transformAfterPhysics: true,
+      },
+      ik: {
+        roles: ["goal", "link"],
+        goalBoneIndex: 1,
+        effectorBoneIndex: 0,
+        iterationCount: 8,
+        maxAnglePerIteration: 0.25,
+        linkCount: 1,
+        limitKinds: ["pmxLinkLimit"],
+      },
     });
   });
 

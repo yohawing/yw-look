@@ -50,6 +50,7 @@ const faceInfo: ObjectInfo = {
   childCount: null,
   animatesWithClips: [],
   userData: null,
+  mmdBone: null,
 };
 
 describe("HierarchyCard selection sync (#33)", () => {
@@ -216,5 +217,58 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(blink.value).toBe("0.25");
     fireEvent.change(blink, { target: { value: "0.75" } });
     expect(onMorphTargetChange).toHaveBeenCalledWith("/World/Face", 0, 0.75);
+  });
+
+  it("renders MMD bone parameters for the selected bone", () => {
+    const boneTree: HierarchyNode[] = [
+      { name: "Arm_EN", kind: "bone", children: [] },
+    ];
+    const boneInfo: ObjectInfo = {
+      ...faceInfo,
+      name: "Arm_EN",
+      kind: "bone",
+      vertexCount: null,
+      materialNames: [],
+      morphTargets: [],
+      mmdBone: {
+        boneIndex: 1,
+        parentIndex: 0,
+        parentName: "センター",
+        name: "腕",
+        englishName: "Arm_EN",
+        restPosition: [1, 12, 0],
+        layer: 1,
+        appendTransform: {
+          parentIndex: 0,
+          parentName: "センター",
+          weight: 0.5,
+        },
+        flags: { appendRotate: true, appendTranslate: false },
+        ik: {
+          roles: ["goal", "link"],
+          goalBoneIndex: 1,
+          effectorBoneIndex: 0,
+          iterationCount: 8,
+          maxAnglePerIteration: 0.25,
+          linkCount: 1,
+          limitKinds: ["pmxLinkLimit"],
+        },
+      },
+    };
+
+    const { getByText } = render(
+      <HierarchyCard
+        hierarchy={boneTree}
+        objectInfo={{ Arm_EN: boneInfo }}
+        selectedName="Arm_EN"
+      />,
+    );
+
+    expect(getByText("MMD Bone")).toBeTruthy();
+    expect(getByText("腕")).toBeTruthy();
+    expect(getByText("1, 12, 0")).toBeTruthy();
+    expect(getByText("appendRotate")).toBeTruthy();
+    expect(getByText("goal, link")).toBeTruthy();
+    expect(getByText("pmxLinkLimit")).toBeTruthy();
   });
 });

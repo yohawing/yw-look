@@ -2051,6 +2051,27 @@ body.is-resizing-sidebar {
   color: #8a8f98;
 }
 
+.selected-mmd-section {
+  margin-top: 6px;
+  padding: 8px 0 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.selected-mmd-head {
+  margin-bottom: 3px;
+  padding: 0 16px;
+  color: #8a8f98;
+  font-size: 10.5px;
+  font-weight: 510;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.selected-mmd-section .selected-kv-value {
+  white-space: normal;
+  word-break: break-word;
+}
+
 .selected-morph-section {
   margin-top: 6px;
   padding: 8px 16px 2px;
