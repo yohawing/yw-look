@@ -46,7 +46,11 @@ const NORMAL_HELPER_FLAG = "__yw_normal_helper";
 const WIREFRAME_OVERLAY_FLAG = "__yw_wireframe_overlay";
 const WIREFRAME_OVERLAY_COLOR_TOKEN = "--yl-accent-bg";
 const WIREFRAME_OVERLAY_COLOR_FALLBACK = "#5e6ad2";
+const WIREFRAME_MATERIAL_COLOR_TOKEN = "--yl-text-primary";
+const WIREFRAME_MATERIAL_COLOR_FALLBACK = "#f7f8f8";
 const WIREFRAME_ORIGINAL_COLOR_KEY = "__yw_wireframe_original_color";
+const WIREFRAME_ORIGINAL_MATERIAL_KEY = "__yw_wireframe_original_material";
+const WIREFRAME_MATERIAL_FLAG = "__yw_wireframe_material";
 const GRID_DIVISIONS = 20;
 // Axes length is tied to grid size so the XYZ indicator scales with the
 // current unit preset. Slightly longer than half a grid cell keeps the
@@ -101,7 +105,13 @@ function isMmdOutlineMesh(mesh: Mesh) {
   if (mesh.userData?.mmdOutlineProxy !== undefined) {
     return true;
   }
-  return getMaterials(mesh.material).some(isMmdOutlineMaterial);
+
+  const storedOriginal = getWireframeOriginalMaterial(mesh);
+  const materials =
+    storedOriginal !== undefined
+      ? [...getMaterials(mesh.material), ...getMaterials(storedOriginal)]
+      : getMaterials(mesh.material);
+  return materials.some(isMmdOutlineMaterial);
 }
 
 function isViewportHelperObject(child: Object3D) {
@@ -135,6 +145,87 @@ function usesDeformedGeometry(mesh: Mesh) {
     (Array.isArray(mesh.morphTargetInfluences) &&
       mesh.morphTargetInfluences.length > 0)
   );
+}
+
+function createWireframeMaterial(source: Material, color: Color) {
+  const material = new MeshBasicMaterial({
+    color,
+    wireframe: true,
+    side: source.side,
+    depthTest: source.depthTest,
+    depthWrite: source.depthWrite,
+    transparent: source.transparent || source.opacity < 1,
+    opacity: source.opacity,
+  });
+  material.visible = source.visible;
+  material.toneMapped = false;
+  material.userData[WIREFRAME_MATERIAL_FLAG] = true;
+  if (isMmdOutlineMaterial(source)) {
+    material.userData.mmdOutlineMaterial = source.userData.mmdOutlineMaterial;
+  }
+  return material;
+}
+
+function createWireframeMaterialSet(
+  source: Material | Material[],
+  color: Color,
+) {
+  return Array.isArray(source)
+    ? source.map((material) => createWireframeMaterial(material, color))
+    : createWireframeMaterial(source, color);
+}
+
+function disposeWireframeMaterialSet(material: Material | Material[]) {
+  for (const item of getMaterials(material)) {
+    if (item.userData[WIREFRAME_MATERIAL_FLAG] === true) {
+      item.dispose();
+    }
+  }
+}
+
+function getWireframeOriginalMaterial(mesh: Mesh) {
+  return mesh.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] as
+    | Material
+    | Material[]
+    | undefined;
+}
+
+function setWireframeOriginalMaterial(
+  mesh: Mesh,
+  material: Material | Material[],
+) {
+  mesh.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] = material;
+}
+
+function getMaterialControlTargets(mesh: Mesh) {
+  const storedOriginal = getWireframeOriginalMaterial(mesh);
+  return storedOriginal !== undefined
+    ? [...getMaterials(mesh.material), ...getMaterials(storedOriginal)]
+    : getMaterials(mesh.material);
+}
+
+function applyWireframeMaterialOverride(mesh: Mesh, color: Color) {
+  const storedOriginal = getWireframeOriginalMaterial(mesh);
+  if (storedOriginal !== undefined) {
+    disposeWireframeMaterialSet(mesh.material);
+    mesh.material = createWireframeMaterialSet(storedOriginal, color);
+    return;
+  }
+
+  const original = mesh.material;
+  setWireframeOriginalMaterial(mesh, original);
+  mesh.material = createWireframeMaterialSet(original, color);
+}
+
+function restoreWireframeMaterialOverride(mesh: Mesh) {
+  const original = getWireframeOriginalMaterial(mesh);
+  if (original === undefined) {
+    return;
+  }
+
+  disposeWireframeMaterialSet(mesh.material);
+  mesh.material = original;
+  delete mesh.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY];
 }
 
 function applyDisplayModeToMaterial(
@@ -214,7 +305,17 @@ export function disposeObject(object: Group | Mesh | null) {
     }
 
     if (child instanceof Mesh) {
-      for (const material of getMaterials(child.material)) {
+      const materialsToDispose = [
+        ...getMaterials(child.material),
+        ...(child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] !== undefined
+          ? getMaterials(
+              child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] as
+                | Material
+                | Material[],
+            )
+          : []),
+      ];
+      for (const material of materialsToDispose) {
         if (!material) {
           continue;
         }
@@ -1017,7 +1118,7 @@ export function applyTextureFilter(
       return;
     }
 
-    for (const material of getMaterials(child.material)) {
+    for (const material of getMaterialControlTargets(child)) {
       if (!material) continue;
       // Walk the material's texture-valued properties rather than the
       // authored slot list, so we catch engine-specific maps like
@@ -1057,7 +1158,7 @@ export function applyVertexColors(
       geometry instanceof BufferGeometry &&
       geometry.getAttribute("color") !== undefined;
 
-    for (const material of getMaterials(child.material)) {
+    for (const material of getMaterialControlTargets(child)) {
       if (!material || !("vertexColors" in material)) {
         continue;
       }
@@ -1091,7 +1192,7 @@ export function applyBackfaceCulling(
       return;
     }
 
-    for (const material of getMaterials(child.material)) {
+    for (const material of getMaterialControlTargets(child)) {
       if (!material || !("side" in material)) {
         continue;
       }
@@ -1120,6 +1221,12 @@ export function applyDisplayMode(
       WIREFRAME_OVERLAY_COLOR_FALLBACK,
     ),
   );
+  const wireframeMaterialColor = new Color(
+    readCssColorToken(
+      WIREFRAME_MATERIAL_COLOR_TOKEN,
+      WIREFRAME_MATERIAL_COLOR_FALLBACK,
+    ),
+  );
 
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) {
@@ -1145,9 +1252,14 @@ export function applyDisplayMode(
       }
     }
 
+    if (displayMode === "wireframe") {
+      applyWireframeMaterialOverride(child, wireframeMaterialColor);
+      return;
+    }
+    restoreWireframeMaterialOverride(child);
+
     const useMaterialWireframe =
-      displayMode === "wireframe" ||
-      (!isMmdOutline && showWireframeOverlay && usesDeformedGeometry(child));
+      !isMmdOutline && showWireframeOverlay && usesDeformedGeometry(child);
 
     if (
       !isMmdOutline &&
@@ -1211,7 +1323,9 @@ export function applyUnlitMaterial(
     if (enabled) {
       if (child.userData[UNLIT_ORIGINAL_KEY] !== undefined) return;
 
-      const materials = getMaterials(child.material);
+      const storedWireframeOriginal = getWireframeOriginalMaterial(child);
+      const currentMaterial = storedWireframeOriginal ?? child.material;
+      const materials = getMaterials(currentMaterial);
       const unlitMaterials: MeshBasicMaterial[] = [];
 
       for (const mat of materials) {
@@ -1252,21 +1366,33 @@ export function applyUnlitMaterial(
         unlitMaterials.push(unlit);
       }
 
-      child.userData[UNLIT_ORIGINAL_KEY] = child.material;
-      child.material =
+      const unlitMaterial =
         unlitMaterials.length === 1 ? unlitMaterials[0] : unlitMaterials;
+      child.userData[UNLIT_ORIGINAL_KEY] = currentMaterial;
+      if (storedWireframeOriginal !== undefined) {
+        setWireframeOriginalMaterial(child, unlitMaterial);
+      } else {
+        child.material = unlitMaterial;
+      }
     } else {
       const original = child.userData[UNLIT_ORIGINAL_KEY];
       if (original === undefined) return;
 
-      const currentMats = getMaterials(child.material);
+      const storedWireframeOriginal = getWireframeOriginalMaterial(child);
+      const currentMats = getMaterials(
+        storedWireframeOriginal ?? child.material,
+      );
       for (const mat of currentMats) {
         if (mat instanceof MeshBasicMaterial) {
           mat.dispose();
         }
       }
 
-      child.material = original;
+      if (storedWireframeOriginal !== undefined) {
+        setWireframeOriginalMaterial(child, original);
+      } else {
+        child.material = original;
+      }
       delete child.userData[UNLIT_ORIGINAL_KEY];
     }
   });

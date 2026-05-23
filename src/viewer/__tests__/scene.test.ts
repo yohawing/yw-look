@@ -10,6 +10,7 @@ import {
   InstancedMesh,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   SkinnedMesh,
   Texture,
 } from "three";
@@ -18,6 +19,7 @@ import {
   applyBackfaceCulling,
   applyDisplayMode,
   applyUnlitMaterial,
+  applyVertexColors,
 } from "../scene";
 
 describe("scene material display helpers", () => {
@@ -56,18 +58,70 @@ describe("scene material display helpers", () => {
 
     applyDisplayMode(root, "wireframe");
 
-    expect(material.wireframe).toBe(true);
-    expect(material.color.getHexString()).toBe("5e6ad2");
-    expect(material.map).toBeNull();
+    const wireframeMaterial = mesh.material as unknown as MeshBasicMaterial;
+    expect(wireframeMaterial).toBeInstanceOf(MeshBasicMaterial);
+    expect(wireframeMaterial).not.toBe(material);
+    expect(wireframeMaterial.wireframe).toBe(true);
+    expect(wireframeMaterial.color.getHexString()).toBe("f7f8f8");
+    expect(wireframeMaterial.map).toBeNull();
+    expect(wireframeMaterial.toneMapped).toBe(false);
+    expect(material.wireframe).toBe(false);
+    expect(material.color.getHexString()).toBe("ff3300");
+    expect(material.map).toBe(texture);
     expect(
       mesh.children.filter((child) => child instanceof LineSegments),
     ).toHaveLength(0);
 
     applyDisplayMode(root, "textured");
 
+    expect(mesh.material).toBe(material);
     expect(material.wireframe).toBe(false);
     expect(material.color.getHexString()).toBe("ff3300");
     expect(material.map).toBe(texture);
+  });
+
+  it("uses unlit neutral wireframe materials for lit source materials", () => {
+    const root = new Group();
+    const material = new MeshStandardMaterial({ color: 0x2288ff });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    mesh.geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    root.add(mesh);
+
+    applyDisplayMode(root, "wireframe");
+
+    const wireframeMaterial = mesh.material as unknown as MeshBasicMaterial;
+    expect(wireframeMaterial).toBeInstanceOf(MeshBasicMaterial);
+    expect(wireframeMaterial.wireframe).toBe(true);
+    expect(wireframeMaterial.color.getHexString()).toBe("f7f8f8");
+    expect(wireframeMaterial.toneMapped).toBe(false);
+    expect(material.wireframe).toBe(false);
+    expect(material.color.getHexString()).toBe("2288ff");
+
+    applyDisplayMode(root, "textured");
+
+    expect(mesh.material).toBe(material);
+  });
+
+  it("preserves authored hidden material state in wireframe mode", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial({
+      color: 0xff3300,
+      opacity: 0,
+      transparent: true,
+    });
+    material.visible = false;
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+
+    applyDisplayMode(root, "wireframe");
+
+    const wireframeMaterial = mesh.material as MeshBasicMaterial;
+    expect(wireframeMaterial.visible).toBe(false);
+    expect(wireframeMaterial.transparent).toBe(true);
+    expect(wireframeMaterial.opacity).toBe(0);
   });
 
   it("keeps deformed textured wireframes on the material path", () => {
@@ -107,7 +161,7 @@ describe("scene material display helpers", () => {
     ).toHaveLength(0);
   });
 
-  it("restores authored color after wireframe and unlit toggles", () => {
+  it("honors unlit toggles made while wireframe mode is active", () => {
     const root = new Group();
     const material = new MeshBasicMaterial({ color: 0xff3300 });
     const mesh = new Mesh(new BufferGeometry(), material);
@@ -122,6 +176,8 @@ describe("scene material display helpers", () => {
     applyDisplayMode(root, "textured");
 
     const unlitMaterial = mesh.material as MeshBasicMaterial;
+    expect(unlitMaterial).toBeInstanceOf(MeshBasicMaterial);
+    expect(unlitMaterial).not.toBe(material);
     expect(unlitMaterial.color.getHexString()).toBe("ff3300");
     expect(unlitMaterial.wireframe).toBe(false);
 
@@ -130,6 +186,43 @@ describe("scene material display helpers", () => {
     expect(mesh.material).toBe(material);
     expect(material.color.getHexString()).toBe("ff3300");
     expect(material.wireframe).toBe(false);
+  });
+
+  it("applies material controls to stored originals while wireframe mode is active", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial({ side: FrontSide });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+
+    applyDisplayMode(root, "wireframe");
+    applyBackfaceCulling(root, false);
+    applyDisplayMode(root, "textured");
+
+    expect(mesh.material).toBe(material);
+    expect(material.side).toBe(DoubleSide);
+  });
+
+  it("preserves vertex color toggles made while wireframe mode is active", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    geometry.setAttribute(
+      "color",
+      new BufferAttribute(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), 3),
+    );
+    const mesh = new Mesh(geometry, material);
+    root.add(mesh);
+
+    applyDisplayMode(root, "wireframe");
+    applyVertexColors(root, true);
+    applyDisplayMode(root, "textured");
+
+    expect(mesh.material).toBe(material);
+    expect(material.vertexColors).toBe(true);
   });
 
   it("keeps MMD outline materials out of global lighting toggles but applies wireframe display", () => {
@@ -151,17 +244,50 @@ describe("scene material display helpers", () => {
     applyUnlitMaterial(root, true);
 
     expect(regularMaterial.side).toBe(DoubleSide);
-    expect(regularMaterial.wireframe).toBe(true);
+    expect(regularMaterial.wireframe).toBe(false);
     expect(regular.material).not.toBe(regularMaterial);
+    expect((regular.material as MeshBasicMaterial).wireframe).toBe(true);
     expect(renderProxyMaterial.side).toBe(DoubleSide);
-    expect(renderProxyMaterial.wireframe).toBe(true);
+    expect(renderProxyMaterial.wireframe).toBe(false);
     expect(renderProxy.material).not.toBe(renderProxyMaterial);
     expect(outlineMaterial.side).toBe(BackSide);
-    expect(outlineMaterial.wireframe).toBe(true);
-    expect(outline.material).toBe(outlineMaterial);
+    expect(outlineMaterial.wireframe).toBe(false);
+    expect(outline.material).not.toBe(outlineMaterial);
+    expect((outline.material as MeshBasicMaterial).wireframe).toBe(true);
 
     applyDisplayMode(root, "textured");
 
+    expect(outline.material).toBe(outlineMaterial);
     expect(outlineMaterial.wireframe).toBe(false);
+  });
+
+  it("preserves material-only MMD outline identity in wireframe mode", () => {
+    const root = new Group();
+    const outlineMaterial = new MeshBasicMaterial({ side: BackSide });
+    outlineMaterial.userData.mmdOutlineMaterial = { materialIndex: 0 };
+    const outline = new Mesh(new BufferGeometry(), outlineMaterial);
+    outline.geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    root.add(outline);
+
+    applyDisplayMode(root, "wireframe");
+
+    const wireframeMaterial = outline.material as MeshBasicMaterial;
+    expect(wireframeMaterial).not.toBe(outlineMaterial);
+    expect(wireframeMaterial.wireframe).toBe(true);
+    expect(wireframeMaterial.userData.mmdOutlineMaterial).toBe(
+      outlineMaterial.userData.mmdOutlineMaterial,
+    );
+
+    applyBackfaceCulling(root, false);
+    applyDisplayMode(root, "texturedWireframe");
+
+    expect(outline.material).toBe(outlineMaterial);
+    expect(outlineMaterial.side).toBe(BackSide);
+    expect(
+      outline.children.filter((child) => child instanceof LineSegments),
+    ).toHaveLength(0);
   });
 });
