@@ -9,8 +9,11 @@ import {
   FrontSide,
   GridHelper,
   Group,
+  InstancedMesh,
   LinearFilter,
   LinearMipMapLinearFilter,
+  LineBasicMaterial,
+  LineSegments,
   type MagnificationTextureFilter,
   Material,
   MathUtils,
@@ -28,6 +31,7 @@ import {
   SkinnedMesh,
   Texture,
   Vector3,
+  WireframeGeometry,
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { VertexNormalsHelper } from "three/examples/jsm/helpers/VertexNormalsHelper.js";
@@ -39,6 +43,10 @@ export const SHADOW_CATCHER_NAME = "__yw_shadow_catcher";
 const SKELETON_HELPER_FLAG = "__yw_skeleton_helper";
 const BBOX_HELPER_FLAG = "__yw_bbox_helper";
 const NORMAL_HELPER_FLAG = "__yw_normal_helper";
+const WIREFRAME_OVERLAY_FLAG = "__yw_wireframe_overlay";
+const WIREFRAME_OVERLAY_COLOR_TOKEN = "--yl-accent-bg";
+const WIREFRAME_OVERLAY_COLOR_FALLBACK = "#5e6ad2";
+const WIREFRAME_ORIGINAL_COLOR_KEY = "__yw_wireframe_original_color";
 const GRID_DIVISIONS = 20;
 // Axes length is tied to grid size so the XYZ indicator scales with the
 // current unit preset. Slightly longer than half a grid cell keeps the
@@ -96,6 +104,79 @@ function isMmdOutlineMesh(mesh: Mesh) {
   return getMaterials(mesh.material).some(isMmdOutlineMaterial);
 }
 
+function isViewportHelperObject(child: Object3D) {
+  return (
+    child.userData[SKELETON_HELPER_FLAG] === true ||
+    child.userData[BBOX_HELPER_FLAG] === true ||
+    child.userData[NORMAL_HELPER_FLAG] === true ||
+    child.userData[WIREFRAME_OVERLAY_FLAG] === true
+  );
+}
+
+function readCssColorToken(token: string, fallback: string) {
+  if (
+    typeof document === "undefined" ||
+    typeof getComputedStyle === "undefined"
+  ) {
+    return fallback;
+  }
+
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(token)
+    .trim();
+
+  return value || fallback;
+}
+
+function usesDeformedGeometry(mesh: Mesh) {
+  return (
+    mesh instanceof InstancedMesh ||
+    mesh instanceof SkinnedMesh ||
+    (Array.isArray(mesh.morphTargetInfluences) &&
+      mesh.morphTargetInfluences.length > 0)
+  );
+}
+
+function applyDisplayModeToMaterial(
+  material: Material,
+  displayMode: DisplayMode,
+  useMaterialWireframe: boolean,
+  wireframeColor: Color,
+) {
+  if (!("wireframe" in material)) {
+    return;
+  }
+
+  material.wireframe = useMaterialWireframe;
+
+  if ("color" in material && material.color instanceof Color) {
+    if (displayMode === "wireframe") {
+      if (!(material.userData[WIREFRAME_ORIGINAL_COLOR_KEY] instanceof Color)) {
+        material.userData[WIREFRAME_ORIGINAL_COLOR_KEY] =
+          material.color.clone();
+      }
+      material.color.copy(wireframeColor);
+    } else {
+      const originalColor = material.userData[WIREFRAME_ORIGINAL_COLOR_KEY];
+      if (originalColor instanceof Color) {
+        material.color.copy(originalColor);
+        delete material.userData[WIREFRAME_ORIGINAL_COLOR_KEY];
+      }
+    }
+  }
+
+  if ("map" in material) {
+    const originalMap = material.userData.originalMap ?? material.map ?? null;
+    material.userData.originalMap = originalMap;
+    material.map =
+      displayMode === "untextured" || displayMode === "wireframe"
+        ? null
+        : originalMap;
+  }
+
+  material.needsUpdate = true;
+}
+
 function disposeMaterialTextures(material: Material) {
   for (const value of Object.values(material)) {
     if (value instanceof Texture) {
@@ -118,6 +199,18 @@ export function disposeObject(object: Group | Mesh | null) {
   object.traverse((child: Object3D) => {
     if (child instanceof Mesh && child.geometry instanceof BufferGeometry) {
       child.geometry.dispose();
+    }
+
+    if (
+      child instanceof LineSegments &&
+      child.userData[WIREFRAME_OVERLAY_FLAG] === true
+    ) {
+      if (child.geometry instanceof BufferGeometry) {
+        child.geometry.dispose();
+      }
+      for (const material of getMaterials(child.material)) {
+        material.dispose();
+      }
     }
 
     if (child instanceof Mesh) {
@@ -1020,6 +1113,14 @@ export function applyDisplayMode(
   object: Group | Mesh,
   displayMode: DisplayMode,
 ) {
+  const showWireframeOverlay = displayMode === "texturedWireframe";
+  const wireframeColor = new Color(
+    readCssColorToken(
+      WIREFRAME_OVERLAY_COLOR_TOKEN,
+      WIREFRAME_OVERLAY_COLOR_FALLBACK,
+    ),
+  );
+
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) {
       return;
@@ -1027,26 +1128,70 @@ export function applyDisplayMode(
     if (isMmdOutlineMesh(child)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
+
+    const existingOverlays = child.children.filter(
+      (candidate): candidate is LineSegments =>
+        candidate instanceof LineSegments &&
+        candidate.userData[WIREFRAME_OVERLAY_FLAG] === true,
+    );
+    for (const overlay of existingOverlays) {
+      child.remove(overlay);
+      if (overlay.geometry instanceof BufferGeometry) {
+        overlay.geometry.dispose();
+      }
+      for (const material of getMaterials(overlay.material)) {
+        material.dispose();
+      }
+    }
+
+    const useMaterialWireframe =
+      displayMode === "wireframe" ||
+      (showWireframeOverlay && usesDeformedGeometry(child));
+
+    if (
+      showWireframeOverlay &&
+      !useMaterialWireframe &&
+      child.geometry instanceof BufferGeometry &&
+      child.geometry.getAttribute("position") !== undefined
+    ) {
+      const overlay = new LineSegments(
+        new WireframeGeometry(child.geometry),
+        new LineBasicMaterial({
+          color: wireframeColor,
+          transparent: true,
+          opacity: 0.78,
+          depthTest: true,
+          depthWrite: false,
+        }),
+      );
+      overlay.name = "__yw_textured_wireframe_overlay";
+      overlay.userData[WIREFRAME_OVERLAY_FLAG] = true;
+      overlay.renderOrder = child.renderOrder + 1;
+      child.add(overlay);
+    }
 
     for (const material of getMaterials(child.material)) {
-      if (!("wireframe" in material)) {
-        continue;
+      applyDisplayModeToMaterial(
+        material,
+        displayMode,
+        useMaterialWireframe,
+        wireframeColor,
+      );
+    }
+
+    const unlitOriginal = child.userData[UNLIT_ORIGINAL_KEY];
+    if (unlitOriginal instanceof Material || Array.isArray(unlitOriginal)) {
+      for (const material of getMaterials(unlitOriginal)) {
+        applyDisplayModeToMaterial(
+          material,
+          displayMode,
+          useMaterialWireframe,
+          wireframeColor,
+        );
       }
-
-      material.wireframe =
-        displayMode === "wireframe" || displayMode === "texturedWireframe";
-
-      if ("map" in material) {
-        const originalMap =
-          material.userData.originalMap ?? material.map ?? null;
-        material.userData.originalMap = originalMap;
-        material.map =
-          displayMode === "untextured" || displayMode === "wireframe"
-            ? null
-            : originalMap;
-      }
-
-      material.needsUpdate = true;
     }
   });
 }
@@ -1088,6 +1233,12 @@ export function applyUnlitMaterial(
 
         if ("color" in mat && mat.color instanceof Color) {
           unlit.color.copy(mat.color);
+          const originalWireframeColor =
+            mat.userData[WIREFRAME_ORIGINAL_COLOR_KEY];
+          if (originalWireframeColor instanceof Color) {
+            unlit.userData[WIREFRAME_ORIGINAL_COLOR_KEY] =
+              originalWireframeColor.clone();
+          }
         }
         unlit.transparent = mat.transparent;
         unlit.opacity = mat.opacity;
