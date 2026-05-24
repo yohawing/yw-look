@@ -49,6 +49,7 @@ export {
   removeBoundingBoxHelpers,
   applyNormalHelpers,
   removeNormalHelpers,
+  isViewportHelperObject,
   ensureShadowCatcher,
   applyShadows,
   applyUnlitMaterial,
@@ -113,4 +114,9 @@ export {
 
 export { getCachedBuffer, evictAll, prefetchAdjacent } from "./prefetchCache";
 
-export { applySelectionHighlight, clearSelectionHighlight } from "./highlight";
+export {
+  applySelectionHighlight,
+  applySelectionHighlightToObject,
+  clearSelectionHighlight,
+  clearSelectionHighlightFromObject,
+} from "./highlight";

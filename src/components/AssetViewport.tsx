@@ -76,6 +76,7 @@ import {
   applySkeletonHelpers,
   applyBoundingBoxHelpers,
   applyNormalHelpers,
+  isViewportHelperObject,
   applyShadows,
   ensureShadowCatcher,
   loadPreviewObject,
@@ -90,8 +91,8 @@ import {
   seekAction,
   stepAction,
   disposePreviewObject,
-  applySelectionHighlight,
-  clearSelectionHighlight,
+  applySelectionHighlightToObject,
+  clearSelectionHighlightFromObject,
   applyUnlitMaterial,
   applyPreviewLightingPreset,
   DEFAULT_LIGHTING_PRESET,
@@ -338,6 +339,25 @@ function findObjectBySelectionKey(
   });
 
   return match;
+}
+
+function isSelectablePickTarget(object: Object3D): object is Mesh {
+  return (
+    object instanceof Mesh &&
+    object.name !== "__yw_shadow_catcher" &&
+    !isViewportHelperObject(object) &&
+    selectionKeyForObject(object) !== null
+  );
+}
+
+function collectSelectablePickTargets(root: Object3D): Mesh[] {
+  const targets: Mesh[] = [];
+  root.traverse((child) => {
+    if (isSelectablePickTarget(child)) {
+      targets.push(child);
+    }
+  });
+  return targets;
 }
 
 function frameObjectBounds(
@@ -911,6 +931,7 @@ export function AssetViewport({
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
   const texturePreview3DRef = useRef(texturePreview3D);
   const onSelectMeshRef = useRef(onSelectMesh);
+  const highlightedSelectionRef = useRef<Object3D | null>(null);
   const morphTargetValuesRef = useRef(morphTargetValues);
   const purposeModesRef = useRef(purposeModes);
   // #34: active USD camera. null = free orbit.
@@ -1088,11 +1109,18 @@ export function AssetViewport({
     const mounted = sceneContextRef.current?.mountedObject;
     if (!mounted) return;
 
-    // Always clear any previous tint first.
-    clearSelectionHighlight(mounted);
+    const previous = highlightedSelectionRef.current;
+    if (previous) {
+      clearSelectionHighlightFromObject(previous);
+      highlightedSelectionRef.current = null;
+    }
 
     if (selectedMeshName) {
-      applySelectionHighlight(mounted, selectedMeshName);
+      const target = findObjectBySelectionKey(mounted, selectedMeshName);
+      if (target) {
+        applySelectionHighlightToObject(target);
+        highlightedSelectionRef.current = target;
+      }
     }
   }, [selectedMeshName]);
 
@@ -1584,7 +1612,8 @@ export function AssetViewport({
       pickNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pickNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       pickRaycaster.setFromCamera(pickNdc, camera);
-      const hits = pickRaycaster.intersectObject(mounted, true);
+      const pickTargets = collectSelectablePickTargets(mounted);
+      const hits = pickRaycaster.intersectObjects(pickTargets, false);
       if (hits.length === 0) {
         callback(null);
         return;
