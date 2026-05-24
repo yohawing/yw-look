@@ -88,6 +88,23 @@ function fmtMmdFlags(flags: Record<string, boolean> | null): string {
   return enabled.length > 0 ? enabled.join(", ") : "none";
 }
 
+function hierarchyDisplayName(node: HierarchyNode): string {
+  return node.displayName || node.name || "(unnamed)";
+}
+
+function fmtMmdMorphOffsets(
+  mmd: ObjectInfo["morphTargets"][number]["mmd"],
+): string {
+  if (!mmd) return "";
+  const parts = [
+    mmd.boneOffsetCount > 0 ? `bone:${mmd.boneOffsetCount}` : null,
+    mmd.groupOffsetCount > 0 ? `group:${mmd.groupOffsetCount}` : null,
+    mmd.flipOffsetCount > 0 ? `flip:${mmd.flipOffsetCount}` : null,
+    mmd.impulseOffsetCount > 0 ? `impulse:${mmd.impulseOffsetCount}` : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join(" ") : "offsets:none";
+}
+
 function SelectedMmdBone({ bone }: { bone: MmdBoneEntry | null }) {
   if (!bone) return null;
 
@@ -319,7 +336,7 @@ function HierarchyBranch({
         ) : (
           <span className="tree-chevron-spacer" />
         )}
-        <span className="tree-node-name">{node.name || "(unnamed)"}</span>
+        <span className="tree-node-name">{hierarchyDisplayName(node)}</span>
         <span className="tree-node-kind">{node.kind}</span>
         {/* #44: per-prim payload load/unload button — only shown when a
             session is active (callbacks provided) and this prim is a known
@@ -553,7 +570,7 @@ export function HierarchyCard({
             <div className="selected-kv-row">
               <span className="selected-kv-key">Name</span>
               <span className="selected-kv-value">
-                {selectedNode.name || "(unnamed)"}
+                {hierarchyDisplayName(selectedNode)}
               </span>
             </div>
             <div className="selected-kv-row">
@@ -635,6 +652,16 @@ export function HierarchyCard({
                         <span className="selected-morph-value">
                           {value.toFixed(2)}
                         </span>
+                        {target.mmd ? (
+                          <span className="selected-morph-meta">
+                            {target.mmd.type ?? "mmd"} ·{" "}
+                            {target.mmd.englishName &&
+                            target.mmd.englishName !== target.name
+                              ? `${target.mmd.englishName} · `
+                              : ""}
+                            {fmtMmdMorphOffsets(target.mmd)}
+                          </span>
+                        ) : null}
                         <input
                           aria-label={`Shape key ${target.name}`}
                           className="selected-morph-slider"

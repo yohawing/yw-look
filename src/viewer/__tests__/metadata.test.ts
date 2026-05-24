@@ -308,6 +308,9 @@ describe("collectAssetMetadata", () => {
 
     const result = collectAssetMetadata(root, fakeMmdFile, [], null);
 
+    expect(JSON.stringify(result.metadata.hierarchy)).toContain(
+      '"displayName":"腕"',
+    );
     expect(result.metadata.objectInfo.Arm_EN?.mmdBone).toMatchObject({
       boneIndex: 1,
       parentIndex: 0,
@@ -336,6 +339,50 @@ describe("collectAssetMetadata", () => {
         limitKinds: ["pmxLinkLimit"],
       },
     });
+  });
+
+  it("prefers MMD Japanese morph names and records morph metadata", () => {
+    const root = new Group();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+    const mesh = new Mesh(geometry, new MeshBasicMaterial());
+    mesh.name = "Face";
+    mesh.morphTargetInfluences = [0.4];
+    mesh.morphTargetDictionary = { Smile_EN: 0 };
+    mesh.userData.mmdMorphs = [
+      {
+        name: "笑い",
+        englishName: "Smile_EN",
+        type: "group",
+        boneOffsets: [{ boneIndex: 0 }],
+        groupOffsets: [{ morphIndex: 0 }],
+        flipOffsets: [{ morphIndex: 0 }],
+        impulseOffsets: [{ rigidBodyIndex: 0 }],
+      },
+    ];
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.objectInfo.Face?.morphTargets).toEqual([
+      {
+        index: 0,
+        name: "笑い",
+        value: 0.4,
+        mmd: {
+          name: "笑い",
+          englishName: "Smile_EN",
+          type: "group",
+          boneOffsetCount: 1,
+          groupOffsetCount: 1,
+          flipOffsetCount: 1,
+          impulseOffsetCount: 1,
+        },
+      },
+    ]);
   });
 
   it("excludes MMD outline and render-order proxy meshes from metadata", () => {
@@ -427,7 +474,7 @@ describe("collectAssetMetadata", () => {
     const result = collectAssetMetadata(root, fakeFile, [], null);
 
     expect(result.metadata.objectInfo.Face?.morphTargets).toEqual([
-      { index: 0, name: "blink_L", value: 0.65 },
+      { index: 0, name: "blink_L", value: 0.65, mmd: null },
     ]);
   });
 

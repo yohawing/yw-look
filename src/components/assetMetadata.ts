@@ -1,5 +1,6 @@
 export type HierarchyNode = {
   name: string;
+  displayName?: string;
   kind: string;
   children: HierarchyNode[];
   /** #46: full USD SdfPath surfaced from GLB node extras.primPath.
@@ -190,6 +191,16 @@ export type MmdBoneEntry = {
   } | null;
 };
 
+export type MmdMorphEntry = {
+  name: string | null;
+  englishName: string | null;
+  type: string | null;
+  boneOffsetCount: number;
+  groupOffsetCount: number;
+  flipOffsetCount: number;
+  impulseOffsetCount: number;
+};
+
 export type ObjectInfo = {
   name: string;
   kind: string;
@@ -213,6 +224,7 @@ export type MorphTargetEntry = {
   index: number;
   name: string;
   value: number;
+  mmd: MmdMorphEntry | null;
 };
 
 export type AssetMetadata = {

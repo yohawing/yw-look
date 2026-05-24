@@ -31,6 +31,7 @@ import type {
   MmdAssetMetadata,
   MmdBoneEntry,
   MmdMaterialEntry,
+  MmdMorphEntry,
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { getMaterials, isViewportHelperObject } from "./scene";
@@ -126,8 +127,13 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
   const displayName = primPath
     ? basenameFromPrimPath(primPath)
     : safeTrimmedName(object);
+  const mmdBoneName =
+    object instanceof Bone ? stringValue(object.userData.mmdBoneName) : null;
   return {
     name: displayName,
+    ...(mmdBoneName && mmdBoneName !== displayName
+      ? { displayName: mmdBoneName }
+      : {}),
     kind: getObjectKind(object),
     children: collectHierarchyChildren(object),
     ...(primPath !== undefined ? { primPath } : {}),
@@ -439,6 +445,39 @@ function buildMmdBoneIkSummary(
     linkCount: links.length,
     limitKinds,
   };
+}
+
+function countArray(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function buildMmdMorphEntry(value: unknown): MmdMorphEntry | null {
+  if (!isRecord(value)) return null;
+  const name = stringValue(value.name);
+  const englishName = stringValue(value.englishName);
+  const type = stringValue(value.type);
+  if (name === null && englishName === null && type === null) return null;
+  return {
+    name,
+    englishName,
+    type,
+    boneOffsetCount: countArray(value.boneOffsets),
+    groupOffsetCount: countArray(value.groupOffsets),
+    flipOffsetCount: countArray(value.flipOffsets),
+    impulseOffsetCount: countArray(value.impulseOffsets),
+  };
+}
+
+function mmdMorphsByIndex(object: Mesh): Map<number, MmdMorphEntry> {
+  const values = Array.isArray(object.userData.mmdMorphs)
+    ? object.userData.mmdMorphs
+    : [];
+  const out = new Map<number, MmdMorphEntry>();
+  values.forEach((value, index) => {
+    const entry = buildMmdMorphEntry(value);
+    if (entry) out.set(index, entry);
+  });
+  return out;
 }
 
 function buildMaterialEntry(
@@ -758,17 +797,22 @@ function buildObjectInfo(
 
     const influences = object.morphTargetInfluences ?? [];
     const dictionary = object.morphTargetDictionary ?? {};
+    const mmdMorphs = mmdMorphsByIndex(object);
     const namesByIndex = new Map<number, string>();
     for (const [name, index] of Object.entries(dictionary)) {
       if (Number.isInteger(index) && index >= 0) {
         namesByIndex.set(index, name);
       }
     }
-    morphTargets = influences.map((value, index) => ({
-      index,
-      name: namesByIndex.get(index) ?? `Target ${index + 1}`,
-      value,
-    }));
+    morphTargets = influences.map((value, index) => {
+      const mmd = mmdMorphs.get(index) ?? null;
+      return {
+        index,
+        name: mmd?.name ?? namesByIndex.get(index) ?? `Target ${index + 1}`,
+        value,
+        mmd,
+      };
+    });
   } else if (object instanceof Group) {
     childCount = object.children.length;
   }

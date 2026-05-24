@@ -2140,6 +2140,16 @@ body.is-resizing-sidebar {
   text-align: right;
 }
 
+.selected-morph-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: #62666d;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .selected-morph-slider {
   grid-column: 1 / -1;
   width: 100%;
