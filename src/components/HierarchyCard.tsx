@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AssetMetadata,
   HierarchyNode,
@@ -215,6 +215,7 @@ function HierarchyBranch({
   onSelectPrimPath,
   parentPath,
   forceExpanded,
+  forceExpandedKeys,
   selectedRef,
   payloadPrimPaths,
   unloadedPayloadPaths,
@@ -229,6 +230,7 @@ function HierarchyBranch({
   /** Accumulated SdfPath prefix of the parent node (e.g. `"/World"`). */
   parentPath: string;
   forceExpanded: boolean;
+  forceExpandedKeys: ReadonlySet<string>;
   selectedRef: React.RefObject<HTMLLIElement | null>;
   payloadPrimPaths?: ReadonlySet<string>;
   unloadedPayloadPaths?: ReadonlySet<string>;
@@ -394,13 +396,14 @@ function HierarchyBranch({
               onSelectPrimPath={onSelectPrimPath}
               parentPath={primPath}
               // Each child decides force-open from its own subtree only.
-              // Inheriting `forceExpanded` from the parent would
+              // Inheriting the parent's expanded state would
               // unfold every sibling once a single deep node is
               // selected; the chain we actually want to open is just
               // the ancestor path of the selection.
-              forceExpanded={
-                selectedName !== null && hasDescendant(child, selectedName)
-              }
+              forceExpanded={forceExpandedKeys.has(
+                child.primPath ?? child.name,
+              )}
+              forceExpandedKeys={forceExpandedKeys}
               selectedRef={selectedRef}
               payloadPrimPaths={payloadPrimPaths}
               unloadedPayloadPaths={unloadedPayloadPaths}
@@ -414,37 +417,46 @@ function HierarchyBranch({
   );
 }
 
-/** Walks the subtree rooted at `node` looking for a descendant whose
- * selection key (primPath when present, name otherwise) matches `key`.
- * Used to decide whether to force-open an ancestor branch so the
- * selected row is visible without the user clicking through.
- * We do not memoize because the hierarchy is small (USD prim counts in
- * the thousands at most) and selection changes rarely. */
-function hasDescendant(node: HierarchyNode, key: string): boolean {
-  const nodeKey = node.primPath ?? node.name;
-  if (nodeKey === key) return true;
-  return node.children.some((child) => hasDescendant(child, key));
-}
+type HierarchyStats = {
+  totalNodeCount: number;
+  selectedNode: HierarchyNode | null;
+  selectedAncestorKeys: ReadonlySet<string>;
+};
 
-function findNodeByKey(
+function collectHierarchyStats(
   nodes: HierarchyNode[],
-  key: string | null,
-): HierarchyNode | null {
-  if (!key) return null;
-  for (const node of nodes) {
-    const nodeKey = node.primPath ?? node.name;
-    if (nodeKey === key) return node;
-    const child = findNodeByKey(node.children, key);
-    if (child) return child;
-  }
-  return null;
-}
+  selectedKey: string | null,
+): HierarchyStats {
+  let totalNodeCount = 0;
+  let selectedNode: HierarchyNode | null = null;
+  let selectedPathKeys: string[] | null = null;
+  const ancestorStack: string[] = [];
 
-function countNodes(nodes: HierarchyNode[]): number {
-  return nodes.reduce(
-    (count, node) => count + 1 + countNodes(node.children),
-    0,
-  );
+  const visit = (node: HierarchyNode) => {
+    totalNodeCount += 1;
+
+    const nodeKey = node.primPath ?? node.name;
+    if (selectedKey !== null && nodeKey === selectedKey && !selectedNode) {
+      selectedNode = node;
+      selectedPathKeys = [...ancestorStack];
+    }
+
+    ancestorStack.push(nodeKey);
+    for (const child of node.children) {
+      visit(child);
+    }
+    ancestorStack.pop();
+  };
+
+  for (const node of nodes) {
+    visit(node);
+  }
+
+  return {
+    totalNodeCount,
+    selectedNode,
+    selectedAncestorKeys: new Set(selectedPathKeys ?? []),
+  };
 }
 
 export function HierarchyCard({
@@ -475,8 +487,10 @@ export function HierarchyCard({
   }, [selectedName]);
 
   const normalizedSelected = selectedName ?? null;
-  const selectedNode = findNodeByKey(hierarchy, normalizedSelected);
-  const totalNodeCount = countNodes(hierarchy);
+  const { selectedAncestorKeys, selectedNode, totalNodeCount } = useMemo(
+    () => collectHierarchyStats(hierarchy, normalizedSelected),
+    [hierarchy, normalizedSelected],
+  );
   const selectedPath = selectedNode?.primPath ?? normalizedSelected;
   const selectedInfo = normalizedSelected
     ? (objectInfo?.[normalizedSelected] ?? null)
@@ -527,8 +541,9 @@ export function HierarchyCard({
                 parentPath="/"
                 forceExpanded={
                   normalizedSelected !== null &&
-                  hasDescendant(node, normalizedSelected)
+                  selectedAncestorKeys.has(node.primPath ?? node.name)
                 }
+                forceExpandedKeys={selectedAncestorKeys}
                 selectedRef={selectedRef}
                 payloadPrimPaths={payloadPrimPaths}
                 unloadedPayloadPaths={unloadedPayloadPaths}
