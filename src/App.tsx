@@ -49,7 +49,6 @@ import { HierarchyCard } from "./components/HierarchyCard";
 import { UsdPrimPropertyPanel } from "./components/UsdPrimPropertyPanel";
 import { MaterialListCard } from "./components/MaterialListCard";
 import { MmdMetadataCard } from "./components/MmdMetadataCard";
-import { MenuBar } from "./components/MenuBar";
 import {
   PerformanceCard,
   type PerformanceSnapshot,
@@ -577,9 +576,7 @@ export function App() {
     },
     [],
   );
-  // Browser mode needs recent files immediately for the always-visible MenuBar.
-  // Tauri can keep this deferred until the sidebar is opened.
-  const shouldLoadRecentFiles = sidebarOpen || !isTauri;
+  const shouldLoadRecentFiles = sidebarOpen;
   const shouldLoadDeferredData = sidebarOpen;
 
   const viewerStatusLabel = useMemo(() => {
@@ -2608,19 +2605,6 @@ export function App() {
 
   return (
     <main className="app-shell">
-      {/* ── MenuBar ── */}
-      {isTauri ? null : (
-        <MenuBar
-          onAction={(actionId) => {
-            void executeMenuAction(actionId);
-          }}
-          onOpenRecentFile={(path) => {
-            void handleOpenRecentFile(path);
-          }}
-          recentFiles={recentFilesPayload?.entries ?? []}
-        />
-      )}
-
       {/* ── Viewport ── */}
       <section className="main-content">
         <div className="viewer-panel">
@@ -2827,7 +2811,7 @@ export function App() {
                 {dialogState.title}
               </p>
               <button
-                className="menubar-button"
+                className="dialog-close-button"
                 onClick={() => setDialogState(null)}
                 type="button"
               >
