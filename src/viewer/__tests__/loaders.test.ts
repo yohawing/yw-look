@@ -115,6 +115,15 @@ describe("preview support classification", () => {
     expect(getPreviewSupportState("vmd")).toBe("unsupported");
   });
 
+  it("marks optional MMD model formats as missing when the pack is absent", () => {
+    expect(
+      getPreviewSupportState("pmx", { optionalLoaderInstalled: false }),
+    ).toBe("missingOptionalLoader");
+    expect(
+      getPreviewSupportState("pmd", { optionalLoaderInstalled: false }),
+    ).toBe("missingOptionalLoader");
+  });
+
   it("marks the bundled VRM loader pack as optional but installed", () => {
     expect(
       listRegisteredLoaders().find((loader) => loader.extension === "vrm"),

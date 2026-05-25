@@ -80,6 +80,7 @@ import {
   applyShadows,
   ensureShadowCatcher,
   loadPreviewObject,
+  listRegisteredLoaders,
   loadMmdMotion,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
@@ -99,6 +100,7 @@ import {
   applyPreviewRenderingPreset,
   DEFAULT_PREVIEW_RENDERING_PRESET,
   getPreviewRenderingPresetForExtension,
+  selectionProxyTarget,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
 import { AnimationBar } from "./AnimationBar";
@@ -405,11 +407,14 @@ function frameObjectBounds(
 }
 
 const MANUAL_HIDDEN_KEY = "__ywManualHidden";
-const SELECTION_PROXY_TARGET_KEY = "__ywSelectionProxyTarget";
 
-function selectionProxyTarget(object: Object3D) {
-  const target = object.userData?.[SELECTION_PROXY_TARGET_KEY];
-  return target instanceof Object3D ? target : null;
+function getRuntimePreviewSupportState(extension: string) {
+  const loader = listRegisteredLoaders().find(
+    (entry) => entry.extension === extension,
+  );
+  return getPreviewSupportState(extension, {
+    optionalLoaderInstalled: loader?.installed !== false,
+  });
 }
 
 function isManuallyHidden(object: Object3D) {
@@ -1007,7 +1012,7 @@ export function AssetViewport({
 
   const shouldInitializeScene = currentFile !== null;
   const previewSupportState = currentFile
-    ? getPreviewSupportState(currentFile.extension)
+    ? getRuntimePreviewSupportState(currentFile.extension)
     : "implemented";
   const effectiveOverlayMode =
     currentFile === null
@@ -2215,7 +2220,7 @@ export function AssetViewport({
       viewerSurfaceModeRef.current,
     );
 
-    const supportState = getPreviewSupportState(currentFile.extension);
+    const supportState = getRuntimePreviewSupportState(currentFile.extension);
     if (supportState !== "implemented") {
       const message =
         supportState === "missingOptionalLoader"

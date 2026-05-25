@@ -4,6 +4,7 @@ import type {
   AnimationMixer,
   Group,
   Mesh,
+  Object3D,
   PerspectiveCamera,
   PMREMGenerator,
   Scene,
@@ -13,7 +14,6 @@ import type {
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PreviewLightingPreset } from "./lighting";
 import type { PreviewRenderingPreset } from "./rendering";
-import type { MmdAnimation, ThreeMmdModel } from "@yohawing/three-mmd-loader";
 import type { MmdAssetMetadata } from "../components/assetMetadata";
 
 import type { ViewerMode } from "../components/ViewerStatePanel";
@@ -51,7 +51,7 @@ export type SceneContext = {
   mixer: AnimationMixer | null;
   clips: AnimationClip[];
   activeAction: AnimationAction | null;
-  mmdModel: ThreeMmdModel | null;
+  mmdModel: MmdRuntimeModelHandle | null;
   mmdMotion: MmdMotionPlayback | null;
   textureRegistry: Map<string, Texture>;
   /**
@@ -62,8 +62,30 @@ export type SceneContext = {
   rawMaxDimension: number;
 };
 
+export type MmdAnimationHandle = {
+  metadata: {
+    maxFrame?: number;
+  };
+};
+
+export type MmdRuntimeModelHandle = {
+  mesh: Object3D;
+  runtime?: {
+    reset(time: number): void;
+    setAnimation(animation: MmdAnimationHandle, mesh: Object3D): void;
+    tick(
+      time: number,
+      options: {
+        mesh: Object3D;
+        ik?: boolean;
+        physics?: boolean;
+      },
+    ): void;
+  };
+};
+
 export type MmdMotionPlayback = {
-  animation: MmdAnimation;
+  animation: MmdAnimationHandle;
   duration: number;
   currentTime: number;
   label: string;
@@ -80,11 +102,11 @@ export type LoadedPreview = {
   rendering?: PreviewRenderingPreset;
   skipScaleNormalization?: boolean;
   mmdMetadata?: MmdAssetMetadata;
-  mmdModel?: ThreeMmdModel;
+  mmdModel?: MmdRuntimeModelHandle;
 };
 
 export type LoadedMmdMotion = {
-  animation: MmdAnimation;
+  animation: MmdAnimationHandle;
   duration: number;
   label: string;
 };
@@ -182,6 +204,14 @@ export const optionalPreviewLoaders = {
     formatLabel: "VRMA",
     loaderPackName: "VRM Loader Pack",
   },
+  pmx: {
+    formatLabel: "PMX",
+    loaderPackName: "MMD Loader Pack",
+  },
+  pmd: {
+    formatLabel: "PMD",
+    loaderPackName: "MMD Loader Pack",
+  },
 } as const satisfies Record<
   string,
   {
@@ -190,7 +220,17 @@ export const optionalPreviewLoaders = {
   }
 >;
 
-export function getPreviewSupportState(extension: string): PreviewSupportState {
+export function getPreviewSupportState(
+  extension: string,
+  options: { optionalLoaderInstalled?: boolean } = {},
+): PreviewSupportState {
+  if (
+    extension in optionalPreviewLoaders &&
+    options.optionalLoaderInstalled === false
+  ) {
+    return "missingOptionalLoader";
+  }
+
   if (implementedPreviewExtensions.has(extension)) {
     return "implemented";
   }

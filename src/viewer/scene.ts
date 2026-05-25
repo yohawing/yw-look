@@ -36,6 +36,11 @@ import {
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { VertexNormalsHelper } from "three/examples/jsm/helpers/VertexNormalsHelper.js";
 import type { DisplayMode, SceneContext } from "./types";
+import {
+  copyMmdOutlineMaterialUserData,
+  isMmdOutlineMaterial,
+  isMmdOutlineProxyObject,
+} from "./mmd/userData";
 
 export const GRID_NAME = "__yw_initial_grid";
 export const AXES_NAME = "__yw_axes_helper";
@@ -98,12 +103,8 @@ export function getMaterials(material: Material | Material[]) {
   return Array.isArray(material) ? material : [material];
 }
 
-function isMmdOutlineMaterial(material: Material) {
-  return material.userData?.mmdOutlineMaterial !== undefined;
-}
-
 function isMmdOutlineMesh(mesh: Mesh) {
-  if (mesh.userData?.mmdOutlineProxy !== undefined) {
+  if (isMmdOutlineProxyObject(mesh)) {
     return true;
   }
 
@@ -162,9 +163,7 @@ function createWireframeMaterial(source: Material, color: Color) {
   material.visible = source.visible;
   material.toneMapped = false;
   material.userData[WIREFRAME_MATERIAL_FLAG] = true;
-  if (isMmdOutlineMaterial(source)) {
-    material.userData.mmdOutlineMaterial = source.userData.mmdOutlineMaterial;
-  }
+  copyMmdOutlineMaterialUserData(material, source);
   return material;
 }
 

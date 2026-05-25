@@ -113,6 +113,11 @@ export {
 } from "./animationController";
 
 export { getCachedBuffer, evictAll, prefetchAdjacent } from "./prefetchCache";
+export {
+  isSelectionProxy,
+  selectionProxyTarget,
+  setSelectionProxyTarget,
+} from "./selectionProxy";
 
 export {
   applySelectionHighlight,

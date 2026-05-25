@@ -4,6 +4,9 @@
   "version": "0.1.11",
   "license": "MIT",
   "type": "module",
+  "imports": {
+    "#yw-look-mmd-loader-entry": "./src/viewer/mmd/loaderInstalled.ts"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -43,10 +46,12 @@
   "dependencies": {
     "@pixiv/three-vrm": "^3.5.2",
     "@tauri-apps/api": "^2.8.0",
-    "@yohawing/three-mmd-loader": "^0.1.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.180.0"
+  },
+  "optionalDependencies": {
+    "@yohawing/three-mmd-loader": "^0.1.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

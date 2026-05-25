@@ -103,6 +103,8 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
   },
 }));
 
+vi.mock("#yw-look-mmd-loader-entry", () => import("../mmd/loaderInstalled"));
+
 import { loadMmdMotion, loadPreviewObject } from "../loaders";
 
 const pmxFile: SelectedFile = {

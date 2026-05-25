@@ -35,6 +35,7 @@ import type {
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { getMaterials, isViewportHelperObject } from "./scene";
+import { isInternalMmdProxyObject } from "./mmd/userData";
 
 export type MetadataCollection = {
   metadata: AssetMetadata;
@@ -68,17 +69,6 @@ function basenameFromPrimPath(primPath: string): string {
   return primPath.slice(idx + 1);
 }
 
-function isInternalMmdProxy(object: Object3D): boolean {
-  if (object.userData?.mmdOutlineProxy !== undefined) return true;
-  if (object.userData?.mmdMaterialRenderProxy !== undefined) return true;
-  if (object instanceof Mesh) {
-    return getMaterials(object.material).some(
-      (material) => material.userData?.mmdOutlineMaterial !== undefined,
-    );
-  }
-  return false;
-}
-
 /** True for nodes that loaders insert internally
  * and that should never appear in the user-facing hierarchy. The
  * predicate is intentionally narrow so non-USD formats (DAE, OBJ, …)
@@ -91,7 +81,7 @@ function isInternalMmdProxy(object: Object3D): boolean {
  *  - MMD outline / render-order proxy meshes from three-mmd-loader. */
 function isSyntheticWrapper(object: Object3D): boolean {
   if (isViewportHelperObject(object)) return true;
-  if (isInternalMmdProxy(object)) return true;
+  if (isInternalMmdProxyObject(object)) return true;
   if (object.name === "__upAxis") return true;
   if (
     object instanceof Group &&

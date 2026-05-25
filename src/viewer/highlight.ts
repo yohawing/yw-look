@@ -14,15 +14,15 @@
  * on the mesh so we can restore it without keeping a separate Map.
  */
 
-import { Color, Mesh, Object3D, type Material } from "three";
+import { Color, Mesh, type Material, type Object3D } from "three";
 import type { Group } from "three";
 import { isViewportHelperObject } from "./scene";
+import { isSelectionProxy } from "./selectionProxy";
 
 /** Accent Violet from the yw-look design system (docs/DESIGN.md). */
 const SELECTION_TINT = new Color(0x7170ff);
 /** Additive emissive intensity added to the original emissive value. */
 const EMISSIVE_INTENSITY = 0.35;
-const SELECTION_PROXY_TARGET_KEY = "__ywSelectionProxyTarget";
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
@@ -31,10 +31,6 @@ function hasEmissive(
   material: Material,
 ): material is Material & { emissive: Color; emissiveIntensity: number } {
   return "emissive" in material;
-}
-
-function isSelectionProxy(object: Object3D): boolean {
-  return object.userData?.[SELECTION_PROXY_TARGET_KEY] instanceof Object3D;
 }
 
 function shouldHighlightMesh(mesh: Mesh): boolean {
