@@ -34,6 +34,7 @@ function loadVisualStudioEnv(vsDevCmd) {
   const result = spawnSync("cmd.exe", ["/d", "/c", command], {
     cwd: repoRoot,
     encoding: "utf8",
+    windowsVerbatimArguments: true,
   });
   if (result.status !== 0) return {};
   const env = {};

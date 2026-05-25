@@ -27,6 +27,8 @@ mod cpp_backend {
     use std::env;
     use std::fs::{self, File};
     use std::io::{self, Read};
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
     use std::path::{Component, Path, PathBuf};
     use std::process::Command;
     use zip::ZipArchive;
@@ -240,10 +242,12 @@ mod cpp_backend {
                 "call \"{}\" -arch=x64 -host_arch=x64 >nul && set",
                 script_path.display()
             );
-            let output = Command::new("cmd")
-                .args(["/d", "/c", &script])
-                .output()
-                .ok()?;
+            let mut command = Command::new("cmd");
+            #[cfg(windows)]
+            command.raw_arg(format!("/d /c {script}"));
+            #[cfg(not(windows))]
+            command.args(["/d", "/c", &script]);
+            let output = command.output().ok()?;
             if !output.status.success() {
                 continue;
             }
@@ -905,6 +909,15 @@ mod cpp_backend {
         //    out-of-tree build rooted under OUT_DIR/usd_c_shim and
         //    returns the install prefix.
         let shim_src = manifest_dir.join("third_party").join("usd_c_shim");
+        let shim_build_dir = out_dir.join("build");
+        if shim_build_dir.exists() {
+            fs::remove_dir_all(&shim_build_dir).unwrap_or_else(|e| {
+                panic!(
+                    "failed to remove stale OpenUSD C shim CMake build dir {}: {e}",
+                    shim_build_dir.display()
+                )
+            });
+        }
         println!("cargo:rerun-if-changed={}", shim_src.display());
         println!(
             "cargo:rerun-if-changed={}",
