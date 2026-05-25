@@ -54,31 +54,9 @@ Alpha 期は反復速度を優先し、以下のルールで後続セクショ�
 - **commit は指示待ちせず、作業が一区切りしたタイミングで自発的に行ってよい**（グローバルの「勝手に commit しない」ルールを alpha 期間中はオーバーライドする）
 - **push は引き続きオーナーの明示指示があるまで行わない**（commit はローカルで revert 可能だが push はリモートを汚すため）
 
-### リリースチェックリスト（Alpha 期）
+### リリース手順（Alpha 期）
 
-**リリース作業を始める前に、必ず `docs/release-distribution.md` を読むこと。** 手順を自己判断で組み立てずドキュメントを参照元にする。
-
-タグを push する前に、以下を順番に完了させること。
-
-1. **バージョン番号を更新する**
-   - `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` のバージョン文字列を統一する
-2. **`CHANGELOG.md` を更新する**
-   - `## vX.Y.Z (YYYY-MM-DD)` エントリを先頭に追記する
-   - 前バージョンから `git log` で変更を洗い出してカテゴリ別にまとめる
-3. **ドキュメントを更新する**
-   - `README.md` の対応フォーマット一覧・Optional Loader Pack 表・バッジが最新か確認する
-   - 新機能・変更に伴い `docs/` 配下の関連ドキュメントを更新する
-4. **Prettier / フォーマットを確認する**
-   - `npm run format:check` を pass させる（失敗するなら `prettier --write` で直す）
-5. **`develop` に commit・push する**
-   - バージョン bump・CHANGELOG・ドキュメント更新を同じコミットにまとめてもよい
-6. **`main` を `develop` に FF する**
-   - `git checkout main && git merge --ff-only develop`
-7. **タグを打ってオーナー確認後に push する**
-   - `git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z`
-   - タグ push により `release.yml` が自動起動する
-
-詳細な配布手順・署名設定は `docs/release-distribution.md` を参照すること。
+**リリース作業を始める前に、必ず `docs/release-distribution.md` を最初から最後まで読むこと。** 手順・チェックリスト・OS 別確認はすべてそこに定義されている。自己判断で手順を組み立てない。
 
 ## Worktree 運用
 

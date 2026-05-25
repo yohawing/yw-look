@@ -96,6 +96,73 @@ macOS:   ~/.tauri/yw-look-dev-pw.key
 
 ---
 
+# リリース前チェックリスト（Alpha 期共通）
+
+タグを push する前に、以下をすべて完了させること。実行不能な項目は理由をコミットメッセージまたは作業ログに残す。
+
+## 1. バージョン番号を更新する
+
+以下のファイルのバージョン文字列を統一する。
+
+- `package.json`
+- `package-lock.json`（`npm install --package-lock-only` で自動更新）
+- `src-tauri/tauri.conf.json`
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`（`cargo update --workspace` で自動更新）
+
+## 2. CHANGELOG.md を更新する
+
+- `## vX.Y.Z (YYYY-MM-DD)` エントリを先頭に追記する
+- `git log <前バージョンタグ>..HEAD --oneline --no-merges` で変更を洗い出す
+- 日付は push 当日の日付にする
+
+## 3. ドキュメントを更新する
+
+- `README.md` の対応フォーマット一覧・Optional Loader Pack 表・バッジが最新か確認する
+- 新機能・変更に伴い `docs/` 配下の関連ドキュメントを更新する
+- 変更なしの場合もその判断を確認したことを記録する
+
+## 4. コード品質を確認する
+
+```bash
+npm run check   # lint + format:check + typecheck を一括実行
+```
+
+失敗があれば修正してから次に進む。
+
+## 5. macOS ビルドを確認する
+
+macOS ビルドが通ることを確認してからタグを打つ。
+
+- **CI で確認する場合**: `develop` への push 後、CI の macOS ジョブが成功していることを確認する
+- **ローカルで確認する場合**: `npm run bundle:mac` が成功することを確認する
+- **確認できない場合**: release note または作業ログに「macOS 未確認」と理由を明記する
+
+## 6. develop に commit・push する
+
+バージョン bump・CHANGELOG・ドキュメント更新をまとめて commit し、`develop` に push する。push はオーナーの明示指示後に行う。
+
+## 7. main を develop に FF する
+
+```bash
+git checkout main
+git merge --ff-only develop
+```
+
+タグ前に `git status` で main が develop と同一 commit であることを確認する。
+
+## 8. タグを打ち、オーナー確認後に push する
+
+```bash
+git tag vX.Y.Z
+# オーナー確認後:
+git push origin main && git push origin vX.Y.Z
+```
+
+タグ push により `release.yml` が自動起動し、Windows / macOS ビルドが並列実行される。
+
+---
+
 # Windows 配布
 
 ## GitHub Releases 配布フロー（Windows）
