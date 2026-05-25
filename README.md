@@ -12,7 +12,8 @@ Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動
 ![yw-look screenshot](docs/images/hero.png)
 
 **3D:** glTF, FBX, OBJ, PLY, STL, USD, DAE  
-**Images:** PNG, JPG, TGA, DDS, HDR, EXR, KTX2
+**Images:** PNG, JPG, TGA, DDS, HDR, EXR, KTX2  
+**Optional Loader Packs:** VRM / VRMA, MMD (PMD / PMX / VMD) — Settings からインストール
 
 ## 何をするツールか
 
@@ -97,6 +98,17 @@ npm run bundle:mac
 
 OS 別バンドル設定の詳細は [`docs/release-distribution.md`](docs/release-distribution.md) を参照。
 Optional Loader Pack の方針は [`docs/optional-loader-packs.md`](docs/optional-loader-packs.md) を参照。
+
+## Optional Loader Packs
+
+VRM や MMD など一部フォーマットは、コアアプリに同梱せず別途インストールする **Optional Loader Pack** として提供される。
+
+| Pack            | 対応拡張子             | 概要                                         |
+| --------------- | ---------------------- | -------------------------------------------- |
+| VRM Loader Pack | `.vrm`, `.vrma`        | VRM モデル・アニメーションのプレビュー       |
+| MMD Loader Pack | `.pmd`, `.pmx`, `.vmd` | MikuMikuDance モデル・モーションのプレビュー |
+
+パックは Settings パネルからインストール・アンインストールできる。インストール済みパックはコアアプリ更新後も保持される。詳細は [`docs/optional-loader-packs.md`](docs/optional-loader-packs.md) を参照。
 
 ## CLI モード
 

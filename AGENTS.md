@@ -65,13 +65,16 @@ Alpha 期は反復速度を優先し、以下のルールで後続セクショ�
 2. **`CHANGELOG.md` を更新する**
    - `## vX.Y.Z (YYYY-MM-DD)` エントリを先頭に追記する
    - 前バージョンから `git log` で変更を洗い出してカテゴリ別にまとめる
-3. **Prettier / フォーマットを確認する**
+3. **ドキュメントを更新する**
+   - `README.md` の対応フォーマット一覧・Optional Loader Pack 表・バッジが最新か確認する
+   - 新機能・変更に伴い `docs/` 配下の関連ドキュメントを更新する
+4. **Prettier / フォーマットを確認する**
    - `npm run format:check` を pass させる（失敗するなら `prettier --write` で直す）
-4. **`develop` に commit・push する**
-   - バージョン bump と CHANGELOG を同じコミットにまとめてもよい
-5. **`main` を `develop` に FF する**
+5. **`develop` に commit・push する**
+   - バージョン bump・CHANGELOG・ドキュメント更新を同じコミットにまとめてもよい
+6. **`main` を `develop` に FF する**
    - `git checkout main && git merge --ff-only develop`
-6. **タグを打ってオーナー確認後に push する**
+7. **タグを打ってオーナー確認後に push する**
    - `git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z`
    - タグ push により `release.yml` が自動起動する
 
