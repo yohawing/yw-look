@@ -54,6 +54,27 @@ Alpha 期は反復速度を優先し、以下のルールで後続セクショ�
 - **commit は指示待ちせず、作業が一区切りしたタイミングで自発的に行ってよい**（グローバルの「勝手に commit しない」ルールを alpha 期間中はオーバーライドする）
 - **push は引き続きオーナーの明示指示があるまで行わない**（commit はローカルで revert 可能だが push はリモートを汚すため）
 
+### リリースチェックリスト（Alpha 期）
+
+タグを push する前に、以下を順番に完了させること。
+
+1. **バージョン番号を更新する**
+   - `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` のバージョン文字列を統一する
+2. **`CHANGELOG.md` を更新する**
+   - `## vX.Y.Z (YYYY-MM-DD)` エントリを先頭に追記する
+   - 前バージョンから `git log` で変更を洗い出してカテゴリ別にまとめる
+3. **Prettier / フォーマットを確認する**
+   - `npm run format:check` を pass させる（失敗するなら `prettier --write` で直す）
+4. **`develop` に commit・push する**
+   - バージョン bump と CHANGELOG を同じコミットにまとめてもよい
+5. **`main` を `develop` に FF する**
+   - `git checkout main && git merge --ff-only develop`
+6. **タグを打ってオーナー確認後に push する**
+   - `git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z`
+   - タグ push により `release.yml` が自動起動する
+
+詳細な配布手順・署名設定は `docs/release-distribution.md` を参照すること。
+
 ## Worktree 運用
 
 `samples/` には大きい LFS アセットが含まれるため、AI / Codex が新しい worktree を作る場合は、原則として `samples/` を checkout しない sparse checkout を使う。
