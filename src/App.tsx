@@ -118,7 +118,6 @@ import { loadRecentFiles, type RecentFilesPayload } from "./lib/recentFiles";
 import { isTauriEnvironment } from "./lib/platform";
 import {
   formatShortcut,
-  isMenuActionId,
   menuShortcuts,
   resolveShortcutAction,
   type MenuActionId,
@@ -1679,16 +1678,6 @@ export function App() {
     }
   };
 
-  const handleOpenRecentFile = async (path: string) => {
-    try {
-      await performSelectFilePath(path, "recent");
-    } catch (error: unknown) {
-      setRecentFilesError(
-        error instanceof Error ? error.message : "Failed to open recent file.",
-      );
-    }
-  };
-
   const handleToggleFullscreen = async () => {
     if (isTauri) {
       try {
@@ -1836,40 +1825,8 @@ export function App() {
       executeViewerShortcutAction(action);
     },
   );
-  const runMenuActionFromNativeMenu = useEffectEvent(
-    (actionId: MenuActionId) => {
-      void executeMenuAction(actionId);
-    },
-  );
-  const runRecentFileFromNativeMenu = useEffectEvent((path: string) => {
-    void handleOpenRecentFile(path);
-  });
-
-  type NativeMenuEventPayload =
-    | { kind: "action"; actionId: string }
-    | { kind: "recentFile"; path: string };
-
-  const isNativeMenuEventPayload = (
-    value: unknown,
-  ): value is NativeMenuEventPayload => {
-    if (typeof value !== "object" || value === null) {
-      return false;
-    }
-    const candidate = value as { kind?: unknown };
-    if (candidate.kind === "action") {
-      return typeof (value as { actionId?: unknown }).actionId === "string";
-    }
-    if (candidate.kind === "recentFile") {
-      return typeof (value as { path?: unknown }).path === "string";
-    }
-    return false;
-  };
 
   useEffect(() => {
-    if (isTauri) {
-      return;
-    }
-
     const handleShortcutDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) {
         return;
@@ -1892,46 +1849,7 @@ export function App() {
     return () => {
       window.removeEventListener("keydown", handleShortcutDown);
     };
-  }, [isTauri]);
-
-  useEffect(() => {
-    if (!isTauri) {
-      return;
-    }
-
-    let isDisposed = false;
-    let unlisten: UnlistenFn | undefined;
-
-    listen<unknown>("yw-look://menu-action", (event) => {
-      if (!isNativeMenuEventPayload(event.payload)) {
-        return;
-      }
-
-      if (event.payload.kind === "action") {
-        if (isMenuActionId(event.payload.actionId)) {
-          runMenuActionFromNativeMenu(event.payload.actionId);
-        }
-        return;
-      }
-
-      runRecentFileFromNativeMenu(event.payload.path);
-    })
-      .then((dispose) => {
-        if (isDisposed) {
-          dispose();
-          return;
-        }
-        unlisten = dispose;
-      })
-      .catch(() => {
-        // Tauri API unavailable (browser dev mode)
-      });
-
-    return () => {
-      isDisposed = true;
-      unlisten?.();
-    };
-  }, [isTauri]);
+  }, []);
 
   const handleToggleFileAssociations = async () => {
     if (!settingsPayload) {
