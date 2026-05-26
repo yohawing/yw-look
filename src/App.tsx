@@ -229,7 +229,7 @@ const initialViewerFeedback: ViewerFeedback = {
 };
 const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
 const DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE = 8;
-const DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD = 32;
+const DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD = 128;
 
 function glbMeshCount(buffer: ArrayBuffer): number {
   if (buffer.byteLength < 20) return 0;
@@ -256,6 +256,12 @@ function glbMeshCount(buffer: ArrayBuffer): number {
     offset += chunkLength;
   }
   return 0;
+}
+
+function yieldDeferredPreviewFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
 }
 
 function deriveDisplayMode(
@@ -2146,6 +2152,9 @@ export function App() {
           start < previewPayloads.length;
           start += DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE
         ) {
+          if (cancelled || stageSessionHandleRef.current !== captured) {
+            return;
+          }
           const batch = previewPayloads.slice(
             start,
             start + DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE,
@@ -2171,14 +2180,25 @@ export function App() {
             return;
           }
           const meshCount = glbMeshCount(glbBuffer);
-          if (meshCount > 0 || start + batch.length >= previewPayloads.length) {
+          const isFinalBatch = start + batch.length >= previewPayloads.length;
+          if (meshCount > 0 || isFinalBatch) {
             deferredPreviewSessionRef.current = captured;
             setSessionGlbBuffer(glbBuffer);
+            console.info(
+              `[usd] deferred preview batch ready (${loadedPreviewPayloads.length}/${previewPayloads.length} payloads, ${meshCount} meshes)`,
+            );
             return;
+          } else {
+            console.warn(
+              `[usd] deferred preview batch produced no meshes; continuing (${loadedPreviewPayloads.length}/${previewPayloads.length})`,
+            );
           }
-          console.warn(
-            `[usd] deferred preview batch produced no meshes; continuing (${loadedPreviewPayloads.length}/${previewPayloads.length})`,
-          );
+          if (!isFinalBatch) {
+            await yieldDeferredPreviewFrame();
+            if (cancelled || stageSessionHandleRef.current !== captured) {
+              return;
+            }
+          }
         }
       } catch (err: unknown) {
         if (cancelled || stageSessionHandleRef.current !== captured) return;
