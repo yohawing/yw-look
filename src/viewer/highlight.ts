@@ -16,6 +16,8 @@
 
 import { Color, Mesh, type Material, type Object3D } from "three";
 import type { Group } from "three";
+import { isViewportHelperObject } from "./scene";
+import { isSelectionProxy } from "./selectionProxy";
 
 /** Accent Violet from the yw-look design system (docs/DESIGN.md). */
 const SELECTION_TINT = new Color(0x7170ff);
@@ -29,6 +31,14 @@ function hasEmissive(
   material: Material,
 ): material is Material & { emissive: Color; emissiveIntensity: number } {
   return "emissive" in material;
+}
+
+function shouldHighlightMesh(mesh: Mesh): boolean {
+  return (
+    mesh.name !== "__yw_shadow_catcher" &&
+    !isViewportHelperObject(mesh) &&
+    !isSelectionProxy(mesh)
+  );
 }
 
 /** Clone `material` and apply the selection tint.  Returns the clone. */
@@ -106,7 +116,7 @@ export function applySelectionHighlight(
 ): void {
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
-    if (child.name === "__yw_shadow_catcher") return;
+    if (!shouldHighlightMesh(child)) return;
     // Prefer primPath as the stable selection key (#46).
     const primPath =
       typeof child.userData?.primPath === "string"
@@ -128,6 +138,28 @@ export function applySelectionHighlight(
  */
 export function clearSelectionHighlight(root: Object3D | Group): void {
   root.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    if (child.userData.__yw_origMaterial !== undefined) {
+      removeTintFromMesh(child);
+    }
+  });
+}
+
+export function applySelectionHighlightToObject(
+  object: Object3D | Group,
+): void {
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    if (!shouldHighlightMesh(child)) return;
+    if (child.userData.__yw_origMaterial !== undefined) return;
+    applyTintToMesh(child);
+  });
+}
+
+export function clearSelectionHighlightFromObject(
+  object: Object3D | Group,
+): void {
+  object.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     if (child.userData.__yw_origMaterial !== undefined) {
       removeTintFromMesh(child);

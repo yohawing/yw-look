@@ -48,7 +48,7 @@ import { FileBrowserCard } from "./components/FileBrowserCard";
 import { HierarchyCard } from "./components/HierarchyCard";
 import { UsdPrimPropertyPanel } from "./components/UsdPrimPropertyPanel";
 import { MaterialListCard } from "./components/MaterialListCard";
-import { MenuBar } from "./components/MenuBar";
+import { MmdMetadataCard } from "./components/MmdMetadataCard";
 import {
   PerformanceCard,
   type PerformanceSnapshot,
@@ -118,7 +118,6 @@ import { loadRecentFiles, type RecentFilesPayload } from "./lib/recentFiles";
 import { isTauriEnvironment } from "./lib/platform";
 import {
   formatShortcut,
-  isMenuActionId,
   menuShortcuts,
   resolveShortcutAction,
   type MenuActionId,
@@ -155,6 +154,7 @@ type WindowWithIdleCallback = Window & {
 };
 
 const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
+const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
 
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof Error) {
@@ -170,6 +170,29 @@ function isUsdFile(file: SelectedFile | null): boolean {
   return !!file && USD_EXTENSIONS.has(file.extension);
 }
 
+function extensionFromPath(path: string) {
+  const fileName = path.split(/[\\/]/).pop() ?? path;
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex >= 0 ? fileName.slice(dotIndex + 1).toLowerCase() : "";
+}
+
+function selectedMotionFileFromPath(path: string): SelectedFile {
+  const parts = path.split(/[\\/]/);
+  const fileName = parts.pop() || path;
+  const parentDirectory = parts.join("\\");
+  return {
+    path,
+    fileName,
+    extension: extensionFromPath(path),
+    kind: "motion",
+    parentDirectory,
+  };
+}
+
+function canAttachMmdMotion(file: SelectedFile | null) {
+  return file !== null && MMD_MODEL_EXTENSIONS.has(file.extension);
+}
+
 /**
  * Format one `AssetIssue` as a single-line string so it can be funneled
  * into the existing `warnings: string[]` pipeline consumed by
@@ -180,6 +203,13 @@ function formatAssetIssue(issue: AssetIssue): string {
   const prefix = issue.level === "error" ? "USD error" : "USD warning";
   const context = issue.contextPath ? ` (${issue.contextPath})` : "";
   return `${prefix}: ${issue.message}${context}`;
+}
+
+function formatMmdDiagnostic(
+  diagnostic: NonNullable<AssetMetadata["mmd"]>["diagnostics"][number],
+): string {
+  const prefix = diagnostic.level === "error" ? "MMD error" : "MMD warning";
+  return `${prefix}: ${diagnostic.message} (${diagnostic.code})`;
 }
 
 function splitViewerWarnings(warning: string | null): string[] {
@@ -325,6 +355,10 @@ export function App() {
     useState<EnvironmentPreset>("studio");
   const [gridUnitLabel, setGridUnitLabel] = useState("1 m");
   const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
+  const [mmdMotionRequest, setMmdMotionRequest] = useState<{
+    file: SelectedFile;
+    version: number;
+  } | null>(null);
   const [assetInspection, setAssetInspection] =
     useState<AssetInspection | null>(null);
   const [directoryListing, setDirectoryListing] =
@@ -541,9 +575,7 @@ export function App() {
     },
     [],
   );
-  // Browser mode needs recent files immediately for the always-visible MenuBar.
-  // Tauri can keep this deferred until the sidebar is opened.
-  const shouldLoadRecentFiles = sidebarOpen || !isTauri;
+  const shouldLoadRecentFiles = sidebarOpen;
   const shouldLoadDeferredData = sidebarOpen;
 
   const viewerStatusLabel = useMemo(() => {
@@ -615,8 +647,17 @@ export function App() {
       nextWarnings.push(formatAssetIssue(issue));
     }
 
+    for (const diagnostic of assetMetadata?.mmd?.diagnostics ?? []) {
+      nextWarnings.push(formatMmdDiagnostic(diagnostic));
+    }
+
     return nextWarnings;
-  }, [assetMetadata?.textures, usdIssues, viewerWarningLines]);
+  }, [
+    assetMetadata?.mmd?.diagnostics,
+    assetMetadata?.textures,
+    usdIssues,
+    viewerWarningLines,
+  ]);
   const sidebarWarnings = debugPanelsEnabled ? debugPanelWarnings : warnings;
   const diagnosticCounts = useMemo(() => {
     if (debugPanelsEnabled) {
@@ -643,9 +684,20 @@ export function App() {
         (texture) => texture.sourceKind === "unresolved",
       ).length ?? 0;
     const viewerWarningCount = viewerWarningLines.length;
-    const errorCount = loadErrorCount + usdErrorCount;
+    const mmdErrorCount =
+      assetMetadata?.mmd?.diagnostics.filter(
+        (diagnostic) => diagnostic.level === "error",
+      ).length ?? 0;
+    const mmdWarningCount =
+      assetMetadata?.mmd?.diagnostics.filter(
+        (diagnostic) => diagnostic.level === "warning",
+      ).length ?? 0;
+    const errorCount = loadErrorCount + usdErrorCount + mmdErrorCount;
     const warningCount =
-      usdWarningCount + unresolvedTextureCount + viewerWarningCount;
+      usdWarningCount +
+      unresolvedTextureCount +
+      viewerWarningCount +
+      mmdWarningCount;
 
     return {
       errorCount,
@@ -653,6 +705,7 @@ export function App() {
       total: errorCount + warningCount,
     };
   }, [
+    assetMetadata?.mmd?.diagnostics,
     assetMetadata?.textures,
     debugPanelsEnabled,
     usdIssues,
@@ -1370,6 +1423,7 @@ export function App() {
     ]);
 
     setCurrentFile(resolvedFile);
+    setMmdMotionRequest(null);
     setDirectoryListing(listing);
     prefetchAdjacent(listing.files, listing.currentIndex);
     const elapsed = performance.now() - startedAt;
@@ -1386,6 +1440,31 @@ export function App() {
       reason: "open" | "startup" | "navigation" | "retry" | "recent" = "open",
     ) => {
       await performSelectFilePath(path, reason);
+    },
+  );
+
+  const handleDroppedFilePathFromEffect = useEffectEvent(
+    async (path: string) => {
+      if (extensionFromPath(path) === "vmd") {
+        if (!canAttachMmdMotion(currentFile)) {
+          setViewerFeedback((previous) => ({
+            ...previous,
+            mode: previous.mode === "empty" ? "empty" : "loadFailed",
+            message: "VMD motion was not loaded.",
+            warning:
+              "Drop a VMD file after opening a PMX or PMD model to attach it as motion.",
+          }));
+          return;
+        }
+
+        setMmdMotionRequest((previous) => ({
+          file: selectedMotionFileFromPath(path),
+          version: (previous?.version ?? 0) + 1,
+        }));
+        return;
+      }
+
+      await performSelectFilePath(path, "open");
     },
   );
 
@@ -1472,20 +1551,18 @@ export function App() {
             return;
           }
 
-          selectFilePathFromEffect(firstPath, "open").catch(
-            (error: unknown) => {
-              setOpenError(
-                error instanceof Error
-                  ? error.message
-                  : "Failed to open dropped file.",
-              );
-              setViewerFeedback((previous) => ({
-                ...previous,
-                mode: "loadFailed",
-                message: "Dropped file could not be resolved.",
-              }));
-            },
-          );
+          handleDroppedFilePathFromEffect(firstPath).catch((error: unknown) => {
+            setOpenError(
+              error instanceof Error
+                ? error.message
+                : "Failed to open dropped file.",
+            );
+            setViewerFeedback((previous) => ({
+              ...previous,
+              mode: "loadFailed",
+              message: "Dropped file could not be resolved.",
+            }));
+          });
         })
         .then((dispose) => {
           unlisten = dispose;
@@ -1598,16 +1675,6 @@ export function App() {
         mode: "loadFailed",
         message: "File dialog operation failed.",
       }));
-    }
-  };
-
-  const handleOpenRecentFile = async (path: string) => {
-    try {
-      await performSelectFilePath(path, "recent");
-    } catch (error: unknown) {
-      setRecentFilesError(
-        error instanceof Error ? error.message : "Failed to open recent file.",
-      );
     }
   };
 
@@ -1758,40 +1825,8 @@ export function App() {
       executeViewerShortcutAction(action);
     },
   );
-  const runMenuActionFromNativeMenu = useEffectEvent(
-    (actionId: MenuActionId) => {
-      void executeMenuAction(actionId);
-    },
-  );
-  const runRecentFileFromNativeMenu = useEffectEvent((path: string) => {
-    void handleOpenRecentFile(path);
-  });
-
-  type NativeMenuEventPayload =
-    | { kind: "action"; actionId: string }
-    | { kind: "recentFile"; path: string };
-
-  const isNativeMenuEventPayload = (
-    value: unknown,
-  ): value is NativeMenuEventPayload => {
-    if (typeof value !== "object" || value === null) {
-      return false;
-    }
-    const candidate = value as { kind?: unknown };
-    if (candidate.kind === "action") {
-      return typeof (value as { actionId?: unknown }).actionId === "string";
-    }
-    if (candidate.kind === "recentFile") {
-      return typeof (value as { path?: unknown }).path === "string";
-    }
-    return false;
-  };
 
   useEffect(() => {
-    if (isTauri) {
-      return;
-    }
-
     const handleShortcutDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) {
         return;
@@ -1814,46 +1849,7 @@ export function App() {
     return () => {
       window.removeEventListener("keydown", handleShortcutDown);
     };
-  }, [isTauri]);
-
-  useEffect(() => {
-    if (!isTauri) {
-      return;
-    }
-
-    let isDisposed = false;
-    let unlisten: UnlistenFn | undefined;
-
-    listen<unknown>("yw-look://menu-action", (event) => {
-      if (!isNativeMenuEventPayload(event.payload)) {
-        return;
-      }
-
-      if (event.payload.kind === "action") {
-        if (isMenuActionId(event.payload.actionId)) {
-          runMenuActionFromNativeMenu(event.payload.actionId);
-        }
-        return;
-      }
-
-      runRecentFileFromNativeMenu(event.payload.path);
-    })
-      .then((dispose) => {
-        if (isDisposed) {
-          dispose();
-          return;
-        }
-        unlisten = dispose;
-      })
-      .catch(() => {
-        // Tauri API unavailable (browser dev mode)
-      });
-
-    return () => {
-      isDisposed = true;
-      unlisten?.();
-    };
-  }, [isTauri]);
+  }, []);
 
   const handleToggleFileAssociations = async () => {
     if (!settingsPayload) {
@@ -2063,17 +2059,9 @@ export function App() {
               }
               warnings={sidebarWarnings}
             />
-            {sidebarAssetMetadata &&
-              !isUsdFile(currentFile) &&
-              selectedMeshName && (
-                <ObjectInspectorCard
-                  selectedKey={selectedMeshName}
-                  objectInfo={
-                    sidebarAssetMetadata.objectInfo[selectedMeshName] ?? null
-                  }
-                  metadata={sidebarAssetMetadata}
-                />
-              )}
+            {sidebarAssetMetadata?.mmd ? (
+              <MmdMetadataCard metadata={sidebarAssetMetadata.mmd} />
+            ) : null}
             {isTauri && isUsdFile(currentFile) && (
               <>
                 <UsdInspectorCard
@@ -2190,6 +2178,15 @@ export function App() {
                 stageSessionHandle !== null ? handleUnloadPayload : undefined
               }
             />
+            {sidebarAssetMetadata && selectedMeshName ? (
+              <ObjectInspectorCard
+                selectedKey={selectedMeshName}
+                objectInfo={
+                  sidebarAssetMetadata.objectInfo[selectedMeshName] ?? null
+                }
+                metadata={sidebarAssetMetadata}
+              />
+            ) : null}
             {isUsdFile(currentFile) && (
               <UsdPrimPropertyPanel
                 path={currentFile?.path ?? null}
@@ -2526,24 +2523,12 @@ export function App() {
 
   return (
     <main className="app-shell">
-      {/* ── MenuBar ── */}
-      {isTauri ? null : (
-        <MenuBar
-          onAction={(actionId) => {
-            void executeMenuAction(actionId);
-          }}
-          onOpenRecentFile={(path) => {
-            void handleOpenRecentFile(path);
-          }}
-          recentFiles={recentFilesPayload?.entries ?? []}
-        />
-      )}
-
       {/* ── Viewport ── */}
       <section className="main-content">
         <div className="viewer-panel">
           <AssetViewport
             currentFile={currentFile}
+            mmdMotionRequest={mmdMotionRequest}
             displayMode={displayMode}
             backgroundPreset={backgroundPreset}
             onFeedbackChange={setViewerFeedback}
@@ -2696,7 +2681,7 @@ export function App() {
           {/* Drop overlay */}
           {isDragActive ? (
             <div className="drop-overlay">
-              <p>Drop file to open</p>
+              <p>Drop file to open or attach motion</p>
             </div>
           ) : null}
         </div>
@@ -2744,7 +2729,7 @@ export function App() {
                 {dialogState.title}
               </p>
               <button
-                className="menubar-button"
+                className="dialog-close-button"
                 onClick={() => setDialogState(null)}
                 type="button"
               >

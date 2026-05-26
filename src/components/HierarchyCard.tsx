@@ -1,5 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import type { AssetMetadata, HierarchyNode, ObjectInfo } from "./assetMetadata";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  AssetMetadata,
+  HierarchyNode,
+  MmdBoneEntry,
+  ObjectInfo,
+} from "./assetMetadata";
 
 type HierarchyCardProps = {
   hierarchy: HierarchyNode[];
@@ -67,6 +72,141 @@ function selectedMorphValue(
   );
 }
 
+function fmtMmdNumber(value: number): string {
+  return value.toFixed(3).replace(/\.?0+$/, "");
+}
+
+function fmtMmdVec(value: readonly number[] | null): string {
+  return value ? value.map(fmtMmdNumber).join(", ") : "none";
+}
+
+function fmtMmdFlags(flags: Record<string, boolean> | null): string {
+  if (!flags) return "none";
+  const enabled = Object.entries(flags)
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name);
+  return enabled.length > 0 ? enabled.join(", ") : "none";
+}
+
+function hierarchyDisplayName(node: HierarchyNode): string {
+  return node.displayName || node.name || "(unnamed)";
+}
+
+function fmtMmdMorphOffsets(
+  mmd: ObjectInfo["morphTargets"][number]["mmd"],
+): string {
+  if (!mmd) return "";
+  const parts = [
+    mmd.boneOffsetCount > 0 ? `bone:${mmd.boneOffsetCount}` : null,
+    mmd.groupOffsetCount > 0 ? `group:${mmd.groupOffsetCount}` : null,
+    mmd.flipOffsetCount > 0 ? `flip:${mmd.flipOffsetCount}` : null,
+    mmd.impulseOffsetCount > 0 ? `impulse:${mmd.impulseOffsetCount}` : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join(" ") : "offsets:none";
+}
+
+function SelectedMmdBone({ bone }: { bone: MmdBoneEntry | null }) {
+  if (!bone) return null;
+
+  return (
+    <div className="selected-mmd-section">
+      <div className="selected-mmd-head">MMD Bone</div>
+      {bone.boneIndex !== null ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">Index</span>
+          <span className="selected-kv-value">{bone.boneIndex}</span>
+        </div>
+      ) : null}
+      {bone.name ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">MMD Name</span>
+          <span className="selected-kv-value">{bone.name}</span>
+        </div>
+      ) : null}
+      {bone.englishName && bone.englishName !== bone.name ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">English</span>
+          <span className="selected-kv-value is-muted">{bone.englishName}</span>
+        </div>
+      ) : null}
+      <div className="selected-kv-row">
+        <span className="selected-kv-key">Parent</span>
+        <span className="selected-kv-value is-muted">
+          {bone.parentIndex !== null && bone.parentIndex >= 0
+            ? `${bone.parentIndex}${bone.parentName ? ` · ${bone.parentName}` : ""}`
+            : "none"}
+        </span>
+      </div>
+      <div className="selected-kv-row">
+        <span className="selected-kv-key">Rest Pos</span>
+        <span className="selected-kv-value">
+          {fmtMmdVec(bone.restPosition)}
+        </span>
+      </div>
+      {bone.layer !== null ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">Layer</span>
+          <span className="selected-kv-value">{bone.layer}</span>
+        </div>
+      ) : null}
+      {bone.appendTransform ? (
+        <div className="selected-kv-row">
+          <span className="selected-kv-key">Append</span>
+          <span className="selected-kv-value">
+            {bone.appendTransform.parentIndex}
+            {bone.appendTransform.parentName
+              ? ` · ${bone.appendTransform.parentName}`
+              : ""}{" "}
+            x{fmtMmdNumber(bone.appendTransform.weight)}
+          </span>
+        </div>
+      ) : null}
+      <div className="selected-kv-row">
+        <span className="selected-kv-key">Flags</span>
+        <span className="selected-kv-value">{fmtMmdFlags(bone.flags)}</span>
+      </div>
+      {bone.ik ? (
+        <>
+          <div className="selected-kv-row">
+            <span className="selected-kv-key">IK Role</span>
+            <span className="selected-kv-value">
+              {bone.ik.roles.join(", ")}
+            </span>
+          </div>
+          <div className="selected-kv-row">
+            <span className="selected-kv-key">IK Chain</span>
+            <span className="selected-kv-value">
+              goal:{bone.ik.goalBoneIndex ?? "?"} target:
+              {bone.ik.effectorBoneIndex ?? "?"} links:
+              {bone.ik.linkCount ?? "?"}
+            </span>
+          </div>
+          {bone.ik.iterationCount !== null ||
+          bone.ik.maxAnglePerIteration !== null ? (
+            <div className="selected-kv-row">
+              <span className="selected-kv-key">IK Solve</span>
+              <span className="selected-kv-value">
+                iter:{bone.ik.iterationCount ?? "?"} angle:
+                {bone.ik.maxAnglePerIteration !== null
+                  ? fmtMmdNumber(bone.ik.maxAnglePerIteration)
+                  : "?"}
+              </span>
+            </div>
+          ) : null}
+          {bone.ik.limitKinds.length > 0 ? (
+            <div className="selected-kv-row">
+              <span className="selected-kv-key">IK Limits</span>
+              <span className="selected-kv-value">
+                {bone.ik.limitKinds.join(", ")}
+              </span>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function HierarchyBranch({
   node,
   depth,
@@ -75,6 +215,7 @@ function HierarchyBranch({
   onSelectPrimPath,
   parentPath,
   forceExpanded,
+  forceExpandedKeys,
   selectedRef,
   payloadPrimPaths,
   unloadedPayloadPaths,
@@ -89,6 +230,7 @@ function HierarchyBranch({
   /** Accumulated SdfPath prefix of the parent node (e.g. `"/World"`). */
   parentPath: string;
   forceExpanded: boolean;
+  forceExpandedKeys: ReadonlySet<string>;
   selectedRef: React.RefObject<HTMLLIElement | null>;
   payloadPrimPaths?: ReadonlySet<string>;
   unloadedPayloadPaths?: ReadonlySet<string>;
@@ -196,7 +338,7 @@ function HierarchyBranch({
         ) : (
           <span className="tree-chevron-spacer" />
         )}
-        <span className="tree-node-name">{node.name || "(unnamed)"}</span>
+        <span className="tree-node-name">{hierarchyDisplayName(node)}</span>
         <span className="tree-node-kind">{node.kind}</span>
         {/* #44: per-prim payload load/unload button — only shown when a
             session is active (callbacks provided) and this prim is a known
@@ -254,13 +396,14 @@ function HierarchyBranch({
               onSelectPrimPath={onSelectPrimPath}
               parentPath={primPath}
               // Each child decides force-open from its own subtree only.
-              // Inheriting `forceExpanded` from the parent would
+              // Inheriting the parent's expanded state would
               // unfold every sibling once a single deep node is
               // selected; the chain we actually want to open is just
               // the ancestor path of the selection.
-              forceExpanded={
-                selectedName !== null && hasDescendant(child, selectedName)
-              }
+              forceExpanded={forceExpandedKeys.has(
+                child.primPath ?? child.name,
+              )}
+              forceExpandedKeys={forceExpandedKeys}
               selectedRef={selectedRef}
               payloadPrimPaths={payloadPrimPaths}
               unloadedPayloadPaths={unloadedPayloadPaths}
@@ -274,37 +417,46 @@ function HierarchyBranch({
   );
 }
 
-/** Walks the subtree rooted at `node` looking for a descendant whose
- * selection key (primPath when present, name otherwise) matches `key`.
- * Used to decide whether to force-open an ancestor branch so the
- * selected row is visible without the user clicking through.
- * We do not memoize because the hierarchy is small (USD prim counts in
- * the thousands at most) and selection changes rarely. */
-function hasDescendant(node: HierarchyNode, key: string): boolean {
-  const nodeKey = node.primPath ?? node.name;
-  if (nodeKey === key) return true;
-  return node.children.some((child) => hasDescendant(child, key));
-}
+type HierarchyStats = {
+  totalNodeCount: number;
+  selectedNode: HierarchyNode | null;
+  selectedAncestorKeys: ReadonlySet<string>;
+};
 
-function findNodeByKey(
+function collectHierarchyStats(
   nodes: HierarchyNode[],
-  key: string | null,
-): HierarchyNode | null {
-  if (!key) return null;
-  for (const node of nodes) {
-    const nodeKey = node.primPath ?? node.name;
-    if (nodeKey === key) return node;
-    const child = findNodeByKey(node.children, key);
-    if (child) return child;
-  }
-  return null;
-}
+  selectedKey: string | null,
+): HierarchyStats {
+  let totalNodeCount = 0;
+  let selectedNode: HierarchyNode | null = null;
+  let selectedPathKeys: string[] | null = null;
+  const ancestorStack: string[] = [];
 
-function countNodes(nodes: HierarchyNode[]): number {
-  return nodes.reduce(
-    (count, node) => count + 1 + countNodes(node.children),
-    0,
-  );
+  const visit = (node: HierarchyNode) => {
+    totalNodeCount += 1;
+
+    const nodeKey = node.primPath ?? node.name;
+    if (selectedKey !== null && nodeKey === selectedKey && !selectedNode) {
+      selectedNode = node;
+      selectedPathKeys = [...ancestorStack];
+    }
+
+    ancestorStack.push(nodeKey);
+    for (const child of node.children) {
+      visit(child);
+    }
+    ancestorStack.pop();
+  };
+
+  for (const node of nodes) {
+    visit(node);
+  }
+
+  return {
+    totalNodeCount,
+    selectedNode,
+    selectedAncestorKeys: new Set(selectedPathKeys ?? []),
+  };
 }
 
 export function HierarchyCard({
@@ -335,8 +487,10 @@ export function HierarchyCard({
   }, [selectedName]);
 
   const normalizedSelected = selectedName ?? null;
-  const selectedNode = findNodeByKey(hierarchy, normalizedSelected);
-  const totalNodeCount = countNodes(hierarchy);
+  const { selectedAncestorKeys, selectedNode, totalNodeCount } = useMemo(
+    () => collectHierarchyStats(hierarchy, normalizedSelected),
+    [hierarchy, normalizedSelected],
+  );
   const selectedPath = selectedNode?.primPath ?? normalizedSelected;
   const selectedInfo = normalizedSelected
     ? (objectInfo?.[normalizedSelected] ?? null)
@@ -387,8 +541,9 @@ export function HierarchyCard({
                 parentPath="/"
                 forceExpanded={
                   normalizedSelected !== null &&
-                  hasDescendant(node, normalizedSelected)
+                  selectedAncestorKeys.has(node.primPath ?? node.name)
                 }
+                forceExpandedKeys={selectedAncestorKeys}
                 selectedRef={selectedRef}
                 payloadPrimPaths={payloadPrimPaths}
                 unloadedPayloadPaths={unloadedPayloadPaths}
@@ -430,7 +585,7 @@ export function HierarchyCard({
             <div className="selected-kv-row">
               <span className="selected-kv-key">Name</span>
               <span className="selected-kv-value">
-                {selectedNode.name || "(unnamed)"}
+                {hierarchyDisplayName(selectedNode)}
               </span>
             </div>
             <div className="selected-kv-row">
@@ -476,6 +631,7 @@ export function HierarchyCard({
                 </span>
               </div>
             ) : null}
+            <SelectedMmdBone bone={selectedInfo?.mmdBone ?? null} />
             {normalizedSelected && selectedMorphTargets.length > 0 ? (
               <div className="selected-morph-section">
                 <div className="selected-morph-head">
@@ -511,6 +667,16 @@ export function HierarchyCard({
                         <span className="selected-morph-value">
                           {value.toFixed(2)}
                         </span>
+                        {target.mmd ? (
+                          <span className="selected-morph-meta">
+                            {target.mmd.type ?? "mmd"} ·{" "}
+                            {target.mmd.englishName &&
+                            target.mmd.englishName !== target.name
+                              ? `${target.mmd.englishName} · `
+                              : ""}
+                            {fmtMmdMorphOffsets(target.mmd)}
+                          </span>
+                        ) : null}
                         <input
                           aria-label={`Shape key ${target.name}`}
                           className="selected-morph-slider"

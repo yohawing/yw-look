@@ -157,7 +157,12 @@ export function CurrentFileCard({
     {
       id: "type",
       label: "Type",
-      value: currentFile.kind === "model" ? "3D Model" : "Texture",
+      value:
+        currentFile.kind === "model"
+          ? "3D Model"
+          : currentFile.kind === "motion"
+            ? "Motion"
+            : "Texture",
       tone: "muted",
     },
     {

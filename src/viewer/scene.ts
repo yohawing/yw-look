@@ -9,8 +9,11 @@ import {
   FrontSide,
   GridHelper,
   Group,
+  InstancedMesh,
   LinearFilter,
   LinearMipMapLinearFilter,
+  LineBasicMaterial,
+  LineSegments,
   type MagnificationTextureFilter,
   Material,
   MathUtils,
@@ -28,10 +31,16 @@ import {
   SkinnedMesh,
   Texture,
   Vector3,
+  WireframeGeometry,
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { VertexNormalsHelper } from "three/examples/jsm/helpers/VertexNormalsHelper.js";
 import type { DisplayMode, SceneContext } from "./types";
+import {
+  copyMmdOutlineMaterialUserData,
+  isMmdOutlineMaterial,
+  isMmdOutlineProxyObject,
+} from "./mmd/userData";
 
 export const GRID_NAME = "__yw_initial_grid";
 export const AXES_NAME = "__yw_axes_helper";
@@ -39,6 +48,15 @@ export const SHADOW_CATCHER_NAME = "__yw_shadow_catcher";
 const SKELETON_HELPER_FLAG = "__yw_skeleton_helper";
 const BBOX_HELPER_FLAG = "__yw_bbox_helper";
 const NORMAL_HELPER_FLAG = "__yw_normal_helper";
+const WIREFRAME_OVERLAY_FLAG = "__yw_wireframe_overlay";
+const WIREFRAME_PROXY_FLAG = "__yw_wireframe_proxy";
+const WIREFRAME_OVERLAY_COLOR_TOKEN = "--yl-accent-bg";
+const WIREFRAME_OVERLAY_COLOR_FALLBACK = "#5e6ad2";
+const WIREFRAME_MATERIAL_COLOR_TOKEN = "--yl-text-primary";
+const WIREFRAME_MATERIAL_COLOR_FALLBACK = "#f7f8f8";
+const WIREFRAME_ORIGINAL_COLOR_KEY = "__yw_wireframe_original_color";
+const WIREFRAME_ORIGINAL_MATERIAL_KEY = "__yw_wireframe_original_material";
+const WIREFRAME_MATERIAL_FLAG = "__yw_wireframe_material";
 const GRID_DIVISIONS = 20;
 // Axes length is tied to grid size so the XYZ indicator scales with the
 // current unit preset. Slightly longer than half a grid cell keeps the
@@ -85,6 +103,271 @@ export function getMaterials(material: Material | Material[]) {
   return Array.isArray(material) ? material : [material];
 }
 
+function isMmdOutlineMesh(mesh: Mesh) {
+  if (isMmdOutlineProxyObject(mesh)) {
+    return true;
+  }
+
+  const storedOriginal = getWireframeOriginalMaterial(mesh);
+  const materials =
+    storedOriginal !== undefined
+      ? [...getMaterials(mesh.material), ...getMaterials(storedOriginal)]
+      : getMaterials(mesh.material);
+  return materials.some(isMmdOutlineMaterial);
+}
+
+export function isViewportHelperObject(child: Object3D) {
+  return (
+    child.userData[SKELETON_HELPER_FLAG] === true ||
+    child.userData[BBOX_HELPER_FLAG] === true ||
+    child.userData[NORMAL_HELPER_FLAG] === true ||
+    child.userData[WIREFRAME_OVERLAY_FLAG] === true ||
+    child.userData[WIREFRAME_PROXY_FLAG] === true
+  );
+}
+
+function readCssColorToken(token: string, fallback: string) {
+  if (
+    typeof document === "undefined" ||
+    typeof getComputedStyle === "undefined"
+  ) {
+    return fallback;
+  }
+
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(token)
+    .trim();
+
+  return value || fallback;
+}
+
+function usesDeformedGeometry(mesh: Mesh) {
+  return (
+    mesh instanceof InstancedMesh ||
+    mesh instanceof SkinnedMesh ||
+    (Array.isArray(mesh.morphTargetInfluences) &&
+      mesh.morphTargetInfluences.length > 0)
+  );
+}
+
+function createWireframeMaterial(source: Material, color: Color) {
+  const material = new MeshBasicMaterial({
+    color,
+    wireframe: true,
+    side: source.side,
+    depthTest: source.depthTest,
+    depthWrite: source.depthWrite,
+    transparent: source.transparent || source.opacity < 1,
+    opacity: source.opacity,
+  });
+  material.visible = source.visible;
+  material.toneMapped = false;
+  material.userData[WIREFRAME_MATERIAL_FLAG] = true;
+  copyMmdOutlineMaterialUserData(material, source);
+  return material;
+}
+
+function createWireframeMaterialSet(
+  source: Material | Material[],
+  color: Color,
+) {
+  return Array.isArray(source)
+    ? source.map((material) => createWireframeMaterial(material, color))
+    : createWireframeMaterial(source, color);
+}
+
+function disposeWireframeMaterialSet(material: Material | Material[]) {
+  for (const item of getMaterials(material)) {
+    if (item.userData[WIREFRAME_MATERIAL_FLAG] === true) {
+      item.dispose();
+    }
+  }
+}
+
+function getWireframeOriginalMaterial(mesh: Mesh) {
+  return mesh.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] as
+    | Material
+    | Material[]
+    | undefined;
+}
+
+function setWireframeOriginalMaterial(
+  mesh: Mesh,
+  material: Material | Material[],
+) {
+  mesh.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] = material;
+}
+
+function getMaterialControlTargets(mesh: Mesh) {
+  const storedOriginal = getWireframeOriginalMaterial(mesh);
+  return storedOriginal !== undefined
+    ? [...getMaterials(mesh.material), ...getMaterials(storedOriginal)]
+    : getMaterials(mesh.material);
+}
+
+function applyWireframeMaterialOverride(mesh: Mesh, color: Color) {
+  const storedOriginal = getWireframeOriginalMaterial(mesh);
+  if (storedOriginal !== undefined) {
+    disposeWireframeMaterialSet(mesh.material);
+    mesh.material = createWireframeMaterialSet(storedOriginal, color);
+    return;
+  }
+
+  const original = mesh.material;
+  setWireframeOriginalMaterial(mesh, original);
+  mesh.material = createWireframeMaterialSet(original, color);
+}
+
+function restoreWireframeMaterialOverride(mesh: Mesh) {
+  const original = getWireframeOriginalMaterial(mesh);
+  if (original === undefined) {
+    return;
+  }
+
+  disposeWireframeMaterialSet(mesh.material);
+  mesh.material = original;
+  delete mesh.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY];
+}
+
+function createWireframeOverlayMeshMaterial(source: Material, color: Color) {
+  const material = new MeshBasicMaterial({
+    color,
+    wireframe: true,
+    side: source.side,
+    transparent: source.transparent || source.opacity < 1,
+    opacity: source.opacity,
+    depthTest: source.depthTest,
+    depthWrite: false,
+  });
+  material.visible = source.visible;
+  material.toneMapped = false;
+  return material;
+}
+
+function createWireframeOverlayMeshMaterialSet(
+  source: Material | Material[],
+  color: Color,
+) {
+  return Array.isArray(source)
+    ? source.map((material) =>
+        createWireframeOverlayMeshMaterial(material, color),
+      )
+    : createWireframeOverlayMeshMaterial(source, color);
+}
+
+function shareMorphTargetState(source: Mesh, proxy: Mesh) {
+  proxy.morphTargetDictionary = source.morphTargetDictionary;
+  proxy.morphTargetInfluences = source.morphTargetInfluences;
+}
+
+function createDeformedWireframeProxy(source: Mesh, color: Color) {
+  if (!(source.geometry instanceof BufferGeometry)) {
+    return null;
+  }
+  if (source.geometry.getAttribute("position") === undefined) {
+    return null;
+  }
+
+  const material = createWireframeOverlayMeshMaterialSet(
+    source.material,
+    color,
+  );
+  let proxy: Mesh;
+
+  if (source instanceof SkinnedMesh) {
+    const skinnedProxy = new SkinnedMesh(source.geometry, material);
+    skinnedProxy.bindMode = source.bindMode;
+    skinnedProxy.bind(source.skeleton, source.bindMatrix);
+    proxy = skinnedProxy;
+  } else if (source instanceof InstancedMesh) {
+    const instancedProxy = new InstancedMesh(
+      source.geometry,
+      material,
+      source.count,
+    );
+    instancedProxy.instanceMatrix = source.instanceMatrix;
+    instancedProxy.instanceColor = source.instanceColor;
+    instancedProxy.count = source.count;
+    proxy = instancedProxy;
+  } else {
+    proxy = new Mesh(source.geometry, material);
+  }
+
+  shareMorphTargetState(source, proxy);
+  proxy.name = "__yw_textured_wireframe_proxy";
+  proxy.userData[WIREFRAME_OVERLAY_FLAG] = true;
+  proxy.userData[WIREFRAME_PROXY_FLAG] = true;
+  proxy.frustumCulled = source.frustumCulled;
+  proxy.renderOrder = source.renderOrder + 1;
+  proxy.visible = source.visible;
+  return proxy;
+}
+
+function disposeWireframeOverlayObject(overlay: Object3D) {
+  if (
+    overlay instanceof LineSegments &&
+    overlay.geometry instanceof BufferGeometry
+  ) {
+    overlay.geometry.dispose();
+    for (const material of getMaterials(overlay.material)) {
+      material.dispose();
+    }
+  }
+
+  if (overlay instanceof Mesh) {
+    for (const material of getMaterials(overlay.material)) {
+      material.dispose();
+    }
+    const unlitOriginal = overlay.userData[UNLIT_ORIGINAL_KEY];
+    if (unlitOriginal instanceof Material || Array.isArray(unlitOriginal)) {
+      for (const material of getMaterials(unlitOriginal)) {
+        material.dispose();
+      }
+      delete overlay.userData[UNLIT_ORIGINAL_KEY];
+    }
+  }
+}
+
+function applyDisplayModeToMaterial(
+  material: Material,
+  displayMode: DisplayMode,
+  useMaterialWireframe: boolean,
+  wireframeColor: Color,
+) {
+  if (!("wireframe" in material)) {
+    return;
+  }
+
+  material.wireframe = useMaterialWireframe;
+
+  if ("color" in material && material.color instanceof Color) {
+    if (displayMode === "wireframe") {
+      if (!(material.userData[WIREFRAME_ORIGINAL_COLOR_KEY] instanceof Color)) {
+        material.userData[WIREFRAME_ORIGINAL_COLOR_KEY] =
+          material.color.clone();
+      }
+      material.color.copy(wireframeColor);
+    } else {
+      const originalColor = material.userData[WIREFRAME_ORIGINAL_COLOR_KEY];
+      if (originalColor instanceof Color) {
+        material.color.copy(originalColor);
+        delete material.userData[WIREFRAME_ORIGINAL_COLOR_KEY];
+      }
+    }
+  }
+
+  if ("map" in material) {
+    const originalMap = material.userData.originalMap ?? material.map ?? null;
+    material.userData.originalMap = originalMap;
+    material.map =
+      displayMode === "untextured" || displayMode === "wireframe"
+        ? null
+        : originalMap;
+  }
+
+  material.needsUpdate = true;
+}
+
 function disposeMaterialTextures(material: Material) {
   for (const value of Object.values(material)) {
     if (value instanceof Texture) {
@@ -105,12 +388,27 @@ export function disposeObject(object: Group | Mesh | null) {
   }
 
   object.traverse((child: Object3D) => {
+    if (child.userData[WIREFRAME_OVERLAY_FLAG] === true) {
+      disposeWireframeOverlayObject(child);
+      return;
+    }
+
     if (child instanceof Mesh && child.geometry instanceof BufferGeometry) {
       child.geometry.dispose();
     }
 
     if (child instanceof Mesh) {
-      for (const material of getMaterials(child.material)) {
+      const materialsToDispose = [
+        ...getMaterials(child.material),
+        ...(child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] !== undefined
+          ? getMaterials(
+              child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] as
+                | Material
+                | Material[],
+            )
+          : []),
+      ];
+      for (const material of materialsToDispose) {
         if (!material) {
           continue;
         }
@@ -146,6 +444,7 @@ export function stopAnimations(context: SceneContext) {
   context.activeAction = null;
   context.mixer = null;
   context.clips = [];
+  context.mmdMotion = null;
 }
 
 export function resetSceneObjects(context: SceneContext) {
@@ -615,6 +914,8 @@ export function applyShadows(
   }
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) return;
+    if (isViewportHelperObject(child)) return;
+    if (isMmdOutlineMesh(child)) return;
     if (
       child.userData[SKELETON_HELPER_FLAG] === true ||
       child.userData[BBOX_HELPER_FLAG] === true ||
@@ -645,6 +946,9 @@ function collectSkeletonRoots(object: Group | Mesh): Object3D[] {
   const roots: Object3D[] = [];
   object.traverse((child: Object3D) => {
     if (!(child instanceof SkinnedMesh) || !child.skeleton) {
+      return;
+    }
+    if (isMmdOutlineMesh(child)) {
       return;
     }
     const firstBone = child.skeleton.bones[0];
@@ -753,6 +1057,12 @@ export function applyBoundingBoxHelpers(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
+    if (isMmdOutlineMesh(child)) {
+      return;
+    }
     // Ignore our own helper meshes — SkeletonHelper, AxesHelper and
     // Box3Helper all extend LineSegments which extends Mesh.
     if (
@@ -836,6 +1146,12 @@ export function applyNormalHelpers(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
+    if (isMmdOutlineMesh(child)) {
+      return;
+    }
     if (
       child.userData[SKELETON_HELPER_FLAG] === true ||
       child.userData[BBOX_HELPER_FLAG] === true ||
@@ -891,6 +1207,12 @@ export function applyTextureFilter(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
+    if (isMmdOutlineMesh(child)) {
+      return;
+    }
     if (
       child.userData[SKELETON_HELPER_FLAG] === true ||
       child.userData[BBOX_HELPER_FLAG] === true ||
@@ -899,7 +1221,7 @@ export function applyTextureFilter(
       return;
     }
 
-    for (const material of getMaterials(child.material)) {
+    for (const material of getMaterialControlTargets(child)) {
       if (!material) continue;
       // Walk the material's texture-valued properties rather than the
       // authored slot list, so we catch engine-specific maps like
@@ -923,6 +1245,12 @@ export function applyVertexColors(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
+    if (isMmdOutlineMesh(child)) {
+      return;
+    }
     // Skip helper meshes we add ourselves.
     if (
       child.userData[SKELETON_HELPER_FLAG] === true ||
@@ -936,7 +1264,7 @@ export function applyVertexColors(
       geometry instanceof BufferGeometry &&
       geometry.getAttribute("color") !== undefined;
 
-    for (const material of getMaterials(child.material)) {
+    for (const material of getMaterialControlTargets(child)) {
       if (!material || !("vertexColors" in material)) {
         continue;
       }
@@ -966,8 +1294,14 @@ export function applyBackfaceCulling(
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
+    if (isMmdOutlineMesh(child)) {
+      return;
+    }
 
-    for (const material of getMaterials(child.material)) {
+    for (const material of getMaterialControlTargets(child)) {
       if (!material || !("side" in material)) {
         continue;
       }
@@ -989,30 +1323,90 @@ export function applyDisplayMode(
   object: Group | Mesh,
   displayMode: DisplayMode,
 ) {
+  const showWireframeOverlay = displayMode === "texturedWireframe";
+  const wireframeColor = new Color(
+    readCssColorToken(
+      WIREFRAME_OVERLAY_COLOR_TOKEN,
+      WIREFRAME_OVERLAY_COLOR_FALLBACK,
+    ),
+  );
+  const wireframeMaterialColor = new Color(
+    readCssColorToken(
+      WIREFRAME_MATERIAL_COLOR_TOKEN,
+      WIREFRAME_MATERIAL_COLOR_FALLBACK,
+    ),
+  );
+
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) {
       return;
     }
+    if (isViewportHelperObject(child)) {
+      return;
+    }
+
+    const isMmdOutline = isMmdOutlineMesh(child);
+    const existingOverlays = child.children.filter(
+      (candidate) => candidate.userData[WIREFRAME_OVERLAY_FLAG] === true,
+    );
+    for (const overlay of existingOverlays) {
+      child.remove(overlay);
+      disposeWireframeOverlayObject(overlay);
+    }
+
+    if (displayMode === "wireframe") {
+      applyWireframeMaterialOverride(child, wireframeMaterialColor);
+      return;
+    }
+    restoreWireframeMaterialOverride(child);
+
+    if (
+      !isMmdOutline &&
+      showWireframeOverlay &&
+      usesDeformedGeometry(child) &&
+      child.geometry instanceof BufferGeometry &&
+      child.geometry.getAttribute("position") !== undefined
+    ) {
+      const proxy = createDeformedWireframeProxy(child, wireframeColor);
+      if (proxy) {
+        child.add(proxy);
+      }
+    } else if (
+      !isMmdOutline &&
+      showWireframeOverlay &&
+      child.geometry instanceof BufferGeometry &&
+      child.geometry.getAttribute("position") !== undefined
+    ) {
+      const overlay = new LineSegments(
+        new WireframeGeometry(child.geometry),
+        new LineBasicMaterial({
+          color: wireframeColor,
+          transparent: true,
+          opacity: 0.78,
+          depthTest: true,
+          depthWrite: false,
+        }),
+      );
+      overlay.name = "__yw_textured_wireframe_overlay";
+      overlay.userData[WIREFRAME_OVERLAY_FLAG] = true;
+      overlay.renderOrder = child.renderOrder + 1;
+      child.add(overlay);
+    }
 
     for (const material of getMaterials(child.material)) {
-      if (!("wireframe" in material)) {
-        continue;
+      applyDisplayModeToMaterial(material, displayMode, false, wireframeColor);
+    }
+
+    const unlitOriginal = child.userData[UNLIT_ORIGINAL_KEY];
+    if (unlitOriginal instanceof Material || Array.isArray(unlitOriginal)) {
+      for (const material of getMaterials(unlitOriginal)) {
+        applyDisplayModeToMaterial(
+          material,
+          displayMode,
+          false,
+          wireframeColor,
+        );
       }
-
-      material.wireframe =
-        displayMode === "wireframe" || displayMode === "texturedWireframe";
-
-      if ("map" in material) {
-        const originalMap =
-          material.userData.originalMap ?? material.map ?? null;
-        material.userData.originalMap = originalMap;
-        material.map =
-          displayMode === "untextured" || displayMode === "wireframe"
-            ? null
-            : originalMap;
-      }
-
-      material.needsUpdate = true;
     }
   });
 }
@@ -1027,12 +1421,16 @@ export function applyUnlitMaterial(
 
   object.traverse((child: Object3D) => {
     if (!(child instanceof Mesh)) return;
+    if (isViewportHelperObject(child)) return;
+    if (isMmdOutlineMesh(child)) return;
     if (child.material instanceof ShadowMaterial) return;
 
     if (enabled) {
       if (child.userData[UNLIT_ORIGINAL_KEY] !== undefined) return;
 
-      const materials = getMaterials(child.material);
+      const storedWireframeOriginal = getWireframeOriginalMaterial(child);
+      const currentMaterial = storedWireframeOriginal ?? child.material;
+      const materials = getMaterials(currentMaterial);
       const unlitMaterials: MeshBasicMaterial[] = [];
 
       for (const mat of materials) {
@@ -1053,6 +1451,12 @@ export function applyUnlitMaterial(
 
         if ("color" in mat && mat.color instanceof Color) {
           unlit.color.copy(mat.color);
+          const originalWireframeColor =
+            mat.userData[WIREFRAME_ORIGINAL_COLOR_KEY];
+          if (originalWireframeColor instanceof Color) {
+            unlit.userData[WIREFRAME_ORIGINAL_COLOR_KEY] =
+              originalWireframeColor.clone();
+          }
         }
         unlit.transparent = mat.transparent;
         unlit.opacity = mat.opacity;
@@ -1067,21 +1471,33 @@ export function applyUnlitMaterial(
         unlitMaterials.push(unlit);
       }
 
-      child.userData[UNLIT_ORIGINAL_KEY] = child.material;
-      child.material =
+      const unlitMaterial =
         unlitMaterials.length === 1 ? unlitMaterials[0] : unlitMaterials;
+      child.userData[UNLIT_ORIGINAL_KEY] = currentMaterial;
+      if (storedWireframeOriginal !== undefined) {
+        setWireframeOriginalMaterial(child, unlitMaterial);
+      } else {
+        child.material = unlitMaterial;
+      }
     } else {
       const original = child.userData[UNLIT_ORIGINAL_KEY];
       if (original === undefined) return;
 
-      const currentMats = getMaterials(child.material);
+      const storedWireframeOriginal = getWireframeOriginalMaterial(child);
+      const currentMats = getMaterials(
+        storedWireframeOriginal ?? child.material,
+      );
       for (const mat of currentMats) {
         if (mat instanceof MeshBasicMaterial) {
           mat.dispose();
         }
       }
 
-      child.material = original;
+      if (storedWireframeOriginal !== undefined) {
+        setWireframeOriginalMaterial(child, original);
+      } else {
+        child.material = original;
+      }
       delete child.userData[UNLIT_ORIGINAL_KEY];
     }
   });

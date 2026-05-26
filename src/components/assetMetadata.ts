@@ -1,5 +1,6 @@
 export type HierarchyNode = {
   name: string;
+  displayName?: string;
   kind: string;
   children: HierarchyNode[];
   /** #46: full USD SdfPath surfaced from GLB node extras.primPath.
@@ -14,6 +15,7 @@ export type TextureEntry = {
   channel: string;
   dimensions: string;
   thumbnailUrl: string | null;
+  previewFlipY?: boolean;
   sourceKind: "embedded" | "external" | "standalone" | "unresolved" | "unknown";
 };
 
@@ -25,6 +27,28 @@ export type MaterialTextureSlot = {
    * Falls back to the slot label (e.g. `"Base Color"`) when no name is
    * present on the texture. */
   name: string;
+};
+
+export type MmdMaterialEntry = {
+  materialIndex: number | null;
+  name: string;
+  englishName: string | null;
+  diffuse: [number, number, number, number] | null;
+  specular: [number, number, number] | null;
+  ambient: [number, number, number] | null;
+  specularPower: number | null;
+  edgeColor: [number, number, number, number] | null;
+  edgeSize: number | null;
+  texturePath: string | null;
+  sphereTexturePath: string | null;
+  sphereMode: string | null;
+  toonTexturePath: string | null;
+  sharedToonIndex: number | null;
+  transparencyMode: string | null;
+  renderOrderBucket: string | null;
+  faceCount: number | null;
+  flags: Record<string, boolean> | null;
+  unsupportedDrawFlags: string[];
 };
 
 export type MaterialEntry = {
@@ -69,6 +93,8 @@ export type MaterialEntry = {
    * the asset went through the Phase-7 USD→GLB pipeline. `null` when the
    * round-trip drops the prim path (the common case for pure-GLB assets). */
   usdPrimPath: string | null;
+  /** MMD material metadata from `@yohawing/three-mmd-loader`, when present. */
+  mmd: MmdMaterialEntry | null;
 };
 
 /** One light surfaced in the scene panel. Authored by USD as
@@ -113,6 +139,68 @@ export type CameraEntry = {
   far: number;
 };
 
+export type MmdSectionEntry = {
+  name: string;
+  count: number;
+  offset: number;
+  byteLength: number;
+};
+
+export type MmdAssetMetadata = {
+  format: "pmx" | "pmd";
+  version: number;
+  encoding: string | null;
+  name: string;
+  englishName: string;
+  comment: string;
+  englishComment: string;
+  counts: Record<string, number>;
+  additionalUvCount: number | null;
+  indexSizes: Record<string, number> | null;
+  trailingBytes: number;
+  sections: MmdSectionEntry[];
+  diagnostics: Array<{
+    level: "warning" | "error";
+    code: string;
+    message: string;
+  }>;
+};
+
+export type MmdBoneEntry = {
+  boneIndex: number | null;
+  parentIndex: number | null;
+  parentName: string | null;
+  name: string | null;
+  englishName: string | null;
+  restPosition: [number, number, number] | null;
+  layer: number | null;
+  appendTransform: {
+    parentIndex: number;
+    parentName: string | null;
+    weight: number;
+  } | null;
+  flags: Record<string, boolean> | null;
+  ik: {
+    roles: string[];
+    goalBoneIndex: number | null;
+    effectorBoneIndex: number | null;
+    iterationCount: number | null;
+    maxAnglePerIteration: number | null;
+    linkCount: number | null;
+    limitKinds: string[];
+  } | null;
+};
+
+export type MmdMorphEntry = {
+  name: string | null;
+  englishName: string | null;
+  type: string | null;
+  boneOffsetCount: number;
+  groupOffsetCount: number;
+  flipOffsetCount: number;
+  impulseOffsetCount: number;
+};
+
 export type ObjectInfo = {
   name: string;
   kind: string;
@@ -129,12 +217,14 @@ export type ObjectInfo = {
   childCount: number | null;
   animatesWithClips: string[];
   userData: Record<string, unknown> | null;
+  mmdBone: MmdBoneEntry | null;
 };
 
 export type MorphTargetEntry = {
   index: number;
   name: string;
   value: number;
+  mmd: MmdMorphEntry | null;
 };
 
 export type AssetMetadata = {
@@ -151,6 +241,7 @@ export type AssetMetadata = {
   lights: LightEntry[];
   cameras: CameraEntry[];
   objectInfo: Record<string, ObjectInfo>;
+  mmd?: MmdAssetMetadata;
 };
 
 export const emptyAssetMetadata: AssetMetadata | null = null;

@@ -2,8 +2,6 @@ pub mod usd;
 
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
-#[cfg(desktop)]
-use std::collections::HashSet;
 use std::{
     env,
     fs::{self, OpenOptions},
@@ -15,9 +13,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use sysinfo::{Pid, ProcessesToUpdate, System};
-#[cfg(desktop)]
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 
@@ -32,21 +28,16 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
 const DIAGNOSTICS_LOG_FILE_NAME: &str = "diagnostics.log";
 static USD_TASK_LOCK: Mutex<()> = Mutex::new(());
-#[cfg(desktop)]
-const MENU_ACTION_EVENT: &str = "yw-look://menu-action";
-#[cfg(desktop)]
-const MENU_RECENT_FILE_PREFIX: &str = "recent-file:";
-#[cfg(desktop)]
-const SHARED_MENU_DEFINITION_JSON: &str = include_str!("../../src/lib/menu-definition.json");
 const DEFAULT_UPDATER_ENDPOINT: Option<&str> = option_env!("YW_LOOK_UPDATER_ENDPOINT");
 const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> = option_env!("YW_LOOK_UPDATER_PUBLIC_KEY");
 const MODEL_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "abc",
+    "pmx", "pmd",
 ];
 const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
 const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "usd", "usda", "usdc", "usdz", "png", "jpg",
-    "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
+    "jpeg", "tga", "dds", "ktx2", "hdr", "exr", "pmx", "pmd",
 ];
 
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
@@ -760,55 +751,6 @@ struct DiagnosticRecordInput {
     context_path: Option<String>,
 }
 
-#[cfg(desktop)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SharedMenuDefinition {
-    sections: Vec<SharedMenuSection>,
-}
-
-#[cfg(desktop)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SharedMenuSection {
-    id: String,
-    label: String,
-    entries: Vec<SharedMenuEntry>,
-}
-
-#[cfg(desktop)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SharedShortcutDefinition {
-    key: String,
-    ctrl_or_meta: Option<bool>,
-    shift: Option<bool>,
-    alt: Option<bool>,
-}
-
-#[cfg(desktop)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-enum SharedMenuEntry {
-    Item {
-        id: String,
-        label: String,
-        shortcut: Option<SharedShortcutDefinition>,
-    },
-    Separator,
-    RecentFiles {
-        label: String,
-    },
-}
-
-#[cfg(desktop)]
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-enum NativeMenuEventPayload {
-    Action { action_id: String },
-    RecentFile { path: String },
-}
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -826,139 +768,6 @@ impl Default for AppSettings {
             auto_check_for_updates: false,
         }
     }
-}
-
-#[cfg(desktop)]
-fn load_shared_menu_definition() -> Result<SharedMenuDefinition, String> {
-    serde_json::from_str(SHARED_MENU_DEFINITION_JSON)
-        .map_err(|error| format!("failed to parse shared menu definition: {error}"))
-}
-
-#[cfg(desktop)]
-fn shortcut_to_accelerator(shortcut: &SharedShortcutDefinition) -> String {
-    let mut keys: Vec<String> = Vec::new();
-
-    if shortcut.ctrl_or_meta.unwrap_or(false) {
-        keys.push("CmdOrCtrl".to_string());
-    }
-    if shortcut.shift.unwrap_or(false) {
-        keys.push("Shift".to_string());
-    }
-    if shortcut.alt.unwrap_or(false) {
-        keys.push("Alt".to_string());
-    }
-
-    keys.push(shortcut.key.to_uppercase());
-    keys.join("+")
-}
-
-#[cfg(desktop)]
-fn collect_menu_action_ids(definition: &SharedMenuDefinition) -> HashSet<String> {
-    definition
-        .sections
-        .iter()
-        .flat_map(|section| section.entries.iter())
-        .filter_map(|entry| match entry {
-            SharedMenuEntry::Item { id, .. } => Some(id.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
-#[cfg(desktop)]
-fn build_native_recent_files_submenu(
-    app: &tauri::AppHandle,
-    label: &str,
-) -> Result<Submenu<tauri::Wry>, String> {
-    let submenu = Submenu::new(app, label, true)
-        .map_err(|error| format!("failed to create recent files submenu: {error}"))?;
-    let (_, entries) = load_clean_recent_file_entries(app)?;
-
-    if entries.is_empty() {
-        let item = MenuItem::new(app, "No recent files", false, None::<&str>)
-            .map_err(|error| format!("failed to create empty recent files item: {error}"))?;
-        submenu
-            .append(&item)
-            .map_err(|error| format!("failed to append empty recent files item: {error}"))?;
-        return Ok(submenu);
-    }
-
-    for entry in entries {
-        let item = MenuItem::with_id(
-            app,
-            format!("{MENU_RECENT_FILE_PREFIX}{}", entry.path),
-            entry.path,
-            true,
-            None::<&str>,
-        )
-        .map_err(|error| format!("failed to create recent file menu item: {error}"))?;
-        submenu
-            .append(&item)
-            .map_err(|error| format!("failed to append recent file menu item: {error}"))?;
-    }
-
-    Ok(submenu)
-}
-
-#[cfg(desktop)]
-fn build_native_menu(
-    app: &tauri::AppHandle,
-    definition: &SharedMenuDefinition,
-) -> Result<Menu<tauri::Wry>, String> {
-    let menu = Menu::new(app).map_err(|error| format!("failed to create menu: {error}"))?;
-
-    for section in &definition.sections {
-        let submenu = Submenu::with_id(app, section.id.clone(), &section.label, true)
-            .map_err(|error| format!("failed to create submenu '{}': {error}", section.id))?;
-
-        for entry in &section.entries {
-            match entry {
-                SharedMenuEntry::Item {
-                    id,
-                    label,
-                    shortcut,
-                } => {
-                    let accelerator = shortcut.as_ref().map(shortcut_to_accelerator);
-                    let item =
-                        MenuItem::with_id(app, id.clone(), label, true, accelerator.as_deref())
-                            .map_err(|error| {
-                                format!("failed to create menu item '{id}': {error}")
-                            })?;
-                    submenu
-                        .append(&item)
-                        .map_err(|error| format!("failed to append menu item '{id}': {error}"))?;
-                }
-                SharedMenuEntry::Separator => {
-                    let separator = PredefinedMenuItem::separator(app)
-                        .map_err(|error| format!("failed to create menu separator: {error}"))?;
-                    submenu
-                        .append(&separator)
-                        .map_err(|error| format!("failed to append menu separator: {error}"))?;
-                }
-                SharedMenuEntry::RecentFiles { label } => {
-                    submenu
-                        .append(&build_native_recent_files_submenu(app, label)?)
-                        .map_err(|error| {
-                            format!("failed to append recent files submenu '{label}': {error}")
-                        })?;
-                }
-            }
-        }
-
-        menu.append(&submenu)
-            .map_err(|error| format!("failed to append submenu '{}': {error}", section.id))?;
-    }
-
-    Ok(menu)
-}
-
-#[cfg(desktop)]
-fn refresh_native_menu(app: &tauri::AppHandle) -> Result<(), String> {
-    let definition = load_shared_menu_definition()?;
-    let menu = build_native_menu(app, &definition)?;
-    app.set_menu(menu)
-        .map_err(|error| format!("failed to apply native menu: {error}"))?;
-    Ok(())
 }
 
 fn normalize_optional_text(value: Option<String>) -> Option<String> {
@@ -1390,15 +1199,12 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
 
     save_recent_file_entries(&recent_files_path, &entries)?;
 
-    #[cfg(desktop)]
-    refresh_native_menu(app)?;
-
     Ok(())
 }
 
 const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "vrm", "abc", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga",
-    "dds", "ktx2", "hdr", "exr",
+    "dds", "ktx2", "hdr", "exr", "pmx", "pmd",
 ];
 
 fn system_time_to_unix_string(time: SystemTime) -> Option<String> {
@@ -1598,7 +1404,8 @@ fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<SelectedFilePayload>
             "Supported assets",
             &[
                 "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae",
-                "vrm", "abc", "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
+                "vrm", "abc", "pmx", "pmd", "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr",
+                "exr",
             ],
         )
         .pick_file();
@@ -2496,56 +2303,17 @@ async fn install_pending_update(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(desktop)]
-    let shared_menu_definition =
-        load_shared_menu_definition().expect("failed to load shared menu definition");
-    #[cfg(desktop)]
-    let menu_action_ids = collect_menu_action_ids(&shared_menu_definition);
     let bench_cli_config = parse_bench_cli_config().expect("failed to parse bench CLI args");
     let shot_cli_config = parse_shot_cli_config().expect("failed to parse shot CLI args");
     if bench_cli_config.is_some() && shot_cli_config.is_some() {
         panic!("--bench-load cannot be combined with --shot/--check");
     }
 
-    let mut builder = tauri::Builder::default();
-    #[cfg(desktop)]
-    {
-        builder = builder.on_menu_event(move |app, event| {
-            let menu_id = event.id().as_ref();
-            let payload = if menu_action_ids.contains(menu_id) {
-                Some(NativeMenuEventPayload::Action {
-                    action_id: menu_id.to_string(),
-                })
-            } else {
-                menu_id.strip_prefix(MENU_RECENT_FILE_PREFIX).map(|path| {
-                    NativeMenuEventPayload::RecentFile {
-                        path: path.to_string(),
-                    }
-                })
-            };
-
-            if let Some(payload) = payload {
-                if let Err(error) = app.emit(MENU_ACTION_EVENT, payload) {
-                    eprintln!("failed to emit menu action event '{menu_id}': {error}");
-                }
-            }
-        });
-    }
-
-    let app = builder
+    let app = tauri::Builder::default()
         .setup(move |app| {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
-
-            #[cfg(desktop)]
-            {
-                refresh_native_menu(&app.handle()).map_err(
-                    |error| -> Box<dyn std::error::Error> {
-                        Box::new(std::io::Error::new(std::io::ErrorKind::Other, error))
-                    },
-                )?;
-            }
 
             app.manage(PendingUpdateState::default());
             app.manage(PendingOpenFiles::default());

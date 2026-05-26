@@ -77,6 +77,10 @@ describe("getMimeType", () => {
   it("returns image/ktx2 for ktx2", () => {
     expect(getMimeType("ktx2")).toBe("image/ktx2");
   });
+
+  it("returns image/bmp for bmp", () => {
+    expect(getMimeType("bmp")).toBe("image/bmp");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -105,10 +109,19 @@ describe("preview support classification", () => {
     expect(getPreviewSupportState("vrma")).toBe("missingOptionalLoader");
   });
 
-  it("keeps the experimental MMD loader hidden from preview support state", () => {
-    expect(getPreviewSupportState("pmx")).toBe("unsupported");
-    expect(getPreviewSupportState("pmd")).toBe("unsupported");
+  it("marks static MMD model formats as implemented", () => {
+    expect(getPreviewSupportState("pmx")).toBe("implemented");
+    expect(getPreviewSupportState("pmd")).toBe("implemented");
     expect(getPreviewSupportState("vmd")).toBe("unsupported");
+  });
+
+  it("marks optional MMD model formats as missing when the pack is absent", () => {
+    expect(
+      getPreviewSupportState("pmx", { optionalLoaderInstalled: false }),
+    ).toBe("missingOptionalLoader");
+    expect(
+      getPreviewSupportState("pmd", { optionalLoaderInstalled: false }),
+    ).toBe("missingOptionalLoader");
   });
 
   it("marks the bundled VRM loader pack as optional but installed", () => {
@@ -122,7 +135,7 @@ describe("preview support classification", () => {
     });
   });
 
-  it("keeps the bundled MMD loader pack internal for direct loader coverage", () => {
+  it("registers the bundled MMD loader pack for static model preview", () => {
     expect(
       listRegisteredLoaders().find((loader) => loader.extension === "pmx"),
     ).toMatchObject({

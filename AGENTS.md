@@ -54,6 +54,10 @@ Alpha 期は反復速度を優先し、以下のルールで後続セクショ�
 - **commit は指示待ちせず、作業が一区切りしたタイミングで自発的に行ってよい**（グローバルの「勝手に commit しない」ルールを alpha 期間中はオーバーライドする）
 - **push は引き続きオーナーの明示指示があるまで行わない**（commit はローカルで revert 可能だが push はリモートを汚すため）
 
+### リリース手順（Alpha 期）
+
+**リリース作業を始める前に、必ず `docs/release-distribution.md` を最初から最後まで読むこと。** 手順・チェックリスト・OS 別確認はすべてそこに定義されている。自己判断で手順を組み立てない。
+
 ## Worktree 運用
 
 `samples/` には大きい LFS アセットが含まれるため、AI / Codex が新しい worktree を作る場合は、原則として `samples/` を checkout しない sparse checkout を使う。

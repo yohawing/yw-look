@@ -195,6 +195,7 @@ export const debugPanelMetadata: AssetMetadata = {
       emissiveTexture: null,
       alphaMode: "OPAQUE",
       usdPrimPath: "/World/Looks/PaintedMetal",
+      mmd: null,
     },
     {
       id: "glass",
@@ -215,6 +216,7 @@ export const debugPanelMetadata: AssetMetadata = {
       emissiveTexture: null,
       alphaMode: "BLEND",
       usdPrimPath: "/World/Looks/SmokedGlass",
+      mmd: null,
     },
     {
       id: "emissive-strip",
@@ -235,6 +237,7 @@ export const debugPanelMetadata: AssetMetadata = {
       emissiveTexture: { name: "hero_emissive.png" },
       alphaMode: "OPAQUE",
       usdPrimPath: "/World/Looks/SignalEmissive",
+      mmd: null,
     },
     {
       id: "rubber",
@@ -255,6 +258,7 @@ export const debugPanelMetadata: AssetMetadata = {
       emissiveTexture: null,
       alphaMode: "OPAQUE",
       usdPrimPath: "/World/Looks/SoftBlackRubber",
+      mmd: null,
     },
   ],
   lights: [

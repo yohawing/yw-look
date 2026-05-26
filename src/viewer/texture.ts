@@ -18,6 +18,7 @@ export function createTextureViewerObject(
   textureWhitePoint: number,
   textureTileCount: number,
   textureGamma: number,
+  previewFlipY = false,
 ) {
   const image = texture.image as
     | { width?: number; height?: number }
@@ -43,6 +44,7 @@ export function createTextureViewerObject(
         uWhitePoint: { value: textureWhitePoint },
         uTileCount: { value: Math.max(textureTileCount, 1) },
         uGamma: { value: Math.max(textureGamma, 0.0001) },
+        uPreviewFlipY: { value: previewFlipY },
       },
       vertexShader: `
         varying vec2 vUv;
@@ -59,6 +61,7 @@ export function createTextureViewerObject(
         uniform float uWhitePoint;
         uniform float uTileCount;
         uniform float uGamma;
+        uniform bool uPreviewFlipY;
         varying vec2 vUv;
 
         vec3 checker(vec2 uv) {
@@ -91,7 +94,8 @@ export function createTextureViewerObject(
           // Wrap in the shader so we can tile without mutating the
           // texture's wrap modes (which are shared between the texture
           // preview and any 3D material still pointing at it).
-          vec2 tiledUv = fract(vUv * uTileCount);
+          vec2 previewUv = uPreviewFlipY ? vec2(vUv.x, 1.0 - vUv.y) : vUv;
+          vec2 tiledUv = fract(previewUv * uTileCount);
           vec4 texel = texture2D(uTexture, tiledUv);
           vec3 color = remapRange(texel.rgb);
           float alphaValue = remapScalar(texel.a);
@@ -102,7 +106,7 @@ export function createTextureViewerObject(
           }
 
           if (uMode == 1) {
-            vec3 composite = mix(checker(vUv), color, alphaValue);
+            vec3 composite = mix(checker(previewUv), color, alphaValue);
             gl_FragColor = vec4(applyGamma(composite), 1.0);
             return;
           }

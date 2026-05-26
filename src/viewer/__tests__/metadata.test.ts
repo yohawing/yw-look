@@ -11,6 +11,7 @@
 import { describe, it, expect } from "vitest";
 import {
   BufferGeometry,
+  Bone,
   DirectionalLight,
   Float32BufferAttribute,
   Group,
@@ -18,14 +19,26 @@ import {
   MeshBasicMaterial,
   PerspectiveCamera,
   PointLight,
+  SkinnedMesh,
+  Skeleton,
+  Texture,
 } from "three";
 import { collectAssetMetadata } from "../metadata";
+import { applyDisplayMode } from "../scene";
 import type { SelectedFile } from "../../lib/files";
 
 const fakeFile: SelectedFile = {
   path: "/tmp/fake.dae",
   fileName: "fake.dae",
   extension: "dae",
+  kind: "model",
+  parentDirectory: "/tmp",
+};
+
+const fakeMmdFile: SelectedFile = {
+  path: "/tmp/miku.pmx",
+  fileName: "miku.pmx",
+  extension: "pmx",
   kind: "model",
   parentDirectory: "/tmp",
 };
@@ -205,6 +218,237 @@ describe("collectAssetMetadata", () => {
     expect(trimEntry?.boundMeshes).toEqual(["Collar"]);
   });
 
+  it("prefers MMD Japanese material names and records MMD parameters", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial();
+    material.name = "Body_EN";
+    material.userData.mmdMaterial = {
+      materialIndex: 2,
+      name: "体",
+      englishName: "Body_EN",
+      diffuse: [0.8, 0.7, 0.6, 0.5],
+      specular: [0.2, 0.25, 0.3],
+      ambient: [0.1, 0.12, 0.14],
+      specularPower: 12.5,
+      edgeColor: [0, 0, 0, 1],
+      edgeSize: 0.75,
+      texturePath: "textures/body.png",
+      sphereTexturePath: "textures/body.spa",
+      sphereMode: "add",
+      toonTexturePath: "toon/toon01.bmp",
+      sharedToonIndex: 1,
+      transparencyMode: "blend",
+      renderOrderBucket: "transparent",
+      faceCount: 1200,
+      flags: { doubleSided: true, castShadow: false },
+      unsupportedDrawFlags: ["pointDraw"],
+    };
+    const mesh = new Mesh(new BufferGeometry(), material);
+    mesh.name = "Miku";
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.materials[0]?.name).toBe("体");
+    expect(result.metadata.objectInfo.Miku?.materialNames).toEqual(["体"]);
+    expect(result.metadata.materials[0]?.mmd).toMatchObject({
+      materialIndex: 2,
+      name: "体",
+      englishName: "Body_EN",
+      diffuse: [0.8, 0.7, 0.6, 0.5],
+      texturePath: "textures/body.png",
+      sphereMode: "add",
+      unsupportedDrawFlags: ["pointDraw"],
+    });
+  });
+
+  it("records MMD bone parameters for selected bone inspection", () => {
+    const root = new Group();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+    const mesh = new SkinnedMesh(geometry, new MeshBasicMaterial());
+    mesh.name = "Miku";
+
+    const center = new Bone();
+    center.name = "Center_EN";
+    center.userData.mmdBoneName = "センター";
+    center.userData.mmdEnglishBoneName = "Center_EN";
+    center.userData.mmdRestPosition = [0, 10, 0];
+    center.userData.mmdLayer = 0;
+
+    const arm = new Bone();
+    arm.name = "Arm_EN";
+    arm.userData.mmdBoneName = "腕";
+    arm.userData.mmdEnglishBoneName = "Arm_EN";
+    arm.userData.mmdRestPosition = [1, 12, 0];
+    arm.userData.mmdLayer = 1;
+    arm.userData.mmdAppendTransform = { parentIndex: 0, weight: 0.5 };
+    arm.userData.mmdFlags = {
+      appendRotate: true,
+      appendTranslate: false,
+      transformAfterPhysics: true,
+    };
+
+    center.add(arm);
+    mesh.add(center);
+    mesh.bind(new Skeleton([center, arm]));
+    mesh.userData.mmdIkChains = [
+      {
+        goalBoneIndex: 1,
+        effectorBoneIndex: 0,
+        iterationCount: 8,
+        maxAnglePerIteration: 0.25,
+        links: [{ boneIndex: 1, limitsKind: "pmxLinkLimit" }],
+      },
+    ];
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(JSON.stringify(result.metadata.hierarchy)).toContain(
+      '"displayName":"腕"',
+    );
+    expect(result.metadata.objectInfo.Arm_EN?.mmdBone).toMatchObject({
+      boneIndex: 1,
+      parentIndex: 0,
+      parentName: "センター",
+      name: "腕",
+      englishName: "Arm_EN",
+      restPosition: [1, 12, 0],
+      layer: 1,
+      appendTransform: {
+        parentIndex: 0,
+        parentName: "センター",
+        weight: 0.5,
+      },
+      flags: {
+        appendRotate: true,
+        appendTranslate: false,
+        transformAfterPhysics: true,
+      },
+      ik: {
+        roles: ["goal", "link"],
+        goalBoneIndex: 1,
+        effectorBoneIndex: 0,
+        iterationCount: 8,
+        maxAnglePerIteration: 0.25,
+        linkCount: 1,
+        limitKinds: ["pmxLinkLimit"],
+      },
+    });
+  });
+
+  it("prefers MMD Japanese morph names and records morph metadata", () => {
+    const root = new Group();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+    const mesh = new Mesh(geometry, new MeshBasicMaterial());
+    mesh.name = "Face";
+    mesh.morphTargetInfluences = [0.4];
+    mesh.morphTargetDictionary = { Smile_EN: 0 };
+    mesh.userData.mmdMorphs = [
+      {
+        name: "笑い",
+        englishName: "Smile_EN",
+        type: "group",
+        boneOffsets: [{ boneIndex: 0 }],
+        groupOffsets: [{ morphIndex: 0 }],
+        flipOffsets: [{ morphIndex: 0 }],
+        impulseOffsets: [{ rigidBodyIndex: 0 }],
+      },
+    ];
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.objectInfo.Face?.morphTargets).toEqual([
+      {
+        index: 0,
+        name: "笑い",
+        value: 0.4,
+        mmd: {
+          name: "笑い",
+          englishName: "Smile_EN",
+          type: "group",
+          boneOffsetCount: 1,
+          groupOffsetCount: 1,
+          flipOffsetCount: 1,
+          impulseOffsetCount: 1,
+        },
+      },
+    ]);
+  });
+
+  it("excludes MMD outline and render-order proxy meshes from metadata", () => {
+    const root = new Group();
+    root.name = "MMD Preview";
+    const sourceMat = new MeshBasicMaterial();
+    sourceMat.name = "Body";
+    const outlineMat = new MeshBasicMaterial();
+    outlineMat.name = "Outline";
+    outlineMat.userData.mmdOutlineMaterial = {};
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+
+    const source = new Mesh(geometry, sourceMat);
+    source.name = "Model";
+    const outline = new Mesh(geometry, outlineMat);
+    outline.name = "Model outline";
+    outline.userData.mmdOutlineProxy = { source: "combined" };
+    const renderProxy = new Mesh(geometry, sourceMat);
+    renderProxy.name = "Model material 0";
+    renderProxy.userData.mmdMaterialRenderProxy = { materialIndex: 0 };
+    root.add(source, outline, renderProxy);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(
+      result.metadata.hierarchy[0]?.children.map((node) => node.name),
+    ).toEqual(["Model"]);
+    expect(result.metadata.meshCount).toBe(1);
+    expect(result.metadata.materialCount).toBe(1);
+    expect(result.metadata.objectInfo["Model outline"]).toBeUndefined();
+    expect(result.metadata.objectInfo["Model material 0"]).toBeUndefined();
+  });
+
+  it("excludes viewport wireframe proxy meshes from metadata", () => {
+    const root = new Group();
+    root.name = "MMD Preview";
+    const material = new MeshBasicMaterial();
+    material.name = "Body";
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+
+    const source = new SkinnedMesh(geometry, material);
+    source.name = "Model";
+    root.add(source);
+
+    applyDisplayMode(root, "texturedWireframe");
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(
+      result.metadata.hierarchy[0]?.children.map((node) => node.name),
+    ).toEqual(["Model"]);
+    expect(result.metadata.meshCount).toBe(1);
+    expect(result.metadata.materialCount).toBe(1);
+    expect(
+      result.metadata.objectInfo.__yw_textured_wireframe_proxy,
+    ).toBeUndefined();
+  });
+
   it("records morph target names and initial influences on mesh info", () => {
     const root = new Group();
     const geometry = new BufferGeometry();
@@ -230,8 +474,28 @@ describe("collectAssetMetadata", () => {
     const result = collectAssetMetadata(root, fakeFile, [], null);
 
     expect(result.metadata.objectInfo.Face?.morphTargets).toEqual([
-      { index: 0, name: "blink_L", value: 0.65 },
+      { index: 0, name: "blink_L", value: 0.65, mmd: null },
     ]);
+  });
+
+  it("omits heavy runtime userData from object inspector metadata", () => {
+    const root = new Group();
+    const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    mesh.name = "RuntimeMesh";
+    mesh.userData.mmdModel = { huge: new Array(1000).fill(0) };
+    mesh.userData.mmdPhysics = { rigidBodies: new Array(1000).fill({}) };
+    mesh.userData.mmdMorphs = new Array(1000).fill({});
+    mesh.userData.mmdIkChains = new Array(1000).fill({});
+    mesh.userData.mmdSourceFile = "C:\\mmd\\model.pmx";
+    mesh.userData.vrm = { scene: root };
+    mesh.userData.author = "visible";
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.objectInfo.RuntimeMesh?.userData).toEqual({
+      author: "visible",
+    });
   });
 
   it("uses (unnamed mesh) for binding entries without a name", () => {
@@ -247,6 +511,44 @@ describe("collectAssetMetadata", () => {
     expect(result.metadata.materials[0].boundMeshes).toEqual([
       "(unnamed mesh)",
     ]);
+  });
+
+  it("marks unflipped MMD textures for display-only vertical preview flipping", () => {
+    const texture = new Texture();
+    texture.name = "diffuse.bmp";
+    texture.flipY = false;
+    const material = new MeshBasicMaterial({ map: texture });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    mesh.name = "Miku";
+    const root = new Group();
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.textures[0]).toMatchObject({
+      label: "diffuse.bmp",
+      previewFlipY: true,
+    });
+    expect(texture.flipY).toBe(false);
+  });
+
+  it("does not re-flip MMD textures that already request flipY", () => {
+    const texture = new Texture();
+    texture.name = "toon.bmp";
+    texture.flipY = true;
+    const material = new MeshBasicMaterial({ map: texture });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    mesh.name = "Miku";
+    const root = new Group();
+    root.add(mesh);
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.textures[0]).toMatchObject({
+      label: "toon.bmp",
+    });
+    expect(result.metadata.textures[0]?.previewFlipY).toBeUndefined();
+    expect(texture.flipY).toBe(true);
   });
 
   it("uses GLB node basename directly as fixture name (#46 hierarchy-aware path)", () => {

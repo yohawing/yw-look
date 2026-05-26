@@ -49,6 +49,7 @@ export {
   removeBoundingBoxHelpers,
   applyNormalHelpers,
   removeNormalHelpers,
+  isViewportHelperObject,
   ensureShadowCatcher,
   applyShadows,
   applyUnlitMaterial,
@@ -62,6 +63,7 @@ export type {
 
 export {
   loadPreviewObject,
+  loadMmdMotion,
   tryExtractUsdaText,
   loaderRegistry,
   listRegisteredLoaders,
@@ -88,6 +90,19 @@ export {
 export type { MetadataCollection } from "./metadata";
 
 export { createTextureViewerObject } from "./texture";
+export {
+  applyPreviewLightingPreset,
+  DEFAULT_LIGHTING_PRESET,
+  MMD_EXAMPLE_LIGHTING_PRESET,
+} from "./lighting";
+export type { PreviewLightingPreset } from "./lighting";
+export {
+  applyPreviewRenderingPreset,
+  DEFAULT_PREVIEW_RENDERING_PRESET,
+  getPreviewRenderingPresetForExtension,
+  MMD_PREVIEW_RENDERING_PRESET,
+} from "./rendering";
+export type { PreviewRenderingPreset } from "./rendering";
 
 export {
   getClipLabel,
@@ -98,5 +113,15 @@ export {
 } from "./animationController";
 
 export { getCachedBuffer, evictAll, prefetchAdjacent } from "./prefetchCache";
+export {
+  isSelectionProxy,
+  selectionProxyTarget,
+  setSelectionProxyTarget,
+} from "./selectionProxy";
 
-export { applySelectionHighlight, clearSelectionHighlight } from "./highlight";
+export {
+  applySelectionHighlight,
+  applySelectionHighlightToObject,
+  clearSelectionHighlight,
+  clearSelectionHighlightFromObject,
+} from "./highlight";

@@ -30,6 +30,7 @@ const baseMat: MaterialEntry = {
   emissiveTexture: null,
   alphaMode: "OPAQUE",
   usdPrimPath: null,
+  mmd: null,
 };
 
 describe("MaterialListCard – shader slot details (#36)", () => {
@@ -80,6 +81,41 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     };
     const { getByText } = render(<MaterialListCard materials={[mat]} />);
     expect(getByText("/World/Materials/Gold")).toBeTruthy();
+  });
+
+  it("renders MMD material parameters when present", () => {
+    const mat: MaterialEntry = {
+      ...baseMat,
+      id: "mat-mmd",
+      name: "材質01",
+      mmd: {
+        materialIndex: 3,
+        name: "材質01",
+        englishName: "Material01",
+        diffuse: [0.8, 0.7, 0.6, 0.5],
+        specular: [0.2, 0.2, 0.25],
+        ambient: [0.1, 0.12, 0.14],
+        specularPower: 12.5,
+        edgeColor: [0, 0, 0, 1],
+        edgeSize: 0.8,
+        texturePath: "tex/body.png",
+        sphereTexturePath: "spa/body.spa",
+        sphereMode: "add",
+        toonTexturePath: "toon/toon01.bmp",
+        sharedToonIndex: 1,
+        transparencyMode: "blend",
+        renderOrderBucket: "transparent",
+        faceCount: 420,
+        flags: { doubleSided: true, castShadow: false },
+        unsupportedDrawFlags: ["pointDraw"],
+      },
+    };
+    const { getByText } = render(<MaterialListCard materials={[mat]} />);
+    expect(getByText("MMD material")).toBeTruthy();
+    expect(getByText("Material01")).toBeTruthy();
+    expect(getByText("tex/body.png")).toBeTruthy();
+    expect(getByText("doubleSided")).toBeTruthy();
+    expect(getByText("pointDraw")).toBeTruthy();
   });
 
   it("renders empty state when no materials", () => {

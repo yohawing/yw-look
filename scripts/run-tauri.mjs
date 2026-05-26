@@ -34,6 +34,7 @@ function loadVisualStudioEnv(vsDevCmd) {
   const result = spawnSync("cmd.exe", ["/d", "/c", command], {
     cwd: repoRoot,
     encoding: "utf8",
+    windowsVerbatimArguments: true,
   });
   if (result.status !== 0) return {};
   const env = {};
@@ -77,10 +78,24 @@ if (process.platform !== "win32") {
     "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\Common7\\Tools\\VsDevCmd.bat",
   ]);
   const ninja = firstExisting([
-    join(homedir(), "AppData", "Local", "Microsoft", "WinGet", "Links", "ninja.exe"),
+    join(
+      homedir(),
+      "AppData",
+      "Local",
+      "Microsoft",
+      "WinGet",
+      "Links",
+      "ninja.exe",
+    ),
     "C:\\Program Files\\Ninja\\ninja.exe",
   ]);
-  const tauri = join(repoRoot, "node_modules", "@tauri-apps", "cli", "tauri.js");
+  const tauri = join(
+    repoRoot,
+    "node_modules",
+    "@tauri-apps",
+    "cli",
+    "tauri.js",
+  );
   const env = {
     ...process.env,
     ...loadVisualStudioEnv(vsDevCmd),

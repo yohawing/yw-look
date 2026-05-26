@@ -63,7 +63,13 @@ export function TextureListCard({
                 >
                   <div className="texture-card-preview">
                     {texture.thumbnailUrl && !isMissing ? (
-                      <img src={texture.thumbnailUrl} alt={texture.label} />
+                      <img
+                        className={
+                          texture.previewFlipY ? "is-preview-flipped-y" : ""
+                        }
+                        src={texture.thumbnailUrl}
+                        alt={texture.label}
+                      />
                     ) : (
                       <span className="texture-card-preview-placeholder">
                         {isMissing ? "!" : texture.channel}

@@ -1,9 +1,46 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+
+const optionalThreeMmdLoaderPath = fileURLToPath(
+  new URL("./node_modules/@yohawing/three-mmd-loader", import.meta.url),
+);
+const missingThreeMmdLoaderShim = fileURLToPath(
+  new URL("./src/viewer/mmd/threeMmdLoaderMissing.ts", import.meta.url),
+);
+const installedMmdLoaderEntry = fileURLToPath(
+  new URL("./src/viewer/mmd/loaderInstalled.ts", import.meta.url),
+);
+const unavailableMmdLoaderEntry = fileURLToPath(
+  new URL("./src/viewer/mmd/loaderUnavailable.ts", import.meta.url),
+);
+const hasOptionalThreeMmdLoader = existsSync(optionalThreeMmdLoaderPath);
 
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  define: {
+    __YW_HAS_THREE_MMD_LOADER__: JSON.stringify(hasOptionalThreeMmdLoader),
+  },
+  resolve: {
+    alias: [
+      {
+        find: "#yw-look-mmd-loader-entry",
+        replacement: hasOptionalThreeMmdLoader
+          ? installedMmdLoaderEntry
+          : unavailableMmdLoaderEntry,
+      },
+      ...(hasOptionalThreeMmdLoader
+        ? []
+        : [
+            {
+              find: "@yohawing/three-mmd-loader",
+              replacement: missingThreeMmdLoaderShim,
+            },
+          ]),
+    ],
+  },
   build: {
     emptyOutDir: true,
     rollupOptions: {

@@ -62,6 +62,7 @@ import {
   applyInitialView,
   applyPresetView,
   applyControlsSensitivity,
+  getObjectMaxDimension,
   normalizeObjectScale,
   cancelScaleNormalization,
   applyDynamicGrid,
@@ -75,9 +76,12 @@ import {
   applySkeletonHelpers,
   applyBoundingBoxHelpers,
   applyNormalHelpers,
+  isViewportHelperObject,
   applyShadows,
   ensureShadowCatcher,
   loadPreviewObject,
+  listRegisteredLoaders,
+  loadMmdMotion,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
   cameraSelectionKey,
@@ -88,9 +92,15 @@ import {
   seekAction,
   stepAction,
   disposePreviewObject,
-  applySelectionHighlight,
-  clearSelectionHighlight,
+  applySelectionHighlightToObject,
+  clearSelectionHighlightFromObject,
   applyUnlitMaterial,
+  applyPreviewLightingPreset,
+  DEFAULT_LIGHTING_PRESET,
+  applyPreviewRenderingPreset,
+  DEFAULT_PREVIEW_RENDERING_PRESET,
+  getPreviewRenderingPresetForExtension,
+  selectionProxyTarget,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
 import { AnimationBar } from "./AnimationBar";
@@ -144,6 +154,40 @@ function updateRuntimePreview(
   if (isRuntimePreviewUpdater(updater)) {
     updater.update(deltaSeconds);
   }
+}
+
+function retargetMmdMotion(context: SceneContext, seconds: number) {
+  const model = context.mmdModel;
+  const motion = context.mmdMotion;
+  const runtime = model?.runtime;
+  if (!model || !motion || !runtime) {
+    return;
+  }
+
+  runtime.reset(0);
+  runtime.setAnimation(motion.animation, model.mesh);
+  runtime.tick(seconds, {
+    mesh: model.mesh,
+    ik: true,
+    physics: false,
+  });
+}
+
+function applyViewportRenderingSettings(
+  renderer: WebGLRenderer,
+  extension: string | undefined,
+  toneMappingMode: ToneMappingMode,
+  exposure: number,
+) {
+  const preset = getPreviewRenderingPresetForExtension(extension);
+  if (preset === DEFAULT_PREVIEW_RENDERING_PRESET) {
+    renderer.outputColorSpace = preset.outputColorSpace;
+    renderer.toneMapping = toneMappingModeMap[toneMappingMode];
+    renderer.toneMappingExposure = exposure;
+    return;
+  }
+
+  applyPreviewRenderingPreset(renderer, preset);
 }
 
 function runCleanupCallbacks(callbacks: Array<() => void>) {
@@ -271,6 +315,10 @@ function frameMountedObject(
 }
 
 function selectionKeyForObject(object: Object3D) {
+  const proxyTarget = selectionProxyTarget(object);
+  if (proxyTarget) {
+    return selectionKeyForObject(proxyTarget);
+  }
   const primPath =
     typeof object.userData?.primPath === "string"
       ? object.userData.primPath
@@ -293,6 +341,25 @@ function findObjectBySelectionKey(
   });
 
   return match;
+}
+
+function isSelectablePickTarget(object: Object3D): object is Mesh {
+  return (
+    object instanceof Mesh &&
+    object.name !== "__yw_shadow_catcher" &&
+    !isViewportHelperObject(object) &&
+    selectionKeyForObject(object) !== null
+  );
+}
+
+function collectSelectablePickTargets(root: Object3D): Mesh[] {
+  const targets: Mesh[] = [];
+  root.traverse((child) => {
+    if (isSelectablePickTarget(child)) {
+      targets.push(child);
+    }
+  });
+  return targets;
 }
 
 function frameObjectBounds(
@@ -341,6 +408,15 @@ function frameObjectBounds(
 
 const MANUAL_HIDDEN_KEY = "__ywManualHidden";
 
+function getRuntimePreviewSupportState(extension: string) {
+  const loader = listRegisteredLoaders().find(
+    (entry) => entry.extension === extension,
+  );
+  return getPreviewSupportState(extension, {
+    optionalLoaderInstalled: loader?.installed !== false,
+  });
+}
+
 function isManuallyHidden(object: Object3D) {
   return object.userData?.[MANUAL_HIDDEN_KEY] === true;
 }
@@ -348,6 +424,21 @@ function isManuallyHidden(object: Object3D) {
 function setSubtreeManualHidden(root: Object3D, hidden: boolean) {
   root.traverse((child) => {
     if (child.name === "__yw_shadow_catcher") {
+      return;
+    }
+    if (hidden) {
+      child.userData[MANUAL_HIDDEN_KEY] = true;
+    } else {
+      delete child.userData[MANUAL_HIDDEN_KEY];
+    }
+  });
+
+  const parent = root.parent;
+  if (!parent) {
+    return;
+  }
+  parent.traverse((child) => {
+    if (selectionProxyTarget(child) !== root) {
       return;
     }
     if (hidden) {
@@ -381,8 +472,22 @@ function isolateObject(root: Object3D, selected: Object3D) {
   }
 }
 
+function shouldFlipTexturePreviewY(
+  texture: Texture,
+  file: SelectedFile | null,
+): boolean {
+  return (
+    (file?.extension === "pmx" || file?.extension === "pmd") &&
+    texture.flipY === false
+  );
+}
+
 type AssetViewportProps = {
   currentFile: SelectedFile | null;
+  mmdMotionRequest?: {
+    file: SelectedFile;
+    version: number;
+  } | null;
   displayMode: DisplayMode;
   backgroundPreset: BackgroundPreset;
   onFeedbackChange: (feedback: ViewerFeedback) => void;
@@ -714,6 +819,7 @@ function createEnvironmentTarget(
 
 export function AssetViewport({
   currentFile,
+  mmdMotionRequest,
   displayMode,
   backgroundPreset,
   onFeedbackChange,
@@ -772,7 +878,9 @@ export function AssetViewport({
   const assetResourceMetricsRef = useRef<AssetResourceMetrics | null>(null);
   const lastResourceDiagnosticsRef = useRef<string | null>(null);
   const onResourceDiagnosticsChangeRef = useRef(onResourceDiagnosticsChange);
+  const ambientLightRef = useRef<AmbientLight | null>(null);
   const keyLightRef = useRef<DirectionalLight | null>(null);
+  const fillLightRef = useRef<DirectionalLight | null>(null);
   const showShadowsRef = useRef(showShadows);
   // EffectComposer lives behind a lazy import; only materialized the
   // first time the user enables FXAA so the base renderer path has
@@ -823,9 +931,12 @@ export function AssetViewport({
   const showAxesRef = useRef(showAxes);
   const showEnvironmentBackgroundRef = useRef(showEnvironmentBackground);
   const backgroundPresetRef = useRef(backgroundPreset);
+  const toneMappingModeRef = useRef(toneMappingMode);
+  const exposureRef = useRef(exposure);
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
   const texturePreview3DRef = useRef(texturePreview3D);
   const onSelectMeshRef = useRef(onSelectMesh);
+  const highlightedSelectionRef = useRef<Object3D | null>(null);
   const morphTargetValuesRef = useRef(morphTargetValues);
   const purposeModesRef = useRef(purposeModes);
   // #34: active USD camera. null = free orbit.
@@ -901,7 +1012,7 @@ export function AssetViewport({
 
   const shouldInitializeScene = currentFile !== null;
   const previewSupportState = currentFile
-    ? getPreviewSupportState(currentFile.extension)
+    ? getRuntimePreviewSupportState(currentFile.extension)
     : "implemented";
   const effectiveOverlayMode =
     currentFile === null
@@ -971,6 +1082,14 @@ export function AssetViewport({
   }, [backgroundPreset]);
 
   useEffect(() => {
+    toneMappingModeRef.current = toneMappingMode;
+  }, [toneMappingMode]);
+
+  useEffect(() => {
+    exposureRef.current = exposure;
+  }, [exposure]);
+
+  useEffect(() => {
     texturePreview3DRef.current = texturePreview3D;
   }, [texturePreview3D]);
 
@@ -995,11 +1114,18 @@ export function AssetViewport({
     const mounted = sceneContextRef.current?.mountedObject;
     if (!mounted) return;
 
-    // Always clear any previous tint first.
-    clearSelectionHighlight(mounted);
+    const previous = highlightedSelectionRef.current;
+    if (previous) {
+      clearSelectionHighlightFromObject(previous);
+      highlightedSelectionRef.current = null;
+    }
 
     if (selectedMeshName) {
-      applySelectionHighlight(mounted, selectedMeshName);
+      const target = findObjectBySelectionKey(mounted, selectedMeshName);
+      if (target) {
+        applySelectionHighlightToObject(target);
+        highlightedSelectionRef.current = target;
+      }
     }
   }, [selectedMeshName]);
 
@@ -1149,11 +1275,22 @@ export function AssetViewport({
       return;
     }
 
-    const renderer = new WebGLRenderer({ antialias: true, alpha: false });
+    const initialRenderingPreset = getPreviewRenderingPresetForExtension(
+      currentFile?.extension,
+    );
+    const renderer = new WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      logarithmicDepthBuffer: initialRenderingPreset.logarithmicDepthBuffer,
+    });
     renderer.setPixelRatio(window.devicePixelRatio * renderScale);
     renderer.setSize(host.clientWidth, host.clientHeight);
-    renderer.toneMapping = toneMappingModeMap[toneMappingMode];
-    renderer.toneMappingExposure = exposure;
+    applyViewportRenderingSettings(
+      renderer,
+      currentFile?.extension,
+      toneMappingMode,
+      exposure,
+    );
     // Enable the shadow pipeline up-front so toggling shadows later
     // is just a light.castShadow flip — flipping shadowMap.enabled
     // at runtime forces every material to recompile shaders.
@@ -1198,9 +1335,15 @@ export function AssetViewport({
         : null,
     );
 
-    const ambient = new AmbientLight("#ffffff", 1.8);
-    const key = new DirectionalLight("#ffffff", 2.4);
-    key.position.set(6, 8, 5);
+    const ambient = new AmbientLight(
+      "#ffffff",
+      DEFAULT_LIGHTING_PRESET.ambientIntensity,
+    );
+    const key = new DirectionalLight(
+      "#ffffff",
+      DEFAULT_LIGHTING_PRESET.keyIntensity,
+    );
+    key.position.set(...DEFAULT_LIGHTING_PRESET.keyPosition);
     // Shadow camera sized for the default scene; re-framed per asset
     // when the user enables shadows (applyShadows → updateShadowCatcher).
     key.shadow.mapSize.set(2048, 2048);
@@ -1211,9 +1354,14 @@ export function AssetViewport({
     key.shadow.camera.top = 20;
     key.shadow.camera.bottom = -20;
     key.shadow.bias = -0.0005;
+    ambientLightRef.current = ambient;
     keyLightRef.current = key;
-    const fill = new DirectionalLight("#cfd9ea", 1.2);
+    const fill = new DirectionalLight(
+      "#cfd9ea",
+      DEFAULT_LIGHTING_PRESET.fillIntensity,
+    );
     fill.position.set(-5, 3, -4);
+    fillLightRef.current = fill;
     scene.add(ambient, key, fill);
     ensureShadowCatcher(scene);
 
@@ -1469,7 +1617,8 @@ export function AssetViewport({
       pickNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pickNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       pickRaycaster.setFromCamera(pickNdc, camera);
-      const hits = pickRaycaster.intersectObject(mounted, true);
+      const pickTargets = collectSelectablePickTargets(mounted);
+      const hits = pickRaycaster.intersectObjects(pickTargets, false);
       if (hits.length === 0) {
         callback(null);
         return;
@@ -1492,17 +1641,7 @@ export function AssetViewport({
       let node: Object3D | null = hits[0].object;
       while (node) {
         if (node instanceof Mesh && node.name !== "__yw_shadow_catcher") {
-          // #46: prefer userData.primPath as the stable selection key so
-          // that viewport picks and HierarchyCard selections match even
-          // after the hierarchy-aware GLB pipeline changed node names from
-          // "/World/Cube" to just "Cube".
-          const primPath =
-            typeof node.userData?.primPath === "string"
-              ? node.userData.primPath
-              : undefined;
-          const raw = typeof node.name === "string" ? node.name.trim() : "";
-          const selectionKey = primPath ?? (raw.length > 0 ? raw : null);
-          callback(selectionKey);
+          callback(selectionKeyForObject(node));
           return;
         }
         if (node === mounted) break;
@@ -1728,6 +1867,8 @@ export function AssetViewport({
       mixer: null,
       clips: [],
       activeAction: null,
+      mmdModel: null,
+      mmdMotion: null,
       textureRegistry: new Map<string, Texture>(),
       rawMaxDimension: 1,
     };
@@ -1770,7 +1911,9 @@ export function AssetViewport({
       environmentTargetRef.current = null;
       fxaaStateRef.current?.composer.dispose();
       fxaaStateRef.current = null;
+      ambientLightRef.current = null;
       keyLightRef.current = null;
+      fillLightRef.current = null;
       pmremGenerator.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);
@@ -1780,6 +1923,7 @@ export function AssetViewport({
     };
   }, [
     clearResourceDiagnostics,
+    currentFile?.extension,
     onFeedbackChange,
     onGridUnitChange,
     onMetadataChange,
@@ -1809,16 +1953,28 @@ export function AssetViewport({
     if (!context) {
       return;
     }
+    if (
+      getPreviewRenderingPresetForExtension(currentFile?.extension) !==
+      DEFAULT_PREVIEW_RENDERING_PRESET
+    ) {
+      return;
+    }
     context.renderer.toneMapping = toneMappingModeMap[toneMappingMode];
-  }, [toneMappingMode]);
+  }, [currentFile?.extension, toneMappingMode]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
     if (!context) {
       return;
     }
+    if (
+      getPreviewRenderingPresetForExtension(currentFile?.extension) !==
+      DEFAULT_PREVIEW_RENDERING_PRESET
+    ) {
+      return;
+    }
     context.renderer.toneMappingExposure = exposure;
-  }, [exposure]);
+  }, [currentFile?.extension, exposure]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -1991,6 +2147,7 @@ export function AssetViewport({
     runCleanupCallbacks(context.cleanupCallbacks);
     context.cleanupCallbacks = [];
     stopAnimations(context);
+    context.mmdModel = null;
     resetSceneObjects(context);
     revokeUrls(context.cleanupUrls);
     context.cleanupUrls = [];
@@ -2001,6 +2158,17 @@ export function AssetViewport({
     // #34: clear USD camera override on every file change so we always start
     // with the free-orbit camera for a fresh asset.
     activeCameraRef.current = null;
+    applyPreviewLightingPreset(DEFAULT_LIGHTING_PRESET, {
+      ambient: ambientLightRef.current,
+      key: keyLightRef.current,
+      fill: fillLightRef.current,
+    });
+    applyViewportRenderingSettings(
+      context.renderer,
+      currentFile?.extension,
+      toneMappingModeRef.current,
+      exposureRef.current,
+    );
 
     // Show/hide initial grid based on file state
     if (!currentFile) {
@@ -2052,7 +2220,7 @@ export function AssetViewport({
       viewerSurfaceModeRef.current,
     );
 
-    const supportState = getPreviewSupportState(currentFile.extension);
+    const supportState = getRuntimePreviewSupportState(currentFile.extension);
     if (supportState !== "implemented") {
       const message =
         supportState === "missingOptionalLoader"
@@ -2165,6 +2333,11 @@ export function AssetViewport({
           cleanupUrls,
           clips,
           formatVersion,
+          lighting = DEFAULT_LIGHTING_PRESET,
+          rendering,
+          skipScaleNormalization = false,
+          mmdMetadata,
+          mmdModel,
           warnings = [],
         }) => {
           if (disposed) {
@@ -2180,7 +2353,26 @@ export function AssetViewport({
           context.sourceObject = object;
           context.cleanupUrls = cleanupUrls;
           context.cleanupCallbacks = cleanupCallbacks;
-          const normalization = normalizeObjectScale(object);
+          applyPreviewLightingPreset(lighting, {
+            ambient: ambientLightRef.current,
+            key: keyLightRef.current,
+            fill: fillLightRef.current,
+          });
+          if (rendering) {
+            applyPreviewRenderingPreset(context.renderer, rendering);
+          }
+          const normalization = skipScaleNormalization
+            ? (() => {
+                const maxDimension = getObjectMaxDimension(object);
+                return {
+                  applied: false,
+                  factor: 1,
+                  originalMaxDimension: maxDimension,
+                  normalizedMaxDimension: maxDimension,
+                  originalScale: null,
+                };
+              })()
+            : normalizeObjectScale(object);
           if (normalization.applied && normalization.originalScale) {
             scaleNormalizationRef.current = {
               applied: true,
@@ -2241,6 +2433,7 @@ export function AssetViewport({
             currentFile,
             clips,
             formatVersion,
+            mmdMetadata,
           );
           context.textureRegistry = metadataCollection.textureRegistry;
           assetResourceMetricsRef.current = collectAssetResourceMetrics(
@@ -2262,6 +2455,8 @@ export function AssetViewport({
           applyPurposeVisibility(object, purposeModesRef.current);
 
           context.clips = clips;
+          context.mmdModel = mmdModel ?? null;
+          context.mmdMotion = null;
           if (clips.length > 0) {
             context.mixer = new AnimationMixer(object);
             const activated = activateClip(context, 0, true);
@@ -2427,6 +2622,7 @@ export function AssetViewport({
       runCleanupCallbacks(context.cleanupCallbacks);
       context.cleanupCallbacks = [];
       stopAnimations(context);
+      context.mmdModel = null;
       resetSceneObjects(context);
       revokeUrls(context.cleanupUrls);
       context.cleanupUrls = [];
@@ -2446,6 +2642,88 @@ export function AssetViewport({
     glbOverride,
     publishResourceDiagnostics,
   ]);
+
+  useEffect(() => {
+    if (!mmdMotionRequest) {
+      return;
+    }
+
+    const context = sceneContextRef.current;
+    const model = context?.mmdModel;
+    const runtime = model?.runtime;
+
+    if (!context || !model || !runtime) {
+      onFeedbackChange({
+        mode: "loadFailed",
+        message: "VMD motion was not loaded.",
+        warning:
+          "VMD motion can only be loaded after an MMD model with runtime support is ready.",
+        canResetCamera: false,
+      });
+      return;
+    }
+
+    let disposed = false;
+    const motionFile = mmdMotionRequest.file;
+    onFeedbackChange({
+      mode: "ready",
+      message: `Loading MMD motion: ${motionFile.fileName}`,
+      warning: null,
+      canResetCamera: true,
+    });
+
+    loadMmdMotion(motionFile)
+      .then((motion) => {
+        if (disposed) {
+          return;
+        }
+
+        runtime.setAnimation(motion.animation, model.mesh);
+        runtime.tick(0, {
+          mesh: model.mesh,
+          ik: true,
+          physics: false,
+        });
+
+        const duration = Math.max(motion.duration, 1 / 30);
+        context.mmdMotion = {
+          animation: motion.animation,
+          duration,
+          currentTime: 0,
+          label: motion.label,
+        };
+        setAnimationState({
+          clipNames: [motion.label],
+          activeClipIndex: 0,
+          currentTime: 0,
+          duration,
+          isPlaying: true,
+        });
+        onFeedbackChange({
+          mode: "ready",
+          message: `Preview ready: ${currentFile?.fileName ?? "MMD model"}`,
+          warning: null,
+          canResetCamera: true,
+        });
+      })
+      .catch((error: unknown) => {
+        if (disposed) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : "Failed to load VMD motion.";
+        onFeedbackChange({
+          mode: "ready",
+          message: `Preview ready: ${currentFile?.fileName ?? "MMD model"}`,
+          warning: message,
+          canResetCamera: true,
+        });
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [currentFile?.fileName, mmdMotionRequest, onFeedbackChange]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -2638,6 +2916,7 @@ export function AssetViewport({
       textureWhitePoint,
       textureTileCount,
       textureGamma,
+      shouldFlipTexturePreviewY(selectedTexture, currentFile),
     );
     context.sourceObject.visible = false;
     context.previewObject = previewObject;
@@ -2661,6 +2940,7 @@ export function AssetViewport({
     textureTileCount,
     textureViewMode,
     textureWhitePoint,
+    currentFile,
     viewerSurfaceMode,
   ]);
 
@@ -2816,7 +3096,10 @@ export function AssetViewport({
   useEffect(() => {
     const context = sceneContextRef.current;
 
-    if (!context?.mixer || context.clips.length === 0) {
+    if (
+      (!context?.mixer || context.clips.length === 0) &&
+      !context?.mmdMotion
+    ) {
       return;
     }
 
@@ -2829,7 +3112,25 @@ export function AssetViewport({
       previousTimestamp = timestamp;
 
       if (animationState.isPlaying && viewerSurfaceMode === "asset") {
-        context.mixer?.update(deltaSeconds);
+        if (context.mmdMotion && context.mmdModel?.runtime) {
+          const duration = Math.max(context.mmdMotion.duration, 1 / 30);
+          const previousTime = context.mmdMotion.currentTime;
+          const nextTime =
+            (context.mmdMotion.currentTime + deltaSeconds) % duration;
+          const wrapped = nextTime < previousTime;
+          if (wrapped) {
+            retargetMmdMotion(context, nextTime);
+          } else {
+            context.mmdModel.runtime.tick(nextTime, {
+              mesh: context.mmdModel.mesh,
+              ik: true,
+              physics: nextTime > 0,
+            });
+          }
+          context.mmdMotion.currentTime = nextTime;
+        } else {
+          context.mixer?.update(deltaSeconds);
+        }
         if (context.sourceObject) {
           applyMorphTargetValues(
             context.sourceObject,
@@ -2840,8 +3141,11 @@ export function AssetViewport({
 
       const clip = context.clips[animationState.activeClipIndex];
       const action = context.activeAction;
-      const nextTime = action?.time ?? 0;
-      const nextDuration = clip?.duration ?? animationState.duration;
+      const nextTime = context.mmdMotion?.currentTime ?? action?.time ?? 0;
+      const nextDuration =
+        context.mmdMotion?.duration ??
+        clip?.duration ??
+        animationState.duration;
 
       setAnimationState((previous) => {
         if (
@@ -2877,15 +3181,18 @@ export function AssetViewport({
 
   const handleTogglePlayback = () => {
     const context = sceneContextRef.current;
+    const mmdMotion = context?.mmdMotion;
     const action = context?.activeAction;
 
-    if (!context || !action) {
+    if (!context || (!action && !mmdMotion)) {
       return;
     }
 
     setAnimationState((previous) => {
       const nextIsPlaying = !previous.isPlaying;
-      setActionPlayback(action, nextIsPlaying);
+      if (action) {
+        setActionPlayback(action, nextIsPlaying);
+      }
       return {
         ...previous,
         isPlaying: nextIsPlaying,
@@ -2917,9 +3224,27 @@ export function AssetViewport({
 
   const handleSeek = (time: number) => {
     const context = sceneContextRef.current;
+    const mmdMotion = context?.mmdMotion;
     const action = context?.activeAction;
 
-    if (!context || !action) {
+    if (!context || (!action && !mmdMotion)) {
+      return;
+    }
+
+    if (mmdMotion && context.mmdModel?.runtime) {
+      const duration = Math.max(mmdMotion.duration, 1 / 30);
+      const nextTime = Math.min(Math.max(time, 0), duration);
+      retargetMmdMotion(context, nextTime);
+      mmdMotion.currentTime = nextTime;
+      setAnimationState((previous) => ({
+        ...previous,
+        currentTime: nextTime,
+        duration,
+      }));
+      return;
+    }
+
+    if (!action) {
       return;
     }
 
@@ -2935,9 +3260,31 @@ export function AssetViewport({
 
   const handleStep = (direction: -1 | 1) => {
     const context = sceneContextRef.current;
+    const mmdMotion = context?.mmdMotion;
     const action = context?.activeAction;
 
-    if (!context || !action) {
+    if (!context || (!action && !mmdMotion)) {
+      return;
+    }
+
+    if (mmdMotion && context.mmdModel?.runtime) {
+      const duration = Math.max(mmdMotion.duration, 1 / 30);
+      const nextTime = Math.min(
+        Math.max(mmdMotion.currentTime + (1 / 30) * direction, 0),
+        duration,
+      );
+      retargetMmdMotion(context, nextTime);
+      mmdMotion.currentTime = nextTime;
+      setAnimationState((previous) => ({
+        ...previous,
+        currentTime: nextTime,
+        duration,
+        isPlaying: false,
+      }));
+      return;
+    }
+
+    if (!action) {
       return;
     }
 

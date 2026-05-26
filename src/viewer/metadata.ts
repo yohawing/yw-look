@@ -1,6 +1,7 @@
 import {
   AnimationClip,
   Box3,
+  Bone,
   Camera,
   Color,
   Euler,
@@ -15,6 +16,7 @@ import {
   Object3D,
   OrthographicCamera,
   PerspectiveCamera,
+  SkinnedMesh,
   Texture,
 } from "three";
 import type { SelectedFile } from "../lib/files";
@@ -26,9 +28,14 @@ import type {
   LightEntry,
   MaterialEntry,
   MaterialTextureSlot,
+  MmdAssetMetadata,
+  MmdBoneEntry,
+  MmdMaterialEntry,
+  MmdMorphEntry,
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
-import { getMaterials } from "./scene";
+import { getMaterials, isViewportHelperObject } from "./scene";
+import { isInternalMmdProxyObject } from "./mmd/userData";
 
 export type MetadataCollection = {
   metadata: AssetMetadata;
@@ -62,7 +69,7 @@ function basenameFromPrimPath(primPath: string): string {
   return primPath.slice(idx + 1);
 }
 
-/** True for nodes that yw-look's USD→GLB pipeline inserts internally
+/** True for nodes that loaders insert internally
  * and that should never appear in the user-facing hierarchy. The
  * predicate is intentionally narrow so non-USD formats (DAE, OBJ, …)
  * with their own legitimate unnamed groups are unaffected:
@@ -70,8 +77,11 @@ function basenameFromPrimPath(primPath: string): string {
  *  - GLTFLoader's outer scene root, but ONLY when it is the parent of
  *    a `__upAxis` node — that pairing uniquely identifies our pipeline
  *    and avoids collapsing genuine unnamed Groups produced by other
- *    loaders (ColladaLoader, GLTFLoader for non-yw-look glTF, …). */
+ *    loaders (ColladaLoader, GLTFLoader for non-yw-look glTF, …)
+ *  - MMD outline / render-order proxy meshes from three-mmd-loader. */
 function isSyntheticWrapper(object: Object3D): boolean {
+  if (isViewportHelperObject(object)) return true;
+  if (isInternalMmdProxyObject(object)) return true;
   if (object.name === "__upAxis") return true;
   if (
     object instanceof Group &&
@@ -107,8 +117,13 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
   const displayName = primPath
     ? basenameFromPrimPath(primPath)
     : safeTrimmedName(object);
+  const mmdBoneName =
+    object instanceof Bone ? stringValue(object.userData.mmdBoneName) : null;
   return {
     name: displayName,
+    ...(mmdBoneName && mmdBoneName !== displayName
+      ? { displayName: mmdBoneName }
+      : {}),
     kind: getObjectKind(object),
     children: collectHierarchyChildren(object),
     ...(primPath !== undefined ? { primPath } : {}),
@@ -206,6 +221,255 @@ function inferAlphaMode(
   return "OPAQUE";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stringValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function numberTuple3(value: unknown): [number, number, number] | null {
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const tuple = value.slice(0, 3).map(numberValue);
+  if (tuple.some((v) => v === null)) return null;
+  return tuple as [number, number, number];
+}
+
+function numberTuple4(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length < 4) return null;
+  const tuple = value.slice(0, 4).map(numberValue);
+  if (tuple.some((v) => v === null)) return null;
+  return tuple as [number, number, number, number];
+}
+
+function booleanRecord(value: unknown): Record<string, boolean> | null {
+  if (!isRecord(value)) return null;
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, boolean] => typeof entry[1] === "boolean",
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function buildMmdMaterialEntry(material: Material): MmdMaterialEntry | null {
+  const raw = (material.userData as Record<string, unknown>).mmdMaterial;
+  if (!isRecord(raw)) return null;
+
+  const name = stringValue(raw.name);
+  if (!name) return null;
+
+  return {
+    materialIndex: numberValue(raw.materialIndex),
+    name,
+    englishName: stringValue(raw.englishName),
+    diffuse: numberTuple4(raw.diffuse),
+    specular: numberTuple3(raw.specular),
+    ambient: numberTuple3(raw.ambient),
+    specularPower: numberValue(raw.specularPower),
+    edgeColor: numberTuple4(raw.edgeColor),
+    edgeSize: numberValue(raw.edgeSize),
+    texturePath: stringValue(raw.texturePath),
+    sphereTexturePath: stringValue(raw.sphereTexturePath),
+    sphereMode: stringValue(raw.sphereMode),
+    toonTexturePath: stringValue(raw.toonTexturePath),
+    sharedToonIndex: numberValue(raw.sharedToonIndex),
+    transparencyMode: stringValue(raw.transparencyMode),
+    renderOrderBucket: stringValue(raw.renderOrderBucket),
+    faceCount: numberValue(raw.faceCount),
+    flags: booleanRecord(raw.flags),
+    unsupportedDrawFlags: stringArray(raw.unsupportedDrawFlags),
+  };
+}
+
+function materialDisplayName(material: Material, fallbackType: string): string {
+  const mmd = buildMmdMaterialEntry(material);
+  if (mmd?.name) return mmd.name;
+  const trimmed = typeof material.name === "string" ? material.name.trim() : "";
+  return trimmed || fallbackType;
+}
+
+function boneDisplayName(bone: Bone): string {
+  return (
+    stringValue(bone.userData.mmdBoneName) ??
+    (typeof bone.name === "string" && bone.name.trim()
+      ? bone.name.trim()
+      : null) ??
+    "Bone"
+  );
+}
+
+function buildMmdBoneMetadata(root: Object3D): Map<Bone, MmdBoneEntry> {
+  const entries = new Map<Bone, MmdBoneEntry>();
+
+  root.traverse((object) => {
+    if (!(object instanceof SkinnedMesh) || !object.skeleton) return;
+    if (isSyntheticWrapper(object)) return;
+    const bones = object.skeleton.bones;
+    const ikChains = Array.isArray(object.userData.mmdIkChains)
+      ? object.userData.mmdIkChains.filter(isRecord)
+      : [];
+
+    bones.forEach((bone, boneIndex) => {
+      const parentIndex =
+        bone.parent instanceof Bone ? bones.indexOf(bone.parent) : -1;
+      const appendTransform = buildMmdBoneAppendTransform(
+        bone.userData.mmdAppendTransform,
+        bones,
+      );
+      const name = stringValue(bone.userData.mmdBoneName);
+      const englishName = stringValue(bone.userData.mmdEnglishBoneName);
+      const restPosition = numberTuple3(bone.userData.mmdRestPosition);
+      const layer = numberValue(bone.userData.mmdLayer);
+      const flags = booleanRecord(bone.userData.mmdFlags);
+      const ik = buildMmdBoneIkSummary(boneIndex, ikChains);
+
+      if (
+        name === null &&
+        englishName === null &&
+        restPosition === null &&
+        layer === null &&
+        appendTransform === null &&
+        flags === null &&
+        ik === null
+      ) {
+        return;
+      }
+
+      entries.set(bone, {
+        boneIndex,
+        parentIndex,
+        parentName:
+          parentIndex >= 0 && bones[parentIndex]
+            ? boneDisplayName(bones[parentIndex])
+            : null,
+        name,
+        englishName,
+        restPosition,
+        layer,
+        appendTransform,
+        flags,
+        ik,
+      });
+    });
+  });
+
+  return entries;
+}
+
+function buildMmdBoneAppendTransform(
+  value: unknown,
+  bones: readonly Bone[],
+): MmdBoneEntry["appendTransform"] {
+  if (!isRecord(value)) return null;
+  const parentIndex = numberValue(value.parentIndex);
+  const weight = numberValue(value.weight);
+  if (parentIndex === null || weight === null) return null;
+  return {
+    parentIndex,
+    parentName:
+      parentIndex >= 0 && bones[parentIndex]
+        ? boneDisplayName(bones[parentIndex])
+        : null,
+    weight,
+  };
+}
+
+function buildMmdBoneIkSummary(
+  boneIndex: number,
+  chains: readonly Record<string, unknown>[],
+): MmdBoneEntry["ik"] {
+  const roles = new Set<string>();
+  let selectedChain: Record<string, unknown> | null = null;
+
+  for (const chain of chains) {
+    const goalBoneIndex = numberValue(chain.goalBoneIndex);
+    const effectorBoneIndex = numberValue(chain.effectorBoneIndex);
+    const links = Array.isArray(chain.links)
+      ? chain.links.filter(isRecord)
+      : [];
+
+    if (goalBoneIndex === boneIndex) {
+      roles.add("goal");
+      selectedChain ??= chain;
+    }
+    if (effectorBoneIndex === boneIndex) {
+      roles.add("effector");
+      selectedChain ??= chain;
+    }
+    if (links.some((link) => numberValue(link.boneIndex) === boneIndex)) {
+      roles.add("link");
+      selectedChain ??= chain;
+    }
+  }
+
+  if (roles.size === 0 || selectedChain === null) return null;
+
+  const links = Array.isArray(selectedChain.links)
+    ? selectedChain.links.filter(isRecord)
+    : [];
+  const limitKinds = [
+    ...new Set(
+      links
+        .map((link) => stringValue(link.limitsKind))
+        .filter((value): value is string => value !== null),
+    ),
+  ];
+
+  return {
+    roles: [...roles],
+    goalBoneIndex: numberValue(selectedChain.goalBoneIndex),
+    effectorBoneIndex: numberValue(selectedChain.effectorBoneIndex),
+    iterationCount: numberValue(selectedChain.iterationCount),
+    maxAnglePerIteration: numberValue(selectedChain.maxAnglePerIteration),
+    linkCount: links.length,
+    limitKinds,
+  };
+}
+
+function countArray(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function buildMmdMorphEntry(value: unknown): MmdMorphEntry | null {
+  if (!isRecord(value)) return null;
+  const name = stringValue(value.name);
+  const englishName = stringValue(value.englishName);
+  const type = stringValue(value.type);
+  if (name === null && englishName === null && type === null) return null;
+  return {
+    name,
+    englishName,
+    type,
+    boneOffsetCount: countArray(value.boneOffsets),
+    groupOffsetCount: countArray(value.groupOffsets),
+    flipOffsetCount: countArray(value.flipOffsets),
+    impulseOffsetCount: countArray(value.impulseOffsets),
+  };
+}
+
+function mmdMorphsByIndex(object: Mesh): Map<number, MmdMorphEntry> {
+  const values = Array.isArray(object.userData.mmdMorphs)
+    ? object.userData.mmdMorphs
+    : [];
+  const out = new Map<number, MmdMorphEntry>();
+  values.forEach((value, index) => {
+    const entry = buildMmdMorphEntry(value);
+    if (entry) out.set(index, entry);
+  });
+  return out;
+}
+
 function buildMaterialEntry(
   material: Material,
   boundMeshes: string[],
@@ -257,10 +521,11 @@ function buildMaterialEntry(
     typeof ud.usdPrimPath === "string" && ud.usdPrimPath
       ? ud.usdPrimPath
       : null;
+  const mmd = buildMmdMaterialEntry(material);
 
   return {
     id: material.uuid,
-    name: material.name.trim() || typeName,
+    name: mmd?.name ?? (material.name.trim() || typeName),
     type: typeName,
     color: getMaterialColor(material),
     opacity: material.opacity,
@@ -277,6 +542,7 @@ function buildMaterialEntry(
     emissiveTexture,
     alphaMode: inferAlphaMode(material),
     usdPrimPath,
+    mmd,
   };
 }
 
@@ -297,6 +563,16 @@ function getTextureDimensions(texture: Texture) {
 }
 
 const THUMB_SIZE = 128;
+
+function shouldFlipTexturePreviewY(
+  texture: Texture,
+  currentFile: SelectedFile,
+): boolean {
+  return (
+    (currentFile.extension === "pmx" || currentFile.extension === "pmd") &&
+    texture.flipY === false
+  );
+}
 
 function generateThumbnailUrl(texture: Texture): string | null {
   const image = texture.image as
@@ -463,6 +739,7 @@ function buildObjectInfo(
   object: Object3D,
   clips: AnimationClip[],
   key: string,
+  mmdBoneMetadata: Map<Bone, MmdBoneEntry>,
 ): ObjectInfo {
   const p = object.position;
   const e = new Euler().setFromQuaternion(object.quaternion, "YXZ");
@@ -505,22 +782,27 @@ function buildObjectInfo(
       }
     }
     const mats = getMaterials(object.material);
-    materialNames = mats.map((m) => m.name.trim() || m.type);
+    materialNames = mats.map((m) => materialDisplayName(m, m.type));
     materialIds = mats.map((m) => m.uuid);
 
     const influences = object.morphTargetInfluences ?? [];
     const dictionary = object.morphTargetDictionary ?? {};
+    const mmdMorphs = mmdMorphsByIndex(object);
     const namesByIndex = new Map<number, string>();
     for (const [name, index] of Object.entries(dictionary)) {
       if (Number.isInteger(index) && index >= 0) {
         namesByIndex.set(index, name);
       }
     }
-    morphTargets = influences.map((value, index) => ({
-      index,
-      name: namesByIndex.get(index) ?? `Target ${index + 1}`,
-      value,
-    }));
+    morphTargets = influences.map((value, index) => {
+      const mmd = mmdMorphs.get(index) ?? null;
+      return {
+        index,
+        name: mmd?.name ?? namesByIndex.get(index) ?? `Target ${index + 1}`,
+        value,
+        mmd,
+      };
+    });
   } else if (object instanceof Group) {
     childCount = object.children.length;
   }
@@ -540,6 +822,8 @@ function buildObjectInfo(
   const userKeys = Object.keys(object.userData).filter(
     (k) =>
       !k.startsWith("__") &&
+      !k.startsWith("mmd") &&
+      k !== "vrm" &&
       k !== "primPath" &&
       k !== "purpose" &&
       k !== "textureSourceKind",
@@ -573,6 +857,8 @@ function buildObjectInfo(
     childCount,
     animatesWithClips: clipNames,
     userData,
+    mmdBone:
+      object instanceof Bone ? (mmdBoneMetadata.get(object) ?? null) : null,
   };
 }
 
@@ -581,6 +867,7 @@ export function collectAssetMetadata(
   currentFile: SelectedFile,
   clips: AnimationClip[],
   formatVersion: string | null,
+  mmdMetadata?: MmdAssetMetadata,
 ): MetadataCollection {
   let nodeCount = 0;
   let meshCount = 0;
@@ -599,6 +886,7 @@ export function collectAssetMetadata(
   const cameraSeenCounts = new Map<string, number>();
   // Selection key → per-object info for the shared inspector (#80)
   const objectInfoMap = new Map<string, ObjectInfo>();
+  const mmdBoneMetadata = buildMmdBoneMetadata(object);
 
   object.traverse((child: Object3D) => {
     if (isSyntheticWrapper(child)) return;
@@ -608,7 +896,10 @@ export function collectAssetMetadata(
     // selection key (meshes, named groups, lights, cameras).
     const infoKey = resolveSelectionKey(child);
     if (infoKey) {
-      objectInfoMap.set(infoKey, buildObjectInfo(child, clips, infoKey));
+      objectInfoMap.set(
+        infoKey,
+        buildObjectInfo(child, clips, infoKey, mmdBoneMetadata),
+      );
     }
 
     if (child instanceof Light) {
@@ -659,12 +950,17 @@ export function collectAssetMetadata(
           continue;
         }
 
+        const previewFlipY = shouldFlipTexturePreviewY(
+          textureValue,
+          currentFile,
+        );
         textures.set(textureId, {
           id: textureId,
           label: textureValue.name.trim() || `${channel} Texture`,
           channel,
           dimensions: getTextureDimensions(textureValue),
           thumbnailUrl: generateThumbnailUrl(textureValue),
+          ...(previewFlipY ? { previewFlipY } : {}),
           sourceKind: inferTextureSourceKind(textureValue, currentFile),
         });
         textureRegistry.set(textureId, textureValue);
@@ -689,6 +985,7 @@ export function collectAssetMetadata(
       lights,
       cameras,
       objectInfo: Object.fromEntries(objectInfoMap),
+      ...(mmdMetadata ? { mmd: mmdMetadata } : {}),
     },
     textureRegistry,
   };

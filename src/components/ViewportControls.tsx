@@ -15,6 +15,7 @@ export type ViewportControlsProps = {
 
 function ViewportTool({
   active = false,
+  disabled = false,
   iconId,
   kind = "toggle",
   label,
@@ -22,6 +23,7 @@ function ViewportTool({
   title,
 }: {
   active?: boolean;
+  disabled?: boolean;
   iconId?: ToolbarAction["iconId"];
   kind?: ToolbarAction["kind"];
   label: string;
@@ -34,6 +36,7 @@ function ViewportTool({
       aria-pressed={kind === "toggle" ? active : undefined}
       className={`viewport-tool${active ? " is-active" : ""}`}
       data-tooltip={title ?? label}
+      disabled={disabled}
       onClick={onClick}
       title={title ?? label}
       type="button"
@@ -111,6 +114,7 @@ export function ViewportControls({
                 <ViewportTool
                   key={action.id}
                   active={action.active}
+                  disabled={action.disabled}
                   iconId={action.iconId}
                   kind={action.kind}
                   label={action.label}

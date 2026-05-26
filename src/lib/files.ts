@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type AssetKind = "model" | "texture" | "unknown";
+export type AssetKind = "model" | "texture" | "motion" | "unknown";
 
 export type SelectedFile = {
   path: string;
