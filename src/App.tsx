@@ -1038,6 +1038,9 @@ export function App() {
         .filter((arc) => arc.state === "unloaded")
         .map((arc) => arc.sourcePrim),
     );
+    for (const primPath of sessionLoadedPayloadPathsRef.current) {
+      unloaded.delete(primPath);
+    }
     setPayloadPrimPaths(allPayloads);
     setUnloadedPayloadPaths(unloaded);
   }, [usdInspection, usdLoadPolicy]);
@@ -2041,11 +2044,11 @@ export function App() {
     stageSessionHandle,
   );
   const deferredPreviewSessionRef = useRef<StageSessionHandle | null>(null);
+  const sessionLoadedPayloadPathsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     stageSessionHandleRef.current = stageSessionHandle;
-    if (stageSessionHandle === null) {
-      deferredPreviewSessionRef.current = null;
-    }
+    deferredPreviewSessionRef.current = null;
+    sessionLoadedPayloadPathsRef.current = new Set();
   }, [stageSessionHandle]);
 
   const buildSessionExtractOptions = (): ExtractGeometryOptions => ({
@@ -2060,6 +2063,7 @@ export function App() {
     try {
       await loadPayload(captured, primPath);
       if (stageSessionHandleRef.current !== captured) return;
+      sessionLoadedPayloadPathsRef.current.add(primPath);
       setUnloadedPayloadPaths((prev) => {
         const next = new Set(prev);
         next.delete(primPath);
@@ -2094,6 +2098,7 @@ export function App() {
     try {
       await unloadPayload(captured, primPath);
       if (stageSessionHandleRef.current !== captured) return;
+      sessionLoadedPayloadPathsRef.current.delete(primPath);
       setUnloadedPayloadPaths((prev) => {
         const next = new Set(prev);
         next.add(primPath);
@@ -2127,25 +2132,29 @@ export function App() {
       !currentFile ||
       usdLoadPolicy !== "noPayloads" ||
       captured === null ||
-      !usdInspection ||
       deferredPreviewSessionRef.current === captured
     ) {
       return;
     }
 
-    const previewPayloads = Array.from(
-      new Set(
-        usdInspection.payloads
-          .filter((arc) => arc.state === "unloaded")
-          .map((arc) => arc.sourcePrim),
-      ),
-    ).slice(0, DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD);
-    if (previewPayloads.length === 0) return;
-
     let cancelled = false;
 
     const loadPreviewBatch = async () => {
       try {
+        const inspection =
+          usdInspection ?? (await inspectStage(currentFile.path, "noPayloads"));
+        if (cancelled || stageSessionHandleRef.current !== captured) {
+          return;
+        }
+        const previewPayloads = Array.from(
+          new Set(
+            inspection.payloads
+              .filter((arc) => arc.state === "unloaded")
+              .map((arc) => arc.sourcePrim),
+          ),
+        ).slice(0, DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD);
+        if (previewPayloads.length === 0) return;
+
         const loadedPreviewPayloads: string[] = [];
         for (
           let start = 0;
@@ -2161,10 +2170,11 @@ export function App() {
           );
           for (const primPath of batch) {
             await loadPayload(captured, primPath);
-            loadedPreviewPayloads.push(primPath);
             if (cancelled || stageSessionHandleRef.current !== captured) {
               return;
             }
+            sessionLoadedPayloadPathsRef.current.add(primPath);
+            loadedPreviewPayloads.push(primPath);
           }
           setUnloadedPayloadPaths((prev) => {
             const next = new Set(prev);
