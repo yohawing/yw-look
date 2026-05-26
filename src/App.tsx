@@ -228,7 +228,35 @@ const initialViewerFeedback: ViewerFeedback = {
   canResetCamera: false,
 };
 const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
-const DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE = 1;
+const DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE = 8;
+const DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD = 32;
+
+function glbMeshCount(buffer: ArrayBuffer): number {
+  if (buffer.byteLength < 20) return 0;
+  const view = new DataView(buffer);
+  if (view.getUint32(0, true) !== 0x46546c67) return 0;
+
+  let offset = 12;
+  while (offset + 8 <= buffer.byteLength) {
+    const chunkLength = view.getUint32(offset, true);
+    const chunkType = view.getUint32(offset + 4, true);
+    offset += 8;
+    if (offset + chunkLength > buffer.byteLength) return 0;
+    if (chunkType === 0x4e4f534a) {
+      try {
+        const json = new TextDecoder().decode(
+          new Uint8Array(buffer, offset, chunkLength),
+        );
+        const parsed = JSON.parse(json) as { meshes?: unknown[] };
+        return Array.isArray(parsed.meshes) ? parsed.meshes.length : 0;
+      } catch {
+        return 0;
+      }
+    }
+    offset += chunkLength;
+  }
+  return 0;
+}
 
 function deriveDisplayMode(
   showTexture: boolean,
@@ -2105,30 +2133,53 @@ export function App() {
           .filter((arc) => arc.state === "unloaded")
           .map((arc) => arc.sourcePrim),
       ),
-    ).slice(0, DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE);
+    ).slice(0, DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD);
     if (previewPayloads.length === 0) return;
 
     let cancelled = false;
 
     const loadPreviewBatch = async () => {
       try {
-        for (const primPath of previewPayloads) {
-          await loadPayload(captured, primPath);
-          if (cancelled || stageSessionHandleRef.current !== captured) return;
+        const loadedPreviewPayloads: string[] = [];
+        for (
+          let start = 0;
+          start < previewPayloads.length;
+          start += DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE
+        ) {
+          const batch = previewPayloads.slice(
+            start,
+            start + DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE,
+          );
+          for (const primPath of batch) {
+            await loadPayload(captured, primPath);
+            loadedPreviewPayloads.push(primPath);
+            if (cancelled || stageSessionHandleRef.current !== captured) {
+              return;
+            }
+          }
+          setUnloadedPayloadPaths((prev) => {
+            const next = new Set(prev);
+            for (const primPath of loadedPreviewPayloads) next.delete(primPath);
+            return next;
+          });
+          const glbBuffer = await extractGeometrySession(captured, {
+            policy: "noPayloads",
+            variantSelections,
+            purposeModes,
+          });
+          if (cancelled || stageSessionHandleRef.current !== captured) {
+            return;
+          }
+          const meshCount = glbMeshCount(glbBuffer);
+          if (meshCount > 0 || start + batch.length >= previewPayloads.length) {
+            deferredPreviewSessionRef.current = captured;
+            setSessionGlbBuffer(glbBuffer);
+            return;
+          }
+          console.warn(
+            `[usd] deferred preview batch produced no meshes; continuing (${loadedPreviewPayloads.length}/${previewPayloads.length})`,
+          );
         }
-        setUnloadedPayloadPaths((prev) => {
-          const next = new Set(prev);
-          for (const primPath of previewPayloads) next.delete(primPath);
-          return next;
-        });
-        const glbBuffer = await extractGeometrySession(captured, {
-          policy: "noPayloads",
-          variantSelections,
-          purposeModes,
-        });
-        if (cancelled || stageSessionHandleRef.current !== captured) return;
-        deferredPreviewSessionRef.current = captured;
-        setSessionGlbBuffer(glbBuffer);
       } catch (err: unknown) {
         if (cancelled || stageSessionHandleRef.current !== captured) return;
         console.warn("[usd] deferred preview payload load failed:", err);
