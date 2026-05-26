@@ -1053,6 +1053,17 @@ fn build_selected_file_payload(path: PathBuf) -> Result<SelectedFilePayload, Str
     })
 }
 
+fn build_selected_file_payload_from_cli_arg(argument: &str) -> Result<SelectedFilePayload, String> {
+    let path = PathBuf::from(argument);
+    if let Ok(file) = build_selected_file_payload(path.clone()) {
+        return Ok(file);
+    }
+    if path.is_absolute() {
+        return build_selected_file_payload(path);
+    }
+    build_selected_file_payload(repo_root()?.join(path))
+}
+
 fn list_supported_files_in_directory(directory: &Path) -> Result<Vec<SelectedFilePayload>, String> {
     let mut files = fs::read_dir(directory)
         .map_err(|error| format!("failed to read directory: {error}"))?
@@ -1668,7 +1679,7 @@ fn get_startup_file(
     }
 
     for argument in std::env::args().skip(1) {
-        if let Ok(file) = build_selected_file_payload(PathBuf::from(argument)) {
+        if let Ok(file) = build_selected_file_payload_from_cli_arg(&argument) {
             sync_recent_file(&app, &file)?;
             return Ok(Some(file));
         }
