@@ -228,6 +228,7 @@ const initialViewerFeedback: ViewerFeedback = {
   canResetCamera: false,
 };
 const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
+const DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE = 1;
 
 function deriveDisplayMode(
   showTexture: boolean,
@@ -2005,8 +2006,12 @@ export function App() {
   const stageSessionHandleRef = useRef<StageSessionHandle | null>(
     stageSessionHandle,
   );
+  const deferredPreviewSessionRef = useRef<StageSessionHandle | null>(null);
   useEffect(() => {
     stageSessionHandleRef.current = stageSessionHandle;
+    if (stageSessionHandle === null) {
+      deferredPreviewSessionRef.current = null;
+    }
   }, [stageSessionHandle]);
 
   const buildSessionExtractOptions = (): ExtractGeometryOptions => ({
@@ -2081,6 +2086,67 @@ export function App() {
       setSessionGlbBuffer(null);
     }
   };
+
+  useEffect(() => {
+    const captured = stageSessionHandle;
+    if (
+      !currentFile ||
+      usdLoadPolicy !== "noPayloads" ||
+      captured === null ||
+      !usdInspection ||
+      deferredPreviewSessionRef.current === captured
+    ) {
+      return;
+    }
+
+    const previewPayloads = Array.from(
+      new Set(
+        usdInspection.payloads
+          .filter((arc) => arc.state === "unloaded")
+          .map((arc) => arc.sourcePrim),
+      ),
+    ).slice(0, DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE);
+    if (previewPayloads.length === 0) return;
+
+    let cancelled = false;
+
+    const loadPreviewBatch = async () => {
+      try {
+        for (const primPath of previewPayloads) {
+          await loadPayload(captured, primPath);
+          if (cancelled || stageSessionHandleRef.current !== captured) return;
+        }
+        setUnloadedPayloadPaths((prev) => {
+          const next = new Set(prev);
+          for (const primPath of previewPayloads) next.delete(primPath);
+          return next;
+        });
+        const glbBuffer = await extractGeometrySession(captured, {
+          policy: "noPayloads",
+          variantSelections,
+          purposeModes,
+        });
+        if (cancelled || stageSessionHandleRef.current !== captured) return;
+        deferredPreviewSessionRef.current = captured;
+        setSessionGlbBuffer(glbBuffer);
+      } catch (err: unknown) {
+        if (cancelled || stageSessionHandleRef.current !== captured) return;
+        console.warn("[usd] deferred preview payload load failed:", err);
+      }
+    };
+
+    void loadPreviewBatch();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentFile,
+    stageSessionHandle,
+    usdInspection,
+    usdLoadPolicy,
+    purposeModes,
+    variantSelections,
+  ]);
 
   const sidebarContent = (() => {
     switch (activeTab) {

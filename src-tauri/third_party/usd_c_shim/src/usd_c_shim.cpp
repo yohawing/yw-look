@@ -133,6 +133,207 @@ void log_usd_timing(const char *label, Clock::time_point started) {
               << elapsed.count() << "ms" << std::endl;
 }
 
+SdfPath reference_target_path(const SdfLayerHandle &layer,
+                              const SdfReference &reference) {
+    if (!layer) return SdfPath();
+
+    SdfPath target_path = reference.GetPrimPath();
+    if (target_path.IsEmpty()) {
+        const TfToken default_prim = layer->GetDefaultPrim();
+        if (default_prim.IsEmpty()) return SdfPath();
+        target_path = SdfPath::AbsoluteRootPath().AppendChild(default_prim);
+    }
+    return target_path;
+}
+
+SdfPrimSpecHandle reference_target_spec(const SdfLayerHandle &layer,
+                                        const SdfPath &target_path) {
+    if (!layer || target_path.IsEmpty() ||
+        target_path == SdfPath::AbsoluteRootPath()) {
+        return SdfPrimSpecHandle();
+    }
+    return layer->GetPrimAtPath(target_path);
+}
+
+bool composed_active_prim_exists(const UsdStageRefPtr &stage,
+                                 const std::string &prim_path) {
+    if (!stage || prim_path.empty()) return false;
+    const UsdPrim prim = stage->GetPrimAtPath(SdfPath(prim_path));
+    return prim && prim.IsActive();
+}
+
+bool composed_reference_exists(const UsdStageRefPtr &stage,
+                               const std::string &source,
+                               const SdfReference &reference) {
+    if (!stage || source.empty()) return false;
+    const UsdPrim prim = stage->GetPrimAtPath(SdfPath(source));
+    if (!prim || !prim.IsActive()) return false;
+
+    SdfReferenceListOp op;
+    if (!prim.GetMetadata(SdfFieldKeys->References, &op)) return false;
+
+    std::vector<SdfReference> items;
+    op.ApplyOperations(&items);
+    const std::string asset = reference.GetAssetPath();
+    const SdfPath target = reference.GetPrimPath();
+    for (const SdfReference &item : items) {
+        if (item.GetAssetPath() == asset && item.GetPrimPath() == target) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void emit_payload_specs_from_reference_target(const UsdStageRefPtr &stage,
+                                              const SdfPrimSpecHandle &spec,
+                                              const std::string &target_root,
+                                              const std::string &reference_source,
+                                              std::set<std::string> &seen,
+                                              UsdcArcCallback cb,
+                                              void *user) {
+    if (!spec) return;
+    const std::string spec_path = spec->GetPath().GetString();
+    std::string source = reference_source;
+    if (spec_path != target_root) {
+        if (target_root == SdfPath::AbsoluteRootPath().GetString()) {
+            source += spec_path;
+        } else if (spec_path.rfind(target_root + "/", 0) == 0) {
+            source += spec_path.substr(target_root.size());
+        }
+    }
+
+    if (spec->HasPayloads()) {
+        for (const SdfPayload &payload : spec->GetPayloadList().GetAppliedItems()) {
+            const std::string payload_asset = payload.GetAssetPath();
+            if (payload_asset.empty()) continue;
+            if (!composed_active_prim_exists(stage, source)) continue;
+
+            std::string target;
+            if (!payload.GetPrimPath().IsEmpty()) {
+                target = payload.GetPrimPath().GetAsString();
+            }
+
+            const std::string key = source + "\n" + payload_asset + "\n" + target;
+            if (!seen.insert(key).second) continue;
+
+            UsdcArc arc;
+            arc.source_prim = source.c_str();
+            arc.asset_path = payload_asset.c_str();
+            arc.target_prim = target.empty() ? nullptr : target.c_str();
+            arc.is_loaded = 0;
+            cb(&arc, user);
+        }
+    }
+
+    for (const SdfPrimSpecHandle &child : spec->GetNameChildren()) {
+        emit_payload_specs_from_reference_target(
+            stage, child, target_root, reference_source, seen, cb, user);
+    }
+}
+
+void emit_payload_specs_from_reference_layer(const UsdStageRefPtr &stage,
+                                             const SdfLayerHandle &layer,
+                                             const SdfPath &target_path,
+                                             const std::string &reference_source,
+                                             std::set<std::string> &visited_layers,
+                                             std::set<std::string> &seen,
+                                             UsdcArcCallback cb,
+                                             void *user) {
+    if (!layer || target_path.IsEmpty()) return;
+    const std::string identifier = layer->GetIdentifier();
+    if (!identifier.empty() && !visited_layers.insert(identifier).second) return;
+
+    const std::string target_root = target_path.GetString();
+    if (target_path == SdfPath::AbsoluteRootPath()) {
+        for (const SdfPrimSpecHandle &root_spec : layer->GetRootPrims()) {
+            emit_payload_specs_from_reference_target(
+                stage, root_spec, target_root, reference_source, seen, cb, user);
+        }
+    } else {
+        emit_payload_specs_from_reference_target(
+            stage,
+            reference_target_spec(layer, target_path),
+            target_root,
+            reference_source,
+            seen,
+            cb,
+            user);
+    }
+
+    const std::vector<std::string> sub_paths = layer->GetSubLayerPaths();
+    for (const std::string &sub_path : sub_paths) {
+        SdfLayerHandle sub = SdfLayer::FindOrOpenRelativeToLayer(layer, sub_path);
+        if (!sub) {
+            sub = SdfLayer::FindOrOpen(sub_path);
+        }
+        emit_payload_specs_from_reference_layer(
+            stage, sub, target_path, reference_source, visited_layers, seen, cb, user);
+    }
+}
+
+void emit_root_reference_payload_candidates(const UsdStageRefPtr &stage,
+                                            const SdfLayerHandle &root_layer,
+                                            const SdfPrimSpecHandle &spec,
+                                            std::set<std::string> &seen,
+                                            UsdcArcCallback cb,
+                                            void *user) {
+    if (!root_layer || !spec) return;
+
+    if (spec->HasReferences()) {
+        const bool is_stage_root_layer = stage && root_layer == stage->GetRootLayer();
+        for (const SdfReference &reference : spec->GetReferenceList().GetAppliedItems()) {
+            const std::string reference_asset = reference.GetAssetPath();
+            if (reference_asset.empty()) continue;
+            const std::string source = spec->GetPath().GetString();
+            if (!is_stage_root_layer &&
+                !composed_reference_exists(stage, source, reference)) {
+                continue;
+            }
+
+            const SdfLayerHandle referenced_layer =
+                SdfLayer::FindOrOpenRelativeToLayer(root_layer, reference_asset);
+            std::set<std::string> visited_reference_layers;
+            emit_payload_specs_from_reference_layer(
+                stage,
+                referenced_layer,
+                reference_target_path(referenced_layer, reference),
+                source,
+                visited_reference_layers,
+                seen,
+                cb,
+                user);
+        }
+    }
+
+    for (const SdfPrimSpecHandle &child : spec->GetNameChildren()) {
+        emit_root_reference_payload_candidates(stage, root_layer, child, seen, cb, user);
+    }
+}
+
+void emit_layer_reference_payload_candidates(const UsdStageRefPtr &stage,
+                                             const SdfLayerHandle &layer,
+                                             std::set<std::string> &visited_layers,
+                                             std::set<std::string> &seen,
+                                             UsdcArcCallback cb,
+                                             void *user) {
+    if (!layer) return;
+    const std::string identifier = layer->GetIdentifier();
+    if (!identifier.empty() && !visited_layers.insert(identifier).second) return;
+
+    for (const SdfPrimSpecHandle &root_spec : layer->GetRootPrims()) {
+        emit_root_reference_payload_candidates(stage, layer, root_spec, seen, cb, user);
+    }
+
+    const std::vector<std::string> sub_paths = layer->GetSubLayerPaths();
+    for (const std::string &sub_path : sub_paths) {
+        SdfLayerHandle sub = SdfLayer::FindOrOpenRelativeToLayer(layer, sub_path);
+        if (!sub) {
+            sub = SdfLayer::FindOrOpen(sub_path);
+        }
+        emit_layer_reference_payload_candidates(stage, sub, visited_layers, seen, cb, user);
+    }
+}
+
 /* Returns the directory containing the shim's own shared library, so
  * we can bootstrap OpenUSD's plugin registry against the `usd/`
  * subdirectory that `build.rs` mirrors next to the shim. Without this
@@ -790,17 +991,20 @@ extern "C" USDC_API int usdc_stage_payloads_in(UsdcStage *stage,
     if (!prim) return 1;
 
     return run_status("usdc_stage_payloads_in", out_err, [&] {
+        std::set<std::string> seen;
+        const std::string source = prim.GetPath().GetAsString();
         SdfPayloadListOp op;
         if (prim.GetMetadata(SdfFieldKeys->Payload, &op)) {
             std::vector<SdfPayload> items;
             op.ApplyOperations(&items);
             for (const SdfPayload &p : items) {
                 const std::string asset = p.GetAssetPath();
-                const std::string source = prim.GetPath().GetAsString();
                 std::string target;
                 if (!p.GetPrimPath().IsEmpty()) {
                     target = p.GetPrimPath().GetAsString();
                 }
+                const std::string key = source + "\n" + asset + "\n" + target;
+                if (!seen.insert(key).second) continue;
                 UsdcArc arc;
                 arc.source_prim = source.c_str();
                 arc.asset_path = asset.c_str();
@@ -1011,6 +1215,13 @@ extern "C" USDC_API int usdc_stage_skipped_payloads(UsdcStage *stage,
                 if (!seen.insert(key).second) continue;
                 cb(&arc, user);
             }
+        }
+
+        const SdfLayerHandle root_layer = stage->stage->GetRootLayer();
+        if (root_layer) {
+            std::set<std::string> visited_layers;
+            emit_layer_reference_payload_candidates(
+                stage->stage, root_layer, visited_layers, seen, cb, user);
         }
 
     });
