@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.1 (2026-05-26)
+
+### Release
+
+- Fixed the macOS release build by importing the Tauri event emitter trait used by Finder open-file handling.
+- Consolidated the release checklist into `docs/release-distribution.md` and documented the Optional Loader Pack release check.
+- Added USD load timing diagnostics used during release performance validation.
+
 ## v0.2.0 (2026-05-25)
 
 ### MMD サポートの本格化

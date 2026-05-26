@@ -16,7 +16,7 @@
 | Windows | 対応済み | NSIS / MSI 対応済み | Authenticode は未整備         | 対応済み | 対応済み        |
 | macOS   | 対応済み | DMG / .app 対応済み | Developer ID + 公証（未整備） | 対応済み | 対応済み        |
 
-実装の進捗は `ToDo.md` の「OS 統合（Windows / macOS）」と「CI/CD 整備」セクションを参照してください。
+実装の進捗は `docs/TODO.md` の「OS 統合（Windows / macOS）」と「CI/CD 整備」セクションを参照してください。
 
 ## まず覚えること
 
@@ -565,6 +565,23 @@ xattr -dr com.apple.quarantine src-tauri/target/release/bundle/macos/yw-look.app
 ```
 
 本番配布では codesign と公証を済ませることで回避します。
+
+## macOS ローカル DMG 作成で Finder AppleScript がタイムアウトする
+
+`npm run bundle:mac` の Rust/Tauri build、`.app` bundle、updater 用
+`yw-look.app.tar.gz` / `.sig` 生成までは成功しているのに、最後の DMG 作成だけが
+`Finderでエラーが起きました: AppleEventがタイムアウトしました。 (-1712)` で失敗することがあります。
+
+これは Tauri bundler が DMG 内のアイコン配置を Finder AppleScript で整える段階の失敗です。
+ローカル検証では、次が確認できていれば updater artifact の確認として扱えます。
+
+- `src-tauri/target/release/bundle/macos/yw-look.app`
+- `src-tauri/target/release/bundle/macos/yw-look.app.tar.gz`
+- `src-tauri/target/release/bundle/macos/yw-look.app.tar.gz.sig`
+- `npm run update:local:prepare` が `platforms.darwin-aarch64` を生成すること
+
+公開リリースでは GitHub Actions の macOS release job を正とし、DMG artifact と
+`latest.json` の `darwin-aarch64` entry が揃うことを確認してください。
 
 # 追加で残っていること
 

@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use sysinfo::{Pid, ProcessesToUpdate, System};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 
