@@ -253,6 +253,11 @@ USDC_API int usdc_stage_skipped_payloads(UsdcStage *stage,
                                          void *user,
                                          UsdcError **out_err);
 
+/* Returns 1 when any used layer authors a payload list item, 0
+ * otherwise. This does not emit paths for UI actions; it is only a
+ * cheap routing hint for LoadNone empty-scene extraction. */
+USDC_API int usdc_stage_has_authored_payload_specs(UsdcStage *stage);
+
 /* -------------------- layer stack (#29) -------------------- */
 
 /* Detailed information about one layer in the stage's layer stack.

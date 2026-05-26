@@ -25,7 +25,12 @@ import {
 import { convertAlembicToPreview } from "../lib/alembic";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { isTauriEnvironment } from "../lib/platform";
-import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
+import {
+  extractGeometry,
+  inspectStage,
+  requiresGlbPreview,
+  type StageInspection,
+} from "../lib/usd";
 import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
@@ -71,6 +76,22 @@ async function yieldToPaint(): Promise<void> {
     return;
   }
   await new Promise<void>((resolve) => setTimeout(() => resolve(), 0));
+}
+
+function isDeferredUsdEmptyStageError(error: unknown): boolean {
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : "";
+  return message.includes("no renderable Mesh prims found in stage");
+}
+
+function inspectionHasDeferredPayloads(
+  inspection: Pick<StageInspection, "payloads">,
+): boolean {
+  return inspection.payloads.some((arc) => arc.state === "unloaded");
 }
 
 async function readTextFile(path: string) {
@@ -1688,6 +1709,8 @@ export {
   isUsdcCrateBuffer,
   readUsdzFirstFileName,
   shouldFailClosedOnUsdPreviewDecisionFailure,
+  isDeferredUsdEmptyStageError,
+  inspectionHasDeferredPayloads,
   applyMissingGltfTextureFallbacks,
   formatMissingTextureWarnings,
   resolveColladaTextureUrl,
@@ -2013,7 +2036,29 @@ async function loadPreviewObjectCore(
                   variantSelections: options.variantSelections,
                 }
               : usdPolicy;
-          glbBuffer = await extractGeometry(file.path, extractOptions);
+          try {
+            glbBuffer = await extractGeometry(file.path, extractOptions);
+          } catch (error) {
+            if (
+              usdPolicy === "noPayloads" &&
+              isDeferredUsdEmptyStageError(error)
+            ) {
+              const inspection = await inspectStage(file.path, "noPayloads");
+              if (!inspectionHasDeferredPayloads(inspection)) {
+                throw error;
+              }
+              options.onWarning?.(
+                "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
+              );
+              return {
+                object: new Group(),
+                cleanupUrls: [],
+                clips: [],
+                formatVersion: null,
+              };
+            }
+            throw error;
+          }
         }
         console.info(
           `[usd] extract_geometry OK in ${Math.round(
@@ -2031,6 +2076,11 @@ async function loadPreviewObjectCore(
         // preview pipeline expects `Group | Mesh`, so we hand back the
         // scene root directly.
         const object = gltf.scene;
+        if (usdPolicy === "noPayloads" && object.children.length === 0) {
+          options.onWarning?.(
+            "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
+          );
+        }
 
         // Apply metersPerUnit / upAxis hints from the inspector — these
         // come from the same Rust backend so the Phase 2 work continues

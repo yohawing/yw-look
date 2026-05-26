@@ -50,6 +50,7 @@
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/primSpec.h>
 #include <pxr/usd/sdf/schema.h>
 #include <pxr/usd/sdf/payload.h>
 #include <pxr/usd/sdf/reference.h>
@@ -222,6 +223,17 @@ UsdcError *make_err(const std::string &msg) {
     auto *e = new UsdcError_s();
     e->msg = msg;
     return e;
+}
+
+bool prim_spec_tree_has_payloads(const SdfPrimSpecHandle &prim) {
+    if (!prim) return false;
+    if (prim->HasPayloads() && !prim->GetPayloadList().GetAppliedItems().empty()) {
+        return true;
+    }
+    for (const SdfPrimSpecHandle &child : prim->GetNameChildren()) {
+        if (prim_spec_tree_has_payloads(child)) return true;
+    }
+    return false;
 }
 
 /* Safely look up a prim without raising. Returns an invalid UsdPrim
@@ -969,6 +981,7 @@ extern "C" USDC_API int usdc_stage_skipped_payloads(UsdcStage *stage,
      * is stable for the handle's lifetime. */
     if (stage->policy != USDC_LOAD_NO_PAYLOADS) return 1;
     return run_status("usdc_stage_skipped_payloads", out_err, [&] {
+        std::set<std::string> seen;
         for (const UsdPrim &prim : stage->stage->TraverseAll()) {
             SdfPayloadListOp op;
             if (!prim.GetMetadata(SdfFieldKeys->Payload, &op)) continue;
@@ -994,10 +1007,28 @@ extern "C" USDC_API int usdc_stage_skipped_payloads(UsdcStage *stage,
                  * on the Rust side by cross-checking against
                  * unresolved_assets. */
                 arc.is_loaded = 0;
+                const std::string key = source + "\n" + asset + "\n" + target;
+                if (!seen.insert(key).second) continue;
                 cb(&arc, user);
             }
         }
+
     });
+}
+
+extern "C" USDC_API int usdc_stage_has_authored_payload_specs(UsdcStage *stage) {
+    if (!stage || !stage->stage) return 0;
+    try {
+        for (const SdfLayerHandle &layer : stage->stage->GetUsedLayers()) {
+            if (!layer) continue;
+            for (const SdfPrimSpecHandle &root : layer->GetRootPrims()) {
+                if (prim_spec_tree_has_payloads(root)) return 1;
+            }
+        }
+    } catch (...) {
+        return 0;
+    }
+    return 0;
 }
 
 /* -------------------- per-prim queries -------------------- */
