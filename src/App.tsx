@@ -518,6 +518,10 @@ export function App() {
   );
 
   const isTauri = isTauriEnvironment();
+  const recentExternalOpenRef = useRef<{
+    path: string;
+    requestedAt: number;
+  } | null>(null);
   const debugPanelsEnabled = !isTauri && isDebugPanelsRequested();
   const sidebarCurrentFile = debugPanelsEnabled ? debugPanelFile : currentFile;
   const sidebarAssetMetadata = debugPanelsEnabled
@@ -1443,6 +1447,19 @@ export function App() {
     },
   );
 
+  const selectExternalFilePathFromEffect = useEffectEvent(
+    async (path: string) => {
+      const now = performance.now();
+      const recent = recentExternalOpenRef.current;
+      if (recent?.path === path && now - recent.requestedAt < 2000) {
+        return;
+      }
+
+      recentExternalOpenRef.current = { path, requestedAt: now };
+      await performSelectFilePath(path, "startup");
+    },
+  );
+
   const handleDroppedFilePathFromEffect = useEffectEvent(
     async (path: string) => {
       if (extensionFromPath(path) === "vmd") {
@@ -1477,7 +1494,7 @@ export function App() {
           return;
         }
 
-        return selectFilePathFromEffect(startupFile.path, "startup");
+        return selectExternalFilePathFromEffect(startupFile.path);
       })
       .catch((error: unknown) => {
         if (!isActive) {
@@ -1509,7 +1526,7 @@ export function App() {
       if (!path) {
         return;
       }
-      void selectFilePathFromEffect(path, "startup");
+      void selectExternalFilePathFromEffect(path);
     })
       .then((dispose) => {
         if (isDisposed) {
@@ -1517,6 +1534,27 @@ export function App() {
           return;
         }
         unlisten = dispose;
+
+        // macOS can deliver the Opened event while the webview is still
+        // mounting. The backend queues those paths; drain once after the
+        // listener is live so Finder / extension-association opens are not
+        // lost between the initial startup check and event subscription.
+        void getStartupFile()
+          .then((startupFile) => {
+            if (!isDisposed && startupFile) {
+              void selectExternalFilePathFromEffect(startupFile.path);
+            }
+          })
+          .catch((error: unknown) => {
+            if (isDisposed) {
+              return;
+            }
+            setOpenError(
+              error instanceof Error
+                ? error.message
+                : "Failed to resolve startup file.",
+            );
+          });
       })
       .catch(() => {
         // Tauri API unavailable (browser dev mode)
