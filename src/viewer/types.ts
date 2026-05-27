@@ -112,6 +112,7 @@ export type LoadedMmdMotion = {
 };
 
 export type DeferredTextureSnapshot = {
+  kind?: "texture" | "payload";
   total: number;
   loaded: number;
   failed: number;

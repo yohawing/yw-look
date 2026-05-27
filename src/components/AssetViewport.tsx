@@ -605,6 +605,7 @@ type AssetViewportProps = {
    * Setting to `null` or omitting reverts to the normal file-based path.
    */
   glbOverride?: ArrayBuffer | null;
+  deferredProgress?: DeferredTextureSnapshot | null;
   /**
    * #91: Called when scale normalization is applied or reverted.
    * Parent can use this to show/hide the "Cancel Scale Normalize" button.
@@ -870,6 +871,7 @@ export function AssetViewport({
   activeCameraId = null,
   onActiveCameraReset,
   glbOverride = null,
+  deferredProgress = null,
   onScaleNormalizationChange,
   cancelScaleNormalizationVersion = 0,
 }: AssetViewportProps) {
@@ -962,6 +964,7 @@ export function AssetViewport({
   );
   const [deferredTexture, setDeferredTexture] =
     useState<DeferredTextureSnapshot | null>(null);
+  const effectiveDeferredProgress = deferredTexture ?? deferredProgress;
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
 
@@ -3326,11 +3329,11 @@ export function AssetViewport({
       ) : null}
       {effectiveOverlayMode === "ready" &&
       viewerSurfaceMode === "asset" &&
-      deferredTexture ? (
+      effectiveDeferredProgress ? (
         <div className="viewport-deferred-console">
           <LoadingScreen
             compact
-            deferredTexture={deferredTexture}
+            deferredTexture={effectiveDeferredProgress}
             fileName={currentFile?.fileName}
           />
         </div>

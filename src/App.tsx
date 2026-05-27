@@ -109,7 +109,7 @@ import {
   type DirectoryListing,
   type SelectedFile,
 } from "./lib/files";
-import { prefetchAdjacent } from "./viewer";
+import { prefetchAdjacent, type DeferredTextureSnapshot } from "./viewer";
 import {
   loadSupportedExtensions,
   type IntegrationPayload,
@@ -230,6 +230,7 @@ const initialViewerFeedback: ViewerFeedback = {
 const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
 const DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE = 8;
 const DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD = 512;
+const DEFERRED_PREVIEW_EXTRACT_EVERY_PAYLOADS = 32;
 
 function glbMeshCount(buffer: ArrayBuffer): number {
   if (buffer.byteLength < 20) return 0;
@@ -551,6 +552,8 @@ export function App() {
   const [sessionGlbBuffer, setSessionGlbBuffer] = useState<ArrayBuffer | null>(
     null,
   );
+  const [deferredPayloadProgress, setDeferredPayloadProgress] =
+    useState<DeferredTextureSnapshot | null>(null);
 
   const isTauri = isTauriEnvironment();
   const recentExternalOpenRef = useRef<{
@@ -819,6 +822,7 @@ export function App() {
     // #44: reset session GLB buffer on every file / policy change so the
     // viewport doesn't flash stale geometry from a previous session.
     setSessionGlbBuffer(null);
+    setDeferredPayloadProgress(null);
 
     const path = currentFile.path;
 
@@ -2088,6 +2092,7 @@ export function App() {
     stageSessionHandleRef.current = stageSessionHandle;
     deferredPreviewSessionRef.current = null;
     sessionLoadedPayloadPathsRef.current = new Set();
+    setDeferredPayloadProgress(null);
   }, [stageSessionHandle]);
 
   const buildSessionExtractOptions = (): ExtractGeometryOptions => ({
@@ -2196,6 +2201,20 @@ export function App() {
 
         const loadedPreviewPayloads: string[] = [];
         const failedPreviewPayloads: string[] = [];
+        const reportDeferredPayload = (activeLabel: string | null) => {
+          const completed =
+            loadedPreviewPayloads.length + failedPreviewPayloads.length;
+          const snapshot: DeferredTextureSnapshot = {
+            kind: "payload",
+            total: previewPayloads.length,
+            loaded: loadedPreviewPayloads.length,
+            failed: failedPreviewPayloads.length,
+            pending: Math.max(0, previewPayloads.length - completed),
+            activeLabel,
+          };
+          setDeferredPayloadProgress(snapshot.pending > 0 ? snapshot : null);
+        };
+        reportDeferredPayload(previewPayloads[0] ?? null);
         let hasVisiblePreview = false;
         for (
           let start = 0;
@@ -2209,15 +2228,20 @@ export function App() {
             start,
             start + DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE,
           );
+          reportDeferredPayload(batch[0] ?? null);
           for (const primPath of batch) {
             try {
               await loadPayload(captured, primPath);
             } catch (err: unknown) {
+              if (cancelled || stageSessionHandleRef.current !== captured) {
+                return;
+              }
               console.warn("[usd] deferred preview payload load failed:", {
                 primPath,
                 err,
               });
               failedPreviewPayloads.push(primPath);
+              reportDeferredPayload(primPath);
               continue;
             }
             if (cancelled || stageSessionHandleRef.current !== captured) {
@@ -2225,6 +2249,7 @@ export function App() {
             }
             sessionLoadedPayloadPathsRef.current.add(primPath);
             loadedPreviewPayloads.push(primPath);
+            reportDeferredPayload(primPath);
           }
           setUnloadedPayloadPaths((prev) => {
             const next = new Set(prev);
@@ -2232,7 +2257,14 @@ export function App() {
             return next;
           });
           const isFinalBatch = start + batch.length >= previewPayloads.length;
-          const shouldExtract = !hasVisiblePreview || isFinalBatch;
+          const completedPreviewPayloads =
+            loadedPreviewPayloads.length + failedPreviewPayloads.length;
+          const shouldExtract =
+            !hasVisiblePreview ||
+            isFinalBatch ||
+            completedPreviewPayloads %
+              DEFERRED_PREVIEW_EXTRACT_EVERY_PAYLOADS ===
+              0;
           if (!shouldExtract) {
             await yieldDeferredPreviewFrame();
             if (cancelled || stageSessionHandleRef.current !== captured) {
@@ -2257,6 +2289,7 @@ export function App() {
             );
             if (isFinalBatch) {
               deferredPreviewSessionRef.current = captured;
+              setDeferredPayloadProgress(null);
               return;
             }
           } else {
@@ -2274,12 +2307,14 @@ export function App() {
       } catch (err: unknown) {
         if (cancelled || stageSessionHandleRef.current !== captured) return;
         console.warn("[usd] deferred preview payload load failed:", err);
+        setDeferredPayloadProgress(null);
       }
     };
 
     void loadPreviewBatch();
     return () => {
       cancelled = true;
+      setDeferredPayloadProgress(null);
     };
   }, [
     currentFile,
@@ -2825,6 +2860,7 @@ export function App() {
             activeCameraId={activeCameraId}
             onActiveCameraReset={() => setActiveCameraId(null)}
             glbOverride={sessionGlbBuffer}
+            deferredProgress={deferredPayloadProgress}
             onScaleNormalizationChange={setScaleNormalization}
             cancelScaleNormalizationVersion={cancelScaleNormalizeVersion}
           />
