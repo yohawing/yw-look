@@ -229,7 +229,7 @@ const initialViewerFeedback: ViewerFeedback = {
 };
 const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
 const DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE = 8;
-const DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD = 128;
+const DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD = 512;
 
 function glbMeshCount(buffer: ArrayBuffer): number {
   if (buffer.byteLength < 20) return 0;
@@ -1044,6 +1044,45 @@ export function App() {
     setPayloadPrimPaths(allPayloads);
     setUnloadedPayloadPaths(unloaded);
   }, [usdInspection, usdLoadPolicy]);
+
+  const sessionAdjustedUsdSummary = useMemo(() => {
+    if (
+      !usdSummary ||
+      !usdInspection ||
+      usdLoadPolicy !== "noPayloads" ||
+      payloadPrimPaths.size === 0
+    ) {
+      return usdSummary;
+    }
+    const payloadArcCounts = usdInspection.payloads.reduce(
+      (counts, arc) => {
+        if (arc.state === "missing") {
+          counts.unresolved += 1;
+        } else if (
+          arc.state === "unloaded" &&
+          unloadedPayloadPaths.has(arc.sourcePrim)
+        ) {
+          counts.unloaded += 1;
+        } else {
+          counts.resolved += 1;
+        }
+        return counts;
+      },
+      { resolved: 0, unloaded: 0, unresolved: 0 },
+    );
+    return {
+      ...usdSummary,
+      unloadedPayloadCount: payloadArcCounts.unloaded,
+      resolvedPayloadCount: payloadArcCounts.resolved,
+      unresolvedPayloadCount: payloadArcCounts.unresolved,
+    };
+  }, [
+    payloadPrimPaths.size,
+    unloadedPayloadPaths,
+    usdInspection,
+    usdLoadPolicy,
+    usdSummary,
+  ]);
 
   useEffect(() => {
     setPerformanceSnapshot((previous) => ({
@@ -2156,6 +2195,8 @@ export function App() {
         if (previewPayloads.length === 0) return;
 
         const loadedPreviewPayloads: string[] = [];
+        const failedPreviewPayloads: string[] = [];
+        let hasVisiblePreview = false;
         for (
           let start = 0;
           start < previewPayloads.length;
@@ -2169,7 +2210,16 @@ export function App() {
             start + DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE,
           );
           for (const primPath of batch) {
-            await loadPayload(captured, primPath);
+            try {
+              await loadPayload(captured, primPath);
+            } catch (err: unknown) {
+              console.warn("[usd] deferred preview payload load failed:", {
+                primPath,
+                err,
+              });
+              failedPreviewPayloads.push(primPath);
+              continue;
+            }
             if (cancelled || stageSessionHandleRef.current !== captured) {
               return;
             }
@@ -2181,6 +2231,15 @@ export function App() {
             for (const primPath of loadedPreviewPayloads) next.delete(primPath);
             return next;
           });
+          const isFinalBatch = start + batch.length >= previewPayloads.length;
+          const shouldExtract = !hasVisiblePreview || isFinalBatch;
+          if (!shouldExtract) {
+            await yieldDeferredPreviewFrame();
+            if (cancelled || stageSessionHandleRef.current !== captured) {
+              return;
+            }
+            continue;
+          }
           const glbBuffer = await extractGeometrySession(captured, {
             policy: "noPayloads",
             variantSelections,
@@ -2190,14 +2249,16 @@ export function App() {
             return;
           }
           const meshCount = glbMeshCount(glbBuffer);
-          const isFinalBatch = start + batch.length >= previewPayloads.length;
           if (meshCount > 0 || isFinalBatch) {
-            deferredPreviewSessionRef.current = captured;
+            hasVisiblePreview = meshCount > 0;
             setSessionGlbBuffer(glbBuffer);
             console.info(
-              `[usd] deferred preview batch ready (${loadedPreviewPayloads.length}/${previewPayloads.length} payloads, ${meshCount} meshes)`,
+              `[usd] deferred preview batch ready (${loadedPreviewPayloads.length}/${previewPayloads.length} payloads, ${meshCount} meshes, ${failedPreviewPayloads.length} failed)`,
             );
-            return;
+            if (isFinalBatch) {
+              deferredPreviewSessionRef.current = captured;
+              return;
+            }
           } else {
             console.warn(
               `[usd] deferred preview batch produced no meshes; continuing (${loadedPreviewPayloads.length}/${previewPayloads.length})`,
@@ -2240,7 +2301,7 @@ export function App() {
               metadata={sidebarAssetMetadata}
               performanceSnapshot={performanceSnapshot}
               usdPayloadSummary={
-                debugPanelsEnabled ? debugUsdSummary : usdSummary
+                debugPanelsEnabled ? debugUsdSummary : sessionAdjustedUsdSummary
               }
               warnings={sidebarWarnings}
             />
@@ -2254,7 +2315,7 @@ export function App() {
                   inspection={usdInspection}
                   issues={usdIssues}
                   loading={usdInspectorLoading}
-                  summary={usdSummary}
+                  summary={sessionAdjustedUsdSummary}
                   loadPolicy={usdLoadPolicy}
                   onLoadPolicyChange={setUsdLoadPolicy}
                   variantSelectionError={variantSelectionError}

@@ -29,7 +29,9 @@ import {
   extractGeometry,
   inspectStage,
   requiresGlbPreview,
+  summarizeStage,
   type StageInspection,
+  type StageSummary,
 } from "../lib/usd";
 import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
@@ -92,6 +94,12 @@ function inspectionHasDeferredPayloads(
   inspection: Pick<StageInspection, "payloads">,
 ): boolean {
   return inspection.payloads.some((arc) => arc.state === "unloaded");
+}
+
+function deferredSummaryHasNoRenderableGeometry(
+  summary: Pick<StageSummary, "totalVertices" | "unloadedPayloadCount">,
+): boolean {
+  return summary.unloadedPayloadCount > 0 && summary.totalVertices === 0;
 }
 
 async function readTextFile(path: string) {
@@ -1668,7 +1676,10 @@ function readUsdzFirstFileName(buffer: ArrayBuffer) {
   return new TextDecoder().decode(bytes);
 }
 
-async function parseUsdRuntimeHints(path: string): Promise<UsdRuntimeHints> {
+async function parseUsdRuntimeHints(
+  path: string,
+  policy?: import("../lib/usd").StageLoadPolicy,
+): Promise<UsdRuntimeHints> {
   // Delegated to the Rust `OpenusdBackend` via the Tauri command surface,
   // so this works for USDA, USDC, and USDZ uniformly. Returns just the
   // pieces the Three.js viewer cannot recover by itself — currently only
@@ -1680,7 +1691,7 @@ async function parseUsdRuntimeHints(path: string): Promise<UsdRuntimeHints> {
   const started = performance.now();
   const TIMEOUT_MS = 10_000;
   const inspection = await Promise.race([
-    inspectStage(path),
+    inspectStage(path, policy),
     new Promise<never>((_, reject) =>
       setTimeout(
         () =>
@@ -1700,6 +1711,13 @@ async function parseUsdRuntimeHints(path: string): Promise<UsdRuntimeHints> {
   };
 }
 
+async function parseUsdRuntimeHintsWithPolicy(
+  path: string,
+  policy: import("../lib/usd").StageLoadPolicy,
+): Promise<UsdRuntimeHints> {
+  return parseUsdRuntimeHints(path, policy);
+}
+
 /**
  * @internal Exported for unit-testing only. Not part of the public API.
  */
@@ -1711,6 +1729,7 @@ export {
   shouldFailClosedOnUsdPreviewDecisionFailure,
   isDeferredUsdEmptyStageError,
   inspectionHasDeferredPayloads,
+  deferredSummaryHasNoRenderableGeometry,
   applyMissingGltfTextureFallbacks,
   formatMissingTextureWarnings,
   resolveColladaTextureUrl,
@@ -2023,6 +2042,24 @@ async function loadPreviewObjectCore(
             `[usd] using session glb override (${glbBuffer.byteLength} bytes): ${file.fileName}`,
           );
         } else {
+          if (
+            usdPolicy === "noPayloads" &&
+            (!options.variantSelections ||
+              options.variantSelections.length === 0)
+          ) {
+            const summary = await summarizeStage(file.path, "noPayloads");
+            if (deferredSummaryHasNoRenderableGeometry(summary)) {
+              options.onWarning?.(
+                "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
+              );
+              return {
+                object: new Group(),
+                cleanupUrls: [],
+                clips: [],
+                formatVersion: null,
+              };
+            }
+          }
           reportStage("decode");
           await yieldToPaint();
           // #31: pass variant selections through to the Tauri backend so
@@ -2087,7 +2124,10 @@ async function loadPreviewObjectCore(
         // to apply uniformly.
         try {
           reportStage("scene");
-          const runtimeHints = await parseUsdRuntimeHints(file.path);
+          const runtimeHints = await parseUsdRuntimeHintsWithPolicy(
+            file.path,
+            usdPolicy,
+          );
           applyUsdRuntimeHints(object, runtimeHints);
         } catch (error) {
           console.warn("[usd] runtime hints failed:", error);

@@ -16,6 +16,7 @@ import {
   isUsdcCrateBuffer,
   isDeferredUsdEmptyStageError,
   inspectionHasDeferredPayloads,
+  deferredSummaryHasNoRenderableGeometry,
   readUsdzFirstFileName,
   shouldFailClosedOnUsdPreviewDecisionFailure,
   applyMissingGltfTextureFallbacks,
@@ -208,6 +209,27 @@ describe("USD deferred payload handling", () => {
       inspectionHasDeferredPayloads({
         payloads: [{ state: "loaded" }, { state: "missing" }],
       } as Parameters<typeof inspectionHasDeferredPayloads>[0]),
+    ).toBe(false);
+  });
+
+  it("only skips deferred extraction when no renderable vertices remain", () => {
+    expect(
+      deferredSummaryHasNoRenderableGeometry({
+        unloadedPayloadCount: 1,
+        totalVertices: 0,
+      }),
+    ).toBe(true);
+    expect(
+      deferredSummaryHasNoRenderableGeometry({
+        unloadedPayloadCount: 1,
+        totalVertices: 12,
+      }),
+    ).toBe(false);
+    expect(
+      deferredSummaryHasNoRenderableGeometry({
+        unloadedPayloadCount: 0,
+        totalVertices: 0,
+      }),
     ).toBe(false);
   });
 });
