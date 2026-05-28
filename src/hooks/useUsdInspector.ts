@@ -33,7 +33,6 @@ export function useUsdInspector(
   currentFile: SelectedFile | null,
   isTauri: boolean,
   usdLoadPolicy: StageLoadPolicy,
-  onResetCrossCuttingState: () => void,
 ) {
   const [usdSummary, setUsdSummary] = useState<StageSummary | null>(null);
   const [usdInspection, setUsdInspection] = useState<StageInspection | null>(
@@ -64,7 +63,6 @@ export function useUsdInspector(
     setUsdLights(null);
     setUsdInspectorLoading(true);
     setUsdInspectorError(null);
-    onResetCrossCuttingState();
 
     const path = currentFile.path;
 
@@ -141,7 +139,7 @@ export function useUsdInspector(
     return () => {
       cancelled = true;
     };
-  }, [currentFile, isTauri, usdLoadPolicy, onResetCrossCuttingState]);
+  }, [currentFile, isTauri, usdLoadPolicy]);
 
   return {
     usdSummary,
