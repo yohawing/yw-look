@@ -67,25 +67,18 @@ import type { ToolbarItem } from "./components/toolbar/types";
 import { WarningsCard } from "./components/WarningsCard";
 import {
   closeStageSession,
-  collectAssetIssues,
   extractGeometrySession,
   formatUsdErrorForDisplay,
-  inspectStage,
-  inspectUsdLights,
   isInvalidVariantSelectionError,
   loadPayload,
   openStageSession,
   parseUsdError,
-  summarizeStage,
   unloadPayload,
   type AssetIssue,
   type ExtractGeometryOptions,
   type PurposeModes,
-  type StageInspection,
   type StageLoadPolicy,
-  type StageSummary,
   type StageSessionHandle,
-  type UsdLightInfo,
   type VariantSelection,
 } from "./lib/usd";
 import {
@@ -134,6 +127,7 @@ import {
 } from "./lib/settings";
 import { usePerformanceTracker } from "./hooks/usePerformanceTracker";
 import { useUpdater } from "./hooks/useUpdater";
+import { useUsdInspector } from "./hooks/useUsdInspector";
 
 type SidebarTab = SidebarTabId;
 
@@ -401,18 +395,6 @@ export function App() {
     title: string;
     lines: string[];
   } | null>(null);
-  const [usdSummary, setUsdSummary] = useState<StageSummary | null>(null);
-  const [usdInspection, setUsdInspection] = useState<StageInspection | null>(
-    null,
-  );
-  const [usdIssues, setUsdIssues] = useState<AssetIssue[]>([]);
-  const [usdInspectorLoading, setUsdInspectorLoading] = useState(false);
-  const [usdInspectorError, setUsdInspectorError] = useState<string | null>(
-    null,
-  );
-  // #35: USD light details fetched directly from USD (C++ backend only).
-  // `null` = not fetched yet or not a USD file; `[]` = no lights found.
-  const [usdLights, setUsdLights] = useState<UsdLightInfo[] | null>(null);
   // Phase 4: deferred-payload toggle. Default to `loadAll` so payload-only
   // component roots open with visible geometry; switching to `noPayloads`
   // re-runs the inspector and GLB pipeline with payloads deferred.
@@ -590,6 +572,26 @@ export function App() {
     () => splitViewerWarnings(viewerFeedback.warning),
     [viewerFeedback.warning],
   );
+  const resetUsdCrossCuttingState = useCallback(() => {
+    setVariantSelections([]);
+    setVariantSelectionError(null);
+    setSessionGlbBuffer(null);
+  }, []);
+
+  const {
+    usdSummary,
+    usdInspection,
+    usdIssues,
+    usdLights,
+    usdInspectorLoading,
+    usdInspectorError,
+  } = useUsdInspector(
+    currentFile,
+    isTauri,
+    usdLoadPolicy,
+    resetUsdCrossCuttingState,
+  );
+
   const warnings = useMemo(() => {
     const nextWarnings: string[] = [];
 
@@ -714,125 +716,6 @@ export function App() {
       isActive = false;
     };
   }, []);
-
-  // Phase 2 USD inspector pipeline. Runs in parallel with the Three.js
-  // load path in AssetViewport, so the sidebar can show stage summary /
-  // inspection / asset issues before the heavy USDLoader parse finishes.
-  // See docs/usd.md.
-  useEffect(() => {
-    if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
-      setUsdSummary(null);
-      setUsdInspection(null);
-      setUsdIssues([]);
-      setUsdLights(null);
-      setUsdInspectorLoading(false);
-      setUsdInspectorError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setUsdSummary(null);
-    setUsdInspection(null);
-    setUsdIssues([]);
-    setUsdLights(null);
-    setUsdInspectorLoading(true);
-    setUsdInspectorError(null);
-    // #31: reset variant selections when a new file is opened so the
-    // pulldown reflects the authored defaults, not stale overrides from
-    // the previous file.
-    setVariantSelections([]);
-    setVariantSelectionError(null);
-    // #44: reset session GLB buffer on every file / policy change so the
-    // viewport doesn't flash stale geometry from a previous session.
-    setSessionGlbBuffer(null);
-
-    const path = currentFile.path;
-
-    // Summary resolves first and updates the UI immediately; the heavier
-    // inspection and asset-issue RPCs land later. We only drop the
-    // `loading` flag once ALL three settle so the card cannot flicker
-    // back to its "Open a USD…" empty state when the fastest RPC wins
-    // the race (e.g. `collect_asset_issues` returning an empty list
-    // before `summarize_stage` has produced any output).
-    const usdInspectorStartMs = performance.now();
-
-    const summarizePromise = summarizeStage(path, usdLoadPolicy)
-      .then((summary) => {
-        if (cancelled) return;
-        setUsdSummary(summary);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setUsdInspectorError(
-          errorMessage(error, "Failed to summarize USD stage."),
-        );
-      });
-
-    const inspectPromise = inspectStage(path, usdLoadPolicy)
-      .then((inspection) => {
-        if (cancelled) return;
-        setUsdInspection(inspection);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        // Keep any earlier summarize error; otherwise record this one.
-        setUsdInspectorError(
-          (previous) =>
-            previous ?? errorMessage(error, "Failed to inspect USD stage."),
-        );
-      });
-
-    const issuesPromise =
-      usdLoadPolicy === "loadAll"
-        ? collectAssetIssues(path)
-            .then((issues) => {
-              if (cancelled) return;
-              setUsdIssues(issues);
-            })
-            .catch((error: unknown) => {
-              if (cancelled) return;
-              setUsdInspectorError(
-                (previous) =>
-                  previous ??
-                  errorMessage(error, "Failed to collect USD asset issues."),
-              );
-            })
-        : Promise.resolve();
-
-    // #35: fetch USD light details from the C++ backend.
-    // Errors are silently ignored — the Rust-fork backend returns an error
-    // and in that case we fall back to the Three.js LightEntry list.
-    const lightsPromise =
-      usdLoadPolicy === "loadAll"
-        ? inspectUsdLights(path)
-            .then((lights) => {
-              if (cancelled) return;
-              setUsdLights(lights);
-            })
-            .catch(() => {
-              // Degraded: C++ backend not available or backend error — leave
-              // usdLights as null so the UI falls back to Three.js LightEntry data.
-            })
-        : Promise.resolve();
-
-    void Promise.allSettled([
-      summarizePromise,
-      inspectPromise,
-      issuesPromise,
-      lightsPromise,
-    ]).then(() => {
-      if (cancelled) return;
-      setUsdInspectorLoading(false);
-      const elapsedMs = Math.round(performance.now() - usdInspectorStartMs);
-      console.info(
-        `[usd] inspector RPCs settled in ${elapsedMs}ms (policy=${usdLoadPolicy}): ${path}`,
-      );
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentFile, isTauri, usdLoadPolicy]);
 
   // #44: open a stateful stage session when a USD file is loaded with
   // `noPayloads` policy (enables per-prim load/unload). Close any previous
@@ -1068,31 +951,6 @@ export function App() {
     handleCheckForUpdate,
     handleInstallUpdate,
   } = useUpdater(shouldLoadDeferredData, settingsPayload);
-
-  useEffect(() => {
-    if (!shouldLoadDeferredData) {
-      return;
-    }
-
-    void refreshUpdateConfiguration();
-  }, [shouldLoadDeferredData]);
-
-  // #26: when the user has opted in via Settings, run a single
-  // `check_for_update` call once `settingsPayload` has loaded.
-  // Intentionally NOT gated on `shouldLoadDeferredData` (the sidebar
-  // toggle) — the user may run with the sidebar collapsed, and a
-  // pending update should still surface on startup. `check_for_update`
-  // returns the update configuration alongside the result, so we do
-  // not need a separate `load_update_configuration` round-trip first.
-  // The auto-check is one-shot per session; a polling enhancement is
-  // out of scope for #26's first surface.
-  const autoUpdateCheckedRef = useRef(false);
-  useEffect(() => {
-    if (autoUpdateCheckedRef.current) return;
-    if (!settingsPayload?.settings.autoCheckForUpdates) return;
-    autoUpdateCheckedRef.current = true;
-    void handleCheckForUpdate();
-  }, [settingsPayload?.settings.autoCheckForUpdates]);
 
   useEffect(() => {
     if (!shouldLoadDeferredData) {
