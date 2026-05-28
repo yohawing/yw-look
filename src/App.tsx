@@ -73,14 +73,7 @@ import {
   type StageLoadPolicy,
   type VariantSelection,
 } from "./lib/usd";
-import {
-  loadDiagnosticsSnapshot,
-  loadProcessMemoryMetrics,
-  logDiagnosticEvent,
-  type DiagnosticsPayload,
-  type ProcessMemoryMetrics,
-  type ResourceDiagnosticsSnapshot,
-} from "./lib/diagnostics";
+import { type ResourceDiagnosticsSnapshot } from "./lib/diagnostics";
 import {
   getStartupFile,
   inspectAsset,
@@ -92,11 +85,6 @@ import {
   type SelectedFile,
 } from "./lib/files";
 import { prefetchAdjacent } from "./viewer";
-import {
-  loadSupportedExtensions,
-  type IntegrationPayload,
-} from "./lib/integrations";
-import { loadRecentFiles, type RecentFilesPayload } from "./lib/recentFiles";
 import { isTauriEnvironment } from "./lib/platform";
 import {
   formatShortcut,
@@ -112,15 +100,12 @@ import {
   type ViewportShortcutCommand,
   type ViewerShortcutAction,
 } from "./lib/viewerShortcuts";
-import {
-  loadSettings,
-  saveSettings,
-  type SettingsPayload,
-} from "./lib/settings";
+import { saveSettings } from "./lib/settings";
 import { usePerformanceTracker } from "./hooks/usePerformanceTracker";
 import { useUpdater } from "./hooks/useUpdater";
 import { useUsdInspector } from "./hooks/useUsdInspector";
 import { usePayloadSession } from "./hooks/usePayloadSession";
+import { useDeferredData } from "./hooks/useDeferredData";
 
 type SidebarTab = SidebarTabId;
 
@@ -346,9 +331,6 @@ export function App() {
     useState(0);
   const [viewportShortcutCommand, setViewportShortcutCommand] =
     useState<ViewportShortcutCommand | null>(null);
-  const [settingsPayload, setSettingsPayload] =
-    useState<SettingsPayload | null>(null);
-  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [assetMetadata, setAssetMetadata] = useState<AssetMetadata | null>(
     emptyAssetMetadata,
   );
@@ -371,19 +353,8 @@ export function App() {
   // be rotated/zoomed as a 3D quad — useful for inspecting how a
   // texture behaves at glancing angles or with the env reflection.
   const [texturePreview3D] = useState(false);
-  const [recentFilesPayload, setRecentFilesPayload] =
-    useState<RecentFilesPayload | null>(null);
-  const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
-  const [diagnosticsPayload, setDiagnosticsPayload] =
-    useState<DiagnosticsPayload | null>(null);
-  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [resourceDiagnostics, setResourceDiagnostics] =
     useState<ResourceDiagnosticsSnapshot | null>(null);
-  const [processMemoryMetrics, setProcessMemoryMetrics] =
-    useState<ProcessMemoryMetrics | null>(null);
-  const [integrationPayload, setIntegrationPayload] =
-    useState<IntegrationPayload | null>(null);
-  const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [dialogState, setDialogState] = useState<{
     title: string;
     lines: string[];
@@ -439,10 +410,6 @@ export function App() {
   const sidebarDirectoryListing = debugPanelsEnabled
     ? debugPanelDirectoryListing
     : directoryListing;
-  const sidebarRecentFilesPayload = debugPanelsEnabled
-    ? debugPanelRecentFiles
-    : recentFilesPayload;
-  const sidebarRecentFilesError = debugPanelsEnabled ? null : recentFilesError;
   const recordVariantSelectionError = useCallback((error: unknown): boolean => {
     const parsed = parseUsdError(error);
     if (!isInvalidVariantSelectionError(parsed)) {
@@ -645,33 +612,6 @@ export function App() {
     [],
   );
 
-  useEffect(() => {
-    let isActive = true;
-
-    loadSettings()
-      .then((payload) => {
-        if (!isActive) {
-          return;
-        }
-
-        setSettingsPayload(payload);
-        setSettingsError(null);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        setSettingsError(
-          error instanceof Error ? error.message : "Failed to load settings.",
-        );
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
   const {
     stageSessionHandle,
     payloadPrimPaths,
@@ -696,94 +636,32 @@ export function App() {
     setSessionGlbBuffer(null);
   }, [currentFile, usdLoadPolicy, setSessionGlbBuffer]);
 
-  const { performanceSnapshot, recordLoadTiming } = usePerformanceTracker(
+  const {
     settingsPayload,
     settingsError,
+    setSettingsPayload,
+    setSettingsError,
+    recentFilesPayload,
+    recentFilesError,
+    setRecentFilesError,
+    diagnosticsPayload,
+    diagnosticsError,
+    processMemoryMetrics,
+    integrationPayload,
+    integrationError,
+    logDiagnosticEventAndRefresh,
+  } = useDeferredData(
+    isTauri,
+    shouldLoadRecentFiles,
+    shouldLoadDeferredData,
+    currentFile,
+    resourceDiagnostics,
   );
 
-  useEffect(() => {
-    if (!shouldLoadRecentFiles) {
-      return;
-    }
-
-    let isActive = true;
-
-    loadRecentFiles()
-      .then((payload) => {
-        if (!isActive) {
-          return;
-        }
-
-        setRecentFilesPayload(payload);
-        setRecentFilesError(null);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        setRecentFilesError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load recent files.",
-        );
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [currentFile, shouldLoadRecentFiles]);
-
-  const refreshDiagnostics = useEffectEvent(async () => {
-    try {
-      const payload = await loadDiagnosticsSnapshot();
-      setDiagnosticsPayload(payload);
-      setDiagnosticsError(null);
-    } catch (error: unknown) {
-      setDiagnosticsError(
-        error instanceof Error
-          ? error.message
-          : "Failed to load diagnostics snapshot.",
-      );
-    }
-  });
-
-  useEffect(() => {
-    if (!shouldLoadDeferredData) {
-      return;
-    }
-
-    void refreshDiagnostics();
-  }, [shouldLoadDeferredData]);
-
-  const refreshProcessMemory = useEffectEvent(async () => {
-    if (!isTauri) {
-      setProcessMemoryMetrics(null);
-      return;
-    }
-
-    try {
-      const metrics = await loadProcessMemoryMetrics();
-      setProcessMemoryMetrics(metrics);
-    } catch {
-      setProcessMemoryMetrics(null);
-    }
-  });
-
-  useEffect(() => {
-    if (!isTauri) {
-      setProcessMemoryMetrics(null);
-      return;
-    }
-
-    void refreshProcessMemory();
-    const interval = window.setInterval(() => {
-      void refreshProcessMemory();
-    }, 2000);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [isTauri]);
+  const sidebarRecentFilesPayload = debugPanelsEnabled
+    ? debugPanelRecentFiles
+    : recentFilesPayload;
+  const sidebarRecentFilesError = debugPanelsEnabled ? null : recentFilesError;
 
   const {
     updateConfiguration,
@@ -797,41 +675,10 @@ export function App() {
     handleInstallUpdate,
   } = useUpdater(shouldLoadDeferredData, settingsPayload);
 
-  useEffect(() => {
-    if (!shouldLoadDeferredData) {
-      return;
-    }
-
-    let isActive = true;
-
-    loadSupportedExtensions()
-      .then((payload) => {
-        if (!isActive) {
-          return;
-        }
-
-        setIntegrationPayload(payload);
-        setIntegrationError(null);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        setIntegrationError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load Windows integration details.",
-        );
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [
-    settingsPayload?.settings.fileAssociationsEnabled,
-    shouldLoadDeferredData,
-  ]);
+  const { performanceSnapshot, recordLoadTiming } = usePerformanceTracker(
+    settingsPayload,
+    settingsError,
+  );
 
   useEffect(() => {
     // #33: a fresh file invalidates the prior viewport pick. The
@@ -911,15 +758,14 @@ export function App() {
     }
 
     void (async () => {
-      await logDiagnosticEvent({
+      await logDiagnosticEventAndRefresh({
         code: "APP_OPEN_ERROR",
         level: "error",
         message: openError,
         contextPath: currentFile?.path ?? null,
       });
-      await refreshDiagnostics();
     })();
-  }, [currentFile?.path, openError]);
+  }, [currentFile?.path, openError, logDiagnosticEventAndRefresh]);
 
   useEffect(() => {
     // "loading" is a transient state — do not record it as a diagnostic
@@ -950,20 +796,20 @@ export function App() {
     );
 
     void (async () => {
-      await logDiagnosticEvent({
+      await logDiagnosticEventAndRefresh({
         code: `VIEWER_${viewerFeedback.mode.toUpperCase()}`,
         level,
         message: viewerFeedback.message,
         detail: viewerFeedback.warning,
         contextPath: currentFile?.path ?? null,
       });
-      await refreshDiagnostics();
     })();
   }, [
     currentFile?.path,
     viewerFeedback.message,
     viewerFeedback.mode,
     viewerFeedback.warning,
+    logDiagnosticEventAndRefresh,
   ]);
 
   const performSelectFilePath = async (
