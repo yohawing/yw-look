@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
 } from "react";
+/* eslint-disable react-hooks/set-state-in-effect -- existing effect patterns intentionally reset state synchronously */
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -86,16 +87,9 @@ import {
 } from "./lib/files";
 import { prefetchAdjacent } from "./viewer";
 import { isTauriEnvironment } from "./lib/platform";
-import {
-  formatShortcut,
-  menuShortcuts,
-  resolveShortcutAction,
-  type MenuActionId,
-} from "./lib/menu";
+import { formatShortcut, menuShortcuts, type MenuActionId } from "./lib/menu";
 import {
   applyViewerShortcutAction,
-  isEditableShortcutTarget,
-  resolveViewerShortcutAction,
   viewerShortcutHelpLines,
   type ViewportShortcutCommand,
   type ViewerShortcutAction,
@@ -106,6 +100,7 @@ import { useUpdater } from "./hooks/useUpdater";
 import { useUsdInspector } from "./hooks/useUsdInspector";
 import { usePayloadSession } from "./hooks/usePayloadSession";
 import { useDeferredData } from "./hooks/useDeferredData";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 
 type SidebarTab = SidebarTabId;
 
@@ -983,90 +978,6 @@ export function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      const target = event.target as HTMLElement | null;
-      const isTyping =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable;
-
-      if (
-        isTyping ||
-        !directoryListing ||
-        directoryListing.currentIndex === null
-      ) {
-        return;
-      }
-
-      if (event.key === "ArrowLeft" && canNavigatePrev) {
-        event.preventDefault();
-        const nextFile =
-          directoryListing.files[directoryListing.currentIndex - 1];
-        void selectFilePathFromEffect(nextFile.path, "navigation").catch(
-          (error: unknown) => {
-            setOpenError(
-              error instanceof Error
-                ? error.message
-                : "Failed to navigate to previous file.",
-            );
-          },
-        );
-      }
-
-      if (event.key === "ArrowRight" && canNavigateNext) {
-        event.preventDefault();
-        const nextFile =
-          directoryListing.files[directoryListing.currentIndex + 1];
-        void selectFilePathFromEffect(nextFile.path, "navigation").catch(
-          (error: unknown) => {
-            setOpenError(
-              error instanceof Error
-                ? error.message
-                : "Failed to navigate to next file.",
-            );
-          },
-        );
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [canNavigateNext, canNavigatePrev, directoryListing]);
-
-  /* eslint-disable react-hooks/immutability -- useEffectEvent wrappers declared later create stable handles */
-  useEffect(() => {
-    const handleViewerShortcutDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      if (isEditableShortcutTarget(event.target)) {
-        return;
-      }
-
-      const action = resolveViewerShortcutAction(event);
-      if (!action) {
-        return;
-      }
-
-      event.preventDefault();
-      runViewerShortcutAction(action);
-    };
-
-    window.addEventListener("keydown", handleViewerShortcutDown);
-    return () => {
-      window.removeEventListener("keydown", handleViewerShortcutDown);
-    };
-  }, []);
-  /* eslint-enable react-hooks/immutability */
-
   const handleOpenFile = async () => {
     try {
       const selectedFile = await openFileDialog();
@@ -1223,39 +1134,21 @@ export function App() {
     }
   };
 
-  const runMenuActionFromShortcut = useEffectEvent((actionId: MenuActionId) => {
-    void executeMenuAction(actionId);
-  });
-  const runViewerShortcutAction = useEffectEvent(
-    (action: ViewerShortcutAction) => {
-      executeViewerShortcutAction(action);
-    },
-  );
-
-  useEffect(() => {
-    const handleShortcutDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      const actionId = resolveShortcutAction(event);
-      if (!actionId) {
-        return;
-      }
-
-      if (isEditableShortcutTarget(event.target)) {
-        return;
-      }
-
-      event.preventDefault();
-      runMenuActionFromShortcut(actionId);
-    };
-
-    window.addEventListener("keydown", handleShortcutDown);
-    return () => {
-      window.removeEventListener("keydown", handleShortcutDown);
-    };
+  const handleNavigateError = useCallback((error: unknown) => {
+    setOpenError(
+      error instanceof Error ? error.message : "Failed to navigate to file.",
+    );
   }, []);
+
+  useKeyboardShortcuts(
+    canNavigatePrev,
+    canNavigateNext,
+    directoryListing,
+    handleNavigateError,
+    performSelectFilePath,
+    executeViewerShortcutAction,
+    executeMenuAction,
+  );
 
   const handleToggleFileAssociations = async () => {
     if (!settingsPayload) {
@@ -1641,12 +1534,7 @@ export function App() {
     }
 
     return items;
-  }, [
-    currentFileSummary,
-    openUpdatePanel,
-    performanceSnapshot,
-    updateCheck?.update,
-  ]);
+  }, [currentFileSummary, openUpdatePanel, performanceSnapshot, updateCheck]);
 
   const handleSidebarResizeStart = (
     event: React.PointerEvent<HTMLDivElement>,
