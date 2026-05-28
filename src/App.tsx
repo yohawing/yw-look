@@ -128,18 +128,12 @@ import {
   type ViewerShortcutAction,
 } from "./lib/viewerShortcuts";
 import {
-  checkForUpdate,
-  installPendingUpdate,
-  loadUpdateConfiguration,
-  type UpdateCheckPayload,
-  type UpdateConfigurationPayload,
-} from "./lib/updater";
-import {
   loadSettings,
   saveSettings,
   type SettingsPayload,
 } from "./lib/settings";
 import { usePerformanceTracker } from "./hooks/usePerformanceTracker";
+import { useUpdater } from "./hooks/useUpdater";
 
 type SidebarTab = SidebarTabId;
 
@@ -403,14 +397,6 @@ export function App() {
   const [integrationPayload, setIntegrationPayload] =
     useState<IntegrationPayload | null>(null);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
-  const [updateConfiguration, setUpdateConfiguration] =
-    useState<UpdateConfigurationPayload | null>(null);
-  const [updateCheck, setUpdateCheck] = useState<UpdateCheckPayload | null>(
-    null,
-  );
-  const [updateError, setUpdateError] = useState<string | null>(null);
-  const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
-  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
   const [dialogState, setDialogState] = useState<{
     title: string;
     lines: string[];
@@ -1071,27 +1057,17 @@ export function App() {
     };
   }, [isTauri]);
 
-  useEffect(() => {
-    if (!isTauri || !resourceDiagnostics) {
-      return;
-    }
-
-    void refreshProcessMemory();
-  }, [isTauri, resourceDiagnostics]);
-
-  const refreshUpdateConfiguration = async () => {
-    try {
-      const payload = await loadUpdateConfiguration();
-      setUpdateConfiguration(payload);
-      setUpdateError(null);
-    } catch (error: unknown) {
-      setUpdateError(
-        error instanceof Error
-          ? error.message
-          : "Failed to load updater configuration.",
-      );
-    }
-  };
+  const {
+    updateConfiguration,
+    updateCheck,
+    updateError,
+    isCheckingForUpdate,
+    isInstallingUpdate,
+    setUpdateError,
+    refreshUpdateConfiguration,
+    handleCheckForUpdate,
+    handleInstallUpdate,
+  } = useUpdater(shouldLoadDeferredData, settingsPayload);
 
   useEffect(() => {
     if (!shouldLoadDeferredData) {
@@ -1801,36 +1777,6 @@ export function App() {
     }
   };
 
-  const handleCheckForUpdate = async () => {
-    try {
-      setIsCheckingForUpdate(true);
-      const payload = await checkForUpdate();
-      setUpdateCheck(payload);
-      setUpdateConfiguration(payload.configuration);
-      setUpdateError(null);
-    } catch (error: unknown) {
-      setUpdateError(errorMessage(error, "Failed to check for updates."));
-    } finally {
-      setIsCheckingForUpdate(false);
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    try {
-      setIsInstallingUpdate(true);
-      setUpdateError(
-        "Installing update. On Windows, yw-look may close and relaunch before this panel receives a final result.",
-      );
-      const payload = await installPendingUpdate();
-      setUpdateError(payload.note);
-      setUpdateCheck(null);
-    } catch (error: unknown) {
-      setUpdateError(errorMessage(error, "Failed to install update."));
-    } finally {
-      setIsInstallingUpdate(false);
-    }
-  };
-
   // #44: per-prim payload load/unload. Calls the backend, updates the local
   // unloaded set optimistically, then re-extracts the GLB from the session.
   // The re-extract carries the user's variantSelections / purposeModes so a
@@ -2179,7 +2125,7 @@ export function App() {
     setSidebarOpen(true);
     setActiveTab("settings");
     void refreshUpdateConfiguration();
-  }, []);
+  }, [refreshUpdateConfiguration]);
 
   const statusLeftItems = useMemo(() => {
     const items = buildStatusLeftItems({
