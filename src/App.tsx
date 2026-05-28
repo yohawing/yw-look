@@ -49,10 +49,7 @@ import { HierarchyCard } from "./components/HierarchyCard";
 import { UsdPrimPropertyPanel } from "./components/UsdPrimPropertyPanel";
 import { MaterialListCard } from "./components/MaterialListCard";
 import { MmdMetadataCard } from "./components/MmdMetadataCard";
-import {
-  PerformanceCard,
-  type PerformanceSnapshot,
-} from "./components/PerformanceCard";
+import { PerformanceCard } from "./components/PerformanceCard";
 import { SceneLightsCamerasCard } from "./components/SceneLightsCamerasCard";
 import { SidebarTabs } from "./components/SidebarTabs";
 import { createSidebarTabs } from "./components/sidebarTabItems";
@@ -142,16 +139,9 @@ import {
   saveSettings,
   type SettingsPayload,
 } from "./lib/settings";
+import { usePerformanceTracker } from "./hooks/usePerformanceTracker";
 
 type SidebarTab = SidebarTabId;
-
-type WindowWithIdleCallback = Window & {
-  requestIdleCallback?: (
-    callback: (deadline: IdleDeadline) => void,
-    options?: IdleRequestOptions,
-  ) => number;
-  cancelIdleCallback?: (handle: number) => void;
-};
 
 const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
 const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
@@ -227,8 +217,6 @@ const initialViewerFeedback: ViewerFeedback = {
   warning: null,
   canResetCamera: false,
 };
-const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
-
 function deriveDisplayMode(
   showTexture: boolean,
   showWireframe: boolean,
@@ -314,7 +302,6 @@ const cameraPresetOptions: Array<{
 const DEFAULT_EXPOSURE = 1.1;
 
 export function App() {
-  const appStartRef = useRef(performance.now());
   const [activeTab, setActiveTab] = useState<SidebarTab>("properties");
   const [sidebarOpen, setSidebarOpen] = useState(
     () => window.innerWidth >= 720,
@@ -428,14 +415,6 @@ export function App() {
     title: string;
     lines: string[];
   } | null>(null);
-  const [performanceSnapshot, setPerformanceSnapshot] =
-    useState<PerformanceSnapshot>({
-      startupMs: null,
-      loadMs: null,
-      navigationMs: null,
-      firstPaintMs: null,
-      interactiveMs: null,
-    });
   const [usdSummary, setUsdSummary] = useState<StageSummary | null>(null);
   const [usdInspection, setUsdInspection] = useState<StageInspection | null>(
     null,
@@ -1003,105 +982,10 @@ export function App() {
     setUnloadedPayloadPaths(unloaded);
   }, [usdInspection, usdLoadPolicy]);
 
-  useEffect(() => {
-    setPerformanceSnapshot((previous) => ({
-      ...previous,
-      startupMs: performance.now() - appStartRef.current,
-    }));
-
-    const existingPaintMetric = performance
-      .getEntriesByType("paint")
-      .find((entry) => entry.name === "first-contentful-paint");
-    if (existingPaintMetric) {
-      setPerformanceSnapshot((previous) =>
-        previous.firstPaintMs === null
-          ? {
-              ...previous,
-              firstPaintMs: existingPaintMetric.startTime,
-            }
-          : previous,
-      );
-    }
-
-    if (typeof PerformanceObserver === "undefined") {
-      return;
-    }
-
-    const paintObserver = new PerformanceObserver((entryList) => {
-      const firstPaint = entryList
-        .getEntries()
-        .find((entry) => entry.name === "first-contentful-paint");
-      if (!firstPaint) {
-        return;
-      }
-
-      setPerformanceSnapshot((previous) =>
-        previous.firstPaintMs === null
-          ? {
-              ...previous,
-              firstPaintMs: firstPaint.startTime,
-            }
-          : previous,
-      );
-      paintObserver.disconnect();
-    });
-
-    try {
-      paintObserver.observe({ type: "paint", buffered: true });
-    } catch {
-      paintObserver.disconnect();
-    }
-
-    return () => {
-      paintObserver.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (performanceSnapshot.interactiveMs !== null) {
-      return;
-    }
-
-    if (!settingsPayload && !settingsError) {
-      return;
-    }
-
-    let cancelled = false;
-    const markInteractive = () => {
-      if (cancelled) {
-        return;
-      }
-
-      setPerformanceSnapshot((previous) =>
-        previous.interactiveMs === null
-          ? {
-              ...previous,
-              interactiveMs: performance.now() - appStartRef.current,
-            }
-          : previous,
-      );
-    };
-
-    const idleWindow = window as WindowWithIdleCallback;
-
-    if (typeof idleWindow.requestIdleCallback === "function") {
-      const callbackId = idleWindow.requestIdleCallback(markInteractive, {
-        // Keep this short so the metric still reflects initial usability
-        // while allowing the browser to complete immediate startup work.
-        timeout: TIME_TO_INTERACTIVE_TIMEOUT_MS,
-      });
-      return () => {
-        cancelled = true;
-        idleWindow.cancelIdleCallback?.(callbackId);
-      };
-    }
-
-    const timeoutId = window.setTimeout(markInteractive, 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
-  }, [performanceSnapshot.interactiveMs, settingsError, settingsPayload]);
+  const { performanceSnapshot, recordLoadTiming } = usePerformanceTracker(
+    settingsPayload,
+    settingsError,
+  );
 
   useEffect(() => {
     if (!shouldLoadRecentFiles) {
@@ -1426,12 +1310,7 @@ export function App() {
     setMmdMotionRequest(null);
     setDirectoryListing(listing);
     prefetchAdjacent(listing.files, listing.currentIndex);
-    const elapsed = performance.now() - startedAt;
-    setPerformanceSnapshot((previous) => ({
-      ...previous,
-      loadMs: elapsed,
-      navigationMs: reason === "navigation" ? elapsed : previous.navigationMs,
-    }));
+    recordLoadTiming(startedAt, reason);
   };
 
   const selectFilePathFromEffect = useEffectEvent(
