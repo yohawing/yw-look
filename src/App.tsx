@@ -5,29 +5,18 @@ import {
   useEffect,
   useEffectEvent,
   useMemo,
-  useState,
 } from "react";
-/* eslint-disable react-hooks/set-state-in-effect -- existing effect patterns intentionally reset state synchronously */
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
-  type BackgroundPreset,
   type CameraPreset,
-  type CameraPresetRequest,
   type DisplayMode,
   type EnvironmentPreset,
-  type TextureFilterMode,
   type TextureViewMode,
-  type ToneMappingMode,
-  type ViewerFeedback,
-  type ViewerSurfaceMode,
 } from "./components/AssetViewport";
-import {
-  emptyAssetMetadata,
-  type AssetMetadata,
-} from "./components/assetMetadata";
+import { type AssetMetadata } from "./components/assetMetadata";
 import { AppStatusBar } from "./components/AppStatusBar";
 import {
   buildStatusLeftItems,
@@ -54,7 +43,6 @@ import { SceneLightsCamerasCard } from "./components/SceneLightsCamerasCard";
 import { SidebarTabs } from "./components/SidebarTabs";
 import { createSidebarTabs } from "./components/sidebarTabItems";
 import { SidebarEmpty, SidebarSection } from "./components/sidebarPrimitives";
-import type { SidebarTabId } from "./components/SidebarTabIcons";
 import { TextureListCard } from "./components/TextureListCard";
 import { UsdInspectorCard } from "./components/UsdInspectorCard";
 import { ViewportControls } from "./components/ViewportControls";
@@ -70,19 +58,13 @@ import {
   isInvalidVariantSelectionError,
   parseUsdError,
   type AssetIssue,
-  type PurposeModes,
-  type StageLoadPolicy,
-  type VariantSelection,
 } from "./lib/usd";
-import { type ResourceDiagnosticsSnapshot } from "./lib/diagnostics";
 import {
   getStartupFile,
   inspectAsset,
   listSupportedSiblings,
   openFileDialog,
   resolveSelectedFile,
-  type AssetInspection,
-  type DirectoryListing,
   type SelectedFile,
 } from "./lib/files";
 import { prefetchAdjacent } from "./viewer";
@@ -91,7 +73,6 @@ import { formatShortcut, menuShortcuts, type MenuActionId } from "./lib/menu";
 import {
   applyViewerShortcutAction,
   viewerShortcutHelpLines,
-  type ViewportShortcutCommand,
   type ViewerShortcutAction,
 } from "./lib/viewerShortcuts";
 import { saveSettings } from "./lib/settings";
@@ -101,8 +82,9 @@ import { useUsdInspector } from "./hooks/useUsdInspector";
 import { usePayloadSession } from "./hooks/usePayloadSession";
 import { useDeferredData } from "./hooks/useDeferredData";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-
-type SidebarTab = SidebarTabId;
+import { useViewerStore } from "./stores/viewerStore";
+import { useFileStore } from "./stores/fileStore";
+import { useUiStore } from "./stores/uiStore";
 
 const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
 const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
@@ -172,12 +154,6 @@ function splitViewerWarnings(warning: string | null): string[] {
   );
 }
 
-const initialViewerFeedback: ViewerFeedback = {
-  mode: "empty",
-  message: "Open a supported asset to initialize the preview scene.",
-  warning: null,
-  canResetCamera: false,
-};
 function deriveDisplayMode(
   showTexture: boolean,
   showWireframe: boolean,
@@ -260,141 +236,83 @@ const cameraPresetOptions: Array<{
   { id: "bottom", label: "Bottom" },
 ];
 
-const DEFAULT_EXPOSURE = 1.1;
-
 export function App() {
-  const [activeTab, setActiveTab] = useState<SidebarTab>("properties");
-  const [sidebarOpen, setSidebarOpen] = useState(
-    () => window.innerWidth >= 720,
+  const viewer = useViewerStore();
+  const file = useFileStore();
+  const ui = useUiStore();
+
+  const {
+    activeTab,
+    sidebarOpen,
+    sidebarWidth,
+    viewportPanelOpen,
+    isDragActive,
+    dialogState,
+  } = ui;
+  const {
+    currentFile,
+    mmdMotionRequest,
+    assetInspection,
+    directoryListing,
+    assetMetadata,
+    openError,
+  } = file;
+  const {
+    showTexture,
+    showWireframe,
+    showUnlit,
+    showGrid,
+    showAxes,
+    showSkeleton,
+    showBoundingBoxes,
+    showNormals,
+    showVertexColors,
+    showEnvironmentBackground,
+    environmentRotation,
+    backfaceCulling,
+    textureFilterMode,
+    cameraPresetRequest,
+    controlSensitivity,
+    cameraFov,
+    renderScale,
+    showShadows,
+    fxaaEnabled,
+    showRendererStats,
+    toneMappingMode,
+    exposure,
+    cameraSpeedMultiplier,
+    backgroundPreset,
+    environmentPreset,
+    gridUnitLabel,
+    viewerFeedback,
+    viewerSurfaceMode,
+    selectedTextureId,
+    textureViewMode,
+    textureColorSpace,
+    textureExposure,
+    textureBlackPoint,
+    textureWhitePoint,
+    textureTileCount,
+    textureGamma,
+    texturePreview3D,
+    resourceDiagnostics,
+    usdLoadPolicy,
+    selectedMeshName,
+    morphTargetValues,
+    selectedUsdPrimPath,
+    purposeModes,
+    activeCameraId,
+    variantSelections,
+    variantSelectionError,
+    resetVersion,
+    scaleNormalization,
+    cancelScaleNormalizeVersion,
+    viewportShortcutCommand,
+  } = viewer;
+  const displayMode = useMemo(
+    () => deriveDisplayMode(showTexture, showWireframe),
+    [showTexture, showWireframe],
   );
-  const [sidebarWidth, setSidebarWidth] = useState(350);
-  const [showTexture, setShowTexture] = useState(true);
-  const [showWireframe, setShowWireframe] = useState(false);
-  const [showUnlit, setShowUnlit] = useState(false);
-  const [showGrid, setShowGrid] = useState(true);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [showAxes, setShowAxes] = useState(false);
-  const [showSkeleton, setShowSkeleton] = useState(false);
-  const [showBoundingBoxes, setShowBoundingBoxes] = useState(false);
-  const [showNormals, setShowNormals] = useState(false);
-  const [showVertexColors, setShowVertexColors] = useState(false);
-  const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
-  const [showEnvironmentBackground, setShowEnvironmentBackground] =
-    useState(false);
-  const [environmentRotation] = useState(0);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [backfaceCulling, setBackfaceCulling] = useState(true);
-  const [textureFilterMode] = useState<TextureFilterMode>("trilinear");
-  const [cameraPresetRequest, setCameraPresetRequest] =
-    useState<CameraPresetRequest | null>(null);
-  const [controlSensitivity] = useState(1);
-  const [cameraFov] = useState(45);
-  const [renderScale] = useState(1);
-  const [showShadows, setShowShadows] = useState(false);
-  const [fxaaEnabled] = useState(false);
-  const [showRendererStats] = useState(false);
-  const [toneMappingMode] = useState<ToneMappingMode>("aces");
-  const [exposure] = useState(DEFAULT_EXPOSURE);
-  const [cameraSpeedMultiplier] = useState(1);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [backgroundPreset, setBackgroundPreset] =
-    useState<BackgroundPreset>("gray");
-  const [environmentPreset, setEnvironmentPreset] =
-    useState<EnvironmentPreset>("studio");
-  const [gridUnitLabel, setGridUnitLabel] = useState("1 m");
-  const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
-  const [mmdMotionRequest, setMmdMotionRequest] = useState<{
-    file: SelectedFile;
-    version: number;
-  } | null>(null);
-  const [assetInspection, setAssetInspection] =
-    useState<AssetInspection | null>(null);
-  const [directoryListing, setDirectoryListing] =
-    useState<DirectoryListing | null>(null);
-  const [viewerFeedback, setViewerFeedback] = useState<ViewerFeedback>(
-    initialViewerFeedback,
-  );
-  const displayMode = deriveDisplayMode(showTexture, showWireframe);
-  const [openError, setOpenError] = useState<string | null>(null);
-  const [isDragActive, setIsDragActive] = useState(false);
-  const [resetVersion, setResetVersion] = useState(0);
-  const [scaleNormalization, setScaleNormalization] = useState<{
-    applied: boolean;
-    factor: number;
-  } | null>(null);
-  const [cancelScaleNormalizeVersion, setCancelScaleNormalizeVersion] =
-    useState(0);
-  const [viewportShortcutCommand, setViewportShortcutCommand] =
-    useState<ViewportShortcutCommand | null>(null);
-  const [assetMetadata, setAssetMetadata] = useState<AssetMetadata | null>(
-    emptyAssetMetadata,
-  );
-  const [viewerSurfaceMode, setViewerSurfaceMode] =
-    useState<ViewerSurfaceMode>("asset");
-  const [selectedTextureId, setSelectedTextureId] = useState<string | null>(
-    null,
-  );
-  const [textureViewMode, setTextureViewMode] =
-    useState<TextureViewMode>("rgba");
-  const [textureColorSpace, setTextureColorSpace] =
-    useState<TextureColorSpace>("srgb");
-  const [textureExposure] = useState(0);
-  const [textureBlackPoint] = useState(0);
-  const [textureWhitePoint] = useState(1);
-  const [textureTileCount] = useState(1);
-  const [textureGamma, setTextureGamma] = useState(2.2);
-  // Default = flat 2D viewer framing for textures. The 3D toggle
-  // re-uses the asset orbit controls so the same texture plane can
-  // be rotated/zoomed as a 3D quad — useful for inspecting how a
-  // texture behaves at glancing angles or with the env reflection.
-  const [texturePreview3D] = useState(false);
-  const [resourceDiagnostics, setResourceDiagnostics] =
-    useState<ResourceDiagnosticsSnapshot | null>(null);
-  const [dialogState, setDialogState] = useState<{
-    title: string;
-    lines: string[];
-  } | null>(null);
-  // Phase 4: deferred-payload toggle. Default to `loadAll` so payload-only
-  // component roots open with visible geometry; switching to `noPayloads`
-  // re-runs the inspector and GLB pipeline with payloads deferred.
-  const [usdLoadPolicy, setUsdLoadPolicy] =
-    useState<StageLoadPolicy>("loadAll");
-  // #33/#46: unified selection key — viewport pick or hierarchy row click.
-  // For USD assets that went through the hierarchy-aware GLB pipeline
-  // (#46) the value is a USD SdfPath (e.g. "/World/Cube") surfaced from
-  // userData.primPath; for non-USD / legacy assets it remains the
-  // Three.js Object3D.name.  Both HierarchyCard and the viewport tint
-  // path match on this same key, so the two directions stay in sync.
-  const [selectedMeshName, setSelectedMeshName] = useState<string | null>(null);
-  const [morphTargetValues, setMorphTargetValues] = useState<
-    Record<string, Record<number, number>>
-  >({});
-  // #28: USD prim path selected in the hierarchy tree.
-  // Drives the UsdPrimPropertyPanel. Separate from `selectedMeshName`
-  // because the hierarchy tree can select any prim (not just meshes).
-  const [selectedUsdPrimPath, setSelectedUsdPrimPath] = useState<string | null>(
-    null,
-  );
-  // #32: USD purpose visibility. Defaults match pre-#32 behavior:
-  // render ON, proxy/guide OFF.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [purposeModes, setPurposeModes] = useState<PurposeModes>({
-    render: true,
-    proxy: false,
-    guide: false,
-  });
-  // #34: active USD camera id (Three.js uuid). null = free orbit. Using
-  // the uuid rather than the authored name keeps duplicate / unnamed
-  // cameras independently selectable.
-  const [activeCameraId, setActiveCameraId] = useState<string | null>(null);
-  // #31: variant selections applied before geometry extraction.
-  // Populated by the UsdInspectorCard switcher pulldown.
-  const [variantSelections, setVariantSelections] = useState<
-    VariantSelection[]
-  >([]);
-  const [variantSelectionError, setVariantSelectionError] = useState<
-    string | null
-  >(null);
 
   const isTauri = isTauriEnvironment();
   const debugPanelsEnabled = !isTauri && isDebugPanelsRequested();
@@ -416,37 +334,37 @@ export function App() {
       "Variant selection failed.",
     );
     console.error("[usd] variant selection failed:", error);
-    setVariantSelectionError(message);
+    viewer.setVariantSelectionError(message);
     return true;
   }, []);
   const handleMorphTargetChange = useCallback(
     (selectionKey: string, morphTargetIndex: number, value: number) => {
       const clamped = Math.min(1, Math.max(0, value));
-      setMorphTargetValues((previous) => ({
-        ...previous,
+      const prev = useViewerStore.getState().morphTargetValues;
+      useViewerStore.getState().setMorphTargetValues({
+        ...prev,
         [selectionKey]: {
-          ...(previous[selectionKey] ?? {}),
+          ...(prev[selectionKey] ?? {}),
           [morphTargetIndex]: clamped,
         },
-      }));
+      });
     },
     [],
   );
 
   useEffect(() => {
-    setMorphTargetValues({});
+    viewer.setMorphTargetValues({});
   }, [currentFile?.path]);
 
   const applyVariantSelection = useCallback(
     (primPath: string, setName: string, variantName: string) => {
-      setVariantSelectionError(null);
-      setVariantSelections((prev) => {
-        const next = prev.filter(
-          (s) => !(s.primPath === primPath && s.setName === setName),
-        );
-        next.push({ primPath, setName, variantName });
-        return next;
-      });
+      useViewerStore.getState().setVariantSelectionError(null);
+      const prev = useViewerStore.getState().variantSelections;
+      const next = prev.filter(
+        (s) => !(s.primPath === primPath && s.setName === setName),
+      );
+      next.push({ primPath, setName, variantName });
+      useViewerStore.getState().setVariantSelections(next);
     },
     [],
   );
@@ -626,8 +544,8 @@ export function App() {
   );
 
   useEffect(() => {
-    setVariantSelections([]);
-    setVariantSelectionError(null);
+    viewer.setVariantSelections([]);
+    viewer.setVariantSelectionError(null);
     setSessionGlbBuffer(null);
   }, [currentFile, usdLoadPolicy, setSessionGlbBuffer]);
 
@@ -679,27 +597,27 @@ export function App() {
     // #33: a fresh file invalidates the prior viewport pick. The
     // selection refers to a Three.js Object3D.name, and the next
     // asset's hierarchy will not contain the same node.
-    setSelectedMeshName(null);
+    viewer.setSelectedMeshName(null);
     // #28: also clear the USD prim path selection so the property
     // panel does not query the new file with the old prim path.
-    setSelectedUsdPrimPath(null);
+    viewer.setSelectedUsdPrimPath(null);
     // #34: reset active camera to free orbit when a new file is opened so
     // the camera list in the new asset does not inherit a stale override.
-    setActiveCameraId(null);
+    viewer.setActiveCameraId(null);
   }, [currentFile?.path]);
 
   useEffect(() => {
     if (!isTauri || !currentFile) {
-      setAssetInspection(null);
+      file.setAssetInspection(null);
       return;
     }
 
     let isActive = true;
-    setAssetInspection(null);
+    file.setAssetInspection(null);
     void inspectAsset(currentFile.path)
       .then((inspection) => {
         if (isActive) {
-          setAssetInspection(inspection);
+          file.setAssetInspection(inspection);
         }
       })
       .catch((error: unknown) => {
@@ -714,10 +632,10 @@ export function App() {
   useEffect(() => {
     if (!currentFile) {
       if (selectedTextureId !== null) {
-        setSelectedTextureId(null);
+        viewer.setSelectedTextureId(null);
       }
       if (viewerSurfaceMode !== "asset") {
-        setViewerSurfaceMode("asset");
+        viewer.setViewerSurfaceMode("asset");
       }
       return;
     }
@@ -726,10 +644,10 @@ export function App() {
 
     if (currentFile.kind === "texture") {
       if (selectedTextureId !== firstTextureId) {
-        setSelectedTextureId(firstTextureId);
+        viewer.setSelectedTextureId(firstTextureId);
       }
       if (viewerSurfaceMode !== "texture") {
-        setViewerSurfaceMode("texture");
+        viewer.setViewerSurfaceMode("texture");
       }
       return;
     }
@@ -739,11 +657,11 @@ export function App() {
     );
 
     if (!hasSelectedTexture && selectedTextureId !== firstTextureId) {
-      setSelectedTextureId(firstTextureId);
+      viewer.setSelectedTextureId(firstTextureId);
     }
 
     if (!firstTextureId && viewerSurfaceMode === "texture") {
-      setViewerSurfaceMode("asset");
+      viewer.setViewerSurfaceMode("asset");
     }
   }, [assetMetadata, currentFile, selectedTextureId, viewerSurfaceMode]);
 
@@ -812,23 +730,22 @@ export function App() {
     reason: "open" | "startup" | "navigation" | "retry" | "recent" = "open",
   ) => {
     const startedAt = performance.now();
-    setOpenError(null);
-    setViewerFeedback((previous) => ({
-      ...previous,
+    file.setOpenError(null);
+    viewer.updateViewerFeedback({
       mode: "loading",
       message: `Resolving ${path}`,
       warning: null,
       canResetCamera: false,
-    }));
+    });
 
     const [resolvedFile, listing] = await Promise.all([
       resolveSelectedFile(path),
       listSupportedSiblings(path),
     ]);
 
-    setCurrentFile(resolvedFile);
-    setMmdMotionRequest(null);
-    setDirectoryListing(listing);
+    file.setCurrentFile(resolvedFile);
+    file.setMmdMotionRequest(null);
+    file.setDirectoryListing(listing);
     prefetchAdjacent(listing.files, listing.currentIndex);
     recordLoadTiming(startedAt, reason);
   };
@@ -846,20 +763,20 @@ export function App() {
     async (path: string) => {
       if (extensionFromPath(path) === "vmd") {
         if (!canAttachMmdMotion(currentFile)) {
-          setViewerFeedback((previous) => ({
-            ...previous,
-            mode: previous.mode === "empty" ? "empty" : "loadFailed",
+          viewer.updateViewerFeedback({
+            mode:
+              viewer.viewerFeedback.mode === "empty" ? "empty" : "loadFailed",
             message: "VMD motion was not loaded.",
             warning:
               "Drop a VMD file after opening a PMX or PMD model to attach it as motion.",
-          }));
+          });
           return;
         }
 
-        setMmdMotionRequest((previous) => ({
+        file.setMmdMotionRequest({
           file: selectedMotionFileFromPath(path),
-          version: (previous?.version ?? 0) + 1,
-        }));
+          version: (file.mmdMotionRequest?.version ?? 0) + 1,
+        });
         return;
       }
 
@@ -883,7 +800,7 @@ export function App() {
           return;
         }
 
-        setOpenError(
+        file.setOpenError(
           error instanceof Error
             ? error.message
             : "Failed to resolve startup file.",
@@ -934,16 +851,16 @@ export function App() {
       getCurrentWindow()
         .onDragDropEvent((event) => {
           if (event.payload.type === "enter" || event.payload.type === "over") {
-            setIsDragActive(true);
+            ui.setIsDragActive(true);
             return;
           }
 
           if (event.payload.type === "leave") {
-            setIsDragActive(false);
+            ui.setIsDragActive(false);
             return;
           }
 
-          setIsDragActive(false);
+          ui.setIsDragActive(false);
           const [firstPath] = event.payload.paths;
 
           if (!firstPath) {
@@ -951,16 +868,15 @@ export function App() {
           }
 
           handleDroppedFilePathFromEffect(firstPath).catch((error: unknown) => {
-            setOpenError(
+            file.setOpenError(
               error instanceof Error
                 ? error.message
                 : "Failed to open dropped file.",
             );
-            setViewerFeedback((previous) => ({
-              ...previous,
+            viewer.updateViewerFeedback({
               mode: "loadFailed",
               message: "Dropped file could not be resolved.",
-            }));
+            });
           });
         })
         .then((dispose) => {
@@ -984,14 +900,13 @@ export function App() {
       if (!selectedFile) return;
       await performSelectFilePath(selectedFile.path, "open");
     } catch (error: unknown) {
-      setOpenError(
+      file.setOpenError(
         error instanceof Error ? error.message : "Failed to open file dialog.",
       );
-      setViewerFeedback((previous) => ({
-        ...previous,
+      viewer.updateViewerFeedback({
         mode: "loadFailed",
         message: "File dialog operation failed.",
-      }));
+      });
     }
   };
 
@@ -1019,7 +934,7 @@ export function App() {
   };
 
   const handleShowShortcuts = () => {
-    setDialogState({
+    ui.setDialogState({
       title: "Keyboard Shortcuts",
       lines: shortcutLines,
     });
@@ -1029,7 +944,7 @@ export function App() {
     if (isTauri) {
       try {
         const version = await getVersion();
-        setDialogState({
+        ui.setDialogState({
           title: "About",
           lines: ["yw-look", `Version ${version}`],
         });
@@ -1039,7 +954,7 @@ export function App() {
       }
     }
 
-    setDialogState({
+    ui.setDialogState({
       title: "About",
       lines: ["yw-look", "Browser preview mode"],
     });
@@ -1062,26 +977,26 @@ export function App() {
         }
         return;
       case "view.toggleTexture":
-        setShowTexture((value) => !value);
+        viewer.toggleShowTexture();
         return;
       case "view.toggleWireframe":
-        setShowWireframe((value) => !value);
+        viewer.toggleShowWireframe();
         return;
       case "view.toggleGrid":
-        setShowGrid((value) => !value);
+        viewer.toggleShowGrid();
         return;
       case "view.resetCamera":
-        setResetVersion((value) => value + 1);
+        viewer.bumpResetVersion();
         return;
       case "view.toggleSidebar":
-        setSidebarOpen((value) => !value);
+        ui.toggleSidebarOpen();
         return;
       case "window.toggleFullscreen":
         await handleToggleFullscreen();
         return;
       case "app.openSettings":
-        setSidebarOpen(true);
-        setActiveTab("settings");
+        ui.setSidebarOpen(true);
+        ui.setActiveTab("settings");
         return;
       case "help.shortcuts":
         handleShowShortcuts();
@@ -1098,7 +1013,7 @@ export function App() {
       action === "frameAll" ||
       action === "resetView"
     ) {
-      setActiveCameraId(null);
+      viewer.setActiveCameraId(null);
     }
 
     const nextState = applyViewerShortcutAction(
@@ -1115,27 +1030,27 @@ export function App() {
     );
 
     if (nextState.showTexture !== showTexture) {
-      setShowTexture(nextState.showTexture);
+      viewer.setShowTexture(nextState.showTexture);
     }
     if (nextState.showWireframe !== showWireframe) {
-      setShowWireframe(nextState.showWireframe);
+      viewer.setShowWireframe(nextState.showWireframe);
     }
     if (nextState.showGrid !== showGrid) {
-      setShowGrid(nextState.showGrid);
+      viewer.setShowGrid(nextState.showGrid);
     }
     if (nextState.selectedMeshName !== selectedMeshName) {
-      setSelectedMeshName(nextState.selectedMeshName);
+      viewer.setSelectedMeshName(nextState.selectedMeshName);
     }
     if (nextState.selectedUsdPrimPath !== selectedUsdPrimPath) {
-      setSelectedUsdPrimPath(nextState.selectedUsdPrimPath);
+      viewer.setSelectedUsdPrimPath(nextState.selectedUsdPrimPath);
     }
     if (nextState.viewportCommand !== viewportShortcutCommand) {
-      setViewportShortcutCommand(nextState.viewportCommand);
+      viewer.setViewportShortcutCommand(nextState.viewportCommand);
     }
   };
 
   const handleNavigateError = useCallback((error: unknown) => {
-    setOpenError(
+    file.setOpenError(
       error instanceof Error ? error.message : "Failed to navigate to file.",
     );
   }, []);
@@ -1248,7 +1163,7 @@ export function App() {
                   loading={usdInspectorLoading}
                   summary={usdSummary}
                   loadPolicy={usdLoadPolicy}
-                  onLoadPolicyChange={setUsdLoadPolicy}
+                  onLoadPolicyChange={viewer.setUsdLoadPolicy}
                   variantSelectionError={variantSelectionError}
                   variantSelections={variantSelections}
                   onVariantChange={applyVariantSelection}
@@ -1272,7 +1187,7 @@ export function App() {
                 loading={false}
                 summary={debugUsdSummary}
                 loadPolicy={usdLoadPolicy}
-                onLoadPolicyChange={setUsdLoadPolicy}
+                onLoadPolicyChange={viewer.setUsdLoadPolicy}
                 variantSelectionError={variantSelectionError}
                 variantSelections={variantSelections}
                 onVariantChange={applyVariantSelection}
@@ -1284,7 +1199,7 @@ export function App() {
                 cameras={sidebarAssetMetadata.cameras}
                 usdLights={usdLights ?? undefined}
                 activeCameraId={activeCameraId}
-                onSelectCamera={setActiveCameraId}
+                onSelectCamera={viewer.setActiveCameraId}
               />
             )}
             <PerformanceCard snapshot={performanceSnapshot} />
@@ -1336,10 +1251,10 @@ export function App() {
               morphTargetValues={morphTargetValues}
               onMorphTargetChange={handleMorphTargetChange}
               selectedName={selectedMeshName}
-              onSelectName={setSelectedMeshName}
+              onSelectName={viewer.setSelectedMeshName}
               onSelectPrimPath={
                 isUsdFile(currentFile)
-                  ? (primPath) => setSelectedUsdPrimPath(primPath)
+                  ? (primPath) => viewer.setSelectedUsdPrimPath(primPath)
                   : undefined
               }
               payloadPrimPaths={
@@ -1387,10 +1302,10 @@ export function App() {
                 textureId === selectedTextureId &&
                 viewerSurfaceMode === "texture"
               ) {
-                setViewerSurfaceMode("asset");
+                viewer.setViewerSurfaceMode("asset");
               } else {
-                setSelectedTextureId(textureId);
-                setViewerSurfaceMode("texture");
+                viewer.setSelectedTextureId(textureId);
+                viewer.setViewerSurfaceMode("texture");
               }
             }}
             textures={sidebarAssetMetadata?.textures ?? []}
@@ -1469,13 +1384,13 @@ export function App() {
   );
 
   const openDiagnosticsPanel = useCallback(() => {
-    setSidebarOpen(true);
-    setActiveTab("warnings");
+    ui.setSidebarOpen(true);
+    ui.setActiveTab("warnings");
   }, []);
 
   const openUpdatePanel = useCallback(() => {
-    setSidebarOpen(true);
-    setActiveTab("settings");
+    ui.setSidebarOpen(true);
+    ui.setActiveTab("settings");
     void refreshUpdateConfiguration();
   }, [refreshUpdateConfiguration]);
 
@@ -1547,7 +1462,7 @@ export function App() {
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const nextWidth = startWidth + (startX - moveEvent.clientX);
-      setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, nextWidth)));
+      ui.setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, nextWidth)));
     };
 
     const handlePointerUp = () => {
@@ -1562,14 +1477,15 @@ export function App() {
   };
 
   const handleSelectCameraPreset = useCallback((preset: string) => {
-    setCameraPresetRequest((previous) => ({
+    const prev = useViewerStore.getState().cameraPresetRequest;
+    useViewerStore.getState().setCameraPresetRequest({
       preset: preset as CameraPreset,
-      version: (previous?.version ?? 0) + 1,
-    }));
+      version: (prev?.version ?? 0) + 1,
+    });
   }, []);
 
   const handleSelectEnvironmentPreset = useCallback((preset: string) => {
-    setEnvironmentPreset(preset as EnvironmentPreset);
+    viewer.setEnvironmentPreset(preset as EnvironmentPreset);
   }, []);
 
   // Cycle camera presets on toolbar click
@@ -1579,7 +1495,7 @@ export function App() {
       (p) => p.id === cameraPresetRequest?.preset,
     );
     const nextIdx = (currentIdx + 1) % cameraPresetOptions.length;
-    setCameraPresetRequest({
+    viewer.setCameraPresetRequest({
       preset: cameraPresetOptions[nextIdx].id,
       version: (cameraPresetRequest?.version ?? 0) + 1,
     });
@@ -1599,23 +1515,23 @@ export function App() {
 
   const handleSelectChannel = useCallback((mode: string) => {
     if (mode === "a") {
-      setTextureViewMode("alpha");
+      viewer.setTextureViewMode("alpha");
     } else {
-      setTextureViewMode(mode as TextureViewMode);
+      viewer.setTextureViewMode(mode as TextureViewMode);
     }
   }, []);
 
   const handleSelectColorSpace = useCallback((mode: TextureColorSpace) => {
-    setTextureColorSpace(mode);
+    viewer.setTextureColorSpace(mode);
     switch (mode) {
       case "srgb":
-        setTextureGamma(2.2);
+        viewer.setTextureGamma(2.2);
         break;
       case "linear":
-        setTextureGamma(1.0);
+        viewer.setTextureGamma(1.0);
         break;
       case "raw":
-        setTextureGamma(1.0);
+        viewer.setTextureGamma(1.0);
         break;
     }
   }, []);
@@ -1643,30 +1559,30 @@ export function App() {
       onCycleCamera: handleCycleCamera,
       // Shading
       showTexture,
-      onToggleTexture: () => setShowTexture((v) => !v),
+      onToggleTexture: viewer.toggleShowTexture,
       showUnlit,
-      onToggleUnlit: () => setShowUnlit((v) => !v),
+      onToggleUnlit: () => viewer.toggleShowUnlit(),
       showNormals,
-      onToggleNormals: () => setShowNormals((v) => !v),
+      onToggleNormals: () => viewer.toggleShowNormals(),
       showVertexColors,
-      onToggleVertexColors: () => setShowVertexColors((v) => !v),
+      onToggleVertexColors: () => viewer.toggleShowVertexColors(),
       // Wireframe
       showWireframe,
-      onToggleWireframe: () => setShowWireframe((v) => !v),
+      onToggleWireframe: viewer.toggleShowWireframe,
       // Look
       environmentPreset,
       environmentPresetOptions: environmentPresets,
       onSelectEnvironmentPreset: handleSelectEnvironmentPreset,
       showShadows,
-      onToggleShadows: () => setShowShadows((v) => !v),
+      onToggleShadows: () => viewer.toggleShowShadows(),
       showEnvironmentBackground,
       onToggleEnvironmentBackground: () =>
-        setShowEnvironmentBackground((v) => !v),
+        viewer.toggleShowEnvironmentBackground(),
       // Overlay
       showBoundingBoxes,
-      onToggleBoundingBoxes: () => setShowBoundingBoxes((v) => !v),
+      onToggleBoundingBoxes: () => viewer.toggleShowBoundingBoxes(),
       showSkeleton,
-      onToggleSkeleton: () => setShowSkeleton((v) => !v),
+      onToggleSkeleton: () => viewer.toggleShowSkeleton(),
     });
   }, [
     cameraPresetRequest,
@@ -1703,10 +1619,10 @@ export function App() {
             mmdMotionRequest={mmdMotionRequest}
             displayMode={displayMode}
             backgroundPreset={backgroundPreset}
-            onFeedbackChange={setViewerFeedback}
+            onFeedbackChange={viewer.setViewerFeedback}
             onOpenFile={() => void handleOpenFile()}
-            onMetadataChange={setAssetMetadata}
-            onResourceDiagnosticsChange={setResourceDiagnostics}
+            onMetadataChange={file.setAssetMetadata}
+            onResourceDiagnosticsChange={viewer.setResourceDiagnostics}
             selectedTextureId={selectedTextureId}
             viewerSurfaceMode={viewerSurfaceMode}
             textureViewMode={textureViewMode}
@@ -1737,34 +1653,34 @@ export function App() {
             showRendererStats={showRendererStats}
             toneMappingMode={toneMappingMode}
             exposure={exposure}
-            onGridUnitChange={setGridUnitLabel}
+            onGridUnitChange={viewer.setGridUnitLabel}
             onUsdError={recordVariantSelectionError}
             environmentPreset={environmentPreset}
             cameraSpeedMultiplier={cameraSpeedMultiplier}
             usdLoadPolicy={usdLoadPolicy}
             texturePreview3D={texturePreview3D}
-            onSelectMesh={setSelectedMeshName}
+            onSelectMesh={viewer.setSelectedMeshName}
             selectedMeshName={selectedMeshName}
             morphTargetValues={morphTargetValues}
             purposeModes={purposeModes}
             variantSelections={variantSelections}
             activeCameraId={activeCameraId}
-            onActiveCameraReset={() => setActiveCameraId(null)}
+            onActiveCameraReset={() => viewer.setActiveCameraId(null)}
             glbOverride={sessionGlbBuffer}
-            onScaleNormalizationChange={setScaleNormalization}
+            onScaleNormalizationChange={viewer.setScaleNormalization}
             cancelScaleNormalizationVersion={cancelScaleNormalizeVersion}
           />
 
           <ViewportControls
             isOpen={viewportPanelOpen}
-            onToggleOpen={() => setViewportPanelOpen((v) => !v)}
+            onToggleOpen={() => ui.setViewportPanelOpen(!ui.viewportPanelOpen)}
             items={viewportToolbarItems}
           />
           {/* #91: Cancel Scale Normalize — appears when auto-scale was applied */}
           {scaleNormalization?.applied && (
             <button
               className="cancel-scale-normalize-button"
-              onClick={() => setCancelScaleNormalizeVersion((v) => v + 1)}
+              onClick={() => viewer.bumpCancelScaleNormalizeVersion()}
               type="button"
               title="Revert the auto-applied scale normalization to the original size"
             >
@@ -1796,7 +1712,7 @@ export function App() {
           {/* InfoPanel toggle button */}
           <button
             className={`info-panel-toggle${sidebarOpen ? " is-active" : ""}`}
-            onClick={() => setSidebarOpen((v) => !v)}
+            onClick={ui.toggleSidebarOpen}
             type="button"
             title={sidebarOpen ? "Close Info Panel" : "Open Info Panel"}
           >
@@ -1828,7 +1744,7 @@ export function App() {
           {viewerSurfaceMode === "texture" ? (
             <button
               className="texture-mode-banner"
-              onClick={() => setViewerSurfaceMode("asset")}
+              onClick={() => viewer.setViewerSurfaceMode("asset")}
               type="button"
             >
               <svg
@@ -1877,7 +1793,7 @@ export function App() {
         />
         <SidebarTabs
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={ui.setActiveTab}
           tabs={sidebarTabs}
         />
         <div className="sidebar-content">{sidebarContent}</div>
@@ -1886,7 +1802,7 @@ export function App() {
       {dialogState ? (
         <div
           className="dialog-backdrop"
-          onClick={() => setDialogState(null)}
+          onClick={() => ui.setDialogState(null)}
           role="presentation"
         >
           <section
@@ -1902,7 +1818,7 @@ export function App() {
               </p>
               <button
                 className="dialog-close-button"
-                onClick={() => setDialogState(null)}
+                onClick={() => ui.setDialogState(null)}
                 type="button"
               >
                 Close
