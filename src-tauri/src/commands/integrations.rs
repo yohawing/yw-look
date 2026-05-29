@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use crate::error::AppError;
 use crate::shared::{load_or_initialize_settings, FILE_ASSOCIATION_EXTENSIONS};
 
 #[derive(Debug, Clone, Serialize)]
@@ -28,7 +29,7 @@ fn file_association_install_strategy() -> String {
 }
 
 #[tauri::command]
-pub(crate) fn load_supported_extensions(app: tauri::AppHandle) -> Result<IntegrationPayload, String> {
+pub(crate) fn load_supported_extensions(app: tauri::AppHandle) -> Result<IntegrationPayload, AppError> {
     let (_, settings) = load_or_initialize_settings(&app)?;
 
     Ok(IntegrationPayload {

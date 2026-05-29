@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod error;
 pub mod shared;
 pub mod state;
 pub mod usd;

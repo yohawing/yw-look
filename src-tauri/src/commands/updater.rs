@@ -2,6 +2,7 @@ use serde::Serialize;
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
+use crate::error::AppError;
 use crate::shared::{
     current_app_version, load_or_initialize_settings,
     DEFAULT_UPDATER_ENDPOINT, DEFAULT_UPDATER_PUBLIC_KEY,
@@ -116,47 +117,47 @@ fn update_metadata_payload(update: &tauri_plugin_updater::Update) -> UpdateMetad
 fn build_updater(
     app: &tauri::AppHandle,
     settings: &AppSettings,
-) -> Result<tauri_plugin_updater::Updater, String> {
+) -> Result<tauri_plugin_updater::Updater, AppError> {
     let endpoint = effective_updater_endpoint(settings)
-        .ok_or_else(|| "no updater endpoint configured".to_string())?;
+        .ok_or_else(|| AppError::Internal("no updater endpoint configured".into()))?;
     let pubkey = effective_updater_public_key(settings)
-        .ok_or_else(|| "no updater public key configured".to_string())?;
+        .ok_or_else(|| AppError::Internal("no updater public key configured".into()))?;
 
     if !settings.allow_insecure_update_endpoint && endpoint.starts_with("http://") {
-        return Err(
+        return Err(AppError::Internal(
             "refusing insecure update endpoint; enable the local override toggle for loopback testing"
-                .to_string(),
-        );
+                .into(),
+        ));
     }
 
     if settings.allow_insecure_update_endpoint && !is_loopback_update_endpoint(&endpoint) {
-        return Err(
-            "insecure update endpoints are restricted to localhost or 127.0.0.1".to_string(),
-        );
+        return Err(AppError::Internal(
+            "insecure update endpoints are restricted to localhost or 127.0.0.1".into(),
+        ));
     }
 
     let endpoint = Url::parse(&endpoint)
-        .map_err(|error| format!("failed to parse updater endpoint: {error}"))?;
+        .map_err(|error| AppError::Internal(format!("failed to parse updater endpoint: {error}")))?;
 
     app.updater_builder()
         .pubkey(pubkey)
         .endpoints(vec![endpoint])
-        .map_err(|error| format!("failed to configure updater endpoints: {error}"))?
+        .map_err(|error| AppError::Internal(format!("failed to configure updater endpoints: {error}")))?
         .build()
-        .map_err(|error| format!("failed to build updater client: {error}"))
+        .map_err(|error| AppError::Internal(format!("failed to build updater client: {error}")))
 }
 
 #[tauri::command]
 pub(crate) async fn check_for_update(
     app: tauri::AppHandle,
     pending_update: tauri::State<'_, PendingUpdateState>,
-) -> Result<UpdateCheckPayload, String> {
+) -> Result<UpdateCheckPayload, AppError> {
     let (_, settings) = load_or_initialize_settings(&app)?;
     let configuration = build_update_configuration_payload(&app, &settings);
     let update = build_updater(&app, &settings)?
         .check()
         .await
-        .map_err(|error| format!("failed to check for updates: {error}"))?;
+        .map_err(|error| AppError::Internal(format!("failed to check for updates: {error}")))?;
 
     let payload = UpdateCheckPayload {
         configuration,
@@ -171,19 +172,21 @@ pub(crate) async fn check_for_update(
 #[tauri::command]
 pub(crate) async fn install_pending_update(
     pending_update: tauri::State<'_, PendingUpdateState>,
-) -> Result<UpdateInstallPayload, String> {
+) -> Result<UpdateInstallPayload, AppError> {
     let update = pending_update
         .0
         .lock()
         .unwrap()
         .take()
-        .ok_or_else(|| "no pending update is available; run a check first".to_string())?;
+        .ok_or_else(|| {
+            AppError::Internal("no pending update is available; run a check first".into())
+        })?;
     let installed_version = update.version.clone();
 
     update
         .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|error| format!("failed to install update: {error}"))?;
+        .map_err(|error| AppError::Internal(format!("failed to install update: {error}")))?;
 
     Ok(UpdateInstallPayload {
         installed_version,

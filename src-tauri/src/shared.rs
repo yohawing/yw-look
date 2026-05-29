@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 use tauri::Manager;
 
+use crate::error::AppError;
 use crate::state::AppSettings;
 
 pub(crate) const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -71,84 +72,87 @@ pub(crate) fn is_supported_extension(extension: &str) -> bool {
     MODEL_EXTENSIONS.contains(&extension) || TEXTURE_EXTENSIONS.contains(&extension)
 }
 
-pub(crate) fn normalize_file_path(path: PathBuf) -> Result<PathBuf, String> {
+pub(crate) fn normalize_file_path(path: PathBuf) -> Result<PathBuf, AppError> {
     if !path.exists() {
-        return Err(format!("file does not exist: {}", path.display()));
+        return Err(AppError::Io(format!("file does not exist: {}", path.display())));
     }
     if !path.is_file() {
-        return Err(format!("path is not a file: {}", path.display()));
+        return Err(AppError::Io(format!("path is not a file: {}", path.display())));
     }
     let canonical = path
         .canonicalize()
-        .map_err(|error| format!("failed to normalize file path: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to normalize file path: {error}")))?;
     Ok(strip_verbatim_prefix(&canonical))
 }
 
-pub(crate) fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, String> {
+pub(crate) fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, AppError> {
     path.canonicalize()
         .map(|path| strip_verbatim_prefix(&path))
-        .map_err(|error| format!("failed to normalize path '{}': {error}", path.display()))
+        .map_err(|error| AppError::Io(format!("failed to normalize path '{}': {error}", path.display())))
 }
 
-pub(crate) fn canonicalize_existing_parent(path: &Path) -> Result<PathBuf, String> {
+pub(crate) fn canonicalize_existing_parent(path: &Path) -> Result<PathBuf, AppError> {
     let parent = path
         .parent()
-        .ok_or_else(|| format!("path has no parent: {}", path.display()))?;
+        .ok_or_else(|| AppError::Io(format!("path has no parent: {}", path.display())))?;
     canonicalize_existing_path(parent)
 }
 
-pub(crate) fn ensure_path_within(path: &Path, root: &Path, label: &str) -> Result<(), String> {
+pub(crate) fn ensure_path_within(path: &Path, root: &Path, label: &str) -> Result<(), AppError> {
     if path.starts_with(root) {
         return Ok(());
     }
-    Err(format!(
+    Err(AppError::Io(format!(
         "{label} path '{}' must be under '{}'",
         path.display(),
         root.display()
-    ))
+    )))
 }
 
-pub(crate) fn resolve_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn resolve_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
     app.path()
         .app_config_dir()
-        .map_err(|error| format!("failed to resolve app config directory: {error}"))
+        .map_err(|error| AppError::Io(format!("failed to resolve app config directory: {error}")))
 }
 
-pub(crate) fn resolve_settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn resolve_settings_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
     Ok(resolve_app_data_dir(app)?.join(SETTINGS_FILE_NAME))
 }
 
-pub(crate) fn resolve_recent_files_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn resolve_recent_files_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
     Ok(resolve_app_data_dir(app)?.join(RECENT_FILES_FILE_NAME))
 }
 
-pub(crate) fn resolve_diagnostics_log_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn resolve_diagnostics_log_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
     Ok(resolve_app_data_dir(app)?.join(DIAGNOSTICS_LOG_FILE_NAME))
 }
 
-pub(crate) fn ensure_parent_dir(path: &Path) -> Result<(), String> {
+pub(crate) fn ensure_parent_dir(path: &Path) -> Result<(), AppError> {
     let parent = path
         .parent()
-        .ok_or_else(|| "path has no parent directory".to_string())?;
-    fs::create_dir_all(parent).map_err(|error| format!("failed to create directory: {error}"))
+        .ok_or_else(|| AppError::Io("path has no parent directory".into()))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| AppError::Io(format!("failed to create directory: {error}")))
 }
 
-pub(crate) fn write_json_file<T: Serialize>(path: &Path, payload: &T) -> Result<(), String> {
+pub(crate) fn write_json_file<T: Serialize>(path: &Path, payload: &T) -> Result<(), AppError> {
     ensure_parent_dir(path)?;
     let json = serde_json::to_string_pretty(payload)
-        .map_err(|error| format!("failed to serialize json: {error}"))?;
-    fs::write(path, json).map_err(|error| format!("failed to write file: {error}"))
+        .map_err(|error| AppError::Serde(format!("failed to serialize json: {error}")))?;
+    fs::write(path, json).map_err(|error| AppError::Io(format!("failed to write file: {error}")))
 }
 
-pub(crate) fn read_json_file<T: DeserializeOwned + Default>(path: &Path) -> Result<T, String> {
+pub(crate) fn read_json_file<T: DeserializeOwned + Default>(path: &Path) -> Result<T, AppError> {
     if !path.exists() {
         return Ok(T::default());
     }
-    let raw = fs::read_to_string(path).map_err(|error| format!("failed to read file: {error}"))?;
-    serde_json::from_str::<T>(&raw).map_err(|error| format!("failed to parse json: {error}"))
+    let raw = fs::read_to_string(path)
+        .map_err(|error| AppError::Io(format!("failed to read file: {error}")))?;
+    serde_json::from_str::<T>(&raw)
+        .map_err(|error| AppError::Serde(format!("failed to parse json: {error}")))
 }
 
-pub(crate) fn write_settings_file(path: &Path, settings: &AppSettings) -> Result<(), String> {
+pub(crate) fn write_settings_file(path: &Path, settings: &AppSettings) -> Result<(), AppError> {
     write_json_file(path, settings)
 }
 
@@ -182,14 +186,14 @@ pub(crate) fn sanitize_settings(settings: AppSettings) -> AppSettings {
 
 pub(crate) fn load_or_initialize_settings(
     app: &tauri::AppHandle,
-) -> Result<(PathBuf, AppSettings), String> {
+) -> Result<(PathBuf, AppSettings), AppError> {
     let settings_path = resolve_settings_path(app)?;
     let settings = if settings_path.exists() {
         let raw = fs::read_to_string(&settings_path)
-            .map_err(|error| format!("failed to read settings file: {error}"))?;
+            .map_err(|error| AppError::Io(format!("failed to read settings file: {error}")))?;
         sanitize_settings(
             serde_json::from_str::<AppSettings>(&raw)
-                .map_err(|error| format!("failed to parse settings file: {error}"))?,
+                .map_err(|error| AppError::Serde(format!("failed to parse settings file: {error}")))?,
         )
     } else {
         let defaults = sanitize_settings(AppSettings::default());
@@ -203,12 +207,12 @@ pub(crate) fn current_app_version(app: &tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-pub(crate) fn repo_root() -> Result<PathBuf, String> {
+pub(crate) fn repo_root() -> Result<PathBuf, AppError> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
         .parent()
         .map(Path::to_path_buf)
-        .ok_or_else(|| "failed to resolve repository root".to_string())
+        .ok_or_else(|| AppError::Internal("failed to resolve repository root".into()))
 }
 
 pub(crate) fn format_byte_limit(bytes: u64) -> String {
@@ -219,15 +223,15 @@ pub(crate) fn format_byte_limit(bytes: u64) -> String {
     }
 }
 
-pub(crate) fn read_limited_file(path: &Path, max_bytes: u64, label: &str) -> Result<Vec<u8>, String> {
-    let size = fs::metadata(path)
-        .map_err(|error| format!("failed to inspect {label}: {error}"))?
-        .len();
-    if size > max_bytes {
-        return Err(format!(
+pub(crate) fn read_limited_file(path: &Path, max_bytes: u64, label: &str) -> Result<Vec<u8>, AppError> {
+    let metadata = fs::metadata(path)
+        .map_err(|error| AppError::Io(format!("failed to inspect {label}: {error}")))?;
+    if metadata.len() > max_bytes {
+        return Err(AppError::Io(format!(
             "Alembic preview {label} exceeded {}.",
             format_byte_limit(max_bytes)
-        ));
+        )));
     }
-    fs::read(path).map_err(|error| format!("failed to read {label}: {error}"))
+    fs::read(path)
+        .map_err(|error| AppError::Io(format!("failed to read {label}: {error}")))
 }

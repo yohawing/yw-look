@@ -1,3 +1,10 @@
+// ── Error type (mirrors Rust AppError) ──────────────────────────
+
+export type AppError = {
+  kind: "io" | "usd" | "serde" | "timeout" | "internal";
+  message: string;
+};
+
 // ── USD IPC types ────────────────────────────────────────────────
 
 export type StageLoadPolicy = "loadAll" | "noPayloads";

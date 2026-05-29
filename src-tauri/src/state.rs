@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use crate::error::AppError;
 use crate::usd::{
     DefaultBackend, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend,
     UsdSessionBackend, UsdSourceBackend,
@@ -126,32 +127,32 @@ impl UsdBackendState {
         Arc::clone(&self.inspect)
     }
 
-    pub(crate) fn geometry(&self) -> Result<Arc<dyn UsdGeometryBackend>, String> {
+    pub(crate) fn geometry(&self) -> Result<Arc<dyn UsdGeometryBackend>, AppError> {
         self.geometry
             .as_ref()
             .map(Arc::clone)
-            .ok_or_else(|| "USD backend capability unavailable: geometry".to_string())
+            .ok_or_else(|| AppError::Internal("USD backend capability unavailable: geometry".into()))
     }
 
-    pub(crate) fn source(&self) -> Result<Arc<dyn UsdSourceBackend>, String> {
+    pub(crate) fn source(&self) -> Result<Arc<dyn UsdSourceBackend>, AppError> {
         self.source
             .as_ref()
             .map(Arc::clone)
-            .ok_or_else(|| "USD backend capability unavailable: source".to_string())
+            .ok_or_else(|| AppError::Internal("USD backend capability unavailable: source".into()))
     }
 
-    pub(crate) fn session(&self) -> Result<Arc<dyn UsdSessionBackend>, String> {
+    pub(crate) fn session(&self) -> Result<Arc<dyn UsdSessionBackend>, AppError> {
         self.session
             .as_ref()
             .map(Arc::clone)
-            .ok_or_else(|| "USD backend capability unavailable: session".to_string())
+            .ok_or_else(|| AppError::Internal("USD backend capability unavailable: session".into()))
     }
 
-    pub(crate) fn light(&self) -> Result<Arc<dyn UsdLightBackend>, String> {
+    pub(crate) fn light(&self) -> Result<Arc<dyn UsdLightBackend>, AppError> {
         self.light
             .as_ref()
             .map(Arc::clone)
-            .ok_or_else(|| "USD backend capability unavailable: light".to_string())
+            .ok_or_else(|| AppError::Internal("USD backend capability unavailable: light".into()))
     }
 }
 

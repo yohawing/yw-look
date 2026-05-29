@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
 
+use crate::error::AppError;
 use crate::shared::{
     current_timestamp, ensure_parent_dir, resolve_diagnostics_log_path,
 };
@@ -34,7 +35,7 @@ pub(crate) struct DiagnosticRecordInput {
 fn append_diagnostic_record(
     app: &tauri::AppHandle,
     record: &DiagnosticRecordInput,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let log_path = resolve_diagnostics_log_path(app)?;
     ensure_parent_dir(&log_path)?;
 
@@ -52,29 +53,30 @@ fn append_diagnostic_record(
         .create(true)
         .append(true)
         .open(&log_path)
-        .map_err(|error| format!("failed to open diagnostics log: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to open diagnostics log: {error}")))?;
 
-    writeln!(file, "{line}").map_err(|error| format!("failed to append diagnostics log: {error}"))
+    writeln!(file, "{line}")
+        .map_err(|error| AppError::Io(format!("failed to append diagnostics log: {error}")))
 }
 
 #[tauri::command]
 pub(crate) fn log_diagnostic_event(
     app: tauri::AppHandle,
     record: DiagnosticRecordInput,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     append_diagnostic_record(&app, &record)
 }
 
 #[tauri::command]
 pub(crate) fn load_diagnostics_snapshot(
     app: tauri::AppHandle,
-) -> Result<DiagnosticsPayload, String> {
+) -> Result<DiagnosticsPayload, AppError> {
     let log_path = resolve_diagnostics_log_path(&app)?;
     ensure_parent_dir(&log_path)?;
 
     let diagnostics_snapshot = if log_path.exists() {
         let raw = std::fs::read_to_string(&log_path)
-            .map_err(|error| format!("failed to read diagnostics log: {error}"))?;
+            .map_err(|error| AppError::Io(format!("failed to read diagnostics log: {error}")))?;
 
         raw.lines()
             .rev()
@@ -95,7 +97,7 @@ pub(crate) fn load_diagnostics_snapshot(
 }
 
 #[tauri::command]
-pub(crate) fn load_process_memory_metrics() -> Result<Option<ProcessMemoryPayload>, String> {
+pub(crate) fn load_process_memory_metrics() -> Result<Option<ProcessMemoryPayload>, AppError> {
     let pid = Pid::from_u32(std::process::id());
     let mut system = System::new();
     system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);

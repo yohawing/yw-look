@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs, thread};
 
+use crate::error::AppError;
 use crate::shared::{format_byte_limit, normalize_file_path, read_limited_file};
 
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
@@ -25,13 +26,13 @@ const ALEMBIC_MAX_OUTPUT_BYTES: u64 = 128 * 1024 * 1024;
 const ALEMBIC_MAX_STDERR_BYTES: u64 = 64 * 1024;
 const ALEMBIC_HELPER_TIMEOUT: Duration = Duration::from_secs(60);
 
-fn resolve_alembic_tool_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn resolve_alembic_tool_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
     if ALEMBIC_TOOL_PLATFORM_DIR.is_empty() {
-        return Err(format!(
+        return Err(AppError::Internal(format!(
             "Alembic preview is not bundled for this platform ({}-{}).",
             env::consts::OS,
             env::consts::ARCH
-        ));
+        )));
     }
 
     let relative_path = PathBuf::from("alembic-tools")
@@ -45,19 +46,19 @@ fn resolve_alembic_tool_path(app: &tauri::AppHandle) -> Result<PathBuf, String> 
     let resource_path = app
         .path()
         .resource_dir()
-        .map_err(|error| format!("failed to resolve app resources directory: {error}"))?
+        .map_err(|error| AppError::Io(format!("failed to resolve app resources directory: {error}")))?
         .join(&relative_path);
     if resource_path.is_file() {
         return Ok(resource_path);
     }
 
-    Err(format!(
+    Err(AppError::Internal(format!(
         "Alembic preview helper is not bundled for this platform: {}",
         relative_path.display()
-    ))
+    )))
 }
 
-fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, String> {
+fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, AppError> {
     let temp_root = env::temp_dir();
     let nonce = format!(
         "{}-{}",
@@ -79,7 +80,7 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
         .write(true)
         .create_new(true)
         .open(&stdout_path)
-        .map_err(|error| format!("failed to create Alembic helper stdout file: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to create Alembic helper stdout file: {error}")))?;
     let stderr_file = match OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -88,9 +89,9 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
         Ok(file) => file,
         Err(error) => {
             cleanup(&stdout_path, &stderr_path);
-            return Err(format!(
+            return Err(AppError::Io(format!(
                 "failed to create Alembic helper stderr file: {error}"
-            ));
+            )));
         }
     };
 
@@ -102,10 +103,10 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
         .spawn()
         .map_err(|error| {
             cleanup(&stdout_path, &stderr_path);
-            format!(
+            AppError::Io(format!(
                 "failed to launch Alembic preview helper {}: {error}",
                 tool_path.display()
-            )
+            ))
         })?;
 
     let started = Instant::now();
@@ -128,10 +129,10 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
                         let _ = child.kill();
                         let _ = child.wait();
                         cleanup(&stdout_path, &stderr_path);
-                        return Err(format!(
+                        return Err(AppError::Internal(format!(
                             "Alembic preview {label} exceeded {}.",
                             format_byte_limit(max_bytes)
-                        ));
+                        )));
                     }
                 }
 
@@ -139,18 +140,15 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
                     let _ = child.kill();
                     let _ = child.wait();
                     cleanup(&stdout_path, &stderr_path);
-                    return Err(format!(
-                        "Alembic preview helper timed out after {} seconds.",
-                        ALEMBIC_HELPER_TIMEOUT.as_secs()
-                    ));
+                    return Err(AppError::Timeout);
                 }
                 thread::sleep(Duration::from_millis(50));
             }
             Err(error) => {
                 cleanup(&stdout_path, &stderr_path);
-                return Err(format!(
+                return Err(AppError::Io(format!(
                     "failed to wait for Alembic preview helper: {error}"
-                ));
+                )));
             }
         }
     };
@@ -167,9 +165,9 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
         let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
         cleanup(&stdout_path, &stderr_path);
         return Err(if stderr.is_empty() {
-            format!("Alembic preview helper exited with status {status}.")
+            AppError::Internal(format!("Alembic preview helper exited with status {status}."))
         } else {
-            stderr
+            AppError::Internal(stderr)
         });
     }
 
@@ -182,23 +180,27 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, Str
     };
     cleanup(&stdout_path, &stderr_path);
     String::from_utf8(stdout)
-        .map_err(|error| format!("Alembic preview helper returned non-UTF8 preview data: {error}"))
+        .map_err(|error| {
+            AppError::Internal(format!(
+                "Alembic preview helper returned non-UTF8 preview data: {error}"
+            ))
+        })
 }
 
 #[tauri::command]
 pub(crate) fn convert_alembic_to_preview(
     app: tauri::AppHandle,
     path: String,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let input_size = fs::metadata(&normalized)
-        .map_err(|error| format!("failed to inspect Alembic input: {error}"))?
+        .map_err(|error| AppError::Io(format!("failed to inspect Alembic input: {error}")))?
         .len();
     if input_size > ALEMBIC_MAX_INPUT_BYTES {
-        return Err(format!(
+        return Err(AppError::Internal(format!(
             "Alembic preview input exceeded {} MiB.",
             ALEMBIC_MAX_INPUT_BYTES / 1024 / 1024
-        ));
+        )));
     }
 
     let extension = normalized
@@ -207,10 +209,10 @@ pub(crate) fn convert_alembic_to_preview(
         .unwrap_or_default()
         .to_ascii_lowercase();
     if extension != "abc" {
-        return Err(format!(
+        return Err(AppError::Internal(format!(
             "Alembic preview only accepts .abc files: {}",
             normalized.display()
-        ));
+        )));
     }
 
     let tool_path = resolve_alembic_tool_path(&app)?;

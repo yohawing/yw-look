@@ -3,6 +3,7 @@ use std::{env, fs};
 
 use serde::Serialize;
 
+use crate::error::AppError;
 use crate::shared::{
     canonicalize_existing_path, canonicalize_existing_parent, current_app_version,
     ensure_path_within, repo_root,
@@ -28,39 +29,39 @@ fn bench_artifacts_root(repo_root: &Path) -> PathBuf {
     repo_root.join("artifacts").join("bench")
 }
 
-fn normalize_bench_repo_root(path: &Path) -> Result<PathBuf, String> {
+fn normalize_bench_repo_root(path: &Path) -> Result<PathBuf, AppError> {
     let normalized = canonicalize_existing_path(path)?;
     let expected = canonicalize_existing_path(&repo_root()?)?;
     if normalized != expected {
-        return Err(format!(
+        return Err(AppError::Internal(format!(
             "bench repo root '{}' must match '{}'",
             normalized.display(),
             expected.display()
-        ));
+        )));
     }
     Ok(normalized)
 }
 
-fn normalize_bench_models_path(path: &Path, repo_root: &Path) -> Result<PathBuf, String> {
+fn normalize_bench_models_path(path: &Path, repo_root: &Path) -> Result<PathBuf, AppError> {
     let normalized = canonicalize_existing_path(path)?;
     let samples_root = canonicalize_existing_path(&repo_root.join("samples").join("private"))?;
     ensure_path_within(&normalized, &samples_root, "bench models")?;
     Ok(normalized)
 }
 
-fn normalize_bench_out_dir(path: &Path, repo_root: &Path) -> Result<PathBuf, String> {
+fn normalize_bench_out_dir(path: &Path, repo_root: &Path) -> Result<PathBuf, AppError> {
     let parent = canonicalize_existing_parent(path)?;
     let root = bench_artifacts_root(repo_root);
     fs::create_dir_all(&root)
-        .map_err(|error| format!("failed to create bench artifacts root: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to create bench artifacts root: {error}")))?;
     let normalized_root = canonicalize_existing_path(&root)?;
     ensure_path_within(&parent, &normalized_root, "bench output")?;
     fs::create_dir_all(path)
-        .map_err(|error| format!("failed to create bench output directory: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to create bench output directory: {error}")))?;
     canonicalize_existing_path(path)
 }
 
-pub(crate) fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String> {
+pub(crate) fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, AppError> {
     let args: Vec<String> = env::args().collect();
     if !args.iter().any(|arg| arg == "--bench-load") {
         return Ok(None);
@@ -80,21 +81,21 @@ pub(crate) fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String>
                 index += 1;
                 let value = args
                     .get(index)
-                    .ok_or_else(|| "--bench-models requires a path".to_string())?;
+                    .ok_or_else(|| AppError::Internal("--bench-models requires a path".into()))?;
                 models_path = Some(PathBuf::from(value));
             }
             "--bench-repo-root" => {
                 index += 1;
                 let value = args
                     .get(index)
-                    .ok_or_else(|| "--bench-repo-root requires a path".to_string())?;
+                    .ok_or_else(|| AppError::Internal("--bench-repo-root requires a path".into()))?;
                 bench_repo_root = Some(PathBuf::from(value));
             }
             "--bench-out" => {
                 index += 1;
                 let value = args
                     .get(index)
-                    .ok_or_else(|| "--bench-out requires a path".to_string())?;
+                    .ok_or_else(|| AppError::Internal("--bench-out requires a path".into()))?;
                 out_dir = Some(PathBuf::from(value));
             }
             "--bench-node-version" => {
@@ -105,7 +106,7 @@ pub(crate) fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String>
                 index += 1;
                 let value = args
                     .get(index)
-                    .ok_or_else(|| "--bench-case requires an id".to_string())?;
+                    .ok_or_else(|| AppError::Internal("--bench-case requires an id".into()))?;
                 case_ids.push(value.clone());
             }
             "--bench-visible" => {
@@ -118,14 +119,14 @@ pub(crate) fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String>
 
     let bench_repo_root = normalize_bench_repo_root(
         &bench_repo_root
-            .ok_or_else(|| "--bench-load requires --bench-repo-root <path>".to_string())?,
+            .ok_or_else(|| AppError::Internal("--bench-load requires --bench-repo-root <path>".into()))?,
     )?;
     let models_path = normalize_bench_models_path(
-        &models_path.ok_or_else(|| "--bench-load requires --bench-models <path>".to_string())?,
+        &models_path.ok_or_else(|| AppError::Internal("--bench-load requires --bench-models <path>".into()))?,
         &bench_repo_root,
     )?;
     let out_dir = normalize_bench_out_dir(
-        &out_dir.ok_or_else(|| "--bench-load requires --bench-out <dir>".to_string())?,
+        &out_dir.ok_or_else(|| AppError::Internal("--bench-load requires --bench-out <dir>".into()))?,
         &bench_repo_root,
     )?;
 
@@ -143,7 +144,7 @@ pub(crate) fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, String>
 pub(crate) fn get_bench_config(
     app: tauri::AppHandle,
     config: tauri::State<'_, Option<BenchCliConfig>>,
-) -> Result<Option<BenchConfigPayload>, String> {
+) -> Result<Option<BenchConfigPayload>, AppError> {
     let Some(config) = config.as_ref() else {
         return Ok(None);
     };
@@ -171,15 +172,15 @@ pub(crate) fn write_bench_report(
     config: tauri::State<'_, Option<BenchCliConfig>>,
     report_json: String,
     report_markdown: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let Some(config) = config.as_ref() else {
-        return Err("bench mode is not enabled".to_string());
+        return Err(AppError::Internal("bench mode is not enabled".into()));
     };
     let out_dir = normalize_bench_out_dir(&config.out_dir, &config.repo_root)?;
     fs::write(out_dir.join("report.json"), report_json)
-        .map_err(|error| format!("failed to write report.json: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to write report.json: {error}")))?;
     fs::write(out_dir.join("report.md"), report_markdown)
-        .map_err(|error| format!("failed to write report.md: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to write report.md: {error}")))?;
     Ok(())
 }
 
@@ -187,13 +188,13 @@ pub(crate) fn write_bench_report(
 pub(crate) fn write_bench_status(
     config: tauri::State<'_, Option<BenchCliConfig>>,
     status_json: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let Some(config) = config.as_ref() else {
-        return Err("bench mode is not enabled".to_string());
+        return Err(AppError::Internal("bench mode is not enabled".into()));
     };
     let out_dir = normalize_bench_out_dir(&config.out_dir, &config.repo_root)?;
     fs::write(out_dir.join("status.json"), status_json)
-        .map_err(|error| format!("failed to write status.json: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to write status.json: {error}")))?;
     Ok(())
 }
 
@@ -202,24 +203,26 @@ pub(crate) fn write_bench_screenshot(
     config: tauri::State<'_, Option<BenchCliConfig>>,
     file_name: String,
     png_bytes: Vec<u8>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let Some(config) = config.as_ref() else {
-        return Err("bench mode is not enabled".to_string());
+        return Err(AppError::Internal("bench mode is not enabled".into()));
     };
     if !file_name.ends_with(".png")
         || file_name.contains('/')
         || file_name.contains('\\')
         || file_name.contains("..")
     {
-        return Err(format!("invalid bench screenshot file name: {file_name}"));
+        return Err(AppError::Internal(format!(
+            "invalid bench screenshot file name: {file_name}"
+        )));
     }
 
     let out_dir = normalize_bench_out_dir(&config.out_dir, &config.repo_root)?;
     let screenshots_dir = out_dir.join("screenshots");
     fs::create_dir_all(&screenshots_dir)
-        .map_err(|error| format!("failed to create screenshots directory: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to create screenshots directory: {error}")))?;
     fs::write(screenshots_dir.join(file_name), png_bytes)
-        .map_err(|error| format!("failed to write screenshot: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to write screenshot: {error}")))?;
     Ok(())
 }
 

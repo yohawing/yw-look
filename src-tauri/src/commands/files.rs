@@ -3,6 +3,7 @@ use std::fs;
 use std::io::Read as IoRead;
 use std::path::{Path, PathBuf};
 
+use crate::error::AppError;
 use crate::shared::{
     current_timestamp, infer_file_kind, is_supported_extension, load_or_initialize_settings,
     normalize_file_path, read_json_file, resolve_recent_files_path,
@@ -73,7 +74,7 @@ struct ImageDimensions {
     source: String,
 }
 
-fn build_selected_file_payload(path: PathBuf) -> Result<SelectedFilePayload, String> {
+fn build_selected_file_payload(path: PathBuf) -> Result<SelectedFilePayload, AppError> {
     let normalized = normalize_file_path(path)?;
 
     let extension = normalized
@@ -83,19 +84,19 @@ fn build_selected_file_payload(path: PathBuf) -> Result<SelectedFilePayload, Str
         .unwrap_or_default();
 
     if !is_supported_extension(&extension) {
-        return Err(format!("unsupported file extension: {extension}"));
+        return Err(AppError::Internal(format!("unsupported file extension: {extension}")));
     }
 
     let file_name = normalized
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| "failed to resolve file name".to_string())?
+        .ok_or_else(|| AppError::Internal("failed to resolve file name".into()))?
         .to_string();
 
     let parent_directory = normalized
         .parent()
         .map(|value| value.display().to_string())
-        .ok_or_else(|| "failed to resolve parent directory".to_string())?;
+        .ok_or_else(|| AppError::Internal("failed to resolve parent directory".into()))?;
 
     Ok(SelectedFilePayload {
         path: normalized.display().to_string(),
@@ -106,9 +107,9 @@ fn build_selected_file_payload(path: PathBuf) -> Result<SelectedFilePayload, Str
     })
 }
 
-fn list_supported_files_in_directory(directory: &Path) -> Result<Vec<SelectedFilePayload>, String> {
+fn list_supported_files_in_directory(directory: &Path) -> Result<Vec<SelectedFilePayload>, AppError> {
     let mut files = fs::read_dir(directory)
-        .map_err(|error| format!("failed to read directory: {error}"))?
+        .map_err(|error| AppError::Io(format!("failed to read directory: {error}")))?
         .filter_map(|entry| entry.ok())
         .filter_map(|entry| build_selected_file_payload(entry.path()).ok())
         .collect::<Vec<_>>();
@@ -124,7 +125,7 @@ fn list_supported_files_in_directory(directory: &Path) -> Result<Vec<SelectedFil
 
 fn load_recent_file_entries(
     app: &tauri::AppHandle,
-) -> Result<(PathBuf, Vec<RecentFileEntry>), String> {
+) -> Result<(PathBuf, Vec<RecentFileEntry>), AppError> {
     let recent_files_path = resolve_recent_files_path(app)?;
 
     if !recent_files_path.exists() {
@@ -135,13 +136,13 @@ fn load_recent_file_entries(
     Ok((recent_files_path, entries))
 }
 
-fn save_recent_file_entries(path: &Path, entries: &[RecentFileEntry]) -> Result<(), String> {
+fn save_recent_file_entries(path: &Path, entries: &[RecentFileEntry]) -> Result<(), AppError> {
     write_json_file(path, &entries.to_vec())
 }
 
 fn load_clean_recent_file_entries(
     app: &tauri::AppHandle,
-) -> Result<(PathBuf, Vec<RecentFileEntry>), String> {
+) -> Result<(PathBuf, Vec<RecentFileEntry>), AppError> {
     let (_, settings) = load_or_initialize_settings(app)?;
     let (recent_files_path, mut entries) = load_recent_file_entries(app)?;
     let original_len = entries.len();
@@ -156,7 +157,7 @@ fn load_clean_recent_file_entries(
     Ok((recent_files_path, entries))
 }
 
-fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Result<(), String> {
+fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Result<(), AppError> {
     let (_, settings) = load_or_initialize_settings(app)?;
     let (recent_files_path, mut entries) = load_recent_file_entries(app)?;
 
@@ -263,7 +264,7 @@ fn read_image_dimensions(path: &Path, extension: &str) -> Option<ImageDimensions
     }
 }
 
-fn build_asset_inspection(path: PathBuf) -> Result<AssetInspection, String> {
+fn build_asset_inspection(path: PathBuf) -> Result<AssetInspection, AppError> {
     let normalized = normalize_file_path(path)?;
 
     let extension = normalized
@@ -273,17 +274,19 @@ fn build_asset_inspection(path: PathBuf) -> Result<AssetInspection, String> {
         .unwrap_or_default();
 
     if !is_supported_extension(&extension) {
-        return Err(format!("unsupported file extension: {extension}"));
+        return Err(AppError::Internal(format!(
+            "unsupported file extension: {extension}"
+        )));
     }
 
     let file_name = normalized
         .file_name()
         .and_then(|v| v.to_str())
-        .ok_or_else(|| "failed to resolve file name".to_string())?
+        .ok_or_else(|| AppError::Internal("failed to resolve file name".into()))?
         .to_string();
 
     let metadata =
-        fs::metadata(&normalized).map_err(|e| format!("failed to read file metadata: {e}"))?;
+        fs::metadata(&normalized).map_err(|e| AppError::Io(format!("failed to read file metadata: {e}")))?;
 
     let modified_at = metadata
         .modified()
@@ -307,7 +310,7 @@ fn build_asset_inspection(path: PathBuf) -> Result<AssetInspection, String> {
 }
 
 #[tauri::command]
-pub(crate) fn inspect_asset(path: String) -> Result<AssetInspection, String> {
+pub(crate) fn inspect_asset(path: String) -> Result<AssetInspection, AppError> {
     build_asset_inspection(PathBuf::from(path))
 }
 
@@ -326,7 +329,7 @@ pub(crate) fn load_format_support() -> FormatSupportPayload {
 #[tauri::command]
 pub(crate) fn open_file_dialog(
     app: tauri::AppHandle,
-) -> Result<Option<SelectedFilePayload>, String> {
+) -> Result<Option<SelectedFilePayload>, AppError> {
     let file_path = rfd::FileDialog::new()
         .set_title("Open asset file")
         .add_filter(
@@ -352,14 +355,14 @@ pub(crate) fn open_file_dialog(
 pub(crate) fn resolve_selected_file(
     app: tauri::AppHandle,
     path: String,
-) -> Result<SelectedFilePayload, String> {
+) -> Result<SelectedFilePayload, AppError> {
     let payload = build_selected_file_payload(PathBuf::from(path))?;
     sync_recent_file(&app, &payload)?;
     Ok(payload)
 }
 
 #[tauri::command]
-pub(crate) fn list_supported_siblings(path: String) -> Result<DirectoryListingPayload, String> {
+pub(crate) fn list_supported_siblings(path: String) -> Result<DirectoryListingPayload, AppError> {
     let file = build_selected_file_payload(PathBuf::from(path))?;
     let files = list_supported_files_in_directory(Path::new(&file.parent_directory))?;
     let current_index = files.iter().position(|entry| entry.path == file.path);
@@ -371,16 +374,16 @@ pub(crate) fn list_supported_siblings(path: String) -> Result<DirectoryListingPa
 }
 
 #[tauri::command]
-pub(crate) fn read_binary_file(path: String) -> Result<Vec<u8>, String> {
+pub(crate) fn read_binary_file(path: String) -> Result<Vec<u8>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    fs::read(normalized).map_err(|error| format!("failed to read file bytes: {error}"))
+    fs::read(normalized).map_err(|error| AppError::Io(format!("failed to read file bytes: {error}")))
 }
 
 #[tauri::command]
 pub(crate) fn get_startup_file(
     app: tauri::AppHandle,
     pending: tauri::State<'_, PendingOpenFiles>,
-) -> Result<Option<SelectedFilePayload>, String> {
+) -> Result<Option<SelectedFilePayload>, AppError> {
     let queued: Vec<PathBuf> = {
         let mut guard = pending.0.lock().unwrap();
         std::mem::take(&mut *guard)
@@ -404,7 +407,7 @@ pub(crate) fn get_startup_file(
 }
 
 #[tauri::command]
-pub(crate) fn load_recent_files(app: tauri::AppHandle) -> Result<RecentFilesPayload, String> {
+pub(crate) fn load_recent_files(app: tauri::AppHandle) -> Result<RecentFilesPayload, AppError> {
     let (recent_files_path, entries) = load_clean_recent_file_entries(&app)?;
 
     Ok(RecentFilesPayload {

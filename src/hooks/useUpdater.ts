@@ -7,16 +7,7 @@ import {
   type UpdateConfigurationPayload,
 } from "../lib/updater";
 import type { SettingsPayload } from "../lib/settings";
-
-function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string" && error.trim()) {
-    return error;
-  }
-  return fallback;
-}
+import { errorMessage } from "../lib/invokeSafe";
 
 export function useUpdater(
   shouldLoadDeferredData: boolean,

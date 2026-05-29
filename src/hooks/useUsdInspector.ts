@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-/* eslint-disable react-hooks/set-state-in-effect -- USD inspector intentionally resets state synchronously on file change */
 import type { SelectedFile } from "../lib/files";
 import {
   collectAssetIssues,
@@ -12,12 +11,7 @@ import {
   type StageSummary,
   type UsdLightInfo,
 } from "../lib/usd";
-
-const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
-
-function isUsdFile(file: SelectedFile | null): boolean {
-  return !!file && USD_EXTENSIONS.has(file.extension);
-}
+import { errorMessage } from "../lib/invokeSafe";
 
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof Error) {

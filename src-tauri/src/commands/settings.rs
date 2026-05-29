@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use crate::error::AppError;
 use crate::shared::{
     load_or_initialize_settings, resolve_settings_path, sanitize_settings, write_settings_file,
 };
@@ -13,7 +14,7 @@ pub(crate) struct SettingsPayload {
 }
 
 #[tauri::command]
-pub(crate) fn load_settings(app: tauri::AppHandle) -> Result<SettingsPayload, String> {
+pub(crate) fn load_settings(app: tauri::AppHandle) -> Result<SettingsPayload, AppError> {
     let (settings_path, settings) = load_or_initialize_settings(&app)?;
 
     Ok(SettingsPayload {
@@ -26,7 +27,7 @@ pub(crate) fn load_settings(app: tauri::AppHandle) -> Result<SettingsPayload, St
 pub(crate) fn save_settings(
     app: tauri::AppHandle,
     settings: AppSettings,
-) -> Result<SettingsPayload, String> {
+) -> Result<SettingsPayload, AppError> {
     let settings_path = resolve_settings_path(&app)?;
     let settings = sanitize_settings(settings);
     write_settings_file(&settings_path, &settings)?;
@@ -40,7 +41,7 @@ pub(crate) fn save_settings(
 #[tauri::command]
 pub(crate) fn load_update_configuration(
     app: tauri::AppHandle,
-) -> Result<crate::commands::updater::UpdateConfigurationPayload, String> {
+) -> Result<crate::commands::updater::UpdateConfigurationPayload, AppError> {
     let (_, settings) = load_or_initialize_settings(&app)?;
     Ok(crate::commands::updater::build_update_configuration_payload(&app, &settings))
 }
