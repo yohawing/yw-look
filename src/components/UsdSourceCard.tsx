@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { flattenStage, loadUsdSource, type UsdSourcePayload } from "../lib/usd";
 import type { SelectedFile } from "../lib/files";
+import { Button } from "./ui/Button";
 import {
   SidebarEmpty,
   SidebarError,
@@ -264,9 +265,8 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
     <SidebarSection title="USD Source" collapsible defaultOpen={false}>
       <div className="sidebar-action-row">
         {open && isBinaryStage && (
-          <button
-            type="button"
-            className="btn-ghost"
+          <Button
+            variant="ghost"
             onClick={() => void onFlatten()}
             disabled={flattenLoading}
             title="Flatten stage via usdcat --flatten and show the composed USDA text"
@@ -276,15 +276,11 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
               : showingFlattened
                 ? "Hide flattened"
                 : "Show flattened"}
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() => void onToggle()}
-        >
+        <Button variant="ghost" onClick={() => void onToggle()}>
           {open ? "Hide" : loading ? "Loading…" : "Show"}
-        </button>
+        </Button>
       </div>
       {open && (
         <>
