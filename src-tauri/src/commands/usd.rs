@@ -1,0 +1,288 @@
+use std::path::PathBuf;
+
+use crate::shared::{normalize_file_path, USD_TASK_LOCK};
+use crate::state::UsdBackendState;
+use crate::usd::{
+    types::ExtractGeometryOptions, AssetIssue, AttributeTimeSamples, PrimInspection,
+    StageInspection, StageLoadPolicy, StageRegistry, StageSessionHandle, StageSummary, UsdError,
+    UsdLightInfo,
+};
+
+fn map_usd_error(error: UsdError) -> String {
+    error.to_string()
+}
+
+async fn run_blocking_usd<T, F>(task: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = USD_TASK_LOCK
+            .lock()
+            .map_err(|_| "USD task lock was poisoned".to_string())?;
+        task().map_err(map_usd_error)
+    })
+    .await
+    .map_err(|e| format!("USD task join error: {e}"))?
+}
+
+fn fast_usd_requires_glb_preview(path: &std::path::Path) -> Option<bool> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if matches!(extension.as_str(), "usd" | "usdc") {
+        return Some(true);
+    }
+    if extension != "usda" {
+        return None;
+    }
+
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.starts_with(b"PXR-USDC") {
+        return Some(true);
+    }
+    let source = std::str::from_utf8(&bytes).ok()?;
+    Some(
+        source.contains("subLayers") || source.contains("references") || source.contains("payload"),
+    )
+}
+
+#[allow(non_snake_case)]
+#[tauri::command]
+pub(crate) async fn backendCapabilities(
+    backend: tauri::State<'_, UsdBackendState>,
+) -> Result<crate::state::BackendCapabilities, String> {
+    Ok(backend.capabilities())
+}
+
+#[tauri::command]
+pub(crate) async fn inspect_stage(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    policy: Option<StageLoadPolicy>,
+) -> Result<StageInspection, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.inspect();
+    let policy = policy.unwrap_or_default();
+    run_blocking_usd(move || handle.inspect_stage(&normalized, policy)).await
+}
+
+#[tauri::command]
+pub(crate) async fn inspect_attribute_time_samples(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    prim_path: String,
+    attr_name: String,
+    max_samples: Option<usize>,
+) -> Result<AttributeTimeSamples, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let cap = max_samples.unwrap_or(100);
+    let handle = backend.inspect();
+    run_blocking_usd(move || {
+        handle.inspect_attribute_time_samples(&normalized, &prim_path, &attr_name, cap)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn inspect_prim(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    prim_path: String,
+) -> Result<PrimInspection, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.inspect();
+    run_blocking_usd(move || handle.inspect_prim(&normalized, &prim_path)).await
+}
+
+#[tauri::command]
+pub(crate) async fn inspect_usd_lights(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<Vec<UsdLightInfo>, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.light()?;
+    run_blocking_usd(move || handle.inspect_usd_lights(&normalized)).await
+}
+
+#[tauri::command]
+pub(crate) async fn summarize_stage(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    policy: Option<StageLoadPolicy>,
+) -> Result<StageSummary, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.inspect();
+    let policy = policy.unwrap_or_default();
+    run_blocking_usd(move || handle.summarize_stage(&normalized, policy)).await
+}
+
+#[tauri::command]
+pub(crate) async fn collect_asset_issues(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<Vec<AssetIssue>, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.inspect();
+    run_blocking_usd(move || handle.collect_asset_issues(&normalized)).await
+}
+
+#[tauri::command]
+pub(crate) async fn requires_glb_preview(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<bool, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    if let Some(decision) = fast_usd_requires_glb_preview(&normalized) {
+        return Ok(decision);
+    }
+    let handle = backend.inspect();
+    run_blocking_usd(move || handle.requires_glb_preview(&normalized)).await
+}
+
+#[tauri::command]
+pub(crate) async fn extract_geometry(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+    policy: Option<StageLoadPolicy>,
+    options: Option<ExtractGeometryOptions>,
+) -> Result<tauri::ipc::Response, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.geometry()?;
+    let resolved_options =
+        options.unwrap_or_else(|| ExtractGeometryOptions::from(policy.unwrap_or_default()));
+    let bytes = run_blocking_usd(move || {
+        handle.extract_geometry_glb_with_options(&normalized, &resolved_options)
+    })
+    .await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+pub(crate) async fn flatten_stage(
+    backend: tauri::State<'_, UsdBackendState>,
+    path: String,
+) -> Result<String, String> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let handle = backend.source()?;
+    run_blocking_usd(move || handle.flatten_stage(&normalized)).await
+}
+
+#[tauri::command]
+pub(crate) async fn open_stage_session(
+    backend: tauri::State<'_, UsdBackendState>,
+    registry: tauri::State<'_, StageRegistry>,
+    path: String,
+    policy: Option<StageLoadPolicy>,
+) -> Result<StageSessionHandle, String> {
+    let normalized = normalize_file_path(PathBuf::from(path.clone()))?;
+    let handle = backend.session()?;
+    let policy = policy.unwrap_or_default();
+    let open_stage =
+        run_blocking_usd(move || handle.open_stage_session(&normalized, policy)).await?;
+
+    let session = crate::usd::OpenSession {
+        path: PathBuf::from(path),
+        policy,
+        stage: open_stage,
+    };
+    let sh = registry.insert(session);
+    Ok(sh)
+}
+
+#[tauri::command]
+pub(crate) async fn close_stage_session(
+    registry: tauri::State<'_, StageRegistry>,
+    handle: StageSessionHandle,
+) -> Result<(), String> {
+    registry
+        .remove(handle)
+        .ok_or_else(|| format!("close_stage_session: unknown handle {}", handle.0))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn load_payload(
+    app: tauri::AppHandle,
+    backend: tauri::State<'_, UsdBackendState>,
+    handle: StageSessionHandle,
+    prim_path: String,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let backend_handle = backend.session()?;
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let _guard = USD_TASK_LOCK
+            .lock()
+            .map_err(|_| "USD task lock was poisoned".to_string())?;
+        let registry = app.state::<StageRegistry>();
+        let session = registry
+            .get(handle)
+            .ok_or_else(|| format!("load_payload: unknown session handle {}", handle.0))?;
+        backend_handle
+            .load_payload(&session.stage, &prim_path)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("USD task join error: {e}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn unload_payload(
+    app: tauri::AppHandle,
+    backend: tauri::State<'_, UsdBackendState>,
+    handle: StageSessionHandle,
+    prim_path: String,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let backend_handle = backend.session()?;
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let _guard = USD_TASK_LOCK
+            .lock()
+            .map_err(|_| "USD task lock was poisoned".to_string())?;
+        let registry = app.state::<StageRegistry>();
+        let session = registry
+            .get(handle)
+            .ok_or_else(|| format!("unload_payload: unknown session handle {}", handle.0))?;
+        backend_handle
+            .unload_payload(&session.stage, &prim_path)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("USD task join error: {e}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn extract_geometry_session(
+    app: tauri::AppHandle,
+    backend: tauri::State<'_, UsdBackendState>,
+    handle: StageSessionHandle,
+    options: Option<ExtractGeometryOptions>,
+    policy: Option<StageLoadPolicy>,
+) -> Result<tauri::ipc::Response, String> {
+    use tauri::Manager;
+    let resolved_options =
+        options.unwrap_or_else(|| ExtractGeometryOptions::from(policy.unwrap_or_default()));
+    let backend_handle = backend.session()?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let _guard = USD_TASK_LOCK
+            .lock()
+            .map_err(|_| "USD task lock was poisoned".to_string())?;
+        let registry = app.state::<StageRegistry>();
+        let session = registry.get(handle).ok_or_else(|| {
+            format!(
+                "extract_geometry_session: unknown session handle {}",
+                handle.0
+            )
+        })?;
+        backend_handle
+            .extract_geometry_from_session(&session.stage, &session.path, &resolved_options)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("USD task join error: {e}"))??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
