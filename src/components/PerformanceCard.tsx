@@ -1,12 +1,7 @@
 import { SidebarKeyValueRows, SidebarSection } from "./sidebarPrimitives";
+import type { PerformanceSnapshot } from "../types/ui";
 
-export type PerformanceSnapshot = {
-  startupMs: number | null;
-  loadMs: number | null;
-  navigationMs: number | null;
-  firstPaintMs: number | null;
-  interactiveMs: number | null;
-};
+export type { PerformanceSnapshot } from "../types/ui";
 
 type PerformanceCardProps = {
   snapshot: PerformanceSnapshot;

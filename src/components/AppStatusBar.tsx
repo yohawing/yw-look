@@ -1,13 +1,7 @@
-import type { ReactNode } from "react";
 import "../styles/sidebar.css";
+import type { AppStatusBarItem } from "../types/ui";
 
-export type AppStatusBarItem = {
-  id: string;
-  content: ReactNode;
-  mono?: boolean;
-  onClick?: () => void;
-  tone?: "warning" | "danger";
-};
+export type { AppStatusBarItem } from "../types/ui";
 
 type AppStatusBarProps = {
   leftItems: readonly AppStatusBarItem[];

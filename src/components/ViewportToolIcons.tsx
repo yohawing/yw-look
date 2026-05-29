@@ -1,28 +1,6 @@
-export type ViewportToolIcon =
-  | "axis"
-  | "backface"
-  | "bbox"
-  | "camera"
-  | "channel"
-  | "checker"
-  | "colorspace"
-  | "environment"
-  | "grid"
-  | "inspect"
-  | "light"
-  | "look"
-  | "matcap"
-  | "normals"
-  | "overlay"
-  | "palette"
-  | "sceneLight"
-  | "shadow"
-  | "skeleton"
-  | "texture"
-  | "tiling"
-  | "uv"
-  | "vertex"
-  | "wireframe";
+import type { ViewportToolIcon } from "../types/ui";
+
+export type { ViewportToolIcon } from "../types/ui";
 
 export function ViewportToolSvg({ icon }: { icon: ViewportToolIcon }) {
   switch (icon) {

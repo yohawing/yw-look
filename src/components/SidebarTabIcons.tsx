@@ -1,11 +1,6 @@
-export type SidebarTabId =
-  | "properties"
-  | "file"
-  | "hierarchy"
-  | "materials"
-  | "textures"
-  | "settings"
-  | "warnings";
+import type { SidebarTabId } from "../types/ui";
+
+export type { SidebarTabId } from "../types/ui";
 
 export function SidebarTabIcon({ kind }: { kind: SidebarTabId }) {
   switch (kind) {

@@ -1,23 +1,12 @@
 import type { WebGLRenderer } from "three";
 
-export type CanvasScreenshotOptions = {
-  mimeType?: "image/png" | "image/jpeg" | "image/webp";
-  quality?: number;
-  beforeCapture?: () => void;
-};
+import type { CanvasScreenshotOptions, CanvasScreenshot } from "../types/viewer";
 
-export type CanvasScreenshot = {
-  dataUrl: string;
-  mimeType: string;
-  width: number;
-  height: number;
-};
-
-export type AssetViewportApi = {
-  captureScreenshot: (
-    options?: CanvasScreenshotOptions,
-  ) => Promise<CanvasScreenshot>;
-};
+export type {
+  CanvasScreenshotOptions,
+  CanvasScreenshot,
+  AssetViewportApi,
+} from "../types/viewer";
 
 function canvasToDataUrl(
   canvas: HTMLCanvasElement,

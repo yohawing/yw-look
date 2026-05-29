@@ -1,32 +1,12 @@
 import type { DisplayMode } from "../viewer";
 
-export type ViewerShortcutAction =
-  | "focusSelected"
-  | "frameAll"
-  | "resetView"
-  | "clearSelection"
-  | "hideSelected"
-  | "isolateSelected"
-  | "unhideAll"
-  | "cycleDisplayMode"
-  | "toggleGrid";
+import type { ViewerShortcutAction, ViewportShortcutCommand, ViewerShortcutState } from "../types/ui";
 
-export type ViewportShortcutCommand =
-  | { kind: "focusSelected"; selectionKey: string; version: number }
-  | { kind: "frameAll"; version: number }
-  | { kind: "resetView"; version: number }
-  | { kind: "hideSelected"; selectionKey: string; version: number }
-  | { kind: "isolateSelected"; selectionKey: string; version: number }
-  | { kind: "unhideAll"; version: number };
-
-export type ViewerShortcutState = {
-  showTexture: boolean;
-  showWireframe: boolean;
-  showGrid: boolean;
-  selectedMeshName: string | null;
-  selectedUsdPrimPath: string | null;
-  viewportCommand: ViewportShortcutCommand | null;
-};
+export type {
+  ViewerShortcutAction,
+  ViewportShortcutCommand,
+  ViewerShortcutState,
+} from "../types/ui";
 
 export const viewerShortcutHelpLines = [
   "F  View > Focus selected",

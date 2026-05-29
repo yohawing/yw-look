@@ -39,7 +39,6 @@ import type {
 import { formatUsdErrorForDisplay } from "../lib/usd";
 import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 import {
-  type CameraPreset,
   type DeferredTextureSnapshot,
   type DisplayMode,
   type LoadingStageId,
@@ -110,6 +109,8 @@ import { emptyAnimationState, type AnimationState } from "./animation";
 import { applyMorphTargetValues } from "./morphTargets";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
+import type { BackgroundPreset, CameraPresetRequest, EnvironmentPreset, ToneMappingMode } from "../types/viewer";
+
 export type {
   ViewerFeedback,
   DisplayMode,
@@ -117,13 +118,11 @@ export type {
   TextureViewMode,
   TextureFilterMode,
   CameraPreset,
-};
-export type BackgroundPreset = "gray" | "charcoal" | "light";
-
-export type CameraPresetRequest = {
-  preset: CameraPreset;
-  version: number;
-};
+  BackgroundPreset,
+  CameraPresetRequest,
+  EnvironmentPreset,
+  ToneMappingMode,
+} from "../types/viewer";
 
 const backgroundPresetColors: Record<BackgroundPreset, string> = {
   gray: "#717781",
@@ -209,10 +208,6 @@ function applyViewportBackground(
   renderer.setClearColor(color);
   scene.background = environmentTexture ?? new Color(color);
 }
-
-export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
-
-export type ToneMappingMode = "linear" | "aces" | "reinhard";
 
 const toneMappingModeMap: Record<ToneMappingMode, ToneMapping> = {
   linear: LinearToneMapping,

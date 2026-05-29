@@ -1,27 +1,7 @@
 import type { ToolbarAction, ToolbarItem } from "./types";
+import type { TextureColorSpace, BuildImageToolbarOptions } from "../../types/viewer";
 
-export type TextureColorSpace = "srgb" | "linear" | "raw";
-
-export type BuildImageToolbarOptions = {
-  // Channel
-  channelMode: string | null;
-  channelOptions: Array<{ id: string; label: string }>;
-  onSelectChannel?: (mode: string) => void;
-
-  // Color
-  colorSpace: TextureColorSpace;
-  onSelectColorSpace?: (mode: TextureColorSpace) => void;
-  exposure: number;
-
-  // Background (placeholder — not yet wired to shader)
-  bgMode: string;
-  onSelectBgMode?: (mode: string) => void;
-
-  // Tiling (placeholder — not yet wired to texture wrap)
-  tilingMode: string;
-  onSelectTilingMode?: (mode: string) => void;
-  tileCount: number;
-};
+export type { TextureColorSpace, BuildImageToolbarOptions } from "../../types/viewer";
 
 export function buildImageToolbar(
   options: BuildImageToolbarOptions,

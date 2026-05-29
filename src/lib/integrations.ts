@@ -1,10 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type IntegrationPayload = {
-  fileAssociationsEnabled: boolean;
-  installStrategy: string;
-  supportedExtensions: string[];
-};
+import type { IntegrationPayload } from "../types/ipc";
+
+export type { IntegrationPayload } from "../types/ipc";
 
 export async function loadSupportedExtensions() {
   return invoke<IntegrationPayload>("load_supported_extensions");
