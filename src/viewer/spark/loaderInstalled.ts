@@ -52,6 +52,12 @@ export async function loadSparkPreviewObject(
     // Wait for async initialization (data parsing, GPU upload prep)
     await splatMesh.initialized;
 
+    // Gaussian splat captures (INRIA/COLMAP `.ply`, antimatter15 `.splat`,
+    // `.spz`) are authored in a Y-down frame, so they load upside-down in
+    // THREE's Y-up world. A 180° rotation about X flips them right-side up —
+    // this `quaternion.set(1, 0, 0, 0)` matches Spark's own README example.
+    splatMesh.quaternion.set(1, 0, 0, 0);
+
     reportStage("scene");
 
     const group = new Group();
