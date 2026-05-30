@@ -39,6 +39,7 @@ export function useUpdater(
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initiates async update configuration load which calls setState in its callbacks; cannot be deferred to render since it triggers a Tauri RPC
     void refreshUpdateConfiguration();
   }, [shouldLoadDeferredData, refreshUpdateConfiguration]);
 
@@ -61,6 +62,7 @@ export function useUpdater(
     if (autoUpdateCheckedRef.current) return;
     if (!settingsPayload?.settings.autoCheckForUpdates) return;
     autoUpdateCheckedRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initiates async update check which calls setState in its callbacks; auto-check must fire once at mount after settings load and cannot be derived during render
     void handleCheckForUpdate();
   }, [settingsPayload?.settings.autoCheckForUpdates, handleCheckForUpdate]);
 

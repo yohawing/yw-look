@@ -119,7 +119,9 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
   const [flattenLoading, setFlattenLoading] = useState(false);
   const [flattenError, setFlattenError] = useState<string | null>(null);
   /** Path the cached `flattenedSource` was loaded for. */
-  const flattenCachedPath = useRef<string | null>(null);
+  const [flattenCachedPath, setFlattenCachedPath] = useState<string | null>(
+    null,
+  );
 
   const isUsd =
     currentFile !== null &&
@@ -154,6 +156,7 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
   // user does not have to click `Hide` / `Show` to refresh.
   useEffect(() => {
     if (!currentFile) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting all local state when the file is cleared is the intended side-effect; no cascading render risk because currentFile drives the effect
       setOpen(false);
       setPayload(null);
       setError(null);
@@ -162,7 +165,7 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
       // Reset flatten state too.
       setFlattenedSource(null);
       setFlattenError(null);
-      flattenCachedPath.current = null;
+      setFlattenCachedPath(null);
       return;
     }
     if (cachedPath.current === currentFile.path) {
@@ -172,10 +175,10 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
     setPayload(null);
     setError(null);
     // Drop any cached flatten result for the previous file.
-    if (flattenCachedPath.current !== currentFile.path) {
+    if (flattenCachedPath !== currentFile.path) {
       setFlattenedSource(null);
       setFlattenError(null);
-      flattenCachedPath.current = null;
+      setFlattenCachedPath(null);
     }
     if (open && isUsd) {
       void loadFor(currentFile);
@@ -184,7 +187,7 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
       requestSeq.current += 1;
       setLoading(false);
     }
-  }, [currentFile, open, isUsd]);
+  }, [currentFile, open, isUsd, flattenCachedPath]);
 
   if (!isUsd) {
     return null;
@@ -206,11 +209,11 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
   const onFlatten = async () => {
     if (!currentFile) return;
     // Already loaded for this file — just show it (toggle off if shown).
-    if (flattenCachedPath.current === currentFile.path && flattenedSource) {
+    if (flattenCachedPath === currentFile.path && flattenedSource) {
       // Clicking again while showing: hide the flattened view.
       setFlattenedSource(null);
       setFlattenError(null);
-      flattenCachedPath.current = null;
+      setFlattenCachedPath(null);
       return;
     }
     setFlattenLoading(true);
@@ -227,7 +230,7 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
           return;
         }
       }
-      flattenCachedPath.current = currentFile.path;
+      setFlattenCachedPath(currentFile.path);
       setFlattenedSource(text);
     } catch (err) {
       setFlattenError(err instanceof Error ? err.message : String(err));
@@ -259,7 +262,7 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
   // root-layer view is already correct and has no composition to expand).
   const isBinaryStage = payload?.kind === "binary";
   const showingFlattened =
-    flattenCachedPath.current === currentFile?.path && flattenedSource !== null;
+    flattenCachedPath === currentFile?.path && flattenedSource !== null;
 
   return (
     <SidebarSection title="USD Source" collapsible defaultOpen={false}>

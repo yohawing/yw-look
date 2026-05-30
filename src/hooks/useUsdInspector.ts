@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SelectedFile } from "../lib/files";
+import { isUsdFile, type SelectedFile } from "../lib/files";
 import {
   collectAssetIssues,
   inspectStage,
@@ -12,16 +12,6 @@ import {
   type UsdLightInfo,
 } from "../lib/usd";
 import { errorMessage } from "../lib/invokeSafe";
-
-function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string" && error.trim()) {
-    return error;
-  }
-  return fallback;
-}
 
 export function useUsdInspector(
   currentFile: SelectedFile | null,
@@ -41,6 +31,7 @@ export function useUsdInspector(
 
   useEffect(() => {
     if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset all derived async USD state when the file is not a USD file or Tauri is unavailable; values come from cancellable RPCs and cannot be derived during render
       setUsdSummary(null);
       setUsdInspection(null);
       setUsdIssues([]);

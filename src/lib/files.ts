@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { SelectedFile, AssetInspection, FormatSupport, DirectoryListing } from "../types/file";
+import type {
+  SelectedFile,
+  AssetInspection,
+  FormatSupport,
+  DirectoryListing,
+} from "../types/file";
 
 export type {
   AssetKind,
@@ -10,6 +15,12 @@ export type {
   AssetInspection,
   FormatSupport,
 } from "../types/file";
+
+const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
+
+export function isUsdFile(file: SelectedFile | null): boolean {
+  return !!file && USD_EXTENSIONS.has(file.extension);
+}
 
 export async function openFileDialog() {
   return invoke<SelectedFile | null>("open_file_dialog");

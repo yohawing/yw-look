@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SelectedFile } from "../lib/files";
+import { isUsdFile, type SelectedFile } from "../lib/files";
 import {
   closeStageSession,
   extractGeometrySession,
@@ -12,12 +12,6 @@ import {
   type StageSessionHandle,
   type VariantSelection,
 } from "../lib/usd";
-
-const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
-
-function isUsdFile(file: SelectedFile | null): boolean {
-  return !!file && USD_EXTENSIONS.has(file.extension);
-}
 
 export function usePayloadSession(
   currentFile: SelectedFile | null,
@@ -54,6 +48,7 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset session handle and unloaded paths when file is not a USD file or Tauri is unavailable; session handle comes from a cancellable RPC and cannot be derived during render
       setStageSessionHandle(null);
       setUnloadedPayloadPaths(new Set());
       return;
@@ -98,6 +93,7 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (stageSessionHandle === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset session GLB buffer when the stage session handle is cleared; buffer is derived from a cancellable RPC and cannot be derived during render
       setSessionGlbBuffer(null);
       return;
     }
@@ -127,6 +123,7 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (!usdInspection || usdLoadPolicy !== "noPayloads") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset payload prim paths and unloaded paths when inspection is absent or load policy changed; values come from USD inspection data and cannot be derived during render
       setPayloadPrimPaths(new Set());
       setUnloadedPayloadPaths(new Set());
       return;

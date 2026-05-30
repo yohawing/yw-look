@@ -62,6 +62,7 @@ import {
 import {
   getStartupFile,
   inspectAsset,
+  isUsdFile,
   listSupportedSiblings,
   openFileDialog,
   resolveSelectedFile,
@@ -86,7 +87,6 @@ import { useViewerStore } from "./stores/viewerStore";
 import { useFileStore } from "./stores/fileStore";
 import { useUiStore } from "./stores/uiStore";
 
-const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
 const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
 
 function errorMessage(error: unknown, fallback: string) {
@@ -97,10 +97,6 @@ function errorMessage(error: unknown, fallback: string) {
     return error;
   }
   return fallback;
-}
-
-function isUsdFile(file: SelectedFile | null): boolean {
-  return !!file && USD_EXTENSIONS.has(file.extension);
 }
 
 function extensionFromPath(path: string) {

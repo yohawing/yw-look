@@ -20,7 +20,7 @@ export async function invokeSafe<T>(
 function normalizeAppError(err: unknown): AppError {
   if (isAppErrorShape(err)) {
     return {
-      kind: err.kind,
+      kind: err.kind as AppError["kind"],
       message: err.message,
     };
   }
