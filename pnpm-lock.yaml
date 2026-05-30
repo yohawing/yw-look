@@ -98,8 +98,8 @@ importers:
         version: 4.1.7(@types/node@25.9.1)(@vitest/coverage-v8@4.1.7)(jsdom@29.1.1)(vite@7.3.3(@types/node@25.9.1)(yaml@2.9.0))
     optionalDependencies:
       '@yohawing/three-mmd-loader':
-        specifier: ^0.1.2
-        version: 0.1.2(three@0.180.0)
+        specifier: ^0.2.2
+        version: 0.2.2(three@0.180.0)
 
 packages:
 
@@ -937,8 +937,8 @@ packages:
   '@webgpu/types@0.1.70':
     resolution: {integrity: sha512-LFiNHHKMvmAEvwVew3JLJmTdShhbdwRFSImUshGhE2mGE8ybQzIo63l5uRp+YKnNx+8Qno8Kf6gN+DKMreIJCA==}
 
-  '@yohawing/three-mmd-loader@0.1.2':
-    resolution: {integrity: sha512-xduZoL8Oe8jrFQGXiEGZo8T3TftKNpwnUIuMd9ejLsyR4zZv6tm80rxQuYnXkp+2qNpXK4y0rProyWjpxT+7Uw==}
+  '@yohawing/three-mmd-loader@0.2.2':
+    resolution: {integrity: sha512-5RlfirfHtuQKsWhqHFGvwOwnCP+YcRMQnitpoP4dXmZbr2IThj/kxF4+Fk+VykzyzJ7H4pwSzcMgdQvVSGAPvg==}
     peerDependencies:
       three: '>=0.176.0 <1.0.0'
 
@@ -2668,7 +2668,7 @@ snapshots:
 
   '@webgpu/types@0.1.70': {}
 
-  '@yohawing/three-mmd-loader@0.1.2(three@0.180.0)':
+  '@yohawing/three-mmd-loader@0.2.2(three@0.180.0)':
     dependencies:
       '@types/three': 0.180.0
       ammo.js: 0.0.10

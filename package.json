@@ -53,7 +53,7 @@
     "zustand": "^5.0.14"
   },
   "optionalDependencies": {
-    "@yohawing/three-mmd-loader": "^0.1.2"
+    "@yohawing/three-mmd-loader": "^0.2.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
