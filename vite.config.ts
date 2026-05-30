@@ -17,11 +17,26 @@ const unavailableMmdLoaderEntry = fileURLToPath(
 );
 const hasOptionalThreeMmdLoader = existsSync(optionalThreeMmdLoaderPath);
 
+const optionalSparkLoaderPath = fileURLToPath(
+  new URL("./node_modules/@sparkjsdev/spark", import.meta.url),
+);
+const missingSparkShim = fileURLToPath(
+  new URL("./src/viewer/spark/sparkMissing.ts", import.meta.url),
+);
+const installedSparkLoaderEntry = fileURLToPath(
+  new URL("./src/viewer/spark/loaderInstalled.ts", import.meta.url),
+);
+const unavailableSparkLoaderEntry = fileURLToPath(
+  new URL("./src/viewer/spark/loaderUnavailable.ts", import.meta.url),
+);
+const hasOptionalSparkLoader = existsSync(optionalSparkLoaderPath);
+
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   define: {
     __YW_HAS_THREE_MMD_LOADER__: JSON.stringify(hasOptionalThreeMmdLoader),
+    __YW_HAS_SPARK_LOADER__: JSON.stringify(hasOptionalSparkLoader),
   },
   resolve: {
     alias: [
@@ -31,12 +46,26 @@ export default defineConfig({
           ? installedMmdLoaderEntry
           : unavailableMmdLoaderEntry,
       },
+      {
+        find: "#yw-look-spark-loader-entry",
+        replacement: hasOptionalSparkLoader
+          ? installedSparkLoaderEntry
+          : unavailableSparkLoaderEntry,
+      },
       ...(hasOptionalThreeMmdLoader
         ? []
         : [
             {
               find: "@yohawing/three-mmd-loader",
               replacement: missingThreeMmdLoaderShim,
+            },
+          ]),
+      ...(hasOptionalSparkLoader
+        ? []
+        : [
+            {
+              find: "@sparkjsdev/spark",
+              replacement: missingSparkShim,
             },
           ]),
     ],

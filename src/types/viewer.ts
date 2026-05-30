@@ -100,6 +100,15 @@ export type MmdMotionPlayback = {
 
 // ── Loaded preview ───────────────────────────────────────────────
 
+/**
+ * Viewer-side asset classification (Issue #98). Distinct from the
+ * extension-based file `AssetKind` in `src/types/file.ts`: this reflects what
+ * the loaded content actually is so the viewport / Detail panel can switch
+ * renderer-appropriate UI. `.ply` is classified by header content into one of
+ * these; other formats default to `mesh`.
+ */
+export type ViewerAssetKind = "mesh" | "pointCloud" | "gaussianSplat";
+
 export type LoadedPreview = {
   object: Group | Mesh;
   cleanupUrls: string[];
@@ -112,6 +121,13 @@ export type LoadedPreview = {
   skipScaleNormalization?: boolean;
   mmdMetadata?: MmdAssetMetadata;
   mmdModel?: MmdRuntimeModelHandle;
+  /**
+   * Viewer-side classification of the loaded content. Omitted ⇒ treated as
+   * `mesh`. Point clouds and Gaussian splats wrap their specialized object
+   * (`THREE.Points` / Spark `SplatMesh`) in a `Group` so this stays the
+   * existing `Group | Mesh` shape.
+   */
+  assetKind?: ViewerAssetKind;
 };
 
 export type LoadedMmdMotion = {
@@ -485,6 +501,11 @@ export type MorphTargetEntry = {
 export type AssetMetadata = {
   formatLabel: string;
   formatVersion: string | null;
+  /**
+   * Viewer-side asset classification (Issue #98). Defaults to `mesh` for
+   * formats that don't distinguish point clouds / Gaussian splats.
+   */
+  assetKind?: ViewerAssetKind;
   nodeCount: number;
   meshCount: number;
   materialCount: number;

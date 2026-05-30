@@ -6,6 +6,7 @@ export type {
   TextureViewMode,
   SceneContext,
   LoadedPreview,
+  ViewerAssetKind,
   DeferredTextureSnapshot,
   LoadingStageId,
   LoadingStageSnapshot,

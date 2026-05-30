@@ -949,7 +949,7 @@ export function AssetViewport({
   // the post-load callback runs inside a Three.js Promise chain that does
   // not see prop changes, so we hold the latest setter in a ref.
   const onActiveCameraResetRef = useRef(onActiveCameraReset);
-  // eslint-disable-next-line react-hooks/refs -- latest-ref sync write; async closures (Three.js Promise chain) must read the freshest callback
+
   onActiveCameraResetRef.current = onActiveCameraReset;
   // The actual Three.js camera found by traversal. null = use the scene's
   // own free camera (context.camera). Stored as `Camera` (not the narrower
@@ -969,7 +969,6 @@ export function AssetViewport({
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
 
-  // eslint-disable-next-line react-hooks/refs -- latest-ref sync write; render-loop closures must read the freshest callback
   onResourceDiagnosticsChangeRef.current = onResourceDiagnosticsChange;
 
   const publishResourceDiagnostics = useCallback(
@@ -2209,7 +2208,7 @@ export function AssetViewport({
       onMetadataChange(emptyAssetMetadata);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- asset-unload cleanup: resets React state when the external Three.js scene becomes empty; not derived state
+
       setLoadingStage(null);
       setDeferredTexture(null);
       return;
@@ -2345,6 +2344,7 @@ export function AssetViewport({
           mmdMetadata,
           mmdModel,
           warnings = [],
+          assetKind = "mesh",
         }) => {
           if (disposed) {
             runCleanupCallbacks(cleanupCallbacks);
@@ -2441,6 +2441,10 @@ export function AssetViewport({
             formatVersion,
             mmdMetadata,
           );
+          // Issue #98: surface the viewer-side classification (mesh /
+          // pointCloud / gaussianSplat) so the Detail panel can label the
+          // asset and switch renderer-appropriate UI.
+          metadataCollection.metadata.assetKind = assetKind;
           context.textureRegistry = metadataCollection.textureRegistry;
           assetResourceMetricsRef.current = collectAssetResourceMetrics(
             metadataCollection.metadata,
@@ -3241,7 +3245,7 @@ export function AssetViewport({
       const duration = Math.max(mmdMotion.duration, 1 / 30);
       const nextTime = Math.min(Math.max(time, 0), duration);
       retargetMmdMotion(context, nextTime);
-      // eslint-disable-next-line react-hooks/immutability -- mmdMotion is an external MMD runtime object; currentTime is its seek API
+
       mmdMotion.currentTime = nextTime;
       setAnimationState((previous) => ({
         ...previous,
@@ -3281,7 +3285,7 @@ export function AssetViewport({
         duration,
       );
       retargetMmdMotion(context, nextTime);
-      // eslint-disable-next-line react-hooks/immutability -- mmdMotion is an external MMD runtime object; currentTime is its seek API
+
       mmdMotion.currentTime = nextTime;
       setAnimationState((previous) => ({
         ...previous,

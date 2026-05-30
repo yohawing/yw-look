@@ -17,7 +17,7 @@ pub(crate) const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> = option_env!("YW_LOOK
 
 pub(crate) const MODEL_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "abc",
-    "pmx", "pmd",
+    "pmx", "pmd", "splat", "spz", "ksplat",
 ];
 pub(crate) const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
 pub(crate) const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
@@ -26,7 +26,7 @@ pub(crate) const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
 ];
 pub(crate) const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "vrm", "abc", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga",
-    "dds", "ktx2", "hdr", "exr", "pmx", "pmd",
+    "dds", "ktx2", "hdr", "exr", "pmx", "pmd", "splat", "spz", "ksplat",
 ];
 
 pub(crate) fn strip_verbatim_prefix(path: &Path) -> PathBuf {

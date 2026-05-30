@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "imports": {
-    "#yw-look-mmd-loader-entry": "./src/viewer/mmd/loaderInstalled.ts"
+    "#yw-look-mmd-loader-entry": "./src/viewer/mmd/loaderInstalled.ts",
+    "#yw-look-spark-loader-entry": "./src/viewer/spark/loaderInstalled.ts"
   },
   "scripts": {
     "dev": "vite",
@@ -53,6 +54,7 @@
     "zustand": "^5.0.14"
   },
   "optionalDependencies": {
+    "@sparkjsdev/spark": "^2.1.0",
     "@yohawing/three-mmd-loader": "^0.2.2"
   },
   "devDependencies": {

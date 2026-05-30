@@ -48,6 +48,9 @@ const HAS_THREE_MMD_LOADER =
     ? __YW_HAS_THREE_MMD_LOADER__
     : true;
 
+const HAS_SPARK_LOADER =
+  typeof __YW_HAS_SPARK_LOADER__ === "boolean" ? __YW_HAS_SPARK_LOADER__ : true;
+
 export async function loadMmdMotion(file: SelectedFile) {
   const { loadMmdMotion: load } = await import("./mmd/loader");
   return load(file);
@@ -1849,9 +1852,36 @@ async function loadPreviewObjectCore(
     }
     case "ply": {
       reportStage("decode");
+      const buffer = await readArrayBuffer(file.path);
+
+      // Issue #98: classify .ply by header content rather than extension so
+      // point clouds and Gaussian splats render with the right backend
+      // instead of being forced into the mesh path.
+      const { parsePlyHeader, detectPlyKind } = await import("./ply/classify");
+      const plyKind = detectPlyKind(parsePlyHeader(buffer));
+
+      if (plyKind === "pointCloud") {
+        const { buildPointCloudPreview } = await import("./ply/pointCloud");
+        reportStage("scene");
+        return buildPointCloudPreview(buffer).preview;
+      }
+
+      if (plyKind === "gaussianSplat") {
+        if (!HAS_SPARK_LOADER) {
+          throw new Error(
+            "This PLY contains Gaussian Splat data. Install the Gaussian Splat Loader Pack (@sparkjsdev/spark) to preview it.",
+          );
+        }
+        const { loadSparkPreviewObject } = await import("./spark/loader");
+        return loadSparkPreviewObject(file, {
+          renderer,
+          onStage: options.onStage,
+          onWarning: options.onWarning,
+        });
+      }
+
       const { PLYLoader } =
         await import("three/examples/jsm/loaders/PLYLoader.js");
-      const buffer = await readArrayBuffer(file.path);
       reportStage("scene");
       const geometry = new PLYLoader().parse(buffer);
       geometry.computeVertexNormals();
@@ -1867,6 +1897,7 @@ async function loadPreviewObjectCore(
         cleanupUrls: [],
         clips: [],
         formatVersion: null,
+        assetKind: "mesh",
       };
     }
     case "stl": {
@@ -2475,6 +2506,18 @@ loaderRegistry.register({
   loadPreviewObject: async (file, context) => {
     const { loadMmdPreviewObject } = await import("./mmd/loader");
     return loadMmdPreviewObject(file, context);
+  },
+});
+
+loaderRegistry.register({
+  id: "gaussian-splat-loader-pack",
+  name: "Gaussian Splat Loader Pack",
+  extensions: ["splat", "spz", "ksplat"],
+  optional: true,
+  installed: HAS_SPARK_LOADER,
+  loadPreviewObject: async (file, context) => {
+    const { loadSparkPreviewObject } = await import("./spark/loader");
+    return loadSparkPreviewObject(file, context);
   },
 });
 

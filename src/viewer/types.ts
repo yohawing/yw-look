@@ -11,6 +11,7 @@ export type {
   MmdRuntimeModelHandle,
   MmdMotionPlayback,
   LoadedPreview,
+  ViewerAssetKind,
   LoadedMmdMotion,
   DeferredTextureSnapshot,
   LoadingStageId,
