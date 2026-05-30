@@ -53,8 +53,7 @@ export async function loadBenchConfig() {
 }
 
 export async function loadBenchManifest(path: string) {
-  const bytes = await readBinaryFile(path);
-  const text = new TextDecoder().decode(Uint8Array.from(bytes));
+  const text = new TextDecoder().decode(await readBinaryFile(path));
   return JSON.parse(text) as BenchManifest;
 }
 

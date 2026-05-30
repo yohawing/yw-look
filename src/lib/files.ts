@@ -35,7 +35,10 @@ export async function listSupportedSiblings(path: string) {
 }
 
 export async function readBinaryFile(path: string) {
-  return invoke<number[]>("read_binary_file", { path });
+  // Backed by `tauri::ipc::Response`, so this resolves to a raw `ArrayBuffer`
+  // (not a JSON number array) — essential for large assets like Gaussian
+  // splats that would otherwise exhaust memory crossing the IPC boundary.
+  return invoke<ArrayBuffer>("read_binary_file", { path });
 }
 
 export async function getStartupFile() {

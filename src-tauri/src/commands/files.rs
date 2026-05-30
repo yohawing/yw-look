@@ -387,9 +387,15 @@ pub(crate) fn list_supported_siblings(path: String) -> Result<DirectoryListingPa
 }
 
 #[tauri::command]
-pub(crate) fn read_binary_file(path: String) -> Result<Vec<u8>, AppError> {
+pub(crate) fn read_binary_file(path: String) -> Result<tauri::ipc::Response, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
-    fs::read(normalized).map_err(|error| AppError::Io(format!("failed to read file bytes: {error}")))
+    let bytes = fs::read(normalized)
+        .map_err(|error| AppError::Io(format!("failed to read file bytes: {error}")))?;
+    // Return raw bytes via `tauri::ipc::Response` (→ ArrayBuffer on the JS
+    // side) instead of a JSON number array. The number-array path balloons
+    // memory and stalls on large assets (e.g. 100-260 MB Gaussian splats),
+    // which is why big `.splat`/`.ply` files failed to open.
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]

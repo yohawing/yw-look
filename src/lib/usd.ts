@@ -185,8 +185,7 @@ async function fastTextUsdRequiresGlbPreview(path: string) {
   }
 
   try {
-    const bytes = await readBinaryFile(path);
-    const buffer = Uint8Array.from(bytes);
+    const buffer = new Uint8Array(await readBinaryFile(path));
     if (new TextDecoder().decode(buffer.slice(0, 8)) === "PXR-USDC") {
       return true;
     }
@@ -223,11 +222,7 @@ export async function loadUsdSource(
     return { kind: "binary" };
   }
   const { tryExtractUsdaText } = await import("../viewer");
-  const bytes = await readBinaryFile(path);
-  // `read_binary_file` ships the payload as a JSON number array; copy
-  // into a typed buffer once so the fflate USDZ path receives the
-  // same shape it gets through the regular load pipeline.
-  const buffer = Uint8Array.from(bytes).buffer;
+  const buffer = await readBinaryFile(path);
   const text = await tryExtractUsdaText(extension, buffer);
   return text === null ? { kind: "binary" } : { kind: "text", source: text };
 }

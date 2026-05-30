@@ -51,7 +51,7 @@ describe("VRM preview loader", () => {
     mocks.readBinaryFile.mockReset();
     mocks.registerFactory.mockClear();
     mocks.rotateVRM0.mockClear();
-    mocks.readBinaryFile.mockResolvedValue([0, 1, 2, 3]);
+    mocks.readBinaryFile.mockResolvedValue(new Uint8Array([0, 1, 2, 3]).buffer);
   });
 
   it("registers the VRM loader plugin and returns the VRM scene", async () => {

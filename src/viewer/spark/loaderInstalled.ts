@@ -35,8 +35,7 @@ export async function loadSparkPreviewObject(
     const { SplatMesh, SparkRenderer } = await importSpark();
 
     reportStage("decode");
-    const bytes = await readBinaryFile(file.path);
-    const fileBytes = new Uint8Array(bytes).buffer;
+    const fileBytes = await readBinaryFile(file.path);
 
     const fileType = getSplatFileTypeForExtension(file.extension);
 
