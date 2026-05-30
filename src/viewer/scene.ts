@@ -534,6 +534,32 @@ export function applyInitialView(
    */
   rawMaxDimension?: number,
 ) {
+  // Gaussian splats opt out of bounds-based auto framing (Issue #98): SplatMesh
+  // reports no mesh extent and outlier splats would zoom the camera way out.
+  // The loader recenters the cloud at the origin, so use a fixed home view and
+  // let the user orbit/zoom manually.
+  if (object.userData?.disableAutoFrame) {
+    camera.position.set(5, 4, 5);
+    camera.near = 0.01;
+    camera.far = 100_000;
+    camera.lookAt(0, 0, 0);
+    camera.updateProjectionMatrix();
+    controls.target.set(0, 0, 0);
+    controls.minDistance = 0.01;
+    controls.maxDistance = 100_000;
+    const splatSensitivityDim =
+      rawMaxDimension !== undefined && rawMaxDimension > 0
+        ? rawMaxDimension
+        : 1;
+    applyControlsSensitivity(
+      controls,
+      splatSensitivityDim,
+      sensitivityMultiplier,
+    );
+    controls.update();
+    return;
+  }
+
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
   const center = bounds.getCenter(new Vector3());

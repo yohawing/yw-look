@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Vector3 } from "three";
+import { Group, Vector3 } from "three";
 import type { SelectedFile } from "../../lib/files";
 import { readBinaryFile } from "../../lib/files";
 import type { LoaderContext } from "../loaderRegistry";
@@ -54,56 +54,43 @@ export async function loadSparkPreviewObject(
 
     reportStage("scene");
 
-    // SplatMesh is a THREE.Object3D with no mesh geometry, so the viewer's
-    // `Box3.setFromObject` camera fit/normalization sees no extent and parks
-    // the camera at the origin while the splat sits off at its native
-    // (off-center) capture coordinates — making it look tilted/cropped.
-    // Recenter the cloud at the local origin and add an invisible proxy box
-    // carrying the real extent so the camera fit can frame it.
+    // Recenter the cloud at the local origin (splat captures are stored at
+    // arbitrary, off-center COLMAP coordinates) so the default view looks at
+    // it. SplatMesh is a bare THREE.Object3D with no mesh geometry, so the
+    // viewer's bounds-based scale/fit can't measure it anyway — we skip auto
+    // framing for splats (see `disableAutoFrame` below) and let the user
+    // orbit/zoom from a fixed home view.
     const splatBounds = splatMesh.getBoundingBox(true);
     const splatCenter = splatBounds.getCenter(new Vector3());
-    const splatSize = splatBounds.getSize(new Vector3());
     splatMesh.frustumCulled = false;
     splatMesh.position.copy(splatCenter).multiplyScalar(-1);
 
-    // `oriented` carries the coordinate-system correction for the splat so the
-    // recenter + rotation pivot around the cloud center. antimatter15 `.splat`
-    // / INRIA `.ply` carry no up-axis metadata; the cakewalk samples read as
-    // Z-up, so map Z-up → THREE's Y-up with a −90° rotation about X. (This is
-    // a sensible default, not a universal truth — splat captures have gauge
-    // freedom, so a manual orientation control is the real fix.)
+    // `oriented` carries the coordinate-system correction so the recenter +
+    // rotation pivot around the cloud center. antimatter15 `.splat` / INRIA
+    // `.ply` carry no up-axis metadata; the cakewalk samples read as Z-up, so
+    // map Z-up → THREE's Y-up with a −90° rotation about X. (A sensible
+    // default, not a universal truth — splat captures have gauge freedom, so a
+    // manual orientation control is the real long-term fix.)
     const oriented = new Group();
     oriented.rotation.x = -Math.PI / 2;
     oriented.add(splatMesh);
 
-    const proxyGeometry = new BoxGeometry(
-      Math.max(splatSize.x, 1e-3),
-      Math.max(splatSize.y, 1e-3),
-      Math.max(splatSize.z, 1e-3),
-    );
-    const proxyMaterial = new MeshBasicMaterial();
-    const proxy = new Mesh(proxyGeometry, proxyMaterial);
-    proxy.visible = false;
-    oriented.add(proxy);
-
     const group = new Group();
     group.name = `${file.fileName} Gaussian Splat Preview`;
+    // Opt out of the bounds-based auto scale/fit: SplatMesh reports no extent,
+    // and captures with distant outlier splats would otherwise zoom the camera
+    // way out. The viewer uses a fixed home view instead (see applyInitialView).
+    group.userData.disableAutoFrame = true;
 
     const cleanupCallbacks: Array<() => void> = [
       () => {
         splatMesh.dispose();
-      },
-      () => {
-        proxyGeometry.dispose();
-        proxyMaterial.dispose();
       },
     ];
 
     // Spark renders splats through a SparkRenderer placed in the scene graph;
     // its onBeforeRender hook drives the per-frame sort/draw pass. Without it
     // the SplatMesh loads but never draws. It needs the live WebGLRenderer.
-    // It is a screen-space helper, so its own extent is tiny relative to the
-    // proxy box and does not meaningfully skew the camera fit.
     if (context.renderer) {
       const sparkRenderer = new SparkRenderer({ renderer: context.renderer });
       sparkRenderer.frustumCulled = false;
@@ -122,6 +109,7 @@ export async function loadSparkPreviewObject(
       clips: [],
       formatVersion: null,
       assetKind: "gaussianSplat",
+      skipScaleNormalization: true,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
