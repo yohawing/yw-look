@@ -1,7 +1,13 @@
 import type { ToolbarAction, ToolbarItem } from "./types";
-import type { TextureColorSpace, BuildImageToolbarOptions } from "../../types/viewer";
+import type {
+  TextureColorSpace,
+  BuildImageToolbarOptions,
+} from "../../types/viewer";
 
-export type { TextureColorSpace, BuildImageToolbarOptions } from "../../types/viewer";
+export type {
+  TextureColorSpace,
+  BuildImageToolbarOptions,
+} from "../../types/viewer";
 
 export function buildImageToolbar(
   options: BuildImageToolbarOptions,

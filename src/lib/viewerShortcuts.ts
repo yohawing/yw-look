@@ -1,6 +1,10 @@
 import type { DisplayMode } from "../viewer";
 
-import type { ViewerShortcutAction, ViewportShortcutCommand, ViewerShortcutState } from "../types/ui";
+import type {
+  ViewerShortcutAction,
+  ViewportShortcutCommand,
+  ViewerShortcutState,
+} from "../types/ui";
 
 export type {
   ViewerShortcutAction,

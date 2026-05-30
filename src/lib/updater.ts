@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { UpdateConfigurationPayload, UpdateCheckPayload, UpdateInstallPayload } from "../types/ipc";
+import type {
+  UpdateConfigurationPayload,
+  UpdateCheckPayload,
+  UpdateInstallPayload,
+} from "../types/ipc";
 
 export type {
   UpdateConfigurationPayload,

@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriEnvironment } from "./platform";
 
-import type { DiagnosticRecordInput, DiagnosticsPayload, ProcessMemoryMetrics } from "../types/ipc";
+import type {
+  DiagnosticRecordInput,
+  DiagnosticsPayload,
+  ProcessMemoryMetrics,
+} from "../types/ipc";
 
 export type {
   DiagnosticRecordInput,

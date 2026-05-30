@@ -1,6 +1,9 @@
 import type { WebGLRenderer } from "three";
 
-import type { CanvasScreenshotOptions, CanvasScreenshot } from "../types/viewer";
+import type {
+  CanvasScreenshotOptions,
+  CanvasScreenshot,
+} from "../types/viewer";
 
 export type {
   CanvasScreenshotOptions,

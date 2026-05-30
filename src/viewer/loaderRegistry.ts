@@ -1,6 +1,10 @@
 import type { LoaderPlugin, RegisteredLoaderInfo } from "../types/viewer";
 
-export type { LoaderContext, LoaderPlugin, RegisteredLoaderInfo } from "../types/viewer";
+export type {
+  LoaderContext,
+  LoaderPlugin,
+  RegisteredLoaderInfo,
+} from "../types/viewer";
 
 export class LoaderRegistry {
   readonly #loadersByExtension = new Map<string, LoaderPlugin>();

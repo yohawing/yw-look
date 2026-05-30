@@ -42,7 +42,12 @@ import {
   isMmdOutlineProxyObject,
 } from "./mmd/userData";
 
-import type { GridConfig, CameraPreset, ScaleNormalizationResult, TextureFilterMode } from "../types/viewer";
+import type {
+  GridConfig,
+  CameraPreset,
+  ScaleNormalizationResult,
+  TextureFilterMode,
+} from "../types/viewer";
 
 export type {
   GridConfig,
