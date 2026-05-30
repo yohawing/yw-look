@@ -34,13 +34,12 @@ import type {
   MmdMorphEntry,
 } from "../components/assetMetadata";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
-import { getMaterials, isViewportHelperObject } from "./scene";
+import { isViewportHelperObject, getMaterials } from "./scene";
 import { isInternalMmdProxyObject } from "./mmd/userData";
 
-export type MetadataCollection = {
-  metadata: AssetMetadata;
-  textureRegistry: Map<string, Texture>;
-};
+import type { MetadataCollection } from "../types/viewer";
+
+export type { MetadataCollection } from "../types/viewer";
 
 function getObjectKind(object: Object3D) {
   if (object instanceof Mesh) {

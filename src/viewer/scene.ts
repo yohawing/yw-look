@@ -42,6 +42,15 @@ import {
   isMmdOutlineProxyObject,
 } from "./mmd/userData";
 
+import type { GridConfig, CameraPreset, ScaleNormalizationResult, TextureFilterMode } from "../types/viewer";
+
+export type {
+  GridConfig,
+  ScaleNormalizationResult,
+  CameraPreset,
+  TextureFilterMode,
+} from "../types/viewer";
+
 export const GRID_NAME = "__yw_initial_grid";
 export const AXES_NAME = "__yw_axes_helper";
 export const SHADOW_CATCHER_NAME = "__yw_shadow_catcher";
@@ -71,21 +80,6 @@ type GridPreset = {
   maxDimension: number;
   cellSize: number;
   label: string;
-};
-
-export type GridConfig = {
-  cellSize: number;
-  label: string;
-  size: number;
-  divisions: number;
-};
-
-export type ScaleNormalizationResult = {
-  applied: boolean;
-  factor: number;
-  originalMaxDimension: number;
-  normalizedMaxDimension: number;
-  originalScale: Vector3 | null;
 };
 
 // Grid density presets tuned for inspection workflows:
@@ -564,14 +558,6 @@ export function applyInitialView(
   applyControlsSensitivity(controls, sensitivityDim, sensitivityMultiplier);
   controls.update();
 }
-
-export type CameraPreset =
-  | "front"
-  | "back"
-  | "left"
-  | "right"
-  | "top"
-  | "bottom";
 
 // Direction vectors are where the camera sits relative to the target.
 // `front` means "the viewer is in front of the model and looks back along -Z".
@@ -1182,8 +1168,6 @@ export function applyNormalHelpers(
     scene.add(helper);
   });
 }
-
-export type TextureFilterMode = "nearest" | "linear" | "trilinear";
 
 type FilterPair = {
   mag: MagnificationTextureFilter;

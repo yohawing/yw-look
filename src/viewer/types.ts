@@ -1,174 +1,27 @@
-import type {
-  AnimationAction,
-  AnimationClip,
-  AnimationMixer,
-  Group,
-  Mesh,
-  Object3D,
-  PerspectiveCamera,
-  PMREMGenerator,
-  Scene,
-  Texture,
-  WebGLRenderer,
-} from "three";
-import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { PreviewLightingPreset } from "./lighting";
-import type { PreviewRenderingPreset } from "./rendering";
-import type { MmdAssetMetadata } from "../components/assetMetadata";
+import type { ViewerFeedback, PreviewSupportState } from "../types/viewer";
 
-import type { ViewerMode } from "../components/ViewerStatePanel";
-
-export type { ViewerMode };
-
-export type ViewerFeedback = {
-  mode: ViewerMode;
-  message: string;
-  warning: string | null;
-  canResetCamera: boolean;
-};
-
-export type DisplayMode =
-  | "textured"
-  | "untextured"
-  | "wireframe"
-  | "texturedWireframe";
-
-export type ViewerSurfaceMode = "asset" | "texture";
-
-export type TextureViewMode = "rgb" | "rgba" | "r" | "g" | "b" | "alpha";
-
-export type SceneContext = {
-  renderer: WebGLRenderer;
-  scene: Scene;
-  camera: PerspectiveCamera;
-  controls: OrbitControls;
-  pmremGenerator: PMREMGenerator;
-  mountedObject: Group | Mesh | null;
-  sourceObject: Group | Mesh | null;
-  previewObject: Group | Mesh | null;
-  cleanupUrls: string[];
-  cleanupCallbacks: Array<() => void>;
-  mixer: AnimationMixer | null;
-  clips: AnimationClip[];
-  activeAction: AnimationAction | null;
-  mmdModel: MmdRuntimeModelHandle | null;
-  mmdMotion: MmdMotionPlayback | null;
-  textureRegistry: Map<string, Texture>;
-  /**
-   * Original (pre-normalization) max dimension of the last loaded asset in
-   * scene units. Used to compute camera sensitivity so that assets that are
-   * scale-normalized still get speed values appropriate for their real size.
-   */
-  rawMaxDimension: number;
-};
-
-export type MmdAnimationHandle = {
-  metadata: {
-    maxFrame?: number;
-  };
-};
-
-export type MmdRuntimeModelHandle = {
-  mesh: Object3D;
-  runtime?: {
-    reset(time: number): void;
-    setAnimation(animation: MmdAnimationHandle, mesh: Object3D): void;
-    tick(
-      time: number,
-      options: {
-        mesh: Object3D;
-        ik?: boolean;
-        physics?: boolean;
-      },
-    ): void;
-  };
-};
-
-export type MmdMotionPlayback = {
-  animation: MmdAnimationHandle;
-  duration: number;
-  currentTime: number;
-  label: string;
-};
-
-export type LoadedPreview = {
-  object: Group | Mesh;
-  cleanupUrls: string[];
-  cleanupCallbacks?: Array<() => void>;
-  clips: AnimationClip[];
-  formatVersion: string | null;
-  warnings?: string[];
-  lighting?: PreviewLightingPreset;
-  rendering?: PreviewRenderingPreset;
-  skipScaleNormalization?: boolean;
-  mmdMetadata?: MmdAssetMetadata;
-  mmdModel?: MmdRuntimeModelHandle;
-};
-
-export type LoadedMmdMotion = {
-  animation: MmdAnimationHandle;
-  duration: number;
-  label: string;
-};
-
-export type DeferredTextureSnapshot = {
-  kind?: "texture" | "payload";
-  total: number;
-  loaded: number;
-  failed: number;
-  pending: number;
-  activeLabel: string | null;
-  bytes?: number;
-  readMs?: number;
-  parseMs?: number;
-};
-
-export type LoadingStageId =
-  | "scan"
-  | "resolve"
-  | "decode"
-  | "gpu"
-  | "scene"
-  | "ui";
-
-export type LoadingStageReporter = (stage: LoadingStageId) => void;
-
-export type LoadingStageSnapshot = {
-  activeStage: LoadingStageId;
-  activeStageStartedAt: number;
-  elapsedByStage: Partial<Record<LoadingStageId, number>>;
-  totalElapsedMs: number;
-};
-
-export type TextureBundle = {
-  albedo: Texture | null;
-  normal: Texture | null;
-  metalness: Texture | null;
-  roughness: Texture | null;
-  cleanupUrls: string[];
-};
-
-export type TextureSlotKey =
-  | "map"
-  | "normalMap"
-  | "metalnessMap"
-  | "roughnessMap"
-  | "emissiveMap"
-  | "alphaMap";
-
-export type TexturedMaterial = import("three").Material &
-  Partial<Record<TextureSlotKey, Texture | null>>;
-
-export type MissingReferenceError = Error & {
-  formatVersion: string | null;
-  missingPaths: string[];
-  unresolvedImages: string[];
-};
-
-export type PreviewSupportState =
-  | "implemented"
-  | "missingOptionalLoader"
-  | "unsupported";
+export type {
+  ViewerMode,
+  ViewerFeedback,
+  DisplayMode,
+  ViewerSurfaceMode,
+  TextureViewMode,
+  SceneContext,
+  MmdAnimationHandle,
+  MmdRuntimeModelHandle,
+  MmdMotionPlayback,
+  LoadedPreview,
+  LoadedMmdMotion,
+  DeferredTextureSnapshot,
+  LoadingStageId,
+  LoadingStageReporter,
+  LoadingStageSnapshot,
+  TextureBundle,
+  TextureSlotKey,
+  TexturedMaterial,
+  MissingReferenceError,
+  PreviewSupportState,
+} from "../types/viewer";
 
 export const implementedPreviewExtensions = new Set([
   "glb",

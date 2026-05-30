@@ -1,40 +1,6 @@
-import type { WebGLRenderer } from "three";
-import type { SelectedFile } from "../lib/files";
-import type {
-  DeferredTextureSnapshot,
-  LoadedPreview,
-  LoadingStageReporter,
-} from "./types";
+import type { LoaderPlugin, RegisteredLoaderInfo } from "../types/viewer";
 
-export type LoaderContext = {
-  renderer?: WebGLRenderer;
-  usdLoadPolicy?: import("../lib/usd").StageLoadPolicy;
-  variantSelections?: import("../lib/usd").VariantSelection[];
-  glbOverride?: ArrayBuffer | null;
-  onStage?: LoadingStageReporter;
-  onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void;
-  onWarning?: (warning: string) => void;
-};
-
-export type LoaderPlugin = {
-  id: string;
-  name: string;
-  extensions: readonly string[];
-  optional?: boolean;
-  installed?: boolean;
-  loadPreviewObject: (
-    file: SelectedFile,
-    context: LoaderContext,
-  ) => Promise<LoadedPreview>;
-};
-
-export type RegisteredLoaderInfo = {
-  id: string;
-  name: string;
-  extension: string;
-  optional: boolean;
-  installed: boolean;
-};
+export type { LoaderContext, LoaderPlugin, RegisteredLoaderInfo } from "../types/viewer";
 
 export class LoaderRegistry {
   readonly #loadersByExtension = new Map<string, LoaderPlugin>();

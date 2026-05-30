@@ -39,7 +39,6 @@ import type {
 import { formatUsdErrorForDisplay } from "../lib/usd";
 import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 import {
-  type CameraPreset,
   type DeferredTextureSnapshot,
   type DisplayMode,
   type LoadingStageId,
@@ -110,6 +109,13 @@ import { emptyAnimationState, type AnimationState } from "./animation";
 import { applyMorphTargetValues } from "./morphTargets";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
+import type {
+  BackgroundPreset,
+  CameraPresetRequest,
+  EnvironmentPreset,
+  ToneMappingMode,
+} from "../types/viewer";
+
 export type {
   ViewerFeedback,
   DisplayMode,
@@ -117,13 +123,11 @@ export type {
   TextureViewMode,
   TextureFilterMode,
   CameraPreset,
-};
-export type BackgroundPreset = "gray" | "charcoal" | "light";
-
-export type CameraPresetRequest = {
-  preset: CameraPreset;
-  version: number;
-};
+  BackgroundPreset,
+  CameraPresetRequest,
+  EnvironmentPreset,
+  ToneMappingMode,
+} from "../types/viewer";
 
 const backgroundPresetColors: Record<BackgroundPreset, string> = {
   gray: "#717781",
@@ -209,10 +213,6 @@ function applyViewportBackground(
   renderer.setClearColor(color);
   scene.background = environmentTexture ?? new Color(color);
 }
-
-export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
-
-export type ToneMappingMode = "linear" | "aces" | "reinhard";
 
 const toneMappingModeMap: Record<ToneMappingMode, ToneMapping> = {
   linear: LinearToneMapping,
@@ -949,6 +949,7 @@ export function AssetViewport({
   // the post-load callback runs inside a Three.js Promise chain that does
   // not see prop changes, so we hold the latest setter in a ref.
   const onActiveCameraResetRef = useRef(onActiveCameraReset);
+  // eslint-disable-next-line react-hooks/refs -- latest-ref sync write; async closures (Three.js Promise chain) must read the freshest callback
   onActiveCameraResetRef.current = onActiveCameraReset;
   // The actual Three.js camera found by traversal. null = use the scene's
   // own free camera (context.camera). Stored as `Camera` (not the narrower
@@ -968,6 +969,7 @@ export function AssetViewport({
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
 
+  // eslint-disable-next-line react-hooks/refs -- latest-ref sync write; render-loop closures must read the freshest callback
   onResourceDiagnosticsChangeRef.current = onResourceDiagnosticsChange;
 
   const publishResourceDiagnostics = useCallback(
@@ -2207,6 +2209,7 @@ export function AssetViewport({
       onMetadataChange(emptyAssetMetadata);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- asset-unload cleanup: resets React state when the external Three.js scene becomes empty; not derived state
       setLoadingStage(null);
       setDeferredTexture(null);
       return;
@@ -3238,6 +3241,7 @@ export function AssetViewport({
       const duration = Math.max(mmdMotion.duration, 1 / 30);
       const nextTime = Math.min(Math.max(time, 0), duration);
       retargetMmdMotion(context, nextTime);
+      // eslint-disable-next-line react-hooks/immutability -- mmdMotion is an external MMD runtime object; currentTime is its seek API
       mmdMotion.currentTime = nextTime;
       setAnimationState((previous) => ({
         ...previous,
@@ -3277,6 +3281,7 @@ export function AssetViewport({
         duration,
       );
       retargetMmdMotion(context, nextTime);
+      // eslint-disable-next-line react-hooks/immutability -- mmdMotion is an external MMD runtime object; currentTime is its seek API
       mmdMotion.currentTime = nextTime;
       setAnimationState((previous) => ({
         ...previous,

@@ -1,19 +1,26 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type AssetKind = "model" | "texture" | "motion" | "unknown";
+import type {
+  SelectedFile,
+  AssetInspection,
+  FormatSupport,
+  DirectoryListing,
+} from "../types/file";
 
-export type SelectedFile = {
-  path: string;
-  fileName: string;
-  extension: string;
-  kind: AssetKind;
-  parentDirectory: string;
-};
+export type {
+  AssetKind,
+  SelectedFile,
+  DirectoryListing,
+  ImageDimensions,
+  AssetInspection,
+  FormatSupport,
+} from "../types/file";
 
-export type DirectoryListing = {
-  files: SelectedFile[];
-  currentIndex: number | null;
-};
+const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
+
+export function isUsdFile(file: SelectedFile | null): boolean {
+  return !!file && USD_EXTENSIONS.has(file.extension);
+}
 
 export async function openFileDialog() {
   return invoke<SelectedFile | null>("open_file_dialog");
@@ -35,33 +42,9 @@ export async function getStartupFile() {
   return invoke<SelectedFile | null>("get_startup_file");
 }
 
-export type ImageDimensions = {
-  width: number;
-  height: number;
-  source: string;
-};
-
-export type AssetInspection = {
-  path: string;
-  fileName: string;
-  extension: string;
-  kind: AssetKind;
-  fileSizeBytes: number;
-  modifiedAt: string | null;
-  createdAt: string | null;
-  previewImplemented: boolean;
-  imageDimensions: ImageDimensions | null;
-};
-
 export async function inspectAsset(path: string) {
   return invoke<AssetInspection>("inspect_asset", { path });
 }
-
-export type FormatSupport = {
-  modelExtensions: string[];
-  textureExtensions: string[];
-  previewImplemented: string[];
-};
 
 export async function loadFormatSupport() {
   return invoke<FormatSupport>("load_format_support");

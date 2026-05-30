@@ -1,41 +1,8 @@
 import type { ToolbarAction, ToolbarItem } from "./types";
 
-export type Build3DToolbarOptions = {
-  // Camera
-  cameraPreset: string | null;
-  cameraPresetOptions: Array<{ id: string; label: string }>;
-  onSelectCameraPreset?: (preset: string) => void;
-  onCycleCamera?: () => void;
+import type { Build3DToolbarOptions } from "../../types/viewer";
 
-  // Shading
-  showTexture: boolean;
-  onToggleTexture: () => void;
-  showUnlit: boolean;
-  onToggleUnlit: () => void;
-  showNormals?: boolean;
-  onToggleNormals?: () => void;
-  showVertexColors?: boolean;
-  onToggleVertexColors?: () => void;
-
-  // Wireframe
-  showWireframe: boolean;
-  onToggleWireframe: () => void;
-
-  // Look
-  environmentPreset: string;
-  environmentPresetOptions: Array<{ id: string; label: string }>;
-  onSelectEnvironmentPreset?: (preset: string) => void;
-  showShadows?: boolean;
-  onToggleShadows?: () => void;
-  showEnvironmentBackground?: boolean;
-  onToggleEnvironmentBackground?: () => void;
-
-  // Overlay
-  showBoundingBoxes?: boolean;
-  onToggleBoundingBoxes?: () => void;
-  showSkeleton?: boolean;
-  onToggleSkeleton?: () => void;
-};
+export type { Build3DToolbarOptions } from "../../types/viewer";
 
 export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
   const items: ToolbarItem[] = [];

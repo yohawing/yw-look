@@ -1,35 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type UpdateConfigurationPayload = {
-  currentVersion: string;
-  defaultEndpoint?: string | null;
-  defaultPubkeyAvailable: boolean;
-  effectiveEndpoint?: string | null;
-  effectivePubkeyAvailable: boolean;
-  usingOverrideEndpoint: boolean;
-  usingOverridePubkey: boolean;
-  allowInsecureUpdateEndpoint: boolean;
-};
+import type { UpdateConfigurationPayload, UpdateCheckPayload, UpdateInstallPayload } from "../types/ipc";
 
-export type UpdateMetadataPayload = {
-  version: string;
-  currentVersion: string;
-  notes?: string | null;
-  pubDate?: string | null;
-  target: string;
-  downloadUrl: string;
-};
-
-export type UpdateCheckPayload = {
-  configuration: UpdateConfigurationPayload;
-  update?: UpdateMetadataPayload | null;
-};
-
-export type UpdateInstallPayload = {
-  installedVersion: string;
-  restartRequired: boolean;
-  note: string;
-};
+export type {
+  UpdateConfigurationPayload,
+  UpdateMetadataPayload,
+  UpdateCheckPayload,
+  UpdateInstallPayload,
+} from "../types/ipc";
 
 export async function loadUpdateConfiguration() {
   return invoke<UpdateConfigurationPayload>("load_update_configuration");
