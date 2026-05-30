@@ -521,6 +521,14 @@ export function applyControlsSensitivity(
   controls.zoomSpeed = auto.zoomSpeed * safeMultiplier;
 }
 
+const DISABLE_AUTO_FRAME_HOME_OFFSET = new Vector3(5, 4, 5);
+
+function getDisableAutoFrameTarget(object: Group | Mesh) {
+  return object.userData.disableAutoFrameTarget instanceof Vector3
+    ? object.userData.disableAutoFrameTarget
+    : new Vector3();
+}
+
 export function applyInitialView(
   camera: PerspectiveCamera,
   controls: OrbitControls,
@@ -536,15 +544,16 @@ export function applyInitialView(
 ) {
   // Gaussian splats opt out of bounds-based auto framing (Issue #98): SplatMesh
   // reports no mesh extent and outlier splats would zoom the camera way out.
-  // The loader recenters the cloud at the origin, so use a fixed home view and
-  // let the user orbit/zoom manually.
+  // The loader keeps native coordinates and can provide a bounds-derived target;
+  // use a fixed offset from that target and let the user orbit/zoom manually.
   if (object.userData?.disableAutoFrame) {
-    camera.position.set(5, 4, 5);
+    const target = getDisableAutoFrameTarget(object);
+    camera.position.copy(target).add(DISABLE_AUTO_FRAME_HOME_OFFSET);
     camera.near = 0.01;
     camera.far = 100_000;
-    camera.lookAt(0, 0, 0);
+    camera.lookAt(target);
     camera.updateProjectionMatrix();
-    controls.target.set(0, 0, 0);
+    controls.target.copy(target);
     controls.minDistance = 0.01;
     controls.maxDistance = 100_000;
     const splatSensitivityDim =
@@ -615,13 +624,17 @@ export function applyPresetView(
   object: Group | Mesh,
   preset: CameraPreset,
 ) {
-  const bounds = new Box3().setFromObject(object);
-  const size = bounds.getSize(new Vector3());
-  const center = bounds.getCenter(new Vector3());
-  const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
-  const fitHeightDistance =
-    maxDimension / (2 * Math.tan(MathUtils.degToRad(camera.fov * 0.5)));
-  const fitDistance = fitHeightDistance * 1.5;
+  const useFixedAutoFrame = Boolean(object.userData?.disableAutoFrame);
+  const bounds = useFixedAutoFrame ? null : new Box3().setFromObject(object);
+  const size = bounds?.getSize(new Vector3());
+  const center = useFixedAutoFrame
+    ? getDisableAutoFrameTarget(object)
+    : (bounds?.getCenter(new Vector3()) ?? new Vector3());
+  const maxDimension = size ? Math.max(size.x, size.y, size.z, 0.001) : 1;
+  const fitDistance = useFixedAutoFrame
+    ? DISABLE_AUTO_FRAME_HOME_OFFSET.length()
+    : (maxDimension / (2 * Math.tan(MathUtils.degToRad(camera.fov * 0.5)))) *
+      1.5;
 
   const direction = cameraPresetDirections[preset].clone().normalize();
   const offset = direction.multiplyScalar(fitDistance);
@@ -630,14 +643,18 @@ export function applyPresetView(
   const upOverride = cameraPresetUpOverrides[preset];
   camera.up.copy(upOverride ?? new Vector3(0, 1, 0));
 
-  camera.near = Math.max(maxDimension / 500, 0.01);
-  camera.far = Math.max(maxDimension * 20, 200);
+  camera.near = useFixedAutoFrame ? 0.01 : Math.max(maxDimension / 500, 0.01);
+  camera.far = useFixedAutoFrame ? 100_000 : Math.max(maxDimension * 20, 200);
   camera.lookAt(center);
   camera.updateProjectionMatrix();
 
   controls.target.copy(center);
-  controls.minDistance = Math.max(maxDimension / 50, 0.05);
-  controls.maxDistance = Math.max(maxDimension * 40, 50);
+  controls.minDistance = useFixedAutoFrame
+    ? 0.01
+    : Math.max(maxDimension / 50, 0.05);
+  controls.maxDistance = useFixedAutoFrame
+    ? 100_000
+    : Math.max(maxDimension * 40, 50);
   controls.update();
 }
 
