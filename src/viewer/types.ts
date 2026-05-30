@@ -48,6 +48,9 @@ export const implementedPreviewExtensions = new Set([
   "ktx2",
   "pmx",
   "pmd",
+  "splat",
+  "spz",
+  "ksplat",
 ]);
 
 export const optionalPreviewLoaders = {
@@ -66,6 +69,18 @@ export const optionalPreviewLoaders = {
   pmd: {
     formatLabel: "PMD",
     loaderPackName: "MMD Loader Pack",
+  },
+  splat: {
+    formatLabel: "Gaussian Splat",
+    loaderPackName: "Gaussian Splat Loader Pack",
+  },
+  spz: {
+    formatLabel: "SPZ Gaussian Splat",
+    loaderPackName: "Gaussian Splat Loader Pack",
+  },
+  ksplat: {
+    formatLabel: "KSPLAT Gaussian Splat",
+    loaderPackName: "Gaussian Splat Loader Pack",
   },
 } as const satisfies Record<
   string,
