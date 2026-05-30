@@ -164,8 +164,9 @@ export function parsePlyHeader(buffer: ArrayBuffer): PlyHeader {
  *
  * Decision order (first match wins):
  *  1. `element face` with count > 0  →  `"mesh"`
- *  2. vertex properties contain Gaussian splat signature  →  `"gaussianSplat"`
- *  3. otherwise  →  `"pointCloud"`
+ *  2. SuperSplat/PlayCanvas compressed splat layout  →  `"gaussianSplat"`
+ *  3. vertex properties contain Gaussian splat signature  →  `"gaussianSplat"`
+ *  4. otherwise  →  `"pointCloud"`
  */
 export function detectPlyKind(header: PlyHeader): ViewerAssetKind {
   const hasFace = header.elements.some(
@@ -173,9 +174,25 @@ export function detectPlyKind(header: PlyHeader): ViewerAssetKind {
   );
   if (hasFace) return "mesh";
 
+  // SuperSplat / PlayCanvas "compressed PLY": a `chunk` element holds
+  // per-chunk quantization ranges and the `vertex` element stores packed
+  // uints (packed_position/rotation/scale/color) instead of float x/y/z.
+  const hasChunkElement = header.elements.some((el) => el.name === "chunk");
+  const hasShElement = header.elements.some((el) => el.name === "sh");
+
   const vertexEl = header.elements.find((el) => el.name === "vertex");
   if (vertexEl) {
     const propNames = new Set(vertexEl.properties.map((p) => p.name));
+
+    // Compressed splat: packed attributes (optionally alongside chunk/sh).
+    if (
+      propNames.has("packed_position") ||
+      propNames.has("packed_rotation") ||
+      propNames.has("packed_scale") ||
+      propNames.has("packed_color")
+    ) {
+      return "gaussianSplat";
+    }
 
     // Check SH convention first (f_dc_0 alone is sufficient).
     if (propNames.has([...SPLAT_SIGNATURE_SH][0])) return "gaussianSplat";
@@ -185,6 +202,10 @@ export function detectPlyKind(header: PlyHeader): ViewerAssetKind {
       return "gaussianSplat";
     }
   }
+
+  // Fallback for compressed layouts that don't expose packed_* names but do
+  // carry the chunk-range + SH companion elements.
+  if (hasChunkElement && hasShElement) return "gaussianSplat";
 
   return "pointCloud";
 }

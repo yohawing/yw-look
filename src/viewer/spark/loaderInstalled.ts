@@ -65,14 +65,15 @@ export async function loadSparkPreviewObject(
     splatMesh.frustumCulled = false;
     splatMesh.position.copy(splatCenter).multiplyScalar(-1);
 
-    // `oriented` carries the coordinate-system correction so the recenter +
-    // rotation pivot around the cloud center. antimatter15 `.splat` / INRIA
-    // `.ply` carry no up-axis metadata; the cakewalk samples read as Z-up, so
-    // map Z-up → THREE's Y-up with a −90° rotation about X. (A sensible
-    // default, not a universal truth — splat captures have gauge freedom, so a
-    // manual orientation control is the real long-term fix.)
+    // `oriented` carries the up-axis correction. 3DGS PLY/splat captures are
+    // authored Y-down (INRIA/COLMAP convention) — without correction they load
+    // upside-down — so rotate 180° about X to bring them upright in THREE's
+    // Y-up world. Correctly authored exports (e.g. SuperSplat cactus) then sit
+    // upright; mis-aligned captures (e.g. antimatter15 .splat) keep their
+    // native residual tilt, which other viewers show too. A manual orientation
+    // control is the real long-term fix for the latter.
     const oriented = new Group();
-    oriented.rotation.x = -Math.PI / 2;
+    oriented.rotation.x = Math.PI;
     oriented.add(splatMesh);
 
     const group = new Group();
