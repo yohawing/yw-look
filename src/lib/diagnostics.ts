@@ -1,53 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriEnvironment } from "./platform";
 
-export type DiagnosticRecordInput = {
-  code: string;
-  level: string;
-  message: string;
-  detail?: string | null;
-  contextPath?: string | null;
-};
+import type {
+  DiagnosticRecordInput,
+  DiagnosticsPayload,
+  ProcessMemoryMetrics,
+} from "../types/ipc";
 
-export type DiagnosticsPayload = {
-  diagnosticsLogPath: string;
-  diagnosticsSnapshot: string[];
-};
-
-export type ProcessMemoryMetrics = {
-  residentSetBytes: number;
-  virtualMemoryBytes: number;
-};
-
-export type WebGLResourceMetrics = {
-  geometries: number;
-  textures: number;
-  programs: number | null;
-  calls: number;
-  triangles: number;
-  points: number;
-  lines: number;
-};
-
-export type RuntimeMemoryMetrics = {
-  jsHeapUsedBytes: number | null;
-  jsHeapTotalBytes: number | null;
-  jsHeapLimitBytes: number | null;
-};
-
-export type AssetResourceMetrics = {
-  vertices: number;
-  triangles: number;
-  materials: number;
-  textures: number;
-};
-
-export type ResourceDiagnosticsSnapshot = {
-  sampledAt: number;
-  webgl: WebGLResourceMetrics;
-  memory: RuntimeMemoryMetrics;
-  asset: AssetResourceMetrics | null;
-};
+export type {
+  DiagnosticRecordInput,
+  DiagnosticsPayload,
+  ProcessMemoryMetrics,
+  WebGLResourceMetrics,
+  RuntimeMemoryMetrics,
+  AssetResourceMetrics,
+  ResourceDiagnosticsSnapshot,
+} from "../types/ipc";
 
 export async function logDiagnosticEvent(record: DiagnosticRecordInput) {
   if (!isTauriEnvironment()) {

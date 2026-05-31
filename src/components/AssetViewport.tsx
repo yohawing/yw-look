@@ -39,7 +39,6 @@ import type {
 import { formatUsdErrorForDisplay } from "../lib/usd";
 import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 import {
-  type CameraPreset,
   type DeferredTextureSnapshot,
   type DisplayMode,
   type LoadingStageId,
@@ -110,6 +109,13 @@ import { emptyAnimationState, type AnimationState } from "./animation";
 import { applyMorphTargetValues } from "./morphTargets";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
+import type {
+  BackgroundPreset,
+  CameraPresetRequest,
+  EnvironmentPreset,
+  ToneMappingMode,
+} from "../types/viewer";
+
 export type {
   ViewerFeedback,
   DisplayMode,
@@ -117,13 +123,11 @@ export type {
   TextureViewMode,
   TextureFilterMode,
   CameraPreset,
-};
-export type BackgroundPreset = "gray" | "charcoal" | "light";
-
-export type CameraPresetRequest = {
-  preset: CameraPreset;
-  version: number;
-};
+  BackgroundPreset,
+  CameraPresetRequest,
+  EnvironmentPreset,
+  ToneMappingMode,
+} from "../types/viewer";
 
 const backgroundPresetColors: Record<BackgroundPreset, string> = {
   gray: "#717781",
@@ -209,10 +213,6 @@ function applyViewportBackground(
   renderer.setClearColor(color);
   scene.background = environmentTexture ?? new Color(color);
 }
-
-export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
-
-export type ToneMappingMode = "linear" | "aces" | "reinhard";
 
 const toneMappingModeMap: Record<ToneMappingMode, ToneMapping> = {
   linear: LinearToneMapping,
@@ -605,6 +605,7 @@ type AssetViewportProps = {
    * Setting to `null` or omitting reverts to the normal file-based path.
    */
   glbOverride?: ArrayBuffer | null;
+  deferredProgress?: DeferredTextureSnapshot | null;
   /**
    * #91: Called when scale normalization is applied or reverted.
    * Parent can use this to show/hide the "Cancel Scale Normalize" button.
@@ -870,6 +871,7 @@ export function AssetViewport({
   activeCameraId = null,
   onActiveCameraReset,
   glbOverride = null,
+  deferredProgress = null,
   onScaleNormalizationChange,
   cancelScaleNormalizationVersion = 0,
 }: AssetViewportProps) {
@@ -947,6 +949,7 @@ export function AssetViewport({
   // the post-load callback runs inside a Three.js Promise chain that does
   // not see prop changes, so we hold the latest setter in a ref.
   const onActiveCameraResetRef = useRef(onActiveCameraReset);
+
   onActiveCameraResetRef.current = onActiveCameraReset;
   // The actual Three.js camera found by traversal. null = use the scene's
   // own free camera (context.camera). Stored as `Camera` (not the narrower
@@ -962,6 +965,7 @@ export function AssetViewport({
   );
   const [deferredTexture, setDeferredTexture] =
     useState<DeferredTextureSnapshot | null>(null);
+  const effectiveDeferredProgress = deferredTexture ?? deferredProgress;
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
 
@@ -2204,6 +2208,7 @@ export function AssetViewport({
       onMetadataChange(emptyAssetMetadata);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
+
       setLoadingStage(null);
       setDeferredTexture(null);
       return;
@@ -2339,6 +2344,7 @@ export function AssetViewport({
           mmdMetadata,
           mmdModel,
           warnings = [],
+          assetKind = "mesh",
         }) => {
           if (disposed) {
             runCleanupCallbacks(cleanupCallbacks);
@@ -2435,6 +2441,10 @@ export function AssetViewport({
             formatVersion,
             mmdMetadata,
           );
+          // Issue #98: surface the viewer-side classification (mesh /
+          // pointCloud / gaussianSplat) so the Detail panel can label the
+          // asset and switch renderer-appropriate UI.
+          metadataCollection.metadata.assetKind = assetKind;
           context.textureRegistry = metadataCollection.textureRegistry;
           assetResourceMetricsRef.current = collectAssetResourceMetrics(
             metadataCollection.metadata,
@@ -3235,6 +3245,7 @@ export function AssetViewport({
       const duration = Math.max(mmdMotion.duration, 1 / 30);
       const nextTime = Math.min(Math.max(time, 0), duration);
       retargetMmdMotion(context, nextTime);
+
       mmdMotion.currentTime = nextTime;
       setAnimationState((previous) => ({
         ...previous,
@@ -3274,6 +3285,7 @@ export function AssetViewport({
         duration,
       );
       retargetMmdMotion(context, nextTime);
+
       mmdMotion.currentTime = nextTime;
       setAnimationState((previous) => ({
         ...previous,
@@ -3326,11 +3338,11 @@ export function AssetViewport({
       ) : null}
       {effectiveOverlayMode === "ready" &&
       viewerSurfaceMode === "asset" &&
-      deferredTexture ? (
+      effectiveDeferredProgress ? (
         <div className="viewport-deferred-console">
           <LoadingScreen
             compact
-            deferredTexture={deferredTexture}
+            deferredTexture={effectiveDeferredProgress}
             fileName={currentFile?.fileName}
           />
         </div>

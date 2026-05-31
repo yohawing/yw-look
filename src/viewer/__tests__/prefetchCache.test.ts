@@ -28,9 +28,9 @@ function makeFile(name: string): SelectedFile {
   };
 }
 
-/** Creates a small ArrayBuffer-like byte array for mock readBinaryFile */
-function makeFakeBytes(size = 8): number[] {
-  return Array.from({ length: size }, (_, i) => i);
+/** Creates a small ArrayBuffer for mock readBinaryFile (raw IPC bytes). */
+function makeFakeBytes(size = 8): ArrayBuffer {
+  return new Uint8Array(Array.from({ length: size }, (_, i) => i)).buffer;
 }
 
 beforeEach(() => {
@@ -130,7 +130,7 @@ describe("getCachedBuffer", () => {
 
     const buf = getCachedBuffer(files[1].path);
     expect(buf).toBeInstanceOf(ArrayBuffer);
-    expect(buf!.byteLength).toBe(bytes.length);
+    expect(buf!.byteLength).toBe(bytes.byteLength);
   });
 });
 

@@ -25,7 +25,14 @@ import {
 import { convertAlembicToPreview } from "../lib/alembic";
 import { type SelectedFile, readBinaryFile } from "../lib/files";
 import { isTauriEnvironment } from "../lib/platform";
-import { extractGeometry, inspectStage, requiresGlbPreview } from "../lib/usd";
+import {
+  extractGeometry,
+  inspectStage,
+  requiresGlbPreview,
+  summarizeStage,
+  type StageInspection,
+  type StageSummary,
+} from "../lib/usd";
 import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
@@ -41,14 +48,16 @@ const HAS_THREE_MMD_LOADER =
     ? __YW_HAS_THREE_MMD_LOADER__
     : true;
 
+const HAS_SPARK_LOADER =
+  typeof __YW_HAS_SPARK_LOADER__ === "boolean" ? __YW_HAS_SPARK_LOADER__ : true;
+
 export async function loadMmdMotion(file: SelectedFile) {
   const { loadMmdMotion: load } = await import("./mmd/loader");
   return load(file);
 }
 
 async function readArrayBuffer(path: string) {
-  const bytes = await readBinaryFile(path);
-  return Uint8Array.from(bytes).buffer;
+  return readBinaryFile(path);
 }
 
 /**
@@ -71,6 +80,28 @@ async function yieldToPaint(): Promise<void> {
     return;
   }
   await new Promise<void>((resolve) => setTimeout(() => resolve(), 0));
+}
+
+function isDeferredUsdEmptyStageError(error: unknown): boolean {
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : "";
+  return message.includes("no renderable Mesh prims found in stage");
+}
+
+function inspectionHasDeferredPayloads(
+  inspection: Pick<StageInspection, "payloads">,
+): boolean {
+  return inspection.payloads.some((arc) => arc.state === "unloaded");
+}
+
+function deferredSummaryHasNoRenderableGeometry(
+  summary: Pick<StageSummary, "totalVertices" | "unloadedPayloadCount">,
+): boolean {
+  return summary.unloadedPayloadCount > 0 && summary.totalVertices === 0;
 }
 
 async function readTextFile(path: string) {
@@ -1647,7 +1678,10 @@ function readUsdzFirstFileName(buffer: ArrayBuffer) {
   return new TextDecoder().decode(bytes);
 }
 
-async function parseUsdRuntimeHints(path: string): Promise<UsdRuntimeHints> {
+async function parseUsdRuntimeHints(
+  path: string,
+  policy?: import("../lib/usd").StageLoadPolicy,
+): Promise<UsdRuntimeHints> {
   // Delegated to the Rust `OpenusdBackend` via the Tauri command surface,
   // so this works for USDA, USDC, and USDZ uniformly. Returns just the
   // pieces the Three.js viewer cannot recover by itself — currently only
@@ -1659,7 +1693,7 @@ async function parseUsdRuntimeHints(path: string): Promise<UsdRuntimeHints> {
   const started = performance.now();
   const TIMEOUT_MS = 10_000;
   const inspection = await Promise.race([
-    inspectStage(path),
+    inspectStage(path, policy),
     new Promise<never>((_, reject) =>
       setTimeout(
         () =>
@@ -1679,6 +1713,13 @@ async function parseUsdRuntimeHints(path: string): Promise<UsdRuntimeHints> {
   };
 }
 
+async function parseUsdRuntimeHintsWithPolicy(
+  path: string,
+  policy: import("../lib/usd").StageLoadPolicy,
+): Promise<UsdRuntimeHints> {
+  return parseUsdRuntimeHints(path, policy);
+}
+
 /**
  * @internal Exported for unit-testing only. Not part of the public API.
  */
@@ -1688,6 +1729,9 @@ export {
   isUsdcCrateBuffer,
   readUsdzFirstFileName,
   shouldFailClosedOnUsdPreviewDecisionFailure,
+  isDeferredUsdEmptyStageError,
+  inspectionHasDeferredPayloads,
+  deferredSummaryHasNoRenderableGeometry,
   applyMissingGltfTextureFallbacks,
   formatMissingTextureWarnings,
   resolveColladaTextureUrl,
@@ -1807,9 +1851,40 @@ async function loadPreviewObjectCore(
     }
     case "ply": {
       reportStage("decode");
+      const buffer = await readArrayBuffer(file.path);
+
+      // Issue #98: classify .ply by header content rather than extension so
+      // point clouds and Gaussian splats render with the right backend
+      // instead of being forced into the mesh path.
+      const { parsePlyHeader, detectPlyKind } = await import("./ply/classify");
+      const plyKind = detectPlyKind(parsePlyHeader(buffer));
+
+      if (plyKind === "pointCloud") {
+        const { buildPointCloudPreview } = await import("./ply/pointCloud");
+        reportStage("scene");
+        return buildPointCloudPreview(buffer).preview;
+      }
+
+      if (plyKind === "gaussianSplat") {
+        if (!HAS_SPARK_LOADER) {
+          throw new Error(
+            "This PLY contains Gaussian Splat data. Install the Gaussian Splat Loader Pack (@sparkjsdev/spark) to preview it.",
+          );
+        }
+        const { loadSparkPreviewObject } = await import("./spark/loader");
+        return loadSparkPreviewObject(
+          file,
+          {
+            renderer,
+            onStage: options.onStage,
+            onWarning: options.onWarning,
+          },
+          buffer,
+        );
+      }
+
       const { PLYLoader } =
         await import("three/examples/jsm/loaders/PLYLoader.js");
-      const buffer = await readArrayBuffer(file.path);
       reportStage("scene");
       const geometry = new PLYLoader().parse(buffer);
       geometry.computeVertexNormals();
@@ -1825,6 +1900,7 @@ async function loadPreviewObjectCore(
         cleanupUrls: [],
         clips: [],
         formatVersion: null,
+        assetKind: "mesh",
       };
     }
     case "stl": {
@@ -2000,6 +2076,24 @@ async function loadPreviewObjectCore(
             `[usd] using session glb override (${glbBuffer.byteLength} bytes): ${file.fileName}`,
           );
         } else {
+          if (
+            usdPolicy === "noPayloads" &&
+            (!options.variantSelections ||
+              options.variantSelections.length === 0)
+          ) {
+            const summary = await summarizeStage(file.path, "noPayloads");
+            if (deferredSummaryHasNoRenderableGeometry(summary)) {
+              options.onWarning?.(
+                "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
+              );
+              return {
+                object: new Group(),
+                cleanupUrls: [],
+                clips: [],
+                formatVersion: null,
+              };
+            }
+          }
           reportStage("decode");
           await yieldToPaint();
           // #31: pass variant selections through to the Tauri backend so
@@ -2013,7 +2107,29 @@ async function loadPreviewObjectCore(
                   variantSelections: options.variantSelections,
                 }
               : usdPolicy;
-          glbBuffer = await extractGeometry(file.path, extractOptions);
+          try {
+            glbBuffer = await extractGeometry(file.path, extractOptions);
+          } catch (error) {
+            if (
+              usdPolicy === "noPayloads" &&
+              isDeferredUsdEmptyStageError(error)
+            ) {
+              const inspection = await inspectStage(file.path, "noPayloads");
+              if (!inspectionHasDeferredPayloads(inspection)) {
+                throw error;
+              }
+              options.onWarning?.(
+                "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
+              );
+              return {
+                object: new Group(),
+                cleanupUrls: [],
+                clips: [],
+                formatVersion: null,
+              };
+            }
+            throw error;
+          }
         }
         console.info(
           `[usd] extract_geometry OK in ${Math.round(
@@ -2031,13 +2147,21 @@ async function loadPreviewObjectCore(
         // preview pipeline expects `Group | Mesh`, so we hand back the
         // scene root directly.
         const object = gltf.scene;
+        if (usdPolicy === "noPayloads" && object.children.length === 0) {
+          options.onWarning?.(
+            "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
+          );
+        }
 
         // Apply metersPerUnit / upAxis hints from the inspector — these
         // come from the same Rust backend so the Phase 2 work continues
         // to apply uniformly.
         try {
           reportStage("scene");
-          const runtimeHints = await parseUsdRuntimeHints(file.path);
+          const runtimeHints = await parseUsdRuntimeHintsWithPolicy(
+            file.path,
+            usdPolicy,
+          );
           applyUsdRuntimeHints(object, runtimeHints);
         } catch (error) {
           console.warn("[usd] runtime hints failed:", error);
@@ -2385,6 +2509,18 @@ loaderRegistry.register({
   loadPreviewObject: async (file, context) => {
     const { loadMmdPreviewObject } = await import("./mmd/loader");
     return loadMmdPreviewObject(file, context);
+  },
+});
+
+loaderRegistry.register({
+  id: "gaussian-splat-loader-pack",
+  name: "Gaussian Splat Loader Pack",
+  extensions: ["splat", "spz", "ksplat", "sog"],
+  optional: true,
+  installed: HAS_SPARK_LOADER,
+  loadPreviewObject: async (file, context) => {
+    const { loadSparkPreviewObject } = await import("./spark/loader");
+    return loadSparkPreviewObject(file, context);
   },
 });
 

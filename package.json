@@ -1,18 +1,19 @@
 {
   "name": "yw-look",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "MIT",
   "type": "module",
   "imports": {
-    "#yw-look-mmd-loader-entry": "./src/viewer/mmd/loaderInstalled.ts"
+    "#yw-look-mmd-loader-entry": "./src/viewer/mmd/loaderInstalled.ts",
+    "#yw-look-spark-loader-entry": "./src/viewer/spark/loaderInstalled.ts"
   },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "build:desktop": "npm run build && npm run tauri build",
-    "bundle:win": "npm run tauri build -- --features flip-compare --bundles nsis,msi",
-    "bundle:mac": "npm run tauri build -- --features flip-compare --bundles app,dmg",
+    "bundle:win": "npm run tauri build -- --features flip-compare --config src-tauri/tauri.windows.json --bundles nsis,msi",
+    "bundle:mac": "node scripts/prepare-macos-tauri-config.mjs && npm run tauri build -- --features flip-compare --config src-tauri/tauri.macos.generated.json --bundles app,dmg",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -49,10 +50,12 @@
     "@tauri-apps/api": "^2.8.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "three": "^0.180.0"
+    "three": "^0.180.0",
+    "zustand": "^5.0.14"
   },
   "optionalDependencies": {
-    "@yohawing/three-mmd-loader": "^0.1.2"
+    "@sparkjsdev/spark": "^2.1.0",
+    "@yohawing/three-mmd-loader": "^0.2.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

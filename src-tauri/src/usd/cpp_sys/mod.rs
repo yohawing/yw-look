@@ -444,6 +444,10 @@ impl CStage {
         Ok(out)
     }
 
+    pub fn has_authored_payload_specs(&self) -> bool {
+        unsafe { usdc_stage_has_authored_payload_specs(self.raw) != 0 }
+    }
+
     pub fn prim_type_is_mesh(&self, prim_path: &str) -> bool {
         let c = match CString::new(prim_path) {
             Ok(c) => c,

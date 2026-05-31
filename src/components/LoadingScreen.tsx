@@ -23,7 +23,7 @@ const consoleRows: Array<{ id: LoadingStageId; text: string }> = [
 ];
 
 type ConsoleRow = {
-  id: LoadingStageId | "texture";
+  id: LoadingStageId | "texture" | "payload";
   text: string;
   time: string;
   state: "is-active" | "is-done" | "is-pending";
@@ -46,6 +46,19 @@ export function LoadingScreen({
   const activeElapsed = stage ? now - stage.activeStageStartedAt : 0;
   const totalElapsed = stage ? stage.totalElapsedMs + activeElapsed : 0;
   const deferredTextureProgress = !stage ? deferredTexture : null;
+  const deferredKind = deferredTextureProgress?.kind ?? "texture";
+  const deferredLabel =
+    deferredKind === "payload"
+      ? {
+          id: "payload" as const,
+          text: "streaming deferred payloads",
+          idle: "await payloads.idle",
+        }
+      : {
+          id: "texture" as const,
+          text: "streaming deferred textures",
+          idle: "await textures.idle",
+        };
   const rows: ConsoleRow[] = deferredTextureProgress
     ? [
         ...consoleRows.map<ConsoleRow>((row) => ({
@@ -55,8 +68,8 @@ export function LoadingScreen({
           state: "is-done" as const,
         })),
         {
-          id: "texture",
-          text: "streaming deferred textures",
+          id: deferredLabel.id,
+          text: deferredLabel.text,
           time:
             deferredTextureProgress.total > 0
               ? `${deferredTextureProgress.loaded + deferredTextureProgress.failed}/${deferredTextureProgress.total}`
@@ -122,7 +135,7 @@ export function LoadingScreen({
             {deferredTextureProgress?.activeLabel
               ? deferredTextureProgress.activeLabel
               : deferredTextureProgress
-                ? "await textures.idle"
+                ? deferredLabel.idle
                 : "await preview.ready"}
           </span>
           <b>

@@ -38,6 +38,13 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // React Compiler advisory: fires when an existing manual useMemo /
+      // useCallback can't be preserved by the compiler. It flags missed
+      // auto-memoization opportunities, not correctness bugs, and the
+      // compiler isn't part of this build. Several pre-existing sites in
+      // App.tsx trip it; keep the signal as a warning rather than failing
+      // CI on optimization hints.
+      "react-hooks/preserve-manual-memoization": "warn",
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },

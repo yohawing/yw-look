@@ -6,28 +6,18 @@ import {
   useEffectEvent,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   AssetViewport,
-  type BackgroundPreset,
   type CameraPreset,
-  type CameraPresetRequest,
   type DisplayMode,
   type EnvironmentPreset,
-  type TextureFilterMode,
   type TextureViewMode,
-  type ToneMappingMode,
-  type ViewerFeedback,
-  type ViewerSurfaceMode,
 } from "./components/AssetViewport";
-import {
-  emptyAssetMetadata,
-  type AssetMetadata,
-} from "./components/assetMetadata";
+import { type AssetMetadata } from "./components/assetMetadata";
 import { AppStatusBar } from "./components/AppStatusBar";
 import {
   buildStatusLeftItems,
@@ -49,15 +39,11 @@ import { HierarchyCard } from "./components/HierarchyCard";
 import { UsdPrimPropertyPanel } from "./components/UsdPrimPropertyPanel";
 import { MaterialListCard } from "./components/MaterialListCard";
 import { MmdMetadataCard } from "./components/MmdMetadataCard";
-import {
-  PerformanceCard,
-  type PerformanceSnapshot,
-} from "./components/PerformanceCard";
+import { PerformanceCard } from "./components/PerformanceCard";
 import { SceneLightsCamerasCard } from "./components/SceneLightsCamerasCard";
 import { SidebarTabs } from "./components/SidebarTabs";
 import { createSidebarTabs } from "./components/sidebarTabItems";
 import { SidebarEmpty, SidebarSection } from "./components/sidebarPrimitives";
-import type { SidebarTabId } from "./components/SidebarTabIcons";
 import { TextureListCard } from "./components/TextureListCard";
 import { UsdInspectorCard } from "./components/UsdInspectorCard";
 import { ViewportControls } from "./components/ViewportControls";
@@ -69,106 +55,41 @@ import {
 import type { ToolbarItem } from "./components/toolbar/types";
 import { WarningsCard } from "./components/WarningsCard";
 import {
-  closeStageSession,
-  collectAssetIssues,
-  extractGeometrySession,
   formatUsdErrorForDisplay,
-  inspectStage,
-  inspectUsdLights,
   isInvalidVariantSelectionError,
-  loadPayload,
-  openStageSession,
   parseUsdError,
-  summarizeStage,
-  unloadPayload,
   type AssetIssue,
-  type ExtractGeometryOptions,
-  type PurposeModes,
-  type StageInspection,
-  type StageLoadPolicy,
-  type StageSummary,
-  type StageSessionHandle,
-  type UsdLightInfo,
-  type VariantSelection,
 } from "./lib/usd";
-import {
-  loadDiagnosticsSnapshot,
-  loadProcessMemoryMetrics,
-  logDiagnosticEvent,
-  type DiagnosticsPayload,
-  type ProcessMemoryMetrics,
-  type ResourceDiagnosticsSnapshot,
-} from "./lib/diagnostics";
 import {
   getStartupFile,
   inspectAsset,
+  isUsdFile,
   listSupportedSiblings,
   openFileDialog,
   resolveSelectedFile,
-  type AssetInspection,
-  type DirectoryListing,
   type SelectedFile,
 } from "./lib/files";
 import { prefetchAdjacent } from "./viewer";
-import {
-  loadSupportedExtensions,
-  type IntegrationPayload,
-} from "./lib/integrations";
-import { loadRecentFiles, type RecentFilesPayload } from "./lib/recentFiles";
 import { isTauriEnvironment } from "./lib/platform";
-import {
-  formatShortcut,
-  menuShortcuts,
-  resolveShortcutAction,
-  type MenuActionId,
-} from "./lib/menu";
+import { formatShortcut, menuShortcuts, type MenuActionId } from "./lib/menu";
 import {
   applyViewerShortcutAction,
-  isEditableShortcutTarget,
-  resolveViewerShortcutAction,
   viewerShortcutHelpLines,
-  type ViewportShortcutCommand,
   type ViewerShortcutAction,
 } from "./lib/viewerShortcuts";
-import {
-  checkForUpdate,
-  installPendingUpdate,
-  loadUpdateConfiguration,
-  type UpdateCheckPayload,
-  type UpdateConfigurationPayload,
-} from "./lib/updater";
-import {
-  loadSettings,
-  saveSettings,
-  type SettingsPayload,
-} from "./lib/settings";
+import { saveSettings } from "./lib/settings";
+import { errorMessage } from "./lib/invokeSafe";
+import { usePerformanceTracker } from "./hooks/usePerformanceTracker";
+import { useUpdater } from "./hooks/useUpdater";
+import { useUsdInspector } from "./hooks/useUsdInspector";
+import { usePayloadSession } from "./hooks/usePayloadSession";
+import { useDeferredData } from "./hooks/useDeferredData";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useViewerStore } from "./stores/viewerStore";
+import { useFileStore } from "./stores/fileStore";
+import { useUiStore } from "./stores/uiStore";
 
-type SidebarTab = SidebarTabId;
-
-type WindowWithIdleCallback = Window & {
-  requestIdleCallback?: (
-    callback: (deadline: IdleDeadline) => void,
-    options?: IdleRequestOptions,
-  ) => number;
-  cancelIdleCallback?: (handle: number) => void;
-};
-
-const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
 const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
-
-function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string" && error.trim()) {
-    return error;
-  }
-  return fallback;
-}
-
-function isUsdFile(file: SelectedFile | null): boolean {
-  return !!file && USD_EXTENSIONS.has(file.extension);
-}
 
 function extensionFromPath(path: string) {
   const fileName = path.split(/[\\/]/).pop() ?? path;
@@ -220,14 +141,6 @@ function splitViewerWarnings(warning: string | null): string[] {
       .filter(Boolean) ?? []
   );
 }
-
-const initialViewerFeedback: ViewerFeedback = {
-  mode: "empty",
-  message: "Open a supported asset to initialize the preview scene.",
-  warning: null,
-  canResetCamera: false,
-};
-const TIME_TO_INTERACTIVE_TIMEOUT_MS = 1500;
 
 function deriveDisplayMode(
   showTexture: boolean,
@@ -311,213 +224,89 @@ const cameraPresetOptions: Array<{
   { id: "bottom", label: "Bottom" },
 ];
 
-const DEFAULT_EXPOSURE = 1.1;
-
 export function App() {
-  const appStartRef = useRef(performance.now());
-  const [activeTab, setActiveTab] = useState<SidebarTab>("properties");
-  const [sidebarOpen, setSidebarOpen] = useState(
-    () => window.innerWidth >= 720,
-  );
-  const [sidebarWidth, setSidebarWidth] = useState(350);
-  const [showTexture, setShowTexture] = useState(true);
-  const [showWireframe, setShowWireframe] = useState(false);
-  const [showUnlit, setShowUnlit] = useState(false);
-  const [showGrid, setShowGrid] = useState(true);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [showAxes, setShowAxes] = useState(false);
-  const [showSkeleton, setShowSkeleton] = useState(false);
-  const [showBoundingBoxes, setShowBoundingBoxes] = useState(false);
-  const [showNormals, setShowNormals] = useState(false);
-  const [showVertexColors, setShowVertexColors] = useState(false);
-  const [viewportPanelOpen, setViewportPanelOpen] = useState(true);
-  const [showEnvironmentBackground, setShowEnvironmentBackground] =
-    useState(false);
-  const [environmentRotation] = useState(0);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [backfaceCulling, setBackfaceCulling] = useState(true);
-  const [textureFilterMode] = useState<TextureFilterMode>("trilinear");
-  const [cameraPresetRequest, setCameraPresetRequest] =
-    useState<CameraPresetRequest | null>(null);
-  const [controlSensitivity] = useState(1);
-  const [cameraFov] = useState(45);
-  const [renderScale] = useState(1);
-  const [showShadows, setShowShadows] = useState(false);
-  const [fxaaEnabled] = useState(false);
-  const [showRendererStats] = useState(false);
-  const [toneMappingMode] = useState<ToneMappingMode>("aces");
-  const [exposure] = useState(DEFAULT_EXPOSURE);
-  const [cameraSpeedMultiplier] = useState(1);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [backgroundPreset, setBackgroundPreset] =
-    useState<BackgroundPreset>("gray");
-  const [environmentPreset, setEnvironmentPreset] =
-    useState<EnvironmentPreset>("studio");
-  const [gridUnitLabel, setGridUnitLabel] = useState("1 m");
-  const [currentFile, setCurrentFile] = useState<SelectedFile | null>(null);
-  const [mmdMotionRequest, setMmdMotionRequest] = useState<{
-    file: SelectedFile;
-    version: number;
-  } | null>(null);
-  const [assetInspection, setAssetInspection] =
-    useState<AssetInspection | null>(null);
-  const [directoryListing, setDirectoryListing] =
-    useState<DirectoryListing | null>(null);
-  const [viewerFeedback, setViewerFeedback] = useState<ViewerFeedback>(
-    initialViewerFeedback,
-  );
-  const displayMode = deriveDisplayMode(showTexture, showWireframe);
-  const [openError, setOpenError] = useState<string | null>(null);
-  const [isDragActive, setIsDragActive] = useState(false);
-  const [resetVersion, setResetVersion] = useState(0);
-  const [scaleNormalization, setScaleNormalization] = useState<{
-    applied: boolean;
-    factor: number;
-  } | null>(null);
-  const [cancelScaleNormalizeVersion, setCancelScaleNormalizeVersion] =
-    useState(0);
-  const [viewportShortcutCommand, setViewportShortcutCommand] =
-    useState<ViewportShortcutCommand | null>(null);
-  const [settingsPayload, setSettingsPayload] =
-    useState<SettingsPayload | null>(null);
-  const [settingsError, setSettingsError] = useState<string | null>(null);
-  const [assetMetadata, setAssetMetadata] = useState<AssetMetadata | null>(
-    emptyAssetMetadata,
-  );
-  const [viewerSurfaceMode, setViewerSurfaceMode] =
-    useState<ViewerSurfaceMode>("asset");
-  const [selectedTextureId, setSelectedTextureId] = useState<string | null>(
-    null,
-  );
-  const [textureViewMode, setTextureViewMode] =
-    useState<TextureViewMode>("rgba");
-  const [textureColorSpace, setTextureColorSpace] =
-    useState<TextureColorSpace>("srgb");
-  const [textureExposure] = useState(0);
-  const [textureBlackPoint] = useState(0);
-  const [textureWhitePoint] = useState(1);
-  const [textureTileCount] = useState(1);
-  const [textureGamma, setTextureGamma] = useState(2.2);
-  // Default = flat 2D viewer framing for textures. The 3D toggle
-  // re-uses the asset orbit controls so the same texture plane can
-  // be rotated/zoomed as a 3D quad — useful for inspecting how a
-  // texture behaves at glancing angles or with the env reflection.
-  const [texturePreview3D] = useState(false);
-  const [recentFilesPayload, setRecentFilesPayload] =
-    useState<RecentFilesPayload | null>(null);
-  const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
-  const [diagnosticsPayload, setDiagnosticsPayload] =
-    useState<DiagnosticsPayload | null>(null);
-  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
-  const [resourceDiagnostics, setResourceDiagnostics] =
-    useState<ResourceDiagnosticsSnapshot | null>(null);
-  const [processMemoryMetrics, setProcessMemoryMetrics] =
-    useState<ProcessMemoryMetrics | null>(null);
-  const [integrationPayload, setIntegrationPayload] =
-    useState<IntegrationPayload | null>(null);
-  const [integrationError, setIntegrationError] = useState<string | null>(null);
-  const [updateConfiguration, setUpdateConfiguration] =
-    useState<UpdateConfigurationPayload | null>(null);
-  const [updateCheck, setUpdateCheck] = useState<UpdateCheckPayload | null>(
-    null,
-  );
-  const [updateError, setUpdateError] = useState<string | null>(null);
-  const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
-  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
-  const [dialogState, setDialogState] = useState<{
-    title: string;
-    lines: string[];
-  } | null>(null);
-  const [performanceSnapshot, setPerformanceSnapshot] =
-    useState<PerformanceSnapshot>({
-      startupMs: null,
-      loadMs: null,
-      navigationMs: null,
-      firstPaintMs: null,
-      interactiveMs: null,
-    });
-  const [usdSummary, setUsdSummary] = useState<StageSummary | null>(null);
-  const [usdInspection, setUsdInspection] = useState<StageInspection | null>(
-    null,
-  );
-  const [usdIssues, setUsdIssues] = useState<AssetIssue[]>([]);
-  const [usdInspectorLoading, setUsdInspectorLoading] = useState(false);
-  const [usdInspectorError, setUsdInspectorError] = useState<string | null>(
-    null,
-  );
-  // #35: USD light details fetched directly from USD (C++ backend only).
-  // `null` = not fetched yet or not a USD file; `[]` = no lights found.
-  const [usdLights, setUsdLights] = useState<UsdLightInfo[] | null>(null);
-  // Phase 4: deferred-payload toggle. Default to `loadAll` so payload-only
-  // component roots open with visible geometry; switching to `noPayloads`
-  // re-runs the inspector and GLB pipeline with payloads deferred.
-  const [usdLoadPolicy, setUsdLoadPolicy] =
-    useState<StageLoadPolicy>("loadAll");
-  // #33/#46: unified selection key — viewport pick or hierarchy row click.
-  // For USD assets that went through the hierarchy-aware GLB pipeline
-  // (#46) the value is a USD SdfPath (e.g. "/World/Cube") surfaced from
-  // userData.primPath; for non-USD / legacy assets it remains the
-  // Three.js Object3D.name.  Both HierarchyCard and the viewport tint
-  // path match on this same key, so the two directions stay in sync.
-  const [selectedMeshName, setSelectedMeshName] = useState<string | null>(null);
-  const [morphTargetValues, setMorphTargetValues] = useState<
-    Record<string, Record<number, number>>
-  >({});
-  // #28: USD prim path selected in the hierarchy tree.
-  // Drives the UsdPrimPropertyPanel. Separate from `selectedMeshName`
-  // because the hierarchy tree can select any prim (not just meshes).
-  const [selectedUsdPrimPath, setSelectedUsdPrimPath] = useState<string | null>(
-    null,
-  );
-  // #32: USD purpose visibility. Defaults match pre-#32 behavior:
-  // render ON, proxy/guide OFF.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [purposeModes, setPurposeModes] = useState<PurposeModes>({
-    render: true,
-    proxy: false,
-    guide: false,
-  });
-  // #34: active USD camera id (Three.js uuid). null = free orbit. Using
-  // the uuid rather than the authored name keeps duplicate / unnamed
-  // cameras independently selectable.
-  const [activeCameraId, setActiveCameraId] = useState<string | null>(null);
-  // #31: variant selections applied before geometry extraction.
-  // Populated by the UsdInspectorCard switcher pulldown.
-  const [variantSelections, setVariantSelections] = useState<
-    VariantSelection[]
-  >([]);
-  const [variantSelectionError, setVariantSelectionError] = useState<
-    string | null
-  >(null);
+  const viewer = useViewerStore();
+  const file = useFileStore();
+  const ui = useUiStore();
 
-  // ---- #44 per-prim payload session ----------------------------------------
-  // When the user opens a USD file with `noPayloads` policy, we also open a
-  // stateful backend session so individual payload prims can be loaded and
-  // unloaded on demand.  The session is closed when the file changes or the
-  // component unmounts.
-  const [stageSessionHandle, setStageSessionHandle] =
-    useState<StageSessionHandle | null>(null);
-  // All SdfPaths that author a payload arc on the current stage. Used to
-  // gate the load/unload buttons in HierarchyCard so they only appear on
-  // genuine payload sources, not on every regular Xform / Mesh.
-  const [payloadPrimPaths, setPayloadPrimPaths] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
-  // Set of SdfPaths whose payload arcs are currently deferred. Derived from
-  // `stageInspection.payloads` + individual load/unload operations.
-  const [unloadedPayloadPaths, setUnloadedPayloadPaths] = useState<
-    ReadonlySet<string>
-  >(new Set());
-  // GLB buffer produced by `extractGeometrySession` after a load/unload.
-  // When non-null, `AssetViewport` should use this buffer instead of
-  // re-extracting from disk. Reset to null on file change AND on variant /
-  // purpose changes (the cached buffer was built against a specific variant
-  // / purpose set; reusing it would freeze the viewport on the snapshot).
-  const [sessionGlbBuffer, setSessionGlbBuffer] = useState<ArrayBuffer | null>(
-    null,
+  const {
+    activeTab,
+    sidebarOpen,
+    sidebarWidth,
+    viewportPanelOpen,
+    isDragActive,
+    dialogState,
+  } = ui;
+  const {
+    currentFile,
+    mmdMotionRequest,
+    assetInspection,
+    directoryListing,
+    assetMetadata,
+    openError,
+  } = file;
+  const {
+    showTexture,
+    showWireframe,
+    showUnlit,
+    showGrid,
+    showAxes,
+    showSkeleton,
+    showBoundingBoxes,
+    showNormals,
+    showVertexColors,
+    showEnvironmentBackground,
+    environmentRotation,
+    backfaceCulling,
+    textureFilterMode,
+    cameraPresetRequest,
+    controlSensitivity,
+    cameraFov,
+    renderScale,
+    showShadows,
+    fxaaEnabled,
+    showRendererStats,
+    toneMappingMode,
+    exposure,
+    cameraSpeedMultiplier,
+    backgroundPreset,
+    environmentPreset,
+    gridUnitLabel,
+    viewerFeedback,
+    viewerSurfaceMode,
+    selectedTextureId,
+    textureViewMode,
+    textureColorSpace,
+    textureExposure,
+    textureBlackPoint,
+    textureWhitePoint,
+    textureTileCount,
+    textureGamma,
+    texturePreview3D,
+    resourceDiagnostics,
+    usdLoadPolicy,
+    selectedMeshName,
+    morphTargetValues,
+    selectedUsdPrimPath,
+    purposeModes,
+    activeCameraId,
+    variantSelections,
+    variantSelectionError,
+    resetVersion,
+    scaleNormalization,
+    cancelScaleNormalizeVersion,
+    viewportShortcutCommand,
+  } = viewer;
+  const displayMode = useMemo(
+    () => deriveDisplayMode(showTexture, showWireframe),
+    [showTexture, showWireframe],
   );
 
   const isTauri = isTauriEnvironment();
+  const recentExternalOpenRef = useRef<{
+    path: string;
+    requestedAt: number;
+  } | null>(null);
   const debugPanelsEnabled = !isTauri && isDebugPanelsRequested();
   const sidebarCurrentFile = debugPanelsEnabled ? debugPanelFile : currentFile;
   const sidebarAssetMetadata = debugPanelsEnabled
@@ -526,10 +315,6 @@ export function App() {
   const sidebarDirectoryListing = debugPanelsEnabled
     ? debugPanelDirectoryListing
     : directoryListing;
-  const sidebarRecentFilesPayload = debugPanelsEnabled
-    ? debugPanelRecentFiles
-    : recentFilesPayload;
-  const sidebarRecentFilesError = debugPanelsEnabled ? null : recentFilesError;
   const recordVariantSelectionError = useCallback((error: unknown): boolean => {
     const parsed = parseUsdError(error);
     if (!isInvalidVariantSelectionError(parsed)) {
@@ -541,37 +326,37 @@ export function App() {
       "Variant selection failed.",
     );
     console.error("[usd] variant selection failed:", error);
-    setVariantSelectionError(message);
+    viewer.setVariantSelectionError(message);
     return true;
   }, []);
   const handleMorphTargetChange = useCallback(
     (selectionKey: string, morphTargetIndex: number, value: number) => {
       const clamped = Math.min(1, Math.max(0, value));
-      setMorphTargetValues((previous) => ({
-        ...previous,
+      const prev = useViewerStore.getState().morphTargetValues;
+      useViewerStore.getState().setMorphTargetValues({
+        ...prev,
         [selectionKey]: {
-          ...(previous[selectionKey] ?? {}),
+          ...(prev[selectionKey] ?? {}),
           [morphTargetIndex]: clamped,
         },
-      }));
+      });
     },
     [],
   );
 
   useEffect(() => {
-    setMorphTargetValues({});
+    viewer.setMorphTargetValues({});
   }, [currentFile?.path]);
 
   const applyVariantSelection = useCallback(
     (primPath: string, setName: string, variantName: string) => {
-      setVariantSelectionError(null);
-      setVariantSelections((prev) => {
-        const next = prev.filter(
-          (s) => !(s.primPath === primPath && s.setName === setName),
-        );
-        next.push({ primPath, setName, variantName });
-        return next;
-      });
+      useViewerStore.getState().setVariantSelectionError(null);
+      const prev = useViewerStore.getState().variantSelections;
+      const next = prev.filter(
+        (s) => !(s.primPath === primPath && s.setName === setName),
+      );
+      next.push({ primPath, setName, variantName });
+      useViewerStore.getState().setVariantSelections(next);
     },
     [],
   );
@@ -625,6 +410,15 @@ export function App() {
     () => splitViewerWarnings(viewerFeedback.warning),
     [viewerFeedback.warning],
   );
+  const {
+    usdSummary,
+    usdInspection,
+    usdIssues,
+    usdLights,
+    usdInspectorLoading,
+    usdInspectorError,
+  } = useUsdInspector(currentFile, isTauri, usdLoadPolicy);
+
   const warnings = useMemo(() => {
     const nextWarnings: string[] = [];
 
@@ -723,578 +517,139 @@ export function App() {
     [],
   );
 
+  const {
+    stageSessionHandle,
+    payloadPrimPaths,
+    unloadedPayloadPaths,
+    sessionGlbBuffer,
+    setSessionGlbBuffer,
+    deferredPayloadProgress,
+    handleLoadPayload,
+    handleUnloadPayload,
+  } = usePayloadSession(
+    currentFile,
+    isTauri,
+    usdLoadPolicy,
+    usdInspection,
+    variantSelections,
+    purposeModes,
+    recordVariantSelectionError,
+  );
+
   useEffect(() => {
-    let isActive = true;
-
-    loadSettings()
-      .then((payload) => {
-        if (!isActive) {
-          return;
-        }
-
-        setSettingsPayload(payload);
-        setSettingsError(null);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        setSettingsError(
-          error instanceof Error ? error.message : "Failed to load settings.",
-        );
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
-  // Phase 2 USD inspector pipeline. Runs in parallel with the Three.js
-  // load path in AssetViewport, so the sidebar can show stage summary /
-  // inspection / asset issues before the heavy USDLoader parse finishes.
-  // See docs/usd.md.
-  useEffect(() => {
-    if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
-      setUsdSummary(null);
-      setUsdInspection(null);
-      setUsdIssues([]);
-      setUsdLights(null);
-      setUsdInspectorLoading(false);
-      setUsdInspectorError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setUsdSummary(null);
-    setUsdInspection(null);
-    setUsdIssues([]);
-    setUsdLights(null);
-    setUsdInspectorLoading(true);
-    setUsdInspectorError(null);
-    // #31: reset variant selections when a new file is opened so the
-    // pulldown reflects the authored defaults, not stale overrides from
-    // the previous file.
-    setVariantSelections([]);
-    setVariantSelectionError(null);
-    // #44: reset session GLB buffer on every file / policy change so the
-    // viewport doesn't flash stale geometry from a previous session.
+    viewer.setVariantSelections([]);
+    viewer.setVariantSelectionError(null);
     setSessionGlbBuffer(null);
+  }, [currentFile, usdLoadPolicy, setSessionGlbBuffer]);
 
-    const path = currentFile.path;
-
-    // Summary resolves first and updates the UI immediately; the heavier
-    // inspection and asset-issue RPCs land later. We only drop the
-    // `loading` flag once ALL three settle so the card cannot flicker
-    // back to its "Open a USD…" empty state when the fastest RPC wins
-    // the race (e.g. `collect_asset_issues` returning an empty list
-    // before `summarize_stage` has produced any output).
-    const usdInspectorStartMs = performance.now();
-
-    const summarizePromise = summarizeStage(path, usdLoadPolicy)
-      .then((summary) => {
-        if (cancelled) return;
-        setUsdSummary(summary);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setUsdInspectorError(
-          errorMessage(error, "Failed to summarize USD stage."),
-        );
-      });
-
-    const inspectPromise = inspectStage(path, usdLoadPolicy)
-      .then((inspection) => {
-        if (cancelled) return;
-        setUsdInspection(inspection);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        // Keep any earlier summarize error; otherwise record this one.
-        setUsdInspectorError(
-          (previous) =>
-            previous ?? errorMessage(error, "Failed to inspect USD stage."),
-        );
-      });
-
-    const issuesPromise =
-      usdLoadPolicy === "loadAll"
-        ? collectAssetIssues(path)
-            .then((issues) => {
-              if (cancelled) return;
-              setUsdIssues(issues);
-            })
-            .catch((error: unknown) => {
-              if (cancelled) return;
-              setUsdInspectorError(
-                (previous) =>
-                  previous ??
-                  errorMessage(error, "Failed to collect USD asset issues."),
-              );
-            })
-        : Promise.resolve();
-
-    // #35: fetch USD light details from the C++ backend.
-    // Errors are silently ignored — the Rust-fork backend returns an error
-    // and in that case we fall back to the Three.js LightEntry list.
-    const lightsPromise =
-      usdLoadPolicy === "loadAll"
-        ? inspectUsdLights(path)
-            .then((lights) => {
-              if (cancelled) return;
-              setUsdLights(lights);
-            })
-            .catch(() => {
-              // Degraded: C++ backend not available or backend error — leave
-              // usdLights as null so the UI falls back to Three.js LightEntry data.
-            })
-        : Promise.resolve();
-
-    void Promise.allSettled([
-      summarizePromise,
-      inspectPromise,
-      issuesPromise,
-      lightsPromise,
-    ]).then(() => {
-      if (cancelled) return;
-      setUsdInspectorLoading(false);
-      const elapsedMs = Math.round(performance.now() - usdInspectorStartMs);
-      console.info(
-        `[usd] inspector RPCs settled in ${elapsedMs}ms (policy=${usdLoadPolicy}): ${path}`,
-      );
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentFile, isTauri, usdLoadPolicy]);
-
-  // #44: open a stateful stage session when a USD file is loaded with
-  // `noPayloads` policy (enables per-prim load/unload). Close any previous
-  // session first. When `loadAll` is active no session is needed.
-  useEffect(() => {
-    if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
-      setStageSessionHandle(null);
-      setUnloadedPayloadPaths(new Set());
-      return;
+  const sessionAdjustedUsdSummary = useMemo(() => {
+    if (
+      !usdSummary ||
+      !usdInspection ||
+      usdLoadPolicy !== "noPayloads" ||
+      payloadPrimPaths.size === 0
+    ) {
+      return usdSummary;
     }
-
-    // Only open a session when using noPayloads — loadAll doesn't need it.
-    if (usdLoadPolicy !== "noPayloads") {
-      setStageSessionHandle(null);
-      setUnloadedPayloadPaths(new Set());
-      return;
-    }
-
-    let cancelled = false;
-    const path = currentFile.path;
-
-    openStageSession(path, "noPayloads")
-      .then((handle) => {
-        if (cancelled) {
-          // Cleanup ran before this promise resolved — don't leak the
-          // handle on the backend. Issue close in the background and
-          // ignore errors (the registry tolerates missing handles).
-          closeStageSession(handle).catch(() => {});
-          return;
+    const payloadArcCounts = usdInspection.payloads.reduce(
+      (counts, arc) => {
+        if (arc.state === "missing") {
+          counts.unresolved += 1;
+        } else if (
+          arc.state === "unloaded" &&
+          unloadedPayloadPaths.has(arc.sourcePrim)
+        ) {
+          counts.unloaded += 1;
+        } else {
+          counts.resolved += 1;
         }
-        setStageSessionHandle(handle);
-        // Initially all payload sources are unloaded — the session was opened
-        // with noPayloads. The exact set of paths will be populated once
-        // stageInspection settles (via the effect below that syncs payloads).
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        console.warn(
-          "[usd] open_stage_session failed (per-prim load/unload unavailable):",
-          err,
-        );
-        setStageSessionHandle(null);
-      });
-
-    return () => {
-      cancelled = true;
-      // Close the session asynchronously — we don't await here to avoid
-      // blocking the cleanup. The backend will free the stage.
-      setStageSessionHandle((prev) => {
-        if (prev !== null) {
-          void closeStageSession(prev).catch(() => {
-            // Silently ignore close errors — the Tauri process is likely
-            // already shutting down or the file was closed.
-          });
-        }
-        return null;
-      });
-    };
-  }, [currentFile, isTauri, usdLoadPolicy]);
-
-  // #44: re-sync the session GLB cache when the user changes variants —
-  // but ONLY after the user has actually mutated payloads (i.e. an
-  // override is already in flight). For an untouched session the regular
-  // `requiresGlbPreview`/`extractGeometry` path in loaders.ts handles
-  // variants correctly; forcing a session re-extract here would bypass
-  // that path even on self-contained USDA files that should go through
-  // the Three.js USDLoader.
-  //
-  // Purpose toggles are deliberately NOT a dependency: AssetViewport
-  // applies purpose visibility client-side via `applyPurposeVisibility`,
-  // so the GLB does not need re-extraction when only purpose changes.
-  const sessionGlbBufferRef = useRef<ArrayBuffer | null>(sessionGlbBuffer);
-  useEffect(() => {
-    sessionGlbBufferRef.current = sessionGlbBuffer;
-  }, [sessionGlbBuffer]);
-
-  useEffect(() => {
-    if (stageSessionHandle === null) {
-      // No session: drop any leftover override; the stateless extract
-      // path picks up the latest variants on the next render.
-      setSessionGlbBuffer(null);
-      return;
-    }
-    if (sessionGlbBufferRef.current === null) {
-      // Session is open but the user has not yet load/unload-ed any
-      // payload. Leave the override null so loaders.ts uses the regular
-      // `requiresGlbPreview` decision tree.
-      return;
-    }
-    let cancelled = false;
-    extractGeometrySession(stageSessionHandle, {
-      policy: "noPayloads",
-      variantSelections,
-      purposeModes,
-    })
-      .then((buf) => {
-        if (!cancelled) setSessionGlbBuffer(buf);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        console.warn("[usd] session re-extract on variant change failed:", err);
-        recordVariantSelectionError(err);
-        setSessionGlbBuffer(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `purposeModes` is captured by closure for defensive completeness
-    // but is intentionally NOT in the deps array — see comment above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [variantSelections, stageSessionHandle]);
-
-  // #44: sync payload prim sets from `usdInspection`. `payloadPrimPaths`
-  // contains every prim that authors a payload arc (used to gate the
-  // HierarchyCard load/unload buttons). `unloadedPayloadPaths` is the
-  // currently-deferred subset; later individual load/unload operations
-  // mutate it directly.
-  useEffect(() => {
-    if (!usdInspection || usdLoadPolicy !== "noPayloads") {
-      setPayloadPrimPaths(new Set());
-      setUnloadedPayloadPaths(new Set());
-      return;
-    }
-    const allPayloads = new Set(
-      usdInspection.payloads.map((arc) => arc.sourcePrim),
+        return counts;
+      },
+      { resolved: 0, unloaded: 0, unresolved: 0 },
     );
-    const unloaded = new Set(
-      usdInspection.payloads
-        .filter((arc) => arc.state === "unloaded")
-        .map((arc) => arc.sourcePrim),
-    );
-    setPayloadPrimPaths(allPayloads);
-    setUnloadedPayloadPaths(unloaded);
-  }, [usdInspection, usdLoadPolicy]);
-
-  useEffect(() => {
-    setPerformanceSnapshot((previous) => ({
-      ...previous,
-      startupMs: performance.now() - appStartRef.current,
-    }));
-
-    const existingPaintMetric = performance
-      .getEntriesByType("paint")
-      .find((entry) => entry.name === "first-contentful-paint");
-    if (existingPaintMetric) {
-      setPerformanceSnapshot((previous) =>
-        previous.firstPaintMs === null
-          ? {
-              ...previous,
-              firstPaintMs: existingPaintMetric.startTime,
-            }
-          : previous,
-      );
-    }
-
-    if (typeof PerformanceObserver === "undefined") {
-      return;
-    }
-
-    const paintObserver = new PerformanceObserver((entryList) => {
-      const firstPaint = entryList
-        .getEntries()
-        .find((entry) => entry.name === "first-contentful-paint");
-      if (!firstPaint) {
-        return;
-      }
-
-      setPerformanceSnapshot((previous) =>
-        previous.firstPaintMs === null
-          ? {
-              ...previous,
-              firstPaintMs: firstPaint.startTime,
-            }
-          : previous,
-      );
-      paintObserver.disconnect();
-    });
-
-    try {
-      paintObserver.observe({ type: "paint", buffered: true });
-    } catch {
-      paintObserver.disconnect();
-    }
-
-    return () => {
-      paintObserver.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (performanceSnapshot.interactiveMs !== null) {
-      return;
-    }
-
-    if (!settingsPayload && !settingsError) {
-      return;
-    }
-
-    let cancelled = false;
-    const markInteractive = () => {
-      if (cancelled) {
-        return;
-      }
-
-      setPerformanceSnapshot((previous) =>
-        previous.interactiveMs === null
-          ? {
-              ...previous,
-              interactiveMs: performance.now() - appStartRef.current,
-            }
-          : previous,
-      );
-    };
-
-    const idleWindow = window as WindowWithIdleCallback;
-
-    if (typeof idleWindow.requestIdleCallback === "function") {
-      const callbackId = idleWindow.requestIdleCallback(markInteractive, {
-        // Keep this short so the metric still reflects initial usability
-        // while allowing the browser to complete immediate startup work.
-        timeout: TIME_TO_INTERACTIVE_TIMEOUT_MS,
-      });
-      return () => {
-        cancelled = true;
-        idleWindow.cancelIdleCallback?.(callbackId);
-      };
-    }
-
-    const timeoutId = window.setTimeout(markInteractive, 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
-  }, [performanceSnapshot.interactiveMs, settingsError, settingsPayload]);
-
-  useEffect(() => {
-    if (!shouldLoadRecentFiles) {
-      return;
-    }
-
-    let isActive = true;
-
-    loadRecentFiles()
-      .then((payload) => {
-        if (!isActive) {
-          return;
-        }
-
-        setRecentFilesPayload(payload);
-        setRecentFilesError(null);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        setRecentFilesError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load recent files.",
-        );
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [currentFile, shouldLoadRecentFiles]);
-
-  const refreshDiagnostics = useEffectEvent(async () => {
-    try {
-      const payload = await loadDiagnosticsSnapshot();
-      setDiagnosticsPayload(payload);
-      setDiagnosticsError(null);
-    } catch (error: unknown) {
-      setDiagnosticsError(
-        error instanceof Error
-          ? error.message
-          : "Failed to load diagnostics snapshot.",
-      );
-    }
-  });
-
-  useEffect(() => {
-    if (!shouldLoadDeferredData) {
-      return;
-    }
-
-    void refreshDiagnostics();
-  }, [shouldLoadDeferredData]);
-
-  const refreshProcessMemory = useEffectEvent(async () => {
-    if (!isTauri) {
-      setProcessMemoryMetrics(null);
-      return;
-    }
-
-    try {
-      const metrics = await loadProcessMemoryMetrics();
-      setProcessMemoryMetrics(metrics);
-    } catch {
-      setProcessMemoryMetrics(null);
-    }
-  });
-
-  useEffect(() => {
-    if (!isTauri) {
-      setProcessMemoryMetrics(null);
-      return;
-    }
-
-    void refreshProcessMemory();
-    const interval = window.setInterval(() => {
-      void refreshProcessMemory();
-    }, 2000);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [isTauri]);
-
-  useEffect(() => {
-    if (!isTauri || !resourceDiagnostics) {
-      return;
-    }
-
-    void refreshProcessMemory();
-  }, [isTauri, resourceDiagnostics]);
-
-  const refreshUpdateConfiguration = async () => {
-    try {
-      const payload = await loadUpdateConfiguration();
-      setUpdateConfiguration(payload);
-      setUpdateError(null);
-    } catch (error: unknown) {
-      setUpdateError(
-        error instanceof Error
-          ? error.message
-          : "Failed to load updater configuration.",
-      );
-    }
-  };
-
-  useEffect(() => {
-    if (!shouldLoadDeferredData) {
-      return;
-    }
-
-    void refreshUpdateConfiguration();
-  }, [shouldLoadDeferredData]);
-
-  // #26: when the user has opted in via Settings, run a single
-  // `check_for_update` call once `settingsPayload` has loaded.
-  // Intentionally NOT gated on `shouldLoadDeferredData` (the sidebar
-  // toggle) — the user may run with the sidebar collapsed, and a
-  // pending update should still surface on startup. `check_for_update`
-  // returns the update configuration alongside the result, so we do
-  // not need a separate `load_update_configuration` round-trip first.
-  // The auto-check is one-shot per session; a polling enhancement is
-  // out of scope for #26's first surface.
-  const autoUpdateCheckedRef = useRef(false);
-  useEffect(() => {
-    if (autoUpdateCheckedRef.current) return;
-    if (!settingsPayload?.settings.autoCheckForUpdates) return;
-    autoUpdateCheckedRef.current = true;
-    void handleCheckForUpdate();
-  }, [settingsPayload?.settings.autoCheckForUpdates]);
-
-  useEffect(() => {
-    if (!shouldLoadDeferredData) {
-      return;
-    }
-
-    let isActive = true;
-
-    loadSupportedExtensions()
-      .then((payload) => {
-        if (!isActive) {
-          return;
-        }
-
-        setIntegrationPayload(payload);
-        setIntegrationError(null);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        setIntegrationError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load Windows integration details.",
-        );
-      });
-
-    return () => {
-      isActive = false;
+    return {
+      ...usdSummary,
+      unloadedPayloadCount: payloadArcCounts.unloaded,
+      resolvedPayloadCount: payloadArcCounts.resolved,
+      unresolvedPayloadCount: payloadArcCounts.unresolved,
     };
   }, [
-    settingsPayload?.settings.fileAssociationsEnabled,
-    shouldLoadDeferredData,
+    payloadPrimPaths.size,
+    unloadedPayloadPaths,
+    usdInspection,
+    usdLoadPolicy,
+    usdSummary,
   ]);
+
+  const {
+    settingsPayload,
+    settingsError,
+    setSettingsPayload,
+    setSettingsError,
+    recentFilesPayload,
+    recentFilesError,
+    setRecentFilesError,
+    diagnosticsPayload,
+    diagnosticsError,
+    processMemoryMetrics,
+    integrationPayload,
+    integrationError,
+    logDiagnosticEventAndRefresh,
+  } = useDeferredData(
+    isTauri,
+    shouldLoadRecentFiles,
+    shouldLoadDeferredData,
+    currentFile,
+    resourceDiagnostics,
+  );
+
+  const sidebarRecentFilesPayload = debugPanelsEnabled
+    ? debugPanelRecentFiles
+    : recentFilesPayload;
+  const sidebarRecentFilesError = debugPanelsEnabled ? null : recentFilesError;
+
+  const {
+    updateConfiguration,
+    updateCheck,
+    updateError,
+    isCheckingForUpdate,
+    isInstallingUpdate,
+    setUpdateError,
+    refreshUpdateConfiguration,
+    handleCheckForUpdate,
+    handleInstallUpdate,
+  } = useUpdater(shouldLoadDeferredData, settingsPayload);
+
+  const { performanceSnapshot, recordLoadTiming } = usePerformanceTracker(
+    settingsPayload,
+    settingsError,
+  );
 
   useEffect(() => {
     // #33: a fresh file invalidates the prior viewport pick. The
     // selection refers to a Three.js Object3D.name, and the next
     // asset's hierarchy will not contain the same node.
-    setSelectedMeshName(null);
+    viewer.setSelectedMeshName(null);
     // #28: also clear the USD prim path selection so the property
     // panel does not query the new file with the old prim path.
-    setSelectedUsdPrimPath(null);
+    viewer.setSelectedUsdPrimPath(null);
     // #34: reset active camera to free orbit when a new file is opened so
     // the camera list in the new asset does not inherit a stale override.
-    setActiveCameraId(null);
+    viewer.setActiveCameraId(null);
   }, [currentFile?.path]);
 
   useEffect(() => {
     if (!isTauri || !currentFile) {
-      setAssetInspection(null);
+      file.setAssetInspection(null);
       return;
     }
 
     let isActive = true;
-    setAssetInspection(null);
+    file.setAssetInspection(null);
     void inspectAsset(currentFile.path)
       .then((inspection) => {
         if (isActive) {
-          setAssetInspection(inspection);
+          file.setAssetInspection(inspection);
         }
       })
       .catch((error: unknown) => {
@@ -1309,10 +664,10 @@ export function App() {
   useEffect(() => {
     if (!currentFile) {
       if (selectedTextureId !== null) {
-        setSelectedTextureId(null);
+        viewer.setSelectedTextureId(null);
       }
       if (viewerSurfaceMode !== "asset") {
-        setViewerSurfaceMode("asset");
+        viewer.setViewerSurfaceMode("asset");
       }
       return;
     }
@@ -1321,10 +676,10 @@ export function App() {
 
     if (currentFile.kind === "texture") {
       if (selectedTextureId !== firstTextureId) {
-        setSelectedTextureId(firstTextureId);
+        viewer.setSelectedTextureId(firstTextureId);
       }
       if (viewerSurfaceMode !== "texture") {
-        setViewerSurfaceMode("texture");
+        viewer.setViewerSurfaceMode("texture");
       }
       return;
     }
@@ -1334,11 +689,11 @@ export function App() {
     );
 
     if (!hasSelectedTexture && selectedTextureId !== firstTextureId) {
-      setSelectedTextureId(firstTextureId);
+      viewer.setSelectedTextureId(firstTextureId);
     }
 
     if (!firstTextureId && viewerSurfaceMode === "texture") {
-      setViewerSurfaceMode("asset");
+      viewer.setViewerSurfaceMode("asset");
     }
   }, [assetMetadata, currentFile, selectedTextureId, viewerSurfaceMode]);
 
@@ -1348,15 +703,14 @@ export function App() {
     }
 
     void (async () => {
-      await logDiagnosticEvent({
+      await logDiagnosticEventAndRefresh({
         code: "APP_OPEN_ERROR",
         level: "error",
         message: openError,
         contextPath: currentFile?.path ?? null,
       });
-      await refreshDiagnostics();
     })();
-  }, [currentFile?.path, openError]);
+  }, [currentFile?.path, openError, logDiagnosticEventAndRefresh]);
 
   useEffect(() => {
     // "loading" is a transient state — do not record it as a diagnostic
@@ -1387,20 +741,20 @@ export function App() {
     );
 
     void (async () => {
-      await logDiagnosticEvent({
+      await logDiagnosticEventAndRefresh({
         code: `VIEWER_${viewerFeedback.mode.toUpperCase()}`,
         level,
         message: viewerFeedback.message,
         detail: viewerFeedback.warning,
         contextPath: currentFile?.path ?? null,
       });
-      await refreshDiagnostics();
     })();
   }, [
     currentFile?.path,
     viewerFeedback.message,
     viewerFeedback.mode,
     viewerFeedback.warning,
+    logDiagnosticEventAndRefresh,
   ]);
 
   const performSelectFilePath = async (
@@ -1408,38 +762,36 @@ export function App() {
     reason: "open" | "startup" | "navigation" | "retry" | "recent" = "open",
   ) => {
     const startedAt = performance.now();
-    setOpenError(null);
-    setViewerFeedback((previous) => ({
-      ...previous,
+    file.setOpenError(null);
+    viewer.updateViewerFeedback({
       mode: "loading",
       message: `Resolving ${path}`,
       warning: null,
       canResetCamera: false,
-    }));
+    });
 
     const [resolvedFile, listing] = await Promise.all([
       resolveSelectedFile(path),
       listSupportedSiblings(path),
     ]);
 
-    setCurrentFile(resolvedFile);
-    setMmdMotionRequest(null);
-    setDirectoryListing(listing);
+    file.setCurrentFile(resolvedFile);
+    file.setMmdMotionRequest(null);
+    file.setDirectoryListing(listing);
     prefetchAdjacent(listing.files, listing.currentIndex);
-    const elapsed = performance.now() - startedAt;
-    setPerformanceSnapshot((previous) => ({
-      ...previous,
-      loadMs: elapsed,
-      navigationMs: reason === "navigation" ? elapsed : previous.navigationMs,
-    }));
+    recordLoadTiming(startedAt, reason);
   };
 
-  const selectFilePathFromEffect = useEffectEvent(
-    async (
-      path: string,
-      reason: "open" | "startup" | "navigation" | "retry" | "recent" = "open",
-    ) => {
-      await performSelectFilePath(path, reason);
+  const selectExternalFilePathFromEffect = useEffectEvent(
+    async (path: string) => {
+      const now = performance.now();
+      const recent = recentExternalOpenRef.current;
+      if (recent?.path === path && now - recent.requestedAt < 2000) {
+        return;
+      }
+
+      recentExternalOpenRef.current = { path, requestedAt: now };
+      await performSelectFilePath(path, "startup");
     },
   );
 
@@ -1447,20 +799,20 @@ export function App() {
     async (path: string) => {
       if (extensionFromPath(path) === "vmd") {
         if (!canAttachMmdMotion(currentFile)) {
-          setViewerFeedback((previous) => ({
-            ...previous,
-            mode: previous.mode === "empty" ? "empty" : "loadFailed",
+          viewer.updateViewerFeedback({
+            mode:
+              viewer.viewerFeedback.mode === "empty" ? "empty" : "loadFailed",
             message: "VMD motion was not loaded.",
             warning:
               "Drop a VMD file after opening a PMX or PMD model to attach it as motion.",
-          }));
+          });
           return;
         }
 
-        setMmdMotionRequest((previous) => ({
+        file.setMmdMotionRequest({
           file: selectedMotionFileFromPath(path),
-          version: (previous?.version ?? 0) + 1,
-        }));
+          version: (file.mmdMotionRequest?.version ?? 0) + 1,
+        });
         return;
       }
 
@@ -1477,14 +829,14 @@ export function App() {
           return;
         }
 
-        return selectFilePathFromEffect(startupFile.path, "startup");
+        return selectExternalFilePathFromEffect(startupFile.path);
       })
       .catch((error: unknown) => {
         if (!isActive) {
           return;
         }
 
-        setOpenError(
+        file.setOpenError(
           error instanceof Error
             ? error.message
             : "Failed to resolve startup file.",
@@ -1509,7 +861,7 @@ export function App() {
       if (!path) {
         return;
       }
-      void selectFilePathFromEffect(path, "startup");
+      void selectExternalFilePathFromEffect(path);
     })
       .then((dispose) => {
         if (isDisposed) {
@@ -1517,6 +869,27 @@ export function App() {
           return;
         }
         unlisten = dispose;
+
+        // macOS can deliver the Opened event while the webview is still
+        // mounting. The backend queues those paths; drain once after the
+        // listener is live so Finder / extension-association opens are not
+        // lost between the initial startup check and event subscription.
+        void getStartupFile()
+          .then((startupFile) => {
+            if (!isDisposed && startupFile) {
+              void selectExternalFilePathFromEffect(startupFile.path);
+            }
+          })
+          .catch((error: unknown) => {
+            if (isDisposed) {
+              return;
+            }
+            file.setOpenError(
+              error instanceof Error
+                ? error.message
+                : "Failed to resolve startup file.",
+            );
+          });
       })
       .catch(() => {
         // Tauri API unavailable (browser dev mode)
@@ -1535,16 +908,16 @@ export function App() {
       getCurrentWindow()
         .onDragDropEvent((event) => {
           if (event.payload.type === "enter" || event.payload.type === "over") {
-            setIsDragActive(true);
+            ui.setIsDragActive(true);
             return;
           }
 
           if (event.payload.type === "leave") {
-            setIsDragActive(false);
+            ui.setIsDragActive(false);
             return;
           }
 
-          setIsDragActive(false);
+          ui.setIsDragActive(false);
           const [firstPath] = event.payload.paths;
 
           if (!firstPath) {
@@ -1552,16 +925,15 @@ export function App() {
           }
 
           handleDroppedFilePathFromEffect(firstPath).catch((error: unknown) => {
-            setOpenError(
+            file.setOpenError(
               error instanceof Error
                 ? error.message
                 : "Failed to open dropped file.",
             );
-            setViewerFeedback((previous) => ({
-              ...previous,
+            viewer.updateViewerFeedback({
               mode: "loadFailed",
               message: "Dropped file could not be resolved.",
-            }));
+            });
           });
         })
         .then((dispose) => {
@@ -1579,102 +951,19 @@ export function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      const target = event.target as HTMLElement | null;
-      const isTyping =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable;
-
-      if (
-        isTyping ||
-        !directoryListing ||
-        directoryListing.currentIndex === null
-      ) {
-        return;
-      }
-
-      if (event.key === "ArrowLeft" && canNavigatePrev) {
-        event.preventDefault();
-        const nextFile =
-          directoryListing.files[directoryListing.currentIndex - 1];
-        void selectFilePathFromEffect(nextFile.path, "navigation").catch(
-          (error: unknown) => {
-            setOpenError(
-              error instanceof Error
-                ? error.message
-                : "Failed to navigate to previous file.",
-            );
-          },
-        );
-      }
-
-      if (event.key === "ArrowRight" && canNavigateNext) {
-        event.preventDefault();
-        const nextFile =
-          directoryListing.files[directoryListing.currentIndex + 1];
-        void selectFilePathFromEffect(nextFile.path, "navigation").catch(
-          (error: unknown) => {
-            setOpenError(
-              error instanceof Error
-                ? error.message
-                : "Failed to navigate to next file.",
-            );
-          },
-        );
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [canNavigateNext, canNavigatePrev, directoryListing]);
-
-  useEffect(() => {
-    const handleViewerShortcutDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      if (isEditableShortcutTarget(event.target)) {
-        return;
-      }
-
-      const action = resolveViewerShortcutAction(event);
-      if (!action) {
-        return;
-      }
-
-      event.preventDefault();
-      runViewerShortcutAction(action);
-    };
-
-    window.addEventListener("keydown", handleViewerShortcutDown);
-    return () => {
-      window.removeEventListener("keydown", handleViewerShortcutDown);
-    };
-  }, []);
-
   const handleOpenFile = async () => {
     try {
       const selectedFile = await openFileDialog();
       if (!selectedFile) return;
       await performSelectFilePath(selectedFile.path, "open");
     } catch (error: unknown) {
-      setOpenError(
+      file.setOpenError(
         error instanceof Error ? error.message : "Failed to open file dialog.",
       );
-      setViewerFeedback((previous) => ({
-        ...previous,
+      viewer.updateViewerFeedback({
         mode: "loadFailed",
         message: "File dialog operation failed.",
-      }));
+      });
     }
   };
 
@@ -1702,7 +991,7 @@ export function App() {
   };
 
   const handleShowShortcuts = () => {
-    setDialogState({
+    ui.setDialogState({
       title: "Keyboard Shortcuts",
       lines: shortcutLines,
     });
@@ -1712,7 +1001,7 @@ export function App() {
     if (isTauri) {
       try {
         const version = await getVersion();
-        setDialogState({
+        ui.setDialogState({
           title: "About",
           lines: ["yw-look", `Version ${version}`],
         });
@@ -1722,7 +1011,7 @@ export function App() {
       }
     }
 
-    setDialogState({
+    ui.setDialogState({
       title: "About",
       lines: ["yw-look", "Browser preview mode"],
     });
@@ -1745,26 +1034,26 @@ export function App() {
         }
         return;
       case "view.toggleTexture":
-        setShowTexture((value) => !value);
+        viewer.toggleShowTexture();
         return;
       case "view.toggleWireframe":
-        setShowWireframe((value) => !value);
+        viewer.toggleShowWireframe();
         return;
       case "view.toggleGrid":
-        setShowGrid((value) => !value);
+        viewer.toggleShowGrid();
         return;
       case "view.resetCamera":
-        setResetVersion((value) => value + 1);
+        viewer.bumpResetVersion();
         return;
       case "view.toggleSidebar":
-        setSidebarOpen((value) => !value);
+        ui.toggleSidebarOpen();
         return;
       case "window.toggleFullscreen":
         await handleToggleFullscreen();
         return;
       case "app.openSettings":
-        setSidebarOpen(true);
-        setActiveTab("settings");
+        ui.setSidebarOpen(true);
+        ui.setActiveTab("settings");
         return;
       case "help.shortcuts":
         handleShowShortcuts();
@@ -1781,7 +1070,7 @@ export function App() {
       action === "frameAll" ||
       action === "resetView"
     ) {
-      setActiveCameraId(null);
+      viewer.setActiveCameraId(null);
     }
 
     const nextState = applyViewerShortcutAction(
@@ -1798,58 +1087,40 @@ export function App() {
     );
 
     if (nextState.showTexture !== showTexture) {
-      setShowTexture(nextState.showTexture);
+      viewer.setShowTexture(nextState.showTexture);
     }
     if (nextState.showWireframe !== showWireframe) {
-      setShowWireframe(nextState.showWireframe);
+      viewer.setShowWireframe(nextState.showWireframe);
     }
     if (nextState.showGrid !== showGrid) {
-      setShowGrid(nextState.showGrid);
+      viewer.setShowGrid(nextState.showGrid);
     }
     if (nextState.selectedMeshName !== selectedMeshName) {
-      setSelectedMeshName(nextState.selectedMeshName);
+      viewer.setSelectedMeshName(nextState.selectedMeshName);
     }
     if (nextState.selectedUsdPrimPath !== selectedUsdPrimPath) {
-      setSelectedUsdPrimPath(nextState.selectedUsdPrimPath);
+      viewer.setSelectedUsdPrimPath(nextState.selectedUsdPrimPath);
     }
     if (nextState.viewportCommand !== viewportShortcutCommand) {
-      setViewportShortcutCommand(nextState.viewportCommand);
+      viewer.setViewportShortcutCommand(nextState.viewportCommand);
     }
   };
 
-  const runMenuActionFromShortcut = useEffectEvent((actionId: MenuActionId) => {
-    void executeMenuAction(actionId);
-  });
-  const runViewerShortcutAction = useEffectEvent(
-    (action: ViewerShortcutAction) => {
-      executeViewerShortcutAction(action);
-    },
-  );
-
-  useEffect(() => {
-    const handleShortcutDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      const actionId = resolveShortcutAction(event);
-      if (!actionId) {
-        return;
-      }
-
-      if (isEditableShortcutTarget(event.target)) {
-        return;
-      }
-
-      event.preventDefault();
-      runMenuActionFromShortcut(actionId);
-    };
-
-    window.addEventListener("keydown", handleShortcutDown);
-    return () => {
-      window.removeEventListener("keydown", handleShortcutDown);
-    };
+  const handleNavigateError = useCallback((error: unknown) => {
+    file.setOpenError(
+      error instanceof Error ? error.message : "Failed to navigate to file.",
+    );
   }, []);
+
+  useKeyboardShortcuts(
+    canNavigatePrev,
+    canNavigateNext,
+    directoryListing,
+    handleNavigateError,
+    performSelectFilePath,
+    executeViewerShortcutAction,
+    executeMenuAction,
+  );
 
   const handleToggleFileAssociations = async () => {
     if (!settingsPayload) {
@@ -1922,128 +1193,6 @@ export function App() {
     }
   };
 
-  const handleCheckForUpdate = async () => {
-    try {
-      setIsCheckingForUpdate(true);
-      const payload = await checkForUpdate();
-      setUpdateCheck(payload);
-      setUpdateConfiguration(payload.configuration);
-      setUpdateError(null);
-    } catch (error: unknown) {
-      setUpdateError(errorMessage(error, "Failed to check for updates."));
-    } finally {
-      setIsCheckingForUpdate(false);
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    try {
-      setIsInstallingUpdate(true);
-      setUpdateError(
-        "Installing update. On Windows, yw-look may close and relaunch before this panel receives a final result.",
-      );
-      const payload = await installPendingUpdate();
-      setUpdateError(payload.note);
-      setUpdateCheck(null);
-    } catch (error: unknown) {
-      setUpdateError(errorMessage(error, "Failed to install update."));
-    } finally {
-      setIsInstallingUpdate(false);
-    }
-  };
-
-  // #44: per-prim payload load/unload. Calls the backend, updates the local
-  // unloaded set optimistically, then re-extracts the GLB from the session.
-  // The re-extract carries the user's variantSelections / purposeModes so a
-  // payload toggle does not silently revert any non-default variant or
-  // purpose mode the user picked from the inspector.
-  //
-  // A ref mirrors the latest `stageSessionHandle` so the async handlers
-  // can detect when the user has navigated away (file change, policy
-  // toggle, app close) between the IPC dispatch and its resolution. In
-  // that case we drop the stale write rather than overwrite the new
-  // file's `sessionGlbBuffer` / `unloadedPayloadPaths` with values from
-  // a session that no longer exists.
-  const stageSessionHandleRef = useRef<StageSessionHandle | null>(
-    stageSessionHandle,
-  );
-  useEffect(() => {
-    stageSessionHandleRef.current = stageSessionHandle;
-  }, [stageSessionHandle]);
-
-  const buildSessionExtractOptions = (): ExtractGeometryOptions => ({
-    policy: "noPayloads",
-    variantSelections,
-    purposeModes,
-  });
-
-  const handleLoadPayload = async (primPath: string) => {
-    const captured = stageSessionHandle;
-    if (captured === null) return;
-    try {
-      await loadPayload(captured, primPath);
-      if (stageSessionHandleRef.current !== captured) return;
-      setUnloadedPayloadPaths((prev) => {
-        const next = new Set(prev);
-        next.delete(primPath);
-        return next;
-      });
-    } catch (err: unknown) {
-      console.error("[usd] load_payload failed:", err);
-      return;
-    }
-    // Re-extract is best-effort: if it fails (e.g. backend hits "no
-    // renderable Mesh prims"), drop the override so the viewport doesn't
-    // keep the pre-load geometry on screen and falls back to the
-    // stateless extract path.
-    try {
-      const glbBuffer = await extractGeometrySession(
-        captured,
-        buildSessionExtractOptions(),
-      );
-      if (stageSessionHandleRef.current !== captured) return;
-      setSessionGlbBuffer(glbBuffer);
-    } catch (err: unknown) {
-      if (stageSessionHandleRef.current !== captured) return;
-      console.warn("[usd] session re-extract after load failed:", err);
-      recordVariantSelectionError(err);
-      setSessionGlbBuffer(null);
-    }
-  };
-
-  const handleUnloadPayload = async (primPath: string) => {
-    const captured = stageSessionHandle;
-    if (captured === null) return;
-    try {
-      await unloadPayload(captured, primPath);
-      if (stageSessionHandleRef.current !== captured) return;
-      setUnloadedPayloadPaths((prev) => {
-        const next = new Set(prev);
-        next.add(primPath);
-        return next;
-      });
-    } catch (err: unknown) {
-      console.error("[usd] unload_payload failed:", err);
-      return;
-    }
-    // Same best-effort re-extract: if the unloaded stage has no
-    // renderable meshes the extract returns an error; clear the override
-    // so the viewport doesn't keep showing the pre-unload geometry.
-    try {
-      const glbBuffer = await extractGeometrySession(
-        captured,
-        buildSessionExtractOptions(),
-      );
-      if (stageSessionHandleRef.current !== captured) return;
-      setSessionGlbBuffer(glbBuffer);
-    } catch (err: unknown) {
-      if (stageSessionHandleRef.current !== captured) return;
-      console.warn("[usd] session re-extract after unload failed:", err);
-      recordVariantSelectionError(err);
-      setSessionGlbBuffer(null);
-    }
-  };
-
   const sidebarContent = (() => {
     switch (activeTab) {
       case "properties":
@@ -2055,7 +1204,7 @@ export function App() {
               metadata={sidebarAssetMetadata}
               performanceSnapshot={performanceSnapshot}
               usdPayloadSummary={
-                debugPanelsEnabled ? debugUsdSummary : usdSummary
+                debugPanelsEnabled ? debugUsdSummary : sessionAdjustedUsdSummary
               }
               warnings={sidebarWarnings}
             />
@@ -2069,9 +1218,9 @@ export function App() {
                   inspection={usdInspection}
                   issues={usdIssues}
                   loading={usdInspectorLoading}
-                  summary={usdSummary}
+                  summary={sessionAdjustedUsdSummary}
                   loadPolicy={usdLoadPolicy}
-                  onLoadPolicyChange={setUsdLoadPolicy}
+                  onLoadPolicyChange={viewer.setUsdLoadPolicy}
                   variantSelectionError={variantSelectionError}
                   variantSelections={variantSelections}
                   onVariantChange={applyVariantSelection}
@@ -2095,7 +1244,7 @@ export function App() {
                 loading={false}
                 summary={debugUsdSummary}
                 loadPolicy={usdLoadPolicy}
-                onLoadPolicyChange={setUsdLoadPolicy}
+                onLoadPolicyChange={viewer.setUsdLoadPolicy}
                 variantSelectionError={variantSelectionError}
                 variantSelections={variantSelections}
                 onVariantChange={applyVariantSelection}
@@ -2107,7 +1256,7 @@ export function App() {
                 cameras={sidebarAssetMetadata.cameras}
                 usdLights={usdLights ?? undefined}
                 activeCameraId={activeCameraId}
-                onSelectCamera={setActiveCameraId}
+                onSelectCamera={viewer.setActiveCameraId}
               />
             )}
             <PerformanceCard snapshot={performanceSnapshot} />
@@ -2159,10 +1308,10 @@ export function App() {
               morphTargetValues={morphTargetValues}
               onMorphTargetChange={handleMorphTargetChange}
               selectedName={selectedMeshName}
-              onSelectName={setSelectedMeshName}
+              onSelectName={viewer.setSelectedMeshName}
               onSelectPrimPath={
                 isUsdFile(currentFile)
-                  ? (primPath) => setSelectedUsdPrimPath(primPath)
+                  ? (primPath) => viewer.setSelectedUsdPrimPath(primPath)
                   : undefined
               }
               payloadPrimPaths={
@@ -2210,10 +1359,10 @@ export function App() {
                 textureId === selectedTextureId &&
                 viewerSurfaceMode === "texture"
               ) {
-                setViewerSurfaceMode("asset");
+                viewer.setViewerSurfaceMode("asset");
               } else {
-                setSelectedTextureId(textureId);
-                setViewerSurfaceMode("texture");
+                viewer.setSelectedTextureId(textureId);
+                viewer.setViewerSurfaceMode("texture");
               }
             }}
             textures={sidebarAssetMetadata?.textures ?? []}
@@ -2292,15 +1441,15 @@ export function App() {
   );
 
   const openDiagnosticsPanel = useCallback(() => {
-    setSidebarOpen(true);
-    setActiveTab("warnings");
+    ui.setSidebarOpen(true);
+    ui.setActiveTab("warnings");
   }, []);
 
   const openUpdatePanel = useCallback(() => {
-    setSidebarOpen(true);
-    setActiveTab("settings");
+    ui.setSidebarOpen(true);
+    ui.setActiveTab("settings");
     void refreshUpdateConfiguration();
-  }, []);
+  }, [refreshUpdateConfiguration]);
 
   const statusLeftItems = useMemo(() => {
     const items = buildStatusLeftItems({
@@ -2357,12 +1506,7 @@ export function App() {
     }
 
     return items;
-  }, [
-    currentFileSummary,
-    openUpdatePanel,
-    performanceSnapshot,
-    updateCheck?.update,
-  ]);
+  }, [currentFileSummary, openUpdatePanel, performanceSnapshot, updateCheck]);
 
   const handleSidebarResizeStart = (
     event: React.PointerEvent<HTMLDivElement>,
@@ -2375,7 +1519,7 @@ export function App() {
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const nextWidth = startWidth + (startX - moveEvent.clientX);
-      setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, nextWidth)));
+      ui.setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, nextWidth)));
     };
 
     const handlePointerUp = () => {
@@ -2390,14 +1534,15 @@ export function App() {
   };
 
   const handleSelectCameraPreset = useCallback((preset: string) => {
-    setCameraPresetRequest((previous) => ({
+    const prev = useViewerStore.getState().cameraPresetRequest;
+    useViewerStore.getState().setCameraPresetRequest({
       preset: preset as CameraPreset,
-      version: (previous?.version ?? 0) + 1,
-    }));
+      version: (prev?.version ?? 0) + 1,
+    });
   }, []);
 
   const handleSelectEnvironmentPreset = useCallback((preset: string) => {
-    setEnvironmentPreset(preset as EnvironmentPreset);
+    viewer.setEnvironmentPreset(preset as EnvironmentPreset);
   }, []);
 
   // Cycle camera presets on toolbar click
@@ -2407,7 +1552,7 @@ export function App() {
       (p) => p.id === cameraPresetRequest?.preset,
     );
     const nextIdx = (currentIdx + 1) % cameraPresetOptions.length;
-    setCameraPresetRequest({
+    viewer.setCameraPresetRequest({
       preset: cameraPresetOptions[nextIdx].id,
       version: (cameraPresetRequest?.version ?? 0) + 1,
     });
@@ -2427,23 +1572,23 @@ export function App() {
 
   const handleSelectChannel = useCallback((mode: string) => {
     if (mode === "a") {
-      setTextureViewMode("alpha");
+      viewer.setTextureViewMode("alpha");
     } else {
-      setTextureViewMode(mode as TextureViewMode);
+      viewer.setTextureViewMode(mode as TextureViewMode);
     }
   }, []);
 
   const handleSelectColorSpace = useCallback((mode: TextureColorSpace) => {
-    setTextureColorSpace(mode);
+    viewer.setTextureColorSpace(mode);
     switch (mode) {
       case "srgb":
-        setTextureGamma(2.2);
+        viewer.setTextureGamma(2.2);
         break;
       case "linear":
-        setTextureGamma(1.0);
+        viewer.setTextureGamma(1.0);
         break;
       case "raw":
-        setTextureGamma(1.0);
+        viewer.setTextureGamma(1.0);
         break;
     }
   }, []);
@@ -2471,30 +1616,30 @@ export function App() {
       onCycleCamera: handleCycleCamera,
       // Shading
       showTexture,
-      onToggleTexture: () => setShowTexture((v) => !v),
+      onToggleTexture: viewer.toggleShowTexture,
       showUnlit,
-      onToggleUnlit: () => setShowUnlit((v) => !v),
+      onToggleUnlit: () => viewer.toggleShowUnlit(),
       showNormals,
-      onToggleNormals: () => setShowNormals((v) => !v),
+      onToggleNormals: () => viewer.toggleShowNormals(),
       showVertexColors,
-      onToggleVertexColors: () => setShowVertexColors((v) => !v),
+      onToggleVertexColors: () => viewer.toggleShowVertexColors(),
       // Wireframe
       showWireframe,
-      onToggleWireframe: () => setShowWireframe((v) => !v),
+      onToggleWireframe: viewer.toggleShowWireframe,
       // Look
       environmentPreset,
       environmentPresetOptions: environmentPresets,
       onSelectEnvironmentPreset: handleSelectEnvironmentPreset,
       showShadows,
-      onToggleShadows: () => setShowShadows((v) => !v),
+      onToggleShadows: () => viewer.toggleShowShadows(),
       showEnvironmentBackground,
       onToggleEnvironmentBackground: () =>
-        setShowEnvironmentBackground((v) => !v),
+        viewer.toggleShowEnvironmentBackground(),
       // Overlay
       showBoundingBoxes,
-      onToggleBoundingBoxes: () => setShowBoundingBoxes((v) => !v),
+      onToggleBoundingBoxes: () => viewer.toggleShowBoundingBoxes(),
       showSkeleton,
-      onToggleSkeleton: () => setShowSkeleton((v) => !v),
+      onToggleSkeleton: () => viewer.toggleShowSkeleton(),
     });
   }, [
     cameraPresetRequest,
@@ -2531,10 +1676,10 @@ export function App() {
             mmdMotionRequest={mmdMotionRequest}
             displayMode={displayMode}
             backgroundPreset={backgroundPreset}
-            onFeedbackChange={setViewerFeedback}
+            onFeedbackChange={viewer.setViewerFeedback}
             onOpenFile={() => void handleOpenFile()}
-            onMetadataChange={setAssetMetadata}
-            onResourceDiagnosticsChange={setResourceDiagnostics}
+            onMetadataChange={file.setAssetMetadata}
+            onResourceDiagnosticsChange={viewer.setResourceDiagnostics}
             selectedTextureId={selectedTextureId}
             viewerSurfaceMode={viewerSurfaceMode}
             textureViewMode={textureViewMode}
@@ -2565,34 +1710,35 @@ export function App() {
             showRendererStats={showRendererStats}
             toneMappingMode={toneMappingMode}
             exposure={exposure}
-            onGridUnitChange={setGridUnitLabel}
+            onGridUnitChange={viewer.setGridUnitLabel}
             onUsdError={recordVariantSelectionError}
             environmentPreset={environmentPreset}
             cameraSpeedMultiplier={cameraSpeedMultiplier}
             usdLoadPolicy={usdLoadPolicy}
             texturePreview3D={texturePreview3D}
-            onSelectMesh={setSelectedMeshName}
+            onSelectMesh={viewer.setSelectedMeshName}
             selectedMeshName={selectedMeshName}
             morphTargetValues={morphTargetValues}
             purposeModes={purposeModes}
             variantSelections={variantSelections}
             activeCameraId={activeCameraId}
-            onActiveCameraReset={() => setActiveCameraId(null)}
+            onActiveCameraReset={() => viewer.setActiveCameraId(null)}
             glbOverride={sessionGlbBuffer}
-            onScaleNormalizationChange={setScaleNormalization}
+            deferredProgress={deferredPayloadProgress}
+            onScaleNormalizationChange={viewer.setScaleNormalization}
             cancelScaleNormalizationVersion={cancelScaleNormalizeVersion}
           />
 
           <ViewportControls
             isOpen={viewportPanelOpen}
-            onToggleOpen={() => setViewportPanelOpen((v) => !v)}
+            onToggleOpen={() => ui.setViewportPanelOpen(!ui.viewportPanelOpen)}
             items={viewportToolbarItems}
           />
           {/* #91: Cancel Scale Normalize — appears when auto-scale was applied */}
           {scaleNormalization?.applied && (
             <button
               className="cancel-scale-normalize-button"
-              onClick={() => setCancelScaleNormalizeVersion((v) => v + 1)}
+              onClick={() => viewer.bumpCancelScaleNormalizeVersion()}
               type="button"
               title="Revert the auto-applied scale normalization to the original size"
             >
@@ -2624,7 +1770,7 @@ export function App() {
           {/* InfoPanel toggle button */}
           <button
             className={`info-panel-toggle${sidebarOpen ? " is-active" : ""}`}
-            onClick={() => setSidebarOpen((v) => !v)}
+            onClick={ui.toggleSidebarOpen}
             type="button"
             title={sidebarOpen ? "Close Info Panel" : "Open Info Panel"}
           >
@@ -2656,7 +1802,7 @@ export function App() {
           {viewerSurfaceMode === "texture" ? (
             <button
               className="texture-mode-banner"
-              onClick={() => setViewerSurfaceMode("asset")}
+              onClick={() => viewer.setViewerSurfaceMode("asset")}
               type="button"
             >
               <svg
@@ -2705,7 +1851,7 @@ export function App() {
         />
         <SidebarTabs
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={ui.setActiveTab}
           tabs={sidebarTabs}
         />
         <div className="sidebar-content">{sidebarContent}</div>
@@ -2714,7 +1860,7 @@ export function App() {
       {dialogState ? (
         <div
           className="dialog-backdrop"
-          onClick={() => setDialogState(null)}
+          onClick={() => ui.setDialogState(null)}
           role="presentation"
         >
           <section
@@ -2730,7 +1876,7 @@ export function App() {
               </p>
               <button
                 className="dialog-close-button"
-                onClick={() => setDialogState(null)}
+                onClick={() => ui.setDialogState(null)}
                 type="button"
               >
                 Close

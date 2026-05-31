@@ -14,6 +14,9 @@ import {
   listRegisteredLoaders,
   resolveSiblingPath,
   isUsdcCrateBuffer,
+  isDeferredUsdEmptyStageError,
+  inspectionHasDeferredPayloads,
+  deferredSummaryHasNoRenderableGeometry,
   readUsdzFirstFileName,
   shouldFailClosedOnUsdPreviewDecisionFailure,
   applyMissingGltfTextureFallbacks,
@@ -154,6 +157,23 @@ describe("preview support classification", () => {
     });
   });
 
+  it("registers the bundled Gaussian splat loader pack formats", () => {
+    const splatLoaders = listRegisteredLoaders().filter(
+      (loader) => loader.id === "gaussian-splat-loader-pack",
+    );
+
+    expect(splatLoaders.map((loader) => loader.extension).sort()).toEqual([
+      "ksplat",
+      "sog",
+      "splat",
+      "spz",
+    ]);
+    expect(getPreviewSupportState("sog")).toBe("implemented");
+    expect(
+      getPreviewSupportState("sog", { optionalLoaderInstalled: false }),
+    ).toBe("missingOptionalLoader");
+  });
+
   it("keeps unknown extensions in the generic unsupported bucket", () => {
     expect(getPreviewSupportState("assetbundle")).toBe("unsupported");
   });
@@ -169,6 +189,65 @@ describe("preview support classification", () => {
     expect(formatUnsupportedFormatMessage("assetbundle").body).toContain(
       ".assetbundle",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// USD deferred payload handling
+// ---------------------------------------------------------------------------
+
+describe("USD deferred payload handling", () => {
+  it("recognizes the empty-stage error produced by deferred payload extraction", () => {
+    expect(
+      isDeferredUsdEmptyStageError(
+        'Parse("no renderable Mesh prims found in stage")',
+      ),
+    ).toBe(true);
+    expect(
+      isDeferredUsdEmptyStageError(
+        new Error("no renderable Mesh prims found in stage"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not classify unrelated USD errors as an empty deferred stage", () => {
+    expect(isDeferredUsdEmptyStageError("UsdStage::Open returned null")).toBe(
+      false,
+    );
+  });
+
+  it("requires an unloaded payload before treating an empty stage as deferred", () => {
+    expect(
+      inspectionHasDeferredPayloads({
+        payloads: [{ state: "unloaded" }],
+      } as Parameters<typeof inspectionHasDeferredPayloads>[0]),
+    ).toBe(true);
+    expect(
+      inspectionHasDeferredPayloads({
+        payloads: [{ state: "loaded" }, { state: "missing" }],
+      } as Parameters<typeof inspectionHasDeferredPayloads>[0]),
+    ).toBe(false);
+  });
+
+  it("only skips deferred extraction when no renderable vertices remain", () => {
+    expect(
+      deferredSummaryHasNoRenderableGeometry({
+        unloadedPayloadCount: 1,
+        totalVertices: 0,
+      }),
+    ).toBe(true);
+    expect(
+      deferredSummaryHasNoRenderableGeometry({
+        unloadedPayloadCount: 1,
+        totalVertices: 12,
+      }),
+    ).toBe(false);
+    expect(
+      deferredSummaryHasNoRenderableGeometry({
+        unloadedPayloadCount: 0,
+        totalVertices: 0,
+      }),
+    ).toBe(false);
   });
 });
 

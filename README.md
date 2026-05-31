@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 ![Development](https://img.shields.io/badge/development-active-blue)
-![Tests](https://img.shields.io/badge/tests-231-brightgreen)
+![Tests](https://img.shields.io/badge/tests-314-brightgreen)
 ![Formats](https://img.shields.io/badge/formats-14-informational)
 
 Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動せず、3Dモデル、テクスチャ、HDR / EXR、メタデータ、欠損参照をすばやく確認するためのデスクトップアプリである。
@@ -13,7 +13,7 @@ Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動
 
 **3D:** glTF, FBX, OBJ, PLY, STL, USD, DAE  
 **Images:** PNG, JPG, TGA, DDS, HDR, EXR, KTX2  
-**Optional Loader Packs:** VRM / VRMA, MMD (PMD / PMX / VMD) — Settings からインストール
+**Optional Loader Packs:** VRM / VRMA, MMD (PMD / PMX / VMD), Gaussian Splat (PLY / SPLAT / SPZ / KSPLAT / SOG) — Settings からインストール
 
 ## 何をするツールか
 
@@ -46,11 +46,11 @@ yw-look は「何でもできるビューア」ではなく、**開く前後の�
 
 | 項目                         | 件数 |
 | ---------------------------- | ---: |
-| テストファイル               |   26 |
-| テストケース                 |  231 |
-| フロントエンドのテストケース |  134 |
-| Rust のテストケース          |   97 |
-| Fixture アセット             |   13 |
+| テストファイル               |   39 |
+| テストケース                 |  314 |
+| フロントエンドのテストケース |  216 |
+| Rust のテストケース          |   98 |
+| Fixture アセット             |   14 |
 | Fixture カタログケース       |   14 |
 | 対応 3D フォーマット         |    7 |
 | 対応画像フォーマット         |    7 |
@@ -101,12 +101,13 @@ Optional Loader Pack の方針は [`docs/optional-loader-packs.md`](docs/optiona
 
 ## Optional Loader Packs
 
-VRM や MMD など一部フォーマットは、コアアプリに同梱せず別途インストールする **Optional Loader Pack** として提供される。
+VRM、MMD、Gaussian Splat など一部フォーマットは、コアアプリに同梱せず別途インストールする **Optional Loader Pack** として提供される。
 
-| Pack            | 対応拡張子             | 概要                                         |
-| --------------- | ---------------------- | -------------------------------------------- |
-| VRM Loader Pack | `.vrm`, `.vrma`        | VRM モデル・アニメーションのプレビュー       |
-| MMD Loader Pack | `.pmd`, `.pmx`, `.vmd` | MikuMikuDance モデル・モーションのプレビュー |
+| Pack                       | 対応拡張子                                  | 概要                                                |
+| -------------------------- | ------------------------------------------- | --------------------------------------------------- |
+| VRM Loader Pack            | `.vrm`, `.vrma`                             | VRM モデル・アニメーションのプレビュー              |
+| MMD Loader Pack            | `.pmd`, `.pmx`, `.vmd`                      | MikuMikuDance モデル・モーションのプレビュー        |
+| Gaussian Splat Loader Pack | `.ply`, `.splat`, `.spz`, `.ksplat`, `.sog` | 3D Gaussian Splat / SuperSplat 系データのプレビュー |
 
 パックは Settings パネルからインストール・アンインストールできる。インストール済みパックはコアアプリ更新後も保持される。詳細は [`docs/optional-loader-packs.md`](docs/optional-loader-packs.md) を参照。
 

@@ -7,14 +7,9 @@ import {
   type LoadingStageSnapshot,
 } from "../viewer";
 
-export type ViewerMode =
-  | "empty"
-  | "loading"
-  | "ready"
-  | "unsupported"
-  | "missingOptionalLoader"
-  | "loadFailed"
-  | "missingReference";
+import type { ViewerMode } from "../types/viewer";
+
+export type { ViewerMode } from "../types/viewer";
 
 type ViewerStatePanelProps = {
   mode: ViewerMode;

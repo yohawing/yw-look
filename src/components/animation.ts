@@ -1,10 +1,6 @@
-export type AnimationState = {
-  clipNames: string[];
-  activeClipIndex: number;
-  currentTime: number;
-  duration: number;
-  isPlaying: boolean;
-};
+import type { AnimationState } from "../types/viewer";
+
+export type { AnimationState } from "../types/viewer";
 
 export const emptyAnimationState: AnimationState = {
   clipNames: [],

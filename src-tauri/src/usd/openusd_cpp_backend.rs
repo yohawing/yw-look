@@ -115,7 +115,10 @@ fn classify_payload(
     if unresolved.contains(asset_path) {
         return CompositionArcState::Missing;
     }
-    if policy == StageLoadPolicy::NoPayloads && skipped_pairs.contains(&(asset_path, source_prim)) {
+    if policy == StageLoadPolicy::NoPayloads {
+        return CompositionArcState::Unloaded;
+    }
+    if skipped_pairs.contains(&(asset_path, source_prim)) {
         return CompositionArcState::Unloaded;
     }
     CompositionArcState::Loaded
@@ -175,6 +178,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
 
         let mut references = Vec::<CompositionArc>::new();
         let mut payloads = Vec::<CompositionArc>::new();
+        let mut payload_seen = HashSet::<(String, String, String)>::new();
         let mut variant_sets = Vec::<VariantSetInfo>::new();
         // #30: additional arc kinds collected into the shared
         // `composition_arcs` field for new-style consumers. References
@@ -223,6 +227,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
                 });
             }
             for p in stage.payloads_in(prim_path).map_err(map_c_error)? {
+                let target_prim = p.target_prim.unwrap_or_default();
                 let state = classify_payload(
                     &unresolved_set,
                     &skipped_pairs,
@@ -230,10 +235,15 @@ impl UsdInspectBackend for OpenusdCppBackend {
                     &p.source_prim,
                     policy,
                 );
+                payload_seen.insert((
+                    p.source_prim.clone(),
+                    p.asset_path.clone(),
+                    target_prim.clone(),
+                ));
                 payloads.push(CompositionArc {
                     source_prim: p.source_prim,
                     asset_path: p.asset_path,
-                    target_prim: p.target_prim.unwrap_or_default(),
+                    target_prim,
                     state,
                     kind: CompositionArcKind::Payload,
                 });
@@ -256,6 +266,31 @@ impl UsdInspectBackend for OpenusdCppBackend {
                     kind: CompositionArcKind::Specializes,
                 });
             }
+        }
+
+        for p in &skipped_owned {
+            let target_prim = p.target_prim.clone().unwrap_or_default();
+            if !payload_seen.insert((
+                p.source_prim.clone(),
+                p.asset_path.clone(),
+                target_prim.clone(),
+            )) {
+                continue;
+            }
+            let state = classify_payload(
+                &unresolved_set,
+                &skipped_pairs,
+                &p.asset_path,
+                &p.source_prim,
+                policy,
+            );
+            payloads.push(CompositionArc {
+                source_prim: p.source_prim.clone(),
+                asset_path: p.asset_path.clone(),
+                target_prim,
+                state,
+                kind: CompositionArcKind::Payload,
+            });
         }
 
         let time_codes_per_second = stage.authored_time_codes_per_second();
@@ -327,6 +362,8 @@ impl UsdInspectBackend for OpenusdCppBackend {
         let mut unresolved_reference_count = 0usize;
         let mut resolved_payload_count = 0usize;
         let mut unresolved_payload_count_stat = 0usize;
+        let mut unloaded_payload_count = 0usize;
+        let mut payload_seen = HashSet::<(String, String, String)>::new();
 
         // Histogram keyed by USD `typeName`. We use a Vec rather than a
         // HashMap to keep first-seen ordering — the inspector renders
@@ -406,6 +443,12 @@ impl UsdInspectBackend for OpenusdCppBackend {
             // #38: classify payload arcs.
             let payloads = stage.payloads_in(prim_path).map_err(map_c_error)?;
             for p in &payloads {
+                let target_prim = p.target_prim.clone().unwrap_or_default();
+                payload_seen.insert((
+                    p.source_prim.clone(),
+                    p.asset_path.clone(),
+                    target_prim,
+                ));
                 let state = classify_payload(
                     &unresolved_set,
                     &skipped_pairs,
@@ -418,7 +461,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
                     CompositionArcState::Loaded => resolved_payload_count += 1,
                     // Unloaded (NoPayloads policy) still counts toward
                     // payload_count but not resolved/unresolved stats.
-                    CompositionArcState::Unloaded => {}
+                    CompositionArcState::Unloaded => unloaded_payload_count += 1,
                 }
             }
             if !payloads.is_empty() {
@@ -427,6 +470,29 @@ impl UsdInspectBackend for OpenusdCppBackend {
             if stage.prim_has_variants(prim_path) {
                 has_variants = true;
                 variant_set_count += stage.variant_set_names(prim_path).len();
+            }
+        }
+
+        for p in &skipped_owned {
+            let target_prim = p.target_prim.clone().unwrap_or_default();
+            if !payload_seen.insert((
+                p.source_prim.clone(),
+                p.asset_path.clone(),
+                target_prim,
+            )) {
+                continue;
+            }
+            payload_count += 1;
+            match classify_payload(
+                &unresolved_set,
+                &skipped_pairs,
+                &p.asset_path,
+                &p.source_prim,
+                policy,
+            ) {
+                CompositionArcState::Missing => unresolved_payload_count_stat += 1,
+                CompositionArcState::Loaded => resolved_payload_count += 1,
+                CompositionArcState::Unloaded => unloaded_payload_count += 1,
             }
         }
 
@@ -451,7 +517,7 @@ impl UsdInspectBackend for OpenusdCppBackend {
             root_prim_count,
             mesh_count,
             payload_count,
-            unloaded_payload_count: stage.skipped_payloads().map_err(map_c_error)?.len(),
+            unloaded_payload_count,
             has_variants,
             prim_type_counts,
             total_vertices,
@@ -698,7 +764,8 @@ impl UsdGeometryBackend for OpenusdCppBackend {
         let stage = Self::open(path, policy)?;
         log_usd_timing("stage open", open_started);
         let extract_started = Instant::now();
-        let result = extract_from_stage(&stage, path);
+        let options = ExtractGeometryOptions::from(policy);
+        let result = extract_from_stage_with_options(&stage, path, &options);
         log_usd_timing("extract from open stage", extract_started);
         log_usd_timing("extract_geometry_glb total", total_started);
         result
@@ -844,10 +911,6 @@ impl UsdSessionBackend for OpenusdCppBackend {
     }
 }
 
-fn extract_from_stage(stage: &CStage, path: &StdPath) -> Result<Vec<u8>, UsdError> {
-    extract_from_stage_with_options(stage, path, &ExtractGeometryOptions::default())
-}
-
 fn extract_from_stage_with_options(
     stage: &CStage,
     path: &StdPath,
@@ -862,13 +925,22 @@ fn extract_from_stage_with_options(
     // step to avoid silently reverting to authored variants on every
     // payload load/unload.
     apply_and_validate_variant_selections(stage, &options.variant_selections)?;
+    let all_stage_prims = stage.traverse().map_err(map_c_error)?;
     let skipped_payload_sources: Vec<String> = if options.policy == StageLoadPolicy::NoPayloads {
-        stage
+        let mut sources: Vec<String> = stage
             .skipped_payloads()
             .map_err(map_c_error)?
             .into_iter()
             .map(|payload| payload.source_prim)
-            .collect()
+            .collect();
+        if sources.is_empty() {
+            for prim_path in &all_stage_prims {
+                for payload in stage.payloads_in(prim_path).map_err(map_c_error)? {
+                    sources.push(payload.source_prim);
+                }
+            }
+        }
+        sources
     } else {
         Vec::new()
     };
@@ -945,8 +1017,7 @@ fn extract_from_stage_with_options(
     // pushes prototype meshes into `inputs` directly, so the regular
     // pass needs to skip them.
     let prototype_subtree_paths: std::collections::HashSet<String> = {
-        let all_prims = stage.traverse().map_err(map_c_error)?;
-        let instancer_paths: Vec<String> = all_prims
+        let instancer_paths: Vec<String> = all_stage_prims
             .iter()
             .filter(|p| stage.is_point_instancer(p))
             .cloned()
@@ -955,7 +1026,7 @@ fn extract_from_stage_with_options(
         for inst_path in &instancer_paths {
             for proto_path in stage.point_instancer_prototypes(inst_path) {
                 let prefix = format!("{proto_path}/");
-                for p in &all_prims {
+                for p in &all_stage_prims {
                     if p == &proto_path || p.starts_with(&prefix) {
                         set.insert(p.clone());
                     }
@@ -973,8 +1044,7 @@ fn extract_from_stage_with_options(
     // we still proceed — the PointInstancer pass below will add prototype
     // meshes to `inputs`. We only fail hard if there is truly nothing.
     let has_point_instancers = if mesh_paths.is_empty() {
-        let prims = stage.traverse().map_err(map_c_error)?;
-        prims.iter().any(|p| stage.is_point_instancer(p))
+        all_stage_prims.iter().any(|p| stage.is_point_instancer(p))
     } else {
         false
     };
@@ -987,8 +1057,10 @@ fn extract_from_stage_with_options(
                 value == source || value.starts_with(&descendant_prefix)
             })
         });
-    let can_export_empty_scene =
-        options.policy == StageLoadPolicy::NoPayloads && !skipped_payload_sources.is_empty();
+    let stage_has_deferred_payload_specs =
+        options.policy == StageLoadPolicy::NoPayloads && stage.has_authored_payload_specs();
+    let can_export_empty_scene = options.policy == StageLoadPolicy::NoPayloads
+        && (!skipped_payload_sources.is_empty() || stage_has_deferred_payload_specs);
     let empty_scene_has_no_mesh_candidates = mesh_paths.is_empty() && can_export_empty_scene;
 
     if mesh_paths.is_empty() && !has_point_instancers {

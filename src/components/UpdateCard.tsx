@@ -3,6 +3,7 @@ import type {
   UpdateCheckPayload,
   UpdateConfigurationPayload,
 } from "../lib/updater";
+import { Button } from "./ui/Button";
 import {
   SidebarEmpty,
   SidebarError,
@@ -219,28 +220,19 @@ export function UpdateCard({
           </label>
 
           <div className="card-actions">
-            <button
-              className="btn-ghost"
-              onClick={() => onSaveOverride(draft)}
-              type="button"
-            >
+            <Button variant="ghost" onClick={() => onSaveOverride(draft)}>
               Save
-            </button>
-            <button
-              className="btn-ghost"
-              onClick={onCheckForUpdate}
-              type="button"
-            >
+            </Button>
+            <Button variant="ghost" onClick={onCheckForUpdate}>
               {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
-            </button>
-            <button
-              className="btn-primary"
+            </Button>
+            <Button
+              variant="primary"
               disabled={!hasUpdate || isInstallingUpdate}
               onClick={onInstallUpdate}
-              type="button"
             >
               {isInstallingUpdate ? "Installing..." : "Install Update"}
-            </button>
+            </Button>
           </div>
         </div>
       </SidebarSection>
@@ -255,14 +247,13 @@ export function UpdateCard({
             <pre className="log-preview">{updateCheck.update.notes}</pre>
           ) : null}
           <div className="card-actions">
-            <button
-              className="btn-primary"
+            <Button
+              variant="primary"
               disabled={isInstallingUpdate}
               onClick={onInstallUpdate}
-              type="button"
             >
               {isInstallingUpdate ? "Installing..." : "Install Update"}
-            </button>
+            </Button>
           </div>
         </SidebarSection>
       ) : updateCheck ? (

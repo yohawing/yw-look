@@ -1,12 +1,7 @@
 import { useState, type ReactNode } from "react";
+import type { SidebarKeyValueRow } from "../types/ui";
 
-export type SidebarKeyValueRow = {
-  id: string;
-  label: ReactNode;
-  value: ReactNode;
-  tone?: "default" | "muted" | "ok" | "warn" | "danger";
-  mono?: boolean;
-};
+export type { SidebarKeyValueRow } from "../types/ui";
 
 export function SidebarSection({
   children,
