@@ -1,10 +1,10 @@
 # Optional Loader Pack Strategy
 
 This document records the packaging, runtime, and Settings-panel strategy for
-optional format loaders such as VRM and MMD. It is a design boundary for #78,
-#70, #71, and the future Loader Plugin Registry work in #72. Alembic `.abc`
-started as a candidate here, but #69 now ships it through a core native helper
-instead of an optional loader pack.
+optional format loaders such as VRM, MMD, and Gaussian Splat. It is a design
+boundary for #78, #70, #71, and the future Loader Plugin Registry work in #72.
+Alembic `.abc` started as a candidate here, but #69 now ships it through a
+core native helper instead of an optional loader pack.
 
 ## Decision Summary
 
@@ -41,10 +41,11 @@ the only way to add, remove, or disable optional loaders.
 
 ## Initial Pack Set
 
-| Pack            | Extensions             | Purpose                                 |
-| --------------- | ---------------------- | --------------------------------------- |
-| VRM Loader Pack | `.vrm`, `.vrma`        | VRM model and animation preview support |
-| MMD Loader Pack | `.pmd`, `.pmx`, `.vmd` | MikuMikuDance model / motion preview    |
+| Pack                       | Extensions                                  | Purpose                                      |
+| -------------------------- | ------------------------------------------- | -------------------------------------------- |
+| VRM Loader Pack            | `.vrm`, `.vrma`                             | VRM model and animation preview support      |
+| MMD Loader Pack            | `.pmd`, `.pmx`, `.vmd`                      | MikuMikuDance model / motion preview         |
+| Gaussian Splat Loader Pack | `.ply`, `.splat`, `.spz`, `.ksplat`, `.sog` | 3D Gaussian Splat / SuperSplat data previews |
 
 ## Package Layout
 
@@ -149,6 +150,7 @@ Windows NSIS should expose an initial component choice:
 - Custom install:
   - VRM Loader Pack.
   - MMD Loader Pack.
+  - Gaussian Splat Loader Pack.
   - Future optional packs as separate checkboxes.
 
 Default selection should stay conservative: core only. Users who need niche
@@ -257,5 +259,6 @@ yohawing/yw-look release process.
 6. Make file association sync respect enabled optional packs.
 7. Add Settings install/remove for first-party packs.
 8. Wire NSIS Custom Install sections to seed selected pack directories.
-9. Implement VRM (#70) and MMD (#71) as first-party packs behind the registry.
+9. Implement VRM (#70), MMD (#71), and Gaussian Splat as first-party packs
+   behind the registry.
 10. Add pack version and compatibility reporting in Settings / Diagnostics.
