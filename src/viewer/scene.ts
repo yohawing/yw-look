@@ -525,6 +525,12 @@ const HOME_VIEW_DIRECTION = new Vector3(1.15, 0.8, 1.15).normalize();
 const DEFAULT_CAMERA_POSITION = new Vector3(5, 4, 5);
 const DEFAULT_CAMERA_TARGET = new Vector3(0, 0, 0);
 
+function getStoredPositiveDimension(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
 function computeCameraFitDistance(
   camera: PerspectiveCamera,
   maxDimension: number,
@@ -689,7 +695,10 @@ export function applyTextureView(
 
 export function getObjectMaxDimension(object: Group | Mesh) {
   if (object.userData?.disableAutoFrame) {
-    return DEFAULT_SCENE_DIMENSION;
+    return (
+      getStoredPositiveDimension(object.userData.splatBoundsMaxDimension) ??
+      DEFAULT_SCENE_DIMENSION
+    );
   }
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());

@@ -1,4 +1,4 @@
-import { Group } from "three";
+import { Group, Vector3 } from "three";
 import type { SelectedFile } from "../../lib/files";
 import { readBinaryFile } from "../../lib/files";
 import type { LoaderContext } from "../loaderRegistry";
@@ -66,6 +66,9 @@ export async function loadSparkPreviewObject(
     // which is why the cloud sits a little above the origin there. We don't
     // recenter or rest it on the grid — that would discard the native origin
     // and visibly shift large scenes.
+    const splatBounds = splatMesh.getBoundingBox(true);
+    const splatSize = splatBounds.getSize(new Vector3());
+    const splatMaxDimension = Math.max(splatSize.x, splatSize.y, splatSize.z);
     splatMesh.frustumCulled = false;
 
     // `oriented` carries the up-axis correction. Most 3DGS PLY/splat captures
@@ -85,6 +88,9 @@ export async function loadSparkPreviewObject(
     // and captures with distant outlier splats would otherwise zoom the camera
     // way out. The viewer uses the default origin-facing home view instead.
     group.userData.disableAutoFrame = true;
+    // Keep Spark's bounds available for scale-adjacent UI such as the grid,
+    // without using them to frame the camera.
+    group.userData.splatBoundsMaxDimension = splatMaxDimension;
 
     const cleanupCallbacks: Array<() => void> = [
       () => {

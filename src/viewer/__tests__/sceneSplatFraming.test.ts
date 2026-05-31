@@ -19,9 +19,12 @@ function makeControls() {
   } as unknown as OrbitControls;
 }
 
-function makeSplatObject() {
+function makeSplatObject(maxDimension?: number) {
   const object = new Group();
   object.userData.disableAutoFrame = true;
+  if (maxDimension !== undefined) {
+    object.userData.splatBoundsMaxDimension = maxDimension;
+  }
   return object;
 }
 
@@ -53,7 +56,13 @@ describe("scene splat framing", () => {
     expect(camera.position.z).toBeCloseTo(new Vector3(5, 4, 5).length(), 5);
   });
 
-  it("uses the default scene dimension when Box3 cannot measure the splat mesh", () => {
+  it("uses Spark bounds dimensions for grid-scale measurement", () => {
+    const object = makeSplatObject(540);
+
+    expect(getObjectMaxDimension(object)).toBe(540);
+  });
+
+  it("falls back to the default scene dimension without Spark bounds", () => {
     const object = makeSplatObject();
 
     expect(getObjectMaxDimension(object)).toBe(1);
