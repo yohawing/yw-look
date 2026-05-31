@@ -13,7 +13,7 @@
     "build": "tsc && vite build",
     "build:desktop": "npm run build && npm run tauri build",
     "bundle:win": "npm run tauri build -- --features flip-compare --config src-tauri/tauri.windows.json --bundles nsis,msi",
-    "bundle:mac": "npm run tauri build -- --features flip-compare --config src-tauri/tauri.macos.json --bundles app,dmg",
+    "bundle:mac": "node scripts/prepare-macos-tauri-config.mjs && npm run tauri build -- --features flip-compare --config src-tauri/tauri.macos.generated.json --bundles app,dmg",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
