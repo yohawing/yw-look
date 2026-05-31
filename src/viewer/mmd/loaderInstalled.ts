@@ -131,8 +131,7 @@ function buildMmdAssetMetadata(
 }
 
 async function readArrayBuffer(path: string) {
-  const bytes = await readBinaryFile(path);
-  return Uint8Array.from(bytes).buffer;
+  return readBinaryFile(path);
 }
 
 function getMimeType(extension: string) {

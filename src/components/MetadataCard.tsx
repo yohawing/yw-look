@@ -27,7 +27,15 @@ export function MetadataCard({ metadata }: MetadataCardProps) {
     );
   }
 
+  const assetKindLabel =
+    metadata.assetKind === "pointCloud"
+      ? "Point Cloud"
+      : metadata.assetKind === "gaussianSplat"
+        ? "Gaussian Splat"
+        : "Mesh";
+
   const rows: SidebarKeyValueRow[] = [
+    { id: "type", label: "Type", value: assetKindLabel },
     { id: "format", label: "Format", value: renderValue(metadata.formatLabel) },
     {
       id: "version",

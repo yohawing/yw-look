@@ -157,6 +157,23 @@ describe("preview support classification", () => {
     });
   });
 
+  it("registers the bundled Gaussian splat loader pack formats", () => {
+    const splatLoaders = listRegisteredLoaders().filter(
+      (loader) => loader.id === "gaussian-splat-loader-pack",
+    );
+
+    expect(splatLoaders.map((loader) => loader.extension).sort()).toEqual([
+      "ksplat",
+      "sog",
+      "splat",
+      "spz",
+    ]);
+    expect(getPreviewSupportState("sog")).toBe("implemented");
+    expect(
+      getPreviewSupportState("sog", { optionalLoaderInstalled: false }),
+    ).toBe("missingOptionalLoader");
+  });
+
   it("keeps unknown extensions in the generic unsupported bucket", () => {
     expect(getPreviewSupportState("assetbundle")).toBe("unsupported");
   });

@@ -1,7 +1,7 @@
 # tests/fixtures
 
-yw-look のローダー・エラー処理のテスト用最小フィクスチャ。
-全ファイルを合計しても数 KB 以内に収まるよう設計している。
+yw-look のローダー・エラー処理のテスト用フィクスチャ。
+基本 fixture は小さく保ち、実データでないと意味が薄い回帰だけ Git LFS 対象として追加する。
 
 ## ディレクトリ構成
 
@@ -19,14 +19,15 @@ tests/fixtures/
 
 ## models/
 
-| ファイル               | フォーマット                      | 内容                               | 由来                                     |
-| ---------------------- | --------------------------------- | ---------------------------------- | ---------------------------------------- |
-| `triangle.gltf`        | glTF 2.0 (JSON + embedded base64) | 1 三角形 (頂点 3 + インデックス 3) | 手書き JSON                              |
-| `box-textured.glb`     | GLB (binary glTF)                 | 小さい textured box                | `samples/assets/glb/BoxTextured.glb`     |
-| `triangle.obj`         | Wavefront OBJ (ASCII)             | 1 三角形                           | 手書き ASCII                             |
-| `triangle.stl`         | STL ASCII                         | 1 三角形、法線付き                 | 手書き ASCII                             |
-| `triangle.ply`         | PLY ASCII 1.0                     | 1 三角形                           | 手書き ASCII                             |
-| `tiny-tetrahedron.dae` | COLLADA                           | 1 四面体                           | `samples/assets/dae/TinyTetrahedron.dae` |
+| ファイル                           | フォーマット                                          | 内容                                       | 由来                                                                 |
+| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------- |
+| `triangle.gltf`                    | glTF 2.0 (JSON + embedded base64)                     | 1 三角形 (頂点 3 + インデックス 3)         | 手書き JSON                                                          |
+| `box-textured.glb`                 | GLB (binary glTF)                                     | 小さい textured box                        | `samples/assets/glb/BoxTextured.glb`                                 |
+| `triangle.obj`                     | Wavefront OBJ (ASCII)                                 | 1 三角形                                   | 手書き ASCII                                                         |
+| `triangle.stl`                     | STL ASCII                                             | 1 三角形、法線付き                         | 手書き ASCII                                                         |
+| `triangle.ply`                     | PLY ASCII 1.0                                         | 1 三角形                                   | 手書き ASCII                                                         |
+| `cactus-supersplat-compressed.ply` | PLY binary little endian (SuperSplat compressed 3DGS) | 139,410 splats; classifier regression only | `3DGS_PLY_sample_data`, CC0; credit URL: https://www.steam-studio.jp |
+| `tiny-tetrahedron.dae`             | COLLADA                                               | 1 四面体                                   | `samples/assets/dae/TinyTetrahedron.dae`                             |
 
 ### 手動配置が必要なフォーマット (TODO)
 

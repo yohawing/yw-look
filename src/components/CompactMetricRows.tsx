@@ -1,14 +1,7 @@
-import type { ReactNode } from "react";
 import "../styles/sidebar.css";
+import type { CompactMetricRow } from "../types/ui";
 
-export type CompactMetricStatus = "neutral" | "good" | "warning" | "danger";
-
-export type CompactMetricRow = {
-  label: ReactNode;
-  value: ReactNode;
-  status?: CompactMetricStatus;
-  mono?: boolean;
-};
+export type { CompactMetricStatus, CompactMetricRow } from "../types/ui";
 
 type CompactMetricRowsProps = {
   rows: readonly CompactMetricRow[];

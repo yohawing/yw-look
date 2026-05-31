@@ -1,11 +1,8 @@
 import type { AmbientLight, DirectionalLight } from "three";
 
-export type PreviewLightingPreset = {
-  ambientIntensity: number;
-  keyIntensity: number;
-  keyPosition: readonly [number, number, number];
-  fillIntensity: number;
-};
+import type { PreviewLightingPreset } from "../types/viewer";
+
+export type { PreviewLightingPreset } from "../types/viewer";
 
 export const DEFAULT_LIGHTING_PRESET: PreviewLightingPreset = {
   ambientIntensity: 1.8,

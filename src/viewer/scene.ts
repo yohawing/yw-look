@@ -42,6 +42,20 @@ import {
   isMmdOutlineProxyObject,
 } from "./mmd/userData";
 
+import type {
+  GridConfig,
+  CameraPreset,
+  ScaleNormalizationResult,
+  TextureFilterMode,
+} from "../types/viewer";
+
+export type {
+  GridConfig,
+  ScaleNormalizationResult,
+  CameraPreset,
+  TextureFilterMode,
+} from "../types/viewer";
+
 export const GRID_NAME = "__yw_initial_grid";
 export const AXES_NAME = "__yw_axes_helper";
 export const SHADOW_CATCHER_NAME = "__yw_shadow_catcher";
@@ -71,21 +85,6 @@ type GridPreset = {
   maxDimension: number;
   cellSize: number;
   label: string;
-};
-
-export type GridConfig = {
-  cellSize: number;
-  label: string;
-  size: number;
-  divisions: number;
-};
-
-export type ScaleNormalizationResult = {
-  applied: boolean;
-  factor: number;
-  originalMaxDimension: number;
-  normalizedMaxDimension: number;
-  originalScale: Vector3 | null;
 };
 
 // Grid density presets tuned for inspection workflows:
@@ -522,6 +521,25 @@ export function applyControlsSensitivity(
   controls.zoomSpeed = auto.zoomSpeed * safeMultiplier;
 }
 
+const HOME_VIEW_DIRECTION = new Vector3(1.15, 0.8, 1.15).normalize();
+const DEFAULT_CAMERA_POSITION = new Vector3(5, 4, 5);
+const DEFAULT_CAMERA_TARGET = new Vector3(0, 0, 0);
+
+function getStoredPositiveDimension(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
+function computeCameraFitDistance(
+  camera: PerspectiveCamera,
+  maxDimension: number,
+) {
+  return (
+    (maxDimension / (2 * Math.tan(MathUtils.degToRad(camera.fov * 0.5)))) * 1.5
+  );
+}
+
 export function applyInitialView(
   camera: PerspectiveCamera,
   controls: OrbitControls,
@@ -535,16 +553,35 @@ export function applyInitialView(
    */
   rawMaxDimension?: number,
 ) {
+  // Gaussian splats opt out of bounds-based auto framing (Issue #98): many
+  // captures are navigated from the authored origin instead of framed as a
+  // whole object, and outlier splats would zoom the camera way out.
+  if (object.userData?.disableAutoFrame) {
+    camera.position.copy(DEFAULT_CAMERA_POSITION);
+    camera.near = 0.01;
+    camera.far = 100_000;
+    camera.lookAt(DEFAULT_CAMERA_TARGET);
+    camera.updateProjectionMatrix();
+    controls.target.copy(DEFAULT_CAMERA_TARGET);
+    controls.minDistance = 0.01;
+    controls.maxDistance = 100_000;
+    applyControlsSensitivity(
+      controls,
+      rawMaxDimension && rawMaxDimension > 0
+        ? rawMaxDimension
+        : DEFAULT_SCENE_DIMENSION,
+      sensitivityMultiplier,
+    );
+    controls.update();
+    return;
+  }
+
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
   const center = bounds.getCenter(new Vector3());
   const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
-  const fitHeightDistance =
-    maxDimension / (2 * Math.tan(MathUtils.degToRad(camera.fov * 0.5)));
-  const fitDistance = fitHeightDistance * 1.5;
-  const offset = new Vector3(1.15, 0.8, 1.15)
-    .normalize()
-    .multiplyScalar(fitDistance);
+  const fitDistance = computeCameraFitDistance(camera, maxDimension);
+  const offset = HOME_VIEW_DIRECTION.clone().multiplyScalar(fitDistance);
 
   camera.position.copy(center.clone().add(offset));
   camera.near = Math.max(maxDimension / 500, 0.01);
@@ -564,14 +601,6 @@ export function applyInitialView(
   applyControlsSensitivity(controls, sensitivityDim, sensitivityMultiplier);
   controls.update();
 }
-
-export type CameraPreset =
-  | "front"
-  | "back"
-  | "left"
-  | "right"
-  | "top"
-  | "bottom";
 
 // Direction vectors are where the camera sits relative to the target.
 // `front` means "the viewer is in front of the model and looks back along -Z".
@@ -598,13 +627,20 @@ export function applyPresetView(
   object: Group | Mesh,
   preset: CameraPreset,
 ) {
-  const bounds = new Box3().setFromObject(object);
-  const size = bounds.getSize(new Vector3());
-  const center = bounds.getCenter(new Vector3());
-  const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
-  const fitHeightDistance =
-    maxDimension / (2 * Math.tan(MathUtils.degToRad(camera.fov * 0.5)));
-  const fitDistance = fitHeightDistance * 1.5;
+  const useFixedAutoFrame = Boolean(object.userData?.disableAutoFrame);
+  const bounds = useFixedAutoFrame ? null : new Box3().setFromObject(object);
+  const size = bounds?.getSize(new Vector3());
+  const center = useFixedAutoFrame
+    ? DEFAULT_CAMERA_TARGET.clone()
+    : (bounds?.getCenter(new Vector3()) ?? new Vector3());
+  const maxDimension = useFixedAutoFrame
+    ? DEFAULT_SCENE_DIMENSION
+    : size
+      ? Math.max(size.x, size.y, size.z, 0.001)
+      : DEFAULT_SCENE_DIMENSION;
+  const fitDistance = useFixedAutoFrame
+    ? DEFAULT_CAMERA_POSITION.length()
+    : computeCameraFitDistance(camera, maxDimension);
 
   const direction = cameraPresetDirections[preset].clone().normalize();
   const offset = direction.multiplyScalar(fitDistance);
@@ -613,14 +649,18 @@ export function applyPresetView(
   const upOverride = cameraPresetUpOverrides[preset];
   camera.up.copy(upOverride ?? new Vector3(0, 1, 0));
 
-  camera.near = Math.max(maxDimension / 500, 0.01);
-  camera.far = Math.max(maxDimension * 20, 200);
+  camera.near = useFixedAutoFrame ? 0.01 : Math.max(maxDimension / 500, 0.01);
+  camera.far = useFixedAutoFrame ? 100_000 : Math.max(maxDimension * 20, 200);
   camera.lookAt(center);
   camera.updateProjectionMatrix();
 
   controls.target.copy(center);
-  controls.minDistance = Math.max(maxDimension / 50, 0.05);
-  controls.maxDistance = Math.max(maxDimension * 40, 50);
+  controls.minDistance = useFixedAutoFrame
+    ? 0.01
+    : Math.max(maxDimension / 50, 0.05);
+  controls.maxDistance = useFixedAutoFrame
+    ? 100_000
+    : Math.max(maxDimension * 40, 50);
   controls.update();
 }
 
@@ -654,6 +694,12 @@ export function applyTextureView(
 }
 
 export function getObjectMaxDimension(object: Group | Mesh) {
+  if (object.userData?.disableAutoFrame) {
+    return (
+      getStoredPositiveDimension(object.userData.splatBoundsMaxDimension) ??
+      DEFAULT_SCENE_DIMENSION
+    );
+  }
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
   return Math.max(size.x, size.y, size.z);
@@ -1182,8 +1228,6 @@ export function applyNormalHelpers(
     scene.add(helper);
   });
 }
-
-export type TextureFilterMode = "nearest" | "linear" | "trilinear";
 
 type FilterPair = {
   mag: MagnificationTextureFilter;

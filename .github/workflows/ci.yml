@@ -68,7 +68,7 @@ jobs:
 
           READY=0
           for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:1420/selftest.html >/dev/null; then
+            if curl -fsS 'http://127.0.0.1:1420/?entry=selftest' >/dev/null; then
               READY=1
               break
             fi
@@ -79,7 +79,7 @@ jobs:
             exit 1
           fi
 
-          npm run test:integration -- http://127.0.0.1:1420/selftest.html
+          npm run test:integration -- 'http://127.0.0.1:1420/?entry=selftest'
 
   visual-regression:
     runs-on: ubuntu-latest
@@ -125,7 +125,7 @@ jobs:
 
           READY=0
           for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:1420/selftest.html >/dev/null; then
+            if curl -fsS 'http://127.0.0.1:1420/?entry=selftest' >/dev/null; then
               READY=1
               break
             fi
@@ -136,7 +136,7 @@ jobs:
             exit 1
           fi
 
-          npm run test:visual -- http://127.0.0.1:1420/selftest.html tests/visual/snapshots/selftest-page-linux-chromium.png artifacts/screenshots/selftest-page-current.png
+          npm run test:visual -- 'http://127.0.0.1:1420/?entry=selftest' tests/visual/snapshots/selftest-page-linux-chromium.png artifacts/screenshots/selftest-page-current.png
           cleanup
           trap - EXIT
 

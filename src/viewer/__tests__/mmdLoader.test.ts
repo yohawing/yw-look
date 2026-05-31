@@ -137,7 +137,9 @@ describe("MMD preview loader", () => {
     mocks.loadAsync.mockReset();
     mocks.readBinaryFile.mockReset();
     mocks.revokeObjectURL.mockReset();
-    mocks.readBinaryFile.mockResolvedValue([0x50, 0x4d, 0x58, 0x20]);
+    mocks.readBinaryFile.mockResolvedValue(
+      new Uint8Array([0x50, 0x4d, 0x58, 0x20]).buffer,
+    );
     mocks.physicsBackend.dispose.mockClear();
   });
 
@@ -164,7 +166,7 @@ describe("MMD preview loader", () => {
       if (path.endsWith("\\toon01.bmp")) {
         throw new Error("missing built-in toon sibling");
       }
-      return [0x50, 0x4d, 0x58, 0x20];
+      return new Uint8Array([0x50, 0x4d, 0x58, 0x20]).buffer;
     });
     mocks.loadAsync.mockImplementation(async (_source, loader) => {
       expect(loader.options.geometryAwareAlpha).toBe(true);

@@ -2,17 +2,12 @@ import {
   ACESFilmicToneMapping,
   NoToneMapping,
   SRGBColorSpace,
-  type ColorSpace,
-  type ToneMapping,
   type WebGLRenderer,
 } from "three";
 
-export type PreviewRenderingPreset = {
-  logarithmicDepthBuffer: boolean;
-  outputColorSpace: ColorSpace;
-  toneMapping: ToneMapping;
-  toneMappingExposure: number;
-};
+import type { PreviewRenderingPreset } from "../types/viewer";
+
+export type { PreviewRenderingPreset } from "../types/viewer";
 
 export const DEFAULT_PREVIEW_RENDERING_PRESET: PreviewRenderingPreset = {
   logarithmicDepthBuffer: false,

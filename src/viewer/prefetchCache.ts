@@ -44,11 +44,10 @@ function evictOldest() {
 
 async function fetchAndCache(path: string): Promise<ArrayBuffer | null> {
   try {
-    const bytes = await readBinaryFile(path);
-    if (bytes.length > MAX_FILE_SIZE_BYTES) {
+    const buffer = await readBinaryFile(path);
+    if (buffer.byteLength > MAX_FILE_SIZE_BYTES) {
       return null;
     }
-    const buffer = Uint8Array.from(bytes).buffer;
     evictOldest();
     cache.set(path, { path, data: buffer, fetchedAt: Date.now() });
     return buffer;

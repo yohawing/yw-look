@@ -6060,7 +6060,7 @@ dependencies = [
 
 [[package]]
 name = "yw-look"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bindgen",
  "cmake",
@@ -6075,6 +6075,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-updater",
+ "thiserror 2.0.18",
  "url",
  "zip 8.5.0",
 ]
