@@ -70,6 +70,8 @@ export async function loadSparkPreviewObject(
     // the native bounds center as the fixed home-view target instead.
     const splatBounds = splatMesh.getBoundingBox(true);
     const splatCenter = splatBounds.getCenter(new Vector3());
+    const splatSize = splatBounds.getSize(new Vector3());
+    const splatMaxDimension = Math.max(splatSize.x, splatSize.y, splatSize.z);
     splatMesh.frustumCulled = false;
 
     // `oriented` carries the up-axis correction. Most 3DGS PLY/splat captures
@@ -94,6 +96,7 @@ export async function loadSparkPreviewObject(
     // way out. The viewer uses a fixed home view instead (see applyInitialView).
     group.userData.disableAutoFrame = true;
     group.userData.disableAutoFrameTarget = splatViewTarget;
+    group.userData.disableAutoFrameMaxDimension = splatMaxDimension;
 
     const cleanupCallbacks: Array<() => void> = [
       () => {

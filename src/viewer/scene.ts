@@ -521,12 +521,36 @@ export function applyControlsSensitivity(
   controls.zoomSpeed = auto.zoomSpeed * safeMultiplier;
 }
 
-const DISABLE_AUTO_FRAME_HOME_OFFSET = new Vector3(5, 4, 5);
+const HOME_VIEW_DIRECTION = new Vector3(1.15, 0.8, 1.15).normalize();
+const DEFAULT_DISABLE_AUTO_FRAME_MAX_DIMENSION = 1;
 
 function getDisableAutoFrameTarget(object: Group | Mesh) {
   return object.userData.disableAutoFrameTarget instanceof Vector3
     ? object.userData.disableAutoFrameTarget
     : new Vector3();
+}
+
+function getDisableAutoFrameMaxDimension(
+  object: Group | Mesh,
+  fallback?: number,
+) {
+  const stored = object.userData.disableAutoFrameMaxDimension;
+  if (typeof stored === "number" && Number.isFinite(stored) && stored > 0) {
+    return stored;
+  }
+  if (fallback !== undefined && Number.isFinite(fallback) && fallback > 0) {
+    return fallback;
+  }
+  return DEFAULT_DISABLE_AUTO_FRAME_MAX_DIMENSION;
+}
+
+function computeCameraFitDistance(
+  camera: PerspectiveCamera,
+  maxDimension: number,
+) {
+  return (
+    (maxDimension / (2 * Math.tan(MathUtils.degToRad(camera.fov * 0.5)))) * 1.5
+  );
 }
 
 export function applyInitialView(
@@ -544,11 +568,18 @@ export function applyInitialView(
 ) {
   // Gaussian splats opt out of bounds-based auto framing (Issue #98): SplatMesh
   // reports no mesh extent and outlier splats would zoom the camera way out.
-  // The loader keeps native coordinates and can provide a bounds-derived target;
-  // use a fixed offset from that target and let the user orbit/zoom manually.
+  // The loader keeps native coordinates and provides Spark-derived bounds;
+  // use those bounds for a mesh-like home distance without relying on Box3.
   if (object.userData?.disableAutoFrame) {
     const target = getDisableAutoFrameTarget(object);
-    camera.position.copy(target).add(DISABLE_AUTO_FRAME_HOME_OFFSET);
+    const maxDimension = getDisableAutoFrameMaxDimension(
+      object,
+      rawMaxDimension,
+    );
+    const offset = HOME_VIEW_DIRECTION.clone().multiplyScalar(
+      computeCameraFitDistance(camera, maxDimension),
+    );
+    camera.position.copy(target).add(offset);
     camera.near = 0.01;
     camera.far = 100_000;
     camera.lookAt(target);
@@ -556,15 +587,7 @@ export function applyInitialView(
     controls.target.copy(target);
     controls.minDistance = 0.01;
     controls.maxDistance = 100_000;
-    const splatSensitivityDim =
-      rawMaxDimension !== undefined && rawMaxDimension > 0
-        ? rawMaxDimension
-        : 1;
-    applyControlsSensitivity(
-      controls,
-      splatSensitivityDim,
-      sensitivityMultiplier,
-    );
+    applyControlsSensitivity(controls, maxDimension, sensitivityMultiplier);
     controls.update();
     return;
   }
@@ -573,12 +596,8 @@ export function applyInitialView(
   const size = bounds.getSize(new Vector3());
   const center = bounds.getCenter(new Vector3());
   const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
-  const fitHeightDistance =
-    maxDimension / (2 * Math.tan(MathUtils.degToRad(camera.fov * 0.5)));
-  const fitDistance = fitHeightDistance * 1.5;
-  const offset = new Vector3(1.15, 0.8, 1.15)
-    .normalize()
-    .multiplyScalar(fitDistance);
+  const fitDistance = computeCameraFitDistance(camera, maxDimension);
+  const offset = HOME_VIEW_DIRECTION.clone().multiplyScalar(fitDistance);
 
   camera.position.copy(center.clone().add(offset));
   camera.near = Math.max(maxDimension / 500, 0.01);
@@ -630,11 +649,12 @@ export function applyPresetView(
   const center = useFixedAutoFrame
     ? getDisableAutoFrameTarget(object)
     : (bounds?.getCenter(new Vector3()) ?? new Vector3());
-  const maxDimension = size ? Math.max(size.x, size.y, size.z, 0.001) : 1;
-  const fitDistance = useFixedAutoFrame
-    ? DISABLE_AUTO_FRAME_HOME_OFFSET.length()
-    : (maxDimension / (2 * Math.tan(MathUtils.degToRad(camera.fov * 0.5)))) *
-      1.5;
+  const maxDimension = useFixedAutoFrame
+    ? getDisableAutoFrameMaxDimension(object)
+    : size
+      ? Math.max(size.x, size.y, size.z, 0.001)
+      : DEFAULT_DISABLE_AUTO_FRAME_MAX_DIMENSION;
+  const fitDistance = computeCameraFitDistance(camera, maxDimension);
 
   const direction = cameraPresetDirections[preset].clone().normalize();
   const offset = direction.multiplyScalar(fitDistance);
@@ -688,6 +708,9 @@ export function applyTextureView(
 }
 
 export function getObjectMaxDimension(object: Group | Mesh) {
+  if (object.userData?.disableAutoFrame) {
+    return getDisableAutoFrameMaxDimension(object);
+  }
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
   return Math.max(size.x, size.y, size.z);
