@@ -19,57 +19,43 @@ function makeControls() {
   } as unknown as OrbitControls;
 }
 
-function fitDistance(camera: PerspectiveCamera, maxDimension: number) {
-  return (
-    (maxDimension / (2 * Math.tan((camera.fov * Math.PI) / 180 / 2))) * 1.5
-  );
-}
-
-function makeSplatObject(target: Vector3, maxDimension: number) {
+function makeSplatObject() {
   const object = new Group();
   object.userData.disableAutoFrame = true;
-  object.userData.disableAutoFrameTarget = target;
-  object.userData.disableAutoFrameMaxDimension = maxDimension;
   return object;
 }
 
 describe("scene splat framing", () => {
-  it("uses Spark-derived splat dimensions for the initial home distance", () => {
+  it("keeps splat initial view at the default origin-facing camera pose", () => {
     const camera = new PerspectiveCamera(50, 1, 0.01, 1000);
     const controls = makeControls();
-    const target = new Vector3(-11.7, 0, 0);
-    const object = makeSplatObject(target, 540);
+    const object = makeSplatObject();
 
     applyInitialView(camera, controls, object);
 
-    expect(controls.target.toArray()).toEqual(target.toArray());
-    expect(camera.position.distanceTo(target)).toBeCloseTo(
-      fitDistance(camera, 540),
-      5,
-    );
+    expect(camera.position.toArray()).toEqual([5, 4, 5]);
+    expect(controls.target.toArray()).toEqual([0, 0, 0]);
+    expect(camera.near).toBe(0.01);
+    expect(camera.far).toBe(100_000);
     expect(controls.update).toHaveBeenCalledOnce();
   });
 
-  it("uses Spark-derived splat dimensions for preset camera distances", () => {
+  it("keeps splat preset views centered on the authored origin", () => {
     const camera = new PerspectiveCamera(50, 1, 0.01, 1000);
     const controls = makeControls();
-    const target = new Vector3(0, 0.85, 1.34);
-    const object = makeSplatObject(target, 400);
+    const object = makeSplatObject();
 
     applyPresetView(camera, controls, object, "front");
 
-    expect(controls.target.toArray()).toEqual(target.toArray());
-    expect(camera.position.x).toBeCloseTo(target.x, 5);
-    expect(camera.position.y).toBeCloseTo(target.y, 5);
-    expect(camera.position.z - target.z).toBeCloseTo(
-      fitDistance(camera, 400),
-      5,
-    );
+    expect(controls.target.toArray()).toEqual([0, 0, 0]);
+    expect(camera.position.x).toBeCloseTo(0, 5);
+    expect(camera.position.y).toBeCloseTo(0, 5);
+    expect(camera.position.z).toBeCloseTo(new Vector3(5, 4, 5).length(), 5);
   });
 
-  it("reports Spark-derived dimensions when Box3 cannot measure the splat mesh", () => {
-    const object = makeSplatObject(new Vector3(), 480);
+  it("uses the default scene dimension when Box3 cannot measure the splat mesh", () => {
+    const object = makeSplatObject();
 
-    expect(getObjectMaxDimension(object)).toBe(480);
+    expect(getObjectMaxDimension(object)).toBe(1);
   });
 });

@@ -1,4 +1,4 @@
-import { Group, Vector3 } from "three";
+import { Group } from "three";
 import type { SelectedFile } from "../../lib/files";
 import { readBinaryFile } from "../../lib/files";
 import type { LoaderContext } from "../loaderRegistry";
@@ -65,13 +65,7 @@ export async function loadSparkPreviewObject(
     // / pivot metadata), and other viewers render at these native coordinates,
     // which is why the cloud sits a little above the origin there. We don't
     // recenter or rest it on the grid — that would discard the native origin
-    // and visibly shift large scenes. SplatMesh has no mesh geometry, so the
-    // viewer's bounds-based fit can't measure it; we skip auto framing and pass
-    // the native bounds center as the fixed home-view target instead.
-    const splatBounds = splatMesh.getBoundingBox(true);
-    const splatCenter = splatBounds.getCenter(new Vector3());
-    const splatSize = splatBounds.getSize(new Vector3());
-    const splatMaxDimension = Math.max(splatSize.x, splatSize.y, splatSize.z);
+    // and visibly shift large scenes.
     splatMesh.frustumCulled = false;
 
     // `oriented` carries the up-axis correction. Most 3DGS PLY/splat captures
@@ -84,19 +78,13 @@ export async function loadSparkPreviewObject(
       oriented.rotation.x = Math.PI;
     }
     oriented.add(splatMesh);
-    oriented.updateMatrixWorld(true);
-    const splatViewTarget = splatCenter
-      .clone()
-      .applyMatrix4(oriented.matrixWorld);
 
     const group = new Group();
     group.name = `${file.fileName} Gaussian Splat Preview`;
     // Opt out of the bounds-based auto scale/fit: SplatMesh reports no extent,
     // and captures with distant outlier splats would otherwise zoom the camera
-    // way out. The viewer uses a fixed home view instead (see applyInitialView).
+    // way out. The viewer uses the default origin-facing home view instead.
     group.userData.disableAutoFrame = true;
-    group.userData.disableAutoFrameTarget = splatViewTarget;
-    group.userData.disableAutoFrameMaxDimension = splatMaxDimension;
 
     const cleanupCallbacks: Array<() => void> = [
       () => {
