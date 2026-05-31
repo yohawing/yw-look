@@ -2511,7 +2511,7 @@ loaderRegistry.register({
 loaderRegistry.register({
   id: "gaussian-splat-loader-pack",
   name: "Gaussian Splat Loader Pack",
-  extensions: ["splat", "spz", "ksplat"],
+  extensions: ["splat", "spz", "ksplat", "sog"],
   optional: true,
   installed: HAS_SPARK_LOADER,
   loadPreviewObject: async (file, context) => {

@@ -8,8 +8,8 @@ async function importSpark() {
   return import("@sparkjsdev/spark");
 }
 
-function getSplatFileTypeForExtension(extension: string) {
-  // SplatFileType enum values match extension strings directly
+export function getSplatFileTypeForExtension(extension: string) {
+  // Keep this table aligned with Spark's getSplatFileTypeFromPath.
   switch (extension.toLowerCase()) {
     case "ply":
       return "ply";
@@ -19,9 +19,15 @@ function getSplatFileTypeForExtension(extension: string) {
       return "splat";
     case "ksplat":
       return "ksplat";
+    case "sog":
+      return "pcsogszip";
     default:
       return undefined;
   }
+}
+
+export function shouldApplySplatYDownCorrection(extension: string) {
+  return extension.toLowerCase() !== "spz";
 }
 
 export async function loadSparkPreviewObject(
@@ -66,15 +72,15 @@ export async function loadSparkPreviewObject(
     const splatCenter = splatBounds.getCenter(new Vector3());
     splatMesh.frustumCulled = false;
 
-    // `oriented` carries the up-axis correction. 3DGS PLY/splat captures are
-    // authored Y-down (INRIA/COLMAP convention) — without correction they load
-    // upside-down — so rotate 180° about X to bring them upright in THREE's
-    // Y-up world. Correctly authored exports (e.g. SuperSplat cactus) then sit
-    // upright; mis-aligned captures (e.g. antimatter15 .splat) keep their
-    // native residual tilt, which other viewers show too. A manual orientation
-    // control is the real long-term fix for the latter.
+    // `oriented` carries the up-axis correction. Most 3DGS PLY/splat captures
+    // are authored Y-down (INRIA/COLMAP convention), so rotate 180deg about X
+    // to bring them upright in THREE's Y-up world. SPZ is commonly already
+    // authored for this viewer path; forcing the same correction mirrors its
+    // Y axis on real SPZ captures.
     const oriented = new Group();
-    oriented.rotation.x = Math.PI;
+    if (shouldApplySplatYDownCorrection(file.extension)) {
+      oriented.rotation.x = Math.PI;
+    }
     oriented.add(splatMesh);
     oriented.updateMatrixWorld(true);
     const splatViewTarget = splatCenter

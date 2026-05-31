@@ -349,8 +349,8 @@ pub(crate) fn open_file_dialog(
             "Supported assets",
             &[
                 "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae",
-                "vrm", "abc", "pmx", "pmd", "png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr",
-                "exr",
+                "vrm", "abc", "pmx", "pmd", "splat", "spz", "ksplat", "sog", "png", "jpg",
+                "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
             ],
         )
         .pick_file();

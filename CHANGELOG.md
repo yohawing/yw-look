@@ -4,8 +4,8 @@
 
 ### Viewer and loaders
 
-- Added Gaussian splat preview support for PLY, SPZ, and KSplat assets, including compressed SuperSplat PLY handling.
-- Improved Gaussian splat orientation, centering, and camera targeting so splat scenes open upright without unwanted bounds auto-framing.
+- Added Gaussian splat preview support for PLY, SPZ, SPLAT, KSPLAT, and SOG assets, including compressed SuperSplat PLY handling.
+- Improved Gaussian splat orientation, centering, and camera targeting so splat scenes open upright without unwanted bounds auto-framing, while preserving SPZ's native Y axis.
 - Registered splat formats with the desktop app so they appear in OS file-opening flows.
 - Completed deferred USD payload preview loading and aligned progress reporting for deferred payload sessions.
 - Added a CC0 SuperSplat compressed PLY fixture to guard Gaussian splat classification against real captured data.
