@@ -331,6 +331,7 @@ jobs:
           releaseBody: See the attached installers and updater manifest for this release.
           releaseDraft: false
           prerelease: false
+          tauriScript: npm run tauri
           args: ${{ matrix.args }}
 
       # Post-build sanity check: the overlay configs wire
