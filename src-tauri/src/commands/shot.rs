@@ -104,6 +104,10 @@ fn to_shot_config_payload(case_index: usize, config: &ShotCliCase) -> ShotConfig
 
 pub(crate) fn parse_shot_cli_config() -> Result<Option<ShotCliConfig>, AppError> {
     let args: Vec<String> = env::args().collect();
+    parse_shot_cli_config_from_args(&args)
+}
+
+fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConfig>, AppError> {
     let shot_batch_index = args.iter().position(|arg| arg == "--shot-batch");
     let shot_batch_file_index = args.iter().position(|arg| arg == "--shot-batch-file");
     let shot_flag = args.iter().any(|arg| arg == "--shot");
@@ -132,8 +136,7 @@ pub(crate) fn parse_shot_cli_config() -> Result<Option<ShotCliConfig>, AppError>
                     "failed to read --shot-batch-file '{}': {error}",
                     raw_value
                 ))
-            })?;
-            raw_value.clone()
+            })?
         } else {
             raw_value.clone()
         };
@@ -325,4 +328,62 @@ pub(crate) fn write_shot_batch_output(
 #[tauri::command]
 pub(crate) fn finish_shot_run(app: tauri::AppHandle, exit_code: i32) {
     app.exit(exit_code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after UNIX_EPOCH")
+            .as_nanos();
+        std::env::temp_dir().join(format!("yw-look-{name}-{}-{suffix}", std::process::id()))
+    }
+
+    #[test]
+    fn parses_shot_batch_file_contents() {
+        let root = unique_temp_dir("shot-batch-file");
+        fs::create_dir_all(&root).expect("create temp root");
+        let input_path = root.join("input.glb");
+        let output_path = root.join("out").join("shot.png");
+        let config_path = root.join("batch.json");
+        fs::write(&input_path, b"placeholder").expect("write input");
+
+        let config_json = serde_json::json!([
+            {
+                "inputPath": input_path,
+                "outputPath": output_path,
+                "width": 320,
+                "height": 180,
+                "background": "transparent"
+            }
+        ]);
+        fs::write(&config_path, config_json.to_string()).expect("write config");
+
+        let args = vec![
+            "yw-look".to_string(),
+            "--shot-batch-file".to_string(),
+            config_path.display().to_string(),
+        ];
+        let config = parse_shot_cli_config_from_args(&args)
+            .expect("parse shot batch file")
+            .expect("shot batch config");
+
+        assert_eq!(config.cases.len(), 1);
+        let case = &config.cases[0];
+        assert_eq!(case.mode, ShotMode::Shot);
+        assert_eq!(case.width, 320);
+        assert_eq!(case.height, 180);
+        assert_eq!(case.background.as_deref(), Some("transparent"));
+        assert_eq!(case.input_path.file_name().unwrap(), "input.glb");
+        assert_eq!(
+            case.output_path.as_ref().unwrap().file_name().unwrap(),
+            "shot.png"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
 }
