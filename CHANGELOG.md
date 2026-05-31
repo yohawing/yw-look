@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.2 (2026-05-31)
+
+### Viewer and loaders
+
+- Added Gaussian splat preview support for PLY, SPZ, and KSplat assets, including compressed SuperSplat PLY handling.
+- Improved Gaussian splat orientation, centering, and camera targeting so splat scenes open upright without unwanted bounds auto-framing.
+- Completed deferred USD payload preview loading and aligned progress reporting for deferred payload sessions.
+
+### Build and release
+
+- Included platform-specific Tauri overlay configs in local Windows and macOS bundle scripts so local installers ship the OpenUSD runtime payload.
+- Updated the Optional Loader Pack dependency and kept frontend preview-support tables aligned with newly supported splat formats.
+
+### Refactoring
+
+- Split large app state and command modules into focused stores, hooks, command modules, and shared type definitions.
+- Centralized error handling and design tokens, and normalized formatting after the refactor.
+
 ## v0.2.1 (2026-05-26)
 
 ### Release
