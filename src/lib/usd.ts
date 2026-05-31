@@ -15,6 +15,7 @@ import type {
   ExtractGeometryOptions,
   StageSessionHandle,
   UsdSourcePayload,
+  AppError,
 } from "../types/ipc";
 
 export type {
@@ -53,7 +54,19 @@ const INVALID_VARIANT_SELECTION_PREFIX = "USD_INVALID_VARIANT_SELECTION\t";
 function tauriErrorMessage(error: unknown): string | null {
   if (typeof error === "string") return error;
   if (error instanceof Error) return error.message;
+  if (isAppError(error)) return error.message;
   return null;
+}
+
+function isAppError(error: unknown): error is AppError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "kind" in error &&
+    "message" in error &&
+    typeof (error as Record<string, unknown>).kind === "string" &&
+    typeof (error as Record<string, unknown>).message === "string"
+  );
 }
 
 export function isInvalidVariantSelectionError(

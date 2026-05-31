@@ -33,6 +33,7 @@ export function shouldApplySplatYDownCorrection(extension: string) {
 export async function loadSparkPreviewObject(
   file: SelectedFile,
   context: LoaderContext,
+  fileBytesOverride?: ArrayBuffer,
 ): Promise<LoadedPreview> {
   const reportStage = context.onStage ?? (() => undefined);
   reportStage("scan");
@@ -41,7 +42,7 @@ export async function loadSparkPreviewObject(
     const { SplatMesh, SparkRenderer } = await importSpark();
 
     reportStage("decode");
-    const fileBytes = await readBinaryFile(file.path);
+    const fileBytes = fileBytesOverride ?? (await readBinaryFile(file.path));
 
     const fileType = getSplatFileTypeForExtension(file.extension);
 

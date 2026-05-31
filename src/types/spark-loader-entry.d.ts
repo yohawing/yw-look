@@ -6,5 +6,6 @@ declare module "#yw-look-spark-loader-entry" {
   export function loadSparkPreviewObject(
     file: SelectedFile,
     context: LoaderContext,
+    fileBytes?: ArrayBuffer,
   ): Promise<LoadedPreview>;
 }

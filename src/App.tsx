@@ -78,6 +78,7 @@ import {
   type ViewerShortcutAction,
 } from "./lib/viewerShortcuts";
 import { saveSettings } from "./lib/settings";
+import { errorMessage } from "./lib/invokeSafe";
 import { usePerformanceTracker } from "./hooks/usePerformanceTracker";
 import { useUpdater } from "./hooks/useUpdater";
 import { useUsdInspector } from "./hooks/useUsdInspector";
@@ -89,16 +90,6 @@ import { useFileStore } from "./stores/fileStore";
 import { useUiStore } from "./stores/uiStore";
 
 const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
-
-function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string" && error.trim()) {
-    return error;
-  }
-  return fallback;
-}
 
 function extensionFromPath(path: string) {
   const fileName = path.split(/[\\/]/).pop() ?? path;

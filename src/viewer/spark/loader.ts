@@ -9,7 +9,8 @@ async function importInstalledSparkLoader() {
 export async function loadSparkPreviewObject(
   file: SelectedFile,
   context: LoaderContext,
+  fileBytes?: ArrayBuffer,
 ): Promise<LoadedPreview> {
   const { loadSparkPreviewObject: load } = await importInstalledSparkLoader();
-  return load(file, context);
+  return load(file, context, fileBytes);
 }

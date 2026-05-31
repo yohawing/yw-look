@@ -6,6 +6,8 @@ pub mod usd;
 
 use tauri::Manager;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
+use std::path::PathBuf;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Emitter;
 use url::Url;
 

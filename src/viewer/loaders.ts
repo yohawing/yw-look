@@ -1872,11 +1872,15 @@ async function loadPreviewObjectCore(
           );
         }
         const { loadSparkPreviewObject } = await import("./spark/loader");
-        return loadSparkPreviewObject(file, {
-          renderer,
-          onStage: options.onStage,
-          onWarning: options.onWarning,
-        });
+        return loadSparkPreviewObject(
+          file,
+          {
+            renderer,
+            onStage: options.onStage,
+            onWarning: options.onWarning,
+          },
+          buffer,
+        );
       }
 
       const { PLYLoader } =

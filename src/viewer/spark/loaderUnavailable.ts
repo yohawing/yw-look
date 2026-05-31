@@ -1,3 +1,5 @@
+import type { SelectedFile } from "../../lib/files";
+import type { LoaderContext } from "../loaderRegistry";
 import type { LoadedPreview } from "../types";
 
 function missingSparkLoader(): never {
@@ -6,6 +8,13 @@ function missingSparkLoader(): never {
   );
 }
 
-export async function loadSparkPreviewObject(): Promise<LoadedPreview> {
+export async function loadSparkPreviewObject(
+  _file: SelectedFile,
+  _context: LoaderContext,
+  _fileBytes?: ArrayBuffer,
+): Promise<LoadedPreview> {
+  void _file;
+  void _context;
+  void _fileBytes;
   missingSparkLoader();
 }

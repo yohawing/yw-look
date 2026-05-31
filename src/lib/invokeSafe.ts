@@ -51,5 +51,6 @@ function isAppErrorShape(
 export function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string" && error.trim()) return error;
+  if (isAppErrorShape(error)) return error.message;
   return fallback;
 }
