@@ -6,6 +6,7 @@
 
 - Added Gaussian splat preview support for PLY, SPZ, and KSplat assets, including compressed SuperSplat PLY handling.
 - Improved Gaussian splat orientation, centering, and camera targeting so splat scenes open upright without unwanted bounds auto-framing.
+- Registered splat formats with the desktop app so they appear in OS file-opening flows.
 - Completed deferred USD payload preview loading and aligned progress reporting for deferred payload sessions.
 
 ### Build and release
