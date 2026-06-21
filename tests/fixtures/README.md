@@ -29,13 +29,13 @@ tests/fixtures/
 | `tiny-pointcloud.ply`              | PLY ASCII 1.0                                         | 4 点の point cloud                         | 手書き ASCII                                                         |
 | `cactus-supersplat-compressed.ply` | PLY binary little endian (SuperSplat compressed 3DGS) | 139,410 splats; classifier regression only | `3DGS_PLY_sample_data`, CC0; credit URL: https://www.steam-studio.jp |
 | `tiny-tetrahedron.dae`             | COLLADA                                               | 1 四面体                                   | `samples/assets/dae/TinyTetrahedron.dae`                             |
+| `Samba Dancing.fbx`                | FBX                                                   | Samba dancing animation sample             | `samples/assets/fbx/Samba Dancing.fbx`                               |
 
 ### 手動配置が必要なフォーマット (TODO)
 
-| ファイル名 (例) | フォーマット | 理由                                                                                 |
-| --------------- | ------------ | ------------------------------------------------------------------------------------ |
-| `sample.fbx`    | FBX          | 現在の公開 sample は 3.6MB。fixture 用には Blender 等で最小 animation を別途生成する |
-| `sample.vrm`    | VRM          | glTF 拡張。VRM 対応ツールから手動エクスポート                                        |
+| ファイル名 (例) | フォーマット | 理由                                          |
+| --------------- | ------------ | --------------------------------------------- |
+| `sample.vrm`    | VRM          | glTF 拡張。VRM 対応ツールから手動エクスポート |
 
 ---
 
@@ -50,8 +50,8 @@ tests/fixtures/
 | `crate-grey8.tga`        | TGA          | `samples/assets/tga/crate_grey8.tga`        |
 | `disturb-dxt1-nomip.dds` | DDS          | `samples/assets/dds/disturb_dxt1_nomip.dds` |
 | `2d-uastc.ktx2`          | KTX2         | `samples/assets/ktx2/2d_uastc.ktx2`         |
-
-HDR / EXR は `textures/README.md` の「手動配置」セクション参照。
+| `venice_sunset_1k.hdr`   | HDR          | `samples/assets/hdr/venice_sunset_1k.hdr`   |
+| `piz_compressed.exr`     | EXR          | `samples/assets/exr/piz_compressed.exr`     |
 
 ---
 
@@ -109,5 +109,4 @@ edge case である。runner は XFAIL として report に残し、通常 fixtu
 ## Future TODO
 
 - Sketchfab 等のフリーアセット取得スクリプトの整備 (今回スコープ外)
-- FBX / VRM の自動生成または CI での取得方法の検討
-- HDR / EXR の最小サンプル取得手順のドキュメント化
+- VRM の自動生成または CI での取得方法の検討

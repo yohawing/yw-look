@@ -25,36 +25,38 @@ type CoverageGap =
       reason: string;
     };
 
+type ExtensionCoverageGap = Extract<CoverageGap, { type: "extension" }>;
+type PlyKindCoverageGap = Extract<CoverageGap, { type: "plyKind" }>;
+
 const catalogCases = catalog.cases as CatalogCase[];
 
 const SPARK_EXTENSIONS = new Set(["splat", "spz", "ksplat", "sog"]);
 const MMD_EXTENSIONS = new Set(["pmx", "pmd"]);
 const PLY_ASSET_KINDS = ["mesh", "pointCloud", "gaussianSplat"] as const;
 
+const PRIVATE_ONLY_EXTENSIONS: ExtensionCoverageGap[] = [
+  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
+  { type: "extension", extension: "usd", reason: "private-only asset" },
+  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
+  { type: "extension", extension: "usdc", reason: "private-only asset" },
+  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
+  { type: "extension", extension: "usdz", reason: "private-only asset" },
+  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
+  { type: "extension", extension: "vrm", reason: "private-only asset" },
+  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
+  { type: "extension", extension: "splat", reason: "private-only asset" },
+  // private: real asset exists under external F:\\mmd; license-restricted; covered via selftest/manual, not public catalog.
+  { type: "extension", extension: "pmx", reason: "private-only asset" },
+  // private: real asset exists under external F:\\mmd; license-restricted; covered via selftest/manual, not public catalog.
+  { type: "extension", extension: "pmd", reason: "private-only asset" },
+];
+
 const KNOWN_COVERAGE_GAPS: CoverageGap[] = [
-  // No small public FBX fixture is enrolled yet.
-  { type: "extension", extension: "fbx", reason: "needs tiny public fixture" },
-  // USD binary/archive fixtures are planned separately from the existing USDA text case.
-  { type: "extension", extension: "usd", reason: "needs tiny public fixture" },
-  { type: "extension", extension: "usdc", reason: "needs tiny public fixture" },
-  { type: "extension", extension: "usdz", reason: "needs tiny public fixture" },
   // Alembic coverage exists as unit registration only; no public catalog asset yet.
   { type: "extension", extension: "abc", reason: "needs tiny public fixture" },
-  // Texture formats below are loader-supported but not yet represented in the public catalog.
+  // Texture alias is effectively covered by JPG, but no .jpeg catalog case is enrolled yet.
   { type: "extension", extension: "jpeg", reason: "needs texture fixture" },
-  { type: "extension", extension: "hdr", reason: "needs texture fixture" },
-  { type: "extension", extension: "exr", reason: "needs texture fixture" },
-  // VRM is optional but bundled differently from MMD/Spark; no public fixture is enrolled yet.
-  { type: "extension", extension: "vrm", reason: "needs tiny public fixture" },
-  // MMD model fixtures require a license-safe PMX/PMD sample before catalog enrollment.
-  { type: "extension", extension: "pmx", reason: "needs public MMD fixture" },
-  { type: "extension", extension: "pmd", reason: "needs public MMD fixture" },
   // Native Spark container fixtures are not enrolled yet; PLY gaussian splat covers Spark routing for now.
-  {
-    type: "extension",
-    extension: "splat",
-    reason: "needs public Spark fixture",
-  },
   { type: "extension", extension: "spz", reason: "needs public Spark fixture" },
   {
     type: "extension",
@@ -97,26 +99,37 @@ function expectedRequiredLoader(testCase: CatalogCase): RequiredLoader | null {
 
 describe("fixture catalog coverage", () => {
   it("keeps at least one catalog case per registered loader extension", () => {
+    const privateOnlyExtensions = new Set(
+      PRIVATE_ONLY_EXTENSIONS.map((gap) => gap.extension),
+    );
     const knownExtensionGaps = new Set(
-      KNOWN_COVERAGE_GAPS.filter((gap) => gap.type === "extension").map(
-        (gap) => gap.extension,
-      ),
+      KNOWN_COVERAGE_GAPS.filter(
+        (gap): gap is ExtensionCoverageGap => gap.type === "extension",
+      ).map((gap) => gap.extension),
     );
     const missingExtensions = listRegisteredLoaders()
       .map((loader) => loader.extension)
       .filter(
         (extension) =>
           casesForExtension(extension).length === 0 &&
+          !privateOnlyExtensions.has(extension) &&
           !knownExtensionGaps.has(extension),
       );
 
     expect(missingExtensions).toEqual([]);
   });
 
+  it("tracks private-only extensions until public catalog cases are added", () => {
+    const stalePrivateOnlyEntries = PRIVATE_ONLY_EXTENSIONS.filter(
+      (gap) => casesForExtension(gap.extension).length > 0,
+    ).map((gap) => `${gap.extension}: ${gap.reason}`);
+
+    expect(stalePrivateOnlyEntries).toEqual([]);
+  });
+
   it("tracks known extension gaps until their catalog cases are added", () => {
     const staleGaps = KNOWN_COVERAGE_GAPS.filter(
-      (gap): gap is Extract<CoverageGap, { type: "extension" }> =>
-        gap.type === "extension",
+      (gap): gap is ExtensionCoverageGap => gap.type === "extension",
     )
       .filter((gap) => casesForExtension(gap.extension).length > 0)
       .map((gap) => `${gap.extension}: ${gap.reason}`);
@@ -126,9 +139,9 @@ describe("fixture catalog coverage", () => {
 
   it("keeps PLY mesh, point-cloud, and gaussian-splat routes represented", () => {
     const knownPlyKindGaps = new Set(
-      KNOWN_COVERAGE_GAPS.filter((gap) => gap.type === "plyKind").map(
-        (gap) => gap.assetKind,
-      ),
+      KNOWN_COVERAGE_GAPS.filter(
+        (gap): gap is PlyKindCoverageGap => gap.type === "plyKind",
+      ).map((gap) => gap.assetKind),
     );
     const missingPlyKinds = PLY_ASSET_KINDS.filter(
       (assetKind) =>
@@ -141,8 +154,7 @@ describe("fixture catalog coverage", () => {
 
   it("tracks known PLY-kind gaps until their catalog cases are added", () => {
     const staleGaps = KNOWN_COVERAGE_GAPS.filter(
-      (gap): gap is Extract<CoverageGap, { type: "plyKind" }> =>
-        gap.type === "plyKind",
+      (gap): gap is PlyKindCoverageGap => gap.type === "plyKind",
     )
       .filter((gap) => casesForPlyKind(gap.assetKind).length > 0)
       .map((gap) => `${gap.assetKind}: ${gap.reason}`);

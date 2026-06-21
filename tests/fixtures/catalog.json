@@ -63,6 +63,13 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "model-fbx-samba-dancing",
+      "category": "valid",
+      "path": "samples/assets/fbx/Samba Dancing.fbx",
+      "format": "fbx",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "model-usda-tiny",
       "category": "valid-minimal",
       "path": "samples/assets/usd/tiny.usda",
@@ -102,6 +109,20 @@
       "category": "valid-minimal",
       "path": "tests/fixtures/textures/2d-uastc.ktx2",
       "format": "ktx2",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-hdr-venice-sunset",
+      "category": "valid",
+      "path": "samples/assets/hdr/venice_sunset_1k.hdr",
+      "format": "hdr",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-exr-piz-compressed",
+      "category": "valid",
+      "path": "samples/assets/exr/piz_compressed.exr",
+      "format": "exr",
       "expect": { "shouldLoad": true }
     },
     {
