@@ -7,7 +7,7 @@ yw-look のローダー・エラー処理のテスト用フィクスチャ。
 
 ```
 tests/fixtures/
-├── models/          # 3D モデルフォーマット (1 三角形)
+├── models/          # 3D モデルフォーマット (最小モデル)
 ├── textures/        # テクスチャフォーマット (1×1 pixel)
 ├── broken/          # 壊れた / 切り詰めたファイル (エラーハンドリングテスト用)
 ├── catalog.json     # fixture regression runner の公開カタログ
@@ -26,6 +26,7 @@ tests/fixtures/
 | `triangle.obj`                     | Wavefront OBJ (ASCII)                                 | 1 三角形                                   | 手書き ASCII                                                         |
 | `triangle.stl`                     | STL ASCII                                             | 1 三角形、法線付き                         | 手書き ASCII                                                         |
 | `triangle.ply`                     | PLY ASCII 1.0                                         | 1 三角形                                   | 手書き ASCII                                                         |
+| `tiny-pointcloud.ply`              | PLY ASCII 1.0                                         | 4 点の point cloud                         | 手書き ASCII                                                         |
 | `cactus-supersplat-compressed.ply` | PLY binary little endian (SuperSplat compressed 3DGS) | 139,410 splats; classifier regression only | `3DGS_PLY_sample_data`, CC0; credit URL: https://www.steam-studio.jp |
 | `tiny-tetrahedron.dae`             | COLLADA                                               | 1 四面体                                   | `samples/assets/dae/TinyTetrahedron.dae`                             |
 

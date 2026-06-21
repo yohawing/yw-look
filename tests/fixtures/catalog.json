@@ -39,6 +39,14 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "model-ply-tiny-pointcloud",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny-pointcloud.ply",
+      "format": "ply",
+      "assetKind": "pointCloud",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "model-ply-cactus-supersplat-compressed",
       "category": "valid-minimal",
       "path": "tests/fixtures/models/cactus-supersplat-compressed.ply",

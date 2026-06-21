@@ -62,12 +62,6 @@ const KNOWN_COVERAGE_GAPS: CoverageGap[] = [
     reason: "needs public Spark fixture",
   },
   { type: "extension", extension: "sog", reason: "needs public Spark fixture" },
-  // PLY point-cloud routing is unit-covered only; a real fixture still needs to be added.
-  {
-    type: "plyKind",
-    assetKind: "pointCloud",
-    reason: "needs real point-cloud PLY fixture",
-  },
 ];
 
 function getCaseFormat(testCase: CatalogCase) {
