@@ -170,7 +170,7 @@ function runCheck(testCase) {
         YW_LOOK_CARGO_FEATURES:
           process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
       },
-      shell: process.platform === "win32",
+      shell: false,
     });
 
     let stdout = "";
