@@ -17,6 +17,7 @@ type CoverageGap =
   | {
       type: "extension";
       extension: string;
+      privateCoverage: "noAsset";
       reason: string;
     }
   | {
@@ -27,6 +28,12 @@ type CoverageGap =
 
 type ExtensionCoverageGap = Extract<CoverageGap, { type: "extension" }>;
 type PlyKindCoverageGap = Extract<CoverageGap, { type: "plyKind" }>;
+type PrivateExtensionCoverage = {
+  extension: string;
+  publicCatalog: false;
+  privateCoverage: "covered" | "planned";
+  reason: string;
+};
 
 const catalogCases = catalog.cases as CatalogCase[];
 
@@ -34,36 +41,85 @@ const SPARK_EXTENSIONS = new Set(["splat", "spz", "ksplat", "sog"]);
 const MMD_EXTENSIONS = new Set(["pmx", "pmd"]);
 const PLY_ASSET_KINDS = ["mesh", "pointCloud", "gaussianSplat"] as const;
 
-const PRIVATE_ONLY_EXTENSIONS: ExtensionCoverageGap[] = [
-  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
-  { type: "extension", extension: "usd", reason: "private-only asset" },
-  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
-  { type: "extension", extension: "usdc", reason: "private-only asset" },
-  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
-  { type: "extension", extension: "usdz", reason: "private-only asset" },
-  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
-  { type: "extension", extension: "vrm", reason: "private-only asset" },
-  // private: real asset exists under samples/private; license-restricted; covered via selftest/manual, not public catalog.
-  { type: "extension", extension: "splat", reason: "private-only asset" },
-  // private: real asset exists under external F:\\mmd; license-restricted; covered via selftest/manual, not public catalog.
-  { type: "extension", extension: "pmx", reason: "private-only asset" },
-  // private: real asset exists under external F:\\mmd; license-restricted; covered via selftest/manual, not public catalog.
-  { type: "extension", extension: "pmd", reason: "private-only asset" },
+const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
+  {
+    extension: "splat",
+    publicCatalog: false,
+    privateCoverage: "covered",
+    reason: "samples/private/catalog.json has splat-nike",
+  },
+  {
+    extension: "vrm",
+    publicCatalog: false,
+    privateCoverage: "covered",
+    reason: "samples/private/catalog.json has vrm-constraint-twist",
+  },
+  {
+    extension: "abc",
+    publicCatalog: false,
+    privateCoverage: "covered",
+    reason: "samples/private/catalog.json has abc-monkey",
+  },
+  {
+    extension: "usdz",
+    publicCatalog: false,
+    privateCoverage: "covered",
+    reason: "samples/private/catalog.json has usdz-toy-biplane",
+  },
+  {
+    extension: "usd",
+    publicCatalog: false,
+    privateCoverage: "planned",
+    reason: "private USD data exists but is not enrolled in Phase B-1",
+  },
+  {
+    extension: "usdc",
+    publicCatalog: false,
+    privateCoverage: "planned",
+    reason:
+      "private USD composition has USDC layers; top-level case is later work",
+  },
+  {
+    extension: "pmx",
+    publicCatalog: false,
+    privateCoverage: "planned",
+    reason: "MMD enrollment is Phase B-2",
+  },
+  {
+    extension: "pmd",
+    publicCatalog: false,
+    privateCoverage: "planned",
+    reason: "MMD enrollment is Phase B-2",
+  },
 ];
 
 const KNOWN_COVERAGE_GAPS: CoverageGap[] = [
-  // Alembic coverage exists as unit registration only; no public catalog asset yet.
-  { type: "extension", extension: "abc", reason: "needs tiny public fixture" },
   // Texture alias is effectively covered by JPG, but no .jpeg catalog case is enrolled yet.
-  { type: "extension", extension: "jpeg", reason: "needs texture fixture" },
+  {
+    type: "extension",
+    extension: "jpeg",
+    privateCoverage: "noAsset",
+    reason: "needs texture fixture",
+  },
   // Native Spark container fixtures are not enrolled yet; PLY gaussian splat covers Spark routing for now.
-  { type: "extension", extension: "spz", reason: "needs public Spark fixture" },
+  {
+    type: "extension",
+    extension: "spz",
+    privateCoverage: "noAsset",
+    reason: "needs public Spark fixture",
+  },
   {
     type: "extension",
     extension: "ksplat",
+    privateCoverage: "noAsset",
     reason: "needs public Spark fixture",
   },
-  { type: "extension", extension: "sog", reason: "needs public Spark fixture" },
+  {
+    type: "extension",
+    extension: "sog",
+    privateCoverage: "noAsset",
+    reason: "needs public Spark fixture",
+  },
 ];
 
 function getCaseFormat(testCase: CatalogCase) {

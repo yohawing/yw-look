@@ -7,10 +7,13 @@ const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const catalogPath = path.join(repoRoot, "tests", "fixtures", "catalog.json");
+const defaultCatalogPath = path.join(
+  repoRoot,
+  "tests",
+  "fixtures",
+  "catalog.json",
+);
 const outputDir = path.join(repoRoot, "artifacts", "logs");
-const jsonReportPath = path.join(outputDir, "fixture-regression-report.json");
-const markdownReportPath = path.join(outputDir, "fixture-regression-report.md");
 const optionalLoaderPackages = {
   spark: {
     env: "YW_LOOK_HAS_SPARK_LOADER",
@@ -29,18 +32,38 @@ const optionalLoaderPackages = {
 
 const args = process.argv.slice(2);
 const listOnly = args.includes("--list");
+const privateMode = args.includes("--private");
+const catalogOption = readOption("--catalog");
+const catalogPath =
+  catalogOption === null
+    ? defaultCatalogPath
+    : path.resolve(repoRoot, catalogOption);
 const selectedCaseId = readOption("--case");
 const timeoutOption = readOption("--timeout-ms");
 const timeoutMs = timeoutOption === null ? null : Number(timeoutOption);
+const reportStem =
+  path.resolve(catalogPath) === path.resolve(defaultCatalogPath)
+    ? "fixture-regression-report"
+    : `fixture-regression-report.${getCatalogReportName(catalogPath)}`;
+const jsonReportPath = path.join(outputDir, `${reportStem}.json`);
+const markdownReportPath = path.join(outputDir, `${reportStem}.md`);
+const privateScreenshotDir = path.join(
+  repoRoot,
+  "artifacts",
+  "screenshots",
+  "private-fixtures",
+);
 
 const usage = `usage:
   npm run test:fixtures
+  npm run test:fixtures -- --catalog <path>
+  npm run test:fixtures -- --catalog samples/private/catalog.json --private
   npm run test:fixtures -- --case <id>
   npm run test:fixtures -- --list
   npm run test:fixtures -- --timeout-ms <ms>
 
 Runs fixture catalog cases through the real shot/check loader path and writes
-artifacts/logs/fixture-regression-report.{json,md}.`;
+artifacts/logs/fixture-regression-report[.<catalog>].{json,md}.`;
 
 function readOption(name) {
   const index = args.indexOf(name);
@@ -54,6 +77,17 @@ function readOption(name) {
 
 function normalizeRepoPath(filePath) {
   return path.relative(repoRoot, filePath).replace(/\\/g, "/");
+}
+
+function getCatalogReportName(filePath) {
+  const parsed = path.parse(filePath);
+  const name =
+    parsed.name === "catalog" ? path.basename(parsed.dir) : parsed.name;
+  return name.replace(/[^a-z0-9_-]+/gi, "-").toLowerCase();
+}
+
+function sanitizeFileStem(value) {
+  return value.replace(/[^a-z0-9_-]+/gi, "-").toLowerCase();
 }
 
 async function pathExists(filePath) {
@@ -134,10 +168,12 @@ async function readCatalog() {
           "assetState",
           testCase.id,
         ) ?? inferAssetState(category),
+      private: testCase.private === true,
       path: normalizeRepoPath(absolutePath),
       absolutePath,
       expect: {
         shouldLoad: testCase.expect?.shouldLoad !== false,
+        nonBlankCanvas: testCase.expect?.nonBlankCanvas === true,
       },
       knownFailure:
         typeof testCase.knownFailure === "string" && testCase.knownFailure
@@ -151,14 +187,21 @@ function tail(text, maxLines = 24) {
   return text.split(/\r?\n/).slice(-maxLines).join("\n").trim();
 }
 
-function runCheck(testCase) {
+function runCase(testCase) {
   const startedAt = performance.now();
+  const useShot = testCase.expect.nonBlankCanvas;
+  const screenshotPath = useShot
+    ? path.join(privateScreenshotDir, `${sanitizeFileStem(testCase.id)}.png`)
+    : null;
   const runArgs = [
     path.join(repoRoot, "scripts", "run-shot.mjs"),
-    "check",
+    useShot ? "shot" : "check",
     "--in",
     testCase.absolutePath,
   ];
+  if (screenshotPath) {
+    runArgs.push("--out", screenshotPath);
+  }
 
   return new Promise((resolve) => {
     const child = spawn(process.execPath, runArgs, {
@@ -187,6 +230,7 @@ function runCheck(testCase) {
               durationMs: Math.round(performance.now() - startedAt),
               stdout,
               stderr,
+              screenshotPath,
               error: `timed out after ${timeoutMs}ms`,
             });
           }, timeoutMs);
@@ -206,6 +250,7 @@ function runCheck(testCase) {
         durationMs: Math.round(performance.now() - startedAt),
         stdout,
         stderr,
+        screenshotPath,
         error: error.message,
       });
     });
@@ -218,6 +263,7 @@ function runCheck(testCase) {
         durationMs: Math.round(performance.now() - startedAt),
         stdout,
         stderr,
+        screenshotPath,
         error: null,
       });
     });
@@ -318,24 +364,30 @@ if (listOnly) {
 }
 
 await mkdir(outputDir, { recursive: true });
+if (cases.some((testCase) => testCase.expect.nonBlankCanvas)) {
+  await mkdir(privateScreenshotDir, { recursive: true });
+}
 
 const results = [];
 for (const testCase of cases) {
   const exists = await pathExists(testCase.absolutePath);
   if (!exists) {
-    const status = testCase.expect.shouldLoad
-      ? testCase.knownFailure
-        ? "XFAIL"
-        : "FAIL"
-      : "PASS";
+    const isPrivateCase = privateMode || testCase.private;
+    const status = isPrivateCase
+      ? "SKIP"
+      : testCase.expect.shouldLoad
+        ? testCase.knownFailure
+          ? "XFAIL"
+          : "FAIL"
+        : "PASS";
     results.push({
       ...testCase,
       expectedShouldLoad: testCase.expect.shouldLoad,
       actualLoaded: false,
       ok: status !== "FAIL",
       status,
-      skipped: false,
-      skipReason: null,
+      skipped: status === "SKIP",
+      skipReason: status === "SKIP" ? "private fixture file is missing" : null,
       knownFailure: status === "XFAIL" ? testCase.knownFailure : null,
       durationMs: 0,
       exitCode: null,
@@ -369,7 +421,7 @@ for (const testCase of cases) {
   }
 
   console.log(`[fixture] ${testCase.id}`);
-  const outcome = await runCheck(testCase);
+  const outcome = await runCase(testCase);
   const actualLoaded = outcome.exitCode === 0;
   const matchedExpectation = actualLoaded === testCase.expect.shouldLoad;
   const knownFailureHit = !matchedExpectation && Boolean(testCase.knownFailure);
@@ -390,6 +442,7 @@ for (const testCase of cases) {
     requiresLoader: testCase.requiresLoader,
     path: testCase.path,
     expectedShouldLoad: testCase.expect.shouldLoad,
+    expectedNonBlankCanvas: testCase.expect.nonBlankCanvas,
     actualLoaded,
     ok: status !== "FAIL",
     status,
@@ -398,6 +451,9 @@ for (const testCase of cases) {
     knownFailure: testCase.knownFailure,
     durationMs: outcome.durationMs,
     exitCode: outcome.exitCode,
+    screenshotPath: outcome.screenshotPath
+      ? normalizeRepoPath(outcome.screenshotPath)
+      : null,
     error: outcome.error,
     stdoutTail: tail(outcome.stdout),
     stderrTail: tail(outcome.stderr),

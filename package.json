@@ -29,6 +29,7 @@
     "test:count": "node scripts/count-tests.mjs",
     "test:batch": "node scripts/batch-load-test.mjs",
     "test:fixtures": "node scripts/fixture-regression.mjs",
+    "test:fixtures:private": "node scripts/fixture-regression.mjs --catalog samples/private/catalog.json --private",
     "test:integration": "node scripts/run-selftest.mjs",
     "test:visual": "node scripts/visual-regression.mjs",
     "test:viewport-snapshot": "node scripts/viewport-snapshot.mjs",
