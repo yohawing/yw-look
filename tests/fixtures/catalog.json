@@ -35,6 +35,16 @@
       "category": "valid-minimal",
       "path": "tests/fixtures/models/triangle.ply",
       "format": "ply",
+      "assetKind": "mesh",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-ply-cactus-supersplat-compressed",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/cactus-supersplat-compressed.ply",
+      "format": "ply",
+      "assetKind": "gaussianSplat",
+      "requiresLoader": "spark",
       "expect": { "shouldLoad": true }
     },
     {

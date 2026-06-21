@@ -11,6 +11,21 @@ const catalogPath = path.join(repoRoot, "tests", "fixtures", "catalog.json");
 const outputDir = path.join(repoRoot, "artifacts", "logs");
 const jsonReportPath = path.join(outputDir, "fixture-regression-report.json");
 const markdownReportPath = path.join(outputDir, "fixture-regression-report.md");
+const optionalLoaderPackages = {
+  spark: {
+    env: "YW_LOOK_HAS_SPARK_LOADER",
+    packagePath: path.join(repoRoot, "node_modules", "@sparkjsdev", "spark"),
+  },
+  mmd: {
+    env: "YW_LOOK_HAS_THREE_MMD_LOADER",
+    packagePath: path.join(
+      repoRoot,
+      "node_modules",
+      "@yohawing",
+      "three-mmd-loader",
+    ),
+  },
+};
 
 const args = process.argv.slice(2);
 const listOnly = args.includes("--list");
@@ -50,6 +65,42 @@ async function pathExists(filePath) {
   }
 }
 
+function readEnvBoolean(name) {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return null;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  throw new Error(`${name} must be one of 1/0, true/false, yes/no, or on/off`);
+}
+
+async function getOptionalLoaderAvailability() {
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(optionalLoaderPackages).map(async ([loader, config]) => {
+        const envOverride = readEnvBoolean(config.env);
+        return [
+          loader,
+          envOverride ?? (await pathExists(config.packagePath)),
+        ];
+      }),
+    ),
+  );
+}
+
+function inferAssetState(category) {
+  if (category === "malformed") return "malformed";
+  if (category === "missing-reference") return "missing-reference";
+  return "valid";
+}
+
+function normalizeNullableEnum(value, allowedValues, fieldName, caseId) {
+  if (value === undefined || value === null) return null;
+  if (allowedValues.includes(value)) return value;
+  throw new Error(
+    `${caseId} has invalid ${fieldName}: ${JSON.stringify(value)}`,
+  );
+}
+
 async function readCatalog() {
   const raw = await readFile(catalogPath, "utf8");
   const catalog = JSON.parse(raw);
@@ -59,10 +110,30 @@ async function readCatalog() {
 
   return catalog.cases.map((testCase) => {
     const absolutePath = path.resolve(repoRoot, testCase.path);
+    const category = testCase.category ?? "uncategorized";
     return {
       id: testCase.id,
-      category: testCase.category ?? "uncategorized",
+      category,
       format: testCase.format ?? path.extname(testCase.path).slice(1),
+      assetKind: normalizeNullableEnum(
+        testCase.assetKind,
+        ["mesh", "pointCloud", "gaussianSplat"],
+        "assetKind",
+        testCase.id,
+      ),
+      requiresLoader: normalizeNullableEnum(
+        testCase.requiresLoader,
+        ["spark", "mmd"],
+        "requiresLoader",
+        testCase.id,
+      ),
+      assetState:
+        normalizeNullableEnum(
+          testCase.assetState,
+          ["valid", "malformed", "missing-reference"],
+          "assetState",
+          testCase.id,
+        ) ?? inferAssetState(category),
       path: normalizeRepoPath(absolutePath),
       absolutePath,
       expect: {
@@ -159,10 +230,10 @@ function toMarkdown(report) {
     "",
     `Generated: ${report.generatedAt}`,
     "",
-    `Summary: ${report.summary.passed}/${report.summary.total} passed, ${report.summary.knownFailures} known failure(s)`,
+    `Summary: ${report.summary.passed}/${report.summary.total} passed, ${report.summary.knownFailures} known failure(s), ${report.summary.skipped} skipped, ${report.summary.xpass} xpass, ${report.summary.failed} failed`,
     "",
-    "| Case | Category | Format | Expected | Actual | Duration | Result |",
-    "| ---- | -------- | ------ | -------- | ------ | -------- | ------ |",
+    "| Case | Category | State | Format | Asset Kind | Loader | Expected | Actual | Duration | Result |",
+    "| ---- | -------- | ----- | ------ | ---------- | ------ | -------- | ------ | -------- | ------ |",
   ];
 
   for (const result of report.results) {
@@ -170,11 +241,14 @@ function toMarkdown(report) {
       [
         result.id,
         result.category,
+        result.assetState,
         result.format,
+        result.assetKind ?? "",
+        result.requiresLoader ?? "",
         result.expectedShouldLoad ? "load" : "fail",
-        result.actualLoaded ? "loaded" : "failed",
+        result.skipped ? "skipped" : result.actualLoaded ? "loaded" : "failed",
         `${result.durationMs}ms`,
-        result.knownFailure ? "XFAIL" : result.ok ? "PASS" : "FAIL",
+        result.status,
       ]
         .join(" | ")
         .replace(/^/, "| ")
@@ -182,7 +256,7 @@ function toMarkdown(report) {
     );
   }
 
-  const failures = report.results.filter((result) => !result.ok);
+  const failures = report.results.filter((result) => result.status === "FAIL");
   if (failures.length > 0) {
     lines.push("", "## Failures", "");
     for (const failure of failures) {
@@ -212,7 +286,9 @@ if (timeoutMs !== null && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
 }
 
 let cases;
+let optionalLoaderAvailability;
 try {
+  optionalLoaderAvailability = await getOptionalLoaderAvailability();
   cases = await readCatalog();
   if (selectedCaseId) {
     cases = cases.filter((testCase) => testCase.id === selectedCaseId);
@@ -228,7 +304,15 @@ try {
 
 if (listOnly) {
   for (const testCase of cases) {
-    console.log(`${testCase.id}: ${testCase.path}`);
+    const details = [
+      testCase.format,
+      testCase.assetKind ? `assetKind=${testCase.assetKind}` : null,
+      `assetState=${testCase.assetState}`,
+      testCase.requiresLoader
+        ? `requiresLoader=${testCase.requiresLoader}`
+        : null,
+    ].filter(Boolean);
+    console.log(`${testCase.id}: ${testCase.path} [${details.join(", ")}]`);
   }
   process.exit(0);
 }
@@ -239,15 +323,45 @@ const results = [];
 for (const testCase of cases) {
   const exists = await pathExists(testCase.absolutePath);
   if (!exists) {
+    const status = testCase.expect.shouldLoad
+      ? testCase.knownFailure
+        ? "XFAIL"
+        : "FAIL"
+      : "PASS";
     results.push({
       ...testCase,
       expectedShouldLoad: testCase.expect.shouldLoad,
       actualLoaded: false,
-      ok: !testCase.expect.shouldLoad || Boolean(testCase.knownFailure),
-      knownFailure: testCase.knownFailure,
+      ok: status !== "FAIL",
+      status,
+      skipped: false,
+      skipReason: null,
+      knownFailure: status === "XFAIL" ? testCase.knownFailure : null,
       durationMs: 0,
       exitCode: null,
       error: "fixture file is missing",
+      stdoutTail: "",
+      stderrTail: "",
+    });
+    continue;
+  }
+
+  if (
+    testCase.requiresLoader &&
+    optionalLoaderAvailability[testCase.requiresLoader] === false
+  ) {
+    results.push({
+      ...testCase,
+      expectedShouldLoad: testCase.expect.shouldLoad,
+      actualLoaded: false,
+      ok: true,
+      status: "SKIP",
+      skipped: true,
+      skipReason: `${testCase.requiresLoader} loader pack is not installed`,
+      knownFailure: testCase.knownFailure,
+      durationMs: 0,
+      exitCode: null,
+      error: null,
       stdoutTail: "",
       stderrTail: "",
     });
@@ -259,15 +373,29 @@ for (const testCase of cases) {
   const actualLoaded = outcome.exitCode === 0;
   const matchedExpectation = actualLoaded === testCase.expect.shouldLoad;
   const knownFailureHit = !matchedExpectation && Boolean(testCase.knownFailure);
+  const xpass = matchedExpectation && Boolean(testCase.knownFailure);
+  const status = knownFailureHit
+    ? "XFAIL"
+    : xpass
+      ? "XPASS"
+      : matchedExpectation
+        ? "PASS"
+        : "FAIL";
   results.push({
     id: testCase.id,
     category: testCase.category,
     format: testCase.format,
+    assetKind: testCase.assetKind,
+    assetState: testCase.assetState,
+    requiresLoader: testCase.requiresLoader,
     path: testCase.path,
     expectedShouldLoad: testCase.expect.shouldLoad,
     actualLoaded,
-    ok: matchedExpectation || knownFailureHit,
-    knownFailure: knownFailureHit ? testCase.knownFailure : null,
+    ok: status !== "FAIL",
+    status,
+    skipped: false,
+    skipReason: null,
+    knownFailure: testCase.knownFailure,
     durationMs: outcome.durationMs,
     exitCode: outcome.exitCode,
     error: outcome.error,
@@ -277,17 +405,24 @@ for (const testCase of cases) {
 }
 
 const passed = results.filter(
-  (result) => result.ok && !result.knownFailure,
+  (result) => result.status === "PASS",
 ).length;
-const knownFailures = results.filter((result) => result.knownFailure).length;
-const failed = results.filter((result) => !result.ok).length;
+const knownFailures = results.filter(
+  (result) => result.status === "XFAIL",
+).length;
+const skipped = results.filter((result) => result.status === "SKIP").length;
+const xpass = results.filter((result) => result.status === "XPASS").length;
+const failed = results.filter((result) => result.status === "FAIL").length;
 const report = {
   generatedAt: new Date().toISOString(),
   catalog: normalizeRepoPath(catalogPath),
+  optionalLoaders: optionalLoaderAvailability,
   summary: {
     total: results.length,
     passed,
     knownFailures,
+    skipped,
+    xpass,
     failed,
   },
   results,
@@ -297,7 +432,7 @@ await writeFile(jsonReportPath, `${JSON.stringify(report, null, 2)}\n`);
 await writeFile(markdownReportPath, toMarkdown(report));
 
 console.log(
-  `[fixture] ${passed}/${results.length} passed, ${knownFailures} known failure(s); report: ${normalizeRepoPath(
+  `[fixture] ${passed}/${results.length} passed, ${knownFailures} known failure(s), ${skipped} skipped, ${xpass} xpass; report: ${normalizeRepoPath(
     jsonReportPath,
   )}`,
 );
