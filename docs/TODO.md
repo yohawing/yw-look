@@ -124,6 +124,7 @@
 
 - [x] アニメーション有無の判定を実装する
 - [x] アニメーション付きモデルだけバーを表示する
+- [ ] メッシュを含まない animation-only データでも、スケルトン / ボーンだけを 3D ビューに表示できるようにする（例: `C:\Program Files\Autodesk\Maya2026\Examples\Animation\Motion_Capture\FBX` 配下の FBX）
 - [x] 下部オーバーレイのアニメーションバーを作る
 - [x] `Play / Pause` を実装する
 - [x] シークバーを実装する
@@ -385,6 +386,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [ ] fixture 未配置のテクスチャ形式を補う（TGA / DDS / KTX2 は追加済み。HDR / EXR は MB 単位のため最小 sample 取得方針を README に記録）
 - [x] アニメーション付きモデルのサンプルを用意する（`samples/assets/fbx/Samba Dancing.fbx`）
 - [ ] アニメーション付きモデルを `tests/fixtures/` 向けに最小化する
+- [ ] animation-only FBX の検証サンプルを整理し、メッシュなしでもボーン表示とアニメーション UI が成立する回帰テストを追加する（候補: `C:\Program Files\Autodesk\Maya2026\Examples\Animation\Motion_Capture\FBX`）
 - [x] 読み込み失敗を再現するための壊れたファイルを用意する（`tests/fixtures/broken/`）
 
 ### サンプル実ロードテスト（samples/manifest）（#52）
