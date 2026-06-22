@@ -73,6 +73,7 @@
 
 - [x] `glTF / GLB` ローダーを実装する
 - [x] `FBX` ローダーを実装する
+- [ ] `Urara_KiwameteKawaii.fbx` のパース失敗を調査し、読み込み可能化または明確な診断エラーを返す（`F:\3dcg\Motion\NanamiUrara_Kiwametekawaii_DanceMotion\Urara_KiwameteKawaii.fbx`）
 - [x] `OBJ` ローダーを実装する
 - [x] `USD` ローダーを experimental として実装する
 - [x] `USD` ローダーで `metersPerUnit` を読み取りスケール補正を適用する（Three.js USDAParser が無視するため極小表示になる）
@@ -387,6 +388,7 @@ USD-view パリティの取り組みは tracking issue #27 配下で進める。
 - [x] アニメーション付きモデルのサンプルを用意する（`samples/assets/fbx/Samba Dancing.fbx`）
 - [ ] アニメーション付きモデルを `tests/fixtures/` 向けに最小化する
 - [ ] animation-only FBX の検証サンプルを整理し、メッシュなしでもボーン表示とアニメーション UI が成立する回帰テストを追加する（候補: `C:\Program Files\Autodesk\Maya2026\Examples\Animation\Motion_Capture\FBX`）
+- [ ] `Urara_KiwameteKawaii.fbx` のような実モーション FBX を private regression 対象に追加し、FBX パース失敗を再現・検出できるようにする
 - [x] 読み込み失敗を再現するための壊れたファイルを用意する（`tests/fixtures/broken/`）
 
 ### サンプル実ロードテスト（samples/manifest）（#52）
