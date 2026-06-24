@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 use crate::shared::{
     current_timestamp, infer_file_kind, is_supported_extension, load_or_initialize_settings,
-    normalize_file_path, read_json_file, repo_root, resolve_recent_files_path,
-    system_time_to_unix_string, write_json_file, MODEL_EXTENSIONS, PREVIEW_IMPLEMENTED_EXTENSIONS,
-    MOTION_EXTENSIONS, TEXTURE_EXTENSIONS,
+    normalize_file_path, read_json_file, repo_root, resolve_app_data_dir,
+    system_time_to_unix_string, write_json_file, MODEL_EXTENSIONS, MOTION_EXTENSIONS,
+    PREVIEW_IMPLEMENTED_EXTENSIONS, RECENT_FILES_FILE_NAME, TEXTURE_EXTENSIONS,
 };
 use crate::state::PendingOpenFiles;
 
@@ -137,10 +137,14 @@ fn list_supported_files_in_directory(directory: &Path) -> Result<Vec<SelectedFil
     Ok(files)
 }
 
-fn load_recent_file_entries(
-    app: &tauri::AppHandle,
+fn recent_files_path_from_dir(dir: &Path) -> PathBuf {
+    dir.join(RECENT_FILES_FILE_NAME)
+}
+
+fn load_recent_file_entries_from_path(
+    dir: &Path,
 ) -> Result<(PathBuf, Vec<RecentFileEntry>), AppError> {
-    let recent_files_path = resolve_recent_files_path(app)?;
+    let recent_files_path = recent_files_path_from_dir(dir);
 
     if !recent_files_path.exists() {
         write_json_file(&recent_files_path, &Vec::<RecentFileEntry>::new())?;
@@ -154,15 +158,15 @@ fn save_recent_file_entries(path: &Path, entries: &[RecentFileEntry]) -> Result<
     write_json_file(path, &entries.to_vec())
 }
 
-fn load_clean_recent_file_entries(
-    app: &tauri::AppHandle,
+fn load_clean_recent_file_entries_from_path(
+    dir: &Path,
+    recent_files_limit: usize,
 ) -> Result<(PathBuf, Vec<RecentFileEntry>), AppError> {
-    let (_, settings) = load_or_initialize_settings(app)?;
-    let (recent_files_path, mut entries) = load_recent_file_entries(app)?;
+    let (recent_files_path, mut entries) = load_recent_file_entries_from_path(dir)?;
     let original_len = entries.len();
 
     entries.retain(|entry| Path::new(&entry.path).exists());
-    entries.truncate(settings.recent_files_limit);
+    entries.truncate(recent_files_limit);
 
     if entries.len() != original_len {
         save_recent_file_entries(&recent_files_path, &entries)?;
@@ -171,9 +175,21 @@ fn load_clean_recent_file_entries(
     Ok((recent_files_path, entries))
 }
 
-fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Result<(), AppError> {
+fn load_clean_recent_file_entries(
+    app: &tauri::AppHandle,
+) -> Result<(PathBuf, Vec<RecentFileEntry>), AppError> {
     let (_, settings) = load_or_initialize_settings(app)?;
-    let (recent_files_path, mut entries) = load_recent_file_entries(app)?;
+    let app_data_dir = resolve_app_data_dir(app)?;
+    load_clean_recent_file_entries_from_path(&app_data_dir, settings.recent_files_limit)
+}
+
+fn sync_recent_file_from_path(
+    dir: &Path,
+    file: &SelectedFilePayload,
+    recent_files_limit: usize,
+    last_accessed_at: String,
+) -> Result<(), AppError> {
+    let (recent_files_path, mut entries) = load_recent_file_entries_from_path(dir)?;
 
     entries.retain(|entry| entry.path != file.path && Path::new(&entry.path).exists());
     entries.insert(
@@ -181,14 +197,25 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
         RecentFileEntry {
             path: file.path.clone(),
             kind: file.kind.clone(),
-            last_accessed_at: current_timestamp(),
+            last_accessed_at,
         },
     );
-    entries.truncate(settings.recent_files_limit);
+    entries.truncate(recent_files_limit);
 
     save_recent_file_entries(&recent_files_path, &entries)?;
 
     Ok(())
+}
+
+fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Result<(), AppError> {
+    let (_, settings) = load_or_initialize_settings(app)?;
+    let app_data_dir = resolve_app_data_dir(app)?;
+    sync_recent_file_from_path(
+        &app_data_dir,
+        file,
+        settings.recent_files_limit,
+        current_timestamp(),
+    )
 }
 
 fn read_png_dimensions(path: &Path) -> Option<ImageDimensions> {
@@ -435,4 +462,210 @@ pub(crate) fn load_recent_files(app: tauri::AppHandle) -> Result<RecentFilesPayl
         recent_files_path: recent_files_path.display().to_string(),
         entries,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn recent_files_path(dir: &Path) -> PathBuf {
+        dir.join(RECENT_FILES_FILE_NAME)
+    }
+
+    fn create_file(dir: &Path, file_name: &str) -> PathBuf {
+        let path = dir.join(file_name);
+        fs::write(&path, b"fixture").expect("write fixture");
+        path
+    }
+
+    fn selected_file(dir: &Path, file_name: &str) -> SelectedFilePayload {
+        build_selected_file_payload(create_file(dir, file_name)).expect("selected file")
+    }
+
+    fn entry_for_path(path: &Path, kind: &str, last_accessed_at: &str) -> RecentFileEntry {
+        RecentFileEntry {
+            path: path.display().to_string(),
+            kind: kind.to_string(),
+            last_accessed_at: last_accessed_at.to_string(),
+        }
+    }
+
+    fn read_entries(dir: &Path) -> Vec<RecentFileEntry> {
+        read_json_file(&recent_files_path(dir)).expect("read recent files")
+    }
+
+    fn write_entries(dir: &Path, entries: &[RecentFileEntry]) {
+        save_recent_file_entries(&recent_files_path(dir), entries).expect("write recent files");
+    }
+
+    #[test]
+    fn load_recent_files_creates_empty_file_when_missing() {
+        let dir = tempdir().expect("tempdir");
+
+        let (path, entries) =
+            load_recent_file_entries_from_path(dir.path()).expect("load recent files");
+
+        assert_eq!(path, recent_files_path(dir.path()));
+        assert!(entries.is_empty());
+        assert_eq!(fs::read_to_string(path).expect("recent files json"), "[]");
+    }
+
+    #[test]
+    fn cleanup_removes_entries_for_missing_paths() {
+        let dir = tempdir().expect("tempdir");
+        let keep = create_file(dir.path(), "keep.glb");
+        let missing = dir.path().join("missing.glb");
+        write_entries(
+            dir.path(),
+            &[
+                entry_for_path(&missing, "model", "1"),
+                entry_for_path(&keep, "model", "2"),
+            ],
+        );
+
+        let (_, entries) =
+            load_clean_recent_file_entries_from_path(dir.path(), 20).expect("clean entries");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, keep.display().to_string());
+    }
+
+    #[test]
+    fn cleanup_truncates_entries_to_recent_files_limit() {
+        let dir = tempdir().expect("tempdir");
+        let first = create_file(dir.path(), "first.glb");
+        let second = create_file(dir.path(), "second.png");
+        let third = create_file(dir.path(), "third.vmd");
+        write_entries(
+            dir.path(),
+            &[
+                entry_for_path(&first, "model", "1"),
+                entry_for_path(&second, "texture", "2"),
+                entry_for_path(&third, "motion", "3"),
+            ],
+        );
+
+        let (_, entries) =
+            load_clean_recent_file_entries_from_path(dir.path(), 2).expect("clean entries");
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, first.display().to_string());
+        assert_eq!(entries[1].path, second.display().to_string());
+    }
+
+    #[test]
+    fn sync_recent_file_adds_new_file_to_front() {
+        let dir = tempdir().expect("tempdir");
+        let file = selected_file(dir.path(), "asset.glb");
+
+        sync_recent_file_from_path(dir.path(), &file, 20, "12345".to_string())
+            .expect("sync recent file");
+        let entries = read_entries(dir.path());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, file.path);
+        assert_eq!(entries[0].kind, "model");
+        assert_eq!(entries[0].last_accessed_at, "12345");
+    }
+
+    #[test]
+    fn sync_recent_file_deduplicates_and_moves_existing_entry_to_front() {
+        let dir = tempdir().expect("tempdir");
+        let first = selected_file(dir.path(), "first.glb");
+        let second = selected_file(dir.path(), "second.png");
+        write_entries(
+            dir.path(),
+            &[
+                RecentFileEntry {
+                    path: first.path.clone(),
+                    kind: first.kind.clone(),
+                    last_accessed_at: "1".to_string(),
+                },
+                RecentFileEntry {
+                    path: second.path.clone(),
+                    kind: second.kind.clone(),
+                    last_accessed_at: "2".to_string(),
+                },
+            ],
+        );
+
+        sync_recent_file_from_path(dir.path(), &second, 20, "99".to_string())
+            .expect("sync recent file");
+        let entries = read_entries(dir.path());
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, second.path);
+        assert_eq!(entries[0].last_accessed_at, "99");
+        assert_eq!(entries[1].path, first.path);
+    }
+
+    #[test]
+    fn sync_recent_file_cleans_missing_entries() {
+        let dir = tempdir().expect("tempdir");
+        let existing = selected_file(dir.path(), "existing.glb");
+        let incoming = selected_file(dir.path(), "incoming.png");
+        let missing = dir.path().join("missing.vmd");
+        write_entries(
+            dir.path(),
+            &[
+                entry_for_path(&missing, "motion", "1"),
+                RecentFileEntry {
+                    path: existing.path.clone(),
+                    kind: existing.kind.clone(),
+                    last_accessed_at: "2".to_string(),
+                },
+            ],
+        );
+
+        sync_recent_file_from_path(dir.path(), &incoming, 20, "3".to_string())
+            .expect("sync recent file");
+        let entries = read_entries(dir.path());
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, incoming.path);
+        assert_eq!(entries[1].path, existing.path);
+    }
+
+    #[test]
+    fn sync_recent_file_applies_limit_after_insert() {
+        let dir = tempdir().expect("tempdir");
+        let first = selected_file(dir.path(), "first.glb");
+        let second = selected_file(dir.path(), "second.png");
+        let incoming = selected_file(dir.path(), "incoming.vmd");
+        write_entries(
+            dir.path(),
+            &[
+                RecentFileEntry {
+                    path: first.path.clone(),
+                    kind: first.kind.clone(),
+                    last_accessed_at: "1".to_string(),
+                },
+                RecentFileEntry {
+                    path: second.path.clone(),
+                    kind: second.kind.clone(),
+                    last_accessed_at: "2".to_string(),
+                },
+            ],
+        );
+
+        sync_recent_file_from_path(dir.path(), &incoming, 2, "3".to_string())
+            .expect("sync recent file");
+        let entries = read_entries(dir.path());
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, incoming.path);
+        assert_eq!(entries[1].path, first.path);
+    }
+
+    #[test]
+    fn load_recent_files_returns_serde_error_for_invalid_json() {
+        let dir = tempdir().expect("tempdir");
+        fs::write(recent_files_path(dir.path()), "{ invalid json").expect("write recent files");
+
+        let err =
+            load_recent_file_entries_from_path(dir.path()).expect_err("invalid json should fail");
+
+        assert!(matches!(err, AppError::Serde(_)));
+    }
 }

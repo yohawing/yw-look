@@ -1,8 +1,11 @@
 use serde::Serialize;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 use crate::shared::{
-    load_or_initialize_settings, resolve_settings_path, sanitize_settings, write_settings_file,
+    load_or_initialize_settings, resolve_app_data_dir, sanitize_settings, write_settings_file,
+    SETTINGS_FILE_NAME,
 };
 use crate::state::AppSettings;
 
@@ -13,9 +16,41 @@ pub(crate) struct SettingsPayload {
     pub(crate) settings: AppSettings,
 }
 
+fn settings_path_from_dir(dir: &Path) -> PathBuf {
+    dir.join(SETTINGS_FILE_NAME)
+}
+
+fn load_settings_from_path(dir: &Path) -> Result<(PathBuf, AppSettings), AppError> {
+    let settings_path = settings_path_from_dir(dir);
+    let settings =
+        if settings_path.exists() {
+            let raw = fs::read_to_string(&settings_path)
+                .map_err(|error| AppError::Io(format!("failed to read settings file: {error}")))?;
+            sanitize_settings(serde_json::from_str::<AppSettings>(&raw).map_err(|error| {
+                AppError::Serde(format!("failed to parse settings file: {error}"))
+            })?)
+        } else {
+            let defaults = sanitize_settings(AppSettings::default());
+            write_settings_file(&settings_path, &defaults)?;
+            defaults
+        };
+    Ok((settings_path, settings))
+}
+
+fn save_settings_to_path(
+    dir: &Path,
+    settings: AppSettings,
+) -> Result<(PathBuf, AppSettings), AppError> {
+    let settings_path = settings_path_from_dir(dir);
+    let settings = sanitize_settings(settings);
+    write_settings_file(&settings_path, &settings)?;
+    Ok((settings_path, settings))
+}
+
 #[tauri::command]
 pub(crate) fn load_settings(app: tauri::AppHandle) -> Result<SettingsPayload, AppError> {
-    let (settings_path, settings) = load_or_initialize_settings(&app)?;
+    let app_data_dir = resolve_app_data_dir(&app)?;
+    let (settings_path, settings) = load_settings_from_path(&app_data_dir)?;
 
     Ok(SettingsPayload {
         settings_path: settings_path.display().to_string(),
@@ -28,9 +63,8 @@ pub(crate) fn save_settings(
     app: tauri::AppHandle,
     settings: AppSettings,
 ) -> Result<SettingsPayload, AppError> {
-    let settings_path = resolve_settings_path(&app)?;
-    let settings = sanitize_settings(settings);
-    write_settings_file(&settings_path, &settings)?;
+    let app_data_dir = resolve_app_data_dir(&app)?;
+    let (settings_path, settings) = save_settings_to_path(&app_data_dir, settings)?;
 
     Ok(SettingsPayload {
         settings_path: settings_path.display().to_string(),
@@ -44,4 +78,120 @@ pub(crate) fn load_update_configuration(
 ) -> Result<crate::commands::updater::UpdateConfigurationPayload, AppError> {
     let (_, settings) = load_or_initialize_settings(&app)?;
     Ok(crate::commands::updater::build_update_configuration_payload(&app, &settings))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+    use tempfile::tempdir;
+
+    fn read_settings_value(path: &Path) -> Value {
+        let raw = fs::read_to_string(path).expect("settings json should be readable");
+        serde_json::from_str(&raw).expect("settings json should parse")
+    }
+
+    #[test]
+    fn load_settings_creates_default_file_when_missing() {
+        let dir = tempdir().expect("tempdir");
+
+        let (settings_path, settings) = load_settings_from_path(dir.path()).expect("load settings");
+
+        assert_eq!(settings_path, dir.path().join(SETTINGS_FILE_NAME));
+        assert!(settings_path.exists());
+        let file_settings: AppSettings =
+            serde_json::from_value(read_settings_value(&settings_path)).expect("file settings");
+        assert_eq!(
+            serde_json::to_value(&file_settings).expect("file settings value"),
+            serde_json::to_value(&settings).expect("returned settings value")
+        );
+    }
+
+    #[test]
+    fn load_settings_applies_defaults_for_incomplete_json() {
+        let dir = tempdir().expect("tempdir");
+        let settings_path = dir.path().join(SETTINGS_FILE_NAME);
+        fs::write(&settings_path, r#"{"recentFilesLimit":5}"#).expect("write settings");
+
+        let (_, settings) = load_settings_from_path(dir.path()).expect("load settings");
+
+        assert_eq!(settings.version, 4);
+        assert_eq!(settings.recent_files_limit, 5);
+        assert_eq!(settings.diagnostics_log_level, "info");
+        assert!(!settings.file_associations_enabled);
+        assert_eq!(settings.update_endpoint_override, None);
+        assert_eq!(settings.update_public_key_override, None);
+    }
+
+    #[test]
+    fn load_settings_sanitizes_invalid_values() {
+        let dir = tempdir().expect("tempdir");
+        let settings_path = dir.path().join(SETTINGS_FILE_NAME);
+        fs::write(
+            &settings_path,
+            r#"{
+  "version": 0,
+  "recentFilesLimit": 0,
+  "diagnosticsLogLevel": "",
+  "updateEndpointOverride": "   ",
+  "updatePublicKeyOverride": "\t"
+}"#,
+        )
+        .expect("write settings");
+
+        let (_, settings) = load_settings_from_path(dir.path()).expect("load settings");
+
+        assert_eq!(settings.version, 4);
+        assert_eq!(settings.recent_files_limit, 1);
+        assert_eq!(settings.diagnostics_log_level, "info");
+        assert_eq!(settings.update_endpoint_override, None);
+        assert_eq!(settings.update_public_key_override, None);
+    }
+
+    #[test]
+    fn save_settings_sanitizes_and_writes_camel_case_json() {
+        let dir = tempdir().expect("tempdir");
+        let settings = AppSettings {
+            version: 0,
+            recent_files_limit: 0,
+            diagnostics_log_level: "".to_string(),
+            update_endpoint_override: Some(
+                "  https://updates.example.test/feed.json  ".to_string(),
+            ),
+            update_public_key_override: Some("  ".to_string()),
+            allow_insecure_update_endpoint: true,
+            ..AppSettings::default()
+        };
+
+        let (settings_path, saved) =
+            save_settings_to_path(dir.path(), settings).expect("save settings");
+        let json = read_settings_value(&settings_path);
+
+        assert_eq!(saved.version, 4);
+        assert_eq!(saved.recent_files_limit, 1);
+        assert_eq!(saved.diagnostics_log_level, "info");
+        assert_eq!(
+            json["recentFilesLimit"],
+            serde_json::json!(saved.recent_files_limit)
+        );
+        assert_eq!(json["diagnosticsLogLevel"], serde_json::json!("info"));
+        assert_eq!(
+            json["updateEndpointOverride"],
+            serde_json::json!("https://updates.example.test/feed.json")
+        );
+        assert_eq!(json["updatePublicKeyOverride"], Value::Null);
+        assert!(json.get("recent_files_limit").is_none());
+        assert!(json.get("diagnostics_log_level").is_none());
+    }
+
+    #[test]
+    fn load_settings_returns_serde_error_for_invalid_json() {
+        let dir = tempdir().expect("tempdir");
+        let settings_path = dir.path().join(SETTINGS_FILE_NAME);
+        fs::write(&settings_path, "{ invalid json").expect("write settings");
+
+        let err = load_settings_from_path(dir.path()).expect_err("invalid json should fail");
+
+        assert!(matches!(err, AppError::Serde(_)));
+    }
 }

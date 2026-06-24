@@ -125,10 +125,6 @@ pub(crate) fn resolve_settings_path(app: &tauri::AppHandle) -> Result<PathBuf, A
     Ok(resolve_app_data_dir(app)?.join(SETTINGS_FILE_NAME))
 }
 
-pub(crate) fn resolve_recent_files_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
-    Ok(resolve_app_data_dir(app)?.join(RECENT_FILES_FILE_NAME))
-}
-
 pub(crate) fn resolve_diagnostics_log_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
     Ok(resolve_app_data_dir(app)?.join(DIAGNOSTICS_LOG_FILE_NAME))
 }
