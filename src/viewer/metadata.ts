@@ -6,6 +6,9 @@ import {
   Color,
   Euler,
   Group,
+  InterpolateDiscrete,
+  InterpolateLinear,
+  InterpolateSmooth,
   Light,
   Material,
   MathUtils,
@@ -16,6 +19,7 @@ import {
   Object3D,
   OrthographicCamera,
   PerspectiveCamera,
+  PropertyBinding,
   SkinnedMesh,
   Texture,
 } from "three";
@@ -37,7 +41,11 @@ import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { isViewportHelperObject, getMaterials } from "./scene";
 import { isInternalMmdProxyObject } from "./mmd/userData";
 
-import type { MetadataCollection } from "../types/viewer";
+import type {
+  AnimationClipMetadata,
+  AnimationTrackMetadata,
+  MetadataCollection,
+} from "../types/viewer";
 
 export type { MetadataCollection } from "../types/viewer";
 
@@ -51,6 +59,145 @@ function getObjectKind(object: Object3D) {
   }
 
   return object.type.toLowerCase();
+}
+
+function fallbackTrackNameParts(name: string): {
+  target: string;
+  propertyPath: string;
+} {
+  const dotIndex = name.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex >= name.length - 1) {
+    return {
+      target: name || "(unknown target)",
+      propertyPath: "(unknown property)",
+    };
+  }
+
+  return {
+    target: name.slice(0, dotIndex) || "(unknown target)",
+    propertyPath: name.slice(dotIndex + 1) || "(unknown property)",
+  };
+}
+
+function parseAnimationTrackName(name: string): {
+  target: string;
+  propertyPath: string;
+} {
+  try {
+    const parsed = PropertyBinding.parseTrackName(name);
+    const objectSegment = parsed.objectName
+      ? `${parsed.objectName}${parsed.objectIndex ? `[${parsed.objectIndex}]` : ""}`
+      : "";
+    const propertySegment = parsed.propertyName
+      ? `${parsed.propertyName}${parsed.propertyIndex ? `[${parsed.propertyIndex}]` : ""}`
+      : "";
+    const propertyPath = [objectSegment, propertySegment]
+      .filter(Boolean)
+      .join(".");
+    const target =
+      parsed.objectName === "bones" && parsed.objectIndex
+        ? parsed.objectIndex
+        : parsed.nodeName || "(root)";
+
+    return {
+      target,
+      propertyPath: propertyPath || "(unknown property)",
+    };
+  } catch {
+    return fallbackTrackNameParts(name);
+  }
+}
+
+function interpolationLabel(
+  interpolation: number,
+): AnimationTrackMetadata["interpolation"] {
+  switch (interpolation) {
+    case InterpolateLinear:
+      return "linear";
+    case InterpolateDiscrete:
+      return "discrete";
+    case InterpolateSmooth:
+      return "smooth";
+    default:
+      return "unknown";
+  }
+}
+
+function timeRange(times: ArrayLike<number>): [number, number] {
+  if (times.length === 0) {
+    return [0, 0];
+  }
+
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < times.length; i += 1) {
+    const time = times[i];
+    if (!Number.isFinite(time)) continue;
+    min = Math.min(min, time);
+    max = Math.max(max, time);
+  }
+
+  return Number.isFinite(min) && Number.isFinite(max) ? [min, max] : [0, 0];
+}
+
+function estimateFrameRateFromDeltas(deltas: number[]): number | null {
+  if (deltas.length === 0) {
+    return null;
+  }
+
+  const counts = new Map<string, number>();
+  for (const delta of deltas) {
+    if (!Number.isFinite(delta) || delta <= Number.EPSILON) continue;
+    const key = delta.toFixed(6);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  let modeDelta = 0;
+  let modeCount = 0;
+  for (const [key, count] of counts) {
+    if (count > modeCount) {
+      modeDelta = Number(key);
+      modeCount = count;
+    }
+  }
+
+  return modeDelta > 0 ? 1 / modeDelta : null;
+}
+
+export function buildAnimationClipMetadata(
+  clips: AnimationClip[],
+): AnimationClipMetadata[] {
+  return clips.map((clip, clipIndex) => {
+    const deltas: number[] = [];
+    const tracks = clip.tracks.map((track) => {
+      const times = track.times;
+      for (let i = 1; i < times.length; i += 1) {
+        deltas.push(times[i] - times[i - 1]);
+      }
+
+      const parsedName = parseAnimationTrackName(track.name);
+      return {
+        name: track.name,
+        target: parsedName.target,
+        propertyPath: parsedName.propertyPath,
+        keyframeCount: times.length,
+        timeRange: timeRange(times),
+        interpolation: interpolationLabel(track.getInterpolation()),
+      };
+    });
+
+    return {
+      name: clip.name.trim() || `Clip ${clipIndex + 1}`,
+      duration: clip.duration,
+      trackCount: tracks.length,
+      keyframeCount: tracks.reduce(
+        (sum, track) => sum + track.keyframeCount,
+        0,
+      ),
+      estimatedFrameRate: estimateFrameRateFromDeltas(deltas),
+      tracks,
+    };
+  });
 }
 
 /** Trim `Object3D.name` while tolerating loaders that leave the field as
@@ -881,6 +1028,7 @@ export function collectAssetMetadata(
   const textureRegistry = new Map<string, Texture>();
   const lights: LightEntry[] = [];
   const cameras: CameraEntry[] = [];
+  const animationClips = buildAnimationClipMetadata(clips);
   // Tracks camera-name occurrences during traversal so duplicate-named
   // cameras get suffixed selection ids (#1, #2, …).
   const cameraSeenCounts = new Map<string, number>();
@@ -982,6 +1130,7 @@ export function collectAssetMetadata(
       materialCount: materials.size,
       textureCount: textures.size,
       hasAnimation: clips.length > 0,
+      animationClips,
       hierarchy: buildHierarchyForest(object),
       textures: [...textures.values()],
       materials: [...materials].map((material) =>

@@ -23,6 +23,7 @@ import {
   buildStatusLeftItems,
   buildStatusRightItems,
 } from "./components/appStatusItems";
+import { AnimationInspectorCard } from "./components/AnimationInspectorCard";
 import { CurrentFileCard } from "./components/CurrentFileCard";
 import { ObjectInspectorCard } from "./components/ObjectInspectorCard";
 import {
@@ -1210,6 +1211,11 @@ export function App() {
             />
             {sidebarAssetMetadata?.mmd ? (
               <MmdMetadataCard metadata={sidebarAssetMetadata.mmd} />
+            ) : null}
+            {sidebarAssetMetadata?.hasAnimation ? (
+              <AnimationInspectorCard
+                clips={sidebarAssetMetadata.animationClips ?? []}
+              />
             ) : null}
             {isTauri && isUsdFile(currentFile) && (
               <>

@@ -1498,6 +1498,112 @@ body.is-resizing-sidebar {
   vertical-align: middle;
 }
 
+/* ── Animation Inspector ── */
+
+.animation-inspector-list {
+  padding-bottom: 8px;
+}
+
+.animation-inspector-row {
+  gap: 8px;
+}
+
+.animation-inspector-info {
+  min-width: 0;
+}
+
+.animation-inspector-count {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.animation-inspector-selected-panel {
+  padding-bottom: 12px;
+}
+
+.animation-inspector-track-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 16px 0;
+}
+
+.animation-inspector-track {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--yl-border-subtle);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.animation-inspector-track[open] {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.animation-inspector-track-summary {
+  align-items: center;
+  color: var(--yl-text-muted);
+  cursor: pointer;
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  gap: 8px;
+  list-style: none;
+  min-width: 0;
+}
+
+.animation-inspector-track-summary::-webkit-details-marker {
+  display: none;
+}
+
+.animation-inspector-track-summary::before {
+  color: var(--yl-text-tertiary);
+  content: ">";
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  transition: transform 0.15s ease;
+}
+
+.animation-inspector-track[open] > .animation-inspector-track-summary::before {
+  transform: rotate(90deg);
+}
+
+.animation-inspector-track-name {
+  color: var(--yl-text-primary);
+  flex: 1 1 auto;
+  font-weight: 510;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.animation-inspector-track-meta {
+  color: var(--yl-text-tertiary);
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.animation-inspector-track-table {
+  table-layout: fixed;
+}
+
+.animation-inspector-track-table .mat-slot-label {
+  width: 96px;
+}
+
+.animation-inspector-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.animation-inspector-mono {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Object Inspector ── (#80) */
 
 .oi-material-list {

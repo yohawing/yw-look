@@ -384,6 +384,26 @@ export type MaterialEntry = {
   mmd: MmdMaterialEntry | null;
 };
 
+// ── Animation metadata ───────────────────────────────────────────
+
+export type AnimationTrackMetadata = {
+  name: string;
+  target: string;
+  propertyPath: string;
+  keyframeCount: number;
+  timeRange: [number, number];
+  interpolation: "linear" | "discrete" | "smooth" | "unknown";
+};
+
+export type AnimationClipMetadata = {
+  name: string;
+  duration: number;
+  trackCount: number;
+  keyframeCount: number;
+  estimatedFrameRate: number | null;
+  tracks: AnimationTrackMetadata[];
+};
+
 // ── Light entry ──────────────────────────────────────────────────
 
 export type LightEntry = {
@@ -515,6 +535,7 @@ export type AssetMetadata = {
   materialCount: number;
   textureCount: number;
   hasAnimation: boolean;
+  animationClips?: AnimationClipMetadata[];
   hierarchy: HierarchyNode[];
   textures: TextureEntry[];
   materials: MaterialEntry[];
