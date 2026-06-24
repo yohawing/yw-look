@@ -35,6 +35,11 @@ not committed.
 - `samples/private/fbx/Bistro_v5_2/BistroInterior_Wine.fbx`
   Source: Amazon Lumberyard Bistro, Open Research Content Archive (ORCA)
   License: CC-BY 4.0
+- `samples/private/fbx/NanamiUrara_Kiwametekawaii_DanceMotion/Urara_KiwameteKawaii.fbx`
+  Source: NanamiUrara_Kiwametekawaii_DanceMotion (private dance motion)
+- `samples/private/fbx/maya2026-motion-capture/Walk.fbx`
+  Source: Autodesk Maya 2026 Examples -- Animation/Motion_Capture/FBX
+  License: Autodesk license
 
 ## Locally generated tiny samples
 
