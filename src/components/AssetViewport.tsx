@@ -1866,8 +1866,10 @@ export function AssetViewport({
       mountedObject: null,
       sourceObject: null,
       previewObject: null,
+      boneOnlyPreview: false,
       cleanupUrls: [],
       cleanupCallbacks: [],
+      animationRoot: null,
       mixer: null,
       clips: [],
       activeAction: null,
@@ -2357,6 +2359,8 @@ export function AssetViewport({
           context.scene.add(object);
           context.mountedObject = object;
           context.sourceObject = object;
+          context.boneOnlyPreview = false;
+          context.animationRoot = null;
           context.cleanupUrls = cleanupUrls;
           context.cleanupCallbacks = cleanupCallbacks;
           applyPreviewLightingPreset(lighting, {
@@ -2445,13 +2449,22 @@ export function AssetViewport({
           // pointCloud / gaussianSplat) so the Detail panel can label the
           // asset and switch renderer-appropriate UI.
           metadataCollection.metadata.assetKind = assetKind;
+          const isBoneOnlyPreview =
+            metadataCollection.metadata.meshCount === 0 &&
+            metadataCollection.metadata.hasBones === true;
+          context.boneOnlyPreview = isBoneOnlyPreview;
+          context.animationRoot = object;
           context.textureRegistry = metadataCollection.textureRegistry;
           assetResourceMetricsRef.current = collectAssetResourceMetrics(
             metadataCollection.metadata,
           );
           onMetadataChange(metadataCollection.metadata);
           publishResourceDiagnostics(context);
-          applySkeletonHelpers(context.scene, object, showSkeletonRef.current);
+          applySkeletonHelpers(
+            context.scene,
+            object,
+            showSkeletonRef.current || isBoneOnlyPreview,
+          );
           applyBoundingBoxHelpers(
             context.scene,
             object,
@@ -2468,7 +2481,7 @@ export function AssetViewport({
           context.mmdModel = mmdModel ?? null;
           context.mmdMotion = null;
           if (clips.length > 0) {
-            context.mixer = new AnimationMixer(object);
+            context.mixer = new AnimationMixer(context.animationRoot ?? object);
             const activated = activateClip(context, 0, true);
             setAnimationState({
               clipNames: clips.map(getClipLabel),
@@ -2559,7 +2572,13 @@ export function AssetViewport({
           const scaleWarning = getScaleWarning(object, normalization);
           readyFeedbackBase = {
             message: `Preview ready: ${currentFile.fileName}`,
-            warnings: [scaleWarning, ...warnings],
+            warnings: [
+              scaleWarning,
+              isBoneOnlyPreview
+                ? "Bone-only preview: no mesh geometry was found, so the skeleton hierarchy is shown."
+                : null,
+              ...warnings,
+            ],
           };
           const previewWarning = [
             ...readyFeedbackBase.warnings,
@@ -2843,7 +2862,11 @@ export function AssetViewport({
       return;
     }
 
-    applySkeletonHelpers(context.scene, context.sourceObject, showSkeleton);
+    applySkeletonHelpers(
+      context.scene,
+      context.sourceObject,
+      showSkeleton || context.boneOnlyPreview,
+    );
   }, [showSkeleton]);
 
   useEffect(() => {

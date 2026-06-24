@@ -56,8 +56,10 @@ export type SceneContext = {
   mountedObject: Group | Mesh | null;
   sourceObject: Group | Mesh | null;
   previewObject: Group | Mesh | null;
+  boneOnlyPreview: boolean;
   cleanupUrls: string[];
   cleanupCallbacks: Array<() => void>;
+  animationRoot: Object3D | null;
   mixer: AnimationMixer | null;
   clips: AnimationClip[];
   activeAction: AnimationAction | null;
@@ -508,6 +510,8 @@ export type AssetMetadata = {
   assetKind?: ViewerAssetKind;
   nodeCount: number;
   meshCount: number;
+  boneCount?: number;
+  hasBones?: boolean;
   materialCount: number;
   textureCount: number;
   hasAnimation: boolean;

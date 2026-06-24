@@ -870,6 +870,7 @@ export function collectAssetMetadata(
 ): MetadataCollection {
   let nodeCount = 0;
   let meshCount = 0;
+  let boneCount = 0;
   const materials = new Set<Material>();
   // Material → mesh-name list. Insertion-ordered so the UI shows binds
   // in scene-graph traversal order. A mesh that authors an array
@@ -890,6 +891,9 @@ export function collectAssetMetadata(
   object.traverse((child: Object3D) => {
     if (isSyntheticWrapper(child)) return;
     nodeCount += 1;
+    if (child instanceof Bone) {
+      boneCount += 1;
+    }
 
     // Collect ObjectInfo for every traversed node that has a stable
     // selection key (meshes, named groups, lights, cameras).
@@ -973,6 +977,8 @@ export function collectAssetMetadata(
       formatVersion,
       nodeCount,
       meshCount,
+      boneCount,
+      hasBones: boneCount > 0,
       materialCount: materials.size,
       textureCount: textures.size,
       hasAnimation: clips.length > 0,

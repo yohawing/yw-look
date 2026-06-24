@@ -1,5 +1,6 @@
 import {
   AxesHelper,
+  Bone,
   Box3,
   Box3Helper,
   BufferGeometry,
@@ -441,6 +442,7 @@ export function stopAnimations(context: SceneContext) {
   context.activeAction?.stop();
   context.mixer?.stopAllAction();
   context.activeAction = null;
+  context.animationRoot = null;
   context.mixer = null;
   context.clips = [];
   context.mmdMotion = null;
@@ -467,6 +469,8 @@ export function resetSceneObjects(context: SceneContext) {
   }
 
   context.mountedObject = null;
+  context.boneOnlyPreview = false;
+  context.animationRoot = null;
   context.textureRegistry = new Map<string, Texture>();
 }
 
@@ -540,6 +544,31 @@ function computeCameraFitDistance(
   );
 }
 
+function getBoneBounds(object: Group | Mesh) {
+  const bounds = new Box3();
+  const position = new Vector3();
+  let hasBone = false;
+
+  object.updateWorldMatrix(true, true);
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof Bone)) {
+      return;
+    }
+    hasBone = true;
+    bounds.expandByPoint(child.getWorldPosition(position));
+  });
+
+  return hasBone ? bounds : null;
+}
+
+function getObjectBounds(object: Group | Mesh) {
+  const bounds = new Box3().setFromObject(object);
+  if (!bounds.isEmpty()) {
+    return bounds;
+  }
+  return getBoneBounds(object) ?? bounds;
+}
+
 export function applyInitialView(
   camera: PerspectiveCamera,
   controls: OrbitControls,
@@ -576,7 +605,7 @@ export function applyInitialView(
     return;
   }
 
-  const bounds = new Box3().setFromObject(object);
+  const bounds = getObjectBounds(object);
   const size = bounds.getSize(new Vector3());
   const center = bounds.getCenter(new Vector3());
   const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
@@ -628,7 +657,7 @@ export function applyPresetView(
   preset: CameraPreset,
 ) {
   const useFixedAutoFrame = Boolean(object.userData?.disableAutoFrame);
-  const bounds = useFixedAutoFrame ? null : new Box3().setFromObject(object);
+  const bounds = useFixedAutoFrame ? null : getObjectBounds(object);
   const size = bounds?.getSize(new Vector3());
   const center = useFixedAutoFrame
     ? DEFAULT_CAMERA_TARGET.clone()
@@ -700,7 +729,7 @@ export function getObjectMaxDimension(object: Group | Mesh) {
       DEFAULT_SCENE_DIMENSION
     );
   }
-  const bounds = new Box3().setFromObject(object);
+  const bounds = getObjectBounds(object);
   const size = bounds.getSize(new Vector3());
   return Math.max(size.x, size.y, size.z);
 }
@@ -1005,6 +1034,20 @@ function collectSkeletonRoots(object: Group | Mesh): Object3D[] {
     let root: Object3D = firstBone;
     while (root.parent && (root.parent as Object3D).type === "Bone") {
       root = root.parent as Object3D;
+    }
+    if (seen.has(root)) {
+      return;
+    }
+    seen.add(root);
+    roots.push(root);
+  });
+  object.traverse((child: Object3D) => {
+    if (!(child instanceof Bone)) {
+      return;
+    }
+    let root: Object3D = child;
+    while (root.parent && root.parent instanceof Bone) {
+      root = root.parent;
     }
     if (seen.has(root)) {
       return;
