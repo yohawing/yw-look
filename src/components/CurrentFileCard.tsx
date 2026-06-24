@@ -1,4 +1,5 @@
 import type { AssetInspection, SelectedFile } from "../lib/files";
+import type { AnimationClipMetadata } from "../types/viewer";
 import type { PerformanceSnapshot } from "./PerformanceCard";
 import type { AssetMetadata } from "./assetMetadata";
 import {
@@ -9,6 +10,7 @@ import {
 } from "./sidebarPrimitives";
 
 type CurrentFileCardProps = {
+  animationClips?: AnimationClipMetadata[];
   assetInspection: AssetInspection | null;
   currentFile: SelectedFile | null;
   metadata: AssetMetadata | null;
@@ -46,7 +48,29 @@ function formatMs(value: number | null) {
   return value === null ? "—" : `${value.toFixed(1)} ms`;
 }
 
+function formatDuration(value: number) {
+  if (!Number.isFinite(value)) return "—";
+
+  const totalMs = Math.max(0, Math.round(value * 1000));
+  const minutes = Math.floor(totalMs / 60000);
+  const seconds = Math.floor((totalMs % 60000) / 1000);
+  const milliseconds = totalMs % 1000;
+
+  return `${minutes.toString().padStart(2, "0")}:${seconds
+    .toString()
+    .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
+}
+
+function formatNumber(value: number) {
+  return Intl.NumberFormat("en-US").format(value);
+}
+
+function formatFps(value: number | null) {
+  return value === null ? "n/a" : `${value.toFixed(1)} fps`;
+}
+
 export function CurrentFileCard({
+  animationClips = [],
   assetInspection,
   currentFile,
   metadata,
@@ -75,6 +99,7 @@ export function CurrentFileCard({
       usdPayloadSummary.unresolvedPayloadCount > 0)
       ? usdPayloadSummary
       : null;
+  const visibleAnimationClips = animationClips.length > 0 ? animationClips : [];
 
   const summaryRows: SidebarKeyValueRow[] = [
     {
@@ -230,6 +255,33 @@ export function CurrentFileCard({
               </span>
             ))}
           </div>
+        ) : null}
+        {visibleAnimationClips.length > 0 ? (
+          <SidebarSection
+            title="Animation"
+            count={visibleAnimationClips.length}
+            collapsible
+            defaultOpen={false}
+          >
+            <ul className="file-animation-list">
+              {visibleAnimationClips.map((clip, index) => (
+                <li
+                  className="file-animation-row"
+                  key={`${clip.name}:${index}`}
+                >
+                  <span className="file-animation-name" title={clip.name}>
+                    {clip.name}
+                  </span>
+                  <span className="file-animation-meta">
+                    <span>Duration {formatDuration(clip.duration)}</span>
+                    <span>FPS {formatFps(clip.estimatedFrameRate)}</span>
+                    <span>Keys {formatNumber(clip.keyframeCount)}</span>
+                    <span>Tracks {formatNumber(clip.trackCount)}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </SidebarSection>
         ) : null}
       </SidebarSection>
       <SidebarSection title="File Details" collapsible defaultOpen={false}>
