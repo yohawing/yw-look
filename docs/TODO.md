@@ -41,8 +41,8 @@
 
 ### ユニットテスト / 統合テスト
 
-- [ ] Rust / Tauri 側の設定読み書きテストを書く（`load_settings` / `save_settings`）
-- [ ] Rust / Tauri 側の最近開いたファイル管理テストを書く（`load_recent_files` / cleanup / limit / sync）
+- [x] Rust / Tauri 側の設定読み書きテストを書く（`load_settings` / `save_settings`）→ `0df0e2c`
+- [x] Rust / Tauri 側の最近開いたファイル管理テストを書く（`load_recent_files` / cleanup / limit / sync）→ `0df0e2c`
 
 ### ビジュアルリグレッションテスト
 
