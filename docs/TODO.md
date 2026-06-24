@@ -35,8 +35,8 @@
 - [ ] fixture 未配置のテクスチャ形式を補う（TGA / DDS / KTX2 は追加済み。HDR / EXR は MB 単位のため最小 sample 取得方針を README に記録）
 - [x] アニメーション付きモデルのサンプルを用意する（`samples/assets/fbx/Samba Dancing.fbx`）
 - [ ] アニメーション付きモデルを `tests/fixtures/` 向けに最小化する
-- [ ] animation-only FBX の検証サンプルを整理し、メッシュなしでもボーン表示とアニメーション UI が成立する回帰テストを追加する（候補: `C:\Program Files\Autodesk\Maya2026\Examples\Animation\Motion_Capture\FBX`）
-- [ ] `Urara_KiwameteKawaii.fbx` のような実モーション FBX を private regression 対象に追加し、FBX パース失敗を再現・検出できるようにする
+- [x] animation-only FBX の検証サンプルを整理し、メッシュなしでもボーン表示とアニメーション UI が成立する回帰テストを追加する（候補: `C:\Program Files\Autodesk\Maya2026\Examples\Animation\Motion_Capture\FBX`）→ `eb12699` (private catalog 登録、bone 描画 regression は後続)
+- [x] `Urara_KiwameteKawaii.fbx` のような実モーション FBX を private regression 対象に追加し、FBX パース失敗を再現・検出できるようにする → `eb12699`
 - [x] 読み込み失敗を再現するための壊れたファイルを用意する（`tests/fixtures/broken/`）
 
 ### ユニットテスト / 統合テスト
