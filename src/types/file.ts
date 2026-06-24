@@ -34,6 +34,7 @@ export type AssetInspection = {
 export type FormatSupport = {
   modelExtensions: string[];
   textureExtensions: string[];
+  motionExtensions: string[];
   previewImplemented: string[];
 };
 

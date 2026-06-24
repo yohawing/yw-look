@@ -48,6 +48,7 @@ export const implementedPreviewExtensions = new Set([
   "ktx2",
   "pmx",
   "pmd",
+  "vmd",
   "splat",
   "spz",
   "ksplat",
@@ -69,6 +70,10 @@ export const optionalPreviewLoaders = {
   },
   pmd: {
     formatLabel: "PMD",
+    loaderPackName: "MMD Loader Pack",
+  },
+  vmd: {
+    formatLabel: "VMD",
     loaderPackName: "MMD Loader Pack",
   },
   splat: {
@@ -135,7 +140,7 @@ export function formatUnsupportedFormatMessage(extension: string) {
   const normalizedExtension = extension ? `.${extension}` : "this extension";
   return {
     title: "This file format is not supported yet.",
-    body: `No preview loader is available for ${normalizedExtension}. Supported core formats include GLB, glTF, FBX, OBJ, USD, STL, PLY, DAE, PMX, PMD, SPLAT, SPZ, KSPLAT, SOG, PNG, JPG, TGA, DDS, HDR, EXR, and KTX2.`,
+    body: `No preview loader is available for ${normalizedExtension}. Supported core formats include GLB, glTF, FBX, OBJ, USD, STL, PLY, DAE, PMX, PMD, VMD, SPLAT, SPZ, KSPLAT, SOG, PNG, JPG, TGA, DDS, HDR, EXR, and KTX2.`,
   };
 }
 

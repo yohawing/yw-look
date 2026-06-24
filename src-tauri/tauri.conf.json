@@ -66,6 +66,11 @@
         "description": "3D model asset opened by yw-look"
       },
       {
+        "ext": ["vmd"],
+        "name": "yw-look Motion Asset",
+        "description": "MikuMikuDance motion asset opened by yw-look"
+      },
+      {
         "ext": ["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"],
         "name": "yw-look Texture Asset",
         "description": "Texture asset opened by yw-look"

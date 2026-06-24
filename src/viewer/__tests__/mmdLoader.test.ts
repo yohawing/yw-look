@@ -26,12 +26,58 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
   parseVmd: vi.fn(() => ({
     kind: "vmd",
     metadata: { maxFrame: 60, modelName: "Hatsune Miku" },
-    boneTracks: {},
-    morphTracks: {},
-    cameraFrames: [],
-    lightFrames: [],
+    boneTracks: { センター: {} },
+    morphTracks: { smile: {} },
+    cameraFrames: [{ frame: 45 }],
+    lightFrames: [{ frame: 30 }],
     selfShadowFrames: [],
     propertyFrames: [],
+  })),
+  parseVmdMetadata: vi.fn(() => ({
+    format: "vmd",
+    signature: "Vocaloid Motion Data 0002",
+    encoding: "shift-jis",
+    modelName: "Hatsune Miku",
+    counts: {
+      bones: 3,
+      morphs: 2,
+      cameras: 1,
+      lights: 1,
+      selfShadows: 0,
+      properties: 0,
+    },
+    trailingBytes: 0,
+  })),
+  parseVmdSectionInventory: vi.fn(() => ({
+    format: "vmd",
+    signature: "Vocaloid Motion Data 0002",
+    encoding: "shift-jis",
+    modelName: "Hatsune Miku",
+    counts: {
+      bones: 3,
+      morphs: 2,
+      cameras: 1,
+      lights: 1,
+      selfShadows: 0,
+      properties: 0,
+    },
+    trailingBytes: 0,
+    sections: [
+      {
+        name: "bone",
+        count: 3,
+        countOffset: 50,
+        dataOffset: 54,
+        byteLength: 333,
+      },
+      {
+        name: "morph",
+        count: 2,
+        countOffset: 387,
+        dataOffset: 391,
+        byteLength: 46,
+      },
+    ],
   })),
   parsePmxMetadata: vi.fn(() => ({
     format: "pmx",
@@ -348,5 +394,46 @@ describe("MMD preview loader", () => {
     expect(result.label).toBe("motion.vmd");
     expect(result.duration).toBe(2);
     expect(result.animation.metadata.maxFrame).toBe(60);
+  });
+
+  it("loads VMD as a standalone motion metadata preview", async () => {
+    const stages: string[] = [];
+    const result = await loadPreviewObject(vmdFile, undefined, {
+      onStage: (stage) => stages.push(stage),
+    });
+
+    expect(result.object).toBeInstanceOf(Group);
+    expect(result.object.name).toBe("Hatsune Miku Motion Preview");
+    expect(result.object.userData.disableAutoFrame).toBe(true);
+    expect(result.object.userData.mmdMotionSourceFile).toBe(
+      "C:\\mmd\\motion.vmd",
+    );
+    expect(result).toMatchObject({
+      cleanupUrls: [],
+      clips: [],
+      formatVersion: "VMD",
+      skipScaleNormalization: true,
+      assetKind: "motion",
+      mmdMetadata: {
+        format: "vmd",
+        version: null,
+        encoding: "shift-jis",
+        name: "Hatsune Miku",
+        counts: {
+          maxFrame: 60,
+          boneTracks: 1,
+          morphTracks: 1,
+          boneKeyframes: 3,
+          morphKeyframes: 2,
+          cameraKeyframes: 1,
+          lightKeyframes: 1,
+        },
+        sections: [
+          { name: "bone", count: 3, offset: 54, byteLength: 333 },
+          { name: "morph", count: 2, offset: 391, byteLength: 46 },
+        ],
+      },
+    });
+    expect(stages).toEqual(["scan", "decode", "scene"]);
   });
 });

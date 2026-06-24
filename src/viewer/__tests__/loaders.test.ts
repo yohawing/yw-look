@@ -112,18 +112,21 @@ describe("preview support classification", () => {
     expect(getPreviewSupportState("vrma")).toBe("missingOptionalLoader");
   });
 
-  it("marks static MMD model formats as implemented", () => {
+  it("marks MMD model and motion formats as implemented", () => {
     expect(getPreviewSupportState("pmx")).toBe("implemented");
     expect(getPreviewSupportState("pmd")).toBe("implemented");
-    expect(getPreviewSupportState("vmd")).toBe("unsupported");
+    expect(getPreviewSupportState("vmd")).toBe("implemented");
   });
 
-  it("marks optional MMD model formats as missing when the pack is absent", () => {
+  it("marks optional MMD formats as missing when the pack is absent", () => {
     expect(
       getPreviewSupportState("pmx", { optionalLoaderInstalled: false }),
     ).toBe("missingOptionalLoader");
     expect(
       getPreviewSupportState("pmd", { optionalLoaderInstalled: false }),
+    ).toBe("missingOptionalLoader");
+    expect(
+      getPreviewSupportState("vmd", { optionalLoaderInstalled: false }),
     ).toBe("missingOptionalLoader");
   });
 

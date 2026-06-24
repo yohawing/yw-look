@@ -31,30 +31,42 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
     );
   }
 
-  const modelRows: SidebarKeyValueRow[] = [
-    { id: "name", label: "Name", value: renderValue(metadata.name) },
-    {
-      id: "english-name",
-      label: "English",
-      value: renderValue(metadata.englishName),
-    },
-    {
-      id: "comment",
-      label: "Comment",
-      value: renderMultiline(metadata.comment),
-    },
-    {
-      id: "english-comment",
-      label: "English comment",
-      value: renderMultiline(metadata.englishComment),
-    },
-  ];
+  const isMotion = metadata.format === "vmd";
+  const modelRows: SidebarKeyValueRow[] = isMotion
+    ? [
+        {
+          id: "name",
+          label: "Model name",
+          value: renderValue(metadata.name),
+        },
+      ]
+    : [
+        { id: "name", label: "Name", value: renderValue(metadata.name) },
+        {
+          id: "english-name",
+          label: "English",
+          value: renderValue(metadata.englishName),
+        },
+        {
+          id: "comment",
+          label: "Comment",
+          value: renderMultiline(metadata.comment),
+        },
+        {
+          id: "english-comment",
+          label: "English comment",
+          value: renderMultiline(metadata.englishComment),
+        },
+      ];
 
   const formatRows: SidebarKeyValueRow[] = [
     {
       id: "format",
       label: "Format",
-      value: `${metadata.format.toUpperCase()} ${metadata.version}`,
+      value:
+        metadata.version === null
+          ? metadata.format.toUpperCase()
+          : `${metadata.format.toUpperCase()} ${metadata.version}`,
       mono: true,
     },
     {
@@ -87,10 +99,18 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
 
   return (
     <>
-      <SidebarSection title="MMD Model" collapsible defaultOpen={false}>
+      <SidebarSection
+        title={isMotion ? "MMD Motion" : "MMD Model"}
+        collapsible
+        defaultOpen={false}
+      >
         <SidebarKeyValueRows rows={modelRows} />
       </SidebarSection>
-      <SidebarSection title="MMD Counts" collapsible defaultOpen={false}>
+      <SidebarSection
+        title={isMotion ? "MMD Motion Counts" : "MMD Counts"}
+        collapsible
+        defaultOpen={false}
+      >
         <SidebarKeyValueRows rows={countRows} />
       </SidebarSection>
       <SidebarSection title="MMD Format" collapsible defaultOpen={false}>

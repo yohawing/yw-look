@@ -53,7 +53,9 @@ type ThreeMmdLoaderModule = {
   parsePmdSectionInventory(buffer: ArrayBuffer): ParsedMmdInventory;
   parsePmxMetadata(buffer: ArrayBuffer): ParsedMmdMetadata;
   parsePmxSectionInventory(buffer: ArrayBuffer): ParsedMmdInventory;
-  parseVmd(buffer: ArrayBuffer): LoadedMmdMotion["animation"];
+  parseVmd(buffer: ArrayBuffer): ParsedVmdAnimation;
+  parseVmdMetadata(buffer: ArrayBuffer): ParsedVmdMetadata;
+  parseVmdSectionInventory(buffer: ArrayBuffer): ParsedVmdInventory;
   createAmmoMmdPhysicsBackend(ammo: unknown): unknown;
   loadAmmoNamespace(url: string): Promise<unknown>;
 };
@@ -87,6 +89,45 @@ type ParsedMmdInventory = {
     offset: number;
     byteLength: number;
   }>;
+};
+
+type ParsedVmdMetadata = {
+  format: "vmd";
+  signature: string;
+  encoding: "shift-jis";
+  modelName: string;
+  counts: {
+    bones: number;
+    morphs: number;
+    cameras: number;
+    lights: number;
+    selfShadows: number;
+    properties: number;
+  };
+  trailingBytes: number;
+};
+
+type ParsedVmdInventory = ParsedVmdMetadata & {
+  sections: Array<{
+    name: string;
+    count: number;
+    countOffset: number;
+    dataOffset: number;
+    byteLength: number;
+  }>;
+};
+
+type ParsedVmdAnimation = LoadedMmdMotion["animation"] & {
+  metadata: LoadedMmdMotion["animation"]["metadata"] & {
+    modelName?: string;
+    counts?: ParsedVmdMetadata["counts"];
+  };
+  boneTracks: Record<string, unknown>;
+  morphTracks: Record<string, unknown>;
+  cameraFrames: unknown[];
+  lightFrames: unknown[];
+  selfShadowFrames: unknown[];
+  propertyFrames: unknown[];
 };
 
 function normalizeMmdDiagnostics(
@@ -133,6 +174,43 @@ function buildMmdAssetMetadata(
     trailingBytes: inventory.trailingBytes ?? metadata.trailingBytes ?? 0,
     sections: inventory.sections.map((section) => ({ ...section })),
     diagnostics: normalizeMmdDiagnostics(diagnostics),
+  };
+}
+
+function buildVmdAssetMetadata(
+  metadata: ParsedVmdMetadata,
+  inventory: ParsedVmdInventory,
+  animation: ParsedVmdAnimation,
+): MmdAssetMetadata {
+  return {
+    format: "vmd",
+    version: null,
+    encoding: metadata.encoding,
+    name: metadata.modelName,
+    englishName: "",
+    comment: "",
+    englishComment: "",
+    counts: {
+      maxFrame: animation.metadata.maxFrame ?? 0,
+      boneTracks: Object.keys(animation.boneTracks ?? {}).length,
+      morphTracks: Object.keys(animation.morphTracks ?? {}).length,
+      boneKeyframes: metadata.counts.bones,
+      morphKeyframes: metadata.counts.morphs,
+      cameraKeyframes: metadata.counts.cameras,
+      lightKeyframes: metadata.counts.lights,
+      selfShadowKeyframes: metadata.counts.selfShadows,
+      propertyKeyframes: metadata.counts.properties,
+    },
+    additionalUvCount: null,
+    indexSizes: null,
+    trailingBytes: metadata.trailingBytes,
+    sections: inventory.sections.map((section) => ({
+      name: section.name,
+      count: section.count,
+      offset: section.dataOffset,
+      byteLength: section.byteLength,
+    })),
+    diagnostics: [],
   };
 }
 
@@ -468,6 +546,47 @@ export async function loadMmdPreviewObject(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Unable to load MMD preview: ${message}`, { cause: error });
+  }
+}
+
+export async function loadMmdMotionPreviewObject(
+  file: SelectedFile,
+  context: LoaderContext,
+): Promise<LoadedPreview> {
+  const reportStage = context.onStage ?? (() => undefined);
+  reportStage("scan");
+
+  try {
+    const { parseVmd, parseVmdMetadata, parseVmdSectionInventory } =
+      await importThreeMmdLoader();
+    const buffer = await readArrayBuffer(file.path);
+
+    reportStage("decode");
+    const animation = parseVmd(buffer);
+    const metadata = parseVmdMetadata(buffer);
+    const inventory = parseVmdSectionInventory(buffer);
+
+    reportStage("scene");
+    const object = new Group();
+    object.name = `${metadata.modelName || file.fileName} Motion Preview`;
+    object.userData.disableAutoFrame = true;
+    object.userData.mmdSourceFile = file.path;
+    object.userData.mmdMotionSourceFile = file.path;
+
+    return {
+      object,
+      cleanupUrls: [],
+      clips: [],
+      formatVersion: "VMD",
+      skipScaleNormalization: true,
+      mmdMetadata: buildVmdAssetMetadata(metadata, inventory, animation),
+      assetKind: "motion",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to load MMD motion preview: ${message}`, {
+      cause: error,
+    });
   }
 }
 

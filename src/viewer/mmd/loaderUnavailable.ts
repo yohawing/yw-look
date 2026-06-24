@@ -10,6 +10,10 @@ export async function loadMmdPreviewObject(): Promise<LoadedPreview> {
   missingMmdLoader();
 }
 
+export async function loadMmdMotionPreviewObject(): Promise<LoadedPreview> {
+  missingMmdLoader();
+}
+
 export async function loadMmdMotion(): Promise<LoadedMmdMotion> {
   missingMmdLoader();
 }

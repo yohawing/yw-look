@@ -20,13 +20,15 @@ pub(crate) const MODEL_EXTENSIONS: &[&str] = &[
     "pmx", "pmd", "splat", "spz", "ksplat", "sog",
 ];
 pub(crate) const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
+pub(crate) const MOTION_EXTENSIONS: &[&str] = &["vmd"];
 pub(crate) const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "usd", "usda", "usdc", "usdz", "png", "jpg",
-    "jpeg", "tga", "dds", "ktx2", "hdr", "exr", "pmx", "pmd", "splat", "spz", "ksplat", "sog",
+    "jpeg", "tga", "dds", "ktx2", "hdr", "exr", "pmx", "pmd", "vmd", "splat", "spz", "ksplat",
+    "sog",
 ];
 pub(crate) const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "vrm", "abc", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga",
-    "dds", "ktx2", "hdr", "exr", "pmx", "pmd", "splat", "spz", "ksplat", "sog",
+    "dds", "ktx2", "hdr", "exr", "pmx", "pmd", "vmd", "splat", "spz", "ksplat", "sog",
 ];
 
 pub(crate) fn strip_verbatim_prefix(path: &Path) -> PathBuf {
@@ -63,13 +65,17 @@ pub(crate) fn infer_file_kind(extension: &str) -> String {
         "model".to_string()
     } else if TEXTURE_EXTENSIONS.contains(&extension) {
         "texture".to_string()
+    } else if MOTION_EXTENSIONS.contains(&extension) {
+        "motion".to_string()
     } else {
         "unknown".to_string()
     }
 }
 
 pub(crate) fn is_supported_extension(extension: &str) -> bool {
-    MODEL_EXTENSIONS.contains(&extension) || TEXTURE_EXTENSIONS.contains(&extension)
+    MODEL_EXTENSIONS.contains(&extension)
+        || TEXTURE_EXTENSIONS.contains(&extension)
+        || MOTION_EXTENSIONS.contains(&extension)
 }
 
 pub(crate) fn normalize_file_path(path: PathBuf) -> Result<PathBuf, AppError> {

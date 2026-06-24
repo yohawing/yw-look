@@ -109,7 +109,11 @@ export type MmdMotionPlayback = {
  * renderer-appropriate UI. `.ply` is classified by header content into one of
  * these; other formats default to `mesh`.
  */
-export type ViewerAssetKind = "mesh" | "pointCloud" | "gaussianSplat";
+export type ViewerAssetKind =
+  | "mesh"
+  | "pointCloud"
+  | "gaussianSplat"
+  | "motion";
 
 export type LoadedPreview = {
   object: Group | Mesh;
@@ -436,8 +440,8 @@ export type MmdSectionEntry = {
 };
 
 export type MmdAssetMetadata = {
-  format: "pmx" | "pmd";
-  version: number;
+  format: "pmx" | "pmd" | "vmd";
+  version: number | null;
   encoding: string | null;
   name: string;
   englishName: string;

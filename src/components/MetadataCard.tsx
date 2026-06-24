@@ -32,7 +32,9 @@ export function MetadataCard({ metadata }: MetadataCardProps) {
       ? "Point Cloud"
       : metadata.assetKind === "gaussianSplat"
         ? "Gaussian Splat"
-        : "Mesh";
+        : metadata.assetKind === "motion"
+          ? "Motion"
+          : "Mesh";
 
   const rows: SidebarKeyValueRow[] = [
     { id: "type", label: "Type", value: assetKindLabel },

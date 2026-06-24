@@ -8,7 +8,7 @@ use crate::shared::{
     current_timestamp, infer_file_kind, is_supported_extension, load_or_initialize_settings,
     normalize_file_path, read_json_file, repo_root, resolve_recent_files_path,
     system_time_to_unix_string, write_json_file, MODEL_EXTENSIONS, PREVIEW_IMPLEMENTED_EXTENSIONS,
-    TEXTURE_EXTENSIONS,
+    MOTION_EXTENSIONS, TEXTURE_EXTENSIONS,
 };
 use crate::state::PendingOpenFiles;
 
@@ -49,6 +49,7 @@ pub(crate) struct RecentFilesPayload {
 pub(crate) struct FormatSupportPayload {
     model_extensions: Vec<String>,
     texture_extensions: Vec<String>,
+    motion_extensions: Vec<String>,
     preview_implemented: Vec<String>,
 }
 
@@ -332,6 +333,7 @@ pub(crate) fn load_format_support() -> FormatSupportPayload {
     FormatSupportPayload {
         model_extensions: MODEL_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
         texture_extensions: TEXTURE_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
+        motion_extensions: MOTION_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
         preview_implemented: PREVIEW_IMPLEMENTED_EXTENSIONS
             .iter()
             .map(|e| e.to_string())
@@ -349,7 +351,7 @@ pub(crate) fn open_file_dialog(
             "Supported assets",
             &[
                 "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae",
-                "vrm", "abc", "pmx", "pmd", "splat", "spz", "ksplat", "sog", "png", "jpg",
+                "vrm", "abc", "pmx", "pmd", "vmd", "splat", "spz", "ksplat", "sog", "png", "jpg",
                 "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
             ],
         )

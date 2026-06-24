@@ -14,6 +14,14 @@ export async function loadMmdPreviewObject(
   return load(file, context);
 }
 
+export async function loadMmdMotionPreviewObject(
+  file: SelectedFile,
+  context: LoaderContext,
+): Promise<LoadedPreview> {
+  const { loadMmdMotionPreviewObject: load } = await importInstalledMmdLoader();
+  return load(file, context);
+}
+
 export async function loadMmdMotion(
   file: SelectedFile,
 ): Promise<LoadedMmdMotion> {

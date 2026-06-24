@@ -38,7 +38,7 @@ type PrivateExtensionCoverage = {
 const catalogCases = catalog.cases as CatalogCase[];
 
 const SPARK_EXTENSIONS = new Set(["splat", "spz", "ksplat", "sog"]);
-const MMD_EXTENSIONS = new Set(["pmx", "pmd"]);
+const MMD_EXTENSIONS = new Set(["pmx", "pmd", "vmd"]);
 const PLY_ASSET_KINDS = ["mesh", "pointCloud", "gaussianSplat"] as const;
 
 const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
@@ -90,6 +90,12 @@ const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
     publicCatalog: false,
     privateCoverage: "planned",
     reason: "MMD enrollment is Phase B-2",
+  },
+  {
+    extension: "vmd",
+    publicCatalog: false,
+    privateCoverage: "planned",
+    reason: "MMD motion enrollment is Phase B-2",
   },
 ];
 

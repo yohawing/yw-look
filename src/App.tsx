@@ -800,13 +800,7 @@ export function App() {
     async (path: string) => {
       if (extensionFromPath(path) === "vmd") {
         if (!canAttachMmdMotion(currentFile)) {
-          viewer.updateViewerFeedback({
-            mode:
-              viewer.viewerFeedback.mode === "empty" ? "empty" : "loadFailed",
-            message: "VMD motion was not loaded.",
-            warning:
-              "Drop a VMD file after opening a PMX or PMD model to attach it as motion.",
-          });
+          await performSelectFilePath(path, "open");
           return;
         }
 

@@ -2514,11 +2514,15 @@ loaderRegistry.register({
 loaderRegistry.register({
   id: "mmd-loader-pack",
   name: "MMD Loader Pack",
-  extensions: ["pmx", "pmd"],
+  extensions: ["pmx", "pmd", "vmd"],
   optional: true,
   installed: HAS_THREE_MMD_LOADER,
   loadPreviewObject: async (file, context) => {
-    const { loadMmdPreviewObject } = await import("./mmd/loader");
+    const { loadMmdMotionPreviewObject, loadMmdPreviewObject } =
+      await import("./mmd/loader");
+    if (file.extension === "vmd") {
+      return loadMmdMotionPreviewObject(file, context);
+    }
     return loadMmdPreviewObject(file, context);
   },
 });
