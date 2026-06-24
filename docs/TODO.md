@@ -58,7 +58,7 @@
 ## 24. 将来対応の検討（フォーマット・パフォーマンス）
 
 - [x] `@yohawing/three-mmd-loader` を最新版に更新する（現在 `^0.2.2`、最新 `0.3.1`）→ `25e43f5`
-- [ ] VMD（MikuMikuDance モーション）を `loaderRegistry` に拡張子登録する（現状は registry 外で `App.tsx` の drop 経路から既存 PMX/PMD モデルへの motion attach として処理。単独プレビューやファイル関連付けに対応するには registry 登録と `assetKind: "motion"` の扱いが必要）
+- [x] VMD（MikuMikuDance モーション）を `loaderRegistry` に拡張子登録する（現状は registry 外で `App.tsx` の drop 経路から既存 PMX/PMD モデルへの motion attach として処理。単独プレビューやファイル関連付けに対応するには registry 登録と `assetKind: "motion"` の扱いが必要）→ `483e274`
 - [ ] `ufbx` を使った native FBX パスの将来設計をまとめる（現在は Three.js FBXLoader）
 - [ ] `DDS` の native 展開が必要か検証する（現在は Three.js DDSLoader で対応済み）
 - [ ] サムネイルキャッシュが必要か再評価する（現状は `prefetchCache` による隣接ファイルバッファ先読みのみ）
