@@ -776,7 +776,21 @@ class FBXTreeParser {
 
 				const relationships = connections.get( parseInt( nodeID ) );
 
+				if ( relationships === undefined ) {
+
+					console.warn( 'THREE.FBXLoader: deformer has no connection data. Skipping unsupported deformer.' );
+					continue;
+
+				}
+
 				if ( deformerNode.attrType === 'Skin' ) {
+
+					if ( relationships.parents.length === 0 ) {
+
+						console.warn( 'THREE.FBXLoader: animation-only FBX skin deformer has no parent geometry. Skipping skin deformer.' );
+						continue;
+
+					}
 
 					const skeleton = this.parseSkeleton( relationships, DeformerNodes );
 					skeleton.ID = nodeID;
@@ -787,6 +801,13 @@ class FBXTreeParser {
 					skeletons[ nodeID ] = skeleton;
 
 				} else if ( deformerNode.attrType === 'BlendShape' ) {
+
+					if ( relationships.parents.length === 0 ) {
+
+						console.warn( 'THREE.FBXLoader: blend shape deformer has no parent geometry. Skipping morph target deformer.' );
+						continue;
+
+					}
 
 					const morphTarget = {
 						id: nodeID,

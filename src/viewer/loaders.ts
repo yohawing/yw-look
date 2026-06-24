@@ -1809,10 +1809,21 @@ async function loadPreviewObjectCore(
       reportStage("scene");
       await yieldToPaint();
       const parseStartedAt = performance.now();
-      const object = new FBXLoader(manager).parse(
-        buffer,
-        `${file.parentDirectory.replace(/\\/g, "/")}/`,
-      );
+      let object: LoadedPreview["object"] & {
+        animations?: LoadedPreview["clips"];
+      };
+      try {
+        object = new FBXLoader(manager).parse(
+          buffer,
+          `${file.parentDirectory.replace(/\\/g, "/")}/`,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Unable to parse FBX preview: ${message}. This FBX may contain animation-only data or unsupported deformers without geometry.`,
+          { cause: error },
+        );
+      }
       const parseMs = performance.now() - parseStartedAt;
       flipFbxDdsTextureV(object);
       registerFbxTextureMaterialFallbacks(object);
@@ -1828,7 +1839,7 @@ async function loadPreviewObjectCore(
         object,
         cleanupUrls,
         cleanupCallbacks,
-        clips: object.animations,
+        clips: object.animations ?? [],
         formatVersion: null,
       };
     }
