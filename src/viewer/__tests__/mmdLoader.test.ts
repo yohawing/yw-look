@@ -202,29 +202,31 @@ describe("MMD preview loader", () => {
         mesh,
         outlineMeshes: [outlineMesh],
         renderOrderMeshes: [renderOrderMesh],
-        textureDiagnostics: [
-          {
-            level: "warning",
-            code: "TEXTURE_RESOLVE_FAILED",
-            materialIndex: 0,
-            textureKind: "diffuse",
-            path: "textures/missing.png",
-          },
-          {
-            level: "warning",
-            code: "TEXTURE_RESOLVE_FAILED",
-            materialIndex: 1,
-            textureKind: "diffuse",
-            path: "textures/missing.png",
-          },
-          {
-            level: "warning",
-            code: "SPHERE_MAP_NOT_SUPPORTED",
-            materialIndex: 2,
-            textureKind: "sphere",
-            path: "effects/unsupported.sph",
-          },
-        ],
+        diagnostics: {
+          textures: [
+            {
+              level: "warning",
+              code: "TEXTURE_RESOLVE_FAILED",
+              materialIndex: 0,
+              textureKind: "diffuse",
+              path: "textures/missing.png",
+            },
+            {
+              level: "warning",
+              code: "TEXTURE_RESOLVE_FAILED",
+              materialIndex: 1,
+              textureKind: "diffuse",
+              path: "textures/missing.png",
+            },
+            {
+              level: "warning",
+              code: "SPHERE_MAP_NOT_SUPPORTED",
+              materialIndex: 2,
+              textureKind: "sphere",
+              path: "effects/unsupported.sph",
+            },
+          ],
+        },
       });
     });
 
@@ -236,7 +238,7 @@ describe("MMD preview loader", () => {
     expect(mocks.loadAsync).toHaveBeenCalledWith(
       expect.any(ArrayBuffer),
       expect.any(Object),
-      { outlines: true, frustumCulled: false },
+      { outline: true, materialRenderOrder: true, frustumCulled: false },
     );
     expect(mocks.convertFileSrc).not.toHaveBeenCalled();
     expect(result.object.name).toBe("Hatsune Miku Preview");
@@ -323,7 +325,7 @@ describe("MMD preview loader", () => {
       mesh,
       outlineMeshes: [],
       renderOrderMeshes: [],
-      textureDiagnostics: [],
+      diagnostics: { textures: [] },
     });
 
     const result = await loadPreviewObject(pmdFile);

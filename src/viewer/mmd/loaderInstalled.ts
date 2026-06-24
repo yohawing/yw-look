@@ -34,12 +34,18 @@ type ThreeMmdLoaderModule = {
   }) => {
     loadModel(
       buffer: ArrayBuffer,
-      options: { outlines: boolean; frustumCulled: boolean },
+      options: {
+        outline: boolean;
+        materialRenderOrder: boolean;
+        frustumCulled: boolean;
+      },
     ): Promise<
       MmdRuntimeModelHandle & {
         outlineMeshes?: Object3D[];
         renderOrderMeshes?: Object3D[];
-        textureDiagnostics: MmdTextureDiagnostic[];
+        diagnostics: {
+          textures: MmdTextureDiagnostic[];
+        };
       }
     >;
   };
@@ -399,7 +405,8 @@ export async function loadMmdPreviewObject(
 
     reportStage("decode");
     const mmd = await loader.loadModel(buffer, {
-      outlines: true,
+      outline: true,
+      materialRenderOrder: true,
       frustumCulled: false,
     });
     reportStage("scene");
@@ -426,7 +433,7 @@ export async function loadMmdPreviewObject(
 
     const warnings = [
       ...new Map(
-        mmd.textureDiagnostics.map((diagnostic) => {
+        mmd.diagnostics.textures.map((diagnostic) => {
           const path = formatMmdResourceDisplayPath(diagnostic.path, file);
           const warning =
             diagnostic.code === "SPHERE_MAP_NOT_SUPPORTED"
