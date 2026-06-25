@@ -455,3 +455,30 @@ These rules apply when an AI agent adds or modifies reusable UI primitives in
 - Shared styling for primitives belongs in `src/styles/design-system.css`.
 - Viewport, sidebar, and app-shell CSS files should not receive new primitive
   definitions.
+
+## 11. Radix UI Adoption Policy (Phase 6 Decision — 2026-06-25)
+
+### Approved for Limited Adoption
+
+| Package | Status | Rationale |
+|---|---|---|
+| `@radix-ui/react-dialog` | **Approved** | Current dialog lacks focus trap, Esc close, focus restore. ~11 kB |
+| `@radix-ui/react-popover` | **Approved** | ToolbarPopover lacks collision/flip, keyboard nav. ~20 kB |
+| `@radix-ui/react-tooltip` | **Approved** | Current tooltip lacks aria-describedby, keyboard support. ~16 kB |
+| `@radix-ui/react-select` | **Not adopted** | Native `<select>` is sufficient; Radix Select is 25 kB with WebKit issues |
+| `@radix-ui/react-slider` | **Not adopted** | Native `<input type="range">` is sufficient for current use cases |
+
+### Adoption Order
+
+1. Dialog → 2. Popover → 3. Tooltip (one primitive at a time)
+
+### Styling Rules for Radix Components
+
+- Use `className` prop on Radix parts — no Tailwind, no CSS-in-JS.
+- Style with `data-state` and `data-side` attributes in `design-system.css`.
+- Use existing `--yl-*` tokens for all visual properties.
+- Wrap each Radix primitive in a `src/components/ui/<Name>.tsx` adapter
+  that exposes the same `variant` / `size` / `className` API as other
+  primitives.
+- Do **not** import Radix directly in feature components — always go
+  through the `ui/` wrapper.
