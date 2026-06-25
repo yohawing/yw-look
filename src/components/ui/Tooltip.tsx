@@ -1,4 +1,5 @@
-import { useId, type ReactNode } from "react";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { isValidElement, type ReactElement, type ReactNode } from "react";
 
 export type TooltipSide = "top" | "right" | "bottom" | "left";
 export type TooltipSize = "sm" | "md" | "lg";
@@ -18,6 +19,8 @@ const sizeClass: Record<TooltipSize, string> = {
   lg: "yl-tooltip--lg",
 };
 
+export const TooltipProvider = TooltipPrimitive.Provider;
+
 export function Tooltip({
   content,
   children,
@@ -26,24 +29,32 @@ export function Tooltip({
   size = "md",
   className,
 }: TooltipProps) {
-  const tooltipId = useId();
-  const classes = ["yl-tooltip", sizeClass[size], className]
+  const classes = ["yl-tooltip__content", sizeClass[size], className]
     .filter(Boolean)
     .join(" ");
 
+  if (disabled || content === null || content === undefined) {
+    return <>{children}</>;
+  }
+
+  const trigger = isValidElement(children) ? (
+    (children as ReactElement)
+  ) : (
+    <span className="yl-tooltip__trigger">{children}</span>
+  );
+
   return (
-    <span className={classes}>
-      {children}
-      {disabled ? null : (
-        <span
-          className="yl-tooltip__content"
-          data-side={side}
-          id={tooltipId}
-          role="tooltip"
+    <TooltipPrimitive.Root>
+      <TooltipPrimitive.Trigger asChild>{trigger}</TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Portal>
+        <TooltipPrimitive.Content
+          className={classes}
+          side={side}
+          sideOffset={7}
         >
           {content}
-        </span>
-      )}
-    </span>
+        </TooltipPrimitive.Content>
+      </TooltipPrimitive.Portal>
+    </TooltipPrimitive.Root>
   );
 }

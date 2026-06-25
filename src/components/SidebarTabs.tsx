@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import "../styles/sidebar.css";
 import { IconTabButton } from "./ui/IconTabButton";
+import { Tooltip } from "./ui/Tooltip";
 
 export type SidebarTabItem<TabId extends string> = {
   id: TabId;
@@ -39,29 +40,29 @@ export function SidebarTabs<TabId extends string>({
         const isActive = tab.id === activeTab;
 
         return (
-          <IconTabButton
-            aria-label={tab.label}
-            aria-pressed={isActive}
-            className={`tab-button sidebar-tab-button${isActive ? " is-active" : ""}`}
-            data-tooltip={tab.label}
-            disabled={tab.disabled}
-            key={tab.id}
-            onClick={() => onTabChange(tab.id)}
-            selected={isActive}
-            size="sm"
-          >
-            <span className="sidebar-tab-icon" aria-hidden="true">
-              {tab.icon}
-            </span>
-            {tab.badge && tab.badge.count > 0 ? (
-              <span
-                className={`sidebar-tab-badge is-${tab.badge.tone}`}
-                aria-label={`${tab.badge.count} active diagnostics`}
-              >
-                {tab.badge.count > 99 ? "99+" : tab.badge.count}
+          <Tooltip content={tab.label} key={tab.id} side="bottom">
+            <IconTabButton
+              aria-label={tab.label}
+              aria-pressed={isActive}
+              className={`tab-button sidebar-tab-button${isActive ? " is-active" : ""}`}
+              disabled={tab.disabled}
+              onClick={() => onTabChange(tab.id)}
+              selected={isActive}
+              size="sm"
+            >
+              <span className="sidebar-tab-icon" aria-hidden="true">
+                {tab.icon}
               </span>
-            ) : null}
-          </IconTabButton>
+              {tab.badge && tab.badge.count > 0 ? (
+                <span
+                  className={`sidebar-tab-badge is-${tab.badge.tone}`}
+                  aria-label={`${tab.badge.count} active diagnostics`}
+                >
+                  {tab.badge.count > 99 ? "99+" : tab.badge.count}
+                </span>
+              ) : null}
+            </IconTabButton>
+          </Tooltip>
         );
       })}
     </nav>

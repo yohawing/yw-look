@@ -3,6 +3,7 @@ import { AppStatusBar } from "../components/AppStatusBar";
 import { SidebarTabs } from "../components/SidebarTabs";
 import type { SidebarTabItem } from "../components/SidebarTabs";
 import type { SidebarTabId } from "../components/SidebarTabIcons";
+import { Dialog, DialogContent } from "../components/ui/Dialog";
 import type { UiState } from "../stores/uiStore";
 import type { AppStatusBarItem } from "../types/ui";
 
@@ -35,6 +36,8 @@ export function AppShell({
   statusRightItems,
   viewport,
 }: AppShellProps) {
+  const dialogLines = dialogState?.lines.join("\n") ?? "";
+
   return (
     <main className="app-shell">
       <section className="main-content">{viewport}</section>
@@ -62,35 +65,20 @@ export function AppShell({
         <div className="sidebar-content">{sidebarContent}</div>
       </aside>
 
-      {dialogState ? (
-        <div
-          className="dialog-backdrop"
-          onClick={onCloseDialog}
-          role="presentation"
-        >
-          <section
-            aria-labelledby="dialog-title"
-            aria-modal
-            className="dialog-card"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <header className="dialog-header">
-              <p className="card-title" id="dialog-title">
-                {dialogState.title}
-              </p>
-              <button
-                className="dialog-close-button"
-                onClick={onCloseDialog}
-                type="button"
-              >
-                Close
-              </button>
-            </header>
-            <pre className="dialog-body">{dialogState.lines.join("\n")}</pre>
-          </section>
-        </div>
-      ) : null}
+      <Dialog
+        open={dialogState !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            onCloseDialog();
+          }
+        }}
+      >
+        {dialogState ? (
+          <DialogContent title={dialogState.title}>
+            <pre className="yl-dialog__body">{dialogLines}</pre>
+          </DialogContent>
+        ) : null}
+      </Dialog>
 
       <AppStatusBar leftItems={statusLeftItems} rightItems={statusRightItems} />
     </main>

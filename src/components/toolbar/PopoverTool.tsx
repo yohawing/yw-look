@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { ViewportToolSvg } from "../ViewportToolIcons";
+import { PopoverContent, PopoverTrigger } from "../ui/Popover";
+import { Tooltip } from "../ui/Tooltip";
 import type { ToolbarAction, ToolbarItem } from "./types";
 import { ToolbarPopover } from "./ToolbarPopover";
 
@@ -8,7 +10,6 @@ type PopoverToolProps = {
 };
 
 export function PopoverTool({ action }: PopoverToolProps) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const openTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
@@ -57,6 +58,14 @@ export function PopoverTool({ action }: PopoverToolProps) {
     setOpen(false);
   }, [clearTimers]);
 
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      clearTimers();
+      setOpen(nextOpen);
+    },
+    [clearTimers],
+  );
+
   const handleTriggerClick = useCallback(() => {
     if (action.kind === "toggle") {
       action.onRun?.();
@@ -89,49 +98,54 @@ export function PopoverTool({ action }: PopoverToolProps) {
   );
 
   return (
-    <>
-      <button
-        ref={triggerRef}
-        aria-expanded={open}
-        aria-haspopup={hasChildren ? "menu" : undefined}
-        aria-label={action.label}
-        className={`viewport-tool${action.active ? " is-active" : ""}${open ? " is-hover" : ""}`}
-        data-tooltip={action.description ?? action.label}
-        onClick={handleTriggerClick}
-        onMouseEnter={scheduleOpen}
-        onMouseLeave={scheduleClose}
-        title={action.description ?? action.label}
-        type="button"
-      >
-        {action.iconId ? <ViewportToolSvg icon={action.iconId} /> : null}
-        {hasChildren ? (
-          <span className="viewport-tool-popover-indicator" aria-hidden="true">
-            <svg viewBox="0 0 10 10" width="6" height="6">
-              <path d="M2 3l3 4 3-4" fill="currentColor" />
-            </svg>
-          </span>
-        ) : null}
-      </button>
+    <ToolbarPopover open={open} onOpenChange={handleOpenChange}>
+      <Tooltip content={action.description ?? action.label} side="right">
+        <PopoverTrigger asChild>
+          <button
+            aria-expanded={open}
+            aria-haspopup={hasChildren ? "menu" : undefined}
+            aria-label={action.label}
+            className={`viewport-tool${action.active ? " is-active" : ""}${open ? " is-hover" : ""}`}
+            onClick={handleTriggerClick}
+            onPointerEnter={scheduleOpen}
+            onPointerLeave={scheduleClose}
+            type="button"
+          >
+            {action.iconId ? <ViewportToolSvg icon={action.iconId} /> : null}
+            {hasChildren ? (
+              <span
+                className="viewport-tool-popover-indicator"
+                aria-hidden="true"
+              >
+                <svg viewBox="0 0 10 10" width="6" height="6">
+                  <path d="M2 3l3 4 3-4" fill="currentColor" />
+                </svg>
+              </span>
+            ) : null}
+          </button>
+        </PopoverTrigger>
+      </Tooltip>
 
       {hasChildren ? (
-        <ToolbarPopover
-          triggerRef={triggerRef}
-          open={open}
-          onClose={handleClose}
-          onMouseEnter={scheduleOpen}
-          onMouseLeave={scheduleClose}
+        <PopoverContent
+          align="start"
+          className="toolbar-popover"
+          role="menu"
+          side="right"
+          onPointerEnter={scheduleOpen}
+          onPointerLeave={scheduleClose}
         >
-          <PopoverContent
+          <ToolbarPopoverItems
             items={action.children!}
             onAction={handleChildAction}
           />
-        </ToolbarPopover>
+        </PopoverContent>
       ) : null}
-    </>
+    </ToolbarPopover>
   );
 }
 
-function PopoverContent({
+function ToolbarPopoverItems({
   items,
   onAction,
 }: {

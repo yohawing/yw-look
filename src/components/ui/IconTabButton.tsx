@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 export type IconTabButtonSize = "sm" | "md" | "lg";
 
@@ -15,30 +15,36 @@ const sizeClass: Record<IconTabButtonSize, string> = {
   lg: "yl-tab-button--lg",
 };
 
-export function IconTabButton({
-  active = false,
-  selected,
-  size = "md",
-  className,
-  type = "button",
-  children,
-  ...props
-}: IconTabButtonProps) {
-  const isSelected = selected ?? active;
-  const classes = ["yl-tab-button", sizeClass[size], className]
-    .filter(Boolean)
-    .join(" ");
+export const IconTabButton = forwardRef<HTMLButtonElement, IconTabButtonProps>(
+  function IconTabButton(
+    {
+      active = false,
+      selected,
+      size = "md",
+      className,
+      type = "button",
+      children,
+      ...props
+    },
+    ref,
+  ) {
+    const isSelected = selected ?? active;
+    const classes = ["yl-tab-button", sizeClass[size], className]
+      .filter(Boolean)
+      .join(" ");
 
-  return (
-    <button
-      aria-selected={isSelected}
-      className={classes}
-      data-active={isSelected ? "true" : undefined}
-      role="tab"
-      type={type}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
+    return (
+      <button
+        aria-selected={isSelected}
+        className={classes}
+        data-active={isSelected ? "true" : undefined}
+        ref={ref}
+        role="tab"
+        type={type}
+        {...props}
+      >
+        {children}
+      </button>
+    );
+  },
+);

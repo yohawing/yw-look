@@ -34,17 +34,9 @@
   background: #ff6b6b;
 }
 
-.tab-button.sidebar-tab-button::before {
-  content: attr(data-tooltip);
-}
-
 .sidebar-tab-button:disabled {
   cursor: not-allowed;
   opacity: 0.42;
-}
-
-.tab-button.sidebar-tab-button:disabled::before {
-  display: none;
 }
 
 .sidebar-tab-icon {
