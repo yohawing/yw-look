@@ -1,30 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ACESFilmicToneMapping,
   AmbientLight,
   AnimationMixer,
-  BackSide,
-  Box3,
-  BoxGeometry,
   Camera,
-  Color,
   DirectionalLight,
   Euler,
-  LinearToneMapping,
   MathUtils,
   Mesh,
-  MeshBasicMaterial,
-  MOUSE,
   Object3D,
   PCFSoftShadowMap,
   PerspectiveCamera,
   PMREMGenerator,
   Raycaster,
-  ReinhardToneMapping,
   Scene,
-  SphereGeometry,
   Texture,
-  type ToneMapping,
   Vector2,
   Vector3,
   WebGLRenderTarget,
@@ -32,24 +21,14 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { SelectedFile } from "../lib/files";
-import type {
-  AssetResourceMetrics,
-  ResourceDiagnosticsSnapshot,
-} from "../lib/diagnostics";
+import type { AssetResourceMetrics } from "../lib/diagnostics";
 import { formatUsdErrorForDisplay } from "../lib/usd";
-import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 import {
   type DeferredTextureSnapshot,
-  type DisplayMode,
   type LoadingStageId,
   type LoadingStageSnapshot,
   type MissingReferenceError,
   type SceneContext,
-  type TextureFilterMode,
-  type TextureViewMode,
-  type ViewerFeedback,
-  type ViewerSurfaceMode,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
   getPreviewSupportState,
@@ -59,7 +38,6 @@ import {
   disposeObject,
   stopAnimations,
   resetSceneObjects,
-  applyInitialView,
   applyPresetView,
   applyControlsSensitivity,
   getObjectMaxDimension,
@@ -67,7 +45,6 @@ import {
   cancelScaleNormalization,
   applyDynamicGrid,
   applyDynamicAxes,
-  applyTextureView,
   getScaleWarning,
   applyDisplayMode,
   applyBackfaceCulling,
@@ -76,7 +53,6 @@ import {
   applySkeletonHelpers,
   applyBoundingBoxHelpers,
   applyNormalHelpers,
-  isViewportHelperObject,
   applyShadows,
   ensureShadowCatcher,
   loadPreviewObject,
@@ -96,26 +72,55 @@ import {
   clearSelectionHighlightFromObject,
   applyUnlitMaterial,
   applyPreviewLightingPreset,
-  DEFAULT_LIGHTING_PRESET,
   applyPreviewRenderingPreset,
+  DEFAULT_LIGHTING_PRESET,
   DEFAULT_PREVIEW_RENDERING_PRESET,
   getPreviewRenderingPresetForExtension,
-  selectionProxyTarget,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
 import { AnimationBar } from "./AnimationBar";
-import { emptyAssetMetadata, type AssetMetadata } from "./assetMetadata";
+import { emptyAssetMetadata } from "./assetMetadata";
 import { LoadingScreen } from "./LoadingScreen";
 import { emptyAnimationState, type AnimationState } from "./animation";
 import { applyMorphTargetValues } from "./morphTargets";
 import { ViewerStatePanel } from "./ViewerStatePanel";
 
+import type { EnvironmentPreset } from "../types/viewer";
+import {
+  applyControlSensitivity,
+  configureAssetControls,
+  frameMountedObject,
+  frameObjectBounds,
+  syncAxesVisibility,
+  syncGridVisibility,
+} from "../viewport/camera";
+import { createEnvironmentTarget } from "../viewport/environment";
+import {
+  applyViewportBackground,
+  applyViewportRenderingSettings,
+  runCleanupCallbacks,
+  shouldFlipTexturePreviewY,
+  toneMappingModeMap,
+} from "../viewport/renderSettings";
+import {
+  applyManualVisibility,
+  applyPurposeVisibility,
+  collectSelectablePickTargets,
+  findObjectBySelectionKey,
+  isolateObject,
+  selectionKeyForObject,
+  setSubtreeManualHidden,
+} from "../viewport/selection";
+import {
+  collectAssetResourceMetrics,
+  collectResourceDiagnosticsSnapshot,
+  RESOURCE_DIAGNOSTICS_SAMPLE_MS,
+  resourceDiagnosticsSignature,
+} from "../viewport/resourceDiagnostics";
 import type {
-  BackgroundPreset,
-  CameraPresetRequest,
-  EnvironmentPreset,
-  ToneMappingMode,
-} from "../types/viewer";
+  AssetViewportProps,
+  RuntimePreviewUpdater,
+} from "../viewport/types";
 
 export type {
   ViewerFeedback,
@@ -129,16 +134,6 @@ export type {
   EnvironmentPreset,
   ToneMappingMode,
 } from "../types/viewer";
-
-const backgroundPresetColors: Record<BackgroundPreset, string> = {
-  gray: "#717781",
-  charcoal: "#0f1011",
-  light: "#d9dee7",
-};
-
-type RuntimePreviewUpdater = {
-  update: (deltaSeconds: number) => void;
-};
 
 function isRuntimePreviewUpdater(
   value: unknown,
@@ -178,237 +173,6 @@ function retargetMmdMotion(context: SceneContext, seconds: number) {
   });
 }
 
-function applyViewportRenderingSettings(
-  renderer: WebGLRenderer,
-  extension: string | undefined,
-  toneMappingMode: ToneMappingMode,
-  exposure: number,
-) {
-  const preset = getPreviewRenderingPresetForExtension(extension);
-  if (preset === DEFAULT_PREVIEW_RENDERING_PRESET) {
-    renderer.outputColorSpace = preset.outputColorSpace;
-    renderer.toneMapping = toneMappingModeMap[toneMappingMode];
-    renderer.toneMappingExposure = exposure;
-    return;
-  }
-
-  applyPreviewRenderingPreset(renderer, preset);
-}
-
-function runCleanupCallbacks(callbacks: Array<() => void>) {
-  for (const cleanup of callbacks) {
-    cleanup();
-  }
-}
-
-function applyViewportBackground(
-  renderer: WebGLRenderer,
-  scene: Scene,
-  backgroundPreset: BackgroundPreset,
-  environmentTexture: Texture | null,
-) {
-  const color = backgroundPresetColors[backgroundPreset];
-  // setClearColor still matters: it is used when the scene has no
-  // background (rare) and when a frame is rendered without clearing
-  // the environment texture (e.g. during resize before relayout).
-  renderer.setClearColor(color);
-  scene.background = environmentTexture ?? new Color(color);
-}
-
-const toneMappingModeMap: Record<ToneMappingMode, ToneMapping> = {
-  linear: LinearToneMapping,
-  aces: ACESFilmicToneMapping,
-  reinhard: ReinhardToneMapping,
-};
-
-const INITIAL_GRID_NAME = "__yw_initial_grid";
-const AXES_HELPER_NAME = "__yw_axes_helper";
-const RESOURCE_DIAGNOSTICS_SAMPLE_MS = 2000;
-const MEMORY_SAMPLE_GRANULARITY_BYTES = 1024 * 1024;
-
-function configureAssetControls(controls: OrbitControls) {
-  controls.enableRotate = true;
-  controls.enablePan = true;
-  controls.enableZoom = true;
-  controls.mouseButtons.LEFT = MOUSE.ROTATE;
-  controls.mouseButtons.MIDDLE = MOUSE.PAN;
-  controls.mouseButtons.RIGHT = MOUSE.DOLLY;
-}
-
-function applyControlSensitivity(controls: OrbitControls, sensitivity: number) {
-  // Clamp so users can't lock themselves out with a zero multiplier.
-  const safe = Math.max(sensitivity, 0.05);
-  controls.rotateSpeed = safe;
-  controls.panSpeed = safe;
-  controls.zoomSpeed = safe;
-}
-
-function configureTextureControls(controls: OrbitControls) {
-  controls.enableRotate = false;
-  controls.enablePan = true;
-  controls.enableZoom = true;
-  controls.mouseButtons.LEFT = MOUSE.PAN;
-  controls.mouseButtons.MIDDLE = MOUSE.PAN;
-  controls.mouseButtons.RIGHT = MOUSE.DOLLY;
-}
-
-function syncGridVisibility(
-  context: SceneContext,
-  showGrid: boolean,
-  viewerSurfaceMode: ViewerSurfaceMode,
-  forceAssetGrid = false,
-) {
-  const grid = context.scene.getObjectByName(INITIAL_GRID_NAME);
-
-  if (grid) {
-    grid.visible =
-      showGrid && (forceAssetGrid || viewerSurfaceMode === "asset");
-  }
-}
-
-function syncAxesVisibility(
-  context: SceneContext,
-  showAxes: boolean,
-  viewerSurfaceMode: ViewerSurfaceMode,
-  forceAssetAxes = false,
-) {
-  const axes = context.scene.getObjectByName(AXES_HELPER_NAME);
-
-  if (axes) {
-    axes.visible =
-      showAxes && (forceAssetAxes || viewerSurfaceMode === "asset");
-  }
-}
-
-function frameMountedObject(
-  context: SceneContext,
-  object: NonNullable<SceneContext["mountedObject"]>,
-  viewerSurfaceMode: ViewerSurfaceMode,
-  showGrid: boolean,
-  showAxes: boolean,
-  sensitivityMultiplier = 1,
-  rawMaxDimension?: number,
-  texturePreview3D = false,
-) {
-  syncGridVisibility(context, showGrid, viewerSurfaceMode);
-  syncAxesVisibility(context, showAxes, viewerSurfaceMode);
-
-  if (viewerSurfaceMode === "texture" && !texturePreview3D) {
-    configureTextureControls(context.controls);
-    applyTextureView(context.camera, context.controls, object);
-    // Use neutral (dim=1) sensitivity for texture pan/zoom so the hidden
-    // asset's original size does not bleed into texture controls, but still
-    // honour the user's manual camera-speed multiplier.
-    applyControlsSensitivity(context.controls, 1, sensitivityMultiplier);
-    context.controls.enabled = true;
-    return;
-  }
-
-  configureAssetControls(context.controls);
-  applyInitialView(
-    context.camera,
-    context.controls,
-    object,
-    sensitivityMultiplier,
-    rawMaxDimension,
-  );
-  context.controls.enabled = true;
-}
-
-function selectionKeyForObject(object: Object3D) {
-  const proxyTarget = selectionProxyTarget(object);
-  if (proxyTarget) {
-    return selectionKeyForObject(proxyTarget);
-  }
-  const primPath =
-    typeof object.userData?.primPath === "string"
-      ? object.userData.primPath
-      : undefined;
-  const raw = typeof object.name === "string" ? object.name.trim() : "";
-  return primPath ?? (raw.length > 0 ? raw : null);
-}
-
-function findObjectBySelectionKey(
-  root: Object3D,
-  selectionKey: string,
-): Object3D | null {
-  let match: Object3D | null = null;
-
-  root.traverse((child) => {
-    if (match) return;
-    if (selectionKeyForObject(child) === selectionKey) {
-      match = child;
-    }
-  });
-
-  return match;
-}
-
-function isSelectablePickTarget(object: Object3D): object is Mesh {
-  return (
-    object instanceof Mesh &&
-    object.name !== "__yw_shadow_catcher" &&
-    !isViewportHelperObject(object) &&
-    selectionKeyForObject(object) !== null
-  );
-}
-
-function collectSelectablePickTargets(root: Object3D): Mesh[] {
-  const targets: Mesh[] = [];
-  root.traverse((child) => {
-    if (isSelectablePickTarget(child)) {
-      targets.push(child);
-    }
-  });
-  return targets;
-}
-
-function frameObjectBounds(
-  context: SceneContext,
-  object: Object3D,
-  sensitivityMultiplier = 1,
-) {
-  const bounds = new Box3().setFromObject(object);
-  if (bounds.isEmpty()) {
-    return;
-  }
-
-  const size = bounds.getSize(new Vector3());
-  const center = bounds.getCenter(new Vector3());
-  const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
-  const fitHeightDistance =
-    maxDimension / (2 * Math.tan(MathUtils.degToRad(context.camera.fov * 0.5)));
-  const fitDistance = fitHeightDistance * 1.5;
-  const direction = context.camera.position
-    .clone()
-    .sub(context.controls.target)
-    .normalize();
-  if (direction.lengthSq() === 0) {
-    direction.set(1.15, 0.8, 1.15).normalize();
-  }
-
-  context.camera.position.copy(
-    center.clone().add(direction.multiplyScalar(fitDistance)),
-  );
-  context.camera.near = Math.max(maxDimension / 500, 0.01);
-  context.camera.far = Math.max(maxDimension * 20, 200);
-  context.camera.lookAt(center);
-  context.camera.updateProjectionMatrix();
-
-  context.controls.target.copy(center);
-  context.controls.minDistance = Math.max(maxDimension / 50, 0.05);
-  context.controls.maxDistance = Math.max(maxDimension * 40, 50);
-  applyControlsSensitivity(
-    context.controls,
-    maxDimension,
-    sensitivityMultiplier,
-  );
-  context.controls.update();
-  context.controls.enabled = true;
-}
-
-const MANUAL_HIDDEN_KEY = "__ywManualHidden";
-
 function getRuntimePreviewSupportState(extension: string) {
   const loader = listRegisteredLoaders().find(
     (entry) => entry.extension === extension,
@@ -416,409 +180,6 @@ function getRuntimePreviewSupportState(extension: string) {
   return getPreviewSupportState(extension, {
     optionalLoaderInstalled: loader?.installed !== false,
   });
-}
-
-function isManuallyHidden(object: Object3D) {
-  return object.userData?.[MANUAL_HIDDEN_KEY] === true;
-}
-
-function setSubtreeManualHidden(root: Object3D, hidden: boolean) {
-  root.traverse((child) => {
-    if (child.name === "__yw_shadow_catcher") {
-      return;
-    }
-    if (hidden) {
-      child.userData[MANUAL_HIDDEN_KEY] = true;
-    } else {
-      delete child.userData[MANUAL_HIDDEN_KEY];
-    }
-  });
-
-  const parent = root.parent;
-  if (!parent) {
-    return;
-  }
-  parent.traverse((child) => {
-    if (selectionProxyTarget(child) !== root) {
-      return;
-    }
-    if (hidden) {
-      child.userData[MANUAL_HIDDEN_KEY] = true;
-    } else {
-      delete child.userData[MANUAL_HIDDEN_KEY];
-    }
-  });
-}
-
-function applyManualVisibility(root: Object3D) {
-  root.traverse((child) => {
-    if (child.name === "__yw_shadow_catcher") {
-      return;
-    }
-    if (isManuallyHidden(child)) {
-      child.visible = false;
-    }
-  });
-}
-
-function isolateObject(root: Object3D, selected: Object3D) {
-  setSubtreeManualHidden(root, true);
-  setSubtreeManualHidden(selected, false);
-
-  let ancestor = selected.parent;
-  while (ancestor && ancestor !== root.parent) {
-    delete ancestor.userData[MANUAL_HIDDEN_KEY];
-    if (ancestor === root) break;
-    ancestor = ancestor.parent;
-  }
-}
-
-function shouldFlipTexturePreviewY(
-  texture: Texture,
-  file: SelectedFile | null,
-): boolean {
-  return (
-    (file?.extension === "pmx" || file?.extension === "pmd") &&
-    texture.flipY === false
-  );
-}
-
-type AssetViewportProps = {
-  currentFile: SelectedFile | null;
-  mmdMotionRequest?: {
-    file: SelectedFile;
-    version: number;
-  } | null;
-  displayMode: DisplayMode;
-  backgroundPreset: BackgroundPreset;
-  onFeedbackChange: (feedback: ViewerFeedback) => void;
-  onOpenFile?: () => void;
-  onUsdError?: (error: unknown) => void;
-  onMetadataChange: (metadata: AssetMetadata | null) => void;
-  onResourceDiagnosticsChange?: (
-    snapshot: ResourceDiagnosticsSnapshot | null,
-  ) => void;
-  selectedTextureId: string | null;
-  viewerSurfaceMode: ViewerSurfaceMode;
-  textureViewMode: TextureViewMode;
-  textureExposure: number;
-  textureBlackPoint: number;
-  textureWhitePoint: number;
-  textureTileCount: number;
-  textureGamma: number;
-  resetVersion: number;
-  viewportShortcutCommand?: ViewportShortcutCommand | null;
-  showGrid: boolean;
-  showAxes: boolean;
-  showSkeleton: boolean;
-  showLocalAxis: boolean;
-  showJointNames: boolean;
-  showBoundingBoxes: boolean;
-  showNormals: boolean;
-  showVertexColors: boolean;
-  showEnvironmentBackground: boolean;
-  environmentRotation: number;
-  backfaceCulling: boolean;
-  textureFilterMode: TextureFilterMode;
-  cameraPresetRequest: CameraPresetRequest | null;
-  controlSensitivity: number;
-  cameraFov: number;
-  renderScale: number;
-  showShadows: boolean;
-  showUnlit: boolean;
-  fxaaEnabled: boolean;
-  showRendererStats: boolean;
-  toneMappingMode: ToneMappingMode;
-  exposure: number;
-  onGridUnitChange: (label: string) => void;
-  environmentPreset: EnvironmentPreset;
-  /** Multiplier applied on top of the auto-computed sensitivity (0.25 – 4). */
-  cameraSpeedMultiplier: number;
-  /**
-   * Phase 4 USD load policy. Default `"loadAll"` preserves Phase 3
-   * behavior. When this changes the viewport reloads the preview with
-   * the new policy so deferred payloads take effect.
-   */
-  usdLoadPolicy?: import("../lib/usd").StageLoadPolicy;
-  /**
-   * When `true`, the texture preview plane is framed with the same
-   * orbit-style controls as a 3D asset so the user can rotate/zoom
-   * around it. Defaults to `false` (flat 2D pan/zoom view) which is
-   * the canonical image-viewer behavior and matches what users expect
-   * for a quick texture inspection.
-   */
-  texturePreview3D: boolean;
-  /**
-   * Fired when the user single-clicks the viewport (#33). Receives the
-   * `Object3D.name` of the picked mesh, or `null` when the click misses
-   * any geometry. Drags are not treated as clicks (a small movement
-   * threshold filters orbit/pan gestures out). The string is the live
-   * Three.js object name — for the GLB-routed USD path this is the
-   * authored prim path the Rust backend stamps on each mesh node, and
-   * for the Three.js USDLoader path it is whatever the loader assigned.
-   * App.tsx feeds the value into the hierarchy panel so the tree can
-   * scroll to and highlight the picked prim.
-   */
-  onSelectMesh?: (meshName: string | null) => void;
-  /**
-   * Currently selected mesh name driven by the hierarchy tree (#33 reverse
-   * direction: tree → viewport).  When this changes the viewport applies a
-   * selection tint to the matching mesh; `null` clears any active tint.
-   */
-  selectedMeshName?: string | null;
-  morphTargetValues?: Record<string, Record<number, number>>;
-  /**
-   * #32: USD purpose visibility filter. `default` purpose is always shown.
-   * Each of render / proxy / guide is independently toggled. When undefined
-   * the viewport behaves as if render=true, proxy=false, guide=false which
-   * matches the pre-#32 behavior.
-   */
-  purposeModes?: import("../lib/usd").PurposeModes;
-  /**
-   * #31: USD variant selections applied before geometry extraction.
-   * When this array changes the GLB pipeline is re-run with the new
-   * selections so the variant switch is reflected in the viewport.
-   * Ignored for non-USD files and the USDA single-buffer path.
-   */
-  variantSelections?: import("../lib/usd").VariantSelection[];
-  /**
-   * #34: Name of the USD camera to use as the active viewport camera.
-   * `null` (default) keeps the free-orbit PerspectiveCamera.
-   * When a value is set the viewport traverses the scene graph, finds the
-   * matching PerspectiveCamera node (by stripped name), uses it for
-   * rendering, and disables OrbitControls so the transform is USD-driven.
-   * The fly-cam (RMB+WASD) is also blocked while a USD camera is active.
-   *
-   * Uses the camera's stable Three.js uuid rather than its authored name
-   * so duplicate or unnamed cameras stay independently selectable.
-   */
-  activeCameraId?: string | null;
-  /** Called when the previously-selected USD camera disappears after a
-   * reload (variant / load-policy change → new Three.js scene with fresh
-   * uuids). The viewport falls back to the free camera but the React
-   * state in App.tsx still points at a uuid that no longer exists; this
-   * callback lets App reset that state so the UI is consistent and fly
-   * mode becomes available again. */
-  onActiveCameraReset?: () => void;
-  /**
-   * #44: when non-null the viewport loads this pre-extracted GLB buffer
-   * directly instead of re-extracting from the file path. Used by the
-   * per-prim payload session so the viewport reflects the current payload
-   * load state without a full round-trip through the extraction pipeline.
-   * Setting to `null` or omitting reverts to the normal file-based path.
-   */
-  glbOverride?: ArrayBuffer | null;
-  deferredProgress?: DeferredTextureSnapshot | null;
-  /**
-   * #91: Called when scale normalization is applied or reverted.
-   * Parent can use this to show/hide the "Cancel Scale Normalize" button.
-   */
-  onScaleNormalizationChange?: (
-    normalization: { applied: boolean; factor: number } | null,
-  ) => void;
-  /**
-   * #91: Version counter. When incremented, the viewport cancels
-   * (reverts) the current scale normalization and resets the object
-   * to its original size. Follows the same pattern as resetVersion.
-   */
-  cancelScaleNormalizationVersion?: number;
-};
-
-type PerformanceWithMemory = Performance & {
-  memory?: {
-    usedJSHeapSize?: number;
-    totalJSHeapSize?: number;
-    jsHeapSizeLimit?: number;
-  };
-};
-
-function readMemoryMetrics(): ResourceDiagnosticsSnapshot["memory"] {
-  const memory = (performance as PerformanceWithMemory).memory;
-  const stableBytes = (value: number | undefined) =>
-    typeof value === "number"
-      ? Math.round(value / MEMORY_SAMPLE_GRANULARITY_BYTES) *
-        MEMORY_SAMPLE_GRANULARITY_BYTES
-      : null;
-
-  return {
-    jsHeapUsedBytes: stableBytes(memory?.usedJSHeapSize),
-    jsHeapTotalBytes: stableBytes(memory?.totalJSHeapSize),
-    jsHeapLimitBytes: stableBytes(memory?.jsHeapSizeLimit),
-  };
-}
-
-function collectAssetResourceMetrics(
-  metadata: AssetMetadata,
-): AssetResourceMetrics {
-  let vertices = 0;
-  let triangles = 0;
-
-  for (const objectInfo of Object.values(metadata.objectInfo)) {
-    vertices += objectInfo.vertexCount ?? 0;
-    triangles += objectInfo.triangleCount ?? 0;
-  }
-
-  return {
-    vertices,
-    triangles,
-    materials: metadata.materialCount,
-    textures: metadata.textureCount,
-  };
-}
-
-function disposeEnvironmentScene(scene: Scene) {
-  scene.traverse((child) => {
-    if (!(child instanceof Mesh)) {
-      return;
-    }
-
-    child.geometry.dispose();
-
-    if (Array.isArray(child.material)) {
-      for (const material of child.material) {
-        material.dispose();
-      }
-      return;
-    }
-
-    child.material.dispose();
-  });
-}
-
-function buildEnvironmentScene(preset: EnvironmentPreset) {
-  const scene = new Scene();
-  const shell = new Mesh(
-    new SphereGeometry(40, 40, 20),
-    new MeshBasicMaterial({ color: "#121418", side: BackSide }),
-  );
-  scene.add(shell);
-
-  const addPanel = ({
-    color,
-    position,
-    size,
-    rotation = [0, 0, 0],
-  }: {
-    color: string;
-    position: [number, number, number];
-    size: [number, number, number];
-    rotation?: [number, number, number];
-  }) => {
-    const panel = new Mesh(
-      new BoxGeometry(size[0], size[1], size[2]),
-      new MeshBasicMaterial({ color }),
-    );
-    panel.position.set(position[0], position[1], position[2]);
-    panel.rotation.set(rotation[0], rotation[1], rotation[2]);
-    scene.add(panel);
-  };
-
-  const addGlowSphere = ({
-    color,
-    position,
-    radius,
-  }: {
-    color: string;
-    position: [number, number, number];
-    radius: number;
-  }) => {
-    const glow = new Mesh(
-      new SphereGeometry(radius, 24, 16),
-      new MeshBasicMaterial({ color }),
-    );
-    glow.position.set(position[0], position[1], position[2]);
-    scene.add(glow);
-  };
-
-  switch (preset) {
-    case "neutral":
-      shell.material.color.set("#191c21");
-      addPanel({
-        color: "#f3f4f8",
-        position: [0, 9, -18],
-        size: [14, 14, 0.45],
-      });
-      addPanel({
-        color: "#dde3ee",
-        position: [-15, 5, -8],
-        size: [9, 12, 0.4],
-        rotation: [0, 0.32, 0],
-      });
-      addPanel({
-        color: "#d7dde7",
-        position: [15, 4, -7],
-        size: [9, 11, 0.4],
-        rotation: [0, -0.34, 0],
-      });
-      addPanel({
-        color: "#747c88",
-        position: [0, -10, 0],
-        size: [32, 0.5, 32],
-      });
-      break;
-    case "outdoor":
-      shell.material.color.set("#1a2432");
-      addGlowSphere({
-        color: "#ffe6b3",
-        position: [0, 11, -16],
-        radius: 3.6,
-      });
-      addPanel({
-        color: "#7fb3ff",
-        position: [-16, 5, -8],
-        size: [12, 10, 0.4],
-        rotation: [0, 0.42, 0],
-      });
-      addPanel({
-        color: "#d7ecff",
-        position: [14, 7, -9],
-        size: [8, 12, 0.35],
-        rotation: [0, -0.26, 0],
-      });
-      addPanel({
-        color: "#4a5665",
-        position: [0, -11, 0],
-        size: [36, 0.5, 36],
-      });
-      break;
-    case "studio":
-    default:
-      addPanel({
-        color: "#ffffff",
-        position: [0, 8, -16],
-        size: [12, 12, 0.45],
-      });
-      addPanel({
-        color: "#bfd0ff",
-        position: [-15, 5, -9],
-        size: [8, 14, 0.4],
-        rotation: [0, 0.38, 0],
-      });
-      addPanel({
-        color: "#ffe2c2",
-        position: [15, 4, -8],
-        size: [8, 10, 0.4],
-        rotation: [0, -0.34, 0],
-      });
-      addPanel({
-        color: "#626977",
-        position: [0, -10, 0],
-        size: [34, 0.5, 34],
-      });
-      break;
-  }
-
-  return scene;
-}
-
-function createEnvironmentTarget(
-  pmremGenerator: PMREMGenerator,
-  preset: EnvironmentPreset,
-) {
-  const environmentScene = buildEnvironmentScene(preset);
-  const target = pmremGenerator.fromScene(environmentScene, 0.04);
-  disposeEnvironmentScene(environmentScene);
-  return target;
 }
 
 export function AssetViewport({
@@ -985,27 +346,11 @@ export function AssetViewport({
         return;
       }
 
-      const info = context.renderer.info;
-      const programs = info.programs;
-      const snapshot: ResourceDiagnosticsSnapshot = {
-        sampledAt: performance.now(),
-        webgl: {
-          geometries: info.memory.geometries,
-          textures: info.memory.textures,
-          programs: Array.isArray(programs) ? programs.length : null,
-          calls: info.render.calls,
-          triangles: info.render.triangles,
-          points: info.render.points,
-          lines: info.render.lines,
-        },
-        memory: readMemoryMetrics(),
-        asset: assetResourceMetricsRef.current,
-      };
-      const signature = JSON.stringify({
-        webgl: snapshot.webgl,
-        memory: snapshot.memory,
-        asset: snapshot.asset,
-      });
+      const snapshot = collectResourceDiagnosticsSnapshot(
+        context.renderer,
+        assetResourceMetricsRef.current,
+      );
+      const signature = resourceDiagnosticsSignature(snapshot);
       if (signature === lastResourceDiagnosticsRef.current) {
         return;
       }
@@ -1147,46 +492,6 @@ export function AssetViewport({
       }
     }
   }, [selectedMeshName]);
-
-  // #32: USD purpose visibility. Traverse an object and set child.visible
-  // based on userData.purpose (written to GLB node extras by the Rust
-  // backend). `default` is always shown. render/proxy/guide are controlled
-  // by purposeModes. This is extracted as a plain function so it can be
-  // called both from the useEffect below (prop change) and from the load
-  // callback (initial scene mount, where the ref mutation won't re-trigger
-  // the effect).
-  function applyPurposeVisibility(
-    root: import("three").Object3D,
-    modes: import("../lib/usd").PurposeModes | undefined,
-  ) {
-    const render = modes?.render ?? true;
-    const proxy = modes?.proxy ?? false;
-    const guide = modes?.guide ?? false;
-
-    root.traverse((child) => {
-      const purpose: unknown = child.userData?.purpose;
-      if (typeof purpose !== "string") return;
-
-      let visible: boolean;
-      switch (purpose) {
-        case "default":
-          visible = true;
-          break;
-        case "render":
-          visible = render;
-          break;
-        case "proxy":
-          visible = proxy;
-          break;
-        case "guide":
-          visible = guide;
-          break;
-        default:
-          visible = true;
-      }
-      child.visible = visible && !isManuallyHidden(child);
-    });
-  }
 
   useEffect(() => {
     purposeModesRef.current = purposeModes;
