@@ -25,6 +25,7 @@ export interface ViewerState {
   showGrid: boolean;
   showAxes: boolean;
   showSkeleton: boolean;
+  showJointNames: boolean;
   showBoundingBoxes: boolean;
   showNormals: boolean;
   showVertexColors: boolean;
@@ -76,6 +77,7 @@ export interface ViewerState {
   setShowGrid: (v: boolean) => void;
   setShowAxes: (v: boolean) => void;
   setShowSkeleton: (v: boolean) => void;
+  setShowJointNames: (v: boolean) => void;
   setShowBoundingBoxes: (v: boolean) => void;
   setShowNormals: (v: boolean) => void;
   setShowVertexColors: (v: boolean) => void;
@@ -118,6 +120,7 @@ export interface ViewerState {
   toggleShowEnvironmentBackground: () => void;
   toggleShowBoundingBoxes: () => void;
   toggleShowSkeleton: () => void;
+  toggleShowJointNames: () => void;
   bumpCancelScaleNormalizeVersion: () => void;
   updateViewerFeedback: (partial: Partial<ViewerFeedback>) => void;
 }
@@ -129,6 +132,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
   showGrid: true,
   showAxes: false,
   showSkeleton: false,
+  showJointNames: false,
   showBoundingBoxes: false,
   showNormals: false,
   showVertexColors: false,
@@ -188,6 +192,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setShowGrid: (showGrid) => set({ showGrid }),
   setShowAxes: (showAxes) => set({ showAxes }),
   setShowSkeleton: (showSkeleton) => set({ showSkeleton }),
+  setShowJointNames: (showJointNames) => set({ showJointNames }),
   setShowBoundingBoxes: (showBoundingBoxes) => set({ showBoundingBoxes }),
   setShowNormals: (showNormals) => set({ showNormals }),
   setShowVertexColors: (showVertexColors) => set({ showVertexColors }),
@@ -239,6 +244,8 @@ export const useViewerStore = create<ViewerState>((set) => ({
       showBoundingBoxes: !s.showBoundingBoxes,
     })),
   toggleShowSkeleton: () => set((s) => ({ showSkeleton: !s.showSkeleton })),
+  toggleShowJointNames: () =>
+    set((s) => ({ showJointNames: !s.showJointNames })),
   bumpCancelScaleNormalizeVersion: () =>
     set((s) => ({
       cancelScaleNormalizeVersion: s.cancelScaleNormalizeVersion + 1,

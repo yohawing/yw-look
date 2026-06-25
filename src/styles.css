@@ -316,10 +316,41 @@ body.is-resizing-sidebar {
   position: relative;
 }
 
+.viewport-canvas {
+  position: relative;
+}
+
 .viewport-canvas canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.viewport-label-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.joint-name-label {
+  display: inline-block;
+  max-width: 120px;
+  padding: 1px 5px;
+  overflow: hidden;
+  color: var(--yl-text-secondary);
+  font-family: var(--yl-font-sans);
+  font-size: 10px;
+  font-feature-settings: "cv01", "ss03";
+  font-weight: 510;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+  background: rgba(15, 16, 17, 0.62);
+  border: 1px solid var(--yl-border-subtle);
+  border-radius: 4px;
+  transform: translate(4px, -4px);
 }
 
 /* ── ViewModeControls (overlay) ── */

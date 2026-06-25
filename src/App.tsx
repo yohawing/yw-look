@@ -252,6 +252,7 @@ export function App() {
     showGrid,
     showAxes,
     showSkeleton,
+    showJointNames,
     showBoundingBoxes,
     showNormals,
     showVertexColors,
@@ -1635,6 +1636,8 @@ export function App() {
       onToggleBoundingBoxes: () => viewer.toggleShowBoundingBoxes(),
       showSkeleton,
       onToggleSkeleton: () => viewer.toggleShowSkeleton(),
+      showJointNames,
+      onToggleJointNames: () => viewer.toggleShowJointNames(),
     });
   }, [
     cameraPresetRequest,
@@ -1651,6 +1654,7 @@ export function App() {
     showEnvironmentBackground,
     showBoundingBoxes,
     showSkeleton,
+    showJointNames,
     viewerSurfaceMode,
     textureViewMode,
     channelOptions,
@@ -1688,6 +1692,7 @@ export function App() {
             showGrid={showGrid}
             showAxes={showAxes}
             showSkeleton={showSkeleton}
+            showJointNames={showJointNames}
             showBoundingBoxes={showBoundingBoxes}
             showNormals={showNormals}
             showVertexColors={showVertexColors}

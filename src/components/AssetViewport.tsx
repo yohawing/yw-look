@@ -31,6 +31,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import type { SelectedFile } from "../lib/files";
 import type {
   AssetResourceMetrics,
@@ -510,6 +511,7 @@ type AssetViewportProps = {
   showGrid: boolean;
   showAxes: boolean;
   showSkeleton: boolean;
+  showJointNames: boolean;
   showBoundingBoxes: boolean;
   showNormals: boolean;
   showVertexColors: boolean;
@@ -841,6 +843,7 @@ export function AssetViewport({
   showGrid,
   showAxes,
   showSkeleton,
+  showJointNames,
   showBoundingBoxes,
   showNormals,
   showVertexColors,
@@ -925,6 +928,7 @@ export function AssetViewport({
   const backfaceCullingRef = useRef(backfaceCulling);
   const textureFilterModeRef = useRef(textureFilterMode);
   const showSkeletonRef = useRef(showSkeleton);
+  const showJointNamesRef = useRef(showJointNames);
   const showBoundingBoxesRef = useRef(showBoundingBoxes);
   const showNormalsRef = useRef(showNormals);
   const showVertexColorsRef = useRef(showVertexColors);
@@ -1052,6 +1056,10 @@ export function AssetViewport({
   useEffect(() => {
     showSkeletonRef.current = showSkeleton;
   }, [showSkeleton]);
+
+  useEffect(() => {
+    showJointNamesRef.current = showJointNames;
+  }, [showJointNames]);
 
   useEffect(() => {
     showBoundingBoxesRef.current = showBoundingBoxes;
@@ -1289,6 +1297,9 @@ export function AssetViewport({
     });
     renderer.setPixelRatio(window.devicePixelRatio * renderScale);
     renderer.setSize(host.clientWidth, host.clientHeight);
+    const labelRenderer = new CSS2DRenderer();
+    labelRenderer.setSize(host.clientWidth, host.clientHeight);
+    labelRenderer.domElement.className = "viewport-label-layer";
     applyViewportRenderingSettings(
       renderer,
       currentFile?.extension,
@@ -1718,10 +1729,12 @@ export function AssetViewport({
     renderer.domElement.addEventListener("contextmenu", contextMenuHandler);
     document.addEventListener("pointerlockchange", handlePointerLockChange);
     host.appendChild(renderer.domElement);
+    host.appendChild(labelRenderer.domElement);
 
     const resizeObserver = new ResizeObserver(() => {
       const nextSize = new Vector2(host.clientWidth, host.clientHeight);
       renderer.setSize(nextSize.x, nextSize.y);
+      labelRenderer.setSize(nextSize.x, nextSize.y);
       camera.aspect = nextSize.x / nextSize.y;
       camera.updateProjectionMatrix();
       // #34: keep the active USD camera's aspect in sync on resize.
@@ -1829,6 +1842,7 @@ export function AssetViewport({
       } else {
         renderer.render(scene, renderCamera);
       }
+      labelRenderer.render(scene, renderCamera);
 
       statsFrameCount += 1;
       const elapsed = frameNow - statsLastSampled;
@@ -1923,6 +1937,7 @@ export function AssetViewport({
       pmremGenerator.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);
+      host.removeChild(labelRenderer.domElement);
       sceneContextRef.current = null;
       resetCameraRef.current = null;
       clearResourceDiagnostics();
@@ -2464,6 +2479,7 @@ export function AssetViewport({
             context.scene,
             object,
             showSkeletonRef.current || isBoneOnlyPreview,
+            showJointNamesRef.current,
           );
           applyBoundingBoxHelpers(
             context.scene,
@@ -2866,8 +2882,9 @@ export function AssetViewport({
       context.scene,
       context.sourceObject,
       showSkeleton || context.boneOnlyPreview,
+      showJointNames,
     );
-  }, [showSkeleton]);
+  }, [showSkeleton, showJointNames]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

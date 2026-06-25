@@ -7,5 +7,9 @@ declare module "#yw-look-mmd-loader-entry" {
     file: SelectedFile,
     context: LoaderContext,
   ): Promise<LoadedPreview>;
+  export function loadMmdMotionPreviewObject(
+    file: SelectedFile,
+    context: LoaderContext,
+  ): Promise<LoadedPreview>;
   export function loadMmdMotion(file: SelectedFile): Promise<LoadedMmdMotion>;
 }

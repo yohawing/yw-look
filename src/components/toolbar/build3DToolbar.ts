@@ -346,6 +346,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
 
     if (options.showSkeleton !== undefined && options.onToggleSkeleton) {
       if (!hasOverlay) groupSep("overlay");
+      hasOverlay = true;
       push({
         id: "skeleton",
         mode: "3d",
@@ -355,6 +356,20 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         iconId: "skeleton",
         active: options.showSkeleton,
         onRun: options.onToggleSkeleton,
+      });
+    }
+
+    if (options.showJointNames !== undefined && options.onToggleJointNames) {
+      if (!hasOverlay) groupSep("overlay");
+      push({
+        id: "joint-names",
+        mode: "3d",
+        group: "overlay",
+        kind: "toggle",
+        label: "Joint Name",
+        iconId: "overlay",
+        active: options.showJointNames,
+        onRun: options.onToggleJointNames,
       });
     }
   }

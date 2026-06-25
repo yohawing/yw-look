@@ -35,6 +35,7 @@ import {
   WireframeGeometry,
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { VertexNormalsHelper } from "three/examples/jsm/helpers/VertexNormalsHelper.js";
 import type { DisplayMode, SceneContext } from "./types";
 import {
@@ -61,6 +62,8 @@ export const GRID_NAME = "__yw_initial_grid";
 export const AXES_NAME = "__yw_axes_helper";
 export const SHADOW_CATCHER_NAME = "__yw_shadow_catcher";
 const SKELETON_HELPER_FLAG = "__yw_skeleton_helper";
+const JOINT_AXIS_HELPER_FLAG = "__yw_joint_axis_helper";
+const JOINT_LABEL_HELPER_FLAG = "__yw_joint_label_helper";
 const BBOX_HELPER_FLAG = "__yw_bbox_helper";
 const NORMAL_HELPER_FLAG = "__yw_normal_helper";
 const WIREFRAME_OVERLAY_FLAG = "__yw_wireframe_overlay";
@@ -73,6 +76,9 @@ const WIREFRAME_ORIGINAL_COLOR_KEY = "__yw_wireframe_original_color";
 const WIREFRAME_ORIGINAL_MATERIAL_KEY = "__yw_wireframe_original_material";
 const WIREFRAME_MATERIAL_FLAG = "__yw_wireframe_material";
 const GRID_DIVISIONS = 20;
+const JOINT_AXIS_SIZE_FACTOR = 0.025;
+const JOINT_AXIS_MIN_SIZE = 0.015;
+const JOINT_AXIS_MAX_SIZE = 0.12;
 // Axes length is tied to grid size so the XYZ indicator scales with the
 // current unit preset. Slightly longer than half a grid cell keeps the
 // arrows visible but avoids punching through a model that fills the grid.
@@ -119,6 +125,8 @@ function isMmdOutlineMesh(mesh: Mesh) {
 export function isViewportHelperObject(child: Object3D) {
   return (
     child.userData[SKELETON_HELPER_FLAG] === true ||
+    child.userData[JOINT_AXIS_HELPER_FLAG] === true ||
+    child.userData[JOINT_LABEL_HELPER_FLAG] === true ||
     child.userData[BBOX_HELPER_FLAG] === true ||
     child.userData[NORMAL_HELPER_FLAG] === true ||
     child.userData[WIREFRAME_OVERLAY_FLAG] === true ||
@@ -1014,6 +1022,66 @@ function disposeSkeletonHelper(helper: SkeletonHelper) {
   }
 }
 
+function disposeAxesHelper(helper: AxesHelper) {
+  helper.geometry.dispose();
+  for (const material of getMaterials(helper.material)) {
+    material.dispose();
+  }
+}
+
+function disposeJointLabel(label: CSS2DObject) {
+  label.element.remove();
+}
+
+function collectBonesForRoots(roots: Object3D[]) {
+  const seen = new Set<Bone>();
+  const bones: Bone[] = [];
+  for (const root of roots) {
+    root.traverse((child) => {
+      if (!(child instanceof Bone) || seen.has(child)) {
+        return;
+      }
+      seen.add(child);
+      bones.push(child);
+    });
+  }
+  return bones;
+}
+
+function getJointAxisSize(object: Group | Mesh) {
+  const maxDimension = getObjectMaxDimension(object);
+  if (!Number.isFinite(maxDimension) || maxDimension <= 0) {
+    return JOINT_AXIS_MIN_SIZE;
+  }
+  return MathUtils.clamp(
+    maxDimension * JOINT_AXIS_SIZE_FACTOR,
+    JOINT_AXIS_MIN_SIZE,
+    JOINT_AXIS_MAX_SIZE,
+  );
+}
+
+function getBoneLabelText(bone: Bone) {
+  const mmdName = bone.userData.mmdBoneName;
+  const mmdEnglishName = bone.userData.mmdEnglishBoneName;
+  if (typeof mmdName === "string" && mmdName.trim().length > 0) {
+    return mmdName.trim();
+  }
+  if (typeof mmdEnglishName === "string" && mmdEnglishName.trim().length > 0) {
+    return mmdEnglishName.trim();
+  }
+  return bone.name.trim();
+}
+
+function createJointLabel(text: string) {
+  const element = document.createElement("span");
+  element.className = "joint-name-label";
+  element.textContent = text;
+  const label = new CSS2DObject(element);
+  label.userData[JOINT_LABEL_HELPER_FLAG] = true;
+  label.renderOrder = 3;
+  return label;
+}
+
 // Collect skeleton roots (rigs) once so we emit a single helper per
 // skeleton even if the rig drives several SkinnedMesh children.
 function collectSkeletonRoots(object: Group | Mesh): Object3D[] {
@@ -1060,17 +1128,41 @@ function collectSkeletonRoots(object: Group | Mesh): Object3D[] {
 
 export function removeSkeletonHelpers(scene: Scene) {
   const toRemove: SkeletonHelper[] = [];
+  const axesToRemove: AxesHelper[] = [];
+  const labelsToRemove: CSS2DObject[] = [];
   scene.traverse((child: Object3D) => {
     if (
       child instanceof SkeletonHelper &&
       child.userData[SKELETON_HELPER_FLAG] === true
     ) {
       toRemove.push(child);
+      return;
+    }
+    if (
+      child instanceof AxesHelper &&
+      child.userData[JOINT_AXIS_HELPER_FLAG] === true
+    ) {
+      axesToRemove.push(child);
+      return;
+    }
+    if (
+      child instanceof CSS2DObject &&
+      child.userData[JOINT_LABEL_HELPER_FLAG] === true
+    ) {
+      labelsToRemove.push(child);
     }
   });
   for (const helper of toRemove) {
     helper.parent?.remove(helper);
     disposeSkeletonHelper(helper);
+  }
+  for (const helper of axesToRemove) {
+    helper.parent?.remove(helper);
+    disposeAxesHelper(helper);
+  }
+  for (const label of labelsToRemove) {
+    label.parent?.remove(label);
+    disposeJointLabel(label);
   }
 }
 
@@ -1083,29 +1175,56 @@ export function applySkeletonHelpers(
   scene: Scene,
   object: Group | Mesh,
   visible: boolean,
+  showJointNames = false,
 ) {
   removeSkeletonHelpers(scene);
-  if (!visible) {
+  if (!visible && !showJointNames) {
     return;
   }
 
   const roots = collectSkeletonRoots(object);
+  const bones = collectBonesForRoots(roots);
+  const axisSize = getJointAxisSize(object);
   for (const root of roots) {
-    const helper = new SkeletonHelper(root);
-    helper.userData[SKELETON_HELPER_FLAG] = true;
-    // Draw bones on top of the skinned mesh so the rig stays visible
-    // through geometry without disabling depth entirely.
-    helper.renderOrder = 2;
-    const materials = getMaterials(helper.material);
-    for (const material of materials) {
-      if ("depthTest" in material) {
-        material.depthTest = false;
+    if (visible) {
+      const helper = new SkeletonHelper(root);
+      helper.userData[SKELETON_HELPER_FLAG] = true;
+      // Draw bones on top of the skinned mesh so the rig stays visible
+      // through geometry without disabling depth entirely.
+      helper.renderOrder = 2;
+      const materials = getMaterials(helper.material);
+      for (const material of materials) {
+        if ("depthTest" in material) {
+          material.depthTest = false;
+        }
+        if ("transparent" in material) {
+          material.transparent = true;
+        }
       }
-      if ("transparent" in material) {
-        material.transparent = true;
+      scene.add(helper);
+    }
+  }
+  for (const bone of bones) {
+    if (visible) {
+      const axis = new AxesHelper(axisSize);
+      axis.userData[JOINT_AXIS_HELPER_FLAG] = true;
+      axis.renderOrder = 3;
+      for (const material of getMaterials(axis.material)) {
+        if ("depthTest" in material) {
+          material.depthTest = false;
+        }
+        if ("transparent" in material) {
+          material.transparent = true;
+        }
+      }
+      bone.add(axis);
+    }
+    if (showJointNames) {
+      const text = getBoneLabelText(bone);
+      if (text.length > 0) {
+        bone.add(createJointLabel(text));
       }
     }
-    scene.add(helper);
   }
 }
 

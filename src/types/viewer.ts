@@ -608,6 +608,8 @@ export type Build3DToolbarOptions = {
   onToggleBoundingBoxes?: () => void;
   showSkeleton?: boolean;
   onToggleSkeleton?: () => void;
+  showJointNames?: boolean;
+  onToggleJointNames?: () => void;
 };
 
 // ── Animation state ──────────────────────────────────────────────
