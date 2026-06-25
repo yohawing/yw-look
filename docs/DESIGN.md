@@ -403,3 +403,55 @@ The color system is almost entirely achromatic — dark backgrounds with white/g
 5. Brand indigo (`#5e6ad2` / `#7170ff`) is the only chromatic color — everything else is grayscale
 6. Borders are always semi-transparent white, never solid dark colors on dark backgrounds
 7. Use the system monospace stack for any code or technical content, Inter Variable for everything else
+
+## 10. UI Primitive Implementation Rules
+
+These rules apply when an AI agent adds or modifies reusable UI primitives in
+`src/components/ui/`.
+
+### Token Usage
+
+- Use `src/styles/design-system.css` as the source of truth for reusable UI
+  values.
+- Prefer `--yl-surface-*`, `--yl-text-*`, `--yl-border-*`, `--yl-radius-*`,
+  and `--yl-space-*` before adding raw CSS values.
+- Use `--yl-z-*` for layering, `--yl-panel-width-*` for side panels,
+  `--yl-toolbar-size-*` for compact controls, `--yl-status-*` for semantic
+  status color, `--yl-focus-ring` for keyboard focus, `--yl-viewport-overlay-*`
+  for viewport overlays, and `--yl-density-*` for compact/normal density.
+- Do not replace all raw colors opportunistically. Tokenizing existing raw
+  values should happen in a dedicated pass so visual changes are reviewable.
+
+### Component API Naming
+
+- Variant props must be named `variant` and typed as a union literal.
+- Size props must be named `size` and use `"sm" | "md" | "lg"` when size is
+  exposed.
+- Disabled state must use the standard `disabled` prop.
+- Additional CSS hooks must use `className`; sub-element class hooks may use
+  explicit names such as `inputClassName`, `selectClassName`,
+  `labelClassName`, or `controlClassName`.
+- Events must use `onXxx` names, for example `onCheckedChange`.
+- Components that render caller content should type `children` as `ReactNode`.
+- Prefer semantic state names for component-specific state. For tabs, use
+  `selected` as the canonical prop name.
+
+### New Primitive Checklist
+
+- Place the primitive in `src/components/ui/<Name>.tsx`.
+- Export a `<Name>Props` interface and any shared union literal types.
+- Add or reuse `.yl-*` classes in `src/styles/design-system.css`; do not put
+  primitive styling in feature CSS files.
+- Keep Phase 1 primitives minimal: class wiring, basic props, accessible
+  native elements, and no feature-specific behavior.
+- Preserve keyboard focus visibility with `--yl-focus-ring`.
+- Use native HTML attributes where possible instead of custom prop names.
+
+### File Placement
+
+- Reusable primitives live only under `src/components/ui/`.
+- Feature-specific UI remains beside the feature component and should not
+  expand the primitive API.
+- Shared styling for primitives belongs in `src/styles/design-system.css`.
+- Viewport, sidebar, and app-shell CSS files should not receive new primitive
+  definitions.

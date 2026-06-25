@@ -1,42 +1,40 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-export type ButtonVariant = "default" | "primary" | "subtle" | "ghost";
-export type ButtonSize = "sm" | "md" | "lg";
+export type IconButtonVariant = "default" | "primary" | "subtle" | "ghost";
+export type IconButtonSize = "sm" | "md" | "lg";
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  iconOnly?: boolean;
+export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: IconButtonVariant;
+  size?: IconButtonSize;
   children: ReactNode;
 }
 
-const variantClass: Record<ButtonVariant, string> = {
+const variantClass: Record<IconButtonVariant, string> = {
   default: "",
   primary: "yl-button--primary",
   subtle: "yl-button--subtle",
   ghost: "yl-button--ghost",
 };
 
-const sizeClass: Record<ButtonSize, string> = {
-  sm: "yl-button--sm",
+const sizeClass: Record<IconButtonSize, string> = {
+  sm: "yl-icon-button--sm",
   md: "",
-  lg: "yl-button--lg",
+  lg: "yl-icon-button--lg",
 };
 
-export function Button({
+export function IconButton({
   variant = "default",
   size = "md",
-  iconOnly = false,
   className,
   type = "button",
   children,
   ...props
-}: ButtonProps) {
+}: IconButtonProps) {
   const classes = [
     "yl-button",
+    "yl-icon-button",
     variantClass[variant],
     sizeClass[size],
-    iconOnly ? "yl-button--icon" : "",
     className,
   ]
     .filter(Boolean)
