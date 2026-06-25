@@ -10,6 +10,7 @@ import {
   type TimeSampleEntry,
 } from "../lib/usd";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { Badge, BadgeButton } from "./ui/Badge";
 
 type UsdPrimPropertyPanelProps = {
   /** Absolute path to the USD file. `null` while no USD file is open. */
@@ -251,19 +252,22 @@ function AttributeRow({
       <td className="prop-table-var">{attr.variability}</td>
       <td className="prop-table-custom">
         {attr.custom ? (
-          <span className="prop-badge prop-badge-custom">C</span>
+          <Badge mono size="sm">
+            C
+          </Badge>
         ) : null}
       </td>
       <td className="prop-table-samples">
         {attr.timeSampleCount > 0 ? (
-          <button
-            type="button"
-            className="prop-badge prop-badge-samples"
+          <BadgeButton
+            className="prop-samples-badge"
+            mono
+            size="sm"
             onClick={() => onViewSamples(attr.name)}
             title={`View ${attr.timeSampleCount} time sample(s)`}
           >
             {attr.timeSampleCount}s
-          </button>
+          </BadgeButton>
         ) : null}
       </td>
     </tr>

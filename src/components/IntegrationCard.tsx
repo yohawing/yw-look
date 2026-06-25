@@ -6,6 +6,7 @@ import {
   SidebarSection,
   type SidebarKeyValueRow,
 } from "./sidebarPrimitives";
+import { Badge } from "./ui/Badge";
 
 type IntegrationCardProps = {
   integrationPayload: IntegrationPayload | null;
@@ -52,11 +53,11 @@ export function IntegrationCard({
   return (
     <SidebarSection title="Windows Integration">
       <SidebarKeyValueRows rows={rows} />
-      <div className="sidebar-chip-row">
+      <div className="sidebar-badge-row">
         {integrationPayload.supportedExtensions.map((ext) => (
-          <span key={ext} className="sidebar-chip is-mono">
+          <Badge key={ext} mono size="sm">
             {ext}
-          </span>
+          </Badge>
         ))}
       </div>
     </SidebarSection>

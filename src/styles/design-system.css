@@ -496,6 +496,74 @@
   font-size: 13px;
 }
 
+.yl-kv {
+  display: flex;
+  flex-direction: column;
+}
+
+.yl-kv-row {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px;
+  color: var(--yl-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.yl-kv--regular .yl-kv-row {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.yl-kv-row:hover {
+  background: var(--yl-surface-glass-1);
+}
+
+.yl-kv-key {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--yl-text-tertiary);
+  font-weight: var(--yl-font-weight-regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yl-kv-value {
+  max-width: 62%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--yl-text-primary);
+  font-size: 11px;
+  font-weight: var(--yl-font-weight-medium);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yl-kv-value.is-mono {
+  font-family: var(--yl-font-mono);
+  font-weight: var(--yl-font-weight-medium);
+}
+
+.yl-kv-value.is-muted {
+  color: var(--yl-text-tertiary);
+}
+
+.yl-kv-value.is-ok {
+  color: var(--yl-status-success);
+}
+
+.yl-kv-value.is-warn {
+  color: var(--yl-status-warning);
+}
+
+.yl-kv-value.is-danger {
+  color: var(--yl-status-error);
+}
+
 .yl-select-field,
 .yl-slider-field {
   display: grid;
@@ -584,6 +652,7 @@
   display: inline-flex;
   min-height: 18px;
   align-items: center;
+  justify-content: center;
   border: 1px solid var(--yl-border-subtle);
   border-radius: var(--yl-radius-pill);
   background: var(--yl-surface-glass-2);
@@ -594,7 +663,32 @@
   font-size: 11px;
   font-weight: var(--yl-font-weight-medium);
   line-height: 1;
+  text-decoration: none;
   white-space: nowrap;
+}
+
+button.yl-badge {
+  cursor: pointer;
+}
+
+.yl-badge--interactive:hover {
+  border-color: var(--yl-border);
+  background: var(--yl-surface-glass-3);
+  color: var(--yl-text-primary);
+}
+
+.yl-badge--interactive:focus-visible {
+  outline: none;
+  box-shadow: var(--yl-shadow-focus);
+}
+
+.yl-badge--mono {
+  font-family: var(--yl-font-mono);
+}
+
+.yl-badge--uppercase {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .yl-badge--success {

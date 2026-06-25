@@ -10,6 +10,7 @@ import {
   SidebarSection,
   type SidebarKeyValueRow,
 } from "./sidebarPrimitives";
+import { Badge, type BadgeVariant } from "./ui/Badge";
 import { Disclosure } from "./ui/Disclosure";
 
 type CompositionArcsCardProps = {
@@ -57,6 +58,12 @@ function kindLabel(kind: CompositionArcKind | undefined): string {
   }
 }
 
+function stateVariant(state: CompositionArc["state"]): BadgeVariant {
+  if (state === "missing") return "error";
+  if (state === "unloaded") return "neutral";
+  return "success";
+}
+
 type ArcSectionProps = {
   title: string;
   arcs: readonly CompositionArc[];
@@ -101,7 +108,9 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
                     {arc.kind === "variantSelection" ? (
                       <>
                         {" "}
-                        <span className="badge badge-ok">{arc.targetPrim}</span>
+                        <Badge variant="success" size="sm">
+                          {arc.targetPrim}
+                        </Badge>
                       </>
                     ) : arc.kind === "inherits" ||
                       arc.kind === "specializes" ? (
@@ -116,17 +125,9 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
                         {arc.targetPrim && <> @ {arc.targetPrim}</>}
                       </>
                     )}{" "}
-                    <span
-                      className={
-                        arc.state === "missing"
-                          ? "badge badge-error"
-                          : arc.state === "unloaded"
-                            ? "badge badge-muted"
-                            : "badge badge-ok"
-                      }
-                    >
+                    <Badge variant={stateVariant(arc.state)} size="sm">
                       {arc.state}
-                    </span>
+                    </Badge>
                   </li>
                 ))}
               </ul>

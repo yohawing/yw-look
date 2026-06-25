@@ -5,6 +5,7 @@ import type {
   MmdBoneEntry,
   ObjectInfo,
 } from "./assetMetadata";
+import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
 
 type HierarchyCardProps = {
   hierarchy: HierarchyNode[];
@@ -108,101 +109,104 @@ function fmtMmdMorphOffsets(
 function SelectedMmdBone({ bone }: { bone: MmdBoneEntry | null }) {
   if (!bone) return null;
 
+  const rows: KeyValueRow[] = [
+    bone.boneIndex !== null && {
+      id: "index",
+      label: "Index",
+      value: bone.boneIndex,
+      mono: true,
+    },
+    bone.name && {
+      id: "mmd-name",
+      label: "MMD Name",
+      value: bone.name,
+      mono: true,
+    },
+    bone.englishName &&
+      bone.englishName !== bone.name && {
+        id: "english",
+        label: "English",
+        value: bone.englishName,
+        tone: "muted",
+        mono: true,
+      },
+    {
+      id: "parent",
+      label: "Parent",
+      value:
+        bone.parentIndex !== null && bone.parentIndex >= 0
+          ? `${bone.parentIndex}${bone.parentName ? ` · ${bone.parentName}` : ""}`
+          : "none",
+      tone: "muted",
+      mono: true,
+    },
+    {
+      id: "rest-pos",
+      label: "Rest Pos",
+      value: fmtMmdVec(bone.restPosition),
+      mono: true,
+    },
+    bone.layer !== null && {
+      id: "layer",
+      label: "Layer",
+      value: bone.layer,
+      mono: true,
+    },
+    bone.appendTransform && {
+      id: "append",
+      label: "Append",
+      value: `${bone.appendTransform.parentIndex}${
+        bone.appendTransform.parentName
+          ? ` · ${bone.appendTransform.parentName}`
+          : ""
+      } x${fmtMmdNumber(bone.appendTransform.weight)}`,
+      mono: true,
+    },
+    {
+      id: "flags",
+      label: "Flags",
+      value: fmtMmdFlags(bone.flags),
+      mono: true,
+    },
+    bone.ik && {
+      id: "ik-role",
+      label: "IK Role",
+      value: bone.ik.roles.join(", "),
+      mono: true,
+    },
+    bone.ik && {
+      id: "ik-chain",
+      label: "IK Chain",
+      value: `goal:${bone.ik.goalBoneIndex ?? "?"} target:${
+        bone.ik.effectorBoneIndex ?? "?"
+      } links:${bone.ik.linkCount ?? "?"}`,
+      mono: true,
+    },
+    bone.ik &&
+      (bone.ik.iterationCount !== null ||
+        bone.ik.maxAnglePerIteration !== null) && {
+        id: "ik-solve",
+        label: "IK Solve",
+        value: `iter:${bone.ik.iterationCount ?? "?"} angle:${
+          bone.ik.maxAnglePerIteration !== null
+            ? fmtMmdNumber(bone.ik.maxAnglePerIteration)
+            : "?"
+        }`,
+        mono: true,
+      },
+    bone.ik &&
+      bone.ik.limitKinds.length > 0 && {
+        id: "ik-limits",
+        label: "IK Limits",
+        value: bone.ik.limitKinds.join(", "),
+        mono: true,
+      },
+  ].filter(Boolean) as KeyValueRow[];
+
   return (
     <div className="selected-mmd-section">
       <div className="selected-mmd-head">MMD Bone</div>
-      {bone.boneIndex !== null ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">Index</span>
-          <span className="selected-kv-value">{bone.boneIndex}</span>
-        </div>
-      ) : null}
-      {bone.name ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">MMD Name</span>
-          <span className="selected-kv-value">{bone.name}</span>
-        </div>
-      ) : null}
-      {bone.englishName && bone.englishName !== bone.name ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">English</span>
-          <span className="selected-kv-value is-muted">{bone.englishName}</span>
-        </div>
-      ) : null}
-      <div className="selected-kv-row">
-        <span className="selected-kv-key">Parent</span>
-        <span className="selected-kv-value is-muted">
-          {bone.parentIndex !== null && bone.parentIndex >= 0
-            ? `${bone.parentIndex}${bone.parentName ? ` · ${bone.parentName}` : ""}`
-            : "none"}
-        </span>
-      </div>
-      <div className="selected-kv-row">
-        <span className="selected-kv-key">Rest Pos</span>
-        <span className="selected-kv-value">
-          {fmtMmdVec(bone.restPosition)}
-        </span>
-      </div>
-      {bone.layer !== null ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">Layer</span>
-          <span className="selected-kv-value">{bone.layer}</span>
-        </div>
-      ) : null}
-      {bone.appendTransform ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">Append</span>
-          <span className="selected-kv-value">
-            {bone.appendTransform.parentIndex}
-            {bone.appendTransform.parentName
-              ? ` · ${bone.appendTransform.parentName}`
-              : ""}{" "}
-            x{fmtMmdNumber(bone.appendTransform.weight)}
-          </span>
-        </div>
-      ) : null}
-      <div className="selected-kv-row">
-        <span className="selected-kv-key">Flags</span>
-        <span className="selected-kv-value">{fmtMmdFlags(bone.flags)}</span>
-      </div>
-      {bone.ik ? (
-        <>
-          <div className="selected-kv-row">
-            <span className="selected-kv-key">IK Role</span>
-            <span className="selected-kv-value">
-              {bone.ik.roles.join(", ")}
-            </span>
-          </div>
-          <div className="selected-kv-row">
-            <span className="selected-kv-key">IK Chain</span>
-            <span className="selected-kv-value">
-              goal:{bone.ik.goalBoneIndex ?? "?"} target:
-              {bone.ik.effectorBoneIndex ?? "?"} links:
-              {bone.ik.linkCount ?? "?"}
-            </span>
-          </div>
-          {bone.ik.iterationCount !== null ||
-          bone.ik.maxAnglePerIteration !== null ? (
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">IK Solve</span>
-              <span className="selected-kv-value">
-                iter:{bone.ik.iterationCount ?? "?"} angle:
-                {bone.ik.maxAnglePerIteration !== null
-                  ? fmtMmdNumber(bone.ik.maxAnglePerIteration)
-                  : "?"}
-              </span>
-            </div>
-          ) : null}
-          {bone.ik.limitKinds.length > 0 ? (
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">IK Limits</span>
-              <span className="selected-kv-value">
-                {bone.ik.limitKinds.join(", ")}
-              </span>
-            </div>
-          ) : null}
-        </>
-      ) : null}
+      <KeyValueRows density="regular" rows={rows} />
     </div>
   );
 }
@@ -503,6 +507,56 @@ export function HierarchyCard({
         ? "Deferred"
         : "Loaded"
       : null;
+  const selectedRows: KeyValueRow[] = selectedNode
+    ? ([
+        {
+          id: "name",
+          label: "Name",
+          value: hierarchyDisplayName(selectedNode),
+          mono: true,
+        },
+        {
+          id: "type",
+          label: "Type",
+          value: selectedNode.kind,
+          tone: "muted",
+          mono: true,
+        },
+        selectedPath && {
+          id: "path",
+          label: "Path",
+          value: selectedPath,
+          tone: "muted",
+          mono: true,
+        },
+        {
+          id: "children",
+          label: "Children",
+          value: selectedChildCount,
+          mono: true,
+        },
+        selectedPayloadState && {
+          id: "payload",
+          label: "Payload",
+          value: selectedPayloadState,
+          mono: true,
+        },
+        selectedInfo?.vertexCount !== null &&
+          selectedInfo?.vertexCount !== undefined && {
+            id: "vertices",
+            label: "Vertices",
+            value: selectedInfo.vertexCount.toLocaleString(),
+            mono: true,
+          },
+        selectedInfo &&
+          selectedInfo.materialNames.length > 0 && {
+            id: "material",
+            label: "Material",
+            value: selectedInfo.materialNames.join(", "),
+            mono: true,
+          },
+      ].filter(Boolean) as KeyValueRow[])
+    : [];
 
   return (
     <div className="hierarchy-card">
@@ -582,55 +636,7 @@ export function HierarchyCard({
         </div>
         {selectedNode ? (
           <div className="selected-kv">
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">Name</span>
-              <span className="selected-kv-value">
-                {hierarchyDisplayName(selectedNode)}
-              </span>
-            </div>
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">Type</span>
-              <span className="selected-kv-value is-muted">
-                {selectedNode.kind}
-              </span>
-            </div>
-            {selectedPath ? (
-              <div className="selected-kv-row">
-                <span className="selected-kv-key">Path</span>
-                <span className="selected-kv-value is-muted">
-                  {selectedPath}
-                </span>
-              </div>
-            ) : null}
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">Children</span>
-              <span className="selected-kv-value">{selectedChildCount}</span>
-            </div>
-            {selectedPayloadState ? (
-              <div className="selected-kv-row">
-                <span className="selected-kv-key">Payload</span>
-                <span className="selected-kv-value">
-                  {selectedPayloadState}
-                </span>
-              </div>
-            ) : null}
-            {selectedInfo?.vertexCount !== null &&
-            selectedInfo?.vertexCount !== undefined ? (
-              <div className="selected-kv-row">
-                <span className="selected-kv-key">Vertices</span>
-                <span className="selected-kv-value">
-                  {selectedInfo.vertexCount.toLocaleString()}
-                </span>
-              </div>
-            ) : null}
-            {selectedInfo && selectedInfo.materialNames.length > 0 ? (
-              <div className="selected-kv-row">
-                <span className="selected-kv-key">Material</span>
-                <span className="selected-kv-value">
-                  {selectedInfo.materialNames.join(", ")}
-                </span>
-              </div>
-            ) : null}
+            <KeyValueRows density="regular" rows={selectedRows} />
             <SelectedMmdBone bone={selectedInfo?.mmdBone ?? null} />
             {normalizedSelected && selectedMorphTargets.length > 0 ? (
               <div className="selected-morph-section">

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Disclosure } from "./ui/Disclosure";
+import { KeyValueRows } from "./ui/KeyValueRows";
 import type { SidebarKeyValueRow } from "../types/ui";
 
 export type { SidebarKeyValueRow } from "../types/ui";
@@ -42,26 +43,7 @@ export function SidebarKeyValueRows({
 }: {
   rows: readonly SidebarKeyValueRow[];
 }) {
-  return (
-    <div className="sidebar-kv">
-      {rows.map((row) => (
-        <div className="sidebar-kv-row" key={row.id}>
-          <span className="sidebar-kv-key">{row.label}</span>
-          <span
-            className={[
-              "sidebar-kv-value",
-              row.mono ? "is-mono" : null,
-              row.tone ? `is-${row.tone}` : null,
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            {row.value}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
+  return <KeyValueRows rows={rows} />;
 }
 
 export function SidebarMultilineValue({ children }: { children: ReactNode }) {

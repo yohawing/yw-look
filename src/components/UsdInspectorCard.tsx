@@ -8,6 +8,7 @@ import type {
   VariantSelection,
 } from "../lib/usd";
 import { Disclosure } from "./ui/Disclosure";
+import { Badge } from "./ui/Badge";
 import {
   SidebarEmpty,
   SidebarError,
@@ -39,12 +40,15 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
           {layer.depth === 0 ? "root" : "↳ sublayer"}
         </span>
         {layer.muted && (
-          <span
-            className="badge badge-error usd-inspector-chip"
+          <Badge
+            className="usd-inspector-badge"
+            variant="error"
+            size="sm"
+            uppercase
             title="This layer is muted and does not contribute to the composed stage"
           >
             muted
-          </span>
+          </Badge>
         )}
         {hasOffset && (
           <span className="usd-inspector-note">
@@ -486,9 +490,13 @@ export function UsdInspectorCard({
                               </select>
                             ) : (
                               activeSelection && (
-                                <span className="badge badge-ok usd-inspector-chip">
+                                <Badge
+                                  className="usd-inspector-badge"
+                                  variant="success"
+                                  size="sm"
+                                >
                                   {activeSelection}
-                                </span>
+                                </Badge>
                               )
                             )}
                           </div>
