@@ -51,14 +51,13 @@ function formatMs(value: number | null) {
 function formatDuration(value: number) {
   if (!Number.isFinite(value)) return "—";
 
-  const totalMs = Math.max(0, Math.round(value * 1000));
-  const minutes = Math.floor(totalMs / 60000);
-  const seconds = Math.floor((totalMs % 60000) / 1000);
-  const milliseconds = totalMs % 1000;
+  const totalSeconds = Math.max(0, Math.round(value));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
 
   return `${minutes.toString().padStart(2, "0")}:${seconds
     .toString()
-    .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
+    .padStart(2, "0")}`;
 }
 
 function formatNumber(value: number) {
@@ -99,7 +98,24 @@ export function CurrentFileCard({
       usdPayloadSummary.unresolvedPayloadCount > 0)
       ? usdPayloadSummary
       : null;
-  const visibleAnimationClips = animationClips.length > 0 ? animationClips : [];
+  const animationClipCount = animationClips.length;
+  const longestAnimationDuration = animationClips.reduce(
+    (longestDuration, clip) =>
+      Number.isFinite(clip.duration)
+        ? Math.max(longestDuration, clip.duration)
+        : longestDuration,
+    0,
+  );
+  const representativeAnimationFps =
+    animationClipCount > 0 ? animationClips[0]?.estimatedFrameRate : null;
+  const totalAnimationKeyframeCount = animationClips.reduce(
+    (total, clip) => total + clip.keyframeCount,
+    0,
+  );
+  const totalAnimationTrackCount = animationClips.reduce(
+    (total, clip) => total + clip.trackCount,
+    0,
+  );
 
   const summaryRows: SidebarKeyValueRow[] = [
     {
@@ -151,6 +167,34 @@ export function CurrentFileCard({
       value: metadata?.hasAnimation ? "Present" : "None",
       tone: metadata?.hasAnimation ? "ok" : "muted",
     },
+    ...(animationClipCount > 0
+      ? [
+          {
+            id: "animation-duration",
+            label: "Duration",
+            value: formatDuration(longestAnimationDuration),
+            mono: true,
+          },
+          {
+            id: "animation-fps",
+            label: "FPS",
+            value: formatFps(representativeAnimationFps),
+            mono: true,
+          },
+          {
+            id: "animation-keys",
+            label: "Keys",
+            value: formatNumber(totalAnimationKeyframeCount),
+            mono: true,
+          },
+          {
+            id: "animation-tracks",
+            label: "Tracks",
+            value: formatNumber(totalAnimationTrackCount),
+            mono: true,
+          },
+        ]
+      : []),
     {
       id: "warnings",
       label: "Warnings",
@@ -255,33 +299,6 @@ export function CurrentFileCard({
               </span>
             ))}
           </div>
-        ) : null}
-        {visibleAnimationClips.length > 0 ? (
-          <SidebarSection
-            title="Animation"
-            count={visibleAnimationClips.length}
-            collapsible
-            defaultOpen={false}
-          >
-            <ul className="file-animation-list">
-              {visibleAnimationClips.map((clip, index) => (
-                <li
-                  className="file-animation-row"
-                  key={`${clip.name}:${index}`}
-                >
-                  <span className="file-animation-name" title={clip.name}>
-                    {clip.name}
-                  </span>
-                  <span className="file-animation-meta">
-                    <span>Duration {formatDuration(clip.duration)}</span>
-                    <span>FPS {formatFps(clip.estimatedFrameRate)}</span>
-                    <span>Keys {formatNumber(clip.keyframeCount)}</span>
-                    <span>Tracks {formatNumber(clip.trackCount)}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </SidebarSection>
         ) : null}
       </SidebarSection>
       <SidebarSection title="File Details" collapsible defaultOpen={false}>
