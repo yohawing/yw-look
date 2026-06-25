@@ -6,6 +6,7 @@ import type {
   MmdMaterialEntry,
 } from "./assetMetadata";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { Disclosure } from "./ui/Disclosure";
 
 type MaterialListCardProps = {
   materials: MaterialEntry[];
@@ -101,8 +102,7 @@ function MmdColorRow({
 function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
   if (!mmd) return null;
   return (
-    <details className="material-bindings material-shader-details" open>
-      <summary className="material-detail">MMD material</summary>
+    <Disclosure variant="inline" title="MMD material" defaultOpen>
       <table className="mat-slot-table">
         <tbody>
           {mmd.materialIndex !== null && (
@@ -170,7 +170,7 @@ function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
           )}
         </tbody>
       </table>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -189,8 +189,7 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
   if (!hasAnyDetail) return null;
 
   return (
-    <details className="material-bindings material-shader-details">
-      <summary className="material-detail">shader inputs</summary>
+    <Disclosure variant="inline" title="shader inputs" defaultOpen={false}>
       <table className="mat-slot-table">
         <tbody>
           {mat.baseColorFactor !== null && (
@@ -291,7 +290,7 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
           )}
         </tbody>
       </table>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -366,8 +365,12 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
         </div>
       </dl>
       {mat.boundMeshes.length > 0 && (
-        <details className="material-bindings">
-          <summary className="material-detail">bound meshes</summary>
+        <Disclosure
+          variant="inline"
+          title="bound meshes"
+          count={mat.boundMeshes.length}
+          defaultOpen={false}
+        >
           <ul className="material-bindings-list">
             {mat.boundMeshes.map((meshName, index) => (
               <li key={`${meshName}:${index}`} className="material-binding">
@@ -375,7 +378,7 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
               </li>
             ))}
           </ul>
-        </details>
+        </Disclosure>
       )}
       <MmdMaterialDetails mmd={mat.mmd} />
       <ShaderDetails mat={mat} />

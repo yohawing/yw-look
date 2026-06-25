@@ -174,70 +174,8 @@
   color: #ff9a9a;
 }
 
-.sidebar-section {
-  border-bottom: 1px solid var(--yl-border-subtle, rgba(255, 255, 255, 0.05));
-}
-
-.sidebar-section-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 16px 8px;
-  color: var(--yl-text-muted, #62666d);
-  font-size: 10.5px;
-  font-weight: 510;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  user-select: none;
-}
-
-.sidebar-section-head:hover {
-  color: var(--yl-text-tertiary, #8a8f98);
-}
-
-.sidebar-section.is-collapsible > .sidebar-section-head {
-  cursor: pointer;
-  list-style: none;
-}
-
-.sidebar-section.is-collapsible
-  > .sidebar-section-head::-webkit-details-marker {
-  display: none;
-}
-
-.sidebar-section.is-collapsible:not([open]) .sidebar-section-chevron {
-  transform: rotate(-90deg);
-}
-
-.sidebar-section.is-collapsible:not([open]) .sidebar-section-body {
-  display: none;
-}
-
-.sidebar-section-chevron {
-  color: #4a4d54;
-  font-size: 9px;
-  line-height: 1;
-  transition: transform 120ms ease;
-}
-
-.sidebar-section-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-section-count {
-  margin-left: auto;
-  color: var(--yl-text-muted, #62666d);
-  font-family: var(--yl-font-mono, ui-monospace);
-  font-size: 10px;
-  font-weight: 500;
-}
-
-.sidebar-section-body {
-  padding: 2px 0 12px;
-}
+/* sidebar-section styles are now handled by yl-disclosure--section
+   in design-system.css. Only descendant overrides remain below. */
 
 .sidebar-kv {
   display: flex;
@@ -446,7 +384,7 @@
   font-weight: 500;
 }
 
-.sidebar-section .recent-list {
+.yl-disclosure--section .recent-list {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -454,7 +392,7 @@
   padding: 2px 6px 10px;
 }
 
-.sidebar-section .recent-entry {
+.yl-disclosure--section .recent-entry {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
@@ -494,7 +432,7 @@
   white-space: nowrap;
 }
 
-.sidebar-section .recent-entry-path {
+.yl-disclosure--section .recent-entry-path {
   min-width: 0;
   overflow: hidden;
   color: var(--yl-text-tertiary, #8a8f98);
@@ -505,7 +443,7 @@
   white-space: nowrap;
 }
 
-.sidebar-section .recent-entry-meta {
+.yl-disclosure--section .recent-entry-meta {
   display: block;
   align-self: start;
   margin-top: 2px;
@@ -515,7 +453,7 @@
   white-space: nowrap;
 }
 
-.sidebar-section-body > .segmented-control {
+.yl-disclosure__body > .segmented-control {
   margin: 0 16px 10px;
 }
 
@@ -585,19 +523,11 @@
   overflow-wrap: anywhere;
 }
 
-.usd-layer-comment {
-  margin-top: 4px;
-  color: var(--yl-text-muted, #62666d);
-  font-size: 11px;
-}
-
-.usd-layer-comment summary {
-  cursor: pointer;
-}
-
-.usd-layer-comment p {
+.usd-layer-comment-text {
   margin: 3px 0 0;
   white-space: pre-wrap;
+  color: var(--yl-text-muted, #62666d);
+  font-size: 11px;
 }
 
 .variant-select {

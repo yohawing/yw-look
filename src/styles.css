@@ -1420,29 +1420,6 @@ body.is-resizing-sidebar {
   justify-content: flex-end;
 }
 
-.material-bindings {
-  margin: 4px 16px 0;
-}
-
-.material-bindings > summary {
-  cursor: pointer;
-  list-style: none;
-}
-
-.material-bindings > summary::-webkit-details-marker {
-  display: none;
-}
-
-.material-bindings > summary::before {
-  content: "▸ ";
-  display: inline-block;
-  transition: transform 0.15s ease;
-}
-
-.material-bindings[open] > summary::before {
-  content: "▾ ";
-}
-
 .material-bindings-list {
   list-style: none;
   padding: 4px 0 0 12px;
@@ -1460,10 +1437,6 @@ body.is-resizing-sidebar {
 }
 
 /* ── Material Shader Slot Detail ── (#36) */
-
-.material-shader-details {
-  margin-top: 6px;
-}
 
 .mat-slot-table {
   border-collapse: collapse;

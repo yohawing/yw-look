@@ -737,3 +737,103 @@
 .yl-tooltip:focus-within .yl-tooltip__content[data-side="right"] {
   transform: translateY(-50%) translateX(0);
 }
+
+/* ── Disclosure ── */
+
+.yl-disclosure {
+  border: none;
+}
+
+.yl-disclosure > .yl-disclosure__summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.yl-disclosure > .yl-disclosure__summary::-webkit-details-marker {
+  display: none;
+}
+
+.yl-disclosure__chevron {
+  flex-shrink: 0;
+  color: var(--yl-text-muted, #62666d);
+  transition: transform 120ms ease;
+}
+
+.yl-disclosure[open] > .yl-disclosure__summary > .yl-disclosure__chevron {
+  transform: rotate(90deg);
+}
+
+.yl-disclosure__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yl-disclosure__count {
+  margin-left: auto;
+  font-family: var(--yl-font-mono, ui-monospace);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--yl-text-muted, #62666d);
+}
+
+/* variant: section — top-level sidebar section */
+
+.yl-disclosure--section {
+  border-bottom: 1px solid var(--yl-border-subtle, rgba(255, 255, 255, 0.05));
+}
+
+.yl-disclosure--section > .yl-disclosure__summary {
+  padding: 10px 16px 8px;
+  color: var(--yl-text-muted, #62666d);
+  font-size: 10.5px;
+  font-weight: 510;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.yl-disclosure--section > .yl-disclosure__summary:hover {
+  color: var(--yl-text-tertiary, #8a8f98);
+}
+
+.yl-disclosure--section > .yl-disclosure__body {
+  padding: 2px 0 12px;
+}
+
+/* variant: inline — nested within a card (material bindings, shader details) */
+
+.yl-disclosure--inline {
+  margin: 4px 16px 0;
+}
+
+.yl-disclosure--inline > .yl-disclosure__summary {
+  padding: 4px 0;
+  color: var(--yl-text-secondary, #c8cad0);
+  font-size: 11px;
+  font-weight: 450;
+}
+
+.yl-disclosure--inline > .yl-disclosure__body {
+  padding: 0 0 4px;
+}
+
+/* variant: minimal — inline annotation (e.g. USD layer comment) */
+
+.yl-disclosure--minimal {
+  margin-top: 4px;
+}
+
+.yl-disclosure--minimal > .yl-disclosure__summary {
+  padding: 2px 0;
+  color: var(--yl-text-muted, #62666d);
+  font-size: 11px;
+}
+
+.yl-disclosure--minimal > .yl-disclosure__body {
+  padding: 3px 0 0;
+}

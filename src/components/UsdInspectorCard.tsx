@@ -7,6 +7,7 @@ import type {
   StageSummary,
   VariantSelection,
 } from "../lib/usd";
+import { Disclosure } from "./ui/Disclosure";
 import {
   SidebarEmpty,
   SidebarError,
@@ -57,10 +58,9 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
         {shortLayerLabel(layer.identifier)}
       </div>
       {layer.comment && (
-        <details className="usd-layer-comment">
-          <summary>comment</summary>
-          <p>{layer.comment}</p>
-        </details>
+        <Disclosure variant="minimal" title="comment" defaultOpen={false}>
+          <p className="usd-layer-comment-text">{layer.comment}</p>
+        </Disclosure>
       )}
     </li>
   );

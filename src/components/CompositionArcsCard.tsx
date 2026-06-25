@@ -10,6 +10,7 @@ import {
   SidebarSection,
   type SidebarKeyValueRow,
 } from "./sidebarPrimitives";
+import { Disclosure } from "./ui/Disclosure";
 
 type CompositionArcsCardProps = {
   inspection: StageInspection | null;
@@ -78,11 +79,16 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
       <ul className="card-list">
         {groups.map((group) => (
           <li key={group.sourcePrim}>
-            <details>
-              <summary className="card-path">
-                {group.sourcePrim}{" "}
-                <span className="muted">({group.arcs.length})</span>
-              </summary>
+            <Disclosure
+              variant="inline"
+              title={
+                <>
+                  {group.sourcePrim}{" "}
+                  <span className="muted">({group.arcs.length})</span>
+                </>
+              }
+              defaultOpen={false}
+            >
               <ul className="card-list">
                 {group.arcs.map((arc, i) => (
                   <li
@@ -124,7 +130,7 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
                   </li>
                 ))}
               </ul>
-            </details>
+            </Disclosure>
           </li>
         ))}
       </ul>
