@@ -58,6 +58,13 @@ export function PopoverTool({ action }: PopoverToolProps) {
   }, [clearTimers]);
 
   const handleTriggerClick = useCallback(() => {
+    if (action.kind === "toggle") {
+      action.onRun?.();
+      if (hasChildren) {
+        setOpen(true);
+      }
+      return;
+    }
     if (hasChildren && !open) {
       setOpen(true);
       return;

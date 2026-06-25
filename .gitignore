@@ -25,13 +25,15 @@ samples/private/*
 
 experiments/
 
-# Local Claude Code session state
+# AI
 .claude/
 CLAUDE.md
-
-# Local Codex session state and ad-hoc debug logs
+AGENTS.md
+.ai
 .codex/
 debug.log
-
-# Husky generated helper scripts
 .husky/_/
+
+
+docs/*
+!docs/images/

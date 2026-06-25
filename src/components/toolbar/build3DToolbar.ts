@@ -347,6 +347,31 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
     if (options.showSkeleton !== undefined && options.onToggleSkeleton) {
       if (!hasOverlay) groupSep("overlay");
       hasOverlay = true;
+      const children: ToolbarItem[] = [];
+      if (options.showLocalAxis !== undefined && options.onToggleLocalAxis) {
+        children.push({
+          id: "local-axis",
+          mode: "3d",
+          group: "overlay",
+          kind: "toggle",
+          label: "Local Axis",
+          iconId: "axis",
+          active: options.showLocalAxis,
+          onRun: options.onToggleLocalAxis,
+        });
+      }
+      if (options.showJointNames !== undefined && options.onToggleJointNames) {
+        children.push({
+          id: "bone-name",
+          mode: "3d",
+          group: "overlay",
+          kind: "toggle",
+          label: "Bone Name",
+          iconId: "overlay",
+          active: options.showJointNames,
+          onRun: options.onToggleJointNames,
+        });
+      }
       push({
         id: "skeleton",
         mode: "3d",
@@ -356,20 +381,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         iconId: "skeleton",
         active: options.showSkeleton,
         onRun: options.onToggleSkeleton,
-      });
-    }
-
-    if (options.showJointNames !== undefined && options.onToggleJointNames) {
-      if (!hasOverlay) groupSep("overlay");
-      push({
-        id: "joint-names",
-        mode: "3d",
-        group: "overlay",
-        kind: "toggle",
-        label: "Joint Name",
-        iconId: "overlay",
-        active: options.showJointNames,
-        onRun: options.onToggleJointNames,
+        children,
       });
     }
   }

@@ -15,6 +15,7 @@ import {
   LinearMipMapLinearFilter,
   LineBasicMaterial,
   LineSegments,
+  Matrix4,
   type MagnificationTextureFilter,
   Material,
   MathUtils,
@@ -26,6 +27,7 @@ import {
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
+  Quaternion,
   Scene,
   ShadowMaterial,
   SkeletonHelper,
@@ -76,9 +78,8 @@ const WIREFRAME_ORIGINAL_COLOR_KEY = "__yw_wireframe_original_color";
 const WIREFRAME_ORIGINAL_MATERIAL_KEY = "__yw_wireframe_original_material";
 const WIREFRAME_MATERIAL_FLAG = "__yw_wireframe_material";
 const GRID_DIVISIONS = 20;
-const JOINT_AXIS_SIZE_FACTOR = 0.025;
+const JOINT_AXIS_SIZE_FACTOR = 0.02 / 3;
 const JOINT_AXIS_MIN_SIZE = 0.015;
-const JOINT_AXIS_MAX_SIZE = 0.12;
 // Axes length is tied to grid size so the XYZ indicator scales with the
 // current unit preset. Slightly longer than half a grid cell keeps the
 // arrows visible but avoids punching through a model that fills the grid.
@@ -87,6 +88,13 @@ const MIN_NORMALIZED_DIMENSION = 0.1;
 const MAX_NORMALIZED_DIMENSION = 100;
 const SCALE_EPSILON = 1e-8;
 export const DEFAULT_SCENE_DIMENSION = 1;
+
+const boneWorldScaleScratch = new Vector3();
+const localAxisXScratch = new Vector3();
+const localAxisYScratch = new Vector3();
+const localAxisZScratch = new Vector3();
+const localAxisMatrixScratch = new Matrix4();
+const localAxisQuaternionScratch = new Quaternion();
 
 type GridPreset = {
   maxDimension: number;
@@ -1033,12 +1041,20 @@ function disposeJointLabel(label: CSS2DObject) {
   label.element.remove();
 }
 
+function isBoneObject(object: Object3D): object is Bone {
+  return (
+    object instanceof Bone ||
+    object.type === "Bone" ||
+    (object as Object3D & { isBone?: unknown }).isBone === true
+  );
+}
+
 function collectBonesForRoots(roots: Object3D[]) {
-  const seen = new Set<Bone>();
-  const bones: Bone[] = [];
+  const seen = new Set<Object3D>();
+  const bones: Object3D[] = [];
   for (const root of roots) {
     root.traverse((child) => {
-      if (!(child instanceof Bone) || seen.has(child)) {
+      if (!isBoneObject(child) || seen.has(child)) {
         return;
       }
       seen.add(child);
@@ -1048,19 +1064,104 @@ function collectBonesForRoots(roots: Object3D[]) {
   return bones;
 }
 
-function getJointAxisSize(object: Group | Mesh) {
+function collectBones(object: Group | Mesh) {
+  const bones: Object3D[] = [];
+  object.traverse((child: Object3D) => {
+    if (isBoneObject(child)) {
+      bones.push(child);
+    }
+  });
+  return bones;
+}
+
+function getJointAxisTargetWorldSize(object: Group | Mesh) {
   const maxDimension = getObjectMaxDimension(object);
   if (!Number.isFinite(maxDimension) || maxDimension <= 0) {
     return JOINT_AXIS_MIN_SIZE;
   }
-  return MathUtils.clamp(
-    maxDimension * JOINT_AXIS_SIZE_FACTOR,
+  return Math.max(maxDimension * JOINT_AXIS_SIZE_FACTOR, JOINT_AXIS_MIN_SIZE);
+}
+
+function getBoneWorldScaleFactor(bone: Object3D) {
+  bone.getWorldScale(boneWorldScaleScratch);
+  const factor = Math.max(
+    Math.abs(boneWorldScaleScratch.x),
+    Math.abs(boneWorldScaleScratch.y),
+    Math.abs(boneWorldScaleScratch.z),
+  );
+  return Number.isFinite(factor) && factor > SCALE_EPSILON ? factor : 1;
+}
+
+function getJointAxisSize(bone: Object3D, targetWorldSize: number) {
+  return Math.max(
+    targetWorldSize / getBoneWorldScaleFactor(bone),
     JOINT_AXIS_MIN_SIZE,
-    JOINT_AXIS_MAX_SIZE,
   );
 }
 
-function getBoneLabelText(bone: Bone) {
+type MmdLocalAxisUserData = {
+  x?: unknown;
+  z?: unknown;
+};
+
+function readVector3Tuple(value: unknown, target: Vector3) {
+  if (!Array.isArray(value) || value.length !== 3) {
+    return null;
+  }
+  const [x, y, z] = value;
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof z !== "number" ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(z)
+  ) {
+    return null;
+  }
+  return target.set(x, y, z);
+}
+
+function getMmdLocalAxisQuaternion(bone: Object3D) {
+  const localAxis = bone.userData.mmdLocalAxis as
+    | MmdLocalAxisUserData
+    | undefined;
+  if (!localAxis || typeof localAxis !== "object") {
+    return null;
+  }
+
+  const localX = readVector3Tuple(localAxis.x, localAxisXScratch);
+  const localZ = readVector3Tuple(localAxis.z, localAxisZScratch);
+  if (!localX || !localZ) {
+    return null;
+  }
+
+  localX.normalize();
+  localZ.addScaledVector(localX, -localZ.dot(localX)).normalize();
+  if (
+    localX.lengthSq() <= SCALE_EPSILON ||
+    localZ.lengthSq() <= SCALE_EPSILON
+  ) {
+    return null;
+  }
+
+  localAxisYScratch.crossVectors(localZ, localX).normalize();
+  if (localAxisYScratch.lengthSq() <= SCALE_EPSILON) {
+    return null;
+  }
+
+  localAxisMatrixScratch.makeBasis(localX, localAxisYScratch, localZ);
+  localAxisQuaternionScratch.setFromRotationMatrix(localAxisMatrixScratch);
+  localAxisQuaternionScratch.set(
+    -localAxisQuaternionScratch.x,
+    -localAxisQuaternionScratch.y,
+    localAxisQuaternionScratch.z,
+    localAxisQuaternionScratch.w,
+  );
+  return localAxisQuaternionScratch;
+}
+
+function getBoneLabelText(bone: Object3D) {
   const mmdName = bone.userData.mmdBoneName;
   const mmdEnglishName = bone.userData.mmdEnglishBoneName;
   if (typeof mmdName === "string" && mmdName.trim().length > 0) {
@@ -1100,7 +1201,7 @@ function collectSkeletonRoots(object: Group | Mesh): Object3D[] {
     }
     // Walk up to the highest bone so the helper draws the full chain.
     let root: Object3D = firstBone;
-    while (root.parent && (root.parent as Object3D).type === "Bone") {
+    while (root.parent && isBoneObject(root.parent)) {
       root = root.parent as Object3D;
     }
     if (seen.has(root)) {
@@ -1110,11 +1211,11 @@ function collectSkeletonRoots(object: Group | Mesh): Object3D[] {
     roots.push(root);
   });
   object.traverse((child: Object3D) => {
-    if (!(child instanceof Bone)) {
+    if (!isBoneObject(child)) {
       return;
     }
     let root: Object3D = child;
-    while (root.parent && root.parent instanceof Bone) {
+    while (root.parent && isBoneObject(root.parent)) {
       root = root.parent;
     }
     if (seen.has(root)) {
@@ -1175,16 +1276,19 @@ export function applySkeletonHelpers(
   scene: Scene,
   object: Group | Mesh,
   visible: boolean,
+  showLocalAxis = true,
   showJointNames = false,
 ) {
   removeSkeletonHelpers(scene);
-  if (!visible && !showJointNames) {
+  if (!visible) {
     return;
   }
 
+  object.updateWorldMatrix(true, true);
   const roots = collectSkeletonRoots(object);
-  const bones = collectBonesForRoots(roots);
-  const axisSize = getJointAxisSize(object);
+  const bones =
+    roots.length > 0 ? collectBonesForRoots(roots) : collectBones(object);
+  const targetAxisWorldSize = getJointAxisTargetWorldSize(object);
   for (const root of roots) {
     if (visible) {
       const helper = new SkeletonHelper(root);
@@ -1205,8 +1309,13 @@ export function applySkeletonHelpers(
     }
   }
   for (const bone of bones) {
-    if (visible) {
+    if (showLocalAxis) {
+      const axisSize = getJointAxisSize(bone, targetAxisWorldSize);
       const axis = new AxesHelper(axisSize);
+      const localAxisQuaternion = getMmdLocalAxisQuaternion(bone);
+      if (localAxisQuaternion) {
+        axis.quaternion.copy(localAxisQuaternion);
+      }
       axis.userData[JOINT_AXIS_HELPER_FLAG] = true;
       axis.renderOrder = 3;
       for (const material of getMaterials(axis.material)) {

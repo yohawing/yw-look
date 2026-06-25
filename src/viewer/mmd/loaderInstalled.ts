@@ -24,6 +24,26 @@ type MmdTextureDiagnostic = {
   path: string;
 };
 
+type MmdLocalAxisTuple = [number, number, number];
+
+type ParsedMmdModelBone = {
+  localAxis?: {
+    x: MmdLocalAxisTuple;
+    z: MmdLocalAxisTuple;
+  };
+};
+
+type ParsedMmdModel = {
+  skeleton(): {
+    bones: ParsedMmdModelBone[];
+  };
+  dispose?(): void;
+};
+
+type MmdParserCore = {
+  loadModel(buffer: ArrayBuffer | Uint8Array): ParsedMmdModel;
+};
+
 type ThreeMmdLoaderModule = {
   ThreeMmdLoader: new (options: {
     geometryAwareAlpha: boolean;
@@ -58,6 +78,7 @@ type ThreeMmdLoaderModule = {
   parseVmdSectionInventory(buffer: ArrayBuffer): ParsedVmdInventory;
   createAmmoMmdPhysicsBackend(ammo: unknown): unknown;
   loadAmmoNamespace(url: string): Promise<unknown>;
+  initCore(): Promise<MmdParserCore>;
 };
 
 async function importThreeMmdLoader(): Promise<ThreeMmdLoaderModule> {
@@ -424,6 +445,75 @@ async function createMmdRuntimeOptions(context: LoaderContext) {
   }
 }
 
+function isNumberTuple3(value: unknown): value is MmdLocalAxisTuple {
+  return (
+    Array.isArray(value) &&
+    value.length === 3 &&
+    value.every(
+      (component) =>
+        typeof component === "number" && Number.isFinite(component),
+    )
+  );
+}
+
+function attachParsedLocalAxisToBones(
+  mmd: MmdRuntimeModelHandle,
+  parsedBones: ParsedMmdModelBone[],
+) {
+  const skeletonBones = (
+    mmd.mesh as Object3D & {
+      skeleton?: { bones?: Object3D[] };
+    }
+  ).skeleton?.bones;
+  if (!Array.isArray(skeletonBones)) {
+    return 0;
+  }
+
+  let attached = 0;
+  for (let index = 0; index < skeletonBones.length; index += 1) {
+    const localAxis = parsedBones[index]?.localAxis;
+    if (!localAxis) {
+      continue;
+    }
+    if (!isNumberTuple3(localAxis.x) || !isNumberTuple3(localAxis.z)) {
+      continue;
+    }
+    const bone = skeletonBones[index];
+    if (!bone) {
+      continue;
+    }
+    bone.userData.mmdLocalAxis = {
+      x: [...localAxis.x],
+      z: [...localAxis.z],
+    };
+    attached += 1;
+  }
+  return attached;
+}
+
+async function attachPmxLocalAxes(
+  buffer: ArrayBuffer,
+  mmd: MmdRuntimeModelHandle,
+  context: LoaderContext,
+) {
+  try {
+    const { initCore } = await importThreeMmdLoader();
+    const core = await initCore();
+    let parsedModel: ParsedMmdModel | null = null;
+    try {
+      parsedModel = core.loadModel(buffer);
+      attachParsedLocalAxisToBones(mmd, parsedModel.skeleton().bones);
+    } finally {
+      parsedModel?.dispose?.();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    context.onWarning?.(
+      `PMX LocalAxis metadata could not be attached to joint axes: ${message}.`,
+    );
+  }
+}
+
 export async function loadMmdPreviewObject(
   file: SelectedFile,
   context: LoaderContext,
@@ -487,6 +577,9 @@ export async function loadMmdPreviewObject(
       materialRenderOrder: true,
       frustumCulled: false,
     });
+    if (file.extension === "pmx") {
+      await attachPmxLocalAxes(buffer, mmd, context);
+    }
     reportStage("scene");
 
     const displayName = metadata.englishName || metadata.name || file.fileName;

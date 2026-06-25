@@ -252,6 +252,7 @@ export function App() {
     showGrid,
     showAxes,
     showSkeleton,
+    showLocalAxis,
     showJointNames,
     showBoundingBoxes,
     showNormals,
@@ -1612,32 +1613,37 @@ export function App() {
       onCycleCamera: handleCycleCamera,
       // Shading
       showTexture,
-      onToggleTexture: viewer.toggleShowTexture,
+      onToggleTexture: () => useViewerStore.getState().toggleShowTexture(),
       showUnlit,
-      onToggleUnlit: () => viewer.toggleShowUnlit(),
+      onToggleUnlit: () => useViewerStore.getState().toggleShowUnlit(),
       showNormals,
-      onToggleNormals: () => viewer.toggleShowNormals(),
+      onToggleNormals: () => useViewerStore.getState().toggleShowNormals(),
       showVertexColors,
-      onToggleVertexColors: () => viewer.toggleShowVertexColors(),
+      onToggleVertexColors: () =>
+        useViewerStore.getState().toggleShowVertexColors(),
       // Wireframe
       showWireframe,
-      onToggleWireframe: viewer.toggleShowWireframe,
+      onToggleWireframe: () => useViewerStore.getState().toggleShowWireframe(),
       // Look
       environmentPreset,
       environmentPresetOptions: environmentPresets,
       onSelectEnvironmentPreset: handleSelectEnvironmentPreset,
       showShadows,
-      onToggleShadows: () => viewer.toggleShowShadows(),
+      onToggleShadows: () => useViewerStore.getState().toggleShowShadows(),
       showEnvironmentBackground,
       onToggleEnvironmentBackground: () =>
-        viewer.toggleShowEnvironmentBackground(),
+        useViewerStore.getState().toggleShowEnvironmentBackground(),
       // Overlay
       showBoundingBoxes,
-      onToggleBoundingBoxes: () => viewer.toggleShowBoundingBoxes(),
+      onToggleBoundingBoxes: () =>
+        useViewerStore.getState().toggleShowBoundingBoxes(),
       showSkeleton,
-      onToggleSkeleton: () => viewer.toggleShowSkeleton(),
+      onToggleSkeleton: () => useViewerStore.getState().toggleShowSkeleton(),
+      showLocalAxis,
+      onToggleLocalAxis: () => useViewerStore.getState().toggleShowLocalAxis(),
       showJointNames,
-      onToggleJointNames: () => viewer.toggleShowJointNames(),
+      onToggleJointNames: () =>
+        useViewerStore.getState().toggleShowJointNames(),
     });
   }, [
     cameraPresetRequest,
@@ -1654,6 +1660,7 @@ export function App() {
     showEnvironmentBackground,
     showBoundingBoxes,
     showSkeleton,
+    showLocalAxis,
     showJointNames,
     viewerSurfaceMode,
     textureViewMode,
@@ -1692,6 +1699,7 @@ export function App() {
             showGrid={showGrid}
             showAxes={showAxes}
             showSkeleton={showSkeleton}
+            showLocalAxis={showLocalAxis}
             showJointNames={showJointNames}
             showBoundingBoxes={showBoundingBoxes}
             showNormals={showNormals}

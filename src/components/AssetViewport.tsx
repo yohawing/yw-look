@@ -511,6 +511,7 @@ type AssetViewportProps = {
   showGrid: boolean;
   showAxes: boolean;
   showSkeleton: boolean;
+  showLocalAxis: boolean;
   showJointNames: boolean;
   showBoundingBoxes: boolean;
   showNormals: boolean;
@@ -843,6 +844,7 @@ export function AssetViewport({
   showGrid,
   showAxes,
   showSkeleton,
+  showLocalAxis,
   showJointNames,
   showBoundingBoxes,
   showNormals,
@@ -928,6 +930,7 @@ export function AssetViewport({
   const backfaceCullingRef = useRef(backfaceCulling);
   const textureFilterModeRef = useRef(textureFilterMode);
   const showSkeletonRef = useRef(showSkeleton);
+  const showLocalAxisRef = useRef(showLocalAxis);
   const showJointNamesRef = useRef(showJointNames);
   const showBoundingBoxesRef = useRef(showBoundingBoxes);
   const showNormalsRef = useRef(showNormals);
@@ -1056,6 +1059,10 @@ export function AssetViewport({
   useEffect(() => {
     showSkeletonRef.current = showSkeleton;
   }, [showSkeleton]);
+
+  useEffect(() => {
+    showLocalAxisRef.current = showLocalAxis;
+  }, [showLocalAxis]);
 
   useEffect(() => {
     showJointNamesRef.current = showJointNames;
@@ -2478,7 +2485,8 @@ export function AssetViewport({
           applySkeletonHelpers(
             context.scene,
             object,
-            showSkeletonRef.current || isBoneOnlyPreview,
+            showSkeletonRef.current,
+            showLocalAxisRef.current,
             showJointNamesRef.current,
           );
           applyBoundingBoxHelpers(
@@ -2591,7 +2599,7 @@ export function AssetViewport({
             warnings: [
               scaleWarning,
               isBoneOnlyPreview
-                ? "Bone-only preview: no mesh geometry was found, so the skeleton hierarchy is shown."
+                ? "Bone-only preview: no mesh geometry was found. Use the Skeleton overlay to show the rig."
                 : null,
               ...warnings,
             ],
@@ -2881,10 +2889,11 @@ export function AssetViewport({
     applySkeletonHelpers(
       context.scene,
       context.sourceObject,
-      showSkeleton || context.boneOnlyPreview,
+      showSkeleton,
+      showLocalAxis,
       showJointNames,
     );
-  }, [showSkeleton, showJointNames]);
+  }, [showSkeleton, showLocalAxis, showJointNames]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

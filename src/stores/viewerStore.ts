@@ -25,6 +25,7 @@ export interface ViewerState {
   showGrid: boolean;
   showAxes: boolean;
   showSkeleton: boolean;
+  showLocalAxis: boolean;
   showJointNames: boolean;
   showBoundingBoxes: boolean;
   showNormals: boolean;
@@ -77,6 +78,7 @@ export interface ViewerState {
   setShowGrid: (v: boolean) => void;
   setShowAxes: (v: boolean) => void;
   setShowSkeleton: (v: boolean) => void;
+  setShowLocalAxis: (v: boolean) => void;
   setShowJointNames: (v: boolean) => void;
   setShowBoundingBoxes: (v: boolean) => void;
   setShowNormals: (v: boolean) => void;
@@ -120,6 +122,7 @@ export interface ViewerState {
   toggleShowEnvironmentBackground: () => void;
   toggleShowBoundingBoxes: () => void;
   toggleShowSkeleton: () => void;
+  toggleShowLocalAxis: () => void;
   toggleShowJointNames: () => void;
   bumpCancelScaleNormalizeVersion: () => void;
   updateViewerFeedback: (partial: Partial<ViewerFeedback>) => void;
@@ -132,6 +135,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
   showGrid: true,
   showAxes: false,
   showSkeleton: false,
+  showLocalAxis: true,
   showJointNames: false,
   showBoundingBoxes: false,
   showNormals: false,
@@ -192,6 +196,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setShowGrid: (showGrid) => set({ showGrid }),
   setShowAxes: (showAxes) => set({ showAxes }),
   setShowSkeleton: (showSkeleton) => set({ showSkeleton }),
+  setShowLocalAxis: (showLocalAxis) => set({ showLocalAxis }),
   setShowJointNames: (showJointNames) => set({ showJointNames }),
   setShowBoundingBoxes: (showBoundingBoxes) => set({ showBoundingBoxes }),
   setShowNormals: (showNormals) => set({ showNormals }),
@@ -244,6 +249,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
       showBoundingBoxes: !s.showBoundingBoxes,
     })),
   toggleShowSkeleton: () => set((s) => ({ showSkeleton: !s.showSkeleton })),
+  toggleShowLocalAxis: () => set((s) => ({ showLocalAxis: !s.showLocalAxis })),
   toggleShowJointNames: () =>
     set((s) => ({ showJointNames: !s.showJointNames })),
   bumpCancelScaleNormalizeVersion: () =>
