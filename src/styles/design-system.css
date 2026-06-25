@@ -235,7 +235,7 @@
     opacity 120ms ease;
 }
 
-.yl-button:hover:not(:disabled, [aria-disabled="true"]) {
+.yl-button:hover:not(:disabled, [aria-disabled="true"], .yl-button--unstyled) {
   border-color: var(--yl-border-strong);
   background: var(--yl-button-bg-hover);
   color: var(--yl-text-primary);
@@ -259,7 +259,11 @@
   color: var(--yl-text-on-accent);
 }
 
-.yl-button--primary:hover:not(:disabled, [aria-disabled="true"]) {
+.yl-button--primary:hover:not(
+    :disabled,
+    [aria-disabled="true"],
+    .yl-button--unstyled
+  ) {
   background: var(--yl-button-primary-bg-hover);
   color: var(--yl-text-on-accent);
 }
@@ -311,6 +315,17 @@
   width: var(--yl-toolbar-size-lg);
   min-width: var(--yl-toolbar-size-lg);
   min-height: var(--yl-toolbar-size-lg);
+}
+
+.yl-button--unstyled {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
+  white-space: normal;
 }
 
 .yl-toggle {

@@ -4,6 +4,7 @@ import {
   SidebarError,
   SidebarSection,
 } from "./sidebarPrimitives";
+import { Button } from "./ui/Button";
 
 type RecentFilesCardProps = {
   recentFilesPayload: RecentFilesPayload | null;
@@ -46,10 +47,9 @@ export function RecentFilesCard({
         <ul className="recent-list">
           {recentFilesPayload.entries.map((entry) => (
             <li key={entry.path}>
-              <button
-                className="recent-entry"
+              <Button
+                className="yl-button--unstyled recent-entry"
                 onClick={() => onOpenPath(entry.path)}
-                type="button"
               >
                 <span className="recent-entry-thumb">
                   {entry.kind.slice(0, 3).toUpperCase()}
@@ -63,7 +63,7 @@ export function RecentFilesCard({
                 <span className="recent-entry-meta">
                   {entry.lastAccessedAt}
                 </span>
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

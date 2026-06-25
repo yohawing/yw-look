@@ -1,4 +1,7 @@
 import type { CSSProperties } from "react";
+import { Button } from "./ui/Button";
+import { SelectField } from "./ui/SelectField";
+import { SliderField } from "./ui/SliderField";
 
 type AnimationBarProps = {
   clipNames: string[];
@@ -44,26 +47,32 @@ export function AnimationBar({
     <div className="animation-bar" role="group" aria-label="Animation controls">
       <div className="animation-clip">
         {clipNames.length > 1 ? (
-          <label>
-            <span className="sr-only">Animation clip</span>
-            <select
-              onChange={(event) => onSelectClip(Number(event.target.value))}
-              value={activeClipIndex}
-            >
-              {clipNames.map((clipName, index) => (
-                <option key={`${clipName}-${index}`} value={index}>
-                  {clipName}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SelectField
+            aria-label="Animation clip"
+            onChange={(event) => onSelectClip(Number(event.target.value))}
+            size="sm"
+            value={activeClipIndex}
+          >
+            {clipNames.map((clipName, index) => (
+              <option key={`${clipName}-${index}`} value={index}>
+                {clipName}
+              </option>
+            ))}
+          </SelectField>
         ) : (
           <span title={activeClipName}>{activeClipName}</span>
         )}
       </div>
 
       <div className="animation-primary-controls">
-        <button onClick={() => onStep(-1)} type="button" title="Previous frame">
+        <Button
+          className="yl-button--unstyled"
+          iconOnly
+          onClick={() => onStep(-1)}
+          size="sm"
+          title="Previous frame"
+          variant="ghost"
+        >
           <svg
             width="14"
             height="14"
@@ -85,12 +94,14 @@ export function AnimationBar({
               strokeWidth="1.5"
             />
           </svg>
-        </button>
-        <button
-          className="animation-play-button"
+        </Button>
+        <Button
+          className="yl-button--unstyled animation-play-button"
+          iconOnly
           onClick={onTogglePlayback}
-          type="button"
+          size="sm"
           title={isPlaying ? "Pause" : "Play"}
+          variant="primary"
         >
           {isPlaying ? (
             <svg
@@ -114,8 +125,15 @@ export function AnimationBar({
               <path d="M5 3l8 5-8 5V3Z" />
             </svg>
           )}
-        </button>
-        <button onClick={() => onStep(1)} type="button" title="Next frame">
+        </Button>
+        <Button
+          className="yl-button--unstyled"
+          iconOnly
+          onClick={() => onStep(1)}
+          size="sm"
+          title="Next frame"
+          variant="ghost"
+        >
           <svg
             width="14"
             height="14"
@@ -137,23 +155,20 @@ export function AnimationBar({
               strokeWidth="1.5"
             />
           </svg>
-        </button>
+        </Button>
       </div>
 
-      <label
+      <SliderField
+        aria-label="Animation seek"
         className="animation-seek"
+        inputClassName="animation-seek-input"
+        max={safeDuration || 0}
+        min={0}
+        onChange={(event) => onSeek(Number(event.target.value))}
         style={{ "--animation-progress": `${progress}%` } as CSSProperties}
-      >
-        <span className="sr-only">Animation seek</span>
-        <input
-          max={safeDuration || 0}
-          min={0}
-          onChange={(event) => onSeek(Number(event.target.value))}
-          step={Math.max(safeDuration / 300, 1 / 120)}
-          type="range"
-          value={safeCurrentTime}
-        />
-      </label>
+        step={Math.max(safeDuration / 300, 1 / 120)}
+        value={safeCurrentTime}
+      />
 
       <div className="animation-time-readout">
         <span>{formatTime(safeCurrentTime)}</span>

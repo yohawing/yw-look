@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import "../styles/sidebar.css";
+import { IconTabButton } from "./ui/IconTabButton";
 
 export type SidebarTabItem<TabId extends string> = {
   id: TabId;
@@ -38,7 +39,7 @@ export function SidebarTabs<TabId extends string>({
         const isActive = tab.id === activeTab;
 
         return (
-          <button
+          <IconTabButton
             aria-label={tab.label}
             aria-pressed={isActive}
             className={`tab-button sidebar-tab-button${isActive ? " is-active" : ""}`}
@@ -46,7 +47,8 @@ export function SidebarTabs<TabId extends string>({
             disabled={tab.disabled}
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
-            type="button"
+            selected={isActive}
+            size="sm"
           >
             <span className="sidebar-tab-icon" aria-hidden="true">
               {tab.icon}
@@ -59,7 +61,7 @@ export function SidebarTabs<TabId extends string>({
                 {tab.badge.count > 99 ? "99+" : tab.badge.count}
               </span>
             ) : null}
-          </button>
+          </IconTabButton>
         );
       })}
     </nav>

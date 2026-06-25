@@ -1,5 +1,6 @@
 import type { DirectoryListing, SelectedFile } from "../lib/files";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { Button } from "./ui/Button";
 
 type FileBrowserCardProps = {
   currentFile: SelectedFile | null;
@@ -46,14 +47,13 @@ export function FileBrowserCard({
               file.path.toLocaleLowerCase() === currentPath.toLocaleLowerCase();
             return (
               <li key={`${file.path}-${index}`}>
-                <button
-                  className={`file-browser-entry${isCurrent ? " is-current" : ""}`}
+                <Button
+                  className={`yl-button--unstyled file-browser-entry${isCurrent ? " is-current" : ""}`}
                   onClick={() => onOpenPath(file.path)}
-                  type="button"
                 >
                   <span className="file-browser-name">{file.fileName}</span>
                   <span className="file-browser-meta">{formatKind(file)}</span>
-                </button>
+                </Button>
               </li>
             );
           })}

@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import type { TextureEntry } from "./assetMetadata";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { Badge } from "./ui/Badge";
+import { Button } from "./ui/Button";
 
 type TextureListCardProps = {
   textures: TextureEntry[];
@@ -41,25 +43,24 @@ export function TextureListCard({
         <>
           <div className="texture-channel-chips" aria-label="Texture channels">
             {channels.map((channel) => (
-              <button
+              <Button
                 key={channel}
-                className={`texture-channel-chip${channel === activeChannel ? " is-active" : ""}`}
+                className={`yl-button--unstyled texture-channel-chip${channel === activeChannel ? " is-active" : ""}`}
                 onClick={() => setActiveChannel(channel)}
-                type="button"
+                size="sm"
               >
                 {channel}
-              </button>
+              </Button>
             ))}
           </div>
           <div className="texture-grid">
             {visibleTextures.map((texture) => {
               const isMissing = texture.sourceKind === "unresolved";
               return (
-                <button
+                <Button
                   key={texture.id}
-                  className={`texture-card${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
+                  className={`yl-button--unstyled texture-card${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
                   onClick={() => onSelectTexture(texture.id)}
-                  type="button"
                 >
                   <div className="texture-card-preview">
                     {texture.thumbnailUrl && !isMissing ? (
@@ -82,15 +83,21 @@ export function TextureListCard({
                       {texture.channel} · {texture.dimensions}
                     </span>
                   </div>
-                </button>
+                </Button>
               );
             })}
           </div>
           <div className="texture-summary">
-            <span>Resolved {resolvedCount}</span>
-            <span className={missingCount > 0 ? "is-warning" : ""}>
+            <Badge variant="success" size="sm">
+              Resolved {resolvedCount}
+            </Badge>
+            <Badge
+              className={missingCount > 0 ? "is-warning" : ""}
+              variant={missingCount > 0 ? "warning" : "neutral"}
+              size="sm"
+            >
               Missing {missingCount}
-            </span>
+            </Badge>
           </div>
         </>
       ) : (

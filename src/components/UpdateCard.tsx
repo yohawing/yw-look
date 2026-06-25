@@ -4,6 +4,7 @@ import type {
   UpdateConfigurationPayload,
 } from "../lib/updater";
 import { Button } from "./ui/Button";
+import { ToggleSwitch } from "./ui/ToggleSwitch";
 import {
   SidebarEmpty,
   SidebarError,
@@ -205,29 +206,35 @@ export function UpdateCard({
             />
           </label>
 
-          <label className="checkbox-control">
-            <input
+          <div className="checkbox-control">
+            <ToggleSwitch
+              aria-label="Allow HTTP on localhost"
               checked={draft.allowInsecure}
-              onChange={(event) =>
+              onCheckedChange={(checked) =>
                 setDraft((previous) => ({
                   ...previous,
-                  allowInsecure: event.target.checked,
+                  allowInsecure: checked,
                 }))
               }
-              type="checkbox"
+              size="sm"
             />
             <span>Allow HTTP on localhost</span>
-          </label>
+          </div>
 
           <div className="card-actions">
-            <Button variant="ghost" onClick={() => onSaveOverride(draft)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onSaveOverride(draft)}
+            >
               Save
             </Button>
-            <Button variant="ghost" onClick={onCheckForUpdate}>
+            <Button variant="ghost" size="sm" onClick={onCheckForUpdate}>
               {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
             </Button>
             <Button
               variant="primary"
+              size="sm"
               disabled={!hasUpdate || isInstallingUpdate}
               onClick={onInstallUpdate}
             >
@@ -249,6 +256,7 @@ export function UpdateCard({
           <div className="card-actions">
             <Button
               variant="primary"
+              size="sm"
               disabled={isInstallingUpdate}
               onClick={onInstallUpdate}
             >

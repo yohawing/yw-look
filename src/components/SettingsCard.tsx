@@ -6,6 +6,8 @@ import {
   SidebarSection,
   type SidebarKeyValueRow,
 } from "./sidebarPrimitives";
+import { FieldRow } from "./ui/FieldRow";
+import { ToggleSwitch } from "./ui/ToggleSwitch";
 
 type SettingsCardProps = {
   settingsPayload: SettingsPayload | null;
@@ -66,46 +68,52 @@ export function SettingsCard({
       </SidebarSection>
       <SidebarSection title="Integration">
         <div className="sidebar-kv">
-          <div className="sidebar-kv-row">
-            <span className="sidebar-kv-key">File associations</span>
-            <span className="sidebar-kv-value">
-              <button
-                aria-pressed={settingsPayload.settings.fileAssociationsEnabled}
-                className={`settings-switch ${
-                  settingsPayload.settings.fileAssociationsEnabled
-                    ? "is-on"
-                    : ""
-                }`}
-                onClick={onToggleFileAssociations}
-                type="button"
-              >
-                <span className="settings-switch-label">
-                  {settingsPayload.settings.fileAssociationsEnabled
-                    ? "Enabled"
-                    : "Disabled"}
-                </span>
-                <span className="settings-switch-track" aria-hidden="true" />
-              </button>
+          <FieldRow
+            className="sidebar-kv-row"
+            controlClassName="sidebar-kv-value"
+            label="File associations"
+            labelClassName="sidebar-kv-key"
+          >
+            <span
+              className={`settings-switch ${
+                settingsPayload.settings.fileAssociationsEnabled ? "is-on" : ""
+              }`}
+            >
+              <span className="settings-switch-label">
+                {settingsPayload.settings.fileAssociationsEnabled
+                  ? "Enabled"
+                  : "Disabled"}
+              </span>
+              <ToggleSwitch
+                aria-label="File associations"
+                checked={settingsPayload.settings.fileAssociationsEnabled}
+                onCheckedChange={() => onToggleFileAssociations()}
+                size="sm"
+              />
             </span>
-          </div>
-          <div className="sidebar-kv-row">
-            <span className="sidebar-kv-key">Auto-check updates</span>
-            <span className="sidebar-kv-value">
-              <button
-                aria-pressed={settingsPayload.settings.autoCheckForUpdates}
-                className={`settings-switch ${
-                  settingsPayload.settings.autoCheckForUpdates ? "is-on" : ""
-                }`}
-                onClick={onToggleAutoCheckForUpdates}
-                type="button"
-              >
-                <span className="settings-switch-label">
-                  {settingsPayload.settings.autoCheckForUpdates ? "On" : "Off"}
-                </span>
-                <span className="settings-switch-track" aria-hidden="true" />
-              </button>
+          </FieldRow>
+          <FieldRow
+            className="sidebar-kv-row"
+            controlClassName="sidebar-kv-value"
+            label="Auto-check updates"
+            labelClassName="sidebar-kv-key"
+          >
+            <span
+              className={`settings-switch ${
+                settingsPayload.settings.autoCheckForUpdates ? "is-on" : ""
+              }`}
+            >
+              <span className="settings-switch-label">
+                {settingsPayload.settings.autoCheckForUpdates ? "On" : "Off"}
+              </span>
+              <ToggleSwitch
+                aria-label="Auto-check updates"
+                checked={settingsPayload.settings.autoCheckForUpdates}
+                onCheckedChange={() => onToggleAutoCheckForUpdates()}
+                size="sm"
+              />
             </span>
-          </div>
+          </FieldRow>
         </div>
       </SidebarSection>
     </>
