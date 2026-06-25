@@ -1,4 +1,10 @@
-import { useId, type ReactNode } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  useId,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 export type TooltipSide = "top" | "right" | "bottom" | "left";
 export type TooltipSize = "sm" | "md" | "lg";
@@ -18,6 +24,14 @@ const sizeClass: Record<TooltipSize, string> = {
   lg: "yl-tooltip--lg",
 };
 
+type DescribedElementProps = {
+  "aria-describedby"?: string;
+};
+
+function mergeDescribedBy(existing: string | undefined, tooltipId: string) {
+  return existing ? `${existing} ${tooltipId}` : tooltipId;
+}
+
 export function Tooltip({
   content,
   children,
@@ -30,10 +44,19 @@ export function Tooltip({
   const classes = ["yl-tooltip", sizeClass[size], className]
     .filter(Boolean)
     .join(" ");
+  const trigger =
+    !disabled && isValidElement<DescribedElementProps>(children)
+      ? cloneElement(children as ReactElement<DescribedElementProps>, {
+          "aria-describedby": mergeDescribedBy(
+            children.props["aria-describedby"],
+            tooltipId,
+          ),
+        })
+      : children;
 
   return (
     <span className={classes}>
-      {children}
+      {trigger}
       {disabled ? null : (
         <span
           className="yl-tooltip__content"

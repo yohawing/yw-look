@@ -29,6 +29,11 @@
   gap: 1px;
 }
 
+.viewport-tool-tooltip {
+  width: 30px;
+  height: 30px;
+}
+
 .viewport-tool-separator {
   height: 1px;
   margin: 3px 4px;
@@ -66,36 +71,6 @@
 .viewport-tool:focus-visible {
   outline: none;
   box-shadow: var(--yl-shadow-focus, rgba(113, 112, 255, 0.3) 0 0 0 1px);
-}
-
-.viewport-tool::before {
-  position: absolute;
-  top: 50%;
-  left: calc(100% + 8px);
-  z-index: 10;
-  padding: 3px 7px;
-  color: var(--yl-text-primary, #f7f8f8);
-  font-family: var(--yl-font-sans, Inter, sans-serif);
-  font-size: 11px;
-  font-weight: 510;
-  line-height: 1.35;
-  white-space: nowrap;
-  content: attr(data-tooltip);
-  background: var(--yl-surface-raised, #191a1b);
-  border: 1px solid var(--yl-border, rgba(255, 255, 255, 0.08));
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-50%) translateX(-2px);
-  transition:
-    opacity 120ms ease,
-    transform 120ms ease;
-}
-
-.viewport-tool:hover::before {
-  opacity: 1;
-  transform: translateY(-50%) translateX(0);
 }
 
 .viewport-tool svg {

@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { Button } from "./ui/Button";
 import { SelectField } from "./ui/SelectField";
 import { SliderField } from "./ui/SliderField";
+import { Tooltip } from "./ui/Tooltip";
 
 type AnimationBarProps = {
   clipNames: string[];
@@ -60,102 +61,107 @@ export function AnimationBar({
             ))}
           </SelectField>
         ) : (
-          <span title={activeClipName}>{activeClipName}</span>
+          <Tooltip content={activeClipName} side="top" size="sm">
+            <span>{activeClipName}</span>
+          </Tooltip>
         )}
       </div>
 
       <div className="animation-primary-controls">
-        <Button
-          className="yl-button--unstyled"
-          iconOnly
-          onClick={() => onStep(-1)}
-          size="sm"
-          title="Previous frame"
-          variant="ghost"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
+        <Tooltip content="Previous frame" side="top" size="sm">
+          <Button
+            className="yl-button--unstyled"
+            iconOnly
+            onClick={() => onStep(-1)}
+            size="sm"
+            variant="ghost"
           >
-            <path
-              d="M10 2.5L5 7l5 4.5"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.5"
-            />
-            <path
-              d="M4 3v8"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1.5"
-            />
-          </svg>
-        </Button>
-        <Button
-          className="yl-button--unstyled animation-play-button"
-          iconOnly
-          onClick={onTogglePlayback}
-          size="sm"
-          title={isPlaying ? "Pause" : "Play"}
-          variant="primary"
-        >
-          {isPlaying ? (
             <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
             >
-              <rect x="4" y="3" width="3" height="10" rx="0.5" />
-              <rect x="9" y="3" width="3" height="10" rx="0.5" />
+              <path
+                d="M10 2.5L5 7l5 4.5"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.5"
+              />
+              <path
+                d="M4 3v8"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.5"
+              />
             </svg>
-          ) : (
+          </Button>
+        </Tooltip>
+        <Tooltip content={isPlaying ? "Pause" : "Play"} side="top" size="sm">
+          <Button
+            className="yl-button--unstyled animation-play-button"
+            iconOnly
+            onClick={onTogglePlayback}
+            size="sm"
+            variant="primary"
+          >
+            {isPlaying ? (
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect x="4" y="3" width="3" height="10" rx="0.5" />
+                <rect x="9" y="3" width="3" height="10" rx="0.5" />
+              </svg>
+            ) : (
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path d="M5 3l8 5-8 5V3Z" />
+              </svg>
+            )}
+          </Button>
+        </Tooltip>
+        <Tooltip content="Next frame" side="top" size="sm">
+          <Button
+            className="yl-button--unstyled"
+            iconOnly
+            onClick={() => onStep(1)}
+            size="sm"
+            variant="ghost"
+          >
             <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
             >
-              <path d="M5 3l8 5-8 5V3Z" />
+              <path
+                d="M4 2.5L9 7l-5 4.5"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.5"
+              />
+              <path
+                d="M10 3v8"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.5"
+              />
             </svg>
-          )}
-        </Button>
-        <Button
-          className="yl-button--unstyled"
-          iconOnly
-          onClick={() => onStep(1)}
-          size="sm"
-          title="Next frame"
-          variant="ghost"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M4 2.5L9 7l-5 4.5"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.5"
-            />
-            <path
-              d="M10 3v8"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1.5"
-            />
-          </svg>
-        </Button>
+          </Button>
+        </Tooltip>
       </div>
 
       <SliderField

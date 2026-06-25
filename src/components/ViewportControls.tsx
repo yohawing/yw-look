@@ -3,6 +3,7 @@ import { Fragment, type ReactNode } from "react";
 import { ViewportToolSvg } from "./ViewportToolIcons";
 import type { ToolbarAction, ToolbarItem } from "./toolbar/types";
 import { PopoverTool } from "./toolbar/PopoverTool";
+import { Tooltip } from "./ui/Tooltip";
 
 import "../styles/viewport.css";
 import "../styles/toolbar-popover.css";
@@ -30,19 +31,27 @@ function ViewportTool({
   onClick: () => void;
   title?: string;
 }) {
+  const tooltip = title ?? label;
+
   return (
-    <button
-      aria-label={label}
-      aria-pressed={kind === "toggle" ? active : undefined}
-      className={`viewport-tool${active ? " is-active" : ""}`}
-      data-tooltip={title ?? label}
+    <Tooltip
+      className="viewport-tool-tooltip"
+      content={tooltip}
       disabled={disabled}
-      onClick={onClick}
-      title={title ?? label}
-      type="button"
+      side="right"
+      size="sm"
     >
-      {iconId ? <ViewportToolSvg icon={iconId} /> : null}
-    </button>
+      <button
+        aria-label={label}
+        aria-pressed={kind === "toggle" ? active : undefined}
+        className={`viewport-tool${active ? " is-active" : ""}`}
+        disabled={disabled}
+        onClick={onClick}
+        type="button"
+      >
+        {iconId ? <ViewportToolSvg icon={iconId} /> : null}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -70,16 +79,21 @@ export function ViewportControls({
   if (!isOpen) {
     return (
       <aside className="viewport-controls is-closed" aria-label="Viewport HUD">
-        <button
-          aria-label="Open viewport tools"
-          className="viewport-tool"
-          data-tooltip="Viewport tools"
-          onClick={onToggleOpen}
-          title="Viewport tools"
-          type="button"
+        <Tooltip
+          className="viewport-tool-tooltip"
+          content="Viewport tools"
+          side="right"
+          size="sm"
         >
-          <ViewportToolSvg icon="palette" />
-        </button>
+          <button
+            aria-label="Open viewport tools"
+            className="viewport-tool"
+            onClick={onToggleOpen}
+            type="button"
+          >
+            <ViewportToolSvg icon="palette" />
+          </button>
+        </Tooltip>
       </aside>
     );
   }

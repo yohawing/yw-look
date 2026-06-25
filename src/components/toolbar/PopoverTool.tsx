@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { ViewportToolSvg } from "../ViewportToolIcons";
+import { Tooltip } from "../ui/Tooltip";
 import type { ToolbarAction, ToolbarItem } from "./types";
 import { ToolbarPopover } from "./ToolbarPopover";
 
@@ -90,28 +91,37 @@ export function PopoverTool({ action }: PopoverToolProps) {
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        aria-expanded={open}
-        aria-haspopup={hasChildren ? "menu" : undefined}
-        aria-label={action.label}
-        className={`viewport-tool${action.active ? " is-active" : ""}${open ? " is-hover" : ""}`}
-        data-tooltip={action.description ?? action.label}
-        onClick={handleTriggerClick}
-        onMouseEnter={scheduleOpen}
-        onMouseLeave={scheduleClose}
-        title={action.description ?? action.label}
-        type="button"
+      <Tooltip
+        className="viewport-tool-tooltip"
+        content={action.description ?? action.label}
+        disabled={open}
+        side="right"
+        size="sm"
       >
-        {action.iconId ? <ViewportToolSvg icon={action.iconId} /> : null}
-        {hasChildren ? (
-          <span className="viewport-tool-popover-indicator" aria-hidden="true">
-            <svg viewBox="0 0 10 10" width="6" height="6">
-              <path d="M2 3l3 4 3-4" fill="currentColor" />
-            </svg>
-          </span>
-        ) : null}
-      </button>
+        <button
+          ref={triggerRef}
+          aria-expanded={open}
+          aria-haspopup={hasChildren ? "menu" : undefined}
+          aria-label={action.label}
+          className={`viewport-tool${action.active ? " is-active" : ""}${open ? " is-hover" : ""}`}
+          onClick={handleTriggerClick}
+          onMouseEnter={scheduleOpen}
+          onMouseLeave={scheduleClose}
+          type="button"
+        >
+          {action.iconId ? <ViewportToolSvg icon={action.iconId} /> : null}
+          {hasChildren ? (
+            <span
+              className="viewport-tool-popover-indicator"
+              aria-hidden="true"
+            >
+              <svg viewBox="0 0 10 10" width="6" height="6">
+                <path d="M2 3l3 4 3-4" fill="currentColor" />
+              </svg>
+            </span>
+          ) : null}
+        </button>
+      </Tooltip>
 
       {hasChildren ? (
         <ToolbarPopover
