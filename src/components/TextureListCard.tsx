@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { TextureEntry } from "./assetMetadata";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
-import { Badge } from "./ui/Badge";
+import { Badge, BadgeButton } from "./ui/Badge";
 import { Button } from "./ui/Button";
 
 type TextureListCardProps = {
@@ -41,16 +41,21 @@ export function TextureListCard({
     >
       {textures.length > 0 ? (
         <>
-          <div className="texture-channel-chips" aria-label="Texture channels">
+          <div
+            className="texture-channel-filters"
+            aria-label="Texture channels"
+          >
             {channels.map((channel) => (
-              <Button
+              <BadgeButton
                 key={channel}
-                className={`yl-button--unstyled texture-channel-chip${channel === activeChannel ? " is-active" : ""}`}
+                className="texture-channel-filter"
+                variant={channel === activeChannel ? "info" : "neutral"}
+                mono
                 onClick={() => setActiveChannel(channel)}
                 size="sm"
               >
                 {channel}
-              </Button>
+              </BadgeButton>
             ))}
           </div>
           <div className="texture-grid">

@@ -67,12 +67,12 @@ export function SettingsCard({
         <SidebarKeyValueRows rows={configRows} />
       </SidebarSection>
       <SidebarSection title="Integration">
-        <div className="sidebar-kv">
+        <div className="yl-kv">
           <FieldRow
-            className="sidebar-kv-row"
-            controlClassName="sidebar-kv-value"
+            className="yl-kv-row"
+            controlClassName="yl-kv-value"
             label="File associations"
-            labelClassName="sidebar-kv-key"
+            labelClassName="yl-kv-key"
           >
             <span
               className={`settings-switch ${
@@ -93,10 +93,10 @@ export function SettingsCard({
             </span>
           </FieldRow>
           <FieldRow
-            className="sidebar-kv-row"
-            controlClassName="sidebar-kv-value"
+            className="yl-kv-row"
+            controlClassName="yl-kv-value"
             label="Auto-check updates"
-            labelClassName="sidebar-kv-key"
+            labelClassName="yl-kv-key"
           >
             <span
               className={`settings-switch ${

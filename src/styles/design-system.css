@@ -499,6 +499,74 @@
   font-size: 13px;
 }
 
+.yl-kv {
+  display: flex;
+  flex-direction: column;
+}
+
+.yl-kv-row {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px;
+  color: var(--yl-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.yl-kv--regular .yl-kv-row {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.yl-kv-row:hover {
+  background: var(--yl-surface-glass-1);
+}
+
+.yl-kv-key {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--yl-text-tertiary);
+  font-weight: var(--yl-font-weight-regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yl-kv-value {
+  max-width: 62%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--yl-text-primary);
+  font-size: 11px;
+  font-weight: var(--yl-font-weight-medium);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yl-kv-value.is-mono {
+  font-family: var(--yl-font-mono);
+  font-weight: var(--yl-font-weight-medium);
+}
+
+.yl-kv-value.is-muted {
+  color: var(--yl-text-tertiary);
+}
+
+.yl-kv-value.is-ok {
+  color: var(--yl-status-success);
+}
+
+.yl-kv-value.is-warn {
+  color: var(--yl-status-warning);
+}
+
+.yl-kv-value.is-danger {
+  color: var(--yl-status-error);
+}
+
 .yl-select-field,
 .yl-slider-field {
   display: grid;
@@ -587,6 +655,7 @@
   display: inline-flex;
   min-height: 18px;
   align-items: center;
+  justify-content: center;
   border: 1px solid var(--yl-border-subtle);
   border-radius: var(--yl-radius-pill);
   background: var(--yl-surface-glass-2);
@@ -597,7 +666,32 @@
   font-size: 11px;
   font-weight: var(--yl-font-weight-medium);
   line-height: 1;
+  text-decoration: none;
   white-space: nowrap;
+}
+
+button.yl-badge {
+  cursor: pointer;
+}
+
+.yl-badge--interactive:hover {
+  border-color: var(--yl-border);
+  background: var(--yl-surface-glass-3);
+  color: var(--yl-text-primary);
+}
+
+.yl-badge--interactive:focus-visible {
+  outline: none;
+  box-shadow: var(--yl-shadow-focus);
+}
+
+.yl-badge--mono {
+  font-family: var(--yl-font-mono);
+}
+
+.yl-badge--uppercase {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .yl-badge--success {
@@ -925,4 +1019,103 @@
   max-width: 280px;
   padding: 7px 9px;
   font-size: 12px;
+}
+/* ── Disclosure ── */
+
+.yl-disclosure {
+  border: none;
+}
+
+.yl-disclosure > .yl-disclosure__summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.yl-disclosure > .yl-disclosure__summary::-webkit-details-marker {
+  display: none;
+}
+
+.yl-disclosure__chevron {
+  flex-shrink: 0;
+  color: var(--yl-text-muted, #62666d);
+  transition: transform 120ms ease;
+}
+
+.yl-disclosure[open] > .yl-disclosure__summary > .yl-disclosure__chevron {
+  transform: rotate(90deg);
+}
+
+.yl-disclosure__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yl-disclosure__count {
+  margin-left: auto;
+  font-family: var(--yl-font-mono, ui-monospace);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--yl-text-muted, #62666d);
+}
+
+/* variant: section — top-level sidebar section */
+
+.yl-disclosure--section {
+  border-bottom: 1px solid var(--yl-border-subtle, rgba(255, 255, 255, 0.05));
+}
+
+.yl-disclosure--section > .yl-disclosure__summary {
+  padding: 10px 16px 8px;
+  color: var(--yl-text-muted, #62666d);
+  font-size: 10.5px;
+  font-weight: 510;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.yl-disclosure--section > .yl-disclosure__summary:hover {
+  color: var(--yl-text-tertiary, #8a8f98);
+}
+
+.yl-disclosure--section > .yl-disclosure__body {
+  padding: 2px 0 12px;
+}
+
+/* variant: inline — nested within a card (material bindings, shader details) */
+
+.yl-disclosure--inline {
+  margin: 4px 16px 0;
+}
+
+.yl-disclosure--inline > .yl-disclosure__summary {
+  padding: 4px 0;
+  color: var(--yl-text-secondary, #c8cad0);
+  font-size: 11px;
+  font-weight: 450;
+}
+
+.yl-disclosure--inline > .yl-disclosure__body {
+  padding: 0 0 4px;
+}
+
+/* variant: minimal — inline annotation (e.g. USD layer comment) */
+
+.yl-disclosure--minimal {
+  margin-top: 4px;
+}
+
+.yl-disclosure--minimal > .yl-disclosure__summary {
+  padding: 2px 0;
+  color: var(--yl-text-muted, #62666d);
+  font-size: 11px;
+}
+
+.yl-disclosure--minimal > .yl-disclosure__body {
+  padding: 3px 0 0;
 }

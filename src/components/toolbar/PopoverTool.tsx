@@ -99,13 +99,20 @@ export function PopoverTool({ action }: PopoverToolProps) {
 
   return (
     <ToolbarPopover open={open} onOpenChange={handleOpenChange}>
-      <Tooltip content={action.description ?? action.label} side="right">
+      <Tooltip
+        className="viewport-tool-tooltip"
+        content={action.description ?? action.label}
+        disabled={open || action.disabled}
+        side="right"
+        size="sm"
+      >
         <PopoverTrigger asChild>
           <button
             aria-expanded={open}
             aria-haspopup={hasChildren ? "menu" : undefined}
             aria-label={action.label}
             className={`viewport-tool${action.active ? " is-active" : ""}${open ? " is-hover" : ""}`}
+            disabled={action.disabled}
             onClick={handleTriggerClick}
             onPointerEnter={scheduleOpen}
             onPointerLeave={scheduleClose}

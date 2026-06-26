@@ -7,6 +7,8 @@ import type {
   StageSummary,
   VariantSelection,
 } from "../lib/usd";
+import { Disclosure } from "./ui/Disclosure";
+import { Badge } from "./ui/Badge";
 import {
   SidebarEmpty,
   SidebarError,
@@ -38,12 +40,15 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
           {layer.depth === 0 ? "root" : "↳ sublayer"}
         </span>
         {layer.muted && (
-          <span
-            className="badge badge-error usd-inspector-chip"
+          <Badge
+            className="usd-inspector-badge"
+            variant="error"
+            size="sm"
+            uppercase
             title="This layer is muted and does not contribute to the composed stage"
           >
             muted
-          </span>
+          </Badge>
         )}
         {hasOffset && (
           <span className="usd-inspector-note">
@@ -57,10 +62,9 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
         {shortLayerLabel(layer.identifier)}
       </div>
       {layer.comment && (
-        <details className="usd-layer-comment">
-          <summary>comment</summary>
-          <p>{layer.comment}</p>
-        </details>
+        <Disclosure variant="minimal" title="comment" defaultOpen={false}>
+          <p className="usd-layer-comment-text">{layer.comment}</p>
+        </Disclosure>
       )}
     </li>
   );
@@ -486,9 +490,13 @@ export function UsdInspectorCard({
                               </select>
                             ) : (
                               activeSelection && (
-                                <span className="badge badge-ok usd-inspector-chip">
+                                <Badge
+                                  className="usd-inspector-badge"
+                                  variant="success"
+                                  size="sm"
+                                >
                                   {activeSelection}
-                                </span>
+                                </Badge>
                               )
                             )}
                           </div>

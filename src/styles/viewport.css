@@ -29,6 +29,11 @@
   gap: 1px;
 }
 
+.viewport-tool-tooltip {
+  width: 30px;
+  height: 30px;
+}
+
 .viewport-tool-separator {
   height: 1px;
   margin: 3px 4px;

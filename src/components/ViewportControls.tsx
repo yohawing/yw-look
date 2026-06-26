@@ -34,7 +34,13 @@ function ViewportTool({
   const tooltipContent = tooltip ?? label;
 
   return (
-    <Tooltip content={tooltipContent} side="right">
+    <Tooltip
+      className="viewport-tool-tooltip"
+      content={tooltipContent}
+      disabled={disabled}
+      side="right"
+      size="sm"
+    >
       <button
         aria-label={label}
         aria-pressed={kind === "toggle" ? active : undefined}
@@ -73,7 +79,12 @@ export function ViewportControls({
   if (!isOpen) {
     return (
       <aside className="viewport-controls is-closed" aria-label="Viewport HUD">
-        <Tooltip content="Viewport tools" side="right">
+        <Tooltip
+          className="viewport-tool-tooltip"
+          content="Viewport tools"
+          side="right"
+          size="sm"
+        >
           <button
             aria-label="Open viewport tools"
             className="viewport-tool"

@@ -40,7 +40,14 @@ export function SidebarTabs<TabId extends string>({
         const isActive = tab.id === activeTab;
 
         return (
-          <Tooltip content={tab.label} key={tab.id} side="bottom">
+          <Tooltip
+            className="sidebar-tab-tooltip"
+            content={tab.label}
+            disabled={tab.disabled}
+            key={tab.id}
+            size="sm"
+            side="bottom"
+          >
             <IconTabButton
               aria-label={tab.label}
               aria-pressed={isActive}

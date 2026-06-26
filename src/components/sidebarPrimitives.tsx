@@ -1,4 +1,6 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { Disclosure } from "./ui/Disclosure";
+import { KeyValueRows } from "./ui/KeyValueRows";
 import type { SidebarKeyValueRow } from "../types/ui";
 
 export type { SidebarKeyValueRow } from "../types/ui";
@@ -16,40 +18,23 @@ export function SidebarSection({
   defaultOpen?: boolean;
   title: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-
   if (collapsible) {
     return (
-      <details
-        className="sidebar-section is-collapsible"
-        onToggle={(event) => setOpen(event.currentTarget.open)}
-        open={open}
+      <Disclosure
+        variant="section"
+        title={title}
+        count={count}
+        defaultOpen={defaultOpen}
       >
-        <summary className="sidebar-section-head">
-          <span className="sidebar-section-chevron" aria-hidden="true">
-            ▾
-          </span>
-          <span className="sidebar-section-title card-title">{title}</span>
-          {count ? (
-            <span className="sidebar-section-count">{count}</span>
-          ) : null}
-        </summary>
-        <div className="sidebar-section-body">{children}</div>
-      </details>
+        {children}
+      </Disclosure>
     );
   }
 
   return (
-    <section className="sidebar-section">
-      <header className="sidebar-section-head">
-        <span className="sidebar-section-chevron" aria-hidden="true">
-          ▾
-        </span>
-        <span className="sidebar-section-title card-title">{title}</span>
-        {count ? <span className="sidebar-section-count">{count}</span> : null}
-      </header>
-      <div className="sidebar-section-body">{children}</div>
-    </section>
+    <Disclosure variant="section" title={title} count={count} defaultOpen>
+      {children}
+    </Disclosure>
   );
 }
 
@@ -58,26 +43,7 @@ export function SidebarKeyValueRows({
 }: {
   rows: readonly SidebarKeyValueRow[];
 }) {
-  return (
-    <div className="sidebar-kv">
-      {rows.map((row) => (
-        <div className="sidebar-kv-row" key={row.id}>
-          <span className="sidebar-kv-key">{row.label}</span>
-          <span
-            className={[
-              "sidebar-kv-value",
-              row.mono ? "is-mono" : null,
-              row.tone ? `is-${row.tone}` : null,
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            {row.value}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
+  return <KeyValueRows rows={rows} />;
 }
 
 export function SidebarMultilineValue({ children }: { children: ReactNode }) {

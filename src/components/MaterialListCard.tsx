@@ -6,6 +6,9 @@ import type {
   MmdMaterialEntry,
 } from "./assetMetadata";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { Badge } from "./ui/Badge";
+import { Disclosure } from "./ui/Disclosure";
+import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
 
 type MaterialListCardProps = {
   materials: MaterialEntry[];
@@ -101,8 +104,7 @@ function MmdColorRow({
 function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
   if (!mmd) return null;
   return (
-    <details className="material-bindings material-shader-details" open>
-      <summary className="material-detail">MMD material</summary>
+    <Disclosure variant="inline" title="MMD material" defaultOpen>
       <table className="mat-slot-table">
         <tbody>
           {mmd.materialIndex !== null && (
@@ -151,7 +153,7 @@ function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
           </MmdValueRow>
           {mmd.transparencyMode && (
             <MmdValueRow label="Transparency">
-              <span className="sidebar-chip">{mmd.transparencyMode}</span>
+              <Badge size="sm">{mmd.transparencyMode}</Badge>
             </MmdValueRow>
           )}
           {mmd.renderOrderBucket && (
@@ -170,7 +172,7 @@ function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
           )}
         </tbody>
       </table>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -189,8 +191,7 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
   if (!hasAnyDetail) return null;
 
   return (
-    <details className="material-bindings material-shader-details">
-      <summary className="material-detail">shader inputs</summary>
+    <Disclosure variant="inline" title="shader inputs" defaultOpen={false}>
       <table className="mat-slot-table">
         <tbody>
           {mat.baseColorFactor !== null && (
@@ -277,7 +278,7 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
             <tr className="mat-slot-row">
               <td className="mat-slot-label">Alpha</td>
               <td className="mat-slot-value">
-                <span className="sidebar-chip">{mat.alphaMode}</span>
+                <Badge size="sm">{mat.alphaMode}</Badge>
               </td>
             </tr>
           )}
@@ -291,7 +292,7 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
           )}
         </tbody>
       </table>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -320,54 +321,67 @@ function MaterialBaseColor({ mat }: { mat: MaterialEntry }) {
 }
 
 function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
+  const rows: KeyValueRow[] = [
+    { id: "shader", label: "Shader", value: mat.type },
+    {
+      id: "base-color",
+      label: "Base color",
+      value: <MaterialBaseColor mat={mat} />,
+    },
+    mat.metallicFactor !== null && {
+      id: "metallic",
+      label: "Metallic",
+      value: mat.metallicFactor.toFixed(2),
+      mono: true,
+    },
+    mat.roughnessFactor !== null && {
+      id: "roughness",
+      label: "Roughness",
+      value: mat.roughnessFactor.toFixed(2),
+      mono: true,
+    },
+    {
+      id: "alpha-mode",
+      label: "Alpha mode",
+      value: mat.alphaMode,
+      tone: mat.alphaMode === "OPAQUE" ? "muted" : "default",
+      mono: true,
+    },
+    {
+      id: "opacity",
+      label: "Opacity",
+      value: mat.opacity.toFixed(2),
+      mono: true,
+    },
+    {
+      id: "textures",
+      label: "Textures",
+      value: mat.textureCount,
+      mono: true,
+    },
+    {
+      id: "bindings",
+      label: "Bindings",
+      value: mat.boundMeshes.length,
+      mono: true,
+    },
+  ].filter(Boolean) as KeyValueRow[];
+
   return (
     <section className="material-selected-panel" aria-label="Selected material">
       <p className="material-selected-title">Selected material</p>
-      <dl className="material-detail-grid">
-        <div className="material-detail-row">
-          <dt>Shader</dt>
-          <dd>{mat.type}</dd>
-        </div>
-        <div className="material-detail-row">
-          <dt>Base color</dt>
-          <dd>
-            <MaterialBaseColor mat={mat} />
-          </dd>
-        </div>
-        {mat.metallicFactor !== null && (
-          <div className="material-detail-row">
-            <dt>Metallic</dt>
-            <dd>{mat.metallicFactor.toFixed(2)}</dd>
-          </div>
-        )}
-        {mat.roughnessFactor !== null && (
-          <div className="material-detail-row">
-            <dt>Roughness</dt>
-            <dd>{mat.roughnessFactor.toFixed(2)}</dd>
-          </div>
-        )}
-        <div className="material-detail-row">
-          <dt>Alpha mode</dt>
-          <dd className={mat.alphaMode === "OPAQUE" ? "muted-value" : ""}>
-            {mat.alphaMode}
-          </dd>
-        </div>
-        <div className="material-detail-row">
-          <dt>Opacity</dt>
-          <dd>{mat.opacity.toFixed(2)}</dd>
-        </div>
-        <div className="material-detail-row">
-          <dt>Textures</dt>
-          <dd>{mat.textureCount}</dd>
-        </div>
-        <div className="material-detail-row">
-          <dt>Bindings</dt>
-          <dd>{mat.boundMeshes.length}</dd>
-        </div>
-      </dl>
+      <KeyValueRows
+        className="material-detail-grid"
+        density="regular"
+        rows={rows}
+      />
       {mat.boundMeshes.length > 0 && (
-        <details className="material-bindings">
-          <summary className="material-detail">bound meshes</summary>
+        <Disclosure
+          variant="inline"
+          title="bound meshes"
+          count={mat.boundMeshes.length}
+          defaultOpen={false}
+        >
           <ul className="material-bindings-list">
             {mat.boundMeshes.map((meshName, index) => (
               <li key={`${meshName}:${index}`} className="material-binding">
@@ -375,7 +389,7 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
               </li>
             ))}
           </ul>
-        </details>
+        </Disclosure>
       )}
       <MmdMaterialDetails mmd={mat.mmd} />
       <ShaderDetails mat={mat} />
@@ -415,9 +429,9 @@ export function MaterialListCard({ materials }: MaterialListCardProps) {
                         : ""}
                     </span>
                   </span>
-                  <span className="material-count-pill">
+                  <Badge className="material-count-badge" mono size="sm">
                     {mat.textureCount}
-                  </span>
+                  </Badge>
                 </button>
               </li>
             ))}
