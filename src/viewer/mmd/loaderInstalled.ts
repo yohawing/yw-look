@@ -61,6 +61,7 @@ type ThreeMmdLoaderModule = {
       },
     ): Promise<
       MmdRuntimeModelHandle & {
+        root?: Object3D;
         outlineMeshes?: Object3D[];
         renderOrderMeshes?: Object3D[];
         diagnostics: {
@@ -581,12 +582,16 @@ export async function loadMmdPreviewObject(
       materialRenderOrder: true,
       frustumCulled: false,
     });
-    syncMmdMaterialRenderStates(mmd.mesh);
-    for (const proxy of [
-      ...(mmd.outlineMeshes ?? []),
-      ...(mmd.renderOrderMeshes ?? []),
-    ]) {
-      syncMmdMaterialRenderStates(proxy);
+    if (mmd.root) {
+      syncMmdMaterialRenderStates(mmd.root);
+    } else {
+      syncMmdMaterialRenderStates(mmd.mesh);
+      for (const proxy of [
+        ...(mmd.outlineMeshes ?? []),
+        ...(mmd.renderOrderMeshes ?? []),
+      ]) {
+        syncMmdMaterialRenderStates(proxy);
+      }
     }
     if (file.extension === "pmx") {
       await attachPmxLocalAxes(buffer, mmd, context);
@@ -598,6 +603,11 @@ export async function loadMmdPreviewObject(
     object.name = `${displayName} Preview`;
     object.userData[MMD_MODEL_KEY] = mmd;
     object.userData.mmdSourceFile = file.path;
+    if (mmd.root) {
+      mmd.root.name = displayName;
+      mmd.root.userData[MMD_MODEL_KEY] = mmd;
+      mmd.root.userData.mmdSourceFile = file.path;
+    }
     mmd.mesh.name = displayName;
     mmd.mesh.userData[MMD_MODEL_KEY] = mmd;
     mmd.mesh.userData.mmdSourceFile = file.path;
@@ -607,11 +617,15 @@ export async function loadMmdPreviewObject(
     ]) {
       setSelectionProxyTarget(proxy, mmd.mesh);
     }
-    object.add(
-      mmd.mesh,
-      ...(mmd.outlineMeshes ?? []),
-      ...(mmd.renderOrderMeshes ?? []),
-    );
+    if (mmd.root) {
+      object.add(mmd.root);
+    } else {
+      object.add(
+        mmd.mesh,
+        ...(mmd.outlineMeshes ?? []),
+        ...(mmd.renderOrderMeshes ?? []),
+      );
+    }
 
     const warnings = [
       ...new Map(

@@ -24,6 +24,7 @@ import {
   applyUnlitMaterial,
   applyVertexColors,
 } from "../scene";
+import { syncMmdTransparentMaterialRenderState } from "../mmd/userData";
 
 describe("scene material display helpers", () => {
   it("renders textured wireframe as a mesh with a line overlay", () => {
@@ -337,6 +338,36 @@ describe("scene material display helpers", () => {
 
     expect(material.side).toBe(FrontSide);
     expect(material.forceSinglePass).toBe(false);
+  });
+
+  it("prevents hidden MMD color-suppressed materials from writing depth", () => {
+    const material = new MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      side: DoubleSide,
+    });
+    material.colorWrite = false;
+    material.depthWrite = true;
+    material.userData.mmdMaterial = { transparencyMode: "alphaBlend" };
+
+    syncMmdTransparentMaterialRenderState(material);
+
+    expect(material.depthWrite).toBe(false);
+    expect(material.forceSinglePass).toBe(true);
+  });
+
+  it("prevents fully transparent MMD outline materials from writing depth", () => {
+    const material = new MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      side: BackSide,
+    });
+    material.depthWrite = true;
+    material.userData.mmdOutlineMaterial = { materialIndex: 0 };
+
+    syncMmdTransparentMaterialRenderState(material);
+
+    expect(material.depthWrite).toBe(false);
   });
 
   it("preserves MMD transparent render state when creating unlit materials", () => {

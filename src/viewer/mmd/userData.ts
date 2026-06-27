@@ -27,8 +27,16 @@ export function copyMmdMaterialUserData(target: Material, source: Material) {
 }
 
 export function syncMmdTransparentMaterialRenderState(material: Material) {
+  if (isMmdOutlineMaterial(material) && material.opacity <= 0) {
+    material.depthWrite = false;
+  }
+
   if (!isMmdMaterial(material)) {
     return;
+  }
+
+  if (material.opacity <= 0 && material.colorWrite === false) {
+    material.depthWrite = false;
   }
 
   const maybeDoubleSidedTransparent =

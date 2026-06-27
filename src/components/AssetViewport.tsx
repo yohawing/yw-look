@@ -2030,7 +2030,7 @@ export function AssetViewport({
           ik: true,
           physics: false,
         });
-        syncMmdMaterialRenderStates(model.mesh);
+        syncMmdMaterialRenderStates(model.root ?? model.mesh);
 
         const duration = Math.max(motion.duration, 1 / 30);
         context.mmdMotion = {

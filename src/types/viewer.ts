@@ -78,6 +78,7 @@ export type MmdAnimationHandle = {
 };
 
 export type MmdRuntimeModelHandle = {
+  root?: Object3D;
   mesh: Object3D;
   runtime?: {
     reset(time: number): void;

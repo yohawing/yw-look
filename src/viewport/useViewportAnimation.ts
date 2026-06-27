@@ -31,7 +31,7 @@ function retargetMmdMotion(context: SceneContext, seconds: number) {
     ik: true,
     physics: false,
   });
-  syncMmdMaterialRenderStates(model.mesh);
+  syncMmdMaterialRenderStates(model.root ?? model.mesh);
 }
 
 function setMmdMotionCurrentTime(context: SceneContext, currentTime: number) {
@@ -94,7 +94,9 @@ export function useViewportAnimation({
               ik: true,
               physics: nextTime > 0,
             });
-            syncMmdMaterialRenderStates(context.mmdModel.mesh);
+            syncMmdMaterialRenderStates(
+              context.mmdModel.root ?? context.mmdModel.mesh,
+            );
           }
           setMmdMotionCurrentTime(context, nextTime);
         } else {
