@@ -295,7 +295,6 @@ export function AssetViewport({
   // not see prop changes, so we hold the latest setter in a ref.
   const onActiveCameraResetRef = useRef(onActiveCameraReset);
 
-  onActiveCameraResetRef.current = onActiveCameraReset;
   // The actual Three.js camera found by traversal. null = use the scene's
   // own free camera (context.camera). Stored as `Camera` (not the narrower
   // PerspectiveCamera) so OrthographicCamera USD cameras are also usable —
@@ -314,7 +313,13 @@ export function AssetViewport({
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
 
-  onResourceDiagnosticsChangeRef.current = onResourceDiagnosticsChange;
+  useEffect(() => {
+    onActiveCameraResetRef.current = onActiveCameraReset;
+  }, [onActiveCameraReset]);
+
+  useEffect(() => {
+    onResourceDiagnosticsChangeRef.current = onResourceDiagnosticsChange;
+  }, [onResourceDiagnosticsChange]);
 
   const publishResourceDiagnostics = useCallback(
     (context: SceneContext | null) => {
@@ -671,8 +676,7 @@ export function AssetViewport({
 
     const controls = new OrbitControls(camera, renderer.domElement);
     configureAssetControls(controls);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
+    controls.enableDamping = false;
     applyControlSensitivity(controls, controlSensitivity);
 
     // ── Initial grid ──
@@ -1515,8 +1519,10 @@ export function AssetViewport({
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
 
-      setLoadingStage(null);
-      setDeferredTexture(null);
+      queueMicrotask(() => {
+        setLoadingStage(null);
+        setDeferredTexture(null);
+      });
       return;
     }
 
@@ -1549,8 +1555,10 @@ export function AssetViewport({
         warning: null,
         canResetCamera: false,
       });
-      setLoadingStage(null);
-      setDeferredTexture(null);
+      queueMicrotask(() => {
+        setLoadingStage(null);
+        setDeferredTexture(null);
+      });
       return;
     }
 
@@ -1594,7 +1602,9 @@ export function AssetViewport({
     onMetadataChange(emptyAssetMetadata);
     assetResourceMetricsRef.current = null;
     publishResourceDiagnostics(context);
-    setDeferredTexture(null);
+    queueMicrotask(() => {
+      setDeferredTexture(null);
+    });
     reportLoadingStage("scan");
     const runtimeWarnings: string[] = [];
     let readyFeedbackBase: {
