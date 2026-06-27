@@ -23,6 +23,11 @@ vi.mock("../../lib/files", async (importOriginal) => ({
 vi.mock("@yohawing/three-mmd-loader", () => ({
   loadAmmoNamespace: vi.fn(async () => ({})),
   createAmmoMmdPhysicsBackend: vi.fn(() => mocks.physicsBackend),
+  initCore: vi.fn(async () => ({
+    loadModel: vi.fn(() => ({
+      skeleton: () => ({ bones: [] }),
+    })),
+  })),
   parseVmd: vi.fn(() => ({
     kind: "vmd",
     metadata: { maxFrame: 60, modelName: "Hatsune Miku" },
@@ -193,6 +198,11 @@ describe("MMD preview loader", () => {
     const mesh = new Group();
     mesh.userData.mmdModel = {
       diagnostics: [
+        {
+          level: "warning",
+          code: "UNSUPPORTED_MORPH",
+          message: "Unsupported morph types are present.",
+        },
         {
           level: "warning",
           code: "UNSUPPORTED_MORPH",

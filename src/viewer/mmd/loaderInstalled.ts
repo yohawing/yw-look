@@ -155,6 +155,7 @@ function normalizeMmdDiagnostics(
   value: unknown,
 ): MmdAssetMetadata["diagnostics"] {
   if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
   return value.flatMap((entry) => {
     if (typeof entry !== "object" || entry === null) return [];
     const record = entry as Record<string, unknown>;
@@ -162,6 +163,9 @@ function normalizeMmdDiagnostics(
     const code = typeof record.code === "string" ? record.code : "UNKNOWN";
     const message =
       typeof record.message === "string" ? record.message : "No message.";
+    const key = `${level}\0${code}\0${message}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
     return [{ level, code, message }];
   });
 }
