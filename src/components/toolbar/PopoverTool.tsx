@@ -119,16 +119,6 @@ export function PopoverTool({ action }: PopoverToolProps) {
             type="button"
           >
             {action.iconId ? <ViewportToolSvg icon={action.iconId} /> : null}
-            {hasChildren ? (
-              <span
-                className="viewport-tool-popover-indicator"
-                aria-hidden="true"
-              >
-                <svg viewBox="0 0 10 10" width="6" height="6">
-                  <path d="M2 3l3 4 3-4" fill="currentColor" />
-                </svg>
-              </span>
-            ) : null}
           </button>
         </PopoverTrigger>
       </Tooltip>
@@ -142,6 +132,7 @@ export function PopoverTool({ action }: PopoverToolProps) {
           onPointerEnter={scheduleOpen}
           onPointerLeave={scheduleClose}
         >
+          <div className="toolbar-popover-header">{action.label}</div>
           <ToolbarPopoverItems
             items={action.children!}
             onAction={handleChildAction}
