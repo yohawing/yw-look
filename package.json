@@ -9,7 +9,7 @@
     "#yw-look-spark-loader-entry": "./src/viewer/spark/loaderInstalled.ts"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/kill-port.mjs 1420 && vite",
     "build": "tsc && vite build",
     "build:desktop": "npm run build && npm run tauri build",
     "bundle:win": "npm run tauri build -- --features flip-compare --config src-tauri/tauri.windows.json --bundles nsis,msi",

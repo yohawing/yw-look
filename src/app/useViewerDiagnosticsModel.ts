@@ -109,6 +109,7 @@ export function useViewerDiagnosticsModel({
     ? debugPanelDirectoryListing
     : directoryListing;
 
+  const { setVariantSelectionError } = viewer;
   const recordVariantSelectionError = useCallback(
     (error: unknown): boolean => {
       const parsed = parseUsdError(error);
@@ -121,10 +122,10 @@ export function useViewerDiagnosticsModel({
         "Variant selection failed.",
       );
       console.error("[usd] variant selection failed:", error);
-      viewer.setVariantSelectionError(message);
+      setVariantSelectionError(message);
       return true;
     },
-    [viewer],
+    [setVariantSelectionError],
   );
 
   const viewerStatusLabel = useMemo(() => {

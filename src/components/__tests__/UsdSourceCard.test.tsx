@@ -56,9 +56,9 @@ describe("UsdSourceCard", () => {
       const { container, getByRole } = render(
         <UsdSourceCard currentFile={makeFile(ext)} />,
       );
-      expect(container.querySelector(".card-title")?.textContent).toBe(
-        "USD Source",
-      );
+      expect(
+        container.querySelector(".yl-disclosure__title")?.textContent,
+      ).toBe("USD Source");
       expect(getByRole("button").textContent).toBe("Show");
     },
   );
