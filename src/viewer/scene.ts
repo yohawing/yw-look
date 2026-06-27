@@ -41,9 +41,10 @@ import { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { VertexNormalsHelper } from "three/examples/jsm/helpers/VertexNormalsHelper.js";
 import type { DisplayMode, SceneContext } from "./types";
 import {
-  copyMmdOutlineMaterialUserData,
+  copyMmdMaterialUserData,
   isMmdOutlineMaterial,
   isMmdOutlineProxyObject,
+  syncMmdTransparentMaterialRenderState,
 } from "./mmd/userData";
 
 import type {
@@ -179,7 +180,8 @@ function createWireframeMaterial(source: Material, color: Color) {
   material.visible = source.visible;
   material.toneMapped = false;
   material.userData[WIREFRAME_MATERIAL_FLAG] = true;
-  copyMmdOutlineMaterialUserData(material, source);
+  copyMmdMaterialUserData(material, source);
+  syncMmdTransparentMaterialRenderState(material);
   return material;
 }
 
@@ -257,6 +259,8 @@ function createWireframeOverlayMeshMaterial(source: Material, color: Color) {
   });
   material.visible = source.visible;
   material.toneMapped = false;
+  copyMmdMaterialUserData(material, source);
+  syncMmdTransparentMaterialRenderState(material);
   return material;
 }
 
@@ -1629,6 +1633,7 @@ export function applyBackfaceCulling(
       material.side = backfaceCulling
         ? (originalSide ?? FrontSide)
         : DoubleSide;
+      syncMmdTransparentMaterialRenderState(material);
       material.needsUpdate = true;
     }
   });
@@ -1779,6 +1784,8 @@ export function applyUnlitMaterial(
         unlit.side = mat.side;
         unlit.depthWrite = mat.depthWrite;
         unlit.depthTest = mat.depthTest;
+        copyMmdMaterialUserData(unlit, mat);
+        syncMmdTransparentMaterialRenderState(unlit);
         if ("wireframe" in mat && typeof mat.wireframe === "boolean") {
           unlit.wireframe = mat.wireframe;
         }

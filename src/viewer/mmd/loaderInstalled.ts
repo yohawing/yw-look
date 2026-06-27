@@ -11,7 +11,7 @@ import type {
   LoadedPreview,
   MmdRuntimeModelHandle,
 } from "../types";
-import { MMD_MODEL_KEY } from "./userData";
+import { MMD_MODEL_KEY, syncMmdMaterialRenderStates } from "./userData";
 
 const MMD_FRAME_RATE = 30;
 const AMMO_SCRIPT_URL = new URL(
@@ -581,6 +581,13 @@ export async function loadMmdPreviewObject(
       materialRenderOrder: true,
       frustumCulled: false,
     });
+    syncMmdMaterialRenderStates(mmd.mesh);
+    for (const proxy of [
+      ...(mmd.outlineMeshes ?? []),
+      ...(mmd.renderOrderMeshes ?? []),
+    ]) {
+      syncMmdMaterialRenderStates(proxy);
+    }
     if (file.extension === "pmx") {
       await attachPmxLocalAxes(buffer, mmd, context);
     }

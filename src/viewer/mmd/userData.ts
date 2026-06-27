@@ -1,4 +1,4 @@
-import type { Material, Mesh, Object3D } from "three";
+import { DoubleSide, type Material, type Mesh, type Object3D } from "three";
 
 export const MMD_MODEL_KEY = "__ywMmdModel";
 
@@ -13,6 +13,45 @@ export function copyMmdOutlineMaterialUserData(
   if (isMmdOutlineMaterial(source)) {
     target.userData.mmdOutlineMaterial = source.userData.mmdOutlineMaterial;
   }
+}
+
+export function isMmdMaterial(material: Material): boolean {
+  return material.userData?.mmdMaterial !== undefined;
+}
+
+export function copyMmdMaterialUserData(target: Material, source: Material) {
+  copyMmdOutlineMaterialUserData(target, source);
+  if (isMmdMaterial(source)) {
+    target.userData.mmdMaterial = source.userData.mmdMaterial;
+  }
+}
+
+export function syncMmdTransparentMaterialRenderState(material: Material) {
+  if (!isMmdMaterial(material)) {
+    return;
+  }
+
+  const maybeDoubleSidedTransparent =
+    material.transparent === true && material.side === DoubleSide;
+  (material as Material & { forceSinglePass?: boolean }).forceSinglePass =
+    maybeDoubleSidedTransparent;
+}
+
+function getMaterials(material: Material | Material[]) {
+  return Array.isArray(material) ? material : [material];
+}
+
+export function syncMmdMaterialRenderStates(object: Object3D) {
+  object.traverse((child) => {
+    const mesh = child as Partial<Mesh>;
+    const material = mesh.material;
+    if (!material) {
+      return;
+    }
+    for (const entry of getMaterials(material)) {
+      syncMmdTransparentMaterialRenderState(entry);
+    }
+  });
 }
 
 export function isMmdProxyObject(object: Object3D): boolean {

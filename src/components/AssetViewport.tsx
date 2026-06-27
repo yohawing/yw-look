@@ -73,6 +73,7 @@ import {
   getPreviewRenderingPresetForExtension,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
+import { syncMmdMaterialRenderStates } from "../viewer/mmd/userData";
 import { AssetViewportOverlay } from "./AssetViewportOverlay";
 import { emptyAssetMetadata } from "./assetMetadata";
 import { emptyAnimationState, type AnimationState } from "./animation";
@@ -2029,6 +2030,7 @@ export function AssetViewport({
           ik: true,
           physics: false,
         });
+        syncMmdMaterialRenderStates(model.mesh);
 
         const duration = Math.max(motion.duration, 1 / 30);
         context.mmdMotion = {

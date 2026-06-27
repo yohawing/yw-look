@@ -14,6 +14,7 @@ import {
 import type { ViewerSurfaceMode } from "../types/viewer";
 import type { AnimationState } from "../components/animation";
 import { applyMorphTargetValues } from "../components/morphTargets";
+import { syncMmdMaterialRenderStates } from "../viewer/mmd/userData";
 
 function retargetMmdMotion(context: SceneContext, seconds: number) {
   const model = context.mmdModel;
@@ -30,13 +31,26 @@ function retargetMmdMotion(context: SceneContext, seconds: number) {
     ik: true,
     physics: false,
   });
+  syncMmdMaterialRenderStates(model.mesh);
+}
+
+function setMmdMotionCurrentTime(context: SceneContext, currentTime: number) {
+  if (!context.mmdMotion) {
+    return;
+  }
+  context.mmdMotion = {
+    ...context.mmdMotion,
+    currentTime,
+  };
 }
 
 type UseViewportAnimationOptions = {
   animationState: AnimationState;
   setAnimationState: Dispatch<SetStateAction<AnimationState>>;
   sceneContextRef: RefObject<SceneContext | null>;
-  morphTargetValuesRef: RefObject<Record<string, Record<number, number>> | undefined>;
+  morphTargetValuesRef: RefObject<
+    Record<string, Record<number, number>> | undefined
+  >;
   viewerSurfaceMode: ViewerSurfaceMode;
 };
 
@@ -80,8 +94,9 @@ export function useViewportAnimation({
               ik: true,
               physics: nextTime > 0,
             });
+            syncMmdMaterialRenderStates(context.mmdModel.mesh);
           }
-          context.mmdMotion.currentTime = nextTime;
+          setMmdMotionCurrentTime(context, nextTime);
         } else {
           context.mixer?.update(deltaSeconds);
         }
@@ -190,7 +205,7 @@ export function useViewportAnimation({
       const nextTime = Math.min(Math.max(time, 0), duration);
       retargetMmdMotion(context, nextTime);
 
-      mmdMotion.currentTime = nextTime;
+      setMmdMotionCurrentTime(context, nextTime);
       setAnimationState((previous) => ({
         ...previous,
         currentTime: nextTime,
@@ -230,7 +245,7 @@ export function useViewportAnimation({
       );
       retargetMmdMotion(context, nextTime);
 
-      mmdMotion.currentTime = nextTime;
+      setMmdMotionCurrentTime(context, nextTime);
       setAnimationState((previous) => ({
         ...previous,
         currentTime: nextTime,

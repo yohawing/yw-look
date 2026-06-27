@@ -317,6 +317,50 @@ describe("scene material display helpers", () => {
     expect(material.side).toBe(DoubleSide);
   });
 
+  it("forces single-pass rendering for double-sided transparent MMD materials", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.45,
+      side: FrontSide,
+    });
+    material.userData.mmdMaterial = { transparencyMode: "alphaBlend" };
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+
+    applyBackfaceCulling(root, false);
+
+    expect(material.side).toBe(DoubleSide);
+    expect(material.forceSinglePass).toBe(true);
+
+    applyBackfaceCulling(root, true);
+
+    expect(material.side).toBe(FrontSide);
+    expect(material.forceSinglePass).toBe(false);
+  });
+
+  it("preserves MMD transparent render state when creating unlit materials", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.45,
+      side: DoubleSide,
+    });
+    material.forceSinglePass = true;
+    material.userData.mmdMaterial = { transparencyMode: "alphaBlend" };
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+
+    applyUnlitMaterial(root, true);
+
+    const unlit = mesh.material as MeshBasicMaterial;
+    expect(unlit).not.toBe(material);
+    expect(unlit.userData.mmdMaterial).toBe(material.userData.mmdMaterial);
+    expect(unlit.transparent).toBe(true);
+    expect(unlit.side).toBe(DoubleSide);
+    expect(unlit.forceSinglePass).toBe(true);
+  });
+
   it("preserves vertex color toggles made while wireframe mode is active", () => {
     const root = new Group();
     const material = new MeshBasicMaterial();
