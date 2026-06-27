@@ -104,7 +104,7 @@ export function App() {
     handleInstallUpdate,
   } = useUpdater(shouldLoadDeferredData, settingsPayload);
 
-  const { performanceSnapshot, recordLoadTiming } = usePerformanceTracker(
+  const { recordLoadTiming } = usePerformanceTracker(
     settingsPayload,
     settingsError,
   );
@@ -126,7 +126,6 @@ export function App() {
     gridUnitLabel,
     logDiagnosticEventAndRefresh,
     openError,
-    performanceSnapshot,
     refreshUpdateConfiguration,
     settingsError,
     showGrid,
@@ -221,7 +220,6 @@ export function App() {
       isTauri,
       morphTargetValues,
       payloadPrimPaths,
-      performanceSnapshot,
       performSelectFilePath,
       recentFilesError,
       recentFilesPayload,

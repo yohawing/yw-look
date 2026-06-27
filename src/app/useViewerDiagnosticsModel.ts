@@ -74,9 +74,6 @@ type UseViewerDiagnosticsModelOptions = {
     contextPath?: string | null;
   }) => Promise<void>;
   openError: FileState["openError"];
-  performanceSnapshot: Parameters<
-    typeof buildStatusRightItems
-  >[0]["performanceSnapshot"];
   refreshUpdateConfiguration: () => Promise<void>;
   settingsError: string | null;
   showGrid: ViewerState["showGrid"];
@@ -94,7 +91,6 @@ export function useViewerDiagnosticsModel({
   gridUnitLabel,
   logDiagnosticEventAndRefresh,
   openError,
-  performanceSnapshot,
   refreshUpdateConfiguration,
   settingsError,
   showGrid,
@@ -373,7 +369,6 @@ export function useViewerDiagnosticsModel({
   const statusRightItems = useMemo<AppStatusBarItem[]>(() => {
     const items = buildStatusRightItems({
       currentFileSummary,
-      performanceSnapshot,
     });
 
     if (updateCheck?.update) {
@@ -386,7 +381,7 @@ export function useViewerDiagnosticsModel({
     }
 
     return items;
-  }, [currentFileSummary, openUpdatePanel, performanceSnapshot, updateCheck]);
+  }, [currentFileSummary, openUpdatePanel, updateCheck]);
 
   return {
     currentFileSummary,

@@ -1,6 +1,5 @@
 import type { AssetInspection, SelectedFile } from "../lib/files";
 import type { AnimationClipMetadata } from "../types/viewer";
-import type { PerformanceSnapshot } from "./PerformanceCard";
 import type { AssetMetadata } from "./assetMetadata";
 import {
   SidebarEmpty,
@@ -14,7 +13,6 @@ type CurrentFileCardProps = {
   assetInspection: AssetInspection | null;
   currentFile: SelectedFile | null;
   metadata: AssetMetadata | null;
-  performanceSnapshot: PerformanceSnapshot;
   usdPayloadSummary?: {
     payloadCount: number;
     unloadedPayloadCount: number;
@@ -44,10 +42,6 @@ function formatBytes(value: number | null | undefined) {
   return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
 }
 
-function formatMs(value: number | null) {
-  return value === null ? "—" : `${value.toFixed(1)} ms`;
-}
-
 function formatDuration(value: number) {
   if (!Number.isFinite(value)) return "—";
 
@@ -73,7 +67,6 @@ export function CurrentFileCard({
   assetInspection,
   currentFile,
   metadata,
-  performanceSnapshot,
   usdPayloadSummary,
   warnings,
 }: CurrentFileCardProps) {
@@ -132,13 +125,6 @@ export function CurrentFileCard({
       value: formatBytes(assetInspection?.fileSizeBytes),
       mono: true,
       tone: assetInspection ? "default" : "muted",
-    },
-    {
-      id: "load-time",
-      label: "Load time",
-      value: formatMs(performanceSnapshot.loadMs),
-      mono: true,
-      tone: performanceSnapshot.loadMs === null ? "muted" : "default",
     },
     {
       id: "meshes",

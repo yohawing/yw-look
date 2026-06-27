@@ -40,7 +40,6 @@ import type {
 import { useViewerStore, type ViewerState } from "../stores/viewerStore";
 import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
-import type { PerformanceSnapshot } from "../types/ui";
 import type { IntegrationPayload } from "../lib/integrations";
 import type { RecentFilesPayload } from "../lib/recentFiles";
 import type { SettingsPayload } from "../lib/settings";
@@ -114,7 +113,6 @@ type UseSidebarModelOptions = {
   isTauri: boolean;
   morphTargetValues: ViewerState["morphTargetValues"];
   payloadPrimPaths: ReadonlySet<string>;
-  performanceSnapshot: PerformanceSnapshot;
   performSelectFilePath: (
     path: string,
     reason: "navigation" | "recent",
@@ -224,7 +222,6 @@ export function useSidebarModel({
   isTauri,
   morphTargetValues,
   payloadPrimPaths,
-  performanceSnapshot,
   performSelectFilePath,
   recentFilesError,
   recentFilesPayload,
@@ -300,7 +297,6 @@ export function useSidebarModel({
               assetInspection={assetInspection}
               currentFile={sidebarCurrentFile}
               metadata={sidebarAssetMetadata}
-              performanceSnapshot={performanceSnapshot}
               usdPayloadSummary={
                 debugPanelsEnabled ? debugUsdSummary : sessionAdjustedUsdSummary
               }
@@ -526,7 +522,6 @@ export function useSidebarModel({
     isTauri,
     morphTargetValues,
     payloadPrimPaths,
-    performanceSnapshot,
     performSelectFilePath,
     setRecentFilesError,
     selectedMeshName,
