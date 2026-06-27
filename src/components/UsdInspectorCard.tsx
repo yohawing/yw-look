@@ -301,7 +301,7 @@ export function UsdInspectorCard({
           {inspection && (
             <>
               <SidebarSection
-                title="Stage Metadata"
+                title="Advanced: Stage Metadata"
                 collapsible
                 defaultOpen={false}
               >
@@ -380,7 +380,7 @@ export function UsdInspectorCard({
                 ? inspection.layers
                 : null) !== null && inspection.layers!.length > 0 ? (
                 <SidebarSection
-                  title="Layer Stack"
+                  title="Advanced: Layer Stack"
                   count={inspection.layers!.length}
                   collapsible
                   defaultOpen={false}
@@ -396,7 +396,7 @@ export function UsdInspectorCard({
                 </SidebarSection>
               ) : inspection.composedLayers.length > 0 ? (
                 <SidebarSection
-                  title="Layer Stack"
+                  title="Advanced: Layer Stack"
                   count={inspection.composedLayers.length + 1}
                   collapsible
                   defaultOpen={false}

@@ -226,7 +226,7 @@ export function CompositionArcsCard({
 
   return (
     <SidebarSection
-      title="Composition Arcs"
+      title="Advanced: Composition Arcs"
       count={totalCount || undefined}
       collapsible
       defaultOpen={false}

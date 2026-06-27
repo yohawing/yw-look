@@ -375,10 +375,10 @@ export function UsdPrimPropertyPanel({
 
   return (
     <SidebarSection
-      title="Prim Properties"
+      title="Advanced: Prim Properties"
       count={inspection?.attributes.length}
       collapsible
-      defaultOpen
+      defaultOpen={false}
     >
       <div className="prim-property-panel">
         <p className="prop-prim-path">{selectedPrimPath}</p>
