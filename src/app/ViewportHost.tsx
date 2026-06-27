@@ -99,39 +99,6 @@ export function ViewportHost({
         onToggleOpen={() => ui.setViewportPanelOpen(!ui.viewportPanelOpen)}
         items={viewportToolbarItems}
       />
-      {/* #91: Cancel Scale Normalize — appears when auto-scale was applied */}
-      {viewer.scaleNormalization?.applied && (
-        <button
-          className="cancel-scale-normalize-button"
-          onClick={() => viewer.bumpCancelScaleNormalizeVersion()}
-          type="button"
-          title="Revert the auto-applied scale normalization to the original size"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M3 5.5L1 3.5L3 1.5"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M1 3.5h9a3 3 0 010 6H8"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Cancel Scale Normalize
-        </button>
-      )}
       {/* InfoPanel toggle button */}
       <button
         className={`info-panel-toggle${ui.sidebarOpen ? " is-active" : ""}`}

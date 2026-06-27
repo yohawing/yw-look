@@ -1,12 +1,37 @@
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
 
 type WarningsCardProps = {
+  onCancelScaleNormalization?: () => void;
+  scaleNormalizationApplied?: boolean;
   warnings: string[];
 };
 
-export function WarningsCard({ warnings }: WarningsCardProps) {
+export function WarningsCard({
+  onCancelScaleNormalization,
+  scaleNormalizationApplied = false,
+  warnings,
+}: WarningsCardProps) {
+  const title = (
+    <span className="warnings-title">
+      <span>Warnings</span>
+      {scaleNormalizationApplied && onCancelScaleNormalization ? (
+        <button
+          className="warnings-title-action"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancelScaleNormalization();
+          }}
+          type="button"
+        >
+          Cancel Scale Normalize
+        </button>
+      ) : null}
+    </span>
+  );
+
   return (
-    <SidebarSection title="Warnings" count={warnings.length}>
+    <SidebarSection title={title} count={warnings.length}>
       {warnings.length > 0 ? (
         <ul className="warning-list">
           {warnings.map((warning, index) => (

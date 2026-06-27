@@ -514,7 +514,15 @@ export function useSidebarModel({
       case "warnings":
         return (
           <>
-            <WarningsCard warnings={sidebarWarnings} />
+            <WarningsCard
+              warnings={sidebarWarnings}
+              scaleNormalizationApplied={
+                viewer.scaleNormalization?.applied ?? false
+              }
+              onCancelScaleNormalization={
+                viewer.bumpCancelScaleNormalizeVersion
+              }
+            />
             <Suspense fallback={<SidebarCardFallback />}>
               <DiagnosticsCard
                 processMemoryMetrics={processMemoryMetrics}
