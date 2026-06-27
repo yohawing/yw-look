@@ -1,26 +1,17 @@
 import { useMemo } from "react";
 import type {
-  DiagnosticsPayload,
   ProcessMemoryMetrics,
   ResourceDiagnosticsSnapshot,
 } from "../lib/diagnostics";
 import { CompactMetricRows, type CompactMetricRow } from "./CompactMetricRows";
-import {
-  SidebarEmpty,
-  SidebarError,
-  SidebarSection,
-} from "./sidebarPrimitives";
+import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
 
 type DiagnosticsCardProps = {
-  diagnosticsPayload: DiagnosticsPayload | null;
-  diagnosticsError: string | null;
   processMemoryMetrics: ProcessMemoryMetrics | null;
   resourceDiagnostics: ResourceDiagnosticsSnapshot | null;
 };
 
 export function DiagnosticsCard({
-  diagnosticsPayload,
-  diagnosticsError,
   processMemoryMetrics,
   resourceDiagnostics,
 }: DiagnosticsCardProps) {
@@ -29,46 +20,7 @@ export function DiagnosticsCard({
     [processMemoryMetrics, resourceDiagnostics],
   );
 
-  if (diagnosticsError) {
-    return (
-      <>
-        <ResourceDiagnosticsSection rows={resourceRows} />
-        <SidebarSection title="Diagnostics">
-          <SidebarError>{diagnosticsError}</SidebarError>
-        </SidebarSection>
-      </>
-    );
-  }
-
-  if (!diagnosticsPayload) {
-    return (
-      <>
-        <ResourceDiagnosticsSection rows={resourceRows} />
-        <SidebarSection title="Diagnostics">
-          <SidebarEmpty>Loading diagnostics log.</SidebarEmpty>
-        </SidebarSection>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <ResourceDiagnosticsSection rows={resourceRows} />
-      <SidebarSection
-        title="Diagnostics"
-        count={diagnosticsPayload.diagnosticsSnapshot.length}
-      >
-        <p className="sidebar-path">{diagnosticsPayload.diagnosticsLogPath}</p>
-        {diagnosticsPayload.diagnosticsSnapshot.length > 0 ? (
-          <pre className="log-preview">
-            {diagnosticsPayload.diagnosticsSnapshot.join("\n")}
-          </pre>
-        ) : (
-          <SidebarEmpty>No diagnostics events recorded yet.</SidebarEmpty>
-        )}
-      </SidebarSection>
-    </>
-  );
+  return <ResourceDiagnosticsSection rows={resourceRows} />;
 }
 
 function ResourceDiagnosticsSection({

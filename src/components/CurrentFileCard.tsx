@@ -221,99 +221,25 @@ export function CurrentFileCard({
     },
   ].filter(Boolean) as SidebarKeyValueRow[];
 
-  const fileRows: SidebarKeyValueRow[] = [
-    { id: "name", label: "Name", value: currentFile.fileName, mono: true },
-    {
-      id: "type",
-      label: "Type",
-      value:
-        currentFile.kind === "model"
-          ? "3D Model"
-          : currentFile.kind === "motion"
-            ? "Motion"
-            : "Texture",
-      tone: "muted",
-    },
-    {
-      id: "folder",
-      label: "Folder",
-      value: currentFile.parentDirectory,
-      mono: true,
-      tone: "muted",
-    },
-  ];
-
-  const geometryRows: SidebarKeyValueRow[] = metadata
-    ? [
-        {
-          id: "format",
-          label: "Format",
-          value: `${renderValue(metadata.formatLabel)}${
-            metadata.formatVersion ? ` ${metadata.formatVersion}` : ""
-          }`,
-          mono: true,
-        },
-        {
-          id: "nodes",
-          label: "Nodes",
-          value: renderValue(metadata.nodeCount),
-          mono: true,
-        },
-        {
-          id: "meshes",
-          label: "Meshes",
-          value: renderValue(metadata.meshCount),
-          mono: true,
-        },
-        {
-          id: "materials",
-          label: "Materials",
-          value: renderValue(metadata.materialCount),
-          mono: true,
-        },
-        {
-          id: "textures",
-          label: "Textures",
-          value: renderValue(metadata.textureCount),
-          mono: true,
-        },
-      ]
-    : [];
-
   return (
-    <>
-      <SidebarSection title="File Info">
-        <SidebarKeyValueRows rows={summaryRows} />
-        {warnings.length > 0 ? (
-          <div className="file-warning-summary">
-            <span className="file-warning-summary-title">
-              {warnings.length} warning{warnings.length === 1 ? "" : "s"}
+    <SidebarSection title="File Info">
+      <SidebarKeyValueRows rows={summaryRows} />
+      {warnings.length > 0 ? (
+        <div className="file-warning-summary">
+          <span className="file-warning-summary-title">
+            {warnings.length} warning{warnings.length === 1 ? "" : "s"}
+          </span>
+          {warnings.slice(0, 3).map((warning, index) => (
+            <span
+              className="file-warning-summary-line"
+              key={`${warning}:${index}`}
+              title={warning}
+            >
+              {warning}
             </span>
-            {warnings.slice(0, 3).map((warning, index) => (
-              <span
-                className="file-warning-summary-line"
-                key={`${warning}:${index}`}
-                title={warning}
-              >
-                {warning}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </SidebarSection>
-      <SidebarSection title="File Details" collapsible defaultOpen={false}>
-        <SidebarKeyValueRows rows={fileRows} />
-      </SidebarSection>
-      {metadata ? (
-        <SidebarSection
-          title="Scene Details"
-          count={metadata.nodeCount}
-          collapsible
-          defaultOpen={false}
-        >
-          <SidebarKeyValueRows rows={geometryRows} />
-        </SidebarSection>
+          ))}
+        </div>
       ) : null}
-    </>
+    </SidebarSection>
   );
 }

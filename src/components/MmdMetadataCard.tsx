@@ -90,13 +90,6 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
     },
   ];
 
-  const countRows = Object.entries(metadata.counts).map(([key, value]) => ({
-    id: key,
-    label: key,
-    value,
-    mono: true,
-  }));
-
   return (
     <>
       <SidebarSection
@@ -105,13 +98,6 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
         defaultOpen={false}
       >
         <SidebarKeyValueRows rows={modelRows} />
-      </SidebarSection>
-      <SidebarSection
-        title={isMotion ? "MMD Motion Counts" : "MMD Counts"}
-        collapsible
-        defaultOpen={false}
-      >
-        <SidebarKeyValueRows rows={countRows} />
       </SidebarSection>
       <SidebarSection title="MMD Format" collapsible defaultOpen={false}>
         <SidebarKeyValueRows rows={formatRows} />

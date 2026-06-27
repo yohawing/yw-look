@@ -35,11 +35,6 @@ describe("DiagnosticsCard", () => {
   it("renders runtime resource metrics when available", () => {
     const { getByText } = render(
       <DiagnosticsCard
-        diagnosticsError={null}
-        diagnosticsPayload={{
-          diagnosticsLogPath: "diagnostics.log",
-          diagnosticsSnapshot: [],
-        }}
         processMemoryMetrics={null}
         resourceDiagnostics={resourceDiagnostics}
       />,
@@ -57,11 +52,6 @@ describe("DiagnosticsCard", () => {
   it("hides unavailable JS heap metrics", () => {
     const { queryByText } = render(
       <DiagnosticsCard
-        diagnosticsError={null}
-        diagnosticsPayload={{
-          diagnosticsLogPath: "diagnostics.log",
-          diagnosticsSnapshot: [],
-        }}
         processMemoryMetrics={null}
         resourceDiagnostics={{
           ...resourceDiagnostics,
@@ -80,11 +70,6 @@ describe("DiagnosticsCard", () => {
   it("renders process memory metrics when available", () => {
     const { getByText } = render(
       <DiagnosticsCard
-        diagnosticsError={null}
-        diagnosticsPayload={{
-          diagnosticsLogPath: "diagnostics.log",
-          diagnosticsSnapshot: [],
-        }}
         processMemoryMetrics={{
           residentSetBytes: 96 * 1024 * 1024,
           virtualMemoryBytes: 512 * 1024 * 1024,

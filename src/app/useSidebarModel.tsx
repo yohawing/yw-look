@@ -9,7 +9,6 @@ import {
 } from "react";
 import { type AssetMetadata } from "../components/assetMetadata";
 import { CurrentFileCard } from "../components/CurrentFileCard";
-import { ObjectInspectorCard } from "../components/ObjectInspectorCard";
 import {
   debugPanelRecentFiles,
   debugUsdInspection,
@@ -20,7 +19,6 @@ import { HierarchyCard } from "../components/HierarchyCard";
 import { UsdPrimPropertyPanel } from "../components/UsdPrimPropertyPanel";
 import { MaterialListCard } from "../components/MaterialListCard";
 import { MmdMetadataCard } from "../components/MmdMetadataCard";
-import { PerformanceCard } from "../components/PerformanceCard";
 import { SceneLightsCamerasCard } from "../components/SceneLightsCamerasCard";
 import { createSidebarTabs } from "../components/sidebarTabItems";
 import { SidebarEmpty, SidebarSection } from "../components/sidebarPrimitives";
@@ -44,7 +42,6 @@ import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
 import type { PerformanceSnapshot } from "../types/ui";
 import type {
-  DiagnosticsPayload,
   ProcessMemoryMetrics,
   ResourceDiagnosticsSnapshot,
 } from "../lib/diagnostics";
@@ -113,8 +110,6 @@ type UseSidebarModelOptions = {
   currentFile: FileState["currentFile"];
   debugPanelsEnabled: boolean;
   diagnosticCounts: DiagnosticCounts;
-  diagnosticsError: string | null;
-  diagnosticsPayload: DiagnosticsPayload | null;
   handleCheckForUpdate: () => Promise<void>;
   handleInstallUpdate: () => Promise<void>;
   handleLoadPayload: (primPath: string) => Promise<void>;
@@ -232,8 +227,6 @@ export function useSidebarModel({
   currentFile,
   debugPanelsEnabled,
   diagnosticCounts,
-  diagnosticsError,
-  diagnosticsPayload,
   handleCheckForUpdate,
   handleInstallUpdate,
   handleLoadPayload,
@@ -383,7 +376,6 @@ export function useSidebarModel({
                 onSelectCamera={viewer.setActiveCameraId}
               />
             )}
-            <PerformanceCard snapshot={performanceSnapshot} />
           </>
         );
       case "file":
@@ -451,15 +443,6 @@ export function useSidebarModel({
                 stageSessionHandle !== null ? handleUnloadPayload : undefined
               }
             />
-            {sidebarAssetMetadata && selectedMeshName ? (
-              <ObjectInspectorCard
-                selectedKey={selectedMeshName}
-                objectInfo={
-                  sidebarAssetMetadata.objectInfo[selectedMeshName] ?? null
-                }
-                metadata={sidebarAssetMetadata}
-              />
-            ) : null}
             {isUsdFile(currentFile) && (
               <UsdPrimPropertyPanel
                 path={currentFile?.path ?? null}
@@ -534,8 +517,6 @@ export function useSidebarModel({
             <WarningsCard warnings={sidebarWarnings} />
             <Suspense fallback={<SidebarCardFallback />}>
               <DiagnosticsCard
-                diagnosticsError={diagnosticsError}
-                diagnosticsPayload={diagnosticsPayload}
                 processMemoryMetrics={processMemoryMetrics}
                 resourceDiagnostics={resourceDiagnostics}
               />
@@ -550,8 +531,6 @@ export function useSidebarModel({
     assetInspection,
     currentFile,
     debugPanelsEnabled,
-    diagnosticsError,
-    diagnosticsPayload,
     handleCheckForUpdate,
     handleInstallUpdate,
     handleLoadPayload,
