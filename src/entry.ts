@@ -1,5 +1,6 @@
 const params = new URLSearchParams(window.location.search);
-const entry = params.get("entry") ?? "app";
+const requestedEntry = params.get("entry") ?? "app";
+const entry = import.meta.env.DEV ? requestedEntry : "app";
 
 switch (entry) {
   case "bench":

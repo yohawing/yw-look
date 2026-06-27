@@ -53,13 +53,13 @@ const stateContent: Record<
     tone: "neutral",
   },
   loading: {
-    label: "Loading State",
-    title: "Preparing asset preview and metadata panels.",
-    body: "Use this state while a file is being resolved, decoded, and fitted to the viewer camera.",
+    label: "Loading",
+    title: "Preparing preview",
+    body: "The file is being opened and prepared for display.",
     tone: "neutral",
     details: [
-      "Lock navigation during critical scene replacement.",
-      "Keep the last stable status visible in the footer.",
+      "Large files can take a moment.",
+      "Linked textures or payloads may continue loading after the preview appears.",
     ],
   },
   ready: {
@@ -71,7 +71,7 @@ const stateContent: Record<
   unsupported: {
     label: "Unsupported Format",
     title: "This file type is not mapped to a loader yet.",
-    body: "The app should clearly show that the file was opened, but the current build does not have a compatible reader for this extension.",
+    body: "This build cannot preview the selected file type.",
     tone: "warning",
     details: [
       "Core loader support is built into this app.",
@@ -85,28 +85,28 @@ const stateContent: Record<
     tone: "warning",
     details: [
       "Install the matching loader pack when it becomes available.",
-      "Technical details are recorded in Diagnostics.",
+      "Reopen the file after the loader pack is installed.",
     ],
   },
   loadFailed: {
     label: "Load Error",
-    title: "The asset could not be parsed into a preview scene.",
-    body: "Use this screen for broken files, parser exceptions, or renderer setup failures that block preview generation.",
+    title: "This file could not be previewed.",
+    body: "The file may be damaged or use data this build cannot read.",
     tone: "danger",
     details: [
-      "Expose a concise user-facing reason first.",
-      "Keep technical details for logs and diagnostics.",
+      "Try another file or check that linked resources are available.",
+      "If this keeps happening, share the file and error details with support.",
     ],
   },
   missingReference: {
     label: "Missing Reference",
     title:
       "The main file was found, but one or more linked resources are missing.",
-    body: "Use this state when external textures, buffers, or sidecar files cannot be resolved from the opened asset.",
+    body: "Some linked textures, buffers, or sidecar files could not be found.",
     tone: "warning",
     details: [
-      "Preserve enough context for reloading after the files are restored.",
-      "Surface unresolved file names in a dedicated details area later.",
+      "Move the missing files next to the asset, then reopen it.",
+      "File names may appear in the warning panel when available.",
     ],
   },
 };

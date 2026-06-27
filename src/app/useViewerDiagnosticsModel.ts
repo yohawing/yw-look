@@ -51,6 +51,10 @@ function splitViewerWarnings(warning: string | null): string[] {
 }
 
 function isDebugPanelsRequested(): boolean {
+  if (!import.meta.env.DEV) {
+    return false;
+  }
+
   const params = new URLSearchParams(window.location.search);
   return (
     params.get("debugPanels") === "1" || params.get("uiDebug") === "panels"
