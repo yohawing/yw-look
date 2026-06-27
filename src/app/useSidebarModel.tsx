@@ -41,10 +41,6 @@ import { useViewerStore, type ViewerState } from "../stores/viewerStore";
 import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
 import type { PerformanceSnapshot } from "../types/ui";
-import type {
-  ProcessMemoryMetrics,
-  ResourceDiagnosticsSnapshot,
-} from "../lib/diagnostics";
 import type { IntegrationPayload } from "../lib/integrations";
 import type { RecentFilesPayload } from "../lib/recentFiles";
 import type { SettingsPayload } from "../lib/settings";
@@ -56,11 +52,6 @@ import type {
 const CompositionArcsCard = lazy(() =>
   import("../components/CompositionArcsCard").then((module) => ({
     default: module.CompositionArcsCard,
-  })),
-);
-const DiagnosticsCard = lazy(() =>
-  import("../components/DiagnosticsCard").then((module) => ({
-    default: module.DiagnosticsCard,
   })),
 );
 const IntegrationCard = lazy(() =>
@@ -113,11 +104,6 @@ type UseSidebarModelOptions = {
   handleCheckForUpdate: () => Promise<void>;
   handleInstallUpdate: () => Promise<void>;
   handleLoadPayload: (primPath: string) => Promise<void>;
-  handleSaveUpdateSettings: (draft: {
-    endpoint: string;
-    publicKey: string;
-    allowInsecure: boolean;
-  }) => Promise<void>;
   handleToggleAutoCheckForUpdates: () => Promise<void>;
   handleToggleFileAssociations: () => Promise<void>;
   handleUnloadPayload: (primPath: string) => Promise<void>;
@@ -133,10 +119,8 @@ type UseSidebarModelOptions = {
     path: string,
     reason: "navigation" | "recent",
   ) => Promise<void>;
-  processMemoryMetrics: ProcessMemoryMetrics | null;
   recentFilesError: string | null;
   recentFilesPayload: RecentFilesPayload | null;
-  resourceDiagnostics: ResourceDiagnosticsSnapshot | null;
   selectedMeshName: ViewerState["selectedMeshName"];
   selectedTextureId: ViewerState["selectedTextureId"];
   selectedUsdPrimPath: ViewerState["selectedUsdPrimPath"];
@@ -230,7 +214,6 @@ export function useSidebarModel({
   handleCheckForUpdate,
   handleInstallUpdate,
   handleLoadPayload,
-  handleSaveUpdateSettings,
   handleToggleAutoCheckForUpdates,
   handleToggleFileAssociations,
   handleUnloadPayload,
@@ -243,10 +226,8 @@ export function useSidebarModel({
   payloadPrimPaths,
   performanceSnapshot,
   performSelectFilePath,
-  processMemoryMetrics,
   recentFilesError,
   recentFilesPayload,
-  resourceDiagnostics,
   selectedMeshName,
   selectedTextureId,
   selectedUsdPrimPath,
@@ -492,12 +473,10 @@ export function useSidebarModel({
             </Suspense>
             <Suspense fallback={<SidebarCardFallback />}>
               <UpdateCard
-                key={`${settingsPayload?.settings.updateEndpointOverride ?? ""}:${settingsPayload?.settings.updatePublicKeyOverride ?? ""}:${settingsPayload?.settings.allowInsecureUpdateEndpoint ?? false}`}
                 isCheckingForUpdate={isCheckingForUpdate}
                 isInstallingUpdate={isInstallingUpdate}
                 onCheckForUpdate={() => void handleCheckForUpdate()}
                 onInstallUpdate={() => void handleInstallUpdate()}
-                onSaveOverride={(draft) => void handleSaveUpdateSettings(draft)}
                 updateCheck={updateCheck}
                 updateConfiguration={updateConfiguration}
                 updateError={updateError}
@@ -523,12 +502,6 @@ export function useSidebarModel({
                 viewer.bumpCancelScaleNormalizeVersion
               }
             />
-            <Suspense fallback={<SidebarCardFallback />}>
-              <DiagnosticsCard
-                processMemoryMetrics={processMemoryMetrics}
-                resourceDiagnostics={resourceDiagnostics}
-              />
-            </Suspense>
           </>
         );
     }
@@ -543,7 +516,6 @@ export function useSidebarModel({
     handleInstallUpdate,
     handleLoadPayload,
     handleMorphTargetChange,
-    handleSaveUpdateSettings,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleUnloadPayload,
@@ -556,8 +528,6 @@ export function useSidebarModel({
     payloadPrimPaths,
     performanceSnapshot,
     performSelectFilePath,
-    processMemoryMetrics,
-    resourceDiagnostics,
     setRecentFilesError,
     selectedMeshName,
     selectedTextureId,

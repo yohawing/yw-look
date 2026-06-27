@@ -113,16 +113,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       });
     }
 
-    // UV (placeholder)
-    children.push({
-      id: "shading-uv",
-      mode: "3d",
-      group: "shading",
-      kind: "button",
-      label: "UV",
-      disabled: true,
-    });
-
     // Vertex Color
     if (options.onToggleVertexColors) {
       children.push({

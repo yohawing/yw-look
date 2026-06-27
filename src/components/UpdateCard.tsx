@@ -1,10 +1,8 @@
-import { useState } from "react";
 import type {
   UpdateCheckPayload,
   UpdateConfigurationPayload,
 } from "../lib/updater";
 import { Button } from "./ui/Button";
-import { ToggleSwitch } from "./ui/ToggleSwitch";
 import {
   SidebarEmpty,
   SidebarError,
@@ -12,12 +10,6 @@ import {
   SidebarSection,
   type SidebarKeyValueRow,
 } from "./sidebarPrimitives";
-
-type UpdateDraft = {
-  endpoint: string;
-  publicKey: string;
-  allowInsecure: boolean;
-};
 
 type UpdateCardProps = {
   updateConfiguration: UpdateConfigurationPayload | null;
@@ -27,7 +19,6 @@ type UpdateCardProps = {
   isInstallingUpdate: boolean;
   onCheckForUpdate: () => void;
   onInstallUpdate: () => void;
-  onSaveOverride: (draft: UpdateDraft) => void;
 };
 
 export function UpdateCard({
@@ -38,14 +29,7 @@ export function UpdateCard({
   isInstallingUpdate,
   onCheckForUpdate,
   onInstallUpdate,
-  onSaveOverride,
 }: UpdateCardProps) {
-  const [draft, setDraft] = useState<UpdateDraft>({
-    endpoint: "",
-    publicKey: "",
-    allowInsecure: false,
-  });
-
   const hasUpdate = Boolean(updateCheck?.update);
   const updateState = updateError
     ? "failed"
@@ -66,42 +50,6 @@ export function UpdateCard({
     "up-to-date": "Up to date",
     idle: "Ready to check",
   }[updateState];
-  const configRows: SidebarKeyValueRow[] = updateConfiguration
-    ? [
-        {
-          id: "version",
-          label: "Version",
-          value: updateConfiguration.currentVersion,
-          mono: true,
-        },
-        {
-          id: "endpoint",
-          label: "Endpoint",
-          value: updateConfiguration.effectiveEndpoint ?? "not configured",
-          mono: true,
-          tone: updateConfiguration.effectiveEndpoint ? "default" : "muted",
-        },
-        {
-          id: "public-key",
-          label: "Public key",
-          value: updateConfiguration.effectivePubkeyAvailable
-            ? "Configured"
-            : "Missing",
-          tone: updateConfiguration.effectivePubkeyAvailable ? "ok" : "warn",
-        },
-        {
-          id: "source",
-          label: "Source",
-          value:
-            updateConfiguration.usingOverrideEndpoint ||
-            updateConfiguration.usingOverridePubkey
-              ? "Local override"
-              : "Bundled",
-          tone: "muted",
-        },
-      ]
-    : [];
-
   const updateRows: SidebarKeyValueRow[] = updateCheck?.update
     ? [
         {
@@ -168,67 +116,7 @@ export function UpdateCard({
         {updateError ? <SidebarError>{updateError}</SidebarError> : null}
         <SidebarKeyValueRows rows={statusRows} />
         {updateConfiguration ? (
-          <SidebarKeyValueRows rows={configRows} />
-        ) : (
-          <SidebarEmpty>Loading updater configuration.</SidebarEmpty>
-        )}
-      </SidebarSection>
-
-      <SidebarSection title="Local override">
-        <div className="sidebar-form">
-          <label className="text-control">
-            <span>Update feed URL</span>
-            <input
-              onChange={(event) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  endpoint: event.target.value,
-                }))
-              }
-              placeholder="http://127.0.0.1:8765/latest.json"
-              type="text"
-              value={draft.endpoint}
-            />
-          </label>
-
-          <label className="text-control">
-            <span>Updater public key</span>
-            <textarea
-              onChange={(event) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  publicKey: event.target.value,
-                }))
-              }
-              placeholder="Paste PEM public key for local update signing."
-              rows={4}
-              value={draft.publicKey}
-            />
-          </label>
-
-          <div className="checkbox-control">
-            <ToggleSwitch
-              aria-label="Allow HTTP on localhost"
-              checked={draft.allowInsecure}
-              onCheckedChange={(checked) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  allowInsecure: checked,
-                }))
-              }
-              size="sm"
-            />
-            <span>Allow HTTP on localhost</span>
-          </div>
-
           <div className="card-actions">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onSaveOverride(draft)}
-            >
-              Save
-            </Button>
             <Button variant="ghost" size="sm" onClick={onCheckForUpdate}>
               {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
             </Button>
@@ -241,7 +129,9 @@ export function UpdateCard({
               {isInstallingUpdate ? "Installing..." : "Install Update"}
             </Button>
           </div>
-        </div>
+        ) : (
+          <SidebarEmpty>Loading updater configuration.</SidebarEmpty>
+        )}
       </SidebarSection>
 
       {updateCheck?.update ? (

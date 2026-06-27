@@ -2,9 +2,7 @@ import type { SettingsPayload } from "../lib/settings";
 import {
   SidebarEmpty,
   SidebarError,
-  SidebarKeyValueRows,
   SidebarSection,
-  type SidebarKeyValueRow,
 } from "./sidebarPrimitives";
 import { FieldRow } from "./ui/FieldRow";
 import { ToggleSwitch } from "./ui/ToggleSwitch";
@@ -39,33 +37,8 @@ export function SettingsCard({
     );
   }
 
-  const configRows: SidebarKeyValueRow[] = [
-    {
-      id: "schema",
-      label: "Schema version",
-      value: settingsPayload.settings.version,
-      mono: true,
-    },
-    {
-      id: "recent",
-      label: "Recent files limit",
-      value: settingsPayload.settings.recentFilesLimit,
-      mono: true,
-    },
-    {
-      id: "log",
-      label: "Log level",
-      value: settingsPayload.settings.diagnosticsLogLevel,
-      tone: "muted",
-    },
-  ];
-
   return (
     <>
-      <SidebarSection title="Local Settings">
-        <p className="sidebar-path">{settingsPayload.settingsPath}</p>
-        <SidebarKeyValueRows rows={configRows} />
-      </SidebarSection>
       <SidebarSection title="Integration">
         <div className="yl-kv">
           <FieldRow

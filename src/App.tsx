@@ -81,7 +81,6 @@ export function App() {
     recentFilesPayload,
     recentFilesError,
     setRecentFilesError,
-    processMemoryMetrics,
     integrationPayload,
     integrationError,
     logDiagnosticEventAndRefresh,
@@ -184,17 +183,14 @@ export function App() {
     viewer,
   });
 
-  const {
-    handleSaveUpdateSettings,
-    handleToggleAutoCheckForUpdates,
-    handleToggleFileAssociations,
-  } = useSettingsActions({
-    refreshUpdateConfiguration,
-    setSettingsError,
-    setSettingsPayload,
-    setUpdateError,
-    settingsPayload,
-  });
+  const { handleToggleAutoCheckForUpdates, handleToggleFileAssociations } =
+    useSettingsActions({
+      refreshUpdateConfiguration,
+      setSettingsError,
+      setSettingsPayload,
+      setUpdateError,
+      settingsPayload,
+    });
 
   const sessionAdjustedUsdSummary = useSessionAdjustedUsdSummary({
     payloadPrimPaths,
@@ -215,7 +211,6 @@ export function App() {
       handleCheckForUpdate,
       handleInstallUpdate,
       handleLoadPayload,
-      handleSaveUpdateSettings,
       handleToggleAutoCheckForUpdates,
       handleToggleFileAssociations,
       handleUnloadPayload,
@@ -228,10 +223,8 @@ export function App() {
       payloadPrimPaths,
       performanceSnapshot,
       performSelectFilePath,
-      processMemoryMetrics,
       recentFilesError,
       recentFilesPayload,
-      resourceDiagnostics,
       selectedMeshName,
       selectedTextureId,
       selectedUsdPrimPath,
