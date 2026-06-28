@@ -89,6 +89,7 @@ export function App() {
     integrationPayload,
     integrationError,
     optionalLoaderManifests,
+    optionalLoaderManifestsError,
     logDiagnosticEventAndRefresh,
   } = useDeferredData(
     isTauri,
@@ -247,6 +248,7 @@ export function App() {
       isInstallingUpdate,
       isTauri,
       optionalLoaderManifests,
+      optionalLoaderManifestsError,
       morphTargetValues,
       payloadPrimPaths,
       performSelectFilePath,

@@ -32,6 +32,15 @@ export function useDeferredData(
   const [optionalLoaderManifests, setOptionalLoaderManifests] = useState<
     OptionalLoaderPackManifest[]
   >([]);
+  const [optionalLoaderManifestsError, setOptionalLoaderManifestsError] =
+    useState<string | null>(null);
+  const replaceOptionalLoaderManifests = useCallback(
+    (manifests: OptionalLoaderPackManifest[]) => {
+      setOptionalLoaderManifests(manifests);
+      setOptionalLoaderManifestsError(null);
+    },
+    [],
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -130,17 +139,20 @@ export function useDeferredData(
     loadOptionalLoaderManifests()
       .then((manifests) => {
         if (!isActive) return;
-        setOptionalLoaderManifests(manifests);
+        replaceOptionalLoaderManifests(manifests);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!isActive) return;
+        setOptionalLoaderManifestsError(
+          errorMessage(error, "Failed to load optional loader pack manifests."),
+        );
         setOptionalLoaderManifests([]);
       });
 
     return () => {
       isActive = false;
     };
-  }, [shouldLoadDeferredData]);
+  }, [replaceOptionalLoaderManifests, shouldLoadDeferredData]);
 
   return {
     settingsPayload,
@@ -150,10 +162,11 @@ export function useDeferredData(
     recentFilesPayload,
     recentFilesError,
     setRecentFilesError,
-    setOptionalLoaderManifests,
+    setOptionalLoaderManifests: replaceOptionalLoaderManifests,
     integrationPayload,
     integrationError,
     optionalLoaderManifests,
+    optionalLoaderManifestsError,
     logDiagnosticEventAndRefresh,
   };
 }

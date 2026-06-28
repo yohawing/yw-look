@@ -168,4 +168,24 @@ describe("SettingsCard", () => {
       "gaussian-splat-loader-pack",
     );
   });
+
+  it("reports optional loader pack manifest load failures", () => {
+    const { getByText } = render(
+      <SettingsCard
+        settingsPayload={settingsPayload}
+        settingsError={null}
+        optionalLoaderPacks={[]}
+        optionalLoaderPacksError="Failed to load optional loader pack manifests."
+        onToggleAutoCheckForUpdates={() => undefined}
+        onToggleFileAssociations={() => undefined}
+        onInstallOptionalLoaderPack={() => undefined}
+        onRemoveOptionalLoaderPack={() => undefined}
+        onToggleOptionalLoaderPack={() => undefined}
+      />,
+    );
+
+    expect(
+      getByText("Failed to load optional loader pack manifests."),
+    ).toBeTruthy();
+  });
 });

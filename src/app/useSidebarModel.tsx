@@ -116,6 +116,7 @@ type UseSidebarModelOptions = {
   isInstallingUpdate: boolean;
   isTauri: boolean;
   optionalLoaderManifests: readonly OptionalLoaderPackManifest[];
+  optionalLoaderManifestsError: string | null;
   morphTargetValues: ViewerState["morphTargetValues"];
   payloadPrimPaths: ReadonlySet<string>;
   performSelectFilePath: (
@@ -229,6 +230,7 @@ export function useSidebarModel({
   isInstallingUpdate,
   isTauri,
   optionalLoaderManifests,
+  optionalLoaderManifestsError,
   morphTargetValues,
   payloadPrimPaths,
   performSelectFilePath,
@@ -496,6 +498,7 @@ export function useSidebarModel({
                   settingsPayload?.settings.optionalLoaderPacks,
                   optionalLoaderManifests,
                 )}
+                optionalLoaderPacksError={optionalLoaderManifestsError}
                 onToggleFileAssociations={() =>
                   void handleToggleFileAssociations()
                 }
@@ -570,6 +573,7 @@ export function useSidebarModel({
     isInstallingUpdate,
     isTauri,
     optionalLoaderManifests,
+    optionalLoaderManifestsError,
     morphTargetValues,
     payloadPrimPaths,
     performSelectFilePath,

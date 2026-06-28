@@ -14,6 +14,7 @@ type SettingsCardProps = {
   settingsPayload: SettingsPayload | null;
   settingsError: string | null;
   optionalLoaderPacks?: readonly OptionalLoaderPackStatus[];
+  optionalLoaderPacksError?: string | null;
   onToggleFileAssociations: () => void;
   /** #26: flips `autoCheckForUpdates` and persists via save_settings. */
   onToggleAutoCheckForUpdates: () => void;
@@ -51,6 +52,7 @@ export function SettingsCard({
   settingsPayload,
   settingsError,
   optionalLoaderPacks = [],
+  optionalLoaderPacksError = null,
   onToggleFileAssociations,
   onToggleAutoCheckForUpdates,
   onToggleOptionalLoaderPack,
@@ -130,6 +132,9 @@ export function SettingsCard({
         </div>
       </SidebarSection>
       <SidebarSection title="Optional Loader Packs" collapsible>
+        {optionalLoaderPacksError ? (
+          <SidebarError>{optionalLoaderPacksError}</SidebarError>
+        ) : null}
         {optionalLoaderPacks.length > 0 ? (
           <div className="yl-kv">
             {optionalLoaderPacks.map((pack) => {
