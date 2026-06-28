@@ -20,11 +20,6 @@ import type {
 import { MMD_MODEL_KEY, syncMmdMaterialRenderStates } from "./userData";
 
 const MMD_FRAME_RATE = 30;
-const AMMO_SCRIPT_URL = new URL(
-  "../../../node_modules/ammo.js/ammo.js",
-  import.meta.url,
-).href;
-
 type MmdTextureDiagnostic = {
   code: string;
   path: string;
@@ -83,8 +78,6 @@ type ThreeMmdLoaderModule = {
   parseVmd(buffer: ArrayBuffer): ParsedVmdAnimation;
   parseVmdMetadata(buffer: ArrayBuffer): ParsedVmdMetadata;
   parseVmdSectionInventory(buffer: ArrayBuffer): ParsedVmdInventory;
-  createAmmoMmdPhysicsBackend(ammo: unknown): unknown;
-  loadAmmoNamespace(url: string): Promise<unknown>;
   initCore(): Promise<MmdParserCore>;
   syncMmdSpecularDirection(
     material: Material | Material[],
@@ -477,36 +470,14 @@ function formatUnsupportedMmdSphereMapWarning(path: string) {
   return `Unsupported MMD sphere texture: ${path}. The model was loaded without this sphere map.`;
 }
 
-async function createMmdRuntimeOptions(context: LoaderContext) {
-  try {
-    const { createAmmoMmdPhysicsBackend, loadAmmoNamespace } =
-      await importThreeMmdLoader();
-    const ammo = await loadAmmoNamespace(AMMO_SCRIPT_URL);
-    const physicsBackend = createAmmoMmdPhysicsBackend(ammo);
-
-    return {
-      runtime: {
-        frameRate: MMD_FRAME_RATE,
-        physics: "external" as const,
-        physicsBackend,
-      },
-      cleanup: () => {
-        const maybeDisposable = physicsBackend as { dispose?: () => void };
-        maybeDisposable.dispose?.();
-      },
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    context.onWarning?.(
-      `MMD physics could not start with Ammo.js: ${message}. Motion playback will continue without physics.`,
-    );
-    return {
-      runtime: {
-        frameRate: MMD_FRAME_RATE,
-      },
-      cleanup: null,
-    };
-  }
+async function createMmdRuntimeOptions() {
+  return {
+    runtime: {
+      frameRate: MMD_FRAME_RATE,
+      physics: "none" as const,
+    },
+    cleanup: null,
+  };
 }
 
 function isNumberTuple3(value: unknown): value is MmdLocalAxisTuple {
@@ -604,7 +575,7 @@ export async function loadMmdPreviewObject(
         ? parsePmxSectionInventory(buffer)
         : parsePmdSectionInventory(buffer);
     const textureBlobCache = new Map<string, Promise<Blob | null>>();
-    const runtimeOptions = await createMmdRuntimeOptions(context);
+    const runtimeOptions = await createMmdRuntimeOptions();
     const loader = new ThreeMmdLoader({
       geometryAwareAlpha: true,
       runtime: runtimeOptions.runtime,

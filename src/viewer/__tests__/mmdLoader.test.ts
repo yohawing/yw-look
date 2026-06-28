@@ -228,8 +228,7 @@ describe("MMD preview loader", () => {
       expect(loader.options.geometryAwareAlpha).toBe(true);
       expect(loader.options.runtime).toMatchObject({
         frameRate: 30,
-        physics: "external",
-        physicsBackend: mocks.physicsBackend,
+        physics: "none",
       });
       const resolver = loader.options.textureResolver;
       const diffuse = await resolver.resolve("textures/diffuse.bmp");
@@ -313,7 +312,7 @@ describe("MMD preview loader", () => {
     expect(renderOrderMesh.userData.__ywSelectionProxyTarget).toBe(mesh);
     expect(result).toMatchObject({
       cleanupUrls: [],
-      cleanupCallbacks: [expect.any(Function)],
+      cleanupCallbacks: [],
       clips: [],
       formatVersion: "PMX 2.1",
       skipScaleNormalization: true,
@@ -370,8 +369,7 @@ describe("MMD preview loader", () => {
     ]);
     expect(warnings).toEqual(result.warnings);
     expect(stages).toEqual(["scan", "decode", "scene"]);
-    result.cleanupCallbacks?.[0]?.();
-    expect(mocks.physicsBackend.dispose).toHaveBeenCalledTimes(1);
+    expect(mocks.physicsBackend.dispose).not.toHaveBeenCalled();
   });
 
   it("labels PMD previews by the opened source format", async () => {

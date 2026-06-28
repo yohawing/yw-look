@@ -92,7 +92,7 @@ export function useViewportAnimation({
             context.mmdModel.runtime.tick(nextTime, {
               mesh: context.mmdModel.mesh,
               ik: true,
-              physics: nextTime > 0,
+              physics: false,
             });
             syncMmdMaterialRenderStates(
               context.mmdModel.root ?? context.mmdModel.mesh,
