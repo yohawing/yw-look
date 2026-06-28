@@ -3,17 +3,14 @@ import {
   Suspense,
   lazy,
   useCallback,
+  useEffect,
   useMemo,
+  useState,
   type PointerEvent,
   type ReactNode,
 } from "react";
 import { type AssetMetadata } from "../components/assetMetadata";
 import { CurrentFileCard } from "../components/CurrentFileCard";
-import {
-  debugPanelRecentFiles,
-  debugUsdInspection,
-  debugUsdSummary,
-} from "../components/debugPanelFixtures";
 import { FileBrowserCard } from "../components/FileBrowserCard";
 import { HierarchyCard } from "../components/HierarchyCard";
 import { UsdPrimPropertyPanel } from "../components/UsdPrimPropertyPanel";
@@ -80,6 +77,8 @@ const UsdSourceCard = lazy(() =>
     default: module.UsdSourceCard,
   })),
 );
+
+type DebugPanelFixtures = typeof import("../components/debugPanelFixtures");
 
 function SidebarCardFallback() {
   return (
@@ -264,10 +263,32 @@ export function useSidebarModel({
   viewer,
   viewerSurfaceMode,
 }: UseSidebarModelOptions) {
-  const sidebarRecentFilesPayload = debugPanelsEnabled
-    ? debugPanelRecentFiles
+  const [debugFixtures, setDebugFixtures] = useState<DebugPanelFixtures | null>(
+    null,
+  );
+  const useDebugFixtures =
+    import.meta.env.DEV && debugPanelsEnabled && debugFixtures !== null;
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !debugPanelsEnabled) {
+      return;
+    }
+
+    let isActive = true;
+    void import("../components/debugPanelFixtures").then((module) => {
+      if (isActive) {
+        setDebugFixtures(module);
+      }
+    });
+    return () => {
+      isActive = false;
+    };
+  }, [debugPanelsEnabled]);
+
+  const sidebarRecentFilesPayload = useDebugFixtures
+    ? debugFixtures.debugPanelRecentFiles
     : recentFilesPayload;
-  const sidebarRecentFilesError = debugPanelsEnabled ? null : recentFilesError;
+  const sidebarRecentFilesError = useDebugFixtures ? null : recentFilesError;
 
   const handleMorphTargetChange = useCallback(
     (selectionKey: string, morphTargetIndex: number, value: number) => {
@@ -308,7 +329,9 @@ export function useSidebarModel({
               currentFile={sidebarCurrentFile}
               metadata={sidebarAssetMetadata}
               usdPayloadSummary={
-                debugPanelsEnabled ? debugUsdSummary : sessionAdjustedUsdSummary
+                useDebugFixtures
+                  ? debugFixtures.debugUsdSummary
+                  : sessionAdjustedUsdSummary
               }
               warnings={sidebarWarnings}
             />
@@ -340,13 +363,13 @@ export function useSidebarModel({
                 </Suspense>
               </>
             )}
-            {debugPanelsEnabled && (
+            {useDebugFixtures && (
               <UsdInspectorCard
                 error={null}
-                inspection={debugUsdInspection}
+                inspection={debugFixtures.debugUsdInspection}
                 issues={[]}
                 loading={false}
-                summary={debugUsdSummary}
+                summary={debugFixtures.debugUsdSummary}
                 loadPolicy={usdLoadPolicy}
                 onLoadPolicyChange={viewer.setUsdLoadPolicy}
                 variantSelectionError={variantSelectionError}
@@ -530,7 +553,7 @@ export function useSidebarModel({
     applyVariantSelection,
     assetInspection,
     currentFile,
-    debugPanelsEnabled,
+    debugFixtures,
     handleCheckForUpdate,
     handleInstallOptionalLoaderPack,
     handleInstallUpdate,
@@ -568,6 +591,7 @@ export function useSidebarModel({
     updateCheck,
     updateConfiguration,
     updateError,
+    useDebugFixtures,
     usdInspection,
     usdInspectorError,
     usdInspectorLoading,

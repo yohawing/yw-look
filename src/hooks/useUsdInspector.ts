@@ -115,10 +115,12 @@ export function useUsdInspector(
     ]).then(() => {
       if (cancelled) return;
       setUsdInspectorLoading(false);
-      const elapsedMs = Math.round(performance.now() - usdInspectorStartMs);
-      console.info(
-        `[usd] inspector RPCs settled in ${elapsedMs}ms (policy=${usdLoadPolicy}): ${path}`,
-      );
+      if (import.meta.env.DEV) {
+        const elapsedMs = Math.round(performance.now() - usdInspectorStartMs);
+        console.info(
+          `[usd] inspector RPCs settled in ${elapsedMs}ms (policy=${usdLoadPolicy}): ${path}`,
+        );
+      }
     });
 
     return () => {

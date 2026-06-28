@@ -42,7 +42,6 @@ export function App() {
     showGrid,
     gridUnitLabel,
     viewerFeedback,
-    resourceDiagnostics,
     usdLoadPolicy,
     selectedMeshName,
     selectedTextureId,
@@ -96,7 +95,6 @@ export function App() {
     shouldLoadRecentFiles,
     shouldLoadDeferredData,
     currentFile,
-    resourceDiagnostics,
   );
 
   const {

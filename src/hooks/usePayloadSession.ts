@@ -389,9 +389,11 @@ export function usePayloadSession(
           if (meshCount > 0 || isFinalBatch) {
             hasVisiblePreview = meshCount > 0;
             setSessionGlbBuffer(glbBuffer);
-            console.info(
-              `[usd] deferred preview batch ready (${loadedPreviewPayloads.length}/${previewPayloads.length} payloads, ${meshCount} meshes, ${failedPreviewPayloads.length} failed)`,
-            );
+            if (import.meta.env.DEV) {
+              console.info(
+                `[usd] deferred preview batch ready (${loadedPreviewPayloads.length}/${previewPayloads.length} payloads, ${meshCount} meshes, ${failedPreviewPayloads.length} failed)`,
+              );
+            }
             if (isFinalBatch) {
               deferredPreviewSessionRef.current = captured;
               setDeferredPayloadProgress(null);

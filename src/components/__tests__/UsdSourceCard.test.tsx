@@ -58,7 +58,7 @@ describe("UsdSourceCard", () => {
       );
       expect(
         container.querySelector(".yl-disclosure__title")?.textContent,
-      ).toBe("USD Source");
+      ).toBe("Advanced: USD Source");
       expect(getByRole("button").textContent).toBe("Show");
     },
   );

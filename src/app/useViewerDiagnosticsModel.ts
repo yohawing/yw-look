@@ -1,15 +1,9 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { type AssetMetadata } from "../components/assetMetadata";
 import {
   buildStatusLeftItems,
   buildStatusRightItems,
 } from "../components/appStatusItems";
-import {
-  debugPanelDirectoryListing,
-  debugPanelFile,
-  debugPanelMetadata,
-  debugPanelWarnings,
-} from "../components/debugPanelFixtures";
 import {
   formatUsdErrorForDisplay,
   isInvalidVariantSelectionError,
@@ -27,6 +21,8 @@ type DiagnosticCounts = {
   warningCount: number;
   total: number;
 };
+
+type DebugPanelFixtures = typeof import("../components/debugPanelFixtures");
 
 function formatAssetIssue(issue: AssetIssue): string {
   const prefix = issue.level === "error" ? "USD error" : "USD warning";
@@ -101,12 +97,36 @@ export function useViewerDiagnosticsModel({
   viewerFeedback,
 }: UseViewerDiagnosticsModelOptions) {
   const debugPanelsEnabled = isDebugPanelsRequested();
-  const sidebarCurrentFile = debugPanelsEnabled ? debugPanelFile : currentFile;
-  const sidebarAssetMetadata = debugPanelsEnabled
-    ? debugPanelMetadata
+  const [debugFixtures, setDebugFixtures] = useState<DebugPanelFixtures | null>(
+    null,
+  );
+  const useDebugFixtures =
+    import.meta.env.DEV && debugPanelsEnabled && debugFixtures !== null;
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !debugPanelsEnabled) {
+      return;
+    }
+
+    let isActive = true;
+    void import("../components/debugPanelFixtures").then((module) => {
+      if (isActive) {
+        setDebugFixtures(module);
+      }
+    });
+    return () => {
+      isActive = false;
+    };
+  }, [debugPanelsEnabled]);
+
+  const sidebarCurrentFile = useDebugFixtures
+    ? debugFixtures.debugPanelFile
+    : currentFile;
+  const sidebarAssetMetadata = useDebugFixtures
+    ? debugFixtures.debugPanelMetadata
     : assetMetadata;
-  const sidebarDirectoryListing = debugPanelsEnabled
-    ? debugPanelDirectoryListing
+  const sidebarDirectoryListing = useDebugFixtures
+    ? debugFixtures.debugPanelDirectoryListing
     : directoryListing;
 
   const { setVariantSelectionError } = viewer;
@@ -204,14 +224,16 @@ export function useViewerDiagnosticsModel({
     usdIssues,
     viewerWarningLines,
   ]);
-  const sidebarWarnings = debugPanelsEnabled ? debugPanelWarnings : warnings;
+  const sidebarWarnings = useDebugFixtures
+    ? debugFixtures.debugPanelWarnings
+    : warnings;
 
   const diagnosticCounts = useMemo<DiagnosticCounts>(() => {
-    if (debugPanelsEnabled) {
+    if (useDebugFixtures) {
       return {
         errorCount: 0,
-        warningCount: debugPanelWarnings.length,
-        total: debugPanelWarnings.length,
+        warningCount: debugFixtures.debugPanelWarnings.length,
+        total: debugFixtures.debugPanelWarnings.length,
       };
     }
 
@@ -254,7 +276,8 @@ export function useViewerDiagnosticsModel({
   }, [
     assetMetadata?.mmd?.diagnostics,
     assetMetadata?.textures,
-    debugPanelsEnabled,
+    debugFixtures,
+    useDebugFixtures,
     usdIssues,
     viewerWarningLines,
     viewerFeedback.mode,

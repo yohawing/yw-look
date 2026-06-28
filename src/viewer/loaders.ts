@@ -812,13 +812,15 @@ async function createFbxLoadingManager(
       completed === deferredTextureState.total &&
       deferredTextureState.total
     ) {
-      console.info("[fbx] texture stream complete", {
-        total: deferredTextureState.total,
-        failed: deferredTextureState.failed,
-        bytes: deferredTextureState.bytes,
-        readMs: Math.round(deferredTextureState.readMs),
-        parseMs: Math.round(deferredTextureState.parseMs),
-      });
+      if (import.meta.env.DEV) {
+        console.info("[fbx] texture stream complete", {
+          total: deferredTextureState.total,
+          failed: deferredTextureState.failed,
+          bytes: deferredTextureState.bytes,
+          readMs: Math.round(deferredTextureState.readMs),
+          parseMs: Math.round(deferredTextureState.parseMs),
+        });
+      }
     }
   };
 
@@ -1713,9 +1715,11 @@ async function parseUsdRuntimeHints(
     ),
   ]);
   const elapsed = Math.round(performance.now() - started);
-  console.info(
-    `[usd] inspectStage OK in ${elapsed}ms: metersPerUnit=${inspection.metersPerUnit}`,
-  );
+  if (import.meta.env.DEV) {
+    console.info(
+      `[usd] inspectStage OK in ${elapsed}ms: metersPerUnit=${inspection.metersPerUnit}`,
+    );
+  }
   return {
     metersPerUnit: inspection.metersPerUnit,
   };
@@ -1836,12 +1840,14 @@ async function loadPreviewObjectCore(
       flipFbxDdsTextureV(object);
       registerFbxTextureMaterialFallbacks(object);
       registerFbxTextureTransparency(object);
-      console.info("[fbx] timing", {
-        file: file.fileName,
-        bytes: buffer.byteLength,
-        readMs: Math.round(readMs),
-        parseMs: Math.round(parseMs),
-      });
+      if (import.meta.env.DEV) {
+        console.info("[fbx] timing", {
+          file: file.fileName,
+          bytes: buffer.byteLength,
+          readMs: Math.round(readMs),
+          parseMs: Math.round(parseMs),
+        });
+      }
       reportStage("gpu");
       return {
         object,
@@ -2091,9 +2097,11 @@ async function loadPreviewObjectCore(
           // #44: use the pre-extracted session buffer directly, skipping
           // the extractGeometry RPC.
           glbBuffer = options.glbOverride;
-          console.info(
-            `[usd] using session glb override (${glbBuffer.byteLength} bytes): ${file.fileName}`,
-          );
+          if (import.meta.env.DEV) {
+            console.info(
+              `[usd] using session glb override (${glbBuffer.byteLength} bytes): ${file.fileName}`,
+            );
+          }
         } else {
           if (
             usdPolicy === "noPayloads" &&
@@ -2150,17 +2158,21 @@ async function loadPreviewObjectCore(
             throw error;
           }
         }
-        console.info(
-          `[usd] extract_geometry OK in ${Math.round(
-            performance.now() - started,
-          )}ms (${glbBuffer.byteLength} bytes, policy=${usdPolicy}): ${file.fileName}`,
-        );
+        if (import.meta.env.DEV) {
+          console.info(
+            `[usd] extract_geometry OK in ${Math.round(
+              performance.now() - started,
+            )}ms (${glbBuffer.byteLength} bytes, policy=${usdPolicy}): ${file.fileName}`,
+          );
+        }
 
         const { GLTFLoader } =
           await import("three/examples/jsm/loaders/GLTFLoader.js");
         reportStage("gpu");
         const gltf = await new GLTFLoader().parseAsync(glbBuffer, "");
-        console.info(`[usd] GLTFLoader.parseAsync OK: ${file.fileName}`);
+        if (import.meta.env.DEV) {
+          console.info(`[usd] GLTFLoader.parseAsync OK: ${file.fileName}`);
+        }
 
         // GLTFLoader returns a `GLTF` whose `scene` is a Group. Our
         // preview pipeline expects `Group | Mesh`, so we hand back the
@@ -2261,7 +2273,9 @@ async function loadPreviewObjectCore(
         object =
           (workerObject as Group | null) ??
           (usdaText ? loader.parse(usdaText) : loader.parse(buffer));
-        console.info(`[usd] USDLoader.parse OK: ${file.fileName}`);
+        if (import.meta.env.DEV) {
+          console.info(`[usd] USDLoader.parse OK: ${file.fileName}`);
+        }
       } catch (parseError) {
         console.error("[usd] USDLoader.parse failed:", parseError);
         throw parseError;
