@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEFERRED_PAYLOAD_PREVIEW_LIMITS } from "../config/viewerLimits";
 import { isUsdFile, type SelectedFile } from "../lib/files";
 import { errorMessage } from "../lib/invokeSafe";
 import {
@@ -16,10 +17,6 @@ import {
 } from "../lib/usd";
 import type { ViewerFeedback } from "../types/viewer";
 import type { DeferredTextureSnapshot } from "../viewer";
-
-const DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE = 8;
-const DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD = 512;
-const DEFERRED_PREVIEW_EXTRACT_EVERY_PAYLOADS = 32;
 
 function glbMeshCount(buffer: ArrayBuffer): number {
   if (buffer.byteLength < 20) return 0;
@@ -356,7 +353,7 @@ export function usePayloadSession(
               .filter((arc) => arc.state === "unloaded")
               .map((arc) => arc.sourcePrim),
           ),
-        ).slice(0, DEFERRED_PREVIEW_PAYLOAD_MAX_AUTO_LOAD);
+        ).slice(0, DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxAutoLoad);
         if (previewPayloads.length === 0) return;
 
         const loadedPreviewPayloads: string[] = [];
@@ -379,14 +376,14 @@ export function usePayloadSession(
         for (
           let start = 0;
           start < previewPayloads.length;
-          start += DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE
+          start += DEFERRED_PAYLOAD_PREVIEW_LIMITS.batchSize
         ) {
           if (cancelled || stageSessionHandleRef.current !== captured) {
             return;
           }
           const batch = previewPayloads.slice(
             start,
-            start + DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE,
+            start + DEFERRED_PAYLOAD_PREVIEW_LIMITS.batchSize,
           );
           reportDeferredPayload(batch[0] ?? null);
           for (const primPath of batch) {
@@ -423,7 +420,7 @@ export function usePayloadSession(
             !hasVisiblePreview ||
             isFinalBatch ||
             completedPreviewPayloads %
-              DEFERRED_PREVIEW_EXTRACT_EVERY_PAYLOADS ===
+              DEFERRED_PAYLOAD_PREVIEW_LIMITS.extractEveryPayloads ===
               0;
           if (!shouldExtract) {
             await yieldDeferredPreviewFrame();
