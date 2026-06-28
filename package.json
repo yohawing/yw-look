@@ -11,8 +11,12 @@
   "scripts": {
     "dev": "node scripts/kill-port.mjs 1420 && vite",
     "build": "tsc && vite build",
+    "build:core": "node scripts/run-loader-pack-profile.mjs core -- npm run build",
+    "build:loaders": "node scripts/run-loader-pack-profile.mjs all -- npm run build",
     "build:desktop": "npm run build && npm run tauri build",
     "bundle:win": "npm run tauri build -- --features flip-compare --config src-tauri/tauri.windows.json --bundles nsis,msi",
+    "bundle:win:core": "node scripts/run-loader-pack-profile.mjs core -- npm run tauri build -- --features flip-compare --config src-tauri/tauri.windows.json --bundles nsis,msi",
+    "bundle:win:loaders": "node scripts/run-loader-pack-profile.mjs all -- npm run tauri build -- --features flip-compare --config src-tauri/tauri.windows.json --bundles nsis,msi",
     "bundle:mac": "node scripts/prepare-macos-tauri-config.mjs && npm run tauri build -- --features flip-compare --config src-tauri/tauri.macos.generated.json --bundles app,dmg",
     "lint": "eslint .",
     "format": "prettier --write .",

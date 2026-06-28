@@ -16,6 +16,10 @@ const unavailableMmdLoaderEntry = fileURLToPath(
   new URL("./src/viewer/mmd/loaderUnavailable.ts", import.meta.url),
 );
 const hasOptionalThreeMmdLoader = existsSync(optionalThreeMmdLoaderPath);
+const includeOptionalThreeMmdLoader =
+  hasOptionalThreeMmdLoader &&
+  process.env.YW_INCLUDE_MMD_LOADER_PACK !== "0" &&
+  process.env.YW_INCLUDE_MMD_LOADER_PACK?.toLowerCase() !== "false";
 
 const optionalSparkLoaderPath = fileURLToPath(
   new URL("./node_modules/@sparkjsdev/spark", import.meta.url),
@@ -30,29 +34,33 @@ const unavailableSparkLoaderEntry = fileURLToPath(
   new URL("./src/viewer/spark/loaderUnavailable.ts", import.meta.url),
 );
 const hasOptionalSparkLoader = existsSync(optionalSparkLoaderPath);
+const includeOptionalSparkLoader =
+  hasOptionalSparkLoader &&
+  process.env.YW_INCLUDE_SPARK_LOADER_PACK !== "0" &&
+  process.env.YW_INCLUDE_SPARK_LOADER_PACK?.toLowerCase() !== "false";
 
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   define: {
-    __YW_HAS_THREE_MMD_LOADER__: JSON.stringify(hasOptionalThreeMmdLoader),
-    __YW_HAS_SPARK_LOADER__: JSON.stringify(hasOptionalSparkLoader),
+    __YW_HAS_THREE_MMD_LOADER__: JSON.stringify(includeOptionalThreeMmdLoader),
+    __YW_HAS_SPARK_LOADER__: JSON.stringify(includeOptionalSparkLoader),
   },
   resolve: {
     alias: [
       {
         find: "#yw-look-mmd-loader-entry",
-        replacement: hasOptionalThreeMmdLoader
+        replacement: includeOptionalThreeMmdLoader
           ? installedMmdLoaderEntry
           : unavailableMmdLoaderEntry,
       },
       {
         find: "#yw-look-spark-loader-entry",
-        replacement: hasOptionalSparkLoader
+        replacement: includeOptionalSparkLoader
           ? installedSparkLoaderEntry
           : unavailableSparkLoaderEntry,
       },
-      ...(hasOptionalThreeMmdLoader
+      ...(includeOptionalThreeMmdLoader
         ? []
         : [
             {
@@ -60,7 +68,7 @@ export default defineConfig({
               replacement: missingThreeMmdLoaderShim,
             },
           ]),
-      ...(hasOptionalSparkLoader
+      ...(includeOptionalSparkLoader
         ? []
         : [
             {
