@@ -1705,14 +1705,10 @@ fn extract_from_stage_with_options(
                     .unwrap_or_else(|| mat4_f64_to_f32(&identity_mat4()));
 
                 for proto_mesh_path in &proto_mesh_prims {
-                    // TODO (#41 follow-up): resolve UsdPreviewSurface +
-                    // GeomSubset material bindings on prototype meshes.
-                    // The regular mesh pass calls a material-resolution
-                    // helper and slot-dedupes; the PointInstancer pass
-                    // currently leaves `material_index = 0` (default
-                    // preview material). Assets whose prototypes carry
-                    // authored materials will render gray instead of
-                    // their authored color/texture until this lands.
+                    // TODO (#41 follow-up): split prototype meshes by
+                    // GeomSubset material bindings. Direct bindings are
+                    // resolved below so prototypes with authored mesh-level
+                    // materials no longer fall back to the gray preview slot.
                     let Some(raw_proto) = build_mesh_data_from_shim(&stage, proto_mesh_path) else {
                         continue;
                     };
@@ -1767,7 +1763,7 @@ fn extract_from_stage_with_options(
                     let Ok(sdf_path) = SdfPath::new(proto_mesh_path) else {
                         continue;
                     };
-                    let Ok(proto_input) = mesh_data_to_input(
+                    let Ok(mut proto_input) = mesh_data_to_input(
                         &sdf_path,
                         world_f32,
                         &raw_proto,
@@ -1779,6 +1775,26 @@ fn extract_from_stage_with_options(
                     ) else {
                         continue;
                     };
+                    let bound_slot = resolve_material_slot_cpp(
+                        &stage,
+                        proto_mesh_path,
+                        &mut materials,
+                        &mut material_slots,
+                        &mut material_texture_paths,
+                        &mut material_normal_paths,
+                        &mut material_metal_rough_paths,
+                    );
+                    proto_input.material_index = apply_display_color_fallback_cpp(
+                        bound_slot,
+                        &raw_proto,
+                        proto_mesh_path,
+                        &mut materials,
+                        &mut material_slots,
+                        &mut material_texture_paths,
+                        &mut material_normal_paths,
+                        &mut material_metal_rough_paths,
+                    );
+                    apply_vertex_alpha_blend_cpp(&proto_input, &mut materials);
 
                     let prototype_mesh_idx = inputs.len();
                     inputs.push(proto_input);

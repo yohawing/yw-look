@@ -61,6 +61,26 @@ fn first_instanced_translation_count(gltf: &serde_json::Value) -> u64 {
         .expect("accessor count")
 }
 
+fn first_instanced_primitive_material_index(gltf: &serde_json::Value) -> usize {
+    let nodes = gltf["nodes"].as_array().expect("nodes array");
+    let node = nodes
+        .iter()
+        .find(|n| {
+            n.get("extensions")
+                .and_then(|e| e.get("EXT_mesh_gpu_instancing"))
+                .is_some()
+        })
+        .expect("at least one node must have EXT_mesh_gpu_instancing");
+    let mesh_idx = node["mesh"].as_u64().expect("instanced node mesh index") as usize;
+    let meshes = gltf["meshes"].as_array().expect("meshes array");
+    let primitives = meshes[mesh_idx]["primitives"]
+        .as_array()
+        .expect("mesh primitives array");
+    primitives[0]["material"]
+        .as_u64()
+        .expect("primitive material index") as usize
+}
+
 /// Smoke test: `extract_geometry_glb` succeeds on the PointInstancer fixture
 /// and returns a valid GLB blob.
 #[test]
@@ -178,4 +198,87 @@ def Xform "Root"
         count, 2,
         "invisibleIds must match authored ids, hiding only id=20; got {count}"
     );
+}
+
+#[test]
+fn point_instancer_prototype_mesh_direct_material_binding_is_used() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("point_instancer_material.usda");
+    std::fs::write(
+        &path,
+        r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    metersPerUnit = 1
+)
+
+def Xform "Root"
+{
+    def Scope "Looks"
+    {
+        def Material "Red"
+        {
+            token outputs:surface.connect = </Root/Looks/Red/Preview.outputs:surface>
+
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (1, 0, 0)
+                float inputs:roughness = 0.25
+                token outputs:surface
+            }
+        }
+    }
+
+    def PointInstancer "Instancer"
+    {
+        rel prototypes = [</Root/Instancer/PrototypeCube>]
+
+        int[] protoIndices = [0]
+        point3f[] positions = [(0, 0, 0)]
+        quath[] orientations = [(1, 0, 0, 0)]
+        float3[] scales = [(1, 1, 1)]
+
+        def Mesh "PrototypeCube"
+        (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </Root/Looks/Red>
+            int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
+            int[] faceVertexIndices = [0, 1, 3, 2, 2, 3, 5, 4, 4, 5, 7, 6, 6, 7, 1, 0, 1, 7, 5, 3, 6, 0, 2, 4]
+            point3f[] points = [
+                (-0.5, -0.5,  0.5),
+                ( 0.5, -0.5,  0.5),
+                (-0.5,  0.5,  0.5),
+                ( 0.5,  0.5,  0.5),
+                (-0.5,  0.5, -0.5),
+                ( 0.5,  0.5, -0.5),
+                (-0.5, -0.5, -0.5),
+                ( 0.5, -0.5, -0.5)
+            ]
+        }
+    }
+}
+"#,
+    )
+    .expect("write USDA fixture");
+
+    let backend = OpenusdCppBackend::new();
+    let bytes = backend
+        .extract_geometry_glb(&path, StageLoadPolicy::LoadAll)
+        .expect("extract_geometry_glb must succeed");
+
+    let gltf = parse_glb_json(&bytes);
+    let material_idx = first_instanced_primitive_material_index(&gltf);
+    let materials = gltf["materials"].as_array().expect("materials array");
+    let material = &materials[material_idx];
+    assert_eq!(material["name"].as_str(), Some("usd:/Root/Looks/Red"));
+    let base_color = material["pbrMetallicRoughness"]["baseColorFactor"]
+        .as_array()
+        .expect("baseColorFactor");
+    assert_eq!(base_color[0].as_f64(), Some(1.0));
+    assert_eq!(base_color[1].as_f64(), Some(0.0));
+    assert_eq!(base_color[2].as_f64(), Some(0.0));
 }
