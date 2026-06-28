@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import { BufferGeometry, Mesh, MeshStandardMaterial, Texture } from "three";
 import {
   getMimeType,
+  listOptionalLoaderPacks,
   listRegisteredLoaders,
   resolveSiblingPath,
   isUsdcCrateBuffer,
@@ -19,6 +20,7 @@ import {
   deferredSummaryHasNoRenderableGeometry,
   readUsdzFirstFileName,
   shouldFailClosedOnUsdPreviewDecisionFailure,
+  summarizeOptionalLoaderPacks,
   applyMissingGltfTextureFallbacks,
   applyMissingTextureMaterialFallback,
   formatMissingTextureWarnings,
@@ -175,6 +177,57 @@ describe("preview support classification", () => {
     expect(
       getPreviewSupportState("sog", { optionalLoaderInstalled: false }),
     ).toBe("missingOptionalLoader");
+  });
+
+  it("summarizes optional loader packs for Settings reporting", () => {
+    expect(listOptionalLoaderPacks()).toEqual([
+      {
+        id: "gaussian-splat-loader-pack",
+        name: "Gaussian Splat Loader Pack",
+        extensions: ["ksplat", "sog", "splat", "spz"],
+        installed: true,
+      },
+      {
+        id: "mmd-loader-pack",
+        name: "MMD Loader Pack",
+        extensions: ["pmd", "pmx", "vmd"],
+        installed: true,
+      },
+      {
+        id: "vrm-loader-pack",
+        name: "VRM Loader Pack",
+        extensions: ["vrm"],
+        installed: true,
+      },
+    ]);
+  });
+
+  it("marks a pack missing when any registered pack extension is missing", () => {
+    expect(
+      summarizeOptionalLoaderPacks([
+        {
+          id: "mixed-loader-pack",
+          name: "Mixed Loader Pack",
+          extension: "one",
+          optional: true,
+          installed: true,
+        },
+        {
+          id: "mixed-loader-pack",
+          name: "Mixed Loader Pack",
+          extension: "two",
+          optional: true,
+          installed: false,
+        },
+      ]),
+    ).toEqual([
+      {
+        id: "mixed-loader-pack",
+        name: "Mixed Loader Pack",
+        extensions: ["one", "two"],
+        installed: false,
+      },
+    ]);
   });
 
   it("keeps unknown extensions in the generic unsupported bucket", () => {

@@ -47,6 +47,9 @@ import type {
   UpdateCheckPayload,
   UpdateConfigurationPayload,
 } from "../lib/updater";
+import { listOptionalLoaderPacks } from "../viewer";
+
+const OPTIONAL_LOADER_PACKS = listOptionalLoaderPacks();
 
 const CompositionArcsCard = lazy(() =>
   import("../components/CompositionArcsCard").then((module) => ({
@@ -459,6 +462,7 @@ export function useSidebarModel({
               <SettingsCard
                 settingsPayload={settingsPayload}
                 settingsError={settingsError}
+                optionalLoaderPacks={OPTIONAL_LOADER_PACKS}
                 onToggleFileAssociations={() =>
                   void handleToggleFileAssociations()
                 }

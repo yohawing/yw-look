@@ -22,6 +22,8 @@ export type {
   TexturedMaterial,
   MissingReferenceError,
   PreviewSupportState,
+  OptionalLoaderPackStatus,
+  RegisteredLoaderInfo,
 } from "../types/viewer";
 
 export const implementedPreviewExtensions = new Set([

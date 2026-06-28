@@ -11,6 +11,7 @@ export type {
   LoadingStageId,
   LoadingStageSnapshot,
   MissingReferenceError,
+  OptionalLoaderPackStatus,
 } from "./types";
 
 export { implementedPreviewExtensions, neutralFeedback } from "./types";
@@ -68,6 +69,7 @@ export {
   tryExtractUsdaText,
   loaderRegistry,
   listRegisteredLoaders,
+  listOptionalLoaderPacks,
 } from "./loaders";
 export type { LoaderContext, LoaderPlugin } from "./loaderRegistry";
 

@@ -1903,6 +1903,35 @@ body.is-resizing-sidebar {
   background: #ffffff;
 }
 
+.optional-loader-pack-value {
+  display: inline-flex;
+  max-width: 68%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.optional-loader-pack-status {
+  color: var(--yl-text-tertiary);
+}
+
+.optional-loader-pack-status.is-installed {
+  color: var(--yl-success);
+}
+
+.optional-loader-pack-status.is-missing {
+  color: #f2b84b;
+}
+
+.optional-loader-pack-extensions {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--yl-text-muted);
+  font-family: var(--yl-font-mono, ui-monospace);
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
 /* ── Utility ── */
 
 .sr-only {

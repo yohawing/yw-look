@@ -40,6 +40,8 @@ import type {
   LoadedPreview,
   LoadingStageReporter,
   MissingReferenceError,
+  OptionalLoaderPackStatus,
+  RegisteredLoaderInfo,
   TextureBundle,
 } from "./types";
 
@@ -2541,6 +2543,43 @@ loaderRegistry.register({
 
 export function listRegisteredLoaders() {
   return loaderRegistry.list();
+}
+
+export function summarizeOptionalLoaderPacks(
+  loaders: readonly RegisteredLoaderInfo[],
+): OptionalLoaderPackStatus[] {
+  const packs = new Map<string, OptionalLoaderPackStatus>();
+
+  for (const loader of loaders) {
+    if (!loader.optional) {
+      continue;
+    }
+
+    const existing = packs.get(loader.id);
+    if (existing) {
+      packs.set(loader.id, {
+        ...existing,
+        extensions: [...existing.extensions, loader.extension].sort(),
+        installed: existing.installed && loader.installed,
+      });
+      continue;
+    }
+
+    packs.set(loader.id, {
+      id: loader.id,
+      name: loader.name,
+      extensions: [loader.extension],
+      installed: loader.installed,
+    });
+  }
+
+  return [...packs.values()].sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
+}
+
+export function listOptionalLoaderPacks(): OptionalLoaderPackStatus[] {
+  return summarizeOptionalLoaderPacks(loaderRegistry.list());
 }
 
 export async function loadPreviewObject(

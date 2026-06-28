@@ -306,6 +306,13 @@ export type RegisteredLoaderInfo = {
   installed: boolean;
 };
 
+export type OptionalLoaderPackStatus = {
+  id: string;
+  name: string;
+  extensions: readonly string[];
+  installed: boolean;
+};
+
 // ── Metadata collection ──────────────────────────────────────────
 
 export type MetadataCollection = {
