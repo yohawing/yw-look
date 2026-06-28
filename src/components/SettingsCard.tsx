@@ -15,6 +15,7 @@ type SettingsCardProps = {
   onToggleFileAssociations: () => void;
   /** #26: flips `autoCheckForUpdates` and persists via save_settings. */
   onToggleAutoCheckForUpdates: () => void;
+  onToggleOptionalLoaderPack: (packId: string) => void;
 };
 
 export function SettingsCard({
@@ -23,6 +24,7 @@ export function SettingsCard({
   optionalLoaderPacks = [],
   onToggleFileAssociations,
   onToggleAutoCheckForUpdates,
+  onToggleOptionalLoaderPack,
 }: SettingsCardProps) {
   if (settingsError) {
     return (
@@ -105,11 +107,26 @@ export function SettingsCard({
               >
                 <span
                   className={`optional-loader-pack-status ${
-                    pack.installed ? "is-installed" : "is-missing"
+                    pack.installed
+                      ? pack.enabled
+                        ? "is-installed"
+                        : "is-disabled"
+                      : "is-missing"
                   }`}
                 >
-                  {pack.installed ? "Installed" : "Missing"}
+                  {pack.installed
+                    ? pack.enabled
+                      ? "Enabled"
+                      : "Disabled"
+                    : "Missing"}
                 </span>
+                <ToggleSwitch
+                  aria-label={`${pack.name} loader pack`}
+                  checked={pack.installed && pack.enabled}
+                  disabled={!pack.installed}
+                  onCheckedChange={() => onToggleOptionalLoaderPack(pack.id)}
+                  size="sm"
+                />
                 <span className="optional-loader-pack-extensions">
                   {pack.extensions
                     .map((extension) => `.${extension}`)

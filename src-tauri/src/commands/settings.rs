@@ -83,6 +83,7 @@ pub(crate) fn load_update_configuration(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::OptionalLoaderPackSettings;
     use serde_json::Value;
     use tempfile::tempdir;
 
@@ -115,10 +116,11 @@ mod tests {
 
         let (_, settings) = load_settings_from_path(dir.path()).expect("load settings");
 
-        assert_eq!(settings.version, 4);
+        assert_eq!(settings.version, 5);
         assert_eq!(settings.recent_files_limit, 5);
         assert_eq!(settings.diagnostics_log_level, "info");
         assert!(!settings.file_associations_enabled);
+        assert!(settings.optional_loader_packs.is_empty());
         assert_eq!(settings.update_endpoint_override, None);
         assert_eq!(settings.update_public_key_override, None);
     }
@@ -141,7 +143,7 @@ mod tests {
 
         let (_, settings) = load_settings_from_path(dir.path()).expect("load settings");
 
-        assert_eq!(settings.version, 4);
+        assert_eq!(settings.version, 5);
         assert_eq!(settings.recent_files_limit, 1);
         assert_eq!(settings.diagnostics_log_level, "info");
         assert_eq!(settings.update_endpoint_override, None);
@@ -160,6 +162,11 @@ mod tests {
             ),
             update_public_key_override: Some("  ".to_string()),
             allow_insecure_update_endpoint: true,
+            optional_loader_packs: std::iter::once((
+                "mmd-loader-pack".to_string(),
+                OptionalLoaderPackSettings { enabled: false },
+            ))
+            .collect(),
             ..AppSettings::default()
         };
 
@@ -167,9 +174,10 @@ mod tests {
             save_settings_to_path(dir.path(), settings).expect("save settings");
         let json = read_settings_value(&settings_path);
 
-        assert_eq!(saved.version, 4);
+        assert_eq!(saved.version, 5);
         assert_eq!(saved.recent_files_limit, 1);
         assert_eq!(saved.diagnostics_log_level, "info");
+        assert!(!saved.optional_loader_packs["mmd-loader-pack"].enabled);
         assert_eq!(
             json["recentFilesLimit"],
             serde_json::json!(saved.recent_files_limit)
@@ -180,6 +188,10 @@ mod tests {
             serde_json::json!("https://updates.example.test/feed.json")
         );
         assert_eq!(json["updatePublicKeyOverride"], Value::Null);
+        assert_eq!(
+            json["optionalLoaderPacks"]["mmd-loader-pack"]["enabled"],
+            serde_json::json!(false)
+        );
         assert!(json.get("recent_files_limit").is_none());
         assert!(json.get("diagnostics_log_level").is_none());
     }

@@ -1919,6 +1919,10 @@ body.is-resizing-sidebar {
   color: var(--yl-success);
 }
 
+.optional-loader-pack-status.is-disabled {
+  color: var(--yl-text-tertiary);
+}
+
 .optional-loader-pack-status.is-missing {
   color: #f2b84b;
 }

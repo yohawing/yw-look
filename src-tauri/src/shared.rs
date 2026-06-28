@@ -171,7 +171,7 @@ pub(crate) fn normalize_optional_text(value: Option<String>) -> Option<String> {
 
 pub(crate) fn sanitize_settings(settings: AppSettings) -> AppSettings {
     AppSettings {
-        version: settings.version.max(4),
+        version: settings.version.max(5),
         recent_files_limit: settings.recent_files_limit.max(1),
         diagnostics_log_level: if settings.diagnostics_log_level.trim().is_empty() {
             "info".to_string()
@@ -179,6 +179,7 @@ pub(crate) fn sanitize_settings(settings: AppSettings) -> AppSettings {
             settings.diagnostics_log_level
         },
         file_associations_enabled: settings.file_associations_enabled,
+        optional_loader_packs: settings.optional_loader_packs,
         update_endpoint_override: normalize_optional_text(settings.update_endpoint_override),
         update_public_key_override: normalize_optional_text(settings.update_public_key_override),
         allow_insecure_update_endpoint: settings.allow_insecure_update_endpoint,

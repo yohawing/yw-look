@@ -138,6 +138,8 @@ export function useViewerDiagnosticsModel({
         return "unsupported format";
       case "missingOptionalLoader":
         return "optional loader missing";
+      case "disabledOptionalLoader":
+        return "optional loader disabled";
       case "loadFailed":
         return "preview failed";
       case "missingReference":
@@ -286,7 +288,8 @@ export function useViewerDiagnosticsModel({
     const level =
       viewerFeedback.mode === "missingReference" ||
       viewerFeedback.mode === "unsupported" ||
-      viewerFeedback.mode === "missingOptionalLoader"
+      viewerFeedback.mode === "missingOptionalLoader" ||
+      viewerFeedback.mode === "disabledOptionalLoader"
         ? "warn"
         : "error";
 

@@ -266,10 +266,15 @@ export type AppSettings = {
   recentFilesLimit: number;
   diagnosticsLogLevel: string;
   fileAssociationsEnabled: boolean;
+  optionalLoaderPacks: Record<string, OptionalLoaderPackSettings | undefined>;
   updateEndpointOverride?: string | null;
   updatePublicKeyOverride?: string | null;
   allowInsecureUpdateEndpoint: boolean;
   autoCheckForUpdates: boolean;
+};
+
+export type OptionalLoaderPackSettings = {
+  enabled: boolean;
 };
 
 export type SettingsPayload = {

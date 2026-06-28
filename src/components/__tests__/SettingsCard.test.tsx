@@ -1,5 +1,5 @@
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsCard } from "../SettingsCard";
 import type { SettingsPayload } from "../../lib/settings";
 
@@ -10,6 +10,7 @@ const settingsPayload: SettingsPayload = {
     recentFilesLimit: 10,
     diagnosticsLogLevel: "warn",
     fileAssociationsEnabled: false,
+    optionalLoaderPacks: {},
     updateEndpointOverride: null,
     updatePublicKeyOverride: null,
     allowInsecureUpdateEndpoint: false,
@@ -33,24 +34,55 @@ describe("SettingsCard", () => {
             name: "MMD Loader Pack",
             extensions: ["pmd", "pmx", "vmd"],
             installed: true,
+            enabled: true,
           },
           {
             id: "gaussian-splat-loader-pack",
             name: "Gaussian Splat Loader Pack",
             extensions: ["splat", "spz"],
             installed: false,
+            enabled: true,
           },
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={() => undefined}
+        onToggleOptionalLoaderPack={() => undefined}
       />,
     );
 
     expect(getByText("Optional Loader Packs")).toBeTruthy();
     expect(getByText("MMD Loader Pack")).toBeTruthy();
     expect(getByText("Gaussian Splat Loader Pack")).toBeTruthy();
-    expect(getByText("Installed")).toBeTruthy();
+    expect(getByText("Enabled")).toBeTruthy();
     expect(getByText("Missing")).toBeTruthy();
     expect(getByText(".pmd .pmx .vmd")).toBeTruthy();
+  });
+
+  it("requests optional loader pack toggles for installed packs", () => {
+    const onToggleOptionalLoaderPack = vi.fn();
+    const { getByRole } = render(
+      <SettingsCard
+        settingsPayload={settingsPayload}
+        settingsError={null}
+        optionalLoaderPacks={[
+          {
+            id: "mmd-loader-pack",
+            name: "MMD Loader Pack",
+            extensions: ["pmd", "pmx", "vmd"],
+            installed: true,
+            enabled: false,
+          },
+        ]}
+        onToggleAutoCheckForUpdates={() => undefined}
+        onToggleFileAssociations={() => undefined}
+        onToggleOptionalLoaderPack={onToggleOptionalLoaderPack}
+      />,
+    );
+
+    fireEvent.click(
+      getByRole("switch", { name: "MMD Loader Pack loader pack" }),
+    );
+
+    expect(onToggleOptionalLoaderPack).toHaveBeenCalledWith("mmd-loader-pack");
   });
 });

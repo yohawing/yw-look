@@ -23,6 +23,7 @@ export type ViewerMode =
   | "ready"
   | "unsupported"
   | "missingOptionalLoader"
+  | "disabledOptionalLoader"
   | "loadFailed"
   | "missingReference";
 
@@ -208,6 +209,7 @@ export type MissingReferenceError = Error & {
 export type PreviewSupportState =
   | "implemented"
   | "missingOptionalLoader"
+  | "disabledOptionalLoader"
   | "unsupported";
 
 // ── Scene config (grid, scale, camera, texture filter) ───────────
@@ -281,6 +283,7 @@ export type LoaderContext = {
   usdLoadPolicy?: import("./ipc").StageLoadPolicy;
   variantSelections?: import("./ipc").VariantSelection[];
   glbOverride?: ArrayBuffer | null;
+  disabledOptionalLoaderPackIds?: readonly string[] | ReadonlySet<string>;
   onStage?: LoadingStageReporter;
   onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void;
   onWarning?: (warning: string) => void;
@@ -311,6 +314,7 @@ export type OptionalLoaderPackStatus = {
   name: string;
   extensions: readonly string[];
   installed: boolean;
+  enabled: boolean;
 };
 
 // ── Metadata collection ──────────────────────────────────────────

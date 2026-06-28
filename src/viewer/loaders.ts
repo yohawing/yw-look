@@ -2549,7 +2549,10 @@ export function listRegisteredLoaders() {
 
 export function getPreviewSupportState(
   extension: string,
-  options: { optionalLoaderInstalled?: boolean } = {},
+  options: {
+    disabledOptionalLoaderPackIds?: readonly string[] | ReadonlySet<string>;
+    optionalLoaderInstalled?: boolean;
+  } = {},
 ): PreviewSupportState {
   const normalizedExtension = extension.toLowerCase();
   const loader = loaderRegistry.getByExtension(normalizedExtension);
@@ -2560,6 +2563,16 @@ export function getPreviewSupportState(
       (loader.installed === false || options.optionalLoaderInstalled === false)
     ) {
       return "missingOptionalLoader";
+    }
+
+    if (
+      loader.optional === true &&
+      isOptionalLoaderPackDisabled(
+        loader.id,
+        options.disabledOptionalLoaderPackIds,
+      )
+    ) {
+      return "disabledOptionalLoader";
     }
 
     return "implemented";
@@ -2574,6 +2587,7 @@ export function getPreviewSupportState(
 
 export function summarizeOptionalLoaderPacks(
   loaders: readonly RegisteredLoaderInfo[],
+  settings: Record<string, { enabled?: boolean } | undefined> = {},
 ): OptionalLoaderPackStatus[] {
   const packs = new Map<string, OptionalLoaderPackStatus>();
 
@@ -2588,6 +2602,8 @@ export function summarizeOptionalLoaderPacks(
         ...existing,
         extensions: [...existing.extensions, loader.extension].sort(),
         installed: existing.installed && loader.installed,
+        enabled:
+          existing.enabled && optionalLoaderPackEnabled(loader.id, settings),
       });
       continue;
     }
@@ -2597,6 +2613,7 @@ export function summarizeOptionalLoaderPacks(
       name: loader.name,
       extensions: [loader.extension],
       installed: loader.installed,
+      enabled: optionalLoaderPackEnabled(loader.id, settings),
     });
   }
 
@@ -2605,8 +2622,43 @@ export function summarizeOptionalLoaderPacks(
   );
 }
 
-export function listOptionalLoaderPacks(): OptionalLoaderPackStatus[] {
-  return summarizeOptionalLoaderPacks(loaderRegistry.list());
+export function listOptionalLoaderPacks(
+  settings?: Record<string, { enabled?: boolean } | undefined>,
+): OptionalLoaderPackStatus[] {
+  return summarizeOptionalLoaderPacks(loaderRegistry.list(), settings);
+}
+
+export function disabledOptionalLoaderPackIds(
+  settings:
+    | Record<string, { enabled?: boolean } | undefined>
+    | null
+    | undefined,
+): string[] {
+  if (!settings) {
+    return [];
+  }
+
+  return Object.entries(settings)
+    .filter(([, value]) => value?.enabled === false)
+    .map(([id]) => id)
+    .sort();
+}
+
+function optionalLoaderPackEnabled(
+  id: string,
+  settings: Record<string, { enabled?: boolean } | undefined>,
+): boolean {
+  return settings[id]?.enabled !== false;
+}
+
+function isOptionalLoaderPackDisabled(
+  id: string,
+  disabledIds: readonly string[] | ReadonlySet<string> | undefined,
+): boolean {
+  if (!disabledIds) {
+    return false;
+  }
+  return "has" in disabledIds ? disabledIds.has(id) : disabledIds.includes(id);
 }
 
 export async function loadPreviewObject(
@@ -2615,7 +2667,15 @@ export async function loadPreviewObject(
   options: LoaderContext = {},
 ): Promise<LoadedPreview> {
   const loader = loaderRegistry.getByExtension(file.extension);
-  if (!loader || loader.installed === false) {
+  if (
+    !loader ||
+    loader.installed === false ||
+    (loader.optional === true &&
+      isOptionalLoaderPackDisabled(
+        loader.id,
+        options.disabledOptionalLoaderPackIds,
+      ))
+  ) {
     throw new Error(`Preview loader is not installed for .${file.extension}`);
   }
 

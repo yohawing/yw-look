@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { AppShell } from "./app/AppShell";
 import { useAppCommands } from "./app/useAppCommands";
 import { useAppFileOpen } from "./app/useAppFileOpen";
@@ -18,6 +19,7 @@ import { isTauriEnvironment } from "./lib/platform";
 import { useFileStore } from "./stores/fileStore";
 import { useUiStore } from "./stores/uiStore";
 import { useViewerStore } from "./stores/viewerStore";
+import { disabledOptionalLoaderPackIds } from "./viewer";
 
 export function App() {
   const viewer = useViewerStore();
@@ -109,6 +111,14 @@ export function App() {
     settingsError,
   );
 
+  const disabledLoaderPackIds = useMemo(
+    () =>
+      disabledOptionalLoaderPackIds(
+        settingsPayload?.settings.optionalLoaderPacks,
+      ),
+    [settingsPayload?.settings.optionalLoaderPacks],
+  );
+
   const {
     debugPanelsEnabled,
     diagnosticCounts,
@@ -182,14 +192,17 @@ export function App() {
     viewer,
   });
 
-  const { handleToggleAutoCheckForUpdates, handleToggleFileAssociations } =
-    useSettingsActions({
-      refreshUpdateConfiguration,
-      setSettingsError,
-      setSettingsPayload,
-      setUpdateError,
-      settingsPayload,
-    });
+  const {
+    handleToggleAutoCheckForUpdates,
+    handleToggleFileAssociations,
+    handleToggleOptionalLoaderPack,
+  } = useSettingsActions({
+    refreshUpdateConfiguration,
+    setSettingsError,
+    setSettingsPayload,
+    setUpdateError,
+    settingsPayload,
+  });
 
   const sessionAdjustedUsdSummary = useSessionAdjustedUsdSummary({
     payloadPrimPaths,
@@ -212,6 +225,7 @@ export function App() {
       handleLoadPayload,
       handleToggleAutoCheckForUpdates,
       handleToggleFileAssociations,
+      handleToggleOptionalLoaderPack,
       handleUnloadPayload,
       integrationError,
       integrationPayload,
@@ -278,6 +292,7 @@ export function App() {
           ui={ui}
           viewer={viewer}
           viewportToolbarItems={viewportToolbarItems}
+          disabledOptionalLoaderPackIds={disabledLoaderPackIds}
         />
       }
     />

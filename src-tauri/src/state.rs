@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -15,11 +16,18 @@ pub(crate) struct AppSettings {
     pub(crate) recent_files_limit: usize,
     pub(crate) diagnostics_log_level: String,
     pub(crate) file_associations_enabled: bool,
+    pub(crate) optional_loader_packs: BTreeMap<String, OptionalLoaderPackSettings>,
     pub(crate) update_endpoint_override: Option<String>,
     pub(crate) update_public_key_override: Option<String>,
     pub(crate) allow_insecure_update_endpoint: bool,
     #[allow(dead_code)]
     pub(crate) auto_check_for_updates: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub(crate) struct OptionalLoaderPackSettings {
+    pub(crate) enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,14 +167,21 @@ impl UsdBackendState {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            version: 4,
+            version: 5,
             recent_files_limit: 20,
             diagnostics_log_level: "info".to_string(),
             file_associations_enabled: false,
+            optional_loader_packs: BTreeMap::new(),
             update_endpoint_override: None,
             update_public_key_override: None,
             allow_insecure_update_endpoint: false,
             auto_check_for_updates: false,
         }
+    }
+}
+
+impl Default for OptionalLoaderPackSettings {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }

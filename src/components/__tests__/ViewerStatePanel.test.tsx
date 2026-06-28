@@ -33,6 +33,17 @@ describe("ViewerStatePanel", () => {
     ).toBeTruthy();
   });
 
+  it("shows a settings-oriented message for disabled optional loaders", () => {
+    const { getByText } = render(
+      <ViewerStatePanel mode="disabledOptionalLoader" fileExtension="vrm" />,
+    );
+
+    expect(getByText("VRM Loader Pack is disabled.")).toBeTruthy();
+    expect(
+      getByText("Enable VRM Loader Pack in Settings to preview VRM files."),
+    ).toBeTruthy();
+  });
+
   it("keeps unknown extensions in the generic unsupported format message", () => {
     const { getByText } = render(
       <ViewerStatePanel mode="unsupported" fileExtension="assetbundle" />,

@@ -59,6 +59,33 @@ export function useSettingsActions({
     }
   };
 
+  const handleToggleOptionalLoaderPack = async (packId: string) => {
+    if (!settingsPayload) {
+      return;
+    }
+
+    const current =
+      settingsPayload.settings.optionalLoaderPacks[packId]?.enabled !== false;
+
+    try {
+      const nextPayload = await saveSettings({
+        ...settingsPayload.settings,
+        optionalLoaderPacks: {
+          ...settingsPayload.settings.optionalLoaderPacks,
+          [packId]: { enabled: !current },
+        },
+      });
+      setSettingsPayload(nextPayload);
+      setSettingsError(null);
+    } catch (error: unknown) {
+      setSettingsError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update loader pack setting.",
+      );
+    }
+  };
+
   const handleSaveUpdateSettings = async ({
     endpoint,
     publicKey,
@@ -91,5 +118,6 @@ export function useSettingsActions({
     handleSaveUpdateSettings,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
+    handleToggleOptionalLoaderPack,
   };
 }

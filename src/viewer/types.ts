@@ -85,6 +85,20 @@ export function formatMissingOptionalLoaderMessage(extension: string) {
   };
 }
 
+export function formatDisabledOptionalLoaderMessage(extension: string) {
+  const optionalLoader =
+    optionalPreviewLoaders[extension as keyof typeof optionalPreviewLoaders];
+
+  if (!optionalLoader) {
+    return null;
+  }
+
+  return {
+    title: `${optionalLoader.loaderPackName} is disabled.`,
+    body: `Enable ${optionalLoader.loaderPackName} in Settings to preview ${optionalLoader.formatLabel} files.`,
+  };
+}
+
 export function formatUnsupportedFormatMessage(extension: string) {
   const normalizedExtension = extension ? `.${extension}` : "this extension";
   return {

@@ -49,8 +49,6 @@ import type {
 } from "../lib/updater";
 import { listOptionalLoaderPacks } from "../viewer";
 
-const OPTIONAL_LOADER_PACKS = listOptionalLoaderPacks();
-
 const CompositionArcsCard = lazy(() =>
   import("../components/CompositionArcsCard").then((module) => ({
     default: module.CompositionArcsCard,
@@ -108,6 +106,7 @@ type UseSidebarModelOptions = {
   handleLoadPayload: (primPath: string) => Promise<void>;
   handleToggleAutoCheckForUpdates: () => Promise<void>;
   handleToggleFileAssociations: () => Promise<void>;
+  handleToggleOptionalLoaderPack: (packId: string) => Promise<void>;
   handleUnloadPayload: (primPath: string) => Promise<void>;
   integrationError: string | null;
   integrationPayload: IntegrationPayload | null;
@@ -217,6 +216,7 @@ export function useSidebarModel({
   handleLoadPayload,
   handleToggleAutoCheckForUpdates,
   handleToggleFileAssociations,
+  handleToggleOptionalLoaderPack,
   handleUnloadPayload,
   integrationError,
   integrationPayload,
@@ -462,12 +462,17 @@ export function useSidebarModel({
               <SettingsCard
                 settingsPayload={settingsPayload}
                 settingsError={settingsError}
-                optionalLoaderPacks={OPTIONAL_LOADER_PACKS}
+                optionalLoaderPacks={listOptionalLoaderPacks(
+                  settingsPayload?.settings.optionalLoaderPacks,
+                )}
                 onToggleFileAssociations={() =>
                   void handleToggleFileAssociations()
                 }
                 onToggleAutoCheckForUpdates={() =>
                   void handleToggleAutoCheckForUpdates()
+                }
+                onToggleOptionalLoaderPack={(packId) =>
+                  void handleToggleOptionalLoaderPack(packId)
                 }
               />
             </Suspense>
@@ -518,6 +523,7 @@ export function useSidebarModel({
     handleMorphTargetChange,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
+    handleToggleOptionalLoaderPack,
     handleUnloadPayload,
     integrationError,
     integrationPayload,

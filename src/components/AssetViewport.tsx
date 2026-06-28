@@ -29,6 +29,7 @@ import {
   type LoadingStageSnapshot,
   type MissingReferenceError,
   type SceneContext,
+  formatDisabledOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
   getPreviewSupportState,
@@ -152,17 +153,22 @@ function updateRuntimePreview(
   }
 }
 
-function getRuntimePreviewSupportState(extension: string) {
+function getRuntimePreviewSupportState(
+  extension: string,
+  disabledOptionalLoaderPackIds: readonly string[],
+) {
   const loader = listRegisteredLoaders().find(
     (entry) => entry.extension === extension,
   );
   return getPreviewSupportState(extension, {
+    disabledOptionalLoaderPackIds,
     optionalLoaderInstalled: loader?.installed !== false,
   });
 }
 
 export function AssetViewport({
   currentFile,
+  disabledOptionalLoaderPackIds = [],
   mmdMotionRequest,
   displayMode,
   backgroundPreset,
@@ -352,13 +358,17 @@ export function AssetViewport({
 
   const shouldInitializeScene = currentFile !== null;
   const previewSupportState = currentFile
-    ? getRuntimePreviewSupportState(currentFile.extension)
+    ? getRuntimePreviewSupportState(
+        currentFile.extension,
+        disabledOptionalLoaderPackIds,
+      )
     : "implemented";
   const effectiveOverlayMode =
     currentFile === null
       ? "empty"
-      : previewSupportState === "missingOptionalLoader"
-        ? "missingOptionalLoader"
+      : previewSupportState === "missingOptionalLoader" ||
+          previewSupportState === "disabledOptionalLoader"
+        ? previewSupportState
         : previewSupportState === "unsupported"
           ? "unsupported"
           : activePreviewPath === currentFile.path
@@ -1550,12 +1560,17 @@ export function AssetViewport({
       viewerSurfaceModeRef.current,
     );
 
-    const supportState = getRuntimePreviewSupportState(currentFile.extension);
+    const supportState = getRuntimePreviewSupportState(
+      currentFile.extension,
+      disabledOptionalLoaderPackIds,
+    );
     if (supportState !== "implemented") {
       const message =
         supportState === "missingOptionalLoader"
           ? formatMissingOptionalLoaderMessage(currentFile.extension)
-          : formatUnsupportedFormatMessage(currentFile.extension);
+          : supportState === "disabledOptionalLoader"
+            ? formatDisabledOptionalLoaderMessage(currentFile.extension)
+            : formatUnsupportedFormatMessage(currentFile.extension);
       onMetadataChange(emptyAssetMetadata);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
@@ -1653,6 +1668,7 @@ export function AssetViewport({
       usdLoadPolicy,
       variantSelections,
       glbOverride: glbOverride ?? null,
+      disabledOptionalLoaderPackIds,
       onStage: reportLoadingStage,
       onDeferredTexture: (snapshot) => {
         if (disposed) return;
@@ -2010,6 +2026,7 @@ export function AssetViewport({
     usdLoadPolicy,
     variantSelections,
     glbOverride,
+    disabledOptionalLoaderPackIds,
     publishResourceDiagnostics,
   ]);
 

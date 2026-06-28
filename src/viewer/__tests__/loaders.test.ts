@@ -30,6 +30,7 @@ import {
   type GltfDocument,
 } from "../loaders";
 import {
+  formatDisabledOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
 } from "../types";
@@ -132,6 +133,28 @@ describe("preview support classification", () => {
     ).toBe("missingOptionalLoader");
   });
 
+  it("marks optional formats as disabled when their pack is disabled", () => {
+    expect(
+      getPreviewSupportState("pmx", {
+        disabledOptionalLoaderPackIds: ["mmd-loader-pack"],
+      }),
+    ).toBe("disabledOptionalLoader");
+    expect(
+      getPreviewSupportState("glb", {
+        disabledOptionalLoaderPackIds: ["core-preview-loader"],
+      }),
+    ).toBe("implemented");
+  });
+
+  it("prioritizes missing optional packs over stale disabled settings", () => {
+    expect(
+      getPreviewSupportState("pmx", {
+        disabledOptionalLoaderPackIds: ["mmd-loader-pack"],
+        optionalLoaderInstalled: false,
+      }),
+    ).toBe("missingOptionalLoader");
+  });
+
   it("marks the bundled VRM loader pack as optional but installed", () => {
     expect(
       listRegisteredLoaders().find((loader) => loader.extension === "vrm"),
@@ -186,20 +209,35 @@ describe("preview support classification", () => {
         name: "Gaussian Splat Loader Pack",
         extensions: ["ksplat", "sog", "splat", "spz"],
         installed: true,
+        enabled: true,
       },
       {
         id: "mmd-loader-pack",
         name: "MMD Loader Pack",
         extensions: ["pmd", "pmx", "vmd"],
         installed: true,
+        enabled: true,
       },
       {
         id: "vrm-loader-pack",
         name: "VRM Loader Pack",
         extensions: ["vrm"],
         installed: true,
+        enabled: true,
       },
     ]);
+  });
+
+  it("applies optional loader pack settings to Settings reporting", () => {
+    expect(
+      listOptionalLoaderPacks({
+        "mmd-loader-pack": { enabled: false },
+      }).find((pack) => pack.id === "mmd-loader-pack"),
+    ).toMatchObject({
+      id: "mmd-loader-pack",
+      enabled: false,
+      installed: true,
+    });
   });
 
   it("marks a pack missing when any registered pack extension is missing", () => {
@@ -226,6 +264,7 @@ describe("preview support classification", () => {
         name: "Mixed Loader Pack",
         extensions: ["one", "two"],
         installed: false,
+        enabled: true,
       },
     ]);
   });
@@ -238,6 +277,13 @@ describe("preview support classification", () => {
     expect(formatMissingOptionalLoaderMessage("vrm")).toEqual({
       title: "VRM Loader Pack is not installed.",
       body: "Install VRM Loader Pack to preview VRM files.",
+    });
+  });
+
+  it("formats disabled optional loader copy without install guidance", () => {
+    expect(formatDisabledOptionalLoaderMessage("vrm")).toEqual({
+      title: "VRM Loader Pack is disabled.",
+      body: "Enable VRM Loader Pack in Settings to preview VRM files.",
     });
   });
 

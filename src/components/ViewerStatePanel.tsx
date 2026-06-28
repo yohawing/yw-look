@@ -1,5 +1,6 @@
 import { LoadingScreen } from "./LoadingScreen";
 import {
+  formatDisabledOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
   optionalPreviewLoaders,
@@ -88,6 +89,16 @@ const stateContent: Record<
       "Reopen the file after the loader pack is installed.",
     ],
   },
+  disabledOptionalLoader: {
+    label: "Optional Loader Disabled",
+    title: "A loader pack is disabled for this file.",
+    body: "The file extension is recognized, but its optional loader pack is currently disabled.",
+    tone: "warning",
+    details: [
+      "Enable the matching loader pack in Settings.",
+      "Reopen the file after changing the loader pack setting.",
+    ],
+  },
   loadFailed: {
     label: "Load Error",
     title: "This file could not be previewed.",
@@ -128,9 +139,16 @@ export function ViewerStatePanel({
     mode === "missingOptionalLoader" && fileExtension
       ? formatMissingOptionalLoaderMessage(fileExtension)
       : null;
+  const disabledOptionalLoaderMessage =
+    mode === "disabledOptionalLoader" && fileExtension
+      ? formatDisabledOptionalLoaderMessage(fileExtension)
+      : null;
   const content = {
     ...baseContent,
-    ...(unsupportedMessage ?? optionalLoaderMessage ?? {}),
+    ...(unsupportedMessage ??
+      optionalLoaderMessage ??
+      disabledOptionalLoaderMessage ??
+      {}),
   };
 
   if (mode === "loading") {

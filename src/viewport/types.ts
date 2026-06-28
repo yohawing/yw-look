@@ -26,6 +26,7 @@ export type RuntimePreviewUpdater = {
 
 export type AssetViewportProps = {
   currentFile: SelectedFile | null;
+  disabledOptionalLoaderPackIds?: readonly string[];
   mmdMotionRequest?: {
     file: SelectedFile;
     version: number;

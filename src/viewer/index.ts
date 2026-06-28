@@ -17,6 +17,7 @@ export type {
 export { neutralFeedback } from "./types";
 export {
   optionalPreviewLoaders,
+  formatDisabledOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
 } from "./types";
@@ -70,6 +71,7 @@ export {
   getPreviewSupportState,
   listRegisteredLoaders,
   listOptionalLoaderPacks,
+  disabledOptionalLoaderPackIds,
 } from "./loaders";
 export type { LoaderContext, LoaderPlugin } from "./loaderRegistry";
 
