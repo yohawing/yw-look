@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { UsdSourceCard } from "../UsdSourceCard";
+import { flattenStage, loadUsdSource } from "../../lib/usd";
 import type { SelectedFile } from "../../lib/files";
 
 vi.mock("../../lib/usd", () => ({
@@ -21,6 +22,7 @@ vi.mock("../../lib/usd", () => ({
     kind: "text" as const,
     source: 'string greeting = "class def" # comment',
   })),
+  flattenStage: vi.fn(),
 }));
 
 function makeFile(extension: string): SelectedFile {
@@ -36,6 +38,13 @@ function makeFile(extension: string): SelectedFile {
 describe("UsdSourceCard", () => {
   afterEach(() => {
     cleanup();
+    vi.mocked(loadUsdSource).mockReset();
+    vi.mocked(loadUsdSource).mockResolvedValue({
+      kind: "text",
+      source: 'string greeting = "class def" # comment',
+    });
+    vi.mocked(flattenStage).mockReset();
+    vi.restoreAllMocks();
   });
 
   it("renders nothing when no file is open", () => {
@@ -89,5 +98,26 @@ describe("UsdSourceCard", () => {
     // each branch correctly.
     expect(html).toContain('<span class="usd-type">string</span>');
     expect(html).toContain('<span class="usd-comment"># comment</span>');
+  });
+
+  it("warns in user-facing language before rendering large composed source", async () => {
+    vi.mocked(loadUsdSource).mockResolvedValueOnce({ kind: "binary" });
+    vi.mocked(flattenStage).mockResolvedValueOnce("x".repeat(1_000_001));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { getByRole } = render(
+      <UsdSourceCard currentFile={makeFile("usdc")} />,
+    );
+
+    await act(async () => {
+      getByRole("button", { name: "Show" }).click();
+    });
+    await act(async () => {
+      getByRole("button", { name: "Show flattened" }).click();
+    });
+
+    expect(confirm).toHaveBeenCalledWith(
+      "The composed USD view is large (1.0 MB) and may take a moment to render. Continue?",
+    );
   });
 });

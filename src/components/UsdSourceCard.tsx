@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { USD_SOURCE_RENDER_LIMITS } from "../config/viewerLimits";
 import { flattenStage, loadUsdSource, type UsdSourcePayload } from "../lib/usd";
 import type { SelectedFile } from "../lib/files";
 import { Button } from "./ui/Button";
@@ -13,18 +14,6 @@ type UsdSourceCardProps = {
    * because there is no source to load. */
   currentFile: SelectedFile | null;
 };
-
-/** Hard cap on rendered text size. USD source files are usually
- * compact, but a heavily authored stage can run to multiple MB; we
- * truncate at this threshold so the inspector never tries to layout
- * a million-line `<pre>` and lock the renderer. The user can still
- * view the truncated head and an explanatory footer. */
-const MAX_RENDER_CHARS = 256_000;
-
-/** Threshold above which we show a confirmation dialog before loading
- * the flattened stage text. Flatten output can be several MB for
- * complex stages (references, payloads composed in). */
-const FLATTEN_WARN_BYTES = 1_000_000;
 
 const USDA_KEYWORDS = [
   "def",
@@ -98,6 +87,10 @@ function highlightUsda(source: string): string {
     out += escapeHtml(source.slice(cursor));
   }
   return out;
+}
+
+function formatLargeFlattenConfirmation(bytes: number): string {
+  return `The composed USD view is large (${(bytes / 1_000_000).toFixed(1)} MB) and may take a moment to render. Continue?`;
 }
 
 export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
@@ -221,10 +214,8 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
     try {
       const text = await flattenStage(currentFile.path);
       // Confirm load for very large results.
-      if (text.length > FLATTEN_WARN_BYTES) {
-        const ok = window.confirm(
-          `Large flatten — the stage exports to ${(text.length / 1_000_000).toFixed(1)} MB of USDA text. Load anyway?`,
-        );
+      if (text.length > USD_SOURCE_RENDER_LIMITS.flattenWarnBytes) {
+        const ok = window.confirm(formatLargeFlattenConfirmation(text.length));
         if (!ok) {
           setFlattenLoading(false);
           return;
@@ -240,20 +231,22 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
   };
 
   const truncated =
-    payload?.kind === "text" && payload.source.length > MAX_RENDER_CHARS;
+    payload?.kind === "text" &&
+    payload.source.length > USD_SOURCE_RENDER_LIMITS.maxRenderChars;
   const renderText =
     payload?.kind === "text"
       ? truncated
-        ? payload.source.slice(0, MAX_RENDER_CHARS)
+        ? payload.source.slice(0, USD_SOURCE_RENDER_LIMITS.maxRenderChars)
         : payload.source
       : "";
 
   const flattenTruncated =
-    flattenedSource !== null && flattenedSource.length > MAX_RENDER_CHARS;
+    flattenedSource !== null &&
+    flattenedSource.length > USD_SOURCE_RENDER_LIMITS.maxRenderChars;
   const flattenRenderText =
     flattenedSource !== null
       ? flattenTruncated
-        ? flattenedSource.slice(0, MAX_RENDER_CHARS)
+        ? flattenedSource.slice(0, USD_SOURCE_RENDER_LIMITS.maxRenderChars)
         : flattenedSource
       : "";
 
@@ -308,9 +301,10 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
                   />
                   {flattenTruncated && (
                     <SidebarEmpty>
-                      Truncated at {MAX_RENDER_CHARS.toLocaleString()} chars (
-                      {flattenedSource!.length.toLocaleString()} total). Open
-                      the asset in an external editor for the full source.
+                      Truncated at{" "}
+                      {USD_SOURCE_RENDER_LIMITS.maxRenderChars.toLocaleString()}{" "}
+                      chars ({flattenedSource!.length.toLocaleString()} total).
+                      Open the asset in an external editor for the full source.
                     </SidebarEmpty>
                   )}
                 </>
@@ -335,9 +329,10 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
               />
               {truncated && (
                 <SidebarEmpty>
-                  Truncated at {MAX_RENDER_CHARS.toLocaleString()} chars (
-                  {payload.source.length.toLocaleString()} total). Open the
-                  asset in an external editor for the full source.
+                  Truncated at{" "}
+                  {USD_SOURCE_RENDER_LIMITS.maxRenderChars.toLocaleString()}{" "}
+                  chars ({payload.source.length.toLocaleString()} total). Open
+                  the asset in an external editor for the full source.
                 </SidebarEmpty>
               )}
             </>
