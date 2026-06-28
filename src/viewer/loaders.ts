@@ -68,6 +68,15 @@ async function readArrayBuffer(path: string) {
   return readBinaryFile(path);
 }
 
+function warnTextureFallback(
+  message: string,
+  details: Record<string, unknown>,
+) {
+  if (import.meta.env.DEV) {
+    console.warn(message, details);
+  }
+}
+
 /**
  * Yields control to the browser for one paint frame. Used before heavy
  * synchronous work (e.g. Three.js USDLoader.parse) so that React commits
@@ -987,7 +996,7 @@ async function createFbxLoadingManager(
               return;
             }
             manager.itemError(resourceUrl);
-            console.warn("[fbx] Failed to load deferred DDS texture:", {
+            warnTextureFallback("[fbx] Failed to load deferred DDS texture:", {
               url: resourceUrl,
               error,
             });
@@ -1102,7 +1111,7 @@ async function createFbxLoadingManager(
             return;
           }
           manager.itemError(resourceUrl);
-          console.warn("[fbx] Failed to load deferred TGA texture:", {
+          warnTextureFallback("[fbx] Failed to load deferred TGA texture:", {
             url: resourceUrl,
             error,
           });
@@ -1164,7 +1173,7 @@ async function createFbxLoadingManager(
             return;
           }
           manager.itemError(resourceUrl);
-          console.warn("[fbx] Failed to load texture; using fallback:", {
+          warnTextureFallback("[fbx] Failed to load texture; using fallback:", {
             url: resourceUrl,
             error,
           });
@@ -1255,7 +1264,7 @@ async function materializeGltf(file: SelectedFile) {
 
   if (missingImageIndices.size > 0) {
     applyMissingGltfTextureFallbacks(json, missingImageIndices);
-    console.warn(
+    warnTextureFallback(
       "[gltf] missing texture references; using fallback material:",
       {
         file: file.fileName,
@@ -1991,7 +2000,7 @@ async function loadPreviewObjectCore(
         }
       }
       if (missingPaths.length > 0) {
-        console.warn("[dae] missing texture references; continuing:", {
+        warnTextureFallback("[dae] missing texture references; continuing:", {
           file: file.fileName,
           missingTextures: missingPaths,
         });
