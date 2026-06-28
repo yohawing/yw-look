@@ -3,6 +3,7 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const repoRoot = fileURLToPath(new URL(".", import.meta.url));
 const optionalThreeMmdLoaderPath = fileURLToPath(
   new URL("./node_modules/@yohawing/three-mmd-loader", import.meta.url),
 );
@@ -109,7 +110,7 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     fs: {
-      allow: [".."],
+      allow: [repoRoot],
     },
   },
 });
