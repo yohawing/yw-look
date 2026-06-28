@@ -18,6 +18,7 @@ import { Color, Mesh, type Material, type Object3D } from "three";
 import type { Group } from "three";
 import { isViewportHelperObject } from "./scene";
 import { isSelectionProxy } from "./selectionProxy";
+import { resolveObjectSelectionKey } from "./selectionKeys";
 
 /** Accent Violet from the yw-look design system (docs/DESIGN.md). */
 const SELECTION_TINT = new Color(0x7170ff);
@@ -117,15 +118,9 @@ export function applySelectionHighlight(
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     if (!shouldHighlightMesh(child)) return;
-    // Prefer primPath as the stable selection key (#46).
-    const primPath =
-      typeof child.userData?.primPath === "string"
-        ? child.userData.primPath
-        : undefined;
-    const matchKey =
-      primPath ?? (typeof child.name === "string" ? child.name.trim() : "");
+    const matchKey = resolveObjectSelectionKey(child);
     // Unnamed meshes without a primPath are not selectable.
-    if (matchKey.length === 0) return;
+    if (matchKey === null) return;
     if (matchKey === key) {
       applyTintToMesh(child);
     }

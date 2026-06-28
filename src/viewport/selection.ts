@@ -1,6 +1,7 @@
 import { Mesh, Object3D } from "three";
 import type { PurposeModes } from "../lib/usd";
 import { isViewportHelperObject, selectionProxyTarget } from "../viewer";
+import { resolveObjectSelectionKey } from "../viewer/selectionKeys";
 
 export const MANUAL_HIDDEN_KEY = "__ywManualHidden";
 
@@ -9,12 +10,7 @@ export function selectionKeyForObject(object: Object3D) {
   if (proxyTarget) {
     return selectionKeyForObject(proxyTarget);
   }
-  const primPath =
-    typeof object.userData?.primPath === "string"
-      ? object.userData.primPath
-      : undefined;
-  const raw = typeof object.name === "string" ? object.name.trim() : "";
-  return primPath ?? (raw.length > 0 ? raw : null);
+  return resolveObjectSelectionKey(object);
 }
 
 export function findObjectBySelectionKey(

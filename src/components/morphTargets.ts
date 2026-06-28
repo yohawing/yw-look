@@ -1,13 +1,5 @@
 import { Mesh, Object3D } from "three";
-
-function selectionKeyForObject(object: Object3D) {
-  const primPath =
-    typeof object.userData?.primPath === "string"
-      ? object.userData.primPath
-      : undefined;
-  const raw = typeof object.name === "string" ? object.name.trim() : "";
-  return primPath ?? (raw.length > 0 ? raw : null);
-}
+import { resolveObjectSelectionKey } from "../viewer/selectionKeys";
 
 export function applyMorphTargetValues(
   root: Object3D,
@@ -17,7 +9,7 @@ export function applyMorphTargetValues(
 
   root.traverse((child) => {
     if (!(child instanceof Mesh) || !child.morphTargetInfluences) return;
-    const selectionKey = selectionKeyForObject(child);
+    const selectionKey = resolveObjectSelectionKey(child);
     if (!selectionKey) return;
     const targetValues = values[selectionKey];
     if (!targetValues) return;

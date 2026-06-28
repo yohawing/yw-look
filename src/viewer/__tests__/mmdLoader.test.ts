@@ -154,6 +154,10 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
 vi.mock("#yw-look-mmd-loader-entry", () => import("../mmd/loaderInstalled"));
 
 import { loadMmdMotion, loadPreviewObject } from "../loaders";
+import {
+  findObjectBySelectionKey,
+  selectionKeyForObject,
+} from "../../viewport/selection";
 
 const pmxFile: SelectedFile = {
   path: "C:\\mmd\\初音ミク.pmx",
@@ -412,6 +416,29 @@ describe("MMD preview loader", () => {
 
     expect(mesh.name).toBe("Legacy Model");
     expect(result.formatVersion).toBe("PMD 1");
+  });
+
+  it("keeps PMX root and mesh selection keys distinct", async () => {
+    const root = new Group();
+    const mesh = new Group();
+    root.add(mesh);
+    mocks.loadAsync.mockResolvedValue({
+      root,
+      mesh,
+      outlineMeshes: [],
+      renderOrderMeshes: [],
+      diagnostics: { textures: [] },
+    });
+
+    const result = await loadPreviewObject(pmxFile);
+    const rootKey = selectionKeyForObject(root);
+    const meshKey = selectionKeyForObject(mesh);
+
+    expect(root.name).toBe("Hatsune Miku");
+    expect(mesh.name).toBe("Hatsune Miku");
+    expect(rootKey).toBe("Hatsune Miku::mmd-root");
+    expect(meshKey).toBe("Hatsune Miku::mmd-mesh");
+    expect(findObjectBySelectionKey(result.object, meshKey!)).toBe(mesh);
   });
 
   it("suppresses PMX local axis attach failures from user warnings", async () => {

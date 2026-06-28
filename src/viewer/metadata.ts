@@ -40,6 +40,10 @@ import type {
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { isViewportHelperObject, getMaterials } from "./scene";
 import { isInternalMmdProxyObject } from "./mmd/userData";
+import {
+  explicitObjectSelectionKey,
+  resolveObjectSelectionKey,
+} from "./selectionKeys";
 
 import type {
   AnimationClipMetadata,
@@ -263,12 +267,15 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
   const displayName = primPath
     ? basenameFromPrimPath(primPath)
     : safeTrimmedName(object);
+  const explicitSelectionKey = explicitObjectSelectionKey(object);
   const mmdBoneName =
     object instanceof Bone ? stringValue(object.userData.mmdBoneName) : null;
+  const nodeName = explicitSelectionKey ?? displayName;
+  const visibleName = mmdBoneName ?? displayName;
   return {
-    name: displayName,
-    ...(mmdBoneName && mmdBoneName !== displayName
-      ? { displayName: mmdBoneName }
+    name: nodeName,
+    ...(visibleName && visibleName !== nodeName
+      ? { displayName: visibleName }
       : {}),
     kind: getObjectKind(object),
     children: collectHierarchyChildren(object),
@@ -869,13 +876,7 @@ function buildCameraEntry(
  * trimmed `Object3D.name` for non-USD assets.  Returns `null` for
  * unnamed meshes / groups that cannot be meaningfully selected. */
 function resolveSelectionKey(object: Object3D): string | null {
-  const primPath =
-    typeof object.userData?.primPath === "string"
-      ? object.userData.primPath
-      : undefined;
-  if (primPath !== undefined) return primPath;
-  const name = safeTrimmedName(object);
-  return name.length > 0 ? name : null;
+  return resolveObjectSelectionKey(object);
 }
 
 /** Build an `ObjectInfo` entry for one traversed Object3D.  Handles

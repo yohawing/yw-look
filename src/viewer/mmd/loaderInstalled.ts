@@ -11,6 +11,7 @@ import type { MmdAssetMetadata } from "../../components/assetMetadata";
 import type { LoaderContext } from "../loaderRegistry";
 import { MMD_EXAMPLE_LIGHTING_PRESET } from "../lighting";
 import { MMD_PREVIEW_RENDERING_PRESET } from "../rendering";
+import { setObjectSelectionKey } from "../selectionKeys";
 import { setSelectionProxyTarget } from "../selectionProxy";
 import type {
   LoadedMmdMotion,
@@ -645,16 +646,20 @@ export async function loadMmdPreviewObject(
     reportStage("scene");
 
     const displayName = metadata.englishName || metadata.name || file.fileName;
+    const rootSelectionKey = `${displayName}::mmd-root`;
+    const meshSelectionKey = `${displayName}::mmd-mesh`;
     const object = new Group();
     object.name = `${displayName} Preview`;
     object.userData[MMD_MODEL_KEY] = mmd;
     object.userData.mmdSourceFile = file.path;
     if (mmd.root) {
       mmd.root.name = displayName;
+      setObjectSelectionKey(mmd.root, rootSelectionKey);
       mmd.root.userData[MMD_MODEL_KEY] = mmd;
       mmd.root.userData.mmdSourceFile = file.path;
     }
     mmd.mesh.name = displayName;
+    setObjectSelectionKey(mmd.mesh, meshSelectionKey);
     mmd.mesh.userData[MMD_MODEL_KEY] = mmd;
     mmd.mesh.userData.mmdSourceFile = file.path;
     for (const proxy of [
