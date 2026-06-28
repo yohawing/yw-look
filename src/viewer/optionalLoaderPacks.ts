@@ -51,3 +51,15 @@ export function getOptionalLoaderDefinitionByExtension(extension: string) {
   }
   return null;
 }
+
+export function getOptionalLoaderMessageInfo(extension: string) {
+  const definition = getOptionalLoaderDefinitionByExtension(extension);
+  if (!definition) {
+    return null;
+  }
+
+  return {
+    formatLabel: definition.formatLabel,
+    loaderPackName: definition.loaderPackName,
+  };
+}

@@ -469,6 +469,10 @@ describe("preview support classification", () => {
       title: "VRM Loader Pack is not installed.",
       body: "Install VRM Loader Pack to preview VRM files.",
     });
+    expect(formatMissingOptionalLoaderMessage("pmx")).toEqual({
+      title: "MMD Loader Pack is not installed.",
+      body: "Install MMD Loader Pack to preview PMX files.",
+    });
   });
 
   it("formats disabled optional loader copy without install guidance", () => {

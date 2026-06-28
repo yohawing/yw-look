@@ -1,5 +1,5 @@
 import type { ViewerFeedback } from "../types/viewer";
-import { optionalLoaderPackDefinitions } from "./optionalLoaderPacks";
+import { getOptionalLoaderMessageInfo } from "./optionalLoaderPacks";
 
 export type {
   ViewerMode,
@@ -27,27 +27,8 @@ export type {
   RegisteredLoaderInfo,
 } from "../types/viewer";
 
-export const optionalPreviewLoaders = Object.fromEntries(
-  optionalLoaderPackDefinitions.flatMap((pack) =>
-    pack.extensions.map((entry) => [
-      entry.extension,
-      {
-        formatLabel: entry.formatLabel,
-        loaderPackName: pack.name,
-      },
-    ]),
-  ),
-) as Record<
-  string,
-  {
-    formatLabel: string;
-    loaderPackName: string;
-  }
->;
-
 export function formatMissingOptionalLoaderMessage(extension: string) {
-  const optionalLoader =
-    optionalPreviewLoaders[extension as keyof typeof optionalPreviewLoaders];
+  const optionalLoader = getOptionalLoaderMessageInfo(extension);
 
   if (!optionalLoader) {
     return null;
@@ -60,8 +41,7 @@ export function formatMissingOptionalLoaderMessage(extension: string) {
 }
 
 export function formatDisabledOptionalLoaderMessage(extension: string) {
-  const optionalLoader =
-    optionalPreviewLoaders[extension as keyof typeof optionalPreviewLoaders];
+  const optionalLoader = getOptionalLoaderMessageInfo(extension);
 
   if (!optionalLoader) {
     return null;
@@ -74,8 +54,7 @@ export function formatDisabledOptionalLoaderMessage(extension: string) {
 }
 
 export function formatIncompatibleOptionalLoaderMessage(extension: string) {
-  const optionalLoader =
-    optionalPreviewLoaders[extension as keyof typeof optionalPreviewLoaders];
+  const optionalLoader = getOptionalLoaderMessageInfo(extension);
 
   if (!optionalLoader) {
     return null;

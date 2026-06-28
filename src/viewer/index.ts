@@ -16,7 +16,6 @@ export type {
 
 export { neutralFeedback } from "./types";
 export {
-  optionalPreviewLoaders,
   formatDisabledOptionalLoaderMessage,
   formatIncompatibleOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
