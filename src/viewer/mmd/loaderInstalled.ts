@@ -18,8 +18,10 @@ import type {
   MmdRuntimeModelHandle,
 } from "../types";
 import { MMD_MODEL_KEY, syncMmdMaterialRenderStates } from "./userData";
+import MMD_ANIM_WASM_URL from "virtual:yw-look-mmd-wasm-url";
 
 const MMD_FRAME_RATE = 30;
+
 type MmdTextureDiagnostic = {
   code: string;
   path: string;
@@ -78,7 +80,7 @@ type ThreeMmdLoaderModule = {
   parseVmd(buffer: ArrayBuffer): ParsedVmdAnimation;
   parseVmdMetadata(buffer: ArrayBuffer): ParsedVmdMetadata;
   parseVmdSectionInventory(buffer: ArrayBuffer): ParsedVmdInventory;
-  initCore(): Promise<MmdParserCore>;
+  initCore(options?: { wasmUrl?: string }): Promise<MmdParserCore>;
   syncMmdSpecularDirection(
     material: Material | Material[],
     light: DirectionalLight,
@@ -545,7 +547,7 @@ async function attachPmxLocalAxes(
 ) {
   try {
     const { initCore } = await importThreeMmdLoader();
-    const core = await initCore();
+    const core = await initCore({ wasmUrl: MMD_ANIM_WASM_URL });
     let parsedModel: ParsedMmdModel | null = null;
     try {
       parsedModel = core.loadModel(buffer);

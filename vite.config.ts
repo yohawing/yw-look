@@ -1,6 +1,7 @@
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath, URL } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 const repoRoot = fileURLToPath(new URL(".", import.meta.url));
@@ -40,8 +41,67 @@ const includeOptionalSparkLoader =
   process.env.YW_INCLUDE_SPARK_LOADER_PACK !== "0" &&
   process.env.YW_INCLUDE_SPARK_LOADER_PACK?.toLowerCase() !== "false";
 
+const mmdAnimWasmPath = path.resolve(
+  optionalThreeMmdLoaderPath,
+  "dist/parser/wasm/generated/mmd_anim_wasm_bg.wasm",
+);
+const mmdAnimWasmImportPath =
+  "/node_modules/@yohawing/three-mmd-loader/dist/parser/wasm/generated/mmd_anim_wasm_bg.wasm?url";
+const mmdAnimWasmDevUrl = "/@yw-look/mmd-loader/mmd_anim_wasm_bg.wasm";
+const mmdWasmUrlModuleId = "virtual:yw-look-mmd-wasm-url";
+const resolvedMmdWasmUrlModuleId = "\0yw-look-mmd-wasm-url";
+
+export function mmdWasmMimePlugin(): Plugin {
+  let isServe = false;
+
+  const serveMmdWasm = (_request, response, next) => {
+    if (!existsSync(mmdAnimWasmPath)) {
+      next();
+      return;
+    }
+
+    response.statusCode = 200;
+    response.setHeader("Content-Type", "application/wasm");
+    createReadStream(mmdAnimWasmPath).pipe(response);
+  };
+
+  return {
+    name: "yw-look-mmd-wasm-mime",
+    enforce: "pre",
+    configResolved(config) {
+      isServe = config.command === "serve";
+    },
+    resolveId(id) {
+      if (id === mmdWasmUrlModuleId) {
+        return resolvedMmdWasmUrlModuleId;
+      }
+      return null;
+    },
+    load(id) {
+      if (id === resolvedMmdWasmUrlModuleId) {
+        if (!isServe) {
+          return [
+            `import wasmUrl from ${JSON.stringify(mmdAnimWasmImportPath)};`,
+            "export default wasmUrl;",
+          ].join("\n");
+        }
+        return `export default ${JSON.stringify(mmdAnimWasmDevUrl)};`;
+      }
+      return null;
+    },
+    configureServer(server) {
+      return () => {
+        server.middlewares.stack.unshift({
+          route: mmdAnimWasmDevUrl,
+          handle: serveMmdWasm,
+        });
+      };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [mmdWasmMimePlugin(), react()],
   clearScreen: false,
   define: {
     __YW_HAS_THREE_MMD_LOADER__: JSON.stringify(includeOptionalThreeMmdLoader),
@@ -49,6 +109,10 @@ export default defineConfig({
   },
   resolve: {
     alias: [
+      {
+        find: mmdWasmUrlModuleId,
+        replacement: resolvedMmdWasmUrlModuleId,
+      },
       {
         find: "#yw-look-mmd-loader-entry",
         replacement: includeOptionalThreeMmdLoader
