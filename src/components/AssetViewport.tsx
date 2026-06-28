@@ -1054,23 +1054,34 @@ export function AssetViewport({
       const resizeContext = sceneContextRef.current;
       const mountedObject = resizeContext?.mountedObject;
       if (
-        !resizeContext ||
-        !mountedObject ||
-        viewerSurfaceModeRef.current !== "texture"
+        resizeContext &&
+        mountedObject &&
+        viewerSurfaceModeRef.current === "texture"
       ) {
-        return;
+        frameMountedObject(
+          resizeContext,
+          mountedObject,
+          viewerSurfaceModeRef.current,
+          showGridRef.current,
+          showAxesRef.current,
+          cameraSpeedMultiplierRef.current,
+          undefined,
+          texturePreview3DRef.current,
+        );
       }
 
-      frameMountedObject(
-        resizeContext,
-        mountedObject,
-        viewerSurfaceModeRef.current,
-        showGridRef.current,
-        showAxesRef.current,
-        cameraSpeedMultiplierRef.current,
-        undefined,
-        texturePreview3DRef.current,
-      );
+      // Render immediately after setSize to prevent a black flash.
+      // setSize clears the WebGL drawing buffer; without an immediate
+      // redraw the browser composites the cleared frame before the next
+      // requestAnimationFrame, causing visible flicker during sidebar resize.
+      const renderCamera = activeCameraRef.current ?? camera;
+      if (fxaaEnabledRef.current && fxaaStateRef.current) {
+        fxaaStateRef.current.renderPass.camera = renderCamera;
+        fxaaStateRef.current.composer.render();
+      } else {
+        renderer.render(scene, renderCamera);
+      }
+      labelRenderer.render(scene, renderCamera);
     });
 
     resizeObserver.observe(host);
