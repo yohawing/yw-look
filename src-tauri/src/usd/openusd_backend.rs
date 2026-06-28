@@ -15,7 +15,9 @@ use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::stage::{MaterialData, MeshData, UpAxis};
 use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
 
-use super::backend::{UsdError, UsdGeometryBackend, UsdInspectBackend, UsdSessionBackend};
+use super::backend::{UsdError, UsdGeometryBackend, UsdInspectBackend};
+#[cfg(feature = "backend-openusd-rs")]
+use super::backend::UsdSessionBackend;
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
