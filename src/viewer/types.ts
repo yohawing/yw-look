@@ -1,4 +1,5 @@
 import type { ViewerFeedback } from "../types/viewer";
+import { optionalLoaderPackDefinitions } from "./optionalLoaderPacks";
 
 export type {
   ViewerMode,
@@ -26,44 +27,17 @@ export type {
   RegisteredLoaderInfo,
 } from "../types/viewer";
 
-export const optionalPreviewLoaders = {
-  vrm: {
-    formatLabel: "VRM",
-    loaderPackName: "VRM Loader Pack",
-  },
-  vrma: {
-    formatLabel: "VRMA",
-    loaderPackName: "VRM Loader Pack",
-  },
-  pmx: {
-    formatLabel: "PMX",
-    loaderPackName: "MMD Loader Pack",
-  },
-  pmd: {
-    formatLabel: "PMD",
-    loaderPackName: "MMD Loader Pack",
-  },
-  vmd: {
-    formatLabel: "VMD",
-    loaderPackName: "MMD Loader Pack",
-  },
-  splat: {
-    formatLabel: "Gaussian Splat",
-    loaderPackName: "Gaussian Splat Loader Pack",
-  },
-  spz: {
-    formatLabel: "SPZ Gaussian Splat",
-    loaderPackName: "Gaussian Splat Loader Pack",
-  },
-  ksplat: {
-    formatLabel: "KSPLAT Gaussian Splat",
-    loaderPackName: "Gaussian Splat Loader Pack",
-  },
-  sog: {
-    formatLabel: "SOG Gaussian Splat",
-    loaderPackName: "Gaussian Splat Loader Pack",
-  },
-} as const satisfies Record<
+export const optionalPreviewLoaders = Object.fromEntries(
+  optionalLoaderPackDefinitions.flatMap((pack) =>
+    pack.extensions.map((entry) => [
+      entry.extension,
+      {
+        formatLabel: entry.formatLabel,
+        loaderPackName: pack.name,
+      },
+    ]),
+  ),
+) as Record<
   string,
   {
     formatLabel: string;

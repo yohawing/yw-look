@@ -35,6 +35,10 @@ import {
 } from "../lib/usd";
 import type { OptionalLoaderPackManifest } from "../types/ipc";
 import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
+import {
+  getOptionalLoaderDefinitionByExtension,
+  getOptionalLoaderPackDefinition,
+} from "./optionalLoaderPacks";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
   DeferredTextureSnapshot,
@@ -46,7 +50,6 @@ import type {
   RegisteredLoaderInfo,
   TextureBundle,
 } from "./types";
-import { optionalPreviewLoaders } from "./types";
 
 const HAS_THREE_MMD_LOADER =
   typeof __YW_HAS_THREE_MMD_LOADER__ === "boolean"
@@ -2492,6 +2495,20 @@ const coreLoaderExtensions = [
 
 export const loaderRegistry = new LoaderRegistry();
 
+function requireOptionalLoaderPackDefinition(id: string) {
+  const definition = getOptionalLoaderPackDefinition(id);
+  if (!definition) {
+    throw new Error(`Unknown optional loader pack definition: ${id}`);
+  }
+  return definition;
+}
+
+const vrmLoaderPack = requireOptionalLoaderPackDefinition("vrm-loader-pack");
+const mmdLoaderPack = requireOptionalLoaderPackDefinition("mmd-loader-pack");
+const gaussianSplatLoaderPack = requireOptionalLoaderPackDefinition(
+  "gaussian-splat-loader-pack",
+);
+
 loaderRegistry.register({
   id: "core-preview-loader",
   name: "Core Preview Loader",
@@ -2508,18 +2525,20 @@ loaderRegistry.register({
 });
 
 loaderRegistry.register({
-  id: "vrm-loader-pack",
-  name: "VRM Loader Pack",
-  extensions: ["vrm"],
+  id: vrmLoaderPack.id,
+  name: vrmLoaderPack.name,
+  extensions: vrmLoaderPack.extensions
+    .filter((entry) => entry.extension === "vrm")
+    .map((entry) => entry.extension),
   optional: true,
   installed: true,
   loadPreviewObject: loadVrmPreviewObject,
 });
 
 loaderRegistry.register({
-  id: "mmd-loader-pack",
-  name: "MMD Loader Pack",
-  extensions: ["pmx", "pmd", "vmd"],
+  id: mmdLoaderPack.id,
+  name: mmdLoaderPack.name,
+  extensions: mmdLoaderPack.extensions.map((entry) => entry.extension),
   optional: true,
   installed: HAS_THREE_MMD_LOADER,
   loadPreviewObject: async (file, context) => {
@@ -2533,9 +2552,11 @@ loaderRegistry.register({
 });
 
 loaderRegistry.register({
-  id: "gaussian-splat-loader-pack",
-  name: "Gaussian Splat Loader Pack",
-  extensions: ["splat", "spz", "ksplat", "sog"],
+  id: gaussianSplatLoaderPack.id,
+  name: gaussianSplatLoaderPack.name,
+  extensions: gaussianSplatLoaderPack.extensions.map(
+    (entry) => entry.extension,
+  ),
   optional: true,
   installed: HAS_SPARK_LOADER,
   loadPreviewObject: async (file, context) => {
@@ -2579,7 +2600,7 @@ export function getPreviewSupportState(
     return "implemented";
   }
 
-  if (normalizedExtension in optionalPreviewLoaders) {
+  if (getOptionalLoaderDefinitionByExtension(normalizedExtension)) {
     return "missingOptionalLoader";
   }
 
