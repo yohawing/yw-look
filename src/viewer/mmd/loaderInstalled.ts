@@ -21,6 +21,11 @@ import { MMD_MODEL_KEY, syncMmdMaterialRenderStates } from "./userData";
 import MMD_ANIM_WASM_URL from "virtual:yw-look-mmd-wasm-url";
 
 const MMD_FRAME_RATE = 30;
+const SUPPRESSED_MMD_DIAGNOSTIC_CODES = new Set([
+  "IK_PMX_LINK_LIMITS_APPROXIMATE",
+  "BONE_FIXED_AXIS_CONSTRAINTS_UNSUPPORTED",
+  "BONE_LOCAL_AXIS_CONSTRAINTS_UNSUPPORTED",
+]);
 
 type MmdTextureDiagnostic = {
   code: string;
@@ -216,6 +221,7 @@ function normalizeMmdDiagnostics(
     const record = entry as Record<string, unknown>;
     const level = record.level === "error" ? "error" : "warning";
     const code = typeof record.code === "string" ? record.code : "UNKNOWN";
+    if (SUPPRESSED_MMD_DIAGNOSTIC_CODES.has(code)) return [];
     const message =
       typeof record.message === "string" ? record.message : "No message.";
     const key = `${level}\0${code}\0${message}`;
@@ -543,7 +549,6 @@ function attachParsedLocalAxisToBones(
 async function attachPmxLocalAxes(
   buffer: ArrayBuffer,
   mmd: MmdRuntimeModelHandle,
-  context: LoaderContext,
 ) {
   try {
     const { initCore } = await importThreeMmdLoader();
@@ -555,11 +560,8 @@ async function attachPmxLocalAxes(
     } finally {
       parsedModel?.dispose?.();
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    context.onWarning?.(
-      `PMX LocalAxis metadata could not be attached to joint axes: ${message}.`,
-    );
+  } catch {
+    return;
   }
 }
 
@@ -638,7 +640,7 @@ export async function loadMmdPreviewObject(
       }
     }
     if (file.extension === "pmx") {
-      await attachPmxLocalAxes(buffer, mmd, context);
+      await attachPmxLocalAxes(buffer, mmd);
     }
     reportStage("scene");
 

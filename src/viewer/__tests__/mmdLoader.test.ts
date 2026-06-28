@@ -5,6 +5,7 @@ import type { SelectedFile } from "../../lib/files";
 const mocks = vi.hoisted(() => ({
   convertFileSrc: vi.fn((path: string) => `asset://localhost/${path}`),
   loadAsync: vi.fn(),
+  initCore: vi.fn(),
   readBinaryFile: vi.fn(),
   revokeObjectURL: vi.fn(),
   physicsBackend: { dispose: vi.fn() },
@@ -23,11 +24,7 @@ vi.mock("../../lib/files", async (importOriginal) => ({
 vi.mock("@yohawing/three-mmd-loader", () => ({
   loadAmmoNamespace: vi.fn(async () => ({})),
   createAmmoMmdPhysicsBackend: vi.fn(() => mocks.physicsBackend),
-  initCore: vi.fn(async () => ({
-    loadModel: vi.fn(() => ({
-      skeleton: () => ({ bones: [] }),
-    })),
-  })),
+  initCore: mocks.initCore,
   parseVmd: vi.fn(() => ({
     kind: "vmd",
     metadata: { maxFrame: 60, modelName: "Hatsune Miku" },
@@ -185,6 +182,12 @@ const vmdFile: SelectedFile = {
 describe("MMD preview loader", () => {
   beforeEach(() => {
     mocks.convertFileSrc.mockClear();
+    mocks.initCore.mockReset();
+    mocks.initCore.mockResolvedValue({
+      loadModel: vi.fn(() => ({
+        skeleton: () => ({ bones: [] }),
+      })),
+    });
     mocks.loadAsync.mockReset();
     mocks.readBinaryFile.mockReset();
     mocks.revokeObjectURL.mockReset();
@@ -207,6 +210,21 @@ describe("MMD preview loader", () => {
           level: "warning",
           code: "UNSUPPORTED_MORPH",
           message: "Unsupported morph types are present.",
+        },
+        {
+          level: "warning",
+          code: "IK_PMX_LINK_LIMITS_APPROXIMATE",
+          message: "PMX IK link limits were approximated.",
+        },
+        {
+          level: "warning",
+          code: "BONE_FIXED_AXIS_CONSTRAINTS_UNSUPPORTED",
+          message: "Fixed axis constraints are not supported.",
+        },
+        {
+          level: "warning",
+          code: "BONE_LOCAL_AXIS_CONSTRAINTS_UNSUPPORTED",
+          message: "Local axis constraints are not supported.",
         },
       ],
     };
@@ -394,6 +412,25 @@ describe("MMD preview loader", () => {
 
     expect(mesh.name).toBe("Legacy Model");
     expect(result.formatVersion).toBe("PMD 1");
+  });
+
+  it("suppresses PMX local axis attach failures from user warnings", async () => {
+    const mesh = new Group();
+    const warnings: string[] = [];
+    mocks.initCore.mockRejectedValue(new Error("WASM instantiate failed"));
+    mocks.loadAsync.mockResolvedValue({
+      mesh,
+      outlineMeshes: [],
+      renderOrderMeshes: [],
+      diagnostics: { textures: [] },
+    });
+
+    const result = await loadPreviewObject(pmxFile, undefined, {
+      onWarning: (warning) => warnings.push(warning),
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(warnings).toEqual([]);
   });
 
   it("wraps parser failures with MMD context", async () => {
