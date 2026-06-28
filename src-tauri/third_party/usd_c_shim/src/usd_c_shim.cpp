@@ -3149,6 +3149,26 @@ extern "C" USDC_API void usdc_point_instancer_scales(UsdcStage *stage,
     });
 }
 
+extern "C" USDC_API void usdc_point_instancer_ids(UsdcStage *stage,
+                                                   const char *prim_path,
+                                                   UsdcI64BufferCallback cb,
+                                                   void *user) {
+    if (!cb) return;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { cb(nullptr, 0, user); return; }
+    swallow([&] {
+        UsdGeomPointInstancer instancer(prim);
+        if (!instancer) { cb(nullptr, 0, user); return; }
+        VtArray<int64_t> ids;
+        UsdAttribute attr = instancer.GetIdsAttr();
+        if (!attr || !attr.Get(&ids, UsdTimeCode::Default())) {
+            cb(nullptr, 0, user);
+            return;
+        }
+        cb(ids.data(), ids.size(), user);
+    });
+}
+
 extern "C" USDC_API void usdc_point_instancer_invisible_ids(UsdcStage *stage,
                                                              const char *prim_path,
                                                              UsdcI64BufferCallback cb,

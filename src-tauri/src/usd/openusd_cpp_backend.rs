@@ -1488,8 +1488,8 @@ fn extract_from_stage_with_options(
     //   3. For each instance: bake `composite_inst_world * (T·R·S of i)`,
     //      decompose back to TRS for `EXT_mesh_gpu_instancing`. Skip
     //      individual instances whose scale is non-finite.
-    //   4. Filter `invisibleIds` (compared against array index — `ids`
-    //      attribute support is deferred).
+    //   4. Filter `invisibleIds` against authored `ids` when present,
+    //      falling back to zero-based array indices per USD semantics.
     //   5. Resolve `prototypes` rel; for each prototype index, partition
     //      the instance arrays by `protoIndices[i] == proto_idx`. For
     //      each Mesh prim under the prototype subtree, compose the
@@ -1544,13 +1544,7 @@ fn extract_from_stage_with_options(
             let orientations_flat = stage.point_instancer_orientations(inst_path);
             let scales_flat = stage.point_instancer_scales(inst_path);
             let proto_indices = stage.point_instancer_proto_indices(inst_path);
-            // NOTE: `invisibleIds` semantically references the authored
-            // `ids` int64 array when present, falling back to the
-            // zero-based array index when not. The shim does not yet
-            // expose `ids` so we treat the index as the id; this is
-            // correct for the common case where `ids` is unauthored.
-            // Stages that author a non-default `ids` array will see
-            // wrong instances filtered — TODO follow-up issue.
+            let authored_ids = stage.point_instancer_ids(inst_path);
             let invisible_ids: std::collections::HashSet<i64> = stage
                 .point_instancer_invisible_ids(inst_path)
                 .into_iter()
@@ -1590,7 +1584,8 @@ fn extract_from_stage_with_options(
             let mut instance_proto_idx: Vec<i32> = Vec::new();
 
             for i in 0..instance_count {
-                if invisible_ids.contains(&(i as i64)) {
+                let instance_id = authored_ids.get(i).copied().unwrap_or(i as i64);
+                if invisible_ids.contains(&instance_id) {
                     continue;
                 }
 

@@ -994,11 +994,20 @@ USDC_API void usdc_point_instancer_scales(UsdcStage *stage,
                                           UsdcFloatBufferCallback cb,
                                           void *user);
 
+typedef void (*UsdcI64BufferCallback)(const int64_t *data, size_t count,
+                                     void *user);
+
+/* Reads `ids` (int64[]) at the default time code.
+ * Calls `cb(data, count, user)` with the flat int64 buffer.
+ * Emits `(NULL, 0)` when the attribute is unauthored or empty. */
+USDC_API void usdc_point_instancer_ids(UsdcStage *stage,
+                                       const char *prim_path,
+                                       UsdcI64BufferCallback cb,
+                                       void *user);
+
 /* Reads `invisibleIds` (int64[]) at the default time code.
  * Calls `cb(data, count, user)` with the flat int64 buffer.
  * Emits `(NULL, 0)` when the attribute is unauthored or empty. */
-typedef void (*UsdcI64BufferCallback)(const int64_t *data, size_t count,
-                                     void *user);
 USDC_API void usdc_point_instancer_invisible_ids(UsdcStage *stage,
                                                  const char *prim_path,
                                                  UsdcI64BufferCallback cb,

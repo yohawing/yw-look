@@ -1538,6 +1538,24 @@ impl CStage {
         out
     }
 
+    /// Reads `ids` (int64[]) from a PointInstancer prim.
+    /// Returns an empty `Vec` when unauthored.
+    pub fn point_instancer_ids(&self, prim_path: &str) -> Vec<i64> {
+        let Ok(c) = CString::new(prim_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::<i64>::new();
+        unsafe {
+            usdc_point_instancer_ids(
+                self.raw,
+                c.as_ptr(),
+                Some(i64_buffer_trampoline),
+                &mut out as *mut Vec<i64> as *mut c_void,
+            );
+        }
+        out
+    }
+
     /// Reads `invisibleIds` (int64[]) from a PointInstancer prim.
     /// Returns an empty `Vec` when unauthored.
     pub fn point_instancer_invisible_ids(&self, prim_path: &str) -> Vec<i64> {

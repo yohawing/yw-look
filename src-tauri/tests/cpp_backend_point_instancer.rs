@@ -39,6 +39,28 @@ fn parse_glb_json(bytes: &[u8]) -> serde_json::Value {
     serde_json::from_slice(json_bytes).expect("valid JSON chunk")
 }
 
+fn first_instanced_translation_count(gltf: &serde_json::Value) -> u64 {
+    let nodes = gltf["nodes"].as_array().expect("nodes array");
+    let node = nodes
+        .iter()
+        .find(|n| {
+            n.get("extensions")
+                .and_then(|e| e.get("EXT_mesh_gpu_instancing"))
+                .is_some()
+        })
+        .expect("at least one node must have EXT_mesh_gpu_instancing");
+
+    let translation_acc_idx = node["extensions"]["EXT_mesh_gpu_instancing"]["attributes"]
+        ["TRANSLATION"]
+        .as_u64()
+        .expect("TRANSLATION accessor index") as usize;
+
+    let accessors = gltf["accessors"].as_array().expect("accessors array");
+    accessors[translation_acc_idx]["count"]
+        .as_u64()
+        .expect("accessor count")
+}
+
 /// Smoke test: `extract_geometry_glb` succeeds on the PointInstancer fixture
 /// and returns a valid GLB blob.
 #[test]
@@ -90,30 +112,70 @@ fn point_instancer_ext_mesh_gpu_instancing_present() {
         "extensionsUsed must contain EXT_mesh_gpu_instancing; got: {extensions_used:?}"
     );
 
-    // 2. At least one node must carry the extension.
-    let nodes = gltf["nodes"].as_array().expect("nodes array");
-    let instanced_node = nodes.iter().find(|n| {
-        n.get("extensions")
-            .and_then(|e| e.get("EXT_mesh_gpu_instancing"))
-            .is_some()
-    });
-    assert!(
-        instanced_node.is_some(),
-        "at least one node must have EXT_mesh_gpu_instancing"
-    );
-
-    // 3. The TRANSLATION accessor for the instanced node must have count == 5.
-    let node = instanced_node.unwrap();
-    let translation_acc_idx = node["extensions"]["EXT_mesh_gpu_instancing"]["attributes"]
-        ["TRANSLATION"]
-        .as_u64()
-        .expect("TRANSLATION accessor index") as usize;
-
-    let accessors = gltf["accessors"].as_array().expect("accessors array");
-    let translation_acc = &accessors[translation_acc_idx];
-    let count = translation_acc["count"].as_u64().expect("accessor count");
+    // 2. The TRANSLATION accessor for the instanced node must have count == 5.
+    let count = first_instanced_translation_count(&gltf);
     assert_eq!(
         count, 5,
         "TRANSLATION accessor count must equal the instance count (5); got {count}"
+    );
+}
+
+#[test]
+fn point_instancer_invisible_ids_match_authored_ids() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("point_instancer_authored_ids.usda");
+    std::fs::write(
+        &path,
+        r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    metersPerUnit = 1
+)
+
+def Xform "Root"
+{
+    def PointInstancer "Instancer"
+    {
+        rel prototypes = [</Root/Instancer/PrototypeCube>]
+
+        int64[] ids = [10, 20, 30]
+        int64[] invisibleIds = [20]
+        int[] protoIndices = [0, 0, 0]
+        point3f[] positions = [(0, 0, 0), (2, 0, 0), (4, 0, 0)]
+        quath[] orientations = [(1, 0, 0, 0), (1, 0, 0, 0), (1, 0, 0, 0)]
+        float3[] scales = [(1, 1, 1), (1, 1, 1), (1, 1, 1)]
+
+        def Mesh "PrototypeCube"
+        {
+            int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
+            int[] faceVertexIndices = [0, 1, 3, 2, 2, 3, 5, 4, 4, 5, 7, 6, 6, 7, 1, 0, 1, 7, 5, 3, 6, 0, 2, 4]
+            point3f[] points = [
+                (-0.5, -0.5,  0.5),
+                ( 0.5, -0.5,  0.5),
+                (-0.5,  0.5,  0.5),
+                ( 0.5,  0.5,  0.5),
+                (-0.5,  0.5, -0.5),
+                ( 0.5,  0.5, -0.5),
+                (-0.5, -0.5, -0.5),
+                ( 0.5, -0.5, -0.5)
+            ]
+        }
+    }
+}
+"#,
+    )
+    .expect("write USDA fixture");
+
+    let backend = OpenusdCppBackend::new();
+    let bytes = backend
+        .extract_geometry_glb(&path, StageLoadPolicy::LoadAll)
+        .expect("extract_geometry_glb must succeed");
+
+    let gltf = parse_glb_json(&bytes);
+    let count = first_instanced_translation_count(&gltf);
+    assert_eq!(
+        count, 2,
+        "invisibleIds must match authored ids, hiding only id=20; got {count}"
     );
 }
