@@ -1,3 +1,4 @@
+import { PREFETCH_CACHE_LIMITS } from "../config/viewerLimits";
 import { readBinaryFile, type SelectedFile } from "../lib/files";
 
 type CacheEntry = {
@@ -5,9 +6,6 @@ type CacheEntry = {
   data: ArrayBuffer;
   fetchedAt: number;
 };
-
-const MAX_ENTRIES = 3;
-const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB limit per file
 
 const cache = new Map<string, CacheEntry>();
 const pending = new Map<string, Promise<ArrayBuffer | null>>();
@@ -23,7 +21,7 @@ export function evictAll() {
 }
 
 function evictOldest() {
-  if (cache.size < MAX_ENTRIES) {
+  if (cache.size < PREFETCH_CACHE_LIMITS.maxEntries) {
     return;
   }
 
@@ -45,7 +43,7 @@ function evictOldest() {
 async function fetchAndCache(path: string): Promise<ArrayBuffer | null> {
   try {
     const buffer = await readBinaryFile(path);
-    if (buffer.byteLength > MAX_FILE_SIZE_BYTES) {
+    if (buffer.byteLength > PREFETCH_CACHE_LIMITS.maxFileSizeBytes) {
       return null;
     }
     evictOldest();
