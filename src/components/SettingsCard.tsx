@@ -71,7 +71,6 @@ export function SettingsCard({
   onToggleFileAssociations,
   onToggleAutoCheckForUpdates,
   onToggleOptionalLoaderPack,
-  onInstallOptionalLoaderPack,
   onRemoveOptionalLoaderPack,
 }: SettingsCardProps) {
   const [confirmingRemovalPackId, setConfirmingRemovalPackId] = useState<
@@ -204,18 +203,6 @@ export function SettingsCard({
                     <span className="optional-loader-pack-action">
                       {actionHint}
                     </span>
-                  ) : null}
-                  {!pack.manifestInstalled && pack.runtimeAvailable ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setConfirmingRemovalPackId(null);
-                        onInstallOptionalLoaderPack(pack.id);
-                      }}
-                    >
-                      Install
-                    </Button>
                   ) : null}
                   {pack.manifestInstalled ? (
                     <Button

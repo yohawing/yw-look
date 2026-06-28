@@ -117,10 +117,9 @@ describe("SettingsCard", () => {
     expect(onToggleOptionalLoaderPack).toHaveBeenCalledWith("mmd-loader-pack");
   });
 
-  it("requests optional loader pack install and removal", () => {
+  it("does not offer install for bundled runtime packs", () => {
     const onInstallOptionalLoaderPack = vi.fn();
-    const onRemoveOptionalLoaderPack = vi.fn();
-    const { getByRole } = render(
+    const { queryByRole } = render(
       <SettingsCard
         settingsPayload={settingsPayload}
         settingsError={null}
@@ -138,6 +137,26 @@ describe("SettingsCard", () => {
               label: "Bundled runtime",
             },
           },
+        ]}
+        onToggleAutoCheckForUpdates={() => undefined}
+        onToggleFileAssociations={() => undefined}
+        onInstallOptionalLoaderPack={onInstallOptionalLoaderPack}
+        onRemoveOptionalLoaderPack={() => undefined}
+        onToggleOptionalLoaderPack={() => undefined}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Install" })).toBeNull();
+    expect(onInstallOptionalLoaderPack).not.toHaveBeenCalled();
+  });
+
+  it("requests optional loader pack removal after confirmation", () => {
+    const onRemoveOptionalLoaderPack = vi.fn();
+    const { getByRole } = render(
+      <SettingsCard
+        settingsPayload={settingsPayload}
+        settingsError={null}
+        optionalLoaderPacks={[
           {
             id: "gaussian-splat-loader-pack",
             name: "Gaussian Splat Loader Pack",
@@ -155,18 +174,16 @@ describe("SettingsCard", () => {
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={onInstallOptionalLoaderPack}
+        onInstallOptionalLoaderPack={() => undefined}
         onRemoveOptionalLoaderPack={onRemoveOptionalLoaderPack}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
 
-    fireEvent.click(getByRole("button", { name: "Install" }));
     fireEvent.click(getByRole("button", { name: "Remove" }));
     expect(onRemoveOptionalLoaderPack).not.toHaveBeenCalled();
     fireEvent.click(getByRole("button", { name: "Confirm" }));
 
-    expect(onInstallOptionalLoaderPack).toHaveBeenCalledWith("mmd-loader-pack");
     expect(onRemoveOptionalLoaderPack).toHaveBeenCalledWith(
       "gaussian-splat-loader-pack",
     );
