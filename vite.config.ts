@@ -86,6 +86,16 @@ export default defineConfig({
         manualChunks(id) {
           const normalizedId = id.replaceAll("\\", "/");
 
+          if (normalizedId.includes("node_modules/@sparkjsdev/spark")) {
+            return "spark-loader-pack";
+          }
+
+          if (
+            normalizedId.includes("node_modules/@yohawing/three-mmd-loader")
+          ) {
+            return "mmd-loader-pack";
+          }
+
           if (normalizedId.includes("node_modules/three")) {
             return "three-vendor";
           }
