@@ -24,6 +24,7 @@ export function useUsdInspector(
   );
   const [usdIssues, setUsdIssues] = useState<AssetIssue[]>([]);
   const [usdLights, setUsdLights] = useState<UsdLightInfo[] | null>(null);
+  const [usdLightsError, setUsdLightsError] = useState<string | null>(null);
   const [usdInspectorLoading, setUsdInspectorLoading] = useState(false);
   const [usdInspectorError, setUsdInspectorError] = useState<string | null>(
     null,
@@ -36,6 +37,7 @@ export function useUsdInspector(
       setUsdInspection(null);
       setUsdIssues([]);
       setUsdLights(null);
+      setUsdLightsError(null);
       setUsdInspectorLoading(false);
       setUsdInspectorError(null);
       return;
@@ -46,6 +48,7 @@ export function useUsdInspector(
     setUsdInspection(null);
     setUsdIssues([]);
     setUsdLights(null);
+    setUsdLightsError(null);
     setUsdInspectorLoading(true);
     setUsdInspectorError(null);
 
@@ -101,9 +104,14 @@ export function useUsdInspector(
             .then((lights) => {
               if (cancelled) return;
               setUsdLights(lights);
+              setUsdLightsError(null);
             })
-            .catch(() => {
-              // Degraded: C++ backend not available or backend error
+            .catch((error: unknown) => {
+              if (cancelled) return;
+              setUsdLights(null);
+              setUsdLightsError(
+                errorMessage(error, "Failed to inspect USD lights."),
+              );
             })
         : Promise.resolve();
 
@@ -133,6 +141,7 @@ export function useUsdInspector(
     usdInspection,
     usdIssues,
     usdLights,
+    usdLightsError,
     usdInspectorLoading,
     usdInspectorError,
   };

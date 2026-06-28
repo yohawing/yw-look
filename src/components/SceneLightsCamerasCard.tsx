@@ -1,6 +1,7 @@
 import type { CameraEntry, LightEntry } from "./assetMetadata";
 import type { UsdLightInfo } from "../lib/usd";
 import {
+  SidebarError,
   SidebarKeyValueRows,
   SidebarSection,
   type SidebarKeyValueRow,
@@ -15,6 +16,7 @@ type SceneLightsCamerasCardProps = {
    * Three.js-derived light list. `undefined` means the data has not
    * been fetched yet or is unavailable (Rust-fork backend). */
   usdLights?: UsdLightInfo[];
+  usdLightsError?: string | null;
   /** Stable composite key (`CameraEntry.id`) of the USD camera currently
    * used as the active viewport camera. `null` means the default free-
    * orbit camera is active. The id is `cameraSelectionKey()` output —
@@ -57,10 +59,16 @@ export function SceneLightsCamerasCard({
   lights,
   cameras,
   usdLights,
+  usdLightsError = null,
   activeCameraId = null,
   onSelectCamera,
 }: SceneLightsCamerasCardProps) {
-  if (lights.length === 0 && cameras.length === 0 && !usdLights?.length) {
+  if (
+    lights.length === 0 &&
+    cameras.length === 0 &&
+    !usdLights?.length &&
+    !usdLightsError
+  ) {
     return null;
   }
 
@@ -77,6 +85,7 @@ export function SceneLightsCamerasCard({
   return (
     <SidebarSection title="Scene" collapsible defaultOpen={false}>
       <SidebarKeyValueRows rows={summaryRows} />
+      {usdLightsError ? <SidebarError>{usdLightsError}</SidebarError> : null}
 
       {/* #35 — USD Lights section (C++ backend only) */}
       {usdLights && usdLights.length > 0 && (

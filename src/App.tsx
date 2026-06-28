@@ -73,6 +73,7 @@ export function App() {
     usdInspection,
     usdIssues,
     usdLights,
+    usdLightsError,
     usdInspectorLoading,
     usdInspectorError,
   } = useUsdInspector(currentFile, isTauri, usdLoadPolicy);
@@ -277,6 +278,7 @@ export function App() {
       usdInspectorLoading,
       usdIssues,
       usdLights,
+      usdLightsError,
       usdLoadPolicy,
       variantSelectionError,
       variantSelections,

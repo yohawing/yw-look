@@ -148,6 +148,7 @@ type UseSidebarModelOptions = {
   usdInspectorLoading: boolean;
   usdIssues: AssetIssue[];
   usdLights: UsdLightInfo[] | null;
+  usdLightsError: string | null;
   usdLoadPolicy: StageLoadPolicy;
   variantSelectionError: ViewerState["variantSelectionError"];
   variantSelections: VariantSelection[];
@@ -259,6 +260,7 @@ export function useSidebarModel({
   usdInspectorLoading,
   usdIssues,
   usdLights,
+  usdLightsError,
   usdLoadPolicy,
   variantSelectionError,
   variantSelections,
@@ -384,6 +386,7 @@ export function useSidebarModel({
                 lights={sidebarAssetMetadata.lights}
                 cameras={sidebarAssetMetadata.cameras}
                 usdLights={usdLights ?? undefined}
+                usdLightsError={usdLightsError}
                 activeCameraId={activeCameraId}
                 onSelectCamera={viewer.setActiveCameraId}
               />
@@ -601,6 +604,7 @@ export function useSidebarModel({
     usdInspectorLoading,
     usdIssues,
     usdLights,
+    usdLightsError,
     usdLoadPolicy,
     variantSelectionError,
     variantSelections,
