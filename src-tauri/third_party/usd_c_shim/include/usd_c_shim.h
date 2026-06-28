@@ -451,6 +451,13 @@ USDC_API void usdc_mesh_display_color(UsdcStage *stage,
                                       void *user,
                                       UsdcInterpolation *out_interp);
 
+/* Emits `primvars:displayOpacity`, flat `[alpha, ...]`. */
+USDC_API void usdc_mesh_display_opacity(UsdcStage *stage,
+                                        const char *prim_path,
+                                        UsdcFloatBufferCallback cb,
+                                        void *user,
+                                        UsdcInterpolation *out_interp);
+
 /* -------------------- generic prim attribute reads (Phase 2.H) -------------------- */
 
 /* Returns the prim's USD `typeName` (e.g. "Mesh", "Camera",

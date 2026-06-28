@@ -1661,6 +1661,36 @@ usdc_mesh_display_color(UsdcStage *stage,
     }
 }
 
+extern "C" USDC_API void
+usdc_mesh_display_opacity(UsdcStage *stage,
+                          const char *prim_path,
+                          UsdcFloatBufferCallback cb,
+                          void *user,
+                          UsdcInterpolation *out_interp) {
+    if (out_interp) *out_interp = USDC_INTERP_UNKNOWN;
+    UsdPrim prim = prim_at(stage, prim_path);
+    if (!prim) { emit_empty_floats(cb, user); return; }
+    try {
+        UsdGeomPrimvarsAPI api(prim);
+        UsdGeomPrimvar opacity = api.GetPrimvar(TfToken("primvars:displayOpacity"));
+        if (!opacity || !opacity.HasValue()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        VtArray<float> values;
+        if (!opacity.ComputeFlattened(&values) || values.empty()) {
+            emit_empty_floats(cb, user);
+            return;
+        }
+        if (out_interp) {
+            *out_interp = map_interp(opacity.GetInterpolation());
+        }
+        emit_float_array(values, cb, user, 1);
+    } catch (...) {
+        emit_empty_floats(cb, user);
+    }
+}
+
 /* -------------------- generic prim attribute reads (Phase 2.H) -------------------- */
 
 extern "C" USDC_API const char *

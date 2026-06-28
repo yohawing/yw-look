@@ -1053,6 +1053,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                     max_joint,
                     &blend_shapes,
                     subset_opacity,
+                    None,
                 )?;
 
                 // Resolve material: try authored binding first,
@@ -1108,6 +1109,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
             max_joint,
             &blend_shapes,
             display_opacity,
+            None,
         )?;
 
         // Resolve the material slot for this mesh. Unbound meshes
@@ -4007,6 +4009,7 @@ pub(crate) fn mesh_data_to_input(
     // face_count for uniform, or 1 for constant.
     // Pass `None` when the primvar is absent; all alphas default to 1.0.
     display_opacity: Option<&[f32]>,
+    display_opacity_kind: Option<ScalarAttributeKind>,
 ) -> Result<MeshInput, UsdError> {
     let point_count = data.points.len() / 3;
     if data.points.len() % 3 != 0 || point_count == 0 {
@@ -4081,13 +4084,11 @@ pub(crate) fn mesh_data_to_input(
         face_count,
     );
     // `displayOpacity` scalar-per-element: stride 1.
-    let opacity_kind = classify_attribute(
-        display_opacity,
-        1,
-        point_count,
-        total_face_vertices,
-        face_count,
-    );
+    let opacity_kind = display_opacity_kind
+        .map(AttrKind::from)
+        .unwrap_or_else(|| {
+            classify_attribute(display_opacity, 1, point_count, total_face_vertices, face_count)
+        });
 
     let mut positions: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
@@ -4260,6 +4261,19 @@ pub(crate) fn mesh_data_to_input(
                         1.0
                     };
                     colors.push(alpha);
+                } else if display_opacity.is_some() {
+                    let alpha = if let Some(op_src) = display_opacity {
+                        match opacity_kind {
+                            AttrKind::Vertex => *op_src.get(point_index).unwrap_or(&1.0),
+                            AttrKind::FaceVarying => *op_src.get(fv_index).unwrap_or(&1.0),
+                            AttrKind::Uniform => *op_src.get(face_idx).unwrap_or(&1.0),
+                            AttrKind::Constant => *op_src.first().unwrap_or(&1.0),
+                            AttrKind::None | AttrKind::Unknown => 1.0,
+                        }
+                    } else {
+                        1.0
+                    };
+                    colors.extend_from_slice(&[1.0, 1.0, 1.0, alpha]);
                 }
 
                 if has_skin {
@@ -4330,10 +4344,12 @@ pub(crate) fn mesh_data_to_input(
     // Constant (1 color) is handled upstream as baseColorFactor and
     // should NOT appear here — otherwise the GLB would have both a
     // baseColorFactor tint AND vertex colors, double-applying the color.
-    let colors_out = if matches!(
-        color_kind,
-        AttrKind::Vertex | AttrKind::FaceVarying | AttrKind::Uniform
-    ) && !colors.is_empty()
+    let colors_out = if ((data.display_color.is_none() && !matches!(opacity_kind, AttrKind::None))
+        || matches!(
+            color_kind,
+            AttrKind::Vertex | AttrKind::FaceVarying | AttrKind::Uniform
+        ))
+        && !colors.is_empty()
     {
         Some(colors)
     } else {
@@ -4440,6 +4456,26 @@ enum AttrKind {
     Uniform,
     Constant,
     Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum ScalarAttributeKind {
+    Vertex,
+    FaceVarying,
+    Uniform,
+    Constant,
+}
+
+impl From<ScalarAttributeKind> for AttrKind {
+    fn from(value: ScalarAttributeKind) -> Self {
+        match value {
+            ScalarAttributeKind::Vertex => AttrKind::Vertex,
+            ScalarAttributeKind::FaceVarying => AttrKind::FaceVarying,
+            ScalarAttributeKind::Uniform => AttrKind::Uniform,
+            ScalarAttributeKind::Constant => AttrKind::Constant,
+        }
+    }
 }
 
 /// Classifies an optional flat attribute by matching its length against
@@ -5013,6 +5049,7 @@ def "Layer"
             MeshOrientation::RightHanded,
             usize::MAX,
             &[],
+            None,
             None,
         )
         .expect_err("negative faceVertexCounts must be rejected");
@@ -8167,6 +8204,7 @@ def Xform "Root" (
             super::MeshOrientation::RightHanded,
             usize::MAX,
             &[],
+            None,
             None,
         )
         .expect("mesh_data_to_input");

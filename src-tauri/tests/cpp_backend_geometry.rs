@@ -12,9 +12,7 @@
 
 use std::path::PathBuf;
 
-use yw_look_lib::usd::{
-    OpenusdCppBackend, StageLoadPolicy, UsdGeometryBackend, UsdInspectBackend,
-};
+use yw_look_lib::usd::{OpenusdCppBackend, StageLoadPolicy, UsdGeometryBackend, UsdInspectBackend};
 
 /// Fixture resolver shared with `cpp_backend_inspector.rs`.
 fn tiny_usda_path() -> PathBuf {
@@ -83,6 +81,53 @@ fn parse_glb_json(bytes: &[u8]) -> serde_json::Value {
     );
     let json_bytes = &bytes[json_start..json_end];
     serde_json::from_slice(json_bytes).expect("JSON chunk must be valid glTF JSON")
+}
+
+fn glb_bin_chunk(bytes: &[u8]) -> &[u8] {
+    assert_valid_glb_header(bytes);
+    let json_len = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+    let bin_header = 20 + json_len;
+    assert!(
+        bytes.len() >= bin_header + 8,
+        "GLB must contain a BIN chunk after JSON"
+    );
+    let bin_len =
+        u32::from_le_bytes(bytes[bin_header..bin_header + 4].try_into().unwrap()) as usize;
+    let bin_type = u32::from_le_bytes(bytes[bin_header + 4..bin_header + 8].try_into().unwrap());
+    assert_eq!(bin_type, 0x004E4942, "second GLB chunk must be BIN");
+    let bin_start = bin_header + 8;
+    let bin_end = bin_start + bin_len;
+    assert!(bytes.len() >= bin_end, "BIN chunk extends past GLB end");
+    &bytes[bin_start..bin_end]
+}
+
+fn read_f32_accessor(bytes: &[u8], gltf: &serde_json::Value, accessor_idx: usize) -> Vec<f32> {
+    let accessor = &gltf["accessors"][accessor_idx];
+    assert_eq!(accessor["componentType"], 5126, "accessor must be FLOAT");
+    let component_count = match accessor["type"].as_str().expect("accessor type") {
+        "SCALAR" => 1,
+        "VEC2" => 2,
+        "VEC3" => 3,
+        "VEC4" => 4,
+        other => panic!("unsupported accessor type {other}"),
+    };
+    let count = accessor["count"].as_u64().expect("accessor count") as usize;
+    let view_idx = accessor["bufferView"].as_u64().expect("bufferView") as usize;
+    let view = &gltf["bufferViews"][view_idx];
+    let view_offset = view["byteOffset"].as_u64().unwrap_or(0) as usize;
+    let accessor_offset = accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+    let byte_offset = view_offset + accessor_offset;
+    let float_count = count * component_count;
+    let byte_len = float_count * std::mem::size_of::<f32>();
+    let bin = glb_bin_chunk(bytes);
+    assert!(
+        bin.len() >= byte_offset + byte_len,
+        "accessor range extends past BIN chunk"
+    );
+    bin[byte_offset..byte_offset + byte_len]
+        .chunks_exact(4)
+        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+        .collect()
 }
 
 #[test]
@@ -171,6 +216,255 @@ fn tiny_material_usda_resolves_preview_surface_scalars() {
         .expect("roughnessFactor");
     assert!((mf - 0.2).abs() < 1e-5, "metallic: {mf}");
     assert!((rf - 0.4).abs() < 1e-5, "roughness: {rf}");
+}
+
+#[test]
+fn display_opacity_emits_rgba_vertex_colors_and_blend_mode() -> std::io::Result<()> {
+    let tmp_dir = std::env::temp_dir().join("yw_look_cpp_display_opacity");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let usda_path = tmp_dir.join("display_opacity.usda");
+    std::fs::write(
+        &usda_path,
+        r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        uniform token subdivisionScheme = "none"
+        color3f[] primvars:displayColor = [(1, 0, 0), (0, 1, 0), (0, 0, 1)] (
+            interpolation = "vertex"
+        )
+        float[] primvars:displayOpacity = [1, 0.5, 0.25] (
+            interpolation = "vertex"
+        )
+    }
+}
+"#,
+    )?;
+
+    let backend = OpenusdCppBackend::new();
+    let bytes = backend
+        .extract_geometry_glb(&usda_path, StageLoadPolicy::LoadAll)
+        .expect("extract_geometry_glb must carry displayOpacity through C++ backend");
+    let gltf = parse_glb_json(&bytes);
+
+    let primitive = &gltf["meshes"][0]["primitives"][0];
+    let color_accessor_idx = primitive["attributes"]["COLOR_0"]
+        .as_u64()
+        .expect("COLOR_0 accessor index") as usize;
+    let color_acc = &gltf["accessors"][color_accessor_idx];
+    assert_eq!(color_acc["type"], "VEC4", "COLOR_0 must be RGBA");
+    assert_eq!(color_acc["componentType"], 5126, "COLOR_0 must be FLOAT");
+    assert_eq!(color_acc["count"], 3, "triangle expands to three colors");
+
+    let material_idx = primitive["material"]
+        .as_u64()
+        .expect("primitive material index") as usize;
+    assert_eq!(
+        gltf["materials"][material_idx]["alphaMode"], "BLEND",
+        "partial displayOpacity alpha must enable material blending"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn display_opacity_subset_preserves_vertex_interpolation() -> std::io::Result<()> {
+    let tmp_dir = std::env::temp_dir().join("yw_look_cpp_display_opacity_subset");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let usda_path = tmp_dir.join("display_opacity_subset.usda");
+    std::fs::write(
+        &usda_path,
+        r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Mesh"
+    {
+        point3f[] points = [
+            (0, 0, 0), (1, 0, 0), (0, 1, 0),
+            (2, 0, 0), (2, 1, 0), (1, 1, 0)
+        ]
+        int[] faceVertexCounts = [3, 3]
+        int[] faceVertexIndices = [0, 1, 2, 5, 4, 3]
+        uniform token subdivisionScheme = "none"
+        color3f[] primvars:displayColor = [
+            (1, 0, 0), (0, 1, 0), (0, 0, 1),
+            (1, 1, 0), (0, 1, 1), (1, 0, 1)
+        ] (
+            interpolation = "vertex"
+        )
+        float[] primvars:displayOpacity = [1, 0.9, 0.8, 0.6, 0.4, 0.2] (
+            interpolation = "vertex"
+        )
+
+        def GeomSubset "Second"
+        {
+            uniform token elementType = "face"
+            uniform token familyName = "materialBind"
+            int[] indices = [1]
+        }
+    }
+}
+"#,
+    )?;
+
+    let backend = OpenusdCppBackend::new();
+    let bytes = backend
+        .extract_geometry_glb(&usda_path, StageLoadPolicy::LoadAll)
+        .expect("extract_geometry_glb must preserve vertex opacity on subsets");
+    let gltf = parse_glb_json(&bytes);
+
+    let primitive = &gltf["meshes"][0]["primitives"][0];
+    let color_accessor_idx = primitive["attributes"]["COLOR_0"]
+        .as_u64()
+        .expect("COLOR_0 accessor index") as usize;
+    let colors = read_f32_accessor(&bytes, &gltf, color_accessor_idx);
+    let alphas: Vec<f32> = colors.chunks_exact(4).map(|rgba| rgba[3]).collect();
+    assert_eq!(
+        alphas.len(),
+        3,
+        "subset face triangulates to three vertices"
+    );
+    let expected = [0.2_f32, 0.4, 0.6];
+    for (i, (actual, expected)) in alphas.iter().zip(expected).enumerate() {
+        assert!(
+            (*actual - expected).abs() < 1e-5,
+            "alpha[{i}] = {actual}, expected {expected}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn display_opacity_uniform_uses_face_alpha_when_counts_match() -> std::io::Result<()> {
+    let tmp_dir = std::env::temp_dir().join("yw_look_cpp_display_opacity_uniform");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let usda_path = tmp_dir.join("display_opacity_uniform.usda");
+    std::fs::write(
+        &usda_path,
+        r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Mesh"
+    {
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        int[] faceVertexCounts = [3, 3, 3]
+        int[] faceVertexIndices = [0, 1, 2, 0, 1, 2, 0, 1, 2]
+        uniform token subdivisionScheme = "none"
+        color3f[] primvars:displayColor = [(1, 0, 0), (0, 1, 0), (0, 0, 1)] (
+            interpolation = "vertex"
+        )
+        float[] primvars:displayOpacity = [0.2, 0.4, 0.6] (
+            interpolation = "uniform"
+        )
+    }
+}
+"#,
+    )?;
+
+    let backend = OpenusdCppBackend::new();
+    let bytes = backend
+        .extract_geometry_glb(&usda_path, StageLoadPolicy::LoadAll)
+        .expect("extract_geometry_glb must preserve uniform opacity");
+    let gltf = parse_glb_json(&bytes);
+
+    let primitive = &gltf["meshes"][0]["primitives"][0];
+    let color_accessor_idx = primitive["attributes"]["COLOR_0"]
+        .as_u64()
+        .expect("COLOR_0 accessor index") as usize;
+    let colors = read_f32_accessor(&bytes, &gltf, color_accessor_idx);
+    let alphas: Vec<f32> = colors.chunks_exact(4).map(|rgba| rgba[3]).collect();
+    let expected = [0.2_f32, 0.2, 0.2, 0.4, 0.4, 0.4, 0.6, 0.6, 0.6];
+    assert_eq!(
+        alphas.len(),
+        expected.len(),
+        "three faces produce nine vertices"
+    );
+    for (i, (actual, expected)) in alphas.iter().zip(expected).enumerate() {
+        assert!(
+            (*actual - expected).abs() < 1e-5,
+            "alpha[{i}] = {actual}, expected {expected}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn display_opacity_without_display_color_emits_white_rgba() -> std::io::Result<()> {
+    let tmp_dir = std::env::temp_dir().join("yw_look_cpp_opacity_without_color");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let usda_path = tmp_dir.join("opacity_without_color.usda");
+    std::fs::write(
+        &usda_path,
+        r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        uniform token subdivisionScheme = "none"
+        float[] primvars:displayOpacity = [1, 0.5, 0.25] (
+            interpolation = "vertex"
+        )
+    }
+}
+"#,
+    )?;
+
+    let backend = OpenusdCppBackend::new();
+    let bytes = backend
+        .extract_geometry_glb(&usda_path, StageLoadPolicy::LoadAll)
+        .expect("extract_geometry_glb must emit opacity without displayColor");
+    let gltf = parse_glb_json(&bytes);
+
+    let primitive = &gltf["meshes"][0]["primitives"][0];
+    let color_accessor_idx = primitive["attributes"]["COLOR_0"]
+        .as_u64()
+        .expect("COLOR_0 accessor index") as usize;
+    let colors = read_f32_accessor(&bytes, &gltf, color_accessor_idx);
+    let expected = [
+        1.0_f32, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 1.0, 1.0, 1.0, 0.25,
+    ];
+    assert_eq!(colors.len(), expected.len(), "three RGBA colors");
+    for (i, (actual, expected)) in colors.iter().zip(expected).enumerate() {
+        assert!(
+            (*actual - expected).abs() < 1e-5,
+            "COLOR_0[{i}] = {actual}, expected {expected}"
+        );
+    }
+    let material_idx = primitive["material"]
+        .as_u64()
+        .expect("primitive material index") as usize;
+    assert_eq!(gltf["materials"][material_idx]["alphaMode"], "BLEND");
+
+    Ok(())
 }
 
 #[test]

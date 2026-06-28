@@ -632,6 +632,12 @@ impl CStage {
         })
     }
 
+    pub fn mesh_display_opacity(&self, prim_path: &str) -> (Vec<f32>, Interpolation) {
+        self.read_float_attr_with_interp(prim_path, |s, cb, u, out| unsafe {
+            usdc_mesh_display_opacity(self.raw, s, cb, u, out)
+        })
+    }
+
     /// USD `typeName` token on a prim (e.g. `"Mesh"`, `"Camera"`,
     /// `"DistantLight"`). `None` for the pseudo-root or an untyped
     /// prim. Different from `shader_id` — this is the IsA schema type.

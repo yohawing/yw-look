@@ -35,7 +35,7 @@ use super::glb::{self, AlphaMode, InstancingInput, MaterialInput, MeshInput};
 use super::openusd_backend::{
     filter_mesh_by_face_indices, invert_mat4_f32, mat4_f64_to_f32, mat4_mul, mat4_mul_f32,
     mesh_data_to_input, remap_mesh_skin_indices, srgb_to_linear, usd_wrap_to_gltf,
-    z_up_to_y_up_mat4, MeshOrientation,
+    z_up_to_y_up_mat4, MeshOrientation, ScalarAttributeKind,
 };
 use super::openusd_backend::{filter_resolvable_relative_assets, DenseBlendShape};
 use super::types::{
@@ -1253,20 +1253,27 @@ fn extract_from_stage_with_options(
         let record_start = inputs.len();
 
         let subsets = collect_material_bind_subsets(stage, prim_path)?;
-        // TODO(#43): read `primvars:displayOpacity` via shim once
-        // `usdc_mesh_display_opacity` is added to usd_c_shim.cpp.
-        // Until then all vertex alphas default to 1.0 (fully
-        // opaque) in the C++ backend path.
-        let display_opacity_cpp: Option<&[f32]> = None;
+        let display_opacity_cpp = read_display_opacity_cpp(&stage, prim_path);
+        let display_opacity_values: Option<&[f32]> =
+            display_opacity_cpp.as_ref().map(|(values, _)| values.as_slice());
+        let display_opacity_kind = display_opacity_cpp
+            .as_ref()
+            .and_then(|(_, interp)| scalar_attribute_kind_cpp(*interp));
         if subsets.is_empty() {
+            let raw_for_input = mesh_data_without_constant_display_color_for_opacity_cpp(
+                &raw,
+                display_opacity_values.is_some(),
+            );
+            let mesh_input_data = raw_for_input.as_ref().unwrap_or(&raw);
             let mut triangulated = mesh_data_to_input(
                 &sdf_path,
                 world_f32,
-                &raw,
+                mesh_input_data,
                 orientation,
                 max_joint,
                 &blend_shapes,
-                display_opacity_cpp,
+                display_opacity_values,
+                display_opacity_kind,
             )?;
             let bound_slot = resolve_material_slot_cpp(
                 &stage,
@@ -1287,6 +1294,7 @@ fn extract_from_stage_with_options(
                 &mut material_normal_paths,
                 &mut material_metal_rough_paths,
             );
+            apply_vertex_alpha_blend_cpp(&triangulated, &mut materials);
             triangulated.skin_index = skin_index_from_payload(&triangulated, skin_slot);
             // #32: attach the USD purpose token for dynamic
             // frontend visibility toggle.
@@ -1299,6 +1307,15 @@ fn extract_from_stage_with_options(
         } else {
             for subset in &subsets {
                 let filtered = filter_mesh_by_face_indices(&raw, &subset.face_indices);
+                let subset_opacity_vec = display_opacity_cpp.as_ref().map(|(op, interp)| {
+                    filter_display_opacity_for_subset_cpp(
+                        op,
+                        *interp,
+                        &raw,
+                        &subset.face_indices,
+                    )
+                });
+                let subset_opacity_cpp: Option<&[f32]> = subset_opacity_vec.as_deref();
                 let Ok(subset_sdf_path) = SdfPath::new(&subset.path) else {
                     continue;
                 };
@@ -1309,14 +1326,20 @@ fn extract_from_stage_with_options(
                 // indexes blend shapes by point index during its
                 // triangle-soup expansion, using whatever points
                 // land in the emitted primitive.
+                let filtered_for_input = mesh_data_without_constant_display_color_for_opacity_cpp(
+                    &filtered,
+                    subset_opacity_cpp.is_some(),
+                );
+                let subset_mesh_input_data = filtered_for_input.as_ref().unwrap_or(&filtered);
                 let Ok(mut tri) = mesh_data_to_input(
                     &subset_sdf_path,
                     world_f32,
-                    &filtered,
+                    subset_mesh_input_data,
                     orientation,
                     max_joint,
                     &blend_shapes,
-                    display_opacity_cpp,
+                    subset_opacity_cpp,
+                    display_opacity_kind,
                 ) else {
                     continue;
                 };
@@ -1342,6 +1365,7 @@ fn extract_from_stage_with_options(
                     &mut material_normal_paths,
                     &mut material_metal_rough_paths,
                 );
+                apply_vertex_alpha_blend_cpp(&tri, &mut materials);
                 tri.skin_index = skin_index_from_payload(&tri, skin_slot);
                 // #32: subsets inherit parent mesh's purpose.
                 tri.purpose = Some(
@@ -1755,6 +1779,7 @@ fn extract_from_stage_with_options(
                         orientation,
                         usize::MAX,
                         &[],
+                        None,
                         None,
                     ) else {
                         continue;
@@ -2347,6 +2372,101 @@ fn skin_index_from_payload(mesh: &MeshInput, skin_slot: Option<usize>) -> Option
         skin_slot
     } else {
         None
+    }
+}
+
+fn read_display_opacity_cpp(stage: &CStage, prim_path: &str) -> Option<(Vec<f32>, Interpolation)> {
+    let (values, interp) = stage.mesh_display_opacity(prim_path);
+    (!values.is_empty()).then_some((values, interp))
+}
+
+fn scalar_attribute_kind_cpp(interp: Interpolation) -> Option<ScalarAttributeKind> {
+    match interp {
+        Interpolation::Constant => Some(ScalarAttributeKind::Constant),
+        Interpolation::Uniform => Some(ScalarAttributeKind::Uniform),
+        Interpolation::Varying | Interpolation::Vertex => Some(ScalarAttributeKind::Vertex),
+        Interpolation::FaceVarying => Some(ScalarAttributeKind::FaceVarying),
+        Interpolation::Unknown => None,
+    }
+}
+
+fn mesh_data_without_constant_display_color_for_opacity_cpp(
+    mesh: &MeshData,
+    has_display_opacity: bool,
+) -> Option<MeshData> {
+    if !has_display_opacity || mesh.display_color.as_ref().map(|v| v.len()) != Some(3) {
+        return None;
+    }
+    let mut cloned = mesh.clone();
+    cloned.display_color = None;
+    Some(cloned)
+}
+
+fn filter_display_opacity_for_subset_cpp(
+    opacity: &[f32],
+    interp: Interpolation,
+    original_mesh: &MeshData,
+    face_indices: &[u32],
+) -> Vec<f32> {
+    let face_count = original_mesh.face_vertex_counts.len();
+    let total_fv: usize = original_mesh
+        .face_vertex_counts
+        .iter()
+        .map(|c| *c as usize)
+        .sum();
+
+    if interp == Interpolation::FaceVarying
+        || (interp == Interpolation::Unknown && opacity.len() == total_fv)
+    {
+        let mut fv_offsets: Vec<usize> = Vec::with_capacity(face_count);
+        let mut cursor: usize = 0;
+        for &c in &original_mesh.face_vertex_counts {
+            fv_offsets.push(cursor);
+            cursor += c as usize;
+        }
+
+        let mut out = Vec::new();
+        for &fi in face_indices {
+            let fi = fi as usize;
+            if fi >= face_count {
+                continue;
+            }
+            let off = fv_offsets[fi];
+            let end = off + original_mesh.face_vertex_counts[fi] as usize;
+            if end <= opacity.len() {
+                out.extend_from_slice(&opacity[off..end]);
+            }
+        }
+        out
+    } else if interp == Interpolation::Uniform
+        || (interp == Interpolation::Unknown && opacity.len() == face_count)
+    {
+        let mut out = Vec::with_capacity(face_indices.len());
+        for &fi in face_indices {
+            let fi = fi as usize;
+            if fi < face_count && fi < opacity.len() {
+                out.push(opacity[fi]);
+            }
+        }
+        out
+    } else {
+        opacity.to_vec()
+    }
+}
+
+fn apply_vertex_alpha_blend_cpp(mesh: &MeshInput, materials: &mut [MaterialInput]) {
+    let has_partial_alpha = mesh
+        .colors
+        .as_ref()
+        .map(|rgba| rgba.chunks_exact(4).any(|c| c[3] < 1.0 - 1e-4))
+        .unwrap_or(false);
+    if !has_partial_alpha {
+        return;
+    }
+    if let Some(mat) = materials.get_mut(mesh.material_index) {
+        if mat.alpha_mode != Some(AlphaMode::Mask) {
+            mat.alpha_mode = Some(AlphaMode::Blend);
+        }
     }
 }
 
