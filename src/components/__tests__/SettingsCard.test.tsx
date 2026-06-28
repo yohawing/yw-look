@@ -76,6 +76,9 @@ describe("SettingsCard", () => {
     expect(getByText("Managed 0.2.0")).toBeTruthy();
     expect(getByText("Compatible")).toBeTruthy();
     expect(getByText("Runtime missing")).toBeTruthy();
+    expect(
+      getByText("Install a build that includes this loader runtime."),
+    ).toBeTruthy();
   });
 
   it("requests optional loader pack toggles for installed packs", () => {

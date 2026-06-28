@@ -48,6 +48,21 @@ function canToggleOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
   );
 }
 
+function optionalLoaderPackActionHint(
+  pack: OptionalLoaderPackStatus,
+): string | null {
+  if (pack.compatibility.state === "runtimeMissing") {
+    return "Install a build that includes this loader runtime.";
+  }
+  if (pack.compatibility.state === "requiresNewerApp") {
+    return "Update yw-look before enabling this loader pack.";
+  }
+  if (pack.compatibility.state === "requiresOlderApp") {
+    return "Use an older compatible yw-look build for this loader pack.";
+  }
+  return null;
+}
+
 export function SettingsCard({
   settingsPayload,
   settingsError,
@@ -139,6 +154,7 @@ export function SettingsCard({
           <div className="yl-kv">
             {optionalLoaderPacks.map((pack) => {
               const isConfirmingRemoval = confirmingRemovalPackId === pack.id;
+              const actionHint = optionalLoaderPackActionHint(pack);
 
               return (
                 <FieldRow
@@ -184,6 +200,11 @@ export function SettingsCard({
                   >
                     {pack.compatibility.label}
                   </span>
+                  {actionHint ? (
+                    <span className="optional-loader-pack-action">
+                      {actionHint}
+                    </span>
+                  ) : null}
                   {!pack.manifestInstalled && pack.runtimeAvailable ? (
                     <Button
                       size="sm"
