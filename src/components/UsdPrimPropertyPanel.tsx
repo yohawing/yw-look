@@ -9,7 +9,11 @@ import {
   type RelationshipInfo,
   type TimeSampleEntry,
 } from "../lib/usd";
-import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import {
+  SidebarEmpty,
+  SidebarError,
+  SidebarSection,
+} from "./sidebarPrimitives";
 import { Badge, BadgeButton } from "./ui/Badge";
 
 type UsdPrimPropertyPanelProps = {
@@ -385,9 +389,7 @@ export function UsdPrimPropertyPanel({
 
         {loading && <SidebarEmpty>Loading…</SidebarEmpty>}
         {error && (
-          <p className="sidebar-empty" title={error}>
-            Inspection not available.
-          </p>
+          <SidebarError>{`Prim inspection failed: ${error}`}</SidebarError>
         )}
 
         {inspection && !loading && (
