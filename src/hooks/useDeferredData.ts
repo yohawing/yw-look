@@ -174,6 +174,7 @@ export function useDeferredData(
     };
   }, [
     settingsPayload?.settings.fileAssociationsEnabled,
+    settingsPayload?.settings.optionalLoaderPacks,
     shouldLoadDeferredData,
   ]);
 

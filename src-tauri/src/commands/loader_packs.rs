@@ -9,6 +9,9 @@ use crate::shared::{resolve_app_data_dir, strip_verbatim_prefix};
 
 const OPTIONAL_LOADERS_DIR_NAME: &str = "optional-loaders";
 const LOADER_PACK_KIND: &str = "firstPartyLoaderPack";
+pub(crate) const KNOWN_OPTIONAL_LOADER_EXTENSIONS: &[&str] = &[
+    "vrm", "vrma", "pmd", "pmx", "vmd", "splat", "spz", "ksplat", "sog",
+];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,7 +36,7 @@ pub(crate) struct OptionalLoaderPackManifest {
     pub(crate) entry_path: String,
 }
 
-fn known_pack_extensions(id: &str) -> Option<&'static [&'static str]> {
+pub(crate) fn known_pack_extensions(id: &str) -> Option<&'static [&'static str]> {
     match id {
         "vrm-loader-pack" => Some(&["vrm", "vrma"]),
         "mmd-loader-pack" => Some(&["pmd", "pmx", "vmd"]),
