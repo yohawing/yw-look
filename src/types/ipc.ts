@@ -286,6 +286,12 @@ export type OptionalLoaderPackManifest = {
   id: string;
   name: string;
   version: string;
+  minimumAppVersion?: string | null;
+  maximumAppVersion?: string | null;
+  compatibility: {
+    state: string;
+    message?: string | null;
+  };
   extensions: string[];
   entry: string;
   packPath: string;

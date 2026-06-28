@@ -140,6 +140,8 @@ export function useViewerDiagnosticsModel({
         return "optional loader missing";
       case "disabledOptionalLoader":
         return "optional loader disabled";
+      case "incompatibleOptionalLoader":
+        return "optional loader incompatible";
       case "loadFailed":
         return "preview failed";
       case "missingReference":
@@ -289,7 +291,8 @@ export function useViewerDiagnosticsModel({
       viewerFeedback.mode === "missingReference" ||
       viewerFeedback.mode === "unsupported" ||
       viewerFeedback.mode === "missingOptionalLoader" ||
-      viewerFeedback.mode === "disabledOptionalLoader"
+      viewerFeedback.mode === "disabledOptionalLoader" ||
+      viewerFeedback.mode === "incompatibleOptionalLoader"
         ? "warn"
         : "error";
 

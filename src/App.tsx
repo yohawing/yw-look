@@ -19,7 +19,10 @@ import { isTauriEnvironment } from "./lib/platform";
 import { useFileStore } from "./stores/fileStore";
 import { useUiStore } from "./stores/uiStore";
 import { useViewerStore } from "./stores/viewerStore";
-import { disabledOptionalLoaderPackIds } from "./viewer";
+import {
+  disabledOptionalLoaderPackIds,
+  incompatibleOptionalLoaderPackIds,
+} from "./viewer";
 
 export function App() {
   const viewer = useViewerStore();
@@ -119,6 +122,10 @@ export function App() {
         settingsPayload?.settings.optionalLoaderPacks,
       ),
     [settingsPayload?.settings.optionalLoaderPacks],
+  );
+  const incompatibleLoaderPackIds = useMemo(
+    () => incompatibleOptionalLoaderPackIds(optionalLoaderManifests),
+    [optionalLoaderManifests],
   );
 
   const {
@@ -301,6 +308,7 @@ export function App() {
           viewer={viewer}
           viewportToolbarItems={viewportToolbarItems}
           disabledOptionalLoaderPackIds={disabledLoaderPackIds}
+          incompatibleOptionalLoaderPackIds={incompatibleLoaderPackIds}
         />
       }
     />

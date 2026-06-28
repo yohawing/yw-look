@@ -24,6 +24,7 @@ export type ViewerMode =
   | "unsupported"
   | "missingOptionalLoader"
   | "disabledOptionalLoader"
+  | "incompatibleOptionalLoader"
   | "loadFailed"
   | "missingReference";
 
@@ -210,6 +211,7 @@ export type PreviewSupportState =
   | "implemented"
   | "missingOptionalLoader"
   | "disabledOptionalLoader"
+  | "incompatibleOptionalLoader"
   | "unsupported";
 
 // ── Scene config (grid, scale, camera, texture filter) ───────────
@@ -284,6 +286,7 @@ export type LoaderContext = {
   variantSelections?: import("./ipc").VariantSelection[];
   glbOverride?: ArrayBuffer | null;
   disabledOptionalLoaderPackIds?: readonly string[] | ReadonlySet<string>;
+  incompatibleOptionalLoaderPackIds?: readonly string[] | ReadonlySet<string>;
   onStage?: LoadingStageReporter;
   onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void;
   onWarning?: (warning: string) => void;
@@ -318,6 +321,19 @@ export type OptionalLoaderPackStatus = {
   manifestInstalled: boolean;
   runtimeAvailable: boolean;
   version?: string;
+  compatibility: {
+    state:
+      | "compatible"
+      | "bundled"
+      | "disabled"
+      | "manifestMissing"
+      | "requiresNewerApp"
+      | "requiresOlderApp"
+      | "runtimeMissing"
+      | "unknown";
+    label: string;
+    detail?: string;
+  };
 };
 
 // ── Metadata collection ──────────────────────────────────────────

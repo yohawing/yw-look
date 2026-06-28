@@ -30,6 +30,7 @@ import {
   type MissingReferenceError,
   type SceneContext,
   formatDisabledOptionalLoaderMessage,
+  formatIncompatibleOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
   getPreviewSupportState,
@@ -156,12 +157,14 @@ function updateRuntimePreview(
 function getRuntimePreviewSupportState(
   extension: string,
   disabledOptionalLoaderPackIds: readonly string[],
+  incompatibleOptionalLoaderPackIds: readonly string[],
 ) {
   const loader = listRegisteredLoaders().find(
     (entry) => entry.extension === extension,
   );
   return getPreviewSupportState(extension, {
     disabledOptionalLoaderPackIds,
+    incompatibleOptionalLoaderPackIds,
     optionalLoaderInstalled: loader?.installed !== false,
   });
 }
@@ -169,6 +172,7 @@ function getRuntimePreviewSupportState(
 export function AssetViewport({
   currentFile,
   disabledOptionalLoaderPackIds = [],
+  incompatibleOptionalLoaderPackIds = [],
   mmdMotionRequest,
   displayMode,
   backgroundPreset,
@@ -361,13 +365,15 @@ export function AssetViewport({
     ? getRuntimePreviewSupportState(
         currentFile.extension,
         disabledOptionalLoaderPackIds,
+        incompatibleOptionalLoaderPackIds,
       )
     : "implemented";
   const effectiveOverlayMode =
     currentFile === null
       ? "empty"
       : previewSupportState === "missingOptionalLoader" ||
-          previewSupportState === "disabledOptionalLoader"
+          previewSupportState === "disabledOptionalLoader" ||
+          previewSupportState === "incompatibleOptionalLoader"
         ? previewSupportState
         : previewSupportState === "unsupported"
           ? "unsupported"
@@ -1563,6 +1569,7 @@ export function AssetViewport({
     const supportState = getRuntimePreviewSupportState(
       currentFile.extension,
       disabledOptionalLoaderPackIds,
+      incompatibleOptionalLoaderPackIds,
     );
     if (supportState !== "implemented") {
       const message =
@@ -1570,7 +1577,9 @@ export function AssetViewport({
           ? formatMissingOptionalLoaderMessage(currentFile.extension)
           : supportState === "disabledOptionalLoader"
             ? formatDisabledOptionalLoaderMessage(currentFile.extension)
-            : formatUnsupportedFormatMessage(currentFile.extension);
+            : supportState === "incompatibleOptionalLoader"
+              ? formatIncompatibleOptionalLoaderMessage(currentFile.extension)
+              : formatUnsupportedFormatMessage(currentFile.extension);
       onMetadataChange(emptyAssetMetadata);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
@@ -1669,6 +1678,7 @@ export function AssetViewport({
       variantSelections,
       glbOverride: glbOverride ?? null,
       disabledOptionalLoaderPackIds,
+      incompatibleOptionalLoaderPackIds,
       onStage: reportLoadingStage,
       onDeferredTexture: (snapshot) => {
         if (disposed) return;
@@ -2027,6 +2037,7 @@ export function AssetViewport({
     variantSelections,
     glbOverride,
     disabledOptionalLoaderPackIds,
+    incompatibleOptionalLoaderPackIds,
     publishResourceDiagnostics,
   ]);
 

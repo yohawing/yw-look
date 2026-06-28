@@ -38,6 +38,10 @@ describe("SettingsCard", () => {
             manifestInstalled: true,
             runtimeAvailable: true,
             version: "0.2.0",
+            compatibility: {
+              state: "compatible",
+              label: "Compatible",
+            },
           },
           {
             id: "gaussian-splat-loader-pack",
@@ -47,6 +51,12 @@ describe("SettingsCard", () => {
             enabled: true,
             manifestInstalled: false,
             runtimeAvailable: false,
+            compatibility: {
+              state: "runtimeMissing",
+              label: "Runtime missing",
+              detail:
+                "This build does not include the loader runtime for this pack.",
+            },
           },
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
@@ -64,6 +74,8 @@ describe("SettingsCard", () => {
     expect(getByText("Missing")).toBeTruthy();
     expect(getByText(".pmd .pmx .vmd")).toBeTruthy();
     expect(getByText("Managed 0.2.0")).toBeTruthy();
+    expect(getByText("Compatible")).toBeTruthy();
+    expect(getByText("Runtime missing")).toBeTruthy();
   });
 
   it("requests optional loader pack toggles for installed packs", () => {
@@ -81,6 +93,10 @@ describe("SettingsCard", () => {
             enabled: false,
             manifestInstalled: false,
             runtimeAvailable: true,
+            compatibility: {
+              state: "disabled",
+              label: "Disabled",
+            },
           },
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
@@ -114,6 +130,10 @@ describe("SettingsCard", () => {
             enabled: true,
             manifestInstalled: false,
             runtimeAvailable: true,
+            compatibility: {
+              state: "bundled",
+              label: "Bundled runtime",
+            },
           },
           {
             id: "gaussian-splat-loader-pack",
@@ -124,6 +144,10 @@ describe("SettingsCard", () => {
             manifestInstalled: true,
             runtimeAvailable: true,
             version: "0.2.0",
+            compatibility: {
+              state: "compatible",
+              label: "Compatible",
+            },
           },
         ]}
         onToggleAutoCheckForUpdates={() => undefined}

@@ -47,7 +47,10 @@ fn supported_file_association_extensions(
 ) -> Vec<String> {
     let enabled_optional_extensions = manifests
         .iter()
-        .filter(|manifest| optional_loader_pack_enabled(settings, &manifest.id))
+        .filter(|manifest| {
+            manifest.compatibility.state == "compatible"
+                && optional_loader_pack_enabled(settings, &manifest.id)
+        })
         .flat_map(|manifest| manifest.extensions.iter().map(String::as_str))
         .collect::<HashSet<_>>();
 
@@ -78,6 +81,7 @@ pub(crate) fn load_supported_extensions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::loader_packs::OptionalLoaderPackCompatibility;
     use crate::state::OptionalLoaderPackSettings;
 
     fn manifest(id: &str, extensions: &[&str]) -> OptionalLoaderPackManifest {
@@ -85,6 +89,12 @@ mod tests {
             id: id.to_string(),
             name: id.to_string(),
             version: "0.1.0".to_string(),
+            minimum_app_version: None,
+            maximum_app_version: None,
+            compatibility: OptionalLoaderPackCompatibility {
+                state: "compatible".to_string(),
+                message: None,
+            },
             extensions: extensions
                 .iter()
                 .map(|extension| (*extension).to_string())
@@ -116,6 +126,22 @@ mod tests {
         assert!(extensions.contains(&".pmx".to_string()));
         assert!(extensions.contains(&".pmd".to_string()));
         assert!(extensions.contains(&".vmd".to_string()));
+    }
+
+    #[test]
+    fn supported_extensions_exclude_incompatible_optional_loader_packs() {
+        let settings = AppSettings::default();
+        let mut manifests = vec![manifest("mmd-loader-pack", &["pmd", "pmx", "vmd"])];
+        manifests[0].compatibility = OptionalLoaderPackCompatibility {
+            state: "requiresNewerApp".to_string(),
+            message: Some("Requires a newer app.".to_string()),
+        };
+
+        let extensions = supported_file_association_extensions(&settings, &manifests);
+
+        assert!(!extensions.contains(&".pmx".to_string()));
+        assert!(!extensions.contains(&".pmd".to_string()));
+        assert!(!extensions.contains(&".vmd".to_string()));
     }
 
     #[test]

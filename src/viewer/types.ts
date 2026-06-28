@@ -73,6 +73,20 @@ export function formatDisabledOptionalLoaderMessage(extension: string) {
   };
 }
 
+export function formatIncompatibleOptionalLoaderMessage(extension: string) {
+  const optionalLoader =
+    optionalPreviewLoaders[extension as keyof typeof optionalPreviewLoaders];
+
+  if (!optionalLoader) {
+    return null;
+  }
+
+  return {
+    title: `${optionalLoader.loaderPackName} is not compatible with this app version.`,
+    body: `Update yw-look or reinstall ${optionalLoader.loaderPackName} to preview ${optionalLoader.formatLabel} files.`,
+  };
+}
+
 export function formatUnsupportedFormatMessage(extension: string) {
   const normalizedExtension = extension ? `.${extension}` : "this extension";
   return {

@@ -25,12 +25,14 @@ import {
   applyMissingTextureMaterialFallback,
   formatMissingTextureWarnings,
   getPreviewSupportState,
+  incompatibleOptionalLoaderPackIds,
   registerFbxTextureMaterialFallbacks,
   resolveColladaTextureUrl,
   type GltfDocument,
 } from "../loaders";
 import {
   formatDisabledOptionalLoaderMessage,
+  formatIncompatibleOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
 } from "../types";
@@ -146,6 +148,14 @@ describe("preview support classification", () => {
     ).toBe("implemented");
   });
 
+  it("marks optional formats as incompatible when their pack manifest is incompatible", () => {
+    expect(
+      getPreviewSupportState("pmx", {
+        incompatibleOptionalLoaderPackIds: ["mmd-loader-pack"],
+      }),
+    ).toBe("incompatibleOptionalLoader");
+  });
+
   it("prioritizes missing optional packs over stale disabled settings", () => {
     expect(
       getPreviewSupportState("pmx", {
@@ -213,6 +223,12 @@ describe("preview support classification", () => {
         manifestInstalled: false,
         runtimeAvailable: true,
         version: undefined,
+        compatibility: {
+          state: "bundled",
+          label: "Bundled runtime",
+          detail:
+            "The loader is bundled with this build but has no managed manifest.",
+        },
       },
       {
         id: "mmd-loader-pack",
@@ -223,6 +239,12 @@ describe("preview support classification", () => {
         manifestInstalled: false,
         runtimeAvailable: true,
         version: undefined,
+        compatibility: {
+          state: "bundled",
+          label: "Bundled runtime",
+          detail:
+            "The loader is bundled with this build but has no managed manifest.",
+        },
       },
       {
         id: "vrm-loader-pack",
@@ -233,6 +255,12 @@ describe("preview support classification", () => {
         manifestInstalled: false,
         runtimeAvailable: true,
         version: undefined,
+        compatibility: {
+          state: "bundled",
+          label: "Bundled runtime",
+          detail:
+            "The loader is bundled with this build but has no managed manifest.",
+        },
       },
     ]);
   });
@@ -258,6 +286,12 @@ describe("preview support classification", () => {
           id: "mmd-loader-pack",
           name: "MMD Loader Pack",
           version: "0.2.0",
+          minimumAppVersion: "0.1.0",
+          maximumAppVersion: null,
+          compatibility: {
+            state: "compatible",
+            message: null,
+          },
           extensions: ["pmx", "pmd"],
           entry: "loader.js",
           packPath: "optional-loaders/mmd",
@@ -272,6 +306,11 @@ describe("preview support classification", () => {
       manifestInstalled: true,
       runtimeAvailable: true,
       version: "0.2.0",
+      compatibility: {
+        state: "compatible",
+        label: "Compatible",
+        detail: undefined,
+      },
     });
   });
 
@@ -293,6 +332,12 @@ describe("preview support classification", () => {
             id: "vrm-loader-pack",
             name: "VRM Loader Pack",
             version: "0.2.0",
+            minimumAppVersion: "0.1.0",
+            maximumAppVersion: null,
+            compatibility: {
+              state: "compatible",
+              message: null,
+            },
             extensions: ["vrm", "vrma"],
             entry: "loader.js",
             packPath: "optional-loaders/vrm",
@@ -310,7 +355,70 @@ describe("preview support classification", () => {
         manifestInstalled: true,
         runtimeAvailable: true,
         version: "0.2.0",
+        compatibility: {
+          state: "compatible",
+          label: "Compatible",
+          detail: undefined,
+        },
       },
+    ]);
+  });
+
+  it("reports optional pack compatibility issues for Settings", () => {
+    const manifests = [
+      {
+        id: "mmd-loader-pack",
+        name: "MMD Loader Pack",
+        version: "9.0.0",
+        minimumAppVersion: "9.0.0",
+        maximumAppVersion: null,
+        compatibility: {
+          state: "requiresNewerApp",
+          message: "Requires yw-look 9.0.0 or newer. Current version is 0.2.2.",
+        },
+        extensions: ["pmx"],
+        entry: "loader.js",
+        packPath: "optional-loaders/mmd",
+        entryPath: "optional-loaders/mmd/loader.js",
+      },
+    ];
+
+    expect(
+      summarizeOptionalLoaderPacks(
+        [
+          {
+            id: "mmd-loader-pack",
+            name: "MMD Loader Pack",
+            extension: "pmx",
+            optional: true,
+            installed: true,
+          },
+        ],
+        {},
+        manifests,
+      )[0].compatibility,
+    ).toEqual({
+      state: "requiresNewerApp",
+      label: "App update required",
+      detail: "Requires yw-look 9.0.0 or newer. Current version is 0.2.2.",
+    });
+    expect(
+      summarizeOptionalLoaderPacks(
+        [
+          {
+            id: "mmd-loader-pack",
+            name: "MMD Loader Pack",
+            extension: "pmx",
+            optional: true,
+            installed: true,
+          },
+        ],
+        {},
+        manifests,
+      )[0].enabled,
+    ).toBe(false);
+    expect(incompatibleOptionalLoaderPackIds(manifests)).toEqual([
+      "mmd-loader-pack",
     ]);
   });
 
@@ -342,6 +450,12 @@ describe("preview support classification", () => {
         runtimeAvailable: false,
         enabled: true,
         version: undefined,
+        compatibility: {
+          state: "runtimeMissing",
+          label: "Runtime missing",
+          detail:
+            "This build does not include the loader runtime for this pack.",
+        },
       },
     ]);
   });
@@ -361,6 +475,13 @@ describe("preview support classification", () => {
     expect(formatDisabledOptionalLoaderMessage("vrm")).toEqual({
       title: "VRM Loader Pack is disabled.",
       body: "Enable VRM Loader Pack in Settings to preview VRM files.",
+    });
+  });
+
+  it("formats incompatible optional loader copy without settings guidance", () => {
+    expect(formatIncompatibleOptionalLoaderMessage("vrm")).toEqual({
+      title: "VRM Loader Pack is not compatible with this app version.",
+      body: "Update yw-look or reinstall VRM Loader Pack to preview VRM files.",
     });
   });
 

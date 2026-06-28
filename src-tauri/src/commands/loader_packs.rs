@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,9 +26,18 @@ struct OptionalLoaderPackManifestRaw {
     id: String,
     name: String,
     version: String,
+    minimum_app_version: Option<String>,
+    maximum_app_version: Option<String>,
     extensions: Vec<String>,
     entry: String,
     kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OptionalLoaderPackCompatibility {
+    pub(crate) state: String,
+    pub(crate) message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -36,6 +46,9 @@ pub(crate) struct OptionalLoaderPackManifest {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) version: String,
+    pub(crate) minimum_app_version: Option<String>,
+    pub(crate) maximum_app_version: Option<String>,
+    pub(crate) compatibility: OptionalLoaderPackCompatibility,
     pub(crate) extensions: Vec<String>,
     pub(crate) entry: String,
     pub(crate) pack_path: String,
@@ -78,6 +91,7 @@ fn known_pack_manifest_json(id: &str) -> Result<String, AppError> {
         "id": id,
         "name": name,
         "version": env!("CARGO_PKG_VERSION"),
+        "minimumAppVersion": env!("CARGO_PKG_VERSION"),
         "extensions": extensions,
         "entry": "loader.js",
         "kind": LOADER_PACK_KIND,
@@ -152,6 +166,153 @@ fn validate_entry_path(pack_dir: &Path, entry: &str) -> Option<(String, String, 
     ))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedVersion {
+    core: [u64; 3],
+    prerelease: Option<Vec<PrereleaseIdentifier>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PrereleaseIdentifier {
+    Numeric(u64),
+    Text(String),
+}
+
+fn parse_version(version: &str) -> Option<ParsedVersion> {
+    let trimmed = version.trim();
+    let without_v = trimmed.strip_prefix('v').unwrap_or(trimmed);
+    let without_build = without_v.split('+').next()?;
+    let (core, prerelease) = without_build
+        .split_once('-')
+        .map_or((without_build, None), |(core, prerelease)| {
+            (core, Some(prerelease))
+        });
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().unwrap_or("0").parse().ok()?;
+    let patch = parts.next().unwrap_or("0").parse().ok()?;
+    let prerelease = prerelease
+        .map(|value| {
+            value
+                .split('.')
+                .map(|identifier| {
+                    identifier
+                        .parse::<u64>()
+                        .map(PrereleaseIdentifier::Numeric)
+                        .unwrap_or_else(|_| PrereleaseIdentifier::Text(identifier.to_string()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|identifiers| !identifiers.is_empty());
+
+    Some(ParsedVersion {
+        core: [major, minor, patch],
+        prerelease,
+    })
+}
+
+fn compare_prerelease_identifier(
+    left: &PrereleaseIdentifier,
+    right: &PrereleaseIdentifier,
+) -> Ordering {
+    match (left, right) {
+        (PrereleaseIdentifier::Numeric(left), PrereleaseIdentifier::Numeric(right)) => {
+            left.cmp(right)
+        }
+        (PrereleaseIdentifier::Numeric(_), PrereleaseIdentifier::Text(_)) => Ordering::Less,
+        (PrereleaseIdentifier::Text(_), PrereleaseIdentifier::Numeric(_)) => Ordering::Greater,
+        (PrereleaseIdentifier::Text(left), PrereleaseIdentifier::Text(right)) => left.cmp(right),
+    }
+}
+
+fn compare_versions(left: &ParsedVersion, right: &ParsedVersion) -> Ordering {
+    match left.core.cmp(&right.core) {
+        Ordering::Equal => {}
+        ordering => return ordering,
+    }
+
+    match (&left.prerelease, &right.prerelease) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(left), Some(right)) => {
+            for (left_identifier, right_identifier) in left.iter().zip(right.iter()) {
+                match compare_prerelease_identifier(left_identifier, right_identifier) {
+                    Ordering::Equal => {}
+                    ordering => return ordering,
+                }
+            }
+            left.len().cmp(&right.len())
+        }
+    }
+}
+
+fn version_less_than(left: &str, right: &str) -> Option<bool> {
+    Some(compare_versions(&parse_version(left)?, &parse_version(right)?) == Ordering::Less)
+}
+
+fn evaluate_pack_compatibility(
+    minimum_app_version: Option<&str>,
+    maximum_app_version: Option<&str>,
+) -> OptionalLoaderPackCompatibility {
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    if let Some(minimum) = minimum_app_version {
+        match version_less_than(current_version, minimum) {
+            Some(true) => {
+                return OptionalLoaderPackCompatibility {
+                    state: "requiresNewerApp".to_string(),
+                    message: Some(format!(
+                        "Requires yw-look {minimum} or newer. Current version is {current_version}."
+                    )),
+                };
+            }
+            Some(false) => {}
+            None => {
+                return OptionalLoaderPackCompatibility {
+                    state: "unknown".to_string(),
+                    message: Some(format!(
+                        "Unable to compare loader pack minimum app version '{minimum}'."
+                    )),
+                };
+            }
+        }
+    }
+
+    if let Some(maximum) = maximum_app_version {
+        match version_less_than(maximum, current_version) {
+            Some(true) => {
+                return OptionalLoaderPackCompatibility {
+                    state: "requiresOlderApp".to_string(),
+                    message: Some(format!(
+                        "Requires yw-look {maximum} or older. Current version is {current_version}."
+                    )),
+                };
+            }
+            Some(false) => {}
+            None => {
+                return OptionalLoaderPackCompatibility {
+                    state: "unknown".to_string(),
+                    message: Some(format!(
+                        "Unable to compare loader pack maximum app version '{maximum}'."
+                    )),
+                };
+            }
+        }
+    }
+
+    OptionalLoaderPackCompatibility {
+        state: "compatible".to_string(),
+        message: None,
+    }
+}
+
+fn normalize_optional_version(version: Option<String>) -> Option<String> {
+    version
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn validate_manifest(
     pack_dir: &Path,
     manifest: OptionalLoaderPackManifestRaw,
@@ -170,11 +331,20 @@ fn validate_manifest(
 
     let extensions = normalize_extensions(id, manifest.extensions)?;
     let (entry, pack_path, entry_path) = validate_entry_path(pack_dir, &manifest.entry)?;
+    let minimum_app_version = normalize_optional_version(manifest.minimum_app_version);
+    let maximum_app_version = normalize_optional_version(manifest.maximum_app_version);
+    let compatibility = evaluate_pack_compatibility(
+        minimum_app_version.as_deref(),
+        maximum_app_version.as_deref(),
+    );
 
     Some(OptionalLoaderPackManifest {
         id: id.to_string(),
         name: name.to_string(),
         version: version.to_string(),
+        minimum_app_version,
+        maximum_app_version,
+        compatibility,
         extensions,
         entry,
         pack_path,
@@ -262,7 +432,9 @@ pub(crate) fn install_optional_loader_pack_to_dir(
     let removed_marker_path = pack_dir.join(LOADER_PACK_REMOVED_MARKER);
     if removed_marker_path.exists() {
         fs::remove_file(&removed_marker_path).map_err(|error| {
-            AppError::Io(format!("failed to clear loader pack removal marker: {error}"))
+            AppError::Io(format!(
+                "failed to clear loader pack removal marker: {error}"
+            ))
         })?;
     }
     fs::write(
@@ -381,6 +553,7 @@ mod tests {
   "id": "mmd-loader-pack",
   "name": "MMD Loader Pack",
   "version": "0.1.0",
+  "minimumAppVersion": "0.1.0",
   "extensions": [".pmx", "vmd", "pmd"],
   "entry": "loader.js",
   "kind": "firstPartyLoaderPack"
@@ -394,6 +567,9 @@ mod tests {
         assert_eq!(manifests[0].id, "mmd-loader-pack");
         assert_eq!(manifests[0].name, "MMD Loader Pack");
         assert_eq!(manifests[0].version, "0.1.0");
+        assert_eq!(manifests[0].minimum_app_version, Some("0.1.0".to_string()));
+        assert_eq!(manifests[0].maximum_app_version, None);
+        assert_eq!(manifests[0].compatibility.state, "compatible");
         assert_eq!(manifests[0].extensions, vec!["pmd", "pmx", "vmd"]);
         assert_eq!(manifests[0].entry, "loader.js");
         assert!(manifests[0].pack_path.ends_with("mmd"));
@@ -463,6 +639,55 @@ mod tests {
     }
 
     #[test]
+    fn version_less_than_follows_semver_prerelease_ordering() {
+        assert_eq!(version_less_than("1.0.0-alpha.1", "1.0.0"), Some(true));
+        assert_eq!(version_less_than("1.0.0", "1.0.0-alpha.1"), Some(false));
+        assert_eq!(
+            version_less_than("1.0.0-alpha.1", "1.0.0-alpha.2"),
+            Some(true)
+        );
+        assert_eq!(
+            version_less_than("1.0.0-alpha.2", "1.0.0-alpha.10"),
+            Some(true)
+        );
+        assert_eq!(
+            version_less_than("1.0.0+build.7", "1.0.0+build.8"),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn scan_optional_loader_manifests_reports_app_version_incompatibility() {
+        let dir = tempdir().expect("tempdir");
+        write_pack(
+            dir.path(),
+            "mmd",
+            r#"{
+  "id": "mmd-loader-pack",
+  "name": "MMD Loader Pack",
+  "version": "9.0.0",
+  "minimumAppVersion": "9.0.0",
+  "extensions": ["pmx"],
+  "entry": "loader.js",
+  "kind": "firstPartyLoaderPack"
+}"#,
+        );
+
+        let manifests =
+            scan_optional_loader_manifests_from_dir(dir.path()).expect("scan manifests");
+
+        assert_eq!(manifests.len(), 1);
+        assert_eq!(manifests[0].compatibility.state, "requiresNewerApp");
+        assert_eq!(
+            manifests[0].compatibility.message,
+            Some(format!(
+                "Requires yw-look 9.0.0 or newer. Current version is {}.",
+                env!("CARGO_PKG_VERSION")
+            ))
+        );
+    }
+
+    #[test]
     fn scan_optional_loader_manifests_merges_bundled_seed_and_app_managed_dirs() {
         let app_managed_dir = tempdir().expect("app managed dir");
         let bundled_seed_dir = tempdir().expect("bundled seed dir");
@@ -513,11 +738,9 @@ mod tests {
         assert_eq!(manifests[0].id, "mmd-loader-pack");
         assert_eq!(manifests[0].version, "0.2.0");
         assert_eq!(manifests[0].extensions, vec!["pmd", "pmx"]);
-        assert!(
-            manifests[0]
-                .entry_path
-                .contains(app_managed_dir.path().to_string_lossy().as_ref())
-        );
+        assert!(manifests[0]
+            .entry_path
+            .contains(app_managed_dir.path().to_string_lossy().as_ref()));
         assert_eq!(manifests[1].id, "vrm-loader-pack");
     }
 
@@ -532,6 +755,11 @@ mod tests {
         assert_eq!(manifests[0].id, "mmd-loader-pack");
         assert_eq!(manifests[0].name, "MMD Loader Pack");
         assert_eq!(manifests[0].version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            manifests[0].minimum_app_version,
+            Some(env!("CARGO_PKG_VERSION").to_string())
+        );
+        assert_eq!(manifests[0].compatibility.state, "compatible");
         assert_eq!(manifests[0].extensions, vec!["pmd", "pmx", "vmd"]);
         assert!(dir.path().join("mmd").join("loader.js").is_file());
         assert!(dir.path().join("mmd").join("manifest.json").is_file());
@@ -577,12 +805,11 @@ mod tests {
 
         assert_eq!(manifests.len(), 1);
         assert_eq!(manifests[0].id, "mmd-loader-pack");
-        assert!(
-            !dir.path()
-                .join("mmd")
-                .join(LOADER_PACK_REMOVED_MARKER)
-                .exists()
-        );
+        assert!(!dir
+            .path()
+            .join("mmd")
+            .join(LOADER_PACK_REMOVED_MARKER)
+            .exists());
     }
 
     #[test]
@@ -597,12 +824,11 @@ mod tests {
             .expect("remove loader pack");
 
         assert!(!dir.path().join("mmd").join("manifest.json").exists());
-        assert!(
-            dir.path()
-                .join("mmd")
-                .join(LOADER_PACK_REMOVED_MARKER)
-                .is_file()
-        );
+        assert!(dir
+            .path()
+            .join("mmd")
+            .join(LOADER_PACK_REMOVED_MARKER)
+            .is_file());
         assert!(dir.path().join("gaussian-splat").exists());
         assert_eq!(manifests.len(), 1);
         assert_eq!(manifests[0].id, "gaussian-splat-loader-pack");
@@ -634,13 +860,11 @@ mod tests {
         )
         .expect("remove loader pack");
 
-        assert!(
-            app_managed_dir
-                .path()
-                .join("mmd")
-                .join(LOADER_PACK_REMOVED_MARKER)
-                .is_file()
-        );
+        assert!(app_managed_dir
+            .path()
+            .join("mmd")
+            .join(LOADER_PACK_REMOVED_MARKER)
+            .is_file());
         assert_eq!(manifests.len(), 1);
         assert_eq!(manifests[0].id, "vrm-loader-pack");
     }
@@ -670,13 +894,11 @@ mod tests {
         .expect("remove loader pack");
 
         assert!(manifests.is_empty());
-        assert!(
-            app_managed_dir
-                .path()
-                .join("mmd")
-                .join(LOADER_PACK_REMOVED_MARKER)
-                .is_file()
-        );
+        assert!(app_managed_dir
+            .path()
+            .join("mmd")
+            .join(LOADER_PACK_REMOVED_MARKER)
+            .is_file());
     }
 
     #[test]

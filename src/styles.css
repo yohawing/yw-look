@@ -1942,6 +1942,27 @@ body.is-resizing-sidebar {
   white-space: nowrap;
 }
 
+.optional-loader-pack-compatibility {
+  max-width: 120px;
+  overflow: hidden;
+  color: var(--yl-text-tertiary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optional-loader-pack-compatibility.is-compatible,
+.optional-loader-pack-compatibility.is-bundled {
+  color: var(--yl-text-muted);
+}
+
+.optional-loader-pack-compatibility.is-runtimeMissing,
+.optional-loader-pack-compatibility.is-requiresNewerApp,
+.optional-loader-pack-compatibility.is-requiresOlderApp,
+.optional-loader-pack-compatibility.is-unknown {
+  color: #f2b84b;
+}
+
 /* ── Utility ── */
 
 .sr-only {

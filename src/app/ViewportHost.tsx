@@ -10,6 +10,7 @@ import type { ViewerState } from "../stores/viewerStore";
 type ViewportHostProps = {
   deferredPayloadProgress: DeferredTextureSnapshot | null;
   disabledOptionalLoaderPackIds: readonly string[];
+  incompatibleOptionalLoaderPackIds: readonly string[];
   displayMode: DisplayMode;
   file: FileState;
   handleOpenFile: () => Promise<void>;
@@ -24,6 +25,7 @@ type ViewportHostProps = {
 export function ViewportHost({
   deferredPayloadProgress,
   disabledOptionalLoaderPackIds,
+  incompatibleOptionalLoaderPackIds,
   displayMode,
   file,
   handleOpenFile,
@@ -39,6 +41,7 @@ export function ViewportHost({
       <AssetViewport
         currentFile={file.currentFile}
         disabledOptionalLoaderPackIds={disabledOptionalLoaderPackIds}
+        incompatibleOptionalLoaderPackIds={incompatibleOptionalLoaderPackIds}
         mmdMotionRequest={file.mmdMotionRequest}
         displayMode={displayMode}
         backgroundPreset={viewer.backgroundPreset}

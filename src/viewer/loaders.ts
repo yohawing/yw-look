@@ -2573,6 +2573,7 @@ export function getPreviewSupportState(
   extension: string,
   options: {
     disabledOptionalLoaderPackIds?: readonly string[] | ReadonlySet<string>;
+    incompatibleOptionalLoaderPackIds?: readonly string[] | ReadonlySet<string>;
     optionalLoaderInstalled?: boolean;
   } = {},
 ): PreviewSupportState {
@@ -2585,6 +2586,16 @@ export function getPreviewSupportState(
       (loader.installed === false || options.optionalLoaderInstalled === false)
     ) {
       return "missingOptionalLoader";
+    }
+
+    if (
+      loader.optional === true &&
+      isOptionalLoaderPackDisabled(
+        loader.id,
+        options.incompatibleOptionalLoaderPackIds,
+      )
+    ) {
+      return "incompatibleOptionalLoader";
     }
 
     if (
@@ -2624,12 +2635,16 @@ export function summarizeOptionalLoaderPacks(
 
     const manifest = manifestsById.get(loader.id);
     const manifestInstalled = manifest !== undefined;
+    const enabled =
+      optionalLoaderPackEnabled(loader.id, settings) &&
+      optionalLoaderPackCompatible(manifest);
     const existing = packs.get(loader.id);
     if (existing) {
       const nextManifestInstalled =
         existing.manifestInstalled || manifestInstalled;
       const nextRuntimeAvailable =
         existing.runtimeAvailable && loader.installed;
+      const nextEnabled = existing.enabled && enabled;
       packs.set(loader.id, {
         ...existing,
         extensions: [
@@ -2638,22 +2653,34 @@ export function summarizeOptionalLoaderPacks(
         installed: nextRuntimeAvailable,
         manifestInstalled: nextManifestInstalled,
         runtimeAvailable: nextRuntimeAvailable,
-        enabled:
-          existing.enabled && optionalLoaderPackEnabled(loader.id, settings),
+        enabled: nextEnabled,
         version: existing.version ?? manifest?.version,
+        compatibility: describeOptionalLoaderPackCompatibility({
+          enabled: nextEnabled,
+          manifest,
+          manifestInstalled: nextManifestInstalled,
+          runtimeAvailable: nextRuntimeAvailable,
+        }),
       });
       continue;
     }
 
+    const runtimeAvailable = loader.installed;
     packs.set(loader.id, {
       id: loader.id,
       name: loader.name,
       extensions: [loader.extension],
-      installed: loader.installed,
-      enabled: optionalLoaderPackEnabled(loader.id, settings),
+      installed: runtimeAvailable,
+      enabled,
       manifestInstalled,
-      runtimeAvailable: loader.installed,
+      runtimeAvailable,
       version: manifest?.version,
+      compatibility: describeOptionalLoaderPackCompatibility({
+        enabled,
+        manifest,
+        manifestInstalled,
+        runtimeAvailable,
+      }),
     });
   }
 
@@ -2689,11 +2716,92 @@ export function disabledOptionalLoaderPackIds(
     .sort();
 }
 
+export function incompatibleOptionalLoaderPackIds(
+  manifests: readonly OptionalLoaderPackManifest[],
+): string[] {
+  return manifests
+    .filter((manifest) => !optionalLoaderPackCompatible(manifest))
+    .map((manifest) => manifest.id)
+    .sort();
+}
+
 function optionalLoaderPackEnabled(
   id: string,
   settings: Record<string, { enabled?: boolean } | undefined>,
 ): boolean {
   return settings[id]?.enabled !== false;
+}
+
+function optionalLoaderPackCompatible(
+  manifest: OptionalLoaderPackManifest | undefined,
+): boolean {
+  return !manifest || manifest.compatibility.state === "compatible";
+}
+
+function describeOptionalLoaderPackCompatibility({
+  enabled,
+  manifest,
+  manifestInstalled,
+  runtimeAvailable,
+}: {
+  enabled: boolean;
+  manifest: OptionalLoaderPackManifest | undefined;
+  manifestInstalled: boolean;
+  runtimeAvailable: boolean;
+}): OptionalLoaderPackStatus["compatibility"] {
+  if (!runtimeAvailable) {
+    return {
+      state: "runtimeMissing",
+      label: "Runtime missing",
+      detail: "This build does not include the loader runtime for this pack.",
+    };
+  }
+
+  const manifestState = manifest?.compatibility.state;
+  if (manifestState === "requiresNewerApp") {
+    return {
+      state: "requiresNewerApp",
+      label: "App update required",
+      detail: manifest?.compatibility.message ?? undefined,
+    };
+  }
+  if (manifestState === "requiresOlderApp") {
+    return {
+      state: "requiresOlderApp",
+      label: "Older app required",
+      detail: manifest?.compatibility.message ?? undefined,
+    };
+  }
+  if (manifestState && manifestState !== "compatible") {
+    return {
+      state: "unknown",
+      label: "Compatibility unknown",
+      detail: manifest?.compatibility.message ?? undefined,
+    };
+  }
+
+  if (!enabled) {
+    return {
+      state: "disabled",
+      label: "Disabled",
+      detail: "The pack is installed but not registered for preview loading.",
+    };
+  }
+
+  if (manifestInstalled) {
+    return {
+      state: "compatible",
+      label: "Compatible",
+      detail: manifest?.compatibility.message ?? undefined,
+    };
+  }
+
+  return {
+    state: "bundled",
+    label: "Bundled runtime",
+    detail:
+      "The loader is bundled with this build but has no managed manifest.",
+  };
 }
 
 function isOptionalLoaderPackDisabled(
@@ -2716,10 +2824,14 @@ export async function loadPreviewObject(
     !loader ||
     loader.installed === false ||
     (loader.optional === true &&
-      isOptionalLoaderPackDisabled(
+      (isOptionalLoaderPackDisabled(
         loader.id,
         options.disabledOptionalLoaderPackIds,
-      ))
+      ) ||
+        isOptionalLoaderPackDisabled(
+          loader.id,
+          options.incompatibleOptionalLoaderPackIds,
+        )))
   ) {
     throw new Error(`Preview loader is not installed for .${file.extension}`);
   }

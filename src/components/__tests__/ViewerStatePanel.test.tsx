@@ -44,6 +44,27 @@ describe("ViewerStatePanel", () => {
     ).toBeTruthy();
   });
 
+  it("shows a version-oriented message for incompatible optional loaders", () => {
+    const { getByText, queryByText } = render(
+      <ViewerStatePanel
+        mode="incompatibleOptionalLoader"
+        fileExtension="vrm"
+      />,
+    );
+
+    expect(
+      getByText("VRM Loader Pack is not compatible with this app version."),
+    ).toBeTruthy();
+    expect(
+      getByText(
+        "Update yw-look or reinstall VRM Loader Pack to preview VRM files.",
+      ),
+    ).toBeTruthy();
+    expect(
+      queryByText("Enable VRM Loader Pack in Settings to preview VRM files."),
+    ).toBeNull();
+  });
+
   it("keeps unknown extensions in the generic unsupported format message", () => {
     const { getByText } = render(
       <ViewerStatePanel mode="unsupported" fileExtension="assetbundle" />,

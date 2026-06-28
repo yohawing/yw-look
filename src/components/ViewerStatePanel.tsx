@@ -1,6 +1,7 @@
 import { LoadingScreen } from "./LoadingScreen";
 import {
   formatDisabledOptionalLoaderMessage,
+  formatIncompatibleOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
   optionalPreviewLoaders,
@@ -99,6 +100,16 @@ const stateContent: Record<
       "Reopen the file after changing the loader pack setting.",
     ],
   },
+  incompatibleOptionalLoader: {
+    label: "Optional Loader Incompatible",
+    title: "A loader pack is not compatible with this app version.",
+    body: "The file extension is recognized, but its optional loader pack cannot run with the current app version.",
+    tone: "warning",
+    details: [
+      "Update yw-look or reinstall the matching loader pack.",
+      "Reopen the file after the app and loader pack versions match.",
+    ],
+  },
   loadFailed: {
     label: "Load Error",
     title: "This file could not be previewed.",
@@ -143,11 +154,16 @@ export function ViewerStatePanel({
     mode === "disabledOptionalLoader" && fileExtension
       ? formatDisabledOptionalLoaderMessage(fileExtension)
       : null;
+  const incompatibleOptionalLoaderMessage =
+    mode === "incompatibleOptionalLoader" && fileExtension
+      ? formatIncompatibleOptionalLoaderMessage(fileExtension)
+      : null;
   const content = {
     ...baseContent,
     ...(unsupportedMessage ??
       optionalLoaderMessage ??
       disabledOptionalLoaderMessage ??
+      incompatibleOptionalLoaderMessage ??
       {}),
   };
 

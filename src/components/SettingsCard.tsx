@@ -37,6 +37,16 @@ function formatOptionalLoaderPackSource(
   return "Not installed";
 }
 
+function canToggleOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
+  return (
+    pack.installed &&
+    pack.compatibility.state !== "requiresNewerApp" &&
+    pack.compatibility.state !== "requiresOlderApp" &&
+    pack.compatibility.state !== "unknown" &&
+    pack.compatibility.state !== "runtimeMissing"
+  );
+}
+
 export function SettingsCard({
   settingsPayload,
   settingsError,
@@ -151,7 +161,7 @@ export function SettingsCard({
                   <ToggleSwitch
                     aria-label={`${pack.name} loader pack`}
                     checked={pack.installed && pack.enabled}
-                    disabled={!pack.installed}
+                    disabled={!canToggleOptionalLoaderPack(pack)}
                     onCheckedChange={() => onToggleOptionalLoaderPack(pack.id)}
                     size="sm"
                   />
@@ -162,6 +172,12 @@ export function SettingsCard({
                   </span>
                   <span className="optional-loader-pack-source">
                     {formatOptionalLoaderPackSource(pack)}
+                  </span>
+                  <span
+                    className={`optional-loader-pack-compatibility is-${pack.compatibility.state}`}
+                    title={pack.compatibility.detail}
+                  >
+                    {pack.compatibility.label}
                   </span>
                   {!pack.manifestInstalled && pack.runtimeAvailable ? (
                     <Button
