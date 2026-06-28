@@ -170,6 +170,8 @@ export function App() {
     variantSelections,
     viewer.purposeModes,
     recordVariantSelectionError,
+    viewerFeedback.warning,
+    viewer.updateViewerFeedback,
   );
 
   const { handleOpenFile, performSelectFilePath } = useAppFileOpen({

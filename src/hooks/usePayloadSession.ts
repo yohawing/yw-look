@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isUsdFile, type SelectedFile } from "../lib/files";
+import { errorMessage } from "../lib/invokeSafe";
 import {
   closeStageSession,
   extractGeometrySession,
@@ -13,6 +14,7 @@ import {
   type StageSessionHandle,
   type VariantSelection,
 } from "../lib/usd";
+import type { ViewerFeedback } from "../types/viewer";
 import type { DeferredTextureSnapshot } from "../viewer";
 
 const DEFERRED_PREVIEW_PAYLOAD_BATCH_SIZE = 8;
@@ -52,6 +54,30 @@ function yieldDeferredPreviewFrame(): Promise<void> {
   });
 }
 
+function payloadOperationWarning(
+  operation: "load" | "unload",
+  primPath: string,
+  error: unknown,
+) {
+  const action = operation === "load" ? "load" : "unload";
+  const detail = errorMessage(error, `Failed to ${action} USD payload.`);
+  return `Could not ${action} payload: ${primPath} - ${detail}`;
+}
+
+function appendViewerWarning(
+  currentWarning: string | null,
+  nextWarning: string,
+) {
+  const warnings = (currentWarning ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!warnings.includes(nextWarning)) {
+    warnings.push(nextWarning);
+  }
+  return warnings.length > 0 ? warnings.join("\n") : null;
+}
+
 export function usePayloadSession(
   currentFile: SelectedFile | null,
   isTauri: boolean,
@@ -60,6 +86,8 @@ export function usePayloadSession(
   variantSelections: VariantSelection[],
   purposeModes: PurposeModes,
   recordVariantSelectionError: (error: unknown) => boolean,
+  viewerWarning: string | null,
+  updateViewerFeedback: (partial: Partial<ViewerFeedback>) => void,
 ) {
   const [stageSessionHandle, setStageSessionHandle] =
     useState<StageSessionHandle | null>(null);
@@ -80,6 +108,7 @@ export function usePayloadSession(
   );
   const deferredPreviewSessionRef = useRef<StageSessionHandle | null>(null);
   const sessionLoadedPayloadPathsRef = useRef<Set<string>>(new Set());
+  const viewerWarningRef = useRef<string | null>(viewerWarning);
   useEffect(() => {
     stageSessionHandleRef.current = stageSessionHandle;
     deferredPreviewSessionRef.current = null;
@@ -87,6 +116,10 @@ export function usePayloadSession(
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset deferred preview progress when the stage session changes; progress is driven by a cancellable batch loader and cannot be derived during render
     setDeferredPayloadProgress(null);
   }, [stageSessionHandle]);
+
+  useEffect(() => {
+    viewerWarningRef.current = viewerWarning;
+  }, [viewerWarning]);
 
   const sessionGlbBufferRef = useRef<ArrayBuffer | null>(sessionGlbBuffer);
   useEffect(() => {
@@ -199,6 +232,22 @@ export function usePayloadSession(
     [variantSelections, purposeModes],
   );
 
+  const reportPayloadOperationFailure = useCallback(
+    (operation: "load" | "unload", primPath: string, error: unknown) => {
+      const warning = appendViewerWarning(
+        viewerWarningRef.current,
+        payloadOperationWarning(operation, primPath, error),
+      );
+      viewerWarningRef.current = warning;
+      updateViewerFeedback({
+        mode: "ready",
+        message: "Preview ready with a payload warning.",
+        warning,
+      });
+    },
+    [updateViewerFeedback],
+  );
+
   const handleLoadPayload = useCallback(
     async (primPath: string) => {
       const captured = stageSessionHandle;
@@ -213,7 +262,9 @@ export function usePayloadSession(
           return next;
         });
       } catch (err: unknown) {
+        if (stageSessionHandleRef.current !== captured) return;
         console.error("[usd] load_payload failed:", err);
+        reportPayloadOperationFailure("load", primPath, err);
         return;
       }
       try {
@@ -234,6 +285,7 @@ export function usePayloadSession(
       stageSessionHandle,
       buildSessionExtractOptions,
       recordVariantSelectionError,
+      reportPayloadOperationFailure,
     ],
   );
 
@@ -251,7 +303,9 @@ export function usePayloadSession(
           return next;
         });
       } catch (err: unknown) {
+        if (stageSessionHandleRef.current !== captured) return;
         console.error("[usd] unload_payload failed:", err);
+        reportPayloadOperationFailure("unload", primPath, err);
         return;
       }
       try {
@@ -272,6 +326,7 @@ export function usePayloadSession(
       stageSessionHandle,
       buildSessionExtractOptions,
       recordVariantSelectionError,
+      reportPayloadOperationFailure,
     ],
   );
 
