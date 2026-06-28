@@ -280,6 +280,13 @@ describe("MMD preview loader", () => {
               textureKind: "sphere",
               path: "effects/unsupported.sph",
             },
+            {
+              level: "warning",
+              code: "TEXTURE_RESOLVE_FAILED",
+              materialIndex: 3,
+              textureKind: "diffuse",
+              path: "C:\\mmd\\private\\secret.png",
+            },
           ],
         },
       });
@@ -364,8 +371,9 @@ describe("MMD preview loader", () => {
       },
     });
     expect(result.warnings).toEqual([
-      "Missing MMD external asset: C:\\mmd\\textures\\missing.png. The model was loaded with a fallback or incomplete material.",
-      "Unsupported MMD sphere texture: C:\\mmd\\effects\\unsupported.sph. The model was loaded without this sphere map.",
+      "Missing MMD external asset: textures/missing.png. The model was loaded with a fallback or incomplete material.",
+      "Unsupported MMD sphere texture: effects/unsupported.sph. The model was loaded without this sphere map.",
+      "Missing MMD external asset: secret.png. The model was loaded with a fallback or incomplete material.",
     ]);
     expect(warnings).toEqual(result.warnings);
     expect(stages).toEqual(["scan", "decode", "scene"]);

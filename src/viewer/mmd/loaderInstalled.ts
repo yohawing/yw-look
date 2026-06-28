@@ -455,11 +455,23 @@ async function resolveMmdLocalTextureBlob(
   return null;
 }
 
-function formatMmdResourceDisplayPath(url: string, file: SelectedFile) {
+function formatMmdResourceDisplayPath(url: string) {
   if (isRemoteOrInlineUrl(url)) {
     return url;
   }
-  return resolveMmdResourcePath(url, file);
+  return url
+    .split("*")
+    .map((entry) => {
+      const stripped = stripUrlSuffix(entry.trim());
+      if (/^(?:[a-zA-Z]:[\\/]|\\\\|\/)/.test(stripped)) {
+        return (
+          stripped.split(/[\\/]/).filter(Boolean).at(-1) ?? "external asset"
+        );
+      }
+      return entry.trim();
+    })
+    .filter(Boolean)
+    .join("*");
 }
 
 function formatMissingMmdResourceWarning(path: string) {
@@ -660,7 +672,7 @@ export async function loadMmdPreviewObject(
     const warnings = [
       ...new Map(
         mmd.diagnostics.textures.map((diagnostic) => {
-          const path = formatMmdResourceDisplayPath(diagnostic.path, file);
+          const path = formatMmdResourceDisplayPath(diagnostic.path);
           const warning =
             diagnostic.code === "SPHERE_MAP_NOT_SUPPORTED"
               ? formatUnsupportedMmdSphereMapWarning(path)
