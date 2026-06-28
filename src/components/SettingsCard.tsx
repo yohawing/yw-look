@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { SettingsPayload } from "../lib/settings";
 import type { OptionalLoaderPackStatus } from "../viewer";
 import {
@@ -5,6 +6,7 @@ import {
   SidebarError,
   SidebarSection,
 } from "./sidebarPrimitives";
+import { Button } from "./ui/Button";
 import { FieldRow } from "./ui/FieldRow";
 import { ToggleSwitch } from "./ui/ToggleSwitch";
 
@@ -16,6 +18,8 @@ type SettingsCardProps = {
   /** #26: flips `autoCheckForUpdates` and persists via save_settings. */
   onToggleAutoCheckForUpdates: () => void;
   onToggleOptionalLoaderPack: (packId: string) => void;
+  onInstallOptionalLoaderPack: (packId: string) => void;
+  onRemoveOptionalLoaderPack: (packId: string) => void;
 };
 
 function formatOptionalLoaderPackSource(
@@ -40,7 +44,13 @@ export function SettingsCard({
   onToggleFileAssociations,
   onToggleAutoCheckForUpdates,
   onToggleOptionalLoaderPack,
+  onInstallOptionalLoaderPack,
+  onRemoveOptionalLoaderPack,
 }: SettingsCardProps) {
+  const [confirmingRemovalPackId, setConfirmingRemovalPackId] = useState<
+    string | null
+  >(null);
+
   if (settingsError) {
     return (
       <SidebarSection title="Local Settings">
@@ -112,46 +122,78 @@ export function SettingsCard({
       <SidebarSection title="Optional Loader Packs" collapsible>
         {optionalLoaderPacks.length > 0 ? (
           <div className="yl-kv">
-            {optionalLoaderPacks.map((pack) => (
-              <FieldRow
-                className="yl-kv-row"
-                controlClassName="yl-kv-value optional-loader-pack-value"
-                key={pack.id}
-                label={pack.name}
-                labelClassName="yl-kv-key"
-              >
-                <span
-                  className={`optional-loader-pack-status ${
-                    pack.installed
-                      ? pack.enabled
-                        ? "is-installed"
-                        : "is-disabled"
-                      : "is-missing"
-                  }`}
+            {optionalLoaderPacks.map((pack) => {
+              const isConfirmingRemoval = confirmingRemovalPackId === pack.id;
+
+              return (
+                <FieldRow
+                  className="yl-kv-row"
+                  controlClassName="yl-kv-value optional-loader-pack-value"
+                  key={pack.id}
+                  label={pack.name}
+                  labelClassName="yl-kv-key"
                 >
-                  {pack.installed
-                    ? pack.enabled
-                      ? "Enabled"
-                      : "Disabled"
-                    : "Missing"}
-                </span>
-                <ToggleSwitch
-                  aria-label={`${pack.name} loader pack`}
-                  checked={pack.installed && pack.enabled}
-                  disabled={!pack.installed}
-                  onCheckedChange={() => onToggleOptionalLoaderPack(pack.id)}
-                  size="sm"
-                />
-                <span className="optional-loader-pack-extensions">
-                  {pack.extensions
-                    .map((extension) => `.${extension}`)
-                    .join(" ")}
-                </span>
-                <span className="optional-loader-pack-source">
-                  {formatOptionalLoaderPackSource(pack)}
-                </span>
-              </FieldRow>
-            ))}
+                  <span
+                    className={`optional-loader-pack-status ${
+                      pack.installed
+                        ? pack.enabled
+                          ? "is-installed"
+                          : "is-disabled"
+                        : "is-missing"
+                    }`}
+                  >
+                    {pack.installed
+                      ? pack.enabled
+                        ? "Enabled"
+                        : "Disabled"
+                      : "Missing"}
+                  </span>
+                  <ToggleSwitch
+                    aria-label={`${pack.name} loader pack`}
+                    checked={pack.installed && pack.enabled}
+                    disabled={!pack.installed}
+                    onCheckedChange={() => onToggleOptionalLoaderPack(pack.id)}
+                    size="sm"
+                  />
+                  <span className="optional-loader-pack-extensions">
+                    {pack.extensions
+                      .map((extension) => `.${extension}`)
+                      .join(" ")}
+                  </span>
+                  <span className="optional-loader-pack-source">
+                    {formatOptionalLoaderPackSource(pack)}
+                  </span>
+                  {!pack.manifestInstalled && pack.runtimeAvailable ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setConfirmingRemovalPackId(null);
+                        onInstallOptionalLoaderPack(pack.id);
+                      }}
+                    >
+                      Install
+                    </Button>
+                  ) : null}
+                  {pack.manifestInstalled ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        if (isConfirmingRemoval) {
+                          setConfirmingRemovalPackId(null);
+                          onRemoveOptionalLoaderPack(pack.id);
+                          return;
+                        }
+                        setConfirmingRemovalPackId(pack.id);
+                      }}
+                    >
+                      {isConfirmingRemoval ? "Confirm" : "Remove"}
+                    </Button>
+                  ) : null}
+                </FieldRow>
+              );
+            })}
           </div>
         ) : (
           <SidebarEmpty>No optional loader packs registered.</SidebarEmpty>

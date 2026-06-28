@@ -1,9 +1,15 @@
+import {
+  installOptionalLoaderPack,
+  removeOptionalLoaderPack,
+  type OptionalLoaderPackManifest,
+} from "../lib/loaderPacks";
 import { saveSettings, type SettingsPayload } from "../lib/settings";
 import { errorMessage } from "../lib/invokeSafe";
 
 type UseSettingsActionsOptions = {
   refreshUpdateConfiguration: () => Promise<void>;
   setSettingsError: (error: string | null) => void;
+  setOptionalLoaderManifests: (manifests: OptionalLoaderPackManifest[]) => void;
   setSettingsPayload: (payload: SettingsPayload | null) => void;
   setUpdateError: (error: string | null) => void;
   settingsPayload: SettingsPayload | null;
@@ -12,6 +18,7 @@ type UseSettingsActionsOptions = {
 export function useSettingsActions({
   refreshUpdateConfiguration,
   setSettingsError,
+  setOptionalLoaderManifests,
   setSettingsPayload,
   setUpdateError,
   settingsPayload,
@@ -86,6 +93,26 @@ export function useSettingsActions({
     }
   };
 
+  const handleInstallOptionalLoaderPack = async (packId: string) => {
+    try {
+      const manifests = await installOptionalLoaderPack(packId);
+      setOptionalLoaderManifests(manifests);
+      setSettingsError(null);
+    } catch (error: unknown) {
+      setSettingsError(errorMessage(error, "Failed to install loader pack."));
+    }
+  };
+
+  const handleRemoveOptionalLoaderPack = async (packId: string) => {
+    try {
+      const manifests = await removeOptionalLoaderPack(packId);
+      setOptionalLoaderManifests(manifests);
+      setSettingsError(null);
+    } catch (error: unknown) {
+      setSettingsError(errorMessage(error, "Failed to remove loader pack."));
+    }
+  };
+
   const handleSaveUpdateSettings = async ({
     endpoint,
     publicKey,
@@ -116,6 +143,8 @@ export function useSettingsActions({
 
   return {
     handleSaveUpdateSettings,
+    handleInstallOptionalLoaderPack,
+    handleRemoveOptionalLoaderPack,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,

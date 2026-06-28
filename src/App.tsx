@@ -83,6 +83,7 @@ export function App() {
     recentFilesPayload,
     recentFilesError,
     setRecentFilesError,
+    setOptionalLoaderManifests,
     integrationPayload,
     integrationError,
     optionalLoaderManifests,
@@ -194,12 +195,15 @@ export function App() {
   });
 
   const {
+    handleInstallOptionalLoaderPack,
+    handleRemoveOptionalLoaderPack,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,
   } = useSettingsActions({
     refreshUpdateConfiguration,
     setSettingsError,
+    setOptionalLoaderManifests,
     setSettingsPayload,
     setUpdateError,
     settingsPayload,
@@ -222,8 +226,10 @@ export function App() {
       debugPanelsEnabled,
       diagnosticCounts,
       handleCheckForUpdate,
+      handleInstallOptionalLoaderPack,
       handleInstallUpdate,
       handleLoadPayload,
+      handleRemoveOptionalLoaderPack,
       handleToggleAutoCheckForUpdates,
       handleToggleFileAssociations,
       handleToggleOptionalLoaderPack,

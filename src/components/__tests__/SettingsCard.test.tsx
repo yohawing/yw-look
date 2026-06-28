@@ -51,6 +51,8 @@ describe("SettingsCard", () => {
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={() => undefined}
+        onInstallOptionalLoaderPack={() => undefined}
+        onRemoveOptionalLoaderPack={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
@@ -83,6 +85,8 @@ describe("SettingsCard", () => {
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={() => undefined}
+        onInstallOptionalLoaderPack={() => undefined}
+        onRemoveOptionalLoaderPack={() => undefined}
         onToggleOptionalLoaderPack={onToggleOptionalLoaderPack}
       />,
     );
@@ -92,5 +96,52 @@ describe("SettingsCard", () => {
     );
 
     expect(onToggleOptionalLoaderPack).toHaveBeenCalledWith("mmd-loader-pack");
+  });
+
+  it("requests optional loader pack install and removal", () => {
+    const onInstallOptionalLoaderPack = vi.fn();
+    const onRemoveOptionalLoaderPack = vi.fn();
+    const { getByRole } = render(
+      <SettingsCard
+        settingsPayload={settingsPayload}
+        settingsError={null}
+        optionalLoaderPacks={[
+          {
+            id: "mmd-loader-pack",
+            name: "MMD Loader Pack",
+            extensions: ["pmd", "pmx", "vmd"],
+            installed: true,
+            enabled: true,
+            manifestInstalled: false,
+            runtimeAvailable: true,
+          },
+          {
+            id: "gaussian-splat-loader-pack",
+            name: "Gaussian Splat Loader Pack",
+            extensions: ["splat", "spz"],
+            installed: true,
+            enabled: true,
+            manifestInstalled: true,
+            runtimeAvailable: true,
+            version: "0.2.0",
+          },
+        ]}
+        onToggleAutoCheckForUpdates={() => undefined}
+        onToggleFileAssociations={() => undefined}
+        onInstallOptionalLoaderPack={onInstallOptionalLoaderPack}
+        onRemoveOptionalLoaderPack={onRemoveOptionalLoaderPack}
+        onToggleOptionalLoaderPack={() => undefined}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Install" }));
+    fireEvent.click(getByRole("button", { name: "Remove" }));
+    expect(onRemoveOptionalLoaderPack).not.toHaveBeenCalled();
+    fireEvent.click(getByRole("button", { name: "Confirm" }));
+
+    expect(onInstallOptionalLoaderPack).toHaveBeenCalledWith("mmd-loader-pack");
+    expect(onRemoveOptionalLoaderPack).toHaveBeenCalledWith(
+      "gaussian-splat-loader-pack",
+    );
   });
 });

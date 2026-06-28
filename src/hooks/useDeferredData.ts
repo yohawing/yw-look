@@ -182,6 +182,7 @@ export function useDeferredData(
   }, [
     settingsPayload?.settings.fileAssociationsEnabled,
     settingsPayload?.settings.optionalLoaderPacks,
+    optionalLoaderManifests,
     shouldLoadDeferredData,
   ]);
 
@@ -213,6 +214,7 @@ export function useDeferredData(
     recentFilesPayload,
     recentFilesError,
     setRecentFilesError,
+    setOptionalLoaderManifests,
     diagnosticsPayload,
     diagnosticsError,
     processMemoryMetrics,
