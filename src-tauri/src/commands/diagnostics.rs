@@ -1,11 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::Path;
 
 use crate::error::AppError;
-use crate::shared::{
-    current_timestamp, ensure_parent_dir, resolve_diagnostics_log_path,
-};
+use crate::shared::{current_timestamp, ensure_parent_dir, resolve_diagnostics_log_path};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,6 +31,45 @@ pub(crate) struct DiagnosticRecordInput {
     pub(crate) context_path: Option<String>,
 }
 
+fn redact_context_path(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if !looks_like_local_path(value) {
+        return Some(value.to_string());
+    }
+
+    let normalized = value.replace('\\', "/");
+    let file_name = normalized
+        .rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .or_else(|| Path::new(value).file_name().and_then(|name| name.to_str()));
+
+    Some(file_name.unwrap_or("<redacted>").to_string())
+}
+
+fn looks_like_local_path(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let has_drive_prefix =
+        bytes.len() >= 3 && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/');
+    let has_unc_prefix = value.starts_with("\\\\") || value.starts_with("//");
+    let has_windows_separator = value.contains('\\');
+    let has_explicit_relative_prefix =
+        value.starts_with("./") || value.starts_with("../") || value.starts_with("~/");
+    let has_absolute_file_leaf = value.starts_with('/')
+        && Path::new(value)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.contains('.'));
+
+    has_drive_prefix
+        || has_unc_prefix
+        || has_windows_separator
+        || has_explicit_relative_prefix
+        || has_absolute_file_leaf
+}
+
 fn append_diagnostic_record(
     app: &tauri::AppHandle,
     record: &DiagnosticRecordInput,
@@ -45,7 +83,7 @@ fn append_diagnostic_record(
         "level": record.level,
         "message": record.message,
         "detail": record.detail,
-        "contextPath": record.context_path,
+        "contextPath": redact_context_path(record.context_path.as_deref()),
     })
     .to_string();
 
@@ -106,4 +144,34 @@ pub(crate) fn load_process_memory_metrics() -> Result<Option<ProcessMemoryPayloa
         resident_set_bytes: process.memory(),
         virtual_memory_bytes: process.virtual_memory(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_context_path;
+
+    #[test]
+    fn redact_context_path_keeps_only_file_name_for_local_paths() {
+        assert_eq!(
+            redact_context_path(Some(r#"F:\MMD\pmx\model.pmx"#)),
+            Some("model.pmx".to_string())
+        );
+        assert_eq!(
+            redact_context_path(Some("C:/Users/yohaw/private/model.usd")),
+            Some("model.usd".to_string())
+        );
+    }
+
+    #[test]
+    fn redact_context_path_keeps_non_file_contexts() {
+        assert_eq!(
+            redact_context_path(Some("/World/Character/Body")),
+            Some("/World/Character/Body".to_string())
+        );
+        assert_eq!(
+            redact_context_path(Some("MMD warning context")),
+            Some("MMD warning context".to_string())
+        );
+        assert_eq!(redact_context_path(Some("   ")), None);
+    }
 }
