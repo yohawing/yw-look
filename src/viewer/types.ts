@@ -87,12 +87,31 @@ export function formatIncompatibleOptionalLoaderMessage(extension: string) {
   };
 }
 
-export function formatUnsupportedFormatMessage(extension: string) {
+export function formatUnsupportedFormatMessage(
+  extension: string,
+  supportedExtensions: readonly string[] = [],
+) {
   const normalizedExtension = extension ? `.${extension}` : "this extension";
+  const supportedList = formatSupportedExtensionList(supportedExtensions);
   return {
     title: "This file format is not supported yet.",
-    body: `No preview loader is available for ${normalizedExtension}. Supported core formats include GLB, glTF, FBX, OBJ, USD, STL, PLY, DAE, PMX, PMD, VMD, SPLAT, SPZ, KSPLAT, SOG, PNG, JPG, TGA, DDS, HDR, EXR, and KTX2.`,
+    body: `No preview loader is available for ${normalizedExtension}.${
+      supportedList ? ` Supported formats include ${supportedList}.` : ""
+    }`,
   };
+}
+
+export function formatSupportedExtensionList(extensions: readonly string[]) {
+  const labels = [...new Set(extensions.map((extension) => extension.trim()))]
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right))
+    .map((extension) => extension.toUpperCase());
+
+  if (labels.length <= 1) {
+    return labels[0] ?? "";
+  }
+
+  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
 }
 
 export const neutralFeedback: ViewerFeedback = {

@@ -133,6 +133,10 @@ export type {
   ToneMappingMode,
 } from "../types/viewer";
 
+const supportedPreviewExtensions = listRegisteredLoaders().map(
+  (loader) => loader.extension,
+);
+
 function isRuntimePreviewUpdater(
   value: unknown,
 ): value is RuntimePreviewUpdater {
@@ -1579,7 +1583,10 @@ export function AssetViewport({
             ? formatDisabledOptionalLoaderMessage(currentFile.extension)
             : supportState === "incompatibleOptionalLoader"
               ? formatIncompatibleOptionalLoaderMessage(currentFile.extension)
-              : formatUnsupportedFormatMessage(currentFile.extension);
+              : formatUnsupportedFormatMessage(
+                  currentFile.extension,
+                  supportedPreviewExtensions,
+                );
       onMetadataChange(emptyAssetMetadata);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);

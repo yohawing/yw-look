@@ -4,7 +4,7 @@ import {
   formatIncompatibleOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
-  optionalPreviewLoaders,
+  listRegisteredLoaders,
   type DeferredTextureSnapshot,
   type LoadingStageSnapshot,
 } from "../viewer";
@@ -22,21 +22,16 @@ type ViewerStatePanelProps = {
   onOpenFile?: () => void;
 };
 
-const coreFormats = [
-  "glb",
-  "gltf",
-  "fbx",
-  "obj",
-  "usd",
-  "usdz",
-  "png",
-  "jpg",
-  "exr",
-  "hdr",
-  "ktx2",
-];
-
-const optionalFormats = Object.keys(optionalPreviewLoaders);
+const registeredLoaders = listRegisteredLoaders();
+const supportedPreviewExtensions = registeredLoaders.map(
+  (loader) => loader.extension,
+);
+const coreFormats = registeredLoaders
+  .filter((loader) => !loader.optional)
+  .map((loader) => loader.extension);
+const optionalFormats = registeredLoaders
+  .filter((loader) => loader.optional)
+  .map((loader) => loader.extension);
 
 const stateContent: Record<
   ViewerMode,
@@ -144,7 +139,10 @@ export function ViewerStatePanel({
   const baseContent = stateContent[mode];
   const unsupportedMessage =
     mode === "unsupported" && fileExtension
-      ? formatUnsupportedFormatMessage(fileExtension)
+      ? formatUnsupportedFormatMessage(
+          fileExtension,
+          supportedPreviewExtensions,
+        )
       : null;
   const optionalLoaderMessage =
     mode === "missingOptionalLoader" && fileExtension

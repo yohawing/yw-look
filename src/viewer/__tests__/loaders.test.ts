@@ -490,6 +490,21 @@ describe("preview support classification", () => {
       ".assetbundle",
     );
   });
+
+  it("formats unsupported extension copy from registered loader extensions", () => {
+    const registeredExtensions = listRegisteredLoaders().map(
+      (loader) => loader.extension,
+    );
+    const message = formatUnsupportedFormatMessage(
+      "assetbundle",
+      registeredExtensions,
+    );
+
+    expect(message.body).toContain("Supported formats include");
+    for (const extension of registeredExtensions) {
+      expect(message.body).toContain(extension.toUpperCase());
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
