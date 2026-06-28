@@ -24,7 +24,7 @@ describe("SettingsCard", () => {
   });
 
   it("reports optional loader pack installation state", () => {
-    const { getByText } = render(
+    const { getByText, queryByText } = render(
       <SettingsCard
         settingsPayload={settingsPayload}
         settingsError={null}
@@ -61,8 +61,6 @@ describe("SettingsCard", () => {
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={() => undefined}
-        onRemoveOptionalLoaderPack={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
@@ -72,13 +70,10 @@ describe("SettingsCard", () => {
     expect(getByText("Gaussian Splat Loader Pack")).toBeTruthy();
     expect(getByText("Enabled")).toBeTruthy();
     expect(getByText("Missing")).toBeTruthy();
-    expect(getByText(".pmd .pmx .vmd")).toBeTruthy();
-    expect(getByText("Managed 0.2.0")).toBeTruthy();
-    expect(getByText("Compatible")).toBeTruthy();
-    expect(getByText("Runtime missing")).toBeTruthy();
-    expect(
-      getByText("Install a build that includes this loader runtime."),
-    ).toBeTruthy();
+    expect(queryByText(".pmd .pmx .vmd")).toBeNull();
+    expect(queryByText("Managed 0.2.0")).toBeNull();
+    expect(queryByText("Compatible")).toBeNull();
+    expect(queryByText("Runtime missing")).toBeNull();
   });
 
   it("requests optional loader pack toggles for installed packs", () => {
@@ -104,8 +99,6 @@ describe("SettingsCard", () => {
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={() => undefined}
-        onRemoveOptionalLoaderPack={() => undefined}
         onToggleOptionalLoaderPack={onToggleOptionalLoaderPack}
       />,
     );
@@ -117,8 +110,7 @@ describe("SettingsCard", () => {
     expect(onToggleOptionalLoaderPack).toHaveBeenCalledWith("mmd-loader-pack");
   });
 
-  it("does not offer install for bundled runtime packs", () => {
-    const onInstallOptionalLoaderPack = vi.fn();
+  it("does not render optional loader pack management actions", () => {
     const { queryByRole } = render(
       <SettingsCard
         settingsPayload={settingsPayload}
@@ -140,53 +132,12 @@ describe("SettingsCard", () => {
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={onInstallOptionalLoaderPack}
-        onRemoveOptionalLoaderPack={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
 
     expect(queryByRole("button", { name: "Install" })).toBeNull();
-    expect(onInstallOptionalLoaderPack).not.toHaveBeenCalled();
-  });
-
-  it("requests optional loader pack removal after confirmation", () => {
-    const onRemoveOptionalLoaderPack = vi.fn();
-    const { getByRole } = render(
-      <SettingsCard
-        settingsPayload={settingsPayload}
-        settingsError={null}
-        optionalLoaderPacks={[
-          {
-            id: "gaussian-splat-loader-pack",
-            name: "Gaussian Splat Loader Pack",
-            extensions: ["splat", "spz"],
-            installed: true,
-            enabled: true,
-            manifestInstalled: true,
-            runtimeAvailable: true,
-            version: "0.2.0",
-            compatibility: {
-              state: "compatible",
-              label: "Compatible",
-            },
-          },
-        ]}
-        onToggleAutoCheckForUpdates={() => undefined}
-        onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={() => undefined}
-        onRemoveOptionalLoaderPack={onRemoveOptionalLoaderPack}
-        onToggleOptionalLoaderPack={() => undefined}
-      />,
-    );
-
-    fireEvent.click(getByRole("button", { name: "Remove" }));
-    expect(onRemoveOptionalLoaderPack).not.toHaveBeenCalled();
-    fireEvent.click(getByRole("button", { name: "Confirm" }));
-
-    expect(onRemoveOptionalLoaderPack).toHaveBeenCalledWith(
-      "gaussian-splat-loader-pack",
-    );
+    expect(queryByRole("button", { name: "Remove" })).toBeNull();
   });
 
   it("reports optional loader pack manifest load failures", () => {
@@ -198,8 +149,6 @@ describe("SettingsCard", () => {
         optionalLoaderPacksError="Failed to load optional loader pack manifests."
         onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={() => undefined}
-        onRemoveOptionalLoaderPack={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );

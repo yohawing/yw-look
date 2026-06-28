@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { SettingsPayload } from "../lib/settings";
 import type { OptionalLoaderPackStatus } from "../viewer";
 import {
@@ -6,7 +5,6 @@ import {
   SidebarError,
   SidebarSection,
 } from "./sidebarPrimitives";
-import { Button } from "./ui/Button";
 import { FieldRow } from "./ui/FieldRow";
 import { ToggleSwitch } from "./ui/ToggleSwitch";
 
@@ -19,24 +17,7 @@ type SettingsCardProps = {
   /** #26: flips `autoCheckForUpdates` and persists via save_settings. */
   onToggleAutoCheckForUpdates: () => void;
   onToggleOptionalLoaderPack: (packId: string) => void;
-  onInstallOptionalLoaderPack: (packId: string) => void;
-  onRemoveOptionalLoaderPack: (packId: string) => void;
 };
-
-function formatOptionalLoaderPackSource(
-  pack: OptionalLoaderPackStatus,
-): string {
-  if (pack.manifestInstalled && pack.version) {
-    return `Managed ${pack.version}`;
-  }
-  if (pack.manifestInstalled) {
-    return "Managed";
-  }
-  if (pack.runtimeAvailable) {
-    return "Bundled";
-  }
-  return "Not installed";
-}
 
 function canToggleOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
   return (
@@ -48,19 +29,27 @@ function canToggleOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
   );
 }
 
-function optionalLoaderPackActionHint(
+function formatOptionalLoaderPackStatus(pack: OptionalLoaderPackStatus) {
+  if (!pack.installed) {
+    return "Missing";
+  }
+  if (!canToggleOptionalLoaderPack(pack)) {
+    return "Blocked";
+  }
+  return pack.enabled ? "Enabled" : "Disabled";
+}
+
+function formatOptionalLoaderPackStatusTitle(
   pack: OptionalLoaderPackStatus,
 ): string | null {
-  if (pack.compatibility.state === "runtimeMissing") {
-    return "Install a build that includes this loader runtime.";
+  const details = [
+    pack.compatibility.detail,
+    `Formats: ${pack.extensions.map((extension) => `.${extension}`).join(" ")}`,
+  ].filter(Boolean);
+  if (details.length === 0) {
+    return null;
   }
-  if (pack.compatibility.state === "requiresNewerApp") {
-    return "Update yw-look before enabling this loader pack.";
-  }
-  if (pack.compatibility.state === "requiresOlderApp") {
-    return "Use an older compatible yw-look build for this loader pack.";
-  }
-  return null;
+  return details.join("\n");
 }
 
 export function SettingsCard({
@@ -71,12 +60,7 @@ export function SettingsCard({
   onToggleFileAssociations,
   onToggleAutoCheckForUpdates,
   onToggleOptionalLoaderPack,
-  onRemoveOptionalLoaderPack,
 }: SettingsCardProps) {
-  const [confirmingRemovalPackId, setConfirmingRemovalPackId] = useState<
-    string | null
-  >(null);
-
   if (settingsError) {
     return (
       <SidebarSection title="Local Settings">
@@ -152,8 +136,8 @@ export function SettingsCard({
         {optionalLoaderPacks.length > 0 ? (
           <div className="yl-kv">
             {optionalLoaderPacks.map((pack) => {
-              const isConfirmingRemoval = confirmingRemovalPackId === pack.id;
-              const actionHint = optionalLoaderPackActionHint(pack);
+              const statusLabel = formatOptionalLoaderPackStatus(pack);
+              const statusTitle = formatOptionalLoaderPackStatusTitle(pack);
 
               return (
                 <FieldRow
@@ -165,18 +149,17 @@ export function SettingsCard({
                 >
                   <span
                     className={`optional-loader-pack-status ${
-                      pack.installed
+                      pack.installed && canToggleOptionalLoaderPack(pack)
                         ? pack.enabled
                           ? "is-installed"
                           : "is-disabled"
-                        : "is-missing"
+                        : pack.installed
+                          ? "is-blocked"
+                          : "is-missing"
                     }`}
+                    title={statusTitle ?? undefined}
                   >
-                    {pack.installed
-                      ? pack.enabled
-                        ? "Enabled"
-                        : "Disabled"
-                      : "Missing"}
+                    {statusLabel}
                   </span>
                   <ToggleSwitch
                     aria-label={`${pack.name} loader pack`}
@@ -185,41 +168,6 @@ export function SettingsCard({
                     onCheckedChange={() => onToggleOptionalLoaderPack(pack.id)}
                     size="sm"
                   />
-                  <span className="optional-loader-pack-extensions">
-                    {pack.extensions
-                      .map((extension) => `.${extension}`)
-                      .join(" ")}
-                  </span>
-                  <span className="optional-loader-pack-source">
-                    {formatOptionalLoaderPackSource(pack)}
-                  </span>
-                  <span
-                    className={`optional-loader-pack-compatibility is-${pack.compatibility.state}`}
-                    title={pack.compatibility.detail}
-                  >
-                    {pack.compatibility.label}
-                  </span>
-                  {actionHint ? (
-                    <span className="optional-loader-pack-action">
-                      {actionHint}
-                    </span>
-                  ) : null}
-                  {pack.manifestInstalled ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        if (isConfirmingRemoval) {
-                          setConfirmingRemovalPackId(null);
-                          onRemoveOptionalLoaderPack(pack.id);
-                          return;
-                        }
-                        setConfirmingRemovalPackId(pack.id);
-                      }}
-                    >
-                      {isConfirmingRemoval ? "Confirm" : "Remove"}
-                    </Button>
-                  ) : null}
                 </FieldRow>
               );
             })}

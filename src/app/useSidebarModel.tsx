@@ -102,10 +102,8 @@ type UseSidebarModelOptions = {
   debugPanelsEnabled: boolean;
   diagnosticCounts: DiagnosticCounts;
   handleCheckForUpdate: () => Promise<void>;
-  handleInstallOptionalLoaderPack: (packId: string) => Promise<void>;
   handleInstallUpdate: () => Promise<void>;
   handleLoadPayload: (primPath: string) => Promise<void>;
-  handleRemoveOptionalLoaderPack: (packId: string) => Promise<void>;
   handleToggleAutoCheckForUpdates: () => Promise<void>;
   handleToggleFileAssociations: () => Promise<void>;
   handleToggleOptionalLoaderPack: (packId: string) => Promise<void>;
@@ -217,10 +215,8 @@ export function useSidebarModel({
   debugPanelsEnabled,
   diagnosticCounts,
   handleCheckForUpdate,
-  handleInstallOptionalLoaderPack,
   handleInstallUpdate,
   handleLoadPayload,
-  handleRemoveOptionalLoaderPack,
   handleToggleAutoCheckForUpdates,
   handleToggleFileAssociations,
   handleToggleOptionalLoaderPack,
@@ -511,12 +507,6 @@ export function useSidebarModel({
                 onToggleOptionalLoaderPack={(packId) =>
                   void handleToggleOptionalLoaderPack(packId)
                 }
-                onInstallOptionalLoaderPack={(packId) =>
-                  void handleInstallOptionalLoaderPack(packId)
-                }
-                onRemoveOptionalLoaderPack={(packId) =>
-                  void handleRemoveOptionalLoaderPack(packId)
-                }
               />
             </Suspense>
             <Suspense fallback={<SidebarCardFallback />}>
@@ -561,11 +551,9 @@ export function useSidebarModel({
     currentFile,
     debugFixtures,
     handleCheckForUpdate,
-    handleInstallOptionalLoaderPack,
     handleInstallUpdate,
     handleLoadPayload,
     handleMorphTargetChange,
-    handleRemoveOptionalLoaderPack,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,

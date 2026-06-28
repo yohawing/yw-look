@@ -204,8 +204,6 @@ export function App() {
   });
 
   const {
-    handleInstallOptionalLoaderPack,
-    handleRemoveOptionalLoaderPack,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,
@@ -235,10 +233,8 @@ export function App() {
       debugPanelsEnabled,
       diagnosticCounts,
       handleCheckForUpdate,
-      handleInstallOptionalLoaderPack,
       handleInstallUpdate,
       handleLoadPayload,
-      handleRemoveOptionalLoaderPack,
       handleToggleAutoCheckForUpdates,
       handleToggleFileAssociations,
       handleToggleOptionalLoaderPack,

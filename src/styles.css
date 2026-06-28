@@ -1963,7 +1963,7 @@ body.is-resizing-sidebar {
 
 .optional-loader-pack-value {
   display: inline-flex;
-  max-width: 68%;
+  max-width: 42%;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
@@ -1985,39 +1985,7 @@ body.is-resizing-sidebar {
   color: #f2b84b;
 }
 
-.optional-loader-pack-extensions {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--yl-text-muted);
-  font-family: var(--yl-font-mono, ui-monospace);
-  font-size: 10px;
-  text-overflow: ellipsis;
-}
-
-.optional-loader-pack-source {
-  color: var(--yl-text-muted);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.optional-loader-pack-compatibility {
-  max-width: 120px;
-  overflow: hidden;
-  color: var(--yl-text-tertiary);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.optional-loader-pack-compatibility.is-compatible,
-.optional-loader-pack-compatibility.is-bundled {
-  color: var(--yl-text-muted);
-}
-
-.optional-loader-pack-compatibility.is-runtimeMissing,
-.optional-loader-pack-compatibility.is-requiresNewerApp,
-.optional-loader-pack-compatibility.is-requiresOlderApp,
-.optional-loader-pack-compatibility.is-unknown {
+.optional-loader-pack-status.is-blocked {
   color: #f2b84b;
 }
 
