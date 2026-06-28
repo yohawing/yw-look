@@ -7,6 +7,7 @@ import {
   inspectAsset,
   listSupportedSiblings,
   openFileDialog,
+  registerBrowserFile,
   resolveSelectedFile,
   type SelectedFile,
 } from "../lib/files";
@@ -295,6 +296,63 @@ export function useAppFileOpen({
   }, [isTauri]);
 
   useEffect(() => {
+    if (!isTauri) {
+      const handleDragOver = (event: DragEvent) => {
+        if (!event.dataTransfer?.types.includes("Files")) {
+          return;
+        }
+        event.preventDefault();
+        ui.setIsDragActive(true);
+      };
+
+      const handleDragLeave = (event: DragEvent) => {
+        if (event.relatedTarget === null) {
+          ui.setIsDragActive(false);
+        }
+      };
+
+      const handleDrop = (event: DragEvent) => {
+        if (!event.dataTransfer?.files.length) {
+          return;
+        }
+        event.preventDefault();
+        ui.setIsDragActive(false);
+        try {
+          const selectedFile = registerBrowserFile(event.dataTransfer.files[0]);
+          if (
+            selectedFile.extension === "vmd" &&
+            canAttachMmdMotion(currentFile)
+          ) {
+            file.setMmdMotionRequest({
+              file: selectedFile,
+              version: (file.mmdMotionRequest?.version ?? 0) + 1,
+            });
+            return;
+          }
+          void performSelectFilePath(selectedFile.path, "open");
+        } catch (error: unknown) {
+          file.setOpenError(
+            error instanceof Error
+              ? error.message
+              : "Failed to open dropped file.",
+          );
+          viewer.updateViewerFeedback({
+            mode: "loadFailed",
+            message: "Dropped file could not be resolved.",
+          });
+        }
+      };
+
+      window.addEventListener("dragover", handleDragOver);
+      window.addEventListener("dragleave", handleDragLeave);
+      window.addEventListener("drop", handleDrop);
+      return () => {
+        window.removeEventListener("dragover", handleDragOver);
+        window.removeEventListener("dragleave", handleDragLeave);
+        window.removeEventListener("drop", handleDrop);
+      };
+    }
+
     let unlisten: (() => void) | undefined;
 
     try {
@@ -342,7 +400,7 @@ export function useAppFileOpen({
     return () => {
       unlisten?.();
     };
-  }, []);
+  }, [currentFile, file, isTauri, performSelectFilePath, ui, viewer]);
 
   const handleOpenFile = useCallback(async () => {
     try {
