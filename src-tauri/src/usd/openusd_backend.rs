@@ -232,30 +232,30 @@ impl UsdInspectBackend for OpenusdBackend {
                 let source = prim_path.as_str().to_string();
 
                 // Collect variant sets for the inspector UI.
-                if let Ok(Some(SdfValue::TokenVec(set_names))) =
+                if let Ok(Some(value)) =
                     stage.field::<SdfValue>(prim_path.clone(), FieldKey::VariantSetNames)
                 {
-                    for set_name in &set_names {
-                        // Try to read the authored selection for
-                        // this variant set via VariantSelection.
-                        // The selection is stored as a dict-like
-                        // structure; we check if
-                        // `variants = { string <set_name> = "..." }`
-                        // is authored. Fallback: None (pcp picks
-                        // the first variant).
-                        let selection: Option<String> = None;
-                        // TODO: read variants dict once fork exposes
-                        // the per-set selection query. For now the
-                        // inspector shows the set name without the
-                        // selection.
-                        variant_sets_out
-                            .borrow_mut()
-                            .push(super::types::VariantSetInfo {
+                    let set_names: Vec<String> = match value {
+                        SdfValue::TokenVec(set_names) => set_names,
+                        SdfValue::TokenListOp(op) => op.iter().cloned().collect(),
+                        _ => Vec::new(),
+                    };
+                    if !set_names.is_empty() {
+                        let selection_map = match stage
+                            .field::<SdfValue>(prim_path.clone(), FieldKey::VariantSelection)
+                        {
+                            Ok(Some(SdfValue::VariantSelectionMap(map))) => map,
+                            _ => Default::default(),
+                        };
+                        for set_name in set_names {
+                            let selection = selection_map.get(&set_name).cloned();
+                            variant_sets_out.borrow_mut().push(super::types::VariantSetInfo {
                                 prim_path: source.clone(),
-                                set_name: set_name.clone(),
+                                set_name,
                                 selection,
                                 variants: Vec::new(),
                             });
+                        }
                     }
                 }
 
@@ -494,9 +494,12 @@ impl UsdInspectBackend for OpenusdBackend {
                     stage.field::<SdfValue>(prim_path.clone(), FieldKey::VariantSetNames)
                 {
                     *has_variants.borrow_mut() = true;
-                    if let SdfValue::TokenVec(set_names) = value {
-                        *variant_set_count.borrow_mut() += set_names.len();
-                    }
+                    let set_count = match value {
+                        SdfValue::TokenVec(set_names) => set_names.len(),
+                        SdfValue::TokenListOp(op) => op.iter().count(),
+                        _ => 0,
+                    };
+                    *variant_set_count.borrow_mut() += set_count;
                 }
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
@@ -4951,6 +4954,51 @@ def "Layer"
         assert!(inspection.references.is_empty());
         assert!(inspection.payloads.is_empty());
         assert!(inspection.missing_assets.is_empty());
+    }
+
+    #[test]
+    fn inspect_stage_reports_rust_backend_variant_selection() {
+        let root =
+            std::env::temp_dir().join(format!("yw-look-variant-selection-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let path = root.join("variant_selection.usda");
+        std::fs::write(
+            &path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+
+def Xform "Root" (
+    variants = {
+        string look = "blue"
+    }
+    prepend variantSets = ["look"]
+)
+{
+    variantSet "look" = {
+        "red" {
+        }
+        "blue" {
+        }
+    }
+}
+"#,
+        )
+        .expect("write variant selection fixture");
+
+        let inspection = OpenusdBackend::new()
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("inspect variant selection fixture");
+
+        let variant = inspection
+            .variant_sets
+            .iter()
+            .find(|entry| entry.prim_path == "/Root" && entry.set_name == "look")
+            .expect("look variant set");
+        assert_eq!(variant.selection.as_deref(), Some("blue"));
+
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
