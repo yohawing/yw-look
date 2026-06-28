@@ -58,6 +58,7 @@
     "@tauri-apps/api": "^2.10.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-resizable-panels": "^4.11.2",
     "three": "^0.180.0",
     "zustand": "^5.0.14"
   },

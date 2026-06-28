@@ -1483,15 +1483,73 @@ body.is-resizing-sidebar {
 /* ── Hierarchy Tree ── */
 
 .hierarchy-card {
+  display: flex;
+  min-height: 320px;
+  height: 100%;
   border-bottom: 0;
+}
+
+.hierarchy-split {
+  overflow: hidden;
+}
+
+.hierarchy-pane {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .hierarchy-section {
-  border-bottom: 1px solid var(--yl-border-subtle);
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
 }
 
-.hierarchy-section:last-child {
-  border-bottom: 0;
+.hierarchy-pane-scroll {
+  min-height: 0;
+  overflow: auto;
+}
+
+.hierarchy-resize-handle {
+  position: relative;
+  flex: 0 0 8px;
+  border-top: 1px solid var(--yl-border-subtle);
+  border-bottom: 1px solid var(--yl-border-subtle);
+  background: rgba(255, 255, 255, 0.012);
+  cursor: row-resize;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+
+.hierarchy-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 42%;
+  bottom: 3px;
+  left: 42%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 0.6;
+  transition:
+    background 0.12s,
+    opacity 0.12s;
+}
+
+.hierarchy-resize-handle:hover,
+.hierarchy-resize-handle:focus-visible,
+.hierarchy-resize-handle[data-resize-handle-active] {
+  border-color: rgba(113, 112, 255, 0.32);
+  background: rgba(113, 112, 255, 0.08);
+  outline: none;
+}
+
+.hierarchy-resize-handle:hover::after,
+.hierarchy-resize-handle:focus-visible::after,
+.hierarchy-resize-handle[data-resize-handle-active]::after {
+  background: var(--yl-accent);
+  opacity: 1;
 }
 
 .hierarchy-section .sec-head {

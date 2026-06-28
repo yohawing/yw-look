@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Group as PanelGroup,
+  Panel,
+  Separator as PanelResizeHandle,
+} from "react-resizable-panels";
 import type {
   AssetMetadata,
   HierarchyNode,
@@ -559,157 +564,188 @@ export function HierarchyCard({
     : [];
 
   return (
-    <div className="hierarchy-card">
-      <section className="hierarchy-section">
-        <div className="sec-head">
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            width="11"
-            height="11"
-            className="sec-head-chevron"
-            aria-hidden="true"
-          >
-            <path
-              d="M4 6l4 4 4-4"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <span>Outliner</span>
-          <span className="sec-head-count">{totalNodeCount}</span>
-        </div>
-        {hierarchy.length > 0 ? (
-          <ul className="tree-root">
-            {hierarchy.map((node, index) => (
-              <HierarchyBranch
-                key={`${node.name}-${index}`}
-                node={node}
-                depth={0}
-                selectedName={normalizedSelected}
-                onSelectName={onSelectName}
-                onSelectPrimPath={onSelectPrimPath}
-                parentPath="/"
-                forceExpanded={
-                  normalizedSelected !== null &&
-                  selectedAncestorKeys.has(node.primPath ?? node.name)
-                }
-                forceExpandedKeys={selectedAncestorKeys}
-                selectedRef={selectedRef}
-                payloadPrimPaths={payloadPrimPaths}
-                unloadedPayloadPaths={unloadedPayloadPaths}
-                onLoadPayload={onLoadPayload}
-                onUnloadPayload={onUnloadPayload}
+    <PanelGroup
+      className="hierarchy-card hierarchy-split"
+      orientation="vertical"
+    >
+      <Panel
+        className="hierarchy-pane"
+        defaultSize={62}
+        id="hierarchy-outliner"
+        minSize={25}
+      >
+        <section className="hierarchy-section">
+          <div className="sec-head">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              width="11"
+              height="11"
+              className="sec-head-chevron"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 6l4 4 4-4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               />
-            ))}
-          </ul>
-        ) : (
-          <p className="sidebar-empty">
-            No hierarchy available for the current asset.
-          </p>
-        )}
-      </section>
+            </svg>
+            <span>Outliner</span>
+            <span className="sec-head-count">{totalNodeCount}</span>
+          </div>
+          <div className="hierarchy-pane-scroll">
+            {hierarchy.length > 0 ? (
+              <ul className="tree-root">
+                {hierarchy.map((node, index) => (
+                  <HierarchyBranch
+                    key={`${node.name}-${index}`}
+                    node={node}
+                    depth={0}
+                    selectedName={normalizedSelected}
+                    onSelectName={onSelectName}
+                    onSelectPrimPath={onSelectPrimPath}
+                    parentPath="/"
+                    forceExpanded={
+                      normalizedSelected !== null &&
+                      selectedAncestorKeys.has(node.primPath ?? node.name)
+                    }
+                    forceExpandedKeys={selectedAncestorKeys}
+                    selectedRef={selectedRef}
+                    payloadPrimPaths={payloadPrimPaths}
+                    unloadedPayloadPaths={unloadedPayloadPaths}
+                    onLoadPayload={onLoadPayload}
+                    onUnloadPayload={onUnloadPayload}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <p className="sidebar-empty">
+                No hierarchy available for the current asset.
+              </p>
+            )}
+          </div>
+        </section>
+      </Panel>
 
-      <section className="hierarchy-section">
-        <div className="sec-head">
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            width="11"
-            height="11"
-            className="sec-head-chevron"
-            aria-hidden="true"
-          >
-            <path
-              d="M4 6l4 4 4-4"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <span>Selected</span>
-        </div>
-        {selectedNode ? (
-          <div className="selected-kv">
-            <KeyValueRows density="regular" rows={selectedRows} />
-            <SelectedMmdBone bone={selectedInfo?.mmdBone ?? null} />
-            {normalizedSelected && selectedMorphTargets.length > 0 ? (
-              <div className="selected-morph-section">
-                <div className="selected-morph-head">
-                  <span>Shape Keys</span>
-                  <button
-                    className="selected-morph-reset"
-                    type="button"
-                    onClick={() => {
-                      for (const target of selectedMorphTargets) {
-                        onMorphTargetChange?.(
-                          normalizedSelected,
-                          target.index,
-                          0,
-                        );
-                      }
-                    }}
-                  >
-                    Reset All
-                  </button>
-                </div>
-                <div className="selected-morph-list">
-                  {selectedMorphTargets.map((target) => {
-                    const value = selectedMorphValue(
-                      normalizedSelected,
-                      target,
-                      morphTargetValues,
-                    );
-                    return (
-                      <label className="selected-morph-row" key={target.index}>
-                        <span className="selected-morph-name">
-                          {target.name}
-                        </span>
-                        <span className="selected-morph-value">
-                          {value.toFixed(2)}
-                        </span>
-                        {target.mmd ? (
-                          <span className="selected-morph-meta">
-                            {target.mmd.type ?? "mmd"} ·{" "}
-                            {target.mmd.englishName &&
-                            target.mmd.englishName !== target.name
-                              ? `${target.mmd.englishName} · `
-                              : ""}
-                            {fmtMmdMorphOffsets(target.mmd)}
-                          </span>
-                        ) : null}
-                        <input
-                          aria-label={`Shape key ${target.name}`}
-                          className="selected-morph-slider"
-                          max="1"
-                          min="0"
-                          step="0.01"
-                          type="range"
-                          value={value}
-                          onChange={(event) =>
+      <PanelResizeHandle
+        aria-label="Resize outliner details"
+        className="hierarchy-resize-handle"
+      />
+
+      <Panel
+        className="hierarchy-pane"
+        defaultSize={38}
+        id="hierarchy-selected"
+        minSize={20}
+      >
+        <section className="hierarchy-section">
+          <div className="sec-head">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              width="11"
+              height="11"
+              className="sec-head-chevron"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 6l4 4 4-4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span>Selected</span>
+          </div>
+          <div className="hierarchy-pane-scroll">
+            {selectedNode ? (
+              <div className="selected-kv">
+                <KeyValueRows density="regular" rows={selectedRows} />
+                <SelectedMmdBone bone={selectedInfo?.mmdBone ?? null} />
+                {normalizedSelected && selectedMorphTargets.length > 0 ? (
+                  <div className="selected-morph-section">
+                    <div className="selected-morph-head">
+                      <span>Shape Keys</span>
+                      <button
+                        className="selected-morph-reset"
+                        type="button"
+                        onClick={() => {
+                          for (const target of selectedMorphTargets) {
                             onMorphTargetChange?.(
                               normalizedSelected,
                               target.index,
-                              Number(event.currentTarget.value),
-                            )
+                              0,
+                            );
                           }
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
+                        }}
+                      >
+                        Reset All
+                      </button>
+                    </div>
+                    <div className="selected-morph-list">
+                      {selectedMorphTargets.map((target) => {
+                        const value = selectedMorphValue(
+                          normalizedSelected,
+                          target,
+                          morphTargetValues,
+                        );
+                        return (
+                          <label
+                            className="selected-morph-row"
+                            key={target.index}
+                          >
+                            <span className="selected-morph-name">
+                              {target.name}
+                            </span>
+                            <span className="selected-morph-value">
+                              {value.toFixed(2)}
+                            </span>
+                            {target.mmd ? (
+                              <span className="selected-morph-meta">
+                                {target.mmd.type ?? "mmd"} ·{" "}
+                                {target.mmd.englishName &&
+                                target.mmd.englishName !== target.name
+                                  ? `${target.mmd.englishName} · `
+                                  : ""}
+                                {fmtMmdMorphOffsets(target.mmd)}
+                              </span>
+                            ) : null}
+                            <input
+                              aria-label={`Shape key ${target.name}`}
+                              className="selected-morph-slider"
+                              max="1"
+                              min="0"
+                              step="0.01"
+                              type="range"
+                              value={value}
+                              onChange={(event) =>
+                                onMorphTargetChange?.(
+                                  normalizedSelected,
+                                  target.index,
+                                  Number(event.currentTarget.value),
+                                )
+                              }
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            ) : (
+              <p className="sidebar-empty">
+                Select a row to inspect node details.
+              </p>
+            )}
           </div>
-        ) : (
-          <p className="sidebar-empty">Select a row to inspect node details.</p>
-        )}
-      </section>
-    </div>
+        </section>
+      </Panel>
+    </PanelGroup>
   );
 }
