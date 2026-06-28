@@ -62,6 +62,16 @@
   cursor: not-allowed;
 }
 
+.toolbar-popover-item.is-status {
+  color: var(--yl-text-tertiary, #8a8f98);
+  cursor: default;
+}
+
+.toolbar-popover-item.is-status:hover {
+  color: var(--yl-text-tertiary, #8a8f98);
+  background: transparent;
+}
+
 .toolbar-popover-item:focus-visible {
   outline: none;
   box-shadow: var(--yl-shadow-focus, rgba(113, 112, 255, 0.3) 0 0 0 1px) inset;

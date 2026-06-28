@@ -2,7 +2,7 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { ViewportToolSvg } from "../ViewportToolIcons";
 import { PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { Tooltip } from "../ui/Tooltip";
-import type { ToolbarAction, ToolbarItem } from "./types";
+import type { ToolbarAction, ToolbarItem, ToolbarStatus } from "./types";
 import { ToolbarPopover } from "./ToolbarPopover";
 
 type PopoverToolProps = {
@@ -163,6 +163,30 @@ function ToolbarPopoverItems({
         />,
       );
       lastGroup = null;
+      continue;
+    }
+
+    if (item.kind === "status") {
+      const status = item as ToolbarStatus;
+      if (lastGroup !== null && lastGroup !== status.group) {
+        rows.push(
+          <div
+            key={`sep-${rows.length}`}
+            className="toolbar-popover-separator"
+            aria-hidden="true"
+          />,
+        );
+      }
+      lastGroup = status.group;
+      rows.push(
+        <div
+          key={status.id}
+          className="toolbar-popover-item is-status"
+          role="status"
+        >
+          <span className="toolbar-popover-item-label">{status.label}</span>
+        </div>,
+      );
       continue;
     }
 

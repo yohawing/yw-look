@@ -107,6 +107,8 @@ export function ViewportControls({
         groups.push(currentGroup);
         currentGroup = [];
       }
+    } else if (item.kind === "status") {
+      continue;
     } else {
       currentGroup.push(item);
     }

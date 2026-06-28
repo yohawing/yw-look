@@ -101,7 +101,15 @@ export type ToolbarAction = {
 
 export type ToolbarSeparator = { kind: "separator" };
 
-export type ToolbarItem = ToolbarAction | ToolbarSeparator;
+export type ToolbarStatus = {
+  id: string;
+  mode: ToolbarMode;
+  group: ToolbarActionGroup;
+  kind: "status";
+  label: string;
+};
+
+export type ToolbarItem = ToolbarAction | ToolbarSeparator | ToolbarStatus;
 
 // ── Viewer shortcuts ─────────────────────────────────────────────
 

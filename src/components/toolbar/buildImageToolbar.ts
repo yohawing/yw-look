@@ -94,9 +94,8 @@ export function buildImageToolbar(
       id: "color-exposure",
       mode: "image",
       group: "color",
-      kind: "button",
+      kind: "status",
       label: `Exposure: ${options.exposure.toFixed(1)}`,
-      disabled: true,
     });
 
     // Cycle color spaces on trigger click
