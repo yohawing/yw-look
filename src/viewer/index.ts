@@ -14,10 +14,9 @@ export type {
   OptionalLoaderPackStatus,
 } from "./types";
 
-export { implementedPreviewExtensions, neutralFeedback } from "./types";
+export { neutralFeedback } from "./types";
 export {
   optionalPreviewLoaders,
-  getPreviewSupportState,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
 } from "./types";
@@ -68,6 +67,7 @@ export {
   loadMmdMotion,
   tryExtractUsdaText,
   loaderRegistry,
+  getPreviewSupportState,
   listRegisteredLoaders,
   listOptionalLoaderPacks,
 } from "./loaders";

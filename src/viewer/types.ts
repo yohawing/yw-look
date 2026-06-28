@@ -1,4 +1,4 @@
-import type { ViewerFeedback, PreviewSupportState } from "../types/viewer";
+import type { ViewerFeedback } from "../types/viewer";
 
 export type {
   ViewerMode,
@@ -25,37 +25,6 @@ export type {
   OptionalLoaderPackStatus,
   RegisteredLoaderInfo,
 } from "../types/viewer";
-
-export const implementedPreviewExtensions = new Set([
-  "glb",
-  "gltf",
-  "vrm",
-  "fbx",
-  "obj",
-  "ply",
-  "stl",
-  "dae",
-  "usd",
-  "usda",
-  "usdc",
-  "usdz",
-  "abc",
-  "png",
-  "jpg",
-  "jpeg",
-  "tga",
-  "dds",
-  "hdr",
-  "exr",
-  "ktx2",
-  "pmx",
-  "pmd",
-  "vmd",
-  "splat",
-  "spz",
-  "ksplat",
-  "sog",
-]);
 
 export const optionalPreviewLoaders = {
   vrm: {
@@ -101,28 +70,6 @@ export const optionalPreviewLoaders = {
     loaderPackName: string;
   }
 >;
-
-export function getPreviewSupportState(
-  extension: string,
-  options: { optionalLoaderInstalled?: boolean } = {},
-): PreviewSupportState {
-  if (
-    extension in optionalPreviewLoaders &&
-    options.optionalLoaderInstalled === false
-  ) {
-    return "missingOptionalLoader";
-  }
-
-  if (implementedPreviewExtensions.has(extension)) {
-    return "implemented";
-  }
-
-  if (extension in optionalPreviewLoaders) {
-    return "missingOptionalLoader";
-  }
-
-  return "unsupported";
-}
 
 export function formatMissingOptionalLoaderMessage(extension: string) {
   const optionalLoader =

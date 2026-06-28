@@ -41,9 +41,11 @@ import type {
   LoadingStageReporter,
   MissingReferenceError,
   OptionalLoaderPackStatus,
+  PreviewSupportState,
   RegisteredLoaderInfo,
   TextureBundle,
 } from "./types";
+import { optionalPreviewLoaders } from "./types";
 
 const HAS_THREE_MMD_LOADER =
   typeof __YW_HAS_THREE_MMD_LOADER__ === "boolean"
@@ -2543,6 +2545,31 @@ loaderRegistry.register({
 
 export function listRegisteredLoaders() {
   return loaderRegistry.list();
+}
+
+export function getPreviewSupportState(
+  extension: string,
+  options: { optionalLoaderInstalled?: boolean } = {},
+): PreviewSupportState {
+  const normalizedExtension = extension.toLowerCase();
+  const loader = loaderRegistry.getByExtension(normalizedExtension);
+
+  if (loader) {
+    if (
+      loader.optional === true &&
+      (loader.installed === false || options.optionalLoaderInstalled === false)
+    ) {
+      return "missingOptionalLoader";
+    }
+
+    return "implemented";
+  }
+
+  if (normalizedExtension in optionalPreviewLoaders) {
+    return "missingOptionalLoader";
+  }
+
+  return "unsupported";
 }
 
 export function summarizeOptionalLoaderPacks(

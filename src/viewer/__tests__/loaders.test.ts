@@ -24,6 +24,7 @@ import {
   applyMissingGltfTextureFallbacks,
   applyMissingTextureMaterialFallback,
   formatMissingTextureWarnings,
+  getPreviewSupportState,
   registerFbxTextureMaterialFallbacks,
   resolveColladaTextureUrl,
   type GltfDocument,
@@ -31,7 +32,6 @@ import {
 import {
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
-  getPreviewSupportState,
 } from "../types";
 
 // ---------------------------------------------------------------------------
