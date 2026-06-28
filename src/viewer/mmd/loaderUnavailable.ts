@@ -17,3 +17,7 @@ export async function loadMmdMotionPreviewObject(): Promise<LoadedPreview> {
 export async function loadMmdMotion(): Promise<LoadedMmdMotion> {
   missingMmdLoader();
 }
+
+export async function syncMmdPreviewSpecularDirection() {
+  return;
+}

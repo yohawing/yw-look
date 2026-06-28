@@ -1,4 +1,10 @@
-import { Group, type Object3D } from "three";
+import {
+  DirectionalLight,
+  Group,
+  type Material,
+  type Mesh,
+  type Object3D,
+} from "three";
 import type { SelectedFile } from "../../lib/files";
 import { readBinaryFile } from "../../lib/files";
 import type { MmdAssetMetadata } from "../../components/assetMetadata";
@@ -80,10 +86,63 @@ type ThreeMmdLoaderModule = {
   createAmmoMmdPhysicsBackend(ammo: unknown): unknown;
   loadAmmoNamespace(url: string): Promise<unknown>;
   initCore(): Promise<MmdParserCore>;
+  syncMmdSpecularDirection(
+    material: Material | Material[],
+    light: DirectionalLight,
+  ): void;
 };
 
 async function importThreeMmdLoader(): Promise<ThreeMmdLoaderModule> {
   return (await import("@yohawing/three-mmd-loader")) as ThreeMmdLoaderModule;
+}
+
+export async function syncMmdPreviewSpecularDirection(
+  mmd: MmdRuntimeModelHandle | null | undefined,
+  light: DirectionalLight | null,
+) {
+  if (!mmd || !light) {
+    return;
+  }
+
+  const { syncMmdSpecularDirection } = await importThreeMmdLoader();
+  const proxyModel = mmd as MmdRuntimeModelHandle & {
+    root?: Object3D;
+    outlineMeshes?: Object3D[];
+    renderOrderMeshes?: Object3D[];
+  };
+  if (proxyModel.root) {
+    syncMmdSpecularDirectionForObject(
+      proxyModel.root,
+      light,
+      syncMmdSpecularDirection,
+    );
+    return;
+  }
+
+  syncMmdSpecularDirectionForObject(
+    proxyModel.mesh,
+    light,
+    syncMmdSpecularDirection,
+  );
+  for (const proxy of [
+    ...(proxyModel.renderOrderMeshes ?? []),
+    ...(proxyModel.outlineMeshes ?? []),
+  ]) {
+    syncMmdSpecularDirectionForObject(proxy, light, syncMmdSpecularDirection);
+  }
+}
+
+function syncMmdSpecularDirectionForObject(
+  object: Object3D,
+  light: DirectionalLight,
+  sync: (material: Material | Material[], light: DirectionalLight) => void,
+) {
+  object.traverse((child) => {
+    const material = (child as Partial<Mesh>).material;
+    if (material) {
+      sync(material, light);
+    }
+  });
 }
 
 type ParsedMmdMetadata = {

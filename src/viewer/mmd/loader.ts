@@ -1,6 +1,11 @@
+import type { DirectionalLight } from "three";
 import type { SelectedFile } from "../../lib/files";
 import type { LoaderContext } from "../loaderRegistry";
-import type { LoadedMmdMotion, LoadedPreview } from "../types";
+import type {
+  LoadedMmdMotion,
+  LoadedPreview,
+  MmdRuntimeModelHandle,
+} from "../types";
 
 async function importInstalledMmdLoader() {
   return import("#yw-look-mmd-loader-entry");
@@ -27,4 +32,13 @@ export async function loadMmdMotion(
 ): Promise<LoadedMmdMotion> {
   const { loadMmdMotion: load } = await importInstalledMmdLoader();
   return load(file);
+}
+
+export async function syncMmdPreviewSpecularDirection(
+  mmd: MmdRuntimeModelHandle | null | undefined,
+  light: DirectionalLight | null,
+) {
+  const { syncMmdPreviewSpecularDirection: sync } =
+    await importInstalledMmdLoader();
+  return sync(mmd, light);
 }

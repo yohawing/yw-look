@@ -21,11 +21,16 @@ import {
 import {
   captureRendererScreenshot,
   disposeObject,
+  getPreviewRenderingPresetForExtension,
   isRendererCanvasNonBlank,
   loadPreviewObject,
+  MMD_EXAMPLE_LIGHTING_PRESET,
+  MMD_PREVIEW_RENDERING_PRESET,
   normalizeObjectScale,
+  applyPreviewRenderingPreset,
   revokeUrls,
 } from "../viewer";
+import { syncMmdPreviewSpecularDirection } from "../viewer/mmd/loader";
 
 export type ShotMode = "shot" | "check";
 
@@ -97,15 +102,21 @@ function createRenderer(
   width: number,
   height: number,
   background: string | null,
+  extension: string,
 ) {
   const bg = parseBackground(background);
+  const renderingPreset = getPreviewRenderingPresetForExtension(extension);
   const renderer = new WebGLRenderer({
     antialias: true,
     alpha: bg.alpha,
+    logarithmicDepthBuffer: renderingPreset.logarithmicDepthBuffer,
     preserveDrawingBuffer: true,
   });
   renderer.setSize(width, height, false);
   renderer.setPixelRatio(1);
+  if (renderingPreset === MMD_PREVIEW_RENDERING_PRESET) {
+    applyPreviewRenderingPreset(renderer, renderingPreset);
+  }
   if (bg.alpha) {
     renderer.setClearColor("#000000", 0);
   } else {
@@ -121,7 +132,17 @@ function setupScene(width: number, height: number) {
   const key = new DirectionalLight("#ffffff", 2.2);
   key.position.set(3, 6, 4);
   scene.add(key);
-  return { scene, camera };
+  return { scene, camera, key };
+}
+
+function applyShotMmdLighting(scene: Scene, key: DirectionalLight) {
+  for (const child of scene.children) {
+    if (child instanceof AmbientLight) {
+      child.intensity = MMD_EXAMPLE_LIGHTING_PRESET.ambientIntensity;
+    }
+  }
+  key.intensity = MMD_EXAMPLE_LIGHTING_PRESET.keyIntensity;
+  key.position.set(...MMD_EXAMPLE_LIGHTING_PRESET.keyPosition);
 }
 
 function frameObject(camera: PerspectiveCamera, object: Group | Mesh) {
@@ -236,8 +257,9 @@ export async function runShot(
     config.width,
     config.height,
     config.background,
+    config.extension,
   );
-  const { scene, camera } = setupScene(config.width, config.height);
+  const { scene, camera, key } = setupScene(config.width, config.height);
   const host = document.createElement("div");
   host.style.cssText = `width:${config.width}px;height:${config.height}px;position:absolute;left:-10000px;top:0;`;
   host.appendChild(renderer.domElement);
@@ -257,6 +279,12 @@ export async function runShot(
 
   try {
     const selected = await resolveSelectedFile(config.inputPath);
+    if (
+      getPreviewRenderingPresetForExtension(selected.extension) ===
+      MMD_PREVIEW_RENDERING_PRESET
+    ) {
+      applyShotMmdLighting(scene, key);
+    }
     if (config.mode === "check") {
       await validateUsdInspectorPipeline(selected.path, selected.extension);
     }
@@ -264,6 +292,7 @@ export async function runShot(
     const preview = await loadPreviewObject(selected, renderer);
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
+    await syncMmdPreviewSpecularDirection(preview.mmdModel, key);
     outcome.loadTimeMs = Math.round((performance.now() - started) * 100) / 100;
 
     normalizeObjectScale(object);

@@ -73,6 +73,7 @@ import {
   getPreviewRenderingPresetForExtension,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
+import { syncMmdPreviewSpecularDirection } from "../viewer/mmd/loader";
 import { syncMmdMaterialRenderStates } from "../viewer/mmd/userData";
 import { AssetViewportOverlay } from "./AssetViewportOverlay";
 import { emptyAssetMetadata } from "./assetMetadata";
@@ -1649,7 +1650,7 @@ export function AssetViewport({
       onWarning: pushRuntimeWarning,
     })
       .then(
-        ({
+        async ({
           object,
           cleanupCallbacks = [],
           cleanupUrls,
@@ -1683,6 +1684,18 @@ export function AssetViewport({
             key: keyLightRef.current,
             fill: fillLightRef.current,
           });
+          await syncMmdPreviewSpecularDirection(mmdModel, keyLightRef.current);
+          if (disposed) {
+            context.scene.remove(object);
+            context.mountedObject = null;
+            context.sourceObject = null;
+            runCleanupCallbacks(cleanupCallbacks);
+            context.cleanupCallbacks = [];
+            disposeObject(object);
+            revokeUrls(cleanupUrls);
+            context.cleanupUrls = [];
+            return;
+          }
           if (rendering) {
             applyPreviewRenderingPreset(context.renderer, rendering);
           }
