@@ -41,6 +41,7 @@ import { useViewerStore, type ViewerState } from "../stores/viewerStore";
 import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
 import type { IntegrationPayload } from "../lib/integrations";
+import type { OptionalLoaderPackManifest } from "../lib/loaderPacks";
 import type { RecentFilesPayload } from "../lib/recentFiles";
 import type { SettingsPayload } from "../lib/settings";
 import type {
@@ -113,6 +114,7 @@ type UseSidebarModelOptions = {
   isCheckingForUpdate: boolean;
   isInstallingUpdate: boolean;
   isTauri: boolean;
+  optionalLoaderManifests: readonly OptionalLoaderPackManifest[];
   morphTargetValues: ViewerState["morphTargetValues"];
   payloadPrimPaths: ReadonlySet<string>;
   performSelectFilePath: (
@@ -223,6 +225,7 @@ export function useSidebarModel({
   isCheckingForUpdate,
   isInstallingUpdate,
   isTauri,
+  optionalLoaderManifests,
   morphTargetValues,
   payloadPrimPaths,
   performSelectFilePath,
@@ -464,6 +467,7 @@ export function useSidebarModel({
                 settingsError={settingsError}
                 optionalLoaderPacks={listOptionalLoaderPacks(
                   settingsPayload?.settings.optionalLoaderPacks,
+                  optionalLoaderManifests,
                 )}
                 onToggleFileAssociations={() =>
                   void handleToggleFileAssociations()
@@ -530,6 +534,7 @@ export function useSidebarModel({
     isCheckingForUpdate,
     isInstallingUpdate,
     isTauri,
+    optionalLoaderManifests,
     morphTargetValues,
     payloadPrimPaths,
     performSelectFilePath,

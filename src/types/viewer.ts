@@ -315,6 +315,9 @@ export type OptionalLoaderPackStatus = {
   extensions: readonly string[];
   installed: boolean;
   enabled: boolean;
+  manifestInstalled: boolean;
+  runtimeAvailable: boolean;
+  version?: string;
 };
 
 // ── Metadata collection ──────────────────────────────────────────

@@ -1936,6 +1936,12 @@ body.is-resizing-sidebar {
   text-overflow: ellipsis;
 }
 
+.optional-loader-pack-source {
+  color: var(--yl-text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 /* ── Utility ── */
 
 .sr-only {

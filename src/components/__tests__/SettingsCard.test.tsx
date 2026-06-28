@@ -35,6 +35,9 @@ describe("SettingsCard", () => {
             extensions: ["pmd", "pmx", "vmd"],
             installed: true,
             enabled: true,
+            manifestInstalled: true,
+            runtimeAvailable: true,
+            version: "0.2.0",
           },
           {
             id: "gaussian-splat-loader-pack",
@@ -42,6 +45,8 @@ describe("SettingsCard", () => {
             extensions: ["splat", "spz"],
             installed: false,
             enabled: true,
+            manifestInstalled: false,
+            runtimeAvailable: false,
           },
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
@@ -56,6 +61,7 @@ describe("SettingsCard", () => {
     expect(getByText("Enabled")).toBeTruthy();
     expect(getByText("Missing")).toBeTruthy();
     expect(getByText(".pmd .pmx .vmd")).toBeTruthy();
+    expect(getByText("Managed 0.2.0")).toBeTruthy();
   });
 
   it("requests optional loader pack toggles for installed packs", () => {
@@ -71,6 +77,8 @@ describe("SettingsCard", () => {
             extensions: ["pmd", "pmx", "vmd"],
             installed: true,
             enabled: false,
+            manifestInstalled: false,
+            runtimeAvailable: true,
           },
         ]}
         onToggleAutoCheckForUpdates={() => undefined}

@@ -210,6 +210,9 @@ describe("preview support classification", () => {
         extensions: ["ksplat", "sog", "splat", "spz"],
         installed: true,
         enabled: true,
+        manifestInstalled: false,
+        runtimeAvailable: true,
+        version: undefined,
       },
       {
         id: "mmd-loader-pack",
@@ -217,6 +220,9 @@ describe("preview support classification", () => {
         extensions: ["pmd", "pmx", "vmd"],
         installed: true,
         enabled: true,
+        manifestInstalled: false,
+        runtimeAvailable: true,
+        version: undefined,
       },
       {
         id: "vrm-loader-pack",
@@ -224,6 +230,9 @@ describe("preview support classification", () => {
         extensions: ["vrm"],
         installed: true,
         enabled: true,
+        manifestInstalled: false,
+        runtimeAvailable: true,
+        version: undefined,
       },
     ]);
   });
@@ -237,7 +246,72 @@ describe("preview support classification", () => {
       id: "mmd-loader-pack",
       enabled: false,
       installed: true,
+      manifestInstalled: false,
+      runtimeAvailable: true,
     });
+  });
+
+  it("merges optional loader manifests into Settings reporting without changing runtime extensions", () => {
+    expect(
+      listOptionalLoaderPacks({}, [
+        {
+          id: "mmd-loader-pack",
+          name: "MMD Loader Pack",
+          version: "0.2.0",
+          extensions: ["pmx", "pmd"],
+          entry: "loader.js",
+          packPath: "optional-loaders/mmd",
+          entryPath: "optional-loaders/mmd/loader.js",
+        },
+      ]).find((pack) => pack.id === "mmd-loader-pack"),
+    ).toMatchObject({
+      id: "mmd-loader-pack",
+      extensions: ["pmd", "pmx", "vmd"],
+      installed: true,
+      enabled: true,
+      manifestInstalled: true,
+      runtimeAvailable: true,
+      version: "0.2.0",
+    });
+  });
+
+  it("does not treat manifest-only packs or extensions as runtime installed", () => {
+    expect(
+      summarizeOptionalLoaderPacks(
+        [
+          {
+            id: "vrm-loader-pack",
+            name: "VRM Loader Pack",
+            extension: "vrm",
+            optional: true,
+            installed: true,
+          },
+        ],
+        {},
+        [
+          {
+            id: "vrm-loader-pack",
+            name: "VRM Loader Pack",
+            version: "0.2.0",
+            extensions: ["vrm", "vrma"],
+            entry: "loader.js",
+            packPath: "optional-loaders/vrm",
+            entryPath: "optional-loaders/vrm/loader.js",
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        id: "vrm-loader-pack",
+        name: "VRM Loader Pack",
+        extensions: ["vrm"],
+        installed: true,
+        enabled: true,
+        manifestInstalled: true,
+        runtimeAvailable: true,
+        version: "0.2.0",
+      },
+    ]);
   });
 
   it("marks a pack missing when any registered pack extension is missing", () => {
@@ -264,7 +338,10 @@ describe("preview support classification", () => {
         name: "Mixed Loader Pack",
         extensions: ["one", "two"],
         installed: false,
+        manifestInstalled: false,
+        runtimeAvailable: false,
         enabled: true,
+        version: undefined,
       },
     ]);
   });

@@ -33,6 +33,7 @@ import {
   type StageInspection,
   type StageSummary,
 } from "../lib/usd";
+import type { OptionalLoaderPackManifest } from "../types/ipc";
 import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
 import { isUsdWorkerEnabled, parseUsdInWorker } from "./usdWorkerLoader";
 import type {
@@ -2588,22 +2589,37 @@ export function getPreviewSupportState(
 export function summarizeOptionalLoaderPacks(
   loaders: readonly RegisteredLoaderInfo[],
   settings: Record<string, { enabled?: boolean } | undefined> = {},
+  manifests: readonly OptionalLoaderPackManifest[] = [],
 ): OptionalLoaderPackStatus[] {
   const packs = new Map<string, OptionalLoaderPackStatus>();
+  const manifestsById = new Map(
+    manifests.map((manifest) => [manifest.id, manifest] as const),
+  );
 
   for (const loader of loaders) {
     if (!loader.optional) {
       continue;
     }
 
+    const manifest = manifestsById.get(loader.id);
+    const manifestInstalled = manifest !== undefined;
     const existing = packs.get(loader.id);
     if (existing) {
+      const nextManifestInstalled =
+        existing.manifestInstalled || manifestInstalled;
+      const nextRuntimeAvailable =
+        existing.runtimeAvailable && loader.installed;
       packs.set(loader.id, {
         ...existing,
-        extensions: [...existing.extensions, loader.extension].sort(),
-        installed: existing.installed && loader.installed,
+        extensions: [
+          ...new Set([...existing.extensions, loader.extension]),
+        ].sort(),
+        installed: nextRuntimeAvailable,
+        manifestInstalled: nextManifestInstalled,
+        runtimeAvailable: nextRuntimeAvailable,
         enabled:
           existing.enabled && optionalLoaderPackEnabled(loader.id, settings),
+        version: existing.version ?? manifest?.version,
       });
       continue;
     }
@@ -2614,6 +2630,9 @@ export function summarizeOptionalLoaderPacks(
       extensions: [loader.extension],
       installed: loader.installed,
       enabled: optionalLoaderPackEnabled(loader.id, settings),
+      manifestInstalled,
+      runtimeAvailable: loader.installed,
+      version: manifest?.version,
     });
   }
 
@@ -2624,8 +2643,13 @@ export function summarizeOptionalLoaderPacks(
 
 export function listOptionalLoaderPacks(
   settings?: Record<string, { enabled?: boolean } | undefined>,
+  manifests: readonly OptionalLoaderPackManifest[] = [],
 ): OptionalLoaderPackStatus[] {
-  return summarizeOptionalLoaderPacks(loaderRegistry.list(), settings);
+  return summarizeOptionalLoaderPacks(
+    loaderRegistry.list(),
+    settings,
+    manifests,
+  );
 }
 
 export function disabledOptionalLoaderPackIds(

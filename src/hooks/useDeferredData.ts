@@ -13,6 +13,10 @@ import {
   loadSupportedExtensions,
   type IntegrationPayload,
 } from "../lib/integrations";
+import {
+  loadOptionalLoaderManifests,
+  type OptionalLoaderPackManifest,
+} from "../lib/loaderPacks";
 import { loadRecentFiles, type RecentFilesPayload } from "../lib/recentFiles";
 import { loadSettings, type SettingsPayload } from "../lib/settings";
 import { errorMessage } from "../lib/invokeSafe";
@@ -38,6 +42,9 @@ export function useDeferredData(
   const [integrationPayload, setIntegrationPayload] =
     useState<IntegrationPayload | null>(null);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
+  const [optionalLoaderManifests, setOptionalLoaderManifests] = useState<
+    OptionalLoaderPackManifest[]
+  >([]);
 
   useEffect(() => {
     let isActive = true;
@@ -178,6 +185,26 @@ export function useDeferredData(
     shouldLoadDeferredData,
   ]);
 
+  useEffect(() => {
+    if (!shouldLoadDeferredData) return;
+
+    let isActive = true;
+
+    loadOptionalLoaderManifests()
+      .then((manifests) => {
+        if (!isActive) return;
+        setOptionalLoaderManifests(manifests);
+      })
+      .catch(() => {
+        if (!isActive) return;
+        setOptionalLoaderManifests([]);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [shouldLoadDeferredData]);
+
   return {
     settingsPayload,
     settingsError,
@@ -191,6 +218,7 @@ export function useDeferredData(
     processMemoryMetrics,
     integrationPayload,
     integrationError,
+    optionalLoaderManifests,
     logDiagnosticEventAndRefresh,
   };
 }

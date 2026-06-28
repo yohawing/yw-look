@@ -18,6 +18,21 @@ type SettingsCardProps = {
   onToggleOptionalLoaderPack: (packId: string) => void;
 };
 
+function formatOptionalLoaderPackSource(
+  pack: OptionalLoaderPackStatus,
+): string {
+  if (pack.manifestInstalled && pack.version) {
+    return `Managed ${pack.version}`;
+  }
+  if (pack.manifestInstalled) {
+    return "Managed";
+  }
+  if (pack.runtimeAvailable) {
+    return "Bundled";
+  }
+  return "Not installed";
+}
+
 export function SettingsCard({
   settingsPayload,
   settingsError,
@@ -131,6 +146,9 @@ export function SettingsCard({
                   {pack.extensions
                     .map((extension) => `.${extension}`)
                     .join(" ")}
+                </span>
+                <span className="optional-loader-pack-source">
+                  {formatOptionalLoaderPackSource(pack)}
                 </span>
               </FieldRow>
             ))}
