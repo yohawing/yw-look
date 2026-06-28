@@ -277,6 +277,16 @@ export type SettingsPayload = {
   settings: AppSettings;
 };
 
+export type OptionalLoaderPackManifest = {
+  id: string;
+  name: string;
+  version: string;
+  extensions: string[];
+  entry: string;
+  packPath: string;
+  entryPath: string;
+};
+
 // ── Updater IPC types ────────────────────────────────────────────
 
 export type UpdateConfigurationPayload = {

@@ -24,6 +24,7 @@ use crate::commands::files::{
     load_recent_files, open_file_dialog, read_binary_file, resolve_selected_file,
 };
 use crate::commands::integrations::load_supported_extensions;
+use crate::commands::loader_packs::load_optional_loader_manifests;
 use crate::commands::settings::{load_settings, load_update_configuration, save_settings};
 use crate::commands::shot::{
     finish_shot_run, get_shot_batch_config, get_shot_config, parse_shot_cli_config,
@@ -152,6 +153,7 @@ pub fn run() {
             get_startup_file,
             load_recent_files,
             load_supported_extensions,
+            load_optional_loader_manifests,
             log_diagnostic_event,
             load_diagnostics_snapshot,
             load_process_memory_metrics,
