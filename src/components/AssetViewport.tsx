@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AmbientLight,
   AnimationMixer,
@@ -21,7 +21,6 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { AssetResourceMetrics } from "../lib/diagnostics";
 import { formatUsdErrorForDisplay } from "../lib/usd";
 import {
   type DeferredTextureSnapshot,
@@ -107,9 +106,7 @@ import {
 } from "../viewport/selection";
 import {
   collectAssetResourceMetrics,
-  collectResourceDiagnosticsSnapshot,
   RESOURCE_DIAGNOSTICS_SAMPLE_MS,
-  resourceDiagnosticsSignature,
 } from "../viewport/resourceDiagnostics";
 import type { AssetViewportProps } from "../viewport/types";
 import {
@@ -117,6 +114,7 @@ import {
   supportedPreviewExtensions,
   updateRuntimePreview,
 } from "../viewport/previewSupport";
+import { useResourceDiagnosticsPublisher } from "../viewport/useResourceDiagnosticsPublisher";
 import { useSyncRef } from "../viewport/useSyncRef";
 import { useTexturePreview } from "../viewport/useTexturePreview";
 import { useViewportAnimation } from "../viewport/useViewportAnimation";
@@ -197,9 +195,6 @@ export function AssetViewport({
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
-  const assetResourceMetricsRef = useRef<AssetResourceMetrics | null>(null);
-  const lastResourceDiagnosticsRef = useRef<string | null>(null);
-  const onResourceDiagnosticsChangeRef = useRef(onResourceDiagnosticsChange);
   const ambientLightRef = useRef<AmbientLight | null>(null);
   const keyLightRef = useRef<DirectionalLight | null>(null);
   const fillLightRef = useRef<DirectionalLight | null>(null);
@@ -289,9 +284,13 @@ export function AssetViewport({
   const effectiveDeferredProgress = deferredTexture ?? deferredProgress;
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
+  const {
+    assetResourceMetricsRef,
+    clearResourceDiagnostics,
+    publishResourceDiagnostics,
+  } = useResourceDiagnosticsPublisher(onResourceDiagnosticsChange);
 
   useSyncRef(onActiveCameraResetRef, onActiveCameraReset);
-  useSyncRef(onResourceDiagnosticsChangeRef, onResourceDiagnosticsChange);
   useSyncRef(displayModeRef, displayMode);
   useSyncRef(backfaceCullingRef, backfaceCulling);
   useSyncRef(textureFilterModeRef, textureFilterMode);
@@ -313,33 +312,6 @@ export function AssetViewport({
   useSyncRef(texturePreview3DRef, texturePreview3D);
   useSyncRef(onSelectMeshRef, onSelectMesh);
   useSyncRef(morphTargetValuesRef, morphTargetValues);
-
-  const publishResourceDiagnostics = useCallback(
-    (context: SceneContext | null) => {
-      const callback = onResourceDiagnosticsChangeRef.current;
-      if (!callback || !context) {
-        return;
-      }
-
-      const snapshot = collectResourceDiagnosticsSnapshot(
-        context.renderer,
-        assetResourceMetricsRef.current,
-      );
-      const signature = resourceDiagnosticsSignature(snapshot);
-      if (signature === lastResourceDiagnosticsRef.current) {
-        return;
-      }
-      lastResourceDiagnosticsRef.current = signature;
-      callback(snapshot);
-    },
-    [],
-  );
-
-  const clearResourceDiagnostics = useCallback(() => {
-    assetResourceMetricsRef.current = null;
-    lastResourceDiagnosticsRef.current = null;
-    onResourceDiagnosticsChangeRef.current?.(null);
-  }, []);
 
   const shouldInitializeScene = currentFile !== null;
   const previewSupportState = currentFile
@@ -1926,6 +1898,7 @@ export function AssetViewport({
       publishResourceDiagnostics(context);
     };
   }, [
+    assetResourceMetricsRef,
     currentFile,
     onFeedbackChange,
     onUsdError,
