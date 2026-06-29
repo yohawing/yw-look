@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ViewportControls } from "../ViewportControls";
 import type { ToolbarItem } from "../toolbar/types";
@@ -57,5 +57,39 @@ describe("ViewportControls", () => {
     expect(getByRole("button", { name: "Open viewport tools" })).toBeTruthy();
     expect(queryByRole("tooltip")).toBeNull();
     expect(queryByText("Viewport tools")).toBeNull();
+  });
+
+  it("keeps viewport submenus open while clicking outside the toolbar", () => {
+    const items: ToolbarItem[] = [
+      {
+        id: "camera",
+        mode: "3d",
+        group: "camera",
+        kind: "button",
+        label: "Camera",
+        iconId: "camera",
+        children: [
+          {
+            id: "front",
+            mode: "3d",
+            group: "camera",
+            kind: "button",
+            label: "Front",
+            onRun: vi.fn(),
+          },
+        ],
+      },
+    ];
+
+    const { getByRole } = render(<ViewportControls items={items} />);
+
+    fireEvent.click(getByRole("button", { name: "Camera" }));
+    expect(getByRole("menu")).toBeTruthy();
+    expect(getByRole("button", { name: "Front" })).toBeTruthy();
+
+    fireEvent.pointerDown(document.body);
+
+    expect(getByRole("menu")).toBeTruthy();
+    expect(getByRole("button", { name: "Front" })).toBeTruthy();
   });
 });

@@ -11,7 +11,6 @@ type PopoverToolProps = {
 export function PopoverTool({ action }: PopoverToolProps) {
   const [open, setOpen] = useState(false);
   const openTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const hasChildren = action.children && action.children.length > 0;
 
@@ -20,35 +19,14 @@ export function PopoverTool({ action }: PopoverToolProps) {
       clearTimeout(openTimerRef.current);
       openTimerRef.current = null;
     }
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
   }, []);
 
   const scheduleOpen = useCallback(() => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
     if (!openTimerRef.current) {
       openTimerRef.current = setTimeout(() => {
         openTimerRef.current = null;
         setOpen(true);
       }, 300);
-    }
-  }, []);
-
-  const scheduleClose = useCallback(() => {
-    if (openTimerRef.current) {
-      clearTimeout(openTimerRef.current);
-      openTimerRef.current = null;
-    }
-    if (!closeTimerRef.current) {
-      closeTimerRef.current = setTimeout(() => {
-        closeTimerRef.current = null;
-        setOpen(false);
-      }, 200);
     }
   }, []);
 
@@ -107,7 +85,6 @@ export function PopoverTool({ action }: PopoverToolProps) {
           disabled={action.disabled}
           onClick={handleTriggerClick}
           onPointerEnter={scheduleOpen}
-          onPointerLeave={scheduleClose}
           type="button"
         >
           {action.iconId ? <ViewportToolSvg icon={action.iconId} /> : null}
@@ -120,8 +97,8 @@ export function PopoverTool({ action }: PopoverToolProps) {
           className="toolbar-popover"
           role="menu"
           side="right"
+          onInteractOutside={(event) => event.preventDefault()}
           onPointerEnter={scheduleOpen}
-          onPointerLeave={scheduleClose}
         >
           <div className="toolbar-popover-header">{action.label}</div>
           <ToolbarPopoverItems
