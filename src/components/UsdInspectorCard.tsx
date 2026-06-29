@@ -32,7 +32,6 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
   return (
     <li
       className="usd-layer-row"
-      title={layer.identifier}
       style={{ "--layer-depth": layer.depth } as CSSProperties}
     >
       <div className="usd-layer-main">
@@ -45,7 +44,6 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
             variant="error"
             size="sm"
             uppercase
-            title="This layer is muted and does not contribute to the composed stage"
           >
             muted
           </Badge>
@@ -402,7 +400,7 @@ export function UsdInspectorCard({
                   defaultOpen={false}
                 >
                   <ul className="usd-layer-list">
-                    <li className="usd-layer-row" title={inspection.path}>
+                    <li className="usd-layer-row">
                       <div className="usd-layer-main">
                         <span className="usd-layer-prefix">root</span>
                       </div>
@@ -414,7 +412,6 @@ export function UsdInspectorCard({
                       <li
                         key={`${layer}:${i}`}
                         className="usd-layer-row"
-                        title={layer}
                         style={{ "--layer-depth": 1 } as CSSProperties}
                       >
                         <div className="usd-layer-main">
@@ -480,7 +477,6 @@ export function UsdInspectorCard({
                                     e.target.value,
                                   )
                                 }
-                                title={`Switch variant set "${vs.setName}" on ${vs.primPath}`}
                               >
                                 {vs.variants.map((v) => (
                                   <option key={v} value={v}>

@@ -39,19 +39,6 @@ function formatOptionalLoaderPackStatus(pack: OptionalLoaderPackStatus) {
   return pack.enabled ? "Enabled" : "Disabled";
 }
 
-function formatOptionalLoaderPackStatusTitle(
-  pack: OptionalLoaderPackStatus,
-): string | null {
-  const details = [
-    pack.compatibility.detail,
-    `Formats: ${pack.extensions.map((extension) => `.${extension}`).join(" ")}`,
-  ].filter(Boolean);
-  if (details.length === 0) {
-    return null;
-  }
-  return details.join("\n");
-}
-
 export function SettingsCard({
   settingsPayload,
   settingsError,
@@ -137,7 +124,6 @@ export function SettingsCard({
           <div className="yl-kv">
             {optionalLoaderPacks.map((pack) => {
               const statusLabel = formatOptionalLoaderPackStatus(pack);
-              const statusTitle = formatOptionalLoaderPackStatusTitle(pack);
 
               return (
                 <FieldRow
@@ -157,7 +143,6 @@ export function SettingsCard({
                           ? "is-blocked"
                           : "is-missing"
                     }`}
-                    title={statusTitle ?? undefined}
                   >
                     {statusLabel}
                   </span>

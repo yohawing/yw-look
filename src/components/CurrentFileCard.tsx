@@ -219,7 +219,6 @@ export function CurrentFileCard({
             <span
               className="file-warning-summary-line"
               key={`${warning}:${index}`}
-              title={warning}
             >
               {warning}
             </span>

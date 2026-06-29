@@ -149,7 +149,6 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
   // user does not have to click `Hide` / `Show` to refresh.
   useEffect(() => {
     if (!currentFile) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting all local state when the file is cleared is the intended side-effect; no cascading render risk because currentFile drives the effect
       setOpen(false);
       setPayload(null);
       setError(null);
@@ -269,7 +268,6 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
             variant="ghost"
             onClick={() => void onFlatten()}
             disabled={flattenLoading}
-            title="Flatten stage via usdcat --flatten and show the composed USDA text"
           >
             {flattenLoading
               ? "Flattening…"

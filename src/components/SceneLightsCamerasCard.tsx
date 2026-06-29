@@ -134,7 +134,6 @@ export function SceneLightsCamerasCard({
                       backgroundColor: hex,
                       color: "#0e1116",
                     }}
-                    title="inputs:color"
                   >
                     {hex}
                   </Badge>
@@ -160,7 +159,6 @@ export function SceneLightsCamerasCard({
                       {" "}
                       <span
                         className="muted scene-fixture-detail"
-                        title={light.domeTextureFile}
                         style={{ fontFamily: "monospace", fontSize: "0.85em" }}
                       >
                         {light.domeTextureFile.split(/[\\/]/).pop()}
@@ -241,7 +239,6 @@ export function SceneLightsCamerasCard({
                   variant={activeCameraId === null ? "success" : "neutral"}
                   size="sm"
                   onClick={() => onSelectCamera(null)}
-                  title="Switch to free-orbit camera"
                   aria-pressed={activeCameraId === null}
                 >
                   Free Orbit
@@ -273,11 +270,6 @@ export function SceneLightsCamerasCard({
                         size="sm"
                         onClick={() =>
                           onSelectCamera(isActive ? null : camera.id)
-                        }
-                        title={
-                          isActive
-                            ? "Reset to free orbit"
-                            : `Use ${camera.name} as active camera`
                         }
                         aria-pressed={isActive}
                       >

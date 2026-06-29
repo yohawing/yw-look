@@ -355,7 +355,6 @@ function HierarchyBranch({
         {isUnloadedPayload && onLoadPayload && (
           <button
             className="tree-payload-btn tree-payload-btn--unloaded"
-            title={`Load payload at ${primPath}`}
             aria-label="Load payload"
             type="button"
             onClick={(e) => {
@@ -378,7 +377,6 @@ function HierarchyBranch({
         {isLoadedPayload && onUnloadPayload && (
           <button
             className="tree-payload-btn tree-payload-btn--loaded"
-            title={`Unload payload at ${primPath}`}
             aria-label="Unload payload"
             type="button"
             onClick={(e) => {

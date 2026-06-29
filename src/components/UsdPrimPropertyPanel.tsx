@@ -160,9 +160,7 @@ function TimeSamplesPanel({
 
       {loading && <p className="muted ts-panel-msg">Loading…</p>}
       {error && (
-        <p className="muted ts-panel-msg" title={error}>
-          Time sample data not available.
-        </p>
+        <p className="muted ts-panel-msg">Time sample data not available.</p>
       )}
 
       {data && !loading && (
@@ -228,9 +226,7 @@ function AttributeRow({
   const isLong = attr.valueSummary.length > 40;
   return (
     <tr className="prop-table-row">
-      <td className="prop-table-name" title={attr.name}>
-        {attr.name}
-      </td>
+      <td className="prop-table-name">{attr.name}</td>
       <td className="prop-table-type">{attr.typeName}</td>
       <td className="prop-table-value">
         {isLong ? (
@@ -268,7 +264,6 @@ function AttributeRow({
             mono
             size="sm"
             onClick={() => onViewSamples(attr.name)}
-            title={`View ${attr.timeSampleCount} time sample(s)`}
           >
             {attr.timeSampleCount}s
           </BadgeButton>
