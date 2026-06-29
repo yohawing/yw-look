@@ -75,7 +75,6 @@ import {
   findCameraBySelectionKey,
   frameCurrentMountedObject,
   frameMountedObject,
-  frameObjectBounds,
   syncPerspectiveCameraAspect,
   syncAxesVisibility,
   syncGridVisibility,
@@ -95,13 +94,11 @@ import {
 import { createLoadingStageClock } from "../viewport/loadingStage";
 import { createFlyCameraControls } from "../viewport/flyCamera";
 import {
-  applyManualVisibility,
   applyPurposeVisibility,
   createViewportPicker,
   findObjectBySelectionKey,
-  isolateObject,
-  setSubtreeManualHidden,
 } from "../viewport/selection";
+import { applyViewportShortcutCommand } from "../viewport/shortcutCommands";
 import {
   collectAssetResourceMetrics,
   RESOURCE_DIAGNOSTICS_SAMPLE_MS,
@@ -1742,75 +1739,16 @@ export function AssetViewport({
       return;
     }
 
-    const context = sceneContextRef.current;
-    if (!context) {
-      return;
-    }
-
-    const sourceObject = context.sourceObject;
-
-    switch (viewportShortcutCommand.kind) {
-      case "focusSelected": {
-        if (!sourceObject || viewerSurfaceModeRef.current !== "asset") {
-          return;
-        }
-        const target = findObjectBySelectionKey(
-          sourceObject,
-          viewportShortcutCommand.selectionKey,
-        );
-        if (target) {
-          configureAssetControls(context.controls);
-          frameObjectBounds(context, target, cameraSpeedMultiplierRef.current);
-        }
-        return;
-      }
-      case "frameAll":
-      case "resetView":
-        frameCurrentMountedObject(
-          context,
-          viewerSurfaceModeRef.current,
-          showGridRef.current,
-          showAxesRef.current,
-          cameraSpeedMultiplierRef.current,
-          texturePreview3DRef.current,
-        );
-        return;
-      case "hideSelected": {
-        if (!sourceObject || viewerSurfaceModeRef.current !== "asset") {
-          return;
-        }
-        const target = findObjectBySelectionKey(
-          sourceObject,
-          viewportShortcutCommand.selectionKey,
-        );
-        if (target) {
-          setSubtreeManualHidden(target, true);
-          applyManualVisibility(sourceObject);
-        }
-        return;
-      }
-      case "isolateSelected": {
-        if (!sourceObject || viewerSurfaceModeRef.current !== "asset") {
-          return;
-        }
-        const target = findObjectBySelectionKey(
-          sourceObject,
-          viewportShortcutCommand.selectionKey,
-        );
-        if (target) {
-          isolateObject(sourceObject, target);
-          applyPurposeVisibility(sourceObject, purposeModesRef.current);
-        }
-        return;
-      }
-      case "unhideAll":
-        if (!sourceObject || viewerSurfaceModeRef.current !== "asset") {
-          return;
-        }
-        setSubtreeManualHidden(sourceObject, false);
-        applyPurposeVisibility(sourceObject, purposeModesRef.current);
-        return;
-    }
+    applyViewportShortcutCommand({
+      cameraSpeedMultiplier: cameraSpeedMultiplierRef.current,
+      command: viewportShortcutCommand,
+      context: sceneContextRef.current,
+      purposeModes: purposeModesRef.current,
+      showAxes: showAxesRef.current,
+      showGrid: showGridRef.current,
+      texturePreview3D: texturePreview3DRef.current,
+      viewerSurfaceMode: viewerSurfaceModeRef.current,
+    });
   }, [viewportShortcutCommand]);
 
   useEffect(() => {
