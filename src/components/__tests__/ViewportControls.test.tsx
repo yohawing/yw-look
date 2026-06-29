@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ViewportControls } from "../ViewportControls";
 import type { ToolbarItem } from "../toolbar/types";
@@ -59,7 +59,8 @@ describe("ViewportControls", () => {
     expect(queryByText("Viewport tools")).toBeNull();
   });
 
-  it("keeps viewport submenus open while clicking the sidebar", () => {
+  it("keeps viewport submenus open after choosing a submenu item", () => {
+    const selectFront = vi.fn();
     const items: ToolbarItem[] = [
       {
         id: "camera",
@@ -75,29 +76,70 @@ describe("ViewportControls", () => {
             group: "camera",
             kind: "button",
             label: "Front",
-            onRun: vi.fn(),
+            onRun: selectFront,
           },
         ],
       },
     ];
 
-    const { getByRole } = render(
-      <>
-        <ViewportControls items={items} />
-        <aside className="sidebar">
-          <button type="button">View</button>
-        </aside>
-      </>,
-    );
+    const { getByRole } = render(<ViewportControls items={items} />);
 
     fireEvent.click(getByRole("button", { name: "Camera" }));
     expect(getByRole("menu")).toBeTruthy();
-    expect(getByRole("button", { name: "Front" })).toBeTruthy();
 
-    fireEvent.pointerDown(getByRole("button", { name: "View" }));
+    fireEvent.click(getByRole("button", { name: "Front" }));
 
+    expect(selectFront).toHaveBeenCalledOnce();
     expect(getByRole("menu")).toBeTruthy();
     expect(getByRole("button", { name: "Front" })).toBeTruthy();
+  });
+
+  it("opens viewport submenus on hover and closes after leaving them", () => {
+    vi.useFakeTimers();
+    try {
+      const items: ToolbarItem[] = [
+        {
+          id: "camera",
+          mode: "3d",
+          group: "camera",
+          kind: "button",
+          label: "Camera",
+          iconId: "camera",
+          children: [
+            {
+              id: "front",
+              mode: "3d",
+              group: "camera",
+              kind: "button",
+              label: "Front",
+              onRun: vi.fn(),
+            },
+          ],
+        },
+      ];
+
+      const { getByRole, queryByRole } = render(
+        <ViewportControls items={items} />,
+      );
+
+      fireEvent.pointerEnter(getByRole("button", { name: "Camera" }));
+      act(() => {
+        vi.advanceTimersByTime(120);
+      });
+
+      expect(getByRole("menu")).toBeTruthy();
+
+      fireEvent.pointerLeave(getByRole("button", { name: "Camera" }), {
+        relatedTarget: document.body,
+      });
+      act(() => {
+        vi.advanceTimersByTime(180);
+      });
+
+      expect(queryByRole("menu")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("closes viewport submenus for ordinary outside clicks", () => {

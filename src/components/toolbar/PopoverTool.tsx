@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { ViewportToolSvg } from "../ViewportToolIcons";
@@ -13,10 +14,6 @@ import { ToolbarPopover } from "./ToolbarPopover";
 type PopoverToolProps = {
   action: ToolbarAction;
 };
-
-function isSidebarInteractionTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(".sidebar") !== null;
-}
 
 function isToolbarPopoverInteractionTarget(
   target: EventTarget | null,
@@ -31,6 +28,7 @@ function isToolbarPopoverInteractionTarget(
 export function PopoverTool({ action }: PopoverToolProps) {
   const [open, setOpen] = useState(false);
   const openTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const hasChildren = action.children && action.children.length > 0;
 
@@ -39,14 +37,35 @@ export function PopoverTool({ action }: PopoverToolProps) {
       clearTimeout(openTimerRef.current);
       openTimerRef.current = null;
     }
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
   }, []);
 
   const scheduleOpen = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
     if (!openTimerRef.current) {
       openTimerRef.current = setTimeout(() => {
         openTimerRef.current = null;
         setOpen(true);
-      }, 300);
+      }, 120);
+    }
+  }, []);
+
+  const scheduleClose = useCallback(() => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+    if (!closeTimerRef.current) {
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null;
+        setOpen(false);
+      }, 180);
     }
   }, []);
 
@@ -69,10 +88,7 @@ export function PopoverTool({ action }: PopoverToolProps) {
     }
 
     const handlePointerDown = (event: globalThis.PointerEvent) => {
-      if (
-        isSidebarInteractionTarget(event.target) ||
-        isToolbarPopoverInteractionTarget(event.target)
-      ) {
+      if (isToolbarPopoverInteractionTarget(event.target)) {
         return;
       }
       handleClose();
@@ -87,6 +103,16 @@ export function PopoverTool({ action }: PopoverToolProps) {
       });
     };
   }, [handleClose, open]);
+
+  const handlePointerLeave = useCallback(
+    (event: ReactPointerEvent) => {
+      if (isToolbarPopoverInteractionTarget(event.relatedTarget)) {
+        return;
+      }
+      scheduleClose();
+    },
+    [scheduleClose],
+  );
 
   const handleTriggerClick = useCallback(() => {
     if (action.kind === "toggle") {
@@ -109,15 +135,11 @@ export function PopoverTool({ action }: PopoverToolProps) {
     }
   }, [action, hasChildren, open]);
 
-  const handleChildAction = useCallback(
-    (childOnRun?: () => void) => {
-      if (childOnRun) {
-        childOnRun();
-      }
-      handleClose();
-    },
-    [handleClose],
-  );
+  const handleChildAction = useCallback((childOnRun?: () => void) => {
+    if (childOnRun) {
+      childOnRun();
+    }
+  }, []);
 
   return (
     <ToolbarPopover open={open} onOpenChange={handleOpenChange}>
@@ -130,6 +152,7 @@ export function PopoverTool({ action }: PopoverToolProps) {
           disabled={action.disabled}
           onClick={handleTriggerClick}
           onPointerEnter={scheduleOpen}
+          onPointerLeave={handlePointerLeave}
           type="button"
         >
           {action.iconId ? <ViewportToolSvg icon={action.iconId} /> : null}
@@ -142,12 +165,8 @@ export function PopoverTool({ action }: PopoverToolProps) {
           className="toolbar-popover"
           role="menu"
           side="right"
-          onInteractOutside={(event) => {
-            if (isSidebarInteractionTarget(event.target)) {
-              event.preventDefault();
-            }
-          }}
           onPointerEnter={scheduleOpen}
+          onPointerLeave={handlePointerLeave}
         >
           <div className="toolbar-popover-header">{action.label}</div>
           <ToolbarPopoverItems
