@@ -91,6 +91,11 @@ import {
   runCleanupCallbacks,
   toneMappingModeMap,
 } from "../viewport/renderSettings";
+import {
+  buildReadyPreviewFeedback,
+  buildRuntimeWarningFeedback,
+  type ReadyPreviewFeedbackBase,
+} from "../viewport/loadFeedback";
 import { createLoadingStageClock } from "../viewport/loadingStage";
 import {
   applyManualVisibility,
@@ -1469,33 +1474,19 @@ export function AssetViewport({
     });
     reportLoadingStage("scan");
     const runtimeWarnings: string[] = [];
-    let readyFeedbackBase: {
-      message: string;
-      warnings: Array<string | null>;
-    } | null = null;
+    let readyFeedbackBase: ReadyPreviewFeedbackBase | null = null;
     const pushRuntimeWarning = (warning: string) => {
       if (disposed || runtimeWarnings.includes(warning)) {
         return;
       }
       runtimeWarnings.push(warning);
-      if (readyFeedbackBase) {
-        const warningText = [...readyFeedbackBase.warnings, ...runtimeWarnings]
-          .filter((entry): entry is string => Boolean(entry))
-          .join("\n");
-        onFeedbackChange({
-          mode: "ready",
-          message: readyFeedbackBase.message,
-          warning: warningText || null,
-          canResetCamera: true,
-        });
-        return;
-      }
-      onFeedbackChange({
-        mode: "loading",
-        message: `Loading ${currentFile.fileName}`,
-        warning: runtimeWarnings.join("\n"),
-        canResetCamera: false,
-      });
+      onFeedbackChange(
+        buildRuntimeWarningFeedback(
+          currentFile.fileName,
+          runtimeWarnings,
+          readyFeedbackBase,
+        ),
+      );
     };
 
     loadPreviewObject(currentFile, context.renderer, {
@@ -1772,19 +1763,9 @@ export function AssetViewport({
               ...warnings,
             ],
           };
-          const previewWarning = [
-            ...readyFeedbackBase.warnings,
-            ...runtimeWarnings,
-          ]
-            .filter((warning): warning is string => Boolean(warning))
-            .join("\n");
-
-          onFeedbackChange({
-            mode: "ready",
-            message: readyFeedbackBase.message,
-            warning: previewWarning || null,
-            canResetCamera: true,
-          });
+          onFeedbackChange(
+            buildReadyPreviewFeedback(readyFeedbackBase, runtimeWarnings),
+          );
           setLoadingStage(null);
         },
       )
