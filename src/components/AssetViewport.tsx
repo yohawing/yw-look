@@ -91,6 +91,7 @@ import {
   runCleanupCallbacks,
   toneMappingModeMap,
 } from "../viewport/renderSettings";
+import { createLoadingStageClock } from "../viewport/loadingStage";
 import {
   applyManualVisibility,
   applyPurposeVisibility,
@@ -1447,33 +1448,11 @@ export function AssetViewport({
 
     let disposed = false;
     const loadingStartedAt = performance.now();
-    const loadingClock: {
-      activeStage: LoadingStageId;
-      activeStartedAt: number;
-      elapsedByStage: Partial<Record<LoadingStageId, number>>;
-    } = {
-      activeStage: "scan",
-      activeStartedAt: loadingStartedAt,
-      elapsedByStage: {},
-    };
+    const loadingClock = createLoadingStageClock("scan", loadingStartedAt);
     const reportLoadingStage = (stage: LoadingStageId) => {
       if (disposed) return;
 
-      const now = performance.now();
-      if (stage !== loadingClock.activeStage) {
-        loadingClock.elapsedByStage[loadingClock.activeStage] =
-          (loadingClock.elapsedByStage[loadingClock.activeStage] ?? 0) +
-          (now - loadingClock.activeStartedAt);
-        loadingClock.activeStage = stage;
-        loadingClock.activeStartedAt = now;
-      }
-
-      setLoadingStage({
-        activeStage: stage,
-        activeStageStartedAt: loadingClock.activeStartedAt,
-        elapsedByStage: { ...loadingClock.elapsedByStage },
-        totalElapsedMs: now - loadingStartedAt,
-      });
+      setLoadingStage(loadingClock.report(stage));
     };
 
     onFeedbackChange({
