@@ -251,6 +251,11 @@ export function AssetViewport({
   const backgroundPresetRef = useRef(backgroundPreset);
   const toneMappingModeRef = useRef(toneMappingMode);
   const exposureRef = useRef(exposure);
+  const controlSensitivityRef = useRef(controlSensitivity);
+  const cameraFovRef = useRef(cameraFov);
+  const renderScaleRef = useRef(renderScale);
+  const environmentPresetRef = useRef(environmentPreset);
+  const environmentRotationRef = useRef(environmentRotation);
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
   const texturePreview3DRef = useRef(texturePreview3D);
   const onSelectMeshRef = useRef(onSelectMesh);
@@ -308,6 +313,11 @@ export function AssetViewport({
   useSyncRef(backgroundPresetRef, backgroundPreset);
   useSyncRef(toneMappingModeRef, toneMappingMode);
   useSyncRef(exposureRef, exposure);
+  useSyncRef(controlSensitivityRef, controlSensitivity);
+  useSyncRef(cameraFovRef, cameraFov);
+  useSyncRef(renderScaleRef, renderScale);
+  useSyncRef(environmentPresetRef, environmentPreset);
+  useSyncRef(environmentRotationRef, environmentRotation);
   useSyncRef(texturePreview3DRef, texturePreview3D);
   useSyncRef(onSelectMeshRef, onSelectMesh);
   useSyncRef(morphTargetValuesRef, morphTargetValues);
@@ -450,7 +460,7 @@ export function AssetViewport({
       alpha: false,
       logarithmicDepthBuffer: initialRenderingPreset.logarithmicDepthBuffer,
     });
-    renderer.setPixelRatio(window.devicePixelRatio * renderScale);
+    renderer.setPixelRatio(window.devicePixelRatio * renderScaleRef.current);
     renderer.setSize(host.clientWidth, host.clientHeight);
     const labelRenderer = new CSS2DRenderer();
     labelRenderer.setSize(host.clientWidth, host.clientHeight);
@@ -458,8 +468,8 @@ export function AssetViewport({
     applyViewportRenderingSettings(
       renderer,
       currentFile?.extension,
-      toneMappingMode,
-      exposure,
+      toneMappingModeRef.current,
+      exposureRef.current,
     );
     // Enable the shadow pipeline up-front so toggling shadows later
     // is just a light.castShadow flip — flipping shadowMap.enabled
@@ -472,7 +482,7 @@ export function AssetViewport({
     // been created so we can honor showEnvironmentBackground on first frame.
 
     const camera = new PerspectiveCamera(
-      cameraFov,
+      cameraFovRef.current,
       host.clientWidth / host.clientHeight,
       0.01,
       2000,
@@ -481,25 +491,26 @@ export function AssetViewport({
 
     const pmremGenerator = new PMREMGenerator(renderer);
     environmentTargetsRef.current = new Map();
+    const initialEnvironmentPreset = environmentPresetRef.current;
     environmentTargetRef.current = createEnvironmentTarget(
       pmremGenerator,
-      environmentPreset,
+      initialEnvironmentPreset,
     );
     if (environmentTargetRef.current) {
       environmentTargetsRef.current.set(
-        environmentPreset,
+        initialEnvironmentPreset,
         environmentTargetRef.current,
       );
     }
-    activeEnvironmentPresetRef.current = environmentPreset;
+    activeEnvironmentPresetRef.current = initialEnvironmentPreset;
     scene.environment = environmentTargetRef.current.texture;
-    scene.environmentRotation.set(0, environmentRotation, 0);
-    scene.backgroundRotation.set(0, environmentRotation, 0);
+    scene.environmentRotation.set(0, environmentRotationRef.current, 0);
+    scene.backgroundRotation.set(0, environmentRotationRef.current, 0);
 
     applyViewportBackground(
       renderer,
       scene,
-      backgroundPreset,
+      backgroundPresetRef.current,
       showEnvironmentBackgroundRef.current
         ? environmentTargetRef.current.texture
         : null,
@@ -538,7 +549,7 @@ export function AssetViewport({
     const controls = new OrbitControls(camera, renderer.domElement);
     configureAssetControls(controls);
     controls.enableDamping = false;
-    applyControlSensitivity(controls, controlSensitivity);
+    applyControlSensitivity(controls, controlSensitivityRef.current);
 
     // ── Initial grid ──
     const initialGrid = applyDynamicGrid(
