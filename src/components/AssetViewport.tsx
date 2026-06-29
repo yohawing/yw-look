@@ -33,7 +33,6 @@ import {
   formatIncompatibleOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
-  getPreviewSupportState,
   neutralFeedback,
   DEFAULT_SCENE_DIMENSION,
   revokeUrls,
@@ -58,7 +57,6 @@ import {
   applyShadows,
   ensureShadowCatcher,
   loadPreviewObject,
-  listRegisteredLoaders,
   loadMmdMotion,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
@@ -113,10 +111,12 @@ import {
   RESOURCE_DIAGNOSTICS_SAMPLE_MS,
   resourceDiagnosticsSignature,
 } from "../viewport/resourceDiagnostics";
-import type {
-  AssetViewportProps,
-  RuntimePreviewUpdater,
-} from "../viewport/types";
+import type { AssetViewportProps } from "../viewport/types";
+import {
+  getRuntimePreviewSupportState,
+  supportedPreviewExtensions,
+  updateRuntimePreview,
+} from "../viewport/previewSupport";
 import { useTexturePreview } from "../viewport/useTexturePreview";
 import { useViewportAnimation } from "../viewport/useViewportAnimation";
 
@@ -132,46 +132,6 @@ export type {
   EnvironmentPreset,
   ToneMappingMode,
 } from "../types/viewer";
-
-const supportedPreviewExtensions = listRegisteredLoaders().map(
-  (loader) => loader.extension,
-);
-
-function isRuntimePreviewUpdater(
-  value: unknown,
-): value is RuntimePreviewUpdater {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "update" in value &&
-    typeof value.update === "function"
-  );
-}
-
-function updateRuntimePreview(
-  context: SceneContext | null,
-  deltaSeconds: number,
-) {
-  const updater = context?.sourceObject?.userData.vrm;
-  if (isRuntimePreviewUpdater(updater)) {
-    updater.update(deltaSeconds);
-  }
-}
-
-function getRuntimePreviewSupportState(
-  extension: string,
-  disabledOptionalLoaderPackIds: readonly string[],
-  incompatibleOptionalLoaderPackIds: readonly string[],
-) {
-  const loader = listRegisteredLoaders().find(
-    (entry) => entry.extension === extension,
-  );
-  return getPreviewSupportState(extension, {
-    disabledOptionalLoaderPackIds,
-    incompatibleOptionalLoaderPackIds,
-    optionalLoaderInstalled: loader?.installed !== false,
-  });
-}
 
 export function AssetViewport({
   currentFile,
