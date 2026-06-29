@@ -48,15 +48,6 @@ export function buildImageToolbar(
         onRun: () => options.onSelectChannel?.(mode.id),
       }));
 
-      // Cycle channels on trigger click
-      const cycleChannel = () => {
-        const currentIdx = channelOpts.findIndex(
-          (c) => c.id === options.channelMode,
-        );
-        const nextIdx = (currentIdx + 1) % channelOpts.length;
-        options.onSelectChannel?.(channelOpts[nextIdx].id);
-      };
-
       push({
         id: "channel",
         mode: "image",
@@ -64,7 +55,6 @@ export function buildImageToolbar(
         kind: "popover",
         label: "Channel",
         iconId: "channel",
-        onRun: cycleChannel,
         children,
       });
     }
@@ -98,15 +88,6 @@ export function buildImageToolbar(
       label: `Exposure: ${options.exposure.toFixed(1)}`,
     });
 
-    // Cycle color spaces on trigger click
-    const cycleColor = () => {
-      const currentIdx = colorSpaces.findIndex(
-        (cs) => cs.id === options.colorSpace,
-      );
-      const nextIdx = (currentIdx + 1) % colorSpaces.length;
-      options.onSelectColorSpace?.(colorSpaces[nextIdx].id);
-    };
-
     push({
       id: "color",
       mode: "image",
@@ -114,7 +95,6 @@ export function buildImageToolbar(
       kind: "popover",
       label: "Color",
       iconId: "colorspace",
-      onRun: cycleColor,
       children,
     });
   }

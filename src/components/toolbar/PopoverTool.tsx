@@ -15,6 +15,10 @@ type PopoverToolProps = {
   action: ToolbarAction;
 };
 
+const toolbarPopoverHoverEvent = "viewport-toolbar-popover-hover";
+
+type ToolbarPopoverHoverEvent = CustomEvent<{ id: string }>;
+
 function isToolbarPopoverInteractionTarget(
   target: EventTarget | null,
 ): boolean {
@@ -48,13 +52,16 @@ export function PopoverTool({ action }: PopoverToolProps) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
+    window.dispatchEvent(
+      new CustomEvent(toolbarPopoverHoverEvent, { detail: { id: action.id } }),
+    );
     if (!openTimerRef.current) {
       openTimerRef.current = setTimeout(() => {
         openTimerRef.current = null;
         setOpen(true);
       }, 120);
     }
-  }, []);
+  }, [action.id]);
 
   const scheduleClose = useCallback(() => {
     if (openTimerRef.current) {
@@ -104,6 +111,24 @@ export function PopoverTool({ action }: PopoverToolProps) {
     };
   }, [handleClose, open]);
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleToolbarHover = (event: Event) => {
+      const nextId = (event as ToolbarPopoverHoverEvent).detail?.id;
+      if (nextId !== action.id) {
+        handleClose();
+      }
+    };
+
+    window.addEventListener(toolbarPopoverHoverEvent, handleToolbarHover);
+    return () => {
+      window.removeEventListener(toolbarPopoverHoverEvent, handleToolbarHover);
+    };
+  }, [action.id, handleClose, open]);
+
   const handlePointerLeave = useCallback(
     (event: ReactPointerEvent) => {
       if (isToolbarPopoverInteractionTarget(event.relatedTarget)) {
@@ -115,15 +140,12 @@ export function PopoverTool({ action }: PopoverToolProps) {
   );
 
   const handleTriggerClick = useCallback(() => {
-    if (action.kind === "toggle") {
-      action.onRun?.();
-      if (hasChildren) {
-        setOpen(true);
-      }
+    if (hasChildren) {
+      setOpen((current) => !current);
       return;
     }
-    if (hasChildren && !open) {
-      setOpen(true);
+    if (action.kind === "toggle") {
+      action.onRun?.();
       return;
     }
     if (action.onRun) {
@@ -248,7 +270,6 @@ function ToolbarPopoverItems({
         onClick={() => onAction(a.onRun)}
         type="button"
       >
-        {a.iconId ? <ViewportToolSvg icon={a.iconId} /> : null}
         <span className="toolbar-popover-item-label">{a.label}</span>
         {a.active ? (
           <span className="toolbar-popover-item-check" aria-hidden="true">

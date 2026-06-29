@@ -22,6 +22,31 @@ function createOptions(
 }
 
 describe("buildImageToolbar", () => {
+  it("uses popover parents without trigger-click value changes", () => {
+    const items = buildImageToolbar(
+      createOptions({
+        channelOptions: [
+          { id: "rgba", label: "RGBA" },
+          { id: "alpha", label: "Alpha" },
+        ],
+      }),
+    );
+    const channel = items.find(
+      (item) => item.kind !== "separator" && item.id === "channel",
+    );
+    const color = items.find(
+      (item) => item.kind !== "separator" && item.id === "color",
+    );
+
+    for (const item of [channel, color]) {
+      expect(item?.kind).toBe("popover");
+      if (item?.kind === "popover") {
+        expect(item.onRun).toBeUndefined();
+        expect(item.children?.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it("renders exposure as read-only status instead of a disabled action", () => {
     const color = buildImageToolbar(createOptions()).find(
       (item) => item.kind !== "separator" && item.id === "color",

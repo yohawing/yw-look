@@ -94,6 +94,77 @@ describe("ViewportControls", () => {
     expect(getByRole("button", { name: "Front" })).toBeTruthy();
   });
 
+  it("does not run parent actions when a viewport submenu trigger is clicked", () => {
+    const parentRun = vi.fn();
+    const childRun = vi.fn();
+    const items: ToolbarItem[] = [
+      {
+        id: "skeleton",
+        mode: "3d",
+        group: "overlay",
+        kind: "toggle",
+        label: "Skeleton",
+        iconId: "skeleton",
+        onRun: parentRun,
+        children: [
+          {
+            id: "skeleton-bones",
+            mode: "3d",
+            group: "overlay",
+            kind: "toggle",
+            label: "Bone",
+            onRun: childRun,
+          },
+        ],
+      },
+    ];
+
+    const { getByRole } = render(<ViewportControls items={items} />);
+
+    fireEvent.click(getByRole("button", { name: "Skeleton" }));
+
+    expect(parentRun).not.toHaveBeenCalled();
+    expect(getByRole("menu")).toBeTruthy();
+
+    fireEvent.click(getByRole("button", { name: "Bone" }));
+
+    expect(childRun).toHaveBeenCalledOnce();
+    expect(parentRun).not.toHaveBeenCalled();
+    expect(getByRole("menu")).toBeTruthy();
+  });
+
+  it("does not render icons on viewport submenu items", () => {
+    const items: ToolbarItem[] = [
+      {
+        id: "skeleton",
+        mode: "3d",
+        group: "overlay",
+        kind: "popover",
+        label: "Skeleton",
+        iconId: "skeleton",
+        children: [
+          {
+            id: "local-axis",
+            mode: "3d",
+            group: "overlay",
+            kind: "toggle",
+            label: "Local Axis",
+            iconId: "axis",
+            onRun: vi.fn(),
+          },
+        ],
+      },
+    ];
+
+    const { getByRole } = render(<ViewportControls items={items} />);
+
+    fireEvent.click(getByRole("button", { name: "Skeleton" }));
+
+    expect(
+      getByRole("button", { name: "Local Axis" }).querySelector("svg"),
+    ).toBeNull();
+  });
+
   it("opens viewport submenus on hover and closes after leaving them", () => {
     vi.useFakeTimers();
     try {
@@ -137,6 +208,73 @@ describe("ViewportControls", () => {
       });
 
       expect(queryByRole("menu")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("switches viewport submenus while hovering between toolbar triggers", () => {
+    vi.useFakeTimers();
+    try {
+      const items: ToolbarItem[] = [
+        {
+          id: "camera",
+          mode: "3d",
+          group: "camera",
+          kind: "popover",
+          label: "Camera",
+          iconId: "camera",
+          children: [
+            {
+              id: "front",
+              mode: "3d",
+              group: "camera",
+              kind: "button",
+              label: "Front",
+              onRun: vi.fn(),
+            },
+          ],
+        },
+        {
+          id: "skeleton",
+          mode: "3d",
+          group: "overlay",
+          kind: "popover",
+          label: "Skeleton",
+          iconId: "skeleton",
+          children: [
+            {
+              id: "bone",
+              mode: "3d",
+              group: "overlay",
+              kind: "toggle",
+              label: "Bone",
+              onRun: vi.fn(),
+            },
+          ],
+        },
+      ];
+
+      const { getByRole, queryByRole } = render(
+        <ViewportControls items={items} />,
+      );
+
+      fireEvent.pointerEnter(getByRole("button", { name: "Camera" }));
+      act(() => {
+        vi.advanceTimersByTime(120);
+      });
+
+      expect(getByRole("button", { name: "Front" })).toBeTruthy();
+
+      fireEvent.pointerEnter(getByRole("button", { name: "Skeleton" }));
+
+      expect(queryByRole("button", { name: "Front" })).toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(120);
+      });
+
+      expect(getByRole("button", { name: "Bone" })).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }

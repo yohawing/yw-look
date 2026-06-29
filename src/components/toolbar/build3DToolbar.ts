@@ -55,7 +55,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       kind: "popover",
       label: "Camera",
       iconId: "camera",
-      onRun: options.onCycleCamera,
       children: cameraChildren,
     });
   }
@@ -139,11 +138,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       onRun: options.onToggleTexture,
     });
 
-    // Cycle: toggles showUnlit only — preserves texture/overlay state
-    const cycleShading = () => {
-      options.onToggleUnlit();
-    };
-
     push({
       id: "shading",
       mode: "3d",
@@ -151,7 +145,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       kind: "popover",
       label: "Shading",
       iconId: "light",
-      onRun: cycleShading,
       children,
     });
   }
@@ -209,22 +202,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       onRun: mode.onRun,
     }));
 
-    // Cycle: off → overlay → wireOnly → off
-    const cycleWireframe = () => {
-      if (!showWireframe) {
-        // Go to overlay
-        options.onToggleWireframe();
-        if (!showTexture) options.onToggleTexture();
-      } else if (showTexture) {
-        // Go to wire only
-        options.onToggleTexture();
-      } else {
-        // Go to off
-        options.onToggleWireframe();
-        if (!showTexture) options.onToggleTexture();
-      }
-    };
-
     push({
       id: "wireframe",
       mode: "3d",
@@ -232,7 +209,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       kind: "popover",
       label: "Wireframe",
       iconId: "wireframe",
-      onRun: cycleWireframe,
       children,
     });
   }
@@ -251,18 +227,38 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         id: "bounding-boxes",
         mode: "3d",
         group: "overlay",
-        kind: "toggle",
+        kind: "popover",
         label: "Bounding Box",
         iconId: "bbox",
         active: options.showBoundingBoxes,
-        onRun: options.onToggleBoundingBoxes,
+        children: [
+          {
+            id: "bounding-boxes-toggle",
+            mode: "3d",
+            group: "overlay",
+            kind: "toggle",
+            label: "Bounding Box",
+            active: options.showBoundingBoxes,
+            onRun: options.onToggleBoundingBoxes,
+          },
+        ],
       });
     }
 
     if (options.showSkeleton !== undefined && options.onToggleSkeleton) {
       if (!hasOverlay) groupSep("overlay");
       hasOverlay = true;
-      const children: ToolbarItem[] = [];
+      const children: ToolbarItem[] = [
+        {
+          id: "skeleton-bones",
+          mode: "3d",
+          group: "overlay",
+          kind: "toggle",
+          label: "Bone",
+          active: options.showSkeleton,
+          onRun: options.onToggleSkeleton,
+        },
+      ];
       if (options.showLocalAxis !== undefined && options.onToggleLocalAxis) {
         children.push({
           id: "local-axis",
@@ -270,7 +266,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
           group: "overlay",
           kind: "toggle",
           label: "Local Axis",
-          iconId: "axis",
           active: options.showLocalAxis,
           onRun: options.onToggleLocalAxis,
         });
@@ -282,7 +277,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
           group: "overlay",
           kind: "toggle",
           label: "Bone Name",
-          iconId: "overlay",
           active: options.showJointNames,
           onRun: options.onToggleJointNames,
         });
@@ -291,11 +285,10 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         id: "skeleton",
         mode: "3d",
         group: "overlay",
-        kind: "toggle",
+        kind: "popover",
         label: "Skeleton",
         iconId: "skeleton",
         active: options.showSkeleton,
-        onRun: options.onToggleSkeleton,
         children,
       });
     }

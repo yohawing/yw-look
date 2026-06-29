@@ -65,19 +65,6 @@ export function useViewportToolbarModel(viewer: ViewerState) {
     [viewer],
   );
 
-  // Cycle camera presets on toolbar click
-  const handleCycleCamera = useCallback(() => {
-    if (cameraPresetOptions.length === 0) return;
-    const currentIdx = cameraPresetOptions.findIndex(
-      (p) => p.id === viewer.cameraPresetRequest?.preset,
-    );
-    const nextIdx = (currentIdx + 1) % cameraPresetOptions.length;
-    viewer.setCameraPresetRequest({
-      preset: cameraPresetOptions[nextIdx].id,
-      version: (viewer.cameraPresetRequest?.version ?? 0) + 1,
-    });
-  }, [viewer]);
-
   // Image mode handlers
   const channelOptions = useMemo(
     () => [
@@ -139,7 +126,6 @@ export function useViewportToolbarModel(viewer: ViewerState) {
       cameraPreset: viewer.cameraPresetRequest?.preset ?? null,
       cameraPresetOptions,
       onSelectCameraPreset: handleSelectCameraPreset,
-      onCycleCamera: handleCycleCamera,
       // Shading
       showTexture: viewer.showTexture,
       onToggleTexture: () => useViewerStore.getState().toggleShowTexture(),
@@ -176,7 +162,6 @@ export function useViewportToolbarModel(viewer: ViewerState) {
     });
   }, [
     channelOptions,
-    handleCycleCamera,
     handleSelectCameraPreset,
     handleSelectChannel,
     handleSelectColorSpace,

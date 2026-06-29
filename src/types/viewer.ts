@@ -617,7 +617,6 @@ export type Build3DToolbarOptions = {
   cameraPreset: string | null;
   cameraPresetOptions: Array<{ id: string; label: string }>;
   onSelectCameraPreset?: (preset: string) => void;
-  onCycleCamera?: () => void;
   showTexture: boolean;
   onToggleTexture: () => void;
   showUnlit: boolean;
