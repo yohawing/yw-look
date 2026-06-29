@@ -28,10 +28,6 @@ import {
   type LoadingStageSnapshot,
   type MissingReferenceError,
   type SceneContext,
-  formatDisabledOptionalLoaderMessage,
-  formatIncompatibleOptionalLoaderMessage,
-  formatMissingOptionalLoaderMessage,
-  formatUnsupportedFormatMessage,
   neutralFeedback,
   DEFAULT_SCENE_DIMENSION,
   revokeUrls,
@@ -110,9 +106,9 @@ import {
 } from "../viewport/resourceDiagnostics";
 import type { AssetViewportProps } from "../viewport/types";
 import {
+  buildUnsupportedPreviewFeedback,
   getRuntimePreviewSupportState,
   resolveEffectiveOverlayMode,
-  supportedPreviewExtensions,
   updateRuntimePreview,
 } from "../viewport/previewSupport";
 import { useResourceDiagnosticsPublisher } from "../viewport/useResourceDiagnosticsPublisher";
@@ -1436,29 +1432,12 @@ export function AssetViewport({
       incompatibleOptionalLoaderPackIds,
     );
     if (supportState !== "implemented") {
-      const message =
-        supportState === "missingOptionalLoader"
-          ? formatMissingOptionalLoaderMessage(currentFile.extension)
-          : supportState === "disabledOptionalLoader"
-            ? formatDisabledOptionalLoaderMessage(currentFile.extension)
-            : supportState === "incompatibleOptionalLoader"
-              ? formatIncompatibleOptionalLoaderMessage(currentFile.extension)
-              : formatUnsupportedFormatMessage(
-                  currentFile.extension,
-                  supportedPreviewExtensions,
-                );
       onMetadataChange(emptyAssetMetadata);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
-      onFeedbackChange({
-        mode: supportState,
-        message:
-          message !== null
-            ? `${message.title} ${message.body}`
-            : `Preview is not implemented yet for .${currentFile.extension}.`,
-        warning: null,
-        canResetCamera: false,
-      });
+      onFeedbackChange(
+        buildUnsupportedPreviewFeedback(currentFile.extension, supportState),
+      );
       queueMicrotask(() => {
         setLoadingStage(null);
         setDeferredTexture(null);

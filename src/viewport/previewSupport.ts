@@ -1,9 +1,17 @@
 import type {
   PreviewSupportState,
   SceneContext,
+  ViewerFeedback,
   ViewerMode,
 } from "../types/viewer";
-import { getPreviewSupportState, listRegisteredLoaders } from "../viewer";
+import {
+  formatDisabledOptionalLoaderMessage,
+  formatIncompatibleOptionalLoaderMessage,
+  formatMissingOptionalLoaderMessage,
+  formatUnsupportedFormatMessage,
+  getPreviewSupportState,
+  listRegisteredLoaders,
+} from "../viewer";
 import type { RuntimePreviewUpdater } from "./types";
 
 export const supportedPreviewExtensions = listRegisteredLoaders().map(
@@ -71,4 +79,31 @@ export function resolveEffectiveOverlayMode({
   }
 
   return activePreviewPath === currentFilePath ? overlayMode : "loading";
+}
+
+export function buildUnsupportedPreviewFeedback(
+  extension: string,
+  supportState: Exclude<PreviewSupportState, "implemented">,
+): ViewerFeedback {
+  const message =
+    supportState === "missingOptionalLoader"
+      ? formatMissingOptionalLoaderMessage(extension)
+      : supportState === "disabledOptionalLoader"
+        ? formatDisabledOptionalLoaderMessage(extension)
+        : supportState === "incompatibleOptionalLoader"
+          ? formatIncompatibleOptionalLoaderMessage(extension)
+          : formatUnsupportedFormatMessage(
+              extension,
+              supportedPreviewExtensions,
+            );
+
+  return {
+    mode: supportState,
+    message:
+      message !== null
+        ? `${message.title} ${message.body}`
+        : `Preview is not implemented yet for .${extension}.`,
+    warning: null,
+    canResetCamera: false,
+  };
 }

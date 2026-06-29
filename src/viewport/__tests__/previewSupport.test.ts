@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { PreviewSupportState, ViewerMode } from "../../types/viewer";
-import { resolveEffectiveOverlayMode } from "../previewSupport";
+import {
+  buildUnsupportedPreviewFeedback,
+  resolveEffectiveOverlayMode,
+} from "../previewSupport";
 
 function resolveOverlayMode({
   currentFilePath = "/asset.glb",
@@ -60,5 +63,36 @@ describe("resolveEffectiveOverlayMode", () => {
         overlayMode: "loadFailed",
       }),
     ).toBe("loadFailed");
+  });
+});
+
+describe("buildUnsupportedPreviewFeedback", () => {
+  it.each([
+    ["missingOptionalLoader", "VRM Loader Pack"],
+    ["disabledOptionalLoader", "VRM Loader Pack is disabled"],
+    ["incompatibleOptionalLoader", "VRM Loader Pack is not compatible"],
+  ] as const)(
+    "builds a %s feedback message from the optional loader registry",
+    (supportState, expectedText) => {
+      expect(buildUnsupportedPreviewFeedback("vrm", supportState)).toEqual({
+        mode: supportState,
+        message: expect.stringContaining(expectedText),
+        warning: null,
+        canResetCamera: false,
+      });
+    },
+  );
+
+  it("builds an unsupported format feedback message", () => {
+    expect(
+      buildUnsupportedPreviewFeedback("assetbundle", "unsupported"),
+    ).toEqual({
+      mode: "unsupported",
+      message: expect.stringContaining(
+        "No preview loader is available for .assetbundle.",
+      ),
+      warning: null,
+      canResetCamera: false,
+    });
   });
 });
