@@ -111,6 +111,7 @@ import {
 import type { AssetViewportProps } from "../viewport/types";
 import {
   getRuntimePreviewSupportState,
+  resolveEffectiveOverlayMode,
   supportedPreviewExtensions,
   updateRuntimePreview,
 } from "../viewport/previewSupport";
@@ -321,18 +322,12 @@ export function AssetViewport({
         incompatibleOptionalLoaderPackIds,
       )
     : "implemented";
-  const effectiveOverlayMode =
-    currentFile === null
-      ? "empty"
-      : previewSupportState === "missingOptionalLoader" ||
-          previewSupportState === "disabledOptionalLoader" ||
-          previewSupportState === "incompatibleOptionalLoader"
-        ? previewSupportState
-        : previewSupportState === "unsupported"
-          ? "unsupported"
-          : activePreviewPath === currentFile.path
-            ? overlayMode
-            : "loading";
+  const effectiveOverlayMode = resolveEffectiveOverlayMode({
+    currentFilePath: currentFile?.path ?? null,
+    previewSupportState,
+    activePreviewPath,
+    overlayMode,
+  });
 
   useEffect(() => {
     const source = sceneContextRef.current?.sourceObject;

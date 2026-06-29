@@ -1,4 +1,8 @@
-import type { SceneContext } from "../types/viewer";
+import type {
+  PreviewSupportState,
+  SceneContext,
+  ViewerMode,
+} from "../types/viewer";
 import { getPreviewSupportState, listRegisteredLoaders } from "../viewer";
 import type { RuntimePreviewUpdater } from "./types";
 
@@ -40,4 +44,31 @@ export function getRuntimePreviewSupportState(
     incompatibleOptionalLoaderPackIds,
     optionalLoaderInstalled: loader?.installed !== false,
   });
+}
+
+export function resolveEffectiveOverlayMode({
+  currentFilePath,
+  previewSupportState,
+  activePreviewPath,
+  overlayMode,
+}: {
+  currentFilePath: string | null;
+  previewSupportState: PreviewSupportState;
+  activePreviewPath: string | null;
+  overlayMode: ViewerMode;
+}): ViewerMode {
+  if (currentFilePath === null) {
+    return "empty";
+  }
+
+  if (
+    previewSupportState === "missingOptionalLoader" ||
+    previewSupportState === "disabledOptionalLoader" ||
+    previewSupportState === "incompatibleOptionalLoader" ||
+    previewSupportState === "unsupported"
+  ) {
+    return previewSupportState;
+  }
+
+  return activePreviewPath === currentFilePath ? overlayMode : "loading";
 }
