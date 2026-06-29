@@ -13,6 +13,7 @@ import {
   applyCameraPresetToMountedObject,
   findCameraBySelectionKey,
   frameCurrentMountedObject,
+  syncActiveCameraSelection,
   syncPerspectiveCameraAspect,
 } from "../camera";
 
@@ -155,5 +156,47 @@ describe("applyCameraPresetToMountedObject", () => {
     );
     expect(context.controls.enabled).toBe(true);
     expect(context.camera.position.z).toBeGreaterThan(0);
+  });
+});
+
+describe("syncActiveCameraSelection", () => {
+  it("activates a matching scene camera and syncs its aspect", () => {
+    const object = new Mesh(new BoxGeometry(2, 2, 2), new MeshBasicMaterial());
+    const context = createSceneContext(object);
+    const sceneCamera = new PerspectiveCamera(50, 1);
+    sceneCamera.name = "Shot";
+    context.scene.add(sceneCamera);
+
+    expect(
+      syncActiveCameraSelection(context, "Shot", {
+        clientWidth: 1920,
+        clientHeight: 1080,
+      }),
+    ).toBe(sceneCamera);
+    expect(context.controls.enabled).toBe(false);
+    expect(sceneCamera.aspect).toBeCloseTo(16 / 9);
+  });
+
+  it("falls back to free controls when the requested camera is missing", () => {
+    const object = new Mesh(new BoxGeometry(2, 2, 2), new MeshBasicMaterial());
+    const context = createSceneContext(object);
+    const warn = vi.fn();
+
+    expect(
+      syncActiveCameraSelection(context, "Missing", null, warn),
+    ).toBeNull();
+    expect(context.controls.enabled).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      '[viewer] USD camera "Missing" not found in scene graph — falling back to free camera',
+    );
+  });
+
+  it("clears active camera selection", () => {
+    const object = new Mesh(new BoxGeometry(2, 2, 2), new MeshBasicMaterial());
+    const context = createSceneContext(object);
+    context.controls.enabled = false;
+
+    expect(syncActiveCameraSelection(context, null, null)).toBeNull();
+    expect(context.controls.enabled).toBe(true);
   });
 });

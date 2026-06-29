@@ -75,6 +75,7 @@ import {
   findCameraBySelectionKey,
   frameCurrentMountedObject,
   frameMountedObject,
+  syncActiveCameraSelection,
   syncPerspectiveCameraAspect,
   syncAxesVisibility,
   syncGridVisibility,
@@ -353,52 +354,16 @@ export function AssetViewport({
     applyPurposeVisibility(mounted, purposeModes);
   }, [purposeModes]);
 
-  // #34: USD camera switching.
-  // When activeCameraId changes we traverse the mounted scene graph looking
-  // for the camera with that uuid. Found → set as the active render camera
-  // and disable OrbitControls (transform is USD-driven). null → revert to
-  // the free-orbit camera and re-enable controls.
-  //
-  // We accept both PerspectiveCamera and OrthographicCamera here — the
-  // renderer only needs a `Camera`. Aspect updates are PerspectiveCamera-only.
   useEffect(() => {
     activeCameraIdRef.current = activeCameraId;
     const context = sceneContextRef.current;
     if (!context) return;
 
-    if (!activeCameraId) {
-      // Restore free-orbit camera
-      activeCameraRef.current = null;
-      const hasMounted = Boolean(context.mountedObject);
-      context.controls.enabled = hasMounted;
-      return;
-    }
-
-    // Traverse the full scene (not just mountedObject) so cameras that sit
-    // in the scene root (e.g. glTF cameras added directly by GLTFLoader) are
-    // also found. Match by `cameraSelectionKey` — a (display-name,
-    // index-among-same-name) composite that survives variant / load-policy
-    // reloads (uuids would not) and still distinguishes duplicate-named
-    // cameras. The traversal order must mirror `collectAssetMetadata`'s so
-    // the index counters line up.
-    const found = findCameraBySelectionKey(context.scene, activeCameraId);
-
-    if (found) {
-      activeCameraRef.current = found;
-      context.controls.enabled = false;
-      // Sync aspect to the current viewport size so the USD camera renders
-      // without distortion. Only meaningful for PerspectiveCamera; the
-      // OrthographicCamera frustum is authored, not aspect-driven, so we
-      // leave its left/right/top/bottom alone.
-      syncPerspectiveCameraAspect(found, hostRef.current);
-    } else {
-      console.warn(
-        `[viewer] USD camera "${activeCameraId}" not found in scene graph — falling back to free camera`,
-      );
-      activeCameraRef.current = null;
-      const hasMounted = Boolean(context.mountedObject);
-      context.controls.enabled = hasMounted;
-    }
+    activeCameraRef.current = syncActiveCameraSelection(
+      context,
+      activeCameraId,
+      hostRef.current,
+    );
   }, [activeCameraId]);
 
   useEffect(() => {

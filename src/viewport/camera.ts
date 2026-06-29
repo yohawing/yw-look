@@ -197,6 +197,32 @@ export function applyCameraPresetToMountedObject(
   return true;
 }
 
+export function syncActiveCameraSelection(
+  context: SceneContext,
+  activeCameraId: string | null,
+  host: Pick<HTMLElement, "clientWidth" | "clientHeight"> | null,
+  warn: (message: string) => void = console.warn,
+) {
+  if (!activeCameraId) {
+    context.controls.enabled = Boolean(context.mountedObject);
+    return null;
+  }
+
+  const found = findCameraBySelectionKey(context.scene, activeCameraId);
+
+  if (!found) {
+    warn(
+      `[viewer] USD camera "${activeCameraId}" not found in scene graph — falling back to free camera`,
+    );
+    context.controls.enabled = Boolean(context.mountedObject);
+    return null;
+  }
+
+  context.controls.enabled = false;
+  syncPerspectiveCameraAspect(found, host);
+  return found;
+}
+
 export function frameObjectBounds(
   context: SceneContext,
   object: Object3D,
