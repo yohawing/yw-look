@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -7,7 +8,12 @@ use crate::shared::{
     load_or_initialize_settings, resolve_app_data_dir, sanitize_settings, write_settings_file,
     SETTINGS_FILE_NAME,
 };
-use crate::state::AppSettings;
+use crate::state::{AppSettings, OptionalLoaderPackSettings};
+
+const INSTALLER_MANAGED_OPTIONAL_LOADER_PACKS: &[(&str, &str)] = &[
+    ("mmd-loader-pack", "mmd"),
+    ("gaussian-splat-loader-pack", "gaussian-splat"),
+];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +26,30 @@ fn settings_path_from_dir(dir: &Path) -> PathBuf {
     dir.join(SETTINGS_FILE_NAME)
 }
 
+fn optional_loader_pack_settings_from_installer_markers(
+    dir: &Path,
+) -> BTreeMap<String, OptionalLoaderPackSettings> {
+    let optional_loaders_dir = dir.join("optional-loaders");
+    let mut settings = BTreeMap::new();
+
+    for (pack_id, pack_dir_name) in INSTALLER_MANAGED_OPTIONAL_LOADER_PACKS {
+        let pack_dir = optional_loaders_dir.join(pack_dir_name);
+        if pack_dir.join(".removed").is_file() {
+            settings.insert(
+                (*pack_id).to_string(),
+                OptionalLoaderPackSettings { enabled: false },
+            );
+        } else if pack_dir.join("manifest.json").is_file() {
+            settings.insert(
+                (*pack_id).to_string(),
+                OptionalLoaderPackSettings { enabled: true },
+            );
+        }
+    }
+
+    settings
+}
+
 fn load_settings_from_path(dir: &Path) -> Result<(PathBuf, AppSettings), AppError> {
     let settings_path = settings_path_from_dir(dir);
     let settings =
@@ -30,7 +60,10 @@ fn load_settings_from_path(dir: &Path) -> Result<(PathBuf, AppSettings), AppErro
                 AppError::Serde(format!("failed to parse settings file: {error}"))
             })?)
         } else {
-            let defaults = sanitize_settings(AppSettings::default());
+            let defaults = sanitize_settings(AppSettings {
+                optional_loader_packs: optional_loader_pack_settings_from_installer_markers(dir),
+                ..AppSettings::default()
+            });
             write_settings_file(&settings_path, &defaults)?;
             defaults
         };
@@ -123,6 +156,34 @@ mod tests {
         assert!(settings.optional_loader_packs.is_empty());
         assert_eq!(settings.update_endpoint_override, None);
         assert_eq!(settings.update_public_key_override, None);
+    }
+
+    #[test]
+    fn load_settings_uses_installer_loader_pack_markers_for_initial_defaults() {
+        let dir = tempdir().expect("tempdir");
+        let mmd_dir = dir.path().join("optional-loaders").join("mmd");
+        let gaussian_dir = dir
+            .path()
+            .join("optional-loaders")
+            .join("gaussian-splat");
+        fs::create_dir_all(&mmd_dir).expect("create mmd marker dir");
+        fs::create_dir_all(&gaussian_dir).expect("create gaussian marker dir");
+        fs::write(mmd_dir.join(".removed"), "removed by installer\n").expect("write marker");
+        fs::write(gaussian_dir.join("manifest.json"), "{}").expect("write manifest marker");
+
+        let (settings_path, settings) = load_settings_from_path(dir.path()).expect("load settings");
+        let json = read_settings_value(&settings_path);
+
+        assert!(!settings.optional_loader_packs["mmd-loader-pack"].enabled);
+        assert!(settings.optional_loader_packs["gaussian-splat-loader-pack"].enabled);
+        assert_eq!(
+            json["optionalLoaderPacks"]["mmd-loader-pack"]["enabled"],
+            serde_json::json!(false)
+        );
+        assert_eq!(
+            json["optionalLoaderPacks"]["gaussian-splat-loader-pack"]["enabled"],
+            serde_json::json!(true)
+        );
     }
 
     #[test]
