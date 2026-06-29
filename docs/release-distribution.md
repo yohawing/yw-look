@@ -130,7 +130,21 @@ npm run check   # lint + format:check + typecheck を一括実行
 
 失敗があれば修正してから次に進む。
 
-## 5. macOS ビルドを確認する
+## 5. リリース smoke を確認する
+
+公開 fixture / sample のアセットカタログを実 loader 経路で確認する。
+
+```bash
+npm run test:fixtures -- --timeout-ms 600000
+```
+
+結果は次に出力される。
+
+- `artifacts/logs/fixture-regression-report.json`
+- `artifacts/logs/fixture-regression-report.md`
+- `artifacts/logs/fixture-regression-report.html`
+
+## 6. macOS ビルドを確認する
 
 macOS ビルドが通ることを確認してからタグを打つ。
 
@@ -138,11 +152,11 @@ macOS ビルドが通ることを確認してからタグを打つ。
 - **ローカルで確認する場合**: `npm run bundle:mac` が成功することを確認する
 - **確認できない場合**: release note または作業ログに「macOS 未確認」と理由を明記する
 
-## 6. develop に commit・push する
+## 7. develop に commit・push する
 
 バージョン bump・CHANGELOG・ドキュメント更新をまとめて commit し、`develop` に push する。push はオーナーの明示指示後に行う。
 
-## 7. main を develop に FF する
+## 8. main を develop に FF する
 
 ```bash
 git checkout main
@@ -151,7 +165,7 @@ git merge --ff-only develop
 
 タグ前に `git status` で main が develop と同一 commit であることを確認する。
 
-## 8. タグを打ち、オーナー確認後に push する
+## 9. タグを打ち、オーナー確認後に push する
 
 ```bash
 git tag vX.Y.Z

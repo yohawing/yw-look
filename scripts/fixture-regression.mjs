@@ -47,6 +47,7 @@ const reportStem =
     : `fixture-regression-report.${getCatalogReportName(catalogPath)}`;
 const jsonReportPath = path.join(outputDir, `${reportStem}.json`);
 const markdownReportPath = path.join(outputDir, `${reportStem}.md`);
+const htmlReportPath = path.join(outputDir, `${reportStem}.html`);
 const privateScreenshotDir = path.join(
   repoRoot,
   "artifacts",
@@ -63,7 +64,7 @@ const usage = `usage:
   npm run test:fixtures -- --timeout-ms <ms>
 
 Runs fixture catalog cases through the real shot/check loader path and writes
-artifacts/logs/fixture-regression-report[.<catalog>].{json,md}.`;
+artifacts/logs/fixture-regression-report[.<catalog>].{json,md,html}.`;
 
 function readOption(name) {
   const index = args.indexOf(name);
@@ -112,10 +113,7 @@ async function getOptionalLoaderAvailability() {
     await Promise.all(
       Object.entries(optionalLoaderPackages).map(async ([loader, config]) => {
         const envOverride = readEnvBoolean(config.env);
-        return [
-          loader,
-          envOverride ?? (await pathExists(config.packagePath)),
-        ];
+        return [loader, envOverride ?? (await pathExists(config.packagePath))];
       }),
     ),
   );
@@ -320,6 +318,163 @@ function toMarkdown(report) {
   return `${lines.join("\n")}\n`;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function toHtml(report) {
+  const rows = report.results
+    .map((result) => {
+      const actual = result.skipped
+        ? "skipped"
+        : result.actualLoaded
+          ? "loaded"
+          : "failed";
+      const details = [
+        result.skipReason,
+        result.knownFailure,
+        result.error,
+      ].filter(Boolean);
+      return `<tr class="status-${escapeHtml(result.status.toLowerCase())}">
+  <td>${escapeHtml(result.id)}</td>
+  <td>${escapeHtml(result.category)}</td>
+  <td>${escapeHtml(result.assetState)}</td>
+  <td>${escapeHtml(result.format)}</td>
+  <td>${escapeHtml(result.requiresLoader ?? "")}</td>
+  <td>${result.expectedShouldLoad ? "load" : "fail"}</td>
+  <td>${escapeHtml(actual)}</td>
+  <td>${escapeHtml(`${result.durationMs}ms`)}</td>
+  <td>${escapeHtml(result.status)}</td>
+  <td>${escapeHtml(details.join(" | "))}</td>
+</tr>`;
+    })
+    .join("\n");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fixture Regression Report</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #08090a;
+      color: #f7f8f8;
+    }
+    body {
+      margin: 0;
+      padding: 32px;
+      background: #08090a;
+    }
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      font-weight: 590;
+    }
+    .meta,
+    .summary {
+      color: #8a8f98;
+      font-size: 13px;
+    }
+    .summary {
+      margin: 20px 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pill {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 9999px;
+      padding: 4px 10px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    th,
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      text-align: left;
+      vertical-align: top;
+      font-size: 12px;
+    }
+    th {
+      color: #d0d6e0;
+      font-weight: 510;
+      background: rgba(255, 255, 255, 0.04);
+    }
+    td {
+      color: #f7f8f8;
+    }
+    tr.status-pass td {
+      color: #dff8e7;
+    }
+    tr.status-xfail td,
+    tr.status-skip td {
+      color: #d0d6e0;
+    }
+    tr.status-fail td,
+    tr.status-xpass td {
+      color: #ffd7d7;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Fixture Regression Report</h1>
+    <div class="meta">
+      Generated: ${escapeHtml(report.generatedAt)}<br>
+      Catalog: ${escapeHtml(report.catalog)}
+    </div>
+    <div class="summary">
+      <span class="pill">Total: ${report.summary.total}</span>
+      <span class="pill">Passed: ${report.summary.passed}</span>
+      <span class="pill">Known failures: ${report.summary.knownFailures}</span>
+      <span class="pill">Skipped: ${report.summary.skipped}</span>
+      <span class="pill">XPass: ${report.summary.xpass}</span>
+      <span class="pill">Failed: ${report.summary.failed}</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Case</th>
+          <th>Category</th>
+          <th>State</th>
+          <th>Format</th>
+          <th>Loader</th>
+          <th>Expected</th>
+          <th>Actual</th>
+          <th>Duration</th>
+          <th>Result</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+${rows}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
+`;
+}
+
 if (args.includes("--help") || args.includes("-h")) {
   console.log(usage);
   process.exit(0);
@@ -460,9 +615,7 @@ for (const testCase of cases) {
   });
 }
 
-const passed = results.filter(
-  (result) => result.status === "PASS",
-).length;
+const passed = results.filter((result) => result.status === "PASS").length;
 const knownFailures = results.filter(
   (result) => result.status === "XFAIL",
 ).length;
@@ -486,6 +639,7 @@ const report = {
 
 await writeFile(jsonReportPath, `${JSON.stringify(report, null, 2)}\n`);
 await writeFile(markdownReportPath, toMarkdown(report));
+await writeFile(htmlReportPath, toHtml(report));
 
 console.log(
   `[fixture] ${passed}/${results.length} passed, ${knownFailures} known failure(s), ${skipped} skipped, ${xpass} xpass; report: ${normalizeRepoPath(

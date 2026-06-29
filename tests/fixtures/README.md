@@ -92,6 +92,7 @@ npm run test:fixtures -- --timeout-ms 600000
 
 - `artifacts/logs/fixture-regression-report.json`
 - `artifacts/logs/fixture-regression-report.md`
+- `artifacts/logs/fixture-regression-report.html`
 
 通常実行ではモデル読み込みに固定 timeout を設けない。重いモデルや低速環境で
 時間がかかる可能性があるためである。CI や短時間の smoke test で上限が必要な
