@@ -8,10 +8,11 @@ import {
   Vector3,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { ViewerSurfaceMode } from "../types/viewer";
+import type { CameraPreset, ViewerSurfaceMode } from "../types/viewer";
 import {
   applyControlsSensitivity,
   applyInitialView,
+  applyPresetView,
   applyTextureView,
   cameraSelectionKey,
   type SceneContext,
@@ -176,6 +177,23 @@ export function frameCurrentMountedObject(
     context.rawMaxDimension,
     texturePreview3D,
   );
+  return true;
+}
+
+export function applyCameraPresetToMountedObject(
+  context: SceneContext | null,
+  viewerSurfaceMode: ViewerSurfaceMode,
+  preset: CameraPreset,
+) {
+  const object = context?.mountedObject;
+
+  if (!context || !object || viewerSurfaceMode !== "asset") {
+    return false;
+  }
+
+  configureAssetControls(context.controls);
+  applyPresetView(context.camera, context.controls, object, preset);
+  context.controls.enabled = true;
   return true;
 }
 

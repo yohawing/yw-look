@@ -29,7 +29,6 @@ import {
   disposeObject,
   stopAnimations,
   resetSceneObjects,
-  applyPresetView,
   applyControlsSensitivity,
   getObjectMaxDimension,
   normalizeObjectScale,
@@ -71,6 +70,7 @@ import { applyMorphTargetValues } from "./morphTargets";
 import type { EnvironmentPreset } from "../types/viewer";
 import {
   applyControlSensitivity,
+  applyCameraPresetToMountedObject,
   configureAssetControls,
   findCameraBySelectionKey,
   frameCurrentMountedObject,
@@ -1818,20 +1818,11 @@ export function AssetViewport({
       return;
     }
 
-    const context = sceneContextRef.current;
-    const object = context?.mountedObject;
-    if (!context || !object || viewerSurfaceModeRef.current !== "asset") {
-      return;
-    }
-
-    configureAssetControls(context.controls);
-    applyPresetView(
-      context.camera,
-      context.controls,
-      object,
+    applyCameraPresetToMountedObject(
+      sceneContextRef.current,
+      viewerSurfaceModeRef.current,
       cameraPresetRequest.preset,
     );
-    context.controls.enabled = true;
   }, [cameraPresetRequest]);
 
   const {

@@ -10,10 +10,42 @@ import {
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { SceneContext } from "../../types/viewer";
 import {
+  applyCameraPresetToMountedObject,
   findCameraBySelectionKey,
   frameCurrentMountedObject,
   syncPerspectiveCameraAspect,
 } from "../camera";
+
+function createSceneContext(mountedObject: SceneContext["mountedObject"]) {
+  const scene = new Scene();
+  const camera = new PerspectiveCamera(50, 1);
+  const controls = new OrbitControls(camera, document.createElement("div"));
+  if (mountedObject) {
+    scene.add(mountedObject);
+  }
+
+  return {
+    renderer: {},
+    scene,
+    camera,
+    controls,
+    pmremGenerator: {},
+    mountedObject,
+    sourceObject: mountedObject,
+    previewObject: null,
+    boneOnlyPreview: false,
+    cleanupUrls: [],
+    cleanupCallbacks: [],
+    animationRoot: null,
+    mixer: null,
+    clips: [],
+    activeAction: null,
+    mmdModel: null,
+    mmdMotion: null,
+    textureRegistry: new Map(),
+    rawMaxDimension: 3,
+  } as unknown as SceneContext;
+}
 
 describe("findCameraBySelectionKey", () => {
   it("finds cameras by stable duplicate-name selection keys", () => {
@@ -69,37 +101,6 @@ describe("syncPerspectiveCameraAspect", () => {
 });
 
 describe("frameCurrentMountedObject", () => {
-  function createSceneContext(mountedObject: SceneContext["mountedObject"]) {
-    const scene = new Scene();
-    const camera = new PerspectiveCamera(50, 1);
-    const controls = new OrbitControls(camera, document.createElement("div"));
-    if (mountedObject) {
-      scene.add(mountedObject);
-    }
-
-    return {
-      renderer: {},
-      scene,
-      camera,
-      controls,
-      pmremGenerator: {},
-      mountedObject,
-      sourceObject: mountedObject,
-      previewObject: null,
-      boneOnlyPreview: false,
-      cleanupUrls: [],
-      cleanupCallbacks: [],
-      animationRoot: null,
-      mixer: null,
-      clips: [],
-      activeAction: null,
-      mmdModel: null,
-      mmdMotion: null,
-      textureRegistry: new Map(),
-      rawMaxDimension: 3,
-    } as unknown as SceneContext;
-  }
-
   it("ignores empty contexts", () => {
     expect(frameCurrentMountedObject(null, "asset", true, true, 1, false)).toBe(
       false,
@@ -126,5 +127,33 @@ describe("frameCurrentMountedObject", () => {
     expect(context.controls.enabled).toBe(true);
     expect(context.camera.far).toBeGreaterThan(100);
     expect(context.camera.position.length()).toBeGreaterThan(0);
+  });
+});
+
+describe("applyCameraPresetToMountedObject", () => {
+  it("ignores empty contexts and non-asset surface modes", () => {
+    expect(applyCameraPresetToMountedObject(null, "asset", "front")).toBe(
+      false,
+    );
+
+    const object = new Mesh(new BoxGeometry(2, 2, 2), new MeshBasicMaterial());
+    expect(
+      applyCameraPresetToMountedObject(
+        createSceneContext(object),
+        "texture",
+        "front",
+      ),
+    ).toBe(false);
+  });
+
+  it("applies the preset to the mounted object", () => {
+    const object = new Mesh(new BoxGeometry(2, 2, 2), new MeshBasicMaterial());
+    const context = createSceneContext(object);
+
+    expect(applyCameraPresetToMountedObject(context, "asset", "front")).toBe(
+      true,
+    );
+    expect(context.controls.enabled).toBe(true);
+    expect(context.camera.position.z).toBeGreaterThan(0);
   });
 });
