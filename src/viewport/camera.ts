@@ -1,10 +1,19 @@
-import { Box3, MathUtils, MOUSE, Object3D, Vector3 } from "three";
+import {
+  Box3,
+  Camera,
+  MathUtils,
+  MOUSE,
+  Object3D,
+  PerspectiveCamera,
+  Vector3,
+} from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { ViewerSurfaceMode } from "../types/viewer";
 import {
   applyControlsSensitivity,
   applyInitialView,
   applyTextureView,
+  cameraSelectionKey,
   type SceneContext,
 } from "../viewer";
 
@@ -29,6 +38,46 @@ export function applyControlSensitivity(
   controls.rotateSpeed = safe;
   controls.panSpeed = safe;
   controls.zoomSpeed = safe;
+}
+
+export function findCameraBySelectionKey(
+  root: Object3D,
+  selectionKey: string,
+): Camera | null {
+  let found: Camera | null = null;
+  const seenCounts = new Map<string, number>();
+
+  root.traverse((child) => {
+    if (found) {
+      return;
+    }
+    if (!(child instanceof Camera)) {
+      return;
+    }
+    if (cameraSelectionKey(child, seenCounts) === selectionKey) {
+      found = child;
+    }
+  });
+
+  return found;
+}
+
+export function syncPerspectiveCameraAspect(
+  camera: Camera,
+  host: Pick<HTMLElement, "clientWidth" | "clientHeight"> | null,
+) {
+  if (
+    !host ||
+    host.clientWidth <= 0 ||
+    host.clientHeight <= 0 ||
+    !(camera instanceof PerspectiveCamera)
+  ) {
+    return false;
+  }
+
+  camera.aspect = host.clientWidth / host.clientHeight;
+  camera.updateProjectionMatrix();
+  return true;
 }
 
 export function configureTextureControls(controls: OrbitControls) {

@@ -55,7 +55,6 @@ import {
   loadMmdMotion,
   collectAssetMetadata,
   buildMissingReferenceMetadata,
-  cameraSelectionKey,
   getClipLabel,
   activateClip,
   applySelectionHighlightToObject,
@@ -79,8 +78,10 @@ import type { EnvironmentPreset } from "../types/viewer";
 import {
   applyControlSensitivity,
   configureAssetControls,
+  findCameraBySelectionKey,
   frameMountedObject,
   frameObjectBounds,
+  syncPerspectiveCameraAspect,
   syncAxesVisibility,
   syncGridVisibility,
 } from "../viewport/camera";
@@ -394,35 +395,16 @@ export function AssetViewport({
     // reloads (uuids would not) and still distinguishes duplicate-named
     // cameras. The traversal order must mirror `collectAssetMetadata`'s so
     // the index counters line up.
-    let found: Camera | null = null;
-    const seenCounts = new Map<string, number>();
-    context.scene.traverse((child) => {
-      if (found) return;
-      if (!(child instanceof Camera)) return;
-      const key = cameraSelectionKey(child, seenCounts);
-      if (key === activeCameraId) {
-        found = child;
-      }
-    });
+    const found = findCameraBySelectionKey(context.scene, activeCameraId);
 
     if (found) {
-      const foundCamera: Camera = found;
-      activeCameraRef.current = foundCamera;
+      activeCameraRef.current = found;
       context.controls.enabled = false;
       // Sync aspect to the current viewport size so the USD camera renders
       // without distortion. Only meaningful for PerspectiveCamera; the
       // OrthographicCamera frustum is authored, not aspect-driven, so we
       // leave its left/right/top/bottom alone.
-      const host = hostRef.current;
-      if (
-        host &&
-        host.clientWidth > 0 &&
-        host.clientHeight > 0 &&
-        foundCamera instanceof PerspectiveCamera
-      ) {
-        foundCamera.aspect = host.clientWidth / host.clientHeight;
-        foundCamera.updateProjectionMatrix();
-      }
+      syncPerspectiveCameraAspect(found, hostRef.current);
     } else {
       console.warn(
         `[viewer] USD camera "${activeCameraId}" not found in scene graph — falling back to free camera`,
@@ -1713,30 +1695,14 @@ export function AssetViewport({
           // not change.
           const desiredCameraId = activeCameraIdRef.current;
           if (desiredCameraId) {
-            let reFound: Camera | null = null;
-            const reSeenCounts = new Map<string, number>();
-            context.scene.traverse((child) => {
-              if (reFound) return;
-              if (!(child instanceof Camera)) return;
-              const key = cameraSelectionKey(child, reSeenCounts);
-              if (key === desiredCameraId) {
-                reFound = child;
-              }
-            });
+            const reFound = findCameraBySelectionKey(
+              context.scene,
+              desiredCameraId,
+            );
             if (reFound) {
-              const reFoundCamera: Camera = reFound;
-              activeCameraRef.current = reFoundCamera;
+              activeCameraRef.current = reFound;
               context.controls.enabled = false;
-              const host2 = hostRef.current;
-              if (
-                host2 &&
-                host2.clientWidth > 0 &&
-                host2.clientHeight > 0 &&
-                reFoundCamera instanceof PerspectiveCamera
-              ) {
-                reFoundCamera.aspect = host2.clientWidth / host2.clientHeight;
-                reFoundCamera.updateProjectionMatrix();
-              }
+              syncPerspectiveCameraAspect(reFound, hostRef.current);
             } else {
               // Camera not present in the reloaded asset (typical after a
               // variant / load-policy change because Three.js mints fresh
