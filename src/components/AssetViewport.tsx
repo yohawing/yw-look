@@ -54,7 +54,6 @@ import {
   activateClip,
   applySelectionHighlightToObject,
   clearSelectionHighlightFromObject,
-  applyUnlitMaterial,
   applyPreviewLightingPreset,
   applyPreviewRenderingPreset,
   DEFAULT_LIGHTING_PRESET,
@@ -114,6 +113,7 @@ import {
   updateRuntimePreview,
 } from "../viewport/previewSupport";
 import { useResourceDiagnosticsPublisher } from "../viewport/useResourceDiagnosticsPublisher";
+import { useSceneObjectEffects } from "../viewport/useSceneObjectEffects";
 import { useSyncRef } from "../viewport/useSyncRef";
 import { useTexturePreview } from "../viewport/useTexturePreview";
 import { useViewportAnimation } from "../viewport/useViewportAnimation";
@@ -1648,58 +1648,21 @@ export function AssetViewport({
     };
   }, [currentFile?.fileName, mmdMotionRequest, onFeedbackChange]);
 
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applyDisplayMode(context.sourceObject, displayMode);
-  }, [displayMode]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applyUnlitMaterial(context.sourceObject, showUnlit);
-  }, [showUnlit]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applyBackfaceCulling(context.sourceObject, backfaceCulling);
-  }, [backfaceCulling]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applyTextureFilter(context.sourceObject, textureFilterMode);
-  }, [textureFilterMode]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-    if (!context) {
-      return;
-    }
-    applyShadows(
-      context.scene,
-      context.sourceObject,
-      keyLightRef.current,
-      showShadows,
-    );
-  }, [showShadows]);
+  useSceneObjectEffects({
+    backfaceCulling,
+    displayMode,
+    keyLightRef,
+    sceneContextRef,
+    showBoundingBoxes,
+    showJointNames,
+    showLocalAxis,
+    showNormals,
+    showShadows,
+    showSkeleton,
+    showUnlit,
+    showVertexColors,
+    textureFilterMode,
+  });
 
   useEffect(() => {
     if (!fxaaEnabled) {
@@ -1748,56 +1711,6 @@ export function AssetViewport({
       cancelled = true;
     };
   }, [fxaaEnabled]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applySkeletonHelpers(
-      context.scene,
-      context.sourceObject,
-      showSkeleton,
-      showLocalAxis,
-      showJointNames,
-    );
-  }, [showSkeleton, showLocalAxis, showJointNames]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applyBoundingBoxHelpers(
-      context.scene,
-      context.sourceObject,
-      showBoundingBoxes,
-    );
-  }, [showBoundingBoxes]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applyNormalHelpers(context.scene, context.sourceObject, showNormals);
-  }, [showNormals]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applyVertexColors(context.sourceObject, showVertexColors);
-  }, [showVertexColors]);
 
   useTexturePreview({
     currentFile,
