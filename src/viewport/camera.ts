@@ -152,6 +152,33 @@ export function frameMountedObject(
   context.controls.enabled = true;
 }
 
+export function frameCurrentMountedObject(
+  context: SceneContext | null,
+  viewerSurfaceMode: ViewerSurfaceMode,
+  showGrid: boolean,
+  showAxes: boolean,
+  sensitivityMultiplier = 1,
+  texturePreview3D = false,
+) {
+  const object = context?.mountedObject;
+
+  if (!context || !object) {
+    return false;
+  }
+
+  frameMountedObject(
+    context,
+    object,
+    viewerSurfaceMode,
+    showGrid,
+    showAxes,
+    sensitivityMultiplier,
+    context.rawMaxDimension,
+    texturePreview3D,
+  );
+  return true;
+}
+
 export function frameObjectBounds(
   context: SceneContext,
   object: Object3D,

@@ -73,6 +73,7 @@ import {
   applyControlSensitivity,
   configureAssetControls,
   findCameraBySelectionKey,
+  frameCurrentMountedObject,
   frameMountedObject,
   frameObjectBounds,
   syncPerspectiveCameraAspect,
@@ -1048,32 +1049,21 @@ export function AssetViewport({
       return;
     }
 
-    frameMountedObject(
+    frameCurrentMountedObject(
       context,
-      context.mountedObject,
       viewerSurfaceModeRef.current,
       showGridRef.current,
       showAxesRef.current,
       cameraSpeedMultiplierRef.current,
-      context.rawMaxDimension,
       texturePreview3DRef.current,
     );
     resetCameraRef.current = () => {
-      const targetContext = sceneContextRef.current;
-      const targetObject = targetContext?.mountedObject;
-
-      if (!targetContext || !targetObject) {
-        return;
-      }
-
-      frameMountedObject(
-        targetContext,
-        targetObject,
+      frameCurrentMountedObject(
+        sceneContextRef.current,
         viewerSurfaceModeRef.current,
         showGridRef.current,
         showAxesRef.current,
         cameraSpeedMultiplierRef.current,
-        targetContext.rawMaxDimension,
         texturePreview3DRef.current,
       );
     };
@@ -1411,21 +1401,12 @@ export function AssetViewport({
           }
 
           resetCameraRef.current = () => {
-            const targetContext = sceneContextRef.current;
-            const targetObject = targetContext?.mountedObject;
-
-            if (!targetContext || !targetObject) {
-              return;
-            }
-
-            frameMountedObject(
-              targetContext,
-              targetObject,
+            frameCurrentMountedObject(
+              sceneContextRef.current,
               viewerSurfaceModeRef.current,
               showGridRef.current,
               showAxesRef.current,
               cameraSpeedMultiplierRef.current,
-              targetContext.rawMaxDimension,
               texturePreview3DRef.current,
             );
           };
@@ -1766,7 +1747,6 @@ export function AssetViewport({
       return;
     }
 
-    const mountedObject = context.mountedObject;
     const sourceObject = context.sourceObject;
 
     switch (viewportShortcutCommand.kind) {
@@ -1786,17 +1766,12 @@ export function AssetViewport({
       }
       case "frameAll":
       case "resetView":
-        if (!mountedObject) {
-          return;
-        }
-        frameMountedObject(
+        frameCurrentMountedObject(
           context,
-          mountedObject,
           viewerSurfaceModeRef.current,
           showGridRef.current,
           showAxesRef.current,
           cameraSpeedMultiplierRef.current,
-          context.rawMaxDimension,
           texturePreview3DRef.current,
         );
         return;
