@@ -1,4 +1,4 @@
-import { Mesh, Object3D } from "three";
+import { Camera, Mesh, Object3D, Raycaster, Vector2 } from "three";
 import type { PurposeModes } from "../lib/usd";
 import { isViewportHelperObject, selectionProxyTarget } from "../viewer";
 import { resolveObjectSelectionKey } from "../viewer/selectionKeys";
@@ -46,6 +46,47 @@ export function collectSelectablePickTargets(root: Object3D): Mesh[] {
     }
   });
   return targets;
+}
+
+export function createViewportPicker(
+  camera: Camera,
+  domElement: Pick<HTMLElement, "getBoundingClientRect">,
+) {
+  const raycaster = new Raycaster();
+  const ndc = new Vector2();
+
+  return {
+    pickSelectionKey(
+      mounted: Object3D,
+      event: Pick<PointerEvent, "clientX" | "clientY">,
+    ) {
+      const rect = domElement.getBoundingClientRect();
+      ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(ndc, camera);
+
+      const hits = raycaster.intersectObjects(
+        collectSelectablePickTargets(mounted),
+        false,
+      );
+      if (hits.length === 0) {
+        return null;
+      }
+
+      let node: Object3D | null = hits[0].object;
+      while (node) {
+        if (node instanceof Mesh && node.name !== "__yw_shadow_catcher") {
+          return selectionKeyForObject(node);
+        }
+        if (node === mounted) {
+          break;
+        }
+        node = node.parent;
+      }
+
+      return null;
+    },
+  };
 }
 
 export function isManuallyHidden(object: Object3D) {

@@ -4,12 +4,10 @@ import {
   AnimationMixer,
   Camera,
   DirectionalLight,
-  Mesh,
   Object3D,
   PCFSoftShadowMap,
   PerspectiveCamera,
   PMREMGenerator,
-  Raycaster,
   Scene,
   Texture,
   Vector2,
@@ -99,10 +97,9 @@ import { createFlyCameraControls } from "../viewport/flyCamera";
 import {
   applyManualVisibility,
   applyPurposeVisibility,
-  collectSelectablePickTargets,
+  createViewportPicker,
   findObjectBySelectionKey,
   isolateObject,
-  selectionKeyForObject,
   setSubtreeManualHidden,
 } from "../viewport/selection";
 import {
@@ -564,15 +561,10 @@ export function AssetViewport({
       hasMountedObject: () => Boolean(sceneContextRef.current?.mountedObject),
     });
 
-    // #33: viewport picking. We track the LMB-down position on the
-    // canvas and treat the pointerup as a "click" only if the pointer
-    // moved < CLICK_DRAG_PX between the two events. That keeps orbit /
-    // pan gestures from firing a selection update on every release.
-    // The raycaster lives at handler scope so we don't allocate one
-    // per click — Three.js encourages reuse for GC pressure reasons.
+    // #33: viewport picking. We track the LMB-down position on the canvas
+    // and treat pointerup as a click only if the pointer barely moved.
     const CLICK_DRAG_PX = 4;
-    const pickRaycaster = new Raycaster();
-    const pickNdc = new Vector2();
+    const viewportPicker = createViewportPicker(camera, renderer.domElement);
     let clickStart: { x: number; y: number; button: number } | null = null;
 
     const performPick = (event: PointerEvent): void => {
@@ -583,44 +575,7 @@ export function AssetViewport({
         callback(null);
         return;
       }
-      const rect = renderer.domElement.getBoundingClientRect();
-      // Map clientX/Y → normalized device coords. The canvas may be
-      // letterboxed inside its host so we use getBoundingClientRect
-      // rather than offsetWidth/Height, which would miss the offset.
-      pickNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      pickNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-      pickRaycaster.setFromCamera(pickNdc, camera);
-      const pickTargets = collectSelectablePickTargets(mounted);
-      const hits = pickRaycaster.intersectObjects(pickTargets, false);
-      if (hits.length === 0) {
-        callback(null);
-        return;
-      }
-      // Walk up from the hit object to the first Mesh ancestor,
-      // INCLUDING the mounted root itself — PLY and STL load as a
-      // single `Mesh` rather than a `Group`, so `hits[0].object` and
-      // `mounted` are the same object and an early `node !== mounted`
-      // check would skip the only mesh in the scene. Internal helpers
-      // (SkeletonHelper line segments, BoundingBox helpers) are
-      // LineSegments / Lines, so the `instanceof Mesh` gate filters
-      // them out. The shadow catcher is a Mesh but is dropped here by
-      // name so a click on the ground plane reads as "missed".
-      //
-      // For an unnamed mesh we report null (no selection) rather than
-      // the historical "(unnamed)" placeholder. The placeholder leaks
-      // into USD prim path construction in HierarchyCard (#28) and
-      // also collapses every unnamed mesh onto the same selection,
-      // which highlights every anonymous node at once.
-      let node: Object3D | null = hits[0].object;
-      while (node) {
-        if (node instanceof Mesh && node.name !== "__yw_shadow_catcher") {
-          callback(selectionKeyForObject(node));
-          return;
-        }
-        if (node === mounted) break;
-        node = node.parent;
-      }
-      callback(null);
+      callback(viewportPicker.pickSelectionKey(mounted, event));
     };
 
     const pointerDownHandler = (event: PointerEvent) => {
