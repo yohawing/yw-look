@@ -110,10 +110,6 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: mmdWasmUrlModuleId,
-        replacement: resolvedMmdWasmUrlModuleId,
-      },
-      {
         find: "#yw-look-mmd-loader-entry",
         replacement: includeOptionalThreeMmdLoader
           ? installedMmdLoaderEntry
