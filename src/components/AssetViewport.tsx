@@ -117,6 +117,7 @@ import {
   supportedPreviewExtensions,
   updateRuntimePreview,
 } from "../viewport/previewSupport";
+import { useSyncRef } from "../viewport/useSyncRef";
 import { useTexturePreview } from "../viewport/useTexturePreview";
 import { useViewportAnimation } from "../viewport/useViewportAnimation";
 
@@ -289,13 +290,29 @@ export function AssetViewport({
   const [animationState, setAnimationState] =
     useState<AnimationState>(emptyAnimationState);
 
-  useEffect(() => {
-    onActiveCameraResetRef.current = onActiveCameraReset;
-  }, [onActiveCameraReset]);
-
-  useEffect(() => {
-    onResourceDiagnosticsChangeRef.current = onResourceDiagnosticsChange;
-  }, [onResourceDiagnosticsChange]);
+  useSyncRef(onActiveCameraResetRef, onActiveCameraReset);
+  useSyncRef(onResourceDiagnosticsChangeRef, onResourceDiagnosticsChange);
+  useSyncRef(displayModeRef, displayMode);
+  useSyncRef(backfaceCullingRef, backfaceCulling);
+  useSyncRef(textureFilterModeRef, textureFilterMode);
+  useSyncRef(showShadowsRef, showShadows);
+  useSyncRef(fxaaEnabledRef, fxaaEnabled);
+  useSyncRef(showSkeletonRef, showSkeleton);
+  useSyncRef(showLocalAxisRef, showLocalAxis);
+  useSyncRef(showJointNamesRef, showJointNames);
+  useSyncRef(showBoundingBoxesRef, showBoundingBoxes);
+  useSyncRef(showNormalsRef, showNormals);
+  useSyncRef(showVertexColorsRef, showVertexColors);
+  useSyncRef(viewerSurfaceModeRef, viewerSurfaceMode);
+  useSyncRef(showGridRef, showGrid);
+  useSyncRef(showAxesRef, showAxes);
+  useSyncRef(showEnvironmentBackgroundRef, showEnvironmentBackground);
+  useSyncRef(backgroundPresetRef, backgroundPreset);
+  useSyncRef(toneMappingModeRef, toneMappingMode);
+  useSyncRef(exposureRef, exposure);
+  useSyncRef(texturePreview3DRef, texturePreview3D);
+  useSyncRef(onSelectMeshRef, onSelectMesh);
+  useSyncRef(morphTargetValuesRef, morphTargetValues);
 
   const publishResourceDiagnostics = useCallback(
     (context: SceneContext | null) => {
@@ -344,90 +361,6 @@ export function AssetViewport({
           : activePreviewPath === currentFile.path
             ? overlayMode
             : "loading";
-
-  useEffect(() => {
-    displayModeRef.current = displayMode;
-  }, [displayMode]);
-
-  useEffect(() => {
-    backfaceCullingRef.current = backfaceCulling;
-  }, [backfaceCulling]);
-
-  useEffect(() => {
-    textureFilterModeRef.current = textureFilterMode;
-  }, [textureFilterMode]);
-
-  useEffect(() => {
-    showShadowsRef.current = showShadows;
-  }, [showShadows]);
-
-  useEffect(() => {
-    fxaaEnabledRef.current = fxaaEnabled;
-  }, [fxaaEnabled]);
-
-  useEffect(() => {
-    showSkeletonRef.current = showSkeleton;
-  }, [showSkeleton]);
-
-  useEffect(() => {
-    showLocalAxisRef.current = showLocalAxis;
-  }, [showLocalAxis]);
-
-  useEffect(() => {
-    showJointNamesRef.current = showJointNames;
-  }, [showJointNames]);
-
-  useEffect(() => {
-    showBoundingBoxesRef.current = showBoundingBoxes;
-  }, [showBoundingBoxes]);
-
-  useEffect(() => {
-    showNormalsRef.current = showNormals;
-  }, [showNormals]);
-
-  useEffect(() => {
-    showVertexColorsRef.current = showVertexColors;
-  }, [showVertexColors]);
-
-  useEffect(() => {
-    viewerSurfaceModeRef.current = viewerSurfaceMode;
-  }, [viewerSurfaceMode]);
-
-  useEffect(() => {
-    showGridRef.current = showGrid;
-  }, [showGrid]);
-
-  useEffect(() => {
-    showAxesRef.current = showAxes;
-  }, [showAxes]);
-
-  useEffect(() => {
-    showEnvironmentBackgroundRef.current = showEnvironmentBackground;
-  }, [showEnvironmentBackground]);
-
-  useEffect(() => {
-    backgroundPresetRef.current = backgroundPreset;
-  }, [backgroundPreset]);
-
-  useEffect(() => {
-    toneMappingModeRef.current = toneMappingMode;
-  }, [toneMappingMode]);
-
-  useEffect(() => {
-    exposureRef.current = exposure;
-  }, [exposure]);
-
-  useEffect(() => {
-    texturePreview3DRef.current = texturePreview3D;
-  }, [texturePreview3D]);
-
-  useEffect(() => {
-    onSelectMeshRef.current = onSelectMesh;
-  }, [onSelectMesh]);
-
-  useEffect(() => {
-    morphTargetValuesRef.current = morphTargetValues;
-  }, [morphTargetValues]);
 
   useEffect(() => {
     const source = sceneContextRef.current?.sourceObject;
