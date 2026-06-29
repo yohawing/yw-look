@@ -81,6 +81,11 @@ import {
 } from "../viewport/camera";
 import { createEnvironmentTarget } from "../viewport/environment";
 import {
+  createFxaaComposerState,
+  syncFxaaComposerSize,
+  type FxaaComposerState,
+} from "../viewport/fxaa";
+import {
   applyViewportBackground,
   applyViewportRenderingSettings,
   runCleanupCallbacks,
@@ -196,28 +201,6 @@ export function AssetViewport({
   const keyLightRef = useRef<DirectionalLight | null>(null);
   const fillLightRef = useRef<DirectionalLight | null>(null);
   const showShadowsRef = useRef(showShadows);
-  // EffectComposer lives behind a lazy import; only materialized the
-  // first time the user enables FXAA so the base renderer path has
-  // no post-processing cost when the toggle is off. The structural
-  // shape here matches what we use on the value later so we can keep
-  // the import statements lazy without leaking three/examples types
-  // to module scope.
-  type FxaaComposerState = {
-    composer: {
-      render: () => void;
-      setSize: (w: number, h: number) => void;
-      dispose: () => void;
-    };
-    fxaaPass: {
-      material: {
-        uniforms: Record<string, { value: Vector2 }>;
-      };
-    };
-    /** The RenderPass stored so its `.camera` can be swapped when a
-     * USD camera is selected (#34). EffectComposer exposes `passes[]`
-     * but the typed shape is opaque here; we hold it separately. */
-    renderPass: { camera: import("three").Camera };
-  };
   const fxaaStateRef = useRef<FxaaComposerState | null>(null);
   const fxaaEnabledRef = useRef(fxaaEnabled);
   const sceneContextRef = useRef<SceneContext | null>(null);
@@ -951,11 +934,7 @@ export function AssetViewport({
     const width = context.renderer.domElement.clientWidth;
     const height = context.renderer.domElement.clientHeight;
 
-    fxaaState.composer.setSize(width, height);
-    fxaaState.fxaaPass.material.uniforms.resolution.value.set(
-      1 / (width * pixelRatio),
-      1 / (height * pixelRatio),
-    );
+    syncFxaaComposerSize(fxaaState, width, height, pixelRatio);
   }, [renderScale]);
 
   useEffect(() => {
@@ -1654,36 +1633,19 @@ export function AssetViewport({
     }
     let cancelled = false;
     (async () => {
-      const [
-        { EffectComposer },
-        { RenderPass },
-        { ShaderPass },
-        { FXAAShader },
-      ] = await Promise.all([
-        import("three/examples/jsm/postprocessing/EffectComposer.js"),
-        import("three/examples/jsm/postprocessing/RenderPass.js"),
-        import("three/examples/jsm/postprocessing/ShaderPass.js"),
-        import("three/examples/jsm/shaders/FXAAShader.js"),
-      ]);
-      if (cancelled) return;
       const host = hostRef.current;
       if (!host) return;
-      const composer = new EffectComposer(context.renderer);
-      const renderPass = new RenderPass(context.scene, context.camera);
-      composer.addPass(renderPass);
-      const fxaaPass = new ShaderPass(FXAAShader);
-      const pixelRatio = context.renderer.getPixelRatio();
-      (fxaaPass.material.uniforms.resolution.value as Vector2).set(
-        1 / (host.clientWidth * pixelRatio),
-        1 / (host.clientHeight * pixelRatio),
-      );
-      composer.addPass(fxaaPass);
-      composer.setSize(host.clientWidth, host.clientHeight);
-      fxaaStateRef.current = {
-        composer,
-        fxaaPass: fxaaPass as unknown as FxaaComposerState["fxaaPass"],
-        renderPass,
-      };
+      const state = await createFxaaComposerState(context, host, {
+        isCancelled: () => cancelled,
+      });
+      if (!state) {
+        return;
+      }
+      if (cancelled) {
+        state.composer.dispose();
+        return;
+      }
+      fxaaStateRef.current = state;
     })();
     return () => {
       cancelled = true;
