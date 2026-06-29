@@ -59,7 +59,7 @@ describe("ViewportControls", () => {
     expect(queryByText("Viewport tools")).toBeNull();
   });
 
-  it("keeps viewport submenus open while clicking outside the toolbar", () => {
+  it("keeps viewport submenus open while clicking the sidebar", () => {
     const items: ToolbarItem[] = [
       {
         id: "camera",
@@ -81,15 +81,60 @@ describe("ViewportControls", () => {
       },
     ];
 
-    const { getByRole } = render(<ViewportControls items={items} />);
+    const { getByRole } = render(
+      <>
+        <ViewportControls items={items} />
+        <aside className="sidebar">
+          <button type="button">View</button>
+        </aside>
+      </>,
+    );
 
     fireEvent.click(getByRole("button", { name: "Camera" }));
     expect(getByRole("menu")).toBeTruthy();
     expect(getByRole("button", { name: "Front" })).toBeTruthy();
 
-    fireEvent.pointerDown(document.body);
+    fireEvent.pointerDown(getByRole("button", { name: "View" }));
 
     expect(getByRole("menu")).toBeTruthy();
     expect(getByRole("button", { name: "Front" })).toBeTruthy();
+  });
+
+  it("closes viewport submenus for ordinary outside clicks", () => {
+    const items: ToolbarItem[] = [
+      {
+        id: "camera",
+        mode: "3d",
+        group: "camera",
+        kind: "button",
+        label: "Camera",
+        iconId: "camera",
+        children: [
+          {
+            id: "front",
+            mode: "3d",
+            group: "camera",
+            kind: "button",
+            label: "Front",
+            onRun: vi.fn(),
+          },
+        ],
+      },
+    ];
+
+    const { getByRole, queryByRole } = render(
+      <>
+        <ViewportControls items={items} />
+        <button type="button">Outside</button>
+      </>,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Camera" }));
+    expect(getByRole("menu")).toBeTruthy();
+
+    fireEvent.pointerDown(getByRole("button", { name: "Outside" }));
+    fireEvent.click(getByRole("button", { name: "Outside" }));
+
+    expect(queryByRole("menu")).toBeNull();
   });
 });

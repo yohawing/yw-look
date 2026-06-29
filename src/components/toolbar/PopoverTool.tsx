@@ -1,4 +1,10 @@
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { ViewportToolSvg } from "../ViewportToolIcons";
 import { PopoverContent, PopoverTrigger } from "../ui/Popover";
 import type { ToolbarAction, ToolbarItem, ToolbarStatus } from "./types";
@@ -7,6 +13,20 @@ import { ToolbarPopover } from "./ToolbarPopover";
 type PopoverToolProps = {
   action: ToolbarAction;
 };
+
+function isSidebarInteractionTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(".sidebar") !== null;
+}
+
+function isToolbarPopoverInteractionTarget(
+  target: EventTarget | null,
+): boolean {
+  return (
+    target instanceof Element &&
+    (target.closest(".viewport-controls") !== null ||
+      target.closest(".toolbar-popover") !== null)
+  );
+}
 
 export function PopoverTool({ action }: PopoverToolProps) {
   const [open, setOpen] = useState(false);
@@ -42,6 +62,31 @@ export function PopoverTool({ action }: PopoverToolProps) {
     },
     [clearTimers],
   );
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (
+        isSidebarInteractionTarget(event.target) ||
+        isToolbarPopoverInteractionTarget(event.target)
+      ) {
+        return;
+      }
+      handleClose();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, {
+      capture: true,
+    });
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, {
+        capture: true,
+      });
+    };
+  }, [handleClose, open]);
 
   const handleTriggerClick = useCallback(() => {
     if (action.kind === "toggle") {
@@ -97,7 +142,11 @@ export function PopoverTool({ action }: PopoverToolProps) {
           className="toolbar-popover"
           role="menu"
           side="right"
-          onInteractOutside={(event) => event.preventDefault()}
+          onInteractOutside={(event) => {
+            if (isSidebarInteractionTarget(event.target)) {
+              event.preventDefault();
+            }
+          }}
           onPointerEnter={scheduleOpen}
         >
           <div className="toolbar-popover-header">{action.label}</div>
