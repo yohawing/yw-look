@@ -2,17 +2,26 @@ import {
   BufferAttribute,
   BufferGeometry,
   Group,
+  LineSegments,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
+  MeshLambertMaterial,
+  MeshPhongMaterial,
   MeshStandardMaterial,
   ObjectLoader,
-  type Object3D,
+  Object3D,
+  Points,
+  type Material,
 } from "three";
 import type {
   ModelParseWorkerAttributePayload,
   ModelParseWorkerPayload,
   ModelParseWorkerRequest,
   ModelParseWorkerResponse,
+  ModelParseWorkerStaticGeometryPayload,
+  ModelParseWorkerStaticMaterialPayload,
+  ModelParseWorkerStaticNodePayload,
   ModelParseWorkerStaticScenePayload,
 } from "../workers/modelParse.worker";
 
@@ -61,33 +70,102 @@ function createBufferAttribute(payload: ModelParseWorkerAttributePayload) {
   );
 }
 
-function createStaticSceneObject(payload: ModelParseWorkerStaticScenePayload) {
+function createStaticGeometry(payload: ModelParseWorkerStaticGeometryPayload) {
+  const geometry = new BufferGeometry();
+  for (const [name, attributePayload] of Object.entries(payload.attributes)) {
+    geometry.setAttribute(name, createBufferAttribute(attributePayload));
+  }
+  if (payload.index) {
+    geometry.setIndex(createBufferAttribute(payload.index));
+  }
+  for (const group of payload.groups) {
+    geometry.addGroup(group.start, group.count, group.materialIndex);
+  }
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function createStaticMaterial(
+  payload: ModelParseWorkerStaticMaterialPayload,
+): Material {
+  const parameters = {
+    color: payload.color,
+    opacity: payload.opacity,
+    transparent: payload.transparent,
+    side: payload.side,
+  };
+  const material =
+    payload.type === "MeshPhongMaterial"
+      ? new MeshPhongMaterial(parameters)
+      : payload.type === "MeshLambertMaterial"
+        ? new MeshLambertMaterial(parameters)
+        : payload.type === "MeshBasicMaterial"
+          ? new MeshBasicMaterial(parameters)
+          : new MeshStandardMaterial({
+              ...parameters,
+              metalness: payload.metalness,
+              roughness: payload.roughness,
+            });
+  material.name = payload.name;
+  return material;
+}
+
+function createStaticMaterials(
+  payload:
+    | ModelParseWorkerStaticMaterialPayload
+    | ModelParseWorkerStaticMaterialPayload[],
+) {
+  return Array.isArray(payload)
+    ? payload.map((entry) => createStaticMaterial(entry))
+    : createStaticMaterial(payload);
+}
+
+function applyStaticNodeTransform(
+  object: Object3D,
+  node: ModelParseWorkerStaticNodePayload,
+) {
+  object.name = node.name;
+  object.userData = node.userData ?? {};
+  object.visible = node.visible ?? true;
+  object.matrix.fromArray(node.matrix);
+  object.matrix.decompose(object.position, object.quaternion, object.scale);
+}
+
+function createStaticNodeObject(node: ModelParseWorkerStaticNodePayload) {
+  const geometry = node.geometry ? createStaticGeometry(node.geometry) : null;
+  const material = node.material ? createStaticMaterials(node.material) : null;
+  const object =
+    node.type === "Mesh"
+      ? new Mesh(geometry ?? new BufferGeometry(), material ?? undefined)
+      : node.type === "LineSegments"
+        ? new LineSegments(
+            geometry ?? new BufferGeometry(),
+            material ?? undefined,
+          )
+        : node.type === "Points"
+          ? new Points(geometry ?? new BufferGeometry(), material ?? undefined)
+          : node.type === "Group"
+            ? new Group()
+            : new Object3D();
+
+  applyStaticNodeTransform(object, node);
+  for (const child of node.children) {
+    object.add(createStaticNodeObject(child));
+  }
+  return object;
+}
+
+function createFlatStaticSceneObject(
+  payload: ModelParseWorkerStaticScenePayload,
+) {
   const root = new Group();
   root.name = payload.rootName;
   root.userData = payload.rootUserData;
   const meshes: Mesh[] = [];
 
   for (const meshPayload of payload.meshes) {
-    const geometry = new BufferGeometry();
-    for (const [name, attributePayload] of Object.entries(
-      meshPayload.attributes,
-    )) {
-      geometry.setAttribute(name, createBufferAttribute(attributePayload));
-    }
-    if (meshPayload.index) {
-      geometry.setIndex(createBufferAttribute(meshPayload.index));
-    }
-    for (const group of meshPayload.groups) {
-      geometry.addGroup(group.start, group.count, group.materialIndex);
-    }
-    geometry.computeBoundingSphere();
-
-    const material = new MeshStandardMaterial({
-      color: meshPayload.material.color,
-      metalness: meshPayload.material.metalness,
-      roughness: meshPayload.material.roughness,
-    });
-    material.name = meshPayload.material.name;
+    const geometry = createStaticGeometry(meshPayload);
+    const material = createStaticMaterials(meshPayload.material);
 
     const mesh = new Mesh(geometry, material);
     mesh.name = meshPayload.name;
@@ -102,6 +180,13 @@ function createStaticSceneObject(payload: ModelParseWorkerStaticScenePayload) {
 
   root.add(...meshes);
   return root;
+}
+
+function createStaticSceneObject(payload: ModelParseWorkerStaticScenePayload) {
+  if (payload.root) {
+    return createStaticNodeObject(payload.root);
+  }
+  return createFlatStaticSceneObject(payload);
 }
 
 export async function parseModelInWorker(
