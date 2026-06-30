@@ -868,6 +868,15 @@ function renderMarkdown(report) {
 
 function renderHtml(report) {
   const summary = summarize(report.results);
+  const extensionOptions = Object.keys(summary.byExtension)
+    .sort((left, right) =>
+      left.localeCompare(right, undefined, { numeric: true }),
+    )
+    .map(
+      (extension) =>
+        `<option value="${escapeHtml(extension)}">${escapeHtml(extension)}</option>`,
+    )
+    .join("");
   const resultJson = JSON.stringify(
     report.results.map((result) => ({
       id: result.id,
@@ -883,7 +892,9 @@ function renderHtml(report) {
       screenshotFolderPath: result.screenshotFolderPath,
     })),
   ).replaceAll("</", "<\\/");
-  const rows = report.results.map(renderCard).join("\n");
+  const rows = report.results
+    .map((result, index) => renderCard(result, index))
+    .join("\n");
   return `<!doctype html>
 <html lang="ja">
 <head>
@@ -935,6 +946,14 @@ function renderHtml(report) {
       color: #eef2f7;
       padding: 6px 8px;
       font: inherit;
+    }
+    select {
+      color-scheme: dark;
+      background-color: #14181f;
+    }
+    option {
+      background-color: #191a1b;
+      color: #f7f8f8;
     }
     button {
       cursor: pointer;
@@ -1181,8 +1200,10 @@ function renderHtml(report) {
       </div>
       <div class="controls" style="margin-top:10px">
         <label>Visual <select id="visualFilter"><option value="">All</option><option>rendered</option><option>blank</option><option>missing</option></select></label>
+        <label>Ext <select id="extensionFilter"><option value="">All</option>${extensionOptions}</select></label>
         <label>Diagnostics <select id="diagnosticFilter"><option value="">All</option><option value="issue">Issues</option><option value="error">Errors</option><option value="warning">Warnings</option><option value="log">Logs</option><option value="none">None</option></select></label>
         <label>Review <select id="reviewFilter"><option value="">All</option><option value="unreviewed">Unreviewed</option><option value="ok">OK</option><option value="suspect">Suspect</option><option value="bad">Bad</option></select></label>
+        <label>Sort <select id="sortSelect"><option value="extension" selected>Extension</option><option value="original">Original</option><option value="id">Name</option><option value="kind">Kind</option><option value="diagnostic">Diagnostics</option></select></label>
         <button id="exportButton" type="button">Export review JSON</button>
       </div>
     </div>
@@ -1195,6 +1216,7 @@ ${rows}
   <script>
     const reportResults = ${resultJson};
     const reviewOpenerToken = "__YW_LOOK_REVIEW_OPENER_TOKEN__";
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
     const storageKey = "yw-look-local-asset-visual-review:" + location.pathname;
     const state = JSON.parse(localStorage.getItem(storageKey) || "{}");
     function save() {
@@ -1210,14 +1232,61 @@ ${rows}
     }
     function applyFilters() {
       const visual = document.getElementById("visualFilter").value;
+      const extension = document.getElementById("extensionFilter").value;
       const diagnostic = document.getElementById("diagnosticFilter").value;
       const review = document.getElementById("reviewFilter").value;
       for (const card of document.querySelectorAll("article")) {
         const visualMatch = !visual || card.dataset.visual === visual;
+        const extensionMatch = !extension || card.dataset.extension === extension;
         const diagnosticMatch = !diagnostic || card.dataset.diagnostic === diagnostic || (diagnostic === "issue" && card.dataset.hasIssue === "true");
         const reviewMatch = !review || card.dataset.review === review;
-        card.classList.toggle("hidden", !(visualMatch && diagnosticMatch && reviewMatch));
+        card.classList.toggle("hidden", !(visualMatch && extensionMatch && diagnosticMatch && reviewMatch));
       }
+    }
+    function applySort() {
+      const sort = document.getElementById("sortSelect").value;
+      const grid = document.getElementById("grid");
+      const cards = Array.from(grid.querySelectorAll("article"));
+      cards.sort((left, right) => compareCards(left, right, sort));
+      grid.append(...cards);
+    }
+    function compareCards(left, right, sort) {
+      if (sort === "original") {
+        return Number(left.dataset.index) - Number(right.dataset.index);
+      }
+      if (sort === "diagnostic") {
+        const severityOrder = { error: 0, warning: 1, log: 2, none: 3 };
+        return (
+          (severityOrder[left.dataset.diagnostic] ?? 9) -
+            (severityOrder[right.dataset.diagnostic] ?? 9) ||
+          compareText(left.dataset.extension, right.dataset.extension) ||
+          compareText(left.dataset.id, right.dataset.id)
+        );
+      }
+      if (sort === "kind") {
+        return (
+          compareText(left.dataset.kind, right.dataset.kind) ||
+          compareText(left.dataset.extension, right.dataset.extension) ||
+          compareText(left.dataset.id, right.dataset.id)
+        );
+      }
+      if (sort === "id") {
+        return compareText(left.dataset.id, right.dataset.id);
+      }
+      return (
+        compareText(left.dataset.extension, right.dataset.extension) ||
+        compareText(left.dataset.kind, right.dataset.kind) ||
+        compareText(left.dataset.id, right.dataset.id)
+      );
+    }
+    function compareText(left, right) {
+      return collator.compare(left || "", right || "");
+    }
+    function orderedReportResults() {
+      const byId = new Map(reportResults.map((result) => [result.id, result]));
+      return Array.from(document.querySelectorAll("article"))
+        .map((card) => byId.get(card.dataset.id))
+        .filter(Boolean);
     }
     for (const card of document.querySelectorAll("article")) {
       applyState(card);
@@ -1295,10 +1364,15 @@ ${rows}
       textarea.remove();
     }
     document.getElementById("visualFilter").addEventListener("change", applyFilters);
+    document.getElementById("extensionFilter").addEventListener("change", applyFilters);
     document.getElementById("diagnosticFilter").addEventListener("change", applyFilters);
     document.getElementById("reviewFilter").addEventListener("change", applyFilters);
+    document.getElementById("sortSelect").addEventListener("change", () => {
+      applySort();
+      applyFilters();
+    });
     document.getElementById("exportButton").addEventListener("click", () => {
-      const payload = reportResults.map((result) => ({
+      const payload = orderedReportResults().map((result) => ({
         ...result,
         review: state[result.id]?.review || "unreviewed",
         note: state[result.id]?.note || ""
@@ -1311,6 +1385,7 @@ ${rows}
       a.click();
       URL.revokeObjectURL(url);
     });
+    applySort();
     applyFilters();
   </script>
 </body>
@@ -1318,7 +1393,7 @@ ${rows}
 `;
 }
 
-function renderCard(result) {
+function renderCard(result, index) {
   const image = result.screenshotUrl
     ? `<img class="shot" src="${escapeHtml(result.screenshotUrl)}" loading="lazy" alt="${escapeHtml(result.id)}" draggable="false">`
     : `<div class="missing-shot">No screenshot</div>`;
@@ -1326,7 +1401,7 @@ function renderCard(result) {
   const warningCount = diagnostics.warnings?.length ?? 0;
   const logCount = diagnostics.logLines?.length ?? 0;
   const diagnosticDetails = renderDiagnostics(result);
-  return `<article data-id="${escapeHtml(result.id)}" data-visual="${escapeHtml(result.visualStatus)}" data-diagnostic="${escapeHtml(diagnostics.severity ?? "none")}" data-has-diagnostics="${diagnostics.hasDiagnostics ? "true" : "false"}" data-has-issue="${diagnostics.hasIssue ? "true" : "false"}" data-review="unreviewed">
+  return `<article data-index="${index}" data-id="${escapeHtml(result.id)}" data-kind="${escapeHtml(result.kind)}" data-extension="${escapeHtml(result.extension)}" data-visual="${escapeHtml(result.visualStatus)}" data-diagnostic="${escapeHtml(diagnostics.severity ?? "none")}" data-has-diagnostics="${diagnostics.hasDiagnostics ? "true" : "false"}" data-has-issue="${diagnostics.hasIssue ? "true" : "false"}" data-review="unreviewed">
   ${image}
   <div class="body">
     <div class="card-head">
