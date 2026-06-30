@@ -1,11 +1,11 @@
 import {
   AnimationClip,
+  BufferAttribute,
   BufferGeometry,
   Color,
   CompressedTexture,
   DataTexture,
   DoubleSide,
-  Float32BufferAttribute,
   Group,
   LinearFilter,
   LinearMipmapLinearFilter,
@@ -144,41 +144,139 @@ async function readTextFile(path: string) {
 
 type AlembicPreviewFrame = {
   time: number;
-  positions: number[];
+  positions: Float32Array;
 };
 
 type AlembicPreviewMesh = {
   name: string;
-  positions: number[];
-  indices: number[];
-  frames?: AlembicPreviewFrame[];
+  positions: Float32Array;
+  indices: Uint32Array;
+  frames: AlembicPreviewFrame[];
 };
 
 type AlembicPreviewPayload = {
-  format: "yw-look-alembic-preview-v1";
   meshes: AlembicPreviewMesh[];
 };
 
-function parseAlembicPreviewPayload(source: string): AlembicPreviewPayload {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(source);
-  } catch (error) {
-    throw new Error("Alembic helper returned malformed preview JSON.", {
-      cause: error,
-    });
-  }
+function parseAlembicBinaryPayload(source: ArrayBuffer): AlembicPreviewPayload {
+  const view = new DataView(source);
+  let offset = 0;
 
+  const ensureAvailable = (byteLength: number, label: string) => {
+    if (byteLength < 0 || offset + byteLength > source.byteLength) {
+      throw new Error(`Alembic helper returned truncated ${label}.`);
+    }
+  };
+
+  const readU32 = (label: string) => {
+    ensureAvailable(4, label);
+    const value = view.getUint32(offset, true);
+    offset += 4;
+    return value;
+  };
+
+  const readF32 = (label: string) => {
+    ensureAvailable(4, label);
+    const value = view.getFloat32(offset, true);
+    offset += 4;
+    return value;
+  };
+
+  const readText = (byteLength: number, label: string) => {
+    ensureAvailable(byteLength, label);
+    const bytes = new Uint8Array(source, offset, byteLength);
+    offset += byteLength;
+    return new TextDecoder().decode(bytes);
+  };
+
+  const readFloat32Array = (elementCount: number, label: string) => {
+    const byteLength = elementCount * Float32Array.BYTES_PER_ELEMENT;
+    ensureAvailable(byteLength, label);
+    const array =
+      offset % Float32Array.BYTES_PER_ELEMENT === 0
+        ? new Float32Array(source, offset, elementCount)
+        : new Float32Array(source.slice(offset, offset + byteLength));
+    offset += byteLength;
+    return array;
+  };
+
+  const readUint32Array = (elementCount: number, label: string) => {
+    const byteLength = elementCount * Uint32Array.BYTES_PER_ELEMENT;
+    ensureAvailable(byteLength, label);
+    const array =
+      offset % Uint32Array.BYTES_PER_ELEMENT === 0
+        ? new Uint32Array(source, offset, elementCount)
+        : new Uint32Array(source.slice(offset, offset + byteLength));
+    offset += byteLength;
+    return array;
+  };
+
+  ensureAvailable(16, "header");
   if (
-    typeof payload !== "object" ||
-    payload === null ||
-    (payload as { format?: unknown }).format !== "yw-look-alembic-preview-v1" ||
-    !Array.isArray((payload as { meshes?: unknown }).meshes)
+    view.getUint8(0) !== 0x59 ||
+    view.getUint8(1) !== 0x57 ||
+    view.getUint8(2) !== 0x41 ||
+    view.getUint8(3) !== 0x42
   ) {
     throw new Error("Alembic helper returned an unsupported preview payload.");
   }
+  offset = 4;
+  const version = readU32("version");
+  if (version !== 1) {
+    throw new Error(`Alembic helper returned unsupported payload v${version}.`);
+  }
+  const meshCount = readU32("mesh count");
+  const reserved = readU32("reserved header field");
+  if (reserved !== 0) {
+    throw new Error("Alembic helper returned an unsupported preview payload.");
+  }
 
-  return payload as AlembicPreviewPayload;
+  const meshes: AlembicPreviewMesh[] = [];
+  for (let meshIndex = 0; meshIndex < meshCount; meshIndex += 1) {
+    const nameLength = readU32("mesh name length");
+    const name = readText(nameLength, "mesh name");
+    const vertexCount = readU32("vertex count");
+    const indexCount = readU32("index count");
+    const frameCount = readU32("frame count");
+    const positionElementCount = vertexCount * 3;
+
+    if (
+      positionElementCount === 0 ||
+      !Number.isSafeInteger(positionElementCount)
+    ) {
+      throw new Error("Alembic helper returned invalid mesh positions.");
+    }
+    if (indexCount === 0 || indexCount % 3 !== 0) {
+      throw new Error("Alembic helper returned invalid mesh indices.");
+    }
+
+    const positions = readFloat32Array(
+      positionElementCount,
+      "base positions",
+    );
+    const indices = readUint32Array(indexCount, "indices");
+    const frames: AlembicPreviewFrame[] = [];
+
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+      const time = readF32("frame time");
+      const framePositions = readFloat32Array(
+        positionElementCount,
+        "frame positions",
+      );
+      if (!Number.isFinite(time)) {
+        continue;
+      }
+      frames.push({ time, positions: framePositions });
+    }
+
+    meshes.push({ name, positions, indices, frames });
+  }
+
+  if (offset !== source.byteLength) {
+    throw new Error("Alembic helper returned trailing preview bytes.");
+  }
+
+  return { meshes };
 }
 
 function createAlembicPreview(
@@ -191,8 +289,6 @@ function createAlembicPreview(
 
   for (const [meshIndex, meshPayload] of payload.meshes.entries()) {
     if (
-      !Array.isArray(meshPayload.positions) ||
-      !Array.isArray(meshPayload.indices) ||
       meshPayload.positions.length === 0 ||
       meshPayload.positions.length % 3 !== 0 ||
       meshPayload.indices.length === 0 ||
@@ -204,9 +300,9 @@ function createAlembicPreview(
     const geometry = new BufferGeometry();
     geometry.setAttribute(
       "position",
-      new Float32BufferAttribute(meshPayload.positions, 3),
+      new BufferAttribute(meshPayload.positions, 3),
     );
-    geometry.setIndex(meshPayload.indices);
+    geometry.setIndex(new BufferAttribute(meshPayload.indices, 1));
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
 
@@ -224,11 +320,10 @@ function createAlembicPreview(
       mesh.userData.sourceName = meshPayload.name;
     }
 
-    const frames = (meshPayload.frames ?? [])
+    const frames = meshPayload.frames
       .filter(
         (frame) =>
           Number.isFinite(frame.time) &&
-          Array.isArray(frame.positions) &&
           frame.positions.length === meshPayload.positions.length,
       )
       .sort((a, b) => a.time - b.time);
@@ -236,10 +331,11 @@ function createAlembicPreview(
     if (frames.length > 0) {
       geometry.morphTargetsRelative = true;
       geometry.morphAttributes.position = frames.map((frame) => {
-        const offsets = frame.positions.map(
-          (value, index) => value - meshPayload.positions[index],
-        );
-        return new Float32BufferAttribute(offsets, 3);
+        const offsets = new Float32Array(frame.positions.length);
+        for (let index = 0; index < frame.positions.length; index += 1) {
+          offsets[index] = frame.positions[index] - meshPayload.positions[index];
+        }
+        return new BufferAttribute(offsets, 3);
       });
       mesh.morphTargetInfluences = frames.map(() => 0);
       mesh.morphTargetDictionary = Object.fromEntries(
@@ -2240,7 +2336,7 @@ async function loadPreviewObjectCore(
     }
     case "abc": {
       reportStage("decode");
-      const previewPayload = parseAlembicPreviewPayload(
+      const previewPayload = parseAlembicBinaryPayload(
         await convertAlembicToPreview(file.path),
       );
       throwIfAborted(options.signal);

@@ -1,6 +1,6 @@
 // Minimal Alembic preview extractor used by yw-look.
 //
-// It writes a compact JSON payload to stdout. Sample 0 becomes the base mesh;
+// It writes a compact binary payload to stdout. Sample 0 becomes the base mesh;
 // later samples with identical topology are emitted as geometry-cache frames
 // that the frontend maps to morph targets.
 
@@ -10,12 +10,18 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <iostream>
 #include <set>
-#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 namespace Abc = Alembic::Abc;
 namespace AbcF = Alembic::AbcCoreFactory;
@@ -98,45 +104,6 @@ static Imath::M44d composeWorldMatrix(
         worldMatrix = sample.getMatrix() * worldMatrix;
     }
     return worldMatrix;
-}
-
-static void writeJsonString(std::ostream& out, const std::string& value) {
-    out << '"';
-    for (const char ch : value) {
-        switch (ch) {
-        case '\\':
-            out << "\\\\";
-            break;
-        case '"':
-            out << "\\\"";
-            break;
-        case '\n':
-            out << "\\n";
-            break;
-        case '\r':
-            out << "\\r";
-            break;
-        case '\t':
-            out << "\\t";
-            break;
-        default:
-            out << ch;
-            break;
-        }
-    }
-    out << '"';
-}
-
-template <typename Number>
-static void writeNumberArray(std::ostream& out, const std::vector<Number>& values) {
-    out << '[';
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        if (i > 0) {
-            out << ',';
-        }
-        out << values[i];
-    }
-    out << ']';
 }
 
 template <typename Sample>
@@ -335,35 +302,65 @@ static void visitObject(
     }
 }
 
-static void writePayload(const ConvertState& state) {
-    std::cout << "{\"format\":\"yw-look-alembic-preview-v1\",\"meshes\":[";
-    for (std::size_t meshIndex = 0; meshIndex < state.meshes.size(); ++meshIndex) {
-        if (meshIndex > 0) {
-            std::cout << ',';
-        }
-        const PreviewMesh& mesh = state.meshes[meshIndex];
-        std::cout << "{\"name\":";
-        writeJsonString(std::cout, mesh.name);
-        std::cout << ",\"positions\":";
-        writeNumberArray(std::cout, mesh.positions);
-        std::cout << ",\"indices\":";
-        writeNumberArray(std::cout, mesh.indices);
-        std::cout << ",\"frames\":[";
-        for (std::size_t frameIndex = 0; frameIndex < mesh.frames.size(); ++frameIndex) {
-            if (frameIndex > 0) {
-                std::cout << ',';
-            }
-            const MeshFrame& frame = mesh.frames[frameIndex];
-            std::cout << "{\"time\":" << frame.time << ",\"positions\":";
-            writeNumberArray(std::cout, frame.positions);
-            std::cout << '}';
-        }
-        std::cout << "]}";
+static void writeU32LE(std::ostream& out, std::uint32_t value) {
+    const char bytes[4] = {
+        static_cast<char>(value & 0xff),
+        static_cast<char>((value >> 8) & 0xff),
+        static_cast<char>((value >> 16) & 0xff),
+        static_cast<char>((value >> 24) & 0xff),
+    };
+    out.write(bytes, sizeof(bytes));
+}
+
+static void writeF32LE(std::ostream& out, double value) {
+    const float floatValue = static_cast<float>(value);
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &floatValue, sizeof(bits));
+    writeU32LE(out, bits);
+}
+
+static void writePositionsLE(std::ostream& out, const std::vector<double>& values) {
+    for (const double value : values) {
+        writeF32LE(out, value);
     }
-    std::cout << "]}";
+}
+
+static void writeBinaryPayload(const ConvertState& state) {
+    static constexpr char kMagic[4] = {'Y', 'W', 'A', 'B'};
+    std::cout.write(kMagic, sizeof(kMagic));
+    writeU32LE(std::cout, 1);
+    writeU32LE(std::cout, static_cast<std::uint32_t>(state.meshes.size()));
+    writeU32LE(std::cout, 0);
+
+    for (const PreviewMesh& mesh : state.meshes) {
+        writeU32LE(std::cout, static_cast<std::uint32_t>(mesh.name.size()));
+        std::cout.write(mesh.name.data(), static_cast<std::streamsize>(mesh.name.size()));
+        writeU32LE(std::cout, static_cast<std::uint32_t>(mesh.positions.size() / 3));
+        writeU32LE(std::cout, static_cast<std::uint32_t>(mesh.indices.size()));
+        writeU32LE(std::cout, static_cast<std::uint32_t>(mesh.frames.size()));
+        writePositionsLE(std::cout, mesh.positions);
+        for (const std::uint32_t index : mesh.indices) {
+            writeU32LE(std::cout, index);
+        }
+        for (const MeshFrame& frame : mesh.frames) {
+            writeF32LE(std::cout, frame.time);
+            writePositionsLE(std::cout, frame.positions);
+        }
+    }
+
+    if (!std::cout) {
+        throw std::runtime_error("failed to write Alembic preview payload");
+    }
 }
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
+        std::cerr << "Unable to set stdout to binary mode.\n";
+        return 1;
+    }
+#endif
+
     if (argc != 2) {
         std::cerr << "USAGE: abc_to_obj <AlembicArchive.abc>\n";
         return 2;
@@ -388,7 +385,7 @@ int main(int argc, char* argv[]) {
             return 4;
         }
 
-        writePayload(state);
+        writeBinaryPayload(state);
     } catch (const std::exception& error) {
         std::cerr << "Alembic conversion failed: " << error.what() << "\n";
         return 1;
