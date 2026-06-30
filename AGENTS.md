@@ -269,9 +269,50 @@ PR を作成したら、レビューコメントへの対応と CI 修正は **S
 
 - `docs/PLAN.md` — プロダクト仕様と設計判断
 - `docs/DESIGN.md` — Figma デザインシステムの定義（デザイントークン、コンポーネント仕様、UI ガイドライン）
+- `docs/usd-cpp.md` — OpenUSD C++ バックエンドのセットアップ・ビルド・配布手順
 - `ToDo.md` — 実装チェックリスト
 
 UI に関わる変更を行う場合は、必ず `docs/DESIGN.md` を事前に読み、デザインシステムとの整合性を確認すること。
+
+## C++ ネイティブライブラリのビルド
+
+本プロジェクトは 2 つの C++ ネイティブコンポーネントを持つ。どちらも **vcpkg** で依存を管理し、`build.rs` 経由でビルドする。
+
+### 共通前提
+
+- vcpkg が `VCPKG_ROOT` に配置されていること（推奨: `~/.vcpkg`）
+- Visual Studio 2022 (Desktop C++ workload)、CMake 3.22+、Python 3.11+
+- LLVM 18+（bindgen 用、`LIBCLANG_PATH` を設定）
+- 詳細は `docs/usd-cpp.md` の「初回セットアップ」を参照
+
+### OpenUSD C++ バックエンド
+
+通常ビルドでは `third_party/prebuilt/openusd/` の prebuilt payload を使うため vcpkg source build は走らない。
+
+```powershell
+cd src-tauri
+cargo build                          # prebuilt を使用（default = C++ backend）
+```
+
+prebuilt を再生成する場合や vcpkg から直接ビルドする場合:
+
+```powershell
+$env:OPENUSD_FORCE_VCPKG = "1"
+cargo build
+```
+
+### Alembic プレビューヘルパー (`abc_to_obj`)
+
+`src-tauri/alembic-tools/src/abc_to_obj.cpp` を C++ ヘルパーとしてコンパイルし、`src-tauri/alembic-tools/<platform>/` にバイナリを配置する。通常ビルドではリポジトリに commit 済みのバイナリをそのまま使う。
+
+ソースを変更してバイナリを再生成する場合:
+
+```powershell
+$env:ALEMBIC_FORCE_BUILD = "1"
+cargo build
+```
+
+**AI への注意**: `abc_to_obj.cpp` のソースを編集しただけではバイナリは更新されない。ソース変更後は必ず `ALEMBIC_FORCE_BUILD=1` でリビルドし、更新された `abc_to_obj.exe` (Windows) / `abc_to_obj` (macOS) を commit すること。
 
 ## AI への期待
 
