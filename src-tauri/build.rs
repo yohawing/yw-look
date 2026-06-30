@@ -607,6 +607,118 @@ mod cpp_backend {
             .next()
     }
 
+    fn ensure_windows_alembic_helper(
+        manifest_dir: &Path,
+        target_os: &str,
+        triplet: &str,
+        vcpkg_root: Option<&PathBuf>,
+        overlay_triplets: &Path,
+    ) {
+        if target_os != "windows" || triplet != "x64-windows" {
+            return;
+        }
+
+        let tool_src = manifest_dir
+            .join("alembic-tools")
+            .join("src")
+            .join("abc_to_obj.cpp");
+        let tool_dir = manifest_dir.join("alembic-tools").join("x64-windows");
+        let tool_path = tool_dir.join("abc_to_obj.exe");
+        println!("cargo:rerun-if-env-changed=ALEMBIC_FORCE_BUILD");
+        println!("cargo:rerun-if-changed={}", tool_src.display());
+
+        if tool_path.exists() && !should_force_alembic_tool_build() {
+            println!(
+                "cargo:warning=using bundled Alembic preview helper: {}",
+                tool_path.display()
+            );
+            return;
+        }
+
+        let vcpkg_root = vcpkg_root
+            .as_deref()
+            .expect("VCPKG_ROOT is not set. Building the Alembic preview helper requires vcpkg.");
+        let install_root = manifest_dir.join("vcpkg_installed");
+
+        run_vcpkg_install(
+            manifest_dir,
+            vcpkg_root,
+            target_os,
+            triplet,
+            &install_root,
+            overlay_triplets,
+            &[],
+        );
+
+        let cmake_src = manifest_dir
+            .join("alembic-tools")
+            .join("src");
+
+        let mut config = cmake::Config::new(&cmake_src);
+        if let Some((ninja, env_values)) = ninja_path()
+            .and_then(|ninja| visual_studio_dev_env().map(|env| (ninja, env)))
+        {
+            println!(
+                "cargo:warning=building Alembic preview helper with Ninja: {}",
+                ninja.display()
+            );
+            config.generator("Ninja");
+            config.define("CMAKE_MAKE_PROGRAM", &ninja);
+            for (key, value) in &env_values {
+                config.env(key, value);
+            }
+        }
+        config
+            .profile("Release")
+            .define("VCPKG_TARGET_TRIPLET", triplet)
+            .define("VCPKG_INSTALLED_DIR", &install_root)
+            .define(
+                "CMAKE_TOOLCHAIN_FILE",
+                vcpkg_root
+                    .join("scripts")
+                    .join("buildsystems")
+                    .join("vcpkg.cmake"),
+            );
+        let cmake_out = config.build();
+
+        let built_exe = ["bin", "."]
+            .iter()
+            .map(|sub| cmake_out.join(sub).join("abc_to_obj.exe"))
+            .find(|p| p.exists())
+            .unwrap_or_else(|| {
+                panic!(
+                    "CMake build succeeded but abc_to_obj.exe not found under {}",
+                    cmake_out.display()
+                )
+            });
+
+        fs::create_dir_all(&tool_dir)
+            .unwrap_or_else(|e| panic!("failed to create {}: {e}", tool_dir.display()));
+        fs::copy(&built_exe, &tool_path).unwrap_or_else(|e| {
+            panic!(
+                "failed to copy Alembic helper {} → {}: {e}",
+                built_exe.display(),
+                tool_path.display()
+            )
+        });
+
+        let vcpkg_bin = install_root.join(triplet).join("bin");
+        for dll_name in ["Alembic.dll", "Imath-3_2.dll"] {
+            let src = vcpkg_bin.join(dll_name);
+            let dst = tool_dir.join(dll_name);
+            if src.exists() {
+                fs::copy(&src, &dst).unwrap_or_else(|e| {
+                    panic!("failed to copy {} → {}: {e}", src.display(), dst.display())
+                });
+            }
+        }
+
+        println!(
+            "cargo:warning=rebuilt Alembic preview helper: {}",
+            tool_path.display()
+        );
+    }
+
     fn ensure_macos_alembic_helper(
         manifest_dir: &Path,
         target_os: &str,
@@ -647,7 +759,7 @@ mod cpp_backend {
             triplet,
             &install_root,
             overlay_triplets,
-            &["alembic"],
+            &[],
         );
 
         let include_dir = install_root.join(triplet).join("include");
@@ -890,6 +1002,13 @@ mod cpp_backend {
             );
         }
 
+        ensure_windows_alembic_helper(
+            &manifest_dir,
+            &target_os,
+            triplet,
+            vcpkg_root.as_ref(),
+            &overlay_triplets,
+        );
         ensure_macos_alembic_helper(
             &manifest_dir,
             &target_os,

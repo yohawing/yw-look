@@ -58,7 +58,7 @@ fn resolve_alembic_tool_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError
     )))
 }
 
-fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, AppError> {
+fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<Vec<u8>, AppError> {
     let temp_root = env::temp_dir();
     let nonce = format!(
         "{}-{}",
@@ -179,19 +179,14 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<String, App
         }
     };
     cleanup(&stdout_path, &stderr_path);
-    String::from_utf8(stdout)
-        .map_err(|error| {
-            AppError::Internal(format!(
-                "Alembic preview helper returned non-UTF8 preview data: {error}"
-            ))
-        })
+    Ok(stdout)
 }
 
 #[tauri::command]
 pub(crate) fn convert_alembic_to_preview(
     app: tauri::AppHandle,
     path: String,
-) -> Result<String, AppError> {
+) -> Result<tauri::ipc::Response, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let input_size = fs::metadata(&normalized)
         .map_err(|error| AppError::Io(format!("failed to inspect Alembic input: {error}")))?
@@ -216,5 +211,6 @@ pub(crate) fn convert_alembic_to_preview(
     }
 
     let tool_path = resolve_alembic_tool_path(&app)?;
-    run_alembic_helper(&tool_path, &normalized)
+    let payload = run_alembic_helper(&tool_path, &normalized)?;
+    Ok(tauri::ipc::Response::new(payload))
 }
