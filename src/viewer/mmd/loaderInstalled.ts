@@ -66,6 +66,7 @@ type ThreeMmdLoaderModule = {
       options: {
         outline: boolean;
         materialRenderOrder: boolean;
+        morphSplit?: boolean;
         frustumCulled: boolean;
       },
     ): Promise<
@@ -627,6 +628,7 @@ export async function loadMmdPreviewObject(
     const mmd = await loader.loadModel(buffer, {
       outline: true,
       materialRenderOrder: true,
+      morphSplit: false,
       frustumCulled: false,
     });
     if (mmd.root) {

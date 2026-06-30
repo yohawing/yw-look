@@ -322,7 +322,12 @@ describe("MMD preview loader", () => {
     expect(mocks.loadAsync).toHaveBeenCalledWith(
       expect.any(ArrayBuffer),
       expect.any(Object),
-      { outline: true, materialRenderOrder: true, frustumCulled: false },
+      {
+        outline: true,
+        materialRenderOrder: true,
+        morphSplit: false,
+        frustumCulled: false,
+      },
     );
     expect(mocks.convertFileSrc).not.toHaveBeenCalled();
     expect(result.object.name).toBe("Hatsune Miku Preview");
