@@ -596,6 +596,20 @@
   outline: none;
 }
 
+select option {
+  background-color: var(--yl-surface-raised);
+  color: var(--yl-text-secondary);
+}
+
+select option:checked {
+  background-color: var(--yl-surface-hover);
+  color: var(--yl-text-primary);
+}
+
+select option:disabled {
+  color: var(--yl-text-disabled);
+}
+
 .yl-select-field__control:hover {
   background: var(--yl-input-bg-hover);
 }
