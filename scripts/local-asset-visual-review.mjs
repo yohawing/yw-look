@@ -801,19 +801,20 @@ function renderHtml(report) {
     :root {
       color-scheme: dark;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0b0d10;
-      color: #eef2f7;
+      font-feature-settings: "cv01", "ss03";
+      background: #08090a;
+      color: #f7f8f8;
     }
     body {
       margin: 0;
-      background: #0b0d10;
+      background: #08090a;
     }
     header {
       position: sticky;
       top: 0;
       z-index: 2;
       border-bottom: 1px solid rgba(255,255,255,.08);
-      background: rgba(11,13,16,.94);
+      background: rgba(8,9,10,.94);
       backdrop-filter: blur(8px);
     }
     .bar {
@@ -824,7 +825,7 @@ function renderHtml(report) {
     h1 {
       margin: 0 0 10px;
       font-size: 20px;
-      font-weight: 620;
+      font-weight: 590;
     }
     .meta, .controls {
       display: flex;
@@ -845,6 +846,9 @@ function renderHtml(report) {
     button {
       cursor: pointer;
     }
+    select, button, a.link-button {
+      min-height: 30px;
+    }
     a.link-button {
       border: 1px solid rgba(255,255,255,.1);
       border-radius: 6px;
@@ -854,10 +858,27 @@ function renderHtml(report) {
       text-decoration: none;
       white-space: nowrap;
     }
-    .actions {
+    .actions, .card-tools {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
+    }
+    .card-tools {
+      flex-direction: column;
+      margin-top: 2px;
+    }
+    .tool-row {
+      display: grid;
+      grid-template-columns: 50px 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+    .tool-label {
+      color: #62666d;
+      font-size: 11px;
+      font-weight: 510;
+    }
+    .actions {
       margin-top: 8px;
     }
     .actions button, .actions a {
@@ -870,14 +891,15 @@ function renderHtml(report) {
     }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
     }
     article {
       border: 1px solid rgba(255,255,255,.08);
       border-radius: 8px;
       overflow: hidden;
-      background: #14181f;
+      background: rgba(255,255,255,.025);
+      box-shadow: rgba(0,0,0,.2) 0 0 0 1px;
     }
     article[data-review="bad"] {
       border-color: rgba(255,96,96,.65);
@@ -894,6 +916,7 @@ function renderHtml(report) {
       aspect-ratio: ${width} / ${height};
       object-fit: contain;
       background: #111318;
+      user-select: none;
     }
     .missing-shot {
       display: grid;
@@ -905,20 +928,33 @@ function renderHtml(report) {
       font-size: 13px;
     }
     .body {
-      padding: 10px;
+      display: grid;
+      gap: 10px;
+      padding: 12px;
     }
     .title {
-      margin: 0 0 8px;
+      margin: 0;
       font-size: 13px;
       line-height: 1.35;
       overflow-wrap: anywhere;
     }
+    .card-head {
+      display: grid;
+      gap: 8px;
+    }
+    .meta-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
     .path {
-      margin: 8px 0;
+      margin: 0;
       color: #8d99a8;
       font-size: 11px;
       line-height: 1.4;
       overflow-wrap: anywhere;
+      max-height: 46px;
+      overflow: auto;
     }
     .row {
       display: flex;
@@ -926,6 +962,19 @@ function renderHtml(report) {
       justify-content: space-between;
       gap: 8px;
       margin-top: 8px;
+    }
+    .review-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .review-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #d0d6e0;
     }
     .badge {
       border-radius: 999px;
@@ -943,14 +992,14 @@ function renderHtml(report) {
     }
     textarea {
       width: 100%;
-      min-height: 44px;
+      min-height: 52px;
       box-sizing: border-box;
       resize: vertical;
       border: 1px solid rgba(255,255,255,.08);
       border-radius: 6px;
-      background: rgba(0,0,0,.18);
+      background: rgba(0,0,0,.2);
       color: #eef2f7;
-      padding: 6px;
+      padding: 8px;
       font: inherit;
       font-size: 12px;
     }
@@ -1107,28 +1156,40 @@ ${rows}
 
 function renderCard(result) {
   const image = result.screenshotUrl
-    ? `<a href="${escapeHtml(result.screenshotUrl)}"><img class="shot" src="${escapeHtml(result.screenshotUrl)}" loading="lazy" alt="${escapeHtml(result.id)}"></a>`
+    ? `<img class="shot" src="${escapeHtml(result.screenshotUrl)}" loading="lazy" alt="${escapeHtml(result.id)}" draggable="false">`
     : `<div class="missing-shot">No screenshot</div>`;
   return `<article data-id="${escapeHtml(result.id)}" data-visual="${escapeHtml(result.visualStatus)}" data-review="unreviewed">
   ${image}
   <div class="body">
-    <h2 class="title">${escapeHtml(result.id)}</h2>
-    <div class="row">
-      <span class="badge ${escapeHtml(result.visualStatus)}">${escapeHtml(result.visualStatus)}</span>
-      <span class="badge">${escapeHtml(result.kind)} / ${escapeHtml(result.extension)}</span>
+    <div class="card-head">
+      <h2 class="title">${escapeHtml(result.id)}</h2>
+      <div class="meta-badges">
+        <span class="badge ${escapeHtml(result.visualStatus)}">${escapeHtml(result.visualStatus)}</span>
+        <span class="badge">${escapeHtml(result.kind)} / ${escapeHtml(result.extension)}</span>
+        <span class="badge">${Math.round(result.image.changedPixelRatio * 10000) / 100}% changed</span>
+      </div>
     </div>
     <p class="path">${escapeHtml(result.path)}</p>
-    <div class="actions">
-      <a class="link-button" href="${escapeHtml(result.sourceFolderUrl)}" target="_blank" rel="noreferrer" data-open-folder="${escapeHtml(result.sourceFolderPath)}">Open source folder</a>
-      <a class="link-button" href="${escapeHtml(result.screenshotFolderUrl)}" target="_blank" rel="noreferrer" data-open-folder="${escapeHtml(result.screenshotFolderPath)}">Open shot folder</a>
-      <button type="button" data-copy="${escapeHtml(result.path)}">Copy source path</button>
-      <button type="button" data-copy="${escapeHtml(result.sourceFolderPath)}">Copy folder path</button>
+    <div class="card-tools">
+      <div class="tool-row">
+        <span class="tool-label">Folders</span>
+        <div class="actions">
+          <a class="link-button" href="${escapeHtml(result.sourceFolderUrl)}" target="_blank" rel="noreferrer" data-open-folder="${escapeHtml(result.sourceFolderPath)}">Source</a>
+          <a class="link-button" href="${escapeHtml(result.screenshotFolderUrl)}" target="_blank" rel="noreferrer" data-open-folder="${escapeHtml(result.screenshotFolderPath)}">Shot</a>
+        </div>
+      </div>
+      <div class="tool-row">
+        <span class="tool-label">Copy</span>
+        <div class="actions">
+          <button type="button" data-copy="${escapeHtml(result.path)}">File path</button>
+          <button type="button" data-copy="${escapeHtml(result.sourceFolderPath)}">Folder path</button>
+        </div>
+      </div>
     </div>
-    <div class="row">
-      <label>Review <select data-role="review"><option value="unreviewed">Unreviewed</option><option value="ok">OK</option><option value="suspect">Suspect</option><option value="bad">Bad</option></select></label>
-      <span class="badge">${Math.round(result.image.changedPixelRatio * 10000) / 100}% changed</span>
+    <div class="review-row">
+      <label class="review-control">Review <select data-role="review"><option value="unreviewed">Unreviewed</option><option value="ok">OK</option><option value="suspect">Suspect</option><option value="bad">Bad</option></select></label>
     </div>
-    <textarea data-role="note" placeholder="review note"></textarea>
+    <textarea data-role="note" placeholder="note"></textarea>
   </div>
 </article>`;
 }
