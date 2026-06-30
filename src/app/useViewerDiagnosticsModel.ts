@@ -305,7 +305,8 @@ export function useViewerDiagnosticsModel({
     if (
       viewerFeedback.mode === "ready" ||
       viewerFeedback.mode === "empty" ||
-      viewerFeedback.mode === "loading"
+      viewerFeedback.mode === "loading" ||
+      viewerFeedback.mode === "loadCanceled"
     ) {
       return;
     }

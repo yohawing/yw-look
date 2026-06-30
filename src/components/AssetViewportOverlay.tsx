@@ -5,10 +5,7 @@ import { AnimationBar } from "./AnimationBar";
 import type { AnimationState } from "./animation";
 import { LoadingScreen } from "./LoadingScreen";
 import { ViewerStatePanel } from "./ViewerStatePanel";
-import type {
-  DeferredTextureSnapshot,
-  LoadingStageSnapshot,
-} from "../viewer";
+import type { DeferredTextureSnapshot, LoadingStageSnapshot } from "../viewer";
 import type { ViewerSurfaceMode } from "../types/viewer";
 
 type AssetViewportOverlayProps = {
@@ -17,6 +14,7 @@ type AssetViewportOverlayProps = {
   effectiveDeferredProgress: DeferredTextureSnapshot | null;
   effectiveOverlayMode: ViewerMode;
   loadingStage: LoadingStageSnapshot | null;
+  onCancelLoad?: () => void;
   onOpenFile?: () => void;
   showRendererStats: boolean;
   statsRef: RefObject<HTMLDivElement | null>;
@@ -35,6 +33,7 @@ export function AssetViewportOverlay({
   effectiveDeferredProgress,
   effectiveOverlayMode,
   loadingStage,
+  onCancelLoad,
   onOpenFile,
   showRendererStats,
   statsRef,
@@ -65,6 +64,7 @@ export function AssetViewportOverlay({
             fileName={currentFile?.fileName}
             loadingStage={loadingStage}
             mode={effectiveOverlayMode}
+            onCancelLoad={onCancelLoad}
             onOpenFile={onOpenFile}
           />
         </div>

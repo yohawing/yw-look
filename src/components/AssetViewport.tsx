@@ -135,6 +135,10 @@ export type {
   ToneMappingMode,
 } from "../types/viewer";
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 export function AssetViewport({
   currentFile,
   disabledOptionalLoaderPackIds = [],
@@ -252,6 +256,7 @@ export function AssetViewport({
   // the post-load callback runs inside a Three.js Promise chain that does
   // not see prop changes, so we hold the latest setter in a ref.
   const onActiveCameraResetRef = useRef(onActiveCameraReset);
+  const cancelLoadRef = useRef<(() => void) | null>(null);
 
   // The actual Three.js camera found by traversal. null = use the scene's
   // own free camera (context.camera). Stored as `Camera` (not the narrower
@@ -1116,6 +1121,7 @@ export function AssetViewport({
     }
 
     let disposed = false;
+    const abortController = new AbortController();
     const loadingStartedAt = performance.now();
     const loadingClock = createLoadingStageClock("scan", loadingStartedAt);
     const reportLoadingStage = (stage: LoadingStageId) => {
@@ -1152,6 +1158,27 @@ export function AssetViewport({
         ),
       );
     };
+    const cancelCurrentLoad = () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      abortController.abort();
+      setActivePreviewPath(currentFile.path);
+      setOverlayMode("loadCanceled");
+      setLoadingStage(null);
+      setDeferredTexture(null);
+      onMetadataChange(emptyAssetMetadata);
+      assetResourceMetricsRef.current = null;
+      publishResourceDiagnostics(context);
+      onFeedbackChange({
+        mode: "loadCanceled",
+        message: `Canceled loading ${currentFile.fileName}.`,
+        warning: null,
+        canResetCamera: false,
+      });
+    };
+    cancelLoadRef.current = cancelCurrentLoad;
 
     loadPreviewObject(currentFile, context.renderer, {
       usdLoadPolicy,
@@ -1159,6 +1186,7 @@ export function AssetViewport({
       glbOverride: glbOverride ?? null,
       disabledOptionalLoaderPackIds,
       incompatibleOptionalLoaderPackIds,
+      signal: abortController.signal,
       onStage: reportLoadingStage,
       onDeferredTexture: (snapshot) => {
         if (disposed) return;
@@ -1412,6 +1440,19 @@ export function AssetViewport({
         if (disposed) {
           return;
         }
+        if (isAbortError(error)) {
+          setActivePreviewPath(currentFile.path);
+          setOverlayMode("loadCanceled");
+          onFeedbackChange({
+            mode: "loadCanceled",
+            message: `Canceled loading ${currentFile.fileName}.`,
+            warning: null,
+            canResetCamera: false,
+          });
+          setLoadingStage(null);
+          setDeferredTexture(null);
+          return;
+        }
 
         // Log the raw error to the webview console so it is visible in
         // devtools (Tauri: Ctrl+Shift+I) and not just in Diagnostics.
@@ -1458,6 +1499,10 @@ export function AssetViewport({
 
     return () => {
       disposed = true;
+      abortController.abort();
+      if (cancelLoadRef.current === cancelCurrentLoad) {
+        cancelLoadRef.current = null;
+      }
       setLoadingStage(null);
       setDeferredTexture(null);
       runCleanupCallbacks(context.cleanupCallbacks);
@@ -1715,6 +1760,7 @@ export function AssetViewport({
         effectiveOverlayMode={effectiveOverlayMode}
         hasAnimation={hasAnimation}
         loadingStage={loadingStage}
+        onCancelLoad={() => cancelLoadRef.current?.()}
         onOpenFile={onOpenFile}
         onSeek={handleSeek}
         onSelectClip={handleSelectClip}

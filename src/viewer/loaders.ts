@@ -36,6 +36,7 @@ import {
 } from "../lib/usd";
 import type { OptionalLoaderPackManifest } from "../types/ipc";
 import { LoaderRegistry, type LoaderContext } from "./loaderRegistry";
+import { isAbortOrTimeoutError, parseModelInWorker } from "./modelParseWorker";
 import {
   getOptionalLoaderDefinitionByExtension,
   getOptionalLoaderPackDefinition,
@@ -98,6 +99,18 @@ async function yieldToPaint(): Promise<void> {
     return;
   }
   await new Promise<void>((resolve) => setTimeout(() => resolve(), 0));
+}
+
+function createAbortError(message = "Model load was canceled."): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
 }
 
 function isDeferredUsdEmptyStageError(error: unknown): boolean {
@@ -1811,9 +1824,14 @@ async function loadPreviewObjectCore(
     onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void;
     /** Reports non-fatal loader warnings, including async texture fallback. */
     onWarning?: (warning: string) => void;
+    /** Aborts async loader work and suppresses sync fallback on user cancel. */
+    signal?: AbortSignal;
+    /** Worker parse timeout before the load is failed/canceled. */
+    parseTimeoutMs?: number;
   } = {},
 ): Promise<LoadedPreview> {
   const reportStage = options.onStage ?? (() => undefined);
+  throwIfAborted(options.signal);
   reportStage("scan");
 
   switch (file.extension) {
@@ -1821,9 +1839,12 @@ async function loadPreviewObjectCore(
       reportStage("decode");
       const { GLTFLoader } =
         await import("three/examples/jsm/loaders/GLTFLoader.js");
+      throwIfAborted(options.signal);
       const buffer = await readArrayBuffer(file.path);
+      throwIfAborted(options.signal);
       reportStage("gpu");
       const gltf = await new GLTFLoader().parseAsync(buffer, "");
+      throwIfAborted(options.signal);
       return {
         object: gltf.scene,
         cleanupUrls: [],
@@ -1836,8 +1857,10 @@ async function loadPreviewObjectCore(
       const { GLTFLoader } =
         await import("three/examples/jsm/loaders/GLTFLoader.js");
       const materialized = await materializeGltf(file);
+      throwIfAborted(options.signal);
       reportStage("gpu");
       const gltf = await new GLTFLoader().loadAsync(materialized.rootUrl);
+      throwIfAborted(options.signal);
       return {
         object: gltf.scene,
         cleanupUrls: materialized.cleanupUrls,
@@ -1851,30 +1874,64 @@ async function loadPreviewObjectCore(
       const { FBXLoader } = await import("../vendor/FBXLoaderPatched.js");
       const readStartedAt = performance.now();
       const buffer = await readArrayBuffer(file.path);
+      throwIfAborted(options.signal);
       const readMs = performance.now() - readStartedAt;
+      reportStage("scene");
+      await yieldToPaint();
+      throwIfAborted(options.signal);
+      const parseStartedAt = performance.now();
+      let object:
+        | (LoadedPreview["object"] & {
+            animations?: LoadedPreview["clips"];
+          })
+        | null = null;
+      let parsedInWorker = false;
+      try {
+        object = (await parseModelInWorker(
+          file.path,
+          {
+            kind: "fbx",
+            buffer,
+            resourcePath: `${file.parentDirectory.replace(/\\/g, "/")}/`,
+          },
+          { signal: options.signal, timeoutMs: options.parseTimeoutMs },
+        )) as LoadedPreview["object"] & {
+          animations?: LoadedPreview["clips"];
+        };
+        parsedInWorker = true;
+      } catch (error) {
+        if (isAbortOrTimeoutError(error)) {
+          throw error;
+        }
+        console.warn(
+          "[fbx] worker parse failed, falling back to main thread:",
+          error,
+        );
+      }
       const { manager, cleanupCallbacks, cleanupUrls } =
         await createFbxLoadingManager(
           file,
           options.onDeferredTexture,
           options.onWarning,
         );
-      reportStage("scene");
-      await yieldToPaint();
-      const parseStartedAt = performance.now();
-      let object: LoadedPreview["object"] & {
-        animations?: LoadedPreview["clips"];
-      };
-      try {
-        object = new FBXLoader(manager).parse(
-          buffer,
-          `${file.parentDirectory.replace(/\\/g, "/")}/`,
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(
-          `Unable to parse FBX preview: ${message}. This FBX may contain animation-only data or unsupported deformers without geometry.`,
-          { cause: error },
-        );
+      throwIfAborted(options.signal);
+      if (!parsedInWorker) {
+        try {
+          object = new FBXLoader(manager).parse(
+            buffer,
+            `${file.parentDirectory.replace(/\\/g, "/")}/`,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Unable to parse FBX preview: ${message}. This FBX may contain animation-only data or unsupported deformers without geometry.`,
+            { cause: error },
+          );
+        }
+      }
+      if (!object) {
+        throw new Error("Unable to parse FBX preview: no object was returned.");
       }
       const parseMs = performance.now() - parseStartedAt;
       flipFbxDdsTextureV(object);
@@ -1902,9 +1959,28 @@ async function loadPreviewObjectCore(
       const { OBJLoader } =
         await import("three/examples/jsm/loaders/OBJLoader.js");
       const text = await readTextFile(file.path);
+      throwIfAborted(options.signal);
       reportStage("resolve");
-      const object = new OBJLoader().parse(text);
+      let object: Group;
+      try {
+        object = (await parseModelInWorker(
+          file.path,
+          { kind: "obj", text },
+          { signal: options.signal, timeoutMs: options.parseTimeoutMs },
+        )) as Group;
+      } catch (error) {
+        if (isAbortOrTimeoutError(error)) {
+          throw error;
+        }
+        console.warn(
+          "[obj] worker parse failed, falling back to main thread:",
+          error,
+        );
+        throwIfAborted(options.signal);
+        object = new OBJLoader().parse(text);
+      }
       const bundle = await buildObjTextureBundle(file);
+      throwIfAborted(options.signal);
       reportStage("scene");
       applyObjTextureBundle(object, bundle);
       return {
@@ -1917,6 +1993,7 @@ async function loadPreviewObjectCore(
     case "ply": {
       reportStage("decode");
       const buffer = await readArrayBuffer(file.path);
+      throwIfAborted(options.signal);
 
       // Issue #98: classify .ply by header content rather than extension so
       // point clouds and Gaussian splats render with the right backend
@@ -1926,6 +2003,7 @@ async function loadPreviewObjectCore(
 
       if (plyKind === "pointCloud") {
         const { buildPointCloudPreview } = await import("./ply/pointCloud");
+        throwIfAborted(options.signal);
         reportStage("scene");
         return buildPointCloudPreview(buffer).preview;
       }
@@ -1951,17 +2029,35 @@ async function loadPreviewObjectCore(
       const { PLYLoader } =
         await import("three/examples/jsm/loaders/PLYLoader.js");
       reportStage("scene");
-      const geometry = new PLYLoader().parse(buffer);
-      geometry.computeVertexNormals();
-      return {
-        object: new Mesh(
+      let object: Mesh;
+      try {
+        object = (await parseModelInWorker(
+          file.path,
+          { kind: "ply", buffer },
+          { signal: options.signal, timeoutMs: options.parseTimeoutMs },
+        )) as Mesh;
+      } catch (error) {
+        if (isAbortOrTimeoutError(error)) {
+          throw error;
+        }
+        console.warn(
+          "[ply] worker parse failed, falling back to main thread:",
+          error,
+        );
+        throwIfAborted(options.signal);
+        const geometry = new PLYLoader().parse(buffer);
+        geometry.computeVertexNormals();
+        object = new Mesh(
           geometry,
           new MeshStandardMaterial({
             color: "#c7d2e3",
             metalness: 0.08,
             roughness: 0.72,
           }),
-        ),
+        );
+      }
+      return {
+        object,
         cleanupUrls: [],
         clips: [],
         formatVersion: null,
@@ -1973,18 +2069,37 @@ async function loadPreviewObjectCore(
       const { STLLoader } =
         await import("three/examples/jsm/loaders/STLLoader.js");
       const buffer = await readArrayBuffer(file.path);
+      throwIfAborted(options.signal);
       reportStage("scene");
-      const geometry = new STLLoader().parse(buffer);
-      geometry.computeVertexNormals();
-      return {
-        object: new Mesh(
+      let object: Mesh;
+      try {
+        object = (await parseModelInWorker(
+          file.path,
+          { kind: "stl", buffer },
+          { signal: options.signal, timeoutMs: options.parseTimeoutMs },
+        )) as Mesh;
+      } catch (error) {
+        if (isAbortOrTimeoutError(error)) {
+          throw error;
+        }
+        console.warn(
+          "[stl] worker parse failed, falling back to main thread:",
+          error,
+        );
+        throwIfAborted(options.signal);
+        const geometry = new STLLoader().parse(buffer);
+        geometry.computeVertexNormals();
+        object = new Mesh(
           geometry,
           new MeshStandardMaterial({
             color: "#d7dde8",
             metalness: 0.1,
             roughness: 0.68,
           }),
-        ),
+        );
+      }
+      return {
+        object,
         cleanupUrls: [],
         clips: [],
         formatVersion: null,
@@ -1997,6 +2112,7 @@ async function loadPreviewObjectCore(
         import("three"),
       ]);
       const text = await readTextFile(file.path);
+      throwIfAborted(options.signal);
       const cleanupUrls: string[] = [];
       // Pre-resolve every <image>/<init_from> reference we can find in
       // the DAE document to blob URLs, then feed those through a
@@ -2044,17 +2160,50 @@ async function loadPreviewObjectCore(
       });
       const loader = new ColladaLoader(manager);
       reportStage("scene");
-      const collada = loader.parse(text, file.parentDirectory);
-      if (!collada) {
-        throw new Error(
-          "Collada parse returned no result; the document may be malformed.",
-        );
+      let wrapped: Group;
+      const canUseWorker = imagePaths.size === 0;
+      if (canUseWorker) {
+        try {
+          wrapped = (await parseModelInWorker(
+            file.path,
+            {
+              kind: "dae",
+              text,
+              basePath: file.parentDirectory,
+              textureUrls: {},
+              missingTextureUrls: [],
+            },
+            { signal: options.signal, timeoutMs: options.parseTimeoutMs },
+          )) as Group;
+        } catch (error) {
+          if (isAbortOrTimeoutError(error)) {
+            throw error;
+          }
+          console.warn(
+            "[dae] worker parse failed, falling back to main thread:",
+            error,
+          );
+          throwIfAborted(options.signal);
+          const collada = loader.parse(text, file.parentDirectory);
+          if (!collada) {
+            throw new Error(
+              "Collada parse returned no result; the document may be malformed.",
+            );
+          }
+          wrapped = new Group();
+          wrapped.add(collada.scene);
+        }
+      } else {
+        throwIfAborted(options.signal);
+        const collada = loader.parse(text, file.parentDirectory);
+        if (!collada) {
+          throw new Error(
+            "Collada parse returned no result; the document may be malformed.",
+          );
+        }
+        wrapped = new Group();
+        wrapped.add(collada.scene);
       }
-      // ColladaLoader returns a `Scene`; our preview pipeline expects
-      // `Group | Mesh`. Wrap in a Group so the object is a normal
-      // transform container, matching how the other loaders hand off.
-      const wrapped = new Group();
-      wrapped.add(collada.scene);
       return {
         object: wrapped,
         cleanupUrls,
@@ -2068,6 +2217,7 @@ async function loadPreviewObjectCore(
       const previewPayload = parseAlembicPreviewPayload(
         await convertAlembicToPreview(file.path),
       );
+      throwIfAborted(options.signal);
       reportStage("scene");
       const preview = createAlembicPreview(previewPayload);
       reportStage("gpu");
@@ -2099,7 +2249,9 @@ async function loadPreviewObjectCore(
       let useGlbPipeline = false;
       try {
         reportStage("resolve");
+        throwIfAborted(options.signal);
         useGlbPipeline = await requiresGlbPreview(file.path);
+        throwIfAborted(options.signal);
       } catch (error) {
         if (
           shouldFailClosedOnUsdPreviewDecisionFailure(
@@ -2130,6 +2282,7 @@ async function loadPreviewObjectCore(
         // chance to paint before we block on the (potentially heavy)
         // GLB extraction.
         await yieldToPaint();
+        throwIfAborted(options.signal);
 
         const started = performance.now();
         let glbBuffer: ArrayBuffer;
@@ -2175,7 +2328,9 @@ async function loadPreviewObjectCore(
                 }
               : usdPolicy;
           try {
+            throwIfAborted(options.signal);
             glbBuffer = await extractGeometry(file.path, extractOptions);
+            throwIfAborted(options.signal);
           } catch (error) {
             if (
               usdPolicy === "noPayloads" &&
@@ -2210,6 +2365,7 @@ async function loadPreviewObjectCore(
           await import("three/examples/jsm/loaders/GLTFLoader.js");
         reportStage("gpu");
         const gltf = await new GLTFLoader().parseAsync(glbBuffer, "");
+        throwIfAborted(options.signal);
         if (import.meta.env.DEV) {
           console.info(`[usd] GLTFLoader.parseAsync OK: ${file.fileName}`);
         }
@@ -2251,6 +2407,7 @@ async function loadPreviewObjectCore(
         await import("three/examples/jsm/loaders/USDLoader.js");
       reportStage("decode");
       const buffer = await readArrayBuffer(file.path);
+      throwIfAborted(options.signal);
       const loader = new USDLoader();
       const usdaText = await tryExtractUsdaText(file.extension, buffer);
 
@@ -2293,8 +2450,12 @@ async function loadPreviewObjectCore(
             usdaText
               ? { kind: "text", text: usdaText }
               : { kind: "binary", buffer },
+            { signal: options.signal, timeoutMs: options.parseTimeoutMs },
           );
         } catch (error) {
+          if (isAbortOrTimeoutError(error)) {
+            throw error;
+          }
           console.warn(
             "[usd] worker parse failed, falling back to main thread:",
             error,
@@ -2310,6 +2471,7 @@ async function loadPreviewObjectCore(
       let object: Group;
       try {
         reportStage("scene");
+        throwIfAborted(options.signal);
         object =
           (workerObject as Group | null) ??
           (usdaText ? loader.parse(usdaText) : loader.parse(buffer));
@@ -2575,6 +2737,8 @@ loaderRegistry.register({
       onStage: context.onStage,
       onDeferredTexture: context.onDeferredTexture,
       onWarning: context.onWarning,
+      signal: context.signal,
+      parseTimeoutMs: context.parseTimeoutMs,
     }),
 });
 

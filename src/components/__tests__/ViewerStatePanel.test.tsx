@@ -33,6 +33,28 @@ describe("ViewerStatePanel", () => {
     ).toBeTruthy();
   });
 
+  it("exposes a cancel action while loading", () => {
+    const onCancelLoad = vi.fn();
+    const { getByRole, getByText } = render(
+      <ViewerStatePanel
+        mode="loading"
+        fileName="heavy.fbx"
+        onCancelLoad={onCancelLoad}
+      />,
+    );
+
+    expect(getByText("heavy.fbx")).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "Cancel" }));
+
+    expect(onCancelLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders canceled loads as a neutral terminal state", () => {
+    const { getByText } = render(<ViewerStatePanel mode="loadCanceled" />);
+
+    expect(getByText("The preview load was canceled.")).toBeTruthy();
+  });
+
   it("shows a settings-oriented message for disabled optional loaders", () => {
     const { getByText } = render(
       <ViewerStatePanel mode="disabledOptionalLoader" fileExtension="vrm" />,

@@ -1,0 +1,143 @@
+import {
+  Group,
+  LoadingManager,
+  Mesh,
+  MeshStandardMaterial,
+  type Object3D,
+} from "three";
+import { ColladaLoader } from "three/examples/jsm/loaders/ColladaLoader.js";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { FBXLoader } from "../vendor/FBXLoaderPatched.js";
+
+export type ModelParseWorkerPayload =
+  | {
+      kind: "fbx";
+      buffer: ArrayBuffer;
+      resourcePath: string;
+    }
+  | {
+      kind: "obj";
+      text: string;
+    }
+  | {
+      kind: "ply";
+      buffer: ArrayBuffer;
+    }
+  | {
+      kind: "stl";
+      buffer: ArrayBuffer;
+    }
+  | {
+      kind: "dae";
+      text: string;
+      basePath: string;
+      textureUrls: Record<string, string>;
+      missingTextureUrls: string[];
+    };
+
+export type ModelParseWorkerRequest = {
+  id: number;
+  path: string;
+  payload: ModelParseWorkerPayload;
+};
+
+export type ModelParseWorkerResponse =
+  | {
+      id: number;
+      ok: true;
+      sceneJson: unknown;
+    }
+  | {
+      id: number;
+      ok: false;
+      error: string;
+    };
+
+const FALLBACK_TEXTURE_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlWHQAAAAASUVORK5CYII=";
+
+function isRemoteOrInlineUrl(url: string) {
+  return /^(data:|blob:|https?:)/i.test(url);
+}
+
+function parseObject(payload: ModelParseWorkerPayload): Object3D {
+  switch (payload.kind) {
+    case "fbx":
+      return new FBXLoader().parse(payload.buffer, payload.resourcePath);
+    case "obj":
+      return new OBJLoader().parse(payload.text);
+    case "ply": {
+      const geometry = new PLYLoader().parse(payload.buffer);
+      geometry.computeVertexNormals();
+      return new Mesh(
+        geometry,
+        new MeshStandardMaterial({
+          color: "#c7d2e3",
+          metalness: 0.08,
+          roughness: 0.72,
+        }),
+      );
+    }
+    case "stl": {
+      const geometry = new STLLoader().parse(payload.buffer);
+      geometry.computeVertexNormals();
+      return new Mesh(
+        geometry,
+        new MeshStandardMaterial({
+          color: "#d7dde8",
+          metalness: 0.1,
+          roughness: 0.68,
+        }),
+      );
+    }
+    case "dae": {
+      const manager = new LoadingManager();
+      const missingTextureUrls = new Set(payload.missingTextureUrls);
+      manager.setURLModifier((url) => {
+        if (isRemoteOrInlineUrl(url)) return url;
+        return (
+          payload.textureUrls[url] ??
+          (missingTextureUrls.has(url) ? FALLBACK_TEXTURE_DATA_URL : url)
+        );
+      });
+      const collada = new ColladaLoader(manager).parse(
+        payload.text,
+        payload.basePath,
+      );
+      const wrapped = new Group();
+      wrapped.add(collada.scene);
+      return wrapped;
+    }
+  }
+}
+
+self.addEventListener(
+  "message",
+  (event: MessageEvent<ModelParseWorkerRequest>) => {
+    const request = event.data;
+    try {
+      const object = parseObject(request.payload);
+      const response: ModelParseWorkerResponse = {
+        id: request.id,
+        ok: true,
+        sceneJson: object.toJSON(),
+      };
+      (
+        self as unknown as { postMessage: (payload: unknown) => void }
+      ).postMessage(response);
+    } catch (error) {
+      const response: ModelParseWorkerResponse = {
+        id: request.id,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      (
+        self as unknown as { postMessage: (payload: unknown) => void }
+      ).postMessage(response);
+    }
+  },
+);
+
+export {};

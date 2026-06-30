@@ -26,6 +26,7 @@ export type ViewerMode =
   | "disabledOptionalLoader"
   | "incompatibleOptionalLoader"
   | "loadFailed"
+  | "loadCanceled"
   | "missingReference";
 
 export type ViewerFeedback = {
@@ -290,6 +291,8 @@ export type LoaderContext = {
   onStage?: LoadingStageReporter;
   onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void;
   onWarning?: (warning: string) => void;
+  signal?: AbortSignal;
+  parseTimeoutMs?: number;
 };
 
 export type LoaderPlugin = {

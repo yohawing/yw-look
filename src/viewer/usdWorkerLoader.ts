@@ -39,11 +39,16 @@ let workerInstance: Worker | null = null;
 let nextRequestId = 1;
 const pending = new Map<
   number,
-  { resolve: (object: Object3D) => void; reject: (error: Error) => void }
+  {
+    resolve: (object: Object3D) => void;
+    reject: (error: Error) => void;
+    cleanup?: () => void;
+  }
 >();
 
 function rejectAllPending(error: Error): void {
   for (const [, entry] of pending) {
+    entry.cleanup?.();
     entry.reject(error);
   }
   pending.clear();
@@ -52,6 +57,20 @@ function rejectAllPending(error: Error): void {
   const dying = workerInstance;
   workerInstance = null;
   dying?.terminate();
+}
+
+function createAbortError(message = "USD parse was canceled."): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function createTimeoutError(path: string, timeoutMs: number): Error {
+  const error = new Error(
+    `USD parse timed out after ${Math.round(timeoutMs / 1000)}s: ${path}`,
+  );
+  error.name = "TimeoutError";
+  return error;
 }
 
 function getWorker(): Worker {
@@ -69,6 +88,7 @@ function getWorker(): Worker {
       const entry = pending.get(event.data.id);
       if (!entry) return;
       pending.delete(event.data.id);
+      entry.cleanup?.();
       if (event.data.ok) {
         try {
           const loader = new ObjectLoader();
@@ -112,9 +132,13 @@ function getWorker(): Worker {
 export async function parseUsdInWorker(
   path: string,
   payload: UsdWorkerRequest["payload"],
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<Object3D> {
   if (!isUsdWorkerEnabled()) {
     throw new Error("USD worker is not enabled");
+  }
+  if (options.signal?.aborted) {
+    throw createAbortError();
   }
   const id = nextRequestId++;
   const worker = getWorker();
@@ -130,7 +154,29 @@ export async function parseUsdInWorker(
       : payload;
   const request: UsdWorkerRequest = { id, path, payload: safePayload };
   return new Promise<Object3D>((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    const handleAbort = () => {
+      const entry = pending.get(id);
+      if (!entry) return;
+      pending.delete(id);
+      entry.cleanup?.();
+      entry.reject(createAbortError());
+      rejectAllPending(createAbortError());
+    };
+    const timeoutId = globalThis.setTimeout(() => {
+      const entry = pending.get(id);
+      if (!entry) return;
+      pending.delete(id);
+      entry.cleanup?.();
+      entry.reject(createTimeoutError(path, timeoutMs));
+      rejectAllPending(createTimeoutError(path, timeoutMs));
+    }, timeoutMs);
+    const cleanup = () => {
+      globalThis.clearTimeout(timeoutId);
+      options.signal?.removeEventListener("abort", handleAbort);
+    };
+    options.signal?.addEventListener("abort", handleAbort, { once: true });
+    pending.set(id, { resolve, reject, cleanup });
     worker.postMessage(request);
   });
 }
