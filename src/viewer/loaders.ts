@@ -353,6 +353,28 @@ function filenameFromUrl(value: string) {
   return withoutQuery.slice(withoutQuery.lastIndexOf("/") + 1);
 }
 
+function resolveMissingTextureLabel(url: string, texture?: Texture) {
+  const label = stripUrlSuffix(url);
+  if (!/^blob:/i.test(label)) {
+    return label;
+  }
+
+  const blobLabel = filenameFromUrl(label);
+  const sourceName = texture?.userData?.fbxSourceName;
+  if (
+    typeof sourceName === "string" &&
+    sourceName.length > 0 &&
+    sourceName !== blobLabel
+  ) {
+    return filenameFromUrl(sourceName);
+  }
+
+  const textureName = texture?.isTexture ? texture.name : undefined;
+  return typeof textureName === "string" && textureName.length > 0
+    ? filenameFromUrl(textureName)
+    : blobLabel;
+}
+
 function stripUrlSuffix(value: string) {
   return value.replace(/\\/g, "/").split(/[?#]/, 1)[0];
 }
@@ -732,7 +754,7 @@ async function createFbxLoadingManager(
   const reportedMissingTextures = new Set<string>();
 
   const reportMissingTexture = (url: string, texture?: Texture) => {
-    const label = stripUrlSuffix(url);
+    const label = resolveMissingTextureLabel(url, texture);
     if (texture) {
       applyMissingTextureMaterialFallback(texture);
     }
@@ -1755,6 +1777,7 @@ export {
   deferredSummaryHasNoRenderableGeometry,
   applyMissingGltfTextureFallbacks,
   formatMissingTextureWarnings,
+  resolveMissingTextureLabel,
   resolveColladaTextureUrl,
   applyMissingTextureMaterialFallback,
   registerFbxTextureMaterialFallbacks,

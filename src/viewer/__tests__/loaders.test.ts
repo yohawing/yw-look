@@ -24,6 +24,7 @@ import {
   applyMissingGltfTextureFallbacks,
   applyMissingTextureMaterialFallback,
   formatMissingTextureWarnings,
+  resolveMissingTextureLabel,
   getPreviewSupportState,
   incompatibleOptionalLoaderPackIds,
   registerFbxTextureMaterialFallbacks,
@@ -796,6 +797,49 @@ describe("missing texture fallback", () => {
     ).toEqual([
       "Missing texture references: a.png, b.png, c.png, d.png, e.png, +1 more. Fallback material was used.",
     ]);
+  });
+
+  it("prefers FBX source name over blob URL for missing texture warnings", () => {
+    const texture = new Texture();
+    texture.name = "source-name-from-texture-name.png";
+    texture.userData.fbxSourceName = "Embedded/Texture_01.png";
+
+    expect(
+      resolveMissingTextureLabel("blob:http://localhost/abc", texture),
+    ).toBe("Texture_01.png");
+    expect(
+      formatMissingTextureWarnings([
+        resolveMissingTextureLabel("blob:http://localhost/abc", texture),
+      ])[0],
+    ).toContain("Texture_01.png");
+  });
+
+  it("falls back to texture name for blob missing texture warnings", () => {
+    const texture = new Texture();
+    texture.name = "external-texture.png";
+
+    expect(
+      resolveMissingTextureLabel("blob:http://localhost/abc", texture),
+    ).toBe("external-texture.png");
+  });
+
+  it("ignores blob-derived FBX source names for missing texture warnings", () => {
+    const texture = new Texture();
+    texture.name = "TextureNodeName.png";
+    texture.userData.fbxSourceName = "abc";
+
+    expect(
+      resolveMissingTextureLabel("blob:http://localhost/abc", texture),
+    ).toBe("TextureNodeName.png");
+  });
+
+  it("keeps regular missing texture URLs unchanged", () => {
+    const texture = new Texture();
+    texture.userData.fbxSourceName = "Embedded/Texture_01.png";
+
+    expect(
+      resolveMissingTextureLabel("textures/missing.png?cache=1", texture),
+    ).toBe("textures/missing.png");
   });
 });
 
