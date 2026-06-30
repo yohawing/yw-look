@@ -4,6 +4,7 @@ import {
   Color,
   CompressedTexture,
   DataTexture,
+  DoubleSide,
   Float32BufferAttribute,
   Group,
   LinearFilter,
@@ -200,6 +201,7 @@ function createAlembicPreview(
         color: "#cfd6e3",
         metalness: 0.04,
         roughness: 0.76,
+        side: DoubleSide,
       }),
     );
     mesh.name = `AlembicMesh_${meshIndex + 1}`;

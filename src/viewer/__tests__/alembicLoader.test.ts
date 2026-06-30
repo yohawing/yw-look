@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AnimationMixer, Mesh } from "three";
+import { AnimationMixer, DoubleSide, Mesh, MeshStandardMaterial } from "three";
 import type { SelectedFile } from "../../lib/files";
 
 const mocks = vi.hoisted(() => ({
@@ -50,6 +50,13 @@ describe("Alembic preview loader", () => {
     );
     expect(result.object.children.some((child) => child instanceof Mesh)).toBe(
       true,
+    );
+    const mesh = result.object.children.find(
+      (child): child is Mesh => child instanceof Mesh,
+    );
+    expect(mesh?.material).toBeInstanceOf(MeshStandardMaterial);
+    expect((mesh?.material as MeshStandardMaterial | undefined)?.side).toBe(
+      DoubleSide,
     );
     expect(result.cleanupUrls).toEqual([]);
     expect(result.clips).toEqual([]);
