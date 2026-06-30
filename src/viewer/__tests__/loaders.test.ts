@@ -833,13 +833,19 @@ describe("missing texture fallback", () => {
     ).toBe("TextureNodeName.png");
   });
 
-  it("keeps regular missing texture URLs unchanged", () => {
+  it("prefers FBX source reference over resolved missing texture paths", () => {
     const texture = new Texture();
-    texture.userData.fbxSourceName = "Embedded/Texture_01.png";
+    texture.userData.fbxSourceName = "../tex/face.png";
 
     expect(
-      resolveMissingTextureLabel("textures/missing.png?cache=1", texture),
-    ).toBe("textures/missing.png");
+      resolveMissingTextureLabel("F:/3dcg/Blender/tilarna/face.png", texture),
+    ).toBe("../tex/face.png");
+  });
+
+  it("keeps regular missing texture URLs unchanged without FBX source names", () => {
+    expect(resolveMissingTextureLabel("textures/missing.png?cache=1")).toBe(
+      "textures/missing.png",
+    );
   });
 });
 

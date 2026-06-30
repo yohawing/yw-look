@@ -355,12 +355,15 @@ function filenameFromUrl(value: string) {
 
 function resolveMissingTextureLabel(url: string, texture?: Texture) {
   const label = stripUrlSuffix(url);
+  const sourceName = texture?.userData?.fbxSourceName;
   if (!/^blob:/i.test(label)) {
+    if (typeof sourceName === "string" && sourceName.length > 0) {
+      return stripUrlSuffix(sourceName);
+    }
     return label;
   }
 
   const blobLabel = filenameFromUrl(label);
-  const sourceName = texture?.userData?.fbxSourceName;
   if (
     typeof sourceName === "string" &&
     sourceName.length > 0 &&
@@ -913,15 +916,16 @@ async function createFbxLoadingManager(
 
     override load(url: string, onLoad?: (texture: Texture) => void) {
       const resourceUrl = `${this.path ?? ""}${url}`;
+      const textureReference = stripUrlSuffix(url);
       const isLikelyNormalMap = /(^|[_\-.])(?:normal|nrm|n)([_\-.]|$)/i.test(
-        filenameFromUrl(resourceUrl),
+        filenameFromUrl(textureReference),
       );
       const texture: Texture = isLikelyNormalMap
         ? new DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1)
         : createPendingCompressedTexture();
       texture.userData.fbxDdsTexture = true;
-      const textureLabel = filenameFromUrl(resourceUrl);
-      texture.userData.fbxSourceName = textureLabel;
+      const textureLabel = filenameFromUrl(textureReference);
+      texture.userData.fbxSourceName = textureReference;
       if (isAlphaTextureName(textureLabel)) {
         texture.userData.fbxMaybeAlphaTexture = true;
         texture.userData.fbxAlphaMode = "cutout";
@@ -1047,9 +1051,10 @@ async function createFbxLoadingManager(
     override load(url: string, onLoad?: (texture: DataTexture) => void) {
       const texture = new DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
       const resourceUrl = `${this.path ?? ""}${url}`;
-      const textureLabel = filenameFromUrl(resourceUrl);
+      const textureReference = stripUrlSuffix(url);
+      const textureLabel = filenameFromUrl(textureReference);
       texture.userData.fbxTgaTexture = true;
-      texture.userData.fbxSourceName = textureLabel;
+      texture.userData.fbxSourceName = textureReference;
       if (isAlphaTextureName(textureLabel)) {
         texture.userData.fbxMaybeAlphaTexture = true;
         texture.userData.fbxAlphaMode = "cutout";
@@ -1153,9 +1158,10 @@ async function createFbxLoadingManager(
 
     override load(url: string, onLoad?: (texture: Texture) => void) {
       const resourceUrl = `${this.path ?? ""}${url}`;
-      const textureLabel = filenameFromUrl(resourceUrl);
+      const textureReference = stripUrlSuffix(url);
+      const textureLabel = filenameFromUrl(textureReference);
       const texture = createFallbackTexture(resourceUrl);
-      texture.userData.fbxSourceName = textureLabel;
+      texture.userData.fbxSourceName = textureReference;
 
       trackTextureStart(textureLabel);
       trackTextureActive(textureLabel);
@@ -1180,7 +1186,7 @@ async function createFbxLoadingManager(
               copyTextureInto(texture, loadedTexture);
               loadedTexture.dispose();
               texture.name = textureLabel;
-              texture.userData.fbxSourceName = textureLabel;
+              texture.userData.fbxSourceName = textureReference;
               texture.userData.textureSourceKind = "external";
               onLoad?.(texture);
               trackTextureDone();
