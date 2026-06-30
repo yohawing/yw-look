@@ -1255,16 +1255,40 @@ async function createFbxLoadingManager(
 
 async function materializeGltf(file: SelectedFile) {
   const rawText = await readTextFile(file.path);
-  const json = JSON.parse(rawText) as GltfDocument;
+  let json: GltfDocument | null = JSON.parse(rawText) as GltfDocument;
+  const formatVersion = json.asset?.version ?? null;
+  const bufferUris = [
+    ...new Set(
+      (json.buffers ?? [])
+        .map((buffer) => buffer.uri)
+        .filter(
+          (uri): uri is string =>
+            typeof uri === "string" &&
+            uri.length > 0 &&
+            !/^(data:|blob:|https?:)/i.test(uri),
+        ),
+    ),
+  ];
+  const imageUris = [
+    ...new Set(
+      (json.images ?? [])
+        .map((image) => image.uri)
+        .filter(
+          (uri): uri is string =>
+            typeof uri === "string" &&
+            uri.length > 0 &&
+            !/^(data:|blob:|https?:)/i.test(uri),
+        ),
+    ),
+  ];
+  json = null;
+
   const cleanupUrls: string[] = [];
   const missingPaths: string[] = [];
   const unresolvedImages: string[] = [];
+  const urlMap = new Map<string, string>();
 
-  const rewriteUri = async (uri: string) => {
-    if (/^(data:|blob:|https?:)/i.test(uri)) {
-      return uri;
-    }
-
+  const createMappedBlobUrl = async (uri: string) => {
     const resourcePath = resolveSiblingPath(file.parentDirectory, uri);
     const extension = uri.includes(".")
       ? (uri.split(".").pop() ?? "bin")
@@ -1278,37 +1302,27 @@ async function materializeGltf(file: SelectedFile) {
     return objectUrl;
   };
 
-  if (json.buffers) {
-    for (const buffer of json.buffers) {
-      if (!buffer.uri) {
-        continue;
-      }
-      try {
-        buffer.uri = await rewriteUri(buffer.uri);
-      } catch {
-        missingPaths.push(buffer.uri);
-      }
+  for (const uri of bufferUris) {
+    try {
+      urlMap.set(uri, await createMappedBlobUrl(uri));
+    } catch {
+      missingPaths.push(uri);
     }
   }
 
-  const missingImageIndices = new Set<number>();
-  if (json.images) {
-    for (const [index, image] of json.images.entries()) {
-      if (!image.uri) {
-        continue;
-      }
-      try {
-        image.uri = await rewriteUri(image.uri);
-      } catch {
-        unresolvedImages.push(image.uri);
-        missingImageIndices.add(index);
-        image.uri = FALLBACK_TEXTURE_DATA_URL;
-      }
+  for (const uri of imageUris) {
+    if (urlMap.has(uri)) {
+      continue;
+    }
+    try {
+      urlMap.set(uri, await createMappedBlobUrl(uri));
+    } catch {
+      unresolvedImages.push(uri);
+      urlMap.set(uri, FALLBACK_TEXTURE_DATA_URL);
     }
   }
 
-  if (missingImageIndices.size > 0) {
-    applyMissingGltfTextureFallbacks(json, missingImageIndices);
+  if (unresolvedImages.length > 0) {
     warnTextureFallback(
       "[gltf] missing texture references; using fallback material:",
       {
@@ -1325,21 +1339,20 @@ async function materializeGltf(file: SelectedFile) {
     const error = new Error(
       `Missing reference: ${missingPaths.join(", ")}`,
     ) as MissingReferenceError;
-    error.formatVersion = json.asset?.version ?? null;
+    error.formatVersion = formatVersion;
     error.missingPaths = missingPaths;
     error.unresolvedImages = unresolvedImages;
     throw error;
   }
 
-  const rootUrl = URL.createObjectURL(
-    new Blob([JSON.stringify(json)], { type: "model/gltf+json" }),
-  );
-  cleanupUrls.push(rootUrl);
+  const manager = new LoadingManager();
+  manager.setURLModifier((url) => urlMap.get(url) ?? url);
 
   return {
-    rootUrl,
+    rawText,
+    manager,
     cleanupUrls,
-    formatVersion: json.asset?.version ?? null,
+    formatVersion,
     warnings: formatMissingTextureWarnings(unresolvedImages),
   };
 }
@@ -1861,7 +1874,10 @@ async function loadPreviewObjectCore(
       const materialized = await materializeGltf(file);
       throwIfAborted(options.signal);
       reportStage("gpu");
-      const gltf = await new GLTFLoader().loadAsync(materialized.rootUrl);
+      const gltf = await new GLTFLoader(materialized.manager).parseAsync(
+        materialized.rawText,
+        "",
+      );
       throwIfAborted(options.signal);
       return {
         object: gltf.scene,
