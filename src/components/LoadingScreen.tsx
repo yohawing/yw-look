@@ -11,7 +11,6 @@ type LoadingScreenProps = {
   stage?: LoadingStageSnapshot | null;
   deferredTexture?: DeferredTextureSnapshot | null;
   compact?: boolean;
-  onCancel?: () => void;
 };
 
 const consoleRows: Array<{ id: LoadingStageId; text: string }> = [
@@ -39,7 +38,6 @@ export function LoadingScreen({
   compact = false,
   deferredTexture = null,
   fileName,
-  onCancel,
   stage,
 }: LoadingScreenProps) {
   const displayName = fileName ?? "Asset preview";
@@ -147,17 +145,6 @@ export function LoadingScreen({
           </b>
           <i aria-hidden="true" />
         </div>
-        {onCancel ? (
-          <div className="loader-console-actions">
-            <button
-              className="loader-console-cancel"
-              onClick={onCancel}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : null}
       </section>
     </div>
   );

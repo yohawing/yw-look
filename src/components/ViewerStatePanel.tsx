@@ -20,7 +20,6 @@ type ViewerStatePanelProps = {
   loadingStage?: LoadingStageSnapshot | null;
   deferredTexture?: DeferredTextureSnapshot | null;
   onOpenFile?: () => void;
-  onCancelLoad?: () => void;
 };
 
 const registeredLoaders = listRegisteredLoaders();
@@ -116,12 +115,6 @@ const stateContent: Record<
       "If this keeps happening, share the file and error details with support.",
     ],
   },
-  loadCanceled: {
-    label: "Load Canceled",
-    title: "The preview load was canceled.",
-    body: "The current file selection is unchanged. Open another file or retry when ready.",
-    tone: "neutral",
-  },
   missingReference: {
     label: "Missing Reference",
     title:
@@ -141,7 +134,6 @@ export function ViewerStatePanel({
   fileName,
   loadingStage,
   mode,
-  onCancelLoad,
   onOpenFile,
 }: ViewerStatePanelProps) {
   const baseContent = stateContent[mode];
@@ -178,7 +170,6 @@ export function ViewerStatePanel({
       <LoadingScreen
         deferredTexture={deferredTexture}
         fileName={fileName}
-        onCancel={onCancelLoad}
         stage={loadingStage}
       />
     );

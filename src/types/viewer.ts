@@ -26,7 +26,6 @@ export type ViewerMode =
   | "disabledOptionalLoader"
   | "incompatibleOptionalLoader"
   | "loadFailed"
-  | "loadCanceled"
   | "missingReference";
 
 export type ViewerFeedback = {

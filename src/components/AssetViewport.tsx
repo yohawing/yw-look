@@ -256,7 +256,6 @@ export function AssetViewport({
   // the post-load callback runs inside a Three.js Promise chain that does
   // not see prop changes, so we hold the latest setter in a ref.
   const onActiveCameraResetRef = useRef(onActiveCameraReset);
-  const cancelLoadRef = useRef<(() => void) | null>(null);
 
   // The actual Three.js camera found by traversal. null = use the scene's
   // own free camera (context.camera). Stored as `Camera` (not the narrower
@@ -1158,28 +1157,6 @@ export function AssetViewport({
         ),
       );
     };
-    const cancelCurrentLoad = () => {
-      if (disposed) {
-        return;
-      }
-      disposed = true;
-      abortController.abort();
-      setActivePreviewPath(currentFile.path);
-      setOverlayMode("loadCanceled");
-      setLoadingStage(null);
-      setDeferredTexture(null);
-      onMetadataChange(emptyAssetMetadata);
-      assetResourceMetricsRef.current = null;
-      publishResourceDiagnostics(context);
-      onFeedbackChange({
-        mode: "loadCanceled",
-        message: `Canceled loading ${currentFile.fileName}.`,
-        warning: null,
-        canResetCamera: false,
-      });
-    };
-    cancelLoadRef.current = cancelCurrentLoad;
-
     loadPreviewObject(currentFile, context.renderer, {
       usdLoadPolicy,
       variantSelections,
@@ -1442,13 +1419,11 @@ export function AssetViewport({
         }
         if (isAbortError(error)) {
           setActivePreviewPath(currentFile.path);
-          setOverlayMode("loadCanceled");
-          onFeedbackChange({
-            mode: "loadCanceled",
-            message: `Canceled loading ${currentFile.fileName}.`,
-            warning: null,
-            canResetCamera: false,
-          });
+          setOverlayMode("empty");
+          onFeedbackChange(neutralFeedback);
+          onMetadataChange(emptyAssetMetadata);
+          assetResourceMetricsRef.current = null;
+          publishResourceDiagnostics(context);
           setLoadingStage(null);
           setDeferredTexture(null);
           return;
@@ -1500,9 +1475,6 @@ export function AssetViewport({
     return () => {
       disposed = true;
       abortController.abort();
-      if (cancelLoadRef.current === cancelCurrentLoad) {
-        cancelLoadRef.current = null;
-      }
       setLoadingStage(null);
       setDeferredTexture(null);
       runCleanupCallbacks(context.cleanupCallbacks);
@@ -1760,7 +1732,6 @@ export function AssetViewport({
         effectiveOverlayMode={effectiveOverlayMode}
         hasAnimation={hasAnimation}
         loadingStage={loadingStage}
-        onCancelLoad={() => cancelLoadRef.current?.()}
         onOpenFile={onOpenFile}
         onSeek={handleSeek}
         onSelectClip={handleSelectClip}

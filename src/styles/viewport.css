@@ -100,10 +100,6 @@
     rgba(1, 1, 2, 0.22);
 }
 
-.loader-root:has(.loader-console-cancel) {
-  pointer-events: auto;
-}
-
 .loader-root.is-compact {
   position: static;
   display: block;
@@ -299,37 +295,6 @@
   background: var(--yl-accent-hover, #828fff);
   opacity: 0.72;
   animation: loader-caret 0.96s steps(2, jump-none) infinite;
-}
-
-.loader-console-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 14px 14px;
-}
-
-.loader-console-cancel {
-  min-width: 72px;
-  height: 28px;
-  padding: 0 10px;
-  color: var(--yl-text-secondary, #d0d6e0);
-  font-family: var(--yl-font-sans, Inter, system-ui, sans-serif);
-  font-size: 12px;
-  font-weight: 510;
-  letter-spacing: 0;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--yl-border, rgba(255, 255, 255, 0.08));
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.loader-console-cancel:hover {
-  color: var(--yl-text-primary, #f7f8f8);
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.loader-console-cancel:focus-visible {
-  outline: none;
-  box-shadow: var(--yl-shadow-focus, rgba(113, 112, 255, 0.3) 0 0 0 1px);
 }
 
 @keyframes loader-bar {
