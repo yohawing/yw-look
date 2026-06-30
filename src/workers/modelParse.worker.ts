@@ -1,9 +1,11 @@
 import {
+  Bone,
   Group,
   LoadingManager,
   Mesh,
   MeshStandardMaterial,
   type Object3D,
+  SkinnedMesh,
 } from "three";
 import { ColladaLoader } from "three/examples/jsm/loaders/ColladaLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
@@ -135,10 +137,54 @@ function canUseStaticSceneResult(
   kind: ModelParseWorkerPayload["kind"],
   object: Object3D,
 ) {
+  if (kind === "fbx" && hasFbxStaticSceneBlocker(object)) {
+    return false;
+  }
+
   return (
-    (kind === "obj" || kind === "ply" || kind === "stl" || kind === "dae") &&
+    (kind === "obj" ||
+      kind === "ply" ||
+      kind === "stl" ||
+      kind === "dae" ||
+      kind === "fbx") &&
     canSerializeStaticNode(object)
   );
+}
+
+function hasFbxStaticSceneBlocker(object: Object3D) {
+  if ((object.animations?.length ?? 0) > 0) {
+    return true;
+  }
+
+  let hasBlocker = false;
+  object.traverse((child) => {
+    if (hasBlocker) {
+      return;
+    }
+
+    if (
+      (child.animations?.length ?? 0) > 0 ||
+      child instanceof SkinnedMesh ||
+      child instanceof Bone
+    ) {
+      hasBlocker = true;
+      return;
+    }
+
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    if ((child.morphTargetInfluences?.length ?? 0) > 0) {
+      hasBlocker = true;
+      return;
+    }
+
+    hasBlocker = Object.values(child.geometry.morphAttributes).some(
+      (attributes) => (attributes as ArrayLike<unknown>).length > 0,
+    );
+  });
+  return hasBlocker;
 }
 
 self.addEventListener(
