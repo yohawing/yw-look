@@ -4,8 +4,8 @@
  * Default ON since #45. The worker only handles single-buffer USDA
  * — anything that needs USDC decoding or external composition is
  * already routed to the Rust GLB pipeline via `requires_glb_preview`,
- * so the toJSON/fromJSON roundtrip the worker uses doesn't have to
- * cope with USDZ-embedded textures or layered references in practice.
+ * so the staticScene/JSON worker payload doesn't have to cope with
+ * USDZ-embedded textures or layered references in practice.
  * Worker errors fall back to the synchronous main-thread parse in
  * `loaders.ts`, so flipping this off via env should only be necessary
  * if a regression is suspected.
@@ -14,6 +14,7 @@
  */
 
 import { ObjectLoader, type Object3D } from "three";
+import { createStaticSceneObject } from "../workers/staticScene";
 import type {
   UsdWorkerRequest,
   UsdWorkerResponse,
@@ -91,8 +92,10 @@ function getWorker(): Worker {
       entry.cleanup?.();
       if (event.data.ok) {
         try {
-          const loader = new ObjectLoader();
-          const object = loader.parse(event.data.sceneJson as object);
+          const object =
+            event.data.result.kind === "staticScene"
+              ? createStaticSceneObject(event.data.result.scene)
+              : new ObjectLoader().parse(event.data.result.sceneJson as object);
           entry.resolve(object);
         } catch (error) {
           entry.reject(
