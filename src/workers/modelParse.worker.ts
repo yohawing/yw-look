@@ -136,7 +136,7 @@ function canUseStaticSceneResult(
   object: Object3D,
 ) {
   return (
-    (kind === "obj" || kind === "ply" || kind === "stl") &&
+    (kind === "obj" || kind === "ply" || kind === "stl" || kind === "dae") &&
     canSerializeStaticNode(object)
   );
 }
@@ -150,7 +150,7 @@ self.addEventListener(
       if (canUseStaticSceneResult(request.payload.kind, object)) {
         const scene = toStaticScenePayload(
           object,
-          request.payload.kind === "obj",
+          request.payload.kind === "obj" || request.payload.kind === "dae",
         );
         if (scene) {
           const response: ModelParseWorkerResponse = {
