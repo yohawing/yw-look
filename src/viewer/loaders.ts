@@ -61,6 +61,8 @@ const HAS_THREE_MMD_LOADER =
 const HAS_SPARK_LOADER =
   typeof __YW_HAS_SPARK_LOADER__ === "boolean" ? __YW_HAS_SPARK_LOADER__ : true;
 
+const WORKER_FALLBACK_SIZE_LIMIT = 50 * 1024 * 1024;
+
 export async function loadMmdMotion(file: SelectedFile) {
   const { loadMmdMotion: load } = await import("./mmd/loader");
   return load(file);
@@ -1903,6 +1905,14 @@ async function loadPreviewObjectCore(
         if (isAbortOrTimeoutError(error)) {
           throw error;
         }
+        if (buffer.byteLength >= WORKER_FALLBACK_SIZE_LIMIT) {
+          const fileSizeMb = (buffer.byteLength / (1024 * 1024)).toFixed(1);
+          throw new Error(
+            `Worker parsing failed for large file (${fileSizeMb} MB). ` +
+              "Main thread fallback is disabled for files over 50 MB to prevent UI freeze.",
+            { cause: error },
+          );
+        }
         console.warn(
           "[fbx] worker parse failed, falling back to main thread:",
           error,
@@ -2455,6 +2465,14 @@ async function loadPreviewObjectCore(
         } catch (error) {
           if (isAbortOrTimeoutError(error)) {
             throw error;
+          }
+          if (buffer.byteLength >= WORKER_FALLBACK_SIZE_LIMIT) {
+            const fileSizeMb = (buffer.byteLength / (1024 * 1024)).toFixed(1);
+            throw new Error(
+              `Worker parsing failed for large file (${fileSizeMb} MB). ` +
+                "Main thread fallback is disabled for files over 50 MB to prevent UI freeze.",
+              { cause: error },
+            );
           }
           console.warn(
             "[usd] worker parse failed, falling back to main thread:",
