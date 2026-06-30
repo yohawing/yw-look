@@ -45,6 +45,8 @@
     "local-assets:collect": "node scripts/collect-local-assets.mjs",
     "local-assets:check": "node scripts/local-asset-load-check.mjs",
     "local-assets:visual-review": "node scripts/local-asset-visual-review.mjs",
+    "local-assets:visual-review:html": "node scripts/local-asset-visual-review.mjs --html-only",
+    "local-assets:visual-review:serve": "node scripts/local-asset-visual-review.mjs --serve-only",
     "samples:fetch": "node samples/private/fetch.mjs",
     "bench:load": "node scripts/run-load-bench.mjs",
     "bench:load:baseline": "node scripts/compare-load-bench.mjs --write-baseline artifacts/bench/load-baseline.json",

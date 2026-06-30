@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
 
@@ -40,6 +41,10 @@ const size = argv.size ?? "640x480";
 const background = argv.bg ?? "default";
 const timeoutMs =
   argv.timeoutMs === undefined ? 600_000 : Number(argv.timeoutMs);
+const serve = Boolean(argv.serve);
+const serveOnly = Boolean(argv.serveOnly);
+const htmlOnly = Boolean(argv.htmlOnly);
+const servePort = argv.port === undefined ? 17831 : Number(argv.port);
 const includeKinds = argv.kinds
   ? new Set(
       argv.kinds
@@ -57,6 +62,9 @@ if (!Number.isInteger(offset) || offset < 0) {
 }
 if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
   throw new Error("--timeout-ms must be a positive number");
+}
+if (!Number.isInteger(servePort) || servePort <= 0 || servePort > 65535) {
+  throw new Error("--port must be a TCP port number");
 }
 
 const { width, height } = parseSize(size);
@@ -92,6 +100,29 @@ const shotCases = cases.map((testCase, index) => ({
 const configPath = path.join(outDir, "shot-batch-config.json");
 await writeFile(configPath, `${JSON.stringify(shotCases, null, 2)}\n`, "utf8");
 
+if (serveOnly || htmlOnly) {
+  const reportPath = path.join(outDir, "visual-review-report.json");
+  const report = normalizeReportForHtml(
+    JSON.parse(await readFile(reportPath, "utf8")),
+    screenshotDir,
+  );
+  const htmlReportPath = path.join(outDir, "visual-review.html");
+  const markdownReportPath = path.join(outDir, "visual-review.md");
+  await writeFile(markdownReportPath, renderMarkdown(report), "utf8");
+  await writeFile(htmlReportPath, renderHtml(report), "utf8");
+  console.log(`HTML     : ${htmlReportPath}`);
+  console.log(`Markdown : ${markdownReportPath}`);
+  if (serveOnly) {
+    await serveReviewPage({
+      outDir,
+      htmlReportPath,
+      report,
+      preferredPort: servePort,
+    });
+  }
+  process.exit(0);
+}
+
 console.log(
   `[visual-review] rendering ${shotCases.length} screenshot(s) at ${width}x${height}`,
 );
@@ -110,6 +141,10 @@ try {
       screenshotUrl: image.exists
         ? normalizePath(path.relative(outDir, outputPath))
         : null,
+      sourceFolderPath: path.dirname(testCase.path),
+      sourceFolderUrl: pathToFileURL(path.dirname(testCase.path)).href,
+      screenshotFolderPath: screenshotDir,
+      screenshotFolderUrl: pathToFileURL(screenshotDir).href,
       visualStatus: image.exists
         ? image.nonBlank
           ? "rendered"
@@ -161,9 +196,232 @@ try {
   console.log(`HTML     : ${htmlReportPath}`);
   console.log(`JSON     : ${jsonReportPath}`);
 
+  if (serve) {
+    await serveReviewPage({
+      outDir,
+      htmlReportPath,
+      report,
+      preferredPort: servePort,
+    });
+  }
+
   process.exitCode = run.exitCode !== 0 || report.summary.missing > 0 ? 1 : 0;
 } finally {
   await stopDevServer(devServer);
+}
+
+async function serveReviewPage({
+  outDir,
+  htmlReportPath,
+  report,
+  preferredPort,
+}) {
+  const token = randomBytes(24).toString("hex");
+  const allowedFolders = new Set(
+    report.results.flatMap((result) =>
+      [result.sourceFolderPath, result.screenshotFolderPath]
+        .filter(Boolean)
+        .map((entry) => path.resolve(entry).toLowerCase()),
+    ),
+  );
+  const server = http.createServer((request, response) => {
+    void handleReviewRequest({
+      allowedFolders,
+      htmlReportPath,
+      outDir,
+      request,
+      response,
+      token,
+    });
+  });
+  const port = await listenOnAvailablePort(server, preferredPort);
+  const url = `http://127.0.0.1:${port}/visual-review.html`;
+  console.log(`[visual-review] serving review page at ${url}`);
+  console.log("[visual-review] press Ctrl+C to stop the review server");
+  await new Promise((resolve) => {
+    const close = () => {
+      server.close(() => resolve());
+    };
+    process.once("SIGINT", close);
+    process.once("SIGTERM", close);
+  });
+}
+
+async function handleReviewRequest({
+  allowedFolders,
+  htmlReportPath,
+  outDir,
+  request,
+  response,
+  token,
+}) {
+  try {
+    if (request.method === "POST" && request.url === "/__open-folder") {
+      await handleOpenFolderRequest({
+        allowedFolders,
+        request,
+        response,
+        token,
+      });
+      return;
+    }
+
+    if (request.method !== "GET") {
+      response.writeHead(405).end("method not allowed");
+      return;
+    }
+
+    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+    const pathname =
+      requestUrl.pathname === "/" ? "/visual-review.html" : requestUrl.pathname;
+    const targetPath = path.resolve(outDir, `.${decodeURIComponent(pathname)}`);
+    if (!isPathInside(targetPath, outDir)) {
+      response.writeHead(403).end("forbidden");
+      return;
+    }
+
+    if (targetPath === path.resolve(htmlReportPath)) {
+      const html = await readFile(htmlReportPath, "utf8");
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+      });
+      response.end(html.replaceAll("__YW_LOOK_REVIEW_OPENER_TOKEN__", token));
+      return;
+    }
+
+    const body = await readFile(targetPath);
+    response.writeHead(200, { "content-type": contentTypeFor(targetPath) });
+    response.end(body);
+  } catch (error) {
+    response
+      .writeHead(500, { "content-type": "text/plain; charset=utf-8" })
+      .end(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function handleOpenFolderRequest({
+  allowedFolders,
+  request,
+  response,
+  token,
+}) {
+  if (request.headers["x-yw-look-review-token"] !== token) {
+    response.writeHead(403).end("forbidden");
+    return;
+  }
+
+  const chunks = [];
+  for await (const chunk of request) {
+    chunks.push(chunk);
+    if (Buffer.concat(chunks).length > 64 * 1024) {
+      response.writeHead(413).end("request too large");
+      return;
+    }
+  }
+
+  const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const folderPath = path.resolve(String(payload.path ?? ""));
+  if (!allowedFolders.has(folderPath.toLowerCase())) {
+    response.writeHead(403).end("folder is not in this review report");
+    return;
+  }
+
+  await openFolder(folderPath);
+  response
+    .writeHead(200, { "content-type": "application/json; charset=utf-8" })
+    .end(JSON.stringify({ ok: true }));
+}
+
+function openFolder(folderPath) {
+  const command =
+    process.platform === "win32"
+      ? "explorer.exe"
+      : process.platform === "darwin"
+        ? "open"
+        : "xdg-open";
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, [folderPath], {
+      detached: true,
+      stdio: "ignore",
+      shell: false,
+    });
+    child.on("error", reject);
+    child.on("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
+function listenOnAvailablePort(server, preferredPort) {
+  return new Promise((resolve, reject) => {
+    const tryPort = (port) => {
+      const onError = (error) => {
+        server.off("listening", onListening);
+        if (error.code === "EADDRINUSE" && port < preferredPort + 20) {
+          tryPort(port + 1);
+          return;
+        }
+        reject(error);
+      };
+      const onListening = () => {
+        server.off("error", onError);
+        resolve(port);
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(port, "127.0.0.1");
+    };
+    tryPort(preferredPort);
+  });
+}
+
+function isPathInside(targetPath, rootPath) {
+  const relative = path.relative(
+    path.resolve(rootPath),
+    path.resolve(targetPath),
+  );
+  return (
+    Boolean(relative) &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative)
+  );
+}
+
+function contentTypeFor(filePath) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".html":
+      return "text/html; charset=utf-8";
+    case ".json":
+      return "application/json; charset=utf-8";
+    case ".md":
+      return "text/markdown; charset=utf-8";
+    case ".png":
+      return "image/png";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function normalizeReportForHtml(report, screenshotDir) {
+  return {
+    ...report,
+    results: report.results.map((result) => {
+      const sourceFolderPath =
+        result.sourceFolderPath ?? path.dirname(result.path);
+      const screenshotFolderPath = result.screenshotFolderPath ?? screenshotDir;
+      return {
+        ...result,
+        sourceFolderPath,
+        sourceFolderUrl:
+          result.sourceFolderUrl ?? pathToFileURL(sourceFolderPath).href,
+        screenshotFolderPath,
+        screenshotFolderUrl:
+          result.screenshotFolderUrl ??
+          pathToFileURL(screenshotFolderPath).href,
+      };
+    }),
+  };
 }
 
 function runShotBatch(configFile) {
@@ -528,6 +786,8 @@ function renderHtml(report) {
       extension: result.extension,
       kind: result.kind,
       visualStatus: result.visualStatus,
+      sourceFolderPath: result.sourceFolderPath,
+      screenshotFolderPath: result.screenshotFolderPath,
     })),
   ).replaceAll("</", "<\\/");
   const rows = report.results.map(renderCard).join("\n");
@@ -584,6 +844,24 @@ function renderHtml(report) {
     }
     button {
       cursor: pointer;
+    }
+    a.link-button {
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 6px;
+      background: rgba(255,255,255,.04);
+      color: #eef2f7;
+      padding: 6px 8px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .actions button, .actions a {
+      font-size: 11px;
     }
     main {
       max-width: 1440px;
@@ -706,6 +984,7 @@ ${rows}
   </main>
   <script>
     const reportResults = ${resultJson};
+    const reviewOpenerToken = "__YW_LOOK_REVIEW_OPENER_TOKEN__";
     const storageKey = "yw-look-local-asset-visual-review:" + location.pathname;
     const state = JSON.parse(localStorage.getItem(storageKey) || "{}");
     function save() {
@@ -744,6 +1023,64 @@ ${rows}
         state[card.dataset.id] = item;
         save();
       });
+      for (const button of card.querySelectorAll("[data-copy]")) {
+        button.addEventListener("click", async () => {
+          await copyText(button.dataset.copy || "");
+          showButtonState(button, "Copied");
+        });
+      }
+      for (const link of card.querySelectorAll("[data-open-folder]")) {
+        link.addEventListener("click", async (event) => {
+          if (!canUseFolderOpener()) return;
+          event.preventDefault();
+          try {
+            await openFolder(link.dataset.openFolder || "");
+            showButtonState(link, "Opened");
+          } catch {
+            await copyText(link.dataset.openFolder || "");
+            showButtonState(link, "Copied path");
+          }
+        });
+      }
+    }
+    function canUseFolderOpener() {
+      return location.protocol === "http:" && reviewOpenerToken !== "__YW_LOOK_REVIEW_OPENER_TOKEN__";
+    }
+    async function openFolder(folderPath) {
+      const response = await fetch("/__open-folder", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-yw-look-review-token": reviewOpenerToken
+        },
+        body: JSON.stringify({ path: folderPath })
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+    }
+    function showButtonState(element, text) {
+      const original = element.textContent;
+      element.textContent = text;
+      setTimeout(() => {
+        element.textContent = original;
+      }, 900);
+    }
+    async function copyText(value) {
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(value);
+          return;
+        } catch {}
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
     }
     document.getElementById("visualFilter").addEventListener("change", applyFilters);
     document.getElementById("reviewFilter").addEventListener("change", applyFilters);
@@ -781,6 +1118,12 @@ function renderCard(result) {
       <span class="badge">${escapeHtml(result.kind)} / ${escapeHtml(result.extension)}</span>
     </div>
     <p class="path">${escapeHtml(result.path)}</p>
+    <div class="actions">
+      <a class="link-button" href="${escapeHtml(result.sourceFolderUrl)}" target="_blank" rel="noreferrer" data-open-folder="${escapeHtml(result.sourceFolderPath)}">Open source folder</a>
+      <a class="link-button" href="${escapeHtml(result.screenshotFolderUrl)}" target="_blank" rel="noreferrer" data-open-folder="${escapeHtml(result.screenshotFolderPath)}">Open shot folder</a>
+      <button type="button" data-copy="${escapeHtml(result.path)}">Copy source path</button>
+      <button type="button" data-copy="${escapeHtml(result.sourceFolderPath)}">Copy folder path</button>
+    </div>
     <div class="row">
       <label>Review <select data-role="review"><option value="unreviewed">Unreviewed</option><option value="ok">OK</option><option value="suspect">Suspect</option><option value="bad">Bad</option></select></label>
       <span class="badge">${Math.round(result.image.changedPixelRatio * 10000) / 100}% changed</span>
@@ -957,6 +1300,14 @@ function parseArgs(tokens) {
       parsed.bg = readValue(tokens, ++index, token);
     } else if (token === "--timeout-ms") {
       parsed.timeoutMs = readValue(tokens, ++index, token);
+    } else if (token === "--serve") {
+      parsed.serve = true;
+    } else if (token === "--serve-only") {
+      parsed.serveOnly = true;
+    } else if (token === "--html-only") {
+      parsed.htmlOnly = true;
+    } else if (token === "--port") {
+      parsed.port = readValue(tokens, ++index, token);
     } else {
       throw new Error(`unknown argument: ${token}`);
     }
@@ -977,10 +1328,17 @@ function printUsage() {
   node scripts/local-asset-visual-review.mjs --csv artifacts/local-assets/3dcg-assets.csv
   node scripts/local-asset-visual-review.mjs --limit 20 --size 640x480
   node scripts/local-asset-visual-review.mjs --kinds model,motion,splat
+  node scripts/local-asset-visual-review.mjs --html-only
+  node scripts/local-asset-visual-review.mjs --serve-only
 
 Renders local asset screenshots through scripts/run-shot.mjs shot-batch and writes
 artifacts/local-assets/visual-review/visual-review.html for human review.
-Default kinds: model,splat.`);
+Default kinds: model,splat.
+
+--serve starts a localhost review page after rendering. --serve-only serves an
+existing report without rerendering screenshots. Folder buttons open Explorer
+only on the localhost review page; file:// pages keep folder links and copy
+buttons.`);
 }
 
 console.log(`Review page: ${pathToFileURL(htmlReportPath).href}`);
