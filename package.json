@@ -42,6 +42,8 @@
     "test:visual": "node scripts/visual-regression.mjs",
     "test:viewport-snapshot": "node scripts/viewport-snapshot.mjs",
     "test:viewport-snapshot:update": "node scripts/viewport-snapshot.mjs --update-snapshot",
+    "local-assets:collect": "node scripts/collect-local-assets.mjs",
+    "local-assets:check": "node scripts/local-asset-load-check.mjs",
     "samples:fetch": "node samples/private/fetch.mjs",
     "bench:load": "node scripts/run-load-bench.mjs",
     "bench:load:baseline": "node scripts/compare-load-bench.mjs --write-baseline artifacts/bench/load-baseline.json",
