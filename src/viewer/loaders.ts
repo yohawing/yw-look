@@ -250,10 +250,7 @@ function parseAlembicBinaryPayload(source: ArrayBuffer): AlembicPreviewPayload {
       throw new Error("Alembic helper returned invalid mesh indices.");
     }
 
-    const positions = readFloat32Array(
-      positionElementCount,
-      "base positions",
-    );
+    const positions = readFloat32Array(positionElementCount, "base positions");
     const indices = readUint32Array(indexCount, "indices");
     const frames: AlembicPreviewFrame[] = [];
 
@@ -277,6 +274,44 @@ function parseAlembicBinaryPayload(source: ArrayBuffer): AlembicPreviewPayload {
   }
 
   return { meshes };
+}
+
+function parseAlembicJsonPayload(source: string): AlembicPreviewPayload {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    throw new Error("Alembic helper returned malformed preview JSON.");
+  }
+
+  const data = parsed as {
+    format?: string;
+    meshes?: Array<{
+      name?: string;
+      positions?: number[];
+      indices?: number[];
+      frames?: Array<{ time?: number; positions?: number[] }>;
+    }>;
+  };
+
+  if (
+    data.format !== "yw-look-alembic-preview-v1" ||
+    !Array.isArray(data.meshes)
+  ) {
+    throw new Error("Alembic helper returned malformed preview JSON.");
+  }
+
+  return {
+    meshes: data.meshes.map((m) => ({
+      name: m.name ?? "",
+      positions: new Float32Array(m.positions ?? []),
+      indices: new Uint32Array(m.indices ?? []),
+      frames: (m.frames ?? []).map((f) => ({
+        time: f.time ?? 0,
+        positions: new Float32Array(f.positions ?? []),
+      })),
+    })),
+  };
 }
 
 function createAlembicPreview(
@@ -333,7 +368,8 @@ function createAlembicPreview(
       geometry.morphAttributes.position = frames.map((frame) => {
         const offsets = new Float32Array(frame.positions.length);
         for (let index = 0; index < frame.positions.length; index += 1) {
-          offsets[index] = frame.positions[index] - meshPayload.positions[index];
+          offsets[index] =
+            frame.positions[index] - meshPayload.positions[index];
         }
         return new BufferAttribute(offsets, 3);
       });
@@ -2336,9 +2372,11 @@ async function loadPreviewObjectCore(
     }
     case "abc": {
       reportStage("decode");
-      const previewPayload = parseAlembicBinaryPayload(
-        await convertAlembicToPreview(file.path),
-      );
+      const rawPreview = await convertAlembicToPreview(file.path);
+      const previewPayload =
+        rawPreview instanceof ArrayBuffer
+          ? parseAlembicBinaryPayload(rawPreview)
+          : parseAlembicJsonPayload(rawPreview);
       throwIfAborted(options.signal);
       reportStage("scene");
       const preview = createAlembicPreview(previewPayload);
