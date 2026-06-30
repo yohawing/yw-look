@@ -509,7 +509,14 @@ function collectDiagnosticLogLines(output) {
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => /\b(error|warn|warning|failed|timeout)\b/i.test(line))
+    .filter((line) => !isKnownBenignDiagnosticLine(line))
     .slice(0, 20);
+}
+
+function isKnownBenignDiagnosticLine(line) {
+  return /Failed to unregister class Chrome_WidgetWin_0\. Error = 1412/i.test(
+    line,
+  );
 }
 
 function runShotBatch(configFile) {
