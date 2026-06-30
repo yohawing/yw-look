@@ -1,8 +1,19 @@
-import { ObjectLoader, type Object3D } from "three";
+import {
+  BufferAttribute,
+  BufferGeometry,
+  Group,
+  Matrix4,
+  Mesh,
+  MeshStandardMaterial,
+  ObjectLoader,
+  type Object3D,
+} from "three";
 import type {
+  ModelParseWorkerAttributePayload,
   ModelParseWorkerPayload,
   ModelParseWorkerRequest,
   ModelParseWorkerResponse,
+  ModelParseWorkerStaticScenePayload,
 } from "../workers/modelParse.worker";
 
 export const DEFAULT_MODEL_PARSE_TIMEOUT_MS = 30_000;
@@ -41,6 +52,57 @@ export function isAbortOrTimeoutError(error: unknown): boolean {
 }
 
 let nextRequestId = 1;
+
+function createBufferAttribute(payload: ModelParseWorkerAttributePayload) {
+  return new BufferAttribute(
+    payload.array,
+    payload.itemSize,
+    payload.normalized,
+  );
+}
+
+function createStaticSceneObject(payload: ModelParseWorkerStaticScenePayload) {
+  const root = new Group();
+  root.name = payload.rootName;
+  root.userData = payload.rootUserData;
+  const meshes: Mesh[] = [];
+
+  for (const meshPayload of payload.meshes) {
+    const geometry = new BufferGeometry();
+    for (const [name, attributePayload] of Object.entries(
+      meshPayload.attributes,
+    )) {
+      geometry.setAttribute(name, createBufferAttribute(attributePayload));
+    }
+    if (meshPayload.index) {
+      geometry.setIndex(createBufferAttribute(meshPayload.index));
+    }
+    for (const group of meshPayload.groups) {
+      geometry.addGroup(group.start, group.count, group.materialIndex);
+    }
+    geometry.computeBoundingSphere();
+
+    const material = new MeshStandardMaterial({
+      color: meshPayload.material.color,
+      metalness: meshPayload.material.metalness,
+      roughness: meshPayload.material.roughness,
+    });
+    material.name = meshPayload.material.name;
+
+    const mesh = new Mesh(geometry, material);
+    mesh.name = meshPayload.name;
+    mesh.userData = meshPayload.userData;
+    mesh.applyMatrix4(new Matrix4().fromArray(meshPayload.matrix));
+    meshes.push(mesh);
+  }
+
+  if (payload.rootKind === "mesh" && meshes.length === 1) {
+    return meshes[0];
+  }
+
+  root.add(...meshes);
+  return root;
+}
 
 export async function parseModelInWorker(
   path: string,
@@ -95,8 +157,12 @@ export async function parseModelInWorker(
         return;
       }
       try {
+        if (event.data.result.kind === "staticScene") {
+          settleResolve(createStaticSceneObject(event.data.result.scene));
+          return;
+        }
         const loader = new ObjectLoader();
-        settleResolve(loader.parse(event.data.sceneJson as object));
+        settleResolve(loader.parse(event.data.result.sceneJson as object));
       } catch (error) {
         settleReject(
           error instanceof Error
