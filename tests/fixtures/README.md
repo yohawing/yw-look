@@ -30,6 +30,7 @@ tests/fixtures/
 | `cactus-supersplat-compressed.ply` | PLY binary little endian (SuperSplat compressed 3DGS) | 139,410 splats; classifier regression only | `3DGS_PLY_sample_data`, CC0; credit URL: https://www.steam-studio.jp |
 | `tiny-tetrahedron.dae`             | COLLADA                                               | 1 四面体                                   | `samples/assets/dae/TinyTetrahedron.dae`                             |
 | `Samba Dancing.fbx`                | FBX                                                   | Samba dancing animation sample             | `samples/assets/fbx/Samba Dancing.fbx`                               |
+| `monkey.abc`                       | Alembic (Ogawa)                                       | Blender Suzanne (static)                   | Blender 3.x エクスポート                                             |
 
 ### 手動配置が必要なフォーマット (TODO)
 

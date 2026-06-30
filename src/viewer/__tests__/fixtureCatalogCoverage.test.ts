@@ -55,12 +55,6 @@ const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
     reason: "samples/private/catalog.json has vrm-constraint-twist",
   },
   {
-    extension: "abc",
-    publicCatalog: false,
-    privateCoverage: "covered",
-    reason: "samples/private/catalog.json has abc-monkey",
-  },
-  {
     extension: "usdz",
     publicCatalog: false,
     privateCoverage: "covered",

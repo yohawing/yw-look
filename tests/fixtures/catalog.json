@@ -140,6 +140,13 @@
       "format": "obj",
       "expect": { "shouldLoad": false },
       "knownFailure": "shot/check currently exits successfully for OBJ files that parse to an empty scene; keep as regression target."
+    },
+    {
+      "id": "model-abc-monkey",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/monkey.abc",
+      "format": "abc",
+      "expect": { "shouldLoad": true }
     }
   ]
 }
