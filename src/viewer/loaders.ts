@@ -158,6 +158,29 @@ type AlembicPreviewPayload = {
   meshes: AlembicPreviewMesh[];
 };
 
+function hasYwabMagic(source: ArrayBuffer): boolean {
+  if (source.byteLength < 4) return false;
+  const view = new DataView(source);
+  return (
+    view.getUint8(0) === 0x59 &&
+    view.getUint8(1) === 0x57 &&
+    view.getUint8(2) === 0x41 &&
+    view.getUint8(3) === 0x42
+  );
+}
+
+function parseAlembicPreviewPayload(
+  source: ArrayBuffer | string,
+): AlembicPreviewPayload {
+  if (typeof source === "string") {
+    return parseAlembicJsonPayload(source);
+  }
+  if (hasYwabMagic(source)) {
+    return parseAlembicBinaryPayload(source);
+  }
+  return parseAlembicJsonPayload(new TextDecoder().decode(source));
+}
+
 function parseAlembicBinaryPayload(source: ArrayBuffer): AlembicPreviewPayload {
   const view = new DataView(source);
   let offset = 0;
@@ -2373,10 +2396,7 @@ async function loadPreviewObjectCore(
     case "abc": {
       reportStage("decode");
       const rawPreview = await convertAlembicToPreview(file.path);
-      const previewPayload =
-        rawPreview instanceof ArrayBuffer
-          ? parseAlembicBinaryPayload(rawPreview)
-          : parseAlembicJsonPayload(rawPreview);
+      const previewPayload = parseAlembicPreviewPayload(rawPreview);
       throwIfAborted(options.signal);
       reportStage("scene");
       const preview = createAlembicPreview(previewPayload);

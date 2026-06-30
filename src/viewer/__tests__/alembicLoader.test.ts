@@ -20,74 +20,18 @@ const abcFile: SelectedFile = {
   parentDirectory: "C:\\cache",
 };
 
-function buildYwabPayload(
+function buildJsonPayload(
   meshes: Array<{
     name: string;
     positions: number[];
     indices: number[];
     frames: Array<{ time: number; positions: number[] }>;
   }>,
-): ArrayBuffer {
-  const encoder = new TextEncoder();
-  let totalBytes = 16;
-  const encodedNames: Uint8Array[] = [];
-  for (const mesh of meshes) {
-    const nameBytes = encoder.encode(mesh.name);
-    encodedNames.push(nameBytes);
-    totalBytes += 4 + nameBytes.byteLength;
-    totalBytes += 4 + 4 + 4;
-    totalBytes += mesh.positions.length * 4;
-    totalBytes += mesh.indices.length * 4;
-    for (const frame of mesh.frames) {
-      totalBytes += 4;
-      totalBytes += frame.positions.length * 4;
-    }
-  }
-
-  const buffer = new ArrayBuffer(totalBytes);
-  const view = new DataView(buffer);
-  let offset = 0;
-
-  const writeU32 = (v: number) => {
-    view.setUint32(offset, v, true);
-    offset += 4;
-  };
-  const writeF32 = (v: number) => {
-    view.setFloat32(offset, v, true);
-    offset += 4;
-  };
-
-  view.setUint8(0, 0x59);
-  view.setUint8(1, 0x57);
-  view.setUint8(2, 0x41);
-  view.setUint8(3, 0x42);
-  offset = 4;
-  writeU32(1);
-  writeU32(meshes.length);
-  writeU32(0);
-
-  for (let i = 0; i < meshes.length; i++) {
-    const mesh = meshes[i];
-    const nameBytes = encodedNames[i];
-    writeU32(nameBytes.byteLength);
-    new Uint8Array(buffer, offset, nameBytes.byteLength).set(nameBytes);
-    offset += nameBytes.byteLength;
-
-    const vertexCount = mesh.positions.length / 3;
-    writeU32(vertexCount);
-    writeU32(mesh.indices.length);
-    writeU32(mesh.frames.length);
-
-    for (const p of mesh.positions) writeF32(p);
-    for (const idx of mesh.indices) writeU32(idx);
-
-    for (const frame of mesh.frames) {
-      writeF32(frame.time);
-      for (const p of frame.positions) writeF32(p);
-    }
-  }
-
-  return buffer;
+): string {
+  return JSON.stringify({
+    format: "yw-look-alembic-preview-v1",
+    meshes,
+  });
 }
 
 describe("Alembic preview loader", () => {
@@ -95,10 +39,10 @@ describe("Alembic preview loader", () => {
     mocks.convertAlembicToPreview.mockReset();
   });
 
-  it("converts Alembic binary preview and returns a static mesh preview", async () => {
+  it("converts Alembic preview JSON and returns a static mesh preview", async () => {
     const stages: string[] = [];
     mocks.convertAlembicToPreview.mockResolvedValue(
-      buildYwabPayload([
+      buildJsonPayload([
         {
           name: "triangle",
           positions: [0, 0, 0, 1, 0, 0, 0, 1, 0],
@@ -133,7 +77,7 @@ describe("Alembic preview loader", () => {
 
   it("maps Alembic geometry cache samples to morph target animation", async () => {
     mocks.convertAlembicToPreview.mockResolvedValue(
-      buildYwabPayload([
+      buildJsonPayload([
         {
           name: "bad.name/[triangle]",
           positions: [0, 0, 0, 1, 0, 0, 0, 1, 0],
@@ -175,24 +119,18 @@ describe("Alembic preview loader", () => {
   });
 
   it("fails clearly when the converter returns no renderable mesh", async () => {
-    mocks.convertAlembicToPreview.mockResolvedValue(buildYwabPayload([]));
+    mocks.convertAlembicToPreview.mockResolvedValue(buildJsonPayload([]));
 
     await expect(loadPreviewObject(abcFile)).rejects.toThrow(
       "Alembic conversion returned no renderable mesh data.",
     );
   });
 
-  it("fails clearly when the helper returns malformed binary", async () => {
-    const bad = new ArrayBuffer(16);
-    const badView = new DataView(bad);
-    badView.setUint8(0, 0x42);
-    badView.setUint8(1, 0x41);
-    badView.setUint8(2, 0x44);
-    badView.setUint8(3, 0x21);
-    mocks.convertAlembicToPreview.mockResolvedValue(bad);
+  it("fails clearly when the helper returns malformed JSON", async () => {
+    mocks.convertAlembicToPreview.mockResolvedValue("# empty\n");
 
     await expect(loadPreviewObject(abcFile)).rejects.toThrow(
-      "Alembic helper returned an unsupported preview payload.",
+      "Alembic helper returned malformed preview JSON.",
     );
   });
 });
