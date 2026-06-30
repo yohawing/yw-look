@@ -23,6 +23,12 @@ const defaultOutDir = path.join(
   "local-assets",
   "visual-review",
 );
+const defaultLoadReport = path.join(
+  repoRoot,
+  "artifacts",
+  "local-assets",
+  "local-asset-load-report.json",
+);
 
 const argv = parseArgs(process.argv.slice(2));
 
@@ -33,6 +39,10 @@ if (argv.help) {
 
 const csvPath = path.resolve(repoRoot, argv.csv ?? defaultCsv);
 const outDir = path.resolve(repoRoot, argv.out ?? defaultOutDir);
+const loadReportPath = path.resolve(
+  repoRoot,
+  argv.loadReport ?? defaultLoadReport,
+);
 const screenshotDir = path.join(outDir, "screenshots");
 const selectedId = argv.case ?? null;
 const limit = argv.limit === undefined ? null : Number(argv.limit);
@@ -102,9 +112,11 @@ await writeFile(configPath, `${JSON.stringify(shotCases, null, 2)}\n`, "utf8");
 
 if (serveOnly || htmlOnly) {
   const reportPath = path.join(outDir, "visual-review-report.json");
+  const loadReport = await readJsonOptional(loadReportPath);
   const report = normalizeReportForHtml(
     JSON.parse(await readFile(reportPath, "utf8")),
     screenshotDir,
+    loadReport,
   );
   const htmlReportPath = path.join(outDir, "visual-review.html");
   const markdownReportPath = path.join(outDir, "visual-review.md");
@@ -130,28 +142,33 @@ let htmlReportPath = path.join(outDir, "visual-review.html");
 const devServer = await ensureDevServer();
 try {
   const run = await runShotBatch(configPath);
+  const loadReport = await readJsonOptional(loadReportPath);
 
   const results = [];
   for (const [index, testCase] of cases.entries()) {
     const outputPath = shotCases[index].outputPath;
     const image = await inspectPng(outputPath);
-    results.push({
-      ...publicCaseFields(testCase),
-      screenshotPath: image.exists ? normalizeRepoPath(outputPath) : null,
-      screenshotUrl: image.exists
-        ? normalizePath(path.relative(outDir, outputPath))
-        : null,
-      sourceFolderPath: path.dirname(testCase.path),
-      sourceFolderUrl: pathToFileURL(path.dirname(testCase.path)).href,
-      screenshotFolderPath: screenshotDir,
-      screenshotFolderUrl: pathToFileURL(screenshotDir).href,
-      visualStatus: image.exists
-        ? image.nonBlank
-          ? "rendered"
-          : "blank"
-        : "missing",
-      image,
-    });
+    const result = attachDiagnostics(
+      {
+        ...publicCaseFields(testCase),
+        screenshotPath: image.exists ? normalizeRepoPath(outputPath) : null,
+        screenshotUrl: image.exists
+          ? normalizePath(path.relative(outDir, outputPath))
+          : null,
+        sourceFolderPath: path.dirname(testCase.path),
+        sourceFolderUrl: pathToFileURL(path.dirname(testCase.path)).href,
+        screenshotFolderPath: screenshotDir,
+        screenshotFolderUrl: pathToFileURL(screenshotDir).href,
+        visualStatus: image.exists
+          ? image.nonBlank
+            ? "rendered"
+            : "blank"
+          : "missing",
+        image,
+      },
+      loadReport,
+    );
+    results.push(result);
   }
 
   const report = {
@@ -403,14 +420,21 @@ function contentTypeFor(filePath) {
   }
 }
 
-function normalizeReportForHtml(report, screenshotDir) {
-  return {
-    ...report,
-    results: report.results.map((result) => {
-      const sourceFolderPath =
-        result.sourceFolderPath ?? path.dirname(result.path);
-      const screenshotFolderPath = result.screenshotFolderPath ?? screenshotDir;
-      return {
+async function readJsonOptional(filePath) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeReportForHtml(report, screenshotDir, loadReport) {
+  const results = report.results.map((result) => {
+    const sourceFolderPath =
+      result.sourceFolderPath ?? path.dirname(result.path);
+    const screenshotFolderPath = result.screenshotFolderPath ?? screenshotDir;
+    return attachDiagnostics(
+      {
         ...result,
         sourceFolderPath,
         sourceFolderUrl:
@@ -419,9 +443,73 @@ function normalizeReportForHtml(report, screenshotDir) {
         screenshotFolderUrl:
           result.screenshotFolderUrl ??
           pathToFileURL(screenshotFolderPath).href,
-      };
-    }),
+      },
+      loadReport,
+    );
+  });
+  return {
+    ...report,
+    summary: summarize(results),
+    results,
   };
+}
+
+function attachDiagnostics(result, loadReport) {
+  const loadResult = loadReport?.results?.find(
+    (entry) => entry.id === result.id,
+  );
+  const warnings = [...(loadResult?.warnings ?? [])];
+  const logLines = collectDiagnosticLogLines(
+    `${loadResult?.stderrTail ?? ""}\n${loadResult?.stdoutTail ?? ""}`,
+  );
+  const loadStatus = loadResult?.status ?? "unknown";
+  const visualIssue =
+    result.visualStatus === "missing" || result.visualStatus === "blank";
+  const hasDiagnostics =
+    visualIssue ||
+    loadStatus === "warning" ||
+    loadStatus === "fail" ||
+    warnings.length > 0 ||
+    Boolean(loadResult?.error) ||
+    logLines.length > 0;
+  const severity =
+    loadStatus === "fail" || result.visualStatus === "missing"
+      ? "error"
+      : loadStatus === "warning" ||
+          result.visualStatus === "blank" ||
+          warnings.length > 0
+        ? "warning"
+        : logLines.length > 0
+          ? "log"
+          : "none";
+
+  return {
+    ...result,
+    diagnostics: {
+      severity,
+      hasDiagnostics,
+      hasIssue: severity === "error" || severity === "warning",
+      visualStatus: result.visualStatus,
+      loadStatus,
+      loadCategory: loadResult?.category ?? null,
+      loadDurationMs: loadResult?.durationMs ?? null,
+      loadExitCode: loadResult?.exitCode ?? null,
+      loadError: loadResult?.error ?? null,
+      warnings,
+      logLines,
+      stderrTail: loadResult?.stderrTail ?? "",
+      stdoutTail: loadResult?.stdoutTail ?? "",
+    },
+  };
+}
+
+function collectDiagnosticLogLines(output) {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => /\b(error|warn|warning|failed|timeout)\b/i.test(line))
+    .slice(0, 20);
 }
 
 function runShotBatch(configFile) {
@@ -765,13 +853,13 @@ function renderMarkdown(report) {
     "",
     "## Review",
     "",
-    "| Visual | Kind | Ext | Screenshot | Source |",
-    "| --- | --- | --- | --- | --- |",
+    "| Visual | Load | Diag | Kind | Ext | Screenshot | Source |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
   ];
 
   for (const result of report.results) {
     lines.push(
-      `| ${result.visualStatus} | ${result.kind} | ${result.extension} | ${result.screenshotPath ?? ""} | ${result.path} |`,
+      `| ${result.visualStatus} | ${result.diagnostics?.loadStatus ?? "unknown"} | ${result.diagnostics?.severity ?? "none"} | ${result.kind} | ${result.extension} | ${result.screenshotPath ?? ""} | ${result.path} |`,
     );
   }
 
@@ -779,6 +867,7 @@ function renderMarkdown(report) {
 }
 
 function renderHtml(report) {
+  const summary = summarize(report.results);
   const resultJson = JSON.stringify(
     report.results.map((result) => ({
       id: result.id,
@@ -786,6 +875,10 @@ function renderHtml(report) {
       extension: result.extension,
       kind: result.kind,
       visualStatus: result.visualStatus,
+      diagnosticSeverity: result.diagnostics?.severity ?? "none",
+      loadStatus: result.diagnostics?.loadStatus ?? "unknown",
+      warningCount: result.diagnostics?.warnings?.length ?? 0,
+      logCount: result.diagnostics?.logLines?.length ?? 0,
       sourceFolderPath: result.sourceFolderPath,
       screenshotFolderPath: result.screenshotFolderPath,
     })),
@@ -910,6 +1003,15 @@ function renderHtml(report) {
     article[data-visual="blank"], article[data-visual="missing"] {
       border-color: rgba(255,96,96,.55);
     }
+    article[data-diagnostic="error"] {
+      border-color: rgba(255,96,96,.72);
+    }
+    article[data-diagnostic="warning"] {
+      border-color: rgba(255,198,87,.72);
+    }
+    article[data-diagnostic="log"] {
+      border-color: rgba(113,112,255,.45);
+    }
     .shot {
       display: block;
       width: 100%;
@@ -990,6 +1092,60 @@ function renderHtml(report) {
     .badge.blank, .badge.missing {
       color: #ffd4d4;
     }
+    .badge.pass, .badge.none {
+      color: #d7f8df;
+    }
+    .badge.warning {
+      color: #ffe0a3;
+    }
+    .badge.fail, .badge.error {
+      color: #ffd4d4;
+    }
+    .badge.log {
+      color: #c9ccff;
+    }
+    details.diagnostics {
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 6px;
+      background: rgba(0,0,0,.16);
+      color: #aab4c0;
+      font-size: 11px;
+    }
+    details.diagnostics summary {
+      cursor: pointer;
+      padding: 7px 8px;
+      color: #d0d6e0;
+      font-weight: 510;
+    }
+    .diagnostic-body {
+      display: grid;
+      gap: 8px;
+      padding: 0 8px 8px;
+    }
+    .diagnostic-block {
+      display: grid;
+      gap: 4px;
+    }
+    .diagnostic-label {
+      color: #62666d;
+      font-size: 10px;
+      font-weight: 510;
+      text-transform: uppercase;
+    }
+    pre.diagnostic-log {
+      margin: 0;
+      max-height: 112px;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      border-radius: 6px;
+      background: rgba(0,0,0,.2);
+      color: #cbd5e1;
+      padding: 8px;
+      font-family: ui-monospace, "SF Mono", Menlo, Monaco, "Courier New", monospace;
+      font-size: 10px;
+      line-height: 1.45;
+    }
     textarea {
       width: 100%;
       min-height: 52px;
@@ -1017,10 +1173,15 @@ function renderHtml(report) {
         <span class="pill">Rendered ${report.summary.rendered}</span>
         <span class="pill">Blank ${report.summary.blank}</span>
         <span class="pill">Missing ${report.summary.missing}</span>
+        <span class="pill">Issues ${summary.diagnostics.issue}</span>
+        <span class="pill">Warnings ${summary.diagnostics.warning}</span>
+        <span class="pill">Errors ${summary.diagnostics.error}</span>
+        <span class="pill">Logs ${summary.diagnostics.log}</span>
         <span class="pill">${escapeHtml(report.filters.size)}</span>
       </div>
       <div class="controls" style="margin-top:10px">
         <label>Visual <select id="visualFilter"><option value="">All</option><option>rendered</option><option>blank</option><option>missing</option></select></label>
+        <label>Diagnostics <select id="diagnosticFilter"><option value="">All</option><option value="issue">Issues</option><option value="error">Errors</option><option value="warning">Warnings</option><option value="log">Logs</option><option value="none">None</option></select></label>
         <label>Review <select id="reviewFilter"><option value="">All</option><option value="unreviewed">Unreviewed</option><option value="ok">OK</option><option value="suspect">Suspect</option><option value="bad">Bad</option></select></label>
         <button id="exportButton" type="button">Export review JSON</button>
       </div>
@@ -1049,11 +1210,13 @@ ${rows}
     }
     function applyFilters() {
       const visual = document.getElementById("visualFilter").value;
+      const diagnostic = document.getElementById("diagnosticFilter").value;
       const review = document.getElementById("reviewFilter").value;
       for (const card of document.querySelectorAll("article")) {
         const visualMatch = !visual || card.dataset.visual === visual;
+        const diagnosticMatch = !diagnostic || card.dataset.diagnostic === diagnostic || (diagnostic === "issue" && card.dataset.hasIssue === "true");
         const reviewMatch = !review || card.dataset.review === review;
-        card.classList.toggle("hidden", !(visualMatch && reviewMatch));
+        card.classList.toggle("hidden", !(visualMatch && diagnosticMatch && reviewMatch));
       }
     }
     for (const card of document.querySelectorAll("article")) {
@@ -1132,6 +1295,7 @@ ${rows}
       textarea.remove();
     }
     document.getElementById("visualFilter").addEventListener("change", applyFilters);
+    document.getElementById("diagnosticFilter").addEventListener("change", applyFilters);
     document.getElementById("reviewFilter").addEventListener("change", applyFilters);
     document.getElementById("exportButton").addEventListener("click", () => {
       const payload = reportResults.map((result) => ({
@@ -1158,18 +1322,26 @@ function renderCard(result) {
   const image = result.screenshotUrl
     ? `<img class="shot" src="${escapeHtml(result.screenshotUrl)}" loading="lazy" alt="${escapeHtml(result.id)}" draggable="false">`
     : `<div class="missing-shot">No screenshot</div>`;
-  return `<article data-id="${escapeHtml(result.id)}" data-visual="${escapeHtml(result.visualStatus)}" data-review="unreviewed">
+  const diagnostics = result.diagnostics ?? { severity: "none" };
+  const warningCount = diagnostics.warnings?.length ?? 0;
+  const logCount = diagnostics.logLines?.length ?? 0;
+  const diagnosticDetails = renderDiagnostics(result);
+  return `<article data-id="${escapeHtml(result.id)}" data-visual="${escapeHtml(result.visualStatus)}" data-diagnostic="${escapeHtml(diagnostics.severity ?? "none")}" data-has-diagnostics="${diagnostics.hasDiagnostics ? "true" : "false"}" data-has-issue="${diagnostics.hasIssue ? "true" : "false"}" data-review="unreviewed">
   ${image}
   <div class="body">
     <div class="card-head">
       <h2 class="title">${escapeHtml(result.id)}</h2>
       <div class="meta-badges">
         <span class="badge ${escapeHtml(result.visualStatus)}">${escapeHtml(result.visualStatus)}</span>
+        <span class="badge ${escapeHtml(diagnostics.loadStatus ?? "unknown")}">load ${escapeHtml(diagnostics.loadStatus ?? "unknown")}</span>
         <span class="badge">${escapeHtml(result.kind)} / ${escapeHtml(result.extension)}</span>
         <span class="badge">${Math.round(result.image.changedPixelRatio * 10000) / 100}% changed</span>
+        ${warningCount > 0 ? `<span class="badge warning">${warningCount} warning</span>` : ""}
+        ${logCount > 0 ? `<span class="badge log">${logCount} log</span>` : ""}
       </div>
     </div>
     <p class="path">${escapeHtml(result.path)}</p>
+    ${diagnosticDetails}
     <div class="card-tools">
       <div class="tool-row">
         <span class="tool-label">Folders</span>
@@ -1194,17 +1366,118 @@ function renderCard(result) {
 </article>`;
 }
 
+function renderDiagnostics(result) {
+  const diagnostics = result.diagnostics;
+  if (!diagnostics?.hasDiagnostics) {
+    return "";
+  }
+
+  const blocks = [];
+  if (result.visualStatus !== "rendered") {
+    blocks.push(
+      renderDiagnosticBlock(
+        "Visual",
+        `Screenshot status: ${result.visualStatus}${
+          result.image?.error ? `\n${result.image.error}` : ""
+        }`,
+      ),
+    );
+  }
+  if (diagnostics.loadStatus && diagnostics.loadStatus !== "pass") {
+    blocks.push(
+      renderDiagnosticBlock(
+        "Load",
+        [
+          `status: ${diagnostics.loadStatus}`,
+          diagnostics.loadCategory
+            ? `category: ${diagnostics.loadCategory}`
+            : "",
+          diagnostics.loadExitCode !== null &&
+          diagnostics.loadExitCode !== undefined
+            ? `exitCode: ${diagnostics.loadExitCode}`
+            : "",
+          diagnostics.loadError ? `error: ${diagnostics.loadError}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      ),
+    );
+  }
+  if (diagnostics.warnings?.length > 0) {
+    blocks.push(
+      renderDiagnosticBlock("Warnings", diagnostics.warnings.join("\n")),
+    );
+  }
+  if (diagnostics.logLines?.length > 0) {
+    blocks.push(renderDiagnosticBlock("Log", diagnostics.logLines.join("\n")));
+  }
+
+  const summaryParts = [
+    diagnostics.severity,
+    diagnostics.loadStatus ? `load ${diagnostics.loadStatus}` : "",
+    diagnostics.warnings?.length
+      ? `${diagnostics.warnings.length} warning`
+      : "",
+    diagnostics.logLines?.length ? `${diagnostics.logLines.length} log` : "",
+  ].filter(Boolean);
+
+  return `<details class="diagnostics">
+    <summary>Diagnostics: ${escapeHtml(summaryParts.join(" / "))}</summary>
+    <div class="diagnostic-body">
+      ${blocks.join("\n")}
+    </div>
+  </details>`;
+}
+
+function renderDiagnosticBlock(label, body) {
+  return `<div class="diagnostic-block">
+    <span class="diagnostic-label">${escapeHtml(label)}</span>
+    <pre class="diagnostic-log">${escapeHtml(body)}</pre>
+  </div>`;
+}
+
 function summarize(results) {
   const summary = {
     total: results.length,
     rendered: 0,
     blank: 0,
     missing: 0,
+    diagnostics: {
+      issue: 0,
+      error: 0,
+      warning: 0,
+      log: 0,
+      none: 0,
+      loadPass: 0,
+      loadWarning: 0,
+      loadFail: 0,
+      loadUnknown: 0,
+    },
     byKind: {},
     byExtension: {},
   };
   for (const result of results) {
     summary[result.visualStatus] += 1;
+    const diagnostics = result.diagnostics ?? {};
+    const severity = diagnostics.severity ?? "none";
+    summary.diagnostics[severity] += 1;
+    if (diagnostics.hasIssue) {
+      summary.diagnostics.issue += 1;
+    }
+    switch (diagnostics.loadStatus) {
+      case "pass":
+        summary.diagnostics.loadPass += 1;
+        break;
+      case "warning":
+        summary.diagnostics.loadWarning += 1;
+        break;
+      case "fail":
+        summary.diagnostics.loadFail += 1;
+        break;
+      default:
+        summary.diagnostics.loadUnknown += 1;
+        break;
+    }
     count(summary.byKind, result.kind);
     count(summary.byExtension, result.extension);
   }
@@ -1347,6 +1620,8 @@ function parseArgs(tokens) {
       parsed.csv = readValue(tokens, ++index, token);
     } else if (token === "--out") {
       parsed.out = readValue(tokens, ++index, token);
+    } else if (token === "--load-report") {
+      parsed.loadReport = readValue(tokens, ++index, token);
     } else if (token === "--kinds") {
       parsed.kinds = readValue(tokens, ++index, token);
     } else if (token === "--case") {
@@ -1389,6 +1664,7 @@ function printUsage() {
   node scripts/local-asset-visual-review.mjs --csv artifacts/local-assets/3dcg-assets.csv
   node scripts/local-asset-visual-review.mjs --limit 20 --size 640x480
   node scripts/local-asset-visual-review.mjs --kinds model,motion,splat
+  node scripts/local-asset-visual-review.mjs --load-report artifacts/local-assets/local-asset-load-report.json
   node scripts/local-asset-visual-review.mjs --html-only
   node scripts/local-asset-visual-review.mjs --serve-only
 
@@ -1399,7 +1675,8 @@ Default kinds: model,splat.
 --serve starts a localhost review page after rendering. --serve-only serves an
 existing report without rerendering screenshots. Folder buttons open Explorer
 only on the localhost review page; file:// pages keep folder links and copy
-buttons.`);
+buttons. The visual review page merges load-check diagnostics from
+artifacts/local-assets/local-asset-load-report.json by default.`);
 }
 
 console.log(`Review page: ${pathToFileURL(htmlReportPath).href}`);
