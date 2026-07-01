@@ -42,6 +42,7 @@ const openUsdPython = path.resolve(
 const timeoutMs = Number(readOption("--timeout-ms") ?? 180_000);
 const appTimeoutMs = Number(readOption("--app-timeout-ms") ?? 300_000);
 const backend = readOption("--backend") ?? "rust";
+const appUsdPolicy = readOption("--app-usd-policy") ?? "noPayloads";
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outputDir = path.join(repoRoot, "artifacts", "logs");
 const jsonReportPath = path.join(outputDir, `usd-openusd-parity.${stamp}.json`);
@@ -55,6 +56,7 @@ const usage = `usage:
   npm run test:usd:openusd-parity -- --case psx-buildings
   npm run test:usd:openusd-parity -- --path D:\\path\\asset.usda
   npm run test:usd:openusd-parity -- --backend rust|cpp|default
+  npm run test:usd:openusd-parity -- --app-usd-policy noPayloads|loadAll
   npm run test:usd:openusd-parity -- --skip-app
   npm run test:usd:openusd-parity -- --list
 
@@ -69,6 +71,11 @@ if (args.includes("--help") || args.includes("-h")) {
 
 if (!["rust", "cpp", "default"].includes(backend)) {
   throw new Error(`--backend must be rust, cpp, or default; got ${backend}`);
+}
+if (!["loadAll", "noPayloads"].includes(appUsdPolicy)) {
+  throw new Error(
+    `--app-usd-policy must be loadAll or noPayloads; got ${appUsdPolicy}`,
+  );
 }
 
 const cases = buildCases();
@@ -97,6 +104,7 @@ const report = {
   backend,
   timeoutMs,
   appTimeoutMs,
+  appUsdPolicy,
   runUsdChecker,
   requireUsdChecker,
   cases: results,
@@ -277,6 +285,8 @@ async function runAppCheck(assetPath) {
       "check",
       "--in",
       assetPath,
+      "--usd-load-policy",
+      appUsdPolicy,
     ],
     {
       timeout: appTimeoutMs,
@@ -383,6 +393,7 @@ function renderMarkdown(report) {
     "",
     `- Generated: ${report.generatedAt}`,
     `- Backend: ${report.backend}`,
+    `- App USD policy: ${report.appUsdPolicy}`,
     `- OpenUSD: ${report.openUsdRoot}`,
     `- requireUsdChecker: ${report.requireUsdChecker}`,
     "",

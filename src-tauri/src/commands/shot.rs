@@ -6,6 +6,7 @@ use serde::Serialize;
 use crate::error::AppError;
 use crate::shared::canonicalize_existing_path;
 use crate::state::{ShotBatchCaseArgument, ShotCliCase, ShotCliConfig, ShotMode};
+use crate::usd::StageLoadPolicy;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,20 +19,22 @@ pub(crate) struct ShotConfigPayload {
     width: u32,
     height: u32,
     background: Option<String>,
+    usd_load_policy: StageLoadPolicy,
 }
 
 fn parse_size_argument(value: &str) -> Result<(u32, u32), AppError> {
-    let (w, h) = value
-        .split_once(['x', 'X', '×'])
-        .ok_or_else(|| AppError::Internal(format!("--size expects WxH (e.g. 1920x1080), got '{value}'")))?;
+    let (w, h) = value.split_once(['x', 'X', '×']).ok_or_else(|| {
+        AppError::Internal(format!(
+            "--size expects WxH (e.g. 1920x1080), got '{value}'"
+        ))
+    })?;
     let width: u32 = w
         .trim()
         .parse()
         .map_err(|error| AppError::Internal(format!("--size width '{w}' is not a u32: {error}")))?;
-    let height: u32 = h
-        .trim()
-        .parse()
-        .map_err(|error| AppError::Internal(format!("--size height '{h}' is not a u32: {error}")))?;
+    let height: u32 = h.trim().parse().map_err(|error| {
+        AppError::Internal(format!("--size height '{h}' is not a u32: {error}"))
+    })?;
     if width == 0 || height == 0 {
         return Err(AppError::Internal(format!(
             "--size width/height must be > 0, got {width}x{height}"
@@ -43,6 +46,16 @@ fn parse_size_argument(value: &str) -> Result<(u32, u32), AppError> {
         )));
     }
     Ok((width, height))
+}
+
+fn parse_usd_load_policy_argument(value: &str) -> Result<StageLoadPolicy, AppError> {
+    match value {
+        "loadAll" | "load-all" | "all" => Ok(StageLoadPolicy::LoadAll),
+        "noPayloads" | "no-payloads" | "deferred" => Ok(StageLoadPolicy::NoPayloads),
+        _ => Err(AppError::Internal(format!(
+            "--usd-load-policy expects loadAll or noPayloads, got '{value}'"
+        ))),
+    }
 }
 
 fn resolve_shot_input(path: &Path) -> Result<PathBuf, AppError> {
@@ -69,11 +82,11 @@ fn resolve_shot_output(path: &Path) -> Result<PathBuf, AppError> {
             parent.display()
         ))
     })?;
-    let normalized_parent =
-        canonicalize_existing_path(&parent).map_err(|error| AppError::Io(format!("--out parent {error}")))?;
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| AppError::Internal(format!("--out path '{}' has no file name", path.display())))?;
+    let normalized_parent = canonicalize_existing_path(&parent)
+        .map_err(|error| AppError::Io(format!("--out parent {error}")))?;
+    let file_name = path.file_name().ok_or_else(|| {
+        AppError::Internal(format!("--out path '{}' has no file name", path.display()))
+    })?;
     Ok(normalized_parent.join(file_name))
 }
 
@@ -99,6 +112,7 @@ fn to_shot_config_payload(case_index: usize, config: &ShotCliCase) -> ShotConfig
         width: config.width,
         height: config.height,
         background: config.background.clone(),
+        usd_load_policy: config.usd_load_policy,
     }
 }
 
@@ -116,11 +130,15 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
         return Ok(None);
     }
     if shot_batch_index.is_some() && shot_batch_file_index.is_some() {
-        return Err(AppError::Internal("--shot-batch and --shot-batch-file are mutually exclusive".into()));
+        return Err(AppError::Internal(
+            "--shot-batch and --shot-batch-file are mutually exclusive".into(),
+        ));
     }
     if (shot_batch_index.is_some() || shot_batch_file_index.is_some()) && (shot_flag || check_flag)
     {
-        return Err(AppError::Internal("--shot-batch cannot be combined with --shot or --check".into()));
+        return Err(AppError::Internal(
+            "--shot-batch cannot be combined with --shot or --check".into(),
+        ));
     }
     if let Some(index) = shot_batch_index.or(shot_batch_file_index) {
         let raw_value = args.get(index + 1).ok_or_else(|| {
@@ -140,10 +158,14 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
         } else {
             raw_value.clone()
         };
-        let batch_cases = serde_json::from_str::<Vec<ShotBatchCaseArgument>>(&value)
-            .map_err(|error| AppError::Serde(format!("failed to parse --shot-batch JSON: {error}")))?;
+        let batch_cases =
+            serde_json::from_str::<Vec<ShotBatchCaseArgument>>(&value).map_err(|error| {
+                AppError::Serde(format!("failed to parse --shot-batch JSON: {error}"))
+            })?;
         if batch_cases.is_empty() {
-            return Err(AppError::Internal("--shot-batch requires at least one case".into()));
+            return Err(AppError::Internal(
+                "--shot-batch requires at least one case".into(),
+            ));
         }
         let cases = batch_cases
             .into_iter()
@@ -167,13 +189,16 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
                     width: case.width,
                     height: case.height,
                     background: case.background,
+                    usd_load_policy: case.usd_load_policy.unwrap_or_default(),
                 })
             })
             .collect::<Result<Vec<_>, AppError>>()?;
         return Ok(Some(ShotCliConfig { cases }));
     }
     if shot_flag && check_flag {
-        return Err(AppError::Internal("--shot and --check are mutually exclusive".into()));
+        return Err(AppError::Internal(
+            "--shot and --check are mutually exclusive".into(),
+        ));
     }
     let mode = if shot_flag {
         ShotMode::Shot
@@ -185,6 +210,7 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
     let mut output_path: Option<PathBuf> = None;
     let mut size: Option<(u32, u32)> = None;
     let mut background: Option<String> = None;
+    let mut usd_load_policy = StageLoadPolicy::LoadAll;
     let mut index = 0;
 
     while index < args.len() {
@@ -216,6 +242,13 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
                     .get(index)
                     .ok_or_else(|| AppError::Internal("--bg requires a value".into()))?;
                 background = Some(value.clone());
+            }
+            "--usd-load-policy" => {
+                index += 1;
+                let value = args.get(index).ok_or_else(|| {
+                    AppError::Internal("--usd-load-policy requires a value".into())
+                })?;
+                usd_load_policy = parse_usd_load_policy_argument(value)?;
             }
             _ => {}
         }
@@ -252,6 +285,7 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
             width,
             height,
             background,
+            usd_load_policy,
         }],
     }))
 }
@@ -293,10 +327,14 @@ pub(crate) fn write_shot_output(
         return Err(AppError::Internal("shot mode is not enabled".into()));
     };
     let Some(shot_case) = config.cases.first() else {
-        return Err(AppError::Internal("shot mode has no configured cases".into()));
+        return Err(AppError::Internal(
+            "shot mode has no configured cases".into(),
+        ));
     };
     let Some(output_path) = shot_case.output_path.as_ref() else {
-        return Err(AppError::Internal("--out is not configured (check mode does not write images)".into()));
+        return Err(AppError::Internal(
+            "--out is not configured (check mode does not write images)".into(),
+        ));
     };
     fs::write(output_path, &png_bytes)
         .map_err(|error| AppError::Io(format!("failed to write shot output: {error}")))?;
@@ -318,7 +356,9 @@ pub(crate) fn write_shot_batch_output(
         )));
     };
     let Some(output_path) = shot_case.output_path.as_ref() else {
-        return Err(AppError::Internal("shot batch case has no output path".into()));
+        return Err(AppError::Internal(
+            "shot batch case has no output path".into(),
+        ));
     };
     fs::write(output_path, &png_bytes)
         .map_err(|error| AppError::Io(format!("failed to write shot batch output: {error}")))?;
@@ -358,7 +398,8 @@ mod tests {
                 "outputPath": output_path,
                 "width": 320,
                 "height": 180,
-                "background": "transparent"
+                "background": "transparent",
+                "usdLoadPolicy": "noPayloads"
             }
         ]);
         fs::write(&config_path, config_json.to_string()).expect("write config");
@@ -378,11 +419,39 @@ mod tests {
         assert_eq!(case.width, 320);
         assert_eq!(case.height, 180);
         assert_eq!(case.background.as_deref(), Some("transparent"));
+        assert_eq!(case.usd_load_policy, StageLoadPolicy::NoPayloads);
         assert_eq!(case.input_path.file_name().unwrap(), "input.glb");
         assert_eq!(
             case.output_path.as_ref().unwrap().file_name().unwrap(),
             "shot.png"
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_check_usd_load_policy() {
+        let root = unique_temp_dir("shot-check-usd-policy");
+        fs::create_dir_all(&root).expect("create temp root");
+        let input_path = root.join("input.usda");
+        fs::write(&input_path, b"#usda 1.0\n").expect("write input");
+
+        let args = vec![
+            "yw-look".to_string(),
+            "--check".to_string(),
+            "--in".to_string(),
+            input_path.display().to_string(),
+            "--usd-load-policy".to_string(),
+            "noPayloads".to_string(),
+        ];
+        let config = parse_shot_cli_config_from_args(&args)
+            .expect("parse shot check")
+            .expect("shot check config");
+
+        assert_eq!(config.cases.len(), 1);
+        let case = &config.cases[0];
+        assert_eq!(case.mode, ShotMode::Check);
+        assert_eq!(case.usd_load_policy, StageLoadPolicy::NoPayloads);
 
         let _ = fs::remove_dir_all(root);
     }

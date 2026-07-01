@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::error::AppError;
 use crate::usd::{
-    DefaultBackend, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend,
+    DefaultBackend, StageLoadPolicy, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend,
     UsdSessionBackend, UsdSourceBackend,
 };
 
@@ -38,6 +38,7 @@ pub(crate) struct ShotBatchCaseArgument {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) background: Option<String>,
+    pub(crate) usd_load_policy: Option<StageLoadPolicy>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +66,7 @@ pub(crate) struct ShotCliCase {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) background: Option<String>,
+    pub(crate) usd_load_policy: StageLoadPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -136,10 +138,9 @@ impl UsdBackendState {
     }
 
     pub(crate) fn geometry(&self) -> Result<Arc<dyn UsdGeometryBackend>, AppError> {
-        self.geometry
-            .as_ref()
-            .map(Arc::clone)
-            .ok_or_else(|| AppError::Internal("USD backend capability unavailable: geometry".into()))
+        self.geometry.as_ref().map(Arc::clone).ok_or_else(|| {
+            AppError::Internal("USD backend capability unavailable: geometry".into())
+        })
     }
 
     pub(crate) fn source(&self) -> Result<Arc<dyn UsdSourceBackend>, AppError> {

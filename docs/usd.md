@@ -783,7 +783,8 @@ Kitchen Set / HumanFemale / Kitchen_set_instanced / USDZ 3 種で両 backend を
 - **OpenUSD parity smoke**: `D:\OpenUSD\build\bin` を oracle として
   `npm run test:usd:openusd-parity` を明示実行する。デフォルト対象:
   `D:\psx\repo\ALL.usda`, `D:\psx\repo\BUILDINGS.usda`,
-  `D:\psx\repo\PROJECTORS.usda`。通常の unit test には含めない。
+  `D:\psx\repo\PROJECTORS.usda`。app 側は初回 preview smoke として
+  `--app-usd-policy noPayloads` がデフォルト。通常の unit test には含めない。
 - **Variant set インタラクティブ切替 UI**: 必須機能。Inspector の select から
   `variantSelections` を更新し、GLB 抽出へ渡して再生成する。C++ backend では
   session layer 上の selection override を適用する。Rust fork backend は selection

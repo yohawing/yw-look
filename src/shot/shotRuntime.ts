@@ -43,6 +43,7 @@ export type ShotConfig = {
   width: number;
   height: number;
   background: string | null;
+  usdLoadPolicy: StageLoadPolicy;
 };
 
 export type ShotOutcome = {
@@ -207,20 +208,26 @@ async function validateUsdInspection(path: string, policy: StageLoadPolicy) {
   }
 }
 
-async function validateUsdInspectorPipeline(path: string, extension: string) {
+async function validateUsdInspectorPipeline(
+  path: string,
+  extension: string,
+  policy: StageLoadPolicy,
+) {
   if (!USD_EXTENSIONS.has(extension)) {
     return;
   }
 
   try {
-    await validateUsdInspection(path, "loadAll");
-    await validateUsdInspection(path, "noPayloads");
-    const issues = await collectAssetIssues(path);
-    const errors = issues.filter((issue) => issue.level === "error");
-    if (errors.length > 0) {
-      throw new Error(
-        `USD asset issue(s): ${errors.map((issue) => issue.message).join("; ")}`,
-      );
+    await validateUsdInspection(path, policy);
+    if (policy === "loadAll") {
+      await validateUsdInspection(path, "noPayloads");
+      const issues = await collectAssetIssues(path);
+      const errors = issues.filter((issue) => issue.level === "error");
+      if (errors.length > 0) {
+        throw new Error(
+          `USD asset issue(s): ${errors.map((issue) => issue.message).join("; ")}`,
+        );
+      }
     }
   } catch (error) {
     throw new Error(
@@ -286,10 +293,16 @@ export async function runShot(
       applyShotMmdLighting(scene, key);
     }
     if (config.mode === "check") {
-      await validateUsdInspectorPipeline(selected.path, selected.extension);
+      await validateUsdInspectorPipeline(
+        selected.path,
+        selected.extension,
+        config.usdLoadPolicy,
+      );
     }
     const started = performance.now();
-    const preview = await loadPreviewObject(selected, renderer);
+    const preview = await loadPreviewObject(selected, renderer, {
+      usdLoadPolicy: config.usdLoadPolicy,
+    });
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
     await syncMmdPreviewSpecularDirection(preview.mmdModel, key);

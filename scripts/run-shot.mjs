@@ -12,7 +12,7 @@ const usage = `usage:
   npm run shot -- --in <model> --out <png> [--size WxH] [--bg color]
   npm run shot:batch -- --config <json>
   npm run shot:batch -- --config-file <path>
-  npm run check -- --in <model>
+  npm run check -- --in <model> [--usd-load-policy loadAll|noPayloads]
 
 Forwards extra args to the yw-look binary running with a local Vite dev server.
 The first positional argument is treated as the subcommand
