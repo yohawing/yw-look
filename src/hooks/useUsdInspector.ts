@@ -19,6 +19,7 @@ export function useUsdInspector(
   currentFile: SelectedFile | null,
   isTauri: boolean,
   usdLoadPolicy: StageLoadPolicy,
+  enabled: boolean,
 ) {
   const [usdSummary, setUsdSummary] = useState<StageSummary | null>(null);
   const [usdInspection, setUsdInspection] = useState<StageInspection | null>(
@@ -45,14 +46,19 @@ export function useUsdInspector(
       return;
     }
 
-    let cancelled = false;
     setUsdSummary(null);
     setUsdInspection(null);
     setUsdIssues([]);
     setUsdLights(null);
     setUsdLightsError(null);
-    setUsdInspectorLoading(true);
+    setUsdInspectorLoading(enabled);
     setUsdInspectorError(null);
+
+    if (!enabled) {
+      return;
+    }
+
+    let cancelled = false;
 
     const path = currentFile.path;
 
@@ -139,7 +145,7 @@ export function useUsdInspector(
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [currentFile, isTauri, usdLoadPolicy]);
+  }, [currentFile, enabled, isTauri, usdLoadPolicy]);
 
   return {
     usdSummary,

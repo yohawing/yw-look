@@ -76,7 +76,12 @@ export function App() {
     usdLightsError,
     usdInspectorLoading,
     usdInspectorError,
-  } = useUsdInspector(currentFile, isTauri, usdLoadPolicy);
+  } = useUsdInspector(
+    currentFile,
+    isTauri,
+    usdLoadPolicy,
+    viewerFeedback.mode === "ready",
+  );
 
   const {
     settingsPayload,
