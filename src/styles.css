@@ -791,6 +791,41 @@ body.is-resizing-sidebar {
   margin-top: 0.45rem;
 }
 
+.viewer-error-detail {
+  max-width: min(58rem, calc(100vw - 8rem));
+  margin: 1.25rem auto 0;
+  text-align: left;
+}
+
+.viewer-error-detail p {
+  margin: 0 0 0.4rem;
+  color: var(--yl-text-tertiary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.viewer-error-detail pre {
+  max-height: 12rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid rgba(255, 100, 100, 0.22);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--yl-text-secondary);
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .viewer-label {
   color: var(--yl-text-tertiary);
   text-transform: uppercase;

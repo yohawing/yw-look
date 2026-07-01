@@ -17,6 +17,7 @@ type ViewerStatePanelProps = {
   mode: ViewerMode;
   fileName?: string | null;
   fileExtension?: string | null;
+  detailMessage?: string | null;
   loadingStage?: LoadingStageSnapshot | null;
   deferredTexture?: DeferredTextureSnapshot | null;
   onOpenFile?: () => void;
@@ -130,6 +131,7 @@ const stateContent: Record<
 
 export function ViewerStatePanel({
   deferredTexture,
+  detailMessage,
   fileExtension,
   fileName,
   loadingStage,
@@ -260,6 +262,12 @@ export function ViewerStatePanel({
             <li key={detail}>{detail}</li>
           ))}
         </ul>
+      ) : null}
+      {detailMessage ? (
+        <div className="viewer-error-detail" role="status">
+          <p>Error details</p>
+          <pre>{detailMessage}</pre>
+        </div>
       ) : null}
     </div>
   );

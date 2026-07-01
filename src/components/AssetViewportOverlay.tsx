@@ -13,6 +13,7 @@ type AssetViewportOverlayProps = {
   deferredTexture: DeferredTextureSnapshot | null;
   effectiveDeferredProgress: DeferredTextureSnapshot | null;
   effectiveOverlayMode: ViewerMode;
+  errorDetail: string | null;
   loadingStage: LoadingStageSnapshot | null;
   onOpenFile?: () => void;
   showRendererStats: boolean;
@@ -31,6 +32,7 @@ export function AssetViewportOverlay({
   deferredTexture,
   effectiveDeferredProgress,
   effectiveOverlayMode,
+  errorDetail,
   loadingStage,
   onOpenFile,
   showRendererStats,
@@ -58,6 +60,7 @@ export function AssetViewportOverlay({
         >
           <ViewerStatePanel
             deferredTexture={deferredTexture}
+            detailMessage={errorDetail}
             fileExtension={currentFile?.extension}
             fileName={currentFile?.fileName}
             loadingStage={loadingStage}

@@ -245,6 +245,7 @@ export function AssetViewport({
   );
   const activePreviewPathRef = useRef<string | null>(activePreviewPath);
   const [overlayMode, setOverlayMode] = useState<ViewerMode>("empty");
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [loadingStage, setLoadingStage] = useState<LoadingStageSnapshot | null>(
     null,
   );
@@ -676,6 +677,7 @@ export function AssetViewport({
       publishResourceDiagnostics(context);
 
       queueMicrotask(() => {
+        setErrorDetail(null);
         setLoadingStage(null);
         setDeferredTexture(null);
       });
@@ -706,6 +708,7 @@ export function AssetViewport({
         buildUnsupportedPreviewFeedback(currentFile.extension, supportState),
       );
       queueMicrotask(() => {
+        setErrorDetail(null);
         setLoadingStage(null);
         setDeferredTexture(null);
       });
@@ -738,6 +741,7 @@ export function AssetViewport({
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
       queueMicrotask(() => {
+        setErrorDetail(null);
         setDeferredTexture(null);
       });
     }
@@ -829,6 +833,7 @@ export function AssetViewport({
         if (!readyFeedbackBase || disposed) {
           return;
         }
+        setErrorDetail(null);
         resetCameraRef.current = () => {
           frameCurrentMountedObject(
             sceneContextRef.current,
@@ -853,6 +858,7 @@ export function AssetViewport({
           }
           setActivePreviewPath(currentFile.path);
           setOverlayMode("empty");
+          setErrorDetail(null);
           onFeedbackChange(neutralFeedback);
           onMetadataChange(emptyAssetMetadata);
           assetResourceMetricsRef.current = null;
@@ -893,6 +899,7 @@ export function AssetViewport({
         // to "loading" when activePreviewPath !== currentFile.path.
         setActivePreviewPath(currentFile.path);
         setOverlayMode(mode);
+        setErrorDetail(message);
         onMetadataChange(
           mode === "missingReference" && currentFile
             ? buildMissingReferenceMetadata(
@@ -1108,6 +1115,12 @@ export function AssetViewport({
         deferredTexture={deferredTexture}
         effectiveDeferredProgress={effectiveDeferredProgress}
         effectiveOverlayMode={effectiveOverlayMode}
+        errorDetail={
+          effectiveOverlayMode === "loadFailed" ||
+          effectiveOverlayMode === "missingReference"
+            ? errorDetail
+            : null
+        }
         hasAnimation={hasAnimation}
         loadingStage={loadingStage}
         onOpenFile={onOpenFile}

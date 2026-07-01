@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::{MutexGuard, TryLockError};
 
 use crate::error::AppError;
 use crate::shared::{normalize_file_path, USD_TASK_LOCK};
@@ -13,6 +14,28 @@ const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
 
 fn map_usd_error(error: UsdError) -> AppError {
     AppError::Usd(error.to_string())
+}
+
+fn recover_poisoned_usd_lock(
+    guard: std::sync::PoisonError<MutexGuard<'static, ()>>,
+) -> MutexGuard<'static, ()> {
+    eprintln!("[usd] USD task lock was poisoned; continuing with recovered lock");
+    guard.into_inner()
+}
+
+fn lock_usd_task(background: bool) -> Result<MutexGuard<'static, ()>, AppError> {
+    if background {
+        return match USD_TASK_LOCK.try_lock() {
+            Ok(guard) => Ok(guard),
+            Err(TryLockError::WouldBlock) => Err(AppError::Internal(USD_TASK_BUSY.into())),
+            Err(TryLockError::Poisoned(guard)) => Ok(recover_poisoned_usd_lock(guard)),
+        };
+    }
+
+    match USD_TASK_LOCK.lock() {
+        Ok(guard) => Ok(guard),
+        Err(guard) => Ok(recover_poisoned_usd_lock(guard)),
+    }
 }
 
 async fn run_blocking_usd<T, F>(task: F) -> Result<T, AppError>
@@ -49,21 +72,7 @@ where
     T: Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = if background {
-            match USD_TASK_LOCK.try_lock() {
-                Ok(guard) => guard,
-                Err(std::sync::TryLockError::WouldBlock) => {
-                    return Err(AppError::Internal(USD_TASK_BUSY.into()));
-                }
-                Err(std::sync::TryLockError::Poisoned(_)) => {
-                    return Err(AppError::Internal("USD task lock was poisoned".into()));
-                }
-            }
-        } else {
-            USD_TASK_LOCK
-                .lock()
-                .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?
-        };
+        let _guard = lock_usd_task(background)?;
         task().map_err(map_usd_error)
     })
     .await
@@ -272,9 +281,7 @@ pub(crate) async fn load_payload(
     use tauri::Manager;
     let backend_handle = backend.session()?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), AppError> {
-        let _guard = USD_TASK_LOCK
-            .lock()
-            .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?;
+        let _guard = lock_usd_task(false)?;
         let registry = app.state::<StageRegistry>();
         let session = registry.get(handle).ok_or_else(|| {
             AppError::Internal(format!("load_payload: unknown session handle {}", handle.0))
@@ -297,9 +304,7 @@ pub(crate) async fn unload_payload(
     use tauri::Manager;
     let backend_handle = backend.session()?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), AppError> {
-        let _guard = USD_TASK_LOCK
-            .lock()
-            .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?;
+        let _guard = lock_usd_task(false)?;
         let registry = app.state::<StageRegistry>();
         let session = registry.get(handle).ok_or_else(|| {
             AppError::Internal(format!(
@@ -328,9 +333,7 @@ pub(crate) async fn extract_geometry_session(
         options.unwrap_or_else(|| ExtractGeometryOptions::from(policy.unwrap_or_default()));
     let backend_handle = backend.session()?;
     let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, AppError> {
-        let _guard = USD_TASK_LOCK
-            .lock()
-            .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?;
+        let _guard = lock_usd_task(false)?;
         let registry = app.state::<StageRegistry>();
         let session = registry.get(handle).ok_or_else(|| {
             AppError::Internal(format!(
