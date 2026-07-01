@@ -1,21 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AmbientLight,
-  AnimationMixer,
   Camera,
   DirectionalLight,
   Object3D,
-  PCFSoftShadowMap,
-  PerspectiveCamera,
-  PMREMGenerator,
-  Scene,
-  Texture,
-  Vector2,
   WebGLRenderTarget,
-  WebGLRenderer,
 } from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { formatUsdErrorForDisplay } from "../lib/usd";
 import {
   type DeferredTextureSnapshot,
@@ -26,42 +16,22 @@ import {
   neutralFeedback,
   DEFAULT_SCENE_DIMENSION,
   revokeUrls,
-  disposeObject,
   stopAnimations,
   resetSceneObjects,
   applyControlsSensitivity,
-  getObjectMaxDimension,
-  normalizeObjectScale,
   cancelScaleNormalization,
   applyDynamicGrid,
   applyDynamicAxes,
-  getScaleWarning,
-  applyDisplayMode,
-  applyBackfaceCulling,
-  applyTextureFilter,
-  applyVertexColors,
-  applySkeletonHelpers,
-  applyBoundingBoxHelpers,
-  applyNormalHelpers,
-  applyShadows,
-  ensureShadowCatcher,
   loadPreviewObject,
-  loadMmdMotion,
-  collectAssetMetadata,
   buildMissingReferenceMetadata,
-  getClipLabel,
-  activateClip,
   applySelectionHighlightToObject,
   clearSelectionHighlightFromObject,
   applyPreviewLightingPreset,
-  applyPreviewRenderingPreset,
   DEFAULT_LIGHTING_PRESET,
   DEFAULT_PREVIEW_RENDERING_PRESET,
   getPreviewRenderingPresetForExtension,
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
-import { syncMmdPreviewSpecularDirection } from "../viewer/mmd/loader";
-import { syncMmdMaterialRenderStates } from "../viewer/mmd/userData";
 import { AssetViewportOverlay } from "./AssetViewportOverlay";
 import { emptyAssetMetadata } from "./assetMetadata";
 import { emptyAnimationState, type AnimationState } from "./animation";
@@ -72,11 +42,8 @@ import {
   applyControlSensitivity,
   applyCameraPresetToMountedObject,
   configureAssetControls,
-  findCameraBySelectionKey,
   frameCurrentMountedObject,
-  frameMountedObject,
   syncActiveCameraSelection,
-  syncPerspectiveCameraAspect,
   syncAxesVisibility,
   syncGridVisibility,
 } from "../viewport/camera";
@@ -93,34 +60,29 @@ import {
   toneMappingModeMap,
 } from "../viewport/renderSettings";
 import {
-  buildReadyPreviewFeedback,
   buildRuntimeWarningFeedback,
   type ReadyPreviewFeedbackBase,
 } from "../viewport/loadFeedback";
 import { createLoadingStageClock } from "../viewport/loadingStage";
-import { createFlyCameraControls } from "../viewport/flyCamera";
 import {
   applyPurposeVisibility,
-  createViewportPicker,
   findObjectBySelectionKey,
 } from "../viewport/selection";
 import { applyViewportShortcutCommand } from "../viewport/shortcutCommands";
-import {
-  collectAssetResourceMetrics,
-  RESOURCE_DIAGNOSTICS_SAMPLE_MS,
-} from "../viewport/resourceDiagnostics";
 import type { AssetViewportProps } from "../viewport/types";
 import {
   buildUnsupportedPreviewFeedback,
   getRuntimePreviewSupportState,
   resolveEffectiveOverlayMode,
-  updateRuntimePreview,
 } from "../viewport/previewSupport";
 import { useResourceDiagnosticsPublisher } from "../viewport/useResourceDiagnosticsPublisher";
 import { useSceneObjectEffects } from "../viewport/useSceneObjectEffects";
 import { useSyncRef } from "../viewport/useSyncRef";
 import { useTexturePreview } from "../viewport/useTexturePreview";
 import { useViewportAnimation } from "../viewport/useViewportAnimation";
+import { useViewportSceneLifecycle } from "../viewport/useViewportSceneLifecycle";
+import { useMmdMotionRequest } from "../viewport/useMmdMotionRequest";
+import { mountLoadedPreview } from "../viewport/previewLoadMount";
 
 export type {
   ViewerFeedback,
@@ -391,437 +353,44 @@ export function AssetViewport({
     );
   }, [cameraSpeedMultiplier]);
 
-  useEffect(() => {
-    if (!shouldInitializeScene) {
-      return;
-    }
-
-    const host = hostRef.current;
-
-    if (!host) {
-      return;
-    }
-
-    const initialRenderingPreset = getPreviewRenderingPresetForExtension(
-      currentFile?.extension,
-    );
-    const renderer = new WebGLRenderer({
-      antialias: true,
-      alpha: false,
-      logarithmicDepthBuffer: initialRenderingPreset.logarithmicDepthBuffer,
-    });
-    renderer.setPixelRatio(window.devicePixelRatio * renderScaleRef.current);
-    renderer.setSize(host.clientWidth, host.clientHeight);
-    const labelRenderer = new CSS2DRenderer();
-    labelRenderer.setSize(host.clientWidth, host.clientHeight);
-    labelRenderer.domElement.className = "viewport-label-layer";
-    applyViewportRenderingSettings(
-      renderer,
-      currentFile?.extension,
-      toneMappingModeRef.current,
-      exposureRef.current,
-    );
-    // Enable the shadow pipeline up-front so toggling shadows later
-    // is just a light.castShadow flip — flipping shadowMap.enabled
-    // at runtime forces every material to recompile shaders.
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = PCFSoftShadowMap;
-
-    const scene = new Scene();
-    // Defer applyViewportBackground until after the environment target has
-    // been created so we can honor showEnvironmentBackground on first frame.
-
-    const camera = new PerspectiveCamera(
-      cameraFovRef.current,
-      host.clientWidth / host.clientHeight,
-      0.01,
-      2000,
-    );
-    camera.up.set(0, 1, 0);
-
-    const pmremGenerator = new PMREMGenerator(renderer);
-    environmentTargetsRef.current = new Map();
-    const initialEnvironmentPreset = environmentPresetRef.current;
-    environmentTargetRef.current = createEnvironmentTarget(
-      pmremGenerator,
-      initialEnvironmentPreset,
-    );
-    if (environmentTargetRef.current) {
-      environmentTargetsRef.current.set(
-        initialEnvironmentPreset,
-        environmentTargetRef.current,
-      );
-    }
-    activeEnvironmentPresetRef.current = initialEnvironmentPreset;
-    scene.environment = environmentTargetRef.current.texture;
-    scene.environmentRotation.set(0, environmentRotationRef.current, 0);
-    scene.backgroundRotation.set(0, environmentRotationRef.current, 0);
-
-    applyViewportBackground(
-      renderer,
-      scene,
-      backgroundPresetRef.current,
-      showEnvironmentBackgroundRef.current
-        ? environmentTargetRef.current.texture
-        : null,
-    );
-
-    const ambient = new AmbientLight(
-      "#ffffff",
-      DEFAULT_LIGHTING_PRESET.ambientIntensity,
-    );
-    const key = new DirectionalLight(
-      "#ffffff",
-      DEFAULT_LIGHTING_PRESET.keyIntensity,
-    );
-    key.position.set(...DEFAULT_LIGHTING_PRESET.keyPosition);
-    // Shadow camera sized for the default scene; re-framed per asset
-    // when the user enables shadows (applyShadows → updateShadowCatcher).
-    key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.near = 0.1;
-    key.shadow.camera.far = 200;
-    key.shadow.camera.left = -20;
-    key.shadow.camera.right = 20;
-    key.shadow.camera.top = 20;
-    key.shadow.camera.bottom = -20;
-    key.shadow.bias = -0.0005;
-    ambientLightRef.current = ambient;
-    keyLightRef.current = key;
-    const fill = new DirectionalLight(
-      "#cfd9ea",
-      DEFAULT_LIGHTING_PRESET.fillIntensity,
-    );
-    fill.position.set(-5, 3, -4);
-    fillLightRef.current = fill;
-    scene.add(ambient, key, fill);
-    ensureShadowCatcher(scene);
-
-    const controls = new OrbitControls(camera, renderer.domElement);
-    configureAssetControls(controls);
-    controls.enableDamping = false;
-    applyControlSensitivity(controls, controlSensitivityRef.current);
-
-    // ── Initial grid ──
-    const initialGrid = applyDynamicGrid(
-      scene,
-      DEFAULT_SCENE_DIMENSION,
-      showGridRef.current,
-    );
-    onGridUnitChange(initialGrid.label);
-    applyDynamicAxes(scene, DEFAULT_SCENE_DIMENSION, showAxesRef.current);
-    camera.position.set(5, 4, 5);
-    camera.lookAt(0, 0, 0);
-    controls.target.set(0, 0, 0);
-    controls.enabled = true;
-
-    const flyCameraControls = createFlyCameraControls({
-      camera,
-      controls,
-      domElement: renderer.domElement,
-      hasActiveCamera: () => Boolean(activeCameraIdRef.current),
-      hasMountedObject: () => Boolean(sceneContextRef.current?.mountedObject),
-    });
-
-    // #33: viewport picking. We track the LMB-down position on the canvas
-    // and treat pointerup as a click only if the pointer barely moved.
-    const CLICK_DRAG_PX = 4;
-    const viewportPicker = createViewportPicker(camera, renderer.domElement);
-    let clickStart: { x: number; y: number; button: number } | null = null;
-
-    const performPick = (event: PointerEvent): void => {
-      const callback = onSelectMeshRef.current;
-      if (!callback) return;
-      const mounted = sceneContextRef.current?.mountedObject;
-      if (!mounted) {
-        callback(null);
-        return;
-      }
-      callback(viewportPicker.pickSelectionKey(mounted, event));
-    };
-
-    const pointerDownHandler = (event: PointerEvent) => {
-      if (event.button === 0) {
-        clickStart = {
-          x: event.clientX,
-          y: event.clientY,
-          button: event.button,
-        };
-      } else {
-        clickStart = null;
-      }
-
-      if (!sceneContextRef.current?.mountedObject) {
-        controls.enabled = false;
-        return;
-      }
-
-      if (viewerSurfaceModeRef.current === "texture") {
-        controls.enabled = true;
-        return;
-      }
-
-      // Asset mode + RMB → fly mode (overrides OrbitControls dolly).
-      if (event.button === 2) {
-        flyCameraControls.enter();
-        return;
-      }
-
-      controls.enabled = event.button === 0 || event.button === 1;
-    };
-
-    const pointerUpHandler = (event: PointerEvent) => {
-      if (event.button === 2 && flyCameraControls.isActive()) {
-        flyCameraControls.exit();
-        return;
-      }
-      // #33: classify as a click if LMB-up matches the LMB-down position
-      // and the user is in asset mode. Texture mode keeps its 2D pan
-      // gestures and has no concept of a picked mesh.
-      if (
-        clickStart &&
-        event.button === 0 &&
-        clickStart.button === 0 &&
-        Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) <
-          CLICK_DRAG_PX &&
-        viewerSurfaceModeRef.current !== "texture"
-      ) {
-        performPick(event);
-      }
-      clickStart = null;
-      controls.enabled = Boolean(sceneContextRef.current?.mountedObject);
-    };
-
-    // Suppress the browser context menu over the viewport so a quick
-    // RMB tap doesn't pop a menu mid-fly. The mode toggle would still
-    // work without this, but the visual flicker is unwelcome.
-    const contextMenuHandler = (event: MouseEvent) => {
-      event.preventDefault();
-    };
-
-    renderer.domElement.addEventListener("pointerdown", pointerDownHandler);
-    window.addEventListener("pointerup", pointerUpHandler);
-    renderer.domElement.addEventListener("contextmenu", contextMenuHandler);
-    document.addEventListener(
-      "pointerlockchange",
-      flyCameraControls.handlePointerLockChange,
-    );
-    host.appendChild(renderer.domElement);
-    host.appendChild(labelRenderer.domElement);
-
-    const resizeObserver = new ResizeObserver(() => {
-      const nextSize = new Vector2(host.clientWidth, host.clientHeight);
-      renderer.setSize(nextSize.x, nextSize.y);
-      labelRenderer.setSize(nextSize.x, nextSize.y);
-      camera.aspect = nextSize.x / nextSize.y;
-      camera.updateProjectionMatrix();
-      // #34: keep the active USD camera's aspect in sync on resize.
-      // OrthographicCamera frustums are authored and don't follow window
-      // aspect, so we only re-apply this for PerspectiveCamera.
-      const usdCam = activeCameraRef.current;
-      if (usdCam instanceof PerspectiveCamera && nextSize.y > 0) {
-        usdCam.aspect = nextSize.x / nextSize.y;
-        usdCam.updateProjectionMatrix();
-      }
-
-      const fxaaState = fxaaStateRef.current;
-      if (fxaaState) {
-        fxaaState.composer.setSize(nextSize.x, nextSize.y);
-        const pixelRatio = renderer.getPixelRatio();
-        fxaaState.fxaaPass.material.uniforms.resolution.value.set(
-          1 / (nextSize.x * pixelRatio),
-          1 / (nextSize.y * pixelRatio),
-        );
-      }
-
-      const resizeContext = sceneContextRef.current;
-      const mountedObject = resizeContext?.mountedObject;
-      if (
-        resizeContext &&
-        mountedObject &&
-        viewerSurfaceModeRef.current === "texture"
-      ) {
-        frameMountedObject(
-          resizeContext,
-          mountedObject,
-          viewerSurfaceModeRef.current,
-          showGridRef.current,
-          showAxesRef.current,
-          cameraSpeedMultiplierRef.current,
-          undefined,
-          texturePreview3DRef.current,
-        );
-      }
-
-      // Render immediately after setSize to prevent a black flash.
-      // setSize clears the WebGL drawing buffer; without an immediate
-      // redraw the browser composites the cleared frame before the next
-      // requestAnimationFrame, causing visible flicker during sidebar resize.
-      const renderCamera = activeCameraRef.current ?? camera;
-      if (fxaaEnabledRef.current && fxaaStateRef.current) {
-        fxaaStateRef.current.renderPass.camera = renderCamera;
-        fxaaStateRef.current.composer.render();
-      } else {
-        renderer.render(scene, renderCamera);
-      }
-      labelRenderer.render(scene, renderCamera);
-    });
-
-    resizeObserver.observe(host);
-
-    // Renderer stats HUD (FPS / draw calls / triangles / memory).
-    // The stats node is populated via textContent directly so toggling
-    // the overlay never costs a React re-render inside the render loop.
-    let statsLastSampled = performance.now();
-    let statsFrameCount = 0;
-    let statsLastFps = 0;
-    let resourceDiagnosticsLastSampled = 0;
-
-    let animationFrame = 0;
-    let previousRenderTimestamp = performance.now();
-    const renderLoop = () => {
-      animationFrame = window.requestAnimationFrame(renderLoop);
-      const frameNow = performance.now();
-      const deltaSeconds = Math.min(
-        0.1,
-        (frameNow - previousRenderTimestamp) / 1000,
-      );
-      previousRenderTimestamp = frameNow;
-
-      // Fly mode integrates WASD/QE input each frame. We skip the
-      // OrbitControls update entirely while flying because
-      // `controls.update()` is **not** gated by `controls.enabled` —
-      // it always recomputes the camera transform and calls
-      // `lookAt(controls.target)`, which would clobber the mouse-look
-      // orientation we set in the fly handlers. On fly exit we
-      // re-sync `controls.target` to the new viewpoint so the next
-      // orbit interaction pivots around what the user just framed.
-      if (!flyCameraControls.update(frameNow)) {
-        controls.update();
-      }
-
-      if (viewerSurfaceModeRef.current === "asset") {
-        updateRuntimePreview(sceneContextRef.current, deltaSeconds);
-      }
-
-      // #34: use the active USD camera if one is selected; fall back to the
-      // free-orbit camera otherwise.
-      const renderCamera = activeCameraRef.current ?? camera;
-      if (fxaaEnabledRef.current && fxaaStateRef.current) {
-        // Swap the RenderPass camera so FXAA also honours the active USD camera.
-        fxaaStateRef.current.renderPass.camera = renderCamera;
-        fxaaStateRef.current.composer.render();
-      } else {
-        renderer.render(scene, renderCamera);
-      }
-      labelRenderer.render(scene, renderCamera);
-
-      statsFrameCount += 1;
-      const elapsed = frameNow - statsLastSampled;
-      if (elapsed >= 250) {
-        statsLastFps = (statsFrameCount * 1000) / elapsed;
-        statsFrameCount = 0;
-        statsLastSampled = frameNow;
-        const statsNode = statsRef.current;
-        if (statsNode) {
-          const info = renderer.info;
-          statsNode.textContent = [
-            `${statsLastFps.toFixed(0)} fps`,
-            `${info.render.calls} calls`,
-            `${info.render.triangles.toLocaleString()} tri`,
-            `${info.memory.geometries} geo / ${info.memory.textures} tex`,
-          ].join("  •  ");
-        }
-        if (
-          frameNow - resourceDiagnosticsLastSampled >=
-          RESOURCE_DIAGNOSTICS_SAMPLE_MS
-        ) {
-          resourceDiagnosticsLastSampled = frameNow;
-          publishResourceDiagnostics(sceneContextRef.current);
-        }
-      }
-    };
-    renderLoop();
-
-    sceneContextRef.current = {
-      renderer,
-      scene,
-      camera,
-      controls,
-      pmremGenerator,
-      mountedObject: null,
-      sourceObject: null,
-      previewObject: null,
-      boneOnlyPreview: false,
-      cleanupUrls: [],
-      cleanupCallbacks: [],
-      animationRoot: null,
-      mixer: null,
-      clips: [],
-      activeAction: null,
-      mmdModel: null,
-      mmdMotion: null,
-      textureRegistry: new Map<string, Texture>(),
-      rawMaxDimension: 1,
-    };
-
-    onFeedbackChange(neutralFeedback);
-    onMetadataChange(emptyAssetMetadata);
-    publishResourceDiagnostics(sceneContextRef.current);
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      resizeObserver.disconnect();
-      // Drop fly-mode listeners *before* removing the pointer
-      // handlers so a teardown mid-fly doesn't leave dangling
-      // mousemove/keyboard listeners on `window`.
-      flyCameraControls.exit();
-      renderer.domElement.removeEventListener(
-        "pointerdown",
-        pointerDownHandler,
-      );
-      window.removeEventListener("pointerup", pointerUpHandler);
-      renderer.domElement.removeEventListener(
-        "contextmenu",
-        contextMenuHandler,
-      );
-      document.removeEventListener(
-        "pointerlockchange",
-        flyCameraControls.handlePointerLockChange,
-      );
-      if (sceneContextRef.current) {
-        runCleanupCallbacks(sceneContextRef.current.cleanupCallbacks);
-        sceneContextRef.current.cleanupCallbacks = [];
-        stopAnimations(sceneContextRef.current);
-        resetSceneObjects(sceneContextRef.current);
-      }
-      revokeUrls(sceneContextRef.current?.cleanupUrls ?? []);
-      controls.dispose();
-      environmentTargetsRef.current?.forEach((target) => target.dispose());
-      environmentTargetsRef.current?.clear();
-      environmentTargetsRef.current = null;
-      environmentTargetRef.current = null;
-      fxaaStateRef.current?.composer.dispose();
-      fxaaStateRef.current = null;
-      ambientLightRef.current = null;
-      keyLightRef.current = null;
-      fillLightRef.current = null;
-      pmremGenerator.dispose();
-      renderer.dispose();
-      host.removeChild(renderer.domElement);
-      host.removeChild(labelRenderer.domElement);
-      sceneContextRef.current = null;
-      resetCameraRef.current = null;
-      clearResourceDiagnostics();
-    };
-  }, [
+  useViewportSceneLifecycle({
+    activeCameraIdRef,
+    activeCameraRef,
+    activeEnvironmentPresetRef,
+    ambientLightRef,
+    backgroundPresetRef,
+    cameraFovRef,
+    cameraSpeedMultiplierRef,
     clearResourceDiagnostics,
-    currentFile?.extension,
+    controlSensitivityRef,
+    currentFileExtension: currentFile?.extension,
+    environmentPresetRef,
+    environmentRotationRef,
+    environmentTargetRef,
+    environmentTargetsRef,
+    exposureRef,
+    fillLightRef,
+    fxaaEnabledRef,
+    fxaaStateRef,
+    hostRef,
+    keyLightRef,
     onFeedbackChange,
     onGridUnitChange,
     onMetadataChange,
+    onSelectMeshRef,
     publishResourceDiagnostics,
+    renderScaleRef,
+    resetCameraRef,
+    sceneContextRef,
     shouldInitializeScene,
-  ]);
+    showAxesRef,
+    showEnvironmentBackgroundRef,
+    showGridRef,
+    statsRef,
+    texturePreview3DRef,
+    toneMappingModeRef,
+    viewerSurfaceModeRef,
+  });
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -935,6 +504,9 @@ export function AssetViewport({
         context.pmremGenerator,
         environmentPreset,
       );
+      if (!nextTarget) {
+        return;
+      }
       if (environmentTargetsRef.current) {
         environmentTargetsRef.current.set(environmentPreset, nextTarget);
       }
@@ -1171,248 +743,73 @@ export function AssetViewport({
       },
       onWarning: pushRuntimeWarning,
     })
-      .then(
-        async ({
-          object,
-          cleanupCallbacks = [],
-          cleanupUrls,
-          clips,
-          formatVersion,
-          lighting = DEFAULT_LIGHTING_PRESET,
-          rendering,
-          skipScaleNormalization = false,
-          mmdMetadata,
-          mmdModel,
-          warnings = [],
-          assetKind = "mesh",
-        }) => {
-          if (disposed) {
-            runCleanupCallbacks(cleanupCallbacks);
-            disposeObject(object);
-            revokeUrls(cleanupUrls);
-            return;
-          }
-
-          reportLoadingStage("scene");
-          context.scene.add(object);
-          context.mountedObject = object;
-          context.sourceObject = object;
-          context.boneOnlyPreview = false;
-          context.animationRoot = null;
-          context.cleanupUrls = cleanupUrls;
-          context.cleanupCallbacks = cleanupCallbacks;
-          applyPreviewLightingPreset(lighting, {
+      .then(async (result) => {
+        reportLoadingStage("scene");
+        reportLoadingStage("ui");
+        readyFeedbackBase = await mountLoadedPreview(result, {
+          clearActiveCameraId: () => onActiveCameraResetRef.current?.(),
+          context,
+          currentFile,
+          getMountState: () => ({
+            backfaceCulling: backfaceCullingRef.current,
+            cameraSpeedMultiplier: cameraSpeedMultiplierRef.current,
+            displayMode: displayModeRef.current,
+            morphTargetValues: morphTargetValuesRef.current,
+            selectedPurposeModes: purposeModesRef.current,
+            showAxes: showAxesRef.current,
+            showBoundingBoxes: showBoundingBoxesRef.current,
+            showGrid: showGridRef.current,
+            showJointNames: showJointNamesRef.current,
+            showLocalAxis: showLocalAxisRef.current,
+            showNormals: showNormalsRef.current,
+            showShadows: showShadowsRef.current,
+            showSkeleton: showSkeletonRef.current,
+            showVertexColors: showVertexColorsRef.current,
+            textureFilterMode: textureFilterModeRef.current,
+            texturePreview3D: texturePreview3DRef.current,
+            viewerSurfaceMode: viewerSurfaceModeRef.current,
+          }),
+          host: hostRef.current,
+          isDisposed: () => disposed,
+          keyLight: keyLightRef.current,
+          lightingTargets: {
             ambient: ambientLightRef.current,
             key: keyLightRef.current,
             fill: fillLightRef.current,
-          });
-          await syncMmdPreviewSpecularDirection(mmdModel, keyLightRef.current);
-          if (disposed) {
-            context.scene.remove(object);
-            context.mountedObject = null;
-            context.sourceObject = null;
-            runCleanupCallbacks(cleanupCallbacks);
-            context.cleanupCallbacks = [];
-            disposeObject(object);
-            revokeUrls(cleanupUrls);
-            context.cleanupUrls = [];
-            return;
-          }
-          if (rendering) {
-            applyPreviewRenderingPreset(context.renderer, rendering);
-          }
-          const normalization = skipScaleNormalization
-            ? (() => {
-                const maxDimension = getObjectMaxDimension(object);
-                return {
-                  applied: false,
-                  factor: 1,
-                  originalMaxDimension: maxDimension,
-                  normalizedMaxDimension: maxDimension,
-                  originalScale: null,
-                };
-              })()
-            : normalizeObjectScale(object);
-          if (normalization.applied && normalization.originalScale) {
-            scaleNormalizationRef.current = {
-              applied: true,
-              originalScale: normalization.originalScale,
-            };
-          } else {
-            scaleNormalizationRef.current = null;
-          }
-          onScaleNormalizationChange?.({
-            applied: normalization.applied,
-            factor: normalization.factor,
-          });
-          // Store the original (pre-normalization) dimension so camera sensitivity
-          // can reflect the asset's real world scale rather than the clamped size.
-          context.rawMaxDimension =
-            normalization.originalMaxDimension > 0
-              ? normalization.originalMaxDimension
-              : normalization.normalizedMaxDimension;
-          const gridConfig = applyDynamicGrid(
-            context.scene,
-            normalization.normalizedMaxDimension,
-            showGrid,
-          );
-          onGridUnitChange(gridConfig.label);
-          applyDynamicAxes(
-            context.scene,
-            normalization.normalizedMaxDimension,
-            showAxesRef.current,
-          );
-          applyDisplayMode(object, displayModeRef.current);
-          applyBackfaceCulling(object, backfaceCullingRef.current);
-          applyTextureFilter(object, textureFilterModeRef.current);
-          applyVertexColors(object, showVertexColorsRef.current);
-          applyMorphTargetValues(object, morphTargetValuesRef.current);
-          applyShadows(
-            context.scene,
-            object,
-            keyLightRef.current,
-            showShadowsRef.current,
-          );
-          frameMountedObject(
-            context,
-            object,
+          },
+          refs: {
+            activeCameraIdRef,
+            activeCameraRef,
+            assetResourceMetricsRef,
+            scaleNormalizationRef,
+          },
+          runtimeWarnings,
+          update: {
+            onFeedbackChange,
+            onGridUnitChange,
+            onMetadataChange,
+            onScaleNormalizationChange,
+            publishResourceDiagnostics,
+            setActivePreviewPath,
+            setAnimationState,
+            setOverlayReady: () => setOverlayMode("ready"),
+          },
+        });
+        if (!readyFeedbackBase || disposed) {
+          return;
+        }
+        resetCameraRef.current = () => {
+          frameCurrentMountedObject(
+            sceneContextRef.current,
             viewerSurfaceModeRef.current,
             showGridRef.current,
             showAxesRef.current,
             cameraSpeedMultiplierRef.current,
-            context.rawMaxDimension,
             texturePreview3DRef.current,
           );
-          setActivePreviewPath(currentFile.path);
-          setOverlayMode("ready");
-          reportLoadingStage("ui");
-          // Collect metadata before adding SkeletonHelper children so the
-          // bone helper meshes don't get counted as model meshes/nodes.
-          const metadataCollection = collectAssetMetadata(
-            object,
-            currentFile,
-            clips,
-            formatVersion,
-            mmdMetadata,
-          );
-          // Issue #98: surface the viewer-side classification (mesh /
-          // pointCloud / gaussianSplat) so the Detail panel can label the
-          // asset and switch renderer-appropriate UI.
-          metadataCollection.metadata.assetKind = assetKind;
-          const isBoneOnlyPreview =
-            metadataCollection.metadata.meshCount === 0 &&
-            metadataCollection.metadata.hasBones === true;
-          context.boneOnlyPreview = isBoneOnlyPreview;
-          context.animationRoot = object;
-          context.textureRegistry = metadataCollection.textureRegistry;
-          assetResourceMetricsRef.current = collectAssetResourceMetrics(
-            metadataCollection.metadata,
-          );
-          onMetadataChange(metadataCollection.metadata);
-          publishResourceDiagnostics(context);
-          applySkeletonHelpers(
-            context.scene,
-            object,
-            showSkeletonRef.current,
-            showLocalAxisRef.current,
-            showJointNamesRef.current,
-          );
-          applyBoundingBoxHelpers(
-            context.scene,
-            object,
-            showBoundingBoxesRef.current,
-          );
-          applyNormalHelpers(context.scene, object, showNormalsRef.current);
-          // #32: Apply purpose visibility immediately after mount so that
-          // proxy/guide meshes are hidden by default without waiting for the
-          // purposeModes prop to change (the useEffect won't re-fire because
-          // ref mutations are transparent to React's dependency tracking).
-          applyPurposeVisibility(object, purposeModesRef.current);
-
-          context.clips = clips;
-          context.mmdModel = mmdModel ?? null;
-          context.mmdMotion = null;
-          if (clips.length > 0) {
-            context.mixer = new AnimationMixer(context.animationRoot ?? object);
-            const activated = activateClip(context, 0, true);
-            setAnimationState({
-              clipNames: clips.map(getClipLabel),
-              activeClipIndex: activated?.clipIndex ?? 0,
-              currentTime: activated?.currentTime ?? 0,
-              duration: activated?.duration ?? clips[0]?.duration ?? 0,
-              isPlaying: activated?.isPlaying ?? false,
-            });
-          } else {
-            setAnimationState(emptyAnimationState);
-          }
-
-          resetCameraRef.current = () => {
-            frameCurrentMountedObject(
-              sceneContextRef.current,
-              viewerSurfaceModeRef.current,
-              showGridRef.current,
-              showAxesRef.current,
-              cameraSpeedMultiplierRef.current,
-              texturePreview3DRef.current,
-            );
-          };
-
-          // #34: if a USD camera was already active (e.g. the scene was
-          // reloaded due to a variant / load-policy change), re-run the
-          // camera lookup now that the new object is in the scene.
-          // activeCameraRef was cleared by the file-change guard above, so
-          // the render loop is already back on the free camera; traversing
-          // here restores the override without waiting for another prop
-          // change (which would never come because activeCameraId did not
-          // change).
-          //
-          // After a real re-extraction Three.js mints fresh uuids, so we
-          // match by `cameraSelectionKey` (display-name + dup-index) — that
-          // key is computed from authored data and remains stable across
-          // reloads as long as the camera order in the scene graph does
-          // not change.
-          const desiredCameraId = activeCameraIdRef.current;
-          if (desiredCameraId) {
-            const reFound = findCameraBySelectionKey(
-              context.scene,
-              desiredCameraId,
-            );
-            if (reFound) {
-              activeCameraRef.current = reFound;
-              context.controls.enabled = false;
-              syncPerspectiveCameraAspect(reFound, hostRef.current);
-            } else {
-              // Camera not present in the reloaded asset (typical after a
-              // variant / load-policy change because Three.js mints fresh
-              // uuids on every load). Clear the stale id locally so fly
-              // mode (which checks `activeCameraIdRef`) becomes available
-              // again, and bubble the reset to App.tsx so the React state +
-              // UI ("Free Orbit"/"Active" badges) match the renderer.
-              console.warn(
-                `[viewer] USD camera id "${desiredCameraId}" not found after reload — free camera restored`,
-              );
-              activeCameraIdRef.current = null;
-              onActiveCameraResetRef.current?.();
-            }
-          }
-
-          const scaleWarning = getScaleWarning(object, normalization);
-          readyFeedbackBase = {
-            message: `Preview ready: ${currentFile.fileName}`,
-            warnings: [
-              scaleWarning,
-              isBoneOnlyPreview
-                ? "Bone-only preview: no mesh geometry was found. Use the Skeleton overlay to show the rig."
-                : null,
-              ...warnings,
-            ],
-          };
-          onFeedbackChange(
-            buildReadyPreviewFeedback(readyFeedbackBase, runtimeWarnings),
-          );
-          setLoadingStage(null);
-        },
-      )
+        };
+        setLoadingStage(null);
+      })
       .catch((error: unknown) => {
         if (disposed) {
           return;
@@ -1504,88 +901,13 @@ export function AssetViewport({
     publishResourceDiagnostics,
   ]);
 
-  useEffect(() => {
-    if (!mmdMotionRequest) {
-      return;
-    }
-
-    const context = sceneContextRef.current;
-    const model = context?.mmdModel;
-    const runtime = model?.runtime;
-
-    if (!context || !model || !runtime) {
-      onFeedbackChange({
-        mode: "loadFailed",
-        message: "VMD motion was not loaded.",
-        warning:
-          "VMD motion can only be loaded after an MMD model with runtime support is ready.",
-        canResetCamera: false,
-      });
-      return;
-    }
-
-    let disposed = false;
-    const motionFile = mmdMotionRequest.file;
-    onFeedbackChange({
-      mode: "ready",
-      message: `Loading MMD motion: ${motionFile.fileName}`,
-      warning: null,
-      canResetCamera: true,
-    });
-
-    loadMmdMotion(motionFile)
-      .then((motion) => {
-        if (disposed) {
-          return;
-        }
-
-        runtime.setAnimation(motion.animation, model.mesh);
-        runtime.tick(0, {
-          mesh: model.mesh,
-          ik: true,
-          physics: false,
-        });
-        syncMmdMaterialRenderStates(model.root ?? model.mesh);
-
-        const duration = Math.max(motion.duration, 1 / 30);
-        context.mmdMotion = {
-          animation: motion.animation,
-          duration,
-          currentTime: 0,
-          label: motion.label,
-        };
-        setAnimationState({
-          clipNames: [motion.label],
-          activeClipIndex: 0,
-          currentTime: 0,
-          duration,
-          isPlaying: true,
-        });
-        onFeedbackChange({
-          mode: "ready",
-          message: `Preview ready: ${currentFile?.fileName ?? "MMD model"}`,
-          warning: null,
-          canResetCamera: true,
-        });
-      })
-      .catch((error: unknown) => {
-        if (disposed) {
-          return;
-        }
-        const message =
-          error instanceof Error ? error.message : "Failed to load VMD motion.";
-        onFeedbackChange({
-          mode: "ready",
-          message: `Preview ready: ${currentFile?.fileName ?? "MMD model"}`,
-          warning: message,
-          canResetCamera: true,
-        });
-      });
-
-    return () => {
-      disposed = true;
-    };
-  }, [currentFile?.fileName, mmdMotionRequest, onFeedbackChange]);
+  useMmdMotionRequest({
+    currentFileName: currentFile?.fileName,
+    mmdMotionRequest,
+    onFeedbackChange,
+    sceneContextRef,
+    setAnimationState,
+  });
 
   useSceneObjectEffects({
     backfaceCulling,
