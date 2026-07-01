@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { Button, SelectField, SliderField, Tooltip } from "./ui";
+import "../styles/animation.css";
 
 type AnimationBarProps = {
   clipNames: string[];
@@ -42,8 +43,12 @@ export function AnimationBar({
     safeDuration > 0 ? (safeCurrentTime / safeDuration) * 100 : 0;
 
   return (
-    <div className="animation-bar" role="group" aria-label="Animation controls">
-      <div className="animation-clip">
+    <div
+      className="animation-bar u-grid u-items-center"
+      role="group"
+      aria-label="Animation controls"
+    >
+      <div className="animation-clip u-min-w-0 u-md-hidden">
         {clipNames.length > 1 ? (
           <SelectField
             aria-label="Animation clip"
@@ -64,7 +69,7 @@ export function AnimationBar({
         )}
       </div>
 
-      <div className="animation-primary-controls">
+      <div className="animation-primary-controls u-flex u-items-center u-gap-2">
         <Tooltip content="Previous frame" side="top" size="sm">
           <Button
             className="yl-button--unstyled"
@@ -163,7 +168,7 @@ export function AnimationBar({
 
       <SliderField
         aria-label="Animation seek"
-        className="animation-seek"
+        className="animation-seek u-flex u-min-w-0 u-items-center"
         inputClassName="animation-seek-input"
         max={safeDuration || 0}
         min={0}
@@ -173,7 +178,7 @@ export function AnimationBar({
         value={safeCurrentTime}
       />
 
-      <div className="animation-time-readout">
+      <div className="animation-time-readout u-grid u-gap-6 u-nowrap u-sm-hidden">
         <span>{formatTime(safeCurrentTime)}</span>
         <span className="animation-time-total">{formatTime(safeDuration)}</span>
       </div>

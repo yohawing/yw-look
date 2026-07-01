@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Disclosure } from "./ui/Disclosure";
 import { KeyValueRows } from "./ui/KeyValueRows";
 import type { SidebarKeyValueRow } from "../types/ui";
+import "../styles/sidebar.css";
 
 export type { SidebarKeyValueRow } from "../types/ui";
 

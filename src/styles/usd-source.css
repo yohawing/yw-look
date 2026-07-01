@@ -1,0 +1,36 @@
+.usd-source {
+  max-height: 360px;
+  overflow: auto;
+  margin: 8px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--yl-radius-4);
+  background: rgba(0, 0, 0, 0.35);
+  color: #c8ccd2;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.usd-source .usd-keyword {
+  color: #c586c0;
+  font-weight: 510;
+}
+
+.usd-source .usd-type {
+  color: #4ec9b0;
+}
+
+.usd-source .usd-string {
+  color: #ce9178;
+}
+
+.usd-source .usd-number {
+  color: #b5cea8;
+}
+
+.usd-source .usd-comment {
+  color: #6a9955;
+  font-style: italic;
+}

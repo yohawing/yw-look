@@ -9,6 +9,7 @@ import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
 import { Badge } from "./ui/Badge";
 import { Disclosure } from "./ui/Disclosure";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
+import "../styles/material-list.css";
 
 type MaterialListCardProps = {
   materials: MaterialEntry[];

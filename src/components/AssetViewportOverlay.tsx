@@ -80,7 +80,7 @@ export function AssetViewportOverlay({
       {hasAnimation &&
       effectiveOverlayMode === "ready" &&
       viewerSurfaceMode === "asset" ? (
-        <div className="viewport-animation-overlay">
+        <div className="viewport-animation-overlay u-absolute u-flex u-justify-center">
           <AnimationBar
             activeClipIndex={animationState.activeClipIndex}
             clipNames={animationState.clipNames}

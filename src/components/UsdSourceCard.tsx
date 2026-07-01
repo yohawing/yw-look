@@ -8,6 +8,7 @@ import {
   SidebarError,
   SidebarSection,
 } from "./sidebarPrimitives";
+import "../styles/usd-source.css";
 
 type UsdSourceCardProps = {
   /** The currently open USD asset. The card is hidden when `null`

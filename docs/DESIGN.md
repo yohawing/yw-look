@@ -422,6 +422,17 @@ These rules apply when an AI agent adds or modifies reusable UI primitives in
 - Do not replace all raw colors opportunistically. Tokenizing existing raw
   values should happen in a dedicated pass so visual changes are reviewable.
 
+### Utility Layer
+
+- Use `src/styles/utilities.css` for layout and composition utilities only.
+- Utility classes use the `.u-*` prefix and may cover display, flex/grid flow,
+  spacing, positioning, sizing, overflow, and text flow.
+- Do not add `u-bg-*`, `u-text-*`, `u-border-*`, `u-shadow-*`, font, hover,
+  focus, disabled, or arbitrary value utilities. Visual identity stays in
+  `.yl-*` primitives or feature-owned CSS.
+- Import utilities once from `src/main.tsx`; feature components should import
+  only their own feature CSS.
+
 ### Component API Naming
 
 - Variant props must be named `variant` and typed as a union literal.

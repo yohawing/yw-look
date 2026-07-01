@@ -1408,6 +1408,36 @@ async function createFbxLoadingManager(
   return { manager, cleanupUrls: [], cleanupCallbacks: [cleanup] };
 }
 
+const GLTF_RESOURCE_PREFETCH_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) {
+        return;
+      }
+      results[index] = await mapper(items[index], index);
+    }
+  };
+
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 async function materializeGltf(file: SelectedFile) {
   const rawText = await readTextFile(file.path);
   let json: GltfDocument | null = JSON.parse(rawText) as GltfDocument;
@@ -1452,29 +1482,49 @@ async function materializeGltf(file: SelectedFile) {
       resourcePath,
       extension.toLowerCase(),
     );
-
-    cleanupUrls.push(objectUrl);
     return objectUrl;
   };
 
-  for (const uri of bufferUris) {
-    try {
-      urlMap.set(uri, await createMappedBlobUrl(uri));
-    } catch {
+  const bufferResults = await mapWithConcurrency(
+    bufferUris,
+    GLTF_RESOURCE_PREFETCH_CONCURRENCY,
+    async (uri) => {
+      try {
+        return { uri, objectUrl: await createMappedBlobUrl(uri) };
+      } catch {
+        return { uri, objectUrl: null };
+      }
+    },
+  );
+  for (const { uri, objectUrl } of bufferResults) {
+    if (objectUrl === null) {
       missingPaths.push(uri);
-    }
-  }
-
-  for (const uri of imageUris) {
-    if (urlMap.has(uri)) {
       continue;
     }
-    try {
-      urlMap.set(uri, await createMappedBlobUrl(uri));
-    } catch {
+    cleanupUrls.push(objectUrl);
+    urlMap.set(uri, objectUrl);
+  }
+
+  const pendingImageUris = imageUris.filter((uri) => !urlMap.has(uri));
+  const imageResults = await mapWithConcurrency(
+    pendingImageUris,
+    GLTF_RESOURCE_PREFETCH_CONCURRENCY,
+    async (uri) => {
+      try {
+        return { uri, objectUrl: await createMappedBlobUrl(uri) };
+      } catch {
+        return { uri, objectUrl: null };
+      }
+    },
+  );
+  for (const { uri, objectUrl } of imageResults) {
+    if (objectUrl === null) {
       unresolvedImages.push(uri);
       urlMap.set(uri, FALLBACK_TEXTURE_DATA_URL);
+      continue;
     }
+    cleanupUrls.push(objectUrl);
+    urlMap.set(uri, objectUrl);
   }
 
   if (unresolvedImages.length > 0) {
@@ -1673,6 +1723,16 @@ function resolveColladaTextureUrl(
     blobCache.get(url) ??
     (missingPaths.has(url) ? FALLBACK_TEXTURE_DATA_URL : url)
   );
+}
+
+function buildColladaWorkerTexturePayload(
+  blobCache: ReadonlyMap<string, string>,
+  missingPaths: readonly string[],
+) {
+  return {
+    textureUrls: Object.fromEntries(blobCache),
+    missingTextureUrls: [...missingPaths],
+  };
 }
 
 function createTexturePreview(
@@ -1970,8 +2030,10 @@ export {
   formatMissingTextureWarnings,
   resolveMissingTextureLabel,
   resolveColladaTextureUrl,
+  buildColladaWorkerTexturePayload,
   applyMissingTextureMaterialFallback,
   registerFbxTextureMaterialFallbacks,
+  mapWithConcurrency,
 };
 
 async function loadPreviewObjectCore(
@@ -2340,41 +2402,31 @@ async function loadPreviewObjectCore(
         return resolveColladaTextureUrl(url, blobCache, missingPathSet);
       });
       const loader = new ColladaLoader(manager);
+      const workerTexturePayload = buildColladaWorkerTexturePayload(
+        blobCache,
+        missingPaths,
+      );
       reportStage("scene");
       let wrapped: Group;
-      const canUseWorker = imagePaths.size === 0;
-      if (canUseWorker) {
-        try {
-          wrapped = (await parseModelInWorker(
-            file.path,
-            {
-              kind: "dae",
-              text,
-              basePath: file.parentDirectory,
-              textureUrls: {},
-              missingTextureUrls: [],
-            },
-            { signal: options.signal, timeoutMs: options.parseTimeoutMs },
-          )) as Group;
-        } catch (error) {
-          if (isAbortOrTimeoutError(error)) {
-            throw error;
-          }
-          console.warn(
-            "[dae] worker parse failed, falling back to main thread:",
-            error,
-          );
-          throwIfAborted(options.signal);
-          const collada = loader.parse(text, file.parentDirectory);
-          if (!collada) {
-            throw new Error(
-              "Collada parse returned no result; the document may be malformed.",
-            );
-          }
-          wrapped = new Group();
-          wrapped.add(collada.scene);
+      try {
+        wrapped = (await parseModelInWorker(
+          file.path,
+          {
+            kind: "dae",
+            text,
+            basePath: file.parentDirectory,
+            ...workerTexturePayload,
+          },
+          { signal: options.signal, timeoutMs: options.parseTimeoutMs },
+        )) as Group;
+      } catch (error) {
+        if (isAbortOrTimeoutError(error)) {
+          throw error;
         }
-      } else {
+        console.warn(
+          "[dae] worker parse failed, falling back to main thread:",
+          error,
+        );
         throwIfAborted(options.signal);
         const collada = loader.parse(text, file.parentDirectory);
         if (!collada) {

@@ -1,4 +1,4 @@
-import "../styles/sidebar.css";
+import "../styles/statusbar.css";
 import type { AppStatusBarItem } from "../types/ui";
 
 export type { AppStatusBarItem } from "../types/ui";

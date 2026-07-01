@@ -1,11 +1,13 @@
 import type { DisplayMode } from "../components/AssetViewport";
 import { AssetViewport } from "../components/AssetViewport";
+import { Button } from "../components/ui/Button";
 import type { ToolbarItem } from "../components/toolbar/types";
 import { ViewportControls } from "../components/ViewportControls";
 import type { DeferredTextureSnapshot } from "../types/viewer";
 import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
 import type { ViewerState } from "../stores/viewerStore";
+import "../styles/viewport.css";
 
 type ViewportHostProps = {
   deferredPayloadProgress: DeferredTextureSnapshot | null;
@@ -106,10 +108,13 @@ export function ViewportHost({
         items={viewportToolbarItems}
       />
       {/* InfoPanel toggle button */}
-      <button
-        className={`info-panel-toggle${ui.sidebarOpen ? " is-active" : ""}`}
+      <Button
+        aria-pressed={ui.sidebarOpen}
+        className="viewport-sidebar-toggle"
+        iconOnly
         onClick={ui.toggleSidebarOpen}
-        type="button"
+        size="md"
+        variant={ui.sidebarOpen ? "subtle" : "ghost"}
       >
         <svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
           <rect
@@ -129,12 +134,12 @@ export function ViewportHost({
             strokeLinecap="round"
           />
         </svg>
-      </button>
+      </Button>
 
       {/* Texture mode banner */}
       {viewer.viewerSurfaceMode === "texture" ? (
         <button
-          className="texture-mode-banner"
+          className="viewport-texture-mode-banner"
           onClick={() => viewer.setViewerSurfaceMode("asset")}
           type="button"
         >

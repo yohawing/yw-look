@@ -3,6 +3,7 @@ import type { TextureEntry } from "./assetMetadata";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
 import { Badge, BadgeButton } from "./ui/Badge";
 import { Button } from "./ui/Button";
+import "../styles/texture-list.css";
 
 type TextureListCardProps = {
   textures: TextureEntry[];
@@ -42,7 +43,7 @@ export function TextureListCard({
       {textures.length > 0 ? (
         <>
           <div
-            className="texture-channel-filters"
+            className="texture-channel-filters u-flex u-flex-wrap u-gap-4"
             aria-label="Texture channels"
           >
             {channels.map((channel) => (
@@ -58,16 +59,16 @@ export function TextureListCard({
               </BadgeButton>
             ))}
           </div>
-          <div className="texture-grid">
+          <div className="texture-grid u-grid u-gap-6">
             {visibleTextures.map((texture) => {
               const isMissing = texture.sourceKind === "unresolved";
               return (
                 <Button
                   key={texture.id}
-                  className={`yl-button--unstyled texture-card${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
+                  className={`yl-button--unstyled texture-card u-relative u-aspect-square u-overflow-hidden u-p-0${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
                   onClick={() => onSelectTexture(texture.id)}
                 >
-                  <div className="texture-card-preview">
+                  <div className="texture-card-preview u-absolute u-inset-0 u-size-full u-overflow-hidden u-flex u-items-center u-justify-center">
                     {texture.thumbnailUrl && !isMissing ? (
                       <img
                         className={
@@ -82,9 +83,11 @@ export function TextureListCard({
                       </span>
                     )}
                   </div>
-                  <div className="texture-card-info">
-                    <span className="texture-card-label">{texture.label}</span>
-                    <span className="texture-card-dimensions">
+                  <div className="texture-card-info u-absolute u-flex u-items-end u-justify-between u-gap-4">
+                    <span className="texture-card-label u-min-w-0 u-truncate">
+                      {texture.label}
+                    </span>
+                    <span className="texture-card-dimensions u-nowrap">
                       {texture.channel} · {texture.dimensions}
                     </span>
                   </div>
@@ -92,7 +95,7 @@ export function TextureListCard({
               );
             })}
           </div>
-          <div className="texture-summary">
+          <div className="texture-summary u-flex u-justify-between">
             <Badge variant="success" size="sm">
               Resolved {resolvedCount}
             </Badge>

@@ -10,6 +10,7 @@ import {
 } from "../viewer";
 
 import type { ViewerMode } from "../types/viewer";
+import "../styles/viewer-state.css";
 
 export type { ViewerMode } from "../types/viewer";
 

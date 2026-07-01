@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ModelParseWorkerPayload } from "../../workers/modelParse.worker";
 import {
   DEFAULT_MODEL_PARSE_TIMEOUT_MS,
   isAbortOrTimeoutError,
@@ -34,5 +35,25 @@ describe("model parse worker gate", () => {
 
   it("uses a bounded default timeout", () => {
     expect(DEFAULT_MODEL_PARSE_TIMEOUT_MS).toBe(30_000);
+  });
+});
+
+describe("model parse worker DAE payload", () => {
+  it("accepts serializable texture URL maps for textured Collada documents", () => {
+    const payload: ModelParseWorkerPayload = {
+      kind: "dae",
+      text: "<COLLADA/>",
+      basePath: "/models",
+      textureUrls: {
+        "textures/albedo.png": "blob:resolved-albedo",
+      },
+      missingTextureUrls: ["textures/normal.png"],
+    };
+
+    expect(payload.kind).toBe("dae");
+    expect(payload.textureUrls["textures/albedo.png"]).toBe(
+      "blob:resolved-albedo",
+    );
+    expect(payload.missingTextureUrls).toEqual(["textures/normal.png"]);
   });
 });

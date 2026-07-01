@@ -10,7 +10,9 @@ import type {
   MmdBoneEntry,
   ObjectInfo,
 } from "./assetMetadata";
+import { Button } from "./ui/Button";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
+import "../styles/hierarchy.css";
 
 type HierarchyCardProps = {
   hierarchy: HierarchyNode[];
@@ -669,9 +671,10 @@ export function HierarchyCard({
                   <div className="selected-morph-section">
                     <div className="selected-morph-head">
                       <span>Shape Keys</span>
-                      <button
-                        className="selected-morph-reset"
-                        type="button"
+                      <Button
+                        className="u-ml-auto"
+                        size="sm"
+                        variant="subtle"
                         onClick={() => {
                           for (const target of selectedMorphTargets) {
                             onMorphTargetChange?.(
@@ -683,7 +686,7 @@ export function HierarchyCard({
                         }}
                       >
                         Reset All
-                      </button>
+                      </Button>
                     </div>
                     <div className="selected-morph-list">
                       {selectedMorphTargets.map((target) => {

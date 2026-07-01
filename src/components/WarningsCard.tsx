@@ -1,4 +1,5 @@
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { Button } from "./ui/Button";
 
 type WarningsCardProps = {
   onCancelScaleNormalization?: () => void;
@@ -15,17 +16,18 @@ export function WarningsCard({
     <span className="warnings-title">
       <span>Warnings</span>
       {scaleNormalizationApplied && onCancelScaleNormalization ? (
-        <button
-          className="warnings-title-action"
+        <Button
+          className="u-shrink-0"
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
             onCancelScaleNormalization();
           }}
-          type="button"
+          size="sm"
+          variant="subtle"
         >
           Cancel Scale Normalize
-        </button>
+        </Button>
       ) : null}
     </span>
   );

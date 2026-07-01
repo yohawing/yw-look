@@ -7,6 +7,7 @@ import {
 } from "./sidebarPrimitives";
 import { FieldRow } from "./ui/FieldRow";
 import { ToggleSwitch } from "./ui/ToggleSwitch";
+import "../styles/settings.css";
 
 type SettingsCardProps = {
   settingsPayload: SettingsPayload | null;
@@ -74,12 +75,8 @@ export function SettingsCard({
             label="File associations"
             labelClassName="yl-kv-key"
           >
-            <span
-              className={`settings-switch ${
-                settingsPayload.settings.fileAssociationsEnabled ? "is-on" : ""
-              }`}
-            >
-              <span className="settings-switch-label">
+            <span className="u-inline-flex u-items-center u-gap-8">
+              <span className="settings-toggle-label">
                 {settingsPayload.settings.fileAssociationsEnabled
                   ? "Enabled"
                   : "Disabled"}
@@ -98,12 +95,8 @@ export function SettingsCard({
             label="Auto-check updates"
             labelClassName="yl-kv-key"
           >
-            <span
-              className={`settings-switch ${
-                settingsPayload.settings.autoCheckForUpdates ? "is-on" : ""
-              }`}
-            >
-              <span className="settings-switch-label">
+            <span className="u-inline-flex u-items-center u-gap-8">
+              <span className="settings-toggle-label">
                 {settingsPayload.settings.autoCheckForUpdates ? "On" : "Off"}
               </span>
               <ToggleSwitch

@@ -7,7 +7,7 @@
  * utilities that are exported with the @internal tag.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { BufferGeometry, Mesh, MeshStandardMaterial, Texture } from "three";
 import {
   getMimeType,
@@ -29,6 +29,8 @@ import {
   incompatibleOptionalLoaderPackIds,
   registerFbxTextureMaterialFallbacks,
   resolveColladaTextureUrl,
+  buildColladaWorkerTexturePayload,
+  mapWithConcurrency,
   type GltfDocument,
 } from "../loaders";
 import {
@@ -762,6 +764,37 @@ describe("missing texture fallback", () => {
     ).toBe("textures/untracked.png");
   });
 
+  it("builds a serializable Collada worker texture payload from resolved references", () => {
+    const blobCache = new Map([
+      ["textures/present.png", "blob:present"],
+      ["textures/second.png", "blob:second"],
+    ]);
+    const missingPaths = ["textures/missing.png"];
+    const { textureUrls, missingTextureUrls } =
+      buildColladaWorkerTexturePayload(blobCache, missingPaths);
+    const missingPathSet = new Set(missingPaths);
+
+    expect(textureUrls).toEqual({
+      "textures/present.png": "blob:present",
+      "textures/second.png": "blob:second",
+    });
+    expect(missingTextureUrls).toEqual(["textures/missing.png"]);
+    expect(
+      resolveColladaTextureUrl(
+        "textures/present.png",
+        blobCache,
+        missingPathSet,
+      ),
+    ).toBe(textureUrls["textures/present.png"]);
+    expect(
+      resolveColladaTextureUrl(
+        "textures/missing.png",
+        blobCache,
+        missingPathSet,
+      ),
+    ).toContain("data:image/png;base64,");
+  });
+
   it("removes failed FBX texture slots from registered materials", () => {
     const texture = new Texture();
     const material = new MeshStandardMaterial({
@@ -969,5 +1002,57 @@ describe("readUsdzFirstFileName", () => {
     // Override file name length to 0 explicitly
     new DataView(buffer).setUint16(26, 0, true);
     expect(readUsdzFirstFileName(buffer)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mapWithConcurrency
+// ---------------------------------------------------------------------------
+
+describe("mapWithConcurrency", () => {
+  it("returns mapped values in input order", async () => {
+    const result = await mapWithConcurrency(["a", "b", "c"], 4, async (item) =>
+      item.toUpperCase(),
+    );
+    expect(result).toEqual(["A", "B", "C"]);
+  });
+
+  it("returns an empty array for empty input", async () => {
+    await expect(
+      mapWithConcurrency([], 4, async (item) => item),
+    ).resolves.toEqual([]);
+  });
+
+  it("limits concurrent mapper invocations", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const releaseResolvers: Array<() => void> = [];
+
+    const mapper = vi.fn(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise<void>((resolve) => {
+        releaseResolvers.push(resolve);
+      });
+      active -= 1;
+    });
+
+    const pending = mapWithConcurrency(
+      Array.from({ length: 8 }, (_, index) => index),
+      4,
+      mapper,
+    );
+
+    await vi.waitFor(() => expect(mapper).toHaveBeenCalledTimes(4));
+
+    while (releaseResolvers.length > 0) {
+      releaseResolvers.shift()?.();
+      await Promise.resolve();
+    }
+
+    await pending;
+
+    expect(maxActive).toBeLessThanOrEqual(4);
+    expect(mapper).toHaveBeenCalledTimes(8);
   });
 });
