@@ -482,3 +482,47 @@ These rules apply when an AI agent adds or modifies reusable UI primitives in
   primitives.
 - Do **not** import Radix directly in feature components — always go
   through the `ui/` wrapper.
+
+## 12. Current Primitive Coverage and Migration Targets
+
+This section is the working map for keeping AI-generated UI simple while still
+using the design system. It should be updated when a reusable primitive is added
+or when a large feature area finishes migration.
+
+### Current Shared Primitives
+
+- `Button`, `Badge` / `BadgeButton`, `Disclosure`, `Dialog`, `Popover`,
+  `Tooltip`
+- `FieldRow`, `SelectField`, `SliderField`, `ToggleSwitch`
+- `IconTabButton`, `KeyValueRows`, `SegmentedControl`, `Kbd`
+
+Import from `src/components/ui` when possible so the public primitive surface
+stays visible. Direct file imports are acceptable during local refactors but
+should not be the default pattern for new feature code.
+
+### Reuse Guidance
+
+- Use `Button` for ordinary actions and icon-only controls that can share the
+  common button sizing model.
+- Use `SegmentedControl` for two-to-five mutually exclusive modes. Do not add
+  new feature-local `segmented-*` classes.
+- Use `SelectField` for native select controls. Radix Select remains out of
+  scope unless native select stops meeting the interaction requirement.
+- Use `SliderField` for range inputs and expose formatted values through
+  `valueLabel`.
+- Keep dense, domain-specific rows as feature components first. Promote a row
+  primitive only after the same interaction shape appears in at least two
+  feature areas.
+
+### Known Migration Targets
+
+- Toolbar controls: keep the viewport-specific behavior in
+  `src/components/toolbar/`, but extract small local primitives for trigger
+  buttons and menu rows before expanding the global `Button` API.
+- Selectable rows: recent files, file browser entries, texture cards, and
+  toolbar menu rows share a clickable-row shape. Prefer a feature-local
+  `SelectableListItem` / `ActionListItem` candidate before making it global.
+- USD inspector: variant selectors should use `SelectField`; load-policy mode
+  switches should use `SegmentedControl`.
+- Sidebar feature CSS should not define new primitive styles. If a class is
+  reusable across cards, move it to `design-system.css` behind a `.yl-*` name.

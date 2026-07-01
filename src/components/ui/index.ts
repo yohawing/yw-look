@@ -30,5 +30,21 @@ export {
   PopoverTrigger,
   type PopoverContentProps,
 } from "./Popover";
+export {
+  SegmentedControl,
+  type SegmentedControlOption,
+  type SegmentedControlProps,
+  type SegmentedControlSize,
+} from "./SegmentedControl";
+export {
+  SelectField,
+  type SelectFieldProps,
+  type SelectFieldSize,
+} from "./SelectField";
+export {
+  SliderField,
+  type SliderFieldProps,
+  type SliderFieldSize,
+} from "./SliderField";
 export { ToggleSwitch, type ToggleSwitchProps } from "./ToggleSwitch";
 export { Tooltip, TooltipProvider, type TooltipProps } from "./Tooltip";

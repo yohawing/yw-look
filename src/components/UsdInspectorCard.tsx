@@ -7,8 +7,7 @@ import type {
   StageSummary,
   VariantSelection,
 } from "../lib/usd";
-import { Disclosure } from "./ui/Disclosure";
-import { Badge } from "./ui/Badge";
+import { Badge, Disclosure, SegmentedControl, SelectField } from "./ui";
 import {
   SidebarEmpty,
   SidebarError,
@@ -16,6 +15,11 @@ import {
   SidebarSection,
   type SidebarKeyValueRow,
 } from "./sidebarPrimitives";
+
+const loadPolicyOptions = [
+  { value: "loadAll", label: "Loaded" },
+  { value: "noPayloads", label: "Deferred" },
+] as const;
 
 /** Pretty-print a numeric metadatum, falling back to "(default)" when
  * the stage didn't author the field. The fallback wording is shared
@@ -154,32 +158,13 @@ export function UsdInspectorCard({
   return (
     <SidebarSection title="USD Details" collapsible defaultOpen={false}>
       {showControl && (
-        <div
-          className="segmented-control"
-          role="group"
+        <SegmentedControl
           aria-label="USD load policy"
-        >
-          <button
-            type="button"
-            className={`segmented-option${
-              loadPolicy === "loadAll" ? " is-active" : ""
-            }`}
-            aria-pressed={loadPolicy === "loadAll"}
-            onClick={() => onLoadPolicyChange("loadAll")}
-          >
-            Loaded
-          </button>
-          <button
-            type="button"
-            className={`segmented-option${
-              loadPolicy === "noPayloads" ? " is-active" : ""
-            }`}
-            aria-pressed={loadPolicy === "noPayloads"}
-            onClick={() => onLoadPolicyChange("noPayloads")}
-          >
-            Deferred
-          </button>
-        </div>
+          onValueChange={onLoadPolicyChange}
+          options={loadPolicyOptions}
+          size="sm"
+          value={loadPolicy}
+        />
       )}
       {error ? (
         <SidebarError>{error}</SidebarError>
@@ -467,8 +452,9 @@ export function UsdInspectorCard({
                           <div className="usd-variant-main">
                             <strong>{vs.setName}</strong>
                             {canSwitch ? (
-                              <select
-                                className="variant-select"
+                              <SelectField
+                                className="usd-variant-select"
+                                selectClassName="usd-variant-select__control"
                                 value={activeSelection}
                                 onChange={(e) =>
                                   onVariantChange(
@@ -483,7 +469,7 @@ export function UsdInspectorCard({
                                     {v}
                                   </option>
                                 ))}
-                              </select>
+                              </SelectField>
                             ) : (
                               activeSelection && (
                                 <Badge

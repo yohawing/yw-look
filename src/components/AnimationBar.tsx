@@ -1,8 +1,5 @@
 import type { CSSProperties } from "react";
-import { Button } from "./ui/Button";
-import { SelectField } from "./ui/SelectField";
-import { SliderField } from "./ui/SliderField";
-import { Tooltip } from "./ui/Tooltip";
+import { Button, SelectField, SliderField, Tooltip } from "./ui";
 
 type AnimationBarProps = {
   clipNames: string[];
