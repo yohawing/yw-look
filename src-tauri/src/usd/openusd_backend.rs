@@ -14,6 +14,8 @@ use openusd::gf::f16;
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::stage::{MaterialData, MeshData, UpAxis};
+#[cfg(feature = "backend-openusd-rs")]
+use openusd::usd::{InitialLoadSet, StagePopulationMask};
 use openusd::usd::PrimPredicate;
 use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
 
@@ -190,6 +192,66 @@ impl OpenusdBackend {
             .open(path_str)
             .map_err(|e| UsdError::Parse(e.to_string()))
     }
+
+    #[cfg(feature = "backend-openusd-rs")]
+    fn open_masked_load_all(
+        path: &StdPath,
+        mask_paths: impl IntoIterator<Item = SdfPath>,
+    ) -> Result<Stage, UsdError> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| UsdError::Io(format!("non-UTF8 path: {}", path.display())))?;
+        Stage::builder()
+            .load(InitialLoadSet::LoadAll)
+            .mask(StagePopulationMask::new(mask_paths))
+            .open(path_str)
+            .map_err(|e| UsdError::Parse(e.to_string()))
+    }
+}
+
+#[cfg(feature = "backend-openusd-rs")]
+fn is_rust_session_mask_prim(stage: &Stage, prim_path: &SdfPath) -> bool {
+    if is_mesh_active_and_visible(stage, prim_path) || detect_light_kind(stage, prim_path).is_some()
+    {
+        return true;
+    }
+
+    matches!(
+        read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref(),
+        Some("Camera" | "PointInstancer")
+    )
+}
+
+#[cfg(feature = "backend-openusd-rs")]
+fn open_rust_session_stage_with_loaded_payloads(
+    stage_path: &StdPath,
+    base_stage: &Stage,
+    loaded_payload_paths: &HashSet<String>,
+) -> Result<Stage, UsdError> {
+    let mut mask_paths = HashSet::<SdfPath>::new();
+    base_stage
+        .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+            if is_rust_session_mask_prim(base_stage, prim_path) {
+                mask_paths.insert(prim_path.clone());
+            }
+        })
+        .map_err(|e| UsdError::Parse(e.to_string()))?;
+
+    for prim_path in loaded_payload_paths {
+        let path = SdfPath::new(prim_path)
+            .map_err(|e| UsdError::Parse(format!("invalid payload prim path {prim_path}: {e}")))?;
+        mask_paths.insert(path);
+    }
+
+    if mask_paths.is_empty() {
+        return OpenusdBackend::open(stage_path, StageLoadPolicy::NoPayloads);
+    }
+
+    // The Rust openusd crate does not currently expose mutable per-prim load
+    // rules. Reopen a LoadAll stage through a population mask instead: base
+    // renderable prims keep the no-payload preview visible, while explicit
+    // payload roots opt into composition.
+    OpenusdBackend::open_masked_load_all(stage_path, mask_paths)
 }
 
 impl Default for OpenusdBackend {
@@ -733,32 +795,55 @@ impl UsdSessionBackend for OpenusdBackend {
     ) -> Result<crate::usd::stage_state::OpenStage, UsdError> {
         let stage = Self::open(path, policy)?;
         Ok(crate::usd::stage_state::OpenStage::Rust(
-            std::sync::Mutex::new(stage),
+            std::sync::Mutex::new(crate::usd::stage_state::RustStageSession {
+                stage,
+                loaded_payload_paths: HashSet::new(),
+            }),
         ))
     }
 
     fn load_payload(
         &self,
-        _stage: &crate::usd::stage_state::OpenStage,
-        _prim_path: &str,
+        stage: &crate::usd::stage_state::OpenStage,
+        prim_path: &str,
     ) -> Result<(), UsdError> {
-        Err(UsdError::Parse(
-            "per-prim payload load is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature)"
-                .to_string(),
-        ))
+        let _ = SdfPath::new(prim_path)
+            .map_err(|e| UsdError::Parse(format!("invalid payload prim path {prim_path}: {e}")))?;
+        match stage {
+            crate::usd::stage_state::OpenStage::Rust(mutex) => {
+                let mut session = mutex
+                    .lock()
+                    .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
+                session.loaded_payload_paths.insert(prim_path.to_string());
+                Ok(())
+            }
+            #[cfg(feature = "backend-openusd-cpp")]
+            crate::usd::stage_state::OpenStage::Cpp(_) => Err(UsdError::Parse(
+                "load_payload: Cpp stage handle passed to Rust backend".to_string(),
+            )),
+        }
     }
 
     fn unload_payload(
         &self,
-        _stage: &crate::usd::stage_state::OpenStage,
-        _prim_path: &str,
+        stage: &crate::usd::stage_state::OpenStage,
+        prim_path: &str,
     ) -> Result<(), UsdError> {
-        Err(UsdError::Parse(
-            "per-prim payload unload is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature)"
-                .to_string(),
-        ))
+        let _ = SdfPath::new(prim_path)
+            .map_err(|e| UsdError::Parse(format!("invalid payload prim path {prim_path}: {e}")))?;
+        match stage {
+            crate::usd::stage_state::OpenStage::Rust(mutex) => {
+                let mut session = mutex
+                    .lock()
+                    .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
+                session.loaded_payload_paths.remove(prim_path);
+                Ok(())
+            }
+            #[cfg(feature = "backend-openusd-cpp")]
+            crate::usd::stage_state::OpenStage::Cpp(_) => Err(UsdError::Parse(
+                "unload_payload: Cpp stage handle passed to Rust backend".to_string(),
+            )),
+        }
     }
 
     fn extract_geometry_from_session(
@@ -769,10 +854,19 @@ impl UsdSessionBackend for OpenusdBackend {
     ) -> Result<Vec<u8>, UsdError> {
         match stage {
             crate::usd::stage_state::OpenStage::Rust(mutex) => {
-                let locked = mutex
+                let session = mutex
                     .lock()
                     .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
-                extract_geometry_from_open_stage_rs(&locked, stage_path, options)
+                if session.loaded_payload_paths.is_empty() {
+                    extract_geometry_from_open_stage_rs(&session.stage, stage_path, options)
+                } else {
+                    let stage_with_payloads = open_rust_session_stage_with_loaded_payloads(
+                        stage_path,
+                        &session.stage,
+                        &session.loaded_payload_paths,
+                    )?;
+                    extract_geometry_from_open_stage_rs(&stage_with_payloads, stage_path, options)
+                }
             }
             #[cfg(feature = "backend-openusd-cpp")]
             crate::usd::stage_state::OpenStage::Cpp(_) => Err(UsdError::Parse(

@@ -116,11 +116,7 @@ impl UsdBackendState {
             inspect: backend.clone() as Arc<dyn UsdInspectBackend>,
             geometry: Some(backend.clone() as Arc<dyn UsdGeometryBackend>),
             source: None,
-            // The Rust backend can keep an opened Stage internally, but it
-            // cannot mutate per-prim payload load state. The frontend's
-            // "session" capability means load/unload payload controls, so do
-            // not advertise it here.
-            session: None,
+            session: Some(backend.clone() as Arc<dyn UsdSessionBackend>),
             light: None,
         }
     }

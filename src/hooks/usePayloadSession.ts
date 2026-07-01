@@ -137,6 +137,9 @@ export function usePayloadSession(
       setUnloadedPayloadPaths(new Set());
       return;
     }
+    if (DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxAutoLoad <= 0) {
+      return;
+    }
 
     let cancelled = false;
     const path = currentFile.path;

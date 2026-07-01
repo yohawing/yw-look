@@ -10,6 +10,6 @@ export const PREFETCH_CACHE_LIMITS = {
 
 export const DEFERRED_PAYLOAD_PREVIEW_LIMITS = {
   batchSize: 8,
-  maxAutoLoad: 512,
+  maxAutoLoad: 0,
   extractEveryPayloads: 32,
 } as const;
