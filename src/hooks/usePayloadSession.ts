@@ -3,6 +3,7 @@ import { DEFERRED_PAYLOAD_PREVIEW_LIMITS } from "../config/viewerLimits";
 import { isUsdFile, type SelectedFile } from "../lib/files";
 import { errorMessage } from "../lib/invokeSafe";
 import {
+  backendCapabilities,
   closeStageSession,
   extractGeometrySession,
   inspectStage,
@@ -103,6 +104,7 @@ export function usePayloadSession(
   const stageSessionHandleRef = useRef<StageSessionHandle | null>(
     stageSessionHandle,
   );
+  const payloadSessionSupportedRef = useRef<boolean | null>(null);
   const deferredPreviewSessionRef = useRef<StageSessionHandle | null>(null);
   const sessionLoadedPayloadPathsRef = useRef<Set<string>>(new Set());
   const viewerWarningRef = useRef<string | null>(viewerWarning);
@@ -110,7 +112,7 @@ export function usePayloadSession(
     stageSessionHandleRef.current = stageSessionHandle;
     deferredPreviewSessionRef.current = null;
     sessionLoadedPayloadPathsRef.current = new Set();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset deferred preview progress when the stage session changes; progress is driven by a cancellable batch loader and cannot be derived during render
+
     setDeferredPayloadProgress(null);
   }, [stageSessionHandle]);
 
@@ -125,7 +127,6 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset session handle and unloaded paths when file is not a USD file or Tauri is unavailable; session handle comes from a cancellable RPC and cannot be derived during render
       setStageSessionHandle(null);
       setUnloadedPayloadPaths(new Set());
       return;
@@ -140,8 +141,26 @@ export function usePayloadSession(
     let cancelled = false;
     const path = currentFile.path;
 
-    openStageSession(path, "noPayloads")
+    const openSession = async () => {
+      if (payloadSessionSupportedRef.current === null) {
+        const capabilities = await backendCapabilities();
+        payloadSessionSupportedRef.current = capabilities.session;
+      }
+      if (!payloadSessionSupportedRef.current) {
+        if (!cancelled) {
+          setStageSessionHandle(null);
+          setUnloadedPayloadPaths(new Set());
+        }
+        return;
+      }
+      return openStageSession(path, "noPayloads");
+    };
+
+    openSession()
       .then((handle) => {
+        if (handle === undefined) {
+          return;
+        }
         if (cancelled) {
           closeStageSession(handle).catch(() => {});
           return;
@@ -170,7 +189,6 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (stageSessionHandle === null) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset session GLB buffer when the stage session handle is cleared; buffer is derived from a cancellable RPC and cannot be derived during render
       setSessionGlbBuffer(null);
       return;
     }
@@ -200,7 +218,6 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (!usdInspection || usdLoadPolicy !== "noPayloads") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset payload prim paths and unloaded paths when inspection is absent or load policy changed; values come from USD inspection data and cannot be derived during render
       setPayloadPrimPaths(new Set());
       setUnloadedPayloadPaths(new Set());
       return;
