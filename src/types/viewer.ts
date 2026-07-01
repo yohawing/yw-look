@@ -283,6 +283,7 @@ export type AssetViewportApi = {
 export type LoaderContext = {
   renderer?: WebGLRenderer;
   usdLoadPolicy?: import("./ipc").StageLoadPolicy;
+  getUsdInspection?: () => import("./ipc").StageInspection | null;
   variantSelections?: import("./ipc").VariantSelection[];
   glbOverride?: ArrayBuffer | null;
   disabledOptionalLoaderPackIds?: readonly string[] | ReadonlySet<string>;

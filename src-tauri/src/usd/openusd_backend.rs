@@ -10,20 +10,26 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path as StdPath, PathBuf};
 
+use openusd::gf::f16;
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::stage::{MaterialData, MeshData, UpAxis};
+#[cfg(feature = "backend-openusd-rs")]
+use openusd::usd::{InitialLoadSet, StagePopulationMask};
+use openusd::usd::PrimPredicate;
 use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
 
-use super::backend::{UsdError, UsdGeometryBackend, UsdInspectBackend};
 #[cfg(feature = "backend-openusd-rs")]
 use super::backend::UsdSessionBackend;
+use super::backend::{UsdError, UsdGeometryBackend, UsdInspectBackend};
 use super::glb::{self, MeshInput};
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
     CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection,
     PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
 };
+
+const LEGACY_TRAVERSE_PREDICATE: PrimPredicate = PrimPredicate::ALL;
 
 /// Translate the wire-level `StageLoadPolicy` used by Tauri commands
 /// into the corresponding `openusd::StageLoadPolicy`. Kept as a plain
@@ -52,6 +58,33 @@ fn to_openusd_policy(policy: StageLoadPolicy) -> OpenusdLoadPolicy {
         StageLoadPolicy::LoadAll => OpenusdLoadPolicy::LoadAll,
         StageLoadPolicy::NoPayloads => OpenusdLoadPolicy::NoPayloads,
     }
+}
+
+fn token_vec_to_strings(tokens: Vec<openusd::tf::Token>) -> Vec<String> {
+    tokens
+        .into_iter()
+        .map(|token| token.as_str().to_owned())
+        .collect()
+}
+
+fn token_or_string_value_to_string(value: SdfValue) -> Option<String> {
+    match value {
+        SdfValue::Token(token) => Some(token.as_str().to_owned()),
+        SdfValue::String(s) => Some(s),
+        _ => None,
+    }
+}
+
+fn read_token_or_string_field(
+    stage: &Stage,
+    path: SdfPath,
+    field: impl AsRef<str>,
+) -> Option<String> {
+    stage
+        .field::<SdfValue>(path, field)
+        .ok()
+        .flatten()
+        .and_then(token_or_string_value_to_string)
 }
 
 pub(crate) fn filter_resolvable_relative_assets(
@@ -156,10 +189,69 @@ impl OpenusdBackend {
             .ok_or_else(|| UsdError::Io(format!("non-UTF8 path: {}", path.display())))?;
         Stage::builder()
             .load_policy(to_openusd_policy(policy))
-            .on_error(|_err| Ok(()))
             .open(path_str)
             .map_err(|e| UsdError::Parse(e.to_string()))
     }
+
+    #[cfg(feature = "backend-openusd-rs")]
+    fn open_masked_load_all(
+        path: &StdPath,
+        mask_paths: impl IntoIterator<Item = SdfPath>,
+    ) -> Result<Stage, UsdError> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| UsdError::Io(format!("non-UTF8 path: {}", path.display())))?;
+        Stage::builder()
+            .load(InitialLoadSet::LoadAll)
+            .mask(StagePopulationMask::new(mask_paths))
+            .open(path_str)
+            .map_err(|e| UsdError::Parse(e.to_string()))
+    }
+}
+
+#[cfg(feature = "backend-openusd-rs")]
+fn is_rust_session_mask_prim(stage: &Stage, prim_path: &SdfPath) -> bool {
+    if is_mesh_active_and_visible(stage, prim_path) || detect_light_kind(stage, prim_path).is_some()
+    {
+        return true;
+    }
+
+    matches!(
+        read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref(),
+        Some("Camera" | "PointInstancer")
+    )
+}
+
+#[cfg(feature = "backend-openusd-rs")]
+fn open_rust_session_stage_with_loaded_payloads(
+    stage_path: &StdPath,
+    base_stage: &Stage,
+    loaded_payload_paths: &HashSet<String>,
+) -> Result<Stage, UsdError> {
+    let mut mask_paths = HashSet::<SdfPath>::new();
+    base_stage
+        .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+            if is_rust_session_mask_prim(base_stage, prim_path) {
+                mask_paths.insert(prim_path.clone());
+            }
+        })
+        .map_err(|e| UsdError::Parse(e.to_string()))?;
+
+    for prim_path in loaded_payload_paths {
+        let path = SdfPath::new(prim_path)
+            .map_err(|e| UsdError::Parse(format!("invalid payload prim path {prim_path}: {e}")))?;
+        mask_paths.insert(path);
+    }
+
+    if mask_paths.is_empty() {
+        return OpenusdBackend::open(stage_path, StageLoadPolicy::NoPayloads);
+    }
+
+    // The Rust openusd crate does not currently expose mutable per-prim load
+    // rules. Reopen a LoadAll stage through a population mask instead: base
+    // renderable prims keep the no-payload preview visible, while explicit
+    // payload roots opt into composition.
+    OpenusdBackend::open_masked_load_all(stage_path, mask_paths)
 }
 
 impl Default for OpenusdBackend {
@@ -176,7 +268,7 @@ impl UsdInspectBackend for OpenusdBackend {
     ) -> Result<StageInspection, UsdError> {
         let stage = Self::open(path, policy)?;
 
-        let default_prim = stage.default_prim();
+        let default_prim = stage.default_prim().map(|token| token.as_str().to_owned());
         let up_axis = stage.up_axis().map(|axis| match axis {
             UpAxis::Y => "Y".to_string(),
             UpAxis::Z => "Z".to_string(),
@@ -185,6 +277,7 @@ impl UsdInspectBackend for OpenusdBackend {
 
         let root_prims = stage
             .root_prims()
+            .map(|prims| token_vec_to_strings(prims))
             .map_err(|e| UsdError::Parse(e.to_string()))?;
 
         // We expose every collected layer identifier (root layer excluded) as
@@ -228,7 +321,7 @@ impl UsdInspectBackend for OpenusdBackend {
         let variant_sets_out = RefCell::new(Vec::<super::types::VariantSetInfo>::new());
 
         stage
-            .traverse(|prim_path| {
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let source = prim_path.as_str().to_string();
 
                 // Collect variant sets for the inspector UI.
@@ -236,8 +329,10 @@ impl UsdInspectBackend for OpenusdBackend {
                     stage.field::<SdfValue>(prim_path.clone(), FieldKey::VariantSetNames)
                 {
                     let set_names: Vec<String> = match value {
-                        SdfValue::TokenVec(set_names) => set_names,
-                        SdfValue::TokenListOp(op) => op.iter().cloned().collect(),
+                        SdfValue::TokenVec(set_names) => token_vec_to_strings(set_names),
+                        SdfValue::TokenListOp(op) => {
+                            op.iter().map(|token| token.as_str().to_owned()).collect()
+                        }
                         _ => Vec::new(),
                     };
                     if !set_names.is_empty() {
@@ -249,12 +344,14 @@ impl UsdInspectBackend for OpenusdBackend {
                         };
                         for set_name in set_names {
                             let selection = selection_map.get(&set_name).cloned();
-                            variant_sets_out.borrow_mut().push(super::types::VariantSetInfo {
-                                prim_path: source.clone(),
-                                set_name,
-                                selection,
-                                variants: Vec::new(),
-                            });
+                            variant_sets_out
+                                .borrow_mut()
+                                .push(super::types::VariantSetInfo {
+                                    prim_path: source.clone(),
+                                    set_name,
+                                    selection,
+                                    variants: Vec::new(),
+                                });
                         }
                     }
                 }
@@ -407,9 +504,9 @@ impl UsdInspectBackend for OpenusdBackend {
             .collect();
 
         stage
-            .traverse(|prim_path| {
-                if let Ok(Some(type_name)) =
-                    stage.field::<String>(prim_path.clone(), FieldKey::TypeName)
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+                if let Some(type_name) =
+                    read_token_or_string_field(&stage, prim_path.clone(), FieldKey::TypeName)
                 {
                     if !type_name.is_empty() {
                         let mut buckets = prim_type_counts.borrow_mut();
@@ -610,7 +707,7 @@ impl UsdInspectBackend for OpenusdBackend {
         let covered: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 
         stage
-            .traverse(|prim_path| {
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let source = prim_path.as_str().to_string();
                 for r in stage.references_in(prim_path.clone()) {
                     if reference_arc_state(&unresolved, &r.asset_path)
@@ -698,32 +795,55 @@ impl UsdSessionBackend for OpenusdBackend {
     ) -> Result<crate::usd::stage_state::OpenStage, UsdError> {
         let stage = Self::open(path, policy)?;
         Ok(crate::usd::stage_state::OpenStage::Rust(
-            std::sync::Mutex::new(stage),
+            std::sync::Mutex::new(crate::usd::stage_state::RustStageSession {
+                stage,
+                loaded_payload_paths: HashSet::new(),
+            }),
         ))
     }
 
     fn load_payload(
         &self,
-        _stage: &crate::usd::stage_state::OpenStage,
-        _prim_path: &str,
+        stage: &crate::usd::stage_state::OpenStage,
+        prim_path: &str,
     ) -> Result<(), UsdError> {
-        Err(UsdError::Parse(
-            "per-prim payload load is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature)"
-                .to_string(),
-        ))
+        let _ = SdfPath::new(prim_path)
+            .map_err(|e| UsdError::Parse(format!("invalid payload prim path {prim_path}: {e}")))?;
+        match stage {
+            crate::usd::stage_state::OpenStage::Rust(mutex) => {
+                let mut session = mutex
+                    .lock()
+                    .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
+                session.loaded_payload_paths.insert(prim_path.to_string());
+                Ok(())
+            }
+            #[cfg(feature = "backend-openusd-cpp")]
+            crate::usd::stage_state::OpenStage::Cpp(_) => Err(UsdError::Parse(
+                "load_payload: Cpp stage handle passed to Rust backend".to_string(),
+            )),
+        }
     }
 
     fn unload_payload(
         &self,
-        _stage: &crate::usd::stage_state::OpenStage,
-        _prim_path: &str,
+        stage: &crate::usd::stage_state::OpenStage,
+        prim_path: &str,
     ) -> Result<(), UsdError> {
-        Err(UsdError::Parse(
-            "per-prim payload unload is not supported on the Rust openusd backend; \
-             switch to the C++ backend (backend-openusd-cpp feature)"
-                .to_string(),
-        ))
+        let _ = SdfPath::new(prim_path)
+            .map_err(|e| UsdError::Parse(format!("invalid payload prim path {prim_path}: {e}")))?;
+        match stage {
+            crate::usd::stage_state::OpenStage::Rust(mutex) => {
+                let mut session = mutex
+                    .lock()
+                    .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
+                session.loaded_payload_paths.remove(prim_path);
+                Ok(())
+            }
+            #[cfg(feature = "backend-openusd-cpp")]
+            crate::usd::stage_state::OpenStage::Cpp(_) => Err(UsdError::Parse(
+                "unload_payload: Cpp stage handle passed to Rust backend".to_string(),
+            )),
+        }
     }
 
     fn extract_geometry_from_session(
@@ -734,10 +854,19 @@ impl UsdSessionBackend for OpenusdBackend {
     ) -> Result<Vec<u8>, UsdError> {
         match stage {
             crate::usd::stage_state::OpenStage::Rust(mutex) => {
-                let locked = mutex
+                let session = mutex
                     .lock()
                     .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
-                extract_geometry_from_open_stage_rs(&locked, stage_path, options)
+                if session.loaded_payload_paths.is_empty() {
+                    extract_geometry_from_open_stage_rs(&session.stage, stage_path, options)
+                } else {
+                    let stage_with_payloads = open_rust_session_stage_with_loaded_payloads(
+                        stage_path,
+                        &session.stage,
+                        &session.loaded_payload_paths,
+                    )?;
+                    extract_geometry_from_open_stage_rs(&stage_with_payloads, stage_path, options)
+                }
             }
             #[cfg(feature = "backend-openusd-cpp")]
             crate::usd::stage_state::OpenStage::Cpp(_) => Err(UsdError::Parse(
@@ -805,7 +934,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
     let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
     stage
-        .traverse(|prim_path| {
+        .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
             // Detect PointInstancer type by path heuristic: the stage's
             // type_name field. We emit a warning and skip rather than error.
             if let Ok(Some(SdfValue::Token(type_name))) =
@@ -1098,7 +1227,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                         }
                     }
                 }
-                tri.skin_index = mesh_skin_slots[mesh_idx];
+                tri.skin_index = skin_index_from_payload(&tri, mesh_skin_slots[mesh_idx]);
                 // #32: inherit parent mesh's purpose for subsets.
                 tri.purpose = Some(resolve_purpose(&stage, prim_path));
                 inputs.push(tri);
@@ -1158,7 +1287,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // Phase 5c E: attach the dedup'd skin slot to this mesh
         // primitive. The mesh is rendered statically when no
         // skin is bound.
-        triangulated.skin_index = mesh_skin_slots[mesh_idx];
+        triangulated.skin_index = skin_index_from_payload(&triangulated, mesh_skin_slots[mesh_idx]);
 
         // #32: resolve the USD purpose token for this prim and
         // attach it to the MeshInput so the GLB writer can embed
@@ -1600,7 +1729,8 @@ fn read_mesh_skel_joints_override(stage: &Stage, mesh_path: &SdfPath) -> Option<
     let attr_path = mesh_path.append_property("skel:joints").ok()?;
     let value: Option<SdfValue> = stage.field(attr_path, FieldKey::Default).ok()?;
     match value? {
-        SdfValue::TokenVec(v) | SdfValue::StringVec(v) => Some(v),
+        SdfValue::TokenVec(v) => Some(token_vec_to_strings(v)),
+        SdfValue::StringVec(v) => Some(v),
         _ => None,
     }
 }
@@ -1649,6 +1779,14 @@ pub(crate) fn remap_mesh_skin_indices(
                 *w = 0.0;
             }
         }
+    }
+}
+
+fn skin_index_from_payload(mesh: &MeshInput, skin_slot: Option<usize>) -> Option<usize> {
+    if mesh.joint_indices.is_some() && mesh.joint_weights.is_some() {
+        skin_slot
+    } else {
+        None
     }
 }
 
@@ -2003,7 +2141,7 @@ fn find_material_by_name_fallback(
         // whose name starts with the subset name.
         let mut found: Option<SdfPath> = None;
         stage
-            .traverse(|prim_path| {
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 if found.is_some() {
                     return;
                 }
@@ -2018,11 +2156,10 @@ fn find_material_by_name_fallback(
                 }
                 let child_name = remainder.trim_start_matches('/');
                 if child_name.starts_with(subset_name) {
-                    let type_name: Option<String> = stage
-                        .field(prim_path.clone(), FieldKey::TypeName)
-                        .ok()
-                        .flatten();
-                    if type_name.as_deref() == Some("Material") {
+                    if read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName)
+                        .as_deref()
+                        == Some("Material")
+                    {
                         found = Some(prim_path.clone());
                     }
                 }
@@ -2107,7 +2244,7 @@ fn resolve_material_slot(
 fn resolve_lights(stage: &Stage, up_correction: Option<&[f64; 16]>) -> Vec<glb::LightInput> {
     let light_paths = RefCell::new(Vec::<SdfPath>::new());
     if stage
-        .traverse(|prim_path| {
+        .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
             if detect_light_kind(stage, prim_path).is_some() {
                 light_paths.borrow_mut().push(prim_path.clone());
             }
@@ -2152,10 +2289,7 @@ fn resolve_lights(stage: &Stage, up_correction: Option<&[f64; 16]>) -> Vec<glb::
 /// currently emits to glTF. Returns `None` for non-lights and for
 /// lights we intentionally skip (area lights, DomeLight).
 fn detect_light_kind(stage: &Stage, prim_path: &SdfPath) -> Option<glb::LightKind> {
-    let type_name: Option<String> = stage
-        .field(prim_path.clone(), FieldKey::TypeName)
-        .ok()
-        .flatten();
+    let type_name = read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName);
     match type_name.as_deref() {
         Some("DistantLight") => Some(glb::LightKind::Directional),
         Some("SphereLight") => Some(glb::LightKind::Point),
@@ -2181,7 +2315,7 @@ fn read_shader_color(stage: &Stage, prim_path: &SdfPath, input_name: &str) -> Op
     let prop_path = prim_path.append_property(input_name).ok()?;
     let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
     match value {
-        SdfValue::Vec3f(v) => Some(v),
+        SdfValue::Vec3f(v) => Some(v.into()),
         SdfValue::Vec3d(v) => Some([v[0] as f32, v[1] as f32, v[2] as f32]),
         _ => None,
     }
@@ -2207,12 +2341,10 @@ fn read_shader_color(stage: &Stage, prim_path: &SdfPath, input_name: &str) -> Op
 fn resolve_cameras(stage: &Stage, up_correction: Option<&[f64; 16]>) -> Vec<glb::CameraInput> {
     let camera_paths = RefCell::new(Vec::<SdfPath>::new());
     if stage
-        .traverse(|prim_path| {
-            let type_name: Option<String> = stage
-                .field(prim_path.clone(), FieldKey::TypeName)
-                .ok()
-                .flatten();
-            if type_name.as_deref() == Some("Camera") {
+        .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+            if read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref()
+                == Some("Camera")
+            {
                 camera_paths.borrow_mut().push(prim_path.clone());
             }
         })
@@ -2369,7 +2501,8 @@ fn read_blend_shape_names(stage: &Stage, mesh_path: &SdfPath) -> Vec<String> {
         .ok()
         .flatten()
     {
-        Some(SdfValue::TokenVec(names)) | Some(SdfValue::StringVec(names)) => names,
+        Some(SdfValue::TokenVec(names)) => token_vec_to_strings(names),
+        Some(SdfValue::StringVec(names)) => names,
         _ => Vec::new(),
     }
 }
@@ -2387,10 +2520,7 @@ fn read_dense_blend_shape(
     // relationships pointing at random prims are surprisingly common
     // in production exports, so a quiet skip here is better than
     // propagating the failure up.
-    let type_name: Option<String> = stage
-        .field(target_path.clone(), FieldKey::TypeName)
-        .ok()
-        .flatten();
+    let type_name = read_token_or_string_field(stage, target_path.clone(), FieldKey::TypeName);
     if type_name.as_deref() != Some("BlendShape") {
         return None;
     }
@@ -2404,7 +2534,7 @@ fn read_dense_blend_shape(
         .ok()
         .flatten()?;
     let offsets_vec: Vec<[f32; 3]> = match offsets_value {
-        SdfValue::Vec3fVec(v) => v,
+        SdfValue::Vec3fVec(v) => v.into_iter().map(Into::into).collect(),
         _ => return None,
     };
 
@@ -2476,15 +2606,13 @@ fn find_preview_surface_shader(stage: &Stage, material_path: &SdfPath) -> Option
         // SdfPath has no `append_child`; compose the child path via
         // string concat (same pattern used for GeomSubset names).
         let child = SdfPath::new(&format!("{}/{}", material_path.as_str(), child_name)).ok()?;
-        let type_name: Option<String> = stage
-            .field(child.clone(), FieldKey::TypeName)
-            .ok()
-            .flatten();
-        if type_name.as_deref() != Some("Shader") {
+        if read_token_or_string_field(stage, child.clone(), FieldKey::TypeName).as_deref()
+            != Some("Shader")
+        {
             continue;
         }
         let info_id_path = child.append_property("info:id").ok()?;
-        let info_id: Option<String> = stage.field(info_id_path, FieldKey::Default).ok().flatten();
+        let info_id = read_token_or_string_field(stage, info_id_path, FieldKey::Default);
         let is_preview_surface = matches!(
             info_id.as_deref(),
             Some("UsdPreviewSurface")
@@ -2521,15 +2649,13 @@ fn follow_texture_connection_to_asset(stage: &Stage, input_path: &SdfPath) -> Op
     // the `.outputs:rgb` suffix to get the texture shader prim path.
     let shader_path = target.prim_path();
 
-    let type_name: Option<String> = stage
-        .field(shader_path.clone(), FieldKey::TypeName)
-        .ok()
-        .flatten();
-    if type_name.as_deref() != Some("Shader") {
+    if read_token_or_string_field(stage, shader_path.clone(), FieldKey::TypeName).as_deref()
+        != Some("Shader")
+    {
         return None;
     }
     let info_id_path = shader_path.append_property("info:id").ok()?;
-    let info_id: Option<String> = stage.field(info_id_path, FieldKey::Default).ok().flatten();
+    let info_id = read_token_or_string_field(stage, info_id_path, FieldKey::Default);
     let is_texture_shader = matches!(
         info_id.as_deref(),
         Some("UsdUVTexture")
@@ -2544,8 +2670,9 @@ fn follow_texture_connection_to_asset(stage: &Stage, input_path: &SdfPath) -> Op
     let file_path = shader_path.append_property("inputs:file").ok()?;
     let value: Option<SdfValue> = stage.field(file_path, FieldKey::Default).ok().flatten();
     match value? {
-        SdfValue::AssetPath(s) => Some(s),
-        SdfValue::String(s) | SdfValue::Token(s) => Some(s),
+        SdfValue::AssetPath(s) => Some(s.to_string()),
+        SdfValue::String(s) => Some(s),
+        SdfValue::Token(s) => Some(s.as_str().to_owned()),
         _ => None,
     }
 }
@@ -2586,7 +2713,7 @@ fn resolve_texture_transform(
     let st_input = texture_shader.append_property("inputs:st").ok()?;
     let transform_shader = follow_connection_to_shader(stage, &st_input)?;
     let info_id_path = transform_shader.append_property("info:id").ok()?;
-    let info_id: Option<String> = stage.field(info_id_path, FieldKey::Default).ok().flatten();
+    let info_id = read_token_or_string_field(stage, info_id_path, FieldKey::Default);
     if info_id.as_deref() != Some("UsdTransform2d") {
         // Common case: `inputs:st` is wired straight to a
         // PrimvarReader with no transform in between. Identity =
@@ -2627,11 +2754,9 @@ fn follow_connection_to_shader(stage: &Stage, input_path: &SdfPath) -> Option<Sd
     };
     let target = list_op.iter().next()?.clone();
     let shader_path = target.prim_path();
-    let type_name: Option<String> = stage
-        .field(shader_path.clone(), FieldKey::TypeName)
-        .ok()
-        .flatten();
-    if type_name.as_deref() != Some("Shader") {
+    if read_token_or_string_field(stage, shader_path.clone(), FieldKey::TypeName).as_deref()
+        != Some("Shader")
+    {
         return None;
     }
     Some(shader_path)
@@ -2644,7 +2769,7 @@ fn shader_is_texture_node(stage: &Stage, shader_path: &SdfPath) -> bool {
         Ok(p) => p,
         Err(_) => return false,
     };
-    let info_id: Option<String> = stage.field(info_id_path, FieldKey::Default).ok().flatten();
+    let info_id = read_token_or_string_field(stage, info_id_path, FieldKey::Default);
     matches!(
         info_id.as_deref(),
         Some("UsdUVTexture")
@@ -2673,7 +2798,7 @@ fn read_vec2_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> Op
     let prop_path = shader_path.append_property(input_name).ok()?;
     let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
     match value {
-        SdfValue::Vec2f(v) => Some(v),
+        SdfValue::Vec2f(v) => Some(v.into()),
         SdfValue::Vec2d(v) => Some([v[0] as f32, v[1] as f32]),
         _ => None,
     }
@@ -3097,8 +3222,13 @@ fn read_mesh_orientation(stage: &Stage, prim_path: &SdfPath) -> MeshOrientation 
     let Ok(prop_path) = prim_path.append_property("orientation") else {
         return MeshOrientation::RightHanded;
     };
-    match stage.field::<SdfValue>(prop_path, FieldKey::Default) {
-        Ok(Some(SdfValue::Token(token))) | Ok(Some(SdfValue::String(token))) => {
+    match stage
+        .field::<SdfValue>(prop_path, FieldKey::Default)
+        .ok()
+        .flatten()
+        .and_then(token_or_string_value_to_string)
+    {
+        Some(token) => {
             if token == "leftHanded" {
                 MeshOrientation::LeftHanded
             } else {
@@ -3133,9 +3263,10 @@ fn read_mesh_orientation(stage: &Stage, prim_path: &SdfPath) -> MeshOrientation 
 #[allow(dead_code)]
 fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
     // Must be a Mesh at the leaf.
-    match stage.field::<String>(prim_path.clone(), FieldKey::TypeName) {
-        Ok(Some(type_name)) if type_name == "Mesh" => {}
-        _ => return false,
+    if read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref()
+        != Some("Mesh")
+    {
+        return false;
     }
 
     // Walk from the leaf toward the pseudo-root. Every step checks the
@@ -3160,22 +3291,29 @@ fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         // default", which matches a first-invisible-wins heuristic well
         // enough for the scenes yw-look targets.
         if let Ok(prop) = ancestor.append_property("visibility") {
-            if let Ok(Some(value)) = stage.field::<SdfValue>(prop, FieldKey::Default) {
-                if let SdfValue::Token(token) | SdfValue::String(token) = value {
-                    if token == "invisible" {
-                        return false;
-                    }
-                }
+            if stage
+                .field::<SdfValue>(prop, FieldKey::Default)
+                .ok()
+                .flatten()
+                .and_then(token_or_string_value_to_string)
+                .as_deref()
+                == Some("invisible")
+            {
+                return false;
             }
         }
 
         if let Ok(prop) = ancestor.append_property("purpose") {
-            if let Ok(Some(value)) = stage.field::<SdfValue>(prop, FieldKey::Default) {
-                if let SdfValue::Token(token) | SdfValue::String(token) = value {
-                    if token == "proxy" || token == "guide" {
-                        return false;
-                    }
-                }
+            if matches!(
+                stage
+                    .field::<SdfValue>(prop, FieldKey::Default)
+                    .ok()
+                    .flatten()
+                    .and_then(token_or_string_value_to_string)
+                    .as_deref(),
+                Some("proxy" | "guide")
+            ) {
+                return false;
             }
         }
 
@@ -3199,9 +3337,10 @@ fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
 /// writing the resolved purpose onto each `MeshInput`.
 fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> bool {
     // Must be a Mesh at the leaf.
-    match stage.field::<String>(prim_path.clone(), FieldKey::TypeName) {
-        Ok(Some(type_name)) if type_name == "Mesh" => {}
-        _ => return false,
+    if read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref()
+        != Some("Mesh")
+    {
+        return false;
     }
 
     let mut path_str = prim_path.as_str().to_string();
@@ -3215,12 +3354,15 @@ fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> bool {
         }
 
         if let Ok(prop) = ancestor.append_property("visibility") {
-            if let Ok(Some(value)) = stage.field::<SdfValue>(prop, FieldKey::Default) {
-                if let SdfValue::Token(token) | SdfValue::String(token) = value {
-                    if token == "invisible" {
-                        return false;
-                    }
-                }
+            if stage
+                .field::<SdfValue>(prop, FieldKey::Default)
+                .ok()
+                .flatten()
+                .and_then(token_or_string_value_to_string)
+                .as_deref()
+                == Some("invisible")
+            {
+                return false;
             }
         }
 
@@ -3247,12 +3389,15 @@ fn resolve_purpose(stage: &Stage, prim_path: &SdfPath) -> String {
         };
 
         if let Ok(prop) = ancestor.append_property("purpose") {
-            if let Ok(Some(value)) = stage.field::<SdfValue>(prop, FieldKey::Default) {
-                if let SdfValue::Token(token) | SdfValue::String(token) = value {
-                    // "inherited" means "inherit from parent" — keep walking.
-                    if !token.is_empty() && token != "inherited" {
-                        return token;
-                    }
+            if let Some(token) = stage
+                .field::<SdfValue>(prop, FieldKey::Default)
+                .ok()
+                .flatten()
+                .and_then(token_or_string_value_to_string)
+            {
+                // "inherited" means "inherit from parent" — keep walking.
+                if !token.is_empty() && token != "inherited" {
+                    return token;
                 }
             }
         }
@@ -3404,7 +3549,8 @@ fn compose_prim_local_xform(
         return Ok(None);
     };
     let op_names: Vec<String> = match order_value {
-        SdfValue::TokenVec(v) | SdfValue::StringVec(v) => v,
+        SdfValue::TokenVec(v) => token_vec_to_strings(v),
+        SdfValue::StringVec(v) => v,
         other => {
             return Err(UsdError::Parse(format!(
                 "Unexpected type for xformOpOrder: {other:?}"
@@ -3458,7 +3604,7 @@ fn build_xform_op_matrix(op_name: &str, value: &SdfValue) -> Result<[f64; 16], U
     let base = op_name.split(':').nth(1).unwrap_or("");
     match base {
         "transform" => match value {
-            SdfValue::Matrix4d(m) => Ok(*m),
+            SdfValue::Matrix4d(m) => Ok((*m).into()),
             other => Err(UsdError::Parse(format!(
                 "xformOp:transform must be matrix4d, got {other:?}"
             ))),
@@ -3526,9 +3672,18 @@ fn build_xform_op_matrix(op_name: &str, value: &SdfValue) -> Result<[f64; 16], U
 
 fn read_vec3(value: &SdfValue) -> Option<(f64, f64, f64)> {
     match value {
-        SdfValue::Vec3d([x, y, z]) => Some((*x, *y, *z)),
-        SdfValue::Vec3f([x, y, z]) => Some((*x as f64, *y as f64, *z as f64)),
-        SdfValue::Vec3h([x, y, z]) => Some((f64::from(*x), f64::from(*y), f64::from(*z))),
+        SdfValue::Vec3d(v) => {
+            let [x, y, z]: [f64; 3] = (*v).into();
+            Some((x, y, z))
+        }
+        SdfValue::Vec3f(v) => {
+            let [x, y, z]: [f32; 3] = (*v).into();
+            Some((x as f64, y as f64, z as f64))
+        }
+        SdfValue::Vec3h(v) => {
+            let [x, y, z]: [f16; 3] = (*v).into();
+            Some((f64::from(x), f64::from(y), f64::from(z)))
+        }
         _ => None,
     }
 }
@@ -3542,18 +3697,23 @@ fn read_angle(value: &SdfValue) -> Option<f64> {
     }
 }
 
-/// Extracts a quaternion from any of USD's quat value types. The fork's
-/// USDC reader stores quaternions in **imaginary-first** order
-/// `[x, y, z, w]` matching the USDC binary crate format — NOT the C++
-/// `GfQuatf(real, imaginary)` API order. We return `(w, x, y, z)` so
-/// callers can use the standard scalar-first convention for matrix
-/// construction.
+/// Extracts a quaternion from any of USD's quat value types. openusd
+/// v0.5 exposes `gf::Quat*` arrays in scalar-first order:
+/// `[w, x, y, z]`. Return the same scalar-first tuple so matrix
+/// construction stays aligned with USD's `(real, i, j, k)` convention.
 fn read_quat(value: &SdfValue) -> Option<(f64, f64, f64, f64)> {
     match value {
-        SdfValue::Quatd([x, y, z, w]) => Some((*w, *x, *y, *z)),
-        SdfValue::Quatf([x, y, z, w]) => Some((*w as f64, *x as f64, *y as f64, *z as f64)),
-        SdfValue::Quath([x, y, z, w]) => {
-            Some((f64::from(*w), f64::from(*x), f64::from(*y), f64::from(*z)))
+        SdfValue::Quatd(v) => {
+            let [w, x, y, z]: [f64; 4] = (*v).into();
+            Some((w, x, y, z))
+        }
+        SdfValue::Quatf(v) => {
+            let [w, x, y, z]: [f32; 4] = (*v).into();
+            Some((w as f64, x as f64, y as f64, z as f64))
+        }
+        SdfValue::Quath(v) => {
+            let [w, x, y, z]: [f16; 4] = (*v).into();
+            Some((f64::from(w), f64::from(x), f64::from(y), f64::from(z)))
         }
         _ => None,
     }
@@ -3748,9 +3908,10 @@ fn has_reset_xform_stack(stage: &Stage, prim_path: &SdfPath) -> bool {
     // fork's `Value` enum stores these as `TokenVec` / `StringVec`; no
     // `TryFrom<Value>` for `Vec<String>` exists so we match the raw enum.
     match stage.field::<SdfValue>(order_path, FieldKey::Default) {
-        Ok(Some(SdfValue::TokenVec(ops))) | Ok(Some(SdfValue::StringVec(ops))) => {
-            ops.iter().any(|op| op == "!resetXformStack!")
+        Ok(Some(SdfValue::TokenVec(ops))) => {
+            ops.iter().any(|op| op.as_str() == "!resetXformStack!")
         }
+        Ok(Some(SdfValue::StringVec(ops))) => ops.iter().any(|op| op == "!resetXformStack!"),
         _ => false,
     }
 }
@@ -4089,11 +4250,15 @@ pub(crate) fn mesh_data_to_input(
         face_count,
     );
     // `displayOpacity` scalar-per-element: stride 1.
-    let opacity_kind = display_opacity_kind
-        .map(AttrKind::from)
-        .unwrap_or_else(|| {
-            classify_attribute(display_opacity, 1, point_count, total_face_vertices, face_count)
-        });
+    let opacity_kind = display_opacity_kind.map(AttrKind::from).unwrap_or_else(|| {
+        classify_attribute(
+            display_opacity,
+            1,
+            point_count,
+            total_face_vertices,
+            face_count,
+        )
+    });
 
     let mut positions: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
@@ -5285,6 +5450,30 @@ def Xform "Root" (
     }
 
     #[test]
+    fn orient_quatf_uses_scalar_first_order() {
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        let value = SdfValue::Quatf(openusd::gf::quatf(half, 0.0, 0.0, half));
+        let matrix =
+            super::build_xform_op_matrix("xformOp:orient", &value).expect("xformOp:orient matrix");
+
+        // USD/openusd v0.5 exposes quat arrays as [w, x, y, z]. A +90deg
+        // rotation around Z maps local +X to +Y in this column-major matrix.
+        assert!(matrix[0].abs() < 1e-5, "m[0] = {}", matrix[0]);
+        assert!(
+            (matrix[1] - 1.0).abs() < 1e-5,
+            "m[1] = {}, expected +Y",
+            matrix[1]
+        );
+        assert!(matrix[2].abs() < 1e-5, "m[2] = {}", matrix[2]);
+
+        let (w, x, y, z) = super::read_quat(&value).expect("read quat");
+        assert!((w - half as f64).abs() < 1e-6);
+        assert!(x.abs() < 1e-6);
+        assert!(y.abs() < 1e-6);
+        assert!((z - half as f64).abs() < 1e-6);
+    }
+
+    #[test]
     fn tiny_usda_does_not_require_glb_preview() {
         // Pure single-layer USDA file — the Three.js USDLoader path is
         // the preferred route because it preserves hierarchy and xforms.
@@ -5842,7 +6031,7 @@ def Xform "Root" (
             "primvars:map1",
             "primvars:uv",
         ] {
-            if let Ok(prop) = mesh_path.append_property(uv_name) {
+            if let Ok(prop) = mesh_path.append_property(*uv_name) {
                 let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
                 if val.is_some() {
                     let len = match &val {
@@ -5879,7 +6068,7 @@ def Xform "Root" (
                 "material:binding:preview",
                 "material:binding:full",
             ] {
-                if let Ok(prop) = subset_path.append_property(rel_name) {
+                if let Ok(prop) = subset_path.append_property(*rel_name) {
                     let val: Option<SdfValue> =
                         stage.field(prop, FieldKey::TargetPaths).ok().flatten();
                     if val.is_some() {
@@ -5907,17 +6096,15 @@ def Xform "Root" (
         // List all Material prims
         eprintln!("\n--- All prims under /seahorse_bind with material in path ---");
         stage
-            .traverse(|prim_path| {
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let path_str = prim_path.as_str();
                 if path_str.contains("mtl")
                     || path_str.contains("Looks")
                     || path_str.contains("Material")
                     || path_str.contains("mat")
                 {
-                    let type_name: Option<String> = stage
-                        .field(prim_path.clone(), FieldKey::TypeName)
-                        .ok()
-                        .flatten();
+                    let type_name =
+                        read_token_or_string_field(&stage, prim_path.clone(), FieldKey::TypeName);
                     eprintln!("  {} type={:?}", path_str, type_name);
                 }
             })
@@ -5949,7 +6136,7 @@ def Xform "Root" (
             "xformOp:translate",
             "xformOp:orient",
         ] {
-            if let Ok(prop) = root.append_property(op_name) {
+            if let Ok(prop) = root.append_property(*op_name) {
                 let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
                 if val.is_some() {
                     eprintln!("  {} = {:?}", op_name, val);
@@ -5993,7 +6180,7 @@ def Xform "Root" (
         let stage = OpenusdBackend::open(&path, super::StageLoadPolicy::LoadAll).unwrap();
         let mut checked = 0;
         stage
-            .traverse(|prim_path| {
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 if !super::is_renderable_mesh(&stage, prim_path) {
                     return;
                 }
@@ -6020,10 +6207,9 @@ def Xform "Root" (
         eprintln!("glove: {checked} meshes");
 
         // Check the Material prim's children to understand why material_of fails
-        let mat_path = SdfPath::new("/glove_baseball/mtl/glove_new_mat_1").unwrap();
         eprintln!("\n--- Material children dump ---");
         stage
-            .traverse(|prim_path| {
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 // Only look under the material path
                 if !prim_path
                     .as_str()
@@ -6031,13 +6217,11 @@ def Xform "Root" (
                 {
                     return;
                 }
-                let type_name: Option<String> = stage
-                    .field(prim_path.clone(), FieldKey::TypeName)
-                    .ok()
-                    .flatten();
+                let type_name =
+                    read_token_or_string_field(&stage, prim_path.clone(), FieldKey::TypeName);
                 let info_id_path = prim_path.append_property("info:id").ok();
-                let info_id: Option<String> =
-                    info_id_path.and_then(|p| stage.field(p, FieldKey::Default).ok().flatten());
+                let info_id: Option<String> = info_id_path
+                    .and_then(|p| read_token_or_string_field(&stage, p, FieldKey::Default));
                 // Check for inputs:diffuseColor
                 let dc_path = prim_path.append_property("inputs:diffuseColor").ok();
                 let dc: Option<SdfValue> =
@@ -6077,7 +6261,7 @@ def Xform "Root" (
         let mut bound = 0;
         let mut has_display_color = 0;
         stage
-            .traverse(|prim_path| {
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 if !super::is_renderable_mesh(&stage, prim_path) {
                     return;
                 }
@@ -7190,6 +7374,16 @@ def Xform "Root"
         assert!(min[0].as_f64().unwrap().abs() < 1e-6);
 
         Ok(())
+    }
+
+    #[test]
+    fn extract_geometry_handles_blend_shape_fixture_without_skin_weights() {
+        let path = PathBuf::from("../samples/assets/usd/tiny_rigged_blend.usda");
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract tiny_rigged_blend.usda");
+        assert_eq!(&glb[0..4], b"glTF");
     }
 
     /// Phase 6d regression: a mesh without `skel:blendShapeTargets`

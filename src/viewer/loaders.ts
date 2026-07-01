@@ -30,7 +30,6 @@ import {
   extractGeometry,
   inspectStage,
   requiresGlbPreview,
-  summarizeStage,
   type StageInspection,
   type StageSummary,
 } from "../lib/usd";
@@ -1973,6 +1972,7 @@ function readUsdzFirstFileName(buffer: ArrayBuffer) {
 async function parseUsdRuntimeHints(
   path: string,
   policy?: import("../lib/usd").StageLoadPolicy,
+  existingInspection?: StageInspection | null,
 ): Promise<UsdRuntimeHints> {
   // Delegated to the Rust `OpenusdBackend` via the Tauri command surface,
   // so this works for USDA, USDC, and USDZ uniformly. Returns just the
@@ -1984,18 +1984,22 @@ async function parseUsdRuntimeHints(
   // viewer still renders with USDLoader's own scene.
   const started = performance.now();
   const TIMEOUT_MS = 10_000;
-  const inspection = await Promise.race([
-    inspectStage(path, policy),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () =>
-          reject(
-            new Error(`inspectStage timeout after ${TIMEOUT_MS}ms for ${path}`),
-          ),
-        TIMEOUT_MS,
+  const inspection =
+    existingInspection ??
+    (await Promise.race([
+      inspectStage(path, policy),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `inspectStage timeout after ${TIMEOUT_MS}ms for ${path}`,
+              ),
+            ),
+          TIMEOUT_MS,
+        ),
       ),
-    ),
-  ]);
+    ]));
   const elapsed = Math.round(performance.now() - started);
   if (import.meta.env.DEV) {
     console.info(
@@ -2007,11 +2011,17 @@ async function parseUsdRuntimeHints(
   };
 }
 
-async function parseUsdRuntimeHintsWithPolicy(
+function matchingUsdInspection(
   path: string,
   policy: import("../lib/usd").StageLoadPolicy,
-): Promise<UsdRuntimeHints> {
-  return parseUsdRuntimeHints(path, policy);
+  getUsdInspection: (() => StageInspection | null) | undefined,
+): StageInspection | null {
+  const inspection = getUsdInspection?.() ?? null;
+  if (!inspection || inspection.loadPolicy !== policy) {
+    return null;
+  }
+  const normalize = (value: string) => value.replace(/\\/g, "/").toLowerCase();
+  return normalize(inspection.path) === normalize(path) ? inspection : null;
 }
 
 /**
@@ -2041,6 +2051,7 @@ async function loadPreviewObjectCore(
   renderer?: import("three").WebGLRenderer,
   options: {
     usdLoadPolicy?: import("../lib/usd").StageLoadPolicy;
+    getUsdInspection?: () => StageInspection | null;
     /** #31: variant selections to apply before GLB extraction. */
     variantSelections?: import("../lib/usd").VariantSelection[];
     /**
@@ -2528,24 +2539,6 @@ async function loadPreviewObjectCore(
             );
           }
         } else {
-          if (
-            usdPolicy === "noPayloads" &&
-            (!options.variantSelections ||
-              options.variantSelections.length === 0)
-          ) {
-            const summary = await summarizeStage(file.path, "noPayloads");
-            if (deferredSummaryHasNoRenderableGeometry(summary)) {
-              options.onWarning?.(
-                "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
-              );
-              return {
-                object: new Group(),
-                cleanupUrls: [],
-                clips: [],
-                formatVersion: null,
-              };
-            }
-          }
           reportStage("decode");
           await yieldToPaint();
           // #31: pass variant selections through to the Tauri backend so
@@ -2568,7 +2561,12 @@ async function loadPreviewObjectCore(
               usdPolicy === "noPayloads" &&
               isDeferredUsdEmptyStageError(error)
             ) {
-              const inspection = await inspectStage(file.path, "noPayloads");
+              const inspection =
+                matchingUsdInspection(
+                  file.path,
+                  "noPayloads",
+                  options.getUsdInspection,
+                ) ?? (await inspectStage(file.path, "noPayloads"));
               if (!inspectionHasDeferredPayloads(inspection)) {
                 throw error;
               }
@@ -2612,19 +2610,11 @@ async function loadPreviewObjectCore(
           );
         }
 
-        // Apply metersPerUnit / upAxis hints from the inspector — these
-        // come from the same Rust backend so the Phase 2 work continues
-        // to apply uniformly.
-        try {
-          reportStage("scene");
-          const runtimeHints = await parseUsdRuntimeHintsWithPolicy(
-            file.path,
-            usdPolicy,
-          );
-          applyUsdRuntimeHints(object, runtimeHints);
-        } catch (error) {
-          console.warn("[usd] runtime hints failed:", error);
-        }
+        // The Rust GLB extractor already bakes stage units and up-axis into
+        // the generated glTF. Do not issue a second inspection RPC here; it
+        // would delay first paint and can double-apply scale if inspection
+        // data is already available.
+        reportStage("scene");
 
         return {
           object,
@@ -2724,7 +2714,15 @@ async function loadPreviewObjectCore(
       }
 
       try {
-        const runtimeHints = await parseUsdRuntimeHints(file.path);
+        const runtimeHints = await parseUsdRuntimeHints(
+          file.path,
+          options.usdLoadPolicy,
+          matchingUsdInspection(
+            file.path,
+            options.usdLoadPolicy ?? "loadAll",
+            options.getUsdInspection,
+          ),
+        );
         applyUsdRuntimeHints(object, runtimeHints);
       } catch (error) {
         console.warn("[usd] runtime hints failed:", error);
@@ -2972,6 +2970,7 @@ loaderRegistry.register({
   loadPreviewObject: (file, context) =>
     loadPreviewObjectCore(file, context.renderer, {
       usdLoadPolicy: context.usdLoadPolicy,
+      getUsdInspection: context.getUsdInspection,
       variantSelections: context.variantSelections,
       glbOverride: context.glbOverride,
       onStage: context.onStage,

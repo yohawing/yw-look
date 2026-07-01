@@ -4,6 +4,7 @@ import {
   collectAssetIssues,
   inspectStage,
   inspectUsdLights,
+  isUsdTaskBusyError,
   summarizeStage,
   type AssetIssue,
   type StageInspection,
@@ -13,10 +14,13 @@ import {
 } from "../lib/usd";
 import { errorMessage } from "../lib/invokeSafe";
 
+const USD_INSPECTOR_DEFER_MS = 1_000;
+
 export function useUsdInspector(
   currentFile: SelectedFile | null,
   isTauri: boolean,
   usdLoadPolicy: StageLoadPolicy,
+  enabled: boolean,
 ) {
   const [usdSummary, setUsdSummary] = useState<StageSummary | null>(null);
   const [usdInspection, setUsdInspection] = useState<StageInspection | null>(
@@ -43,98 +47,114 @@ export function useUsdInspector(
       return;
     }
 
-    let cancelled = false;
     setUsdSummary(null);
     setUsdInspection(null);
     setUsdIssues([]);
     setUsdLights(null);
     setUsdLightsError(null);
-    setUsdInspectorLoading(true);
+    setUsdInspectorLoading(enabled);
     setUsdInspectorError(null);
+
+    if (!enabled) {
+      return;
+    }
+
+    let cancelled = false;
 
     const path = currentFile.path;
 
     const usdInspectorStartMs = performance.now();
 
-    const summarizePromise = summarizeStage(path, usdLoadPolicy)
-      .then((summary) => {
-        if (cancelled) return;
-        setUsdSummary(summary);
+    const timer = window.setTimeout(() => {
+      const summarizePromise = summarizeStage(path, usdLoadPolicy, {
+        background: true,
       })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setUsdInspectorError(
-          errorMessage(error, "Failed to summarize USD stage."),
-        );
-      });
+        .then((summary) => {
+          if (cancelled) return;
+          setUsdSummary(summary);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          if (isUsdTaskBusyError(error)) return;
+          setUsdInspectorError(
+            errorMessage(error, "Failed to summarize USD stage."),
+          );
+        });
 
-    const inspectPromise = inspectStage(path, usdLoadPolicy)
-      .then((inspection) => {
-        if (cancelled) return;
-        setUsdInspection(inspection);
+      const inspectPromise = inspectStage(path, usdLoadPolicy, {
+        background: true,
       })
-      .catch((error: unknown) => {
+        .then((inspection) => {
+          if (cancelled) return;
+          setUsdInspection(inspection);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          if (isUsdTaskBusyError(error)) return;
+          setUsdInspectorError(
+            (previous) =>
+              previous ?? errorMessage(error, "Failed to inspect USD stage."),
+          );
+        });
+
+      const issuesPromise =
+        usdLoadPolicy === "loadAll"
+          ? collectAssetIssues(path, { background: true })
+              .then((issues) => {
+                if (cancelled) return;
+                setUsdIssues(issues);
+              })
+              .catch((error: unknown) => {
+                if (cancelled) return;
+                if (isUsdTaskBusyError(error)) return;
+                setUsdInspectorError(
+                  (previous) =>
+                    previous ??
+                    errorMessage(error, "Failed to collect USD asset issues."),
+                );
+              })
+          : Promise.resolve();
+
+      const lightsPromise =
+        usdLoadPolicy === "loadAll"
+          ? inspectUsdLights(path, { background: true })
+              .then((lights) => {
+                if (cancelled) return;
+                setUsdLights(lights);
+                setUsdLightsError(null);
+              })
+              .catch((error: unknown) => {
+                if (cancelled) return;
+                if (isUsdTaskBusyError(error)) return;
+                setUsdLights(null);
+                setUsdLightsError(
+                  errorMessage(error, "Failed to inspect USD lights."),
+                );
+              })
+          : Promise.resolve();
+
+      void Promise.allSettled([
+        summarizePromise,
+        inspectPromise,
+        issuesPromise,
+        lightsPromise,
+      ]).then(() => {
         if (cancelled) return;
-        setUsdInspectorError(
-          (previous) =>
-            previous ?? errorMessage(error, "Failed to inspect USD stage."),
-        );
+        setUsdInspectorLoading(false);
+        if (import.meta.env.DEV) {
+          const elapsedMs = Math.round(performance.now() - usdInspectorStartMs);
+          console.info(
+            `[usd] inspector RPCs settled in ${elapsedMs}ms (policy=${usdLoadPolicy}): ${path}`,
+          );
+        }
       });
-
-    const issuesPromise =
-      usdLoadPolicy === "loadAll"
-        ? collectAssetIssues(path)
-            .then((issues) => {
-              if (cancelled) return;
-              setUsdIssues(issues);
-            })
-            .catch((error: unknown) => {
-              if (cancelled) return;
-              setUsdInspectorError(
-                (previous) =>
-                  previous ??
-                  errorMessage(error, "Failed to collect USD asset issues."),
-              );
-            })
-        : Promise.resolve();
-
-    const lightsPromise =
-      usdLoadPolicy === "loadAll"
-        ? inspectUsdLights(path)
-            .then((lights) => {
-              if (cancelled) return;
-              setUsdLights(lights);
-              setUsdLightsError(null);
-            })
-            .catch((error: unknown) => {
-              if (cancelled) return;
-              setUsdLights(null);
-              setUsdLightsError(
-                errorMessage(error, "Failed to inspect USD lights."),
-              );
-            })
-        : Promise.resolve();
-
-    void Promise.allSettled([
-      summarizePromise,
-      inspectPromise,
-      issuesPromise,
-      lightsPromise,
-    ]).then(() => {
-      if (cancelled) return;
-      setUsdInspectorLoading(false);
-      if (import.meta.env.DEV) {
-        const elapsedMs = Math.round(performance.now() - usdInspectorStartMs);
-        console.info(
-          `[usd] inspector RPCs settled in ${elapsedMs}ms (policy=${usdLoadPolicy}): ${path}`,
-        );
-      }
-    });
+    }, USD_INSPECTOR_DEFER_MS);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [currentFile, isTauri, usdLoadPolicy]);
+  }, [currentFile, enabled, isTauri, usdLoadPolicy]);
 
   return {
     usdSummary,

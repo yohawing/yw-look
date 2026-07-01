@@ -84,4 +84,16 @@ describe("ViewerStatePanel", () => {
       getByText(/No preview loader is available for \.assetbundle/),
     ).toBeTruthy();
   });
+
+  it("shows load failure details when available", () => {
+    const { getByText } = render(
+      <ViewerStatePanel
+        detailMessage="USD task join error: task panicked"
+        mode="loadFailed"
+      />,
+    );
+
+    expect(getByText("Error details")).toBeTruthy();
+    expect(getByText("USD task join error: task panicked")).toBeTruthy();
+  });
 });

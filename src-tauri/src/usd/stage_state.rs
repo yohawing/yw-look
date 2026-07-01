@@ -16,6 +16,8 @@
 //! operations contend only on the individual session's stage mutex.
 
 use std::collections::HashMap;
+#[cfg(feature = "backend-openusd-rs")]
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -30,6 +32,12 @@ use super::types::StageLoadPolicy;
 #[serde(transparent)]
 pub struct StageSessionHandle(pub u64);
 
+#[cfg(feature = "backend-openusd-rs")]
+pub struct RustStageSession {
+    pub stage: openusd::Stage,
+    pub loaded_payload_paths: HashSet<String>,
+}
+
 /// The backend-specific stage object held for the lifetime of a session.
 ///
 /// `Rust` wraps an `openusd::Stage` from the Rust-fork backend.
@@ -41,7 +49,7 @@ pub struct StageSessionHandle(pub u64);
 /// (tests, blocking tasks) can lock without contention.
 pub enum OpenStage {
     #[cfg(feature = "backend-openusd-rs")]
-    Rust(Mutex<openusd::Stage>),
+    Rust(Mutex<RustStageSession>),
     #[cfg(feature = "backend-openusd-cpp")]
     Cpp(Mutex<super::cpp_sys::CStage>),
 }

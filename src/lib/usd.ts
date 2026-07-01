@@ -50,6 +50,11 @@ export type {
 } from "../types/ipc";
 
 const INVALID_VARIANT_SELECTION_PREFIX = "USD_INVALID_VARIANT_SELECTION\t";
+const USD_TASK_BUSY_MESSAGE = "USD_TASK_BUSY";
+
+type UsdInvokeOptions = {
+  background?: boolean;
+};
 
 function tauriErrorMessage(error: unknown): string | null {
   if (typeof error === "string") return error;
@@ -116,8 +121,19 @@ export function formatUsdErrorForDisplay(
   return tauriErrorMessage(error) ?? fallback;
 }
 
-export async function inspectUsdLights(path: string): Promise<UsdLightInfo[]> {
-  return invoke<UsdLightInfo[]>("inspect_usd_lights", { path });
+export function isUsdTaskBusyError(error: unknown): boolean {
+  const message = tauriErrorMessage(error);
+  return message === USD_TASK_BUSY_MESSAGE;
+}
+
+export async function inspectUsdLights(
+  path: string,
+  invokeOptions?: UsdInvokeOptions,
+): Promise<UsdLightInfo[]> {
+  return invoke<UsdLightInfo[]>("inspect_usd_lights", {
+    path,
+    background: invokeOptions?.background,
+  });
 }
 
 /**
@@ -155,16 +171,38 @@ export async function inspectAttributeTimeSamples(
   });
 }
 
-export async function inspectStage(path: string, policy?: StageLoadPolicy) {
-  return invoke<StageInspection>("inspect_stage", { path, policy });
+export async function inspectStage(
+  path: string,
+  policy?: StageLoadPolicy,
+  invokeOptions?: UsdInvokeOptions,
+) {
+  return invoke<StageInspection>("inspect_stage", {
+    path,
+    policy,
+    background: invokeOptions?.background,
+  });
 }
 
-export async function summarizeStage(path: string, policy?: StageLoadPolicy) {
-  return invoke<StageSummary>("summarize_stage", { path, policy });
+export async function summarizeStage(
+  path: string,
+  policy?: StageLoadPolicy,
+  invokeOptions?: UsdInvokeOptions,
+) {
+  return invoke<StageSummary>("summarize_stage", {
+    path,
+    policy,
+    background: invokeOptions?.background,
+  });
 }
 
-export async function collectAssetIssues(path: string) {
-  return invoke<AssetIssue[]>("collect_asset_issues", { path });
+export async function collectAssetIssues(
+  path: string,
+  invokeOptions?: UsdInvokeOptions,
+) {
+  return invoke<AssetIssue[]>("collect_asset_issues", {
+    path,
+    background: invokeOptions?.background,
+  });
 }
 
 /**
@@ -272,6 +310,7 @@ export async function flattenStage(path: string): Promise<string> {
 export async function extractGeometry(
   path: string,
   policyOrOptions?: StageLoadPolicy | ExtractGeometryOptions,
+  invokeOptions?: UsdInvokeOptions,
 ) {
   // Backwards compatible: callers can still pass a bare policy string.
   // When an options object is supplied it goes through to the Tauri
@@ -280,11 +319,13 @@ export async function extractGeometry(
     return invoke<ArrayBuffer>("extract_geometry", {
       path,
       options: policyOrOptions,
+      background: invokeOptions?.background,
     });
   }
   return invoke<ArrayBuffer>("extract_geometry", {
     path,
     policy: policyOrOptions,
+    background: invokeOptions?.background,
   });
 }
 
@@ -293,8 +334,13 @@ export async function extractGeometry(
 export async function openStageSession(
   path: string,
   policy?: StageLoadPolicy,
+  invokeOptions?: UsdInvokeOptions,
 ): Promise<StageSessionHandle> {
-  return invoke<StageSessionHandle>("open_stage_session", { path, policy });
+  return invoke<StageSessionHandle>("open_stage_session", {
+    path,
+    policy,
+    background: invokeOptions?.background,
+  });
 }
 
 /**

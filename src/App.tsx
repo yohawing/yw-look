@@ -76,7 +76,12 @@ export function App() {
     usdLightsError,
     usdInspectorLoading,
     usdInspectorError,
-  } = useUsdInspector(currentFile, isTauri, usdLoadPolicy);
+  } = useUsdInspector(
+    currentFile,
+    isTauri,
+    usdLoadPolicy,
+    viewerFeedback.mode === "ready",
+  );
 
   const {
     settingsPayload,
@@ -174,6 +179,7 @@ export function App() {
     recordVariantSelectionError,
     viewerFeedback.warning,
     viewer.updateViewerFeedback,
+    viewerFeedback.mode === "ready",
   );
 
   const { handleOpenFile, performSelectFilePath } = useAppFileOpen({
@@ -305,6 +311,7 @@ export function App() {
           recordVariantSelectionError={recordVariantSelectionError}
           sessionGlbBuffer={sessionGlbBuffer}
           ui={ui}
+          usdInspection={usdInspection}
           viewer={viewer}
           viewportToolbarItems={viewportToolbarItems}
           disabledOptionalLoaderPackIds={disabledLoaderPackIds}

@@ -3,9 +3,11 @@ import { DEFERRED_PAYLOAD_PREVIEW_LIMITS } from "../config/viewerLimits";
 import { isUsdFile, type SelectedFile } from "../lib/files";
 import { errorMessage } from "../lib/invokeSafe";
 import {
+  backendCapabilities,
   closeStageSession,
+  extractGeometry,
   extractGeometrySession,
-  inspectStage,
+  isUsdTaskBusyError,
   loadPayload,
   openStageSession,
   unloadPayload,
@@ -45,9 +47,11 @@ function glbMeshCount(buffer: ArrayBuffer): number {
   return 0;
 }
 
-function yieldDeferredPreviewFrame(): Promise<void> {
+function yieldDeferredPreviewFrame(
+  delayMs: number = DEFERRED_PAYLOAD_PREVIEW_LIMITS.yieldMs,
+): Promise<void> {
   return new Promise((resolve) => {
-    window.setTimeout(resolve, 0);
+    window.setTimeout(resolve, delayMs);
   });
 }
 
@@ -85,6 +89,7 @@ export function usePayloadSession(
   recordVariantSelectionError: (error: unknown) => boolean,
   viewerWarning: string | null,
   updateViewerFeedback: (partial: Partial<ViewerFeedback>) => void,
+  previewReadyForDeferredPayloads: boolean,
 ) {
   const [stageSessionHandle, setStageSessionHandle] =
     useState<StageSessionHandle | null>(null);
@@ -103,6 +108,7 @@ export function usePayloadSession(
   const stageSessionHandleRef = useRef<StageSessionHandle | null>(
     stageSessionHandle,
   );
+  const payloadSessionSupportedRef = useRef<boolean | null>(null);
   const deferredPreviewSessionRef = useRef<StageSessionHandle | null>(null);
   const sessionLoadedPayloadPathsRef = useRef<Set<string>>(new Set());
   const viewerWarningRef = useRef<string | null>(viewerWarning);
@@ -110,7 +116,7 @@ export function usePayloadSession(
     stageSessionHandleRef.current = stageSessionHandle;
     deferredPreviewSessionRef.current = null;
     sessionLoadedPayloadPathsRef.current = new Set();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset deferred preview progress when the stage session changes; progress is driven by a cancellable batch loader and cannot be derived during render
+
     setDeferredPayloadProgress(null);
   }, [stageSessionHandle]);
 
@@ -124,8 +130,12 @@ export function usePayloadSession(
   }, [sessionGlbBuffer]);
 
   useEffect(() => {
-    if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset session handle and unloaded paths when file is not a USD file or Tauri is unavailable; session handle comes from a cancellable RPC and cannot be derived during render
+    if (
+      !isTauri ||
+      !isUsdFile(currentFile) ||
+      !currentFile ||
+      !previewReadyForDeferredPayloads
+    ) {
       setStageSessionHandle(null);
       setUnloadedPayloadPaths(new Set());
       return;
@@ -140,8 +150,44 @@ export function usePayloadSession(
     let cancelled = false;
     const path = currentFile.path;
 
-    openStageSession(path, "noPayloads")
+    const openSession = async () => {
+      if (payloadSessionSupportedRef.current === null) {
+        const capabilities = await backendCapabilities();
+        payloadSessionSupportedRef.current = capabilities.session;
+      }
+      if (!payloadSessionSupportedRef.current) {
+        if (!cancelled) {
+          setStageSessionHandle(null);
+          setUnloadedPayloadPaths(new Set());
+        }
+        return;
+      }
+      for (
+        let attempt = 0;
+        attempt <= DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxBusyRetries;
+        attempt += 1
+      ) {
+        try {
+          return await openStageSession(path, "noPayloads", {
+            background: true,
+          });
+        } catch (error) {
+          if (!isUsdTaskBusyError(error) || cancelled) {
+            throw error;
+          }
+          await yieldDeferredPreviewFrame(
+            DEFERRED_PAYLOAD_PREVIEW_LIMITS.busyRetryMs,
+          );
+        }
+      }
+      return undefined;
+    };
+
+    openSession()
       .then((handle) => {
+        if (handle === undefined) {
+          return;
+        }
         if (cancelled) {
           closeStageSession(handle).catch(() => {});
           return;
@@ -166,11 +212,10 @@ export function usePayloadSession(
         return null;
       });
     };
-  }, [currentFile, isTauri, usdLoadPolicy]);
+  }, [currentFile, isTauri, previewReadyForDeferredPayloads, usdLoadPolicy]);
 
   useEffect(() => {
     if (stageSessionHandle === null) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset session GLB buffer when the stage session handle is cleared; buffer is derived from a cancellable RPC and cannot be derived during render
       setSessionGlbBuffer(null);
       return;
     }
@@ -200,7 +245,6 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (!usdInspection || usdLoadPolicy !== "noPayloads") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset payload prim paths and unloaded paths when inspection is absent or load policy changed; values come from USD inspection data and cannot be derived during render
       setPayloadPrimPaths(new Set());
       setUnloadedPayloadPaths(new Set());
       return;
@@ -333,135 +377,92 @@ export function usePayloadSession(
       !currentFile ||
       usdLoadPolicy !== "noPayloads" ||
       captured === null ||
+      !previewReadyForDeferredPayloads ||
       deferredPreviewSessionRef.current === captured
     ) {
       return;
     }
+    if (!usdInspection) return;
 
     let cancelled = false;
 
-    const loadPreviewBatch = async () => {
+    const loadDeferredPreview = async () => {
       try {
-        const inspection =
-          usdInspection ?? (await inspectStage(currentFile.path, "noPayloads"));
-        if (cancelled || stageSessionHandleRef.current !== captured) {
-          return;
-        }
         const previewPayloads = Array.from(
           new Set(
-            inspection.payloads
+            usdInspection.payloads
               .filter((arc) => arc.state === "unloaded")
               .map((arc) => arc.sourcePrim),
           ),
-        ).slice(0, DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxAutoLoad);
+        );
         if (previewPayloads.length === 0) return;
 
-        const loadedPreviewPayloads: string[] = [];
-        const failedPreviewPayloads: string[] = [];
-        const reportDeferredPayload = (activeLabel: string | null) => {
-          const completed =
-            loadedPreviewPayloads.length + failedPreviewPayloads.length;
-          const snapshot: DeferredTextureSnapshot = {
-            kind: "payload",
-            total: previewPayloads.length,
-            loaded: loadedPreviewPayloads.length,
-            failed: failedPreviewPayloads.length,
-            pending: Math.max(0, previewPayloads.length - completed),
-            activeLabel,
-          };
-          setDeferredPayloadProgress(snapshot.pending > 0 ? snapshot : null);
-        };
-        reportDeferredPayload(previewPayloads[0] ?? null);
-        let hasVisiblePreview = false;
+        setDeferredPayloadProgress({
+          kind: "payload",
+          total: previewPayloads.length,
+          loaded: 0,
+          failed: 0,
+          pending: previewPayloads.length,
+          activeLabel: "Loading full payload preview",
+        });
+        await yieldDeferredPreviewFrame(
+          DEFERRED_PAYLOAD_PREVIEW_LIMITS.startDelayMs,
+        );
+        if (cancelled || stageSessionHandleRef.current !== captured) {
+          return;
+        }
+        let glbBuffer: ArrayBuffer | null = null;
         for (
-          let start = 0;
-          start < previewPayloads.length;
-          start += DEFERRED_PAYLOAD_PREVIEW_LIMITS.batchSize
+          let attempt = 0;
+          attempt <= DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxBusyRetries;
+          attempt += 1
         ) {
-          if (cancelled || stageSessionHandleRef.current !== captured) {
-            return;
-          }
-          const batch = previewPayloads.slice(
-            start,
-            start + DEFERRED_PAYLOAD_PREVIEW_LIMITS.batchSize,
-          );
-          reportDeferredPayload(batch[0] ?? null);
-          for (const primPath of batch) {
-            try {
-              await loadPayload(captured, primPath);
-            } catch (err: unknown) {
-              if (cancelled || stageSessionHandleRef.current !== captured) {
-                return;
-              }
-              console.warn("[usd] deferred preview payload load failed:", {
-                primPath,
-                err,
-              });
-              failedPreviewPayloads.push(primPath);
-              reportDeferredPayload(primPath);
-              continue;
+          try {
+            glbBuffer = await extractGeometry(
+              currentFile.path,
+              {
+                policy: "loadAll",
+                variantSelections,
+                purposeModes,
+              },
+              { background: true },
+            );
+            break;
+          } catch (error) {
+            if (!isUsdTaskBusyError(error)) {
+              throw error;
             }
             if (cancelled || stageSessionHandleRef.current !== captured) {
               return;
             }
-            sessionLoadedPayloadPathsRef.current.add(primPath);
-            loadedPreviewPayloads.push(primPath);
-            reportDeferredPayload(primPath);
-          }
-          setUnloadedPayloadPaths((prev) => {
-            const next = new Set(prev);
-            for (const primPath of loadedPreviewPayloads) next.delete(primPath);
-            return next;
-          });
-          const isFinalBatch = start + batch.length >= previewPayloads.length;
-          const completedPreviewPayloads =
-            loadedPreviewPayloads.length + failedPreviewPayloads.length;
-          const shouldExtract =
-            !hasVisiblePreview ||
-            isFinalBatch ||
-            completedPreviewPayloads %
-              DEFERRED_PAYLOAD_PREVIEW_LIMITS.extractEveryPayloads ===
-              0;
-          if (!shouldExtract) {
-            await yieldDeferredPreviewFrame();
-            if (cancelled || stageSessionHandleRef.current !== captured) {
-              return;
-            }
-            continue;
-          }
-          const glbBuffer = await extractGeometrySession(captured, {
-            policy: "noPayloads",
-            variantSelections,
-            purposeModes,
-          });
-          if (cancelled || stageSessionHandleRef.current !== captured) {
-            return;
-          }
-          const meshCount = glbMeshCount(glbBuffer);
-          if (meshCount > 0 || isFinalBatch) {
-            hasVisiblePreview = meshCount > 0;
-            setSessionGlbBuffer(glbBuffer);
-            if (import.meta.env.DEV) {
-              console.info(
-                `[usd] deferred preview batch ready (${loadedPreviewPayloads.length}/${previewPayloads.length} payloads, ${meshCount} meshes, ${failedPreviewPayloads.length} failed)`,
-              );
-            }
-            if (isFinalBatch) {
-              deferredPreviewSessionRef.current = captured;
-              setDeferredPayloadProgress(null);
-              return;
-            }
-          } else {
-            console.warn(
-              `[usd] deferred preview batch produced no meshes; continuing (${loadedPreviewPayloads.length}/${previewPayloads.length})`,
+            setDeferredPayloadProgress({
+              kind: "payload",
+              total: previewPayloads.length,
+              loaded: 0,
+              failed: 0,
+              pending: previewPayloads.length,
+              activeLabel: "Waiting for USD task slot",
+            });
+            await yieldDeferredPreviewFrame(
+              DEFERRED_PAYLOAD_PREVIEW_LIMITS.busyRetryMs,
             );
           }
-          if (!isFinalBatch) {
-            await yieldDeferredPreviewFrame();
-            if (cancelled || stageSessionHandleRef.current !== captured) {
-              return;
-            }
-          }
+        }
+        if (glbBuffer === null) {
+          setDeferredPayloadProgress(null);
+          return;
+        }
+        if (cancelled || stageSessionHandleRef.current !== captured) {
+          return;
+        }
+        setSessionGlbBuffer(glbBuffer);
+        deferredPreviewSessionRef.current = captured;
+        setDeferredPayloadProgress(null);
+        if (import.meta.env.DEV) {
+          const meshCount = glbMeshCount(glbBuffer);
+          console.info(
+            `[usd] deferred preview full payload load ready (${previewPayloads.length} payloads, ${meshCount} meshes)`,
+          );
         }
       } catch (err: unknown) {
         if (cancelled || stageSessionHandleRef.current !== captured) return;
@@ -470,7 +471,7 @@ export function usePayloadSession(
       }
     };
 
-    void loadPreviewBatch();
+    void loadDeferredPreview();
     return () => {
       cancelled = true;
       setDeferredPayloadProgress(null);
@@ -480,6 +481,7 @@ export function usePayloadSession(
     stageSessionHandle,
     usdInspection,
     usdLoadPolicy,
+    previewReadyForDeferredPayloads,
     purposeModes,
     variantSelections,
   ]);

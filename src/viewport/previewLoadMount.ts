@@ -28,7 +28,9 @@ import {
   getScaleWarning,
   loadPreviewObject,
   normalizeObjectScale,
+  resetSceneObjects,
   revokeUrls,
+  stopAnimations,
   DEFAULT_LIGHTING_PRESET,
   type SceneContext,
 } from "../viewer";
@@ -83,6 +85,8 @@ type MountLoadedPreviewOptions = {
   isDisposed: () => boolean;
   keyLight: import("three").DirectionalLight | null;
   lightingTargets: Parameters<typeof applyPreviewLightingPreset>[1];
+  preserveCameraView?: boolean;
+  replaceExistingPreview?: boolean;
   runtimeWarnings: readonly string[];
   update: {
     onFeedbackChange: (
@@ -124,6 +128,8 @@ export async function mountLoadedPreview(
     isDisposed,
     keyLight,
     lightingTargets,
+    preserveCameraView = false,
+    replaceExistingPreview = false,
     refs,
     runtimeWarnings,
     update,
@@ -148,6 +154,16 @@ export async function mountLoadedPreview(
     disposeObject(object);
     revokeUrls(cleanupUrls);
     return null;
+  }
+
+  if (replaceExistingPreview) {
+    runCleanupCallbacks(context.cleanupCallbacks);
+    context.cleanupCallbacks = [];
+    stopAnimations(context);
+    context.mmdModel = null;
+    resetSceneObjects(context);
+    revokeUrls(context.cleanupUrls);
+    context.cleanupUrls = [];
   }
 
   context.scene.add(object);
@@ -212,16 +228,18 @@ export async function mountLoadedPreview(
   applyVertexColors(object, state.showVertexColors);
   applyMorphTargetValues(object, state.morphTargetValues);
   applyShadows(context.scene, object, keyLight, state.showShadows);
-  frameMountedObject(
-    context,
-    object,
-    state.viewerSurfaceMode,
-    state.showGrid,
-    state.showAxes,
-    state.cameraSpeedMultiplier,
-    context.rawMaxDimension,
-    state.texturePreview3D,
-  );
+  if (!preserveCameraView) {
+    frameMountedObject(
+      context,
+      object,
+      state.viewerSurfaceMode,
+      state.showGrid,
+      state.showAxes,
+      state.cameraSpeedMultiplier,
+      context.rawMaxDimension,
+      state.texturePreview3D,
+    );
+  }
   update.setActivePreviewPath(currentFile.path);
   update.setOverlayReady();
 

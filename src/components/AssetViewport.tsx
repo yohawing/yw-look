@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AmbientLight,
   Camera,
@@ -6,7 +6,7 @@ import {
   Object3D,
   WebGLRenderTarget,
 } from "three";
-import { formatUsdErrorForDisplay } from "../lib/usd";
+import { formatUsdErrorForDisplay, type StageInspection } from "../lib/usd";
 import {
   type DeferredTextureSnapshot,
   type LoadingStageId,
@@ -149,6 +149,7 @@ export function AssetViewport({
   environmentPreset,
   cameraSpeedMultiplier,
   usdLoadPolicy,
+  usdInspection = null,
   texturePreview3D,
   onSelectMesh,
   selectedMeshName,
@@ -167,6 +168,7 @@ export function AssetViewport({
   const ambientLightRef = useRef<AmbientLight | null>(null);
   const keyLightRef = useRef<DirectionalLight | null>(null);
   const fillLightRef = useRef<DirectionalLight | null>(null);
+  const usdInspectionRef = useRef<StageInspection | null>(usdInspection);
   const showShadowsRef = useRef(showShadows);
   const fxaaStateRef = useRef<FxaaComposerState | null>(null);
   const fxaaEnabledRef = useRef(fxaaEnabled);
@@ -202,6 +204,20 @@ export function AssetViewport({
   const controlSensitivityRef = useRef(controlSensitivity);
   const cameraFovRef = useRef(cameraFov);
   const renderScaleRef = useRef(renderScale);
+  const latestLoadInputsRef = useRef<{
+    filePath: string | null;
+    glbOverride: ArrayBuffer | null;
+  }>({ filePath: currentFile?.path ?? null, glbOverride });
+
+  useEffect(() => {
+    usdInspectionRef.current = usdInspection;
+  }, [usdInspection]);
+  useLayoutEffect(() => {
+    latestLoadInputsRef.current = {
+      filePath: currentFile?.path ?? null,
+      glbOverride,
+    };
+  });
   const environmentPresetRef = useRef(environmentPreset);
   const environmentRotationRef = useRef(environmentRotation);
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
@@ -227,7 +243,9 @@ export function AssetViewport({
   const [activePreviewPath, setActivePreviewPath] = useState<string | null>(
     null,
   );
+  const activePreviewPathRef = useRef<string | null>(activePreviewPath);
   const [overlayMode, setOverlayMode] = useState<ViewerMode>("empty");
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [loadingStage, setLoadingStage] = useState<LoadingStageSnapshot | null>(
     null,
   );
@@ -241,6 +259,10 @@ export function AssetViewport({
     clearResourceDiagnostics,
     publishResourceDiagnostics,
   } = useResourceDiagnosticsPublisher(onResourceDiagnosticsChange);
+
+  useEffect(() => {
+    activePreviewPathRef.current = activePreviewPath;
+  }, [activePreviewPath]);
 
   useSyncRef(onActiveCameraResetRef, onActiveCameraReset);
   useSyncRef(displayModeRef, displayMode);
@@ -655,6 +677,7 @@ export function AssetViewport({
       publishResourceDiagnostics(context);
 
       queueMicrotask(() => {
+        setErrorDetail(null);
         setLoadingStage(null);
         setDeferredTexture(null);
       });
@@ -685,34 +708,43 @@ export function AssetViewport({
         buildUnsupportedPreviewFeedback(currentFile.extension, supportState),
       );
       queueMicrotask(() => {
+        setErrorDetail(null);
         setLoadingStage(null);
         setDeferredTexture(null);
       });
       return;
     }
 
+    const isDeferredGlbReload =
+      glbOverride !== null &&
+      activePreviewPathRef.current === currentFile.path &&
+      context.mountedObject !== null;
     let disposed = false;
     const abortController = new AbortController();
     const loadingStartedAt = performance.now();
     const loadingClock = createLoadingStageClock("scan", loadingStartedAt);
     const reportLoadingStage = (stage: LoadingStageId) => {
       if (disposed) return;
+      if (isDeferredGlbReload) return;
 
       setLoadingStage(loadingClock.report(stage));
     };
 
-    onFeedbackChange({
-      mode: "loading",
-      message: `Loading ${currentFile.fileName}`,
-      warning: null,
-      canResetCamera: false,
-    });
-    onMetadataChange(emptyAssetMetadata);
-    assetResourceMetricsRef.current = null;
-    publishResourceDiagnostics(context);
-    queueMicrotask(() => {
-      setDeferredTexture(null);
-    });
+    if (!isDeferredGlbReload) {
+      onFeedbackChange({
+        mode: "loading",
+        message: `Loading ${currentFile.fileName}`,
+        warning: null,
+        canResetCamera: false,
+      });
+      onMetadataChange(emptyAssetMetadata);
+      assetResourceMetricsRef.current = null;
+      publishResourceDiagnostics(context);
+      queueMicrotask(() => {
+        setErrorDetail(null);
+        setDeferredTexture(null);
+      });
+    }
     reportLoadingStage("scan");
     const runtimeWarnings: string[] = [];
     let readyFeedbackBase: ReadyPreviewFeedbackBase | null = null;
@@ -731,6 +763,7 @@ export function AssetViewport({
     };
     loadPreviewObject(currentFile, context.renderer, {
       usdLoadPolicy,
+      getUsdInspection: () => usdInspectionRef.current,
       variantSelections,
       glbOverride: glbOverride ?? null,
       disabledOptionalLoaderPackIds,
@@ -777,6 +810,8 @@ export function AssetViewport({
             key: keyLightRef.current,
             fill: fillLightRef.current,
           },
+          preserveCameraView: isDeferredGlbReload,
+          replaceExistingPreview: isDeferredGlbReload,
           refs: {
             activeCameraIdRef,
             activeCameraRef,
@@ -798,6 +833,7 @@ export function AssetViewport({
         if (!readyFeedbackBase || disposed) {
           return;
         }
+        setErrorDetail(null);
         resetCameraRef.current = () => {
           frameCurrentMountedObject(
             sceneContextRef.current,
@@ -815,8 +851,14 @@ export function AssetViewport({
           return;
         }
         if (isAbortError(error)) {
+          if (isDeferredGlbReload) {
+            setLoadingStage(null);
+            setDeferredTexture(null);
+            return;
+          }
           setActivePreviewPath(currentFile.path);
           setOverlayMode("empty");
+          setErrorDetail(null);
           onFeedbackChange(neutralFeedback);
           onMetadataChange(emptyAssetMetadata);
           assetResourceMetricsRef.current = null;
@@ -835,6 +877,17 @@ export function AssetViewport({
           error,
           "Failed to load preview.",
         );
+        if (isDeferredGlbReload) {
+          onFeedbackChange({
+            mode: "ready",
+            message: `Preview ready: ${currentFile.fileName}`,
+            warning: message,
+            canResetCamera: true,
+          });
+          setLoadingStage(null);
+          setDeferredTexture(null);
+          return;
+        }
         const missingReferenceError = error as Partial<MissingReferenceError>;
         const mode =
           message.includes("404") || missingReferenceError.missingPaths?.length
@@ -846,6 +899,7 @@ export function AssetViewport({
         // to "loading" when activePreviewPath !== currentFile.path.
         setActivePreviewPath(currentFile.path);
         setOverlayMode(mode);
+        setErrorDetail(message);
         onMetadataChange(
           mode === "missingReference" && currentFile
             ? buildMissingReferenceMetadata(
@@ -874,6 +928,15 @@ export function AssetViewport({
       abortController.abort();
       setLoadingStage(null);
       setDeferredTexture(null);
+      const nextLoadInputs = latestLoadInputsRef.current;
+      const keepMountedForDeferredReload =
+        currentFile !== null &&
+        nextLoadInputs.filePath === currentFile.path &&
+        nextLoadInputs.glbOverride !== null &&
+        nextLoadInputs.glbOverride !== glbOverride;
+      if (keepMountedForDeferredReload) {
+        return;
+      }
       runCleanupCallbacks(context.cleanupCallbacks);
       context.cleanupCallbacks = [];
       stopAnimations(context);
@@ -1052,6 +1115,12 @@ export function AssetViewport({
         deferredTexture={deferredTexture}
         effectiveDeferredProgress={effectiveDeferredProgress}
         effectiveOverlayMode={effectiveOverlayMode}
+        errorDetail={
+          effectiveOverlayMode === "loadFailed" ||
+          effectiveOverlayMode === "missingReference"
+            ? errorDetail
+            : null
+        }
         hasAnimation={hasAnimation}
         loadingStage={loadingStage}
         onOpenFile={onOpenFile}
