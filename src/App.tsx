@@ -174,6 +174,7 @@ export function App() {
     recordVariantSelectionError,
     viewerFeedback.warning,
     viewer.updateViewerFeedback,
+    viewerFeedback.mode === "ready",
   );
 
   const { handleOpenFile, performSelectFilePath } = useAppFileOpen({

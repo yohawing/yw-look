@@ -88,6 +88,7 @@ export function usePayloadSession(
   recordVariantSelectionError: (error: unknown) => boolean,
   viewerWarning: string | null,
   updateViewerFeedback: (partial: Partial<ViewerFeedback>) => void,
+  previewReadyForDeferredPayloads: boolean,
 ) {
   const [stageSessionHandle, setStageSessionHandle] =
     useState<StageSessionHandle | null>(null);
@@ -352,6 +353,7 @@ export function usePayloadSession(
       !currentFile ||
       usdLoadPolicy !== "noPayloads" ||
       captured === null ||
+      !previewReadyForDeferredPayloads ||
       deferredPreviewSessionRef.current === captured
     ) {
       return;
@@ -419,6 +421,7 @@ export function usePayloadSession(
     stageSessionHandle,
     usdInspection,
     usdLoadPolicy,
+    previewReadyForDeferredPayloads,
     purposeModes,
     variantSelections,
   ]);
