@@ -305,6 +305,7 @@ export function App() {
           recordVariantSelectionError={recordVariantSelectionError}
           sessionGlbBuffer={sessionGlbBuffer}
           ui={ui}
+          usdInspection={usdInspection}
           viewer={viewer}
           viewportToolbarItems={viewportToolbarItems}
           disabledOptionalLoaderPackIds={disabledLoaderPackIds}

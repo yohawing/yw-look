@@ -6,6 +6,7 @@ import type { DeferredTextureSnapshot } from "../types/viewer";
 import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
 import type { ViewerState } from "../stores/viewerStore";
+import type { StageInspection } from "../lib/usd";
 
 type ViewportHostProps = {
   deferredPayloadProgress: DeferredTextureSnapshot | null;
@@ -18,6 +19,7 @@ type ViewportHostProps = {
   recordVariantSelectionError: (error: unknown) => boolean;
   sessionGlbBuffer: ArrayBuffer | null;
   ui: UiState;
+  usdInspection: StageInspection | null;
   viewer: ViewerState;
   viewportToolbarItems: ToolbarItem[];
 };
@@ -33,6 +35,7 @@ export function ViewportHost({
   recordVariantSelectionError,
   sessionGlbBuffer,
   ui,
+  usdInspection,
   viewer,
   viewportToolbarItems,
 }: ViewportHostProps) {
@@ -86,6 +89,7 @@ export function ViewportHost({
         environmentPreset={viewer.environmentPreset}
         cameraSpeedMultiplier={viewer.cameraSpeedMultiplier}
         usdLoadPolicy={viewer.usdLoadPolicy}
+        usdInspection={usdInspection}
         texturePreview3D={viewer.texturePreview3D}
         onSelectMesh={viewer.setSelectedMeshName}
         selectedMeshName={viewer.selectedMeshName}

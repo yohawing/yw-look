@@ -2,6 +2,7 @@ import type { ResourceDiagnosticsSnapshot } from "../lib/diagnostics";
 import type { SelectedFile } from "../lib/files";
 import type {
   PurposeModes,
+  StageInspection,
   StageLoadPolicy,
   VariantSelection,
 } from "../lib/usd";
@@ -83,6 +84,7 @@ export type AssetViewportProps = {
    * the new policy so deferred payloads take effect.
    */
   usdLoadPolicy?: StageLoadPolicy;
+  usdInspection?: StageInspection | null;
   /**
    * When `true`, the texture preview plane is framed with the same
    * orbit-style controls as a 3D asset so the user can rotate/zoom

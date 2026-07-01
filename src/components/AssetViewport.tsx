@@ -6,7 +6,7 @@ import {
   Object3D,
   WebGLRenderTarget,
 } from "three";
-import { formatUsdErrorForDisplay } from "../lib/usd";
+import { formatUsdErrorForDisplay, type StageInspection } from "../lib/usd";
 import {
   type DeferredTextureSnapshot,
   type LoadingStageId,
@@ -149,6 +149,7 @@ export function AssetViewport({
   environmentPreset,
   cameraSpeedMultiplier,
   usdLoadPolicy,
+  usdInspection = null,
   texturePreview3D,
   onSelectMesh,
   selectedMeshName,
@@ -167,6 +168,7 @@ export function AssetViewport({
   const ambientLightRef = useRef<AmbientLight | null>(null);
   const keyLightRef = useRef<DirectionalLight | null>(null);
   const fillLightRef = useRef<DirectionalLight | null>(null);
+  const usdInspectionRef = useRef<StageInspection | null>(usdInspection);
   const showShadowsRef = useRef(showShadows);
   const fxaaStateRef = useRef<FxaaComposerState | null>(null);
   const fxaaEnabledRef = useRef(fxaaEnabled);
@@ -202,6 +204,10 @@ export function AssetViewport({
   const controlSensitivityRef = useRef(controlSensitivity);
   const cameraFovRef = useRef(cameraFov);
   const renderScaleRef = useRef(renderScale);
+
+  useEffect(() => {
+    usdInspectionRef.current = usdInspection;
+  }, [usdInspection]);
   const environmentPresetRef = useRef(environmentPreset);
   const environmentRotationRef = useRef(environmentRotation);
   const cameraSpeedMultiplierRef = useRef(cameraSpeedMultiplier);
@@ -731,6 +737,7 @@ export function AssetViewport({
     };
     loadPreviewObject(currentFile, context.renderer, {
       usdLoadPolicy,
+      getUsdInspection: () => usdInspectionRef.current,
       variantSelections,
       glbOverride: glbOverride ?? null,
       disabledOptionalLoaderPackIds,
