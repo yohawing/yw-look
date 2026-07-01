@@ -77,7 +77,11 @@
 
 **infrastructure / UX**
 
-- [ ] Variant set selection UI (現状 `defaultPrim` の default variant)
+- [x] Variant set selection UI
+  - Inspector の Variant Sets セクションから選択可能。選択は `variantSelections`
+    として GLB 抽出へ渡し、C++ backend は session layer 上で適用してから再抽出する。
+  - 必須機能として `src/viewer/__tests__/usdGlbPreviewLoader.test.ts` で
+    `extractGeometry` への selection 伝播を固定する。
 - [ ] Stage 開閉時のキャッシュ（同じ USDZ の連続 open で shim 再 init を避ける）
 - [ ] EXR / HDR / TGA / DDS テクスチャの正式対応（現状 `guess_image_mime` 側で rejected）
 - [ ] Multi-stage composition (`references` / `payloads` が外部 USD を指すアセット)
@@ -776,7 +780,14 @@ Kitchen Set / HumanFemale / Kitchen_set_instanced / USDZ 3 種で両 backend を
 
 ## 横断テーマ（各 Phase に散らす）
 
-- **Variant set インタラクティブ切替 UI**: 現状 read-only。session layer 経由で variant selection を上書きし、GLB を再生成する
+- **OpenUSD parity smoke**: `D:\OpenUSD\build\bin` を oracle として
+  `npm run test:usd:openusd-parity` を明示実行する。デフォルト対象:
+  `D:\psx\repo\ALL.usda`, `D:\psx\repo\BUILDINGS.usda`,
+  `D:\psx\repo\PROJECTORS.usda`。通常の unit test には含めない。
+- **Variant set インタラクティブ切替 UI**: 必須機能。Inspector の select から
+  `variantSelections` を更新し、GLB 抽出へ渡して再生成する。C++ backend では
+  session layer 上の selection override を適用する。Rust fork backend は selection
+  override 非対応のため、parity smoke で official OpenUSD との差を監視する。
 - **Per-prim payload load** ✓ Phase 11 (issue #44) で実装済み。stateful session API (`open_stage_session` / `load_payload` / `unload_payload` / `extract_geometry_session`)。HierarchyCard に load/unload ボタンを追加。C++ backend のみ対応（Rust fork は stub）
 - **Performance**: Kitchen Set (2048 prims / 234ms) は OK。次の負荷帯 (10k prims / 100k poly) で測る
 - **回帰テスト資産**: 新しい機能を追加するたびに samples/manifest.json にテスト資産を追加する
@@ -787,7 +798,7 @@ Kitchen Set / HumanFemale / Kitchen_set_instanced / USDZ 3 種で両 backend を
 
 - **表示は Three.js / 検査は Rust** を基本方針とする
 - Rust 側は `UsdBackend` trait で実装を隠蔽し、複数 parser 実装を並立できる構造を維持
-- **C++ FFI を持ち込む方針に転換**: Phase 5.5 で Pixar OpenUSD C++ の薄い shim を導入（vcpkg 経由）。default feature は引き続き Rust fork、C++ backend は `backend-openusd-cpp` feature で opt-in
+- **C++ FFI を持ち込む方針に転換**: Phase 5.5 で Pixar OpenUSD C++ の薄い shim を導入（vcpkg 経由）。Phase 2.J 以降の default feature は C++ backend。Rust fork は `backend-openusd-rs` feature で opt-in
 - fork (`yohawing/openusd`) の変更は可能な限り upstream PR として提案する
 - **Hydra は採用しない**: バイナリサイズ・ビルド時間のコストに対して yw-look の要件（quick look スケール）と釣り合わない。material network 解決は手動で 1 hop ずつ行う方針を継続
 - Rust fork と C++ backend は trait を共通にするが、**機能の実装順序は独立してよい**。先行した方で trait メソッドを定義し、後追いは `unimplemented!` か `None` でフォールバック

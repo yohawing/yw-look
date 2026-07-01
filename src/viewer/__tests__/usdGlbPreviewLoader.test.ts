@@ -96,4 +96,32 @@ describe("USD GLB preview runtime hints", () => {
     expect(scene.scale.y).toBe(1);
     expect(scene.scale.z).toBe(1);
   });
+
+  it("passes variant selections to USD geometry extraction", async () => {
+    const scene = new Group();
+    mocks.parseAsync.mockResolvedValue({ scene, animations: [] });
+
+    const { loadPreviewObject } = await import("../loaders");
+
+    await loadPreviewObject(file, undefined, {
+      variantSelections: [
+        {
+          primPath: "/World/Asset",
+          setName: "modelingVariant",
+          variantName: "LOD_A",
+        },
+      ],
+    });
+
+    expect(mocks.extractGeometry).toHaveBeenCalledWith(file.path, {
+      policy: "loadAll",
+      variantSelections: [
+        {
+          primPath: "/World/Asset",
+          setName: "modelingVariant",
+          variantName: "LOD_A",
+        },
+      ],
+    });
+  });
 });

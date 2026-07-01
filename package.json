@@ -42,6 +42,7 @@
     "test:visual": "node scripts/visual-regression.mjs",
     "test:viewport-snapshot": "node scripts/viewport-snapshot.mjs",
     "test:viewport-snapshot:update": "node scripts/viewport-snapshot.mjs --update-snapshot",
+    "test:usd:openusd-parity": "node scripts/usd-openusd-parity.mjs",
     "local-assets:collect": "node scripts/collect-local-assets.mjs",
     "local-assets:check": "node scripts/local-asset-load-check.mjs",
     "local-assets:visual-review": "node scripts/local-asset-visual-review.mjs",
