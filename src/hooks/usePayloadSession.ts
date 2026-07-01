@@ -5,8 +5,8 @@ import { errorMessage } from "../lib/invokeSafe";
 import {
   backendCapabilities,
   closeStageSession,
+  extractGeometry,
   extractGeometrySession,
-  inspectStage,
   loadPayload,
   openStageSession,
   unloadPayload,
@@ -356,144 +356,51 @@ export function usePayloadSession(
     ) {
       return;
     }
-    if (DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxAutoLoad <= 0) {
-      return;
-    }
+    if (!usdInspection) return;
 
     let cancelled = false;
 
-    const loadPreviewBatch = async () => {
+    const loadDeferredPreview = async () => {
       try {
+        const previewPayloads = Array.from(
+          new Set(
+            usdInspection.payloads
+              .filter((arc) => arc.state === "unloaded")
+              .map((arc) => arc.sourcePrim),
+          ),
+        );
+        if (previewPayloads.length === 0) return;
+
+        setDeferredPayloadProgress({
+          kind: "payload",
+          total: previewPayloads.length,
+          loaded: 0,
+          failed: 0,
+          pending: previewPayloads.length,
+          activeLabel: "Loading full payload preview",
+        });
         await yieldDeferredPreviewFrame(
           DEFERRED_PAYLOAD_PREVIEW_LIMITS.startDelayMs,
         );
         if (cancelled || stageSessionHandleRef.current !== captured) {
           return;
         }
-        const inspection =
-          usdInspection ?? (await inspectStage(currentFile.path, "noPayloads"));
+        const glbBuffer = await extractGeometry(currentFile.path, {
+          policy: "loadAll",
+          variantSelections,
+          purposeModes,
+        });
         if (cancelled || stageSessionHandleRef.current !== captured) {
           return;
         }
-        const previewPayloads = Array.from(
-          new Set(
-            inspection.payloads
-              .filter((arc) => arc.state === "unloaded")
-              .map((arc) => arc.sourcePrim),
-          ),
-        ).slice(0, DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxAutoLoad);
-        if (previewPayloads.length === 0) return;
-
-        const loadedPreviewPayloads: string[] = [];
-        const failedPreviewPayloads: string[] = [];
-        const reportDeferredPayload = (activeLabel: string | null) => {
-          const completed =
-            loadedPreviewPayloads.length + failedPreviewPayloads.length;
-          const snapshot: DeferredTextureSnapshot = {
-            kind: "payload",
-            total: previewPayloads.length,
-            loaded: loadedPreviewPayloads.length,
-            failed: failedPreviewPayloads.length,
-            pending: Math.max(0, previewPayloads.length - completed),
-            activeLabel,
-          };
-          setDeferredPayloadProgress(snapshot.pending > 0 ? snapshot : null);
-        };
-        reportDeferredPayload(previewPayloads[0] ?? null);
-        let hasVisiblePreview = false;
-        for (
-          let start = 0;
-          start < previewPayloads.length;
-          start += DEFERRED_PAYLOAD_PREVIEW_LIMITS.batchSize
-        ) {
-          if (cancelled || stageSessionHandleRef.current !== captured) {
-            return;
-          }
-          const batch = previewPayloads.slice(
-            start,
-            start + DEFERRED_PAYLOAD_PREVIEW_LIMITS.batchSize,
-          );
-          reportDeferredPayload(batch[0] ?? null);
-          for (const primPath of batch) {
-            await yieldDeferredPreviewFrame();
-            if (cancelled || stageSessionHandleRef.current !== captured) {
-              return;
-            }
-            try {
-              await loadPayload(captured, primPath);
-            } catch (err: unknown) {
-              if (cancelled || stageSessionHandleRef.current !== captured) {
-                return;
-              }
-              console.warn("[usd] deferred preview payload load failed:", {
-                primPath,
-                err,
-              });
-              failedPreviewPayloads.push(primPath);
-              reportDeferredPayload(primPath);
-              continue;
-            }
-            if (cancelled || stageSessionHandleRef.current !== captured) {
-              return;
-            }
-            sessionLoadedPayloadPathsRef.current.add(primPath);
-            loadedPreviewPayloads.push(primPath);
-            reportDeferredPayload(primPath);
-          }
-          setUnloadedPayloadPaths((prev) => {
-            const next = new Set(prev);
-            for (const primPath of loadedPreviewPayloads) next.delete(primPath);
-            return next;
-          });
-          const isFinalBatch = start + batch.length >= previewPayloads.length;
-          const completedPreviewPayloads =
-            loadedPreviewPayloads.length + failedPreviewPayloads.length;
-          const shouldExtract =
-            !hasVisiblePreview ||
-            isFinalBatch ||
-            completedPreviewPayloads %
-              DEFERRED_PAYLOAD_PREVIEW_LIMITS.extractEveryPayloads ===
-              0;
-          if (!shouldExtract) {
-            await yieldDeferredPreviewFrame();
-            if (cancelled || stageSessionHandleRef.current !== captured) {
-              return;
-            }
-            continue;
-          }
-          const glbBuffer = await extractGeometrySession(captured, {
-            policy: "noPayloads",
-            variantSelections,
-            purposeModes,
-          });
-          if (cancelled || stageSessionHandleRef.current !== captured) {
-            return;
-          }
+        setSessionGlbBuffer(glbBuffer);
+        deferredPreviewSessionRef.current = captured;
+        setDeferredPayloadProgress(null);
+        if (import.meta.env.DEV) {
           const meshCount = glbMeshCount(glbBuffer);
-          if (meshCount > 0 || isFinalBatch) {
-            hasVisiblePreview = meshCount > 0;
-            setSessionGlbBuffer(glbBuffer);
-            if (import.meta.env.DEV) {
-              console.info(
-                `[usd] deferred preview batch ready (${loadedPreviewPayloads.length}/${previewPayloads.length} payloads, ${meshCount} meshes, ${failedPreviewPayloads.length} failed)`,
-              );
-            }
-            if (isFinalBatch) {
-              deferredPreviewSessionRef.current = captured;
-              setDeferredPayloadProgress(null);
-              return;
-            }
-          } else {
-            console.warn(
-              `[usd] deferred preview batch produced no meshes; continuing (${loadedPreviewPayloads.length}/${previewPayloads.length})`,
-            );
-          }
-          if (!isFinalBatch) {
-            await yieldDeferredPreviewFrame();
-            if (cancelled || stageSessionHandleRef.current !== captured) {
-              return;
-            }
-          }
+          console.info(
+            `[usd] deferred preview full payload load ready (${previewPayloads.length} payloads, ${meshCount} meshes)`,
+          );
         }
       } catch (err: unknown) {
         if (cancelled || stageSessionHandleRef.current !== captured) return;
@@ -502,7 +409,7 @@ export function usePayloadSession(
       }
     };
 
-    void loadPreviewBatch();
+    void loadDeferredPreview();
     return () => {
       cancelled = true;
       setDeferredPayloadProgress(null);
