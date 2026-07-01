@@ -1951,14 +1951,6 @@ async function parseUsdRuntimeHints(
   };
 }
 
-async function parseUsdRuntimeHintsWithPolicy(
-  path: string,
-  policy: import("../lib/usd").StageLoadPolicy,
-  existingInspection?: StageInspection | null,
-): Promise<UsdRuntimeHints> {
-  return parseUsdRuntimeHints(path, policy, existingInspection);
-}
-
 function matchingUsdInspection(
   path: string,
   policy: import("../lib/usd").StageLoadPolicy,
@@ -2566,24 +2558,11 @@ async function loadPreviewObjectCore(
           );
         }
 
-        // Apply metersPerUnit / upAxis hints from the inspector — these
-        // come from the same Rust backend so the Phase 2 work continues
-        // to apply uniformly.
-        try {
-          reportStage("scene");
-          const runtimeHints = await parseUsdRuntimeHintsWithPolicy(
-            file.path,
-            usdPolicy,
-            matchingUsdInspection(
-              file.path,
-              usdPolicy,
-              options.getUsdInspection,
-            ),
-          );
-          applyUsdRuntimeHints(object, runtimeHints);
-        } catch (error) {
-          console.warn("[usd] runtime hints failed:", error);
-        }
+        // The Rust GLB extractor already bakes stage units and up-axis into
+        // the generated glTF. Do not issue a second inspection RPC here; it
+        // would delay first paint and can double-apply scale if inspection
+        // data is already available.
+        reportStage("scene");
 
         return {
           object,
