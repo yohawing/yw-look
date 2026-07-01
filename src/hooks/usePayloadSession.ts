@@ -46,9 +46,11 @@ function glbMeshCount(buffer: ArrayBuffer): number {
   return 0;
 }
 
-function yieldDeferredPreviewFrame(): Promise<void> {
+function yieldDeferredPreviewFrame(
+  delayMs: number = DEFERRED_PAYLOAD_PREVIEW_LIMITS.yieldMs,
+): Promise<void> {
   return new Promise((resolve) => {
-    window.setTimeout(resolve, 0);
+    window.setTimeout(resolve, delayMs);
   });
 }
 
@@ -135,9 +137,6 @@ export function usePayloadSession(
     if (usdLoadPolicy !== "noPayloads") {
       setStageSessionHandle(null);
       setUnloadedPayloadPaths(new Set());
-      return;
-    }
-    if (DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxAutoLoad <= 0) {
       return;
     }
 
@@ -357,11 +356,20 @@ export function usePayloadSession(
     ) {
       return;
     }
+    if (DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxAutoLoad <= 0) {
+      return;
+    }
 
     let cancelled = false;
 
     const loadPreviewBatch = async () => {
       try {
+        await yieldDeferredPreviewFrame(
+          DEFERRED_PAYLOAD_PREVIEW_LIMITS.startDelayMs,
+        );
+        if (cancelled || stageSessionHandleRef.current !== captured) {
+          return;
+        }
         const inspection =
           usdInspection ?? (await inspectStage(currentFile.path, "noPayloads"));
         if (cancelled || stageSessionHandleRef.current !== captured) {
@@ -407,6 +415,10 @@ export function usePayloadSession(
           );
           reportDeferredPayload(batch[0] ?? null);
           for (const primPath of batch) {
+            await yieldDeferredPreviewFrame();
+            if (cancelled || stageSessionHandleRef.current !== captured) {
+              return;
+            }
             try {
               await loadPayload(captured, primPath);
             } catch (err: unknown) {
