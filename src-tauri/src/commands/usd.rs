@@ -9,6 +9,8 @@ use crate::usd::{
     UsdLightInfo,
 };
 
+const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
+
 fn map_usd_error(error: UsdError) -> AppError {
     AppError::Usd(error.to_string())
 }
@@ -18,10 +20,50 @@ where
     F: FnOnce() -> Result<T, UsdError> + Send + 'static,
     T: Send + 'static,
 {
+    run_usd_task(false, task).await
+}
+
+async fn run_background_usd<T, F>(task: F) -> Result<T, AppError>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
+    run_usd_task(true, task).await
+}
+
+async fn run_maybe_background_usd<T, F>(background: Option<bool>, task: F) -> Result<T, AppError>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
+    if background.unwrap_or(false) {
+        run_background_usd(task).await
+    } else {
+        run_blocking_usd(task).await
+    }
+}
+
+async fn run_usd_task<T, F>(background: bool, task: F) -> Result<T, AppError>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = USD_TASK_LOCK
-            .lock()
-            .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?;
+        let _guard = if background {
+            match USD_TASK_LOCK.try_lock() {
+                Ok(guard) => guard,
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    return Err(AppError::Internal(USD_TASK_BUSY.into()));
+                }
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    return Err(AppError::Internal("USD task lock was poisoned".into()));
+                }
+            }
+        } else {
+            USD_TASK_LOCK
+                .lock()
+                .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?
+        };
         task().map_err(map_usd_error)
     })
     .await
@@ -65,11 +107,15 @@ pub(crate) async fn inspect_stage(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
     policy: Option<StageLoadPolicy>,
+    background: Option<bool>,
 ) -> Result<StageInspection, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
     let policy = policy.unwrap_or_default();
-    run_blocking_usd(move || handle.inspect_stage(&normalized, policy)).await
+    run_maybe_background_usd(background, move || {
+        handle.inspect_stage(&normalized, policy)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -104,10 +150,11 @@ pub(crate) async fn inspect_prim(
 pub(crate) async fn inspect_usd_lights(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
+    background: Option<bool>,
 ) -> Result<Vec<UsdLightInfo>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.light()?;
-    run_blocking_usd(move || handle.inspect_usd_lights(&normalized)).await
+    run_maybe_background_usd(background, move || handle.inspect_usd_lights(&normalized)).await
 }
 
 #[tauri::command]
@@ -115,21 +162,26 @@ pub(crate) async fn summarize_stage(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
     policy: Option<StageLoadPolicy>,
+    background: Option<bool>,
 ) -> Result<StageSummary, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
     let policy = policy.unwrap_or_default();
-    run_blocking_usd(move || handle.summarize_stage(&normalized, policy)).await
+    run_maybe_background_usd(background, move || {
+        handle.summarize_stage(&normalized, policy)
+    })
+    .await
 }
 
 #[tauri::command]
 pub(crate) async fn collect_asset_issues(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
+    background: Option<bool>,
 ) -> Result<Vec<AssetIssue>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
-    run_blocking_usd(move || handle.collect_asset_issues(&normalized)).await
+    run_maybe_background_usd(background, move || handle.collect_asset_issues(&normalized)).await
 }
 
 #[tauri::command]
@@ -151,12 +203,13 @@ pub(crate) async fn extract_geometry(
     path: String,
     policy: Option<StageLoadPolicy>,
     options: Option<ExtractGeometryOptions>,
+    background: Option<bool>,
 ) -> Result<tauri::ipc::Response, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.geometry()?;
     let resolved_options =
         options.unwrap_or_else(|| ExtractGeometryOptions::from(policy.unwrap_or_default()));
-    let bytes = run_blocking_usd(move || {
+    let bytes = run_maybe_background_usd(background, move || {
         handle.extract_geometry_glb_with_options(&normalized, &resolved_options)
     })
     .await?;
@@ -179,12 +232,15 @@ pub(crate) async fn open_stage_session(
     registry: tauri::State<'_, StageRegistry>,
     path: String,
     policy: Option<StageLoadPolicy>,
+    background: Option<bool>,
 ) -> Result<StageSessionHandle, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path.clone()))?;
     let handle = backend.session()?;
     let policy = policy.unwrap_or_default();
-    let open_stage =
-        run_blocking_usd(move || handle.open_stage_session(&normalized, policy)).await?;
+    let open_stage = run_maybe_background_usd(background, move || {
+        handle.open_stage_session(&normalized, policy)
+    })
+    .await?;
 
     let session = crate::usd::OpenSession {
         path: PathBuf::from(path),
@@ -200,12 +256,9 @@ pub(crate) async fn close_stage_session(
     registry: tauri::State<'_, StageRegistry>,
     handle: StageSessionHandle,
 ) -> Result<(), AppError> {
-    registry
-        .remove(handle)
-        .ok_or_else(|| AppError::Internal(format!(
-            "close_stage_session: unknown handle {}",
-            handle.0
-        )))?;
+    registry.remove(handle).ok_or_else(|| {
+        AppError::Internal(format!("close_stage_session: unknown handle {}", handle.0))
+    })?;
     Ok(())
 }
 
@@ -249,7 +302,10 @@ pub(crate) async fn unload_payload(
             .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?;
         let registry = app.state::<StageRegistry>();
         let session = registry.get(handle).ok_or_else(|| {
-            AppError::Internal(format!("unload_payload: unknown session handle {}", handle.0))
+            AppError::Internal(format!(
+                "unload_payload: unknown session handle {}",
+                handle.0
+            ))
         })?;
         backend_handle
             .unload_payload(&session.stage, &prim_path)

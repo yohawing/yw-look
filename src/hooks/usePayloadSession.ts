@@ -7,6 +7,7 @@ import {
   closeStageSession,
   extractGeometry,
   extractGeometrySession,
+  isUsdTaskBusyError,
   loadPayload,
   openStageSession,
   unloadPayload,
@@ -129,7 +130,12 @@ export function usePayloadSession(
   }, [sessionGlbBuffer]);
 
   useEffect(() => {
-    if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
+    if (
+      !isTauri ||
+      !isUsdFile(currentFile) ||
+      !currentFile ||
+      !previewReadyForDeferredPayloads
+    ) {
       setStageSessionHandle(null);
       setUnloadedPayloadPaths(new Set());
       return;
@@ -156,7 +162,25 @@ export function usePayloadSession(
         }
         return;
       }
-      return openStageSession(path, "noPayloads");
+      for (
+        let attempt = 0;
+        attempt <= DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxBusyRetries;
+        attempt += 1
+      ) {
+        try {
+          return await openStageSession(path, "noPayloads", {
+            background: true,
+          });
+        } catch (error) {
+          if (!isUsdTaskBusyError(error) || cancelled) {
+            throw error;
+          }
+          await yieldDeferredPreviewFrame(
+            DEFERRED_PAYLOAD_PREVIEW_LIMITS.busyRetryMs,
+          );
+        }
+      }
+      return undefined;
     };
 
     openSession()
@@ -188,7 +212,7 @@ export function usePayloadSession(
         return null;
       });
     };
-  }, [currentFile, isTauri, usdLoadPolicy]);
+  }, [currentFile, isTauri, previewReadyForDeferredPayloads, usdLoadPolicy]);
 
   useEffect(() => {
     if (stageSessionHandle === null) {
@@ -387,11 +411,47 @@ export function usePayloadSession(
         if (cancelled || stageSessionHandleRef.current !== captured) {
           return;
         }
-        const glbBuffer = await extractGeometry(currentFile.path, {
-          policy: "loadAll",
-          variantSelections,
-          purposeModes,
-        });
+        let glbBuffer: ArrayBuffer | null = null;
+        for (
+          let attempt = 0;
+          attempt <= DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxBusyRetries;
+          attempt += 1
+        ) {
+          try {
+            glbBuffer = await extractGeometry(
+              currentFile.path,
+              {
+                policy: "loadAll",
+                variantSelections,
+                purposeModes,
+              },
+              { background: true },
+            );
+            break;
+          } catch (error) {
+            if (!isUsdTaskBusyError(error)) {
+              throw error;
+            }
+            if (cancelled || stageSessionHandleRef.current !== captured) {
+              return;
+            }
+            setDeferredPayloadProgress({
+              kind: "payload",
+              total: previewPayloads.length,
+              loaded: 0,
+              failed: 0,
+              pending: previewPayloads.length,
+              activeLabel: "Waiting for USD task slot",
+            });
+            await yieldDeferredPreviewFrame(
+              DEFERRED_PAYLOAD_PREVIEW_LIMITS.busyRetryMs,
+            );
+          }
+        }
+        if (glbBuffer === null) {
+          setDeferredPayloadProgress(null);
+          return;
+        }
         if (cancelled || stageSessionHandleRef.current !== captured) {
           return;
         }

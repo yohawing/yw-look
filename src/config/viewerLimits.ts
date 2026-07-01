@@ -11,4 +11,6 @@ export const PREFETCH_CACHE_LIMITS = {
 export const DEFERRED_PAYLOAD_PREVIEW_LIMITS = {
   startDelayMs: 750,
   yieldMs: 16,
+  busyRetryMs: 1_000,
+  maxBusyRetries: 30,
 } as const;

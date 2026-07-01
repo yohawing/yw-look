@@ -4,6 +4,7 @@ import {
   collectAssetIssues,
   inspectStage,
   inspectUsdLights,
+  isUsdTaskBusyError,
   summarizeStage,
   type AssetIssue,
   type StageInspection,
@@ -65,25 +66,31 @@ export function useUsdInspector(
     const usdInspectorStartMs = performance.now();
 
     const timer = window.setTimeout(() => {
-      const summarizePromise = summarizeStage(path, usdLoadPolicy)
+      const summarizePromise = summarizeStage(path, usdLoadPolicy, {
+        background: true,
+      })
         .then((summary) => {
           if (cancelled) return;
           setUsdSummary(summary);
         })
         .catch((error: unknown) => {
           if (cancelled) return;
+          if (isUsdTaskBusyError(error)) return;
           setUsdInspectorError(
             errorMessage(error, "Failed to summarize USD stage."),
           );
         });
 
-      const inspectPromise = inspectStage(path, usdLoadPolicy)
+      const inspectPromise = inspectStage(path, usdLoadPolicy, {
+        background: true,
+      })
         .then((inspection) => {
           if (cancelled) return;
           setUsdInspection(inspection);
         })
         .catch((error: unknown) => {
           if (cancelled) return;
+          if (isUsdTaskBusyError(error)) return;
           setUsdInspectorError(
             (previous) =>
               previous ?? errorMessage(error, "Failed to inspect USD stage."),
@@ -92,13 +99,14 @@ export function useUsdInspector(
 
       const issuesPromise =
         usdLoadPolicy === "loadAll"
-          ? collectAssetIssues(path)
+          ? collectAssetIssues(path, { background: true })
               .then((issues) => {
                 if (cancelled) return;
                 setUsdIssues(issues);
               })
               .catch((error: unknown) => {
                 if (cancelled) return;
+                if (isUsdTaskBusyError(error)) return;
                 setUsdInspectorError(
                   (previous) =>
                     previous ??
@@ -109,7 +117,7 @@ export function useUsdInspector(
 
       const lightsPromise =
         usdLoadPolicy === "loadAll"
-          ? inspectUsdLights(path)
+          ? inspectUsdLights(path, { background: true })
               .then((lights) => {
                 if (cancelled) return;
                 setUsdLights(lights);
@@ -117,6 +125,7 @@ export function useUsdInspector(
               })
               .catch((error: unknown) => {
                 if (cancelled) return;
+                if (isUsdTaskBusyError(error)) return;
                 setUsdLights(null);
                 setUsdLightsError(
                   errorMessage(error, "Failed to inspect USD lights."),
