@@ -23,8 +23,7 @@ import type { SidebarTabItem } from "../components/SidebarTabs";
 import type { SidebarTabId } from "../components/SidebarTabIcons";
 import { TexturesSidebarPanel } from "../components/TexturesSidebarPanel";
 import { UsdInspectorCard } from "../components/UsdInspectorCard";
-import { DiagnosticsCard } from "../components/DiagnosticsCard";
-import { WarningsCard } from "../components/WarningsCard";
+import { WarningsSidebarPanel } from "../components/WarningsSidebarPanel";
 import { isUsdFile } from "../lib/files";
 import type {
   AssetIssue,
@@ -455,23 +454,7 @@ export function useSidebarModel({
           </>
         );
       case "warnings":
-        return (
-          <>
-            <WarningsCard
-              warnings={sidebarWarnings}
-              scaleNormalizationApplied={
-                viewer.scaleNormalization?.applied ?? false
-              }
-              onCancelScaleNormalization={
-                viewer.bumpCancelScaleNormalizeVersion
-              }
-            />
-            <DiagnosticsCard
-              processMemoryMetrics={null}
-              resourceDiagnostics={viewer.resourceDiagnostics}
-            />
-          </>
-        );
+        return <WarningsSidebarPanel warnings={sidebarWarnings} />;
     }
   }, [
     activeTab,
