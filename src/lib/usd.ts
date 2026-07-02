@@ -279,7 +279,7 @@ export async function loadUsdSource(
 }
 
 export async function backendCapabilities(): Promise<BackendCapabilities> {
-  return invoke<BackendCapabilities>("backendCapabilities");
+  return invoke<BackendCapabilities>("backend_capabilities");
 }
 
 /**

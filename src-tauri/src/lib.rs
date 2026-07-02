@@ -4,11 +4,11 @@ pub mod shared;
 pub mod state;
 pub mod usd;
 
-use tauri::Manager;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use std::path::PathBuf;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Emitter;
+use tauri::Manager;
 use url::Url;
 
 use crate::commands::alembic::convert_alembic_to_preview;
@@ -34,14 +34,12 @@ use crate::commands::shot::{
 };
 use crate::commands::updater::{check_for_update, install_pending_update};
 use crate::commands::usd::{
-    backendCapabilities, close_stage_session, collect_asset_issues, extract_geometry,
+    backend_capabilities, close_stage_session, collect_asset_issues, extract_geometry,
     extract_geometry_session, flatten_stage, inspect_attribute_time_samples, inspect_prim,
     inspect_stage, inspect_usd_lights, load_payload, open_stage_session, requires_glb_preview,
     summarize_stage, unload_payload,
 };
-use crate::state::{
-    PendingOpenFiles, PendingUpdateState, UsdBackendState,
-};
+use crate::state::{PendingOpenFiles, PendingUpdateState, UsdBackendState};
 use crate::usd::{DefaultBackend, StageRegistry};
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -175,7 +173,7 @@ pub fn run() {
             install_pending_update,
             inspect_asset,
             load_format_support,
-            backendCapabilities,
+            backend_capabilities,
             inspect_stage,
             summarize_stage,
             collect_asset_issues,

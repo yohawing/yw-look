@@ -103,9 +103,8 @@ fn fast_usd_requires_glb_preview(path: &std::path::Path) -> Option<bool> {
     )
 }
 
-#[allow(non_snake_case)]
 #[tauri::command]
-pub(crate) async fn backendCapabilities(
+pub(crate) async fn backend_capabilities(
     backend: tauri::State<'_, UsdBackendState>,
 ) -> Result<crate::state::BackendCapabilities, AppError> {
     Ok(backend.capabilities())

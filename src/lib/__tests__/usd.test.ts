@@ -1,10 +1,37 @@
-import { describe, expect, it } from "vitest";
-import { formatUsdErrorForDisplay, parseUsdError } from "../usd";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  backendCapabilities,
+  formatUsdErrorForDisplay,
+  parseUsdError,
+} from "../usd";
 import { errorMessage } from "../invokeSafe";
-import type { AppError } from "../../types/ipc";
+import type { AppError, BackendCapabilities } from "../../types/ipc";
+
+const mockInvoke = vi.mocked(invoke);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 const invalidVariantMessage =
   "USD_INVALID_VARIANT_SELECTION\tprimPath=/Root\tsetName=lod\tvariantName=high";
+
+describe("backendCapabilities", () => {
+  it("invokes backend_capabilities", async () => {
+    const capabilities: BackendCapabilities = {
+      inspect: true,
+      geometry: true,
+      source: false,
+      session: true,
+      light: false,
+    };
+    mockInvoke.mockResolvedValueOnce(capabilities);
+
+    await expect(backendCapabilities()).resolves.toEqual(capabilities);
+    expect(mockInvoke).toHaveBeenCalledWith("backend_capabilities");
+  });
+});
 
 describe("USD error parsing", () => {
   it("parses invalid variant selection from structured Tauri AppError", () => {
