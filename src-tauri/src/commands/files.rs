@@ -295,7 +295,18 @@ fn read_tga_dimensions(path: &Path) -> Option<ImageDimensions> {
     })
 }
 
+/// Texture formats accepted by inspect_asset but not header-probed for width/height yet.
+/// KTX2 needs a KTX2 header parse; HDR/EXR need Radiance/OpenEXR header reads (tracked R23 gap).
+const DIMENSION_PROBE_DEFERRED_EXTENSIONS: &[&str] = &["ktx2", "hdr", "exr"];
+
+fn dimension_probe_deferred(extension: &str) -> bool {
+    DIMENSION_PROBE_DEFERRED_EXTENSIONS.contains(&extension)
+}
+
 fn read_image_dimensions(path: &Path, extension: &str) -> Option<ImageDimensions> {
+    if dimension_probe_deferred(extension) {
+        return None;
+    }
     match extension {
         "png" => read_png_dimensions(path),
         "jpg" | "jpeg" => read_jpeg_dimensions(path),
@@ -667,5 +678,56 @@ mod tests {
             load_recent_file_entries_from_path(dir.path()).expect_err("invalid json should fail");
 
         assert!(matches!(err, AppError::Serde(_)));
+    }
+
+    fn texture_fixtures_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/textures")
+    }
+
+    #[test]
+    fn dimension_probe_deferred_extensions_record_ktx2_hdr_exr_gap() {
+        assert_eq!(DIMENSION_PROBE_DEFERRED_EXTENSIONS, &["ktx2", "hdr", "exr"]);
+        for extension in DIMENSION_PROBE_DEFERRED_EXTENSIONS {
+            assert!(dimension_probe_deferred(extension));
+        }
+        assert!(!dimension_probe_deferred("png"));
+    }
+
+    #[test]
+    fn read_image_dimensions_defers_ktx2_hdr_exr_without_header_probe() {
+        let fixtures = texture_fixtures_dir();
+        let ktx2 = fixtures.join("2d-uastc.ktx2");
+        assert!(ktx2.is_file(), "missing ktx2 fixture at {}", ktx2.display());
+
+        assert!(read_image_dimensions(&ktx2, "ktx2").is_none());
+        assert!(read_image_dimensions(Path::new("unused.hdr"), "hdr").is_none());
+        assert!(read_image_dimensions(Path::new("unused.exr"), "exr").is_none());
+    }
+
+    #[test]
+    fn read_image_dimensions_reads_supported_texture_headers() {
+        let fixtures = texture_fixtures_dir();
+
+        let png = read_image_dimensions(&fixtures.join("1x1.png"), "png").expect("png dimensions");
+        assert_eq!(png.width, 1);
+        assert_eq!(png.height, 1);
+        assert_eq!(png.source, "png-header");
+
+        let jpg = read_image_dimensions(&fixtures.join("1x1.jpg"), "jpg").expect("jpg dimensions");
+        assert_eq!(jpg.width, 1);
+        assert_eq!(jpg.height, 1);
+        assert_eq!(jpg.source, "jpeg-header");
+
+        let dds = read_image_dimensions(&fixtures.join("disturb-dxt1-nomip.dds"), "dds")
+            .expect("dds dimensions");
+        assert_eq!(dds.width, 512);
+        assert_eq!(dds.height, 512);
+        assert_eq!(dds.source, "dds-header");
+
+        let tga = read_image_dimensions(&fixtures.join("crate-grey8.tga"), "tga")
+            .expect("tga dimensions");
+        assert_eq!(tga.width, 256);
+        assert_eq!(tga.height, 256);
+        assert_eq!(tga.source, "tga-header");
     }
 }
