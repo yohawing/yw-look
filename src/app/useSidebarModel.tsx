@@ -31,7 +31,7 @@ import type {
   UsdLightInfo,
 } from "../lib/usd";
 import type { FileState } from "../stores/fileStore";
-import type { UiState } from "../stores/uiStore";
+import { useUiStore } from "../stores/uiStore";
 import type { IntegrationPayload } from "../lib/integrations";
 import type { OptionalLoaderPackManifest } from "../lib/loaderPacks";
 import type { RecentFilesPayload } from "../lib/recentFiles";
@@ -126,7 +126,6 @@ type UseSidebarModelOptions = {
   sidebarWarnings: string[];
   sidebarWidth: number;
   stageSessionHandle: StageSessionHandle | null;
-  ui: UiState;
   unloadedPayloadPaths: ReadonlySet<string>;
   updateCheck: UpdateCheckPayload | null;
   updateConfiguration: UpdateConfigurationPayload | null;
@@ -173,7 +172,6 @@ export function useSidebarModel({
   sidebarWarnings,
   sidebarWidth,
   stageSessionHandle,
-  ui,
   unloadedPayloadPaths,
   updateCheck,
   updateConfiguration,
@@ -185,6 +183,7 @@ export function useSidebarModel({
   usdLights,
   usdLightsError,
 }: UseSidebarModelOptions) {
+  const setSidebarWidth = useUiStore((state) => state.setSidebarWidth);
   const [debugFixtures, setDebugFixtures] = useState<DebugPanelFixtures | null>(
     null,
   );
@@ -449,7 +448,7 @@ export function useSidebarModel({
 
     const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
       const nextWidth = startWidth + (startX - moveEvent.clientX);
-      ui.setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, nextWidth)));
+      setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, nextWidth)));
     };
 
     const handlePointerUp = () => {

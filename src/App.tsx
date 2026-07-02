@@ -249,7 +249,6 @@ export function App() {
       sidebarWarnings,
       sidebarWidth,
       stageSessionHandle,
-      ui,
       unloadedPayloadPaths,
       updateCheck,
       updateConfiguration,
