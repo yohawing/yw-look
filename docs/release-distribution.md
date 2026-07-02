@@ -16,7 +16,7 @@
 | Windows | 対応済み | NSIS / MSI 対応済み | Authenticode は未整備         | 対応済み | 対応済み        |
 | macOS   | 対応済み | DMG / .app 対応済み | Developer ID + 公証（未整備） | 対応済み | 対応済み        |
 
-実装の進捗は `docs/TODO.md` の「OS 統合（Windows / macOS）」と「CI/CD 整備」セクションを参照してください。
+実装の進捗は `CHANGELOG.md` と、ローカル管理の作業メモ（ルートの `TODO.md` / `ROADMAP.md`、リポジトリには含まれない）を参照してください。
 
 ## まず覚えること
 
