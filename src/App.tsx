@@ -256,7 +256,6 @@ export function App() {
       recentFilesError,
       recentFilesPayload,
       selectedMeshName,
-      selectedTextureId,
       selectedUsdPrimPath,
       sessionAdjustedUsdSummary,
       setRecentFilesError,
@@ -283,7 +282,6 @@ export function App() {
       variantSelectionError,
       variantSelections,
       viewer,
-      viewerSurfaceMode,
     });
 
   return (

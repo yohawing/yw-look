@@ -21,7 +21,7 @@ import { createSidebarTabs } from "../components/sidebarTabItems";
 import { SidebarEmpty, SidebarSection } from "../components/sidebarPrimitives";
 import type { SidebarTabItem } from "../components/SidebarTabs";
 import type { SidebarTabId } from "../components/SidebarTabIcons";
-import { TextureListCard } from "../components/TextureListCard";
+import { TexturesSidebarPanel } from "../components/TexturesSidebarPanel";
 import { UsdInspectorCard } from "../components/UsdInspectorCard";
 import { DiagnosticsCard } from "../components/DiagnosticsCard";
 import { WarningsCard } from "../components/WarningsCard";
@@ -125,7 +125,6 @@ type UseSidebarModelOptions = {
   recentFilesError: string | null;
   recentFilesPayload: RecentFilesPayload | null;
   selectedMeshName: ViewerState["selectedMeshName"];
-  selectedTextureId: ViewerState["selectedTextureId"];
   selectedUsdPrimPath: ViewerState["selectedUsdPrimPath"];
   sessionAdjustedUsdSummary: StageSummary | null;
   setRecentFilesError: (error: string | null) => void;
@@ -152,7 +151,6 @@ type UseSidebarModelOptions = {
   variantSelectionError: ViewerState["variantSelectionError"];
   variantSelections: VariantSelection[];
   viewer: ViewerState;
-  viewerSurfaceMode: ViewerState["viewerSurfaceMode"];
 };
 
 export function useSidebarModel({
@@ -182,7 +180,6 @@ export function useSidebarModel({
   recentFilesError,
   recentFilesPayload,
   selectedMeshName,
-  selectedTextureId,
   selectedUsdPrimPath,
   sessionAdjustedUsdSummary,
   setRecentFilesError,
@@ -209,7 +206,6 @@ export function useSidebarModel({
   variantSelectionError,
   variantSelections,
   viewer,
-  viewerSurfaceMode,
 }: UseSidebarModelOptions) {
   const [debugFixtures, setDebugFixtures] = useState<DebugPanelFixtures | null>(
     null,
@@ -416,21 +412,7 @@ export function useSidebarModel({
         );
       case "textures":
         return (
-          <TextureListCard
-            activeTextureId={
-              selectedTextureId ?? sidebarAssetMetadata?.textures[0]?.id ?? null
-            }
-            onSelectTexture={(textureId) => {
-              if (
-                textureId === selectedTextureId &&
-                viewerSurfaceMode === "texture"
-              ) {
-                viewer.setViewerSurfaceMode("asset");
-              } else {
-                viewer.setSelectedTextureId(textureId);
-                viewer.setViewerSurfaceMode("texture");
-              }
-            }}
+          <TexturesSidebarPanel
             textures={sidebarAssetMetadata?.textures ?? []}
           />
         );
@@ -522,7 +504,6 @@ export function useSidebarModel({
     performSelectFilePath,
     setRecentFilesError,
     selectedMeshName,
-    selectedTextureId,
     selectedUsdPrimPath,
     sessionAdjustedUsdSummary,
     settingsError,
@@ -549,7 +530,6 @@ export function useSidebarModel({
     variantSelectionError,
     variantSelections,
     viewer,
-    viewerSurfaceMode,
   ]);
 
   const sidebarTabs = useMemo<SidebarTabItem<SidebarTabId>[]>(
