@@ -14,7 +14,7 @@ import {
 import { prefetchAdjacent } from "../viewer";
 import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
-import type { ViewerState } from "../stores/viewerStore";
+import { useViewerStore, type ViewerState } from "../stores/viewerStore";
 
 const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
 
@@ -49,12 +49,10 @@ type UseAppFileOpenOptions = {
   file: FileState;
   isTauri: boolean;
   recordLoadTiming: (startedAt: number, reason: OpenReason) => void;
-  selectedTextureId: ViewerState["selectedTextureId"];
   setSessionGlbBuffer: (buffer: ArrayBuffer | null) => void;
   ui: UiState;
   usdLoadPolicy: ViewerState["usdLoadPolicy"];
   viewer: ViewerState;
-  viewerSurfaceMode: ViewerState["viewerSurfaceMode"];
 };
 
 export function useAppFileOpen({
@@ -63,13 +61,13 @@ export function useAppFileOpen({
   file,
   isTauri,
   recordLoadTiming,
-  selectedTextureId,
   setSessionGlbBuffer,
   ui,
   usdLoadPolicy,
   viewer,
-  viewerSurfaceMode,
 }: UseAppFileOpenOptions) {
+  const selectedTextureId = useViewerStore((state) => state.selectedTextureId);
+  const viewerSurfaceMode = useViewerStore((state) => state.viewerSurfaceMode);
   const recentExternalOpenRef = useRef<{
     path: string;
     requestedAt: number;

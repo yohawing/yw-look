@@ -42,8 +42,6 @@ export function App() {
     viewerFeedback,
     usdLoadPolicy,
     selectedMeshName,
-    selectedTextureId,
-    viewerSurfaceMode,
     selectedUsdPrimPath,
     morphTargetValues,
     variantSelections,
@@ -185,12 +183,10 @@ export function App() {
     file,
     isTauri,
     recordLoadTiming,
-    selectedTextureId,
     setSessionGlbBuffer,
     ui,
     usdLoadPolicy,
     viewer,
-    viewerSurfaceMode,
   });
 
   useAppCommands({
