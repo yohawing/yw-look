@@ -147,7 +147,6 @@ export function App() {
     ui,
     updateCheck,
     usdIssues,
-    viewer,
     viewerFeedback,
   });
 

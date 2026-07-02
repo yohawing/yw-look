@@ -12,7 +12,7 @@ import {
 } from "../lib/usd";
 import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
-import type { ViewerState } from "../stores/viewerStore";
+import { useViewerStore, type ViewerState } from "../stores/viewerStore";
 import type { AppStatusBarItem } from "../types/ui";
 import type { UpdateCheckPayload } from "../lib/updater";
 
@@ -76,7 +76,6 @@ type UseViewerDiagnosticsModelOptions = {
   ui: UiState;
   updateCheck: UpdateCheckPayload | null;
   usdIssues: AssetIssue[];
-  viewer: ViewerState;
   viewerFeedback: ViewerState["viewerFeedback"];
 };
 
@@ -93,7 +92,6 @@ export function useViewerDiagnosticsModel({
   ui,
   updateCheck,
   usdIssues,
-  viewer,
   viewerFeedback,
 }: UseViewerDiagnosticsModelOptions) {
   const debugPanelsEnabled = isDebugPanelsRequested();
@@ -129,24 +127,20 @@ export function useViewerDiagnosticsModel({
     ? debugFixtures.debugPanelDirectoryListing
     : directoryListing;
 
-  const { setVariantSelectionError } = viewer;
-  const recordVariantSelectionError = useCallback(
-    (error: unknown): boolean => {
-      const parsed = parseUsdError(error);
-      if (!isInvalidVariantSelectionError(parsed)) {
-        return false;
-      }
+  const recordVariantSelectionError = useCallback((error: unknown): boolean => {
+    const parsed = parseUsdError(error);
+    if (!isInvalidVariantSelectionError(parsed)) {
+      return false;
+    }
 
-      const message = formatUsdErrorForDisplay(
-        error,
-        "Variant selection failed.",
-      );
-      console.error("[usd] variant selection failed:", error);
-      setVariantSelectionError(message);
-      return true;
-    },
-    [setVariantSelectionError],
-  );
+    const message = formatUsdErrorForDisplay(
+      error,
+      "Variant selection failed.",
+    );
+    console.error("[usd] variant selection failed:", error);
+    useViewerStore.getState().setVariantSelectionError(message);
+    return true;
+  }, []);
 
   const viewerStatusLabel = useMemo(() => {
     switch (viewerFeedback.mode) {
