@@ -189,11 +189,9 @@ export function App() {
     canNavigatePrev,
     directoryListing,
     displayMode,
-    file,
     handleOpenFile,
     isTauri,
     performSelectFilePath,
-    ui,
   });
 
   const {

@@ -10,7 +10,8 @@ import {
   type ViewerShortcutAction,
 } from "../lib/viewerShortcuts";
 import type { FileState } from "../stores/fileStore";
-import type { UiState } from "../stores/uiStore";
+import { useFileStore } from "../stores/fileStore";
+import { useUiStore } from "../stores/uiStore";
 import { useViewerStore } from "../stores/viewerStore";
 
 type PerformSelectFilePath = (
@@ -23,11 +24,9 @@ type UseAppCommandsOptions = {
   canNavigatePrev: boolean;
   directoryListing: FileState["directoryListing"];
   displayMode: DisplayMode;
-  file: FileState;
   handleOpenFile: () => Promise<void>;
   isTauri: boolean;
   performSelectFilePath: PerformSelectFilePath;
-  ui: UiState;
 };
 
 export function useAppCommands({
@@ -35,12 +34,15 @@ export function useAppCommands({
   canNavigatePrev,
   directoryListing,
   displayMode,
-  file,
   handleOpenFile,
   isTauri,
   performSelectFilePath,
-  ui,
 }: UseAppCommandsOptions) {
+  const setOpenError = useFileStore((state) => state.setOpenError);
+  const setActiveTab = useUiStore((state) => state.setActiveTab);
+  const setDialogState = useUiStore((state) => state.setDialogState);
+  const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
+  const toggleSidebarOpen = useUiStore((state) => state.toggleSidebarOpen);
   const showTexture = useViewerStore((state) => state.showTexture);
   const showWireframe = useViewerStore((state) => state.showWireframe);
   const showGrid = useViewerStore((state) => state.showGrid);
@@ -87,17 +89,17 @@ export function useAppCommands({
   }, [isTauri]);
 
   const handleShowShortcuts = useCallback(() => {
-    ui.setDialogState({
+    setDialogState({
       title: "Keyboard Shortcuts",
       lines: shortcutLines,
     });
-  }, [shortcutLines, ui]);
+  }, [setDialogState, shortcutLines]);
 
   const handleShowAbout = useCallback(async () => {
     if (isTauri) {
       try {
         const version = await getVersion();
-        ui.setDialogState({
+        setDialogState({
           title: "About",
           lines: ["yw-look", `Version ${version}`],
         });
@@ -107,11 +109,11 @@ export function useAppCommands({
       }
     }
 
-    ui.setDialogState({
+    setDialogState({
       title: "About",
       lines: ["yw-look", "Browser preview mode"],
     });
-  }, [isTauri, ui]);
+  }, [isTauri, setDialogState]);
 
   const executeMenuAction = useCallback(
     async (actionId: MenuActionId) => {
@@ -143,14 +145,14 @@ export function useAppCommands({
           useViewerStore.getState().bumpResetVersion();
           return;
         case "view.toggleSidebar":
-          ui.toggleSidebarOpen();
+          toggleSidebarOpen();
           return;
         case "window.toggleFullscreen":
           await handleToggleFullscreen();
           return;
         case "app.openSettings":
-          ui.setSidebarOpen(true);
-          ui.setActiveTab("settings");
+          setSidebarOpen(true);
+          setActiveTab("settings");
           return;
         case "help.shortcuts":
           handleShowShortcuts();
@@ -166,7 +168,9 @@ export function useAppCommands({
       handleShowShortcuts,
       handleToggleFullscreen,
       isTauri,
-      ui,
+      setActiveTab,
+      setSidebarOpen,
+      toggleSidebarOpen,
     ],
   );
 
@@ -226,11 +230,11 @@ export function useAppCommands({
 
   const handleNavigateError = useCallback(
     (error: unknown) => {
-      file.setOpenError(
+      setOpenError(
         error instanceof Error ? error.message : "Failed to navigate to file.",
       );
     },
-    [file],
+    [setOpenError],
   );
 
   useKeyboardShortcuts(
