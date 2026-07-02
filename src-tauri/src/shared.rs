@@ -1,6 +1,6 @@
 use serde::{de::DeserializeOwned, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 use tauri::Manager;
@@ -12,6 +12,17 @@ pub(crate) const SETTINGS_FILE_NAME: &str = "settings.json";
 pub(crate) const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
 pub(crate) const DIAGNOSTICS_LOG_FILE_NAME: &str = "diagnostics.log";
 pub(crate) static USD_TASK_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> MutexGuard<'a, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poison) => {
+            eprintln!("[yw-look] {label} lock was poisoned; continuing with recovered lock");
+            poison.into_inner()
+        }
+    }
+}
+
 pub(crate) const DEFAULT_UPDATER_ENDPOINT: Option<&str> = option_env!("YW_LOOK_UPDATER_ENDPOINT");
 pub(crate) const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> = option_env!("YW_LOOK_UPDATER_PUBLIC_KEY");
 

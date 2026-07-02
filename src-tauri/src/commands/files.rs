@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 use crate::shared::{
     current_timestamp, infer_file_kind, is_supported_extension, load_or_initialize_settings,
-    normalize_file_path, read_json_file, repo_root, resolve_app_data_dir,
+    lock_or_recover, normalize_file_path, read_json_file, repo_root, resolve_app_data_dir,
     system_time_to_unix_string, write_json_file, MODEL_EXTENSIONS, MOTION_EXTENSIONS,
     PREVIEW_IMPLEMENTED_EXTENSIONS, RECENT_FILES_FILE_NAME, TEXTURE_EXTENSIONS,
 };
@@ -433,7 +433,7 @@ pub(crate) fn get_startup_file(
     pending: tauri::State<'_, PendingOpenFiles>,
 ) -> Result<Option<SelectedFilePayload>, AppError> {
     let queued: Vec<PathBuf> = {
-        let mut guard = pending.0.lock().unwrap();
+        let mut guard = lock_or_recover(&pending.0, "pending open files");
         std::mem::take(&mut *guard)
     };
 

@@ -4,7 +4,7 @@ use url::Url;
 
 use crate::error::AppError;
 use crate::shared::{
-    current_app_version, load_or_initialize_settings,
+    current_app_version, load_or_initialize_settings, lock_or_recover,
     DEFAULT_UPDATER_ENDPOINT, DEFAULT_UPDATER_PUBLIC_KEY,
 };
 use crate::state::{AppSettings, PendingUpdateState};
@@ -164,7 +164,7 @@ pub(crate) async fn check_for_update(
         update: update.as_ref().map(update_metadata_payload),
     };
 
-    *pending_update.0.lock().unwrap() = update;
+    *lock_or_recover(&pending_update.0, "pending update") = update;
 
     Ok(payload)
 }
@@ -173,10 +173,7 @@ pub(crate) async fn check_for_update(
 pub(crate) async fn install_pending_update(
     pending_update: tauri::State<'_, PendingUpdateState>,
 ) -> Result<UpdateInstallPayload, AppError> {
-    let update = pending_update
-        .0
-        .lock()
-        .unwrap()
+    let update = lock_or_recover(&pending_update.0, "pending update")
         .take()
         .ok_or_else(|| {
             AppError::Internal("no pending update is available; run a check first".into())

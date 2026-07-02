@@ -63,7 +63,8 @@ fn handle_opened_urls(app: &tauri::AppHandle, urls: Vec<Url>) {
     }
 
     if let Some(pending) = app.try_state::<PendingOpenFiles>() {
-        pending.0.lock().unwrap().extend(paths.iter().cloned());
+        crate::shared::lock_or_recover(&pending.0, "pending open files")
+            .extend(paths.iter().cloned());
     }
 
     for path in &paths {
