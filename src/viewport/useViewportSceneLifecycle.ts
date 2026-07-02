@@ -27,7 +27,6 @@ import {
   type SceneContext,
 } from "../viewer";
 import type { AssetMetadata } from "../components/assetMetadata";
-import { emptyAssetMetadata } from "../components/assetMetadata";
 import type { EnvironmentPreset } from "../types/viewer";
 import { syncPerspectiveCameraAspect } from "./camera";
 import {
@@ -468,7 +467,7 @@ export function useViewportSceneLifecycle({
     };
 
     onFeedbackChange(neutralFeedback);
-    onMetadataChange(emptyAssetMetadata);
+    onMetadataChange(null);
     publishResourceDiagnostics(sceneContextRef.current);
 
     return () => {

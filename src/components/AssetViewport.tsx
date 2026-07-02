@@ -33,7 +33,6 @@ import {
 } from "../viewer";
 import type { ViewerMode } from "../viewer";
 import { AssetViewportOverlay } from "./AssetViewportOverlay";
-import { emptyAssetMetadata } from "./assetMetadata";
 import { emptyAnimationState, type AnimationState } from "./animation";
 import { applyMorphTargetValues } from "./morphTargets";
 
@@ -672,7 +671,7 @@ export function AssetViewport({
       configureAssetControls(context.controls);
       context.controls.enabled = true;
       onFeedbackChange(neutralFeedback);
-      onMetadataChange(emptyAssetMetadata);
+      onMetadataChange(null);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
 
@@ -701,7 +700,7 @@ export function AssetViewport({
       incompatibleOptionalLoaderPackIds,
     );
     if (supportState !== "implemented") {
-      onMetadataChange(emptyAssetMetadata);
+      onMetadataChange(null);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
       onFeedbackChange(
@@ -737,7 +736,7 @@ export function AssetViewport({
         warning: null,
         canResetCamera: false,
       });
-      onMetadataChange(emptyAssetMetadata);
+      onMetadataChange(null);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
       queueMicrotask(() => {
@@ -860,7 +859,7 @@ export function AssetViewport({
           setOverlayMode("empty");
           setErrorDetail(null);
           onFeedbackChange(neutralFeedback);
-          onMetadataChange(emptyAssetMetadata);
+          onMetadataChange(null);
           assetResourceMetricsRef.current = null;
           publishResourceDiagnostics(context);
           setLoadingStage(null);
@@ -908,7 +907,7 @@ export function AssetViewport({
                 missingReferenceError.missingPaths ?? [],
                 missingReferenceError.unresolvedImages ?? [],
               )
-            : emptyAssetMetadata,
+            : null,
         );
         assetResourceMetricsRef.current = null;
         publishResourceDiagnostics(context);
