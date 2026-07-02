@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import type { TextureEntry } from "./assetMetadata";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { SelectableListItem } from "./SelectableListItem";
 import { Badge, BadgeButton } from "./ui/Badge";
-import { Button } from "./ui/Button";
 import "../styles/texture-list.css";
 
 type TextureListCardProps = {
@@ -63,9 +63,9 @@ export function TextureListCard({
             {visibleTextures.map((texture) => {
               const isMissing = texture.sourceKind === "unresolved";
               return (
-                <Button
+                <SelectableListItem
                   key={texture.id}
-                  className={`yl-button--unstyled texture-card u-relative u-aspect-square u-overflow-hidden u-p-0${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
+                  className={`texture-card u-relative u-aspect-square u-overflow-hidden u-p-0${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
                   onClick={() => onSelectTexture(texture.id)}
                 >
                   <div className="texture-card-preview u-absolute u-inset-0 u-size-full u-overflow-hidden u-flex u-items-center u-justify-center">
@@ -91,7 +91,7 @@ export function TextureListCard({
                       {texture.channel} · {texture.dimensions}
                     </span>
                   </div>
-                </Button>
+                </SelectableListItem>
               );
             })}
           </div>
