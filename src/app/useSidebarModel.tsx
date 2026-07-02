@@ -12,8 +12,7 @@ import {
 import { type AssetMetadata } from "../components/assetMetadata";
 import { CurrentFileCard } from "../components/CurrentFileCard";
 import { FileBrowserCard } from "../components/FileBrowserCard";
-import { HierarchyCard } from "../components/HierarchyCard";
-import { UsdPrimPropertyPanel } from "../components/UsdPrimPropertyPanel";
+import { HierarchySidebarPanel } from "../components/HierarchySidebarPanel";
 import { MaterialListCard } from "../components/MaterialListCard";
 import { MmdMetadataCard } from "../components/MmdMetadataCard";
 import { SceneLightsCamerasPanel } from "../components/SceneLightsCamerasPanel";
@@ -114,7 +113,6 @@ type UseSidebarModelOptions = {
   isTauri: boolean;
   optionalLoaderManifests: readonly OptionalLoaderPackManifest[];
   optionalLoaderManifestsError: string | null;
-  morphTargetValues: ViewerState["morphTargetValues"];
   payloadPrimPaths: ReadonlySet<string>;
   performSelectFilePath: (
     path: string,
@@ -122,8 +120,6 @@ type UseSidebarModelOptions = {
   ) => Promise<void>;
   recentFilesError: string | null;
   recentFilesPayload: RecentFilesPayload | null;
-  selectedMeshName: ViewerState["selectedMeshName"];
-  selectedUsdPrimPath: ViewerState["selectedUsdPrimPath"];
   sessionAdjustedUsdSummary: StageSummary | null;
   setRecentFilesError: (error: string | null) => void;
   settingsError: string | null;
@@ -171,13 +167,10 @@ export function useSidebarModel({
   isTauri,
   optionalLoaderManifests,
   optionalLoaderManifestsError,
-  morphTargetValues,
   payloadPrimPaths,
   performSelectFilePath,
   recentFilesError,
   recentFilesPayload,
-  selectedMeshName,
-  selectedUsdPrimPath,
   sessionAdjustedUsdSummary,
   setRecentFilesError,
   settingsError,
@@ -230,21 +223,6 @@ export function useSidebarModel({
     ? debugFixtures.debugPanelRecentFiles
     : recentFilesPayload;
   const sidebarRecentFilesError = useDebugFixtures ? null : recentFilesError;
-
-  const handleMorphTargetChange = useCallback(
-    (selectionKey: string, morphTargetIndex: number, value: number) => {
-      const clamped = Math.min(1, Math.max(0, value));
-      const prev = useViewerStore.getState().morphTargetValues;
-      useViewerStore.getState().setMorphTargetValues({
-        ...prev,
-        [selectionKey]: {
-          ...(prev[selectionKey] ?? {}),
-          [morphTargetIndex]: clamped,
-        },
-      });
-    },
-    [],
-  );
 
   const applyVariantSelection = useCallback(
     (primPath: string, setName: string, variantName: string) => {
@@ -367,39 +345,16 @@ export function useSidebarModel({
         );
       case "hierarchy":
         return (
-          <>
-            <HierarchyCard
-              hierarchy={sidebarAssetMetadata?.hierarchy ?? []}
-              objectInfo={sidebarAssetMetadata?.objectInfo}
-              morphTargetValues={morphTargetValues}
-              onMorphTargetChange={handleMorphTargetChange}
-              selectedName={selectedMeshName}
-              onSelectName={viewer.setSelectedMeshName}
-              onSelectPrimPath={
-                isUsdFile(currentFile)
-                  ? (primPath) => viewer.setSelectedUsdPrimPath(primPath)
-                  : undefined
-              }
-              payloadPrimPaths={
-                stageSessionHandle !== null ? payloadPrimPaths : undefined
-              }
-              unloadedPayloadPaths={
-                stageSessionHandle !== null ? unloadedPayloadPaths : undefined
-              }
-              onLoadPayload={
-                stageSessionHandle !== null ? handleLoadPayload : undefined
-              }
-              onUnloadPayload={
-                stageSessionHandle !== null ? handleUnloadPayload : undefined
-              }
-            />
-            {isUsdFile(currentFile) && (
-              <UsdPrimPropertyPanel
-                path={currentFile?.path ?? null}
-                selectedPrimPath={selectedUsdPrimPath}
-              />
-            )}
-          </>
+          <HierarchySidebarPanel
+            currentFile={currentFile}
+            hierarchy={sidebarAssetMetadata?.hierarchy ?? []}
+            objectInfo={sidebarAssetMetadata?.objectInfo}
+            stageSessionHandle={stageSessionHandle}
+            payloadPrimPaths={payloadPrimPaths}
+            unloadedPayloadPaths={unloadedPayloadPaths}
+            onLoadPayload={handleLoadPayload}
+            onUnloadPayload={handleUnloadPayload}
+          />
         );
       case "materials":
         return (
@@ -465,7 +420,6 @@ export function useSidebarModel({
     handleCheckForUpdate,
     handleInstallUpdate,
     handleLoadPayload,
-    handleMorphTargetChange,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,
@@ -477,12 +431,9 @@ export function useSidebarModel({
     isTauri,
     optionalLoaderManifests,
     optionalLoaderManifestsError,
-    morphTargetValues,
     payloadPrimPaths,
     performSelectFilePath,
     setRecentFilesError,
-    selectedMeshName,
-    selectedUsdPrimPath,
     sessionAdjustedUsdSummary,
     settingsError,
     settingsPayload,

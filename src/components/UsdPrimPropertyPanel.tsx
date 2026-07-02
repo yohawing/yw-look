@@ -15,13 +15,11 @@ import {
   SidebarSection,
 } from "./sidebarPrimitives";
 import { Badge, BadgeButton } from "./ui/Badge";
+import { useViewerStore } from "../stores/viewerStore";
 
 type UsdPrimPropertyPanelProps = {
   /** Absolute path to the USD file. `null` while no USD file is open. */
   path: string | null;
-  /** SdfPath of the selected prim (e.g. `"/World/Hero"`). `null` clears
-   * the panel. */
-  selectedPrimPath: string | null;
 };
 
 const MAX_SAMPLES = 100;
@@ -321,10 +319,8 @@ function MetadataSection({ entries }: { entries: MetadataEntry[] }) {
   );
 }
 
-export function UsdPrimPropertyPanel({
-  path,
-  selectedPrimPath,
-}: UsdPrimPropertyPanelProps) {
+export function UsdPrimPropertyPanel({ path }: UsdPrimPropertyPanelProps) {
+  const selectedPrimPath = useViewerStore((state) => state.selectedUsdPrimPath);
   const [inspection, setInspection] = useState<PrimInspection | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
