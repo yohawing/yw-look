@@ -6,6 +6,7 @@ export const USD_SOURCE_RENDER_LIMITS = {
 export const PREFETCH_CACHE_LIMITS = {
   maxEntries: 3,
   maxFileSizeBytes: 50 * 1024 * 1024,
+  maxTotalBytes: 100 * 1024 * 1024,
 } as const;
 
 export const DEFERRED_PAYLOAD_PREVIEW_LIMITS = {
