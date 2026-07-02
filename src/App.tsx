@@ -42,7 +42,6 @@ export function App() {
     viewerFeedback,
     usdLoadPolicy,
     variantSelections,
-    variantSelectionError,
   } = viewer;
 
   const isTauri = isTauriEnvironment();
@@ -266,10 +265,6 @@ export function App() {
       usdIssues,
       usdLights,
       usdLightsError,
-      usdLoadPolicy,
-      variantSelectionError,
-      variantSelections,
-      viewer,
     });
 
   return (

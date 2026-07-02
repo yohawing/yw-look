@@ -2,7 +2,6 @@
 import {
   Suspense,
   lazy,
-  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -21,19 +20,16 @@ import { SidebarEmpty, SidebarSection } from "../components/sidebarPrimitives";
 import type { SidebarTabItem } from "../components/SidebarTabs";
 import type { SidebarTabId } from "../components/SidebarTabIcons";
 import { TexturesSidebarPanel } from "../components/TexturesSidebarPanel";
-import { UsdInspectorCard } from "../components/UsdInspectorCard";
+import { UsdInspectorSidebarPanel } from "../components/UsdInspectorSidebarPanel";
 import { WarningsSidebarPanel } from "../components/WarningsSidebarPanel";
 import { isUsdFile } from "../lib/files";
 import type {
   AssetIssue,
   StageInspection,
-  StageLoadPolicy,
   StageSummary,
   StageSessionHandle,
   UsdLightInfo,
-  VariantSelection,
 } from "../lib/usd";
-import { useViewerStore, type ViewerState } from "../stores/viewerStore";
 import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
 import type { IntegrationPayload } from "../lib/integrations";
@@ -141,10 +137,6 @@ type UseSidebarModelOptions = {
   usdIssues: AssetIssue[];
   usdLights: UsdLightInfo[] | null;
   usdLightsError: string | null;
-  usdLoadPolicy: StageLoadPolicy;
-  variantSelectionError: ViewerState["variantSelectionError"];
-  variantSelections: VariantSelection[];
-  viewer: ViewerState;
 };
 
 export function useSidebarModel({
@@ -192,10 +184,6 @@ export function useSidebarModel({
   usdIssues,
   usdLights,
   usdLightsError,
-  usdLoadPolicy,
-  variantSelectionError,
-  variantSelections,
-  viewer,
 }: UseSidebarModelOptions) {
   const [debugFixtures, setDebugFixtures] = useState<DebugPanelFixtures | null>(
     null,
@@ -224,19 +212,6 @@ export function useSidebarModel({
     : recentFilesPayload;
   const sidebarRecentFilesError = useDebugFixtures ? null : recentFilesError;
 
-  const applyVariantSelection = useCallback(
-    (primPath: string, setName: string, variantName: string) => {
-      useViewerStore.getState().setVariantSelectionError(null);
-      const prev = useViewerStore.getState().variantSelections;
-      const next = prev.filter(
-        (s) => !(s.primPath === primPath && s.setName === setName),
-      );
-      next.push({ primPath, setName, variantName });
-      useViewerStore.getState().setVariantSelections(next);
-    },
-    [],
-  );
-
   const sidebarContent = useMemo<ReactNode>(() => {
     switch (activeTab) {
       case "properties":
@@ -259,17 +234,12 @@ export function useSidebarModel({
             ) : null}
             {isTauri && isUsdFile(currentFile) && (
               <>
-                <UsdInspectorCard
+                <UsdInspectorSidebarPanel
                   error={usdInspectorError}
                   inspection={usdInspection}
                   issues={usdIssues}
                   loading={usdInspectorLoading}
                   summary={sessionAdjustedUsdSummary}
-                  loadPolicy={usdLoadPolicy}
-                  onLoadPolicyChange={viewer.setUsdLoadPolicy}
-                  variantSelectionError={variantSelectionError}
-                  variantSelections={variantSelections}
-                  onVariantChange={applyVariantSelection}
                 />
                 <Suspense fallback={<SidebarCardFallback />}>
                   <CompositionArcsCard
@@ -283,17 +253,12 @@ export function useSidebarModel({
               </>
             )}
             {useDebugFixtures && (
-              <UsdInspectorCard
+              <UsdInspectorSidebarPanel
                 error={null}
                 inspection={debugFixtures.debugUsdInspection}
                 issues={[]}
                 loading={false}
                 summary={debugFixtures.debugUsdSummary}
-                loadPolicy={usdLoadPolicy}
-                onLoadPolicyChange={viewer.setUsdLoadPolicy}
-                variantSelectionError={variantSelectionError}
-                variantSelections={variantSelections}
-                onVariantChange={applyVariantSelection}
               />
             )}
             {sidebarAssetMetadata && (
@@ -413,7 +378,6 @@ export function useSidebarModel({
     }
   }, [
     activeTab,
-    applyVariantSelection,
     assetInspection,
     currentFile,
     debugFixtures,
@@ -455,10 +419,6 @@ export function useSidebarModel({
     usdIssues,
     usdLights,
     usdLightsError,
-    usdLoadPolicy,
-    variantSelectionError,
-    variantSelections,
-    viewer,
   ]);
 
   const sidebarTabs = useMemo<SidebarTabItem<SidebarTabId>[]>(
