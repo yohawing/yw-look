@@ -23,8 +23,18 @@ import {
 } from "./viewer";
 
 export function App() {
-  const file = useFileStore();
-  const ui = useUiStore();
+  const currentFile = useFileStore((state) => state.currentFile);
+  const assetInspection = useFileStore((state) => state.assetInspection);
+  const directoryListing = useFileStore((state) => state.directoryListing);
+  const assetMetadata = useFileStore((state) => state.assetMetadata);
+  const openError = useFileStore((state) => state.openError);
+  const activeTab = useUiStore((state) => state.activeTab);
+  const sidebarOpen = useUiStore((state) => state.sidebarOpen);
+  const sidebarWidth = useUiStore((state) => state.sidebarWidth);
+  const isDragActive = useUiStore((state) => state.isDragActive);
+  const dialogState = useUiStore((state) => state.dialogState);
+  const setActiveTab = useUiStore((state) => state.setActiveTab);
+  const setDialogState = useUiStore((state) => state.setDialogState);
   const showGrid = useViewerStore((state) => state.showGrid);
   const gridUnitLabel = useViewerStore((state) => state.gridUnitLabel);
   const viewerFeedback = useViewerStore((state) => state.viewerFeedback);
@@ -34,16 +44,6 @@ export function App() {
   const updateViewerFeedback = useViewerStore(
     (state) => state.updateViewerFeedback,
   );
-
-  const { activeTab, sidebarOpen, sidebarWidth, isDragActive, dialogState } =
-    ui;
-  const {
-    currentFile,
-    assetInspection,
-    directoryListing,
-    assetMetadata,
-    openError,
-  } = file;
 
   const isTauri = isTauriEnvironment();
   const shouldLoadRecentFiles = sidebarOpen;
@@ -264,8 +264,8 @@ export function App() {
       activeTab={activeTab}
       dialogState={dialogState}
       handleSidebarResizeStart={handleSidebarResizeStart}
-      onCloseDialog={() => ui.setDialogState(null)}
-      onTabChange={ui.setActiveTab}
+      onCloseDialog={() => setDialogState(null)}
+      onTabChange={setActiveTab}
       sidebarContent={sidebarContent}
       sidebarOpen={sidebarOpen}
       sidebarTabs={sidebarTabs}
