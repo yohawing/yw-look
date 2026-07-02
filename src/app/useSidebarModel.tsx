@@ -23,6 +23,7 @@ import type { SidebarTabItem } from "../components/SidebarTabs";
 import type { SidebarTabId } from "../components/SidebarTabIcons";
 import { TextureListCard } from "../components/TextureListCard";
 import { UsdInspectorCard } from "../components/UsdInspectorCard";
+import { DiagnosticsCard } from "../components/DiagnosticsCard";
 import { WarningsCard } from "../components/WarningsCard";
 import { isUsdFile } from "../lib/files";
 import type {
@@ -539,6 +540,10 @@ export function useSidebarModel({
               onCancelScaleNormalization={
                 viewer.bumpCancelScaleNormalizeVersion
               }
+            />
+            <DiagnosticsCard
+              processMemoryMetrics={null}
+              resourceDiagnostics={viewer.resourceDiagnostics}
             />
           </>
         );
