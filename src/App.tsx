@@ -182,7 +182,6 @@ export function App() {
     setSessionGlbBuffer,
     ui,
     usdLoadPolicy,
-    viewer,
   });
 
   useAppCommands({

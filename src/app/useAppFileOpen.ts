@@ -52,7 +52,6 @@ type UseAppFileOpenOptions = {
   setSessionGlbBuffer: (buffer: ArrayBuffer | null) => void;
   ui: UiState;
   usdLoadPolicy: ViewerState["usdLoadPolicy"];
-  viewer: ViewerState;
 };
 
 export function useAppFileOpen({
@@ -64,7 +63,6 @@ export function useAppFileOpen({
   setSessionGlbBuffer,
   ui,
   usdLoadPolicy,
-  viewer,
 }: UseAppFileOpenOptions) {
   const selectedTextureId = useViewerStore((state) => state.selectedTextureId);
   const viewerSurfaceMode = useViewerStore((state) => state.viewerSurfaceMode);
@@ -74,12 +72,14 @@ export function useAppFileOpen({
   } | null>(null);
 
   useEffect(() => {
-    viewer.setMorphTargetValues({});
+    useViewerStore.getState().setMorphTargetValues({});
   }, [currentFile?.path]);
 
   useEffect(() => {
-    viewer.setVariantSelections([]);
-    viewer.setVariantSelectionError(null);
+    const { setVariantSelectionError, setVariantSelections } =
+      useViewerStore.getState();
+    setVariantSelections([]);
+    setVariantSelectionError(null);
     setSessionGlbBuffer(null);
   }, [currentFile, usdLoadPolicy, setSessionGlbBuffer]);
 
@@ -87,13 +87,15 @@ export function useAppFileOpen({
     // #33: a fresh file invalidates the prior viewport pick. The
     // selection refers to a Three.js Object3D.name, and the next
     // asset's hierarchy will not contain the same node.
-    viewer.setSelectedMeshName(null);
+    const { setActiveCameraId, setSelectedMeshName, setSelectedUsdPrimPath } =
+      useViewerStore.getState();
+    setSelectedMeshName(null);
     // #28: also clear the USD prim path selection so the property
     // panel does not query the new file with the old prim path.
-    viewer.setSelectedUsdPrimPath(null);
+    setSelectedUsdPrimPath(null);
     // #34: reset active camera to free orbit when a new file is opened so
     // the camera list in the new asset does not inherit a stale override.
-    viewer.setActiveCameraId(null);
+    setActiveCameraId(null);
   }, [currentFile?.path]);
 
   useEffect(() => {
@@ -122,10 +124,10 @@ export function useAppFileOpen({
   useEffect(() => {
     if (!currentFile) {
       if (selectedTextureId !== null) {
-        viewer.setSelectedTextureId(null);
+        useViewerStore.getState().setSelectedTextureId(null);
       }
       if (viewerSurfaceMode !== "asset") {
-        viewer.setViewerSurfaceMode("asset");
+        useViewerStore.getState().setViewerSurfaceMode("asset");
       }
       return;
     }
@@ -134,10 +136,10 @@ export function useAppFileOpen({
 
     if (currentFile.kind === "texture") {
       if (selectedTextureId !== firstTextureId) {
-        viewer.setSelectedTextureId(firstTextureId);
+        useViewerStore.getState().setSelectedTextureId(firstTextureId);
       }
       if (viewerSurfaceMode !== "texture") {
-        viewer.setViewerSurfaceMode("texture");
+        useViewerStore.getState().setViewerSurfaceMode("texture");
       }
       return;
     }
@@ -147,11 +149,11 @@ export function useAppFileOpen({
     );
 
     if (!hasSelectedTexture && selectedTextureId !== firstTextureId) {
-      viewer.setSelectedTextureId(firstTextureId);
+      useViewerStore.getState().setSelectedTextureId(firstTextureId);
     }
 
     if (!firstTextureId && viewerSurfaceMode === "texture") {
-      viewer.setViewerSurfaceMode("asset");
+      useViewerStore.getState().setViewerSurfaceMode("asset");
     }
   }, [assetMetadata, currentFile, selectedTextureId, viewerSurfaceMode]);
 
@@ -159,7 +161,7 @@ export function useAppFileOpen({
     async (path: string, reason: OpenReason = "open") => {
       const startedAt = performance.now();
       file.setOpenError(null);
-      viewer.updateViewerFeedback({
+      useViewerStore.getState().updateViewerFeedback({
         mode: "loading",
         message: `Resolving ${path}`,
         warning: null,
@@ -177,7 +179,7 @@ export function useAppFileOpen({
       prefetchAdjacent(listing.files, listing.currentIndex);
       recordLoadTiming(startedAt, reason);
     },
-    [file, recordLoadTiming, viewer],
+    [file, recordLoadTiming],
   );
 
   const selectExternalFilePathFromEffect = useEffectEvent(
@@ -334,7 +336,7 @@ export function useAppFileOpen({
               ? error.message
               : "Failed to open dropped file.",
           );
-          viewer.updateViewerFeedback({
+          useViewerStore.getState().updateViewerFeedback({
             mode: "loadFailed",
             message: "Dropped file could not be resolved.",
           });
@@ -379,7 +381,7 @@ export function useAppFileOpen({
                 ? error.message
                 : "Failed to open dropped file.",
             );
-            viewer.updateViewerFeedback({
+            useViewerStore.getState().updateViewerFeedback({
               mode: "loadFailed",
               message: "Dropped file could not be resolved.",
             });
@@ -398,7 +400,7 @@ export function useAppFileOpen({
     return () => {
       unlisten?.();
     };
-  }, [currentFile, file, isTauri, performSelectFilePath, ui, viewer]);
+  }, [currentFile, file, isTauri, performSelectFilePath, ui]);
 
   const handleOpenFile = useCallback(async () => {
     try {
@@ -409,12 +411,12 @@ export function useAppFileOpen({
       file.setOpenError(
         error instanceof Error ? error.message : "Failed to open file dialog.",
       );
-      viewer.updateViewerFeedback({
+      useViewerStore.getState().updateViewerFeedback({
         mode: "loadFailed",
         message: "File dialog operation failed.",
       });
     }
-  }, [file, performSelectFilePath, viewer]);
+  }, [file, performSelectFilePath]);
 
   return {
     handleOpenFile,
