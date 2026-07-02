@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -166,89 +165,16 @@ fn validate_entry_path(pack_dir: &Path, entry: &str) -> Option<(String, String, 
     ))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ParsedVersion {
-    core: [u64; 3],
-    prerelease: Option<Vec<PrereleaseIdentifier>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum PrereleaseIdentifier {
-    Numeric(u64),
-    Text(String),
-}
-
-fn parse_version(version: &str) -> Option<ParsedVersion> {
+fn parse_semver(version: &str) -> Option<semver::Version> {
     let trimmed = version.trim();
     let without_v = trimmed.strip_prefix('v').unwrap_or(trimmed);
-    let without_build = without_v.split('+').next()?;
-    let (core, prerelease) = without_build
-        .split_once('-')
-        .map_or((without_build, None), |(core, prerelease)| {
-            (core, Some(prerelease))
-        });
-    let mut parts = core.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next().unwrap_or("0").parse().ok()?;
-    let patch = parts.next().unwrap_or("0").parse().ok()?;
-    let prerelease = prerelease
-        .map(|value| {
-            value
-                .split('.')
-                .map(|identifier| {
-                    identifier
-                        .parse::<u64>()
-                        .map(PrereleaseIdentifier::Numeric)
-                        .unwrap_or_else(|_| PrereleaseIdentifier::Text(identifier.to_string()))
-                })
-                .collect::<Vec<_>>()
-        })
-        .filter(|identifiers| !identifiers.is_empty());
-
-    Some(ParsedVersion {
-        core: [major, minor, patch],
-        prerelease,
-    })
-}
-
-fn compare_prerelease_identifier(
-    left: &PrereleaseIdentifier,
-    right: &PrereleaseIdentifier,
-) -> Ordering {
-    match (left, right) {
-        (PrereleaseIdentifier::Numeric(left), PrereleaseIdentifier::Numeric(right)) => {
-            left.cmp(right)
-        }
-        (PrereleaseIdentifier::Numeric(_), PrereleaseIdentifier::Text(_)) => Ordering::Less,
-        (PrereleaseIdentifier::Text(_), PrereleaseIdentifier::Numeric(_)) => Ordering::Greater,
-        (PrereleaseIdentifier::Text(left), PrereleaseIdentifier::Text(right)) => left.cmp(right),
-    }
-}
-
-fn compare_versions(left: &ParsedVersion, right: &ParsedVersion) -> Ordering {
-    match left.core.cmp(&right.core) {
-        Ordering::Equal => {}
-        ordering => return ordering,
-    }
-
-    match (&left.prerelease, &right.prerelease) {
-        (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
-        (Some(left), Some(right)) => {
-            for (left_identifier, right_identifier) in left.iter().zip(right.iter()) {
-                match compare_prerelease_identifier(left_identifier, right_identifier) {
-                    Ordering::Equal => {}
-                    ordering => return ordering,
-                }
-            }
-            left.len().cmp(&right.len())
-        }
-    }
+    semver::Version::parse(without_v).ok()
 }
 
 fn version_less_than(left: &str, right: &str) -> Option<bool> {
-    Some(compare_versions(&parse_version(left)?, &parse_version(right)?) == Ordering::Less)
+    let left = parse_semver(left)?;
+    let right = parse_semver(right)?;
+    Some(left.cmp_precedence(&right).is_lt())
 }
 
 fn evaluate_pack_compatibility(
@@ -636,6 +562,14 @@ mod tests {
             scan_optional_loader_manifests_from_dir(dir.path()).expect("scan manifests");
 
         assert!(manifests.is_empty());
+    }
+
+    #[test]
+    fn version_less_than_accepts_leading_v_prefix() {
+        assert_eq!(version_less_than("v1.0.0", "1.0.1"), Some(true));
+        assert_eq!(version_less_than("1.0.0", "v1.0.1"), Some(true));
+        assert_eq!(version_less_than("v1.0.0", "v1.0.0"), Some(false));
+        assert_eq!(version_less_than("not-a-version", "1.0.0"), None);
     }
 
     #[test]

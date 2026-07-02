@@ -6069,6 +6069,7 @@ dependencies = [
  "nv-flip",
  "openusd",
  "rfd",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
