@@ -144,6 +144,13 @@ npm run test:fixtures -- --timeout-ms 600000
 - `artifacts/logs/fixture-regression-report.md`
 - `artifacts/logs/fixture-regression-report.html`
 
+補助的なローカル実機確認として、非配布の `F:\3dcg` アセットから 100 件に絞った
+ロード / 目視レビューも 2026-06-30 に実施済み。`--check` は 100 件すべて pass
+（warning / fail なし）。スクリーンショット付き visual review は 97 モデル中
+95 rendered / 1 blank / 1 missing、診断は Issues 2 / Warnings 1 / Errors 1 /
+Logs 0、解像度は 640x480。これはライセンス上ローカル証跡のみで、アセットや
+スクリーンショット自体は release artifact に含めない。
+
 ## 6. macOS ビルドを確認する
 
 macOS ビルドが通ることを確認してからタグを打つ。
