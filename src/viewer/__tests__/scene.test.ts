@@ -23,8 +23,40 @@ import {
   applyShadows,
   applyUnlitMaterial,
   applyVertexColors,
+  traverseMeshesExcludingHelpers,
 } from "../scene";
 import { syncMmdTransparentMaterialRenderState } from "../mmd/userData";
+
+describe("traverseMeshesExcludingHelpers", () => {
+  it("skips viewport helpers and supports optional outline and shadow catcher filters", () => {
+    const root = new Group();
+    const regular = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    const outlineMaterial = new MeshBasicMaterial();
+    outlineMaterial.userData.mmdOutlineMaterial = { materialIndex: 0 };
+    const outline = new Mesh(new BufferGeometry(), outlineMaterial);
+    const helperProxy = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    helperProxy.userData.__yw_wireframe_proxy = true;
+    const catcher = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    catcher.name = "__yw_shadow_catcher";
+    root.add(regular, outline, helperProxy, catcher);
+
+    const visited: Mesh[] = [];
+    traverseMeshesExcludingHelpers(root, (mesh) => visited.push(mesh));
+    expect(visited).toEqual([regular, catcher]);
+
+    const withOutline: Mesh[] = [];
+    traverseMeshesExcludingHelpers(root, (mesh) => withOutline.push(mesh), {
+      excludeMmdOutlineMeshes: false,
+    });
+    expect(withOutline).toEqual([regular, outline, catcher]);
+
+    const withoutCatcher: Mesh[] = [];
+    traverseMeshesExcludingHelpers(root, (mesh) => withoutCatcher.push(mesh), {
+      excludeShadowCatcher: true,
+    });
+    expect(withoutCatcher).toEqual([regular]);
+  });
+});
 
 describe("scene material display helpers", () => {
   it("renders textured wireframe as a mesh with a line overlay", () => {
