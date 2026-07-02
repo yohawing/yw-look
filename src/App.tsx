@@ -46,7 +46,6 @@ export function App() {
     viewerSurfaceMode,
     selectedUsdPrimPath,
     morphTargetValues,
-    activeCameraId,
     variantSelections,
     variantSelectionError,
   } = viewer;
@@ -230,7 +229,6 @@ export function App() {
 
   const { handleSidebarResizeStart, sidebarContent, sidebarTabs } =
     useSidebarModel({
-      activeCameraId,
       activeTab,
       assetInspection,
       currentFile,

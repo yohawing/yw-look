@@ -16,7 +16,7 @@ import { HierarchyCard } from "../components/HierarchyCard";
 import { UsdPrimPropertyPanel } from "../components/UsdPrimPropertyPanel";
 import { MaterialListCard } from "../components/MaterialListCard";
 import { MmdMetadataCard } from "../components/MmdMetadataCard";
-import { SceneLightsCamerasCard } from "../components/SceneLightsCamerasCard";
+import { SceneLightsCamerasPanel } from "../components/SceneLightsCamerasPanel";
 import { createSidebarTabs } from "../components/sidebarTabItems";
 import { SidebarEmpty, SidebarSection } from "../components/sidebarPrimitives";
 import type { SidebarTabItem } from "../components/SidebarTabs";
@@ -96,7 +96,6 @@ type DiagnosticCounts = {
 };
 
 type UseSidebarModelOptions = {
-  activeCameraId: ViewerState["activeCameraId"];
   activeTab: SidebarTabId;
   assetInspection: FileState["assetInspection"];
   currentFile: FileState["currentFile"];
@@ -154,7 +153,6 @@ type UseSidebarModelOptions = {
 };
 
 export function useSidebarModel({
-  activeCameraId,
   activeTab,
   assetInspection,
   currentFile,
@@ -322,13 +320,11 @@ export function useSidebarModel({
               />
             )}
             {sidebarAssetMetadata && (
-              <SceneLightsCamerasCard
+              <SceneLightsCamerasPanel
                 lights={sidebarAssetMetadata.lights}
                 cameras={sidebarAssetMetadata.cameras}
                 usdLights={usdLights ?? undefined}
                 usdLightsError={usdLightsError}
-                activeCameraId={activeCameraId}
-                onSelectCamera={viewer.setActiveCameraId}
               />
             )}
           </>
@@ -478,7 +474,6 @@ export function useSidebarModel({
         );
     }
   }, [
-    activeCameraId,
     activeTab,
     applyVariantSelection,
     assetInspection,
