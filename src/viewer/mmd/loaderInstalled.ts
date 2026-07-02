@@ -7,7 +7,7 @@ import {
 } from "three";
 import type { SelectedFile } from "../../lib/files";
 import { readBinaryFile } from "../../lib/files";
-import type { MmdAssetMetadata } from "../../components/assetMetadata";
+import type { MmdAssetMetadata } from "../../types/viewer";
 import type { LoaderContext } from "../loaderRegistry";
 import { MMD_EXAMPLE_LIGHTING_PRESET } from "../lighting";
 import { MMD_PREVIEW_RENDERING_PRESET } from "../rendering";

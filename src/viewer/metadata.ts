@@ -36,7 +36,7 @@ import type {
   MmdBoneEntry,
   MmdMaterialEntry,
   MmdMorphEntry,
-} from "../components/assetMetadata";
+} from "../types/viewer";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { isViewportHelperObject, getMaterials } from "./scene";
 import { isInternalMmdProxyObject } from "./mmd/userData";

@@ -3,7 +3,7 @@ import type {
   AssetResourceMetrics,
   ResourceDiagnosticsSnapshot,
 } from "../lib/diagnostics";
-import type { AssetMetadata } from "../components/assetMetadata";
+import type { AssetMetadata } from "../types/viewer";
 
 export const RESOURCE_DIAGNOSTICS_SAMPLE_MS = 2000;
 const MEMORY_SAMPLE_GRANULARITY_BYTES = 1024 * 1024;

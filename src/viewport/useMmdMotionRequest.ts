@@ -5,10 +5,9 @@ import {
   type SetStateAction,
 } from "react";
 import type { SelectedFile } from "../lib/files";
-import type { ViewerFeedback } from "../types/viewer";
+import type { AnimationState, ViewerFeedback } from "../types/viewer";
 import { loadMmdMotion, type SceneContext } from "../viewer";
 import { syncMmdMaterialRenderStates } from "../viewer/mmd/userData";
-import type { AnimationState } from "../components/animation";
 
 type MmdMotionRequest = {
   file: SelectedFile;

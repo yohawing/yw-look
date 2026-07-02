@@ -4,7 +4,7 @@ import type {
   DirectoryListing,
   SelectedFile,
 } from "../lib/files";
-import type { AssetMetadata } from "../components/assetMetadata";
+import type { AssetMetadata } from "../types/viewer";
 
 export interface FileState {
   currentFile: SelectedFile | null;

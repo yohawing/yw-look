@@ -2,10 +2,13 @@ import { AnimationMixer } from "three";
 import type { AssetResourceMetrics } from "../lib/diagnostics";
 import type { SelectedFile } from "../lib/files";
 import type { PurposeModes } from "../lib/usd";
-import type {
-  DisplayMode,
-  TextureFilterMode,
-  ViewerSurfaceMode,
+import {
+  emptyAnimationState,
+  type AnimationState,
+  type AssetMetadata,
+  type DisplayMode,
+  type TextureFilterMode,
+  type ViewerSurfaceMode,
 } from "../types/viewer";
 import {
   activateClip,
@@ -34,12 +37,7 @@ import {
   DEFAULT_LIGHTING_PRESET,
   type SceneContext,
 } from "../viewer";
-import type { AssetMetadata } from "../components/assetMetadata";
-import {
-  emptyAnimationState,
-  type AnimationState,
-} from "../components/animation";
-import { applyMorphTargetValues } from "../components/morphTargets";
+import { applyMorphTargetValues } from "../viewer/morphTargets";
 import { syncMmdPreviewSpecularDirection } from "../viewer/mmd/loader";
 import {
   findCameraBySelectionKey,

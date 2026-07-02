@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SidebarTabId } from "../components/SidebarTabIcons";
+import type { SidebarTabId } from "../types/ui";
 
 export interface UiState {
   activeTab: SidebarTabId;

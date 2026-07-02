@@ -26,8 +26,6 @@ import {
   stopAnimations,
   type SceneContext,
 } from "../viewer";
-import type { AssetMetadata } from "../components/assetMetadata";
-import type { EnvironmentPreset } from "../types/viewer";
 import { syncPerspectiveCameraAspect } from "./camera";
 import {
   applyControlSensitivity,
@@ -46,7 +44,9 @@ import {
 } from "./renderSettings";
 import { updateRuntimePreview } from "./previewSupport";
 import type {
+  AssetMetadata,
   BackgroundPreset,
+  EnvironmentPreset,
   ToneMappingMode,
   ViewerFeedback,
   ViewerSurfaceMode,

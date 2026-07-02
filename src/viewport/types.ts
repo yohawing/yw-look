@@ -12,6 +12,7 @@ import type {
   CameraPresetRequest,
   DisplayMode,
   EnvironmentPreset,
+  AssetMetadata,
   TextureFilterMode,
   TextureViewMode,
   ToneMappingMode,
@@ -19,7 +20,6 @@ import type {
   ViewerSurfaceMode,
 } from "../types/viewer";
 import type { DeferredTextureSnapshot } from "../viewer";
-import type { AssetMetadata } from "../components/assetMetadata";
 
 export type RuntimePreviewUpdater = {
   update: (deltaSeconds: number) => void;

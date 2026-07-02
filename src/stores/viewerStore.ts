@@ -5,11 +5,11 @@ import type {
   EnvironmentPreset,
   TextureFilterMode,
   TextureViewMode,
+  TextureColorSpace,
   ToneMappingMode,
   ViewerFeedback,
   ViewerSurfaceMode,
-} from "../components/AssetViewport";
-import type { TextureColorSpace } from "../components/toolbar/buildImageToolbar";
+} from "../types/viewer";
 import type { ResourceDiagnosticsSnapshot } from "../lib/diagnostics";
 import type {
   PurposeModes,

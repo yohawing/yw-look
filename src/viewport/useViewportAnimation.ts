@@ -11,9 +11,8 @@ import {
   setActionPlayback,
   stepAction,
 } from "../viewer";
-import type { ViewerSurfaceMode } from "../types/viewer";
-import type { AnimationState } from "../components/animation";
-import { applyMorphTargetValues } from "../components/morphTargets";
+import type { AnimationState, ViewerSurfaceMode } from "../types/viewer";
+import { applyMorphTargetValues } from "../viewer/morphTargets";
 import { syncMmdMaterialRenderStates } from "../viewer/mmd/userData";
 
 function retargetMmdMotion(context: SceneContext, seconds: number) {
