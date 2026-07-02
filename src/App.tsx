@@ -23,9 +23,17 @@ import {
 } from "./viewer";
 
 export function App() {
-  const viewer = useViewerStore();
   const file = useFileStore();
   const ui = useUiStore();
+  const showGrid = useViewerStore((state) => state.showGrid);
+  const gridUnitLabel = useViewerStore((state) => state.gridUnitLabel);
+  const viewerFeedback = useViewerStore((state) => state.viewerFeedback);
+  const usdLoadPolicy = useViewerStore((state) => state.usdLoadPolicy);
+  const variantSelections = useViewerStore((state) => state.variantSelections);
+  const purposeModes = useViewerStore((state) => state.purposeModes);
+  const updateViewerFeedback = useViewerStore(
+    (state) => state.updateViewerFeedback,
+  );
 
   const { activeTab, sidebarOpen, sidebarWidth, isDragActive, dialogState } =
     ui;
@@ -36,13 +44,6 @@ export function App() {
     assetMetadata,
     openError,
   } = file;
-  const {
-    showGrid,
-    gridUnitLabel,
-    viewerFeedback,
-    usdLoadPolicy,
-    variantSelections,
-  } = viewer;
 
   const isTauri = isTauriEnvironment();
   const shouldLoadRecentFiles = sidebarOpen;
@@ -165,10 +166,10 @@ export function App() {
     usdLoadPolicy,
     usdInspection,
     variantSelections,
-    viewer.purposeModes,
+    purposeModes,
     recordVariantSelectionError,
     viewerFeedback.warning,
-    viewer.updateViewerFeedback,
+    updateViewerFeedback,
     viewerFeedback.mode === "ready",
   );
 
