@@ -2,6 +2,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import http from "node:http";
+import { hasFlag } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -19,7 +20,7 @@ The first positional argument is treated as the subcommand
 (\`shot\`, \`shot-batch\`, or \`check\`); other tokens are forwarded verbatim.`;
 
 const argv = process.argv.slice(2);
-if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
+if (argv.length === 0 || hasFlag(argv, "--help") || hasFlag(argv, "-h")) {
   console.log(usage);
   process.exit(0);
 }

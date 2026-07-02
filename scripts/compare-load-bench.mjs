@@ -1,6 +1,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { hasFlag, readOption } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -24,33 +25,26 @@ Defaults:
   --report    latest artifacts/bench/*/report.json
   --baseline  artifacts/bench/load-baseline.json`;
 
-const loadTimeRatio = Number(readOption("--load-ratio") ?? 1.35);
-const loadTimeSlackMs = Number(readOption("--load-slack-ms") ?? 250);
-const openPipelineRatio = Number(readOption("--open-ratio") ?? loadTimeRatio);
-const openPipelineSlackMs = Number(
-  readOption("--open-slack-ms") ?? loadTimeSlackMs,
+const loadTimeRatio = Number(readOption(args, "--load-ratio") ?? 1.35);
+const loadTimeSlackMs = Number(readOption(args, "--load-slack-ms") ?? 250);
+const openPipelineRatio = Number(
+  readOption(args, "--open-ratio") ?? loadTimeRatio,
 );
-const frameP95Ratio = Number(readOption("--frame-p95-ratio") ?? 1.2);
-const frameP95SlackMs = Number(readOption("--frame-p95-slack-ms") ?? 2);
-const writeBaselinePath = readOption("--write-baseline") ?? readOption("--out");
+const openPipelineSlackMs = Number(
+  readOption(args, "--open-slack-ms") ?? loadTimeSlackMs,
+);
+const frameP95Ratio = Number(readOption(args, "--frame-p95-ratio") ?? 1.2);
+const frameP95SlackMs = Number(readOption(args, "--frame-p95-slack-ms") ?? 2);
+const writeBaselinePath =
+  readOption(args, "--write-baseline") ?? readOption(args, "--out");
 const baselinePath = path.resolve(
   repoRoot,
-  readOption("--baseline") ?? defaultBaselinePath,
+  readOption(args, "--baseline") ?? defaultBaselinePath,
 );
 
-if (args.includes("--help") || args.includes("-h")) {
+if (hasFlag(args, "--help") || hasFlag(args, "-h")) {
   console.log(usage);
   process.exit(0);
-}
-
-function readOption(name) {
-  const index = args.indexOf(name);
-  if (index === -1) return null;
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`);
-  }
-  return value;
 }
 
 function repoRelative(filePath) {
@@ -290,7 +284,7 @@ function renderComparison(comparison) {
 
 const reportPath = path.resolve(
   repoRoot,
-  readOption("--report") ?? (await latestReportPath()),
+  readOption(args, "--report") ?? (await latestReportPath()),
 );
 const report = await readJson(reportPath);
 
