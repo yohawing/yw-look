@@ -145,7 +145,6 @@ export function App() {
     refreshUpdateConfiguration,
     settingsError,
     showGrid,
-    ui,
     updateCheck,
     usdIssues,
     viewerFeedback,

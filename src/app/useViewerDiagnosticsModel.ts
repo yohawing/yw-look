@@ -11,7 +11,7 @@ import {
   type AssetIssue,
 } from "../lib/usd";
 import type { FileState } from "../stores/fileStore";
-import type { UiState } from "../stores/uiStore";
+import { useUiStore } from "../stores/uiStore";
 import { useViewerStore, type ViewerState } from "../stores/viewerStore";
 import type { AppStatusBarItem } from "../types/ui";
 import type { UpdateCheckPayload } from "../lib/updater";
@@ -73,7 +73,6 @@ type UseViewerDiagnosticsModelOptions = {
   refreshUpdateConfiguration: () => Promise<void>;
   settingsError: string | null;
   showGrid: ViewerState["showGrid"];
-  ui: UiState;
   updateCheck: UpdateCheckPayload | null;
   usdIssues: AssetIssue[];
   viewerFeedback: ViewerState["viewerFeedback"];
@@ -89,11 +88,12 @@ export function useViewerDiagnosticsModel({
   refreshUpdateConfiguration,
   settingsError,
   showGrid,
-  ui,
   updateCheck,
   usdIssues,
   viewerFeedback,
 }: UseViewerDiagnosticsModelOptions) {
+  const setActiveTab = useUiStore((state) => state.setActiveTab);
+  const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
   const debugPanelsEnabled = isDebugPanelsRequested();
   const [debugFixtures, setDebugFixtures] = useState<DebugPanelFixtures | null>(
     null,
@@ -340,15 +340,15 @@ export function useViewerDiagnosticsModel({
   ]);
 
   const openDiagnosticsPanel = useCallback(() => {
-    ui.setSidebarOpen(true);
-    ui.setActiveTab("warnings");
-  }, [ui]);
+    setSidebarOpen(true);
+    setActiveTab("warnings");
+  }, [setActiveTab, setSidebarOpen]);
 
   const openUpdatePanel = useCallback(() => {
-    ui.setSidebarOpen(true);
-    ui.setActiveTab("settings");
+    setSidebarOpen(true);
+    setActiveTab("settings");
     void refreshUpdateConfiguration();
-  }, [refreshUpdateConfiguration, ui]);
+  }, [refreshUpdateConfiguration, setActiveTab, setSidebarOpen]);
 
   const statusLeftItems = useMemo<AppStatusBarItem[]>(() => {
     const items = buildStatusLeftItems({
