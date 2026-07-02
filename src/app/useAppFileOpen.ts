@@ -12,8 +12,8 @@ import {
   type SelectedFile,
 } from "../lib/files";
 import { prefetchAdjacent } from "../viewer";
-import type { FileState } from "../stores/fileStore";
-import type { UiState } from "../stores/uiStore";
+import { useFileStore, type FileState } from "../stores/fileStore";
+import { useUiStore } from "../stores/uiStore";
 import { useViewerStore, type ViewerState } from "../stores/viewerStore";
 
 const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
@@ -46,24 +46,31 @@ type OpenReason = "open" | "startup" | "navigation" | "retry" | "recent";
 type UseAppFileOpenOptions = {
   assetMetadata: FileState["assetMetadata"];
   currentFile: FileState["currentFile"];
-  file: FileState;
   isTauri: boolean;
   recordLoadTiming: (startedAt: number, reason: OpenReason) => void;
   setSessionGlbBuffer: (buffer: ArrayBuffer | null) => void;
-  ui: UiState;
   usdLoadPolicy: ViewerState["usdLoadPolicy"];
 };
 
 export function useAppFileOpen({
   assetMetadata,
   currentFile,
-  file,
   isTauri,
   recordLoadTiming,
   setSessionGlbBuffer,
-  ui,
   usdLoadPolicy,
 }: UseAppFileOpenOptions) {
+  const mmdMotionRequest = useFileStore((state) => state.mmdMotionRequest);
+  const setAssetInspection = useFileStore((state) => state.setAssetInspection);
+  const setCurrentFile = useFileStore((state) => state.setCurrentFile);
+  const setDirectoryListing = useFileStore(
+    (state) => state.setDirectoryListing,
+  );
+  const setMmdMotionRequest = useFileStore(
+    (state) => state.setMmdMotionRequest,
+  );
+  const setOpenError = useFileStore((state) => state.setOpenError);
+  const setIsDragActive = useUiStore((state) => state.setIsDragActive);
   const selectedTextureId = useViewerStore((state) => state.selectedTextureId);
   const viewerSurfaceMode = useViewerStore((state) => state.viewerSurfaceMode);
   const recentExternalOpenRef = useRef<{
@@ -100,16 +107,16 @@ export function useAppFileOpen({
 
   useEffect(() => {
     if (!isTauri || !currentFile) {
-      file.setAssetInspection(null);
+      setAssetInspection(null);
       return;
     }
 
     let isActive = true;
-    file.setAssetInspection(null);
+    setAssetInspection(null);
     void inspectAsset(currentFile.path)
       .then((inspection) => {
         if (isActive) {
-          file.setAssetInspection(inspection);
+          setAssetInspection(inspection);
         }
       })
       .catch((error: unknown) => {
@@ -119,7 +126,7 @@ export function useAppFileOpen({
     return () => {
       isActive = false;
     };
-  }, [currentFile, isTauri]);
+  }, [currentFile, isTauri, setAssetInspection]);
 
   useEffect(() => {
     if (!currentFile) {
@@ -160,7 +167,7 @@ export function useAppFileOpen({
   const performSelectFilePath = useCallback(
     async (path: string, reason: OpenReason = "open") => {
       const startedAt = performance.now();
-      file.setOpenError(null);
+      setOpenError(null);
       useViewerStore.getState().updateViewerFeedback({
         mode: "loading",
         message: `Resolving ${path}`,
@@ -173,13 +180,19 @@ export function useAppFileOpen({
         listSupportedSiblings(path),
       ]);
 
-      file.setCurrentFile(resolvedFile);
-      file.setMmdMotionRequest(null);
-      file.setDirectoryListing(listing);
+      setCurrentFile(resolvedFile);
+      setMmdMotionRequest(null);
+      setDirectoryListing(listing);
       prefetchAdjacent(listing.files, listing.currentIndex);
       recordLoadTiming(startedAt, reason);
     },
-    [file, recordLoadTiming],
+    [
+      recordLoadTiming,
+      setCurrentFile,
+      setDirectoryListing,
+      setMmdMotionRequest,
+      setOpenError,
+    ],
   );
 
   const selectExternalFilePathFromEffect = useEffectEvent(
@@ -203,9 +216,9 @@ export function useAppFileOpen({
           return;
         }
 
-        file.setMmdMotionRequest({
+        setMmdMotionRequest({
           file: selectedMotionFileFromPath(path),
-          version: (file.mmdMotionRequest?.version ?? 0) + 1,
+          version: (mmdMotionRequest?.version ?? 0) + 1,
         });
         return;
       }
@@ -230,7 +243,7 @@ export function useAppFileOpen({
           return;
         }
 
-        file.setOpenError(
+        setOpenError(
           error instanceof Error
             ? error.message
             : "Failed to resolve startup file.",
@@ -278,7 +291,7 @@ export function useAppFileOpen({
             if (isDisposed) {
               return;
             }
-            file.setOpenError(
+            setOpenError(
               error instanceof Error
                 ? error.message
                 : "Failed to resolve startup file.",
@@ -302,12 +315,12 @@ export function useAppFileOpen({
           return;
         }
         event.preventDefault();
-        ui.setIsDragActive(true);
+        setIsDragActive(true);
       };
 
       const handleDragLeave = (event: DragEvent) => {
         if (event.relatedTarget === null) {
-          ui.setIsDragActive(false);
+          setIsDragActive(false);
         }
       };
 
@@ -316,22 +329,22 @@ export function useAppFileOpen({
           return;
         }
         event.preventDefault();
-        ui.setIsDragActive(false);
+        setIsDragActive(false);
         try {
           const selectedFile = registerBrowserFile(event.dataTransfer.files[0]);
           if (
             selectedFile.extension === "vmd" &&
             canAttachMmdMotion(currentFile)
           ) {
-            file.setMmdMotionRequest({
+            setMmdMotionRequest({
               file: selectedFile,
-              version: (file.mmdMotionRequest?.version ?? 0) + 1,
+              version: (mmdMotionRequest?.version ?? 0) + 1,
             });
             return;
           }
           void performSelectFilePath(selectedFile.path, "open");
         } catch (error: unknown) {
-          file.setOpenError(
+          setOpenError(
             error instanceof Error
               ? error.message
               : "Failed to open dropped file.",
@@ -359,16 +372,16 @@ export function useAppFileOpen({
       getCurrentWindow()
         .onDragDropEvent((event) => {
           if (event.payload.type === "enter" || event.payload.type === "over") {
-            ui.setIsDragActive(true);
+            setIsDragActive(true);
             return;
           }
 
           if (event.payload.type === "leave") {
-            ui.setIsDragActive(false);
+            setIsDragActive(false);
             return;
           }
 
-          ui.setIsDragActive(false);
+          setIsDragActive(false);
           const [firstPath] = event.payload.paths;
 
           if (!firstPath) {
@@ -376,7 +389,7 @@ export function useAppFileOpen({
           }
 
           handleDroppedFilePathFromEffect(firstPath).catch((error: unknown) => {
-            file.setOpenError(
+            setOpenError(
               error instanceof Error
                 ? error.message
                 : "Failed to open dropped file.",
@@ -400,7 +413,15 @@ export function useAppFileOpen({
     return () => {
       unlisten?.();
     };
-  }, [currentFile, file, isTauri, performSelectFilePath, ui]);
+  }, [
+    currentFile,
+    isTauri,
+    mmdMotionRequest?.version,
+    performSelectFilePath,
+    setIsDragActive,
+    setMmdMotionRequest,
+    setOpenError,
+  ]);
 
   const handleOpenFile = useCallback(async () => {
     try {
@@ -408,7 +429,7 @@ export function useAppFileOpen({
       if (!selectedFile) return;
       await performSelectFilePath(selectedFile.path, "open");
     } catch (error: unknown) {
-      file.setOpenError(
+      setOpenError(
         error instanceof Error ? error.message : "Failed to open file dialog.",
       );
       useViewerStore.getState().updateViewerFeedback({
@@ -416,7 +437,7 @@ export function useAppFileOpen({
         message: "File dialog operation failed.",
       });
     }
-  }, [file, performSelectFilePath]);
+  }, [performSelectFilePath, setOpenError]);
 
   return {
     handleOpenFile,

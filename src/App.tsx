@@ -175,11 +175,9 @@ export function App() {
   const { handleOpenFile, performSelectFilePath } = useAppFileOpen({
     assetMetadata,
     currentFile,
-    file,
     isTauri,
     recordLoadTiming,
     setSessionGlbBuffer,
-    ui,
     usdLoadPolicy,
   });
 
