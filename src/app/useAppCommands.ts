@@ -11,7 +11,7 @@ import {
 } from "../lib/viewerShortcuts";
 import type { FileState } from "../stores/fileStore";
 import type { UiState } from "../stores/uiStore";
-import type { ViewerState } from "../stores/viewerStore";
+import { useViewerStore } from "../stores/viewerStore";
 
 type PerformSelectFilePath = (
   path: string,
@@ -28,7 +28,6 @@ type UseAppCommandsOptions = {
   isTauri: boolean;
   performSelectFilePath: PerformSelectFilePath;
   ui: UiState;
-  viewer: ViewerState;
 };
 
 export function useAppCommands({
@@ -41,8 +40,18 @@ export function useAppCommands({
   isTauri,
   performSelectFilePath,
   ui,
-  viewer,
 }: UseAppCommandsOptions) {
+  const showTexture = useViewerStore((state) => state.showTexture);
+  const showWireframe = useViewerStore((state) => state.showWireframe);
+  const showGrid = useViewerStore((state) => state.showGrid);
+  const selectedMeshName = useViewerStore((state) => state.selectedMeshName);
+  const selectedUsdPrimPath = useViewerStore(
+    (state) => state.selectedUsdPrimPath,
+  );
+  const viewportShortcutCommand = useViewerStore(
+    (state) => state.viewportShortcutCommand,
+  );
+
   const shortcutLines = useMemo(
     () => [
       ...viewerShortcutHelpLines,
@@ -122,16 +131,16 @@ export function useAppCommands({
           }
           return;
         case "view.toggleTexture":
-          viewer.toggleShowTexture();
+          useViewerStore.getState().toggleShowTexture();
           return;
         case "view.toggleWireframe":
-          viewer.toggleShowWireframe();
+          useViewerStore.getState().toggleShowWireframe();
           return;
         case "view.toggleGrid":
-          viewer.toggleShowGrid();
+          useViewerStore.getState().toggleShowGrid();
           return;
         case "view.resetCamera":
-          viewer.bumpResetVersion();
+          useViewerStore.getState().bumpResetVersion();
           return;
         case "view.toggleSidebar":
           ui.toggleSidebarOpen();
@@ -158,7 +167,6 @@ export function useAppCommands({
       handleToggleFullscreen,
       isTauri,
       ui,
-      viewer,
     ],
   );
 
@@ -169,42 +177,51 @@ export function useAppCommands({
         action === "frameAll" ||
         action === "resetView"
       ) {
-        viewer.setActiveCameraId(null);
+        useViewerStore.getState().setActiveCameraId(null);
       }
 
       const nextState = applyViewerShortcutAction(
         {
-          showTexture: viewer.showTexture,
-          showWireframe: viewer.showWireframe,
-          showGrid: viewer.showGrid,
-          selectedMeshName: viewer.selectedMeshName,
-          selectedUsdPrimPath: viewer.selectedUsdPrimPath,
-          viewportCommand: viewer.viewportShortcutCommand,
+          showTexture,
+          showWireframe,
+          showGrid,
+          selectedMeshName,
+          selectedUsdPrimPath,
+          viewportCommand: viewportShortcutCommand,
         },
         action,
         displayMode,
       );
 
-      if (nextState.showTexture !== viewer.showTexture) {
+      const viewer = useViewerStore.getState();
+      if (nextState.showTexture !== showTexture) {
         viewer.setShowTexture(nextState.showTexture);
       }
-      if (nextState.showWireframe !== viewer.showWireframe) {
+      if (nextState.showWireframe !== showWireframe) {
         viewer.setShowWireframe(nextState.showWireframe);
       }
-      if (nextState.showGrid !== viewer.showGrid) {
+      if (nextState.showGrid !== showGrid) {
         viewer.setShowGrid(nextState.showGrid);
       }
-      if (nextState.selectedMeshName !== viewer.selectedMeshName) {
+      if (nextState.selectedMeshName !== selectedMeshName) {
         viewer.setSelectedMeshName(nextState.selectedMeshName);
       }
-      if (nextState.selectedUsdPrimPath !== viewer.selectedUsdPrimPath) {
+      if (nextState.selectedUsdPrimPath !== selectedUsdPrimPath) {
         viewer.setSelectedUsdPrimPath(nextState.selectedUsdPrimPath);
       }
-      if (nextState.viewportCommand !== viewer.viewportShortcutCommand) {
+      if (nextState.viewportCommand !== viewportShortcutCommand) {
         viewer.setViewportShortcutCommand(nextState.viewportCommand);
       }
     },
-    [displayMode, viewer],
+    [
+      displayMode,
+      selectedMeshName,
+      selectedUsdPrimPath,
+      showGrid,
+      showTexture,
+      showWireframe,
+      viewportShortcutCommand,
+    ],
   );
 
   const handleNavigateError = useCallback(

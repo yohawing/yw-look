@@ -195,7 +195,6 @@ export function App() {
     isTauri,
     performSelectFilePath,
     ui,
-    viewer,
   });
 
   const {
