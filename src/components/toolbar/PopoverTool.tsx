@@ -201,6 +201,43 @@ export function PopoverTool({ action }: PopoverToolProps) {
   );
 }
 
+function ToolbarPopoverActionRow({
+  action,
+  onAction,
+}: {
+  action: ToolbarAction;
+  onAction: (onRun?: () => void) => void;
+}) {
+  return (
+    <button
+      aria-label={action.label}
+      className={`toolbar-popover-item${action.active ? " is-active" : ""}`}
+      disabled={action.disabled}
+      onClick={() => onAction(action.onRun)}
+      type="button"
+    >
+      <span className="toolbar-popover-item-label">{action.label}</span>
+      {action.active ? (
+        <span className="toolbar-popover-item-check" aria-hidden="true">
+          <svg viewBox="0 0 12 12" width="10" height="10">
+            <path
+              d="M2 6l3 3 5-6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      ) : null}
+      {action.shortcut ? (
+        <kbd className="toolbar-popover-item-shortcut">{action.shortcut}</kbd>
+      ) : null}
+    </button>
+  );
+}
+
 function ToolbarPopoverItems({
   items,
   onAction,
@@ -262,33 +299,7 @@ function ToolbarPopoverItems({
     lastGroup = a.group;
 
     rows.push(
-      <button
-        key={a.id}
-        aria-label={a.label}
-        className={`toolbar-popover-item${a.active ? " is-active" : ""}`}
-        disabled={a.disabled}
-        onClick={() => onAction(a.onRun)}
-        type="button"
-      >
-        <span className="toolbar-popover-item-label">{a.label}</span>
-        {a.active ? (
-          <span className="toolbar-popover-item-check" aria-hidden="true">
-            <svg viewBox="0 0 12 12" width="10" height="10">
-              <path
-                d="M2 6l3 3 5-6"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </span>
-        ) : null}
-        {a.shortcut ? (
-          <kbd className="toolbar-popover-item-shortcut">{a.shortcut}</kbd>
-        ) : null}
-      </button>,
+      <ToolbarPopoverActionRow key={a.id} action={a} onAction={onAction} />,
     );
   }
 

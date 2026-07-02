@@ -280,6 +280,60 @@ describe("ViewportControls", () => {
     }
   });
 
+  it("renders toolbar submenu action row state, classes, and shortcuts", () => {
+    const items: ToolbarItem[] = [
+      {
+        id: "camera",
+        mode: "3d",
+        group: "camera",
+        kind: "popover",
+        label: "Camera",
+        iconId: "camera",
+        children: [
+          {
+            id: "front",
+            mode: "3d",
+            group: "camera",
+            kind: "button",
+            label: "Front",
+            active: true,
+            shortcut: "Numpad 1",
+            onRun: vi.fn(),
+          },
+          {
+            id: "top",
+            mode: "3d",
+            group: "camera",
+            kind: "button",
+            label: "Top",
+            disabled: true,
+            onRun: vi.fn(),
+          },
+        ],
+      },
+    ];
+
+    const { getByRole } = render(<ViewportControls items={items} />);
+
+    fireEvent.click(getByRole("button", { name: "Camera" }));
+
+    const activeRow = getByRole("button", { name: "Front" });
+    expect(activeRow.classList.contains("toolbar-popover-item")).toBe(true);
+    expect(activeRow.classList.contains("is-active")).toBe(true);
+    expect(activeRow.querySelector(".toolbar-popover-item-check")).toBeTruthy();
+    expect(
+      getByRole("button", { name: "Front" }).querySelector(
+        ".toolbar-popover-item-shortcut",
+      )?.textContent,
+    ).toBe("Numpad 1");
+
+    const disabledRow = getByRole("button", { name: "Top" });
+    expect(disabledRow.classList.contains("toolbar-popover-item")).toBe(true);
+    expect(disabledRow.classList.contains("is-active")).toBe(false);
+    expect(disabledRow).toHaveProperty("disabled", true);
+    expect(disabledRow.querySelector(".toolbar-popover-item-check")).toBeNull();
+  });
+
   it("closes viewport submenus for ordinary outside clicks", () => {
     const items: ToolbarItem[] = [
       {
