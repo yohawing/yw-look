@@ -11,7 +11,7 @@ import {
   type TextureColorSpace,
 } from "../components/toolbar/buildImageToolbar";
 import type { ToolbarItem } from "../components/toolbar/types";
-import { useViewerStore, type ViewerState } from "../stores/viewerStore";
+import { useViewerStore } from "../stores/viewerStore";
 
 function deriveDisplayMode(
   showTexture: boolean,
@@ -44,10 +44,33 @@ const cameraPresetOptions: Array<{
   { id: "bottom", label: "Bottom" },
 ];
 
-export function useViewportToolbarModel(viewer: ViewerState) {
+export function useViewportToolbarModel() {
+  const viewerSurfaceMode = useViewerStore((state) => state.viewerSurfaceMode);
+  const textureViewMode = useViewerStore((state) => state.textureViewMode);
+  const textureColorSpace = useViewerStore((state) => state.textureColorSpace);
+  const textureExposure = useViewerStore((state) => state.textureExposure);
+  const textureTileCount = useViewerStore((state) => state.textureTileCount);
+  const cameraPresetRequest = useViewerStore(
+    (state) => state.cameraPresetRequest,
+  );
+  const showTexture = useViewerStore((state) => state.showTexture);
+  const showUnlit = useViewerStore((state) => state.showUnlit);
+  const showNormals = useViewerStore((state) => state.showNormals);
+  const showVertexColors = useViewerStore((state) => state.showVertexColors);
+  const showWireframe = useViewerStore((state) => state.showWireframe);
+  const environmentPreset = useViewerStore((state) => state.environmentPreset);
+  const showShadows = useViewerStore((state) => state.showShadows);
+  const showEnvironmentBackground = useViewerStore(
+    (state) => state.showEnvironmentBackground,
+  );
+  const showBoundingBoxes = useViewerStore((state) => state.showBoundingBoxes);
+  const showSkeleton = useViewerStore((state) => state.showSkeleton);
+  const showLocalAxis = useViewerStore((state) => state.showLocalAxis);
+  const showJointNames = useViewerStore((state) => state.showJointNames);
+
   const displayMode = useMemo(
-    () => deriveDisplayMode(viewer.showTexture, viewer.showWireframe),
-    [viewer.showTexture, viewer.showWireframe],
+    () => deriveDisplayMode(showTexture, showWireframe),
+    [showTexture, showWireframe],
   );
 
   const handleSelectCameraPreset = useCallback((preset: string) => {
@@ -58,12 +81,9 @@ export function useViewportToolbarModel(viewer: ViewerState) {
     });
   }, []);
 
-  const handleSelectEnvironmentPreset = useCallback(
-    (preset: string) => {
-      viewer.setEnvironmentPreset(preset as EnvironmentPreset);
-    },
-    [viewer],
-  );
+  const handleSelectEnvironmentPreset = useCallback((preset: string) => {
+    useViewerStore.getState().setEnvironmentPreset(preset as EnvironmentPreset);
+  }, []);
 
   // Image mode handlers
   const channelOptions = useMemo(
@@ -77,86 +97,81 @@ export function useViewportToolbarModel(viewer: ViewerState) {
     [],
   );
 
-  const handleSelectChannel = useCallback(
-    (mode: string) => {
-      if (mode === "a") {
-        viewer.setTextureViewMode("alpha");
-      } else {
-        viewer.setTextureViewMode(mode as TextureViewMode);
-      }
-    },
-    [viewer],
-  );
+  const handleSelectChannel = useCallback((mode: string) => {
+    if (mode === "a") {
+      useViewerStore.getState().setTextureViewMode("alpha");
+    } else {
+      useViewerStore.getState().setTextureViewMode(mode as TextureViewMode);
+    }
+  }, []);
 
-  const handleSelectColorSpace = useCallback(
-    (mode: TextureColorSpace) => {
-      viewer.setTextureColorSpace(mode);
-      switch (mode) {
-        case "srgb":
-          viewer.setTextureGamma(2.2);
-          break;
-        case "linear":
-          viewer.setTextureGamma(1.0);
-          break;
-        case "raw":
-          viewer.setTextureGamma(1.0);
-          break;
-      }
-    },
-    [viewer],
-  );
+  const handleSelectColorSpace = useCallback((mode: TextureColorSpace) => {
+    const { setTextureColorSpace, setTextureGamma } = useViewerStore.getState();
+    setTextureColorSpace(mode);
+    switch (mode) {
+      case "srgb":
+        setTextureGamma(2.2);
+        break;
+      case "linear":
+        setTextureGamma(1.0);
+        break;
+      case "raw":
+        setTextureGamma(1.0);
+        break;
+    }
+  }, []);
 
   const viewportToolbarItems = useMemo<ToolbarItem[]>(() => {
-    if (viewer.viewerSurfaceMode === "texture") {
+    if (viewerSurfaceMode === "texture") {
       return buildImageToolbar({
-        channelMode: viewer.textureViewMode,
+        channelMode: textureViewMode,
         channelOptions,
         onSelectChannel: handleSelectChannel,
-        colorSpace: viewer.textureColorSpace,
+        colorSpace: textureColorSpace,
         onSelectColorSpace: handleSelectColorSpace,
-        exposure: viewer.textureExposure,
+        exposure: textureExposure,
         bgMode: "checker",
         tilingMode: "clamp",
-        tileCount: viewer.textureTileCount,
+        tileCount: textureTileCount,
       });
     }
 
     return build3DToolbar({
       // Camera
-      cameraPreset: viewer.cameraPresetRequest?.preset ?? null,
+      cameraPreset: cameraPresetRequest?.preset ?? null,
       cameraPresetOptions,
       onSelectCameraPreset: handleSelectCameraPreset,
       // Shading
-      showTexture: viewer.showTexture,
+      showTexture: showTexture,
       onToggleTexture: () => useViewerStore.getState().toggleShowTexture(),
-      showUnlit: viewer.showUnlit,
+      showUnlit: showUnlit,
       onToggleUnlit: () => useViewerStore.getState().toggleShowUnlit(),
-      showNormals: viewer.showNormals,
+      showNormals: showNormals,
       onToggleNormals: () => useViewerStore.getState().toggleShowNormals(),
-      showVertexColors: viewer.showVertexColors,
+      showVertexColors: showVertexColors,
       onToggleVertexColors: () =>
         useViewerStore.getState().toggleShowVertexColors(),
       // Wireframe
-      showWireframe: viewer.showWireframe,
+      showWireframe: showWireframe,
       onToggleWireframe: () => useViewerStore.getState().toggleShowWireframe(),
       // Look
-      environmentPreset: viewer.environmentPreset,
+      environmentPreset: environmentPreset,
       environmentPresetOptions: environmentPresets,
       onSelectEnvironmentPreset: handleSelectEnvironmentPreset,
-      showShadows: viewer.showShadows,
+      showShadows: showShadows,
       onToggleShadows: () => useViewerStore.getState().toggleShowShadows(),
-      showEnvironmentBackground: viewer.showEnvironmentBackground,
+      showEnvironmentBackground: showEnvironmentBackground,
       onToggleEnvironmentBackground: () =>
         useViewerStore.getState().toggleShowEnvironmentBackground(),
       // Overlay
-      showBoundingBoxes: viewer.showBoundingBoxes,
+      showBoundingBoxes: showBoundingBoxes,
       onToggleBoundingBoxes: () =>
         useViewerStore.getState().toggleShowBoundingBoxes(),
-      showSkeleton: viewer.showSkeleton,
+      showSkeleton: showSkeleton,
       onToggleSkeleton: () => useViewerStore.getState().toggleShowSkeleton(),
-      showLocalAxis: viewer.showLocalAxis,
+      showLocalAxis: showLocalAxis,
       onToggleLocalAxis: () => useViewerStore.getState().toggleShowLocalAxis(),
-      showJointNames: viewer.showJointNames,
+      showJointNames: showJointNames,
       onToggleJointNames: () =>
         useViewerStore.getState().toggleShowJointNames(),
     });
@@ -166,7 +181,24 @@ export function useViewportToolbarModel(viewer: ViewerState) {
     handleSelectChannel,
     handleSelectColorSpace,
     handleSelectEnvironmentPreset,
-    viewer,
+    cameraPresetRequest?.preset,
+    environmentPreset,
+    showBoundingBoxes,
+    showEnvironmentBackground,
+    showJointNames,
+    showLocalAxis,
+    showNormals,
+    showShadows,
+    showSkeleton,
+    showTexture,
+    showUnlit,
+    showVertexColors,
+    showWireframe,
+    textureColorSpace,
+    textureExposure,
+    textureTileCount,
+    textureViewMode,
+    viewerSurfaceMode,
   ]);
 
   return {

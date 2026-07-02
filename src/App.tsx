@@ -57,7 +57,7 @@ export function App() {
     directoryListing.currentIndex !== null &&
     directoryListing.currentIndex < directoryListing.files.length - 1;
 
-  const { displayMode, viewportToolbarItems } = useViewportToolbarModel(viewer);
+  const { displayMode, viewportToolbarItems } = useViewportToolbarModel();
 
   const {
     usdSummary,
