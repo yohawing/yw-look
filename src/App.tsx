@@ -281,14 +281,11 @@ export function App() {
         <ViewportHost
           deferredPayloadProgress={deferredPayloadProgress}
           displayMode={displayMode}
-          file={file}
           handleOpenFile={handleOpenFile}
           isDragActive={isDragActive}
           recordVariantSelectionError={recordVariantSelectionError}
           sessionGlbBuffer={sessionGlbBuffer}
-          ui={ui}
           usdInspection={usdInspection}
-          viewer={viewer}
           viewportToolbarItems={viewportToolbarItems}
           disabledOptionalLoaderPackIds={disabledLoaderPackIds}
           incompatibleOptionalLoaderPackIds={incompatibleLoaderPackIds}
