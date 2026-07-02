@@ -3,10 +3,8 @@ import { AppShell } from "./app/AppShell";
 import { useAppCommands } from "./app/useAppCommands";
 import { useAppFileOpen } from "./app/useAppFileOpen";
 import { useSettingsActions } from "./app/useSettingsActions";
-import {
-  useSessionAdjustedUsdSummary,
-  useSidebarModel,
-} from "./app/useSidebarModel";
+import { useSessionAdjustedUsdSummary } from "./app/useSessionAdjustedUsdSummary";
+import { useSidebarModel } from "./app/useSidebarModel";
 import { useViewerDiagnosticsModel } from "./app/useViewerDiagnosticsModel";
 import { useViewportToolbarModel } from "./app/useViewportToolbarModel";
 import { ViewportHost } from "./app/ViewportHost";
