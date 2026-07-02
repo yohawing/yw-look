@@ -44,6 +44,15 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     expect(getByText("shader inputs")).toBeTruthy();
   });
 
+  it("renders base color hex values in the shared lowercase format", () => {
+    const { getAllByText, queryByText } = render(
+      <MaterialListCard materials={[baseMat]} />,
+    );
+
+    expect(getAllByText("#b5a642").length).toBeGreaterThan(0);
+    expect(queryByText("#B5A642")).toBeNull();
+  });
+
   it("does not render shader inputs when all slots are null", () => {
     const mat: MaterialEntry = {
       ...baseMat,

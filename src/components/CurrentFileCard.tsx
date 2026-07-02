@@ -1,3 +1,4 @@
+import { formatBytes } from "../lib/format";
 import type { AssetInspection, SelectedFile } from "../lib/files";
 import type { AnimationClipMetadata } from "../types/viewer";
 import type { AssetMetadata } from "./assetMetadata";
@@ -27,19 +28,6 @@ function renderValue(value: string | number | boolean | null) {
   }
 
   return value ?? "—";
-}
-
-function formatBytes(value: number | null | undefined) {
-  if (value === null || value === undefined) return "—";
-  if (value < 1024) return `${value} B`;
-  const units = ["KB", "MB", "GB"];
-  let size = value / 1024;
-  let unit = units[0];
-  for (let i = 1; i < units.length && size >= 1024; i += 1) {
-    size /= 1024;
-    unit = units[i];
-  }
-  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
 }
 
 function formatDuration(value: number) {

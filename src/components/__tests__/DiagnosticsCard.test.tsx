@@ -46,7 +46,7 @@ describe("DiagnosticsCard", () => {
     expect(getByText("Asset triangles")).toBeTruthy();
     expect(getByText("170")).toBeTruthy();
     expect(getByText("JS heap used")).toBeTruthy();
-    expect(getByText("32 MB")).toBeTruthy();
+    expect(getByText("32.0 MB")).toBeTruthy();
   });
 
   it("hides unavailable JS heap metrics", () => {
@@ -79,8 +79,8 @@ describe("DiagnosticsCard", () => {
     );
 
     expect(getByText("Process memory")).toBeTruthy();
-    expect(getByText("96 MB")).toBeTruthy();
+    expect(getByText("96.0 MB")).toBeTruthy();
     expect(getByText("Virtual memory")).toBeTruthy();
-    expect(getByText("512 MB")).toBeTruthy();
+    expect(getByText("512.0 MB")).toBeTruthy();
   });
 });

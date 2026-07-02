@@ -1,5 +1,6 @@
-import type { CameraEntry, LightEntry } from "./assetMetadata";
+import { rgbToHex } from "../lib/format";
 import type { UsdLightInfo } from "../lib/usd";
+import type { CameraEntry, LightEntry } from "./assetMetadata";
 import {
   SidebarError,
   SidebarKeyValueRows,
@@ -40,19 +41,6 @@ function formatFov(fov: number | null): string {
 
 function formatAspect(aspect: number | null): string {
   return aspect === null ? "—" : aspect.toFixed(3);
-}
-
-/** Convert a linear [0,1] float to a 2-digit hex string. */
-function linearToHex(v: number): string {
-  const clamped = Math.max(0, Math.min(1, v));
-  return Math.round(clamped * 255)
-    .toString(16)
-    .padStart(2, "0");
-}
-
-/** Format a linearized RGB triple as a CSS hex color string. */
-function rgbToHex(r: number, g: number, b: number): string {
-  return `#${linearToHex(r)}${linearToHex(g)}${linearToHex(b)}`;
 }
 
 export function SceneLightsCamerasCard({

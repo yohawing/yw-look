@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { rgbToHex } from "../lib/format";
 import type {
   MaterialEntry,
   MaterialTextureSlot,
@@ -18,15 +19,6 @@ type MaterialListCardProps = {
 /** Format a 0-1 float as a 0-255 decimal integer string for display. */
 function fmt255(v: number): string {
   return String(Math.round(v * 255));
-}
-
-/** Convert linear-float RGB to a CSS hex string (#rrggbb). */
-function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (v: number) =>
-    Math.round(Math.min(1, Math.max(0, v)) * 255)
-      .toString(16)
-      .padStart(2, "0");
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 function fmtFloat(v: number): string {
@@ -312,7 +304,7 @@ function MaterialBaseColor({ mat }: { mat: MaterialEntry }) {
       {color ? (
         <>
           <span className="mat-inline-swatch" style={{ background: color }} />
-          {color.toUpperCase()}
+          {color}
         </>
       ) : (
         "unknown"

@@ -3,6 +3,7 @@ import type {
   ProcessMemoryMetrics,
   ResourceDiagnosticsSnapshot,
 } from "../lib/diagnostics";
+import { formatBytes } from "../lib/format";
 import { CompactMetricRows, type CompactMetricRow } from "./CompactMetricRows";
 import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
 
@@ -152,21 +153,4 @@ function buildResourceRows(
 
 function formatCount(value: number) {
   return Number.isFinite(value) ? value.toLocaleString() : "0";
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return "0 B";
-  }
-
-  const units = ["B", "KB", "MB", "GB"] as const;
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
-  return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
