@@ -48,8 +48,15 @@
   --yl-accent-bg: #5e6ad2;
   --yl-accent-hover: #828fff;
   --yl-status-success: #27a644;
+  --yl-status-success-alt: #10b981;
   --yl-status-warning: #f59e0b;
+  --yl-status-warning-soft: #f2b84b;
+  --yl-status-warning-muted: #f0c040;
+  --yl-status-warning-bright: #ffe08a;
   --yl-status-error: #ef4444;
+  --yl-status-error-soft: #ff6b6b;
+  --yl-status-error-muted: #ff6464;
+  --yl-status-error-bright: #ff9a9a;
   --yl-status-info: #38bdf8;
   --yl-success: #27a644;
   --yl-success-alt: #10b981;

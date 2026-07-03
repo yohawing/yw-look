@@ -20,7 +20,7 @@
 }
 
 .optional-loader-pack-status.is-installed {
-  color: var(--yl-success);
+  color: var(--yl-status-success);
 }
 
 .optional-loader-pack-status.is-disabled {
@@ -28,9 +28,9 @@
 }
 
 .optional-loader-pack-status.is-missing {
-  color: #f2b84b;
+  color: var(--yl-status-warning-soft);
 }
 
 .optional-loader-pack-status.is-blocked {
-  color: #f2b84b;
+  color: var(--yl-status-warning-soft);
 }
