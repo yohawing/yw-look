@@ -87,10 +87,29 @@ export function useSettingsActions({
     }
   };
 
+  const saveOptionalLoaderPackEnabled = async (
+    packId: string,
+    enabled: boolean,
+  ) => {
+    if (!settingsPayload) {
+      return;
+    }
+
+    const nextPayload = await saveSettings({
+      ...settingsPayload.settings,
+      optionalLoaderPacks: {
+        ...settingsPayload.settings.optionalLoaderPacks,
+        [packId]: { enabled },
+      },
+    });
+    setSettingsPayload(nextPayload);
+  };
+
   const handleInstallOptionalLoaderPack = async (packId: string) => {
     try {
       const manifests = await installOptionalLoaderPack(packId);
       setOptionalLoaderManifests(manifests);
+      await saveOptionalLoaderPackEnabled(packId, true);
       setSettingsError(null);
     } catch (error: unknown) {
       setSettingsError(errorMessage(error, "Failed to install loader pack."));
@@ -101,6 +120,7 @@ export function useSettingsActions({
     try {
       const manifests = await removeOptionalLoaderPack(packId);
       setOptionalLoaderManifests(manifests);
+      await saveOptionalLoaderPackEnabled(packId, false);
       setSettingsError(null);
     } catch (error: unknown) {
       setSettingsError(errorMessage(error, "Failed to remove loader pack."));
