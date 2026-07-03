@@ -1,0 +1,16 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    doc = "yw-look B8 fixture. Payload points to a non-existent sibling USDA file."
+)
+
+def Xform "Root" (
+    kind = "assembly"
+)
+{
+    def Xform "PayloadChild" (
+        payload = @./missing_payload_layer.usda@</Root>
+    )
+    {
+    }
+}

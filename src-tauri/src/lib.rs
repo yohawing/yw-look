@@ -17,7 +17,8 @@ use crate::commands::bench::{
     write_bench_screenshot, write_bench_status,
 };
 use crate::commands::diagnostics::{
-    load_diagnostics_snapshot, load_process_memory_metrics, log_diagnostic_event,
+    clear_crash_marker, initialize_crash_marker, load_crash_recovery_status,
+    load_diagnostics_snapshot, load_process_memory_metrics, log_diagnostic_event, open_app_log_dir,
 };
 use crate::commands::files::{
     get_startup_file, inspect_asset, list_supported_siblings, load_format_support,
@@ -70,9 +71,34 @@ fn handle_opened_urls(app: &tauri::AppHandle, urls: Vec<Url>) {
     for path in &paths {
         let payload = path.display().to_string();
         if let Err(error) = app.emit(OPEN_FILE_EVENT, payload) {
-            eprintln!("failed to emit open-file event: {error}");
+            log::error!("failed to emit open-file event: {error}");
         }
     }
+}
+
+fn install_panic_hook() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let location = info
+                .location()
+                .map(|location| format!("{}:{}", location.file(), location.line()))
+                .unwrap_or_else(|| "unknown location".to_string());
+            let payload = info
+                .payload()
+                .downcast_ref::<&str>()
+                .map(|message| (*message).to_string())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "panic payload was not a string".to_string());
+            let backtrace = std::backtrace::Backtrace::force_capture();
+            log::error!(
+                target: "yw_look::panic",
+                "panic at {location}: {payload}\nBacktrace:\n{backtrace}"
+            );
+            default_hook(info);
+        }));
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -86,6 +112,20 @@ pub fn run() {
     let app = tauri::Builder::default()
         .setup(move |app| {
             app.handle()
+                .plugin(
+                    tauri_plugin_log::Builder::new()
+                        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
+                        .max_file_size(512_000)
+                        .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
+                        .target(tauri_plugin_log::Target::new(
+                            tauri_plugin_log::TargetKind::Webview,
+                        ))
+                        .build(),
+                )
+                .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            install_panic_hook();
+
+            app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
 
@@ -97,6 +137,9 @@ pub fn run() {
             app.manage(shot_cli_config.clone());
 
             let is_cli = bench_cli_config.is_some() || shot_cli_config.is_some();
+            if !is_cli {
+                app.manage(initialize_crash_marker(&app.handle())?);
+            }
             let entry_url: Option<&str> = if bench_cli_config.is_some() {
                 Some("http://localhost:1420/?entry=bench")
             } else if shot_cli_config.is_some() {
@@ -140,6 +183,17 @@ pub fn run() {
                     )
                     .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
             }
+            if !is_cli {
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if matches!(
+                        event,
+                        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                    ) {
+                        clear_crash_marker(&app_handle);
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -159,6 +213,8 @@ pub fn run() {
             remove_optional_loader_pack,
             log_diagnostic_event,
             load_diagnostics_snapshot,
+            load_crash_recovery_status,
+            open_app_log_dir,
             load_process_memory_metrics,
             get_bench_config,
             write_bench_report,

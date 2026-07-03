@@ -1,11 +1,16 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
+  DiagnosticsPayload,
   ProcessMemoryMetrics,
   ResourceDiagnosticsSnapshot,
 } from "../lib/diagnostics";
+import { loadDiagnosticsSnapshot, openAppLogDir } from "../lib/diagnostics";
 import { formatBytes } from "../lib/format";
+import { buildDiagnosticsReport, ISSUE_REPORT_URL } from "../lib/reporting";
+import { backendCapabilities } from "../lib/usd";
 import { CompactMetricRows, type CompactMetricRow } from "./CompactMetricRows";
 import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
+import { Button } from "./ui/Button";
 
 type DiagnosticsCardProps = {
   processMemoryMetrics: ProcessMemoryMetrics | null;
@@ -21,7 +26,123 @@ export function DiagnosticsCard({
     [processMemoryMetrics, resourceDiagnostics],
   );
 
-  return <ResourceDiagnosticsSection rows={resourceRows} />;
+  return (
+    <>
+      <OperationalDiagnosticsSection />
+      <ResourceDiagnosticsSection rows={resourceRows} />
+    </>
+  );
+}
+
+function OperationalDiagnosticsSection() {
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsPayload | null>(
+    null,
+  );
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+
+  const refreshDiagnostics = async () => {
+    setDiagnostics(await loadDiagnosticsSnapshot());
+  };
+
+  useEffect(() => {
+    let active = true;
+    void loadDiagnosticsSnapshot().then((snapshot) => {
+      if (active) {
+        setDiagnostics(snapshot);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const rows = useMemo<CompactMetricRow[]>(() => {
+    if (!diagnostics) {
+      return [];
+    }
+    return [
+      {
+        label: "App logs",
+        value: diagnostics.appLogDir || "unavailable",
+        mono: true,
+      },
+      {
+        label: "Diagnostics log",
+        value: diagnostics.diagnosticsLogPath || "unavailable",
+        mono: true,
+      },
+      {
+        label: "Recent records",
+        value: diagnostics.diagnosticsSnapshot.length.toLocaleString(),
+        mono: true,
+      },
+    ];
+  }, [diagnostics]);
+
+  const copyDiagnostics = async () => {
+    const snapshot = await loadDiagnosticsSnapshot();
+    setDiagnostics(snapshot);
+    const capabilities = await backendCapabilities().catch(() => null);
+    const report = buildDiagnosticsReport({
+      capabilities,
+      diagnostics: snapshot,
+    });
+    try {
+      await navigator.clipboard.writeText(report);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+  };
+
+  return (
+    <SidebarSection title="Logs" collapsible>
+      {rows.length > 0 ? (
+        <CompactMetricRows rows={rows} />
+      ) : (
+        <SidebarEmpty>No diagnostics snapshot loaded.</SidebarEmpty>
+      )}
+      {diagnostics && diagnostics.diagnosticsSnapshot.length > 0 ? (
+        <ul className="diagnostics-log-list" aria-label="Recent diagnostics">
+          {diagnostics.diagnosticsSnapshot.slice(-8).map((line, index) => (
+            <li key={`${line}:${index}`}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="card-actions">
+        <Button onClick={() => void openAppLogDir()} size="sm" variant="ghost">
+          Open Logs
+        </Button>
+        <Button
+          onClick={() => void copyDiagnostics()}
+          size="sm"
+          variant="ghost"
+        >
+          {copyState === "copied"
+            ? "Copied"
+            : copyState === "failed"
+              ? "Copy Failed"
+              : "Copy Diagnostics"}
+        </Button>
+        <Button
+          onClick={() => window.open(ISSUE_REPORT_URL, "_blank", "noopener")}
+          size="sm"
+          variant="ghost"
+        >
+          Report Issue
+        </Button>
+        <Button
+          onClick={() => void refreshDiagnostics()}
+          size="sm"
+          variant="subtle"
+        >
+          Refresh
+        </Button>
+      </div>
+    </SidebarSection>
+  );
 }
 
 function ResourceDiagnosticsSection({

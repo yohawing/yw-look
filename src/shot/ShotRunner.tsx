@@ -82,7 +82,12 @@ export function ShotRunner() {
           config: lastConfig,
           outcome: lastOutcome,
         });
-        await finishShotRun(failed ? 1 : 0);
+        await finishShotRun(
+          failed ? 1 : 0,
+          failed
+            ? (lastOutcome?.error ?? "One or more shot cases failed.")
+            : null,
+        );
       } catch (error) {
         const message = errorMessage(error, "Shot run failed.");
         setStatus({
@@ -91,7 +96,7 @@ export function ShotRunner() {
           config: null,
           outcome: null,
         });
-        await finishShotRun(1);
+        await finishShotRun(1, message);
       }
     };
 

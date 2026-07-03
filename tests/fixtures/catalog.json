@@ -126,12 +126,40 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "error-unsupported-extension",
+      "category": "unsupported-format",
+      "path": "tests/fixtures/broken/model.xyz",
+      "format": "xyz",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "unsupported-format",
+        "reasonContains": ["unsupported", "extension"],
+        "logContains": ["unsupported file extension", "xyz"]
+      }
+    },
+    {
+      "id": "error-unsupported-glb-content",
+      "category": "unsupported-format",
+      "path": "tests/fixtures/broken/png-as-glb.glb",
+      "format": "glb",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "unsupported-format",
+        "reasonContains": ["glb", "format"],
+        "logContains": ["gltf", "parse"]
+      }
+    },
+    {
       "id": "broken-gltf-truncated",
       "category": "malformed",
       "path": "tests/fixtures/broken/truncated.gltf",
       "format": "gltf",
       "expect": { "shouldLoad": false },
-      "knownFailure": "shot/check currently exits successfully for this malformed glTF; keep as regression target."
+      "errorExpect": {
+        "category": "load-failure",
+        "reasonContains": ["parse", "gltf"],
+        "logContains": ["gltf", "parse"]
+      }
     },
     {
       "id": "broken-obj-garbage",
@@ -139,7 +167,119 @@
       "path": "tests/fixtures/broken/garbage.obj",
       "format": "obj",
       "expect": { "shouldLoad": false },
-      "knownFailure": "shot/check currently exits successfully for OBJ files that parse to an empty scene; keep as regression target."
+      "errorExpect": {
+        "category": "load-failure",
+        "reasonContains": ["load", "obj"],
+        "logContains": ["obj"]
+      }
+    },
+    {
+      "id": "error-load-truncated-glb",
+      "category": "malformed",
+      "path": "tests/fixtures/broken/truncated.glb",
+      "format": "glb",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "load-failure",
+        "reasonContains": ["parse", "glb"],
+        "logContains": ["gltf", "parse"]
+      }
+    },
+    {
+      "id": "error-load-broken-usda",
+      "category": "malformed",
+      "path": "tests/fixtures/broken/broken.usda",
+      "format": "usda",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "load-failure",
+        "reasonContains": ["usda", "parse"],
+        "logContains": ["usd", "parse"]
+      }
+    },
+    {
+      "id": "error-ref-missing-buffer-gltf",
+      "category": "missing-reference",
+      "path": "tests/fixtures/broken/missing-buffer.gltf",
+      "format": "gltf",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "reference-resolution-failure",
+        "reasonContains": ["missing-buffer.bin", "reference"],
+        "logContains": ["missing-buffer.bin", "missing"]
+      }
+    },
+    {
+      "id": "error-ref-missing-usda",
+      "category": "missing-reference",
+      "path": "tests/fixtures/broken/missing-ref.usda",
+      "format": "usda",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "reference-resolution-failure",
+        "reasonContains": ["does_not_exist.usda", "reference"],
+        "logContains": ["does_not_exist.usda", "unresolved"]
+      }
+    },
+    {
+      "id": "error-ref-missing-payload-usda",
+      "category": "missing-reference",
+      "path": "tests/fixtures/broken/missing-payload.usda",
+      "format": "usda",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "reference-resolution-failure",
+        "reasonContains": ["missing_payload_layer.usda", "payload"],
+        "logContains": ["missing_payload_layer.usda", "payload"]
+      }
+    },
+    {
+      "id": "error-texture-missing-gltf",
+      "category": "warning",
+      "path": "tests/fixtures/broken/missing-texture.gltf",
+      "format": "gltf",
+      "expect": { "shouldLoad": true, "shouldWarn": true },
+      "errorExpect": {
+        "category": "missing-texture",
+        "reasonContains": ["Missing texture reference", "missing-albedo.png"],
+        "logContains": ["missing texture", "missing-albedo.png"]
+      }
+    },
+    {
+      "id": "error-texture-missing-obj",
+      "category": "warning",
+      "path": "tests/fixtures/broken/missing-texture.obj",
+      "format": "obj",
+      "expect": { "shouldLoad": true, "shouldWarn": true },
+      "errorExpect": {
+        "category": "missing-texture",
+        "reasonContains": ["missing-albedo.png", "texture"],
+        "logContains": ["missing-albedo.png", "texture"]
+      }
+    },
+    {
+      "id": "error-scale-tiny-glb",
+      "category": "warning",
+      "path": "tests/fixtures/broken/scale-tiny.glb",
+      "format": "glb",
+      "expect": { "shouldLoad": true, "shouldWarn": true },
+      "errorExpect": {
+        "category": "scale-warning",
+        "reasonContains": ["Scale warning", "extremely small"],
+        "logContains": ["Scale warning", "extremely small"]
+      }
+    },
+    {
+      "id": "error-scale-huge-glb",
+      "category": "warning",
+      "path": "tests/fixtures/broken/scale-huge.glb",
+      "format": "glb",
+      "expect": { "shouldLoad": true, "shouldWarn": true },
+      "errorExpect": {
+        "category": "scale-warning",
+        "reasonContains": ["Scale warning", "extremely large"],
+        "logContains": ["Scale warning", "extremely large"]
+      }
     },
     {
       "id": "model-abc-monkey",

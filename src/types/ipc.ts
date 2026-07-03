@@ -220,8 +220,19 @@ export type DiagnosticRecordInput = {
 };
 
 export type DiagnosticsPayload = {
+  appVersion: string;
+  platform: string;
+  arch: string;
+  appLogDir: string;
   diagnosticsLogPath: string;
   diagnosticsSnapshot: string[];
+};
+
+export type CrashRecoveryPayload = {
+  previousCrashDetected: boolean;
+  markerPath: string;
+  previousStartedAt: string | null;
+  previousPid: number | null;
 };
 
 export type ProcessMemoryMetrics = {

@@ -111,7 +111,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     {
         let instancer_list = instancer_paths.into_inner();
         if !instancer_list.is_empty() {
-            eprintln!(
+            log::warn!(
                 "[usd-rs] {} PointInstancer prim(s) found (e.g. '{}') — not supported by \
                      the Rust fork backend; skipped. Use `--features backend-openusd-cpp` \
                      for EXT_mesh_gpu_instancing preview (#41).",
@@ -159,7 +159,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
 
     if mesh_paths.is_empty() {
         if can_export_empty_scene {
-            eprintln!(
+            log::warn!(
                 "[usd-rs] no renderable Mesh prims found in deferred-payload stage; exporting an empty GLB scene"
             );
         } else {
@@ -434,7 +434,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         if empty_scene_has_no_mesh_candidates
             || (can_export_empty_scene && mesh_candidates_are_deferred)
         {
-            eprintln!(
+            log::warn!(
                 "[usd-rs] deferred-payload stage has no usable mesh points; exporting an empty GLB scene"
             );
         } else {

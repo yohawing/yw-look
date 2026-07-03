@@ -19,11 +19,13 @@ type AppShellProps = {
   statusLeftItems: AppStatusBarItem[];
   statusRightItems: AppStatusBarItem[];
   activeTab: SidebarTabId;
+  banner?: ReactNode;
   viewport: ReactNode;
 };
 
 export function AppShell({
   activeTab,
+  banner,
   dialogState,
   handleSidebarResizeStart,
   onCloseDialog,
@@ -40,7 +42,10 @@ export function AppShell({
 
   return (
     <main className="app-shell">
-      <section className="main-content">{viewport}</section>
+      <section className="main-content">
+        {banner}
+        {viewport}
+      </section>
 
       <aside
         className={`sidebar${sidebarOpen ? " is-open" : ""}`}

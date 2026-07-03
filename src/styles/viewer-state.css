@@ -228,6 +228,34 @@
   word-break: break-word;
 }
 
+.viewer-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.viewer-error-actions button {
+  min-height: 30px;
+  border: 1px solid var(--yl-button-border);
+  border-radius: var(--yl-radius-6);
+  background: var(--yl-button-bg);
+  color: var(--yl-button-text);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.viewer-error-actions button:hover {
+  background: var(--yl-button-bg-hover);
+}
+
+.viewer-error-actions button:focus-visible {
+  outline: none;
+  box-shadow: var(--yl-shadow-focus);
+}
+
 .viewer-label {
   color: var(--yl-text-tertiary);
   font-size: 0.8rem;

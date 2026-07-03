@@ -19,7 +19,7 @@ fn map_usd_error(error: UsdError) -> AppError {
 fn recover_poisoned_usd_lock(
     guard: std::sync::PoisonError<MutexGuard<'static, ()>>,
 ) -> MutexGuard<'static, ()> {
-    eprintln!("[usd] USD task lock was poisoned; continuing with recovered lock");
+    log::warn!("[usd] USD task lock was poisoned; continuing with recovered lock");
     guard.into_inner()
 }
 

@@ -58,10 +58,25 @@ tests/fixtures/
 
 ## broken/
 
-| ファイル         | 内容                                   | テスト目的                         |
-| ---------------- | -------------------------------------- | ---------------------------------- |
-| `truncated.gltf` | 途中で切れた JSON (構文エラー)         | JSON パースエラーのハンドリング    |
-| `garbage.obj`    | ランダムバイト列を `.obj` 拡張子で保存 | 非テキストデータへのローダーの耐性 |
+B8 エラー fixture マトリクス（ベータ運用基盤 B1–B7 の検証用）。`catalog.json` の `errorExpect` に期待カテゴリ・理由表示・ログ内容を記録する。
+
+| カテゴリ                     | ファイル                                      | 内容                                       |
+| ---------------------------- | --------------------------------------------- | ------------------------------------------ |
+| unsupported-format           | `model.xyz`                                   | 未登録拡張子                               |
+| unsupported-format           | `png-as-glb.glb`                              | PNG バイト列を `.glb` にリネーム           |
+| load-failure                 | `truncated.gltf`                              | 途中で切れた glTF JSON（手書き）           |
+| load-failure                 | `garbage.obj`                                 | ランダムバイト列を `.obj` に保存（手書き） |
+| load-failure                 | `truncated.glb`                               | 途中で切れた GLB                           |
+| load-failure                 | `broken.usda`                                 | 構文エラーの USDA                          |
+| reference-resolution-failure | `missing-buffer.gltf`                         | 存在しない `.bin` を参照                   |
+| reference-resolution-failure | `missing-ref.usda`                            | 存在しない USDA を reference               |
+| reference-resolution-failure | `missing-payload.usda`                        | 存在しない USDA を payload                 |
+| missing-texture              | `missing-texture.gltf`                        | 存在しない画像を参照（警告どまり）         |
+| missing-texture              | `missing-texture.obj` + `missing-texture.mtl` | MTL が存在しないテクスチャを参照           |
+| scale-warning                | `scale-tiny.glb`                              | 極小スケールの正常 GLB（警告どまり）       |
+| scale-warning                | `scale-huge.glb`                              | 極大スケールの正常 GLB（警告どまり）       |
+
+`truncated.gltf` と `garbage.obj` 以外の B8 fixture は `node tests/fixtures/_generate.mjs` で再生成できる。
 
 ---
 
@@ -71,7 +86,7 @@ tests/fixtures/
 node tests/fixtures/_generate.mjs
 ```
 
-PNG / JPG のみ再生成される。モデルファイルは手書きのため再生成不要。
+PNG / JPG と `broken/` 配下の B8 fixture（上表の生成対象）が再生成される。`truncated.gltf` と `garbage.obj` は手書きのため再生成不要。
 
 ---
 

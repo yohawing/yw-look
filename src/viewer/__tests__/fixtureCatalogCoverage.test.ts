@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import catalog from "../../../tests/fixtures/catalog.json";
 import { listRegisteredLoaders } from "../loaders";
@@ -5,12 +7,29 @@ import { listRegisteredLoaders } from "../loaders";
 type AssetKind = "mesh" | "pointCloud" | "gaussianSplat";
 type RequiredLoader = "spark" | "mmd";
 
+const B8_ERROR_CATEGORIES = [
+  "unsupported-format",
+  "load-failure",
+  "reference-resolution-failure",
+  "missing-texture",
+  "scale-warning",
+] as const;
+
+type BetaErrorCategory = (typeof B8_ERROR_CATEGORIES)[number];
+
+type ErrorExpect = {
+  category: BetaErrorCategory;
+  reasonContains: string[];
+  logContains: string[];
+};
+
 type CatalogCase = {
   id: string;
   format?: string;
   path: string;
   assetKind?: AssetKind;
   requiresLoader?: RequiredLoader;
+  errorExpect?: ErrorExpect;
 };
 
 type CoverageGap =
@@ -232,6 +251,82 @@ describe("fixture catalog coverage", () => {
         ({ id, expected, actual }) =>
           `${id}: expected ${expected}, got ${actual}`,
       );
+
+    expect(mismatches).toEqual([]);
+  });
+});
+
+describe("B8 error fixture matrix", () => {
+  const repoRoot = resolve(import.meta.dirname, "../../..");
+  const errorFixtures = catalogCases.filter((testCase) => testCase.errorExpect);
+
+  it("registers at least one fixture per beta error category", () => {
+    const covered = new Set(
+      errorFixtures.map((testCase) => testCase.errorExpect?.category),
+    );
+    const missing = B8_ERROR_CATEGORIES.filter(
+      (category) => !covered.has(category),
+    );
+
+    expect(missing).toEqual([]);
+  });
+
+  it("requires errorExpect metadata with reason and log expectations", () => {
+    const invalid = errorFixtures
+      .map((testCase) => {
+        const errorExpect = testCase.errorExpect;
+        if (!errorExpect) return `${testCase.id}: missing errorExpect`;
+        if (!B8_ERROR_CATEGORIES.includes(errorExpect.category)) {
+          return `${testCase.id}: invalid category ${errorExpect.category}`;
+        }
+        if (
+          !Array.isArray(errorExpect.reasonContains) ||
+          errorExpect.reasonContains.length === 0
+        ) {
+          return `${testCase.id}: reasonContains must be a non-empty array`;
+        }
+        if (
+          !Array.isArray(errorExpect.logContains) ||
+          errorExpect.logContains.length === 0
+        ) {
+          return `${testCase.id}: logContains must be a non-empty array`;
+        }
+        return null;
+      })
+      .filter((message): message is string => message !== null);
+
+    expect(invalid).toEqual([]);
+  });
+
+  it("keeps B8 fixture files on disk", () => {
+    const missingFiles = errorFixtures
+      .filter((testCase) => !existsSync(resolve(repoRoot, testCase.path)))
+      .map((testCase) => testCase.path);
+
+    expect(missingFiles).toEqual([]);
+  });
+
+  it("aligns shouldLoad with fatal versus warning-only fixtures", () => {
+    const mismatches = errorFixtures
+      .map((testCase) => {
+        const category = testCase.errorExpect?.category;
+        const shouldLoad = (
+          catalog.cases as Array<{
+            id: string;
+            expect?: { shouldLoad?: boolean };
+          }>
+        ).find((entry) => entry.id === testCase.id)?.expect?.shouldLoad;
+        const expectsWarningOnly =
+          category === "missing-texture" || category === "scale-warning";
+        if (expectsWarningOnly && shouldLoad !== true) {
+          return `${testCase.id}: warning-only category must set shouldLoad: true`;
+        }
+        if (!expectsWarningOnly && shouldLoad !== false) {
+          return `${testCase.id}: fatal error category must set shouldLoad: false`;
+        }
+        return null;
+      })
+      .filter((message): message is string => message !== null);
 
     expect(mismatches).toEqual([]);
   });

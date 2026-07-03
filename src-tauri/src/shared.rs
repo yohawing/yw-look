@@ -17,7 +17,7 @@ pub(crate) fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> MutexG
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poison) => {
-            eprintln!("[yw-look] {label} lock was poisoned; continuing with recovered lock");
+            log::warn!("[yw-look] {label} lock was poisoned; continuing with recovered lock");
             poison.into_inner()
         }
     }

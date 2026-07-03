@@ -386,8 +386,12 @@ pub(crate) fn write_shot_batch_output(
 }
 
 #[tauri::command]
-pub(crate) fn finish_shot_run(app: tauri::AppHandle, exit_code: i32) {
+pub(crate) fn finish_shot_run(app: tauri::AppHandle, exit_code: i32, message: Option<String>) {
+    if let Some(message) = message.as_deref().filter(|message| !message.is_empty()) {
+        eprintln!("shot/check failed: {message}");
+    }
     app.exit(exit_code);
+    std::process::exit(exit_code);
 }
 
 #[cfg(test)]

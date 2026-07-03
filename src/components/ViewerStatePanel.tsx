@@ -1,4 +1,8 @@
 import { LoadingScreen } from "./LoadingScreen";
+import { useState } from "react";
+import { loadDiagnosticsSnapshot, openAppLogDir } from "../lib/diagnostics";
+import { buildDiagnosticsReport, ISSUE_REPORT_URL } from "../lib/reporting";
+import { backendCapabilities } from "../lib/usd";
 import {
   formatDisabledOptionalLoaderMessage,
   formatIncompatibleOptionalLoaderMessage,
@@ -139,6 +143,9 @@ export function ViewerStatePanel({
   mode,
   onOpenFile,
 }: ViewerStatePanelProps) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const baseContent = stateContent[mode];
   const unsupportedMessage =
     mode === "unsupported" && fileExtension
@@ -166,6 +173,39 @@ export function ViewerStatePanel({
       disabledOptionalLoaderMessage ??
       incompatibleOptionalLoaderMessage ??
       {}),
+  };
+  const reportable =
+    mode === "unsupported" ||
+    mode === "missingOptionalLoader" ||
+    mode === "disabledOptionalLoader" ||
+    mode === "incompatibleOptionalLoader" ||
+    mode === "loadFailed" ||
+    mode === "missingReference";
+
+  const handleCopyDetails = async () => {
+    const diagnostics = await loadDiagnosticsSnapshot();
+    const capabilities = await backendCapabilities().catch(() => null);
+    const report = buildDiagnosticsReport({
+      capabilities,
+      diagnostics,
+      errorDetail: detailMessage,
+      viewerState: [
+        `Mode: ${mode}`,
+        fileName ? `File: ${fileName}` : null,
+        fileExtension ? `Extension: .${fileExtension}` : null,
+        `Reason: ${content.title}`,
+        content.body,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+
+    try {
+      await navigator.clipboard.writeText(report);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
   };
 
   if (mode === "loading") {
@@ -268,6 +308,26 @@ export function ViewerStatePanel({
         <div className="viewer-error-detail" role="status">
           <p>Error details</p>
           <pre>{detailMessage}</pre>
+        </div>
+      ) : null}
+      {reportable ? (
+        <div className="viewer-error-actions">
+          <button onClick={() => void handleCopyDetails()} type="button">
+            {copyState === "copied"
+              ? "Details Copied"
+              : copyState === "failed"
+                ? "Copy Failed"
+                : "Copy Details"}
+          </button>
+          <button onClick={() => void openAppLogDir()} type="button">
+            Open Logs
+          </button>
+          <button
+            onClick={() => window.open(ISSUE_REPORT_URL, "_blank", "noopener")}
+            type="button"
+          >
+            Report Issue
+          </button>
         </div>
       ) : null}
     </div>

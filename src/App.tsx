@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "./app/AppShell";
 import { useAppCommands } from "./app/useAppCommands";
 import { useAppFileOpen } from "./app/useAppFileOpen";
@@ -7,11 +7,16 @@ import { useSessionAdjustedUsdSummary } from "./app/useSessionAdjustedUsdSummary
 import { useSidebarModel } from "./app/useSidebarModel";
 import { useViewerDiagnosticsModel } from "./app/useViewerDiagnosticsModel";
 import { ViewportHost } from "./app/ViewportHost";
+import { CrashRecoveryNotice } from "./components/CrashRecoveryNotice";
 import { useDeferredData } from "./hooks/useDeferredData";
 import { usePayloadSession } from "./hooks/usePayloadSession";
 import { usePerformanceTracker } from "./hooks/usePerformanceTracker";
 import { useUpdater } from "./hooks/useUpdater";
 import { useUsdInspector } from "./hooks/useUsdInspector";
+import {
+  loadCrashRecoveryStatus,
+  type CrashRecoveryPayload,
+} from "./lib/crashRecovery";
 import { isTauriEnvironment } from "./lib/platform";
 import { useFileStore } from "./stores/fileStore";
 import { useUiStore } from "./stores/uiStore";
@@ -44,6 +49,8 @@ export function App() {
   );
 
   const isTauri = isTauriEnvironment();
+  const [crashRecoveryStatus, setCrashRecoveryStatus] =
+    useState<CrashRecoveryPayload | null>(null);
   const shouldLoadRecentFiles = sidebarOpen;
   const shouldLoadDeferredData = sidebarOpen;
   const canNavigatePrev =
@@ -136,6 +143,30 @@ export function App() {
       usdIssues,
       viewerFeedback,
     });
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let isActive = true;
+
+    loadCrashRecoveryStatus()
+      .then((status) => {
+        if (isActive) {
+          setCrashRecoveryStatus(status);
+        }
+      })
+      .catch((error: unknown) => {
+        void logDiagnosticEventAndRefresh({
+          code: "crash-recovery-status-failed",
+          level: "warn",
+          message: "Failed to load crash recovery status.",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isTauri, logDiagnosticEventAndRefresh]);
 
   const {
     stageSessionHandle,
@@ -242,6 +273,7 @@ export function App() {
   return (
     <AppShell
       activeTab={activeTab}
+      banner={<CrashRecoveryNotice status={crashRecoveryStatus} />}
       dialogState={dialogState}
       handleSidebarResizeStart={handleSidebarResizeStart}
       onCloseDialog={() => setDialogState(null)}

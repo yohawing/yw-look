@@ -72,7 +72,7 @@ fn usd_timing_enabled() -> bool {
 
 fn log_usd_timing(label: &str, started: Instant) {
     if usd_timing_enabled() {
-        eprintln!(
+        log::debug!(
             "[usd-cpp timing] {label}: {}ms",
             started.elapsed().as_millis()
         );
@@ -1078,7 +1078,7 @@ fn extract_from_stage_with_options(
 
     if mesh_paths.is_empty() && !has_point_instancers {
         if can_export_empty_scene {
-            eprintln!(
+            log::warn!(
                 "[usd-cpp] no renderable Mesh prims found in deferred-payload stage; exporting an empty GLB scene"
             );
         } else {
@@ -1550,7 +1550,7 @@ fn extract_from_stage_with_options(
                 .prim_attr_token(inst_path, "visibility")
                 .unwrap_or_default();
             if viz == "invisible" {
-                eprintln!("[usd-cpp] PointInstancer {inst_path} authored as invisible; skipping");
+                log::warn!("[usd-cpp] PointInstancer {inst_path} authored as invisible; skipping");
                 continue;
             }
 
@@ -1567,7 +1567,7 @@ fn extract_from_stage_with_options(
 
             let instance_count = proto_indices.len();
             if instance_count == 0 || positions_flat.len() < instance_count * 3 {
-                eprintln!(
+                log::warn!(
                     "[usd-cpp] PointInstancer {inst_path}: no instances or no positions, skipping"
                 );
                 continue;
@@ -1634,7 +1634,7 @@ fn extract_from_stage_with_options(
                     || sy <= 0.0
                     || sz <= 0.0
                 {
-                    eprintln!(
+                    log::warn!(
                             "[usd-cpp] PointInstancer {inst_path} instance {i} has invalid scale ({sx},{sy},{sz}); skipping instance"
                         );
                     continue;
@@ -1669,7 +1669,7 @@ fn extract_from_stage_with_options(
             }
 
             if translations.is_empty() {
-                eprintln!(
+                log::warn!(
                     "[usd-cpp] PointInstancer {inst_path}: empty after filter; skipping instancing"
                 );
                 continue;
@@ -1836,7 +1836,7 @@ fn extract_from_stage_with_options(
         if empty_scene_has_no_mesh_candidates
             || (can_export_empty_scene && mesh_candidates_are_deferred)
         {
-            eprintln!(
+            log::warn!(
                 "[usd-cpp] deferred-payload stage has no usable mesh points; exporting an empty GLB scene"
             );
         } else {

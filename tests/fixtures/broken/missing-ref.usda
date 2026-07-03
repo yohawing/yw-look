@@ -1,0 +1,16 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    doc = "yw-look B8 fixture. References a non-existent sibling USDA file."
+)
+
+def Xform "Root" (
+    kind = "assembly"
+)
+{
+    def Xform "BrokenChild" (
+        references = @./does_not_exist.usda@</Root>
+    )
+    {
+    }
+}

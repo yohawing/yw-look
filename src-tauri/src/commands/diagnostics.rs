@@ -2,14 +2,24 @@ use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+use std::sync::Mutex;
 
 use crate::error::AppError;
-use crate::shared::{current_timestamp, ensure_parent_dir, resolve_diagnostics_log_path};
+use crate::shared::{
+    current_timestamp, ensure_parent_dir, resolve_app_data_dir, resolve_diagnostics_log_path,
+};
 use sysinfo::{Pid, ProcessesToUpdate, System};
+use tauri::Manager;
+
+const RUN_MARKER_FILE_NAME: &str = "run-marker.json";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DiagnosticsPayload {
+    pub(crate) app_version: String,
+    pub(crate) platform: String,
+    pub(crate) arch: String,
+    pub(crate) app_log_dir: String,
     pub(crate) diagnostics_log_path: String,
     pub(crate) diagnostics_snapshot: Vec<String>,
 }
@@ -20,6 +30,25 @@ pub(crate) struct ProcessMemoryPayload {
     pub(crate) resident_set_bytes: u64,
     pub(crate) virtual_memory_bytes: u64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RunMarkerPayload {
+    pub(crate) app_version: String,
+    pub(crate) pid: u32,
+    pub(crate) started_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CrashRecoveryPayload {
+    pub(crate) previous_crash_detected: bool,
+    pub(crate) marker_path: String,
+    pub(crate) previous_started_at: Option<String>,
+    pub(crate) previous_pid: Option<u32>,
+}
+
+pub(crate) struct CrashRecoveryState(pub(crate) Mutex<CrashRecoveryPayload>);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,6 +126,97 @@ fn append_diagnostic_record(
         .map_err(|error| AppError::Io(format!("failed to append diagnostics log: {error}")))
 }
 
+fn crash_marker_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, AppError> {
+    Ok(resolve_app_data_dir(app)?.join(RUN_MARKER_FILE_NAME))
+}
+
+pub(crate) fn initialize_crash_marker(
+    app: &tauri::AppHandle,
+) -> Result<CrashRecoveryState, AppError> {
+    let marker_path = crash_marker_path(app)?;
+    ensure_parent_dir(&marker_path)?;
+    let had_previous_marker = marker_path.exists();
+    let previous_marker = if had_previous_marker {
+        match std::fs::read_to_string(&marker_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<RunMarkerPayload>(&raw).ok())
+        {
+            Some(marker) => {
+                log::warn!(
+                    "previous app run did not clear its marker: pid={} started_at={}",
+                    marker.pid,
+                    marker.started_at
+                );
+                Some(marker)
+            }
+            None => {
+                log::warn!("previous app run left an unreadable marker");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let marker = RunMarkerPayload {
+        app_version: app.package_info().version.to_string(),
+        pid: std::process::id(),
+        started_at: current_timestamp(),
+    };
+    crate::shared::write_json_file(&marker_path, &marker)?;
+
+    Ok(CrashRecoveryState(Mutex::new(CrashRecoveryPayload {
+        previous_crash_detected: had_previous_marker,
+        marker_path: marker_path.display().to_string(),
+        previous_started_at: previous_marker
+            .as_ref()
+            .map(|marker| marker.started_at.clone()),
+        previous_pid: previous_marker.as_ref().map(|marker| marker.pid),
+    })))
+}
+
+pub(crate) fn clear_crash_marker(app: &tauri::AppHandle) {
+    let Ok(marker_path) = crash_marker_path(app) else {
+        return;
+    };
+    if marker_path.exists() {
+        if let Err(error) = std::fs::remove_file(&marker_path) {
+            log::warn!(
+                "failed to clear app run marker '{}': {error}",
+                marker_path.display()
+            );
+        }
+    }
+}
+
+fn open_path(path: &Path) -> Result<(), AppError> {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("explorer");
+        command.arg(path);
+        command
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("open");
+        command.arg(path);
+        command
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(path);
+        command
+    };
+
+    command
+        .spawn()
+        .map_err(|error| AppError::Io(format!("failed to open log directory: {error}")))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn log_diagnostic_event(
     app: tauri::AppHandle,
@@ -110,7 +230,13 @@ pub(crate) fn load_diagnostics_snapshot(
     app: tauri::AppHandle,
 ) -> Result<DiagnosticsPayload, AppError> {
     let log_path = resolve_diagnostics_log_path(&app)?;
+    let app_log_dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| AppError::Io(format!("failed to resolve app log directory: {error}")))?;
     ensure_parent_dir(&log_path)?;
+    std::fs::create_dir_all(&app_log_dir)
+        .map_err(|error| AppError::Io(format!("failed to create app log directory: {error}")))?;
 
     let diagnostics_snapshot = if log_path.exists() {
         let raw = std::fs::read_to_string(&log_path)
@@ -129,9 +255,37 @@ pub(crate) fn load_diagnostics_snapshot(
     };
 
     Ok(DiagnosticsPayload {
+        app_version: app.package_info().version.to_string(),
+        platform: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        app_log_dir: app_log_dir.display().to_string(),
         diagnostics_log_path: log_path.display().to_string(),
         diagnostics_snapshot,
     })
+}
+
+#[tauri::command]
+pub(crate) fn open_app_log_dir(app: tauri::AppHandle) -> Result<(), AppError> {
+    let app_log_dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| AppError::Io(format!("failed to resolve app log directory: {error}")))?;
+    std::fs::create_dir_all(&app_log_dir)
+        .map_err(|error| AppError::Io(format!("failed to create app log directory: {error}")))?;
+    open_path(&app_log_dir)
+}
+
+#[tauri::command]
+pub(crate) fn load_crash_recovery_status(
+    state: tauri::State<'_, CrashRecoveryState>,
+) -> CrashRecoveryPayload {
+    match state.0.lock() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => {
+            log::warn!("crash recovery state mutex was poisoned; recovering");
+            poisoned.into_inner().clone()
+        }
+    }
 }
 
 #[tauri::command]

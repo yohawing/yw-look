@@ -306,37 +306,37 @@ fn log_texture_embed_error(
 ) {
     match (style, channel) {
         (TextureEmbedLogStyle::OpenUsdRs, TextureEmbedChannel::Diffuse) => {
-            eprintln!(
+            log::warn!(
                 "[usd] failed to load texture '{}' for material[{mat_idx}]: {err}",
                 tex_path
             );
         }
         (TextureEmbedLogStyle::OpenUsdRs, TextureEmbedChannel::Normal) => {
-            eprintln!(
+            log::warn!(
                 "[usd] failed to load normal map '{}' for material[{mat_idx}]: {err}",
                 tex_path
             );
         }
         (TextureEmbedLogStyle::OpenUsdRs, TextureEmbedChannel::MetallicRoughness) => {
-            eprintln!(
+            log::warn!(
                 "[usd] failed to load metallic/roughness texture '{}' for material[{mat_idx}]: {err}",
                 tex_path
             );
         }
         (TextureEmbedLogStyle::OpenUsdCpp, TextureEmbedChannel::Diffuse) => {
-            eprintln!(
+            log::warn!(
                 "[usd-cpp] texture '{}' for material[{mat_idx}] failed: {err}",
                 tex_path
             );
         }
         (TextureEmbedLogStyle::OpenUsdCpp, TextureEmbedChannel::Normal) => {
-            eprintln!(
+            log::warn!(
                 "[usd-cpp] normal map '{}' for material[{mat_idx}] failed: {err}",
                 tex_path
             );
         }
         (TextureEmbedLogStyle::OpenUsdCpp, TextureEmbedChannel::MetallicRoughness) => {
-            eprintln!(
+            log::warn!(
                 "[usd-cpp] ORM texture '{}' for material[{mat_idx}] failed: {err}",
                 tex_path
             );

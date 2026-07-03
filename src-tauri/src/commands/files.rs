@@ -154,7 +154,30 @@ fn load_recent_file_entries_from_path(
         write_json_file(&recent_files_path, &Vec::<RecentFileEntry>::new())?;
     }
 
-    let entries = read_json_file::<Vec<RecentFileEntry>>(&recent_files_path)?;
+    let entries = match read_json_file::<Vec<RecentFileEntry>>(&recent_files_path) {
+        Ok(entries) => entries,
+        Err(AppError::Serde(message)) => {
+            let backup_path = recent_files_path.with_file_name(format!(
+                "{RECENT_FILES_FILE_NAME}.corrupt-{}.bak",
+                current_timestamp()
+            ));
+            fs::copy(&recent_files_path, &backup_path).map_err(|error| {
+                AppError::Io(format!(
+                    "failed to back up corrupt recent files '{}': {error}",
+                    recent_files_path.display()
+                ))
+            })?;
+            log::warn!(
+                "recent files JSON was corrupt and has been reset: {}; backup={}",
+                message,
+                backup_path.display()
+            );
+            let entries = Vec::<RecentFileEntry>::new();
+            write_json_file(&recent_files_path, &entries)?;
+            entries
+        }
+        Err(error) => return Err(error),
+    };
     Ok((recent_files_path, entries))
 }
 
@@ -674,14 +697,26 @@ mod tests {
     }
 
     #[test]
-    fn load_recent_files_returns_serde_error_for_invalid_json() {
+    fn load_recent_files_recovers_invalid_json_with_backup() {
         let dir = tempdir().expect("tempdir");
         fs::write(recent_files_path(dir.path()), "{ invalid json").expect("write recent files");
 
-        let err =
-            load_recent_file_entries_from_path(dir.path()).expect_err("invalid json should fail");
+        let (_path, entries) =
+            load_recent_file_entries_from_path(dir.path()).expect("recover invalid json");
+        let backups = fs::read_dir(dir.path())
+            .expect("read tempdir")
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("recent-files.json.corrupt-")
+            })
+            .collect::<Vec<_>>();
 
-        assert!(matches!(err, AppError::Serde(_)));
+        assert!(entries.is_empty());
+        assert_eq!(backups.len(), 1);
+        assert!(read_entries(dir.path()).is_empty());
     }
 
     fn texture_fixtures_dir() -> PathBuf {

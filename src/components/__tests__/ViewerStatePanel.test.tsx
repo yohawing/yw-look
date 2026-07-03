@@ -86,7 +86,7 @@ describe("ViewerStatePanel", () => {
   });
 
   it("shows load failure details when available", () => {
-    const { getByText } = render(
+    const { getByRole, getByText } = render(
       <ViewerStatePanel
         detailMessage="USD task join error: task panicked"
         mode="loadFailed"
@@ -95,5 +95,8 @@ describe("ViewerStatePanel", () => {
 
     expect(getByText("Error details")).toBeTruthy();
     expect(getByText("USD task join error: task panicked")).toBeTruthy();
+    expect(getByRole("button", { name: "Copy Details" })).toBeTruthy();
+    expect(getByRole("button", { name: "Open Logs" })).toBeTruthy();
+    expect(getByRole("button", { name: "Report Issue" })).toBeTruthy();
   });
 });

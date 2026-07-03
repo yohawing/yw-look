@@ -1,4 +1,8 @@
+import { useState } from "react";
+import { loadDiagnosticsSnapshot, openAppLogDir } from "../lib/diagnostics";
+import { buildDiagnosticsReport, ISSUE_REPORT_URL } from "../lib/reporting";
 import type { SettingsPayload } from "../lib/settings";
+import { backendCapabilities } from "../lib/usd";
 import type { OptionalLoaderPackStatus } from "../viewer";
 import {
   SidebarEmpty,
@@ -72,6 +76,26 @@ export function SettingsCard({
   onRemoveOptionalLoaderPack,
   onToggleOptionalLoaderPack,
 }: SettingsCardProps) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+
+  const copyDiagnostics = async () => {
+    const diagnostics = await loadDiagnosticsSnapshot();
+    const capabilities = await backendCapabilities().catch(() => null);
+    const report = buildDiagnosticsReport({
+      capabilities,
+      diagnostics,
+      loaderPacks: optionalLoaderPacks,
+    });
+    try {
+      await navigator.clipboard.writeText(report);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+  };
+
   if (settingsError) {
     return (
       <SidebarSection title="Local Settings">
@@ -130,6 +154,35 @@ export function SettingsCard({
               />
             </span>
           </FieldRow>
+        </div>
+      </SidebarSection>
+      <SidebarSection title="Support" collapsible>
+        <div className="card-actions">
+          <Button
+            onClick={() => void copyDiagnostics()}
+            size="sm"
+            variant="ghost"
+          >
+            {copyState === "copied"
+              ? "Copied"
+              : copyState === "failed"
+                ? "Copy Failed"
+                : "Copy Diagnostics"}
+          </Button>
+          <Button
+            onClick={() => void openAppLogDir()}
+            size="sm"
+            variant="ghost"
+          >
+            Open Logs
+          </Button>
+          <Button
+            onClick={() => window.open(ISSUE_REPORT_URL, "_blank", "noopener")}
+            size="sm"
+            variant="ghost"
+          >
+            Report Issue
+          </Button>
         </div>
       </SidebarSection>
       <SidebarSection title="Optional Loader Packs" collapsible>

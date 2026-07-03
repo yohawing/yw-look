@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { error as logError } from "@tauri-apps/plugin-log";
 import { errorMessage } from "../lib/errors";
 import {
   AmbientLight,
@@ -6,8 +7,11 @@ import {
   Box3,
   DirectionalLight,
   Group,
+  Line,
+  LineSegments,
   Mesh,
   PerspectiveCamera,
+  Points,
   Scene,
   Vector3,
   WebGLRenderer,
@@ -70,8 +74,8 @@ export async function loadShotBatchConfig() {
   return invoke<ShotConfig[]>("get_shot_batch_config");
 }
 
-export async function finishShotRun(exitCode: number) {
-  await invoke("finish_shot_run", { exitCode });
+export async function finishShotRun(exitCode: number, message?: string | null) {
+  await invoke("finish_shot_run", { exitCode, message: message ?? null });
 }
 
 export async function writeShotOutput(dataUrl: string, caseIndex?: number) {
@@ -173,6 +177,21 @@ function countMeshes(object: Group | Mesh) {
   let count = 0;
   object.traverse((child) => {
     if (child instanceof Mesh) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function countRenderableObjects(object: Group | Mesh) {
+  let count = 0;
+  object.traverse((child) => {
+    if (
+      child instanceof Mesh ||
+      child instanceof Points ||
+      child instanceof Line ||
+      child instanceof LineSegments
+    ) {
       count += 1;
     }
   });
@@ -347,6 +366,11 @@ export async function runShot(
 
     outcome.loaded = true;
     outcome.meshCount = countMeshes(object);
+    if (config.mode === "check" && countRenderableObjects(object) === 0) {
+      throw new Error(
+        `No renderable geometry was loaded from ${selected.fileName}.`,
+      );
+    }
 
     if (config.mode === "shot") {
       await settleFrames(renderer, scene, camera, 3);
@@ -362,6 +386,11 @@ export async function runShot(
     }
   } catch (error) {
     outcome.error = errorMessage(error, "Shot case failed.");
+    try {
+      await logError(`[shot] ${config.fileName}: ${outcome.error}`);
+    } catch {
+      // Shot/check mode still returns the error through its outcome.
+    }
   } finally {
     if (object) {
       scene.remove(object);

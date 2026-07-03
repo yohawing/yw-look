@@ -62,7 +62,7 @@ pub(crate) fn compose_world_xform(
             }
             Ok(None) => {}
             Err(e) => {
-                eprintln!(
+                log::warn!(
                     "[usd] compose_prim_local_xform('{path_str}') failed, treating as identity: {e}"
                 );
             }

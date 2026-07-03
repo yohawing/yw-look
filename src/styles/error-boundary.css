@@ -1,0 +1,75 @@
+.app-error-boundary {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: var(--yl-surface-canvas);
+  color: var(--yl-text-secondary);
+  padding: 32px;
+}
+
+.app-error-boundary__panel {
+  display: grid;
+  width: min(720px, 100%);
+  gap: 14px;
+}
+
+.app-error-boundary__label {
+  margin: 0;
+  color: var(--yl-status-error);
+  font-family: var(--yl-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.app-error-boundary h1 {
+  margin: 0;
+  color: var(--yl-text-primary);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.app-error-boundary p {
+  margin: 0;
+  color: var(--yl-text-tertiary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.app-error-boundary__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-error-boundary__actions button {
+  min-height: 30px;
+  border: 1px solid var(--yl-button-border);
+  border-radius: var(--yl-radius-6);
+  background: var(--yl-button-bg);
+  color: var(--yl-button-text);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.app-error-boundary__actions button:hover {
+  background: var(--yl-button-bg-hover);
+}
+
+.app-error-boundary pre {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid rgba(255, 100, 100, 0.22);
+  border-radius: var(--yl-radius-6);
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--yl-text-secondary);
+  padding: 12px;
+  font-family: var(--yl-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
