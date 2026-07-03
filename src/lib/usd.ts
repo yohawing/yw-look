@@ -1,6 +1,7 @@
-import { readBinaryFile } from "./files";
+import { readBinaryFile, readBinaryFilePrefix } from "./files";
 import { errorMessage } from "./errors";
 import { invokeSafe } from "./invokeSafe";
+import { isTauriEnvironment } from "./platform";
 
 import type {
   StageLoadPolicy,
@@ -51,6 +52,11 @@ export type {
 
 const INVALID_VARIANT_SELECTION_PREFIX = "USD_INVALID_VARIANT_SELECTION\t";
 const USD_TASK_BUSY_MESSAGE = "USD_TASK_BUSY";
+const USD_FAST_DECISION_SCAN_BYTES = 64 * 1024;
+const USDC_MAGIC = new TextEncoder().encode("PXR-USDC");
+const USD_COMPOSITION_KEYWORDS = ["subLayers", "references", "payload"].map(
+  (keyword) => new TextEncoder().encode(keyword),
+);
 
 type UsdInvokeOptions = {
   background?: boolean;
@@ -215,6 +221,40 @@ function extensionFromPath(path: string) {
   return path.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() ?? "";
 }
 
+function bytesStartWith(bytes: Uint8Array, prefix: Uint8Array) {
+  if (bytes.byteLength < prefix.byteLength) {
+    return false;
+  }
+  return prefix.every((value, index) => bytes[index] === value);
+}
+
+function bytesInclude(bytes: Uint8Array, needle: Uint8Array) {
+  if (needle.byteLength === 0 || needle.byteLength > bytes.byteLength) {
+    return false;
+  }
+
+  const lastStart = bytes.byteLength - needle.byteLength;
+  for (let start = 0; start <= lastStart; start += 1) {
+    let matched = true;
+    for (let offset = 0; offset < needle.byteLength; offset += 1) {
+      if (bytes[start + offset] !== needle[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function bytesIncludeUsdCompositionKeyword(bytes: Uint8Array) {
+  return USD_COMPOSITION_KEYWORDS.some((keyword) =>
+    bytesInclude(bytes, keyword),
+  );
+}
+
 async function fastTextUsdRequiresGlbPreview(path: string) {
   const extension = extensionFromPath(path);
   if (extension === "usdc") {
@@ -228,16 +268,24 @@ async function fastTextUsdRequiresGlbPreview(path: string) {
   }
 
   try {
-    const buffer = new Uint8Array(await readBinaryFile(path));
-    if (new TextDecoder().decode(buffer.slice(0, 8)) === "PXR-USDC") {
+    const prefix = new Uint8Array(
+      await readBinaryFilePrefix(path, USD_FAST_DECISION_SCAN_BYTES),
+    );
+    if (bytesStartWith(prefix, USDC_MAGIC)) {
       return true;
     }
-    const source = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-    return (
-      source.includes("subLayers") ||
-      source.includes("references") ||
-      source.includes("payload")
-    );
+    if (bytesIncludeUsdCompositionKeyword(prefix)) {
+      return true;
+    }
+    if (prefix.byteLength < USD_FAST_DECISION_SCAN_BYTES) {
+      return false;
+    }
+    if (isTauriEnvironment()) {
+      return null;
+    }
+
+    const buffer = new Uint8Array(await readBinaryFile(path));
+    return bytesIncludeUsdCompositionKeyword(buffer);
   } catch {
     return null;
   }

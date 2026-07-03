@@ -186,6 +186,14 @@ export async function readBinaryFile(path: string) {
   return invokeFile<ArrayBuffer>("read_binary_file", { path });
 }
 
+export async function readBinaryFilePrefix(path: string, maxBytes: number) {
+  const browserFile = getBrowserFile(path);
+  if (browserFile) {
+    return browserFile.slice(0, maxBytes).arrayBuffer();
+  }
+  return invokeFile<ArrayBuffer>("read_binary_file_prefix", { path, maxBytes });
+}
+
 export async function getStartupFile() {
   if (!isTauriEnvironment()) {
     return null;

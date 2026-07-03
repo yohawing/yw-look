@@ -54,8 +54,8 @@
   --yl-success: #27a644;
   --yl-success-alt: #10b981;
 
-  --yl-border-subtle: rgba(255, 255, 255, 0.15);
-  --yl-border: rgba(255, 255, 255, 0.15);
+  --yl-border-subtle: rgba(255, 255, 255, 0.05);
+  --yl-border: rgba(255, 255, 255, 0.08);
   --yl-border-strong: rgba(255, 255, 255, 0.12);
   --yl-border-solid: #23252a;
 

@@ -5,6 +5,7 @@ import {
   listSupportedSiblings,
   openFileDialog,
   readBinaryFile,
+  readBinaryFilePrefix,
   registerBrowserFile,
   resolveSelectedFile,
 } from "../files";
@@ -36,6 +37,22 @@ describe("browser local files", () => {
     });
     expect(selected.path.startsWith("browser-local://")).toBe(true);
     expect(new Uint8Array(await readBinaryFile(selected.path))).toEqual(source);
+    expect(
+      new Uint8Array(await readBinaryFilePrefix(selected.path, 2)),
+    ).toEqual(source.slice(0, 2));
+  });
+
+  it("reads Tauri file prefixes through raw IPC", async () => {
+    isTauriMock.mockReturnValue(true);
+    invokeMock.mockResolvedValueOnce(new Uint8Array([1, 2, 3]).buffer);
+
+    await expect(
+      readBinaryFilePrefix("C:\\assets\\huge.usda", 65536),
+    ).resolves.toBeInstanceOf(ArrayBuffer);
+    expect(invokeMock).toHaveBeenCalledWith("read_binary_file_prefix", {
+      path: "C:\\assets\\huge.usda",
+      maxBytes: 65536,
+    });
   });
 
   it("resolves browser-local inspection and sibling listing without Tauri IPC", async () => {

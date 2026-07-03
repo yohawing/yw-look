@@ -466,6 +466,21 @@ pub(crate) fn read_binary_file(path: String) -> Result<tauri::ipc::Response, App
 }
 
 #[tauri::command]
+pub(crate) fn read_binary_file_prefix(
+    path: String,
+    max_bytes: usize,
+) -> Result<tauri::ipc::Response, AppError> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    let file = fs::File::open(normalized)
+        .map_err(|error| AppError::Io(format!("failed to open file bytes: {error}")))?;
+    let mut bytes = Vec::with_capacity(max_bytes);
+    file.take(max_bytes as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| AppError::Io(format!("failed to read file prefix: {error}")))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
 pub(crate) fn get_startup_file(
     app: tauri::AppHandle,
     pending: tauri::State<'_, PendingOpenFiles>,

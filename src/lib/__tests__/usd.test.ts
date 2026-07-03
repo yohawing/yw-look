@@ -1,18 +1,28 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   backendCapabilities,
   formatUsdErrorForDisplay,
   isUsdTaskBusyError,
   parseUsdError,
+  requiresGlbPreview,
 } from "../usd";
 import { errorMessage } from "../errors";
+import { readBinaryFilePrefix } from "../files";
 import type { AppError, BackendCapabilities } from "../../types/ipc";
 
+vi.mock("../files", () => ({
+  readBinaryFile: vi.fn(),
+  readBinaryFilePrefix: vi.fn(),
+}));
+
 const mockInvoke = vi.mocked(invoke);
+const isTauriMock = vi.mocked(isTauri);
+const readBinaryFilePrefixMock = vi.mocked(readBinaryFilePrefix);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  isTauriMock.mockReturnValue(true);
 });
 
 const invalidVariantMessage =
@@ -73,5 +83,51 @@ describe("USD error parsing", () => {
     expect(isUsdTaskBusyError({ kind: "internal", message: "other" })).toBe(
       false,
     );
+  });
+});
+
+describe("requiresGlbPreview fast text decision", () => {
+  function encoded(text: string) {
+    return new TextEncoder().encode(text).buffer;
+  }
+
+  it("decides text USDA composition from the prefix without backend IPC", async () => {
+    readBinaryFilePrefixMock.mockResolvedValueOnce(
+      encoded("#usda 1.0\ndef Xform { references = @asset.usda@ }"),
+    );
+
+    await expect(requiresGlbPreview("C:\\assets\\stage.usda")).resolves.toBe(
+      true,
+    );
+
+    expect(readBinaryFilePrefixMock).toHaveBeenCalledWith(
+      "C:\\assets\\stage.usda",
+      expect.any(Number),
+    );
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it("decides small plain USDA files from the prefix without decoding the whole file", async () => {
+    readBinaryFilePrefixMock.mockResolvedValueOnce(
+      encoded("#usda 1.0\ndef Xform {}"),
+    );
+
+    await expect(requiresGlbPreview("C:\\assets\\stage.usda")).resolves.toBe(
+      false,
+    );
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it("falls back to backend inspection when a Tauri USDA prefix is saturated", async () => {
+    readBinaryFilePrefixMock.mockResolvedValueOnce(new ArrayBuffer(64 * 1024));
+    mockInvoke.mockResolvedValueOnce(true);
+
+    await expect(requiresGlbPreview("C:\\assets\\stage.usda")).resolves.toBe(
+      true,
+    );
+
+    expect(mockInvoke).toHaveBeenCalledWith("requires_glb_preview", {
+      path: "C:\\assets\\stage.usda",
+    });
   });
 });

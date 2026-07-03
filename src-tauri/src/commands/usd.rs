@@ -1,3 +1,4 @@
+use std::io::Read as _;
 use std::path::PathBuf;
 use std::sync::{MutexGuard, TryLockError};
 
@@ -11,6 +12,9 @@ use crate::usd::{
 };
 
 const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
+const USD_FAST_DECISION_SCAN_BYTES: usize = 64 * 1024;
+const USDC_MAGIC: &[u8] = b"PXR-USDC";
+const USD_COMPOSITION_KEYWORDS: [&[u8]; 3] = [b"subLayers", b"references", b"payload"];
 
 fn map_usd_error(error: UsdError) -> AppError {
     AppError::Usd(error.to_string())
@@ -93,14 +97,27 @@ fn fast_usd_requires_glb_preview(path: &std::path::Path) -> Option<bool> {
         return None;
     }
 
-    let bytes = std::fs::read(path).ok()?;
-    if bytes.starts_with(b"PXR-USDC") {
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::with_capacity(USD_FAST_DECISION_SCAN_BYTES);
+    std::io::Read::by_ref(&mut file)
+        .take(USD_FAST_DECISION_SCAN_BYTES as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+
+    if bytes.starts_with(USDC_MAGIC) {
         return Some(true);
     }
-    let source = std::str::from_utf8(&bytes).ok()?;
-    Some(
-        source.contains("subLayers") || source.contains("references") || source.contains("payload"),
-    )
+    if USD_COMPOSITION_KEYWORDS.iter().any(|keyword| {
+        bytes
+            .windows(keyword.len())
+            .any(|window| window == *keyword)
+    }) {
+        return Some(true);
+    }
+    if bytes.len() < USD_FAST_DECISION_SCAN_BYTES {
+        return Some(false);
+    }
+    None
 }
 
 #[tauri::command]
@@ -347,4 +364,43 @@ pub(crate) async fn extract_geometry_session(
     .await
     .map_err(|e| AppError::Internal(format!("USD task join error: {e}")))??;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::{tempdir, TempDir};
+
+    fn write_usda(name: &str, bytes: &[u8]) -> (TempDir, std::path::PathBuf) {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join(name);
+        std::fs::write(&path, bytes).expect("write usda");
+        (dir, path)
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_detects_prefix_composition() {
+        let (_dir, path) = write_usda(
+            "composed.usda",
+            b"#usda 1.0\ndef Xform \"Root\" (references = @asset.usda@) {}",
+        );
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_accepts_small_plain_usda() {
+        let (_dir, path) = write_usda("plain.usda", b"#usda 1.0\ndef Xform \"Root\" {}");
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), Some(false));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_defers_saturated_plain_prefix() {
+        let mut bytes = b"#usda 1.0\n".to_vec();
+        bytes.resize(USD_FAST_DECISION_SCAN_BYTES, b' ');
+        let (_dir, path) = write_usda("large.usda", &bytes);
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), None);
+    }
 }

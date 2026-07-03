@@ -22,7 +22,8 @@ use crate::commands::diagnostics::{
 };
 use crate::commands::files::{
     get_startup_file, inspect_asset, list_supported_siblings, load_format_support,
-    load_recent_files, open_file_dialog, read_binary_file, resolve_selected_file,
+    load_recent_files, open_file_dialog, read_binary_file, read_binary_file_prefix,
+    resolve_selected_file,
 };
 use crate::commands::integrations::load_supported_extensions;
 use crate::commands::loader_packs::{
@@ -204,6 +205,7 @@ pub fn run() {
             resolve_selected_file,
             list_supported_siblings,
             read_binary_file,
+            read_binary_file_prefix,
             convert_alembic_to_preview,
             get_startup_file,
             load_recent_files,
