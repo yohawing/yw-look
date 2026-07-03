@@ -31,6 +31,7 @@ import {
   DEFAULT_PREVIEW_RENDERING_PRESET,
   getPreviewRenderingPresetForExtension,
 } from "../viewer";
+import { usePackFileRequest } from "../packs";
 import type { ViewerMode } from "../viewer";
 import { AssetViewportOverlay } from "./AssetViewportOverlay";
 import { emptyAnimationState, type AnimationState } from "./animation";
@@ -80,8 +81,8 @@ import { useSyncRef } from "../viewport/useSyncRef";
 import { useTexturePreview } from "../viewport/useTexturePreview";
 import { useViewportAnimation } from "../viewport/useViewportAnimation";
 import { useViewportSceneLifecycle } from "../viewport/useViewportSceneLifecycle";
-import { useMmdMotionRequest } from "../viewport/useMmdMotionRequest";
 import { mountLoadedPreview } from "../viewport/previewLoadMount";
+import { registerViewportCommandHandlers } from "../viewport/viewportCommands";
 
 export type {
   ViewerFeedback,
@@ -91,7 +92,6 @@ export type {
   TextureFilterMode,
   CameraPreset,
   BackgroundPreset,
-  CameraPresetRequest,
   EnvironmentPreset,
   ToneMappingMode,
 } from "../types/viewer";
@@ -104,13 +104,14 @@ export function AssetViewport({
   currentFile,
   disabledOptionalLoaderPackIds = [],
   incompatibleOptionalLoaderPackIds = [],
-  mmdMotionRequest,
+  packFileRequest,
   displayMode,
   backgroundPreset,
   onFeedbackChange,
   onOpenFile,
   onUsdError,
   onMetadataChange,
+  onPackMetadataChange,
   onResourceDiagnosticsChange,
   selectedTextureId,
   viewerSurfaceMode,
@@ -120,8 +121,6 @@ export function AssetViewport({
   textureWhitePoint,
   textureTileCount,
   textureGamma,
-  resetVersion,
-  viewportShortcutCommand,
   showGrid,
   showAxes,
   showSkeleton,
@@ -134,7 +133,6 @@ export function AssetViewport({
   environmentRotation,
   backfaceCulling,
   textureFilterMode,
-  cameraPresetRequest,
   controlSensitivity,
   cameraFov,
   renderScale,
@@ -160,7 +158,6 @@ export function AssetViewport({
   glbOverride = null,
   deferredProgress = null,
   onScaleNormalizationChange,
-  cancelScaleNormalizationVersion = 0,
 }: AssetViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
@@ -229,6 +226,8 @@ export function AssetViewport({
   // activeCameraIdRef is read inside the render loop / pointer handlers to
   // guard fly mode without causing the big scene-init effect to re-run.
   const activeCameraIdRef = useRef(activeCameraId);
+  const onFeedbackChangeRef = useRef(onFeedbackChange);
+  const onScaleNormalizationChangeRef = useRef(onScaleNormalizationChange);
   // #34 codex P2: callback used when a stale camera id survives a reload —
   // the post-load callback runs inside a Three.js Promise chain that does
   // not see prop changes, so we hold the latest setter in a ref.
@@ -264,6 +263,8 @@ export function AssetViewport({
   }, [activePreviewPath]);
 
   useSyncRef(onActiveCameraResetRef, onActiveCameraReset);
+  useSyncRef(onFeedbackChangeRef, onFeedbackChange);
+  useSyncRef(onScaleNormalizationChangeRef, onScaleNormalizationChange);
   useSyncRef(displayModeRef, displayMode);
   useSyncRef(backfaceCullingRef, backfaceCulling);
   useSyncRef(textureFilterModeRef, textureFilterMode);
@@ -398,6 +399,7 @@ export function AssetViewport({
     onFeedbackChange,
     onGridUnitChange,
     onMetadataChange,
+    onPackMetadataChange,
     onSelectMeshRef,
     publishResourceDiagnostics,
     renderScaleRef,
@@ -616,6 +618,8 @@ export function AssetViewport({
 
     runCleanupCallbacks(context.cleanupCallbacks);
     context.cleanupCallbacks = [];
+    context.packRuntime?.dispose();
+    context.packRuntime = null;
     stopAnimations(context);
     context.mmdModel = null;
     resetSceneObjects(context);
@@ -672,6 +676,7 @@ export function AssetViewport({
       context.controls.enabled = true;
       onFeedbackChange(neutralFeedback);
       onMetadataChange(null);
+      onPackMetadataChange(null);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
 
@@ -701,6 +706,7 @@ export function AssetViewport({
     );
     if (supportState !== "implemented") {
       onMetadataChange(null);
+      onPackMetadataChange(null);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
       onFeedbackChange(
@@ -737,6 +743,7 @@ export function AssetViewport({
         canResetCamera: false,
       });
       onMetadataChange(null);
+      onPackMetadataChange(null);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
       queueMicrotask(() => {
@@ -822,6 +829,7 @@ export function AssetViewport({
             onFeedbackChange,
             onGridUnitChange,
             onMetadataChange,
+            onPackMetadataChange,
             onScaleNormalizationChange,
             publishResourceDiagnostics,
             setActivePreviewPath,
@@ -860,6 +868,7 @@ export function AssetViewport({
           setErrorDetail(null);
           onFeedbackChange(neutralFeedback);
           onMetadataChange(null);
+          onPackMetadataChange(null);
           assetResourceMetricsRef.current = null;
           publishResourceDiagnostics(context);
           setLoadingStage(null);
@@ -909,6 +918,7 @@ export function AssetViewport({
               )
             : null,
         );
+        onPackMetadataChange(null);
         assetResourceMetricsRef.current = null;
         publishResourceDiagnostics(context);
 
@@ -938,6 +948,8 @@ export function AssetViewport({
       }
       runCleanupCallbacks(context.cleanupCallbacks);
       context.cleanupCallbacks = [];
+      context.packRuntime?.dispose();
+      context.packRuntime = null;
       stopAnimations(context);
       context.mmdModel = null;
       resetSceneObjects(context);
@@ -953,6 +965,7 @@ export function AssetViewport({
     onUsdError,
     onGridUnitChange,
     onMetadataChange,
+    onPackMetadataChange,
     onScaleNormalizationChange,
     showGrid,
     usdLoadPolicy,
@@ -963,10 +976,10 @@ export function AssetViewport({
     publishResourceDiagnostics,
   ]);
 
-  useMmdMotionRequest({
+  usePackFileRequest({
     currentFileName: currentFile?.fileName,
-    mmdMotionRequest,
     onFeedbackChange,
+    request: packFileRequest,
     sceneContextRef,
     setAnimationState,
   });
@@ -1038,58 +1051,46 @@ export function AssetViewport({
   });
 
   useEffect(() => {
-    resetCameraRef.current?.();
-  }, [resetVersion]);
+    return registerViewportCommandHandlers({
+      applyCameraPreset: (preset) =>
+        applyCameraPresetToMountedObject(
+          sceneContextRef.current,
+          viewerSurfaceModeRef.current,
+          preset,
+        ),
+      applyShortcutCommand: (command) =>
+        applyViewportShortcutCommand({
+          cameraSpeedMultiplier: cameraSpeedMultiplierRef.current,
+          command,
+          context: sceneContextRef.current,
+          purposeModes: purposeModesRef.current,
+          showAxes: showAxesRef.current,
+          showGrid: showGridRef.current,
+          texturePreview3D: texturePreview3DRef.current,
+          viewerSurfaceMode: viewerSurfaceModeRef.current,
+        }),
+      cancelScaleNormalization: () => {
+        const context = sceneContextRef.current;
+        const object = context?.mountedObject ?? null;
+        const info = scaleNormalizationRef.current;
+        if (!object || !info?.applied) {
+          return false;
+        }
 
-  useEffect(() => {
-    if (cancelScaleNormalizationVersion === 0) return;
-    const context = sceneContextRef.current;
-    const object = context?.mountedObject ?? null;
-    const info = scaleNormalizationRef.current;
-    if (!object || !info?.applied) return;
-    cancelScaleNormalization(object, info.originalScale);
-    scaleNormalizationRef.current = null;
-    onScaleNormalizationChange?.({ applied: false, factor: 1 });
-    onFeedbackChange({
-      mode: "ready",
-      message: `Scale normalization canceled.`,
-      warning: null,
-      canResetCamera: true,
+        cancelScaleNormalization(object, info.originalScale);
+        scaleNormalizationRef.current = null;
+        onScaleNormalizationChangeRef.current?.({ applied: false, factor: 1 });
+        onFeedbackChangeRef.current({
+          mode: "ready",
+          message: `Scale normalization canceled.`,
+          warning: null,
+          canResetCamera: true,
+        });
+        return true;
+      },
+      resetCamera: () => resetCameraRef.current?.(),
     });
-  }, [
-    cancelScaleNormalizationVersion,
-    onScaleNormalizationChange,
-    onFeedbackChange,
-  ]);
-
-  useEffect(() => {
-    if (!viewportShortcutCommand) {
-      return;
-    }
-
-    applyViewportShortcutCommand({
-      cameraSpeedMultiplier: cameraSpeedMultiplierRef.current,
-      command: viewportShortcutCommand,
-      context: sceneContextRef.current,
-      purposeModes: purposeModesRef.current,
-      showAxes: showAxesRef.current,
-      showGrid: showGridRef.current,
-      texturePreview3D: texturePreview3DRef.current,
-      viewerSurfaceMode: viewerSurfaceModeRef.current,
-    });
-  }, [viewportShortcutCommand]);
-
-  useEffect(() => {
-    if (!cameraPresetRequest) {
-      return;
-    }
-
-    applyCameraPresetToMountedObject(
-      sceneContextRef.current,
-      viewerSurfaceModeRef.current,
-      cameraPresetRequest.preset,
-    );
-  }, [cameraPresetRequest]);
+  }, []);
 
   const {
     hasAnimation,

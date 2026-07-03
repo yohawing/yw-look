@@ -1,14 +1,19 @@
 import { useCallback, useMemo } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { DisplayMode } from "../components/AssetViewport";
+import { deriveDisplayMode } from "./displayMode";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { errorMessage } from "../lib/errors";
 import { formatShortcut, menuShortcuts, type MenuActionId } from "../lib/menu";
 import {
   applyViewerShortcutAction,
   viewerShortcutHelpLines,
   type ViewerShortcutAction,
 } from "../lib/viewerShortcuts";
+import {
+  requestViewportCameraReset,
+  requestViewportShortcutCommand,
+} from "../viewport/viewportCommands";
 import type { FileState } from "../stores/fileStore";
 import { useFileStore } from "../stores/fileStore";
 import { useUiStore } from "../stores/uiStore";
@@ -23,7 +28,6 @@ type UseAppCommandsOptions = {
   canNavigateNext: boolean;
   canNavigatePrev: boolean;
   directoryListing: FileState["directoryListing"];
-  displayMode: DisplayMode;
   handleOpenFile: () => Promise<void>;
   isTauri: boolean;
   performSelectFilePath: PerformSelectFilePath;
@@ -33,7 +37,6 @@ export function useAppCommands({
   canNavigateNext,
   canNavigatePrev,
   directoryListing,
-  displayMode,
   handleOpenFile,
   isTauri,
   performSelectFilePath,
@@ -50,8 +53,9 @@ export function useAppCommands({
   const selectedUsdPrimPath = useViewerStore(
     (state) => state.selectedUsdPrimPath,
   );
-  const viewportShortcutCommand = useViewerStore(
-    (state) => state.viewportShortcutCommand,
+  const displayMode = useMemo(
+    () => deriveDisplayMode(showTexture, showWireframe),
+    [showTexture, showWireframe],
   );
 
   const shortcutLines = useMemo(
@@ -142,7 +146,7 @@ export function useAppCommands({
           useViewerStore.getState().toggleShowGrid();
           return;
         case "view.resetCamera":
-          useViewerStore.getState().bumpResetVersion();
+          requestViewportCameraReset();
           return;
         case "view.toggleSidebar":
           toggleSidebarOpen();
@@ -191,7 +195,6 @@ export function useAppCommands({
           showGrid,
           selectedMeshName,
           selectedUsdPrimPath,
-          viewportCommand: viewportShortcutCommand,
         },
         action,
         displayMode,
@@ -213,8 +216,8 @@ export function useAppCommands({
       if (nextState.selectedUsdPrimPath !== selectedUsdPrimPath) {
         viewer.setSelectedUsdPrimPath(nextState.selectedUsdPrimPath);
       }
-      if (nextState.viewportCommand !== viewportShortcutCommand) {
-        viewer.setViewportShortcutCommand(nextState.viewportCommand);
+      if (nextState.viewportCommand) {
+        requestViewportShortcutCommand(nextState.viewportCommand);
       }
     },
     [
@@ -224,15 +227,12 @@ export function useAppCommands({
       showGrid,
       showTexture,
       showWireframe,
-      viewportShortcutCommand,
     ],
   );
 
   const handleNavigateError = useCallback(
     (error: unknown) => {
-      setOpenError(
-        error instanceof Error ? error.message : "Failed to navigate to file.",
-      );
+      setOpenError(errorMessage(error, "Failed to navigate to file."));
     },
     [setOpenError],
   );

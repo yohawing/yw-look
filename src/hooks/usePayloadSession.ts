@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFERRED_PAYLOAD_PREVIEW_LIMITS } from "../config/viewerLimits";
+import { deferEffectStateUpdate } from "../lib/deferEffectStateUpdate";
+import { errorMessage } from "../lib/errors";
 import { isUsdFile, type SelectedFile } from "../lib/files";
-import { errorMessage } from "../lib/invokeSafe";
 import {
   backendCapabilities,
   closeStageSession,
@@ -65,6 +66,14 @@ function payloadOperationWarning(
   return `Could not ${action} payload: ${primPath} - ${detail}`;
 }
 
+function payloadOperationBusyTimeout(
+  operation: "load" | "unload",
+  primPath: string,
+) {
+  const action = operation === "load" ? "loading" : "unloading";
+  return new Error(`USD task stayed busy while ${action} ${primPath}.`);
+}
+
 function appendViewerWarning(
   currentWarning: string | null,
   nextWarning: string,
@@ -77,6 +86,53 @@ function appendViewerWarning(
     warnings.push(nextWarning);
   }
   return warnings.length > 0 ? warnings.join("\n") : null;
+}
+
+type PayloadOperation = "load" | "unload";
+
+function isSessionStale(
+  current: StageSessionHandle | null,
+  captured: StageSessionHandle,
+): boolean {
+  return current !== captured;
+}
+
+function isDeferredPreviewAborted(
+  current: StageSessionHandle | null,
+  captured: StageSessionHandle,
+  cancelled: boolean,
+): boolean {
+  return cancelled || isSessionStale(current, captured);
+}
+
+async function retryWhileBusy<T>(
+  task: () => Promise<T>,
+  options: {
+    shouldAbort?: () => boolean;
+    onBusyRetry?: () => void;
+  } = {},
+): Promise<T | undefined> {
+  for (
+    let attempt = 0;
+    attempt <= DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxBusyRetries;
+    attempt += 1
+  ) {
+    try {
+      return await task();
+    } catch (error) {
+      if (!isUsdTaskBusyError(error)) {
+        throw error;
+      }
+      if (options.shouldAbort?.()) {
+        return undefined;
+      }
+      options.onBusyRetry?.();
+      await yieldDeferredPreviewFrame(
+        DEFERRED_PAYLOAD_PREVIEW_LIMITS.busyRetryMs,
+      );
+    }
+  }
+  return undefined;
 }
 
 export function usePayloadSession(
@@ -117,7 +173,9 @@ export function usePayloadSession(
     deferredPreviewSessionRef.current = null;
     sessionLoadedPayloadPathsRef.current = new Set();
 
-    setDeferredPayloadProgress(null);
+    return deferEffectStateUpdate(() => {
+      setDeferredPayloadProgress(null);
+    });
   }, [stageSessionHandle]);
 
   useEffect(() => {
@@ -136,15 +194,17 @@ export function usePayloadSession(
       !currentFile ||
       !previewReadyForDeferredPayloads
     ) {
-      setStageSessionHandle(null);
-      setUnloadedPayloadPaths(new Set());
-      return;
+      return deferEffectStateUpdate(() => {
+        setStageSessionHandle(null);
+        setUnloadedPayloadPaths(new Set());
+      });
     }
 
     if (usdLoadPolicy !== "noPayloads") {
-      setStageSessionHandle(null);
-      setUnloadedPayloadPaths(new Set());
-      return;
+      return deferEffectStateUpdate(() => {
+        setStageSessionHandle(null);
+        setUnloadedPayloadPaths(new Set());
+      });
     }
 
     let cancelled = false;
@@ -162,25 +222,13 @@ export function usePayloadSession(
         }
         return;
       }
-      for (
-        let attempt = 0;
-        attempt <= DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxBusyRetries;
-        attempt += 1
-      ) {
-        try {
-          return await openStageSession(path, "noPayloads", {
+      return retryWhileBusy(
+        () =>
+          openStageSession(path, "noPayloads", {
             background: true,
-          });
-        } catch (error) {
-          if (!isUsdTaskBusyError(error) || cancelled) {
-            throw error;
-          }
-          await yieldDeferredPreviewFrame(
-            DEFERRED_PAYLOAD_PREVIEW_LIMITS.busyRetryMs,
-          );
-        }
-      }
-      return undefined;
+          }),
+        { shouldAbort: () => cancelled },
+      );
     };
 
     openSession()
@@ -216,8 +264,9 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (stageSessionHandle === null) {
-      setSessionGlbBuffer(null);
-      return;
+      return deferEffectStateUpdate(() => {
+        setSessionGlbBuffer(null);
+      });
     }
     if (sessionGlbBufferRef.current === null) {
       return;
@@ -245,9 +294,10 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (!usdInspection || usdLoadPolicy !== "noPayloads") {
-      setPayloadPrimPaths(new Set());
-      setUnloadedPayloadPaths(new Set());
-      return;
+      return deferEffectStateUpdate(() => {
+        setPayloadPrimPaths(new Set());
+        setUnloadedPayloadPaths(new Set());
+      });
     }
     const allPayloads = new Set(
       usdInspection.payloads.map((arc) => arc.sourcePrim),
@@ -260,8 +310,10 @@ export function usePayloadSession(
     for (const primPath of sessionLoadedPayloadPathsRef.current) {
       unloaded.delete(primPath);
     }
-    setPayloadPrimPaths(allPayloads);
-    setUnloadedPayloadPaths(unloaded);
+    return deferEffectStateUpdate(() => {
+      setPayloadPrimPaths(allPayloads);
+      setUnloadedPayloadPaths(unloaded);
+    });
   }, [usdInspection, usdLoadPolicy]);
 
   const buildSessionExtractOptions = useCallback(
@@ -274,7 +326,7 @@ export function usePayloadSession(
   );
 
   const reportPayloadOperationFailure = useCallback(
-    (operation: "load" | "unload", primPath: string, error: unknown) => {
+    (operation: PayloadOperation, primPath: string, error: unknown) => {
       const warning = appendViewerWarning(
         viewerWarningRef.current,
         payloadOperationWarning(operation, primPath, error),
@@ -289,86 +341,96 @@ export function usePayloadSession(
     [updateViewerFeedback],
   );
 
-  const handleLoadPayload = useCallback(
-    async (primPath: string) => {
-      const captured = stageSessionHandle;
-      if (captured === null) return;
-      try {
-        await loadPayload(captured, primPath);
-        if (stageSessionHandleRef.current !== captured) return;
+  const updatePayloadPathState = useCallback(
+    (operation: PayloadOperation, primPath: string) => {
+      if (operation === "load") {
         sessionLoadedPayloadPathsRef.current.add(primPath);
-        setUnloadedPayloadPaths((prev) => {
-          const next = new Set(prev);
-          next.delete(primPath);
-          return next;
-        });
-      } catch (err: unknown) {
-        if (stageSessionHandleRef.current !== captured) return;
-        console.error("[usd] load_payload failed:", err);
-        reportPayloadOperationFailure("load", primPath, err);
-        return;
+      } else {
+        sessionLoadedPayloadPathsRef.current.delete(primPath);
       }
+      setUnloadedPayloadPaths((prev) => {
+        const next = new Set(prev);
+        if (operation === "load") {
+          next.delete(primPath);
+        } else {
+          next.add(primPath);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const reextractSessionGeometry = useCallback(
+    async (captured: StageSessionHandle, operation: PayloadOperation) => {
       try {
         const glbBuffer = await extractGeometrySession(
           captured,
           buildSessionExtractOptions(),
         );
-        if (stageSessionHandleRef.current !== captured) return;
+        if (isSessionStale(stageSessionHandleRef.current, captured)) return;
         setSessionGlbBuffer(glbBuffer);
       } catch (err: unknown) {
-        if (stageSessionHandleRef.current !== captured) return;
-        console.warn("[usd] session re-extract after load failed:", err);
+        if (isSessionStale(stageSessionHandleRef.current, captured)) return;
+        console.warn(
+          `[usd] session re-extract after ${operation} failed:`,
+          err,
+        );
         recordVariantSelectionError(err);
         setSessionGlbBuffer(null);
       }
     },
+    [buildSessionExtractOptions, recordVariantSelectionError],
+  );
+
+  const runPayloadMutation = useCallback(
+    async (operation: PayloadOperation, primPath: string) => {
+      const captured = stageSessionHandle;
+      if (captured === null) return;
+      const mutatePayload = operation === "load" ? loadPayload : unloadPayload;
+      try {
+        const mutationCompleted = await retryWhileBusy(
+          () => mutatePayload(captured, primPath).then(() => true),
+          {
+            shouldAbort: () =>
+              isSessionStale(stageSessionHandleRef.current, captured),
+          },
+        );
+        if (mutationCompleted === undefined) {
+          if (isSessionStale(stageSessionHandleRef.current, captured)) return;
+          reportPayloadOperationFailure(
+            operation,
+            primPath,
+            payloadOperationBusyTimeout(operation, primPath),
+          );
+          return;
+        }
+        if (isSessionStale(stageSessionHandleRef.current, captured)) return;
+        updatePayloadPathState(operation, primPath);
+      } catch (err: unknown) {
+        if (isSessionStale(stageSessionHandleRef.current, captured)) return;
+        console.error(`[usd] ${operation}_payload failed:`, err);
+        reportPayloadOperationFailure(operation, primPath, err);
+        return;
+      }
+      await reextractSessionGeometry(captured, operation);
+    },
     [
       stageSessionHandle,
-      buildSessionExtractOptions,
-      recordVariantSelectionError,
+      reextractSessionGeometry,
       reportPayloadOperationFailure,
+      updatePayloadPathState,
     ],
   );
 
+  const handleLoadPayload = useCallback(
+    (primPath: string) => runPayloadMutation("load", primPath),
+    [runPayloadMutation],
+  );
+
   const handleUnloadPayload = useCallback(
-    async (primPath: string) => {
-      const captured = stageSessionHandle;
-      if (captured === null) return;
-      try {
-        await unloadPayload(captured, primPath);
-        if (stageSessionHandleRef.current !== captured) return;
-        sessionLoadedPayloadPathsRef.current.delete(primPath);
-        setUnloadedPayloadPaths((prev) => {
-          const next = new Set(prev);
-          next.add(primPath);
-          return next;
-        });
-      } catch (err: unknown) {
-        if (stageSessionHandleRef.current !== captured) return;
-        console.error("[usd] unload_payload failed:", err);
-        reportPayloadOperationFailure("unload", primPath, err);
-        return;
-      }
-      try {
-        const glbBuffer = await extractGeometrySession(
-          captured,
-          buildSessionExtractOptions(),
-        );
-        if (stageSessionHandleRef.current !== captured) return;
-        setSessionGlbBuffer(glbBuffer);
-      } catch (err: unknown) {
-        if (stageSessionHandleRef.current !== captured) return;
-        console.warn("[usd] session re-extract after unload failed:", err);
-        recordVariantSelectionError(err);
-        setSessionGlbBuffer(null);
-      }
-    },
-    [
-      stageSessionHandle,
-      buildSessionExtractOptions,
-      recordVariantSelectionError,
-      reportPayloadOperationFailure,
-    ],
+    (primPath: string) => runPayloadMutation("unload", primPath),
+    [runPayloadMutation],
   );
 
   useEffect(() => {
@@ -408,17 +470,18 @@ export function usePayloadSession(
         await yieldDeferredPreviewFrame(
           DEFERRED_PAYLOAD_PREVIEW_LIMITS.startDelayMs,
         );
-        if (cancelled || stageSessionHandleRef.current !== captured) {
+        if (
+          isDeferredPreviewAborted(
+            stageSessionHandleRef.current,
+            captured,
+            cancelled,
+          )
+        ) {
           return;
         }
-        let glbBuffer: ArrayBuffer | null = null;
-        for (
-          let attempt = 0;
-          attempt <= DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxBusyRetries;
-          attempt += 1
-        ) {
-          try {
-            glbBuffer = await extractGeometry(
+        const glbBuffer = await retryWhileBusy(
+          () =>
+            extractGeometry(
               currentFile.path,
               {
                 policy: "loadAll",
@@ -426,33 +489,45 @@ export function usePayloadSession(
                 purposeModes,
               },
               { background: true },
-            );
-            break;
-          } catch (error) {
-            if (!isUsdTaskBusyError(error)) {
-              throw error;
-            }
-            if (cancelled || stageSessionHandleRef.current !== captured) {
-              return;
-            }
-            setDeferredPayloadProgress({
-              kind: "payload",
-              total: previewPayloads.length,
-              loaded: 0,
-              failed: 0,
-              pending: previewPayloads.length,
-              activeLabel: "Waiting for USD task slot",
-            });
-            await yieldDeferredPreviewFrame(
-              DEFERRED_PAYLOAD_PREVIEW_LIMITS.busyRetryMs,
-            );
+            ),
+          {
+            shouldAbort: () =>
+              isDeferredPreviewAborted(
+                stageSessionHandleRef.current,
+                captured,
+                cancelled,
+              ),
+            onBusyRetry: () => {
+              setDeferredPayloadProgress({
+                kind: "payload",
+                total: previewPayloads.length,
+                loaded: 0,
+                failed: 0,
+                pending: previewPayloads.length,
+                activeLabel: "Waiting for USD task slot",
+              });
+            },
+          },
+        );
+        if (glbBuffer === undefined) {
+          if (
+            !isDeferredPreviewAborted(
+              stageSessionHandleRef.current,
+              captured,
+              cancelled,
+            )
+          ) {
+            setDeferredPayloadProgress(null);
           }
-        }
-        if (glbBuffer === null) {
-          setDeferredPayloadProgress(null);
           return;
         }
-        if (cancelled || stageSessionHandleRef.current !== captured) {
+        if (
+          isDeferredPreviewAborted(
+            stageSessionHandleRef.current,
+            captured,
+            cancelled,
+          )
+        ) {
           return;
         }
         setSessionGlbBuffer(glbBuffer);
@@ -465,7 +540,15 @@ export function usePayloadSession(
           );
         }
       } catch (err: unknown) {
-        if (cancelled || stageSessionHandleRef.current !== captured) return;
+        if (
+          isDeferredPreviewAborted(
+            stageSessionHandleRef.current,
+            captured,
+            cancelled,
+          )
+        ) {
+          return;
+        }
         console.warn("[usd] deferred preview payload load failed:", err);
         setDeferredPayloadProgress(null);
       }

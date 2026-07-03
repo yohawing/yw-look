@@ -29,7 +29,6 @@ function baseState(
     showGrid: true,
     selectedMeshName: "/World/Cube",
     selectedUsdPrimPath: "/World/Cube",
-    viewportCommand: null,
     ...overrides,
   };
 }
@@ -53,7 +52,6 @@ describe("viewer shortcuts", () => {
     expect(next.viewportCommand).toMatchObject({
       kind: "focusSelected",
       selectionKey: "/World/Cube",
-      version: 1,
     });
   });
 
@@ -61,7 +59,6 @@ describe("viewer shortcuts", () => {
     const next = applyKey("Home");
     expect(next.viewportCommand).toMatchObject({
       kind: "frameAll",
-      version: 1,
     });
   });
 
@@ -69,7 +66,6 @@ describe("viewer shortcuts", () => {
     const next = applyKey("r");
     expect(next.viewportCommand).toMatchObject({
       kind: "resetView",
-      version: 1,
     });
   });
 
@@ -84,7 +80,6 @@ describe("viewer shortcuts", () => {
     expect(next.viewportCommand).toMatchObject({
       kind: "hideSelected",
       selectionKey: "/World/Cube",
-      version: 1,
     });
   });
 
@@ -93,7 +88,6 @@ describe("viewer shortcuts", () => {
     expect(next.viewportCommand).toMatchObject({
       kind: "isolateSelected",
       selectionKey: "/World/Cube",
-      version: 1,
     });
   });
 
@@ -101,7 +95,6 @@ describe("viewer shortcuts", () => {
     const next = applyKey("h", "textured", baseState(), { altKey: true });
     expect(next.viewportCommand).toMatchObject({
       kind: "unhideAll",
-      version: 1,
     });
   });
 

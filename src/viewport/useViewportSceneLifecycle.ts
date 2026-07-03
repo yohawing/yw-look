@@ -7,12 +7,12 @@ import {
   PMREMGenerator,
   Scene,
   Texture,
-  Vector2,
   WebGLRenderTarget,
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import type { PackMetadata } from "../types/format-pack";
 import {
   DEFAULT_LIGHTING_PRESET,
   DEFAULT_SCENE_DIMENSION,
@@ -21,28 +21,24 @@ import {
   ensureShadowCatcher,
   getPreviewRenderingPresetForExtension,
   neutralFeedback,
-  resetSceneObjects,
-  revokeUrls,
-  stopAnimations,
   type SceneContext,
 } from "../viewer";
-import { syncPerspectiveCameraAspect } from "./camera";
-import {
-  applyControlSensitivity,
-  configureAssetControls,
-  frameMountedObject,
-} from "./camera";
+import { applyControlSensitivity, configureAssetControls } from "./camera";
 import { createEnvironmentTarget } from "./environment";
 import type { FxaaComposerState } from "./fxaa";
 import { createFlyCameraControls } from "./flyCamera";
-import { RESOURCE_DIAGNOSTICS_SAMPLE_MS } from "./resourceDiagnostics";
 import { createViewportPicker } from "./selection";
 import {
   applyViewportBackground,
   applyViewportRenderingSettings,
-  runCleanupCallbacks,
 } from "./renderSettings";
-import { updateRuntimePreview } from "./previewSupport";
+import {
+  createViewportRuntimeStatsState,
+  tickViewportFrame,
+} from "./viewportFrame";
+import { createViewportPointerInput } from "./viewportPointerInput";
+import { applyViewportResize } from "./viewportResize";
+import { disposeViewportScene } from "./viewportSceneDispose";
 import type {
   AssetMetadata,
   BackgroundPreset,
@@ -79,6 +75,7 @@ type ViewportSceneLifecycleOptions = {
   onFeedbackChange: (feedback: ViewerFeedback) => void;
   onGridUnitChange: (label: string) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
+  onPackMetadataChange: (metadata: PackMetadata | null) => void;
   onSelectMeshRef: MutableRefObject<
     ((meshName: string | null) => void) | undefined
   >;
@@ -120,6 +117,7 @@ export function useViewportSceneLifecycle({
   onFeedbackChange,
   onGridUnitChange,
   onMetadataChange,
+  onPackMetadataChange,
   onSelectMeshRef,
   publishResourceDiagnostics,
   renderScaleRef,
@@ -255,72 +253,16 @@ export function useViewportSceneLifecycle({
       hasMountedObject: () => Boolean(sceneContextRef.current?.mountedObject),
     });
 
-    const CLICK_DRAG_PX = 4;
     const viewportPicker = createViewportPicker(camera, renderer.domElement);
-    let clickStart: { x: number; y: number; button: number } | null = null;
-
-    const performPick = (event: PointerEvent): void => {
-      const callback = onSelectMeshRef.current;
-      if (!callback) return;
-      const mounted = sceneContextRef.current?.mountedObject;
-      if (!mounted) {
-        callback(null);
-        return;
-      }
-      callback(viewportPicker.pickSelectionKey(mounted, event));
-    };
-
-    const pointerDownHandler = (event: PointerEvent) => {
-      if (event.button === 0) {
-        clickStart = {
-          x: event.clientX,
-          y: event.clientY,
-          button: event.button,
-        };
-      } else {
-        clickStart = null;
-      }
-
-      if (!sceneContextRef.current?.mountedObject) {
-        controls.enabled = false;
-        return;
-      }
-
-      if (viewerSurfaceModeRef.current === "texture") {
-        controls.enabled = true;
-        return;
-      }
-
-      if (event.button === 2) {
-        flyCameraControls.enter();
-        return;
-      }
-
-      controls.enabled = event.button === 0 || event.button === 1;
-    };
-
-    const pointerUpHandler = (event: PointerEvent) => {
-      if (event.button === 2 && flyCameraControls.isActive()) {
-        flyCameraControls.exit();
-        return;
-      }
-      if (
-        clickStart &&
-        event.button === 0 &&
-        clickStart.button === 0 &&
-        Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) <
-          CLICK_DRAG_PX &&
-        viewerSurfaceModeRef.current !== "texture"
-      ) {
-        performPick(event);
-      }
-      clickStart = null;
-      controls.enabled = Boolean(sceneContextRef.current?.mountedObject);
-    };
-
-    const contextMenuHandler = (event: MouseEvent) => {
-      event.preventDefault();
-    };
+    const { contextMenuHandler, pointerDownHandler, pointerUpHandler } =
+      createViewportPointerInput({
+        controls,
+        flyCameraControls,
+        getMountedObject: () => sceneContextRef.current?.mountedObject,
+        getSelectMesh: () => onSelectMeshRef.current,
+        getViewerSurfaceMode: () => viewerSurfaceModeRef.current,
+        picker: viewportPicker,
+      });
 
     renderer.domElement.addEventListener("pointerdown", pointerDownHandler);
     window.addEventListener("pointerup", pointerUpHandler);
@@ -333,114 +275,51 @@ export function useViewportSceneLifecycle({
     host.appendChild(labelRenderer.domElement);
 
     const resizeObserver = new ResizeObserver(() => {
-      const nextSize = new Vector2(host.clientWidth, host.clientHeight);
-      renderer.setSize(nextSize.x, nextSize.y);
-      labelRenderer.setSize(nextSize.x, nextSize.y);
-      camera.aspect = nextSize.x / nextSize.y;
-      camera.updateProjectionMatrix();
-      const usdCam = activeCameraRef.current;
-      if (usdCam instanceof PerspectiveCamera && nextSize.y > 0) {
-        syncPerspectiveCameraAspect(usdCam, host);
-      }
-
-      const fxaaState = fxaaStateRef.current;
-      if (fxaaState) {
-        fxaaState.composer.setSize(nextSize.x, nextSize.y);
-        const pixelRatio = renderer.getPixelRatio();
-        fxaaState.fxaaPass.material.uniforms.resolution.value.set(
-          1 / (nextSize.x * pixelRatio),
-          1 / (nextSize.y * pixelRatio),
-        );
-      }
-
-      const resizeContext = sceneContextRef.current;
-      const mountedObject = resizeContext?.mountedObject;
-      if (
-        resizeContext &&
-        mountedObject &&
-        viewerSurfaceModeRef.current === "texture"
-      ) {
-        frameMountedObject(
-          resizeContext,
-          mountedObject,
-          viewerSurfaceModeRef.current,
-          showGridRef.current,
-          showAxesRef.current,
-          cameraSpeedMultiplierRef.current,
-          undefined,
-          texturePreview3DRef.current,
-        );
-      }
-
-      const renderCamera = activeCameraRef.current ?? camera;
-      if (fxaaEnabledRef.current && fxaaStateRef.current) {
-        fxaaStateRef.current.renderPass.camera = renderCamera;
-        fxaaStateRef.current.composer.render();
-      } else {
-        renderer.render(scene, renderCamera);
-      }
-      labelRenderer.render(scene, renderCamera);
+      applyViewportResize({
+        activeCamera: activeCameraRef.current,
+        cameraSpeedMultiplier: cameraSpeedMultiplierRef.current,
+        defaultCamera: camera,
+        fxaaEnabled: fxaaEnabledRef.current,
+        fxaaState: fxaaStateRef.current,
+        host,
+        labelRenderer,
+        renderer,
+        scene,
+        sceneContext: sceneContextRef.current,
+        showAxes: showAxesRef.current,
+        showGrid: showGridRef.current,
+        texturePreview3D: texturePreview3DRef.current,
+        viewerSurfaceMode: viewerSurfaceModeRef.current,
+      });
     });
 
     resizeObserver.observe(host);
 
-    let statsLastSampled = performance.now();
-    let statsFrameCount = 0;
-    let statsLastFps = 0;
-    let resourceDiagnosticsLastSampled = 0;
+    const statsState = createViewportRuntimeStatsState();
 
     let animationFrame = 0;
     let previousRenderTimestamp = performance.now();
     const renderLoop = () => {
       animationFrame = window.requestAnimationFrame(renderLoop);
       const frameNow = performance.now();
-      const deltaSeconds = Math.min(
-        0.1,
-        (frameNow - previousRenderTimestamp) / 1000,
-      );
-      previousRenderTimestamp = frameNow;
-
-      if (!flyCameraControls.update(frameNow)) {
-        controls.update();
-      }
-
-      if (viewerSurfaceModeRef.current === "asset") {
-        updateRuntimePreview(sceneContextRef.current, deltaSeconds);
-      }
-
-      const renderCamera = activeCameraRef.current ?? camera;
-      if (fxaaEnabledRef.current && fxaaStateRef.current) {
-        fxaaStateRef.current.renderPass.camera = renderCamera;
-        fxaaStateRef.current.composer.render();
-      } else {
-        renderer.render(scene, renderCamera);
-      }
-      labelRenderer.render(scene, renderCamera);
-
-      statsFrameCount += 1;
-      const elapsed = frameNow - statsLastSampled;
-      if (elapsed >= 250) {
-        statsLastFps = (statsFrameCount * 1000) / elapsed;
-        statsFrameCount = 0;
-        statsLastSampled = frameNow;
-        const statsNode = statsRef.current;
-        if (statsNode) {
-          const info = renderer.info;
-          statsNode.textContent = [
-            `${statsLastFps.toFixed(0)} fps`,
-            `${info.render.calls} calls`,
-            `${info.render.triangles.toLocaleString()} tri`,
-            `${info.memory.geometries} geo / ${info.memory.textures} tex`,
-          ].join("  •  ");
-        }
-        if (
-          frameNow - resourceDiagnosticsLastSampled >=
-          RESOURCE_DIAGNOSTICS_SAMPLE_MS
-        ) {
-          resourceDiagnosticsLastSampled = frameNow;
-          publishResourceDiagnostics(sceneContextRef.current);
-        }
-      }
+      previousRenderTimestamp = tickViewportFrame({
+        activeCamera: activeCameraRef.current,
+        controls,
+        defaultCamera: camera,
+        flyCameraControls,
+        frameNow,
+        fxaaEnabled: fxaaEnabledRef.current,
+        fxaaState: fxaaStateRef.current,
+        labelRenderer,
+        previousRenderTimestamp,
+        publishResourceDiagnostics,
+        renderer,
+        scene,
+        sceneContext: sceneContextRef.current,
+        statsNode: statsRef.current,
+        statsState,
+        viewerSurfaceMode: viewerSurfaceModeRef.current,
+      });
     };
     renderLoop();
 
@@ -460,6 +339,7 @@ export function useViewportSceneLifecycle({
       mixer: null,
       clips: [],
       activeAction: null,
+      packRuntime: null,
       mmdModel: null,
       mmdMotion: null,
       textureRegistry: new Map<string, Texture>(),
@@ -468,6 +348,7 @@ export function useViewportSceneLifecycle({
 
     onFeedbackChange(neutralFeedback);
     onMetadataChange(null);
+    onPackMetadataChange(null);
     publishResourceDiagnostics(sceneContextRef.current);
 
     return () => {
@@ -487,30 +368,22 @@ export function useViewportSceneLifecycle({
         "pointerlockchange",
         flyCameraControls.handlePointerLockChange,
       );
-      if (sceneContextRef.current) {
-        runCleanupCallbacks(sceneContextRef.current.cleanupCallbacks);
-        sceneContextRef.current.cleanupCallbacks = [];
-        stopAnimations(sceneContextRef.current);
-        resetSceneObjects(sceneContextRef.current);
-      }
-      revokeUrls(sceneContextRef.current?.cleanupUrls ?? []);
-      controls.dispose();
-      environmentTargetsRef.current?.forEach((target) => target.dispose());
-      environmentTargetsRef.current?.clear();
-      environmentTargetsRef.current = null;
-      environmentTargetRef.current = null;
-      fxaaStateRef.current?.composer.dispose();
-      fxaaStateRef.current = null;
-      ambientLightRef.current = null;
-      keyLightRef.current = null;
-      fillLightRef.current = null;
-      pmremGenerator.dispose();
-      renderer.dispose();
-      host.removeChild(renderer.domElement);
-      host.removeChild(labelRenderer.domElement);
-      sceneContextRef.current = null;
-      resetCameraRef.current = null;
-      clearResourceDiagnostics();
+      disposeViewportScene({
+        ambientLightRef,
+        clearResourceDiagnostics,
+        controls,
+        environmentTargetRef,
+        environmentTargetsRef,
+        fillLightRef,
+        fxaaStateRef,
+        host,
+        keyLightRef,
+        labelRenderer,
+        pmremGenerator,
+        renderer,
+        resetCameraRef,
+        sceneContextRef,
+      });
     };
     // The scene lifecycle mirrors the former AssetViewport effect: props that
     // must update live are read through refs, while this effect only follows
@@ -522,6 +395,7 @@ export function useViewportSceneLifecycle({
     onFeedbackChange,
     onGridUnitChange,
     onMetadataChange,
+    onPackMetadataChange,
     publishResourceDiagnostics,
     shouldInitializeScene,
   ]);

@@ -6,7 +6,7 @@ import {
   SidebarKeyValueRows,
   SidebarSection,
   type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
 import { Badge, BadgeButton } from "./ui/Badge";
 
 type SceneLightsCamerasCardProps = {

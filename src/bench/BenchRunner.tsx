@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../lib/errors";
 import {
   buildReport,
   finishBenchRun,
@@ -93,7 +94,7 @@ export function BenchRunner() {
         });
         await finishBenchRun(report.summary.failed > 0 ? 1 : 0);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error, "Load bench failed.");
         await publishStatus({
           state: "failed",
           message,

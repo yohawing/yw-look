@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { errorMessage } from "../lib/errors";
 import {
   AmbientLight,
   AnimationMixer,
@@ -23,14 +24,16 @@ import {
   disposeObject,
   getPreviewRenderingPresetForExtension,
   isRendererCanvasNonBlank,
+  loadMmdMotion,
   loadPreviewObject,
   MMD_EXAMPLE_LIGHTING_PRESET,
   MMD_PREVIEW_RENDERING_PRESET,
   normalizeObjectScale,
   applyPreviewRenderingPreset,
   revokeUrls,
+  type SceneContext,
 } from "../viewer";
-import { syncMmdPreviewSpecularDirection } from "../viewer/mmd/loader";
+import { createMmdRuntime, syncMmdPreviewSpecularDirection } from "../packs";
 
 export type ShotMode = "shot" | "check";
 
@@ -40,6 +43,7 @@ export type ShotConfig = {
   inputPath: string;
   fileName: string;
   extension: string;
+  motionPath: string | null;
   width: number;
   height: number;
   background: string | null;
@@ -175,16 +179,6 @@ function countMeshes(object: Group | Mesh) {
   return count;
 }
 
-function describeError(error: unknown, fallback: string) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string" && error.trim()) {
-    return error;
-  }
-  return fallback;
-}
-
 async function validateUsdInspection(path: string, policy: StageLoadPolicy) {
   const [summary, inspection] = await Promise.all([
     summarizeStage(path, policy),
@@ -231,7 +225,7 @@ async function validateUsdInspectorPipeline(
     }
   } catch (error) {
     throw new Error(
-      `USD inspector validation failed: ${describeError(error, "unknown inspector error")}`,
+      `USD inspector validation failed: ${errorMessage(error, "unknown inspector error")}`,
       { cause: error },
     );
   }
@@ -306,6 +300,37 @@ export async function runShot(
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
     await syncMmdPreviewSpecularDirection(preview.mmdModel, key);
+    if (config.motionPath && preview.mmdModel?.runtime) {
+      const motion = await loadMmdMotion(
+        await resolveSelectedFile(config.motionPath),
+      );
+      preview.mmdModel.runtime.setAnimation(
+        motion.animation,
+        preview.mmdModel.mesh,
+      );
+      preview.mmdModel.runtime.tick(0, {
+        mesh: preview.mmdModel.mesh,
+        ik: true,
+        physics: false,
+      });
+      const sceneContext = {
+        mmdModel: preview.mmdModel,
+        mmdMotion: {
+          animation: motion.animation,
+          duration: Math.max(motion.duration, 1 / 30),
+          currentTime: 0,
+          label: motion.label,
+        },
+      } as SceneContext;
+      const runtime = createMmdRuntime(sceneContext);
+      runtime.animation?.seek(Math.min(0.5, motion.duration));
+      runtime.dispose();
+      await syncMmdPreviewSpecularDirection(preview.mmdModel, key);
+    } else if (config.motionPath) {
+      throw new Error(
+        "MMD motion requires a loaded MMD model with runtime support.",
+      );
+    }
     outcome.loadTimeMs = Math.round((performance.now() - started) * 100) / 100;
 
     normalizeObjectScale(object);
@@ -336,7 +361,7 @@ export async function runShot(
       );
     }
   } catch (error) {
-    outcome.error = error instanceof Error ? error.message : String(error);
+    outcome.error = errorMessage(error, "Shot case failed.");
   } finally {
     if (object) {
       scene.remove(object);

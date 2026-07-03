@@ -9,7 +9,7 @@ import {
   SidebarKeyValueRows,
   SidebarSection,
   type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
 
 type UpdateCardProps = {
   updateConfiguration: UpdateConfigurationPayload | null;

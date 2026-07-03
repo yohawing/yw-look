@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { FileBrowserCard } from "../FileBrowserCard";
 import type { DirectoryListing, SelectedFile } from "../../lib/files";
+import { useFileStore } from "../../stores/fileStore";
 
 describe("FileBrowserCard", () => {
   const makeFile = (overrides: Partial<SelectedFile> = {}): SelectedFile => ({
@@ -21,6 +22,27 @@ describe("FileBrowserCard", () => {
     currentIndex,
   });
 
+  const renderWithFileState = ({
+    currentFile,
+    directoryListing,
+    onOpenPath = vi.fn(),
+  }: {
+    currentFile: SelectedFile | null;
+    directoryListing: DirectoryListing | null;
+    onOpenPath?: (path: string) => void;
+  }) => {
+    useFileStore.setState({
+      currentFile,
+      directoryListing,
+      assetInspection: null,
+      assetMetadata: null,
+      packFileRequest: null,
+      openError: null,
+    });
+    render(<FileBrowserCard onOpenPath={onOpenPath} />);
+    return { onOpenPath };
+  };
+
   it("renders sibling file names and kind metadata", () => {
     const listing = makeListing([
       makeFile({ path: "/projects/demo/scene.usd", fileName: "scene.usd" }),
@@ -32,13 +54,7 @@ describe("FileBrowserCard", () => {
       }),
     ]);
 
-    render(
-      <FileBrowserCard
-        currentFile={makeFile()}
-        directoryListing={listing}
-        onOpenPath={vi.fn()}
-      />,
-    );
+    renderWithFileState({ currentFile: makeFile(), directoryListing: listing });
 
     expect(screen.queryByText("scene.usd")).not.toBeNull();
     expect(screen.queryByText("model.glb")).not.toBeNull();
@@ -52,13 +68,11 @@ describe("FileBrowserCard", () => {
       makeFile({ path: "/projects/demo/scene.usd", fileName: "scene.usd" }),
     ]);
 
-    render(
-      <FileBrowserCard
-        currentFile={makeFile()}
-        directoryListing={listing}
-        onOpenPath={onOpenPath}
-      />,
-    );
+    renderWithFileState({
+      currentFile: makeFile(),
+      directoryListing: listing,
+      onOpenPath,
+    });
 
     fireEvent.click(screen.getByRole("button"));
 
@@ -79,13 +93,7 @@ describe("FileBrowserCard", () => {
       }),
     ]);
 
-    render(
-      <FileBrowserCard
-        currentFile={currentFile}
-        directoryListing={listing}
-        onOpenPath={vi.fn()}
-      />,
-    );
+    renderWithFileState({ currentFile, directoryListing: listing });
 
     const buttons = screen.getAllByRole("button");
     expect(buttons[0].classList.contains("file-browser-entry")).toBe(true);
@@ -100,13 +108,10 @@ describe("FileBrowserCard", () => {
       makeFile({ path: "/b/two.usd", fileName: "two.usd" }),
     ]);
 
-    render(
-      <FileBrowserCard
-        currentFile={makeFile({ parentDirectory: "/a" })}
-        directoryListing={listing}
-        onOpenPath={vi.fn()}
-      />,
-    );
+    renderWithFileState({
+      currentFile: makeFile({ parentDirectory: "/a" }),
+      directoryListing: listing,
+    });
 
     const buttons = screen.getAllByRole("button");
     expect(buttons).toHaveLength(2);

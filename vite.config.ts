@@ -9,13 +9,16 @@ const optionalThreeMmdLoaderPath = fileURLToPath(
   new URL("./node_modules/@yohawing/three-mmd-loader", import.meta.url),
 );
 const missingThreeMmdLoaderShim = fileURLToPath(
-  new URL("./src/viewer/mmd/threeMmdLoaderMissing.ts", import.meta.url),
+  new URL(
+    "./src/packs/mmd-loader-pack/threeMmdLoaderMissing.ts",
+    import.meta.url,
+  ),
 );
 const installedMmdLoaderEntry = fileURLToPath(
-  new URL("./src/viewer/mmd/loaderInstalled.ts", import.meta.url),
+  new URL("./src/packs/mmd-loader-pack/loaderInstalled.ts", import.meta.url),
 );
 const unavailableMmdLoaderEntry = fileURLToPath(
-  new URL("./src/viewer/mmd/loaderUnavailable.ts", import.meta.url),
+  new URL("./src/packs/mmd-loader-pack/loaderUnavailable.ts", import.meta.url),
 );
 const hasOptionalThreeMmdLoader = existsSync(optionalThreeMmdLoaderPath);
 const includeOptionalThreeMmdLoader =
@@ -27,13 +30,22 @@ const optionalSparkLoaderPath = fileURLToPath(
   new URL("./node_modules/@sparkjsdev/spark", import.meta.url),
 );
 const missingSparkShim = fileURLToPath(
-  new URL("./src/viewer/spark/sparkMissing.ts", import.meta.url),
+  new URL(
+    "./src/packs/gaussian-splat-loader-pack/sparkMissing.ts",
+    import.meta.url,
+  ),
 );
 const installedSparkLoaderEntry = fileURLToPath(
-  new URL("./src/viewer/spark/loaderInstalled.ts", import.meta.url),
+  new URL(
+    "./src/packs/gaussian-splat-loader-pack/loaderInstalled.ts",
+    import.meta.url,
+  ),
 );
 const unavailableSparkLoaderEntry = fileURLToPath(
-  new URL("./src/viewer/spark/loaderUnavailable.ts", import.meta.url),
+  new URL(
+    "./src/packs/gaussian-splat-loader-pack/loaderUnavailable.ts",
+    import.meta.url,
+  ),
 );
 const hasOptionalSparkLoader = existsSync(optionalSparkLoaderPath);
 const includeOptionalSparkLoader =

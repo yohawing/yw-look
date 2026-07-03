@@ -19,6 +19,7 @@
 
 import { USDLoader } from "three/examples/jsm/loaders/USDLoader.js";
 import type { Object3D } from "three";
+import { errorMessage } from "../lib/errors";
 import {
   collectTransferables,
   toStaticScenePayload,
@@ -86,7 +87,7 @@ self.addEventListener("message", (event: MessageEvent<UsdWorkerRequest>) => {
     const response: UsdWorkerResponse = {
       id: request.id,
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error, "Failed to parse USD in worker."),
     };
     (
       self as unknown as { postMessage: (payload: unknown) => void }

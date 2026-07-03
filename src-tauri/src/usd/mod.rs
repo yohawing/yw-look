@@ -16,13 +16,28 @@
 //! - [`glb`] — Phase 3 GLB serializer that turns extracted USDC mesh
 //!   data into a binary glTF blob the frontend's `GLTFLoader` can
 //!   consume.
+//! - [`asset_resolution`] / [`extract_shared`] / [`geometry`] /
+//!   [`lights`] / [`material`] / [`math`] / [`node_tree`] /
+//!   [`prim_path`] / [`skel`] / [`texture_loader`] — small
+//!   backend-independent helpers shared
+//!   by the Rust-fork and C++ extraction paths.
 //! - [`cpp_sys`] — safe Rust wrapper over the C shim. Present only
 //!   when the C++ backend is compiled in.
 
+pub mod asset_resolution;
 pub mod backend;
+pub mod extract_shared;
+pub mod geometry;
 pub mod glb;
+pub mod lights;
+pub mod material;
+pub mod math;
+pub mod node_tree;
 pub mod openusd_backend;
+pub mod prim_path;
+pub mod skel;
 pub mod stage_state;
+pub mod texture_loader;
 pub mod types;
 
 #[cfg(feature = "backend-openusd-cpp")]

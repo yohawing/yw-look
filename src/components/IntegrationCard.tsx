@@ -1,11 +1,9 @@
 import type { IntegrationPayload } from "../lib/integrations";
 import {
-  SidebarEmpty,
-  SidebarError,
+  AsyncSidebarSection,
   SidebarKeyValueRows,
-  SidebarSection,
   type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
 import { Badge } from "./ui/Badge";
 
 type IntegrationCardProps = {
@@ -17,49 +15,42 @@ export function IntegrationCard({
   integrationPayload,
   integrationError,
 }: IntegrationCardProps) {
-  if (integrationError) {
-    return (
-      <SidebarSection title="Windows Integration">
-        <SidebarError>{integrationError}</SidebarError>
-      </SidebarSection>
-    );
-  }
-
-  if (!integrationPayload) {
-    return (
-      <SidebarSection title="Windows Integration">
-        <SidebarEmpty>Loading Windows integration details.</SidebarEmpty>
-      </SidebarSection>
-    );
-  }
-
-  const rows: SidebarKeyValueRow[] = [
-    {
-      id: "strategy",
-      label: "Install strategy",
-      value: integrationPayload.installStrategy,
-      tone: "muted",
-    },
-    {
-      id: "associations",
-      label: "File associations",
-      value: integrationPayload.fileAssociationsEnabled
-        ? "Enabled"
-        : "Disabled",
-      tone: integrationPayload.fileAssociationsEnabled ? "ok" : "muted",
-    },
-  ];
-
   return (
-    <SidebarSection title="Windows Integration">
-      <SidebarKeyValueRows rows={rows} />
-      <div className="sidebar-badge-row">
-        {integrationPayload.supportedExtensions.map((ext) => (
-          <Badge key={ext} mono size="sm">
-            {ext}
-          </Badge>
-        ))}
-      </div>
-    </SidebarSection>
+    <AsyncSidebarSection
+      title="Windows Integration"
+      error={integrationError}
+      data={integrationPayload}
+      loadingLabel="Loading Windows integration details."
+    >
+      {(payload) => {
+        const rows: SidebarKeyValueRow[] = [
+          {
+            id: "strategy",
+            label: "Install strategy",
+            value: payload.installStrategy,
+            tone: "muted",
+          },
+          {
+            id: "associations",
+            label: "File associations",
+            value: payload.fileAssociationsEnabled ? "Enabled" : "Disabled",
+            tone: payload.fileAssociationsEnabled ? "ok" : "muted",
+          },
+        ];
+
+        return (
+          <>
+            <SidebarKeyValueRows rows={rows} />
+            <div className="sidebar-badge-row">
+              {payload.supportedExtensions.map((ext) => (
+                <Badge key={ext} mono size="sm">
+                  {ext}
+                </Badge>
+              ))}
+            </div>
+          </>
+        );
+      }}
+    </AsyncSidebarSection>
   );
 }

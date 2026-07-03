@@ -14,7 +14,7 @@ import {
   SidebarKeyValueRows,
   SidebarSection,
   type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
 
 const loadPolicyOptions = [
   { value: "loadAll", label: "Loaded" },

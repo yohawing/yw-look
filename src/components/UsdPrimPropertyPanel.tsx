@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useAsyncFetch } from "../hooks/useAsyncFetch";
 import {
   inspectAttributeTimeSamples,
   inspectPrim,
   type AttributeInfo,
-  type AttributeTimeSamples,
   type MetadataEntry,
   type PrimInspection,
   type RelationshipInfo,
@@ -13,7 +13,7 @@ import {
   SidebarEmpty,
   SidebarError,
   SidebarSection,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
 import { Badge, BadgeButton } from "./ui/Badge";
 import { useViewerStore } from "../stores/viewerStore";
 
@@ -105,40 +105,18 @@ function TimeSamplesPanel({
   attrName: string;
   onClose: () => void;
 }) {
-  const [data, setData] = useState<AttributeTimeSamples | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.resolve()
-      .then(() => {
-        if (cancelled) return;
-        setLoading(true);
-        setError(null);
-        return inspectAttributeTimeSamples(
-          path,
-          primPath,
-          attrName,
-          MAX_SAMPLES,
-        );
-      })
-      .then((result) => {
-        if (!cancelled && result !== undefined) {
-          setData(result);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [path, primPath, attrName]);
+  const fetchTimeSamples = useCallback(
+    () => inspectAttributeTimeSamples(path, primPath, attrName, MAX_SAMPLES),
+    [attrName, path, primPath],
+  );
+  const { data, loading, error } = useAsyncFetch(
+    fetchTimeSamples,
+    [fetchTimeSamples],
+    {
+      errorFallback: "Failed to inspect attribute samples.",
+      initialLoading: true,
+    },
+  );
 
   return (
     <div className="ts-panel">
@@ -321,50 +299,29 @@ function MetadataSection({ entries }: { entries: MetadataEntry[] }) {
 
 export function UsdPrimPropertyPanel({ path }: UsdPrimPropertyPanelProps) {
   const selectedPrimPath = useViewerStore((state) => state.selectedUsdPrimPath);
-  const [inspection, setInspection] = useState<PrimInspection | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   /** Attribute name whose samples are currently shown. `null` = none. */
   const [activeSampleAttr, setActiveSampleAttr] = useState<string | null>(null);
-
-  useEffect(() => {
-    // When there is no active selection reset display state and bail.
-    // We schedule the reset asynchronously to satisfy the
-    // react-hooks/set-state-in-effect lint rule (synchronous setState
-    // in effect bodies triggers cascading renders).
+  const canInspectPrim = path !== null && selectedPrimPath !== null;
+  const fetchPrimInspection = useCallback(() => {
     if (!path || !selectedPrimPath) {
-      Promise.resolve().then(() => {
-        setInspection(null);
-        setError(null);
-        setActiveSampleAttr(null);
-      });
-      return;
+      throw new Error("Prim inspection requires an active USD selection.");
     }
-    let cancelled = false;
-    Promise.resolve()
-      .then(() => {
-        if (cancelled) return;
-        setLoading(true);
-        setError(null);
-        setActiveSampleAttr(null);
-        return inspectPrim(path, selectedPrimPath);
-      })
-      .then((result) => {
-        if (!cancelled && result !== undefined) {
-          setInspection(result);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+    return inspectPrim(path, selectedPrimPath);
   }, [path, selectedPrimPath]);
+  const {
+    data: inspection,
+    loading,
+    error,
+  } = useAsyncFetch<PrimInspection>(
+    canInspectPrim ? fetchPrimInspection : null,
+    [canInspectPrim, fetchPrimInspection],
+    {
+      enabled: canInspectPrim,
+      errorFallback: "Failed to inspect prim.",
+      onBeforeFetch: () => setActiveSampleAttr(null),
+      onReset: () => setActiveSampleAttr(null),
+    },
+  );
 
   if (!path || !selectedPrimPath) return null;
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { AnimationClip, Group, NumberKeyframeTrack, ObjectLoader } from "three";
 import type { ModelParseWorkerPayload } from "../../workers/modelParse.worker";
 import {
   DEFAULT_MODEL_PARSE_TIMEOUT_MS,
@@ -55,5 +56,40 @@ describe("model parse worker DAE payload", () => {
       "blob:resolved-albedo",
     );
     expect(payload.missingTextureUrls).toEqual(["textures/normal.png"]);
+  });
+});
+
+describe("model parse worker glTF payload", () => {
+  it("accepts GLB and materialized glTF payloads", () => {
+    const glbPayload: ModelParseWorkerPayload = {
+      kind: "glb",
+      buffer: new ArrayBuffer(4),
+    };
+    const gltfPayload: ModelParseWorkerPayload = {
+      kind: "gltf",
+      text: '{"asset":{"version":"2.0"}}',
+      resourceUrls: {
+        "duck.bin": "blob:duck-bin",
+        "duck.png": "blob:duck-png",
+      },
+    };
+
+    expect(glbPayload.kind).toBe("glb");
+    expect(gltfPayload.resourceUrls["duck.png"]).toBe("blob:duck-png");
+  });
+
+  it("preserves root animation clips through ObjectLoader JSON roundtrip", () => {
+    const root = new Group();
+    root.animations = [
+      new AnimationClip("Move", 1, [
+        new NumberKeyframeTrack(".position[x]", [0, 1], [0, 1]),
+      ]),
+    ];
+
+    const parsed = new ObjectLoader().parse(root.toJSON());
+
+    expect(parsed.animations).toHaveLength(1);
+    expect(parsed.animations[0].name).toBe("Move");
+    expect(parsed.animations[0].duration).toBe(1);
   });
 });

@@ -1,11 +1,12 @@
-import type { DirectoryListing, SelectedFile } from "../lib/files";
+import type { SelectedFile } from "../lib/files";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
+import { useFileStore } from "../stores/fileStore";
 import { SelectableListItem } from "./SelectableListItem";
-import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 
 type FileBrowserCardProps = {
-  currentFile: SelectedFile | null;
-  directoryListing: DirectoryListing | null;
   onOpenPath: (path: string) => void;
+  debugPanelsEnabled?: boolean;
 };
 
 function formatKind(file: SelectedFile) {
@@ -17,10 +18,19 @@ function formatKind(file: SelectedFile) {
 }
 
 export function FileBrowserCard({
-  currentFile,
-  directoryListing,
   onOpenPath,
+  debugPanelsEnabled = false,
 }: FileBrowserCardProps) {
+  const storeCurrentFile = useFileStore((state) => state.currentFile);
+  const storeDirectoryListing = useFileStore((state) => state.directoryListing);
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
+  const currentFile = useDebugFixtures
+    ? debugFixtures.debugPanelFile
+    : storeCurrentFile;
+  const directoryListing = useDebugFixtures
+    ? debugFixtures.debugPanelDirectoryListing
+    : storeDirectoryListing;
   const files = directoryListing?.files ?? [];
   const currentPath = currentFile?.path ?? null;
   const currentDirectory = currentFile?.parentDirectory ?? null;

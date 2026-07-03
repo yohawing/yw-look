@@ -1,20 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { USD_SOURCE_RENDER_LIMITS } from "../config/viewerLimits";
+import { deferEffectStateUpdate } from "../lib/deferEffectStateUpdate";
+import { errorMessage } from "../lib/errors";
 import { flattenStage, loadUsdSource, type UsdSourcePayload } from "../lib/usd";
 import type { SelectedFile } from "../lib/files";
+import { useFileStore } from "../stores/fileStore";
 import { Button } from "./ui/Button";
 import {
   SidebarEmpty,
   SidebarError,
   SidebarSection,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
 import "../styles/usd-source.css";
-
-type UsdSourceCardProps = {
-  /** The currently open USD asset. The card is hidden when `null`
-   * because there is no source to load. */
-  currentFile: SelectedFile | null;
-};
 
 const USDA_KEYWORDS = [
   "def",
@@ -94,7 +91,8 @@ function formatLargeFlattenConfirmation(bytes: number): string {
   return `The composed USD view is large (${(bytes / 1_000_000).toFixed(1)} MB) and may take a moment to render. Continue?`;
 }
 
-export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
+export function UsdSourceCard() {
+  const currentFile = useFileStore((state) => state.currentFile);
   const [open, setOpen] = useState(false);
   const [payload, setPayload] = useState<UsdSourcePayload | null>(null);
   const [loading, setLoading] = useState(false);
@@ -138,7 +136,7 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
       setPayload(next);
     } catch (err) {
       if (ticket !== requestSeq.current) return;
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, "Failed to load USD source."));
     } finally {
       if (ticket === requestSeq.current) setLoading(false);
     }
@@ -150,35 +148,45 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
   // user does not have to click `Hide` / `Show` to refresh.
   useEffect(() => {
     if (!currentFile) {
-      setOpen(false);
-      setPayload(null);
-      setError(null);
       cachedPath.current = null;
       requestSeq.current += 1;
-      // Reset flatten state too.
-      setFlattenedSource(null);
-      setFlattenError(null);
-      setFlattenCachedPath(null);
-      return;
+      return deferEffectStateUpdate(() => {
+        setOpen(false);
+        setPayload(null);
+        setError(null);
+        setFlattenedSource(null);
+        setFlattenError(null);
+        setFlattenCachedPath(null);
+      });
     }
     if (cachedPath.current === currentFile.path) {
       return;
     }
     cachedPath.current = currentFile.path;
-    setPayload(null);
-    setError(null);
-    // Drop any cached flatten result for the previous file.
-    if (flattenCachedPath !== currentFile.path) {
-      setFlattenedSource(null);
-      setFlattenError(null);
-      setFlattenCachedPath(null);
-    }
     if (open && isUsd) {
-      void loadFor(currentFile);
+      return deferEffectStateUpdate(() => {
+        setPayload(null);
+        setError(null);
+        if (flattenCachedPath !== currentFile.path) {
+          setFlattenedSource(null);
+          setFlattenError(null);
+          setFlattenCachedPath(null);
+        }
+        void loadFor(currentFile);
+      });
     } else {
       // Cancel any in-flight load from the previous file.
       requestSeq.current += 1;
-      setLoading(false);
+      return deferEffectStateUpdate(() => {
+        setPayload(null);
+        setError(null);
+        if (flattenCachedPath !== currentFile.path) {
+          setFlattenedSource(null);
+          setFlattenError(null);
+          setFlattenCachedPath(null);
+        }
+        setLoading(false);
+      });
     }
   }, [currentFile, open, isUsd, flattenCachedPath]);
 
@@ -224,7 +232,7 @@ export function UsdSourceCard({ currentFile }: UsdSourceCardProps) {
       setFlattenCachedPath(currentFile.path);
       setFlattenedSource(text);
     } catch (err) {
-      setFlattenError(err instanceof Error ? err.message : String(err));
+      setFlattenError(errorMessage(err, "Failed to flatten USD stage."));
     } finally {
       setFlattenLoading(false);
     }

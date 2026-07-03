@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../lib/errors";
 import {
   finishShotRun,
   loadShotBatchConfig,
@@ -83,7 +84,7 @@ export function ShotRunner() {
         });
         await finishShotRun(failed ? 1 : 0);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error, "Shot run failed.");
         setStatus({
           state: "failed",
           message,

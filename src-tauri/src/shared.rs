@@ -24,13 +24,15 @@ pub(crate) fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> MutexG
 }
 
 pub(crate) const DEFAULT_UPDATER_ENDPOINT: Option<&str> = option_env!("YW_LOOK_UPDATER_ENDPOINT");
-pub(crate) const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> = option_env!("YW_LOOK_UPDATER_PUBLIC_KEY");
+pub(crate) const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> =
+    option_env!("YW_LOOK_UPDATER_PUBLIC_KEY");
 
 pub(crate) const MODEL_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "abc",
     "pmx", "pmd", "splat", "spz", "ksplat", "sog",
 ];
-pub(crate) const TEXTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
+pub(crate) const TEXTURE_EXTENSIONS: &[&str] =
+    &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
 pub(crate) const MOTION_EXTENSIONS: &[&str] = &["vmd"];
 pub(crate) const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "usd", "usda", "usdc", "usdz", "png", "jpg",
@@ -91,10 +93,16 @@ pub(crate) fn is_supported_extension(extension: &str) -> bool {
 
 pub(crate) fn normalize_file_path(path: PathBuf) -> Result<PathBuf, AppError> {
     if !path.exists() {
-        return Err(AppError::Io(format!("file does not exist: {}", path.display())));
+        return Err(AppError::Io(format!(
+            "file does not exist: {}",
+            path.display()
+        )));
     }
     if !path.is_file() {
-        return Err(AppError::Io(format!("path is not a file: {}", path.display())));
+        return Err(AppError::Io(format!(
+            "path is not a file: {}",
+            path.display()
+        )));
     }
     let canonical = path
         .canonicalize()
@@ -105,7 +113,12 @@ pub(crate) fn normalize_file_path(path: PathBuf) -> Result<PathBuf, AppError> {
 pub(crate) fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, AppError> {
     path.canonicalize()
         .map(|path| strip_verbatim_prefix(&path))
-        .map_err(|error| AppError::Io(format!("failed to normalize path '{}': {error}", path.display())))
+        .map_err(|error| {
+            AppError::Io(format!(
+                "failed to normalize path '{}': {error}",
+                path.display()
+            ))
+        })
 }
 
 pub(crate) fn canonicalize_existing_parent(path: &Path) -> Result<PathBuf, AppError> {
@@ -202,18 +215,18 @@ pub(crate) fn load_or_initialize_settings(
     app: &tauri::AppHandle,
 ) -> Result<(PathBuf, AppSettings), AppError> {
     let settings_path = resolve_settings_path(app)?;
-    let settings = if settings_path.exists() {
-        let raw = fs::read_to_string(&settings_path)
-            .map_err(|error| AppError::Io(format!("failed to read settings file: {error}")))?;
-        sanitize_settings(
-            serde_json::from_str::<AppSettings>(&raw)
-                .map_err(|error| AppError::Serde(format!("failed to parse settings file: {error}")))?,
-        )
-    } else {
-        let defaults = sanitize_settings(AppSettings::default());
-        write_settings_file(&settings_path, &defaults)?;
-        defaults
-    };
+    let settings =
+        if settings_path.exists() {
+            let raw = fs::read_to_string(&settings_path)
+                .map_err(|error| AppError::Io(format!("failed to read settings file: {error}")))?;
+            sanitize_settings(serde_json::from_str::<AppSettings>(&raw).map_err(|error| {
+                AppError::Serde(format!("failed to parse settings file: {error}"))
+            })?)
+        } else {
+            let defaults = sanitize_settings(AppSettings::default());
+            write_settings_file(&settings_path, &defaults)?;
+            defaults
+        };
     Ok((settings_path, settings))
 }
 
@@ -237,7 +250,11 @@ pub(crate) fn format_byte_limit(bytes: u64) -> String {
     }
 }
 
-pub(crate) fn read_limited_file(path: &Path, max_bytes: u64, label: &str) -> Result<Vec<u8>, AppError> {
+pub(crate) fn read_limited_file(
+    path: &Path,
+    max_bytes: u64,
+    label: &str,
+) -> Result<Vec<u8>, AppError> {
     let metadata = fs::metadata(path)
         .map_err(|error| AppError::Io(format!("failed to inspect {label}: {error}")))?;
     if metadata.len() > max_bytes {
@@ -246,6 +263,5 @@ pub(crate) fn read_limited_file(path: &Path, max_bytes: u64, label: &str) -> Res
             format_byte_limit(max_bytes)
         )));
     }
-    fs::read(path)
-        .map_err(|error| AppError::Io(format!("failed to read {label}: {error}")))
+    fs::read(path).map_err(|error| AppError::Io(format!("failed to read {label}: {error}")))
 }

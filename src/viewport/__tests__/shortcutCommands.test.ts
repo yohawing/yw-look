@@ -75,7 +75,7 @@ describe("applyViewportShortcutCommand", () => {
     root.add(createMesh("Target"));
     const context = createContext(root);
 
-    expect(runCommand(context, { kind: "frameAll", version: 1 })).toBe(true);
+    expect(runCommand(context, { kind: "frameAll" })).toBe(true);
     expect(context.camera.position.length()).toBeGreaterThan(0);
   });
 
@@ -87,7 +87,7 @@ describe("applyViewportShortcutCommand", () => {
     expect(
       runCommand(
         context,
-        { kind: "focusSelected", selectionKey: "Target", version: 1 },
+        { kind: "focusSelected", selectionKey: "Target" },
         "texture",
       ),
     ).toBe(false);
@@ -95,7 +95,6 @@ describe("applyViewportShortcutCommand", () => {
       runCommand(context, {
         kind: "focusSelected",
         selectionKey: "Target",
-        version: 2,
       }),
     ).toBe(true);
     expect(context.camera.position.length()).toBeGreaterThan(0);
@@ -112,7 +111,6 @@ describe("applyViewportShortcutCommand", () => {
       runCommand(context, {
         kind: "hideSelected",
         selectionKey: "First",
-        version: 1,
       }),
     ).toBe(true);
     expect(isManuallyHidden(first)).toBe(true);
@@ -121,13 +119,12 @@ describe("applyViewportShortcutCommand", () => {
       runCommand(context, {
         kind: "isolateSelected",
         selectionKey: "Second",
-        version: 2,
       }),
     ).toBe(true);
     expect(isManuallyHidden(first)).toBe(true);
     expect(isManuallyHidden(second)).toBe(false);
 
-    expect(runCommand(context, { kind: "unhideAll", version: 3 })).toBe(true);
+    expect(runCommand(context, { kind: "unhideAll" })).toBe(true);
     expect(isManuallyHidden(first)).toBe(false);
     expect(isManuallyHidden(second)).toBe(false);
   });

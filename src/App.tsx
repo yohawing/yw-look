@@ -6,7 +6,6 @@ import { useSettingsActions } from "./app/useSettingsActions";
 import { useSessionAdjustedUsdSummary } from "./app/useSessionAdjustedUsdSummary";
 import { useSidebarModel } from "./app/useSidebarModel";
 import { useViewerDiagnosticsModel } from "./app/useViewerDiagnosticsModel";
-import { useViewportToolbarModel } from "./app/useViewportToolbarModel";
 import { ViewportHost } from "./app/ViewportHost";
 import { useDeferredData } from "./hooks/useDeferredData";
 import { usePayloadSession } from "./hooks/usePayloadSession";
@@ -24,7 +23,6 @@ import {
 
 export function App() {
   const currentFile = useFileStore((state) => state.currentFile);
-  const assetInspection = useFileStore((state) => state.assetInspection);
   const directoryListing = useFileStore((state) => state.directoryListing);
   const assetMetadata = useFileStore((state) => state.assetMetadata);
   const openError = useFileStore((state) => state.openError);
@@ -57,8 +55,6 @@ export function App() {
     directoryListing !== null &&
     directoryListing.currentIndex !== null &&
     directoryListing.currentIndex < directoryListing.files.length - 1;
-
-  const { displayMode, viewportToolbarItems } = useViewportToolbarModel();
 
   const {
     usdSummary,
@@ -125,30 +121,21 @@ export function App() {
     [optionalLoaderManifests],
   );
 
-  const {
-    debugPanelsEnabled,
-    diagnosticCounts,
-    recordVariantSelectionError,
-    sidebarAssetMetadata,
-    sidebarCurrentFile,
-    sidebarDirectoryListing,
-    sidebarWarnings,
-    statusLeftItems,
-    statusRightItems,
-  } = useViewerDiagnosticsModel({
-    assetMetadata,
-    currentFile,
-    directoryListing,
-    gridUnitLabel,
-    logDiagnosticEventAndRefresh,
-    openError,
-    refreshUpdateConfiguration,
-    settingsError,
-    showGrid,
-    updateCheck,
-    usdIssues,
-    viewerFeedback,
-  });
+  const { recordVariantSelectionError, statusLeftItems, statusRightItems } =
+    useViewerDiagnosticsModel({
+      assetMetadata,
+      currentFile,
+      directoryListing,
+      gridUnitLabel,
+      logDiagnosticEventAndRefresh,
+      openError,
+      refreshUpdateConfiguration,
+      settingsError,
+      showGrid,
+      updateCheck,
+      usdIssues,
+      viewerFeedback,
+    });
 
   const {
     stageSessionHandle,
@@ -185,7 +172,6 @@ export function App() {
     canNavigateNext,
     canNavigatePrev,
     directoryListing,
-    displayMode,
     handleOpenFile,
     isTauri,
     performSelectFilePath,
@@ -214,11 +200,6 @@ export function App() {
 
   const { handleSidebarResizeStart, sidebarContent, sidebarTabs } =
     useSidebarModel({
-      activeTab,
-      assetInspection,
-      currentFile,
-      debugPanelsEnabled,
-      diagnosticCounts,
       handleCheckForUpdate,
       handleInstallUpdate,
       handleLoadPayload,
@@ -241,11 +222,6 @@ export function App() {
       setRecentFilesError,
       settingsError,
       settingsPayload,
-      sidebarAssetMetadata,
-      sidebarCurrentFile,
-      sidebarDirectoryListing,
-      sidebarWarnings,
-      sidebarWidth,
       stageSessionHandle,
       unloadedPayloadPaths,
       updateCheck,
@@ -275,13 +251,11 @@ export function App() {
       viewport={
         <ViewportHost
           deferredPayloadProgress={deferredPayloadProgress}
-          displayMode={displayMode}
           handleOpenFile={handleOpenFile}
           isDragActive={isDragActive}
           recordVariantSelectionError={recordVariantSelectionError}
           sessionGlbBuffer={sessionGlbBuffer}
           usdInspection={usdInspection}
-          viewportToolbarItems={viewportToolbarItems}
           disabledOptionalLoaderPackIds={disabledLoaderPackIds}
           incompatibleOptionalLoaderPackIds={incompatibleLoaderPackIds}
         />

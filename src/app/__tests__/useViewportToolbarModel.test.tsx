@@ -1,8 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useViewportToolbarModel } from "../useViewportToolbarModel";
 import { useViewerStore } from "../../stores/viewerStore";
 import type { ToolbarAction, ToolbarItem } from "../../types/ui";
+import { requestViewportCameraPreset } from "../../viewport/viewportCommands";
+
+vi.mock("../../viewport/viewportCommands", () => ({
+  requestViewportCameraPreset: vi.fn(() => true),
+}));
 
 function findAction(items: ToolbarItem[], id: string): ToolbarAction {
   for (const item of items) {
@@ -20,6 +25,7 @@ function findAction(items: ToolbarItem[], id: string): ToolbarAction {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   useViewerStore.setState({
     viewerSurfaceMode: "asset",
     showTexture: false,
@@ -65,5 +71,37 @@ describe("useViewportToolbarModel", () => {
     expect(state.textureViewMode).toBe("alpha");
     expect(state.textureColorSpace).toBe("linear");
     expect(state.textureGamma).toBe(1);
+  });
+
+  it("tracks the active camera preset and requests runtime application every time", () => {
+    const { result } = renderHook(() => useViewportToolbarModel());
+
+    act(() => {
+      findAction(result.current.viewportToolbarItems, "camera-front").onRun?.();
+    });
+    act(() => {
+      findAction(result.current.viewportToolbarItems, "camera-front").onRun?.();
+    });
+
+    expect(requestViewportCameraPreset).toHaveBeenCalledTimes(2);
+    expect(requestViewportCameraPreset).toHaveBeenNthCalledWith(1, "front");
+    expect(requestViewportCameraPreset).toHaveBeenNthCalledWith(2, "front");
+    expect(
+      findAction(result.current.viewportToolbarItems, "camera-front").active,
+    ).toBe(true);
+  });
+
+  it("does not mark a camera preset active when runtime application fails", () => {
+    vi.mocked(requestViewportCameraPreset).mockReturnValueOnce(false);
+    const { result } = renderHook(() => useViewportToolbarModel());
+
+    act(() => {
+      findAction(result.current.viewportToolbarItems, "camera-top").onRun?.();
+    });
+
+    expect(requestViewportCameraPreset).toHaveBeenCalledWith("top");
+    expect(
+      findAction(result.current.viewportToolbarItems, "camera-top").active,
+    ).toBe(false);
   });
 });

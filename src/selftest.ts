@@ -25,6 +25,7 @@ import {
   type LoadingManager,
 } from "three";
 import type { DDSLoader as DDSLoaderClass } from "three/examples/jsm/loaders/DDSLoader.js";
+import { errorMessage } from "./lib/errors";
 
 type SampleCase = {
   id: string;
@@ -468,7 +469,7 @@ async function main() {
         format: sample.format,
         path: sample.path,
         ok: false,
-        detail: error instanceof Error ? error.message : String(error),
+        detail: errorMessage(error, "Sample load failed."),
       });
     }
 
@@ -589,7 +590,7 @@ async function runSingleModelMode(rawPath: string) {
       ok: false,
       format,
       path: rawPath,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error, "Preview load failed."),
     });
   }
 }
@@ -601,13 +602,13 @@ if (singlePath) {
   runSingleModelMode(singlePath).catch((error) => {
     setOutput({
       mode: "single",
-      fatal: error instanceof Error ? error.message : String(error),
+      fatal: errorMessage(error, "Single model selftest failed."),
     });
   });
 } else {
   main().catch((error) => {
     setOutput({
-      fatal: error instanceof Error ? error.message : String(error),
+      fatal: errorMessage(error, "Selftest failed."),
     });
   });
 }

@@ -65,10 +65,10 @@ pub struct MaterialInput {
     /// independently so per-channel transforms (rare but valid) come
     /// through correctly.
     pub normal_texture_transform: Option<TextureTransform>,
-    /// Phase 5e L1: glTF wrap mode for the base color texture sampler.
+    /// Phase 5e L1: glTF wrap mode for the material's texture sampler.
     /// `10497` = REPEAT (default), `33071` = CLAMP_TO_EDGE,
-    /// `33648` = MIRRORED_REPEAT. Only meaningful when
-    /// `base_color_texture` is `Some`.
+    /// `33648` = MIRRORED_REPEAT. Applied to base color and normal map
+    /// textures under the current one-wrap-per-material model.
     pub wrap_s: u32,
     /// Same as `wrap_s` for the T axis.
     pub wrap_t: u32,
@@ -2242,14 +2242,14 @@ pub fn build_glb(
         // Phase 5e L1: build a sampler per unique (wrapS, wrapT) pair
         // so different materials can use different wrap modes. Most
         // assets share the same mode, so this typically produces just
-        // one sampler entry. Each texture entry references the sampler
-        // whose wrap matches the first material that uses that texture.
+        // one sampler entry. Texture entries referenced by material
+        // channels are patched to the sampler matching that material.
         let mut sampler_dedup: std::collections::HashMap<(u32, u32), usize> =
             std::collections::HashMap::new();
         let mut gltf_samplers: Vec<Value> = Vec::new();
         // Re-map gltf_textures sampler indices per material wrap mode.
         for m in materials.iter() {
-            if let Some(tex_idx) = m.base_color_texture {
+            let mut apply_material_sampler = |tex_idx: usize| {
                 let key = (m.wrap_s, m.wrap_t);
                 if !sampler_dedup.contains_key(&key) {
                     let idx = gltf_samplers.len();
@@ -2266,6 +2266,12 @@ pub fn build_glb(
                 if let Some(tex) = gltf_textures.get_mut(tex_idx) {
                     tex["sampler"] = json!(sampler_idx);
                 }
+            };
+            if let Some(tex_idx) = m.base_color_texture {
+                apply_material_sampler(tex_idx);
+            }
+            if let Some(tex_idx) = m.normal_texture {
+                apply_material_sampler(tex_idx);
             }
         }
         // Fallback: if no material referenced any texture (shouldn't
@@ -2704,6 +2710,53 @@ mod tests {
         // field rather than writing "OPAQUE" explicitly — a minor
         // size + review-noise win.
         assert!(doc["materials"][0].get("alphaMode").is_none());
+    }
+
+    #[test]
+    fn normal_texture_uses_material_wrap_sampler() {
+        let mesh = unit_quad_split_into_two_triangles();
+        let materials = vec![MaterialInput {
+            name: "normal_only".to_string(),
+            normal_texture: Some(0),
+            wrap_s: 33071,
+            wrap_t: 33648,
+            ..MaterialInput::default_preview()
+        }];
+        let textures = vec![TextureInput {
+            name: "normal.png".to_string(),
+            mime_type: "image/png".to_string(),
+            data: vec![
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+                0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+                0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+                0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5C, 0xCD, 0xFF,
+                0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+            ],
+        }];
+
+        let glb = build_glb(
+            &[],
+            &[mesh],
+            &materials,
+            &textures,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build glb");
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_text = std::str::from_utf8(&glb[20..20 + json_chunk_len])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        assert_eq!(doc["materials"][0]["normalTexture"]["index"], 0);
+        assert_eq!(doc["textures"][0]["sampler"], 0);
+        assert_eq!(doc["samplers"][0]["wrapS"], 33071);
+        assert_eq!(doc["samplers"][0]["wrapT"], 33648);
     }
 
     #[test]

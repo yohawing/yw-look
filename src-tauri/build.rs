@@ -650,13 +650,11 @@ mod cpp_backend {
             &[],
         );
 
-        let cmake_src = manifest_dir
-            .join("alembic-tools")
-            .join("src");
+        let cmake_src = manifest_dir.join("alembic-tools").join("src");
 
         let mut config = cmake::Config::new(&cmake_src);
-        if let Some((ninja, env_values)) = ninja_path()
-            .and_then(|ninja| visual_studio_dev_env().map(|env| (ninja, env)))
+        if let Some((ninja, env_values)) =
+            ninja_path().and_then(|ninja| visual_studio_dev_env().map(|env| (ninja, env)))
         {
             println!(
                 "cargo:warning=building Alembic preview helper with Ninja: {}",

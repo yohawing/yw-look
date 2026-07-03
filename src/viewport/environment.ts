@@ -8,24 +8,10 @@ import {
   SphereGeometry,
 } from "three";
 import type { EnvironmentPreset } from "../types/viewer";
+import { disposeObject } from "../viewer";
 
 export function disposeEnvironmentScene(scene: Scene) {
-  scene.traverse((child) => {
-    if (!(child instanceof Mesh)) {
-      return;
-    }
-
-    child.geometry.dispose();
-
-    if (Array.isArray(child.material)) {
-      for (const material of child.material) {
-        material.dispose();
-      }
-      return;
-    }
-
-    child.material.dispose();
-  });
+  disposeObject(scene);
 }
 
 export function buildEnvironmentScene(preset: EnvironmentPreset) {

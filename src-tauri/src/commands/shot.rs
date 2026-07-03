@@ -16,6 +16,7 @@ pub(crate) struct ShotConfigPayload {
     input_path: String,
     file_name: String,
     extension: String,
+    motion_path: Option<String>,
     width: u32,
     height: u32,
     background: Option<String>,
@@ -109,6 +110,10 @@ fn to_shot_config_payload(case_index: usize, config: &ShotCliCase) -> ShotConfig
         input_path: config.input_path.display().to_string(),
         file_name,
         extension,
+        motion_path: config
+            .motion_path
+            .as_ref()
+            .map(|path| path.display().to_string()),
         width: config.width,
         height: config.height,
         background: config.background.clone(),
@@ -186,6 +191,11 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
                     mode: ShotMode::Shot,
                     input_path: resolve_shot_input(&case.input_path)?,
                     output_path: Some(resolve_shot_output(&case.output_path)?),
+                    motion_path: case
+                        .motion_path
+                        .as_deref()
+                        .map(resolve_shot_input)
+                        .transpose()?,
                     width: case.width,
                     height: case.height,
                     background: case.background,
@@ -208,6 +218,7 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
 
     let mut input_path: Option<PathBuf> = None;
     let mut output_path: Option<PathBuf> = None;
+    let mut motion_path: Option<PathBuf> = None;
     let mut size: Option<(u32, u32)> = None;
     let mut background: Option<String> = None;
     let mut usd_load_policy = StageLoadPolicy::LoadAll;
@@ -228,6 +239,13 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
                     .get(index)
                     .ok_or_else(|| AppError::Internal("--out requires a path".into()))?;
                 output_path = Some(PathBuf::from(value));
+            }
+            "--motion" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| AppError::Internal("--motion requires a path".into()))?;
+                motion_path = Some(PathBuf::from(value));
             }
             "--size" => {
                 index += 1;
@@ -276,12 +294,14 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
     };
 
     let (width, height) = size.unwrap_or((1024, 768));
+    let motion_path = motion_path.as_deref().map(resolve_shot_input).transpose()?;
 
     Ok(Some(ShotCliConfig {
         cases: vec![ShotCliCase {
             mode,
             input_path,
             output_path,
+            motion_path,
             width,
             height,
             background,
@@ -419,6 +439,7 @@ mod tests {
         assert_eq!(case.width, 320);
         assert_eq!(case.height, 180);
         assert_eq!(case.background.as_deref(), Some("transparent"));
+        assert!(case.motion_path.is_none());
         assert_eq!(case.usd_load_policy, StageLoadPolicy::NoPayloads);
         assert_eq!(case.input_path.file_name().unwrap(), "input.glb");
         assert_eq!(
@@ -451,7 +472,43 @@ mod tests {
         assert_eq!(config.cases.len(), 1);
         let case = &config.cases[0];
         assert_eq!(case.mode, ShotMode::Check);
+        assert!(case.motion_path.is_none());
         assert_eq!(case.usd_load_policy, StageLoadPolicy::NoPayloads);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_shot_motion_path() {
+        let root = unique_temp_dir("shot-motion");
+        fs::create_dir_all(&root).expect("create temp root");
+        let input_path = root.join("input.pmx");
+        let motion_path = root.join("motion.vmd");
+        let output_path = root.join("out").join("shot.png");
+        fs::write(&input_path, b"placeholder").expect("write input");
+        fs::write(&motion_path, b"motion").expect("write motion");
+
+        let args = vec![
+            "yw-look".to_string(),
+            "--shot".to_string(),
+            "--in".to_string(),
+            input_path.display().to_string(),
+            "--motion".to_string(),
+            motion_path.display().to_string(),
+            "--out".to_string(),
+            output_path.display().to_string(),
+        ];
+        let config = parse_shot_cli_config_from_args(&args)
+            .expect("parse shot")
+            .expect("shot config");
+
+        assert_eq!(config.cases.len(), 1);
+        let case = &config.cases[0];
+        assert_eq!(case.mode, ShotMode::Shot);
+        assert_eq!(
+            case.motion_path.as_ref().unwrap().file_name().unwrap(),
+            "motion.vmd"
+        );
 
         let _ = fs::remove_dir_all(root);
     }

@@ -9,7 +9,7 @@ import {
   SidebarKeyValueRows,
   SidebarSection,
   type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
 import { Badge, type BadgeVariant } from "./ui/Badge";
 import { Disclosure } from "./ui/Disclosure";
 

@@ -12,7 +12,7 @@ import {
   type StageSummary,
   type UsdLightInfo,
 } from "../lib/usd";
-import { errorMessage } from "../lib/invokeSafe";
+import { errorMessage } from "../lib/errors";
 
 const USD_INSPECTOR_DEFER_MS = 1_000;
 

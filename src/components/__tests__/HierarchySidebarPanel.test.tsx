@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { HierarchySidebarPanel } from "../HierarchySidebarPanel";
+import { useFileStore } from "../../stores/fileStore";
 import { useViewerStore } from "../../stores/viewerStore";
 import type { SelectedFile } from "../../lib/files";
-import type { HierarchyNode, ObjectInfo } from "../assetMetadata";
+import type {
+  AssetMetadata,
+  HierarchyNode,
+  ObjectInfo,
+} from "../assetMetadata";
 
 vi.mock("../UsdPrimPropertyPanel", () => ({
   UsdPrimPropertyPanel: ({ path }: { path: string | null }) => (
@@ -39,6 +44,14 @@ const faceInfo: ObjectInfo = {
 };
 
 beforeEach(() => {
+  useFileStore.setState({
+    currentFile: null,
+    directoryListing: null,
+    assetInspection: null,
+    assetMetadata: null,
+    packFileRequest: null,
+    openError: null,
+  });
   useViewerStore.setState({
     selectedMeshName: null,
     selectedUsdPrimPath: null,
@@ -50,16 +63,43 @@ afterEach(() => {
   cleanup();
 });
 
+function makeMetadata({
+  hierarchy,
+  objectInfo = {},
+}: {
+  hierarchy: HierarchyNode[];
+  objectInfo?: AssetMetadata["objectInfo"];
+}): AssetMetadata {
+  return {
+    formatLabel: "Test",
+    formatVersion: null,
+    nodeCount: hierarchy.length,
+    meshCount: 0,
+    materialCount: 0,
+    textureCount: 0,
+    hasAnimation: false,
+    hierarchy,
+    textures: [],
+    materials: [],
+    lights: [],
+    cameras: [],
+    objectInfo,
+  };
+}
+
 describe("HierarchySidebarPanel", () => {
   it("selects a hierarchy row through the viewer store", () => {
     const hierarchy: HierarchyNode[] = [
       { name: "Face", kind: "mesh", children: [] },
     ];
+    useFileStore.setState({
+      assetMetadata: makeMetadata({
+        hierarchy,
+        objectInfo: { Face: faceInfo },
+      }),
+    });
     const { container } = render(
       <HierarchySidebarPanel
-        currentFile={null}
-        hierarchy={hierarchy}
-        objectInfo={{ Face: faceInfo }}
         stageSessionHandle={null}
         payloadPrimPaths={new Set()}
         unloadedPayloadPaths={new Set()}
@@ -82,11 +122,15 @@ describe("HierarchySidebarPanel", () => {
         children: [],
       },
     ];
+    useFileStore.setState({
+      currentFile: usdFile,
+      assetMetadata: makeMetadata({
+        hierarchy,
+        objectInfo: { "/World/Hero": faceInfo },
+      }),
+    });
     const { container } = render(
       <HierarchySidebarPanel
-        currentFile={usdFile}
-        hierarchy={hierarchy}
-        objectInfo={{ "/World/Hero": faceInfo }}
         stageSessionHandle={null}
         payloadPrimPaths={new Set()}
         unloadedPayloadPaths={new Set()}
@@ -105,11 +149,14 @@ describe("HierarchySidebarPanel", () => {
     const hierarchy: HierarchyNode[] = [
       { name: "Face", kind: "mesh", children: [] },
     ];
+    useFileStore.setState({
+      assetMetadata: makeMetadata({
+        hierarchy,
+        objectInfo: { Face: faceInfo },
+      }),
+    });
     const { getByLabelText } = render(
       <HierarchySidebarPanel
-        currentFile={null}
-        hierarchy={hierarchy}
-        objectInfo={{ Face: faceInfo }}
         stageSessionHandle={null}
         payloadPrimPaths={new Set()}
         unloadedPayloadPaths={new Set()}

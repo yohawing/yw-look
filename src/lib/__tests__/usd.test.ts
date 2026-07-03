@@ -3,9 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   backendCapabilities,
   formatUsdErrorForDisplay,
+  isUsdTaskBusyError,
   parseUsdError,
 } from "../usd";
-import { errorMessage } from "../invokeSafe";
+import { errorMessage } from "../errors";
 import type { AppError, BackendCapabilities } from "../../types/ipc";
 
 const mockInvoke = vi.mocked(invoke);
@@ -59,6 +60,18 @@ describe("USD error parsing", () => {
     );
     expect(errorMessage(error, "fallback")).toBe(
       "USD backend capability unavailable: source",
+    );
+  });
+
+  it("detects structured USD task busy errors", () => {
+    const error: AppError = {
+      kind: "internal",
+      message: "USD_TASK_BUSY",
+    };
+
+    expect(isUsdTaskBusyError(error)).toBe(true);
+    expect(isUsdTaskBusyError({ kind: "internal", message: "other" })).toBe(
+      false,
     );
   });
 });

@@ -1,9 +1,9 @@
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
-use tauri::Manager;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs, thread};
+use tauri::Manager;
 
 use crate::error::AppError;
 use crate::shared::{format_byte_limit, normalize_file_path, read_limited_file};
@@ -46,7 +46,11 @@ fn resolve_alembic_tool_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError
     let resource_path = app
         .path()
         .resource_dir()
-        .map_err(|error| AppError::Io(format!("failed to resolve app resources directory: {error}")))?
+        .map_err(|error| {
+            AppError::Io(format!(
+                "failed to resolve app resources directory: {error}"
+            ))
+        })?
         .join(&relative_path);
     if resource_path.is_file() {
         return Ok(resource_path);
@@ -80,7 +84,11 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<Vec<u8>, Ap
         .write(true)
         .create_new(true)
         .open(&stdout_path)
-        .map_err(|error| AppError::Io(format!("failed to create Alembic helper stdout file: {error}")))?;
+        .map_err(|error| {
+            AppError::Io(format!(
+                "failed to create Alembic helper stdout file: {error}"
+            ))
+        })?;
     let stderr_file = match OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -165,7 +173,9 @@ fn run_alembic_helper(tool_path: &Path, input_path: &Path) -> Result<Vec<u8>, Ap
         let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
         cleanup(&stdout_path, &stderr_path);
         return Err(if stderr.is_empty() {
-            AppError::Internal(format!("Alembic preview helper exited with status {status}."))
+            AppError::Internal(format!(
+                "Alembic preview helper exited with status {status}."
+            ))
         } else {
             AppError::Internal(stderr)
         });

@@ -5,8 +5,8 @@
   "license": "MIT",
   "type": "module",
   "imports": {
-    "#yw-look-mmd-loader-entry": "./src/viewer/mmd/loaderInstalled.ts",
-    "#yw-look-spark-loader-entry": "./src/viewer/spark/loaderInstalled.ts"
+    "#yw-look-mmd-loader-entry": "./src/packs/mmd-loader-pack/loaderInstalled.ts",
+    "#yw-look-spark-loader-entry": "./src/packs/gaussian-splat-loader-pack/loaderInstalled.ts"
   },
   "scripts": {
     "dev": "node scripts/kill-port.mjs 1420 && vite",
@@ -24,6 +24,7 @@
     "prepare:nsis-loader-packs": "node scripts/prepare-nsis-loader-pack-hooks.mjs",
     "check:nsis-loader-packs": "node scripts/check-nsis-loader-pack-hooks.mjs",
     "lint": "eslint .",
+    "check:format-pack-boundaries": "node scripts/check-format-pack-boundaries.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview",
@@ -31,7 +32,7 @@
     "typecheck:ts": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "typecheck:rust": "cargo check --manifest-path src-tauri/Cargo.toml --no-default-features --features backend-openusd-rs",
     "typecheck:rust:cpp": "cargo check --manifest-path src-tauri/Cargo.toml --no-default-features --features backend-openusd-cpp",
-    "check": "npm run lint && npm run format:check && npm run typecheck",
+    "check": "npm run lint && npm run format:check && npm run check:format-pack-boundaries && npm run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -43,6 +44,7 @@
     "test:visual": "node scripts/visual-regression.mjs",
     "test:viewport-snapshot": "node scripts/viewport-snapshot.mjs",
     "test:viewport-snapshot:update": "node scripts/viewport-snapshot.mjs --update-snapshot",
+    "profile:sidebar-isolation": "node scripts/profile-sidebar-render-isolation.mjs",
     "test:usd:openusd-parity": "node scripts/usd-openusd-parity.mjs",
     "local-assets:collect": "node scripts/collect-local-assets.mjs",
     "local-assets:check": "node scripts/local-asset-load-check.mjs",

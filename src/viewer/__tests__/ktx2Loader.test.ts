@@ -1,6 +1,6 @@
 /**
  * Smoke tests for the KTX2Loader dynamic import path used by
- * `loadPreviewObject` in src/viewer/loaders.ts.
+ * `loadTexturePreviewObject` in src/viewer/texture/loader.ts.
  *
  * These tests deliberately avoid decoding a real .ktx2 texture because
  * that requires a WebGLRenderer + the Basis transcoder workers, neither
@@ -13,7 +13,7 @@
  *   3. `setTranscoderPath` accepts the `/basis/` path we ship under
  *      `public/basis/` and returns the loader instance (fluent API).
  *   4. `dispose` can be called safely on a freshly constructed loader
- *      (this is the same teardown path loaders.ts uses after a load).
+ *      (this is the same teardown path texture/loader.ts uses after a load).
  *
  * If any of the above regress (e.g. three.js renames the export, moves
  * the transcoder, or drops the fluent return), this suite catches it

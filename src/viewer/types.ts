@@ -26,6 +26,11 @@ export type {
   OptionalLoaderPackStatus,
   RegisteredLoaderInfo,
 } from "../types/viewer";
+export type {
+  FormatPack,
+  PackMetadata,
+  PackRuntime,
+} from "../types/format-pack";
 
 export function formatMissingOptionalLoaderMessage(extension: string) {
   const optionalLoader = getOptionalLoaderMessageInfo(extension);

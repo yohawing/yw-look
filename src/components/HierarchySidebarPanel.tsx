@@ -1,15 +1,15 @@
 import { useCallback } from "react";
-import { isUsdFile, type SelectedFile } from "../lib/files";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
+import { isUsdFile } from "../lib/files";
 import type { StageSessionHandle } from "../lib/usd";
+import { useFileStore } from "../stores/fileStore";
 import { useViewerStore } from "../stores/viewerStore";
-import type { AssetMetadata, HierarchyNode } from "./assetMetadata";
+import type { HierarchyNode } from "./assetMetadata";
 import { HierarchyCard } from "./HierarchyCard";
 import { UsdPrimPropertyPanel } from "./UsdPrimPropertyPanel";
 
 type HierarchySidebarPanelProps = {
-  currentFile: SelectedFile | null;
-  hierarchy: HierarchyNode[];
-  objectInfo?: AssetMetadata["objectInfo"];
+  debugPanelsEnabled?: boolean;
   stageSessionHandle: StageSessionHandle | null;
   payloadPrimPaths: ReadonlySet<string>;
   unloadedPayloadPaths: ReadonlySet<string>;
@@ -18,17 +18,24 @@ type HierarchySidebarPanelProps = {
 };
 
 export function HierarchySidebarPanel({
-  currentFile,
-  hierarchy,
-  objectInfo,
+  debugPanelsEnabled = false,
   stageSessionHandle,
   payloadPrimPaths,
   unloadedPayloadPaths,
   onLoadPayload,
   onUnloadPayload,
 }: HierarchySidebarPanelProps) {
+  const currentFile = useFileStore((state) => state.currentFile);
+  const storeAssetMetadata = useFileStore((state) => state.assetMetadata);
   const morphTargetValues = useViewerStore((state) => state.morphTargetValues);
   const selectedMeshName = useViewerStore((state) => state.selectedMeshName);
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
+  const assetMetadata = useDebugFixtures
+    ? debugFixtures.debugPanelMetadata
+    : storeAssetMetadata;
+  const hierarchy = assetMetadata?.hierarchy ?? EMPTY_HIERARCHY;
+  const objectInfo = assetMetadata?.objectInfo;
 
   const handleMorphTargetChange = useCallback(
     (selectionKey: string, morphTargetIndex: number, value: number) => {
@@ -80,3 +87,5 @@ export function HierarchySidebarPanel({
     </>
   );
 }
+
+const EMPTY_HIERARCHY: HierarchyNode[] = [];

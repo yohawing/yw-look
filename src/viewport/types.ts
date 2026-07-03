@@ -1,15 +1,14 @@
 import type { ResourceDiagnosticsSnapshot } from "../lib/diagnostics";
 import type { SelectedFile } from "../lib/files";
+import type { PackFileRequest, PackMetadata } from "../types/format-pack";
 import type {
   PurposeModes,
   StageInspection,
   StageLoadPolicy,
   VariantSelection,
 } from "../lib/usd";
-import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 import type {
   BackgroundPreset,
-  CameraPresetRequest,
   DisplayMode,
   EnvironmentPreset,
   AssetMetadata,
@@ -29,16 +28,14 @@ export type AssetViewportProps = {
   currentFile: SelectedFile | null;
   disabledOptionalLoaderPackIds?: readonly string[];
   incompatibleOptionalLoaderPackIds?: readonly string[];
-  mmdMotionRequest?: {
-    file: SelectedFile;
-    version: number;
-  } | null;
+  packFileRequest?: PackFileRequest | null;
   displayMode: DisplayMode;
   backgroundPreset: BackgroundPreset;
   onFeedbackChange: (feedback: ViewerFeedback) => void;
   onOpenFile?: () => void;
   onUsdError?: (error: unknown) => void;
   onMetadataChange: (metadata: AssetMetadata | null) => void;
+  onPackMetadataChange: (metadata: PackMetadata | null) => void;
   onResourceDiagnosticsChange?: (
     snapshot: ResourceDiagnosticsSnapshot | null,
   ) => void;
@@ -50,8 +47,6 @@ export type AssetViewportProps = {
   textureWhitePoint: number;
   textureTileCount: number;
   textureGamma: number;
-  resetVersion: number;
-  viewportShortcutCommand?: ViewportShortcutCommand | null;
   showGrid: boolean;
   showAxes: boolean;
   showSkeleton: boolean;
@@ -64,7 +59,6 @@ export type AssetViewportProps = {
   environmentRotation: number;
   backfaceCulling: boolean;
   textureFilterMode: TextureFilterMode;
-  cameraPresetRequest: CameraPresetRequest | null;
   controlSensitivity: number;
   cameraFov: number;
   renderScale: number;
@@ -161,10 +155,4 @@ export type AssetViewportProps = {
   onScaleNormalizationChange?: (
     normalization: { applied: boolean; factor: number } | null,
   ) => void;
-  /**
-   * #91: Version counter. When incremented, the viewport cancels
-   * (reverts) the current scale normalization and resets the object
-   * to its original size. Follows the same pattern as resetVersion.
-   */
-  cancelScaleNormalizationVersion?: number;
 };

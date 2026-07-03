@@ -45,7 +45,7 @@ import {
   isMmdOutlineMaterial,
   isMmdOutlineProxyObject,
   syncMmdTransparentMaterialRenderState,
-} from "./mmd/userData";
+} from "../packs";
 
 import type {
   GridConfig,
@@ -353,25 +353,60 @@ function createDeformedWireframeProxy(source: Mesh, color: Color) {
   return proxy;
 }
 
-function disposeWireframeOverlayObject(overlay: Object3D) {
+function disposeMaterialTextures(
+  material: Material,
+  disposedTextures: Set<Texture>,
+) {
+  for (const value of Object.values(material)) {
+    if (value instanceof Texture && !disposedTextures.has(value)) {
+      disposedTextures.add(value);
+      value.dispose();
+    }
+  }
+
+  const originalMap = material.userData.originalMap;
+  if (originalMap instanceof Texture && !disposedTextures.has(originalMap)) {
+    disposedTextures.add(originalMap);
+    originalMap.dispose();
+  }
+}
+
+function disposeMaterialOnce(
+  material: Material,
+  disposedMaterials: Set<Material>,
+  disposedTextures: Set<Texture>,
+) {
+  if (disposedMaterials.has(material)) {
+    return;
+  }
+  disposedMaterials.add(material);
+  disposeMaterialTextures(material, disposedTextures);
+  material.dispose();
+}
+
+function disposeWireframeOverlayObject(
+  overlay: Object3D,
+  disposedMaterials: Set<Material> = new Set(),
+  disposedTextures: Set<Texture> = new Set(),
+) {
   if (
     overlay instanceof LineSegments &&
     overlay.geometry instanceof BufferGeometry
   ) {
     overlay.geometry.dispose();
     for (const material of getMaterials(overlay.material)) {
-      material.dispose();
+      disposeMaterialOnce(material, disposedMaterials, disposedTextures);
     }
   }
 
   if (overlay instanceof Mesh) {
     for (const material of getMaterials(overlay.material)) {
-      material.dispose();
+      disposeMaterialOnce(material, disposedMaterials, disposedTextures);
     }
     const unlitOriginal = overlay.userData[UNLIT_ORIGINAL_KEY];
     if (unlitOriginal instanceof Material || Array.isArray(unlitOriginal)) {
       for (const material of getMaterials(unlitOriginal)) {
-        material.dispose();
+        disposeMaterialOnce(material, disposedMaterials, disposedTextures);
       }
       delete overlay.userData[UNLIT_ORIGINAL_KEY];
     }
@@ -418,28 +453,23 @@ function applyDisplayModeToMaterial(
   material.needsUpdate = true;
 }
 
-function disposeMaterialTextures(material: Material) {
-  for (const value of Object.values(material)) {
-    if (value instanceof Texture) {
-      value.dispose();
-    }
-  }
-}
-
 export function revokeUrls(urls: string[]) {
   for (const url of urls) {
     URL.revokeObjectURL(url);
   }
 }
 
-export function disposeObject(object: Group | Mesh | null) {
+export function disposeObject(object: Object3D | null) {
   if (!object) {
     return;
   }
 
+  const disposedMaterials = new Set<Material>();
+  const disposedTextures = new Set<Texture>();
+
   object.traverse((child: Object3D) => {
     if (child.userData[WIREFRAME_OVERLAY_FLAG] === true) {
-      disposeWireframeOverlayObject(child);
+      disposeWireframeOverlayObject(child, disposedMaterials, disposedTextures);
       return;
     }
 
@@ -457,15 +487,21 @@ export function disposeObject(object: Group | Mesh | null) {
                 | Material[],
             )
           : []),
+        ...(child.userData[UNLIT_ORIGINAL_KEY] !== undefined
+          ? getMaterials(
+              child.userData[UNLIT_ORIGINAL_KEY] as Material | Material[],
+            )
+          : []),
       ];
       for (const material of materialsToDispose) {
         if (!material) {
           continue;
         }
 
-        disposeMaterialTextures(material);
-        material.dispose();
+        disposeMaterialOnce(material, disposedMaterials, disposedTextures);
       }
+      delete child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY];
+      delete child.userData[UNLIT_ORIGINAL_KEY];
     }
   });
 }

@@ -85,7 +85,9 @@ fn build_selected_file_payload(path: PathBuf) -> Result<SelectedFilePayload, App
         .unwrap_or_default();
 
     if !is_supported_extension(&extension) {
-        return Err(AppError::Internal(format!("unsupported file extension: {extension}")));
+        return Err(AppError::Internal(format!(
+            "unsupported file extension: {extension}"
+        )));
     }
 
     let file_name = normalized
@@ -121,7 +123,9 @@ fn build_selected_file_payload_from_cli_arg(
     build_selected_file_payload(repo_root()?.join(path))
 }
 
-fn list_supported_files_in_directory(directory: &Path) -> Result<Vec<SelectedFilePayload>, AppError> {
+fn list_supported_files_in_directory(
+    directory: &Path,
+) -> Result<Vec<SelectedFilePayload>, AppError> {
     let mut files = fs::read_dir(directory)
         .map_err(|error| AppError::Io(format!("failed to read directory: {error}")))?
         .filter_map(|entry| entry.ok())
@@ -337,8 +341,8 @@ fn build_asset_inspection(path: PathBuf) -> Result<AssetInspection, AppError> {
         .ok_or_else(|| AppError::Internal("failed to resolve file name".into()))?
         .to_string();
 
-    let metadata =
-        fs::metadata(&normalized).map_err(|e| AppError::Io(format!("failed to read file metadata: {e}")))?;
+    let metadata = fs::metadata(&normalized)
+        .map_err(|e| AppError::Io(format!("failed to read file metadata: {e}")))?;
 
     let modified_at = metadata
         .modified()

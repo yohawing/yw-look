@@ -2,27 +2,30 @@
 import {
   Suspense,
   lazy,
-  useEffect,
   useMemo,
-  useState,
   type PointerEvent,
   type ReactNode,
 } from "react";
-import { type AssetMetadata } from "../components/assetMetadata";
 import { CurrentFileCard } from "../components/CurrentFileCard";
 import { FileBrowserCard } from "../components/FileBrowserCard";
 import { HierarchySidebarPanel } from "../components/HierarchySidebarPanel";
 import { MaterialListCard } from "../components/MaterialListCard";
-import { MmdMetadataCard } from "../components/MmdMetadataCard";
 import { SceneLightsCamerasPanel } from "../components/SceneLightsCamerasPanel";
 import { createSidebarTabs } from "../components/sidebarTabItems";
-import { SidebarEmpty, SidebarSection } from "../components/sidebarPrimitives";
+import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 import type { SidebarTabItem } from "../components/SidebarTabs";
 import type { SidebarTabId } from "../components/SidebarTabIcons";
 import { TexturesSidebarPanel } from "../components/TexturesSidebarPanel";
 import { UsdInspectorSidebarPanel } from "../components/UsdInspectorSidebarPanel";
 import { WarningsSidebarPanel } from "../components/WarningsSidebarPanel";
+import {
+  buildDiagnosticCounts,
+  buildDiagnosticWarnings,
+  isDebugPanelsRequested,
+} from "./assetDiagnostics";
+import { errorMessage } from "../lib/errors";
 import { isUsdFile } from "../lib/files";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import type {
   AssetIssue,
   StageInspection,
@@ -30,7 +33,7 @@ import type {
   StageSessionHandle,
   UsdLightInfo,
 } from "../lib/usd";
-import type { FileState } from "../stores/fileStore";
+import { useFileStore } from "../stores/fileStore";
 import { useUiStore } from "../stores/uiStore";
 import type { IntegrationPayload } from "../lib/integrations";
 import type { OptionalLoaderPackManifest } from "../lib/loaderPacks";
@@ -40,7 +43,10 @@ import type {
   UpdateCheckPayload,
   UpdateConfigurationPayload,
 } from "../lib/updater";
+import { useViewerStore } from "../stores/viewerStore";
 import { listOptionalLoaderPacks } from "../viewer";
+import { renderMetadataCardForPackMetadata } from "../packs";
+import type { PackMetadata } from "../types/format-pack";
 
 const CompositionArcsCard = lazy(() =>
   import("../components/CompositionArcsCard").then((module) => ({
@@ -73,8 +79,6 @@ const UsdSourceCard = lazy(() =>
   })),
 );
 
-type DebugPanelFixtures = typeof import("../components/debugPanelFixtures");
-
 function SidebarCardFallback() {
   return (
     <SidebarSection title="Loading">
@@ -83,18 +87,7 @@ function SidebarCardFallback() {
   );
 }
 
-type DiagnosticCounts = {
-  errorCount: number;
-  warningCount: number;
-  total: number;
-};
-
 type UseSidebarModelOptions = {
-  activeTab: SidebarTabId;
-  assetInspection: FileState["assetInspection"];
-  currentFile: FileState["currentFile"];
-  debugPanelsEnabled: boolean;
-  diagnosticCounts: DiagnosticCounts;
   handleCheckForUpdate: () => Promise<void>;
   handleInstallUpdate: () => Promise<void>;
   handleLoadPayload: (primPath: string) => Promise<void>;
@@ -120,11 +113,6 @@ type UseSidebarModelOptions = {
   setRecentFilesError: (error: string | null) => void;
   settingsError: string | null;
   settingsPayload: SettingsPayload | null;
-  sidebarAssetMetadata: AssetMetadata | null;
-  sidebarCurrentFile: FileState["currentFile"];
-  sidebarDirectoryListing: FileState["directoryListing"];
-  sidebarWarnings: string[];
-  sidebarWidth: number;
   stageSessionHandle: StageSessionHandle | null;
   unloadedPayloadPaths: ReadonlySet<string>;
   updateCheck: UpdateCheckPayload | null;
@@ -139,11 +127,6 @@ type UseSidebarModelOptions = {
 };
 
 export function useSidebarModel({
-  activeTab,
-  assetInspection,
-  currentFile,
-  debugPanelsEnabled,
-  diagnosticCounts,
   handleCheckForUpdate,
   handleInstallUpdate,
   handleLoadPayload,
@@ -166,11 +149,6 @@ export function useSidebarModel({
   setRecentFilesError,
   settingsError,
   settingsPayload,
-  sidebarAssetMetadata,
-  sidebarCurrentFile,
-  sidebarDirectoryListing,
-  sidebarWarnings,
-  sidebarWidth,
   stageSessionHandle,
   unloadedPayloadPaths,
   updateCheck,
@@ -183,33 +161,57 @@ export function useSidebarModel({
   usdLights,
   usdLightsError,
 }: UseSidebarModelOptions) {
+  const currentFile = useFileStore((state) => state.currentFile);
+  const assetMetadata = useFileStore((state) => state.assetMetadata);
+  const packMetadata = useFileStore((state) => state.packMetadata);
+  const viewerFeedback = useViewerStore((state) => state.viewerFeedback);
+  const activeTab = useUiStore((state) => state.activeTab);
+  const sidebarWidth = useUiStore((state) => state.sidebarWidth);
   const setSidebarWidth = useUiStore((state) => state.setSidebarWidth);
-  const [debugFixtures, setDebugFixtures] = useState<DebugPanelFixtures | null>(
-    null,
-  );
-  const useDebugFixtures =
-    import.meta.env.DEV && debugPanelsEnabled && debugFixtures !== null;
+  const debugPanelsEnabled = isDebugPanelsRequested();
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
 
-  useEffect(() => {
-    if (!import.meta.env.DEV || !debugPanelsEnabled) {
-      return;
-    }
-
-    let isActive = true;
-    void import("../components/debugPanelFixtures").then((module) => {
-      if (isActive) {
-        setDebugFixtures(module);
-      }
+  const warnings = useMemo(() => {
+    return buildDiagnosticWarnings({
+      assetMetadata,
+      usdIssues,
+      viewerFeedback,
     });
-    return () => {
-      isActive = false;
-    };
-  }, [debugPanelsEnabled]);
-
+  }, [assetMetadata, usdIssues, viewerFeedback]);
+  const sidebarWarnings = useDebugFixtures
+    ? debugFixtures.debugPanelWarnings
+    : warnings;
+  const debugPanelWarnings = useDebugFixtures
+    ? debugFixtures.debugPanelWarnings
+    : null;
+  const debugMmdMetadata = debugFixtures?.debugPanelMetadata.mmd ?? null;
+  const sidebarPackMetadata = useMemo<PackMetadata | null>(
+    () =>
+      useDebugFixtures && debugMmdMetadata
+        ? { kind: "mmd", asset: debugMmdMetadata }
+        : packMetadata,
+    [debugMmdMetadata, packMetadata, useDebugFixtures],
+  );
+  const packMetadataCard = useMemo(
+    () =>
+      sidebarPackMetadata
+        ? renderMetadataCardForPackMetadata(sidebarPackMetadata)
+        : null,
+    [sidebarPackMetadata],
+  );
   const sidebarRecentFilesPayload = useDebugFixtures
     ? debugFixtures.debugPanelRecentFiles
     : recentFilesPayload;
   const sidebarRecentFilesError = useDebugFixtures ? null : recentFilesError;
+  const diagnosticCounts = useMemo(() => {
+    return buildDiagnosticCounts({
+      assetMetadata,
+      debugPanelWarnings,
+      usdIssues,
+      viewerFeedback,
+    });
+  }, [assetMetadata, debugPanelWarnings, usdIssues, viewerFeedback]);
 
   const sidebarContent = useMemo<ReactNode>(() => {
     switch (activeTab) {
@@ -217,10 +219,7 @@ export function useSidebarModel({
         return (
           <>
             <CurrentFileCard
-              animationClips={sidebarAssetMetadata?.animationClips}
-              assetInspection={assetInspection}
-              currentFile={sidebarCurrentFile}
-              metadata={sidebarAssetMetadata}
+              debugPanelsEnabled={debugPanelsEnabled}
               usdPayloadSummary={
                 useDebugFixtures
                   ? debugFixtures.debugUsdSummary
@@ -228,9 +227,7 @@ export function useSidebarModel({
               }
               warnings={sidebarWarnings}
             />
-            {sidebarAssetMetadata?.mmd ? (
-              <MmdMetadataCard metadata={sidebarAssetMetadata.mmd} />
-            ) : null}
+            {packMetadataCard}
             {isTauri && isUsdFile(currentFile) && (
               <>
                 <UsdInspectorSidebarPanel
@@ -247,7 +244,7 @@ export function useSidebarModel({
                   />
                 </Suspense>
                 <Suspense fallback={<SidebarCardFallback />}>
-                  <UsdSourceCard currentFile={currentFile} />
+                  <UsdSourceCard />
                 </Suspense>
               </>
             )}
@@ -260,29 +257,23 @@ export function useSidebarModel({
                 summary={debugFixtures.debugUsdSummary}
               />
             )}
-            {sidebarAssetMetadata && (
-              <SceneLightsCamerasPanel
-                lights={sidebarAssetMetadata.lights}
-                cameras={sidebarAssetMetadata.cameras}
-                usdLights={usdLights ?? undefined}
-                usdLightsError={usdLightsError}
-              />
-            )}
+            <SceneLightsCamerasPanel
+              debugPanelsEnabled={debugPanelsEnabled}
+              usdLights={usdLights ?? undefined}
+              usdLightsError={usdLightsError}
+            />
           </>
         );
       case "file":
         return (
           <>
             <FileBrowserCard
-              currentFile={sidebarCurrentFile}
-              directoryListing={sidebarDirectoryListing}
+              debugPanelsEnabled={debugPanelsEnabled}
               onOpenPath={(path) => {
                 void performSelectFilePath(path, "navigation").catch(
                   (error: unknown) => {
                     setRecentFilesError(
-                      error instanceof Error
-                        ? error.message
-                        : "Failed to open file.",
+                      errorMessage(error, "Failed to open file."),
                     );
                   },
                 );
@@ -294,9 +285,7 @@ export function useSidebarModel({
                   void performSelectFilePath(path, "recent").catch(
                     (error: unknown) => {
                       setRecentFilesError(
-                        error instanceof Error
-                          ? error.message
-                          : "Failed to open recent file.",
+                        errorMessage(error, "Failed to open recent file."),
                       );
                     },
                   );
@@ -310,9 +299,7 @@ export function useSidebarModel({
       case "hierarchy":
         return (
           <HierarchySidebarPanel
-            currentFile={currentFile}
-            hierarchy={sidebarAssetMetadata?.hierarchy ?? []}
-            objectInfo={sidebarAssetMetadata?.objectInfo}
+            debugPanelsEnabled={debugPanelsEnabled}
             stageSessionHandle={stageSessionHandle}
             payloadPrimPaths={payloadPrimPaths}
             unloadedPayloadPaths={unloadedPayloadPaths}
@@ -321,15 +308,9 @@ export function useSidebarModel({
           />
         );
       case "materials":
-        return (
-          <MaterialListCard materials={sidebarAssetMetadata?.materials ?? []} />
-        );
+        return <MaterialListCard debugPanelsEnabled={debugPanelsEnabled} />;
       case "textures":
-        return (
-          <TexturesSidebarPanel
-            textures={sidebarAssetMetadata?.textures ?? []}
-          />
-        );
+        return <TexturesSidebarPanel debugPanelsEnabled={debugPanelsEnabled} />;
       case "settings":
         return (
           <>
@@ -377,9 +358,9 @@ export function useSidebarModel({
     }
   }, [
     activeTab,
-    assetInspection,
     currentFile,
     debugFixtures,
+    debugPanelsEnabled,
     handleCheckForUpdate,
     handleInstallUpdate,
     handleLoadPayload,
@@ -400,9 +381,7 @@ export function useSidebarModel({
     sessionAdjustedUsdSummary,
     settingsError,
     settingsPayload,
-    sidebarAssetMetadata,
-    sidebarCurrentFile,
-    sidebarDirectoryListing,
+    packMetadataCard,
     sidebarRecentFilesError,
     sidebarRecentFilesPayload,
     sidebarWarnings,

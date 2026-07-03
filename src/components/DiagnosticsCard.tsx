@@ -5,7 +5,7 @@ import type {
 } from "../lib/diagnostics";
 import { formatBytes } from "../lib/format";
 import { CompactMetricRows, type CompactMetricRow } from "./CompactMetricRows";
-import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 
 type DiagnosticsCardProps = {
   processMemoryMetrics: ProcessMemoryMetrics | null;

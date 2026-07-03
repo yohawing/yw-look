@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeSafe } from "./invokeSafe";
 import { isTauriEnvironment } from "./platform";
 
 import type {
@@ -58,6 +58,17 @@ const SUPPORTED_EXTENSIONS = new Set([
 ]);
 const BROWSER_LOCAL_PATH_PREFIX = "browser-local://";
 const browserFiles = new Map<string, File>();
+
+async function invokeFile<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  const result = await invokeSafe<T>(cmd, args);
+  if (!result.ok) {
+    throw result.error;
+  }
+  return result.value;
+}
 
 export function isUsdFile(file: SelectedFile | null): boolean {
   return !!file && USD_EXTENSIONS.has(file.extension);
@@ -137,7 +148,7 @@ export async function openFileDialog() {
   if (!isTauriEnvironment()) {
     return openBrowserFileDialog();
   }
-  return invoke<SelectedFile | null>("open_file_dialog");
+  return invokeFile<SelectedFile | null>("open_file_dialog");
 }
 
 export async function resolveSelectedFile(path: string) {
@@ -152,7 +163,7 @@ export async function resolveSelectedFile(path: string) {
       parentDirectory: BROWSER_LOCAL_PATH_PREFIX,
     };
   }
-  return invoke<SelectedFile>("resolve_selected_file", { path });
+  return invokeFile<SelectedFile>("resolve_selected_file", { path });
 }
 
 export async function listSupportedSiblings(path: string) {
@@ -161,7 +172,7 @@ export async function listSupportedSiblings(path: string) {
     const file = await resolveSelectedFile(path);
     return { files: [file], currentIndex: 0 };
   }
-  return invoke<DirectoryListing>("list_supported_siblings", { path });
+  return invokeFile<DirectoryListing>("list_supported_siblings", { path });
 }
 
 export async function readBinaryFile(path: string) {
@@ -172,14 +183,14 @@ export async function readBinaryFile(path: string) {
   // Backed by `tauri::ipc::Response`, so this resolves to a raw `ArrayBuffer`
   // (not a JSON number array) — essential for large assets like Gaussian
   // splats that would otherwise exhaust memory crossing the IPC boundary.
-  return invoke<ArrayBuffer>("read_binary_file", { path });
+  return invokeFile<ArrayBuffer>("read_binary_file", { path });
 }
 
 export async function getStartupFile() {
   if (!isTauriEnvironment()) {
     return null;
   }
-  return invoke<SelectedFile | null>("get_startup_file");
+  return invokeFile<SelectedFile | null>("get_startup_file");
 }
 
 export async function inspectAsset(path: string) {
@@ -200,7 +211,7 @@ export async function inspectAsset(path: string) {
       imageDimensions: null,
     };
   }
-  return invoke<AssetInspection>("inspect_asset", { path });
+  return invokeFile<AssetInspection>("inspect_asset", { path });
 }
 
 export async function loadFormatSupport() {
@@ -212,5 +223,5 @@ export async function loadFormatSupport() {
       previewImplemented: Array.from(SUPPORTED_EXTENSIONS),
     };
   }
-  return invoke<FormatSupport>("load_format_support");
+  return invokeFile<FormatSupport>("load_format_support");
 }

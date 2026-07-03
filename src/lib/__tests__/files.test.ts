@@ -1,13 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   inspectAsset,
   listSupportedSiblings,
+  openFileDialog,
   readBinaryFile,
   registerBrowserFile,
   resolveSelectedFile,
 } from "../files";
 
+const invokeMock = vi.mocked(invoke);
+const isTauriMock = vi.mocked(isTauri);
+
 describe("browser local files", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(null);
+    isTauriMock.mockReturnValue(false);
+  });
+
   it("registers a browser-selected asset and reads it through readBinaryFile", async () => {
     const source = new Uint8Array([0x67, 0x6c, 0x54, 0x46]);
     const file = new File([source], "sample.glb", {
@@ -55,5 +66,19 @@ describe("browser local files", () => {
     expect(() => registerBrowserFile(new File(["x"], "notes.txt"))).toThrow(
       "unsupported file extension: txt",
     );
+  });
+
+  it("rejects Tauri IPC errors as normalized AppError objects", async () => {
+    isTauriMock.mockReturnValue(true);
+    invokeMock.mockRejectedValue({
+      kind: "io",
+      message: "Failed to open file dialog.",
+    });
+
+    await expect(openFileDialog()).rejects.toEqual({
+      kind: "io",
+      message: "Failed to open file dialog.",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("open_file_dialog");
   });
 });

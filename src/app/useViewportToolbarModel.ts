@@ -1,10 +1,10 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   type CameraPreset,
-  type DisplayMode,
   type EnvironmentPreset,
   type TextureViewMode,
-} from "../components/AssetViewport";
+} from "../types/viewer";
+import { deriveDisplayMode } from "./displayMode";
 import { build3DToolbar } from "../components/toolbar/build3DToolbar";
 import {
   buildImageToolbar,
@@ -12,16 +12,7 @@ import {
 } from "../components/toolbar/buildImageToolbar";
 import type { ToolbarItem } from "../components/toolbar/types";
 import { useViewerStore } from "../stores/viewerStore";
-
-function deriveDisplayMode(
-  showTexture: boolean,
-  showWireframe: boolean,
-): DisplayMode {
-  if (showTexture && showWireframe) return "texturedWireframe";
-  if (showTexture) return "textured";
-  if (showWireframe) return "wireframe";
-  return "untextured";
-}
+import { requestViewportCameraPreset } from "../viewport/viewportCommands";
 
 const environmentPresets: Array<{
   id: EnvironmentPreset;
@@ -45,14 +36,13 @@ const cameraPresetOptions: Array<{
 ];
 
 export function useViewportToolbarModel() {
+  const [activeCameraPreset, setActiveCameraPreset] =
+    useState<CameraPreset | null>(null);
   const viewerSurfaceMode = useViewerStore((state) => state.viewerSurfaceMode);
   const textureViewMode = useViewerStore((state) => state.textureViewMode);
   const textureColorSpace = useViewerStore((state) => state.textureColorSpace);
   const textureExposure = useViewerStore((state) => state.textureExposure);
   const textureTileCount = useViewerStore((state) => state.textureTileCount);
-  const cameraPresetRequest = useViewerStore(
-    (state) => state.cameraPresetRequest,
-  );
   const showTexture = useViewerStore((state) => state.showTexture);
   const showUnlit = useViewerStore((state) => state.showUnlit);
   const showNormals = useViewerStore((state) => state.showNormals);
@@ -74,11 +64,10 @@ export function useViewportToolbarModel() {
   );
 
   const handleSelectCameraPreset = useCallback((preset: string) => {
-    const prev = useViewerStore.getState().cameraPresetRequest;
-    useViewerStore.getState().setCameraPresetRequest({
-      preset: preset as CameraPreset,
-      version: (prev?.version ?? 0) + 1,
-    });
+    const typedPreset = preset as CameraPreset;
+    if (requestViewportCameraPreset(typedPreset)) {
+      setActiveCameraPreset(typedPreset);
+    }
   }, []);
 
   const handleSelectEnvironmentPreset = useCallback((preset: string) => {
@@ -138,7 +127,7 @@ export function useViewportToolbarModel() {
 
     return build3DToolbar({
       // Camera
-      cameraPreset: cameraPresetRequest?.preset ?? null,
+      cameraPreset: activeCameraPreset,
       cameraPresetOptions,
       onSelectCameraPreset: handleSelectCameraPreset,
       // Shading
@@ -181,7 +170,7 @@ export function useViewportToolbarModel() {
     handleSelectChannel,
     handleSelectColorSpace,
     handleSelectEnvironmentPreset,
-    cameraPresetRequest?.preset,
+    activeCameraPreset,
     environmentPreset,
     showBoundingBoxes,
     showEnvironmentBackground,

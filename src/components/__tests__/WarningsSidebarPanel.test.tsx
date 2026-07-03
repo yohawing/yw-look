@@ -1,11 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { WarningsSidebarPanel } from "../WarningsSidebarPanel";
 import { useViewerStore } from "../../stores/viewerStore";
+import { requestViewportScaleNormalizationCancel } from "../../viewport/viewportCommands";
+
+vi.mock("../../viewport/viewportCommands", () => ({
+  requestViewportScaleNormalizationCancel: vi.fn(() => true),
+}));
 
 beforeEach(() => {
+  vi.clearAllMocks();
   useViewerStore.setState({
-    cancelScaleNormalizeVersion: 0,
     resourceDiagnostics: null,
     scaleNormalization: { applied: true, factor: 2 },
   });
@@ -16,12 +21,12 @@ afterEach(() => {
 });
 
 describe("WarningsSidebarPanel", () => {
-  it("increments the scale-normalization cancel command", () => {
+  it("requests scale-normalization cancellation", () => {
     const { getByRole } = render(<WarningsSidebarPanel warnings={[]} />);
 
     fireEvent.click(getByRole("button", { name: /cancel scale normalize/i }));
 
-    expect(useViewerStore.getState().cancelScaleNormalizeVersion).toBe(1);
+    expect(requestViewportScaleNormalizationCancel).toHaveBeenCalledTimes(1);
   });
 
   it("hides the scale-normalization action when normalization is inactive", () => {

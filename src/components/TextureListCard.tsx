@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { TextureEntry } from "./assetMetadata";
-import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 import { SelectableListItem } from "./SelectableListItem";
 import { Badge, BadgeButton } from "./ui/Badge";
 import "../styles/texture-list.css";

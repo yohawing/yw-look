@@ -4,8 +4,8 @@ use url::Url;
 
 use crate::error::AppError;
 use crate::shared::{
-    current_app_version, load_or_initialize_settings, lock_or_recover,
-    DEFAULT_UPDATER_ENDPOINT, DEFAULT_UPDATER_PUBLIC_KEY,
+    current_app_version, load_or_initialize_settings, lock_or_recover, DEFAULT_UPDATER_ENDPOINT,
+    DEFAULT_UPDATER_PUBLIC_KEY,
 };
 use crate::state::{AppSettings, PendingUpdateState};
 
@@ -136,13 +136,16 @@ fn build_updater(
         ));
     }
 
-    let endpoint = Url::parse(&endpoint)
-        .map_err(|error| AppError::Internal(format!("failed to parse updater endpoint: {error}")))?;
+    let endpoint = Url::parse(&endpoint).map_err(|error| {
+        AppError::Internal(format!("failed to parse updater endpoint: {error}"))
+    })?;
 
     app.updater_builder()
         .pubkey(pubkey)
         .endpoints(vec![endpoint])
-        .map_err(|error| AppError::Internal(format!("failed to configure updater endpoints: {error}")))?
+        .map_err(|error| {
+            AppError::Internal(format!("failed to configure updater endpoints: {error}"))
+        })?
         .build()
         .map_err(|error| AppError::Internal(format!("failed to build updater client: {error}")))
 }

@@ -1,19 +1,15 @@
 import { formatBytes } from "../lib/format";
-import type { AssetInspection, SelectedFile } from "../lib/files";
-import type { AnimationClipMetadata } from "../types/viewer";
-import type { AssetMetadata } from "./assetMetadata";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
+import { useFileStore } from "../stores/fileStore";
 import {
   SidebarEmpty,
   SidebarKeyValueRows,
   SidebarSection,
   type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
 
 type CurrentFileCardProps = {
-  animationClips?: AnimationClipMetadata[];
-  assetInspection: AssetInspection | null;
-  currentFile: SelectedFile | null;
-  metadata: AssetMetadata | null;
+  debugPanelsEnabled?: boolean;
   usdPayloadSummary?: {
     payloadCount: number;
     unloadedPayloadCount: number;
@@ -51,13 +47,23 @@ function formatFps(value: number | null) {
 }
 
 export function CurrentFileCard({
-  animationClips = [],
-  assetInspection,
-  currentFile,
-  metadata,
+  debugPanelsEnabled = false,
   usdPayloadSummary,
   warnings,
 }: CurrentFileCardProps) {
+  const assetInspection = useFileStore((state) => state.assetInspection);
+  const storeCurrentFile = useFileStore((state) => state.currentFile);
+  const storeAssetMetadata = useFileStore((state) => state.assetMetadata);
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
+  const currentFile = useDebugFixtures
+    ? debugFixtures.debugPanelFile
+    : storeCurrentFile;
+  const metadata = useDebugFixtures
+    ? debugFixtures.debugPanelMetadata
+    : storeAssetMetadata;
+  const animationClips = metadata?.animationClips ?? [];
+
   if (!currentFile) {
     return (
       <SidebarSection title="File">

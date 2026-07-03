@@ -4,7 +4,7 @@ import {
   SidebarEmpty,
   SidebarError,
   SidebarSection,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
 import { FieldRow } from "./ui/FieldRow";
 import { ToggleSwitch } from "./ui/ToggleSwitch";
 import "../styles/settings.css";

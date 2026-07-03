@@ -1,13 +1,25 @@
 import { useCallback } from "react";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
+import { useFileStore } from "../stores/fileStore";
 import { useViewerStore } from "../stores/viewerStore";
 import type { TextureEntry } from "../types/viewer";
 import { TextureListCard } from "./TextureListCard";
 
 type TexturesSidebarPanelProps = {
-  textures: TextureEntry[];
+  debugPanelsEnabled?: boolean;
 };
 
-export function TexturesSidebarPanel({ textures }: TexturesSidebarPanelProps) {
+const EMPTY_TEXTURES: TextureEntry[] = [];
+
+export function TexturesSidebarPanel({
+  debugPanelsEnabled = false,
+}: TexturesSidebarPanelProps) {
+  const storeTextures = useFileStore((state) => state.assetMetadata?.textures);
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
+  const textures = useDebugFixtures
+    ? debugFixtures.debugPanelMetadata.textures
+    : (storeTextures ?? EMPTY_TEXTURES);
   const selectedTextureId = useViewerStore((state) => state.selectedTextureId);
   const viewerSurfaceMode = useViewerStore((state) => state.viewerSurfaceMode);
 

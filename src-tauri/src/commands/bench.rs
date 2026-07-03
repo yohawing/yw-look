@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::error::AppError;
 use crate::shared::{
-    canonicalize_existing_path, canonicalize_existing_parent, current_app_version,
+    canonicalize_existing_parent, canonicalize_existing_path, current_app_version,
     ensure_path_within, repo_root,
 };
 use crate::state::BenchCliConfig;
@@ -56,8 +56,9 @@ fn normalize_bench_out_dir(path: &Path, repo_root: &Path) -> Result<PathBuf, App
         .map_err(|error| AppError::Io(format!("failed to create bench artifacts root: {error}")))?;
     let normalized_root = canonicalize_existing_path(&root)?;
     ensure_path_within(&parent, &normalized_root, "bench output")?;
-    fs::create_dir_all(path)
-        .map_err(|error| AppError::Io(format!("failed to create bench output directory: {error}")))?;
+    fs::create_dir_all(path).map_err(|error| {
+        AppError::Io(format!("failed to create bench output directory: {error}"))
+    })?;
     canonicalize_existing_path(path)
 }
 
@@ -86,9 +87,9 @@ pub(crate) fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, AppErro
             }
             "--bench-repo-root" => {
                 index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| AppError::Internal("--bench-repo-root requires a path".into()))?;
+                let value = args.get(index).ok_or_else(|| {
+                    AppError::Internal("--bench-repo-root requires a path".into())
+                })?;
                 bench_repo_root = Some(PathBuf::from(value));
             }
             "--bench-out" => {
@@ -117,16 +118,18 @@ pub(crate) fn parse_bench_cli_config() -> Result<Option<BenchCliConfig>, AppErro
         index += 1;
     }
 
-    let bench_repo_root = normalize_bench_repo_root(
-        &bench_repo_root
-            .ok_or_else(|| AppError::Internal("--bench-load requires --bench-repo-root <path>".into()))?,
-    )?;
+    let bench_repo_root = normalize_bench_repo_root(&bench_repo_root.ok_or_else(|| {
+        AppError::Internal("--bench-load requires --bench-repo-root <path>".into())
+    })?)?;
     let models_path = normalize_bench_models_path(
-        &models_path.ok_or_else(|| AppError::Internal("--bench-load requires --bench-models <path>".into()))?,
+        &models_path.ok_or_else(|| {
+            AppError::Internal("--bench-load requires --bench-models <path>".into())
+        })?,
         &bench_repo_root,
     )?;
     let out_dir = normalize_bench_out_dir(
-        &out_dir.ok_or_else(|| AppError::Internal("--bench-load requires --bench-out <dir>".into()))?,
+        &out_dir
+            .ok_or_else(|| AppError::Internal("--bench-load requires --bench-out <dir>".into()))?,
         &bench_repo_root,
     )?;
 
@@ -219,8 +222,9 @@ pub(crate) fn write_bench_screenshot(
 
     let out_dir = normalize_bench_out_dir(&config.out_dir, &config.repo_root)?;
     let screenshots_dir = out_dir.join("screenshots");
-    fs::create_dir_all(&screenshots_dir)
-        .map_err(|error| AppError::Io(format!("failed to create screenshots directory: {error}")))?;
+    fs::create_dir_all(&screenshots_dir).map_err(|error| {
+        AppError::Io(format!("failed to create screenshots directory: {error}"))
+    })?;
     fs::write(screenshots_dir.join(file_name), png_bytes)
         .map_err(|error| AppError::Io(format!("failed to write screenshot: {error}")))?;
     Ok(())

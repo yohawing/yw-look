@@ -11,6 +11,52 @@ describe("RecentFilesCard", () => {
     entries,
   });
 
+  it("renders an error before loaded recent files", () => {
+    const payload = makePayload([
+      {
+        path: "/projects/demo/scene.usd",
+        kind: "usd",
+        lastAccessedAt: "2m ago",
+      },
+    ]);
+
+    render(
+      <RecentFilesCard
+        recentFilesPayload={payload}
+        recentFilesError="Failed to load recent files."
+        onOpenPath={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Failed to load recent files.")).toBeTruthy();
+    expect(screen.queryByText("scene.usd")).toBeNull();
+  });
+
+  it("renders a loading state while payload is absent", () => {
+    render(
+      <RecentFilesCard
+        recentFilesPayload={null}
+        recentFilesError={null}
+        onOpenPath={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Loading recent files.")).toBeTruthy();
+  });
+
+  it("renders the loaded empty state inside the card body", () => {
+    render(
+      <RecentFilesCard
+        recentFilesPayload={makePayload([])}
+        recentFilesError={null}
+        onOpenPath={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("No recent files recorded yet.")).toBeTruthy();
+    expect(screen.getByText("0")).toBeTruthy();
+  });
+
   it("renders basename for each recent file entry", () => {
     const payload = makePayload([
       {

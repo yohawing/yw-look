@@ -14,6 +14,7 @@ import type {
   ToneMapping,
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import type { PackRuntime } from "./format-pack";
 
 // ── Viewer mode & feedback ───────────────────────────────────────
 
@@ -65,6 +66,7 @@ export type SceneContext = {
   mixer: AnimationMixer | null;
   clips: AnimationClip[];
   activeAction: AnimationAction | null;
+  packRuntime: PackRuntime | null;
   mmdModel: MmdRuntimeModelHandle | null;
   mmdMotion: MmdMotionPlayback | null;
   textureRegistry: Map<string, Texture>;
@@ -128,7 +130,6 @@ export type LoadedPreview = {
   lighting?: PreviewLightingPreset;
   rendering?: PreviewRenderingPreset;
   skipScaleNormalization?: boolean;
-  mmdMetadata?: MmdAssetMetadata;
   mmdModel?: MmdRuntimeModelHandle;
   /**
    * Viewer-side classification of the loaded content. Omitted ⇒ treated as
@@ -586,11 +587,6 @@ export type AssetMetadata = {
 // ── AssetViewport viewer settings ────────────────────────────────
 
 export type BackgroundPreset = "gray" | "charcoal" | "light";
-
-export type CameraPresetRequest = {
-  preset: CameraPreset;
-  version: number;
-};
 
 export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
 

@@ -11,7 +11,7 @@ import {
 } from "../lib/loaderPacks";
 import { loadRecentFiles, type RecentFilesPayload } from "../lib/recentFiles";
 import { loadSettings, type SettingsPayload } from "../lib/settings";
-import { errorMessage } from "../lib/invokeSafe";
+import { errorMessage } from "../lib/errors";
 
 export function useDeferredData(
   isTauri: boolean,

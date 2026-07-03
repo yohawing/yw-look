@@ -1,4 +1,4 @@
-import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 import { Button } from "./ui/Button";
 
 type WarningsCardProps = {

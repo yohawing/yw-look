@@ -35,6 +35,7 @@ pub(crate) struct OptionalLoaderPackSettings {
 pub(crate) struct ShotBatchCaseArgument {
     pub(crate) input_path: PathBuf,
     pub(crate) output_path: PathBuf,
+    pub(crate) motion_path: Option<PathBuf>,
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) background: Option<String>,
@@ -63,6 +64,7 @@ pub(crate) struct ShotCliCase {
     pub(crate) mode: ShotMode,
     pub(crate) input_path: PathBuf,
     pub(crate) output_path: Option<PathBuf>,
+    pub(crate) motion_path: Option<PathBuf>,
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) background: Option<String>,

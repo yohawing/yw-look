@@ -2,6 +2,7 @@ import { AnimationMixer } from "three";
 import type { AssetResourceMetrics } from "../lib/diagnostics";
 import type { SelectedFile } from "../lib/files";
 import type { PurposeModes } from "../lib/usd";
+import type { PackMetadata } from "../types/format-pack";
 import {
   emptyAnimationState,
   type AnimationState,
@@ -30,15 +31,17 @@ import {
   getObjectMaxDimension,
   getScaleWarning,
   loadPreviewObject,
+  loaderRegistry,
   normalizeObjectScale,
   resetSceneObjects,
   revokeUrls,
+  scheduleTextureThumbnailEnrichment,
   stopAnimations,
   DEFAULT_LIGHTING_PRESET,
   type SceneContext,
 } from "../viewer";
 import { applyMorphTargetValues } from "../viewer/morphTargets";
-import { syncMmdPreviewSpecularDirection } from "../viewer/mmd/loader";
+import { syncMmdPreviewSpecularDirection } from "../packs";
 import {
   findCameraBySelectionKey,
   frameMountedObject,
@@ -92,6 +95,7 @@ type MountLoadedPreviewOptions = {
     ) => void;
     onGridUnitChange: (label: string) => void;
     onMetadataChange: (metadata: AssetMetadata) => void;
+    onPackMetadataChange: (metadata: PackMetadata | null) => void;
     onScaleNormalizationChange?: (
       normalization: { applied: boolean; factor: number } | null,
     ) => void;
@@ -141,7 +145,6 @@ export async function mountLoadedPreview(
     lighting = DEFAULT_LIGHTING_PRESET,
     rendering,
     skipScaleNormalization = false,
-    mmdMetadata,
     mmdModel,
     warnings = [],
     assetKind = "mesh",
@@ -155,6 +158,8 @@ export async function mountLoadedPreview(
   }
 
   if (replaceExistingPreview) {
+    context.packRuntime?.dispose();
+    context.packRuntime = null;
     runCleanupCallbacks(context.cleanupCallbacks);
     context.cleanupCallbacks = [];
     stopAnimations(context);
@@ -241,12 +246,16 @@ export async function mountLoadedPreview(
   update.setActivePreviewPath(currentFile.path);
   update.setOverlayReady();
 
+  const packMetadata =
+    loaderRegistry
+      .getByExtension(currentFile.extension)
+      ?.collectMetadata?.(object, currentFile) ?? null;
   const metadataCollection = collectAssetMetadata(
     object,
     currentFile,
     clips,
     formatVersion,
-    mmdMetadata,
+    packMetadata?.kind === "mmd" ? packMetadata.asset : undefined,
   );
   metadataCollection.metadata.assetKind = assetKind;
   const isBoneOnlyPreview =
@@ -255,10 +264,22 @@ export async function mountLoadedPreview(
   context.boneOnlyPreview = isBoneOnlyPreview;
   context.animationRoot = object;
   context.textureRegistry = metadataCollection.textureRegistry;
+  const textureRegistry = metadataCollection.textureRegistry;
   refs.assetResourceMetricsRef.current = collectAssetResourceMetrics(
     metadataCollection.metadata,
   );
   update.onMetadataChange(metadataCollection.metadata);
+  update.onPackMetadataChange(packMetadata);
+  const thumbnailEnrichment = scheduleTextureThumbnailEnrichment({
+    metadata: metadataCollection.metadata,
+    onUpdate: update.onMetadataChange,
+    shouldContinue: () =>
+      !isDisposed() &&
+      context.mountedObject === object &&
+      context.textureRegistry === textureRegistry,
+    textureRegistry,
+  });
+  context.cleanupCallbacks.push(thumbnailEnrichment.cancel);
   update.publishResourceDiagnostics(context);
   applySkeletonHelpers(
     context.scene,
@@ -274,6 +295,11 @@ export async function mountLoadedPreview(
   context.clips = clips;
   context.mmdModel = mmdModel ?? null;
   context.mmdMotion = null;
+  context.packRuntime?.dispose();
+  context.packRuntime =
+    loaderRegistry
+      .getByExtension(currentFile.extension)
+      ?.createRuntime?.(context) ?? null;
   if (clips.length > 0) {
     context.mixer = new AnimationMixer(context.animationRoot ?? object);
     const activated = activateClip(context, 0, true);

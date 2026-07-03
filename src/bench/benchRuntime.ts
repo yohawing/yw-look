@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { errorMessage } from "../lib/errors";
 import {
   AmbientLight,
   AnimationMixer,
@@ -415,7 +416,7 @@ export async function runBenchCase(
       baseResult.screenshot = `screenshots/${screenshotFile}`;
     }
   } catch (error) {
-    baseResult.error = error instanceof Error ? error.message : String(error);
+    baseResult.error = errorMessage(error, "Bench case failed.");
   } finally {
     if (object) {
       scene.remove(object);

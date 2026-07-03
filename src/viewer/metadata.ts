@@ -37,9 +37,9 @@ import type {
   MmdMaterialEntry,
   MmdMorphEntry,
 } from "../types/viewer";
+import { isInternalMmdProxyObject } from "../packs";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
 import { isViewportHelperObject, getMaterials } from "./scene";
-import { isInternalMmdProxyObject } from "./mmd/userData";
 import {
   explicitObjectSelectionKey,
   resolveObjectSelectionKey,
@@ -716,6 +716,22 @@ function getTextureDimensions(texture: Texture) {
 }
 
 const THUMB_SIZE = 128;
+const DEFAULT_THUMBNAIL_CHUNK_SIZE = 4;
+
+type ScheduledTextureThumbnailEnrichment = {
+  cancel: () => void;
+};
+
+type TextureThumbnailTaskScheduler = (callback: () => void) => () => void;
+
+type ScheduleTextureThumbnailEnrichmentOptions = {
+  chunkSize?: number;
+  metadata: AssetMetadata;
+  onUpdate: (metadata: AssetMetadata) => void;
+  scheduleTask?: TextureThumbnailTaskScheduler;
+  shouldContinue?: () => boolean;
+  textureRegistry: ReadonlyMap<string, Texture>;
+};
 
 function shouldFlipTexturePreviewY(
   texture: Texture,
@@ -748,6 +764,103 @@ function generateThumbnailUrl(texture: Texture): string | null {
   } catch {
     return null;
   }
+}
+
+function scheduleIdleTask(callback: () => void): () => void {
+  const maybeWindow =
+    typeof window === "undefined"
+      ? null
+      : (window as Window & {
+          cancelIdleCallback?: (handle: number) => void;
+          requestIdleCallback?: (callback: () => void) => number;
+        });
+
+  if (maybeWindow?.requestIdleCallback && maybeWindow.cancelIdleCallback) {
+    const handle = maybeWindow.requestIdleCallback(callback);
+    return () => maybeWindow.cancelIdleCallback?.(handle);
+  }
+
+  const handle = globalThis.setTimeout(callback, 16);
+  return () => globalThis.clearTimeout(handle);
+}
+
+export function scheduleTextureThumbnailEnrichment({
+  chunkSize = DEFAULT_THUMBNAIL_CHUNK_SIZE,
+  metadata,
+  onUpdate,
+  scheduleTask = scheduleIdleTask,
+  shouldContinue = () => true,
+  textureRegistry,
+}: ScheduleTextureThumbnailEnrichmentOptions): ScheduledTextureThumbnailEnrichment {
+  if (metadata.textures.length === 0 || textureRegistry.size === 0) {
+    return { cancel: () => {} };
+  }
+
+  let cancelled = false;
+  let cancelScheduledTask: (() => void) | null = null;
+  let textureIndex = 0;
+  let currentMetadata = metadata;
+  let currentTextures = metadata.textures;
+  const safeChunkSize = Math.max(1, Math.floor(chunkSize));
+  const canContinue = () => !cancelled && shouldContinue();
+
+  const scheduleNext = () => {
+    cancelScheduledTask = scheduleTask(runChunk);
+  };
+
+  const runChunk = () => {
+    cancelScheduledTask = null;
+    if (!canContinue()) return;
+
+    let nextTextures = currentTextures;
+    let changed = false;
+    let processed = 0;
+
+    while (
+      textureIndex < currentTextures.length &&
+      processed < safeChunkSize &&
+      canContinue()
+    ) {
+      const index = textureIndex;
+      const entry = currentTextures[index];
+      textureIndex += 1;
+      processed += 1;
+
+      if (entry.thumbnailUrl) continue;
+
+      const texture = textureRegistry.get(entry.id);
+      if (!texture) continue;
+
+      const thumbnailUrl = generateThumbnailUrl(texture);
+      if (!thumbnailUrl) continue;
+
+      if (nextTextures === currentTextures) {
+        nextTextures = [...currentTextures];
+      }
+      nextTextures[index] = { ...entry, thumbnailUrl };
+      changed = true;
+    }
+
+    if (changed && canContinue()) {
+      currentTextures = nextTextures;
+      currentMetadata = { ...currentMetadata, textures: currentTextures };
+      onUpdate(currentMetadata);
+    }
+
+    if (textureIndex < currentTextures.length && canContinue()) {
+      scheduleNext();
+    }
+  };
+
+  scheduleNext();
+
+  return {
+    cancel: () => {
+      cancelled = true;
+      cancelScheduledTask?.();
+      cancelScheduledTask = null;
+    },
+  };
 }
 
 function inferTextureSourceKind(
@@ -1111,7 +1224,7 @@ export function collectAssetMetadata(
           label: textureValue.name.trim() || `${channel} Texture`,
           channel,
           dimensions: getTextureDimensions(textureValue),
-          thumbnailUrl: generateThumbnailUrl(textureValue),
+          thumbnailUrl: null,
           ...(previewFlipY ? { previewFlipY } : {}),
           sourceKind: inferTextureSourceKind(textureValue, currentFile),
         });

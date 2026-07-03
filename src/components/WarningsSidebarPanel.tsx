@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useViewerStore } from "../stores/viewerStore";
+import { requestViewportScaleNormalizationCancel } from "../viewport/viewportCommands";
 import { DiagnosticsCard } from "./DiagnosticsCard";
 import { WarningsCard } from "./WarningsCard";
 
@@ -16,7 +17,7 @@ export function WarningsSidebarPanel({ warnings }: WarningsSidebarPanelProps) {
   );
 
   const handleCancelScaleNormalization = useCallback(() => {
-    useViewerStore.getState().bumpCancelScaleNormalizeVersion();
+    requestViewportScaleNormalizationCancel();
   }, []);
 
   return (

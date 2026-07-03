@@ -34,6 +34,10 @@ switch (entry) {
     document.title = "yw-look shot";
     await import("./shot/entry");
     break;
+  case "sidebar-profile":
+    document.title = "yw-look sidebar profile";
+    await import("./profile/sidebarIsolationEntry");
+    break;
   default:
     await import("./main");
     break;

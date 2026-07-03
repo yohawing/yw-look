@@ -277,6 +277,52 @@ def Xform "Root"
 }
 
 #[test]
+fn negative_face_counts_return_parse_error_before_subset_filter() -> std::io::Result<()> {
+    let tmp_dir = std::env::temp_dir().join("yw_look_cpp_negative_face_counts");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let usda_path = tmp_dir.join("negative_face_counts.usda");
+    std::fs::write(
+        &usda_path,
+        r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Bad"
+    {
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        int[] faceVertexCounts = [-1]
+        int[] faceVertexIndices = [0, 1, 2]
+        uniform token subdivisionScheme = "none"
+
+        def GeomSubset "BadSubset"
+        {
+            uniform token elementType = "face"
+            uniform token familyName = "materialBind"
+            int[] indices = [0]
+        }
+    }
+}
+"#,
+    )?;
+
+    let backend = OpenusdCppBackend::new();
+    let err = backend
+        .extract_geometry_glb(&usda_path, StageLoadPolicy::LoadAll)
+        .expect_err("negative faceVertexCounts must be reported as a parse error");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("negative faceVertexCounts"),
+        "unexpected error: {msg}"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn display_opacity_subset_preserves_vertex_interpolation() -> std::io::Result<()> {
     let tmp_dir = std::env::temp_dir().join("yw_look_cpp_display_opacity_subset");
     std::fs::create_dir_all(&tmp_dir)?;
@@ -527,6 +573,167 @@ fn tiny_usda_glb_parity_with_rust_backend() {
         cpp_vc, rs_vc,
         "vertex count on Quad's first primitive must match: cpp={cpp_vc}, rs={rs_vc}"
     );
+
+    assert_eq!(
+        node_path_signature(&cpp_json),
+        node_path_signature(&rs_json),
+        "node path/name/parent signatures must agree"
+    );
+}
+
+#[cfg(all(feature = "backend-openusd-cpp", feature = "backend-openusd-rs"))]
+#[test]
+fn light_glb_parity_with_rust_backend() -> std::io::Result<()> {
+    use yw_look_lib::usd::OpenusdBackend;
+
+    let tmp_dir = std::env::temp_dir().join("yw_look_cpp_rs_light_parity");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let usda_path = tmp_dir.join("lights.usda");
+    std::fs::write(
+        &usda_path,
+        r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+
+    def DistantLight "Sun"
+    {
+        color3f inputs:color = (1.0, 0.95, 0.8)
+        float inputs:intensity = 3.0
+        float inputs:exposure = 1.0
+    }
+
+    def SphereLight "Fill"
+    {
+        color3f inputs:color = (0.4, 0.5, 1.0)
+        float inputs:intensity = 10.0
+    }
+}
+"#,
+    )?;
+
+    let cpp = OpenusdCppBackend::new()
+        .extract_geometry_glb(&usda_path, StageLoadPolicy::LoadAll)
+        .expect("cpp backend GLB");
+    let rs = OpenusdBackend::new()
+        .extract_geometry_glb(&usda_path, StageLoadPolicy::LoadAll)
+        .expect("rust backend GLB");
+
+    let cpp_json = parse_glb_json(&cpp);
+    let rs_json = parse_glb_json(&rs);
+
+    let cpp_signature = light_signature(&cpp_json);
+    let rs_signature = light_signature(&rs_json);
+    assert_eq!(cpp_signature.len(), 2, "cpp light count");
+    assert_eq!(rs_signature.len(), 2, "rust light count");
+    assert_eq!(cpp_signature, rs_signature);
+    assert_eq!(light_node_count(&cpp_json), 2, "cpp light node count");
+    assert_eq!(light_node_count(&rs_json), 2, "rust light node count");
+    Ok(())
+}
+
+#[cfg(all(feature = "backend-openusd-cpp", feature = "backend-openusd-rs"))]
+#[test]
+fn normal_wrap_glb_parity_with_rust_backend() -> std::io::Result<()> {
+    use yw_look_lib::usd::OpenusdBackend;
+
+    let tmp_dir = std::env::temp_dir().join("yw_look_cpp_rs_normal_wrap_parity");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let normal_path = tmp_dir.join("normal.png");
+    let png_bytes: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
+        0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0x99, 0x63, 0xF8,
+        0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5C, 0xCD, 0xFF, 0x69, 0x00, 0x00, 0x00,
+        0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+    std::fs::write(&normal_path, png_bytes)?;
+
+    let usda_path = tmp_dir.join("normal_wrap.usda");
+    std::fs::write(
+        &usda_path,
+        r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+)
+
+def Xform "Root"
+{
+    def Mesh "Tri" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </Root/Looks/PBRMat>
+    }
+
+    def "Looks"
+    {
+        def Material "PBRMat"
+        {
+            token outputs:surface.connect = </Root/Looks/PBRMat/Preview.outputs:surface>
+
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                normal3f inputs:normal.connect = </Root/Looks/PBRMat/NormalMap.outputs:out>
+                token outputs:surface
+            }
+
+            def Shader "NormalMap"
+            {
+                uniform token info:id = "ND_normalmap"
+                vector3f inputs:in.connect = </Root/Looks/PBRMat/NormalImage.outputs:rgb>
+                normal3f outputs:out
+            }
+
+            def Shader "NormalImage"
+            {
+                uniform token info:id = "ND_image_vector3"
+                asset inputs:file = @./normal.png@
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "mirror"
+                token outputs:rgb
+            }
+        }
+    }
+}
+"#,
+    )?;
+
+    let cpp = OpenusdCppBackend::new()
+        .extract_geometry_glb(&usda_path, StageLoadPolicy::LoadAll)
+        .expect("cpp backend GLB");
+    let rs = OpenusdBackend::new()
+        .extract_geometry_glb(&usda_path, StageLoadPolicy::LoadAll)
+        .expect("rust backend GLB");
+
+    let cpp_json = parse_glb_json(&cpp);
+    let rs_json = parse_glb_json(&rs);
+    assert_eq!(normal_texture_sampler_wrap(&cpp_json), Some((33071, 33648)));
+    assert_eq!(normal_texture_sampler_wrap(&rs_json), Some((33071, 33648)));
+    assert_eq!(
+        normal_texture_sampler_wrap(&cpp_json),
+        normal_texture_sampler_wrap(&rs_json)
+    );
+
+    Ok(())
 }
 
 #[cfg(all(feature = "backend-openusd-cpp", feature = "backend-openusd-rs"))]
@@ -550,4 +757,93 @@ fn first_primitive_position_count(gltf: &serde_json::Value) -> u64 {
     gltf["accessors"][accessor_idx as usize]["count"]
         .as_u64()
         .expect("POSITION accessor count")
+}
+
+#[cfg(all(feature = "backend-openusd-cpp", feature = "backend-openusd-rs"))]
+fn node_path_signature(gltf: &serde_json::Value) -> Vec<(String, String, Option<String>, bool)> {
+    let nodes = gltf["nodes"].as_array().expect("nodes array");
+    let mut parent_by_child: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
+    for (parent_idx, node) in nodes.iter().enumerate() {
+        let Some(children) = node["children"].as_array() else {
+            continue;
+        };
+        for child in children {
+            parent_by_child.insert(child.as_u64().expect("child index") as usize, parent_idx);
+        }
+    }
+
+    let mut signature: Vec<(String, String, Option<String>, bool)> = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, node)| {
+            let prim_path = node["extras"]["primPath"].as_str()?;
+            let parent_prim_path = parent_by_child
+                .get(&idx)
+                .and_then(|parent_idx| nodes[*parent_idx]["extras"]["primPath"].as_str())
+                .map(str::to_string);
+            Some((
+                prim_path.to_string(),
+                node["name"].as_str().unwrap_or_default().to_string(),
+                parent_prim_path,
+                node.get("mesh").is_some(),
+            ))
+        })
+        .collect();
+    signature.sort();
+    signature
+}
+
+#[cfg(all(feature = "backend-openusd-cpp", feature = "backend-openusd-rs"))]
+fn normal_texture_sampler_wrap(gltf: &serde_json::Value) -> Option<(u64, u64)> {
+    let materials = gltf["materials"].as_array()?;
+    let material = materials.iter().find(|m| {
+        m.get("normalTexture")
+            .and_then(|t| t.get("index"))
+            .is_some()
+    })?;
+    let texture_idx = material["normalTexture"]["index"].as_u64()? as usize;
+    let sampler_idx = gltf["textures"][texture_idx]["sampler"].as_u64()? as usize;
+    let sampler = &gltf["samplers"][sampler_idx];
+    Some((sampler["wrapS"].as_u64()?, sampler["wrapT"].as_u64()?))
+}
+
+#[cfg(all(feature = "backend-openusd-cpp", feature = "backend-openusd-rs"))]
+fn light_signature(gltf: &serde_json::Value) -> Vec<(String, i64, [i64; 3])> {
+    let mut signature: Vec<(String, i64, [i64; 3])> = gltf["extensions"]
+        .get("KHR_lights_punctual")
+        .and_then(|ext| ext.get("lights"))
+        .and_then(|lights| lights.as_array())
+        .expect("KHR_lights_punctual.lights")
+        .iter()
+        .map(|light| {
+            let color = light["color"].as_array().expect("light color");
+            (
+                light["type"].as_str().expect("light type").to_string(),
+                ((light["intensity"].as_f64().expect("light intensity")) * 1_000_000.0).round()
+                    as i64,
+                [
+                    (color[0].as_f64().expect("red") * 1_000_000.0).round() as i64,
+                    (color[1].as_f64().expect("green") * 1_000_000.0).round() as i64,
+                    (color[2].as_f64().expect("blue") * 1_000_000.0).round() as i64,
+                ],
+            )
+        })
+        .collect();
+    signature.sort();
+    signature
+}
+
+#[cfg(all(feature = "backend-openusd-cpp", feature = "backend-openusd-rs"))]
+fn light_node_count(gltf: &serde_json::Value) -> usize {
+    gltf["nodes"]
+        .as_array()
+        .expect("nodes array")
+        .iter()
+        .filter(|node| {
+            node.get("extensions")
+                .and_then(|extensions| extensions.get("KHR_lights_punctual"))
+                .is_some()
+        })
+        .count()
 }

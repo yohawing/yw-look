@@ -8,10 +8,13 @@ import {
   SkinnedMesh,
 } from "three";
 import { ColladaLoader } from "three/examples/jsm/loaders/ColladaLoader.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { FBXLoader } from "../vendor/FBXLoaderPatched.js";
+import { errorMessage } from "../lib/errors";
+import { bakeImageBitmapTextures } from "./textureBake";
 import {
   canSerializeStaticNode,
   collectTransferables,
@@ -34,6 +37,15 @@ export type ModelParseWorkerPayload =
       kind: "fbx";
       buffer: ArrayBuffer;
       resourcePath: string;
+    }
+  | {
+      kind: "glb";
+      buffer: ArrayBuffer;
+    }
+  | {
+      kind: "gltf";
+      text: string;
+      resourceUrls: Record<string, string>;
     }
   | {
       kind: "obj";
@@ -82,10 +94,35 @@ function isRemoteOrInlineUrl(url: string) {
   return /^(data:|blob:|https?:)/i.test(url);
 }
 
-function parseObject(payload: ModelParseWorkerPayload): Object3D {
+async function parseGltfPayload(
+  payload: Extract<ModelParseWorkerPayload, { kind: "glb" | "gltf" }>,
+): Promise<Object3D> {
+  const manager = new LoadingManager();
+  if (payload.kind === "gltf") {
+    manager.setURLModifier((url) => {
+      if (isRemoteOrInlineUrl(url)) return url;
+      return payload.resourceUrls[url] ?? url;
+    });
+  }
+  const loader = new GLTFLoader(manager);
+  const gltf =
+    payload.kind === "glb"
+      ? await loader.parseAsync(payload.buffer, "")
+      : await loader.parseAsync(payload.text, "");
+  gltf.scene.animations = gltf.animations;
+  await bakeImageBitmapTextures(gltf.scene);
+  return gltf.scene;
+}
+
+async function parseObject(
+  payload: ModelParseWorkerPayload,
+): Promise<Object3D> {
   switch (payload.kind) {
     case "fbx":
       return new FBXLoader().parse(payload.buffer, payload.resourcePath);
+    case "glb":
+    case "gltf":
+      return parseGltfPayload(payload);
     case "obj":
       return new OBJLoader().parse(payload.text);
     case "ply": {
@@ -191,46 +228,51 @@ self.addEventListener(
   "message",
   (event: MessageEvent<ModelParseWorkerRequest>) => {
     const request = event.data;
-    try {
-      const object = parseObject(request.payload);
-      if (canUseStaticSceneResult(request.payload.kind, object)) {
-        const scene = toStaticScenePayload(
-          object,
-          request.payload.kind === "obj" || request.payload.kind === "dae",
-        );
-        if (scene) {
-          const response: ModelParseWorkerResponse = {
-            id: request.id,
-            ok: true,
-            result: { kind: "staticScene", scene },
-          };
-          (
-            self as unknown as {
-              postMessage: (payload: unknown, transfer: Transferable[]) => void;
-            }
-          ).postMessage(response, collectTransferables(scene));
-          return;
+    void (async () => {
+      try {
+        const object = await parseObject(request.payload);
+        if (canUseStaticSceneResult(request.payload.kind, object)) {
+          const scene = toStaticScenePayload(
+            object,
+            request.payload.kind === "obj" || request.payload.kind === "dae",
+          );
+          if (scene) {
+            const response: ModelParseWorkerResponse = {
+              id: request.id,
+              ok: true,
+              result: { kind: "staticScene", scene },
+            };
+            (
+              self as unknown as {
+                postMessage: (
+                  payload: unknown,
+                  transfer: Transferable[],
+                ) => void;
+              }
+            ).postMessage(response, collectTransferables(scene));
+            return;
+          }
         }
-      }
 
-      const response: ModelParseWorkerResponse = {
-        id: request.id,
-        ok: true,
-        result: { kind: "objectJson", sceneJson: object.toJSON() },
-      };
-      (
-        self as unknown as { postMessage: (payload: unknown) => void }
-      ).postMessage(response);
-    } catch (error) {
-      const response: ModelParseWorkerResponse = {
-        id: request.id,
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-      (
-        self as unknown as { postMessage: (payload: unknown) => void }
-      ).postMessage(response);
-    }
+        const response: ModelParseWorkerResponse = {
+          id: request.id,
+          ok: true,
+          result: { kind: "objectJson", sceneJson: object.toJSON() },
+        };
+        (
+          self as unknown as { postMessage: (payload: unknown) => void }
+        ).postMessage(response);
+      } catch (error) {
+        const response: ModelParseWorkerResponse = {
+          id: request.id,
+          ok: false,
+          error: errorMessage(error, "Failed to parse model in worker."),
+        };
+        (
+          self as unknown as { postMessage: (payload: unknown) => void }
+        ).postMessage(response);
+      }
+    })();
   },
 );
 

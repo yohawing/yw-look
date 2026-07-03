@@ -1,20 +1,24 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { rgbToHex } from "../lib/format";
+import { useFileStore } from "../stores/fileStore";
 import type {
   MaterialEntry,
   MaterialTextureSlot,
   MmdMaterialEntry,
 } from "./assetMetadata";
-import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 import { Badge } from "./ui/Badge";
 import { Disclosure } from "./ui/Disclosure";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
 import "../styles/material-list.css";
 
 type MaterialListCardProps = {
-  materials: MaterialEntry[];
+  debugPanelsEnabled?: boolean;
 };
+
+const EMPTY_MATERIALS: MaterialEntry[] = [];
 
 /** Format a 0-1 float as a 0-255 decimal integer string for display. */
 function fmt255(v: number): string {
@@ -390,7 +394,17 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
   );
 }
 
-export function MaterialListCard({ materials }: MaterialListCardProps) {
+export function MaterialListCard({
+  debugPanelsEnabled = false,
+}: MaterialListCardProps) {
+  const storeMaterials = useFileStore(
+    (state) => state.assetMetadata?.materials,
+  );
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
+  const materials = useDebugFixtures
+    ? debugFixtures.debugPanelMetadata.materials
+    : (storeMaterials ?? EMPTY_MATERIALS);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const activeIndex =
     materials.length > 0 ? Math.min(selectedIndex, materials.length - 1) : -1;

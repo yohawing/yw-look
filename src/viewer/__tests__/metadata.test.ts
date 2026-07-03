@@ -8,7 +8,7 @@
  * saw a stuck "Loading" state instead of an error message.
  */
 
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   AnimationClip,
   BufferGeometry,
@@ -30,7 +30,11 @@ import {
   Texture,
   VectorKeyframeTrack,
 } from "three";
-import { buildAnimationClipMetadata, collectAssetMetadata } from "../metadata";
+import {
+  buildAnimationClipMetadata,
+  collectAssetMetadata,
+  scheduleTextureThumbnailEnrichment,
+} from "../metadata";
 import { applyDisplayMode } from "../scene";
 import type { SelectedFile } from "../../lib/files";
 
@@ -49,6 +53,57 @@ const fakeMmdFile: SelectedFile = {
   kind: "model",
   parentDirectory: "/tmp",
 };
+
+function createTexturedMeshRoot() {
+  const image = document.createElement("img");
+  const texture = new Texture(image);
+  texture.name = "diffuse.png";
+  const material = new MeshBasicMaterial({ map: texture });
+  const mesh = new Mesh(new BufferGeometry(), material);
+  mesh.name = "TexturedMesh";
+  const root = new Group();
+  root.add(mesh);
+  return { root, texture };
+}
+
+function createManualTaskScheduler() {
+  const callbacks: Array<() => void> = [];
+  return {
+    scheduleTask: (callback: () => void) => {
+      callbacks.push(callback);
+      return () => {
+        const index = callbacks.indexOf(callback);
+        if (index >= 0) {
+          callbacks.splice(index, 1);
+        }
+      };
+    },
+    runNext: () => {
+      callbacks.shift()?.();
+    },
+    get pendingCount() {
+      return callbacks.length;
+    },
+  };
+}
+
+function mockCanvasThumbnail(thumbnailUrl = "data:image/jpeg;base64,thumb") {
+  const drawImageMock = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+    () =>
+      ({
+        drawImage: drawImageMock,
+      }) as unknown as CanvasRenderingContext2D,
+  );
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+    thumbnailUrl,
+  );
+  return drawImageMock;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("collectAssetMetadata", () => {
   it("does not throw when an Object3D has a null name (Collada parity)", () => {
@@ -556,6 +611,107 @@ describe("collectAssetMetadata", () => {
     });
     expect(result.metadata.textures[0]?.previewFlipY).toBeUndefined();
     expect(texture.flipY).toBe(true);
+  });
+
+  it("collects texture metadata without synchronously generating thumbnails", () => {
+    const { root, texture } = createTexturedMeshRoot();
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.textures[0]).toMatchObject({
+      id: texture.uuid,
+      label: "diffuse.png",
+      thumbnailUrl: null,
+    });
+    expect(result.textureRegistry.get(texture.uuid)).toBe(texture);
+  });
+
+  it("enriches texture thumbnails on scheduled tasks while preserving metadata fields", () => {
+    const { root } = createTexturedMeshRoot();
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    const updates: Array<typeof result.metadata> = [];
+    const scheduler = createManualTaskScheduler();
+    const drawImage = mockCanvasThumbnail();
+
+    scheduleTextureThumbnailEnrichment({
+      metadata: result.metadata,
+      onUpdate: (metadata) => updates.push(metadata),
+      scheduleTask: scheduler.scheduleTask,
+      textureRegistry: result.textureRegistry,
+    });
+
+    expect(updates).toHaveLength(0);
+    scheduler.runNext();
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0].textures[0]).toMatchObject({
+      channel: "Base Color",
+      dimensions: "0x0",
+      label: "diffuse.png",
+      sourceKind: "unknown",
+      thumbnailUrl: "data:image/jpeg;base64,thumb",
+    });
+    expect(drawImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels scheduled texture thumbnail enrichment", () => {
+    const { root } = createTexturedMeshRoot();
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    const updates: Array<typeof result.metadata> = [];
+    const scheduler = createManualTaskScheduler();
+    mockCanvasThumbnail();
+
+    const scheduled = scheduleTextureThumbnailEnrichment({
+      metadata: result.metadata,
+      onUpdate: (metadata) => updates.push(metadata),
+      scheduleTask: scheduler.scheduleTask,
+      textureRegistry: result.textureRegistry,
+    });
+
+    scheduled.cancel();
+    scheduler.runNext();
+
+    expect(updates).toHaveLength(0);
+    expect(scheduler.pendingCount).toBe(0);
+  });
+
+  it("skips thumbnail updates when the texture registry no longer matches", () => {
+    const { root } = createTexturedMeshRoot();
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    const updates: Array<typeof result.metadata> = [];
+    const scheduler = createManualTaskScheduler();
+    mockCanvasThumbnail();
+
+    scheduleTextureThumbnailEnrichment({
+      metadata: result.metadata,
+      onUpdate: (metadata) => updates.push(metadata),
+      scheduleTask: scheduler.scheduleTask,
+      shouldContinue: () => false,
+      textureRegistry: result.textureRegistry,
+    });
+
+    scheduler.runNext();
+
+    expect(updates).toHaveLength(0);
+  });
+
+  it("skips missing texture registry entries during thumbnail enrichment", () => {
+    const { root } = createTexturedMeshRoot();
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    const updates: Array<typeof result.metadata> = [];
+    const scheduler = createManualTaskScheduler();
+    mockCanvasThumbnail();
+
+    scheduleTextureThumbnailEnrichment({
+      metadata: result.metadata,
+      onUpdate: (metadata) => updates.push(metadata),
+      scheduleTask: scheduler.scheduleTask,
+      textureRegistry: new Map(),
+    });
+
+    scheduler.runNext();
+
+    expect(updates).toHaveLength(0);
   });
 
   it("uses GLB node basename directly as fixture name (#46 hierarchy-aware path)", () => {

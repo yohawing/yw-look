@@ -195,6 +195,24 @@
       }
     },
     {
+      "id": "usda-tiny-payload",
+      "kind": "model",
+      "format": "usda",
+      "path": "samples/assets/usd/tiny_payload.usda",
+      "tags": ["usd", "usda", "phase0", "payload", "generated-local"],
+      "phase": "phase0",
+      "notes": "Small payload fixture for deferred payload load/unload session checks. Payload prim: /Root/PayloadRoot.",
+      "expect": {
+        "shouldLoad": true,
+        "defaultPrim": "Root",
+        "upAxis": "Y",
+        "metersPerUnit": 0.01,
+        "hasReferences": false,
+        "hasPayloads": true,
+        "hasSubLayers": false
+      }
+    },
+    {
       "id": "usd-kitchen-set",
       "kind": "model",
       "format": "usd",

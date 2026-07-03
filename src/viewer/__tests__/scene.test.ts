@@ -21,11 +21,12 @@ import {
   applyBackfaceCulling,
   applyDisplayMode,
   applyShadows,
+  disposeObject,
   applyUnlitMaterial,
   applyVertexColors,
   traverseMeshesExcludingHelpers,
 } from "../scene";
-import { syncMmdTransparentMaterialRenderState } from "../mmd/userData";
+import { syncMmdTransparentMaterialRenderState } from "../../packs";
 
 describe("traverseMeshesExcludingHelpers", () => {
   it("skips viewport helpers and supports optional outline and shadow catcher filters", () => {
@@ -422,6 +423,85 @@ describe("scene material display helpers", () => {
     expect(unlit.transparent).toBe(true);
     expect(unlit.side).toBe(DoubleSide);
     expect(unlit.forceSinglePass).toBe(true);
+  });
+
+  it("disposes unlit originals without double-disposing shared map textures", () => {
+    const root = new Group();
+    const texture = new Texture();
+    const material = new MeshBasicMaterial({ map: texture });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+    const disposeTexture = vi.spyOn(texture, "dispose");
+    const disposeMaterial = vi.spyOn(material, "dispose");
+
+    applyUnlitMaterial(root, true);
+
+    const unlit = mesh.material as MeshBasicMaterial;
+    const disposeUnlit = vi.spyOn(unlit, "dispose");
+
+    disposeObject(root);
+
+    expect(disposeMaterial).toHaveBeenCalledTimes(1);
+    expect(disposeUnlit).toHaveBeenCalledTimes(1);
+    expect(disposeTexture).toHaveBeenCalledTimes(1);
+    expect(mesh.userData._ywUnlitOriginal).toBeUndefined();
+  });
+
+  it("disposes originalMap textures that are hidden by display mode", () => {
+    const root = new Group();
+    const texture = new Texture();
+    const material = new MeshBasicMaterial({ map: texture });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+    const disposeTexture = vi.spyOn(texture, "dispose");
+
+    applyDisplayMode(root, "untextured");
+
+    expect(material.map).toBeNull();
+    expect(material.userData.originalMap).toBe(texture);
+
+    disposeObject(root);
+
+    expect(disposeTexture).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes original textured materials when unlit is enabled in wireframe mode", () => {
+    const root = new Group();
+    const map = new Texture();
+    const normalMap = new Texture();
+    const material = new MeshStandardMaterial({ map, normalMap });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    mesh.geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    root.add(mesh);
+    const disposeMap = vi.spyOn(map, "dispose");
+    const disposeNormalMap = vi.spyOn(normalMap, "dispose");
+    const disposeMaterial = vi.spyOn(material, "dispose");
+
+    applyDisplayMode(root, "wireframe");
+    applyUnlitMaterial(root, true);
+
+    const wireframe = mesh.material as unknown as MeshBasicMaterial;
+    const unlit = mesh.userData.__yw_wireframe_original_material as
+      | MeshBasicMaterial
+      | MeshBasicMaterial[];
+    const disposeWireframe = vi.spyOn(wireframe, "dispose");
+    const disposeUnlit = vi.spyOn(
+      Array.isArray(unlit) ? unlit[0] : unlit,
+      "dispose",
+    );
+
+    disposeObject(root);
+
+    expect(disposeMaterial).toHaveBeenCalledTimes(1);
+    expect(disposeWireframe).toHaveBeenCalledTimes(1);
+    expect(disposeUnlit).toHaveBeenCalledTimes(1);
+    expect(disposeMap).toHaveBeenCalledTimes(1);
+    expect(disposeNormalMap).toHaveBeenCalledTimes(1);
+    expect(mesh.userData._ywUnlitOriginal).toBeUndefined();
+    expect(mesh.userData.__yw_wireframe_original_material).toBeUndefined();
   });
 
   it("preserves vertex color toggles made while wireframe mode is active", () => {

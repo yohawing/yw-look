@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { type AssetMetadata } from "../components/assetMetadata";
+import { useCallback, useEffect, useMemo } from "react";
+import {
+  buildDiagnosticCounts,
+  buildDiagnosticWarnings,
+  isDebugPanelsRequested,
+  type DiagnosticCounts,
+} from "./assetDiagnostics";
 import {
   buildStatusLeftItems,
   buildStatusRightItems,
@@ -13,49 +18,9 @@ import {
 import type { FileState } from "../stores/fileStore";
 import { useUiStore } from "../stores/uiStore";
 import { useViewerStore, type ViewerState } from "../stores/viewerStore";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import type { AppStatusBarItem } from "../types/ui";
 import type { UpdateCheckPayload } from "../lib/updater";
-
-type DiagnosticCounts = {
-  errorCount: number;
-  warningCount: number;
-  total: number;
-};
-
-type DebugPanelFixtures = typeof import("../components/debugPanelFixtures");
-
-function formatAssetIssue(issue: AssetIssue): string {
-  const prefix = issue.level === "error" ? "USD error" : "USD warning";
-  const context = issue.contextPath ? ` (${issue.contextPath})` : "";
-  return `${prefix}: ${issue.message}${context}`;
-}
-
-function formatMmdDiagnostic(
-  diagnostic: NonNullable<AssetMetadata["mmd"]>["diagnostics"][number],
-): string {
-  const prefix = diagnostic.level === "error" ? "MMD error" : "MMD warning";
-  return `${prefix}: ${diagnostic.message} (${diagnostic.code})`;
-}
-
-function splitViewerWarnings(warning: string | null): string[] {
-  return (
-    warning
-      ?.split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean) ?? []
-  );
-}
-
-function isDebugPanelsRequested(): boolean {
-  if (!import.meta.env.DEV) {
-    return false;
-  }
-
-  const params = new URLSearchParams(window.location.search);
-  return (
-    params.get("debugPanels") === "1" || params.get("uiDebug") === "panels"
-  );
-}
 
 type UseViewerDiagnosticsModelOptions = {
   assetMetadata: FileState["assetMetadata"];
@@ -95,27 +60,8 @@ export function useViewerDiagnosticsModel({
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
   const debugPanelsEnabled = isDebugPanelsRequested();
-  const [debugFixtures, setDebugFixtures] = useState<DebugPanelFixtures | null>(
-    null,
-  );
-  const useDebugFixtures =
-    import.meta.env.DEV && debugPanelsEnabled && debugFixtures !== null;
-
-  useEffect(() => {
-    if (!import.meta.env.DEV || !debugPanelsEnabled) {
-      return;
-    }
-
-    let isActive = true;
-    void import("../components/debugPanelFixtures").then((module) => {
-      if (isActive) {
-        setDebugFixtures(module);
-      }
-    });
-    return () => {
-      isActive = false;
-    };
-  }, [debugPanelsEnabled]);
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
 
   const sidebarCurrentFile = useDebugFixtures
     ? debugFixtures.debugPanelFile
@@ -180,102 +126,28 @@ export function useViewerDiagnosticsModel({
     return `${sidebarCurrentFile.fileName} (${sidebarCurrentFile.kind})`;
   }, [sidebarDirectoryListing, sidebarCurrentFile]);
 
-  const viewerWarningLines = useMemo(
-    () => splitViewerWarnings(viewerFeedback.warning),
-    [viewerFeedback.warning],
-  );
-
   const warnings = useMemo(() => {
-    const nextWarnings: string[] = [];
-
-    nextWarnings.push(...viewerWarningLines);
-
-    for (const texture of assetMetadata?.textures ?? []) {
-      if (texture.sourceKind === "unresolved") {
-        nextWarnings.push(`Texture reference is unresolved: ${texture.label}`);
-      }
-    }
-
-    // Phase 2: surface Rust-side USD asset hygiene issues in the existing
-    // warnings pipeline. Errors sort before warnings so broken references
-    // are visible first.
-    const sortedIssues = [...usdIssues].sort((a, b) => {
-      if (a.level === b.level) return 0;
-      return a.level === "error" ? -1 : 1;
+    return buildDiagnosticWarnings({
+      assetMetadata,
+      usdIssues,
+      viewerFeedback,
     });
-    for (const issue of sortedIssues) {
-      nextWarnings.push(formatAssetIssue(issue));
-    }
-
-    for (const diagnostic of assetMetadata?.mmd?.diagnostics ?? []) {
-      nextWarnings.push(formatMmdDiagnostic(diagnostic));
-    }
-
-    return nextWarnings;
-  }, [
-    assetMetadata?.mmd?.diagnostics,
-    assetMetadata?.textures,
-    usdIssues,
-    viewerWarningLines,
-  ]);
+  }, [assetMetadata, usdIssues, viewerFeedback]);
   const sidebarWarnings = useDebugFixtures
     ? debugFixtures.debugPanelWarnings
     : warnings;
+  const debugPanelWarnings = useDebugFixtures
+    ? debugFixtures.debugPanelWarnings
+    : null;
 
   const diagnosticCounts = useMemo<DiagnosticCounts>(() => {
-    if (useDebugFixtures) {
-      return {
-        errorCount: 0,
-        warningCount: debugFixtures.debugPanelWarnings.length,
-        total: debugFixtures.debugPanelWarnings.length,
-      };
-    }
-
-    const loadErrorCount =
-      viewerFeedback.mode === "loadFailed" ||
-      viewerFeedback.mode === "missingReference"
-        ? 1
-        : 0;
-    const usdErrorCount = usdIssues.filter(
-      (issue) => issue.level === "error",
-    ).length;
-    const usdWarningCount = usdIssues.filter(
-      (issue) => issue.level === "warning",
-    ).length;
-    const unresolvedTextureCount =
-      assetMetadata?.textures.filter(
-        (texture) => texture.sourceKind === "unresolved",
-      ).length ?? 0;
-    const viewerWarningCount = viewerWarningLines.length;
-    const mmdErrorCount =
-      assetMetadata?.mmd?.diagnostics.filter(
-        (diagnostic) => diagnostic.level === "error",
-      ).length ?? 0;
-    const mmdWarningCount =
-      assetMetadata?.mmd?.diagnostics.filter(
-        (diagnostic) => diagnostic.level === "warning",
-      ).length ?? 0;
-    const errorCount = loadErrorCount + usdErrorCount + mmdErrorCount;
-    const warningCount =
-      usdWarningCount +
-      unresolvedTextureCount +
-      viewerWarningCount +
-      mmdWarningCount;
-
-    return {
-      errorCount,
-      warningCount,
-      total: errorCount + warningCount,
-    };
-  }, [
-    assetMetadata?.mmd?.diagnostics,
-    assetMetadata?.textures,
-    debugFixtures,
-    useDebugFixtures,
-    usdIssues,
-    viewerWarningLines,
-    viewerFeedback.mode,
-  ]);
+    return buildDiagnosticCounts({
+      assetMetadata,
+      debugPanelWarnings,
+      usdIssues,
+      viewerFeedback,
+    });
+  }, [assetMetadata, debugPanelWarnings, usdIssues, viewerFeedback]);
 
   useEffect(() => {
     if (!openError) {
@@ -411,9 +283,6 @@ export function useViewerDiagnosticsModel({
     debugPanelsEnabled,
     diagnosticCounts,
     recordVariantSelectionError,
-    sidebarAssetMetadata,
-    sidebarCurrentFile,
-    sidebarDirectoryListing,
     sidebarWarnings,
     statusLeftItems,
     statusRightItems,

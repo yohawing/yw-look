@@ -74,7 +74,13 @@ export {
   disabledOptionalLoaderPackIds,
   incompatibleOptionalLoaderPackIds,
 } from "./loaders";
-export type { LoaderContext, LoaderPlugin } from "./loaderRegistry";
+export type {
+  FormatPack,
+  LoaderContext,
+  LoaderPlugin,
+  PackMetadata,
+  PackRuntime,
+} from "./loaderRegistry";
 
 export {
   captureRendererScreenshot,
@@ -92,6 +98,7 @@ export {
   buildMissingReferenceMetadata,
   cameraDisplayName,
   cameraSelectionKey,
+  scheduleTextureThumbnailEnrichment,
 } from "./metadata";
 export type { MetadataCollection } from "./metadata";
 
@@ -124,6 +131,11 @@ export {
   selectionProxyTarget,
   setSelectionProxyTarget,
 } from "./selectionProxy";
+export {
+  explicitObjectSelectionKey,
+  resolveObjectSelectionKey,
+  setObjectSelectionKey,
+} from "./selectionKeys";
 
 export {
   applySelectionHighlight,

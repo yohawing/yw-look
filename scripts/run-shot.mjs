@@ -10,7 +10,7 @@ const repoRoot = path.resolve(
 );
 
 const usage = `usage:
-  npm run shot -- --in <model> --out <png> [--size WxH] [--bg color]
+  npm run shot -- --in <model> --out <png> [--motion <vmd>] [--size WxH] [--bg color]
   npm run shot:batch -- --config <json>
   npm run shot:batch -- --config-file <path>
   npm run check -- --in <model> [--usd-load-policy loadAll|noPayloads]
@@ -134,28 +134,50 @@ const devServer = reuseDevServer
 
 function stopDevServer() {
   if (!devServer || devServer.killed) {
-    return;
+    return Promise.resolve();
   }
   if (process.platform === "win32" && devServer.pid) {
-    spawn("taskkill", ["/pid", String(devServer.pid), "/T", "/F"], {
-      stdio: "ignore",
-      shell: false,
+    return new Promise((resolve) => {
+      const killer = spawn(
+        "taskkill",
+        ["/pid", String(devServer.pid), "/T", "/F"],
+        {
+          stdio: "ignore",
+          shell: false,
+          windowsHide: true,
+        },
+      );
+      const timer = setTimeout(resolve, 5_000);
+      const finish = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      killer.once("exit", finish);
+      killer.once("error", finish);
     });
-    return;
   }
   devServer.kill();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, 5_000);
+    devServer.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 devServer?.on("error", (error) => {
-  stopDevServer();
-  console.error(error);
-  process.exit(1);
+  void (async () => {
+    await stopDevServer();
+    console.error(error);
+    process.exit(1);
+  })();
 });
 
 try {
   await waitForUrl(devUrl, 60_000, devServer);
 } catch (error) {
-  stopDevServer();
+  await stopDevServer();
   console.error(error);
   process.exit(1);
 }
@@ -167,16 +189,20 @@ const child = spawn("cargo", cargoArgs, {
 });
 
 child.on("error", (error) => {
-  stopDevServer();
-  console.error(error);
-  process.exit(1);
+  void (async () => {
+    await stopDevServer();
+    console.error(error);
+    process.exit(1);
+  })();
 });
 
 child.on("exit", (code, signal) => {
-  stopDevServer();
-  if (signal) {
-    process.kill(process.pid, signal);
-    return;
-  }
-  process.exit(code ?? 1);
+  void (async () => {
+    await stopDevServer();
+    if (signal) {
+      process.kill(process.pid, signal);
+      return;
+    }
+    process.exit(code ?? 1);
+  })();
 });

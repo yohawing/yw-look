@@ -162,10 +162,7 @@ mod tests {
     fn load_settings_uses_installer_loader_pack_markers_for_initial_defaults() {
         let dir = tempdir().expect("tempdir");
         let mmd_dir = dir.path().join("optional-loaders").join("mmd");
-        let gaussian_dir = dir
-            .path()
-            .join("optional-loaders")
-            .join("gaussian-splat");
+        let gaussian_dir = dir.path().join("optional-loaders").join("gaussian-splat");
         fs::create_dir_all(&mmd_dir).expect("create mmd marker dir");
         fs::create_dir_all(&gaussian_dir).expect("create gaussian marker dir");
         fs::write(mmd_dir.join(".removed"), "removed by installer\n").expect("write marker");

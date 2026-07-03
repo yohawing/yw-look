@@ -1,5 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
 import { readBinaryFile } from "./files";
+import { errorMessage } from "./errors";
+import { invokeSafe } from "./invokeSafe";
 
 import type {
   StageLoadPolicy,
@@ -15,7 +16,6 @@ import type {
   ExtractGeometryOptions,
   StageSessionHandle,
   UsdSourcePayload,
-  AppError,
 } from "../types/ipc";
 
 export type {
@@ -56,22 +56,15 @@ type UsdInvokeOptions = {
   background?: boolean;
 };
 
-function tauriErrorMessage(error: unknown): string | null {
-  if (typeof error === "string") return error;
-  if (error instanceof Error) return error.message;
-  if (isAppError(error)) return error.message;
-  return null;
-}
-
-function isAppError(error: unknown): error is AppError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "kind" in error &&
-    "message" in error &&
-    typeof (error as Record<string, unknown>).kind === "string" &&
-    typeof (error as Record<string, unknown>).message === "string"
-  );
+async function invokeUsd<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  const result = await invokeSafe<T>(cmd, args);
+  if (!result.ok) {
+    throw result.error;
+  }
+  return result.value;
 }
 
 export function isInvalidVariantSelectionError(
@@ -81,8 +74,8 @@ export function isInvalidVariantSelectionError(
 }
 
 export function parseUsdError(error: unknown): UsdTypedError | null {
-  const message = tauriErrorMessage(error);
-  if (!message?.startsWith(INVALID_VARIANT_SELECTION_PREFIX)) {
+  const message = errorMessage(error, "");
+  if (!message.startsWith(INVALID_VARIANT_SELECTION_PREFIX)) {
     return null;
   }
 
@@ -118,19 +111,18 @@ export function formatUsdErrorForDisplay(
     return `Variant selection failed: ${parsed.setName}=${parsed.variantName} on ${parsed.primPath}`;
   }
 
-  return tauriErrorMessage(error) ?? fallback;
+  return errorMessage(error, fallback);
 }
 
 export function isUsdTaskBusyError(error: unknown): boolean {
-  const message = tauriErrorMessage(error);
-  return message === USD_TASK_BUSY_MESSAGE;
+  return errorMessage(error, "") === USD_TASK_BUSY_MESSAGE;
 }
 
 export async function inspectUsdLights(
   path: string,
   invokeOptions?: UsdInvokeOptions,
 ): Promise<UsdLightInfo[]> {
-  return invoke<UsdLightInfo[]>("inspect_usd_lights", {
+  return invokeUsd<UsdLightInfo[]>("inspect_usd_lights", {
     path,
     background: invokeOptions?.background,
   });
@@ -147,7 +139,7 @@ export async function inspectPrim(
   path: string,
   primPath: string,
 ): Promise<PrimInspection> {
-  return invoke<PrimInspection>("inspect_prim", { path, primPath });
+  return invokeUsd<PrimInspection>("inspect_prim", { path, primPath });
 }
 
 /**
@@ -163,7 +155,7 @@ export async function inspectAttributeTimeSamples(
   attrName: string,
   maxSamples?: number,
 ): Promise<AttributeTimeSamples> {
-  return invoke<AttributeTimeSamples>("inspect_attribute_time_samples", {
+  return invokeUsd<AttributeTimeSamples>("inspect_attribute_time_samples", {
     path,
     primPath,
     attrName,
@@ -176,7 +168,7 @@ export async function inspectStage(
   policy?: StageLoadPolicy,
   invokeOptions?: UsdInvokeOptions,
 ) {
-  return invoke<StageInspection>("inspect_stage", {
+  return invokeUsd<StageInspection>("inspect_stage", {
     path,
     policy,
     background: invokeOptions?.background,
@@ -188,7 +180,7 @@ export async function summarizeStage(
   policy?: StageLoadPolicy,
   invokeOptions?: UsdInvokeOptions,
 ) {
-  return invoke<StageSummary>("summarize_stage", {
+  return invokeUsd<StageSummary>("summarize_stage", {
     path,
     policy,
     background: invokeOptions?.background,
@@ -199,7 +191,7 @@ export async function collectAssetIssues(
   path: string,
   invokeOptions?: UsdInvokeOptions,
 ) {
-  return invoke<AssetIssue[]>("collect_asset_issues", {
+  return invokeUsd<AssetIssue[]>("collect_asset_issues", {
     path,
     background: invokeOptions?.background,
   });
@@ -256,7 +248,7 @@ export async function requiresGlbPreview(path: string) {
   if (fastDecision !== null) {
     return fastDecision;
   }
-  return invoke<boolean>("requires_glb_preview", { path });
+  return invokeUsd<boolean>("requires_glb_preview", { path });
 }
 
 export async function loadUsdSource(
@@ -279,7 +271,7 @@ export async function loadUsdSource(
 }
 
 export async function backendCapabilities(): Promise<BackendCapabilities> {
-  return invoke<BackendCapabilities>("backend_capabilities");
+  return invokeUsd<BackendCapabilities>("backend_capabilities");
 }
 
 /**
@@ -292,7 +284,7 @@ export async function backendCapabilities(): Promise<BackendCapabilities> {
  * gracefully (e.g. keep the "Binary stage" placeholder).
  */
 export async function flattenStage(path: string): Promise<string> {
-  return invoke<string>("flatten_stage", { path });
+  return invokeUsd<string>("flatten_stage", { path });
 }
 
 /**
@@ -316,13 +308,13 @@ export async function extractGeometry(
   // When an options object is supplied it goes through to the Tauri
   // command's `options` arg, which takes precedence over `policy`.
   if (typeof policyOrOptions === "object" && policyOrOptions !== null) {
-    return invoke<ArrayBuffer>("extract_geometry", {
+    return invokeUsd<ArrayBuffer>("extract_geometry", {
       path,
       options: policyOrOptions,
       background: invokeOptions?.background,
     });
   }
-  return invoke<ArrayBuffer>("extract_geometry", {
+  return invokeUsd<ArrayBuffer>("extract_geometry", {
     path,
     policy: policyOrOptions,
     background: invokeOptions?.background,
@@ -336,7 +328,7 @@ export async function openStageSession(
   policy?: StageLoadPolicy,
   invokeOptions?: UsdInvokeOptions,
 ): Promise<StageSessionHandle> {
-  return invoke<StageSessionHandle>("open_stage_session", {
+  return invokeUsd<StageSessionHandle>("open_stage_session", {
     path,
     policy,
     background: invokeOptions?.background,
@@ -350,7 +342,7 @@ export async function openStageSession(
 export async function closeStageSession(
   handle: StageSessionHandle,
 ): Promise<void> {
-  return invoke<void>("close_stage_session", { handle });
+  return invokeUsd<void>("close_stage_session", { handle });
 }
 
 /**
@@ -363,7 +355,7 @@ export async function loadPayload(
   handle: StageSessionHandle,
   primPath: string,
 ): Promise<void> {
-  return invoke<void>("load_payload", { handle, primPath });
+  return invokeUsd<void>("load_payload", { handle, primPath });
 }
 
 /**
@@ -376,7 +368,7 @@ export async function unloadPayload(
   handle: StageSessionHandle,
   primPath: string,
 ): Promise<void> {
-  return invoke<void>("unload_payload", { handle, primPath });
+  return invokeUsd<void>("unload_payload", { handle, primPath });
 }
 
 /**
@@ -388,5 +380,8 @@ export async function extractGeometrySession(
   handle: StageSessionHandle,
   options?: ExtractGeometryOptions,
 ): Promise<ArrayBuffer> {
-  return invoke<ArrayBuffer>("extract_geometry_session", { handle, options });
+  return invokeUsd<ArrayBuffer>("extract_geometry_session", {
+    handle,
+    options,
+  });
 }

@@ -11,12 +11,12 @@ import {
   resolveSelectedFile,
   type SelectedFile,
 } from "../lib/files";
+import { errorMessage } from "../lib/errors";
+import { createPackFileRequest } from "../packs";
 import { prefetchAdjacent } from "../viewer";
 import { useFileStore, type FileState } from "../stores/fileStore";
 import { useUiStore } from "../stores/uiStore";
 import { useViewerStore, type ViewerState } from "../stores/viewerStore";
-
-const MMD_MODEL_EXTENSIONS = new Set(["pmx", "pmd"]);
 
 function extensionFromPath(path: string) {
   const fileName = path.split(/[\\/]/).pop() ?? path;
@@ -24,21 +24,18 @@ function extensionFromPath(path: string) {
   return dotIndex >= 0 ? fileName.slice(dotIndex + 1).toLowerCase() : "";
 }
 
-function selectedMotionFileFromPath(path: string): SelectedFile {
+function selectedFileFromPath(path: string): SelectedFile {
   const parts = path.split(/[\\/]/);
   const fileName = parts.pop() || path;
   const parentDirectory = parts.join("\\");
+  const extension = extensionFromPath(path);
   return {
     path,
     fileName,
-    extension: extensionFromPath(path),
-    kind: "motion",
+    extension,
+    kind: extension === "vmd" ? "motion" : "model",
     parentDirectory,
   };
-}
-
-function canAttachMmdMotion(file: SelectedFile | null) {
-  return file !== null && MMD_MODEL_EXTENSIONS.has(file.extension);
 }
 
 type OpenReason = "open" | "startup" | "navigation" | "retry" | "recent";
@@ -60,15 +57,13 @@ export function useAppFileOpen({
   setSessionGlbBuffer,
   usdLoadPolicy,
 }: UseAppFileOpenOptions) {
-  const mmdMotionRequest = useFileStore((state) => state.mmdMotionRequest);
+  const packFileRequest = useFileStore((state) => state.packFileRequest);
   const setAssetInspection = useFileStore((state) => state.setAssetInspection);
   const setCurrentFile = useFileStore((state) => state.setCurrentFile);
   const setDirectoryListing = useFileStore(
     (state) => state.setDirectoryListing,
   );
-  const setMmdMotionRequest = useFileStore(
-    (state) => state.setMmdMotionRequest,
-  );
+  const setPackFileRequest = useFileStore((state) => state.setPackFileRequest);
   const setOpenError = useFileStore((state) => state.setOpenError);
   const setIsDragActive = useUiStore((state) => state.setIsDragActive);
   const selectedTextureId = useViewerStore((state) => state.selectedTextureId);
@@ -181,7 +176,7 @@ export function useAppFileOpen({
       ]);
 
       setCurrentFile(resolvedFile);
-      setMmdMotionRequest(null);
+      setPackFileRequest(null);
       setDirectoryListing(listing);
       prefetchAdjacent(listing.files, listing.currentIndex);
       recordLoadTiming(startedAt, reason);
@@ -190,7 +185,7 @@ export function useAppFileOpen({
       recordLoadTiming,
       setCurrentFile,
       setDirectoryListing,
-      setMmdMotionRequest,
+      setPackFileRequest,
       setOpenError,
     ],
   );
@@ -210,16 +205,12 @@ export function useAppFileOpen({
 
   const handleDroppedFilePathFromEffect = useEffectEvent(
     async (path: string) => {
-      if (extensionFromPath(path) === "vmd") {
-        if (!canAttachMmdMotion(currentFile)) {
-          await performSelectFilePath(path, "open");
-          return;
-        }
-
-        setMmdMotionRequest({
-          file: selectedMotionFileFromPath(path),
-          version: (mmdMotionRequest?.version ?? 0) + 1,
-        });
+      const request = createPackFileRequest(selectedFileFromPath(path), {
+        currentFile,
+        version: (packFileRequest?.version ?? 0) + 1,
+      });
+      if (request) {
+        setPackFileRequest(request);
         return;
       }
 
@@ -243,11 +234,7 @@ export function useAppFileOpen({
           return;
         }
 
-        setOpenError(
-          error instanceof Error
-            ? error.message
-            : "Failed to resolve startup file.",
-        );
+        setOpenError(errorMessage(error, "Failed to resolve startup file."));
       });
 
     return () => {
@@ -292,9 +279,7 @@ export function useAppFileOpen({
               return;
             }
             setOpenError(
-              error instanceof Error
-                ? error.message
-                : "Failed to resolve startup file.",
+              errorMessage(error, "Failed to resolve startup file."),
             );
           });
       })
@@ -332,23 +317,17 @@ export function useAppFileOpen({
         setIsDragActive(false);
         try {
           const selectedFile = registerBrowserFile(event.dataTransfer.files[0]);
-          if (
-            selectedFile.extension === "vmd" &&
-            canAttachMmdMotion(currentFile)
-          ) {
-            setMmdMotionRequest({
-              file: selectedFile,
-              version: (mmdMotionRequest?.version ?? 0) + 1,
-            });
+          const request = createPackFileRequest(selectedFile, {
+            currentFile,
+            version: (packFileRequest?.version ?? 0) + 1,
+          });
+          if (request) {
+            setPackFileRequest(request);
             return;
           }
           void performSelectFilePath(selectedFile.path, "open");
         } catch (error: unknown) {
-          setOpenError(
-            error instanceof Error
-              ? error.message
-              : "Failed to open dropped file.",
-          );
+          setOpenError(errorMessage(error, "Failed to open dropped file."));
           useViewerStore.getState().updateViewerFeedback({
             mode: "loadFailed",
             message: "Dropped file could not be resolved.",
@@ -389,11 +368,7 @@ export function useAppFileOpen({
           }
 
           handleDroppedFilePathFromEffect(firstPath).catch((error: unknown) => {
-            setOpenError(
-              error instanceof Error
-                ? error.message
-                : "Failed to open dropped file.",
-            );
+            setOpenError(errorMessage(error, "Failed to open dropped file."));
             useViewerStore.getState().updateViewerFeedback({
               mode: "loadFailed",
               message: "Dropped file could not be resolved.",
@@ -416,10 +391,10 @@ export function useAppFileOpen({
   }, [
     currentFile,
     isTauri,
-    mmdMotionRequest?.version,
+    packFileRequest?.version,
     performSelectFilePath,
     setIsDragActive,
-    setMmdMotionRequest,
+    setPackFileRequest,
     setOpenError,
   ]);
 
@@ -429,9 +404,7 @@ export function useAppFileOpen({
       if (!selectedFile) return;
       await performSelectFilePath(selectedFile.path, "open");
     } catch (error: unknown) {
-      setOpenError(
-        error instanceof Error ? error.message : "Failed to open file dialog.",
-      );
+      setOpenError(errorMessage(error, "Failed to open file dialog."));
       useViewerStore.getState().updateViewerFeedback({
         mode: "loadFailed",
         message: "File dialog operation failed.",

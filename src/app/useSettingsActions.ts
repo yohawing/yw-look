@@ -3,8 +3,8 @@ import {
   removeOptionalLoaderPack,
   type OptionalLoaderPackManifest,
 } from "../lib/loaderPacks";
+import { errorMessage } from "../lib/errors";
 import { saveSettings, type SettingsPayload } from "../lib/settings";
-import { errorMessage } from "../lib/invokeSafe";
 
 type UseSettingsActionsOptions = {
   refreshUpdateConfiguration: () => Promise<void>;
@@ -38,9 +38,7 @@ export function useSettingsActions({
       setSettingsError(null);
     } catch (error: unknown) {
       setSettingsError(
-        error instanceof Error
-          ? error.message
-          : "Failed to update file association setting.",
+        errorMessage(error, "Failed to update file association setting."),
       );
     }
   };
@@ -59,9 +57,7 @@ export function useSettingsActions({
       setSettingsError(null);
     } catch (error: unknown) {
       setSettingsError(
-        error instanceof Error
-          ? error.message
-          : "Failed to update auto-update setting.",
+        errorMessage(error, "Failed to update auto-update setting."),
       );
     }
   };
@@ -86,9 +82,7 @@ export function useSettingsActions({
       setSettingsError(null);
     } catch (error: unknown) {
       setSettingsError(
-        error instanceof Error
-          ? error.message
-          : "Failed to update loader pack setting.",
+        errorMessage(error, "Failed to update loader pack setting."),
       );
     }
   };
