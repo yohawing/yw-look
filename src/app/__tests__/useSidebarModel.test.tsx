@@ -21,8 +21,10 @@ function makeOptions(
 ): SidebarModelTestOptions {
   return {
     handleCheckForUpdate: vi.fn(() => Promise.resolve()),
+    handleInstallOptionalLoaderPack: vi.fn(() => Promise.resolve()),
     handleInstallUpdate: vi.fn(() => Promise.resolve()),
     handleLoadPayload: vi.fn(() => Promise.resolve()),
+    handleRemoveOptionalLoaderPack: vi.fn(() => Promise.resolve()),
     handleToggleAutoCheckForUpdates: vi.fn(() => Promise.resolve()),
     handleToggleFileAssociations: vi.fn(() => Promise.resolve()),
     handleToggleOptionalLoaderPack: vi.fn(() => Promise.resolve()),

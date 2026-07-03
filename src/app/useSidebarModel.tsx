@@ -89,8 +89,10 @@ function SidebarCardFallback() {
 
 type UseSidebarModelOptions = {
   handleCheckForUpdate: () => Promise<void>;
+  handleInstallOptionalLoaderPack: (packId: string) => Promise<void>;
   handleInstallUpdate: () => Promise<void>;
   handleLoadPayload: (primPath: string) => Promise<void>;
+  handleRemoveOptionalLoaderPack: (packId: string) => Promise<void>;
   handleToggleAutoCheckForUpdates: () => Promise<void>;
   handleToggleFileAssociations: () => Promise<void>;
   handleToggleOptionalLoaderPack: (packId: string) => Promise<void>;
@@ -128,8 +130,10 @@ type UseSidebarModelOptions = {
 
 export function useSidebarModel({
   handleCheckForUpdate,
+  handleInstallOptionalLoaderPack,
   handleInstallUpdate,
   handleLoadPayload,
+  handleRemoveOptionalLoaderPack,
   handleToggleAutoCheckForUpdates,
   handleToggleFileAssociations,
   handleToggleOptionalLoaderPack,
@@ -329,6 +333,12 @@ export function useSidebarModel({
                 onToggleAutoCheckForUpdates={() =>
                   void handleToggleAutoCheckForUpdates()
                 }
+                onInstallOptionalLoaderPack={(packId) =>
+                  void handleInstallOptionalLoaderPack(packId)
+                }
+                onRemoveOptionalLoaderPack={(packId) =>
+                  void handleRemoveOptionalLoaderPack(packId)
+                }
                 onToggleOptionalLoaderPack={(packId) =>
                   void handleToggleOptionalLoaderPack(packId)
                 }
@@ -362,8 +372,10 @@ export function useSidebarModel({
     debugFixtures,
     debugPanelsEnabled,
     handleCheckForUpdate,
+    handleInstallOptionalLoaderPack,
     handleInstallUpdate,
     handleLoadPayload,
+    handleRemoveOptionalLoaderPack,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,

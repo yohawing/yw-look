@@ -34,8 +34,10 @@ type SidebarProfileResult = {
 function makeSidebarOptions(): SidebarModelOptions {
   return {
     handleCheckForUpdate: () => Promise.resolve(),
+    handleInstallOptionalLoaderPack: () => Promise.resolve(),
     handleInstallUpdate: () => Promise.resolve(),
     handleLoadPayload: () => Promise.resolve(),
+    handleRemoveOptionalLoaderPack: () => Promise.resolve(),
     handleToggleAutoCheckForUpdates: () => Promise.resolve(),
     handleToggleFileAssociations: () => Promise.resolve(),
     handleToggleOptionalLoaderPack: () => Promise.resolve(),

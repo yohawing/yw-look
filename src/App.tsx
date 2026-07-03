@@ -178,6 +178,8 @@ export function App() {
   });
 
   const {
+    handleInstallOptionalLoaderPack,
+    handleRemoveOptionalLoaderPack,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,
@@ -201,8 +203,10 @@ export function App() {
   const { handleSidebarResizeStart, sidebarContent, sidebarTabs } =
     useSidebarModel({
       handleCheckForUpdate,
+      handleInstallOptionalLoaderPack,
       handleInstallUpdate,
       handleLoadPayload,
+      handleRemoveOptionalLoaderPack,
       handleToggleAutoCheckForUpdates,
       handleToggleFileAssociations,
       handleToggleOptionalLoaderPack,

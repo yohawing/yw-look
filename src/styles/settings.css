@@ -8,8 +8,9 @@
 
 .optional-loader-pack-value {
   display: inline-flex;
-  max-width: 42%;
+  max-width: 58%;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
 }

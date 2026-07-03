@@ -5,6 +5,7 @@ import {
   SidebarError,
   SidebarSection,
 } from "../lib/sidebarPrimitives";
+import { Button } from "./ui/Button";
 import { FieldRow } from "./ui/FieldRow";
 import { ToggleSwitch } from "./ui/ToggleSwitch";
 import "../styles/settings.css";
@@ -17,12 +18,14 @@ type SettingsCardProps = {
   onToggleFileAssociations: () => void;
   /** #26: flips `autoCheckForUpdates` and persists via save_settings. */
   onToggleAutoCheckForUpdates: () => void;
+  onInstallOptionalLoaderPack?: (packId: string) => void;
+  onRemoveOptionalLoaderPack?: (packId: string) => void;
   onToggleOptionalLoaderPack: (packId: string) => void;
 };
 
 function canToggleOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
   return (
-    pack.installed &&
+    pack.runtimeAvailable &&
     pack.compatibility.state !== "requiresNewerApp" &&
     pack.compatibility.state !== "requiresOlderApp" &&
     pack.compatibility.state !== "unknown" &&
@@ -31,13 +34,31 @@ function canToggleOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
 }
 
 function formatOptionalLoaderPackStatus(pack: OptionalLoaderPackStatus) {
-  if (!pack.installed) {
+  if (!pack.runtimeAvailable) {
     return "Missing";
+  }
+  if (!pack.manifestInstalled) {
+    return pack.enabled ? "Bundled" : "Disabled";
   }
   if (!canToggleOptionalLoaderPack(pack)) {
     return "Blocked";
   }
   return pack.enabled ? "Enabled" : "Disabled";
+}
+
+function canInstallOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
+  return pack.runtimeAvailable && !pack.manifestInstalled;
+}
+
+function canRemoveOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
+  return pack.manifestInstalled;
+}
+
+function confirmRemoveOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
+  if (typeof window === "undefined" || typeof window.confirm !== "function") {
+    return true;
+  }
+  return window.confirm(`Remove ${pack.name}?`);
 }
 
 export function SettingsCard({
@@ -47,6 +68,8 @@ export function SettingsCard({
   optionalLoaderPacksError = null,
   onToggleFileAssociations,
   onToggleAutoCheckForUpdates,
+  onInstallOptionalLoaderPack,
+  onRemoveOptionalLoaderPack,
   onToggleOptionalLoaderPack,
 }: SettingsCardProps) {
   if (settingsError) {
@@ -128,11 +151,11 @@ export function SettingsCard({
                 >
                   <span
                     className={`optional-loader-pack-status ${
-                      pack.installed && canToggleOptionalLoaderPack(pack)
+                      pack.runtimeAvailable && canToggleOptionalLoaderPack(pack)
                         ? pack.enabled
                           ? "is-installed"
                           : "is-disabled"
-                        : pack.installed
+                        : pack.runtimeAvailable
                           ? "is-blocked"
                           : "is-missing"
                     }`}
@@ -146,6 +169,32 @@ export function SettingsCard({
                     onCheckedChange={() => onToggleOptionalLoaderPack(pack.id)}
                     size="sm"
                   />
+                  {canInstallOptionalLoaderPack(pack) ? (
+                    <Button
+                      aria-label={`Install ${pack.name}`}
+                      disabled={!onInstallOptionalLoaderPack}
+                      onClick={() => onInstallOptionalLoaderPack?.(pack.id)}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      Install
+                    </Button>
+                  ) : null}
+                  {canRemoveOptionalLoaderPack(pack) ? (
+                    <Button
+                      aria-label={`Remove ${pack.name}`}
+                      disabled={!onRemoveOptionalLoaderPack}
+                      onClick={() => {
+                        if (confirmRemoveOptionalLoaderPack(pack)) {
+                          onRemoveOptionalLoaderPack?.(pack.id);
+                        }
+                      }}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
                 </FieldRow>
               );
             })}
