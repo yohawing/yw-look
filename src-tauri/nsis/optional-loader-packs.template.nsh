@@ -82,8 +82,7 @@ Function YwInstallMmdLoaderPack
   FileClose $0
 
   FileOpen $0 "$APPDATA\com.yohawing.ywlook\optional-loaders\mmd\manifest.json" w
-  FileWrite $0 "{$\"id$\":$\"mmd-loader-pack$\",$\"name$\":$\"MMD Loader Pack$\",$\"version$\":$\"__YW_LOOK_VERSION__$\",$\"minimumAppVersion$\":$\"__YW_LOOK_VERSION__$\",$\"extensions$\":["
-  FileWrite $0 "$\"pmd$\",$\"pmx$\",$\"vmd$\"],$\"entry$\":$\"loader.js$\",$\"kind$\":$\"firstPartyLoaderPack$\"}$\r$\n"
+__YW_MMD_MANIFEST_FILEWRITE__
   FileClose $0
 FunctionEnd
 
@@ -96,8 +95,7 @@ Function YwInstallGaussianSplatLoaderPack
   FileClose $0
 
   FileOpen $0 "$APPDATA\com.yohawing.ywlook\optional-loaders\gaussian-splat\manifest.json" w
-  FileWrite $0 "{$\"id$\":$\"gaussian-splat-loader-pack$\",$\"name$\":$\"Gaussian Splat Loader Pack$\",$\"version$\":$\"__YW_LOOK_VERSION__$\",$\"minimumAppVersion$\":$\"__YW_LOOK_VERSION__$\",$\"extensions$\":["
-  FileWrite $0 "$\"splat$\",$\"spz$\",$\"ksplat$\",$\"sog$\"],$\"entry$\":$\"loader.js$\",$\"kind$\":$\"firstPartyLoaderPack$\"}$\r$\n"
+__YW_GAUSSIAN_SPLAT_MANIFEST_FILEWRITE__
   FileClose $0
 FunctionEnd
 

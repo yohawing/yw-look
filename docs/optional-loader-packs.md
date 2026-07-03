@@ -160,6 +160,13 @@ The installer writes selected packs into the same app-managed pack directory
 used by Settings, or copies bundled seed packs there on first launch. It should
 not be the only management surface.
 
+Windows NSIS hook generation is template-driven. `npm run prepare:nsis-loader-packs`
+writes `src-tauri/target/nsis/optional-loader-packs.generated.nsh` from
+`src-tauri/nsis/optional-loader-packs.template.nsh` and `package.json` version.
+`npm run check:nsis-loader-packs` regenerates that file and sanity-checks pack
+manifest embedding, required NSIS markers, and the Tauri hook reference without
+building the installer bundle.
+
 macOS DMG drag-and-drop install does not have an equivalent component picker.
 For macOS, ship core only by default and let users install packs from Settings.
 If demand justifies a heavier distribution, a separate "with optional loaders"
