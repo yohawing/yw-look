@@ -1,8 +1,80 @@
 import type { ToolbarAction, ToolbarItem } from "./types";
 
-import type { Build3DToolbarOptions } from "../../types/viewer";
+import type {
+  Build3DToolbarOptions,
+  ViewportSurfaceDisplay,
+  ViewportWireframeMode,
+} from "../../types/viewer";
+import {
+  deriveViewportSurfaceDisplay,
+  deriveViewportWireframeMode,
+} from "../../types/viewer";
 
 export type { Build3DToolbarOptions } from "../../types/viewer";
+
+function applySurfaceDisplay(
+  target: ViewportSurfaceDisplay,
+  options: Build3DToolbarOptions,
+) {
+  const {
+    showTexture,
+    showUnlit,
+    showNormals = false,
+    showVertexColors = false,
+    onToggleTexture,
+    onToggleUnlit,
+    onToggleNormals,
+    onToggleVertexColors,
+  } = options;
+
+  switch (target) {
+    case "shaded":
+      if (!showTexture) onToggleTexture();
+      if (showUnlit) onToggleUnlit();
+      if (showNormals && onToggleNormals) onToggleNormals();
+      if (showVertexColors && onToggleVertexColors) onToggleVertexColors();
+      break;
+    case "unlit":
+      if (!showTexture) onToggleTexture();
+      if (!showUnlit) onToggleUnlit();
+      if (showNormals && onToggleNormals) onToggleNormals();
+      if (showVertexColors && onToggleVertexColors) onToggleVertexColors();
+      break;
+    case "normals":
+      if (showUnlit) onToggleUnlit();
+      if (showVertexColors && onToggleVertexColors) onToggleVertexColors();
+      if (onToggleNormals && !showNormals) onToggleNormals();
+      break;
+    case "vertexColor":
+      if (showUnlit) onToggleUnlit();
+      if (showNormals && onToggleNormals) onToggleNormals();
+      if (onToggleVertexColors && !showVertexColors) onToggleVertexColors();
+      break;
+  }
+}
+
+function applyWireframeMode(
+  target: ViewportWireframeMode,
+  options: Build3DToolbarOptions,
+) {
+  const { showTexture, showWireframe, onToggleTexture, onToggleWireframe } =
+    options;
+
+  switch (target) {
+    case "off":
+      if (showWireframe) onToggleWireframe();
+      if (!showTexture) onToggleTexture();
+      break;
+    case "overlay":
+      if (!showWireframe) onToggleWireframe();
+      if (!showTexture) onToggleTexture();
+      break;
+    case "only":
+      if (!showWireframe) onToggleWireframe();
+      if (showTexture) onToggleTexture();
+      break;
+  }
+}
 
 export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
   const items: ToolbarItem[] = [];
@@ -34,6 +106,16 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
     showVertexColors = false,
   } = options;
 
+  const activeSurfaceDisplay = deriveViewportSurfaceDisplay({
+    showUnlit,
+    showNormals,
+    showVertexColors,
+  });
+  const activeWireframeMode = deriveViewportWireframeMode({
+    showWireframe,
+    showTexture,
+  });
+
   // ── Camera ──────────────────────────────────────────────
   const cameraOpts = options.cameraPresetOptions;
   if (cameraOpts.length > 0 && options.onSelectCameraPreset) {
@@ -59,156 +141,89 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
     });
   }
 
-  // ── Shading ─────────────────────────────────────────────
+  // ── Display (surface + wireframe) ───────────────────────
   {
-    groupSep("shading");
+    groupSep("display");
     const children: ToolbarItem[] = [];
 
-    // Lit / Unlit (active based on showUnlit only)
-    children.push(
+    children.push({
+      id: "display-section-label",
+      mode: "3d",
+      group: "display",
+      kind: "status",
+      label: "Display",
+    });
+
+    const surfaceModes: Array<{
+      id: ViewportSurfaceDisplay;
+      label: string;
+      available: boolean;
+    }> = [
+      { id: "shaded", label: "Shaded", available: true },
+      { id: "unlit", label: "Unlit", available: true },
       {
-        id: "shading-lit",
-        mode: "3d",
-        group: "shading",
-        kind: "button",
-        label: "Lit",
-        active: !showUnlit,
-        onRun: () => {
-          if (!showTexture) options.onToggleTexture();
-          if (showUnlit) options.onToggleUnlit();
-          if (showNormals && options.onToggleNormals) options.onToggleNormals();
-          if (showVertexColors && options.onToggleVertexColors)
-            options.onToggleVertexColors();
-        },
+        id: "normals",
+        label: "Normals",
+        available: options.onToggleNormals !== undefined,
       },
       {
-        id: "shading-unlit",
-        mode: "3d",
-        group: "shading",
-        kind: "button",
-        label: "Unlit",
-        active: showUnlit,
-        onRun: () => {
-          if (!showTexture) options.onToggleTexture();
-          if (!showUnlit) options.onToggleUnlit();
-          if (showNormals && options.onToggleNormals) options.onToggleNormals();
-          if (showVertexColors && options.onToggleVertexColors)
-            options.onToggleVertexColors();
-        },
-      },
-    );
-
-    // Normal overlay
-    if (options.onToggleNormals) {
-      children.push({ kind: "separator" });
-      children.push({
-        id: "shading-normal",
-        mode: "3d",
-        group: "shading",
-        kind: "button",
-        label: "Normal",
-        active: showNormals,
-        onRun: options.onToggleNormals,
-      });
-    }
-
-    // Vertex Color
-    if (options.onToggleVertexColors) {
-      children.push({
-        id: "shading-vertexColor",
-        mode: "3d",
-        group: "shading",
-        kind: "button",
+        id: "vertexColor",
         label: "Vertex Color",
-        active: showVertexColors,
-        onRun: options.onToggleVertexColors,
+        available: options.onToggleVertexColors !== undefined,
+      },
+    ];
+
+    for (const mode of surfaceModes) {
+      if (!mode.available) continue;
+      children.push({
+        id: `display-${mode.id}`,
+        mode: "3d",
+        group: "display",
+        kind: "button",
+        label: mode.label,
+        active: activeSurfaceDisplay === mode.id,
+        onRun: () => applySurfaceDisplay(mode.id, options),
       });
     }
 
     children.push({ kind: "separator" });
 
-    // Texture / Material display
     children.push({
-      id: "shading-texture",
-      mode: "3d",
-      group: "shading",
-      kind: "toggle",
-      label: "Texture / Material",
-      active: showTexture,
-      onRun: options.onToggleTexture,
-    });
-
-    push({
-      id: "shading",
-      mode: "3d",
-      group: "shading",
-      kind: "popover",
-      label: "Shading",
-      iconId: "light",
-      children,
-    });
-  }
-
-  // ── Wireframe ───────────────────────────────────────────
-  {
-    groupSep("wireframe");
-
-    const isWireOff = !showWireframe;
-    const isWireOverlay = showWireframe && showTexture;
-    const isWireOnly = showWireframe && !showTexture;
-
-    const wireframeModes: Array<{
-      id: string;
-      label: string;
-      active: boolean;
-      onRun: () => void;
-    }> = [
-      {
-        id: "off",
-        label: "Off",
-        active: isWireOff,
-        onRun: () => {
-          if (showWireframe) options.onToggleWireframe();
-          if (!showTexture) options.onToggleTexture();
-        },
-      },
-      {
-        id: "overlay",
-        label: "Overlay",
-        active: isWireOverlay,
-        onRun: () => {
-          if (!showWireframe) options.onToggleWireframe();
-          if (!showTexture) options.onToggleTexture();
-        },
-      },
-      {
-        id: "wireOnly",
-        label: "Wire Only",
-        active: isWireOnly,
-        onRun: () => {
-          if (!showWireframe) options.onToggleWireframe();
-          if (showTexture) options.onToggleTexture();
-        },
-      },
-    ];
-
-    const children: ToolbarItem[] = wireframeModes.map((mode) => ({
-      id: `wireframe-${mode.id}`,
-      mode: "3d" as const,
-      group: "wireframe" as const,
-      kind: "button" as const,
-      label: mode.label,
-      active: mode.active,
-      onRun: mode.onRun,
-    }));
-
-    push({
-      id: "wireframe",
+      id: "wireframe-section-label",
       mode: "3d",
       group: "wireframe",
-      kind: "popover",
+      kind: "status",
       label: "Wireframe",
-      iconId: "wireframe",
+    });
+
+    const wireframeModes: Array<{
+      id: ViewportWireframeMode;
+      label: string;
+    }> = [
+      { id: "off", label: "Off" },
+      { id: "overlay", label: "Overlay" },
+      { id: "only", label: "Only" },
+    ];
+
+    for (const mode of wireframeModes) {
+      children.push({
+        id: `display-wireframe-${mode.id}`,
+        mode: "3d",
+        group: "wireframe",
+        kind: "button",
+        label: mode.label,
+        active: activeWireframeMode === mode.id,
+        onRun: () => applyWireframeMode(mode.id, options),
+      });
+    }
+
+    push({
+      id: "display",
+      mode: "3d",
+      group: "display",
+      kind: "popover",
+      label: "Display",
+      iconId: "light",
       children,
     });
   }

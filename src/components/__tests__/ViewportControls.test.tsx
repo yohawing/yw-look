@@ -49,6 +49,37 @@ describe("ViewportControls", () => {
     expect(queryByText("Change camera preset")).toBeNull();
   });
 
+  it("does not render visible separators between viewport tools", () => {
+    const items: ToolbarItem[] = [
+      {
+        id: "camera",
+        mode: "3d",
+        group: "camera",
+        kind: "button",
+        label: "Camera",
+        iconId: "camera",
+        onRun: vi.fn(),
+      },
+      { kind: "separator" },
+      {
+        id: "shading",
+        mode: "3d",
+        group: "shading",
+        kind: "button",
+        label: "Shading",
+        iconId: "light",
+        onRun: vi.fn(),
+      },
+    ];
+
+    const { container, getByRole } = render(<ViewportControls items={items} />);
+
+    expect(getByRole("button", { name: "Camera" })).toBeTruthy();
+    expect(getByRole("button", { name: "Shading" })).toBeTruthy();
+    expect(container.querySelector(".viewport-tool-separator")).toBeNull();
+    expect(container.querySelectorAll(".viewport-tool-group")).toHaveLength(1);
+  });
+
   it("keeps the collapsed viewport tools button without a tooltip", () => {
     const { getByRole, queryByRole, queryByText } = render(
       <ViewportControls items={[]} isOpen={false} onToggleOpen={vi.fn()} />,

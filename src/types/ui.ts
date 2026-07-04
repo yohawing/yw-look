@@ -77,6 +77,7 @@ export type ToolbarActionGroup =
   | "camera"
   | "channel"
   | "color"
+  | "display"
   | "inspect"
   | "look"
   | "overlay"

@@ -7,7 +7,7 @@ export type SidebarTabItem<TabId extends string> = {
   label: string;
   icon: ReactNode;
   badge?: {
-    count: number;
+    label: string;
     tone: "warning" | "danger";
   };
   disabled?: boolean;
@@ -52,13 +52,11 @@ export function SidebarTabs<TabId extends string>({
             <span className="sidebar-tab-icon" aria-hidden="true">
               {tab.icon}
             </span>
-            {tab.badge && tab.badge.count > 0 ? (
+            {tab.badge ? (
               <span
                 className={`sidebar-tab-badge is-${tab.badge.tone}`}
-                aria-label={`${tab.badge.count} active diagnostics`}
-              >
-                {tab.badge.count > 99 ? "99+" : tab.badge.count}
-              </span>
+                aria-label={tab.badge.label}
+              />
             ) : null}
           </IconTabButton>
         );

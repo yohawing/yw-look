@@ -341,11 +341,3 @@ export type UpdateInstallPayload = {
   restartRequired: boolean;
   note: string;
 };
-
-// ── Integrations IPC types ───────────────────────────────────────
-
-export type IntegrationPayload = {
-  fileAssociationsEnabled: boolean;
-  installStrategy: string;
-  supportedExtensions: string[];
-};

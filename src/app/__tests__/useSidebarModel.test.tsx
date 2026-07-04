@@ -12,6 +12,7 @@ import { useUiStore } from "../../stores/uiStore";
 import { useFileStore } from "../../stores/fileStore";
 import { useViewerStore } from "../../stores/viewerStore";
 import type { AssetIssue } from "../../lib/usd";
+import type { UpdateCheckPayload } from "../../lib/updater";
 import type { MmdAssetMetadata } from "../../types/viewer";
 
 type SidebarModelTestOptions = Parameters<typeof useSidebarModel>[0];
@@ -21,16 +22,11 @@ function makeOptions(
 ): SidebarModelTestOptions {
   return {
     handleCheckForUpdate: vi.fn(() => Promise.resolve()),
-    handleInstallOptionalLoaderPack: vi.fn(() => Promise.resolve()),
     handleInstallUpdate: vi.fn(() => Promise.resolve()),
     handleLoadPayload: vi.fn(() => Promise.resolve()),
-    handleRemoveOptionalLoaderPack: vi.fn(() => Promise.resolve()),
     handleToggleAutoCheckForUpdates: vi.fn(() => Promise.resolve()),
-    handleToggleFileAssociations: vi.fn(() => Promise.resolve()),
     handleToggleOptionalLoaderPack: vi.fn(() => Promise.resolve()),
     handleUnloadPayload: vi.fn(() => Promise.resolve()),
-    integrationError: null,
-    integrationPayload: null,
     isCheckingForUpdate: false,
     isInstallingUpdate: false,
     isTauri: false,
@@ -134,7 +130,7 @@ describe("useSidebarModel", () => {
     expect(screen.getByText("runtime warning")).toBeTruthy();
   });
 
-  it("builds the warnings tab badge from USD issues", () => {
+  it("builds the warnings tab dot from USD issues", () => {
     const usdIssues: AssetIssue[] = [
       {
         code: "broken-reference",
@@ -153,8 +149,41 @@ describe("useSidebarModel", () => {
     );
 
     expect(warningsTab?.badge).toEqual({
-      count: 1,
+      label: "Active diagnostics",
       tone: "danger",
+    });
+  });
+
+  it("adds an update dot to the settings tab when an update is available", () => {
+    const updateCheck: UpdateCheckPayload = {
+      configuration: {
+        currentVersion: "0.1.9",
+        defaultEndpoint: "https://example.com/latest.json",
+        defaultPubkeyAvailable: true,
+        effectiveEndpoint: "https://example.com/latest.json",
+        effectivePubkeyAvailable: true,
+        usingOverrideEndpoint: false,
+        usingOverridePubkey: false,
+        allowInsecureUpdateEndpoint: false,
+      },
+      update: {
+        version: "0.2.0",
+        currentVersion: "0.1.9",
+        target: "windows-x86_64",
+        downloadUrl: "https://example.com/yw-look.exe",
+      },
+    };
+    const { result } = renderHook(() =>
+      useSidebarModel(makeOptions({ updateCheck })),
+    );
+
+    const settingsTab = result.current.sidebarTabs.find(
+      (tab) => tab.id === "settings",
+    );
+
+    expect(settingsTab?.badge).toEqual({
+      label: "Update available: 0.2.0",
+      tone: "warning",
     });
   });
 

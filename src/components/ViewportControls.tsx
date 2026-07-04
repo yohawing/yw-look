@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { ViewportToolSvg } from "./ViewportToolIcons";
 import type { ToolbarAction, ToolbarItem } from "./toolbar/types";
@@ -42,10 +42,6 @@ function ViewportTool({
   );
 }
 
-function Separator() {
-  return <span className="viewport-tool-separator" aria-hidden="true" />;
-}
-
 function ViewportToolGroup({ children }: { children: ReactNode }) {
   return <div className="viewport-tool-group">{children}</div>;
 }
@@ -78,49 +74,30 @@ export function ViewportControls({
     );
   }
 
-  const groups: ToolbarAction[][] = [];
-  let currentGroup: ToolbarAction[] = [];
-
-  for (const item of items) {
-    if (isSeparator(item)) {
-      if (currentGroup.length > 0) {
-        groups.push(currentGroup);
-        currentGroup = [];
-      }
-    } else if (item.kind === "status") {
-      continue;
-    } else {
-      currentGroup.push(item);
-    }
-  }
-  if (currentGroup.length > 0) {
-    groups.push(currentGroup);
-  }
+  const actions = items.filter(
+    (item): item is ToolbarAction =>
+      !isSeparator(item) && item.kind !== "status",
+  );
 
   return (
     <aside className="viewport-controls" aria-label="Viewport HUD">
-      {groups.map((group, groupIndex) => (
-        <Fragment key={group[0]?.id ?? groupIndex}>
-          {groupIndex > 0 ? <Separator /> : null}
-          <ViewportToolGroup>
-            {group.map((action) =>
-              hasPopover(action) ? (
-                <PopoverTool key={action.id} action={action} />
-              ) : (
-                <ViewportTool
-                  key={action.id}
-                  active={action.active}
-                  disabled={action.disabled}
-                  iconId={action.iconId}
-                  kind={action.kind}
-                  label={action.label}
-                  onClick={action.onRun ?? (() => {})}
-                />
-              ),
-            )}
-          </ViewportToolGroup>
-        </Fragment>
-      ))}
+      <ViewportToolGroup>
+        {actions.map((action) =>
+          hasPopover(action) ? (
+            <PopoverTool key={action.id} action={action} />
+          ) : (
+            <ViewportTool
+              key={action.id}
+              active={action.active}
+              disabled={action.disabled}
+              iconId={action.iconId}
+              kind={action.kind}
+              label={action.label}
+              onClick={action.onRun ?? (() => {})}
+            />
+          ),
+        )}
+      </ViewportToolGroup>
     </aside>
   );
 }

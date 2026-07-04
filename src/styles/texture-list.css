@@ -1,5 +1,5 @@
 .texture-channel-filters {
-  padding: 0 12px 8px;
+  padding: 0 0 8px;
 }
 
 .texture-channel-filter {
@@ -9,7 +9,7 @@
 .texture-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   list-style: none;
-  padding: 0 12px 12px;
+  padding: 0 0 12px;
   margin: 0;
 }
 
@@ -57,7 +57,7 @@
 }
 
 .texture-card-preview-placeholder {
-  color: var(--yl-text-muted);
+  color: var(--yl-text-tertiary);
   font-family: var(--font-mono);
   font-size: 18px;
   font-weight: 510;
@@ -93,8 +93,8 @@
 }
 
 .texture-summary {
-  padding: 0 16px 12px;
-  color: var(--yl-text-muted);
+  padding: 0 0 12px;
+  color: var(--yl-text-tertiary);
   font-family: var(--font-mono);
   font-size: 10.5px;
 }

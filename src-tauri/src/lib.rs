@@ -25,7 +25,6 @@ use crate::commands::files::{
     load_recent_files, open_file_dialog, read_binary_file, read_binary_file_prefix,
     resolve_selected_file,
 };
-use crate::commands::integrations::load_supported_extensions;
 use crate::commands::loader_packs::{
     install_optional_loader_pack, load_optional_loader_manifests, remove_optional_loader_pack,
 };
@@ -209,7 +208,6 @@ pub fn run() {
             convert_alembic_to_preview,
             get_startup_file,
             load_recent_files,
-            load_supported_extensions,
             load_optional_loader_manifests,
             install_optional_loader_pack,
             remove_optional_loader_pack,

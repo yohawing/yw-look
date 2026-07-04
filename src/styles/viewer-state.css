@@ -5,7 +5,7 @@
   align-items: center;
   justify-content: center;
   gap: 16px;
-  color: var(--yl-text-muted);
+  color: var(--yl-text-tertiary);
   text-align: center;
 }
 
@@ -108,7 +108,7 @@
 .viewer-empty-format-groups p,
 .viewer-empty-hint {
   margin: 0;
-  color: var(--yl-text-muted);
+  color: var(--yl-text-tertiary);
   font-family: var(--yl-font-mono);
   font-size: 10px;
   font-weight: 500;
@@ -130,7 +130,7 @@
   min-height: 18px;
   border: 1px solid var(--yl-border-subtle);
   border-radius: 3px;
-  color: var(--yl-text-muted);
+  color: var(--yl-text-tertiary);
   padding: 1px 6px;
   font-family: var(--yl-font-mono);
   font-size: 10px;

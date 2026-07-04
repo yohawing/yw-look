@@ -15,7 +15,7 @@ const tabs: SidebarTabItem<TestTabId>[] = [
     id: "warnings",
     label: "Diagnostics",
     icon: <span>d</span>,
-    badge: { count: 3, tone: "danger" },
+    badge: { label: "Active diagnostics", tone: "danger" },
   },
 ];
 
@@ -24,8 +24,8 @@ describe("diagnostics badges", () => {
     cleanup();
   });
 
-  it("renders a count badge on the diagnostics tab", () => {
-    const { getByLabelText, getByText } = render(
+  it("renders a dot badge on the diagnostics tab", () => {
+    const { getByLabelText } = render(
       <SidebarTabs
         activeTab="properties"
         onTabChange={() => undefined}
@@ -34,7 +34,9 @@ describe("diagnostics badges", () => {
     );
 
     expect(getByLabelText("Diagnostics")).toBeTruthy();
-    expect(getByText("3").className).toContain("is-danger");
+    expect(getByLabelText("Active diagnostics").className).toContain(
+      "is-danger",
+    );
   });
 
   it("calls the footer diagnostics action when clicked", () => {

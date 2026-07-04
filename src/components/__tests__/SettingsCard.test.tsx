@@ -23,8 +23,30 @@ describe("SettingsCard", () => {
     cleanup();
   });
 
-  it("reports optional loader pack installation state", () => {
-    const { getByText, queryByText } = render(
+  it("renders update preferences as a label and toggle row", () => {
+    const { getByRole, getByText, queryByText } = render(
+      <SettingsCard
+        settingsPayload={settingsPayload}
+        settingsError={null}
+        optionalLoaderPacks={[]}
+        onToggleAutoCheckForUpdates={() => undefined}
+        onToggleOptionalLoaderPack={() => undefined}
+      />,
+    );
+
+    expect(getByText("Update Preferences")).toBeTruthy();
+    expect(getByText("Auto-check updates")).toBeTruthy();
+    expect(getByRole("switch", { name: "Auto-check updates" })).toBeTruthy();
+    expect(queryByText("File associations")).toBeNull();
+    expect(queryByText("Support")).toBeNull();
+    expect(queryByText("Enabled")).toBeNull();
+    expect(queryByText("Disabled")).toBeNull();
+    expect(queryByText("On")).toBeNull();
+    expect(queryByText("Off")).toBeNull();
+  });
+
+  it("renders optional loader packs as label and toggle rows", () => {
+    const { getByRole, getByText, queryByText } = render(
       <SettingsCard
         settingsPayload={settingsPayload}
         settingsError={null}
@@ -60,9 +82,6 @@ describe("SettingsCard", () => {
           },
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
-        onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={() => undefined}
-        onRemoveOptionalLoaderPack={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
@@ -70,14 +89,20 @@ describe("SettingsCard", () => {
     expect(getByText("Optional Loader Packs")).toBeTruthy();
     expect(getByText("MMD Loader Pack")).toBeTruthy();
     expect(getByText("Gaussian Splat Loader Pack")).toBeTruthy();
-    expect(getByText("Enabled")).toBeTruthy();
-    expect(getByText("Missing")).toBeTruthy();
+    expect(
+      getByRole("switch", { name: "MMD Loader Pack loader pack" }),
+    ).toBeTruthy();
+    expect(
+      getByRole("switch", { name: "Gaussian Splat Loader Pack loader pack" }),
+    ).toBeTruthy();
+    expect(queryByText("Enabled")).toBeNull();
+    expect(queryByText("Missing")).toBeNull();
     expect(queryByText(".pmd .pmx .vmd")).toBeNull();
     expect(queryByText("Managed 0.2.0")).toBeNull();
     expect(queryByText("Compatible")).toBeNull();
     expect(queryByText("Runtime missing")).toBeNull();
     expect(queryByText("Install")).toBeNull();
-    expect(queryByText("Remove")).toBeTruthy();
+    expect(queryByText("Remove")).toBeNull();
   });
 
   it("requests optional loader pack toggles for installed packs", () => {
@@ -102,9 +127,6 @@ describe("SettingsCard", () => {
           },
         ]}
         onToggleAutoCheckForUpdates={() => undefined}
-        onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={() => undefined}
-        onRemoveOptionalLoaderPack={() => undefined}
         onToggleOptionalLoaderPack={onToggleOptionalLoaderPack}
       />,
     );
@@ -116,67 +138,6 @@ describe("SettingsCard", () => {
     expect(onToggleOptionalLoaderPack).toHaveBeenCalledWith("mmd-loader-pack");
   });
 
-  it("requests optional loader pack install and remove actions", () => {
-    const onInstallOptionalLoaderPack = vi.fn();
-    const onRemoveOptionalLoaderPack = vi.fn();
-    const confirmSpy = vi
-      .spyOn(window, "confirm")
-      .mockImplementation(() => true);
-    const { getByRole } = render(
-      <SettingsCard
-        settingsPayload={settingsPayload}
-        settingsError={null}
-        optionalLoaderPacks={[
-          {
-            id: "mmd-loader-pack",
-            name: "MMD Loader Pack",
-            extensions: ["pmd", "pmx", "vmd"],
-            installed: true,
-            enabled: true,
-            manifestInstalled: false,
-            runtimeAvailable: true,
-            compatibility: {
-              state: "bundled",
-              label: "Bundled runtime",
-            },
-          },
-          {
-            id: "gaussian-splat-loader-pack",
-            name: "Gaussian Splat Loader Pack",
-            extensions: ["splat", "spz"],
-            installed: true,
-            enabled: true,
-            manifestInstalled: true,
-            runtimeAvailable: true,
-            version: "0.2.0",
-            compatibility: {
-              state: "compatible",
-              label: "Compatible",
-            },
-          },
-        ]}
-        onToggleAutoCheckForUpdates={() => undefined}
-        onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={onInstallOptionalLoaderPack}
-        onRemoveOptionalLoaderPack={onRemoveOptionalLoaderPack}
-        onToggleOptionalLoaderPack={() => undefined}
-      />,
-    );
-
-    fireEvent.click(getByRole("button", { name: "Install MMD Loader Pack" }));
-    fireEvent.click(
-      getByRole("button", { name: "Remove Gaussian Splat Loader Pack" }),
-    );
-
-    expect(onInstallOptionalLoaderPack).toHaveBeenCalledWith("mmd-loader-pack");
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Remove Gaussian Splat Loader Pack?",
-    );
-    expect(onRemoveOptionalLoaderPack).toHaveBeenCalledWith(
-      "gaussian-splat-loader-pack",
-    );
-  });
-
   it("reports optional loader pack manifest load failures", () => {
     const { getByText } = render(
       <SettingsCard
@@ -185,9 +146,6 @@ describe("SettingsCard", () => {
         optionalLoaderPacks={[]}
         optionalLoaderPacksError="Failed to load optional loader pack manifests."
         onToggleAutoCheckForUpdates={() => undefined}
-        onToggleFileAssociations={() => undefined}
-        onInstallOptionalLoaderPack={() => undefined}
-        onRemoveOptionalLoaderPack={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );

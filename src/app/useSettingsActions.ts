@@ -23,26 +23,6 @@ export function useSettingsActions({
   setUpdateError,
   settingsPayload,
 }: UseSettingsActionsOptions) {
-  const handleToggleFileAssociations = async () => {
-    if (!settingsPayload) {
-      return;
-    }
-
-    try {
-      const nextPayload = await saveSettings({
-        ...settingsPayload.settings,
-        fileAssociationsEnabled:
-          !settingsPayload.settings.fileAssociationsEnabled,
-      });
-      setSettingsPayload(nextPayload);
-      setSettingsError(null);
-    } catch (error: unknown) {
-      setSettingsError(
-        errorMessage(error, "Failed to update file association setting."),
-      );
-    }
-  };
-
   const handleToggleAutoCheckForUpdates = async () => {
     if (!settingsPayload) {
       return;
@@ -160,7 +140,6 @@ export function useSettingsActions({
     handleInstallOptionalLoaderPack,
     handleRemoveOptionalLoaderPack,
     handleToggleAutoCheckForUpdates,
-    handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,
   };
 }

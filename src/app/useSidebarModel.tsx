@@ -35,7 +35,6 @@ import type {
 } from "../lib/usd";
 import { useFileStore } from "../stores/fileStore";
 import { useUiStore } from "../stores/uiStore";
-import type { IntegrationPayload } from "../lib/integrations";
 import type { OptionalLoaderPackManifest } from "../lib/loaderPacks";
 import type { RecentFilesPayload } from "../lib/recentFiles";
 import type { SettingsPayload } from "../lib/settings";
@@ -51,11 +50,6 @@ import type { PackMetadata } from "../types/format-pack";
 const CompositionArcsCard = lazy(() =>
   import("../components/CompositionArcsCard").then((module) => ({
     default: module.CompositionArcsCard,
-  })),
-);
-const IntegrationCard = lazy(() =>
-  import("../components/IntegrationCard").then((module) => ({
-    default: module.IntegrationCard,
   })),
 );
 const RecentFilesCard = lazy(() =>
@@ -89,16 +83,11 @@ function SidebarCardFallback() {
 
 type UseSidebarModelOptions = {
   handleCheckForUpdate: () => Promise<void>;
-  handleInstallOptionalLoaderPack: (packId: string) => Promise<void>;
   handleInstallUpdate: () => Promise<void>;
   handleLoadPayload: (primPath: string) => Promise<void>;
-  handleRemoveOptionalLoaderPack: (packId: string) => Promise<void>;
   handleToggleAutoCheckForUpdates: () => Promise<void>;
-  handleToggleFileAssociations: () => Promise<void>;
   handleToggleOptionalLoaderPack: (packId: string) => Promise<void>;
   handleUnloadPayload: (primPath: string) => Promise<void>;
-  integrationError: string | null;
-  integrationPayload: IntegrationPayload | null;
   isCheckingForUpdate: boolean;
   isInstallingUpdate: boolean;
   isTauri: boolean;
@@ -130,16 +119,11 @@ type UseSidebarModelOptions = {
 
 export function useSidebarModel({
   handleCheckForUpdate,
-  handleInstallOptionalLoaderPack,
   handleInstallUpdate,
   handleLoadPayload,
-  handleRemoveOptionalLoaderPack,
   handleToggleAutoCheckForUpdates,
-  handleToggleFileAssociations,
   handleToggleOptionalLoaderPack,
   handleUnloadPayload,
-  integrationError,
-  integrationPayload,
   isCheckingForUpdate,
   isInstallingUpdate,
   isTauri,
@@ -327,17 +311,8 @@ export function useSidebarModel({
                   optionalLoaderManifests,
                 )}
                 optionalLoaderPacksError={optionalLoaderManifestsError}
-                onToggleFileAssociations={() =>
-                  void handleToggleFileAssociations()
-                }
                 onToggleAutoCheckForUpdates={() =>
                   void handleToggleAutoCheckForUpdates()
-                }
-                onInstallOptionalLoaderPack={(packId) =>
-                  void handleInstallOptionalLoaderPack(packId)
-                }
-                onRemoveOptionalLoaderPack={(packId) =>
-                  void handleRemoveOptionalLoaderPack(packId)
                 }
                 onToggleOptionalLoaderPack={(packId) =>
                   void handleToggleOptionalLoaderPack(packId)
@@ -355,12 +330,6 @@ export function useSidebarModel({
                 updateError={updateError}
               />
             </Suspense>
-            <Suspense fallback={<SidebarCardFallback />}>
-              <IntegrationCard
-                integrationError={integrationError}
-                integrationPayload={integrationPayload}
-              />
-            </Suspense>
           </>
         );
       case "warnings":
@@ -372,16 +341,11 @@ export function useSidebarModel({
     debugFixtures,
     debugPanelsEnabled,
     handleCheckForUpdate,
-    handleInstallOptionalLoaderPack,
     handleInstallUpdate,
     handleLoadPayload,
-    handleRemoveOptionalLoaderPack,
     handleToggleAutoCheckForUpdates,
-    handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,
     handleUnloadPayload,
-    integrationError,
-    integrationPayload,
     isCheckingForUpdate,
     isInstallingUpdate,
     isTauri,
@@ -413,21 +377,33 @@ export function useSidebarModel({
 
   const sidebarTabs = useMemo<SidebarTabItem<SidebarTabId>[]>(
     () =>
-      createSidebarTabs().map((tab) =>
-        tab.id === "warnings" && diagnosticCounts.total > 0
-          ? {
-              ...tab,
-              badge: {
-                count: diagnosticCounts.total,
-                tone:
-                  diagnosticCounts.errorCount > 0
-                    ? ("danger" as const)
-                    : ("warning" as const),
-              },
-            }
-          : tab,
-      ),
-    [diagnosticCounts.errorCount, diagnosticCounts.total],
+      createSidebarTabs().map((tab) => {
+        if (tab.id === "warnings" && diagnosticCounts.total > 0) {
+          return {
+            ...tab,
+            badge: {
+              label: "Active diagnostics",
+              tone:
+                diagnosticCounts.errorCount > 0
+                  ? ("danger" as const)
+                  : ("warning" as const),
+            },
+          };
+        }
+
+        if (tab.id === "settings" && updateCheck?.update) {
+          return {
+            ...tab,
+            badge: {
+              label: `Update available: ${updateCheck.update.version}`,
+              tone: "warning" as const,
+            },
+          };
+        }
+
+        return tab;
+      }),
+    [diagnosticCounts.errorCount, diagnosticCounts.total, updateCheck?.update],
   );
 
   const handleSidebarResizeStart = (event: PointerEvent<HTMLDivElement>) => {

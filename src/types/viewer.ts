@@ -44,6 +44,42 @@ export type DisplayMode =
   | "wireframe"
   | "texturedWireframe";
 
+/** Mutually exclusive surface display choices in the viewport Display popover. */
+export type ViewportSurfaceDisplay =
+  | "shaded"
+  | "unlit"
+  | "normals"
+  | "vertexColor";
+
+/** Tri-state wireframe overlay mode in the viewport Display popover. */
+export type ViewportWireframeMode = "off" | "overlay" | "only";
+
+export function deriveViewportSurfaceDisplay(flags: {
+  showUnlit: boolean;
+  showNormals?: boolean;
+  showVertexColors?: boolean;
+}): ViewportSurfaceDisplay {
+  if (flags.showVertexColors && !flags.showUnlit && !flags.showNormals) {
+    return "vertexColor";
+  }
+  if (flags.showNormals && !flags.showUnlit && !flags.showVertexColors) {
+    return "normals";
+  }
+  if (flags.showUnlit && !flags.showNormals && !flags.showVertexColors) {
+    return "unlit";
+  }
+  return "shaded";
+}
+
+export function deriveViewportWireframeMode(flags: {
+  showWireframe: boolean;
+  showTexture: boolean;
+}): ViewportWireframeMode {
+  if (!flags.showWireframe) return "off";
+  if (flags.showTexture) return "overlay";
+  return "only";
+}
+
 export type ViewerSurfaceMode = "asset" | "texture";
 
 export type TextureViewMode = "rgb" | "rgba" | "r" | "g" | "b" | "alpha";

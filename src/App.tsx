@@ -87,8 +87,6 @@ export function App() {
     recentFilesError,
     setRecentFilesError,
     setOptionalLoaderManifests,
-    integrationPayload,
-    integrationError,
     optionalLoaderManifests,
     optionalLoaderManifestsError,
     logDiagnosticEventAndRefresh,
@@ -208,20 +206,15 @@ export function App() {
     performSelectFilePath,
   });
 
-  const {
-    handleInstallOptionalLoaderPack,
-    handleRemoveOptionalLoaderPack,
-    handleToggleAutoCheckForUpdates,
-    handleToggleFileAssociations,
-    handleToggleOptionalLoaderPack,
-  } = useSettingsActions({
-    refreshUpdateConfiguration,
-    setSettingsError,
-    setOptionalLoaderManifests,
-    setSettingsPayload,
-    setUpdateError,
-    settingsPayload,
-  });
+  const { handleToggleAutoCheckForUpdates, handleToggleOptionalLoaderPack } =
+    useSettingsActions({
+      refreshUpdateConfiguration,
+      setSettingsError,
+      setOptionalLoaderManifests,
+      setSettingsPayload,
+      setUpdateError,
+      settingsPayload,
+    });
 
   const sessionAdjustedUsdSummary = useSessionAdjustedUsdSummary({
     payloadPrimPaths,
@@ -234,16 +227,11 @@ export function App() {
   const { handleSidebarResizeStart, sidebarContent, sidebarTabs } =
     useSidebarModel({
       handleCheckForUpdate,
-      handleInstallOptionalLoaderPack,
       handleInstallUpdate,
       handleLoadPayload,
-      handleRemoveOptionalLoaderPack,
       handleToggleAutoCheckForUpdates,
-      handleToggleFileAssociations,
       handleToggleOptionalLoaderPack,
       handleUnloadPayload,
-      integrationError,
-      integrationPayload,
       isCheckingForUpdate,
       isInstallingUpdate,
       isTauri,

@@ -2,10 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { logDiagnosticEvent } from "../lib/diagnostics";
 import { type SelectedFile } from "../lib/files";
 import {
-  loadSupportedExtensions,
-  type IntegrationPayload,
-} from "../lib/integrations";
-import {
   loadOptionalLoaderManifests,
   type OptionalLoaderPackManifest,
 } from "../lib/loaderPacks";
@@ -26,9 +22,6 @@ export function useDeferredData(
   const [recentFilesPayload, setRecentFilesPayload] =
     useState<RecentFilesPayload | null>(null);
   const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
-  const [integrationPayload, setIntegrationPayload] =
-    useState<IntegrationPayload | null>(null);
-  const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [optionalLoaderManifests, setOptionalLoaderManifests] = useState<
     OptionalLoaderPackManifest[]
   >([]);
@@ -108,34 +101,6 @@ export function useDeferredData(
 
     let isActive = true;
 
-    loadSupportedExtensions()
-      .then((payload) => {
-        if (!isActive) return;
-        setIntegrationPayload(payload);
-        setIntegrationError(null);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) return;
-        setIntegrationError(
-          errorMessage(error, "Failed to load Windows integration details."),
-        );
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [
-    settingsPayload?.settings.fileAssociationsEnabled,
-    settingsPayload?.settings.optionalLoaderPacks,
-    optionalLoaderManifests,
-    shouldLoadDeferredData,
-  ]);
-
-  useEffect(() => {
-    if (!shouldLoadDeferredData) return;
-
-    let isActive = true;
-
     loadOptionalLoaderManifests()
       .then((manifests) => {
         if (!isActive) return;
@@ -163,8 +128,6 @@ export function useDeferredData(
     recentFilesError,
     setRecentFilesError,
     setOptionalLoaderManifests: replaceOptionalLoaderManifests,
-    integrationPayload,
-    integrationError,
     optionalLoaderManifests,
     optionalLoaderManifestsError,
     logDiagnosticEventAndRefresh,

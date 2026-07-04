@@ -61,8 +61,8 @@
   --yl-success: #27a644;
   --yl-success-alt: #10b981;
 
-  --yl-border-subtle: rgba(255, 255, 255, 0.05);
-  --yl-border: rgba(255, 255, 255, 0.08);
+  --yl-border-subtle: #23252a;
+  --yl-border: #23252a;
   --yl-border-strong: rgba(255, 255, 255, 0.12);
   --yl-border-solid: #23252a;
 
@@ -142,11 +142,15 @@
 
   --yl-button-bg: var(--yl-surface-glass-1);
   --yl-button-bg-hover: var(--yl-surface-glass-3);
-  --yl-button-border: rgb(36, 40, 44);
+  --yl-button-border: var(--yl-border);
   --yl-button-text: #e2e4e7;
-  --yl-button-subtle-bg: var(--yl-surface-glass-2);
+  --yl-button-subtle-bg: var(--yl-surface-glass-3);
   --yl-button-primary-bg: var(--yl-accent-bg);
   --yl-button-primary-bg-hover: var(--yl-accent-hover);
+  --yl-button-primary-bg-disabled: rgba(255, 255, 255, 0.035);
+  --yl-button-primary-border-disabled: #23252a;
+  --yl-button-primary-text-disabled: var(--yl-text-tertiary);
+  --yl-button-primary-text: #ffffff;
 
   --yl-card-bg: var(--yl-surface-glass-1);
   --yl-card-bg-hover: var(--yl-surface-glass-2);
@@ -278,7 +282,7 @@
 .yl-button--primary {
   border-color: transparent;
   background: var(--yl-button-primary-bg);
-  color: var(--yl-text-on-accent);
+  color: var(--yl-button-primary-text);
 }
 
 .yl-button--primary:hover:not(
@@ -287,19 +291,27 @@
     .yl-button--unstyled
   ) {
   background: var(--yl-button-primary-bg-hover);
-  color: var(--yl-text-on-accent);
+  color: var(--yl-button-primary-text);
+}
+
+.yl-button--primary:disabled,
+.yl-button--primary[aria-disabled="true"] {
+  border-color: var(--yl-button-primary-border-disabled);
+  background: var(--yl-button-primary-bg-disabled);
+  color: var(--yl-button-primary-text-disabled);
+  opacity: 1;
 }
 
 .yl-button--subtle {
-  border-color: var(--yl-border-subtle);
+  border-color: var(--yl-border);
   background: var(--yl-button-subtle-bg);
-  color: var(--yl-text-secondary);
+  color: var(--yl-text-primary);
 }
 
 .yl-button--ghost {
-  border-color: transparent;
-  background: transparent;
-  color: var(--yl-text-tertiary);
+  border-color: var(--yl-border);
+  background: var(--yl-surface-glass-1);
+  color: var(--yl-text-secondary);
 }
 
 .yl-button--icon {
@@ -736,7 +748,7 @@ select option:disabled {
 }
 
 .yl-slider-field__value {
-  color: var(--yl-text-muted);
+  color: var(--yl-text-tertiary);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -1149,7 +1161,7 @@ button.yl-badge {
 
 .yl-disclosure__chevron {
   flex-shrink: 0;
-  color: var(--yl-text-muted, #62666d);
+  color: var(--yl-text-tertiary, #8a8f98);
   transition: transform 120ms ease;
 }
 
@@ -1170,7 +1182,7 @@ button.yl-badge {
   font-family: var(--yl-font-mono, ui-monospace);
   font-size: 10px;
   font-weight: 500;
-  color: var(--yl-text-muted, #62666d);
+  color: var(--yl-text-tertiary, #8a8f98);
 }
 
 /* variant: section — top-level sidebar section */
@@ -1181,7 +1193,7 @@ button.yl-badge {
 
 .yl-disclosure--section > .yl-disclosure__summary {
   padding: 10px 16px 8px;
-  color: var(--yl-text-muted, #62666d);
+  color: var(--yl-text-tertiary, #8a8f98);
   font-size: 10.5px;
   font-weight: 510;
   letter-spacing: 0.08em;
@@ -1193,13 +1205,17 @@ button.yl-badge {
 }
 
 .yl-disclosure--section > .yl-disclosure__body {
-  padding: 2px 0 12px;
+  padding: 2px var(--yl-space-16) 12px;
+}
+
+.yl-disclosure--section > .yl-disclosure__body > .yl-disclosure--section {
+  margin-inline: calc(-1 * var(--yl-space-16));
 }
 
 /* variant: inline — nested within a card (material bindings, shader details) */
 
 .yl-disclosure--inline {
-  margin: 4px 16px 0;
+  margin: 4px 0 0;
 }
 
 .yl-disclosure--inline > .yl-disclosure__summary {
@@ -1221,7 +1237,7 @@ button.yl-badge {
 
 .yl-disclosure--minimal > .yl-disclosure__summary {
   padding: 2px 0;
-  color: var(--yl-text-muted, #62666d);
+  color: var(--yl-text-tertiary, #8a8f98);
   font-size: 11px;
 }
 

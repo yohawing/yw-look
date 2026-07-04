@@ -48,11 +48,14 @@ describe("useViewportToolbarModel", () => {
     act(() => {
       findAction(
         result.current.viewportToolbarItems,
-        "shading-texture",
+        "display-shaded",
       ).onRun?.();
     });
 
     expect(useViewerStore.getState().showTexture).toBe(true);
+    expect(useViewerStore.getState().showUnlit).toBe(false);
+    expect(useViewerStore.getState().showNormals).toBe(false);
+    expect(useViewerStore.getState().showVertexColors).toBe(false);
   });
 
   it("updates image toolbar state through viewer store actions", () => {

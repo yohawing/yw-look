@@ -574,15 +574,15 @@ export function HierarchyCard({
         id="hierarchy-outliner"
         minSize={25}
       >
-        <section className="hierarchy-section">
-          <div className="sec-head">
+        <section className="hierarchy-section yl-disclosure yl-disclosure--section">
+          <div className="yl-disclosure__summary">
             <svg
               viewBox="0 0 16 16"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
               width="11"
               height="11"
-              className="sec-head-chevron"
+              className="yl-disclosure__chevron"
               aria-hidden="true"
             >
               <path
@@ -593,10 +593,10 @@ export function HierarchyCard({
                 strokeLinejoin="round"
               />
             </svg>
-            <span>Outliner</span>
-            <span className="sec-head-count">{totalNodeCount}</span>
+            <span className="yl-disclosure__title">Outliner</span>
+            <span className="yl-disclosure__count">{totalNodeCount}</span>
           </div>
-          <div className="hierarchy-pane-scroll">
+          <div className="hierarchy-pane-scroll yl-disclosure__body">
             {hierarchy.length > 0 ? (
               <ul className="tree-root">
                 {hierarchy.map((node, index) => (
@@ -641,15 +641,15 @@ export function HierarchyCard({
         id="hierarchy-selected"
         minSize={20}
       >
-        <section className="hierarchy-section">
-          <div className="sec-head">
+        <section className="hierarchy-section yl-disclosure yl-disclosure--section">
+          <div className="yl-disclosure__summary">
             <svg
               viewBox="0 0 16 16"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
               width="11"
               height="11"
-              className="sec-head-chevron"
+              className="yl-disclosure__chevron"
               aria-hidden="true"
             >
               <path
@@ -660,9 +660,9 @@ export function HierarchyCard({
                 strokeLinejoin="round"
               />
             </svg>
-            <span>Selected</span>
+            <span className="yl-disclosure__title">Selected</span>
           </div>
-          <div className="hierarchy-pane-scroll">
+          <div className="hierarchy-pane-scroll yl-disclosure__body">
             {selectedNode ? (
               <div className="selected-kv">
                 <KeyValueRows density="regular" rows={selectedRows} />
