@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   renderHook,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import type { PointerEvent } from "react";
 import { useSidebarModel } from "../useSidebarModel";
@@ -14,8 +16,34 @@ import { useViewerStore } from "../../stores/viewerStore";
 import type { AssetIssue } from "../../lib/usd";
 import type { UpdateCheckPayload } from "../../lib/updater";
 import type { MmdAssetMetadata } from "../../types/viewer";
+import type { SettingsPayload } from "../../lib/settings";
+
+const diagnosticsMocks = vi.hoisted(() => ({
+  loadDiagnosticsSnapshot: vi.fn(),
+  openAppLogDir: vi.fn(),
+}));
+
+vi.mock("../../lib/diagnostics", () => ({
+  loadDiagnosticsSnapshot: diagnosticsMocks.loadDiagnosticsSnapshot,
+  openAppLogDir: diagnosticsMocks.openAppLogDir,
+}));
 
 type SidebarModelTestOptions = Parameters<typeof useSidebarModel>[0];
+
+const settingsPayload: SettingsPayload = {
+  settingsPath: "C:\\Users\\yohaw\\AppData\\Roaming\\yw-look\\settings.json",
+  settings: {
+    version: 1,
+    recentFilesLimit: 10,
+    diagnosticsLogLevel: "warn",
+    fileAssociationsEnabled: false,
+    optionalLoaderPacks: {},
+    updateEndpointOverride: null,
+    updatePublicKeyOverride: null,
+    allowInsecureUpdateEndpoint: false,
+    autoCheckForUpdates: true,
+  },
+};
 
 function makeOptions(
   overrides: Partial<SidebarModelTestOptions> = {},
@@ -56,6 +84,15 @@ function makeOptions(
 }
 
 beforeEach(() => {
+  diagnosticsMocks.loadDiagnosticsSnapshot.mockResolvedValue({
+    appLogDir: "C:/logs/yw-look",
+    appVersion: "0.2.2-test",
+    arch: "x64",
+    diagnosticsLogPath: "C:/logs/yw-look/diagnostics.log",
+    diagnosticsSnapshot: ["[viewer.loadFailed] Failed to load preview."],
+    platform: "windows",
+  });
+  diagnosticsMocks.openAppLogDir.mockResolvedValue(undefined);
   useUiStore.setState({
     activeTab: "properties",
     sidebarWidth: 350,
@@ -185,6 +222,45 @@ describe("useSidebarModel", () => {
       label: "Update available: 0.2.0",
       tone: "warning",
     });
+  });
+
+  it("exposes diagnostics actions from the settings tab", async () => {
+    useUiStore.setState({ activeTab: "settings" });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const { result } = renderHook(() =>
+      useSidebarModel(makeOptions({ settingsPayload })),
+    );
+
+    render(<>{result.current.sidebarContent}</>);
+
+    expect(
+      await screen.findByRole("button", { name: "Open Logs" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Copy Diagnostics" }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Recent diagnostics").textContent).toContain(
+        "[viewer.loadFailed] Failed to load preview.",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Logs" }));
+    expect(diagnosticsMocks.openAppLogDir).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Diagnostics" }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+    const report = String(writeText.mock.calls[0]?.[0] ?? "");
+    expect(report).toContain(
+      "Diagnostics log: C:/logs/yw-look/diagnostics.log",
+    );
   });
 
   it("uses the ui store sidebar width as the resize baseline", () => {

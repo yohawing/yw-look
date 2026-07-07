@@ -1,7 +1,21 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { DiagnosticsCard } from "../DiagnosticsCard";
 import type { ResourceDiagnosticsSnapshot } from "../../lib/diagnostics";
+
+const diagnosticsMocks = vi.hoisted(() => ({
+  loadDiagnosticsSnapshot: vi.fn(),
+  openAppLogDir: vi.fn(),
+}));
+
+vi.mock("../../lib/diagnostics", () => ({
+  loadDiagnosticsSnapshot: diagnosticsMocks.loadDiagnosticsSnapshot,
+  openAppLogDir: diagnosticsMocks.openAppLogDir,
+}));
+
+vi.mock("../../lib/usd", () => ({
+  backendCapabilities: vi.fn().mockResolvedValue(null),
+}));
 
 const resourceDiagnostics: ResourceDiagnosticsSnapshot = {
   sampledAt: 100,
@@ -28,8 +42,22 @@ const resourceDiagnostics: ResourceDiagnosticsSnapshot = {
 };
 
 describe("DiagnosticsCard", () => {
+  beforeEach(() => {
+    diagnosticsMocks.loadDiagnosticsSnapshot.mockResolvedValue({
+      appLogDir: "C:/logs/yw-look",
+      appVersion: "0.2.2-test",
+      arch: "x64",
+      diagnosticsLogPath: "C:/logs/yw-look/diagnostics.log",
+      diagnosticsSnapshot: ["[viewer.loadFailed] Failed to load preview."],
+      platform: "windows",
+    });
+    diagnosticsMocks.openAppLogDir.mockResolvedValue(undefined);
+  });
+
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it("renders runtime resource metrics when available", () => {
@@ -65,6 +93,41 @@ describe("DiagnosticsCard", () => {
     );
 
     expect(queryByText("JS heap used")).toBeNull();
+  });
+
+  it("exposes log actions and recent diagnostics when a snapshot is available", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const { findByRole, getByLabelText, getByRole } = render(
+      <DiagnosticsCard
+        processMemoryMetrics={null}
+        resourceDiagnostics={null}
+      />,
+    );
+
+    expect(await findByRole("button", { name: "Open Logs" })).toBeTruthy();
+    expect(getByRole("button", { name: "Copy Diagnostics" })).toBeTruthy();
+    await waitFor(() => {
+      expect(getByLabelText("Recent diagnostics").textContent).toContain(
+        "[viewer.loadFailed] Failed to load preview.",
+      );
+    });
+
+    fireEvent.click(getByRole("button", { name: "Open Logs" }));
+    expect(diagnosticsMocks.openAppLogDir).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(getByRole("button", { name: "Copy Diagnostics" }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+    const report = String(writeText.mock.calls[0]?.[0] ?? "");
+    expect(report).toContain(
+      "Diagnostics log: C:/logs/yw-look/diagnostics.log",
+    );
   });
 
   it("renders process memory metrics when available", () => {
