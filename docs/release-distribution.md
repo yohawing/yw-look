@@ -214,6 +214,7 @@ npm run release:notes -- --tag v0.2.2 --output release-body.md
 ### Windows signing and SmartScreen
 
 - Authenticode 署名の有無と検証コマンド結果（例: `Get-AuthenticodeSignature` の `Status`）
+- `npm run check:win-authenticode` の summary と `artifacts/logs/win-authenticode-report.json` の対象 artifact / status
 - SmartScreen の挙動（警告なし / 警告ありと対策 / 未検証）または未検証理由
 - 対象 artifact 名（通常は NSIS `setup.exe` と updater 用 `.exe`）
 
@@ -410,6 +411,30 @@ npm run bundle:win:loaders
 
 - `src-tauri/target/release/bundle/nsis/`
 - `src-tauri/target/release/bundle/msi/`
+
+### 3.5. Authenticode 署名状態を確認する
+
+Tauri updater 用の `.sig` は minisign 署名で、Windows の発行元信頼とは別です。
+Windows の発行元表示と SmartScreen 対策では Authenticode 署名を確認します。
+
+```powershell
+npm run check:win-authenticode
+```
+
+このコマンドは現在の Windows bundle を `Get-AuthenticodeSignature` で確認し、
+`artifacts/logs/win-authenticode-report.json` に監査ログを出します。開発用の
+未署名 bundle では `Status: NotSigned` を記録しつつ exit 0 で終わります。
+本番署名を release gate にする場合は次を使います。
+
+```powershell
+npm run check:win-authenticode -- --require-signed
+```
+
+`--require-signed` は対象 artifact がすべて `Status: Valid` でない場合に失敗します。
+SmartScreen の警告有無はこの script では自動判定できません。OV / EV 証明書、
+タイムスタンプ、配布実績、初回リリース時の reputation で挙動が変わるため、
+公開 Release 後にクリーンな Windows 環境で手動確認し、結果または未確認理由を
+release note に残します。
 
 ### 4. ローカル update feed を作る
 
