@@ -9,8 +9,9 @@ through the shot CLI and compares the generated PNGs with committed baselines in
 CLI keeps one Tauri app instance open and captures every case in that batch.
 
 The viewport snapshot cases use small public samples from `samples/assets/` and
-write current renders to `artifacts/screenshots/viewport/`. On mismatch, keep
-the actual image, FLIP error map, and report for review.
+`tests/fixtures/models/` (FBX) and write current renders to
+`artifacts/screenshots/viewport/`. On mismatch, keep the actual image, FLIP
+error map, and report for review.
 
 ## Viewport comparison
 

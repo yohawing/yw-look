@@ -54,6 +54,14 @@ const cases = [
     size: "384x288",
     background: "default",
   },
+  {
+    id: "fbx-animated-triangle",
+    input: "tests/fixtures/models/animated-triangle.fbx",
+    snapshot: "tests/visual/snapshots/viewport/fbx-animated-triangle.png",
+    actual: "artifacts/screenshots/viewport/fbx-animated-triangle-current.png",
+    size: "384x288",
+    background: "default",
+  },
 ];
 
 const usage = `usage:
