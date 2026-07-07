@@ -8,6 +8,12 @@ through the shot CLI and compares the generated PNGs with committed baselines in
 `tests/visual/snapshots/viewport/`. When multiple cases are selected, the shot
 CLI keeps one Tauri app instance open and captures every case in that batch.
 
+`npm run test:viewport-state-snapshot` captures the dev-only
+`?entry=viewport-state-snapshot` page through Playwright and compares empty,
+loading, and load-error viewport overlays with baselines in
+`tests/visual/snapshots/viewport-state/`. Current renders are written to
+`artifacts/screenshots/viewport-state/`.
+
 The viewport snapshot cases use small public samples from `samples/assets/` and
 `tests/fixtures/models/` (FBX, PLY, Alembic, glTF JSON) and write current renders to
 `artifacts/screenshots/viewport/`. On mismatch, keep the actual image, FLIP
@@ -51,6 +57,24 @@ For a focused check, run one case:
 
 ```bash
 npm run test:viewport-snapshot -- --case glb-box-textured
+```
+
+Run the viewport state overlay set:
+
+```bash
+npm run test:viewport-state-snapshot
+```
+
+List available viewport state cases:
+
+```bash
+npm run test:viewport-state-snapshot -- --list
+```
+
+Update viewport state baselines:
+
+```bash
+npm run test:viewport-state-snapshot:update
 ```
 
 ### Failure artifacts

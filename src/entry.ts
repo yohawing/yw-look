@@ -38,6 +38,10 @@ switch (entry) {
     document.title = "yw-look sidebar profile";
     await import("./profile/sidebarIsolationEntry");
     break;
+  case "viewport-state-snapshot":
+    document.title = "yw-look viewport state snapshot";
+    await import("./viewport-state-snapshot/entry");
+    break;
   default:
     await import("./main");
     break;

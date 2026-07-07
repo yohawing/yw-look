@@ -1,0 +1,58 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  background: #0b0f14;
+  color: var(--yl-text-primary, #f7f8f8);
+  font-family: var(--yl-font-sans, Inter, system-ui, sans-serif);
+}
+
+.viewport-state-snapshot-harness {
+  position: relative;
+  width: 960px;
+  height: 640px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: #0c1016;
+}
+
+.viewport-state-snapshot-harness .viewport-overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.viewport-state-snapshot-harness .viewer-empty-iso,
+.viewport-state-snapshot-harness
+  .loader-console-line.is-active
+  .loader-console-prompt::before,
+.viewport-state-snapshot-harness .loader-console-progress span,
+.viewport-state-snapshot-harness .loader-console-caret i {
+  animation: none !important;
+}
+
+.viewport-state-snapshot-harness .viewer-empty-iso {
+  transform: translateY(-3px);
+}
+
+.viewport-state-snapshot-harness
+  .loader-console-line.is-active
+  .loader-console-prompt::before {
+  opacity: 1;
+}
+
+.viewport-state-snapshot-harness .loader-console-progress span {
+  width: 44%;
+  transform: translateX(18%);
+}
+
+.viewport-state-snapshot-harness .loader-console-caret i {
+  opacity: 0.72;
+}

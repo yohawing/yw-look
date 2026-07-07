@@ -46,6 +46,8 @@
     "test:visual": "node scripts/visual-regression.mjs",
     "test:viewport-snapshot": "node scripts/viewport-snapshot.mjs",
     "test:viewport-snapshot:update": "node scripts/viewport-snapshot.mjs --update-snapshot",
+    "test:viewport-state-snapshot": "node scripts/viewport-state-snapshot.mjs",
+    "test:viewport-state-snapshot:update": "node scripts/viewport-state-snapshot.mjs --update-snapshot",
     "profile:sidebar-isolation": "node scripts/profile-sidebar-render-isolation.mjs",
     "test:usd:openusd-parity": "node scripts/usd-openusd-parity.mjs",
     "local-assets:collect": "node scripts/collect-local-assets.mjs",
