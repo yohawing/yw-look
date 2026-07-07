@@ -36,6 +36,27 @@ function ensureDir(directoryPath) {
   fs.mkdirSync(directoryPath, { recursive: true });
 }
 
+function resetOutputDir(directoryPath) {
+  ensureDir(directoryPath);
+
+  const expectedOutputDir = path.resolve(repoRoot, "artifacts", "updater-feed");
+  const resolvedOutputDir = path.resolve(directoryPath);
+  if (resolvedOutputDir !== expectedOutputDir) {
+    throw new Error(
+      `Refusing to clear unexpected output directory: ${directoryPath}`,
+    );
+  }
+
+  for (const entry of fs.readdirSync(resolvedOutputDir, {
+    withFileTypes: true,
+  })) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    fs.rmSync(path.join(resolvedOutputDir, entry.name));
+  }
+}
+
 function findWindowsBundle(version) {
   const candidates = [
     path.join(bundleDir, "nsis"),
@@ -118,7 +139,7 @@ function main() {
   const bundle = findBundle(version);
   const signature = fs.readFileSync(bundle.signaturePath, "utf8").trim();
 
-  ensureDir(outputDir);
+  resetOutputDir(outputDir);
   fs.copyFileSync(
     bundle.installerPath,
     path.join(outputDir, bundle.installerName),

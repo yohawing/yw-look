@@ -64,6 +64,7 @@
     "shot:check": "node scripts/run-shot.mjs check",
     "release:notes": "node scripts/extract-release-notes.mjs",
     "update:local:prepare": "node scripts/prepare-local-update-feed.mjs",
+    "check:update-feed": "node scripts/check-local-update-feed.mjs",
     "update:local:serve": "node scripts/serve-local-update-feed.mjs",
     "tauri": "node scripts/run-tauri.mjs",
     "prepare": "husky"

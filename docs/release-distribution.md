@@ -400,6 +400,12 @@ Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PATH -ErrorAction SilentlyContinue
 npm run bundle:win
 ```
 
+NSIS Loader Pack ページ込みの実機確認では、代わりに次を使います。
+
+```powershell
+npm run bundle:win:loaders
+```
+
 出力先:
 
 - `src-tauri/target/release/bundle/nsis/`
@@ -409,6 +415,7 @@ npm run bundle:win
 
 ```powershell
 npm run update:local:prepare
+npm run check:update-feed
 ```
 
 出力先:
@@ -416,6 +423,8 @@ npm run update:local:prepare
 - `artifacts/updater-feed/latest.json`
 - `artifacts/updater-feed/<installer>`
 - `artifacts/updater-feed/<installer>.sig`
+
+`update:local:prepare` は `artifacts/updater-feed/` の古いファイルを削除してから、現在の bundle と `.sig` をコピーします。Windows では NSIS の `setup.exe` を MSI より優先します。`check:update-feed` は `latest.json` の version / platform / signature と、コピーされた installer / `.sig` が元の bundle と一致することを確認します。
 
 ### 5. ローカル update feed を配信する
 
