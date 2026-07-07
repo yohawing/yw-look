@@ -4,6 +4,18 @@ import type { SelectedFile } from "../../lib/files";
 import { readBinaryFile } from "../../lib/files";
 import type { LoadedPreview, LoaderContext } from "../../types/viewer";
 
+function createAbortError(message = "Model load was canceled."): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+}
+
 async function importSpark() {
   return import("@sparkjsdev/spark");
 }
@@ -37,14 +49,20 @@ export async function loadSparkPreviewObject(
 ): Promise<LoadedPreview> {
   const reportStage = context.onStage ?? (() => undefined);
   reportStage("scan");
+  throwIfAborted(context.signal);
+
+  let splatMeshForCleanup: import("@sparkjsdev/spark").SplatMesh | undefined;
 
   try {
     const { SplatMesh, SparkRenderer } = await importSpark();
+    throwIfAborted(context.signal);
 
     reportStage("decode");
     const fileBytes = fileBytesOverride ?? (await readBinaryFile(file.path));
+    throwIfAborted(context.signal);
 
     const fileType = getSplatFileTypeForExtension(file.extension);
+    throwIfAborted(context.signal);
 
     // SplatMesh accepts fileBytes (ArrayBuffer) and optional fileType/fileName
     // initialized is a Promise<SplatMesh> that resolves when async loading completes
@@ -55,9 +73,11 @@ export async function loadSparkPreviewObject(
         : {}),
       fileName: file.fileName,
     });
+    splatMeshForCleanup = splatMesh;
 
     // Wait for async initialization (data parsing, GPU upload prep)
     await splatMesh.initialized;
+    throwIfAborted(context.signal);
 
     reportStage("scene");
 
@@ -123,6 +143,10 @@ export async function loadSparkPreviewObject(
       skipScaleNormalization: true,
     };
   } catch (error) {
+    splatMeshForCleanup?.dispose();
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     const message = errorMessage(error, "Unknown error");
     throw new Error(`Unable to load Gaussian Splat preview: ${message}`, {
       cause: error,
