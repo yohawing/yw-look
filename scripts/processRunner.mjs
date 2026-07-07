@@ -8,6 +8,7 @@ export function runChildProcess(command, args, options = {}) {
     timeoutMs,
     forwardStdout = false,
     forwardStderr = false,
+    signalError = true,
   } = options;
   const startedAt = performance.now();
 
@@ -67,7 +68,7 @@ export function runChildProcess(command, args, options = {}) {
         durationMs: Math.round(performance.now() - startedAt),
         stdout,
         stderr,
-        error: signal ? `terminated by ${signal}` : null,
+        error: signal && signalError ? `terminated by ${signal}` : null,
       });
     });
   });

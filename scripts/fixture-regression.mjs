@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readOption } from "./cliArgs.mjs";
+import { runChildProcess } from "./processRunner.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -298,8 +298,7 @@ function validateRuntimeExpectations(testCase, outcome, shotOutcome) {
   return { ok: mismatches.length === 0, mismatches, warnings };
 }
 
-function runCase(testCase) {
-  const startedAt = performance.now();
+async function runCase(testCase) {
   const useShot = testCase.expect.nonBlankCanvas;
   const screenshotPath = useShot
     ? path.join(privateScreenshotDir, `${sanitizeFileStem(testCase.id)}.png`)
@@ -314,71 +313,24 @@ function runCase(testCase) {
     runArgs.push("--out", screenshotPath);
   }
 
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, runArgs, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-        YW_LOOK_CARGO_FEATURES:
-          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-      },
-      shell: false,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const timeout =
-      timeoutMs === null
-        ? null
-        : setTimeout(() => {
-            settled = true;
-            child.kill("SIGKILL");
-            resolve({
-              exitCode: null,
-              durationMs: Math.round(performance.now() - startedAt),
-              stdout,
-              stderr,
-              screenshotPath,
-              error: `timed out after ${timeoutMs}ms`,
-            });
-          }, timeoutMs);
-
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        screenshotPath,
-        error: error.message,
-      });
-    });
-    child.on("exit", (code) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      resolve({
-        exitCode: code,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        screenshotPath,
-        error: null,
-      });
-    });
+  const result = await runChildProcess(process.execPath, runArgs, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+        process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+      YW_LOOK_CARGO_FEATURES:
+        process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+    },
+    shell: false,
+    timeoutMs,
+    signalError: false,
   });
+
+  return {
+    ...result,
+    screenshotPath,
+  };
 }
 
 function toMarkdown(report) {
