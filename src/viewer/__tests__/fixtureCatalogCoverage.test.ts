@@ -107,13 +107,6 @@ const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
 ];
 
 const KNOWN_COVERAGE_GAPS: CoverageGap[] = [
-  // Texture alias is effectively covered by JPG, but no .jpeg catalog case is enrolled yet.
-  {
-    type: "extension",
-    extension: "jpeg",
-    privateCoverage: "noAsset",
-    reason: "needs texture fixture",
-  },
   // Native Spark container fixtures are not enrolled yet; PLY gaussian splat covers Spark routing for now.
   {
     type: "extension",

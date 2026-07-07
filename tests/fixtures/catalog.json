@@ -105,6 +105,13 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "texture-jpeg-1x1",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/textures/1x1.jpeg",
+      "format": "jpeg",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "texture-tga-crate",
       "category": "valid-minimal",
       "path": "tests/fixtures/textures/crate-grey8.tga",

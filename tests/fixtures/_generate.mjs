@@ -5,7 +5,7 @@
  * Run: node tests/fixtures/_generate.mjs
  *
  * Generates:
- *   textures/1x1.png, textures/1x1.jpg
+ *   textures/1x1.png, textures/1x1.jpg, textures/1x1.jpeg
  *   models/animated-triangle.fbx
  *   broken/* error-matrix fixtures for B8 (beta error visualization)
  */
@@ -325,7 +325,7 @@ Connections: {
 }
 
 // -----------------------------------------------------------------------
-// textures/1x1.png, textures/1x1.jpg
+// textures/1x1.png, textures/1x1.jpg, textures/1x1.jpeg
 // -----------------------------------------------------------------------
 
 const pngPath = join(texturesDir, "1x1.png");
@@ -336,6 +336,7 @@ const jpgBytes = Buffer.from(
   "base64",
 );
 writeBinary(join(texturesDir, "1x1.jpg"), jpgBytes);
+writeBinary(join(texturesDir, "1x1.jpeg"), jpgBytes);
 
 // -----------------------------------------------------------------------
 // B8 error-matrix fixtures (tests/fixtures/broken/)

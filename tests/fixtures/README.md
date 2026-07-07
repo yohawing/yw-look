@@ -11,7 +11,7 @@ tests/fixtures/
 ├── textures/        # テクスチャフォーマット (1×1 pixel)
 ├── broken/          # 壊れた / 切り詰めたファイル (エラーハンドリングテスト用)
 ├── catalog.json     # fixture regression runner の公開カタログ
-├── _generate.mjs    # PNG / JPG / animated FBX を生成する Node スクリプト
+├── _generate.mjs    # PNG / JPG / JPEG / animated FBX を生成する Node スクリプト
 └── README.md        # このファイル
 ```
 
@@ -50,6 +50,7 @@ tests/fixtures/
 | ------------------------ | ------------ | ------------------------------------------- |
 | `1x1.png`                | PNG          | `node tests/fixtures/_generate.mjs`         |
 | `1x1.jpg`                | JPEG         | `node tests/fixtures/_generate.mjs`         |
+| `1x1.jpeg`               | JPEG (alias) | `node tests/fixtures/_generate.mjs`         |
 | `crate-grey8.tga`        | TGA          | `samples/assets/tga/crate_grey8.tga`        |
 | `disturb-dxt1-nomip.dds` | DDS          | `samples/assets/dds/disturb_dxt1_nomip.dds` |
 | `2d-uastc.ktx2`          | KTX2         | `samples/assets/ktx2/2d_uastc.ktx2`         |
@@ -88,7 +89,7 @@ B8 エラー fixture マトリクス（ベータ運用基盤 B1–B7 の検証�
 node tests/fixtures/_generate.mjs
 ```
 
-PNG / JPG、`models/animated-triangle.fbx`、および `broken/` 配下の B8 fixture（上表の生成対象）が再生成される。`truncated.gltf` と `garbage.obj` は手書きのため再生成不要。
+PNG / JPG / JPEG、`models/animated-triangle.fbx`、および `broken/` 配下の B8 fixture（上表の生成対象）が再生成される。`truncated.gltf` と `garbage.obj` は手書きのため再生成不要。
 
 ---
 
