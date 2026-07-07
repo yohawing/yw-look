@@ -243,37 +243,6 @@
   word-break: break-all;
 }
 
-.card-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  list-style: none;
-  padding: 0;
-  margin: 8px 0 0;
-}
-
-.card-list .issue {
-  border-radius: var(--yl-radius-4);
-  padding: 4px 6px;
-  font-size: 11px;
-  line-height: 1.45;
-  word-break: break-word;
-}
-
-.card-list .issue-warning {
-  background: color-mix(
-    in srgb,
-    var(--yl-status-warning-muted) 8%,
-    transparent
-  );
-  color: var(--yl-status-warning-muted);
-}
-
-.card-list .issue-error {
-  background: color-mix(in srgb, var(--yl-status-error-muted) 8%, transparent);
-  color: var(--yl-status-error-bright);
-}
-
 .card-actions {
   display: flex;
   flex-wrap: wrap;

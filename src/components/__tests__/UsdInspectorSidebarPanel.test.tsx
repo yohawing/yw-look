@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { UsdInspectorSidebarPanel } from "../UsdInspectorSidebarPanel";
 import { useViewerStore } from "../../stores/viewerStore";
-import type { StageInspection } from "../../lib/usd";
+import type { AssetIssue, StageInspection } from "../../lib/usd";
 
 const inspectionWithVariant: StageInspection = {
   path: "F:\\assets\\scene.usda",
@@ -54,6 +54,23 @@ const inspectionWithLayer: StageInspection = {
   ],
   variantSets: [],
 };
+
+const issues: AssetIssue[] = [
+  {
+    code: "suspicious-meters-per-unit",
+    level: "warning",
+    message: "Meters per unit is unusually small.",
+    detail: null,
+    contextPath: "/World",
+  },
+  {
+    code: "broken-reference",
+    level: "error",
+    message: "Reference could not be resolved.",
+    detail: null,
+    contextPath: "/World/Hero",
+  },
+];
 
 beforeEach(() => {
   useViewerStore.setState({
@@ -140,5 +157,28 @@ describe("UsdInspectorSidebarPanel", () => {
     expect(getByText("muted")).toBeTruthy();
     expect(getByText("offset:24")).toBeTruthy();
     expect(getByText("layer note")).toBeTruthy();
+  });
+
+  it("renders issue rows through the shared status row primitive", () => {
+    const { container, getByText } = render(
+      <UsdInspectorSidebarPanel
+        error={null}
+        inspection={inspectionWithVariant}
+        issues={issues}
+        loading={false}
+        summary={null}
+      />,
+    );
+
+    const statusRows = container.querySelectorAll(".yl-status-row");
+
+    expect(container.querySelector(".yl-status-list")).toBeTruthy();
+    expect(statusRows).toHaveLength(2);
+    expect(statusRows[0].classList.contains("yl-status-row--warning")).toBe(
+      true,
+    );
+    expect(statusRows[1].classList.contains("yl-status-row--error")).toBe(true);
+    expect(getByText("suspicious-meters-per-unit")).toBeTruthy();
+    expect(getByText("broken-reference")).toBeTruthy();
   });
 });

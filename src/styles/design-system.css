@@ -178,6 +178,8 @@
 .yl-field-row,
 .yl-list,
 .yl-list-row,
+.yl-status-list,
+.yl-status-row,
 .yl-warning-list,
 .yl-card,
 .yl-input {
@@ -431,6 +433,39 @@
   line-height: 1.45;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.yl-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--yl-space-4);
+  margin: var(--yl-space-8) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.yl-status-row {
+  border-radius: var(--yl-radius-4);
+  padding: var(--yl-space-4) var(--yl-space-6);
+  color: var(--yl-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.yl-status-row--warning {
+  background: color-mix(
+    in srgb,
+    var(--yl-status-warning-muted) 8%,
+    transparent
+  );
+  color: var(--yl-status-warning-muted);
+}
+
+.yl-status-row--error {
+  background: color-mix(in srgb, var(--yl-status-error-muted) 8%, transparent);
+  color: var(--yl-status-error-bright);
 }
 
 .yl-segmented-control {

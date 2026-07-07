@@ -83,7 +83,7 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
       collapsible
       defaultOpen={false}
     >
-      <ul className="card-list">
+      <ul className="yl-status-list">
         {groups.map((group) => (
           <li key={group.sourcePrim}>
             <Disclosure
@@ -96,12 +96,14 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
               }
               defaultOpen={false}
             >
-              <ul className="card-list">
+              <ul className="yl-status-list">
                 {group.arcs.map((arc, i) => (
                   <li
                     key={`${arc.kind ?? ""}:${arc.assetPath}:${arc.targetPrim}:${i}`}
                     className={
-                      arc.state === "missing" ? "issue issue-error" : "issue"
+                      arc.state === "missing"
+                        ? "yl-status-row yl-status-row--error"
+                        : "yl-status-row"
                     }
                   >
                     <strong>{kindLabel(arc.kind)}</strong>

@@ -515,11 +515,11 @@ export function UsdInspectorCard({
               collapsible
               defaultOpen={false}
             >
-              <ul className="card-list">
+              <ul className="yl-status-list">
                 {issues.map((issue) => (
                   <li
                     key={`${issue.code}:${issue.contextPath ?? ""}:${issue.message}`}
-                    className={`issue issue-${issue.level}`}
+                    className={`yl-status-row yl-status-row--${issue.level}`}
                   >
                     <strong>{issue.code}</strong>: {issue.message}
                   </li>
