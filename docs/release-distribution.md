@@ -332,6 +332,33 @@ workflow が Windows bundle をビルドし、GitHub Release に成果物を添�
 - updater 用 artifact
 - `latest.json`
 
+## GitHub Release updater manifest contract
+
+`release.yml` の `patch-updater-manifest` job は、tauri-action が生成した `latest.json` を取得し、`windows-x86_64` の既定エントリを NSIS (`windows-x86_64-nsis`) に合わせて書き換えてから再アップロードします。アップロード前に次の形状チェックを実行し、パッチ前の `latest.json` や必須 platform の欠落を gate します。
+
+```bash
+node scripts/check-release-updater-manifest.mjs \
+  --manifest manifest/latest.json \
+  --skip-url-check
+```
+
+この CI gate は manifest の契約のみを検証します。artifact URL の HTTP 到達性は network に依存するため、workflow では `--skip-url-check` を使います。
+
+ローカル開発向けの updater feed 検証は次と役割分担します。
+
+- `npm run check:update-feed` — `artifacts/updater-feed/latest.json` とローカル bundle の一致
+- `npm run smoke:update-feed` — localhost HTTP 経由の manifest / installer 取得
+
+公開済み Release を運用者が確認する場合は、manifest の取得と artifact URL の到達性まで含めて次を実行します。
+
+```bash
+npm run check:release-updater -- --url https://github.com/yohawing/yw-look/releases/latest/download/latest.json
+```
+
+`--allow-http` はローカル fixture 用、`--platform <name>` は追加 platform の検証用、`--json` は機械可読出力用です。既定では `windows-x86_64`、`windows-x86_64-nsis`、`darwin-aarch64` を検証し、`windows-x86_64` が NSIS パッチ後に `windows-x86_64-nsis` と同一の URL / signature であることも要求します。
+
+このチェックは GitHub Release の updater manifest 契約と artifact URL の再現可能な preflight です。**実際の install → updater 往復の成功は証明しません。** 往復確認は [リリースノート契約](#github-release-install-and-updater-roundtrip) のとおり手動で記録してください。
+
 ## NSIS Loader Pack 実機確認（Windows）
 
 v0.3 では Windows NSIS インストーラーに Optional Loader Pack の選択ページを含める。
