@@ -70,6 +70,14 @@ const cases = [
     size: "384x288",
     background: "default",
   },
+  {
+    id: "ply-triangle",
+    input: "tests/fixtures/models/triangle.ply",
+    snapshot: "tests/visual/snapshots/viewport/ply-triangle.png",
+    actual: "artifacts/screenshots/viewport/ply-triangle-current.png",
+    size: "384x288",
+    background: "default",
+  },
 ];
 
 const usage = `usage:
