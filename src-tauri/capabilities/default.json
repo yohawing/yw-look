@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-show",
-    "core:window:allow-set-position"
+    "core:window:allow-set-position",
+    "log:allow-log"
   ]
 }

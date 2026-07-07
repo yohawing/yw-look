@@ -2,9 +2,26 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { ViewerStatePanel } from "../ViewerStatePanel";
 
+const mocks = vi.hoisted(() => ({
+  backendCapabilities: vi.fn(),
+  loadDiagnosticsSnapshot: vi.fn(),
+  openAppLogDir: vi.fn(),
+}));
+
+vi.mock("../../lib/diagnostics", () => ({
+  loadDiagnosticsSnapshot: mocks.loadDiagnosticsSnapshot,
+  openAppLogDir: mocks.openAppLogDir,
+}));
+
+vi.mock("../../lib/usd", () => ({
+  backendCapabilities: mocks.backendCapabilities,
+}));
+
 describe("ViewerStatePanel", () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it("exposes the primary open-file action in the empty state", () => {
@@ -98,5 +115,88 @@ describe("ViewerStatePanel", () => {
     expect(getByRole("button", { name: "Copy Details" })).toBeTruthy();
     expect(getByRole("button", { name: "Open Logs" })).toBeTruthy();
     expect(getByRole("button", { name: "Report Issue" })).toBeTruthy();
+  });
+
+  it.each([
+    ["unsupported", "Unsupported Format"],
+    ["missingOptionalLoader", "Optional Loader Missing"],
+    ["disabledOptionalLoader", "Optional Loader Disabled"],
+    ["incompatibleOptionalLoader", "Optional Loader Incompatible"],
+    ["loadFailed", "Load Error"],
+    ["missingReference", "Missing Reference"],
+  ] as const)(
+    "keeps classification and report actions visible for %s",
+    (mode, label) => {
+      const { getByRole, getByText } = render(
+        <ViewerStatePanel mode={mode} fileExtension="vrm" />,
+      );
+
+      expect(getByText(label)).toBeTruthy();
+      expect(getByRole("button", { name: "Copy Details" })).toBeTruthy();
+      expect(getByRole("button", { name: "Open Logs" })).toBeTruthy();
+      expect(getByRole("button", { name: "Report Issue" })).toBeTruthy();
+    },
+  );
+
+  it("shows missing reference details beside the report actions", () => {
+    const { getByRole, getByText } = render(
+      <ViewerStatePanel
+        detailMessage="Missing reference: missing-buffer.bin"
+        mode="missingReference"
+      />,
+    );
+
+    expect(getByText("Missing Reference")).toBeTruthy();
+    expect(getByText("Error details")).toBeTruthy();
+    expect(getByText("Missing reference: missing-buffer.bin")).toBeTruthy();
+    expect(getByRole("button", { name: "Copy Details" })).toBeTruthy();
+    expect(getByRole("button", { name: "Open Logs" })).toBeTruthy();
+    expect(getByRole("button", { name: "Report Issue" })).toBeTruthy();
+  });
+
+  it("copies a diagnostic report with viewer state and error detail", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    mocks.backendCapabilities.mockResolvedValue({
+      geometry: true,
+      inspect: true,
+      light: true,
+      session: true,
+    });
+    mocks.loadDiagnosticsSnapshot.mockResolvedValue({
+      appLogDir: "C:/logs/yw-look",
+      appVersion: "0.2.2-test",
+      arch: "x64",
+      diagnosticsLogPath: "C:/logs/yw-look/diagnostics.log",
+      diagnosticsSnapshot: ["[viewer.loadFailed] Failed to load preview."],
+      platform: "windows",
+    });
+
+    const { findByText, getByRole } = render(
+      <ViewerStatePanel
+        detailMessage="USD task join error: task panicked"
+        fileExtension="usda"
+        fileName="broken.usda"
+        mode="loadFailed"
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Copy Details" }));
+
+    expect(await findByText("Details Copied")).toBeTruthy();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const report = String(writeText.mock.calls[0]?.[0] ?? "");
+    expect(report).toContain("Mode: loadFailed");
+    expect(report).toContain("File: broken.usda");
+    expect(report).toContain("Extension: .usda");
+    expect(report).toContain("Reason: This file could not be previewed.");
+    expect(report).toContain("USD task join error: task panicked");
+    expect(report).toContain(
+      "Diagnostics log: C:/logs/yw-look/diagnostics.log",
+    );
   });
 });

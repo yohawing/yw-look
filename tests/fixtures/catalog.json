@@ -145,8 +145,8 @@
       "expect": { "shouldLoad": false },
       "errorExpect": {
         "category": "unsupported-format",
-        "reasonContains": ["glb", "format"],
-        "logContains": ["gltf", "parse"]
+        "reasonContains": ["glb", "parse"],
+        "logContains": ["glb", "parse"]
       }
     },
     {
@@ -182,7 +182,7 @@
       "errorExpect": {
         "category": "load-failure",
         "reasonContains": ["parse", "glb"],
-        "logContains": ["gltf", "parse"]
+        "logContains": ["glb", "parse"]
       }
     },
     {
@@ -265,8 +265,8 @@
       "expect": { "shouldLoad": true, "shouldWarn": true },
       "errorExpect": {
         "category": "scale-warning",
-        "reasonContains": ["Scale warning", "extremely small"],
-        "logContains": ["Scale warning", "extremely small"]
+        "reasonContains": ["Scale normalized", "10000"],
+        "logContains": ["Scale normalized", "10000"]
       }
     },
     {
@@ -277,8 +277,8 @@
       "expect": { "shouldLoad": true, "shouldWarn": true },
       "errorExpect": {
         "category": "scale-warning",
-        "reasonContains": ["Scale warning", "extremely large"],
-        "logContains": ["Scale warning", "extremely large"]
+        "reasonContains": ["Scale normalized", "0.001"],
+        "logContains": ["Scale normalized", "0.001"]
       }
     },
     {

@@ -386,8 +386,17 @@ pub(crate) fn write_shot_batch_output(
 }
 
 #[tauri::command]
-pub(crate) fn finish_shot_run(app: tauri::AppHandle, exit_code: i32, message: Option<String>) {
+pub(crate) fn finish_shot_run(
+    app: tauri::AppHandle,
+    exit_code: i32,
+    message: Option<String>,
+    outcome: Option<serde_json::Value>,
+) {
+    if let Some(outcome) = outcome {
+        eprintln!("YW_LOOK_SHOT_OUTCOME:{outcome}");
+    }
     if let Some(message) = message.as_deref().filter(|message| !message.is_empty()) {
+        log::error!("shot/check failed: {message}");
         eprintln!("shot/check failed: {message}");
     }
     app.exit(exit_code);

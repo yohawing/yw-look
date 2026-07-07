@@ -93,6 +93,14 @@ type ViewportSceneLifecycleOptions = {
   viewerSurfaceModeRef: MutableRefObject<ViewerSurfaceMode>;
 };
 
+/** WebGLRenderer constructor-only setting that forces a full scene teardown. */
+export function getRendererLifetimeBoundary(
+  extension: string | undefined,
+): boolean {
+  return getPreviewRenderingPresetForExtension(extension)
+    .logarithmicDepthBuffer;
+}
+
 export function useViewportSceneLifecycle({
   activeCameraIdRef,
   activeCameraRef,
@@ -132,6 +140,9 @@ export function useViewportSceneLifecycle({
   toneMappingModeRef,
   viewerSurfaceModeRef,
 }: ViewportSceneLifecycleOptions): void {
+  const rendererLifetimeBoundary =
+    getRendererLifetimeBoundary(currentFileExtension);
+
   useEffect(() => {
     if (!shouldInitializeScene) {
       return;
@@ -386,17 +397,20 @@ export function useViewportSceneLifecycle({
       });
     };
     // The scene lifecycle mirrors the former AssetViewport effect: props that
-    // must update live are read through refs, while this effect only follows
-    // the renderer lifetime boundary.
+    // must update live (tone mapping, exposure, grid, etc.) are read through
+    // refs or handled by sibling effects in AssetViewport. This effect only
+    // follows the WebGLRenderer constructor boundary — logarithmicDepthBuffer —
+    // so switching among default formats (.glb/.fbx/.obj/…) reuses the same
+    // renderer instead of tearing down PMREM and controls.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     clearResourceDiagnostics,
-    currentFileExtension,
     onFeedbackChange,
     onGridUnitChange,
     onMetadataChange,
     onPackMetadataChange,
     publishResourceDiagnostics,
+    rendererLifetimeBoundary,
     shouldInitializeScene,
   ]);
 }

@@ -54,6 +54,7 @@ const privateScreenshotDir = path.join(
   "screenshots",
   "private-fixtures",
 );
+const shotOutcomePrefix = "YW_LOOK_SHOT_OUTCOME:";
 
 const usage = `usage:
   npm run test:fixtures
@@ -171,8 +172,10 @@ async function readCatalog() {
       absolutePath,
       expect: {
         shouldLoad: testCase.expect?.shouldLoad !== false,
+        shouldWarn: testCase.expect?.shouldWarn === true,
         nonBlankCanvas: testCase.expect?.nonBlankCanvas === true,
       },
+      errorExpect: normalizeErrorExpect(testCase),
       knownFailure:
         typeof testCase.knownFailure === "string" && testCase.knownFailure
           ? testCase.knownFailure
@@ -181,8 +184,127 @@ async function readCatalog() {
   });
 }
 
+function normalizeStringArray(value, fieldName, caseId) {
+  if (value === undefined || value === null) return [];
+  if (
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === "string" && entry.length > 0)
+  ) {
+    return value;
+  }
+  throw new Error(`${caseId} has invalid ${fieldName}`);
+}
+
+function normalizeErrorExpect(testCase) {
+  if (!testCase.errorExpect) return null;
+  const category = testCase.errorExpect.category;
+  if (typeof category !== "string" || category.length === 0) {
+    throw new Error(`${testCase.id} has invalid errorExpect.category`);
+  }
+  return {
+    category,
+    reasonContains: normalizeStringArray(
+      testCase.errorExpect.reasonContains,
+      "errorExpect.reasonContains",
+      testCase.id,
+    ),
+    logContains: normalizeStringArray(
+      testCase.errorExpect.logContains,
+      "errorExpect.logContains",
+      testCase.id,
+    ),
+  };
+}
+
 function tail(text, maxLines = 24) {
   return text.split(/\r?\n/).slice(-maxLines).join("\n").trim();
+}
+
+function parseShotOutcome(text) {
+  const outcomes = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith(shotOutcomePrefix))
+    .map((line) => line.slice(shotOutcomePrefix.length))
+    .map((payload) => {
+      try {
+        return JSON.parse(payload);
+      } catch (error) {
+        return {
+          parseError: error instanceof Error ? error.message : String(error),
+          raw: payload,
+        };
+      }
+    });
+  return outcomes.at(-1) ?? null;
+}
+
+function normalizeText(value) {
+  return String(value ?? "").toLowerCase();
+}
+
+function includesAll(haystack, needles) {
+  const normalizedHaystack = normalizeText(haystack);
+  return needles.filter(
+    (needle) => !normalizedHaystack.includes(normalizeText(needle)),
+  );
+}
+
+function stringifyShotOutcome(shotOutcome) {
+  if (!shotOutcome) return "";
+  if (shotOutcome.parseError)
+    return `${shotOutcome.raw}\n${shotOutcome.parseError}`;
+  return JSON.stringify(shotOutcome);
+}
+
+function validateRuntimeExpectations(testCase, outcome, shotOutcome) {
+  const mismatches = [];
+  const warnings = Array.isArray(shotOutcome?.warnings)
+    ? shotOutcome.warnings.filter((warning) => typeof warning === "string")
+    : [];
+
+  if (testCase.expect.shouldWarn && warnings.length === 0) {
+    mismatches.push("expected warning(s), but shot outcome had none");
+  }
+
+  if (!testCase.errorExpect) {
+    return { ok: mismatches.length === 0, mismatches, warnings };
+  }
+
+  if (!shotOutcome) {
+    mismatches.push("missing structured shot outcome");
+  } else if (shotOutcome.parseError) {
+    mismatches.push(
+      `invalid structured shot outcome: ${shotOutcome.parseError}`,
+    );
+  }
+
+  const outcomeText = stringifyShotOutcome(shotOutcome);
+  const reasonHaystack = [
+    shotOutcome?.error,
+    ...(Array.isArray(shotOutcome?.warnings) ? shotOutcome.warnings : []),
+    outcome.stderr,
+  ].join("\n");
+  const logHaystack = [outcomeText, outcome.stdout, outcome.stderr].join("\n");
+  const missingReasonTokens = includesAll(
+    reasonHaystack,
+    testCase.errorExpect.reasonContains,
+  );
+  const missingLogTokens = includesAll(
+    logHaystack,
+    testCase.errorExpect.logContains,
+  );
+
+  if (missingReasonTokens.length > 0) {
+    mismatches.push(
+      `reason missing token(s): ${missingReasonTokens.join(", ")}`,
+    );
+  }
+  if (missingLogTokens.length > 0) {
+    mismatches.push(`log missing token(s): ${missingLogTokens.join(", ")}`);
+  }
+
+  return { ok: mismatches.length === 0, mismatches, warnings };
 }
 
 function runCase(testCase) {
@@ -306,6 +428,14 @@ function toMarkdown(report) {
     for (const failure of failures) {
       lines.push(`### ${failure.id}`, "");
       if (failure.error) lines.push(`Error: ${failure.error}`, "");
+      if (failure.errorExpectMismatches?.length > 0) {
+        lines.push(
+          "Expectation mismatches:",
+          "",
+          ...failure.errorExpectMismatches.map((mismatch) => `- ${mismatch}`),
+          "",
+        );
+      }
       if (failure.stderrTail) {
         lines.push("```text", failure.stderrTail, "```", "");
       }
@@ -338,6 +468,7 @@ function toHtml(report) {
         result.skipReason,
         result.knownFailure,
         result.error,
+        ...(result.errorExpectMismatches ?? []),
       ].filter(Boolean);
       return `<tr class="status-${escapeHtml(result.status.toLowerCase())}">
   <td>${escapeHtml(result.id)}</td>
@@ -578,7 +709,14 @@ for (const testCase of cases) {
   console.log(`[fixture] ${testCase.id}`);
   const outcome = await runCase(testCase);
   const actualLoaded = outcome.exitCode === 0;
-  const matchedExpectation = actualLoaded === testCase.expect.shouldLoad;
+  const shotOutcome = parseShotOutcome(outcome.stderr);
+  const runtimeExpectation = validateRuntimeExpectations(
+    testCase,
+    outcome,
+    shotOutcome,
+  );
+  const matchedExpectation =
+    actualLoaded === testCase.expect.shouldLoad && runtimeExpectation.ok;
   const knownFailureHit = !matchedExpectation && Boolean(testCase.knownFailure);
   const xpass = matchedExpectation && Boolean(testCase.knownFailure);
   const status = knownFailureHit
@@ -597,7 +735,13 @@ for (const testCase of cases) {
     requiresLoader: testCase.requiresLoader,
     path: testCase.path,
     expectedShouldLoad: testCase.expect.shouldLoad,
+    expectedShouldWarn: testCase.expect.shouldWarn,
     expectedNonBlankCanvas: testCase.expect.nonBlankCanvas,
+    errorExpect: testCase.errorExpect,
+    errorExpectStatus: runtimeExpectation.ok ? "PASS" : "FAIL",
+    errorExpectMismatches: runtimeExpectation.mismatches,
+    warnings: runtimeExpectation.warnings,
+    shotOutcome,
     actualLoaded,
     ok: status !== "FAIL",
     status,

@@ -32,7 +32,7 @@
     "typecheck:ts": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "typecheck:rust": "cargo check --manifest-path src-tauri/Cargo.toml --no-default-features --features backend-openusd-rs",
     "typecheck:rust:cpp": "cargo check --manifest-path src-tauri/Cargo.toml --no-default-features --features backend-openusd-cpp",
-    "check": "npm run lint && npm run format:check && npm run check:format-pack-boundaries && npm run typecheck",
+    "check": "npm run lint && npm run format:check && npm run check:format-pack-boundaries && npm run test && npm run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

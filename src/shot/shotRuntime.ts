@@ -33,6 +33,7 @@ import {
   MMD_EXAMPLE_LIGHTING_PRESET,
   MMD_PREVIEW_RENDERING_PRESET,
   normalizeObjectScale,
+  getScaleWarning,
   applyPreviewRenderingPreset,
   revokeUrls,
   type SceneContext,
@@ -60,6 +61,7 @@ export type ShotOutcome = {
   meshCount: number;
   loadTimeMs: number;
   outputPath: string | null;
+  warnings: string[];
   error: string | null;
 };
 
@@ -74,8 +76,16 @@ export async function loadShotBatchConfig() {
   return invoke<ShotConfig[]>("get_shot_batch_config");
 }
 
-export async function finishShotRun(exitCode: number, message?: string | null) {
-  await invoke("finish_shot_run", { exitCode, message: message ?? null });
+export async function finishShotRun(
+  exitCode: number,
+  message?: string | null,
+  outcome?: ShotOutcome | null,
+) {
+  await invoke("finish_shot_run", {
+    exitCode,
+    message: message ?? null,
+    outcome: outcome ?? null,
+  });
 }
 
 export async function writeShotOutput(dataUrl: string, caseIndex?: number) {
@@ -203,15 +213,19 @@ async function validateUsdInspection(path: string, policy: StageLoadPolicy) {
     summarizeStage(path, policy),
     inspectStage(path, policy),
   ]);
+  const missingAssetDetails =
+    inspection.missingAssets.length > 0
+      ? `: ${inspection.missingAssets.join(", ")}`
+      : ".";
 
   if (summary.unresolvedReferenceCount > 0) {
     throw new Error(
-      `USD inspection found ${summary.unresolvedReferenceCount} unresolved reference(s) under ${policy}.`,
+      `USD inspection found ${summary.unresolvedReferenceCount} unresolved reference(s) under ${policy}${missingAssetDetails}`,
     );
   }
   if (policy === "loadAll" && summary.unresolvedPayloadCount > 0) {
     throw new Error(
-      `USD inspection found ${summary.unresolvedPayloadCount} unresolved payload(s) under ${policy}.`,
+      `USD inspection found ${summary.unresolvedPayloadCount} unresolved payload(s) under ${policy}${missingAssetDetails}`,
     );
   }
   if (policy === "loadAll" && inspection.missingAssets.length > 0) {
@@ -291,6 +305,7 @@ export async function runShot(
     meshCount: 0,
     loadTimeMs: 0,
     outputPath: null,
+    warnings: [],
     error: null,
   };
 
@@ -318,6 +333,7 @@ export async function runShot(
     });
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
+    outcome.warnings.push(...(preview.warnings ?? []));
     await syncMmdPreviewSpecularDirection(preview.mmdModel, key);
     if (config.motionPath && preview.mmdModel?.runtime) {
       const motion = await loadMmdMotion(
@@ -352,7 +368,11 @@ export async function runShot(
     }
     outcome.loadTimeMs = Math.round((performance.now() - started) * 100) / 100;
 
-    normalizeObjectScale(object);
+    const normalization = normalizeObjectScale(object);
+    const scaleWarning = getScaleWarning(object, normalization);
+    if (scaleWarning) {
+      outcome.warnings.push(scaleWarning);
+    }
     scene.add(object);
     frameObject(camera, object);
 

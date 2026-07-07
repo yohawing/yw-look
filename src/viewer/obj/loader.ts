@@ -7,9 +7,14 @@ import {
   TextureLoader,
 } from "three";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
-import { readBinaryFile, type SelectedFile } from "../../lib/files";
+import {
+  readBinaryFile,
+  readBinaryFilePrefix,
+  type SelectedFile,
+} from "../../lib/files";
 import type { LoaderContext } from "../loaderRegistry";
 import { isAbortOrTimeoutError, parseModelInWorker } from "../modelParseWorker";
+import { formatMissingTextureWarnings } from "../textureWarnings";
 import type { LoadedPreview, TextureBundle } from "../types";
 
 async function readTextFile(path: string) {
@@ -88,6 +93,76 @@ async function tryLoadTextureFromPath(path: string) {
   } catch {
     return null;
   }
+}
+
+async function pathExists(path: string) {
+  try {
+    await readBinaryFilePrefix(path, 1);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function extractMtlLibraries(objText: string) {
+  return objText
+    .split(/\r?\n/)
+    .map((line) => line.replace(/#.*/, "").trim())
+    .map((line) => line.match(/^mtllib\s+(.+)$/i)?.[1]?.trim())
+    .filter((value): value is string => Boolean(value));
+}
+
+function extractTextureReference(line: string) {
+  const match = line
+    .replace(/#.*/, "")
+    .trim()
+    .match(/^(?:map_[a-z0-9_]+|bump|norm)\s+(.+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const tokens = match[1].match(/"[^"]+"|'[^']+'|\S+/g) ?? [];
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const token = tokens[index].replace(/^["']|["']$/g, "");
+    if (token && !token.startsWith("-")) {
+      return token;
+    }
+  }
+  return null;
+}
+
+async function collectMissingMtlTextureReferences(
+  file: SelectedFile,
+  objText: string,
+) {
+  const missingPaths: string[] = [];
+
+  for (const mtlLibrary of extractMtlLibraries(objText)) {
+    const mtlPath = resolveSiblingPath(file.parentDirectory, mtlLibrary);
+    let mtlText: string;
+    try {
+      mtlText = await readTextFile(mtlPath);
+    } catch {
+      missingPaths.push(mtlLibrary);
+      continue;
+    }
+
+    for (const line of mtlText.split(/\r?\n/)) {
+      const texturePath = extractTextureReference(line);
+      if (!texturePath) {
+        continue;
+      }
+      const resolvedTexturePath = resolveSiblingPath(
+        file.parentDirectory,
+        texturePath,
+      );
+      if (!(await pathExists(resolvedTexturePath))) {
+        missingPaths.push(texturePath);
+      }
+    }
+  }
+
+  return formatMissingTextureWarnings(missingPaths);
 }
 
 async function buildObjTextureBundle(
@@ -176,6 +251,7 @@ export async function loadObjPreviewObject(
   const reportStage = context.onStage ?? (() => undefined);
   reportStage("decode");
   const text = await readTextFile(file.path);
+  const warnings = await collectMissingMtlTextureReferences(file, text);
   throwIfAborted(context.signal);
   reportStage("resolve");
   let object: Group;
@@ -205,5 +281,6 @@ export async function loadObjPreviewObject(
     cleanupUrls: bundle.cleanupUrls,
     clips: [],
     formatVersion: null,
+    warnings,
   };
 }

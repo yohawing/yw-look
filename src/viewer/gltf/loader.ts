@@ -158,7 +158,15 @@ export async function mapWithConcurrency<T, R>(
 
 async function materializeGltf(file: SelectedFile) {
   const rawText = await readTextFile(file.path);
-  let json: GltfDocument | null = JSON.parse(rawText) as GltfDocument;
+  let json: GltfDocument | null = null;
+  try {
+    json = JSON.parse(rawText) as GltfDocument;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to parse glTF document: ${message}`, {
+      cause: error,
+    });
+  }
   const formatVersion = json.asset?.version ?? null;
   const bufferUris = [
     ...new Set(
@@ -467,7 +475,18 @@ export async function loadGltfPreviewObject(
         const { GLTFLoader } =
           await import("three/examples/jsm/loaders/GLTFLoader.js");
         throwIfAborted(context.signal);
-        const gltf = await new GLTFLoader().parseAsync(buffer, "");
+        let gltf: Awaited<
+          ReturnType<InstanceType<typeof GLTFLoader>["parseAsync"]>
+        >;
+        try {
+          gltf = await new GLTFLoader().parseAsync(buffer, "");
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          throw new Error(`Unable to parse GLB document: ${message}`, {
+            cause: error,
+          });
+        }
         gltf.scene.animations = gltf.animations;
         object = gltf.scene;
       }

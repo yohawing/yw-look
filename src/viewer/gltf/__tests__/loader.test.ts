@@ -319,12 +319,21 @@ describe("loadGltfPreviewObject", () => {
     );
   });
 
-  it("does not fall back when the GLB worker reports abort or timeout", async () => {
+  it("does not fall back when the GLB worker reports abort", async () => {
     const abortError = new Error("aborted");
     abortError.name = "AbortError";
     mocks.parseModelInWorker.mockRejectedValue(abortError);
 
     await expect(loadGltfPreviewObject(glbFile, {})).rejects.toBe(abortError);
+    expect(mocks.parseAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back when the GLB worker reports timeout", async () => {
+    const timeoutError = new Error("timed out");
+    timeoutError.name = "TimeoutError";
+    mocks.parseModelInWorker.mockRejectedValue(timeoutError);
+
+    await expect(loadGltfPreviewObject(glbFile, {})).rejects.toBe(timeoutError);
     expect(mocks.parseAsync).not.toHaveBeenCalled();
   });
 
@@ -360,6 +369,51 @@ describe("loadGltfPreviewObject", () => {
     expect(result.object).toBe(scene);
     expect(result.cleanupUrls).toEqual(["blob:0", "blob:1"]);
     expect(result.warnings).toEqual([]);
+  });
+
+  it("falls back to main-thread glTF parsing for small worker failures", async () => {
+    const scene = new Group();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.parseModelInWorker.mockRejectedValue(new Error("worker failed"));
+    mocks.parseAsync.mockResolvedValue({ scene, animations: [clip] });
+
+    const result = await loadGltfPreviewObject(gltfFile, {});
+
+    expect(mocks.parseAsync).toHaveBeenCalledWith(
+      expect.stringContaining('"asset"'),
+      "",
+      expect.objectContaining({
+        setURLModifier: expect.any(Function),
+      }),
+    );
+    expect(result.object).toBe(scene);
+    expect(result.clips).toEqual([clip]);
+    expect(result.cleanupUrls).toEqual(["blob:0", "blob:1"]);
+    expect(result.formatVersion).toBe("2.0");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[gltf] worker parse failed, falling back to main thread:",
+      expect.any(Error),
+    );
+  });
+
+  it("does not fall back when the glTF worker reports abort", async () => {
+    const abortError = new Error("aborted");
+    abortError.name = "AbortError";
+    mocks.parseModelInWorker.mockRejectedValue(abortError);
+
+    await expect(loadGltfPreviewObject(gltfFile, {})).rejects.toBe(abortError);
+    expect(mocks.parseAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back when the glTF worker reports timeout", async () => {
+    const timeoutError = new Error("timed out");
+    timeoutError.name = "TimeoutError";
+    mocks.parseModelInWorker.mockRejectedValue(timeoutError);
+
+    await expect(loadGltfPreviewObject(gltfFile, {})).rejects.toBe(
+      timeoutError,
+    );
+    expect(mocks.parseAsync).not.toHaveBeenCalled();
   });
 
   it("reports glTF missing images as warnings while preserving load success", async () => {

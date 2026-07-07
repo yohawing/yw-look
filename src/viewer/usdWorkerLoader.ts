@@ -36,29 +36,7 @@ export function isUsdWorkerEnabled(): boolean {
   }
 }
 
-let workerInstance: Worker | null = null;
 let nextRequestId = 1;
-const pending = new Map<
-  number,
-  {
-    resolve: (object: Object3D) => void;
-    reject: (error: Error) => void;
-    cleanup?: () => void;
-  }
->();
-
-function rejectAllPending(error: Error): void {
-  for (const [, entry] of pending) {
-    entry.cleanup?.();
-    entry.reject(error);
-  }
-  pending.clear();
-  // Terminate the broken worker to release its thread and event listeners,
-  // then drop the reference so the next call spawns a fresh one.
-  const dying = workerInstance;
-  workerInstance = null;
-  dying?.terminate();
-}
 
 function createAbortError(message = "USD parse was canceled."): Error {
   const error = new Error(message);
@@ -72,59 +50,6 @@ function createTimeoutError(path: string, timeoutMs: number): Error {
   );
   error.name = "TimeoutError";
   return error;
-}
-
-function getWorker(): Worker {
-  if (workerInstance) return workerInstance;
-  // Vite picks up this `new Worker(new URL(..., import.meta.url))`
-  // pattern at build time and bundles the worker as a separate chunk.
-  // See https://vitejs.dev/guide/features.html#web-workers
-  workerInstance = new Worker(
-    new URL("../workers/usdLoader.worker.ts", import.meta.url),
-    { type: "module" },
-  );
-  workerInstance.addEventListener(
-    "message",
-    (event: MessageEvent<UsdWorkerResponse>) => {
-      const entry = pending.get(event.data.id);
-      if (!entry) return;
-      pending.delete(event.data.id);
-      entry.cleanup?.();
-      if (event.data.ok) {
-        try {
-          const object =
-            event.data.result.kind === "staticScene"
-              ? createStaticSceneObject(event.data.result.scene)
-              : new ObjectLoader().parse(event.data.result.sceneJson as object);
-          entry.resolve(object);
-        } catch (error) {
-          entry.reject(
-            error instanceof Error
-              ? error
-              : new Error("Failed to deserialize USD worker payload"),
-          );
-        }
-      } else {
-        entry.reject(new Error(event.data.error));
-      }
-    },
-  );
-  // Without these listeners, a module-load failure or runtime exception
-  // inside the worker leaves every pending Promise unresolved, which in
-  // turn leaves the preview pipeline hanging in "loading" forever.
-  // Reject everything in-flight so `loadPreviewObject` reaches its
-  // catch/fallback path.
-  workerInstance.addEventListener("error", (event: ErrorEvent) => {
-    rejectAllPending(
-      new Error(
-        `USD worker error: ${event.message || "unknown worker failure"}`,
-      ),
-    );
-  });
-  workerInstance.addEventListener("messageerror", () => {
-    rejectAllPending(new Error("USD worker message deserialization failed"));
-  });
-  return workerInstance;
 }
 
 /**
@@ -143,43 +68,96 @@ export async function parseUsdInWorker(
   if (options.signal?.aborted) {
     throw createAbortError();
   }
+
+  const worker = new Worker(
+    new URL("../workers/usdLoader.worker.ts", import.meta.url),
+    { type: "module" },
+  );
   const id = nextRequestId++;
-  const worker = getWorker();
-  // Clone the binary buffer instead of transferring it. Transferring
-  // detaches the caller's ArrayBuffer, which would break the documented
-  // "worker failed → fall back to main-thread parse" path in
-  // `loaders.ts` because the fallback still needs the original buffer.
-  // Phase 3 can revisit the transfer path once the worker route is
-  // promoted from experimental.
-  const safePayload: UsdWorkerRequest["payload"] =
-    payload.kind === "binary"
-      ? { kind: "binary", buffer: payload.buffer.slice(0) }
-      : payload;
-  const request: UsdWorkerRequest = { id, path, payload: safePayload };
+  const timeoutMs = options.timeoutMs ?? 30_000;
+
   return new Promise<Object3D>((resolve, reject) => {
-    const timeoutMs = options.timeoutMs ?? 30_000;
-    const handleAbort = () => {
-      const entry = pending.get(id);
-      if (!entry) return;
-      pending.delete(id);
-      entry.cleanup?.();
-      entry.reject(createAbortError());
-      rejectAllPending(createAbortError());
-    };
-    const timeoutId = globalThis.setTimeout(() => {
-      const entry = pending.get(id);
-      if (!entry) return;
-      pending.delete(id);
-      entry.cleanup?.();
-      entry.reject(createTimeoutError(path, timeoutMs));
-      rejectAllPending(createTimeoutError(path, timeoutMs));
-    }, timeoutMs);
+    let settled = false;
     const cleanup = () => {
+      settled = true;
       globalThis.clearTimeout(timeoutId);
       options.signal?.removeEventListener("abort", handleAbort);
+      worker.removeEventListener("message", handleMessage);
+      worker.removeEventListener("error", handleError);
+      worker.removeEventListener("messageerror", handleMessageError);
+      worker.terminate();
     };
+    const settleResolve = (object: Object3D) => {
+      if (settled) return;
+      cleanup();
+      resolve(object);
+    };
+    const settleReject = (error: Error) => {
+      if (settled) return;
+      cleanup();
+      reject(error);
+    };
+    const handleAbort = () => {
+      settleReject(createAbortError());
+    };
+    const handleMessage = (event: MessageEvent<UsdWorkerResponse>) => {
+      if (event.data.id !== id) return;
+      if (!event.data.ok) {
+        settleReject(new Error(event.data.error));
+        return;
+      }
+      try {
+        const object =
+          event.data.result.kind === "staticScene"
+            ? createStaticSceneObject(event.data.result.scene)
+            : new ObjectLoader().parse(event.data.result.sceneJson as object);
+        settleResolve(object);
+      } catch (error) {
+        settleReject(
+          error instanceof Error
+            ? error
+            : new Error("Failed to deserialize USD worker payload"),
+        );
+      }
+    };
+    const handleError = (event: ErrorEvent) => {
+      settleReject(
+        new Error(
+          `USD worker error: ${event.message || "unknown worker failure"}`,
+        ),
+      );
+    };
+    const handleMessageError = () => {
+      settleReject(new Error("USD worker message deserialization failed"));
+    };
+    const timeoutId = globalThis.setTimeout(() => {
+      settleReject(createTimeoutError(path, timeoutMs));
+    }, timeoutMs);
+
     options.signal?.addEventListener("abort", handleAbort, { once: true });
-    pending.set(id, { resolve, reject, cleanup });
-    worker.postMessage(request);
+    worker.addEventListener("message", handleMessage);
+    worker.addEventListener("error", handleError);
+    worker.addEventListener("messageerror", handleMessageError);
+
+    // Clone the binary buffer instead of transferring it. Transferring
+    // detaches the caller's ArrayBuffer, which would break the documented
+    // "worker failed → fall back to main-thread parse" path in
+    // `loaders.ts` because the fallback still needs the original buffer.
+    // Phase 3 can revisit the transfer path once the worker route is
+    // promoted from experimental.
+    const safePayload: UsdWorkerRequest["payload"] =
+      payload.kind === "binary"
+        ? { kind: "binary", buffer: payload.buffer.slice(0) }
+        : payload;
+    const request: UsdWorkerRequest = { id, path, payload: safePayload };
+    try {
+      worker.postMessage(request);
+    } catch (error) {
+      settleReject(
+        error instanceof Error
+          ? error
+          : new Error("Failed to post USD parse request to worker"),
+      );
+    }
   });
 }
