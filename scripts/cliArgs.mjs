@@ -43,6 +43,7 @@ export function parseNamedArgs(
       "-h": "help",
     },
     unknownMessage = (token) => `unknown argument: ${token}`,
+    requireValues = true,
   } = {},
 ) {
   const parsed = {};
@@ -51,7 +52,9 @@ export function parseNamedArgs(
     if (Object.hasOwn(flags, token)) {
       parsed[flags[token]] = true;
     } else if (Object.hasOwn(values, token)) {
-      parsed[values[token]] = readValue(tokens, ++index, token);
+      parsed[values[token]] = requireValues
+        ? readValue(tokens, ++index, token)
+        : tokens[++index];
     } else {
       throw new Error(unknownMessage(token));
     }
