@@ -21,23 +21,12 @@ import type {
   MmdAssetMetadata,
   MmdRuntimeModelHandle,
 } from "../../types/viewer";
+import { throwIfAborted } from "../abort";
 import { storeMmdAssetMetadata } from "./metadata";
 import { MMD_MODEL_KEY, syncMmdMaterialRenderStates } from "./userData";
 import MMD_ANIM_WASM_URL from "virtual:yw-look-mmd-wasm-url";
 
 const MMD_FRAME_RATE = 30;
-
-function createAbortError(message = "Model load was canceled."): Error {
-  const error = new Error(message);
-  error.name = "AbortError";
-  return error;
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) {
-    throw createAbortError();
-  }
-}
 
 const SUPPRESSED_MMD_DIAGNOSTIC_CODES = new Set([
   "IK_PMX_LINK_LIMITS_APPROXIMATE",

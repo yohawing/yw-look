@@ -1,18 +1,7 @@
 import { errorMessage } from "../../lib/errors";
 import { readBinaryFile, type SelectedFile } from "../../lib/files";
 import type { LoadedPreview, LoaderContext } from "../../types/viewer";
-
-function createAbortError(message = "Model load was canceled."): Error {
-  const error = new Error(message);
-  error.name = "AbortError";
-  return error;
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) {
-    throw createAbortError();
-  }
-}
+import { throwIfAborted } from "../abort";
 
 async function readArrayBuffer(path: string) {
   return readBinaryFile(path);
