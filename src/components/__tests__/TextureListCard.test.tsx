@@ -54,6 +54,7 @@ describe("TextureListCard", () => {
     expect(card).not.toBeNull();
     expect(card?.classList.contains("yl-button")).toBe(true);
     expect(card?.classList.contains("yl-button--unstyled")).toBe(true);
+    expect(card?.classList.contains("yl-selectable-list-item")).toBe(true);
     expect(card?.classList.contains("texture-card")).toBe(true);
     expect(card?.classList.contains("u-relative")).toBe(true);
     expect(card?.classList.contains("u-aspect-square")).toBe(true);

@@ -363,6 +363,25 @@
   white-space: normal;
 }
 
+.yl-selectable-list-item {
+  width: 100%;
+  border-radius: var(--yl-radius-4);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.yl-selectable-list-item:focus-visible {
+  outline: none;
+  box-shadow: var(--yl-shadow-focus);
+}
+
 .yl-segmented-control {
   display: inline-flex;
   min-height: var(--yl-control-height-md);

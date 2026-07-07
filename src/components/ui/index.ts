@@ -42,6 +42,10 @@ export {
   type SelectFieldSize,
 } from "./SelectField";
 export {
+  SelectableListItem,
+  type SelectableListItemProps,
+} from "./SelectableListItem";
+export {
   SliderField,
   type SliderFieldProps,
   type SliderFieldSize,

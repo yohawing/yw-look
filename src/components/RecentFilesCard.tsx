@@ -1,6 +1,6 @@
 import type { RecentFilesPayload } from "../lib/recentFiles";
 import { AsyncSidebarSection, SidebarEmpty } from "../lib/sidebarPrimitives";
-import { SelectableListItem } from "./SelectableListItem";
+import { SelectableListItem } from "./ui";
 
 type RecentFilesCardProps = {
   recentFilesPayload: RecentFilesPayload | null;

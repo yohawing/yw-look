@@ -132,6 +132,8 @@ describe("RecentFilesCard", () => {
     for (const button of buttons) {
       expect(button.parentElement?.tagName).toBe("LI");
       expect(button.parentElement?.parentElement?.tagName).toBe("UL");
+      expect(button.classList.contains("yl-selectable-list-item")).toBe(true);
+      expect(button.classList.contains("recent-entry")).toBe(true);
     }
   });
 });

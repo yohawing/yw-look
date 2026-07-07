@@ -120,6 +120,7 @@ describe("FileBrowserCard", () => {
       expect(button.parentElement?.parentElement?.tagName).toBe("UL");
       expect(button.classList.contains("yl-button")).toBe(true);
       expect(button.classList.contains("yl-button--unstyled")).toBe(true);
+      expect(button.classList.contains("yl-selectable-list-item")).toBe(true);
       expect(button.classList.contains("file-browser-entry")).toBe(true);
     }
   });

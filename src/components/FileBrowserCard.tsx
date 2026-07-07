@@ -1,7 +1,7 @@
 import type { SelectedFile } from "../lib/files";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { useFileStore } from "../stores/fileStore";
-import { SelectableListItem } from "./SelectableListItem";
+import { SelectableListItem } from "./ui";
 import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 
 type FileBrowserCardProps = {

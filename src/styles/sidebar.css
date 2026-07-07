@@ -458,20 +458,11 @@
 
 .recent-entry {
   display: flex;
-  width: 100%;
   flex-direction: column;
   align-items: flex-start;
   border: 1px solid transparent;
   border-radius: var(--yl-radius-6);
-  background: transparent;
-  color: inherit;
   padding: 7px 10px;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background 0.1s,
-    border-color 0.1s;
 }
 
 .recent-entry:hover {
@@ -507,7 +498,6 @@
 
 .file-browser-entry {
   display: flex;
-  width: 100%;
   min-height: 28px;
   align-items: center;
   gap: 8px;
@@ -515,10 +505,6 @@
   border-radius: 4px;
   padding: 4px 10px;
   color: var(--yl-text-secondary, #d0d6e0);
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
 }
 
 .file-browser-entry:hover {
