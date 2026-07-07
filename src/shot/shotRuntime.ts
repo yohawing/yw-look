@@ -67,6 +67,8 @@ export type ShotOutcome = {
 
 const DEFAULT_BG = "#111318";
 const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
+const DEFAULT_CAMERA_POSITION = new Vector3(5, 4, 5);
+const DEFAULT_CAMERA_TARGET = new Vector3(0, 0, 0);
 
 export async function loadShotConfig() {
   return invoke<ShotConfig | null>("get_shot_config");
@@ -164,7 +166,62 @@ function applyShotMmdLighting(scene: Scene, key: DirectionalLight) {
   key.position.set(...MMD_EXAMPLE_LIGHTING_PRESET.keyPosition);
 }
 
+function readVector3UserData(value: unknown) {
+  if (!Array.isArray(value) || value.length !== 3) {
+    return null;
+  }
+  const [x, y, z] = value;
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof z !== "number" ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(z)
+  ) {
+    return null;
+  }
+  return new Vector3(x, y, z);
+}
+
+function readPositiveNumberUserData(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
 function frameObject(camera: PerspectiveCamera, object: Group | Mesh) {
+  if (object.userData?.disableAutoFrame) {
+    const splatCenter = readVector3UserData(object.userData.splatBoundsCenter);
+    const splatMaxDimension = readPositiveNumberUserData(
+      object.userData.splatBoundsMaxDimension,
+    );
+    if (splatCenter && splatMaxDimension) {
+      const fitHeightDistance =
+        splatMaxDimension / (2 * Math.tan((camera.fov * Math.PI) / 360));
+      const distance = fitHeightDistance * 1.55;
+      camera.position.copy(
+        splatCenter
+          .clone()
+          .add(
+            new Vector3(1.1, 0.75, 1.1).normalize().multiplyScalar(distance),
+          ),
+      );
+      camera.near = Math.max(splatMaxDimension / 500, 0.01);
+      camera.far = Math.max(splatMaxDimension * 20, 200);
+      camera.lookAt(splatCenter);
+      camera.updateProjectionMatrix();
+      return;
+    }
+
+    camera.position.copy(DEFAULT_CAMERA_POSITION);
+    camera.near = 0.01;
+    camera.far = 100_000;
+    camera.lookAt(DEFAULT_CAMERA_TARGET);
+    camera.updateProjectionMatrix();
+    return;
+  }
+
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
   const center = bounds.getCenter(new Vector3());
@@ -280,6 +337,27 @@ async function settleFrames(
   }
 }
 
+async function updateSparkRenderers(scene: Scene, camera: PerspectiveCamera) {
+  const updates: Array<Promise<void>> = [];
+  scene.traverse((child) => {
+    const update = (child as { update?: unknown }).update;
+    if (
+      child.userData?.ywSparkRenderer === true &&
+      typeof update === "function"
+    ) {
+      updates.push(
+        Promise.resolve(
+          update.call(child, {
+            scene,
+            camera,
+          }),
+        ),
+      );
+    }
+  });
+  await Promise.all(updates);
+}
+
 export async function runShot(
   config: ShotConfig,
   writeOutput: (
@@ -393,6 +471,7 @@ export async function runShot(
     }
 
     if (config.mode === "shot") {
+      await updateSparkRenderers(scene, camera);
       await settleFrames(renderer, scene, camera, 3);
       renderer.render(scene, camera);
       outcome.nonBlankCanvas = isRendererCanvasNonBlank(renderer);

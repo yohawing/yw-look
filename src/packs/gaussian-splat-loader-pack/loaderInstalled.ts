@@ -78,6 +78,7 @@ export async function loadSparkPreviewObject(
     // and visibly shift large scenes.
     const splatBounds = splatMesh.getBoundingBox(true);
     const splatSize = splatBounds.getSize(new Vector3());
+    const splatCenter = splatBounds.getCenter(new Vector3());
     const splatMaxDimension = Math.max(splatSize.x, splatSize.y, splatSize.z);
     splatMesh.frustumCulled = false;
 
@@ -87,8 +88,12 @@ export async function loadSparkPreviewObject(
     // authored for this viewer path; forcing the same correction mirrors its
     // Y axis on real SPZ captures.
     const oriented = new Group();
-    if (shouldApplySplatYDownCorrection(file.extension)) {
+    const applyYDownCorrection = shouldApplySplatYDownCorrection(
+      file.extension,
+    );
+    if (applyYDownCorrection) {
       oriented.rotation.x = Math.PI;
+      splatCenter.set(splatCenter.x, -splatCenter.y, -splatCenter.z);
     }
     oriented.add(splatMesh);
 
@@ -101,6 +106,7 @@ export async function loadSparkPreviewObject(
     // Keep Spark's bounds available for scale-adjacent UI such as the grid,
     // without using them to frame the camera.
     group.userData.splatBoundsMaxDimension = splatMaxDimension;
+    group.userData.splatBoundsCenter = splatCenter.toArray();
 
     const cleanupCallbacks: Array<() => void> = [
       () => {
@@ -114,6 +120,7 @@ export async function loadSparkPreviewObject(
     if (context.renderer) {
       const sparkRenderer = new SparkRenderer({ renderer: context.renderer });
       sparkRenderer.frustumCulled = false;
+      sparkRenderer.userData.ywSparkRenderer = true;
       group.add(sparkRenderer);
       cleanupCallbacks.push(() => {
         sparkRenderer.dispose();

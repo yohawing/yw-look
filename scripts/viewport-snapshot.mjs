@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { flipCompare } from "./flip-compare.mjs";
@@ -11,6 +18,23 @@ const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
+const optionalLoaderPackages = {
+  spark: {
+    env: "YW_LOOK_HAS_SPARK_LOADER",
+    packagePath: path.join(repoRoot, "node_modules", "@sparkjsdev", "spark"),
+    includeEnv: "YW_INCLUDE_SPARK_LOADER_PACK",
+  },
+  mmd: {
+    env: "YW_LOOK_HAS_THREE_MMD_LOADER",
+    packagePath: path.join(
+      repoRoot,
+      "node_modules",
+      "@yohawing",
+      "three-mmd-loader",
+    ),
+    includeEnv: "YW_INCLUDE_MMD_LOADER_PACK",
+  },
+};
 
 const cases = [
   {
@@ -118,6 +142,17 @@ const cases = [
     size: "384x288",
     background: "default",
   },
+  {
+    id: "ply-cactus-supersplat-compressed",
+    input: "tests/fixtures/models/cactus-supersplat-compressed.ply",
+    snapshot:
+      "tests/visual/snapshots/viewport/ply-cactus-supersplat-compressed.png",
+    actual:
+      "artifacts/screenshots/viewport/ply-cactus-supersplat-compressed-current.png",
+    size: "384x288",
+    background: "#ffffff",
+    requiresLoader: "spark",
+  },
 ];
 
 const usage = `usage:
@@ -158,10 +193,87 @@ try {
   process.exit(2);
 }
 
+async function pathExists(filePath) {
+  try {
+    await stat(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readEnvBoolean(name) {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return null;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  throw new Error(`${name} must be one of 1/0, true/false, yes/no, or on/off`);
+}
+
+async function getOptionalLoaderAvailability() {
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(optionalLoaderPackages).map(async ([loader, config]) => {
+        const envOverride = readEnvBoolean(config.env);
+        return [loader, envOverride ?? (await pathExists(config.packagePath))];
+      }),
+    ),
+  );
+}
+
+function buildShotEnv(testCases) {
+  const env = {
+    ...process.env,
+    YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+      process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+    YW_LOOK_CARGO_FEATURES:
+      process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+  };
+
+  for (const testCase of testCases) {
+    const loader = testCase.requiresLoader;
+    if (!loader) continue;
+    const config = optionalLoaderPackages[loader];
+    if (config) {
+      env[config.includeEnv] = "1";
+    }
+  }
+
+  return env;
+}
+
+function formatCaseListEntry(testCase) {
+  const details = [
+    testCase.requiresLoader
+      ? `requiresLoader=${testCase.requiresLoader}`
+      : null,
+  ].filter(Boolean);
+  const suffix = details.length > 0 ? ` [${details.join(", ")}]` : "";
+  return `${testCase.id}: ${testCase.input}${suffix}`;
+}
+
+const optionalLoaderAvailability = await getOptionalLoaderAvailability();
+const runnableCases = selectedCases.filter((testCase) => {
+  if (
+    testCase.requiresLoader &&
+    optionalLoaderAvailability[testCase.requiresLoader] === false
+  ) {
+    console.log(
+      `Skipping viewport snapshot (optional loader pack not installed): ${testCase.id}`,
+    );
+    return false;
+  }
+  return true;
+});
+
 if (listOnly) {
   for (const testCase of selectedCases) {
-    console.log(`${testCase.id}: ${testCase.input}`);
+    console.log(formatCaseListEntry(testCase));
   }
+  process.exit(0);
+}
+
+if (runnableCases.length === 0) {
   process.exit(0);
 }
 
@@ -257,13 +369,7 @@ async function runShot(testCase) {
 
   const result = await runChildProcess(process.execPath, shotArgs, {
     cwd: repoRoot,
-    env: {
-      ...process.env,
-      YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-        process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-      YW_LOOK_CARGO_FEATURES:
-        process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-    },
+    env: buildShotEnv([testCase]),
     shell: process.platform === "win32",
     forwardStdout: true,
     forwardStderr: true,
@@ -297,13 +403,7 @@ async function runShotBatch(testCases) {
 
   const result = await runChildProcess(process.execPath, shotArgs, {
     cwd: repoRoot,
-    env: {
-      ...process.env,
-      YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-        process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-      YW_LOOK_CARGO_FEATURES:
-        process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-    },
+    env: buildShotEnv(testCases),
     shell: process.platform === "win32",
     forwardStdout: true,
     forwardStderr: true,
@@ -352,7 +452,7 @@ async function compareSnapshot(testCase) {
 }
 
 let failed = false;
-for (const testCase of selectedCases) {
+for (const testCase of runnableCases) {
   try {
     await mkdir(path.dirname(resolveRepoPath(testCase.actual)), {
       recursive: true,
@@ -366,12 +466,12 @@ for (const testCase of selectedCases) {
 
 if (!failed) {
   try {
-    if (selectedCases.length === 1) {
-      console.log(`Rendering viewport snapshot: ${selectedCases[0].id}`);
-      await runShot(selectedCases[0]);
+    if (runnableCases.length === 1) {
+      console.log(`Rendering viewport snapshot: ${runnableCases[0].id}`);
+      await runShot(runnableCases[0]);
     } else {
-      console.log(`Rendering ${selectedCases.length} viewport snapshots`);
-      await runShotBatch(selectedCases);
+      console.log(`Rendering ${runnableCases.length} viewport snapshots`);
+      await runShotBatch(runnableCases);
     }
   } catch (error) {
     failed = true;
@@ -379,7 +479,7 @@ if (!failed) {
   }
 }
 
-for (const testCase of selectedCases) {
+for (const testCase of runnableCases) {
   try {
     if (failed) {
       continue;

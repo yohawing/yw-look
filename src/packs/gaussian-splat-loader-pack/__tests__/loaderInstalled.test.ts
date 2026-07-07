@@ -30,8 +30,8 @@ vi.mock("@sparkjsdev/spark", () => {
 
     getBoundingBox() {
       const bounds = new Box3();
-      bounds.min.set(-1, -2, -3);
-      bounds.max.set(1, 2, 3);
+      bounds.min.set(1, 2, 3);
+      bounds.max.set(3, 6, 9);
       return bounds;
     }
 
@@ -42,6 +42,7 @@ vi.mock("@sparkjsdev/spark", () => {
 
   class SparkRenderer {
     frustumCulled = true;
+    userData: Record<string, unknown> = {};
 
     constructor(options: { renderer: WebGLRenderer }) {
       mocks.sparkRendererCtor(options);
@@ -127,6 +128,7 @@ describe("loadSparkPreviewObject", () => {
     expect(result.object.name).toBe("sample.ply Gaussian Splat Preview");
     expect(result.object.userData.disableAutoFrame).toBe(true);
     expect(result.object.userData.splatBoundsMaxDimension).toBe(6);
+    expect(result.object.userData.splatBoundsCenter).toEqual([2, -4, -6]);
     expect(stages).toEqual(["scan", "decode", "scene"]);
   });
 
