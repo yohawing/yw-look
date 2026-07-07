@@ -15,7 +15,7 @@ loading, and load-error viewport overlays with baselines in
 `artifacts/screenshots/viewport-state/`.
 
 The viewport snapshot cases use small public samples from `samples/assets/` and
-`tests/fixtures/models/` (FBX, PLY, Alembic, glTF JSON) and write current renders to
+`tests/fixtures/models/` (FBX, PLY, Alembic, glTF JSON, USD, USDC, USDZ) and write current renders to
 `artifacts/screenshots/viewport/`. On mismatch, keep the actual image, FLIP
 error map, and report for review.
 

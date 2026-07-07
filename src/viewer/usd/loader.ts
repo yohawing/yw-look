@@ -1,4 +1,12 @@
-import { Group, Object3D } from "three";
+import {
+  Color,
+  DoubleSide,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  Object3D,
+  type Material,
+} from "three";
 
 import { errorMessage } from "../../lib/errors";
 import { type SelectedFile, readBinaryFile } from "../../lib/files";
@@ -66,6 +74,58 @@ export function deferredSummaryHasNoRenderableGeometry(
 type UsdRuntimeHints = {
   metersPerUnit: number | null;
 };
+
+function isLikelyUsdLoaderFallbackMaterial(material: Material): boolean {
+  const materialRecord = material as Material & {
+    color?: Color;
+    map?: unknown;
+    emissiveMap?: unknown;
+    normalMap?: unknown;
+    roughnessMap?: unknown;
+    metalnessMap?: unknown;
+  };
+  const fallbackColor = materialRecord.color?.getHex();
+  return (
+    materialRecord.color instanceof Color &&
+    (fallbackColor === 0x000000 || fallbackColor === 0xffffff) &&
+    !materialRecord.name &&
+    materialRecord.map == null &&
+    materialRecord.emissiveMap == null &&
+    materialRecord.normalMap == null &&
+    materialRecord.roughnessMap == null &&
+    materialRecord.metalnessMap == null
+  );
+}
+
+function createUsdPreviewFallbackMaterial(source: Material): MeshBasicMaterial {
+  const fallback = new MeshBasicMaterial({
+    color: 0xcfd4dc,
+    opacity: source.opacity,
+    transparent: source.transparent,
+    side: DoubleSide,
+  });
+  fallback.name = source.name;
+  return fallback;
+}
+
+function applyUsdPreviewFallbackMaterials(object: Object3D): void {
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    const materials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+    const replaced = materials.map((material) =>
+      isLikelyUsdLoaderFallbackMaterial(material)
+        ? createUsdPreviewFallbackMaterial(material)
+        : material,
+    );
+
+    child.material = Array.isArray(child.material) ? replaced : replaced[0];
+  });
+}
 
 function applyUsdRuntimeHints(object: Object3D, hints: UsdRuntimeHints) {
   if (!hints.metersPerUnit || Math.abs(hints.metersPerUnit - 1) < 1e-6) {
@@ -411,6 +471,7 @@ export async function loadUsdPreviewObject(
     object =
       (workerObject as Group | null) ??
       (usdaText ? loader.parse(usdaText) : loader.parse(buffer));
+    applyUsdPreviewFallbackMaterials(object);
     if (import.meta.env.DEV) {
       console.info(`[usd] USDLoader.parse OK: ${file.fileName}`);
     }

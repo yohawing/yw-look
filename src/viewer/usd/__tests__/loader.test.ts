@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Group } from "three";
+import {
+  BufferGeometry,
+  DoubleSide,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshPhysicalMaterial,
+} from "three";
 import type { SelectedFile } from "../../../lib/files";
 import type { StageInspection } from "../../../lib/usd";
 import {
@@ -400,6 +407,22 @@ describe("loadUsdPreviewObject USDA pipeline", () => {
     expect(mocks.parseUsd).not.toHaveBeenCalled();
     expect(mocks.inspectStage).toHaveBeenCalledWith(usdaFile.path, undefined);
     expect(stages).toEqual(["resolve", "decode", "gpu", "scene"]);
+  });
+
+  it("replaces untextured USDLoader fallback materials with a visible double-sided preview material", async () => {
+    const object = new Group();
+    const mesh = new Mesh(
+      new BufferGeometry(),
+      new MeshPhysicalMaterial({ color: 0xffffff }),
+    );
+    object.add(mesh);
+    mocks.parseUsdInWorker.mockResolvedValue(object);
+
+    await loadUsdPreviewObject(usdaFile, {});
+
+    const material = mesh.material as unknown as MeshBasicMaterial;
+    expect(material.color.getHex()).toBe(0xcfd4dc);
+    expect(material.side).toBe(DoubleSide);
   });
 
   it("falls back to main-thread parsing when the worker fails for a small file", async () => {
