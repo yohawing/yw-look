@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { ErrorBoundary } from "../ErrorBoundary";
+import { logFrontendFatal } from "../../lib/runtimeLogging";
 
 vi.mock("../../lib/runtimeLogging", () => ({
   logFrontendFatal: vi.fn(),
@@ -35,5 +36,9 @@ describe("ErrorBoundary", () => {
     expect(getByRole("button", { name: "Reload" })).toBeTruthy();
     expect(getByRole("button", { name: "Copy Details" })).toBeTruthy();
     expect(getByRole("button", { name: "Open Logs" })).toBeTruthy();
+    expect(logFrontendFatal).toHaveBeenCalledWith(
+      expect.stringContaining("render exploded"),
+      "react-error-boundary",
+    );
   });
 });
