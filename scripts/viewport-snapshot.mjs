@@ -62,6 +62,14 @@ const cases = [
     size: "384x288",
     background: "default",
   },
+  {
+    id: "gltf-duck",
+    input: "samples/assets/gltf/Duck.gltf",
+    snapshot: "tests/visual/snapshots/viewport/gltf-duck.png",
+    actual: "artifacts/screenshots/viewport/gltf-duck-current.png",
+    size: "384x288",
+    background: "default",
+  },
 ];
 
 const usage = `usage:
