@@ -74,19 +74,6 @@ const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
     reason: "samples/private/catalog.json has vrm-constraint-twist",
   },
   {
-    extension: "usdz",
-    publicCatalog: false,
-    privateCoverage: "covered",
-    reason: "samples/private/catalog.json has usdz-toy-biplane",
-  },
-  {
-    extension: "usdc",
-    publicCatalog: false,
-    privateCoverage: "planned",
-    reason:
-      "private USD composition has USDC layers; top-level case is later work",
-  },
-  {
     extension: "pmx",
     publicCatalog: false,
     privateCoverage: "planned",

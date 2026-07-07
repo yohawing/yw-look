@@ -91,6 +91,20 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "model-usdc-tiny",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny.usdc",
+      "format": "usdc",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-usdz-tiny",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny.usdz",
+      "format": "usdz",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "texture-png-1x1",
       "category": "valid-minimal",
       "path": "tests/fixtures/textures/1x1.png",

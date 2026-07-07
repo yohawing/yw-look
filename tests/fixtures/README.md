@@ -32,6 +32,8 @@ tests/fixtures/
 | `animated-triangle.fbx`            | FBX (ASCII 7.4)                                       | 1 三角形 + Y 軸 1 秒の translation クリップ | `node tests/fixtures/_generate.mjs`                                  |
 | `tiny.usda`                        | USDA 1.0 (ASCII)                                      | 1 四角形メッシュ + stage metadata           | `samples/assets/usd/tiny.usda`                                       |
 | `tiny.usd`                         | USD (ASCII, USDA syntax)                              | 1 四角形メッシュ + stage metadata           | `tiny.usda` と同一内容（`.usd` 拡張子の回帰用）                      |
+| `tiny.usdc`                        | USDC (binary crate)                                   | 1 四角形メッシュ + stage metadata           | `usdcat -o tiny.usdc tiny.usda`（OpenUSD CLI）                       |
+| `tiny.usdz`                        | USDZ (ZIP, USDA root)                                 | 1 四角形メッシュ + stage metadata           | `usdzip -c tiny.usdz tiny.usda`（OpenUSD CLI）                       |
 | `monkey.abc`                       | Alembic (Ogawa)                                       | Blender Suzanne (static)                    | Blender 3.x エクスポート                                             |
 
 ### 手動配置が必要なフォーマット (TODO)
