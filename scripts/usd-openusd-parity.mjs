@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readOption, readRepeatedOption } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -28,21 +29,22 @@ const listOnly = args.includes("--list");
 const skipApp = args.includes("--skip-app");
 const runUsdChecker = !args.includes("--skip-usdchecker");
 const requireUsdChecker = args.includes("--require-usdchecker");
-const selectedCaseIds = readRepeatedOption("--case");
-const extraPaths = readRepeatedOption("--path");
+const selectedCaseIds = readRepeatedOption(args, "--case");
+const extraPaths = readRepeatedOption(args, "--path");
 const openUsdRoot = path.resolve(
-  readOption("--openusd-root") ?? defaultOpenUsdRoot,
+  readOption(args, "--openusd-root") ?? defaultOpenUsdRoot,
 );
 const openUsdBin = path.resolve(
-  readOption("--openusd-bin") ?? path.join(openUsdRoot, "bin"),
+  readOption(args, "--openusd-bin") ?? path.join(openUsdRoot, "bin"),
 );
 const openUsdPython = path.resolve(
-  readOption("--openusd-pythonpath") ?? path.join(openUsdRoot, "lib", "python"),
+  readOption(args, "--openusd-pythonpath") ??
+    path.join(openUsdRoot, "lib", "python"),
 );
-const timeoutMs = Number(readOption("--timeout-ms") ?? 180_000);
-const appTimeoutMs = Number(readOption("--app-timeout-ms") ?? 300_000);
-const backend = readOption("--backend") ?? "rust";
-const appUsdPolicy = readOption("--app-usd-policy") ?? "noPayloads";
+const timeoutMs = Number(readOption(args, "--timeout-ms") ?? 180_000);
+const appTimeoutMs = Number(readOption(args, "--app-timeout-ms") ?? 300_000);
+const backend = readOption(args, "--backend") ?? "rust";
+const appUsdPolicy = readOption(args, "--app-usd-policy") ?? "noPayloads";
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outputDir = path.join(repoRoot, "artifacts", "logs");
 const jsonReportPath = path.join(outputDir, `usd-openusd-parity.${stamp}.json`);
@@ -451,28 +453,4 @@ async function assertTool(filePath, label) {
 
 function sanitizeId(value) {
   return value.replace(/[^a-z0-9_-]+/gi, "-").toLowerCase();
-}
-
-function readOption(name) {
-  const index = args.indexOf(name);
-  if (index === -1) return null;
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`);
-  }
-  return value;
-}
-
-function readRepeatedOption(name) {
-  const values = [];
-  for (let index = 0; index < args.length; index += 1) {
-    if (args[index] !== name) continue;
-    const value = args[index + 1];
-    if (!value || value.startsWith("--")) {
-      throw new Error(`${name} requires a value`);
-    }
-    values.push(value);
-    index += 1;
-  }
-  return values;
 }
