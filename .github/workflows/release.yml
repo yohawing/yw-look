@@ -302,6 +302,24 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain"
 
+      - name: Extract release notes from CHANGELOG
+        id: release_notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          if [[ ! "$tag" =~ ^v[0-9] ]]; then
+            echo "::error::release notes extraction requires a v* tag ref; got: $tag"
+            exit 1
+          fi
+          node scripts/extract-release-notes.mjs --tag "$tag" --output release-body.md
+          delimiter="YW_LOOK_RELEASE_BODY_$(date +%s)_${RANDOM}"
+          {
+            echo "body<<$delimiter"
+            cat release-body.md
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -328,7 +346,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: yw-look ${{ github.ref_name }}
-          releaseBody: See the attached installers and updater manifest for this release.
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           tauriScript: npm run tauri

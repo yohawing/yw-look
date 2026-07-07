@@ -115,6 +115,8 @@ macOS:   ~/.tauri/yw-look-dev-pw.key
 - `## vX.Y.Z (YYYY-MM-DD)` エントリを先頭に追記する
 - `git log <前バージョンタグ>..HEAD --oneline --no-merges` で変更を洗い出す
 - 日付は push 当日の日付にする
+- [リリースノート契約](#リリースノート契約) の必須フィールドを同じエントリ内に含める
+- 公開前に `npm run release:notes -- --tag vX.Y.Z` で GitHub Release body のプレビューを確認する
 
 ## 3. ドキュメントを更新する
 
@@ -184,6 +186,80 @@ git push origin main && git push origin vX.Y.Z
 
 ---
 
+# リリースノート契約
+
+GitHub Release の本文は `CHANGELOG.md` を唯一のソースとする。`release.yml` はタグ push 時に `scripts/extract-release-notes.mjs` で該当セクションを抽出し、`tauri-apps/tauri-action` の `releaseBody` に渡す。マッチする見出しが無い場合は workflow が失敗し、汎用文だけの Release は公開されない。
+
+## 抽出コマンド
+
+```bash
+# stdout に GitHub Release body 相当を出力
+npm run release:notes -- --tag v0.2.2
+
+# ファイルへ書き出し（CI と同じ）
+npm run release:notes -- --tag v0.2.2 --output release-body.md
+```
+
+抽出対象は `CHANGELOG.md` 先頭付近の `## vX.Y.Z (YYYY-MM-DD)` 見出し直下から、次の `##` 見出し直前まで。Release タイトル（`yw-look vX.Y.Z`）と重複するため、見出し行自体は body に含めない。
+
+## 必須フィールド
+
+各バージョンの `CHANGELOG.md` エントリには、製品変更のほか、監査可能な配布確認結果を必ず含める。未実施の項目は「未確認（not verified）」と明記し、理由を 1 行以上書く。省略や空欄は不可。
+
+### Known limitations
+
+- 当該リリースでユーザーに影響する既知の制限、未対応フォーマット、回避策を列挙する
+- 例: Optional Loader Pack 未選択時の制限、bundle identifier 変更による共存、特定 GPU での既知不具合
+
+### Windows signing and SmartScreen
+
+- Authenticode 署名の有無と検証コマンド結果（例: `Get-AuthenticodeSignature` の `Status`）
+- SmartScreen の挙動（警告なし / 警告ありと対策 / 未検証）または未検証理由
+- 対象 artifact 名（通常は NSIS `setup.exe` と updater 用 `.exe`）
+
+### macOS codesign, notarization, and Gatekeeper
+
+- `codesign -dv` または同等手段での Developer ID 署名確認結果
+- `notarytool` 公証と `stapler validate` の結果
+- 実機での Gatekeeper（初回起動・quarantine なし）と Finder `Open With` の結果、または未検証理由
+- 対象 artifact 名（`.app` / `.dmg` / updater `.tar.gz`）
+
+### GitHub Release install and updater roundtrip
+
+- Windows: Release の `setup.exe`（または公開インストーラー）からの新規インストール → 旧版から `latest.json` 経由の更新が成功したか
+- macOS: Release の `.dmg` または `.app` からの新規インストール → 旧版から `latest.json` 経由の更新が成功したか
+- 使用した旧版タグ、更新先タグ、`App Updates` で確認した endpoint、失敗時はログまたは再現手順
+- 実施できない場合は OS ごとに「未確認（not verified）」と理由を書く
+
+## 推奨テンプレート
+
+`CHANGELOG.md` エントリ末尾に次の見出しを置くと、契約を満たしやすい。
+
+```markdown
+### Known limitations
+
+- ...
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: verified | not verified
+- Details: ...
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: verified | not verified
+- Details: ...
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: verified | not verified — ...
+- macOS: verified | not verified — ...
+```
+
+---
+
 # Windows 配布
 
 ## GitHub Releases 配布フロー（Windows）
@@ -224,7 +300,7 @@ GitHub Actions では次を設定します。
 
 ### 4. CHANGELOG を更新する
 
-`CHANGELOG.md` に今回のリリース内容を追記します。英語で記述してください。
+`CHANGELOG.md` に今回のリリース内容を追記します。英語で記述してください。[リリースノート契約](#リリースノート契約) の必須フィールドも同じエントリに含めます。
 
 ### 5. タグを push する
 
@@ -406,7 +482,7 @@ Windows と同じく全バージョンファイルを更新します（Windows �
 
 ### 5. CHANGELOG を更新する
 
-Windows 側ステップ 4 と同じ。`CHANGELOG.md` に英語でリリース内容を追記します。
+Windows 側ステップ 4 と同じ。`CHANGELOG.md` に英語でリリース内容を追記し、[リリースノート契約](#リリースノート契約) の必須フィールドを含めます。
 
 ### 6. タグを push して Actions を走らせる
 
@@ -613,8 +689,7 @@ xattr -dr com.apple.quarantine src-tauri/target/release/bundle/macos/yw-look.app
 
 - Windows Authenticode 署名
 - SmartScreen 対策
-- リリースノート整備
-- バージョン更新の手順固定化
+- リリースノート契約どおりの署名 / updater 確認結果を `CHANGELOG.md` に記載する（抽出 workflow は整備済み）
 - 実際の GitHub Release 往復確認
 
 ## macOS
