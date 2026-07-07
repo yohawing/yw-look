@@ -1,8 +1,10 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import formatSupport from "../../formatSupport.json";
 import {
   inspectAsset,
   listSupportedSiblings,
+  loadFormatSupport,
   openFileDialog,
   readBinaryFile,
   readBinaryFilePrefix,
@@ -79,10 +81,42 @@ describe("browser local files", () => {
     });
   });
 
+  it("uses manifest preview support for browser-local inspection", async () => {
+    const file = new File(["#usda 1.0"], "scene.usda");
+    const selected = registerBrowserFile(file);
+
+    expect(formatSupport.model).toContain("usda");
+    expect(formatSupport.previewImplemented).not.toContain("usda");
+    await expect(inspectAsset(selected.path)).resolves.toMatchObject({
+      extension: "usda",
+      kind: "model",
+      previewImplemented: false,
+    });
+  });
+
   it("rejects unsupported browser-local assets", () => {
     expect(() => registerBrowserFile(new File(["x"], "notes.txt"))).toThrow(
       "unsupported file extension: txt",
     );
+  });
+
+  it("classifies model, texture, and motion browser-local assets from the manifest", () => {
+    const model = registerBrowserFile(new File(["m"], "scene.glb"));
+    const texture = registerBrowserFile(new File(["t"], "albedo.png"));
+    const motion = registerBrowserFile(new File(["v"], "walk.vmd"));
+
+    expect(model.kind).toBe("model");
+    expect(texture.kind).toBe("texture");
+    expect(motion.kind).toBe("motion");
+  });
+
+  it("returns browser fallback format support from the manifest", async () => {
+    await expect(loadFormatSupport()).resolves.toEqual({
+      modelExtensions: formatSupport.model,
+      textureExtensions: formatSupport.texture,
+      motionExtensions: formatSupport.motion,
+      previewImplemented: formatSupport.previewImplemented,
+    });
   });
 
   it("rejects Tauri IPC errors as normalized AppError objects", async () => {

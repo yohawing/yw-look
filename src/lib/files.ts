@@ -1,6 +1,8 @@
 import { invokeSafe } from "./invokeSafe";
 import { isTauriEnvironment } from "./platform";
 
+import formatSupport from "../formatSupport.json";
+
 import type {
   AssetKind,
   SelectedFile,
@@ -18,39 +20,14 @@ export type {
   FormatSupport,
 } from "../types/file";
 
-const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
-const MODEL_EXTENSIONS = [
-  "glb",
-  "gltf",
-  "fbx",
-  "obj",
-  "ply",
-  "stl",
-  "usd",
-  "usda",
-  "usdc",
-  "usdz",
-  "dae",
-  "vrm",
-  "abc",
-  "pmx",
-  "pmd",
-  "splat",
-  "spz",
-  "ksplat",
-  "sog",
-];
-const TEXTURE_EXTENSIONS = [
-  "png",
-  "jpg",
-  "jpeg",
-  "tga",
-  "dds",
-  "ktx2",
-  "hdr",
-  "exr",
-];
-const MOTION_EXTENSIONS = ["vmd"];
+const MODEL_EXTENSIONS = formatSupport.model;
+const TEXTURE_EXTENSIONS = formatSupport.texture;
+const MOTION_EXTENSIONS = formatSupport.motion;
+const USD_EXTENSIONS = new Set(
+  MODEL_EXTENSIONS.filter((extension) =>
+    ["usd", "usda", "usdc", "usdz"].includes(extension),
+  ),
+);
 const SUPPORTED_EXTENSIONS = new Set([
   ...MODEL_EXTENSIONS,
   ...TEXTURE_EXTENSIONS,
@@ -215,7 +192,9 @@ export async function inspectAsset(path: string) {
         ? String(Math.floor(browserFile.lastModified / 1000))
         : null,
       createdAt: null,
-      previewImplemented: true,
+      previewImplemented: formatSupport.previewImplemented.includes(
+        file.extension,
+      ),
       imageDimensions: null,
     };
   }
@@ -228,7 +207,7 @@ export async function loadFormatSupport() {
       modelExtensions: MODEL_EXTENSIONS,
       textureExtensions: TEXTURE_EXTENSIONS,
       motionExtensions: MOTION_EXTENSIONS,
-      previewImplemented: Array.from(SUPPORTED_EXTENSIONS),
+      previewImplemented: formatSupport.previewImplemented,
     };
   }
   return invokeFile<FormatSupport>("load_format_support");

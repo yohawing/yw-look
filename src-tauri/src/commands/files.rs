@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 use crate::shared::{
-    current_timestamp, infer_file_kind, is_supported_extension, load_or_initialize_settings,
-    lock_or_recover, normalize_file_path, read_json_file, repo_root, resolve_app_data_dir,
-    system_time_to_unix_string, write_json_file, MODEL_EXTENSIONS, MOTION_EXTENSIONS,
-    PREVIEW_IMPLEMENTED_EXTENSIONS, RECENT_FILES_FILE_NAME, TEXTURE_EXTENSIONS,
+    current_timestamp, dialog_filter_extensions, infer_file_kind, is_supported_extension,
+    load_or_initialize_settings, lock_or_recover, model_extensions, motion_extensions,
+    normalize_file_path, preview_implemented_extensions, read_json_file, repo_root,
+    resolve_app_data_dir, system_time_to_unix_string, texture_extensions, write_json_file,
+    RECENT_FILES_FILE_NAME,
 };
 use crate::state::PendingOpenFiles;
 
@@ -372,7 +373,9 @@ fn build_asset_inspection(path: PathBuf) -> Result<AssetInspection, AppError> {
         .ok()
         .and_then(system_time_to_unix_string);
     let created_at = metadata.created().ok().and_then(system_time_to_unix_string);
-    let preview_implemented = PREVIEW_IMPLEMENTED_EXTENSIONS.contains(&extension.as_str());
+    let preview_implemented = preview_implemented_extensions()
+        .iter()
+        .any(|value| value == &extension);
     let image_dimensions = read_image_dimensions(&normalized, &extension);
 
     Ok(AssetInspection {
@@ -396,13 +399,10 @@ pub(crate) fn inspect_asset(path: String) -> Result<AssetInspection, AppError> {
 #[tauri::command]
 pub(crate) fn load_format_support() -> FormatSupportPayload {
     FormatSupportPayload {
-        model_extensions: MODEL_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
-        texture_extensions: TEXTURE_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
-        motion_extensions: MOTION_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
-        preview_implemented: PREVIEW_IMPLEMENTED_EXTENSIONS
-            .iter()
-            .map(|e| e.to_string())
-            .collect(),
+        model_extensions: model_extensions().to_vec(),
+        texture_extensions: texture_extensions().to_vec(),
+        motion_extensions: motion_extensions().to_vec(),
+        preview_implemented: preview_implemented_extensions().to_vec(),
     }
 }
 
@@ -410,16 +410,14 @@ pub(crate) fn load_format_support() -> FormatSupportPayload {
 pub(crate) fn open_file_dialog(
     app: tauri::AppHandle,
 ) -> Result<Option<SelectedFilePayload>, AppError> {
+    let dialog_extensions = dialog_filter_extensions();
+    let dialog_extension_refs: Vec<&str> = dialog_extensions
+        .iter()
+        .map(|extension| extension.as_str())
+        .collect();
     let file_path = rfd::FileDialog::new()
         .set_title("Open asset file")
-        .add_filter(
-            "Supported assets",
-            &[
-                "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae",
-                "vrm", "abc", "pmx", "pmd", "vmd", "splat", "spz", "ksplat", "sog", "png", "jpg",
-                "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
-            ],
-        )
+        .add_filter("Supported assets", &dialog_extension_refs)
         .pick_file();
 
     let file = file_path.map(build_selected_file_payload).transpose()?;
@@ -756,6 +754,19 @@ mod tests {
         assert!(read_image_dimensions(&ktx2, "ktx2").is_none());
         assert!(read_image_dimensions(Path::new("unused.hdr"), "hdr").is_none());
         assert!(read_image_dimensions(Path::new("unused.exr"), "exr").is_none());
+    }
+
+    #[test]
+    fn load_format_support_matches_manifest_groups() {
+        let support = load_format_support();
+
+        assert_eq!(support.model_extensions, model_extensions().to_vec());
+        assert_eq!(support.texture_extensions, texture_extensions().to_vec());
+        assert_eq!(support.motion_extensions, motion_extensions().to_vec());
+        assert_eq!(
+            support.preview_implemented,
+            preview_implemented_extensions().to_vec()
+        );
     }
 
     #[test]

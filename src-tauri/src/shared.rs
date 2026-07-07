@@ -1,12 +1,61 @@
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 use tauri::Manager;
 
 use crate::error::AppError;
 use crate::state::AppSettings;
+
+#[derive(Debug, Clone, Deserialize)]
+struct FormatSupportManifest {
+    model: Vec<String>,
+    texture: Vec<String>,
+    motion: Vec<String>,
+    #[serde(rename = "previewImplemented")]
+    preview_implemented: Vec<String>,
+}
+
+fn format_support_manifest() -> &'static FormatSupportManifest {
+    static MANIFEST: OnceLock<FormatSupportManifest> = OnceLock::new();
+    MANIFEST.get_or_init(|| {
+        serde_json::from_str(include_str!("../../src/formatSupport.json"))
+            .expect("invalid formatSupport.json")
+    })
+}
+
+pub(crate) fn model_extensions() -> &'static [String] {
+    &format_support_manifest().model
+}
+
+pub(crate) fn texture_extensions() -> &'static [String] {
+    &format_support_manifest().texture
+}
+
+pub(crate) fn motion_extensions() -> &'static [String] {
+    &format_support_manifest().motion
+}
+
+pub(crate) fn preview_implemented_extensions() -> &'static [String] {
+    &format_support_manifest().preview_implemented
+}
+
+pub(crate) fn dialog_filter_extensions() -> Vec<String> {
+    let manifest = format_support_manifest();
+    let mut extensions = manifest.model.clone();
+    if let Some(index) = extensions.iter().position(|extension| extension == "pmd") {
+        extensions.splice(index + 1..index + 1, manifest.motion.iter().cloned());
+    } else {
+        extensions.extend(manifest.motion.iter().cloned());
+    }
+    extensions.extend(manifest.texture.iter().cloned());
+    extensions
+}
+
+fn extension_in_list(extension: &str, extensions: &[String]) -> bool {
+    extensions.iter().any(|value| value == extension)
+}
 
 pub(crate) const SETTINGS_FILE_NAME: &str = "settings.json";
 pub(crate) const RECENT_FILES_FILE_NAME: &str = "recent-files.json";
@@ -26,23 +75,6 @@ pub(crate) fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> MutexG
 pub(crate) const DEFAULT_UPDATER_ENDPOINT: Option<&str> = option_env!("YW_LOOK_UPDATER_ENDPOINT");
 pub(crate) const DEFAULT_UPDATER_PUBLIC_KEY: Option<&str> =
     option_env!("YW_LOOK_UPDATER_PUBLIC_KEY");
-
-pub(crate) const MODEL_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae", "vrm", "abc",
-    "pmx", "pmd", "splat", "spz", "ksplat", "sog",
-];
-pub(crate) const TEXTURE_EXTENSIONS: &[&str] =
-    &["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"];
-pub(crate) const MOTION_EXTENSIONS: &[&str] = &["vmd"];
-pub(crate) const FILE_ASSOCIATION_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "fbx", "obj", "ply", "stl", "dae", "usd", "usda", "usdc", "usdz", "png", "jpg",
-    "jpeg", "tga", "dds", "ktx2", "hdr", "exr", "pmx", "pmd", "vmd", "splat", "spz", "ksplat",
-    "sog",
-];
-pub(crate) const PREVIEW_IMPLEMENTED_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "vrm", "abc", "fbx", "obj", "ply", "stl", "dae", "png", "jpg", "jpeg", "tga",
-    "dds", "ktx2", "hdr", "exr", "pmx", "pmd", "vmd", "splat", "spz", "ksplat", "sog",
-];
 
 pub(crate) fn strip_verbatim_prefix(path: &Path) -> PathBuf {
     #[cfg(windows)]
@@ -74,11 +106,11 @@ pub(crate) fn system_time_to_unix_string(time: SystemTime) -> Option<String> {
 }
 
 pub(crate) fn infer_file_kind(extension: &str) -> String {
-    if MODEL_EXTENSIONS.contains(&extension) {
+    if extension_in_list(extension, model_extensions()) {
         "model".to_string()
-    } else if TEXTURE_EXTENSIONS.contains(&extension) {
+    } else if extension_in_list(extension, texture_extensions()) {
         "texture".to_string()
-    } else if MOTION_EXTENSIONS.contains(&extension) {
+    } else if extension_in_list(extension, motion_extensions()) {
         "motion".to_string()
     } else {
         "unknown".to_string()
@@ -86,9 +118,9 @@ pub(crate) fn infer_file_kind(extension: &str) -> String {
 }
 
 pub(crate) fn is_supported_extension(extension: &str) -> bool {
-    MODEL_EXTENSIONS.contains(&extension)
-        || TEXTURE_EXTENSIONS.contains(&extension)
-        || MOTION_EXTENSIONS.contains(&extension)
+    extension_in_list(extension, model_extensions())
+        || extension_in_list(extension, texture_extensions())
+        || extension_in_list(extension, motion_extensions())
 }
 
 pub(crate) fn normalize_file_path(path: PathBuf) -> Result<PathBuf, AppError> {
@@ -264,4 +296,40 @@ pub(crate) fn read_limited_file(
         )));
     }
     fs::read(path).map_err(|error| AppError::Io(format!("failed to read {label}: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn all_supported_extensions() -> Vec<String> {
+        let mut extensions = model_extensions().to_vec();
+        extensions.extend(texture_extensions().iter().cloned());
+        extensions.extend(motion_extensions().iter().cloned());
+        extensions
+    }
+
+    #[test]
+    fn dialog_filter_includes_every_supported_extension() {
+        let supported = all_supported_extensions();
+        let dialog = dialog_filter_extensions();
+
+        for extension in supported {
+            assert!(
+                dialog.iter().any(|value| value == &extension),
+                "dialog filter missing supported extension: {extension}"
+            );
+        }
+        assert_eq!(dialog.len(), supported.len());
+    }
+
+    #[test]
+    fn preview_implemented_extensions_are_supported() {
+        for extension in preview_implemented_extensions() {
+            assert!(
+                is_supported_extension(extension),
+                "preview implemented extension must be supported: {extension}"
+            );
+        }
+    }
 }
