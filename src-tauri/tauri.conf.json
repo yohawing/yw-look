@@ -74,26 +74,16 @@
           "fbx",
           "obj",
           "ply",
-          "splat",
-          "spz",
-          "ksplat",
-          "sog",
           "stl",
           "dae",
           "usd",
           "usda",
           "usdc",
           "usdz",
-          "pmx",
-          "pmd"
+          "abc"
         ],
         "name": "yw-look Model Asset",
         "description": "3D model asset opened by yw-look"
-      },
-      {
-        "ext": ["vmd"],
-        "name": "yw-look Motion Asset",
-        "description": "MikuMikuDance motion asset opened by yw-look"
       },
       {
         "ext": ["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"],

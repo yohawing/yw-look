@@ -314,9 +314,9 @@ mod tests {
         let supported = all_supported_extensions();
         let dialog = dialog_filter_extensions();
 
-        for extension in supported {
+        for extension in &supported {
             assert!(
-                dialog.iter().any(|value| value == &extension),
+                dialog.iter().any(|value| value == extension),
                 "dialog filter missing supported extension: {extension}"
             );
         }

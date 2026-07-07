@@ -24,6 +24,7 @@
     "generate:license-attributions": "node scripts/generate-license-attributions.mjs",
     "prepare:nsis-loader-packs": "node scripts/prepare-nsis-loader-pack-hooks.mjs",
     "check:nsis-loader-packs": "node scripts/check-nsis-loader-pack-hooks.mjs",
+    "check:file-associations": "node scripts/check-file-associations.mjs",
     "lint": "eslint .",
     "check:format-pack-boundaries": "node scripts/check-format-pack-boundaries.mjs",
     "format": "prettier --write .",

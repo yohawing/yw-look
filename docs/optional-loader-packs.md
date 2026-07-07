@@ -246,6 +246,22 @@ File associations should respect enabled packs:
 - The Settings UI should make this relationship visible because it is one of
   the reasons optional packs exist.
 
+### Static Bundle vs Runtime Plan
+
+The Tauri bundle `fileAssociations` list is core-only. It must not register
+optional loader pack extensions such as `.vrm`, `.pmd`, `.vmd`, or
+`.splat`. `.ply` and `.abc` stay in the static bundle because they are core
+formats in `src/formatSupport.json`.
+
+`src-tauri/src/commands/file_associations.rs` resolves the runtime association
+plan from `AppSettings`, scanned optional pack manifests, and
+`KNOWN_OPTIONAL_LOADER_EXTENSIONS`. `npm run check:file-associations` keeps the
+static bundle aligned with that split.
+
+Actual OS association sync is still open. Windows registry / macOS
+LaunchServices updates should consume the resolved plan in a later slice instead
+of expanding the signed bundle manifest whenever a pack is enabled.
+
 ## Security Boundary
 
 This strategy intentionally does not allow arbitrary third-party code loading.
@@ -263,7 +279,10 @@ yohawing/yw-look release process.
 3. Add manifest scan and validation from the app-managed pack directory.
 4. Add Settings read-only reporting for known packs.
 5. Add Settings enable/disable state and make loader registration respect it.
-6. Make file association sync respect enabled optional packs.
+6. Make file association sync respect enabled optional packs. Preparatory work:
+   core-only static bundle associations, `file_associations.rs` plan resolver,
+   and `check:file-associations` are in place; OS registry / LaunchServices sync
+   remains open.
 7. Add Settings install/remove for first-party packs.
 8. Wire NSIS Custom Install sections to seed selected pack directories.
 9. Implement VRM (#70), MMD (#71), and Gaussian Splat as first-party packs
