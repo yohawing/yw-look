@@ -30,6 +30,7 @@ import {
 import type {
   BenchCaseResult,
   BenchConfig,
+  BenchLoadResponsiveness,
   BenchManifest,
   BenchModel,
   BenchReport,
@@ -45,7 +46,58 @@ type PerformanceWithMemory = Performance & {
 
 const VIEWPORT_WIDTH = 1024;
 const VIEWPORT_HEIGHT = 768;
+const LOAD_RESPONSIVENESS_PROBE_INTERVAL_MS = 16;
 let activeBenchRepoRoot = "";
+
+export function responsivenessGapMs(
+  previousTickAt: number,
+  currentTickAt: number,
+  expectedIntervalMs: number,
+) {
+  return Math.max(0, currentTickAt - previousTickAt - expectedIntervalMs);
+}
+
+export async function measureMainThreadResponsiveness<T>(
+  operation: () => Promise<T>,
+): Promise<{ value: T; metrics: BenchLoadResponsiveness }> {
+  let maxGapMs = 0;
+  let sampleCount = 0;
+  let lastTickAt = performance.now();
+
+  const recordSample = (now: number) => {
+    const gap = responsivenessGapMs(
+      lastTickAt,
+      now,
+      LOAD_RESPONSIVENESS_PROBE_INTERVAL_MS,
+    );
+    lastTickAt = now;
+    sampleCount += 1;
+    if (gap > maxGapMs) {
+      maxGapMs = gap;
+    }
+  };
+
+  const intervalId = window.setInterval(() => {
+    recordSample(performance.now());
+  }, LOAD_RESPONSIVENESS_PROBE_INTERVAL_MS);
+
+  try {
+    const value = await operation();
+    const finishedAt = performance.now();
+    if (finishedAt - lastTickAt >= LOAD_RESPONSIVENESS_PROBE_INTERVAL_MS) {
+      recordSample(finishedAt);
+    }
+    return {
+      value,
+      metrics: {
+        sampleCount,
+        maxGapMs: sampleCount > 0 ? roundMetric(maxGapMs) : null,
+      },
+    };
+  } finally {
+    window.clearInterval(intervalId);
+  }
+}
 
 export async function loadBenchConfig() {
   const config = await invoke<BenchConfig | null>("get_bench_config");
@@ -333,6 +385,7 @@ export async function runBenchCase(
     resolveFileMs: null,
     listSiblingsMs: null,
     loadTimeMs: null,
+    loadResponsiveness: null,
     stageTimeMs: {},
     fps: null,
     frameTimeMs: { avg: null, p50: null, p95: null },
@@ -362,11 +415,15 @@ export async function runBenchCase(
 
     const selected = selectedFileFromModel(model, resolved.value);
     const loadStarted = performance.now();
-    const preview = await withTimeout(
-      loadPreviewObject(selected, renderer, { onStage: recordStage }),
-      model.bench.timeoutMs,
-      model.id,
+    const loadResult = await measureMainThreadResponsiveness(() =>
+      withTimeout(
+        loadPreviewObject(selected, renderer, { onStage: recordStage }),
+        model.bench.timeoutMs,
+        model.id,
+      ),
     );
+    const preview = loadResult.value;
+    baseResult.loadResponsiveness = loadResult.metrics;
     finishActiveStage();
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
@@ -475,8 +532,8 @@ export function renderReportMarkdown(report: BenchReport) {
     `- Platform: ${report.os}/${report.arch}`,
     `- Node: ${report.nodeVersion ?? "unknown"}`,
     "",
-    "| Case | Loaded | Non-blank | Console errors | Meshes | Open ms | Resolve ms | Siblings ms | Preview load ms | USD resolve ms | USD decode ms | WebView/GPU ms | Scene ms | FPS | p50 ms | p95 ms | Error |",
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+    "| Case | Loaded | Non-blank | Console errors | Meshes | Open ms | Resolve ms | Siblings ms | Preview load ms | Resp samples | Resp max gap ms | USD resolve ms | USD decode ms | WebView/GPU ms | Scene ms | FPS | p50 ms | p95 ms | Error |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
   ];
 
   for (const result of report.cases) {
@@ -491,6 +548,8 @@ export function renderReportMarkdown(report: BenchReport) {
         result.resolveFileMs ?? "",
         result.listSiblingsMs ?? "",
         result.loadTimeMs ?? "",
+        result.loadResponsiveness?.sampleCount ?? "",
+        result.loadResponsiveness?.maxGapMs ?? "",
         result.stageTimeMs.resolve ?? "",
         result.stageTimeMs.decode ?? "",
         result.stageTimeMs.gpu ?? "",
