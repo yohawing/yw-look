@@ -70,6 +70,7 @@
     "check:update-feed": "node scripts/check-local-update-feed.mjs",
     "smoke:update-feed": "node scripts/smoke-local-update-feed.mjs",
     "check:win-authenticode": "node scripts/check-win-authenticode.mjs",
+    "check:macos-codesign": "node scripts/check-macos-codesign.mjs",
     "update:local:serve": "node scripts/serve-local-update-feed.mjs",
     "tauri": "node scripts/run-tauri.mjs",
     "prepare": "husky"

@@ -356,6 +356,21 @@ jobs:
           tauriScript: npm run tauri
           args: ${{ matrix.args }}
 
+      - name: Audit macOS codesign status
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: npm run check:macos-codesign
+
+      - name: Upload macOS codesign audit report
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-codesign-report-${{ github.ref_name }}-${{ matrix.platform }}
+          path: |
+            artifacts/logs/macos-codesign-report.json
+            artifacts/logs/macos-codesign-report.md
+          if-no-files-found: ignore
+
       - name: Audit Windows Authenticode status
         if: runner.os == 'Windows'
         continue-on-error: true

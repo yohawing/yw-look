@@ -231,6 +231,7 @@ npm run release:notes -- --tag vX.Y.Z --check-contract
 - `codesign -dv` または同等手段での Developer ID 署名確認結果
 - `notarytool` 公証と `stapler validate` の結果
 - 実機での Gatekeeper（初回起動・quarantine なし）と Finder `Open With` の結果、または未検証理由
+- `npm run check:macos-codesign` の summary、`artifacts/logs/macos-codesign-report.json` の対象 artifact / check 結果、および `artifacts/logs/macos-codesign-report.md` の release-log draft（`### macOS codesign, notarization, and Gatekeeper` 節を `CHANGELOG.md` に貼る）
 - 対象 artifact 名（`.app` / `.dmg` / updater `.tar.gz`）
 
 ### GitHub Release install and updater roundtrip
@@ -708,6 +709,41 @@ xcrun stapler validate src-tauri/target/release/bundle/macos/yw-look.app
 # 公証ジョブ履歴の確認
 xcrun notarytool history --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_PASSWORD"
 ```
+
+### codesign / 公証 / Gatekeeper 状態を確認する
+
+Tauri updater 用の `.app.tar.gz.sig` は minisign 署名で、macOS の Developer ID 署名・公証とは別です。
+本番配布では `.app` / `.dmg` の codesign、stapler、Gatekeeper を確認します。
+
+```bash
+npm run check:macos-codesign
+```
+
+このコマンドは現在の macOS bundle を `codesign`、`xcrun stapler validate`、`spctl --assess` で確認し、次の 2 つを出力します。
+
+- `artifacts/logs/macos-codesign-report.json` — 機械可読な監査証跡
+- `artifacts/logs/macos-codesign-report.md` — リリースノート用の下書き（`### macOS codesign, notarization, and Gatekeeper` 節を `CHANGELOG.md` または GitHub Release body にコピーする）
+
+開発用の未署名または未公証 bundle では各チェックを `fail` として記録しつつ exit 0 で終わります。
+Markdown 下書きも `Status: not verified` として同じ事実を残します。
+GitHub Actions の release workflow でも macOS build 後に同じ監査を実行し、
+`macos-codesign-report-<tag>-macos-aarch64` artifact として JSON 監査証跡と
+Markdown release-log draft の両方を残します。
+この CI 監査は本番署名・公証が整うまでは非 gate です。
+本番検証を release gate にする場合は次を使います。
+
+```bash
+npm run check:macos-codesign -- --require-verified
+```
+
+`--require-verified` は `.app` の codesign / stapler / Gatekeeper と `.dmg` の stapler がすべて通らない場合に失敗します。
+`--json` は stdout を JSON のみにし、Markdown は stdout に出しません（ファイル出力は通常どおり行われます）。
+
+macOS 以外（CI の Windows runner 含む）では macOS 監査をスキップし exit 0 で終わります。
+スキップ時の summary には `macOS codesign audit requires macOS.` と明記されます。
+
+Finder `Open With` や quarantine なし初回起動はこの script では自動判定できません。Markdown 下書きにも
+`Manual macOS checks: not verified by this script` と明記されます。公開 Release 後にクリーンな macOS 環境で手動確認し、結果または未確認理由を release note に追記します。
 
 ## Finder 連携の確認
 
