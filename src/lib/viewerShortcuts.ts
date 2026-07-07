@@ -1,4 +1,4 @@
-import type { DisplayMode } from "../viewer";
+import { deriveDisplayFlags, type DisplayMode } from "../types/viewer";
 
 import type {
   ViewerShortcutAction,
@@ -109,15 +109,6 @@ export function resolveViewerShortcutAction(
     default:
       return null;
   }
-}
-
-export function deriveDisplayFlags(displayMode: DisplayMode) {
-  return {
-    showTexture:
-      displayMode === "textured" || displayMode === "texturedWireframe",
-    showWireframe:
-      displayMode === "wireframe" || displayMode === "texturedWireframe",
-  };
 }
 
 export function cycleDisplayMode(current: DisplayMode): DisplayMode {

@@ -5,10 +5,7 @@ import type {
   ViewportSurfaceDisplay,
   ViewportWireframeMode,
 } from "../../types/viewer";
-import {
-  deriveViewportSurfaceDisplay,
-  deriveViewportWireframeMode,
-} from "../../types/viewer";
+import { deriveViewportDisplayState } from "../../types/viewer";
 
 export type { Build3DToolbarOptions } from "../../types/viewer";
 
@@ -106,14 +103,12 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
     showVertexColors = false,
   } = options;
 
-  const activeSurfaceDisplay = deriveViewportSurfaceDisplay({
+  const activeDisplayState = deriveViewportDisplayState({
+    showTexture,
+    showWireframe,
     showUnlit,
     showNormals,
     showVertexColors,
-  });
-  const activeWireframeMode = deriveViewportWireframeMode({
-    showWireframe,
-    showTexture,
   });
 
   // ── Camera ──────────────────────────────────────────────
@@ -173,7 +168,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         group: "display",
         kind: "button",
         label: mode.label,
-        active: activeSurfaceDisplay === mode.id,
+        active: activeDisplayState.surface === mode.id,
         onRun: () => applySurfaceDisplay(mode.id, options),
       });
     }
@@ -204,7 +199,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         group: "wireframe",
         kind: "button",
         label: mode.label,
-        active: activeWireframeMode === mode.id,
+        active: activeDisplayState.wireframe === mode.id,
         onRun: () => applyWireframeMode(mode.id, options),
       });
     }

@@ -54,7 +54,7 @@ export function useAppCommands({
     (state) => state.selectedUsdPrimPath,
   );
   const displayMode = useMemo(
-    () => deriveDisplayMode(showTexture, showWireframe),
+    () => deriveDisplayMode({ showTexture, showWireframe }),
     [showTexture, showWireframe],
   );
 

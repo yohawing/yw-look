@@ -1,6 +1,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ViewportControls } from "../ViewportControls";
+import { build3DToolbar } from "../toolbar/build3DToolbar";
 import type { ToolbarItem } from "../toolbar/types";
 
 describe("ViewportControls", () => {
@@ -253,6 +254,35 @@ describe("ViewportControls", () => {
 
     expect(getAllByText("Display")).toHaveLength(1);
     expect(getByText("Wireframe")).toBeTruthy();
+  });
+
+  it("renders derived Display active states in the viewport popover", () => {
+    const items = build3DToolbar({
+      cameraPreset: null,
+      cameraPresetOptions: [],
+      showTexture: true,
+      onToggleTexture: vi.fn(),
+      showUnlit: false,
+      onToggleUnlit: vi.fn(),
+      showNormals: true,
+      onToggleNormals: vi.fn(),
+      showVertexColors: false,
+      onToggleVertexColors: vi.fn(),
+      showWireframe: true,
+      onToggleWireframe: vi.fn(),
+      environmentPreset: "studio",
+      environmentPresetOptions: [],
+    });
+    const { getByRole } = render(<ViewportControls items={items} />);
+
+    fireEvent.click(getByRole("button", { name: "Display" }));
+
+    const normals = getByRole("button", { name: "Normals" });
+    const overlay = getByRole("button", { name: "Overlay" });
+    expect(normals.classList.contains("is-active")).toBe(true);
+    expect(overlay.classList.contains("is-active")).toBe(true);
+    expect(normals.querySelector(".toolbar-popover-item-check")).toBeTruthy();
+    expect(overlay.querySelector(".toolbar-popover-item-check")).toBeTruthy();
   });
 
   it("does not render icons on viewport submenu items", () => {

@@ -4,7 +4,7 @@ import {
   type EnvironmentPreset,
   type TextureViewMode,
 } from "../types/viewer";
-import { deriveDisplayMode } from "./displayMode";
+import { deriveViewportDisplayState } from "./displayMode";
 import { build3DToolbar } from "../components/toolbar/build3DToolbar";
 import {
   buildImageToolbar,
@@ -58,9 +58,16 @@ export function useViewportToolbarModel() {
   const showLocalAxis = useViewerStore((state) => state.showLocalAxis);
   const showJointNames = useViewerStore((state) => state.showJointNames);
 
-  const displayMode = useMemo(
-    () => deriveDisplayMode(showTexture, showWireframe),
-    [showTexture, showWireframe],
+  const displayState = useMemo(
+    () =>
+      deriveViewportDisplayState({
+        showTexture,
+        showWireframe,
+        showUnlit,
+        showNormals,
+        showVertexColors,
+      }),
+    [showNormals, showTexture, showUnlit, showVertexColors, showWireframe],
   );
 
   const handleSelectCameraPreset = useCallback((preset: string) => {
@@ -191,7 +198,7 @@ export function useViewportToolbarModel() {
   ]);
 
   return {
-    displayMode,
+    displayMode: displayState.displayMode,
     viewportToolbarItems,
   };
 }

@@ -44,6 +44,14 @@ export type DisplayMode =
   | "wireframe"
   | "texturedWireframe";
 
+export type ViewportDisplayFlags = {
+  showTexture: boolean;
+  showWireframe: boolean;
+  showUnlit: boolean;
+  showNormals?: boolean;
+  showVertexColors?: boolean;
+};
+
 /** Mutually exclusive surface display choices in the viewport Display popover. */
 export type ViewportSurfaceDisplay =
   | "shaded"
@@ -53,6 +61,30 @@ export type ViewportSurfaceDisplay =
 
 /** Tri-state wireframe overlay mode in the viewport Display popover. */
 export type ViewportWireframeMode = "off" | "overlay" | "only";
+
+export type ViewportDisplayState = {
+  surface: ViewportSurfaceDisplay;
+  wireframe: ViewportWireframeMode;
+  displayMode: DisplayMode;
+};
+
+export function deriveDisplayMode(
+  flags: Pick<ViewportDisplayFlags, "showTexture" | "showWireframe">,
+): DisplayMode {
+  if (flags.showTexture && flags.showWireframe) return "texturedWireframe";
+  if (flags.showTexture) return "textured";
+  if (flags.showWireframe) return "wireframe";
+  return "untextured";
+}
+
+export function deriveDisplayFlags(displayMode: DisplayMode) {
+  return {
+    showTexture:
+      displayMode === "textured" || displayMode === "texturedWireframe",
+    showWireframe:
+      displayMode === "wireframe" || displayMode === "texturedWireframe",
+  };
+}
 
 export function deriveViewportSurfaceDisplay(flags: {
   showUnlit: boolean;
@@ -78,6 +110,16 @@ export function deriveViewportWireframeMode(flags: {
   if (!flags.showWireframe) return "off";
   if (flags.showTexture) return "overlay";
   return "only";
+}
+
+export function deriveViewportDisplayState(
+  flags: ViewportDisplayFlags,
+): ViewportDisplayState {
+  return {
+    surface: deriveViewportSurfaceDisplay(flags),
+    wireframe: deriveViewportWireframeMode(flags),
+    displayMode: deriveDisplayMode(flags),
+  };
 }
 
 export type ViewerSurfaceMode = "asset" | "texture";
