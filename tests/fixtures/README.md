@@ -30,6 +30,7 @@ tests/fixtures/
 | `cactus-supersplat-compressed.ply` | PLY binary little endian (SuperSplat compressed 3DGS) | 139,410 splats; classifier regression only  | `3DGS_PLY_sample_data`, CC0; credit URL: https://www.steam-studio.jp |
 | `tiny-tetrahedron.dae`             | COLLADA                                               | 1 四面体                                    | `samples/assets/dae/TinyTetrahedron.dae`                             |
 | `animated-triangle.fbx`            | FBX (ASCII 7.4)                                       | 1 三角形 + Y 軸 1 秒の translation クリップ | `node tests/fixtures/_generate.mjs`                                  |
+| `tiny.usda`                        | USDA 1.0 (ASCII)                                      | 1 四角形メッシュ + stage metadata           | `samples/assets/usd/tiny.usda`                                       |
 | `monkey.abc`                       | Alembic (Ogawa)                                       | Blender Suzanne (static)                    | Blender 3.x エクスポート                                             |
 
 ### 手動配置が必要なフォーマット (TODO)

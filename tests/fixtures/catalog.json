@@ -79,7 +79,7 @@
     {
       "id": "model-usda-tiny",
       "category": "valid-minimal",
-      "path": "samples/assets/usd/tiny.usda",
+      "path": "tests/fixtures/models/tiny.usda",
       "format": "usda",
       "expect": { "shouldLoad": true }
     },
