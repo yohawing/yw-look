@@ -480,7 +480,10 @@ release note に追記します。
 ```powershell
 npm run update:local:prepare
 npm run check:update-feed
+npm run smoke:update-feed
 ```
+
+`smoke:update-feed` は `artifacts/updater-feed` をプロセス内の一時 HTTP サーバーで配信し、`/latest.json` と manifest が指す installer を localhost 経由で取得できることを確認します。長時間起動する `update:local:serve` を別途立てずに、ローカル updater feed の HTTP 往復を再現可能にします。既定では `http://127.0.0.1:8765` を使うため、`update:local:prepare` と同じ host / port で実行してください。別 port を使う場合は `YW_LOOK_LOCAL_UPDATE_BASE_URL` と `YW_LOOK_LOCAL_UPDATE_PORT` を揃えてください。
 
 出力先:
 
