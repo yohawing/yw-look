@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
 
 import { parseNamedArgs } from "./cliArgs.mjs";
+import { runChildProcess } from "./processRunner.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -543,7 +544,6 @@ function isKnownBenignDiagnosticLine(line) {
 }
 
 function runShotBatch(configFile) {
-  const startedAt = performance.now();
   const runArgs = [
     path.join(repoRoot, "scripts", "run-shot.mjs"),
     "shot-batch",
@@ -551,66 +551,19 @@ function runShotBatch(configFile) {
     configFile,
   ];
 
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, runArgs, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-        YW_LOOK_CARGO_FEATURES:
-          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-      },
-      shell: false,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const timeout = setTimeout(() => {
-      settled = true;
-      child.kill("SIGKILL");
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: `timed out after ${timeoutMs}ms`,
-      });
-    }, timeoutMs);
-
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-      process.stdout.write(chunk);
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-      process.stderr.write(chunk);
-    });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: error.message,
-      });
-    });
-    child.on("exit", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve({
-        exitCode: code,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: signal ? `terminated by ${signal}` : null,
-      });
-    });
+  return runChildProcess(process.execPath, runArgs, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+        process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+      YW_LOOK_CARGO_FEATURES:
+        process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+    },
+    shell: false,
+    timeoutMs,
+    forwardStdout: true,
+    forwardStderr: true,
   });
 }
 

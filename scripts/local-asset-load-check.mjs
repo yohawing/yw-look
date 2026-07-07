@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseNamedArgs } from "./cliArgs.mjs";
+import { runChildProcess } from "./processRunner.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -163,7 +164,6 @@ async function evaluateCase(testCase) {
 }
 
 function runShotCheck(testCase) {
-  const startedAt = performance.now();
   const runArgs = [
     path.join(repoRoot, "scripts", "run-shot.mjs"),
     "check",
@@ -171,64 +171,17 @@ function runShotCheck(testCase) {
     testCase.path,
   ];
 
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, runArgs, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-        YW_LOOK_CARGO_FEATURES:
-          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-      },
-      shell: false,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const timeout = setTimeout(() => {
-      settled = true;
-      child.kill("SIGKILL");
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: `timed out after ${timeoutMs}ms`,
-      });
-    }, timeoutMs);
-
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: error.message,
-      });
-    });
-    child.on("exit", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve({
-        exitCode: code,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: signal ? `terminated by ${signal}` : null,
-      });
-    });
+  return runChildProcess(process.execPath, runArgs, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+        process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+      YW_LOOK_CARGO_FEATURES:
+        process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+    },
+    shell: false,
+    timeoutMs,
   });
 }
 
