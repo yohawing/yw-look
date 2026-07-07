@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default desktop capability for yw-look during initial setup","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-show","core:window:allow-set-position","log:allow-log"]}}
+{"default":{"identifier":"default","description":"Default desktop capability for yw-look during initial setup","remote":{"urls":["http://localhost:1420/*","http://127.0.0.1:1420/*"]},"local":true,"windows":["main"],"permissions":["core:default","core:window:allow-show","core:window:allow-set-position","log:allow-log"]}}
