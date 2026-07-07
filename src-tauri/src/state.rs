@@ -76,6 +76,12 @@ pub(crate) struct ShotCliConfig {
     pub(crate) cases: Vec<ShotCliCase>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct StartupBenchCliConfig {
+    pub(crate) out_dir: PathBuf,
+    pub(crate) node_version: Option<String>,
+}
+
 #[derive(Default)]
 pub(crate) struct PendingUpdateState(pub(crate) Mutex<Option<tauri_plugin_updater::Update>>);
 

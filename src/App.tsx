@@ -18,6 +18,7 @@ import {
   type CrashRecoveryPayload,
 } from "./lib/crashRecovery";
 import { isTauriEnvironment } from "./lib/platform";
+import { useStartupBench } from "./lib/startupBench";
 import { useFileStore } from "./stores/fileStore";
 import { useUiStore } from "./stores/uiStore";
 import { useViewerStore } from "./stores/viewerStore";
@@ -51,6 +52,8 @@ export function App() {
   const isTauri = isTauriEnvironment();
   const [crashRecoveryStatus, setCrashRecoveryStatus] =
     useState<CrashRecoveryPayload | null>(null);
+
+  useStartupBench(isTauri);
   const shouldLoadRecentFiles = sidebarOpen;
   const shouldLoadDeferredData = sidebarOpen;
   const canNavigatePrev =

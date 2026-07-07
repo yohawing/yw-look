@@ -6,5 +6,6 @@ pub(crate) mod files;
 pub(crate) mod loader_packs;
 pub(crate) mod settings;
 pub(crate) mod shot;
+pub(crate) mod startup_bench;
 pub(crate) mod updater;
 pub(crate) mod usd;

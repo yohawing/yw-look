@@ -1,5 +1,41 @@
 # Benchmarks
 
+## Startup bench
+
+`npm run bench:startup` measures startup timing for selected surfaces and writes
+JSON / Markdown reports under `artifacts/logs/startup-bench-<timestamp>/`.
+
+Surfaces:
+
+- `shot` (default): dev Tauri shot-startup smoke via `scripts/run-shot.mjs`
+- `playwright`: Vite dev server app-shell first render in headless Chromium
+- `packaged`: packaged/release executable first render in the normal app shell
+
+Examples:
+
+```bash
+npm run bench:startup -- --surface playwright --iterations 1
+npm run bench:startup -- --surface packaged --iterations 1
+npm run bench:startup -- --surface packaged --app src-tauri/target/release/yw-look.exe --iterations 3
+```
+
+`--surface packaged` requires an existing built executable with a frontend that
+includes the startup-bench hook. Rebuild before measuring:
+
+```bash
+npm run build
+npm run tauri build -- --no-bundle
+```
+
+On Windows the default path is `src-tauri/target/release/yw-look.exe`. Pass
+`--app <path>` to override it. Each packaged iteration launches a fresh process,
+waits for the app to write `startup-bench-app-result.json`, and records wall-clock
+elapsed from process launch plus frontend Performance API metrics.
+
+`--surface both` remains `shot` + `playwright` only.
+
+## Load bench
+
 `npm run bench:load` runs the private-asset load benchmark and writes a report
 under `artifacts/bench/<timestamp>/`.
 

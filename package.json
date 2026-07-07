@@ -64,6 +64,7 @@
     "bench:load:summary": "node scripts/summarize-load-bench.mjs",
     "bench:startup": "node scripts/run-startup-bench.mjs",
     "bench:startup:playwright": "node scripts/run-startup-bench.mjs --surface playwright",
+    "bench:startup:packaged": "node scripts/run-startup-bench.mjs --surface packaged",
     "shot": "node scripts/run-shot.mjs shot",
     "shot:batch": "node scripts/run-shot.mjs shot-batch",
     "shot:check": "node scripts/run-shot.mjs check",

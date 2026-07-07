@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import http from "node:http";
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,7 @@ const repoRoot = path.resolve(
 );
 const shotScriptPath = path.join(repoRoot, "scripts", "run-shot.mjs");
 const shotOutcomePrefix = "YW_LOOK_SHOT_OUTCOME:";
+const packagedAppResultFile = "startup-bench-app-result.json";
 const defaultInput = path.join(
   repoRoot,
   "tests",
@@ -41,6 +42,11 @@ const measurementScopeCaveats = {
     "dev server, opens the normal app page in headless Chromium, and measures wall-clock time until " +
     ".app-shell is visible. Browser navigation and paint timings are collected from the Performance API. " +
     "It is not a packaged Tauri cold-start measurement.",
+  packaged:
+    "Packaged/release first-render measurement. This benchmark launches a built application executable, " +
+    "waits for the normal app shell first render inside the packaged WebView, and records wall-clock " +
+    "elapsed from process launch plus frontend Performance API metrics. It is not a Vite dev server or " +
+    "cargo-run measurement.",
 };
 
 const args = process.argv.slice(2);
@@ -50,9 +56,10 @@ if (hasFlag(args, "--help") || hasFlag(args, "-h")) {
 Measure startup timing for the Tauri shot path and/or the Playwright app-shell first render.
 
 Options:
-  --surface <name>     Measurement surface: shot, playwright, or both (default: shot)
+  --surface <name>     Measurement surface: shot, playwright, packaged, or both (default: shot)
   --iterations <n>     Number of runs per selected surface (default: 1)
   --input <path>       Model input path for shot runs (default: tests/fixtures/models/triangle.gltf)
+  --app <path>         Packaged executable for packaged runs (default: platform release binary)
   --output-dir <path>  Report directory (default: artifacts/logs/startup-bench-<stamp>)
   --timeout-ms <n>     Per-iteration timeout in ms (default: 600000)
   --json <path>        Explicit JSON report path (Markdown is written beside it)
@@ -60,10 +67,12 @@ Options:
 Outputs:
   artifacts/logs/startup-bench-*/startup-bench-report.{json,md}
   artifacts/screenshots/startup-bench/{iteration,playwright-iteration}-*.png
+  artifacts/logs/startup-bench-*/packaged-iteration-*/startup-bench-app-result.json
 
 Scope:
   shot: ${measurementScopeCaveats.shot}
-  playwright: ${measurementScopeCaveats.playwright}`);
+  playwright: ${measurementScopeCaveats.playwright}
+  packaged: ${measurementScopeCaveats.packaged}`);
   process.exit(0);
 }
 
@@ -98,10 +107,45 @@ function parseSurface(value) {
   if (value === "playwright") {
     return ["playwright"];
   }
+  if (value === "packaged") {
+    return ["packaged"];
+  }
   if (value === "both") {
     return ["shot", "playwright"];
   }
-  throw new Error("--surface must be one of: shot, playwright, both");
+  throw new Error("--surface must be one of: shot, playwright, packaged, both");
+}
+
+function defaultPackagedAppPath() {
+  if (process.platform === "win32") {
+    return path.join(repoRoot, "src-tauri", "target", "release", "yw-look.exe");
+  }
+  if (process.platform === "darwin") {
+    return path.join(repoRoot, "src-tauri", "target", "release", "yw-look");
+  }
+  return path.join(repoRoot, "src-tauri", "target", "release", "yw-look");
+}
+
+async function assertPackagedAppExists(appPath) {
+  try {
+    await access(appPath);
+  } catch {
+    throw new Error(
+      `packaged app executable not found: ${toRepoRelative(appPath)}. ` +
+        "Build a release binary first or pass --app <path>.",
+    );
+  }
+}
+
+function packagedIterationOutDir(outputDir, iteration) {
+  return path.join(
+    outputDir,
+    `packaged-iteration-${String(iteration).padStart(3, "0")}`,
+  );
+}
+
+function packagedAppResultPath(iterationOutDir) {
+  return path.join(iterationOutDir, packagedAppResultFile);
 }
 
 function tail(text, maxLines = 24) {
@@ -498,6 +542,111 @@ async function runPlaywrightIterations({ iterations, timeoutMs }) {
   return iterationResults;
 }
 
+async function readPackagedAppResult(iterationOutDir) {
+  try {
+    const raw = await readFile(packagedAppResultPath(iterationOutDir), "utf8");
+    return JSON.parse(raw);
+  } catch (error) {
+    return {
+      parseError: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function evaluatePackagedIteration(result, appResult) {
+  if (result.error) {
+    return { ok: false, reason: result.error };
+  }
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      reason: `packaged app exited with code ${result.exitCode ?? 1}`,
+    };
+  }
+  if (!appResult || appResult.parseError) {
+    return {
+      ok: false,
+      reason: appResult?.parseError
+        ? `invalid packaged app result JSON: ${appResult.parseError}`
+        : "missing startup-bench-app-result.json",
+    };
+  }
+  return { ok: true, reason: null };
+}
+
+async function runPackagedIterations({
+  iterations,
+  appPath,
+  timeoutMs,
+  outputDir,
+}) {
+  await assertPackagedAppExists(appPath);
+  const iterationResults = [];
+
+  for (let iteration = 1; iteration <= iterations; iteration += 1) {
+    const iterationOutDir = packagedIterationOutDir(outputDir, iteration);
+    await mkdir(iterationOutDir, { recursive: true });
+    const command = [
+      appPath,
+      "--startup-bench",
+      "--startup-bench-out",
+      iterationOutDir,
+      "--startup-bench-node-version",
+      process.version,
+    ];
+    console.log(
+      `[startup-bench:packaged] iteration ${iteration}/${iterations}: ${toRepoRelative(appPath)}`,
+    );
+
+    const wallStart = Date.now();
+    const result = await runChildProcess(command[0], command.slice(1), {
+      cwd: repoRoot,
+      shell: false,
+      timeoutMs,
+      forwardStdout: true,
+      forwardStderr: true,
+      signalError: false,
+    });
+    const wallClockMs = Date.now() - wallStart;
+    const appResult = await readPackagedAppResult(iterationOutDir);
+    const verdict = evaluatePackagedIteration(result, appResult);
+
+    iterationResults.push({
+      surface: "packaged",
+      iteration,
+      ok: verdict.ok,
+      reason: verdict.reason,
+      wallClockMs,
+      exitCode: result.exitCode,
+      command: command.map((token) =>
+        token.includes(" ") ? `"${token}"` : token,
+      ),
+      url: null,
+      inputPath: null,
+      appPath: toRepoRelative(appPath),
+      outputDir: toRepoRelative(iterationOutDir),
+      outputResultPath: verdict.ok
+        ? toRepoRelative(packagedAppResultPath(iterationOutDir))
+        : null,
+      outputScreenshotPath: null,
+      shotOutcome: null,
+      appResult: verdict.ok ? appResult : null,
+      browserMetrics: verdict.ok ? (appResult.browserMetrics ?? null) : null,
+      stdoutTail: tail(result.stdout),
+      stderrTail: tail(result.stderr),
+    });
+
+    console.log(
+      `[startup-bench:packaged] iteration ${iteration}: ${verdict.ok ? "pass" : "fail"} wall=${wallClockMs}ms performanceNow=${appResult?.performanceNowMs ?? "n/a"}`,
+    );
+    if (!verdict.ok) {
+      console.error(`[startup-bench:packaged] failure: ${verdict.reason}`);
+    }
+  }
+
+  return iterationResults;
+}
+
 function buildSummary(iterationResults) {
   const passedIterations = iterationResults.filter((entry) => entry.ok);
   const failedIterations = iterationResults.filter((entry) => !entry.ok);
@@ -507,8 +656,12 @@ function buildSummary(iterationResults) {
   const playwrightIterations = iterationResults.filter(
     (entry) => entry.surface === "playwright",
   );
+  const packagedIterations = iterationResults.filter(
+    (entry) => entry.surface === "packaged",
+  );
   const passedShot = shotIterations.filter((entry) => entry.ok);
   const passedPlaywright = playwrightIterations.filter((entry) => entry.ok);
+  const passedPackaged = packagedIterations.filter((entry) => entry.ok);
 
   return {
     total: iterationResults.length,
@@ -530,6 +683,11 @@ function buildSummary(iterationResults) {
     firstPaintMs: summarizeNumbers(
       passedPlaywright
         .map((entry) => entry.browserMetrics?.firstPaintMs)
+        .filter((value) => typeof value === "number"),
+    ),
+    performanceNowMs: summarizeNumbers(
+      passedPackaged
+        .map((entry) => entry.appResult?.performanceNowMs)
         .filter((value) => typeof value === "number"),
     ),
     bySurface: {
@@ -560,6 +718,29 @@ function buildSummary(iterationResults) {
         ),
         firstPaintMs: summarizeNumbers(
           passedPlaywright
+            .map((entry) => entry.browserMetrics?.firstPaintMs)
+            .filter((value) => typeof value === "number"),
+        ),
+      },
+      packaged: {
+        total: packagedIterations.length,
+        passed: passedPackaged.length,
+        failed: packagedIterations.length - passedPackaged.length,
+        wallClockMs: summarizeNumbers(
+          passedPackaged.map((entry) => entry.wallClockMs),
+        ),
+        performanceNowMs: summarizeNumbers(
+          passedPackaged
+            .map((entry) => entry.appResult?.performanceNowMs)
+            .filter((value) => typeof value === "number"),
+        ),
+        firstContentfulPaintMs: summarizeNumbers(
+          passedPackaged
+            .map((entry) => entry.browserMetrics?.firstContentfulPaintMs)
+            .filter((value) => typeof value === "number"),
+        ),
+        firstPaintMs: summarizeNumbers(
+          passedPackaged
             .map((entry) => entry.browserMetrics?.firstPaintMs)
             .filter((value) => typeof value === "number"),
         ),
@@ -600,6 +781,9 @@ function toMarkdown(report) {
   if (report.appUrl) {
     lines.push(`- Playwright app URL: \`${report.appUrl}\``);
   }
+  if (report.packagedAppPath) {
+    lines.push(`- Packaged app executable: \`${report.packagedAppPath}\``);
+  }
 
   lines.push(
     `- Iterations requested per surface: ${report.iterationsRequested}`,
@@ -623,13 +807,21 @@ function toMarkdown(report) {
       `- Playwright first paint ms: min=${report.summary.firstPaintMs.min ?? "n/a"}, max=${report.summary.firstPaintMs.max ?? "n/a"}, mean=${report.summary.firstPaintMs.mean ?? "n/a"}`,
     );
   }
+  if (report.surfacesRun.includes("packaged")) {
+    lines.push(
+      `- Packaged/release first-render wall-clock ms: min=${report.summary.bySurface.packaged.wallClockMs.min ?? "n/a"}, max=${report.summary.bySurface.packaged.wallClockMs.max ?? "n/a"}, mean=${report.summary.bySurface.packaged.wallClockMs.mean ?? "n/a"}`,
+      `- Packaged performance.now ms: min=${report.summary.bySurface.packaged.performanceNowMs.min ?? "n/a"}, max=${report.summary.bySurface.packaged.performanceNowMs.max ?? "n/a"}, mean=${report.summary.bySurface.packaged.performanceNowMs.mean ?? "n/a"}`,
+      `- Packaged FCP ms: min=${report.summary.bySurface.packaged.firstContentfulPaintMs.min ?? "n/a"}, max=${report.summary.bySurface.packaged.firstContentfulPaintMs.max ?? "n/a"}, mean=${report.summary.bySurface.packaged.firstContentfulPaintMs.mean ?? "n/a"}`,
+      `- Packaged first paint ms: min=${report.summary.bySurface.packaged.firstPaintMs.min ?? "n/a"}, max=${report.summary.bySurface.packaged.firstPaintMs.max ?? "n/a"}, mean=${report.summary.bySurface.packaged.firstPaintMs.mean ?? "n/a"}`,
+    );
+  }
 
   lines.push(
     "",
     "## Iterations",
     "",
-    "| Surface | Iteration | Wall ms | loadTimeMs | FCP ms | First paint ms | Exit | Result | Screenshot |",
-    "| ------- | --------- | ------- | ---------- | ------ | -------------- | ---- | ------ | ---------- |",
+    "| Surface | Iteration | Wall ms | loadTimeMs | performance.now ms | FCP ms | First paint ms | Exit | Result | Artifact |",
+    "| ------- | --------- | ------- | ---------- | ------------------ | ------ | -------------- | ---- | ------ | -------- |",
   );
 
   for (const iteration of report.iterations) {
@@ -639,13 +831,16 @@ function toMarkdown(report) {
         iteration.iteration,
         iteration.wallClockMs,
         iteration.shotOutcome?.loadTimeMs ?? "n/a",
+        iteration.appResult?.performanceNowMs ?? "n/a",
         iteration.browserMetrics?.firstContentfulPaintMs ?? "n/a",
         iteration.browserMetrics?.firstPaintMs ?? "n/a",
         iteration.exitCode ?? "null",
         iteration.ok ? "pass" : `fail (${iteration.reason})`,
         iteration.outputScreenshotPath
           ? `\`${iteration.outputScreenshotPath}\``
-          : "n/a",
+          : iteration.outputResultPath
+            ? `\`${iteration.outputResultPath}\``
+            : "n/a",
       ].join(" | ")} |`,
     );
   }
@@ -663,12 +858,14 @@ function toMarkdown(report) {
     );
   }
 
-  const playwrightIterations = report.iterations.filter(
-    (entry) => entry.surface === "playwright" && entry.browserMetrics,
+  const browserMetricIterations = report.iterations.filter(
+    (entry) =>
+      (entry.surface === "playwright" || entry.surface === "packaged") &&
+      entry.browserMetrics,
   );
-  if (playwrightIterations.length > 0) {
-    lines.push("", "## Playwright browser metrics", "");
-    for (const iteration of playwrightIterations) {
+  if (browserMetricIterations.length > 0) {
+    lines.push("", "## Browser metrics", "");
+    for (const iteration of browserMetricIterations) {
       const metrics = iteration.browserMetrics;
       lines.push(
         `${iteration.surface} ${iteration.iteration}.`,
@@ -683,10 +880,34 @@ function toMarkdown(report) {
     }
   }
 
+  const packagedIterations = report.iterations.filter(
+    (entry) => entry.surface === "packaged" && entry.appResult,
+  );
+  if (packagedIterations.length > 0) {
+    lines.push("", "## Packaged app results", "");
+    for (const iteration of packagedIterations) {
+      const appResult = iteration.appResult;
+      lines.push(
+        `${iteration.surface} ${iteration.iteration}.`,
+        `- appVersion: ${appResult.appVersion ?? "n/a"}`,
+        `- os/arch: ${appResult.os ?? "n/a"}/${appResult.arch ?? "n/a"}`,
+        `- processId: ${appResult.processId ?? "n/a"}`,
+        `- mode: ${appResult.mode ?? "n/a"}`,
+        `- packaged: ${appResult.packaged === true ? "true" : "false"}`,
+        `- finishedAt: ${appResult.finishedAt ?? "n/a"}`,
+        "",
+      );
+    }
+  }
+
   return `${lines.join("\n")}\n`;
 }
 
 const surfacesRun = parseSurface(readOption(args, "--surface") ?? "shot");
+const packagedAppPath = path.resolve(
+  repoRoot,
+  readOption(args, "--app") ?? defaultPackagedAppPath(),
+);
 const iterations = parsePositiveInt(
   readOption(args, "--iterations") ?? "1",
   "--iterations",
@@ -738,6 +959,17 @@ if (surfacesRun.includes("playwright")) {
   );
 }
 
+if (surfacesRun.includes("packaged")) {
+  iterationResults.push(
+    ...(await runPackagedIterations({
+      iterations,
+      appPath: packagedAppPath,
+      timeoutMs,
+      outputDir,
+    })),
+  );
+}
+
 const failedIterations = iterationResults.filter((entry) => !entry.ok);
 const report = {
   generatedAt: new Date().toISOString(),
@@ -748,6 +980,9 @@ const report = {
   platform: process.platform,
   inputPath: surfacesRun.includes("shot") ? toRepoRelative(inputPath) : null,
   appUrl: surfacesRun.includes("playwright") ? appUrl() : null,
+  packagedAppPath: surfacesRun.includes("packaged")
+    ? toRepoRelative(packagedAppPath)
+    : null,
   outputDir: toRepoRelative(outputDir),
   screenshotDir: toRepoRelative(defaultScreenshotDir),
   iterationsRequested: iterations,

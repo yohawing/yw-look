@@ -33,6 +33,9 @@ use crate::commands::shot::{
     finish_shot_run, get_shot_batch_config, get_shot_config, parse_shot_cli_config,
     write_shot_batch_output, write_shot_output,
 };
+use crate::commands::startup_bench::{
+    finish_startup_bench, get_startup_bench_config, parse_startup_bench_cli_config,
+};
 use crate::commands::updater::{check_for_update, install_pending_update};
 use crate::commands::usd::{
     backend_capabilities, close_stage_session, collect_asset_issues, extract_geometry,
@@ -105,8 +108,15 @@ fn install_panic_hook() {
 pub fn run() {
     let bench_cli_config = parse_bench_cli_config().expect("failed to parse bench CLI args");
     let shot_cli_config = parse_shot_cli_config().expect("failed to parse shot CLI args");
+    let startup_bench_cli_config =
+        parse_startup_bench_cli_config().expect("failed to parse startup bench CLI args");
     if bench_cli_config.is_some() && shot_cli_config.is_some() {
         panic!("--bench-load cannot be combined with --shot/--check");
+    }
+    if startup_bench_cli_config.is_some()
+        && (bench_cli_config.is_some() || shot_cli_config.is_some())
+    {
+        panic!("--startup-bench cannot be combined with --bench-load or --shot/--check");
     }
 
     let app = tauri::Builder::default()
@@ -135,8 +145,11 @@ pub fn run() {
             app.manage(StageRegistry::new());
             app.manage(bench_cli_config.clone());
             app.manage(shot_cli_config.clone());
+            app.manage(startup_bench_cli_config.clone());
 
-            let is_cli = bench_cli_config.is_some() || shot_cli_config.is_some();
+            let is_cli = bench_cli_config.is_some()
+                || shot_cli_config.is_some()
+                || startup_bench_cli_config.is_some();
             if !is_cli {
                 app.manage(initialize_crash_marker(&app.handle())?);
             }
@@ -157,7 +170,8 @@ pub fn run() {
 
             let keep_window_visible = bench_cli_config
                 .as_ref()
-                .is_some_and(|config| config.visible);
+                .is_some_and(|config| config.visible)
+                || startup_bench_cli_config.is_some();
 
             if is_cli && !keep_window_visible {
                 window
@@ -226,6 +240,8 @@ pub fn run() {
             write_shot_output,
             write_shot_batch_output,
             finish_shot_run,
+            get_startup_bench_config,
+            finish_startup_bench,
             check_for_update,
             install_pending_update,
             inspect_asset,
