@@ -449,7 +449,8 @@ npm run check:win-authenticode
 開発用の未署名 bundle では `Status: NotSigned` を記録しつつ exit 0 で終わります。
 Markdown 下書きも `Status: not verified` として同じ事実を残します。
 GitHub Actions の release workflow でも Windows build 後に同じ監査を実行し、
-`win-authenticode-report-<tag>-windows-x86_64` artifact として JSON report を残します。
+`win-authenticode-report-<tag>-windows-x86_64` artifact として JSON 監査証跡と
+Markdown release-log draft の両方を残します。
 この CI 監査は本番 Authenticode 署名が整うまでは非 gate です。
 本番署名を release gate にする場合は次を使います。
 

@@ -366,7 +366,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: win-authenticode-report-${{ github.ref_name }}-${{ matrix.platform }}
-          path: artifacts/logs/win-authenticode-report.json
+          path: |
+            artifacts/logs/win-authenticode-report.json
+            artifacts/logs/win-authenticode-report.md
           if-no-files-found: ignore
 
       # Post-build sanity check: the overlay configs wire
