@@ -27,11 +27,16 @@ export async function loadMmdMotionPreviewObject(
   return load(file, context);
 }
 
+export type LoadMmdMotionOptions = {
+  signal?: AbortSignal;
+};
+
 export async function loadMmdMotion(
   file: SelectedFile,
+  options?: LoadMmdMotionOptions,
 ): Promise<LoadedMmdMotion> {
   const { loadMmdMotion: load } = await importInstalledMmdLoader();
-  return load(file);
+  return load(file, options);
 }
 
 export async function syncMmdPreviewSpecularDirection(

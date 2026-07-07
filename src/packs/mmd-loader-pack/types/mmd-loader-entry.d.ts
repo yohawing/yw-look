@@ -16,7 +16,13 @@ declare module "#yw-look-mmd-loader-entry" {
     file: SelectedFile,
     context: LoaderContext,
   ): Promise<LoadedPreview>;
-  export function loadMmdMotion(file: SelectedFile): Promise<LoadedMmdMotion>;
+  export type LoadMmdMotionOptions = {
+    signal?: AbortSignal;
+  };
+  export function loadMmdMotion(
+    file: SelectedFile,
+    options?: LoadMmdMotionOptions,
+  ): Promise<LoadedMmdMotion>;
   export function syncMmdPreviewSpecularDirection(
     mmd: MmdRuntimeModelHandle | null | undefined,
     light: DirectionalLight | null,

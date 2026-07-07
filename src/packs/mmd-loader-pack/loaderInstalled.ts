@@ -810,23 +810,37 @@ export async function loadMmdMotionPreviewObject(
   }
 }
 
+export type LoadMmdMotionOptions = {
+  signal?: AbortSignal;
+};
+
 export async function loadMmdMotion(
   file: SelectedFile,
+  options: LoadMmdMotionOptions = {},
 ): Promise<LoadedMmdMotion> {
+  const signal = options.signal;
   try {
+    throwIfAborted(signal);
     const { parseVmd } = await importThreeMmdLoader();
+    throwIfAborted(signal);
     const buffer = await readArrayBuffer(file.path);
+    throwIfAborted(signal);
     const animation = parseVmd(buffer);
+    throwIfAborted(signal);
     const duration = Math.max(
       (animation.metadata?.maxFrame ?? 0) / MMD_FRAME_RATE,
       0,
     );
+    throwIfAborted(signal);
     return {
       animation,
       duration,
       label: file.fileName,
     };
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     const message = errorMessage(error, "Unknown error");
     throw new Error(`Unable to load MMD motion: ${message}`, { cause: error });
   }

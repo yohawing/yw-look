@@ -616,4 +616,50 @@ describe("MMD preview loader", () => {
     expect(threeMmdLoader.parseVmd).not.toHaveBeenCalled();
     expect(stages).toEqual(["scan"]);
   });
+
+  it("rejects with AbortError before file read when non-preview motion signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      loadMmdMotion(vmdFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.readBinaryFile).not.toHaveBeenCalled();
+    expect(threeMmdLoader.parseVmd).not.toHaveBeenCalled();
+  });
+
+  it("rejects with AbortError after file read and prevents non-preview VMD parsing", async () => {
+    const controller = new AbortController();
+    vi.mocked(threeMmdLoader.parseVmd).mockClear();
+    mocks.readBinaryFile.mockImplementation(async () => {
+      controller.abort();
+      return new Uint8Array([0x56, 0x4d, 0x44, 0x20]).buffer;
+    });
+
+    await expect(
+      loadMmdMotion(vmdFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(threeMmdLoader.parseVmd).not.toHaveBeenCalled();
+  });
+
+  it("rejects with AbortError after parseVmd resolves and prevents returning non-preview motion", async () => {
+    const controller = new AbortController();
+    vi.mocked(threeMmdLoader.parseVmd).mockImplementation(() => {
+      controller.abort();
+      return {
+        kind: "vmd",
+        metadata: { maxFrame: 60, modelName: "Hatsune Miku" },
+        boneTracks: { センター: {} },
+        morphTracks: { smile: {} },
+        cameraFrames: [{ frame: 45 }],
+        lightFrames: [{ frame: 30 }],
+        selfShadowFrames: [],
+        propertyFrames: [],
+      };
+    });
+
+    await expect(
+      loadMmdMotion(vmdFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
 });

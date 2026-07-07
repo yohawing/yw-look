@@ -21,8 +21,15 @@ import type {
   PreviewSupportState,
 } from "./types";
 
-export async function loadMmdMotion(file: SelectedFile) {
-  return loadMmdMotionFromPack(file);
+export type LoadMmdMotionOptions = {
+  signal?: AbortSignal;
+};
+
+export async function loadMmdMotion(
+  file: SelectedFile,
+  options?: LoadMmdMotionOptions,
+) {
+  return loadMmdMotionFromPack(file, options);
 }
 
 export { tryExtractUsdaText } from "./usd/loader";
