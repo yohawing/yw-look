@@ -424,6 +424,9 @@ npm run check:win-authenticode
 このコマンドは現在の Windows bundle を `Get-AuthenticodeSignature` で確認し、
 `artifacts/logs/win-authenticode-report.json` に監査ログを出します。開発用の
 未署名 bundle では `Status: NotSigned` を記録しつつ exit 0 で終わります。
+GitHub Actions の release workflow でも Windows build 後に同じ監査を実行し、
+`win-authenticode-report-<tag>-windows-x86_64` artifact として JSON report を残します。
+この CI 監査は本番 Authenticode 署名が整うまでは非 gate です。
 本番署名を release gate にする場合は次を使います。
 
 ```powershell

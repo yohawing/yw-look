@@ -356,6 +356,19 @@ jobs:
           tauriScript: npm run tauri
           args: ${{ matrix.args }}
 
+      - name: Audit Windows Authenticode status
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: npm run check:win-authenticode
+
+      - name: Upload Windows Authenticode audit report
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-authenticode-report-${{ github.ref_name }}-${{ matrix.platform }}
+          path: artifacts/logs/win-authenticode-report.json
+          if-no-files-found: ignore
+
       # Post-build sanity check: the overlay configs wire
       # `cpp-artifacts/<triplet>/` into the installer, so the bundled
       # payload is only correct if build.rs actually staged files
