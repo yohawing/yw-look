@@ -1,12 +1,65 @@
+import {
+  projectLicense,
+  projectName,
+  projectVersion,
+  runtimeLicenseAttributions,
+  type LicenseAttribution,
+} from "../generated/licenseAttributions";
 import type { SettingsPayload } from "../lib/settings";
 import type { OptionalLoaderPackStatus } from "../viewer";
 import {
   SidebarEmpty,
   SidebarError,
+  SidebarKeyValueRows,
   SidebarSection,
+  type SidebarKeyValueRow,
 } from "../lib/sidebarPrimitives";
 import { FieldRow } from "./ui/FieldRow";
 import { ToggleSwitch } from "./ui/ToggleSwitch";
+
+const aboutRows: readonly SidebarKeyValueRow[] = [
+  {
+    id: "about-application",
+    label: "Application",
+    value: projectName,
+  },
+  {
+    id: "about-version",
+    label: "Version",
+    value: projectVersion,
+    mono: true,
+  },
+  {
+    id: "about-license",
+    label: "License",
+    value: projectLicense,
+  },
+];
+
+function formatAttributionLabel(attribution: LicenseAttribution) {
+  return `${attribution.source === "native" ? "Native" : "Web"}: ${attribution.name}`;
+}
+
+function formatAttributionValue(attribution: LicenseAttribution) {
+  return `${attribution.license} @ ${attribution.version}`;
+}
+
+const dependencyLicenseRows: readonly SidebarKeyValueRow[] =
+  runtimeLicenseAttributions.map((attribution) => ({
+    id: `dependency-license-${attribution.name}`,
+    label: formatAttributionLabel(attribution),
+    value: formatAttributionValue(attribution),
+    mono: true,
+  }));
+
+function AboutSection() {
+  return (
+    <SidebarSection title="About" collapsible defaultOpen>
+      <SidebarKeyValueRows rows={aboutRows} />
+      <SidebarKeyValueRows rows={dependencyLicenseRows} />
+    </SidebarSection>
+  );
+}
 
 type SettingsCardProps = {
   settingsPayload: SettingsPayload | null;
@@ -38,17 +91,23 @@ export function SettingsCard({
 }: SettingsCardProps) {
   if (settingsError) {
     return (
-      <SidebarSection title="Local Settings">
-        <SidebarError>{settingsError}</SidebarError>
-      </SidebarSection>
+      <>
+        <SidebarSection title="Local Settings">
+          <SidebarError>{settingsError}</SidebarError>
+        </SidebarSection>
+        <AboutSection />
+      </>
     );
   }
 
   if (!settingsPayload) {
     return (
-      <SidebarSection title="Local Settings">
-        <SidebarEmpty>Loading settings.</SidebarEmpty>
-      </SidebarSection>
+      <>
+        <SidebarSection title="Local Settings">
+          <SidebarEmpty>Loading settings.</SidebarEmpty>
+        </SidebarSection>
+        <AboutSection />
+      </>
     );
   }
 
@@ -99,6 +158,7 @@ export function SettingsCard({
           <SidebarEmpty>No optional loader packs registered.</SidebarEmpty>
         )}
       </SidebarSection>
+      <AboutSection />
     </>
   );
 }

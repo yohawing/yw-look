@@ -21,6 +21,7 @@
     "bundle:win:core": "node scripts/run-loader-pack-profile.mjs core -- npm run tauri build -- --features flip-compare --config src-tauri/tauri.windows.json --bundles nsis,msi",
     "bundle:win:loaders": "npm run prepare:nsis-loader-packs && node scripts/run-loader-pack-profile.mjs all -- npm run tauri build -- --features flip-compare --config src-tauri/tauri.windows.json --config src-tauri/tauri.windows.loaders.json --bundles nsis,msi",
     "bundle:mac": "node scripts/prepare-macos-tauri-config.mjs && npm run tauri build -- --features flip-compare --config src-tauri/tauri.macos.generated.json --bundles app,dmg",
+    "generate:license-attributions": "node scripts/generate-license-attributions.mjs",
     "prepare:nsis-loader-packs": "node scripts/prepare-nsis-loader-pack-hooks.mjs",
     "check:nsis-loader-packs": "node scripts/check-nsis-loader-pack-hooks.mjs",
     "lint": "eslint .",
