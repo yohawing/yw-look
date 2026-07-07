@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
+import { readValue } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -1731,14 +1732,6 @@ function parseArgs(tokens) {
     }
   }
   return parsed;
-}
-
-function readValue(tokens, index, option) {
-  const value = tokens[index];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${option} requires a value`);
-  }
-  return value;
 }
 
 function printUsage() {
