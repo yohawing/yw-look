@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
 import { flipCompare } from "./flip-compare.mjs";
 import { readOption } from "./cliArgs.mjs";
+import { runChildProcess } from "./processRunner.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -246,6 +246,19 @@ function parseSize(size) {
 const FLIP_MEAN_THRESHOLD = Number(process.env.FLIP_MEAN_THRESHOLD ?? 0.05);
 const FLIP_MAX_THRESHOLD = Number(process.env.FLIP_MAX_THRESHOLD ?? 0.3);
 
+function assertShotProcessResult(result, label) {
+  if (result.error?.startsWith("terminated by ")) {
+    const signal = result.error.slice("terminated by ".length);
+    throw new Error(`${label} was terminated by ${signal}`);
+  }
+  if (result.error) {
+    throw new Error(result.error);
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(`${label} exited with code ${result.exitCode ?? 1}`);
+  }
+}
+
 async function compareWithFlip(testCase) {
   const reportPath = flipReportPath(testCase);
   const errorMapPath = flipErrorMapPath(testCase);
@@ -277,7 +290,7 @@ async function compareWithFlip(testCase) {
   );
 }
 
-function runShot(testCase) {
+async function runShot(testCase) {
   const shotArgs = [
     path.join(repoRoot, "scripts/run-shot.mjs"),
     "shot",
@@ -291,34 +304,21 @@ function runShot(testCase) {
     testCase.background,
   ];
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, shotArgs, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-        YW_LOOK_CARGO_FEATURES:
-          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-      },
-      stdio: "inherit",
-      shell: process.platform === "win32",
-    });
-
-    child.on("exit", (code, signal) => {
-      if (signal) {
-        reject(new Error(`shot CLI was terminated by ${signal}`));
-        return;
-      }
-      if (code !== 0) {
-        reject(new Error(`shot CLI exited with code ${code ?? 1}`));
-        return;
-      }
-      resolve();
-    });
-
-    child.on("error", reject);
+  const result = await runChildProcess(process.execPath, shotArgs, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+        process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+      YW_LOOK_CARGO_FEATURES:
+        process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+    },
+    shell: process.platform === "win32",
+    forwardStdout: true,
+    forwardStderr: true,
   });
+
+  assertShotProcessResult(result, "shot CLI");
 }
 
 async function runShotBatch(testCases) {
@@ -344,34 +344,21 @@ async function runShotBatch(testCases) {
     batchConfigPath,
   ];
 
-  await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, shotArgs, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-        YW_LOOK_CARGO_FEATURES:
-          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-      },
-      stdio: "inherit",
-      shell: process.platform === "win32",
-    });
-
-    child.on("exit", (code, signal) => {
-      if (signal) {
-        reject(new Error(`shot batch was terminated by ${signal}`));
-        return;
-      }
-      if (code !== 0) {
-        reject(new Error(`shot batch exited with code ${code ?? 1}`));
-        return;
-      }
-      resolve();
-    });
-
-    child.on("error", reject);
+  const result = await runChildProcess(process.execPath, shotArgs, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+        process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+      YW_LOOK_CARGO_FEATURES:
+        process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+    },
+    shell: process.platform === "win32",
+    forwardStdout: true,
+    forwardStderr: true,
   });
+
+  assertShotProcessResult(result, "shot batch");
 }
 
 async function compareSnapshot(testCase) {
