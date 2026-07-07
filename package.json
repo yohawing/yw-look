@@ -62,6 +62,7 @@
     "bench:load:baseline": "node scripts/compare-load-bench.mjs --write-baseline artifacts/bench/load-baseline.json",
     "bench:load:compare": "node scripts/compare-load-bench.mjs --baseline artifacts/bench/load-baseline.json",
     "bench:startup": "node scripts/run-startup-bench.mjs",
+    "bench:startup:playwright": "node scripts/run-startup-bench.mjs --surface playwright",
     "shot": "node scripts/run-shot.mjs shot",
     "shot:batch": "node scripts/run-shot.mjs shot-batch",
     "shot:check": "node scripts/run-shot.mjs check",
