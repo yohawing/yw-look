@@ -153,7 +153,12 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
 
 vi.mock("#yw-look-mmd-loader-entry", () => import("../loaderInstalled"));
 
+import * as threeMmdLoader from "@yohawing/three-mmd-loader";
 import { loadMmdMotion, loadPreviewObject } from "../../../viewer/loaders";
+import {
+  loadMmdMotionPreviewObject,
+  loadMmdPreviewObject,
+} from "../loaderInstalled";
 import { collectMmdMetadata } from "../metadata";
 import {
   findObjectBySelectionKey,
@@ -529,5 +534,86 @@ describe("MMD preview loader", () => {
       },
     });
     expect(stages).toEqual(["scan", "decode", "scene"]);
+  });
+
+  it("rejects with AbortError before file read when the PMX signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      loadMmdPreviewObject(pmxFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.readBinaryFile).not.toHaveBeenCalled();
+    expect(mocks.loadAsync).not.toHaveBeenCalled();
+  });
+
+  it("rejects with AbortError after file read and prevents PMX loadModel", async () => {
+    const controller = new AbortController();
+    mocks.readBinaryFile.mockImplementation(async () => {
+      controller.abort();
+      return new Uint8Array([0x50, 0x4d, 0x58, 0x20]).buffer;
+    });
+
+    await expect(
+      loadMmdPreviewObject(pmxFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.loadAsync).not.toHaveBeenCalled();
+  });
+
+  it("rejects with AbortError after loadModel resolves and skips warnings and scene reporting", async () => {
+    const mesh = new Group();
+    mesh.userData.mmdModel = { diagnostics: [] };
+    const controller = new AbortController();
+    const stages: string[] = [];
+    const warnings: string[] = [];
+
+    mocks.loadAsync.mockImplementation(async () => {
+      controller.abort();
+      return {
+        mesh,
+        outlineMeshes: [],
+        renderOrderMeshes: [],
+        diagnostics: {
+          textures: [
+            {
+              level: "warning",
+              code: "TEXTURE_RESOLVE_FAILED",
+              materialIndex: 0,
+              textureKind: "diffuse",
+              path: "textures/missing.png",
+            },
+          ],
+        },
+      };
+    });
+
+    await expect(
+      loadMmdPreviewObject(pmxFile, {
+        signal: controller.signal,
+        onStage: (stage) => stages.push(stage),
+        onWarning: (warning) => warnings.push(warning),
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(stages).toEqual(["scan", "decode"]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("rejects with AbortError after file read and prevents VMD parsing and scene creation", async () => {
+    const controller = new AbortController();
+    const stages: string[] = [];
+    vi.mocked(threeMmdLoader.parseVmd).mockClear();
+    mocks.readBinaryFile.mockImplementation(async () => {
+      controller.abort();
+      return new Uint8Array([0x56, 0x4d, 0x44, 0x20]).buffer;
+    });
+
+    await expect(
+      loadMmdMotionPreviewObject(vmdFile, {
+        signal: controller.signal,
+        onStage: (stage) => stages.push(stage),
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(threeMmdLoader.parseVmd).not.toHaveBeenCalled();
+    expect(stages).toEqual(["scan"]);
   });
 });

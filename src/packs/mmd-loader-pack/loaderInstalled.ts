@@ -26,6 +26,19 @@ import { MMD_MODEL_KEY, syncMmdMaterialRenderStates } from "./userData";
 import MMD_ANIM_WASM_URL from "virtual:yw-look-mmd-wasm-url";
 
 const MMD_FRAME_RATE = 30;
+
+function createAbortError(message = "Model load was canceled."): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+}
+
 const SUPPRESSED_MMD_DIAGNOSTIC_CODES = new Set([
   "IK_PMX_LINK_LIMITS_APPROXIMATE",
   "BONE_FIXED_AXIS_CONSTRAINTS_UNSUPPORTED",
@@ -496,7 +509,15 @@ function formatUnsupportedMmdSphereMapWarning(path: string) {
   return `Unsupported MMD sphere texture: ${path}. The model was loaded without this sphere map.`;
 }
 
-async function createMmdRuntimeOptions() {
+type MmdRuntimeOptions = {
+  runtime: {
+    frameRate: number;
+    physics: "none";
+  };
+  cleanup: (() => void) | null;
+};
+
+async function createMmdRuntimeOptions(): Promise<MmdRuntimeOptions> {
   return {
     runtime: {
       frameRate: MMD_FRAME_RATE,
@@ -576,7 +597,11 @@ export async function loadMmdPreviewObject(
   context: LoaderContext,
 ): Promise<LoadedPreview> {
   const reportStage = context.onStage ?? (() => undefined);
+  const signal = context.signal;
   reportStage("scan");
+  throwIfAborted(signal);
+
+  let runtimeOptions: MmdRuntimeOptions | null = null;
 
   try {
     const {
@@ -586,8 +611,11 @@ export async function loadMmdPreviewObject(
       parsePmxMetadata,
       parsePmxSectionInventory,
     } = await importThreeMmdLoader();
+    throwIfAborted(signal);
 
     const buffer = await readArrayBuffer(file.path);
+    throwIfAborted(signal);
+
     const metadata =
       file.extension === "pmx"
         ? parsePmxMetadata(buffer)
@@ -596,8 +624,10 @@ export async function loadMmdPreviewObject(
       file.extension === "pmx"
         ? parsePmxSectionInventory(buffer)
         : parsePmdSectionInventory(buffer);
+    throwIfAborted(signal);
+
     const textureBlobCache = new Map<string, Promise<Blob | null>>();
-    const runtimeOptions = await createMmdRuntimeOptions();
+    runtimeOptions = await createMmdRuntimeOptions();
     const loader = new ThreeMmdLoader({
       geometryAwareAlpha: true,
       runtime: runtimeOptions.runtime,
@@ -635,6 +665,8 @@ export async function loadMmdPreviewObject(
       morphSplit: false,
       frustumCulled: false,
     });
+    throwIfAborted(signal);
+
     if (mmd.root) {
       syncMmdMaterialRenderStates(mmd.root);
     } else {
@@ -649,7 +681,10 @@ export async function loadMmdPreviewObject(
     if (file.extension === "pmx") {
       await attachPmxLocalAxes(buffer, mmd);
     }
+    throwIfAborted(signal);
+
     reportStage("scene");
+    throwIfAborted(signal);
 
     const displayName = metadata.englishName || metadata.name || file.fileName;
     const rootSelectionKey = `${displayName}::mmd-root`;
@@ -721,6 +756,10 @@ export async function loadMmdPreviewObject(
       warnings,
     };
   } catch (error) {
+    runtimeOptions?.cleanup?.();
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     const message = errorMessage(error, "Unknown error");
     throw new Error(`Unable to load MMD preview: ${message}`, { cause: error });
   }
@@ -731,19 +770,28 @@ export async function loadMmdMotionPreviewObject(
   context: LoaderContext,
 ): Promise<LoadedPreview> {
   const reportStage = context.onStage ?? (() => undefined);
+  const signal = context.signal;
   reportStage("scan");
+  throwIfAborted(signal);
 
   try {
     const { parseVmd, parseVmdMetadata, parseVmdSectionInventory } =
       await importThreeMmdLoader();
+    throwIfAborted(signal);
+
     const buffer = await readArrayBuffer(file.path);
+    throwIfAborted(signal);
 
     reportStage("decode");
     const animation = parseVmd(buffer);
+    throwIfAborted(signal);
     const metadata = parseVmdMetadata(buffer);
     const inventory = parseVmdSectionInventory(buffer);
+    throwIfAborted(signal);
 
     reportStage("scene");
+    throwIfAborted(signal);
+
     const object = new Group();
     object.name = `${metadata.modelName || file.fileName} Motion Preview`;
     object.userData.disableAutoFrame = true;
@@ -763,6 +811,9 @@ export async function loadMmdMotionPreviewObject(
       assetKind: "motion",
     };
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     const message = errorMessage(error, "Unknown error");
     throw new Error(`Unable to load MMD motion preview: ${message}`, {
       cause: error,
