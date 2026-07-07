@@ -4,6 +4,8 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readValue } from "./cliArgs.mjs";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -551,14 +553,6 @@ function parseArgs(tokens) {
     }
   }
   return parsed;
-}
-
-function readValue(tokens, index, option) {
-  const value = tokens[index];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${option} requires a value`);
-  }
-  return value;
 }
 
 function printUsage() {

@@ -1,3 +1,11 @@
+export function readValue(tokens, index, option) {
+  const value = tokens[index];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${option} requires a value`);
+  }
+  return value;
+}
+
 export function readOption(args, name) {
   const index = args.indexOf(name);
   if (index === -1) return null;
