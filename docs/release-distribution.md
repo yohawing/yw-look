@@ -175,6 +175,55 @@ git merge --ff-only develop
 
 タグ前に `git status` で main が develop と同一 commit であることを確認する。
 
+## 8.5. タグ push 前のローカル release preflight を実行する
+
+バージョン bump と CHANGELOG 更新後、タグを打つ直前に次を実行する。
+
+```bash
+npm run release:preflight -- --tag vX.Y.Z
+```
+
+既定では artifact に依存しない軽量チェックのみを走らせる。
+
+- `npm run check:nsis-loader-packs`
+- `npm run check:file-associations`
+- `npm run check:macos-codesign`（macOS 以外では skip）
+- `npm run check:win-authenticode`（Windows 以外では skip）
+- `npm run release:notes:check -- --tag vX.Y.Z`（`--tag` 指定時のみ）
+
+`--tag` を省略した場合、release notes 契約は **skipped** として記録される。skip は preflight を失敗させないが、タグ push 前には `--tag vX.Y.Z` 付きで再実行すること。
+
+追加の任意 gate:
+
+```bash
+# lint / format / tests / typecheck も含める
+npm run release:preflight -- --tag vX.Y.Z --include-heavy
+
+# bundle 後の NSIS loader pack readiness
+npm run release:preflight -- --include-bundle
+
+# update:local:prepare 済みのローカル feed
+npm run release:preflight -- --include-local-update
+
+# 公開前 manifest または公開後 URL
+npm run release:preflight -- --release-manifest path/to/latest.json
+npm run release:preflight -- --release-url https://github.com/yohawing/yw-look/releases/latest/download/latest.json
+```
+
+レポート出力:
+
+- `artifacts/logs/release-preflight-report.json`
+- `artifacts/logs/release-preflight-report.md`
+
+**このコマンドはリリース完了を意味しない。** 次は引き続き手動または別コマンドで確認し、結果を `CHANGELOG.md` の [リリースノート契約](#リリースノート契約) に記録する。
+
+- NSIS Optional Loader Packs の対話インストール UI（ページ表示、ON/OFF 反映）
+- Windows Authenticode 本番署名と SmartScreen（クリーン環境での手動確認）
+- macOS 公証（notarization）、Gatekeeper、Finder `Open With`（クリーン Mac での手動確認）
+- GitHub Release artifact からの実インストール → `latest.json` 経由の updater 往復（Windows / macOS）
+
+個別チェック（`npm run check:nsis-loader-pack-bundle`、`npm run check:update-feed`、`npm run smoke:update-feed`、`npm run check:release-updater` など）は従来どおり単体でも実行できる。preflight はそれらをまとめて起動する operator 向け入口である。
+
 ## 9. タグを打ち、オーナー確認後に push する
 
 ```bash
