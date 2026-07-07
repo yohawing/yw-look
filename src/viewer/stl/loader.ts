@@ -39,7 +39,9 @@ export async function loadStlPreviewObject(
     );
     throwIfAborted(context.signal);
     const geometry = new STLLoader().parse(buffer);
-    geometry.computeVertexNormals();
+    if (!geometry.attributes.normal) {
+      geometry.computeVertexNormals();
+    }
     object = new Mesh(
       geometry,
       new MeshStandardMaterial({

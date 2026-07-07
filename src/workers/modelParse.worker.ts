@@ -3,6 +3,7 @@ import {
   LoadingManager,
   Mesh,
   MeshStandardMaterial,
+  type BufferGeometry,
   type Object3D,
 } from "three";
 import { ColladaLoader } from "three/examples/jsm/loaders/ColladaLoader.js";
@@ -89,6 +90,12 @@ export type ModelParseWorkerResponse =
 const FALLBACK_TEXTURE_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlWHQAAAAASUVORK5CYII=";
 
+export function ensureVertexNormals(geometry: BufferGeometry): void {
+  if (!geometry.attributes.normal) {
+    geometry.computeVertexNormals();
+  }
+}
+
 function isRemoteOrInlineUrl(url: string) {
   return /^(data:|blob:|https?:)/i.test(url);
 }
@@ -126,7 +133,7 @@ async function parseObject(
       return new OBJLoader().parse(payload.text);
     case "ply": {
       const geometry = new PLYLoader().parse(payload.buffer);
-      geometry.computeVertexNormals();
+      ensureVertexNormals(geometry);
       return new Mesh(
         geometry,
         new MeshStandardMaterial({
@@ -138,7 +145,7 @@ async function parseObject(
     }
     case "stl": {
       const geometry = new STLLoader().parse(payload.buffer);
-      geometry.computeVertexNormals();
+      ensureVertexNormals(geometry);
       return new Mesh(
         geometry,
         new MeshStandardMaterial({

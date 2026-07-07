@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Mesh, BufferGeometry } from "three";
-import type { WebGLRenderer } from "three";
+import {
+  BufferAttribute,
+  BufferGeometry,
+  Mesh,
+  type WebGLRenderer,
+} from "three";
+import { ensureVertexNormals } from "../../../workers/modelParse.worker";
 import type { SelectedFile } from "../../../lib/files";
 
 const mocks = vi.hoisted(() => ({
@@ -66,6 +71,26 @@ end_header
 `);
 }
 
+function meshPlyWithNormals() {
+  return encoded(`ply
+format ascii 1.0
+element vertex 3
+property float x
+property float y
+property float z
+property float nx
+property float ny
+property float nz
+element face 1
+property list uchar int vertex_indices
+end_header
+0 0 0 0 0 1
+1 0 0 0 0 1
+0 1 0 0 0 1
+3 0 1 2
+`);
+}
+
 function splatPly() {
   return encoded(`ply
 format ascii 1.0
@@ -118,6 +143,102 @@ describe("loadPlyPreviewObject", () => {
       formatVersion: null,
       assetKind: "mesh",
     });
+  });
+
+  it("skips normal recomputation in the worker when normals already exist", () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    geometry.setAttribute(
+      "normal",
+      new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3),
+    );
+    const computeSpy = vi.spyOn(geometry, "computeVertexNormals");
+
+    ensureVertexNormals(geometry);
+
+    expect(computeSpy).not.toHaveBeenCalled();
+    computeSpy.mockRestore();
+  });
+
+  it("recomputes normals in the worker when normals are missing", () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    const computeSpy = vi.spyOn(geometry, "computeVertexNormals");
+
+    ensureVertexNormals(geometry);
+
+    expect(computeSpy).toHaveBeenCalledTimes(1);
+    computeSpy.mockRestore();
+  });
+
+  it("recomputes normals in the fallback path when mesh PLY has no normal attribute", async () => {
+    const buffer = meshPly();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    const computeSpy = vi.spyOn(geometry, "computeVertexNormals");
+    vi.doMock("three/examples/jsm/loaders/PLYLoader.js", () => ({
+      PLYLoader: class {
+        parse() {
+          return geometry;
+        }
+      },
+    }));
+    vi.resetModules();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.readBinaryFile.mockResolvedValue(buffer);
+    mocks.parseModelInWorker.mockRejectedValue(new Error("worker failed"));
+    const { loadPlyPreviewObject } = await import("../loader");
+
+    await loadPlyPreviewObject(plyFile, {});
+
+    expect(computeSpy).toHaveBeenCalledTimes(1);
+    computeSpy.mockRestore();
+    warnSpy.mockRestore();
+    vi.doUnmock("three/examples/jsm/loaders/PLYLoader.js");
+    vi.resetModules();
+  });
+
+  it("skips normal recomputation in the fallback path when mesh PLY already has normals", async () => {
+    const buffer = meshPlyWithNormals();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    geometry.setAttribute(
+      "normal",
+      new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3),
+    );
+    const computeSpy = vi.spyOn(geometry, "computeVertexNormals");
+    vi.doMock("three/examples/jsm/loaders/PLYLoader.js", () => ({
+      PLYLoader: class {
+        parse() {
+          return geometry;
+        }
+      },
+    }));
+    vi.resetModules();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.readBinaryFile.mockResolvedValue(buffer);
+    mocks.parseModelInWorker.mockRejectedValue(new Error("worker failed"));
+    const { loadPlyPreviewObject } = await import("../loader");
+
+    await loadPlyPreviewObject(plyFile, {});
+
+    expect(computeSpy).not.toHaveBeenCalled();
+    computeSpy.mockRestore();
+    warnSpy.mockRestore();
+    vi.doUnmock("three/examples/jsm/loaders/PLYLoader.js");
+    vi.resetModules();
   });
 
   it("hands Gaussian Splat PLY files to the Spark loader with the already-read buffer", async () => {

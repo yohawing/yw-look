@@ -64,7 +64,9 @@ export async function loadPlyPreviewObject(
     );
     throwIfAborted(context.signal);
     const geometry = new PLYLoader().parse(buffer);
-    geometry.computeVertexNormals();
+    if (!geometry.attributes.normal) {
+      geometry.computeVertexNormals();
+    }
     object = new Mesh(
       geometry,
       new MeshStandardMaterial({

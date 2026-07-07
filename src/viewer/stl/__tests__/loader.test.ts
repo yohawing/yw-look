@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BufferGeometry, Mesh } from "three";
+import { BufferAttribute, BufferGeometry, Mesh } from "three";
+import { ensureVertexNormals } from "../../../workers/modelParse.worker";
 import type { SelectedFile } from "../../../lib/files";
 
 const mocks = vi.hoisted(() => ({
@@ -105,6 +106,72 @@ describe("loadStlPreviewObject", () => {
     const { loadStlPreviewObject } = await import("../loader");
 
     await expect(loadStlPreviewObject(stlFile, {})).rejects.toBe(abortError);
+  });
+
+  it("skips normal recomputation in the worker when normals already exist", () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    geometry.setAttribute(
+      "normal",
+      new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3),
+    );
+    const computeSpy = vi.spyOn(geometry, "computeVertexNormals");
+
+    ensureVertexNormals(geometry);
+
+    expect(computeSpy).not.toHaveBeenCalled();
+    computeSpy.mockRestore();
+  });
+
+  it("recomputes normals in the worker when normals are missing", () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    const computeSpy = vi.spyOn(geometry, "computeVertexNormals");
+
+    ensureVertexNormals(geometry);
+
+    expect(computeSpy).toHaveBeenCalledTimes(1);
+    computeSpy.mockRestore();
+  });
+
+  it("skips normal recomputation in the fallback path when STL already has normals", async () => {
+    const buffer = asciiStl();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    geometry.setAttribute(
+      "normal",
+      new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3),
+    );
+    const computeSpy = vi.spyOn(geometry, "computeVertexNormals");
+    vi.doMock("three/examples/jsm/loaders/STLLoader.js", () => ({
+      STLLoader: class {
+        parse() {
+          return geometry;
+        }
+      },
+    }));
+    vi.resetModules();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.readBinaryFile.mockResolvedValue(buffer);
+    mocks.parseModelInWorker.mockRejectedValue(new Error("worker failed"));
+    const { loadStlPreviewObject } = await import("../loader");
+
+    await loadStlPreviewObject(stlFile, {});
+
+    expect(computeSpy).not.toHaveBeenCalled();
+    computeSpy.mockRestore();
+    warnSpy.mockRestore();
+    vi.doUnmock("three/examples/jsm/loaders/STLLoader.js");
+    vi.resetModules();
   });
 
   it("reports decode and scene stages before parsing", async () => {
