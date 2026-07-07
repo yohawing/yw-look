@@ -1,3 +1,17 @@
+/**
+ * Main-thread wrapper around the model parse worker.
+ *
+ * Lifecycle policy: one Worker per parse request. A shared pool is deferred
+ * because per-request workers keep abort/error/timeout cleanup isolated and
+ * prevent cross-request buffer lifetime bugs when a peer aborts mid-flight.
+ *
+ * Buffer ownership: binary payloads are cloned via `buffer.slice(0)` before
+ * postMessage. Transfer would detach the caller's ArrayBuffer and break the
+ * documented fallback path where loaders retry on the main thread with the
+ * original buffer after a worker failure. Abort/timeout rejections suppress
+ * that fallback via `isAbortOrTimeoutError`.
+ */
+
 import { ObjectLoader, type Object3D } from "three";
 import { createStaticSceneObject } from "../workers/staticScene";
 import type {
@@ -58,6 +72,7 @@ export async function parseModelInWorker(
     throw createAbortError();
   }
 
+  // Per-request worker: terminate on settle so aborted peers cannot leak.
   const worker = new Worker(
     new URL("../workers/modelParse.worker.ts", import.meta.url),
     { type: "module" },
@@ -131,6 +146,7 @@ export async function parseModelInWorker(
     worker.addEventListener("error", handleError);
     worker.addEventListener("messageerror", handleMessageError);
 
+    // Clone binary buffers so callers retain ownership for main-thread fallback.
     const safePayload: ModelParseWorkerPayload =
       "buffer" in payload
         ? { ...payload, buffer: payload.buffer.slice(0) }
