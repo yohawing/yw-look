@@ -59,6 +59,10 @@ tests/fixtures/
 | `venice_sunset_1k.hdr`   | HDR          | `samples/assets/hdr/venice_sunset_1k.hdr`   |
 | `piz_compressed.exr`     | EXR          | `samples/assets/exr/piz_compressed.exr`     |
 
+HDR / EXR は MB 単位のため `tests/fixtures/textures/` には重複配置せず、
+`tests/fixtures/catalog.json` から `samples/assets/` を参照する。
+TGA / DDS / KTX2 は小型のため `textures/` にコピー済み。
+
 ---
 
 ## broken/
