@@ -150,6 +150,36 @@ export async function mountLoadedPreview(
     assetKind = "mesh",
   } = result;
 
+  const abortMountedPreview = (): null => {
+    const ownsMountedObject = context.mountedObject === object;
+    const ownsSourceObject = context.sourceObject === object;
+    const ownsAnimationRoot = context.animationRoot === object;
+    context.scene.remove(object);
+    if (ownsMountedObject) {
+      context.mountedObject = null;
+      context.boneOnlyPreview = false;
+    }
+    if (ownsSourceObject) {
+      context.sourceObject = null;
+    }
+    if (ownsAnimationRoot) {
+      context.animationRoot = null;
+    }
+    runCleanupCallbacks(cleanupCallbacks);
+    if (context.cleanupCallbacks === cleanupCallbacks) {
+      context.cleanupCallbacks = [];
+    }
+    disposeObject(object);
+    revokeUrls(cleanupUrls);
+    if (context.cleanupUrls === cleanupUrls) {
+      context.cleanupUrls = [];
+    }
+    if (ownsMountedObject || ownsSourceObject || ownsAnimationRoot) {
+      refs.scaleNormalizationRef.current = null;
+    }
+    return null;
+  };
+
   if (isDisposed()) {
     runCleanupCallbacks(cleanupCallbacks);
     disposeObject(object);
@@ -179,15 +209,7 @@ export async function mountLoadedPreview(
   applyPreviewLightingPreset(lighting, lightingTargets);
   await syncMmdPreviewSpecularDirection(mmdModel, keyLight);
   if (isDisposed()) {
-    context.scene.remove(object);
-    context.mountedObject = null;
-    context.sourceObject = null;
-    runCleanupCallbacks(cleanupCallbacks);
-    context.cleanupCallbacks = [];
-    disposeObject(object);
-    revokeUrls(cleanupUrls);
-    context.cleanupUrls = [];
-    return null;
+    return abortMountedPreview();
   }
 
   const state = getMountState();
@@ -243,8 +265,9 @@ export async function mountLoadedPreview(
       state.texturePreview3D,
     );
   }
-  update.setActivePreviewPath(currentFile.path);
-  update.setOverlayReady();
+  if (isDisposed()) {
+    return abortMountedPreview();
+  }
 
   const packMetadata =
     loaderRegistry
@@ -257,7 +280,14 @@ export async function mountLoadedPreview(
     formatVersion,
     packMetadata?.kind === "mmd" ? packMetadata.asset : undefined,
   );
+  if (isDisposed()) {
+    return abortMountedPreview();
+  }
   metadataCollection.metadata.assetKind = assetKind;
+
+  update.setActivePreviewPath(currentFile.path);
+  update.setOverlayReady();
+
   const isBoneOnlyPreview =
     metadataCollection.metadata.meshCount === 0 &&
     metadataCollection.metadata.hasBones === true;
