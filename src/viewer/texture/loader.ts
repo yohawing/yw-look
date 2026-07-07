@@ -11,6 +11,28 @@ import { readBinaryFile, type SelectedFile } from "../../lib/files";
 import type { LoaderContext } from "../loaderRegistry";
 import type { LoadedPreview } from "../types";
 
+function createAbortError(message = "Model load was canceled."): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+}
+
+function throwIfAbortedWithObjectUrl(
+  signal: AbortSignal | undefined,
+  objectUrl: string,
+): void {
+  if (signal?.aborted) {
+    URL.revokeObjectURL(objectUrl);
+    throw createAbortError();
+  }
+}
+
 async function readArrayBuffer(path: string) {
   return readBinaryFile(path);
 }
@@ -41,10 +63,18 @@ function getMimeType(extension: string) {
   }
 }
 
-async function createBlobUrlFromPath(path: string, extension: string) {
+async function prepareObjectUrl(
+  path: string,
+  extension: string,
+  signal: AbortSignal | undefined,
+) {
+  throwIfAborted(signal);
   const buffer = await readArrayBuffer(path);
+  throwIfAborted(signal);
   const blob = new Blob([buffer], { type: getMimeType(extension) });
-  return URL.createObjectURL(blob);
+  const objectUrl = URL.createObjectURL(blob);
+  throwIfAbortedWithObjectUrl(signal, objectUrl);
+  return objectUrl;
 }
 
 function createTexturePreview(
@@ -87,14 +117,20 @@ export async function loadTexturePreviewObject(
   context: LoaderContext,
 ): Promise<LoadedPreview> {
   const reportStage = context.onStage ?? (() => undefined);
+  throwIfAborted(context.signal);
 
   switch (file.extension) {
     case "png":
     case "jpg":
     case "jpeg": {
       reportStage("decode");
-      const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      const objectUrl = await prepareObjectUrl(
+        file.path,
+        file.extension,
+        context.signal,
+      );
       reportStage("gpu");
+      throwIfAbortedWithObjectUrl(context.signal, objectUrl);
       const texture = await new TextureLoader().loadAsync(objectUrl);
       texture.colorSpace = SRGBColorSpace;
       texture.name = file.fileName;
@@ -105,8 +141,13 @@ export async function loadTexturePreviewObject(
       reportStage("decode");
       const { TGALoader } =
         await import("three/examples/jsm/loaders/TGALoader.js");
-      const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      const objectUrl = await prepareObjectUrl(
+        file.path,
+        file.extension,
+        context.signal,
+      );
       reportStage("gpu");
+      throwIfAbortedWithObjectUrl(context.signal, objectUrl);
       const texture = await new TGALoader().loadAsync(objectUrl);
       texture.colorSpace = SRGBColorSpace;
       texture.name = file.fileName;
@@ -117,8 +158,13 @@ export async function loadTexturePreviewObject(
       reportStage("decode");
       const { DDSLoader } =
         await import("three/examples/jsm/loaders/DDSLoader.js");
-      const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      const objectUrl = await prepareObjectUrl(
+        file.path,
+        file.extension,
+        context.signal,
+      );
       reportStage("gpu");
+      throwIfAbortedWithObjectUrl(context.signal, objectUrl);
       const texture = await new DDSLoader().loadAsync(objectUrl);
       texture.colorSpace = SRGBColorSpace;
       texture.name = file.fileName;
@@ -129,8 +175,13 @@ export async function loadTexturePreviewObject(
       reportStage("decode");
       const { RGBELoader } =
         await import("three/examples/jsm/loaders/RGBELoader.js");
-      const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      const objectUrl = await prepareObjectUrl(
+        file.path,
+        file.extension,
+        context.signal,
+      );
       reportStage("gpu");
+      throwIfAbortedWithObjectUrl(context.signal, objectUrl);
       const texture = await new RGBELoader().loadAsync(objectUrl);
       texture.name = file.fileName;
       texture.userData.textureSourceKind = "standalone";
@@ -140,8 +191,13 @@ export async function loadTexturePreviewObject(
       reportStage("decode");
       const { EXRLoader } =
         await import("three/examples/jsm/loaders/EXRLoader.js");
-      const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      const objectUrl = await prepareObjectUrl(
+        file.path,
+        file.extension,
+        context.signal,
+      );
       reportStage("gpu");
+      throwIfAbortedWithObjectUrl(context.signal, objectUrl);
       const texture = await new EXRLoader().loadAsync(objectUrl);
       texture.name = file.fileName;
       texture.userData.textureSourceKind = "standalone";
@@ -151,7 +207,11 @@ export async function loadTexturePreviewObject(
       reportStage("decode");
       const { KTX2Loader } =
         await import("three/examples/jsm/loaders/KTX2Loader.js");
-      const objectUrl = await createBlobUrlFromPath(file.path, file.extension);
+      const objectUrl = await prepareObjectUrl(
+        file.path,
+        file.extension,
+        context.signal,
+      );
       const loader = new KTX2Loader();
       loader.setTranscoderPath("/basis/");
       if (context.renderer) {
@@ -171,6 +231,7 @@ export async function loadTexturePreviewObject(
       }
       let texture;
       try {
+        throwIfAborted(context.signal);
         reportStage("gpu");
         texture = await loader.loadAsync(objectUrl);
       } catch (error) {

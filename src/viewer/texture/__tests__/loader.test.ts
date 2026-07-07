@@ -185,4 +185,58 @@ describe("loadTexturePreviewObject", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:texture");
     expect(loader.dispose).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects with AbortError before file read when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      loadTexture(textureFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.readBinaryFile).not.toHaveBeenCalled();
+  });
+
+  it("revokes the blob URL and skips TextureLoader when aborted after object URL creation", async () => {
+    const controller = new AbortController();
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+      controller.abort();
+      return "blob:texture";
+    });
+    const loadAsyncSpy = vi.spyOn(TextureLoader.prototype, "loadAsync");
+
+    await expect(
+      loadTexture(textureFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:texture");
+    expect(loadAsyncSpy).not.toHaveBeenCalled();
+  });
+
+  it("revokes the blob URL and disposes KTX2 loader when aborted after object URL creation", async () => {
+    const controller = new AbortController();
+    const { KTX2Loader } =
+      await import("three/examples/jsm/loaders/KTX2Loader.js");
+    vi.mocked(KTX2Loader).mockImplementationOnce(function KTX2Loader() {
+      const instance = {
+        setTranscoderPath: vi.fn(() => {
+          controller.abort();
+          return instance;
+        }),
+        detectSupport: vi.fn(() => instance),
+        loadAsync: mocks.ktx2LoadAsync,
+        dispose: vi.fn(),
+      };
+      mocks.ktx2Instances.push(instance);
+      return instance;
+    });
+
+    await expect(
+      loadTexture(fileWithExtension("ktx2"), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    const loader = mocks.ktx2Instances[0];
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:texture");
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+    expect(mocks.ktx2LoadAsync).not.toHaveBeenCalled();
+    expect(loader.dispose).toHaveBeenCalledTimes(1);
+  });
 });
