@@ -23,6 +23,7 @@ export {
   KeyValueRows,
   type KeyValueRow,
   type KeyValueRowsProps,
+  type KeyValueTone,
 } from "./KeyValueRows";
 export {
   Popover,

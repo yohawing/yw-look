@@ -68,7 +68,7 @@ describe("DiagnosticsCard", () => {
   });
 
   it("renders runtime resource metrics when available", () => {
-    const { getByText } = render(
+    const { container, getByText } = render(
       <DiagnosticsCard
         processMemoryMetrics={null}
         resourceDiagnostics={resourceDiagnostics}
@@ -82,6 +82,7 @@ describe("DiagnosticsCard", () => {
     expect(getByText("170")).toBeTruthy();
     expect(getByText("JS heap used")).toBeTruthy();
     expect(getByText("32.0 MB")).toBeTruthy();
+    expect(container.querySelector(".yl-kv--metric")).toBeTruthy();
   });
 
   it("hides unavailable JS heap metrics", () => {

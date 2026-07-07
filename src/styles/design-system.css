@@ -644,6 +644,23 @@
   padding-bottom: 5px;
 }
 
+.yl-kv--metric {
+  gap: 1px;
+  padding: 2px 0 10px;
+}
+
+.yl-kv--metric .yl-kv-row {
+  display: grid;
+  min-height: 26px;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  column-gap: 12px;
+  padding: 0;
+  border-radius: var(--yl-radius-4);
+  color: var(--yl-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .yl-kv-row:hover {
   background: var(--yl-surface-glass-1);
 }
@@ -655,6 +672,10 @@
   font-weight: var(--yl-font-weight-regular);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.yl-kv--metric .yl-kv-key {
+  font-weight: 510;
 }
 
 .yl-kv-value {
@@ -669,9 +690,21 @@
   white-space: nowrap;
 }
 
+.yl-kv--metric .yl-kv-value {
+  max-width: 148px;
+  font-size: 12px;
+  font-weight: 510;
+}
+
 .yl-kv-value.is-mono {
   font-family: var(--yl-font-mono);
   font-weight: var(--yl-font-weight-medium);
+}
+
+.yl-kv--metric .yl-kv-value.is-mono {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .yl-kv-value.is-muted {
@@ -682,12 +715,24 @@
   color: var(--yl-status-success);
 }
 
+.yl-kv--metric .yl-kv-value.is-ok {
+  color: var(--yl-status-success-alt);
+}
+
 .yl-kv-value.is-warn {
   color: var(--yl-status-warning);
 }
 
+.yl-kv--metric .yl-kv-value.is-warn {
+  color: var(--yl-status-warning-soft);
+}
+
 .yl-kv-value.is-danger {
   color: var(--yl-status-error);
+}
+
+.yl-kv--metric .yl-kv-value.is-danger {
+  color: var(--yl-status-error-soft);
 }
 
 .yl-warning-list {

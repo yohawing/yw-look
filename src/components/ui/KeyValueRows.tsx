@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export type KeyValueTone = "default" | "muted" | "ok" | "warn" | "danger";
-export type KeyValueDensity = "compact" | "regular";
+export type KeyValueDensity = "compact" | "regular" | "metric";
 
 export type KeyValueRow = {
   id: string;
@@ -25,6 +25,7 @@ export function KeyValueRows({
   const classes = [
     "yl-kv",
     density === "regular" ? "yl-kv--regular" : null,
+    density === "metric" ? "yl-kv--metric" : null,
     className,
   ]
     .filter(Boolean)
