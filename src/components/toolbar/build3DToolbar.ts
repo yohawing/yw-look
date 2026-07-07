@@ -146,14 +146,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
     groupSep("display");
     const children: ToolbarItem[] = [];
 
-    children.push({
-      id: "display-section-label",
-      mode: "3d",
-      group: "display",
-      kind: "status",
-      label: "Display",
-    });
-
     const surfaceModes: Array<{
       id: ViewportSurfaceDisplay;
       label: string;

@@ -31,6 +31,7 @@ function isToolbarPopoverInteractionTarget(
 
 export function PopoverTool({ action }: PopoverToolProps) {
   const [open, setOpen] = useState(false);
+  const openModeRef = useRef<"hover" | "click" | null>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
@@ -52,6 +53,9 @@ export function PopoverTool({ action }: PopoverToolProps) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
+    if (openModeRef.current !== "click") {
+      openModeRef.current = "hover";
+    }
     window.dispatchEvent(
       new CustomEvent(toolbarPopoverHoverEvent, { detail: { id: action.id } }),
     );
@@ -64,6 +68,9 @@ export function PopoverTool({ action }: PopoverToolProps) {
   }, [action.id]);
 
   const scheduleClose = useCallback(() => {
+    if (openModeRef.current === "click") {
+      return;
+    }
     if (openTimerRef.current) {
       clearTimeout(openTimerRef.current);
       openTimerRef.current = null;
@@ -78,12 +85,18 @@ export function PopoverTool({ action }: PopoverToolProps) {
 
   const handleClose = useCallback(() => {
     clearTimers();
+    openModeRef.current = null;
     setOpen(false);
   }, [clearTimers]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       clearTimers();
+      if (!nextOpen) {
+        openModeRef.current = null;
+      } else if (openModeRef.current === null) {
+        openModeRef.current = "click";
+      }
       setOpen(nextOpen);
     },
     [clearTimers],
@@ -140,8 +153,13 @@ export function PopoverTool({ action }: PopoverToolProps) {
   );
 
   const handleTriggerClick = useCallback(() => {
+    clearTimers();
     if (hasChildren) {
-      setOpen((current) => !current);
+      setOpen((current) => {
+        const nextOpen = !current;
+        openModeRef.current = nextOpen ? "click" : null;
+        return nextOpen;
+      });
       return;
     }
     if (action.kind === "toggle") {
@@ -155,13 +173,18 @@ export function PopoverTool({ action }: PopoverToolProps) {
     if (open) {
       setOpen(false);
     }
-  }, [action, hasChildren, open]);
+  }, [action, clearTimers, hasChildren, open]);
 
-  const handleChildAction = useCallback((childOnRun?: () => void) => {
-    if (childOnRun) {
-      childOnRun();
-    }
-  }, []);
+  const handleChildAction = useCallback(
+    (childOnRun?: () => void) => {
+      clearTimers();
+      if (childOnRun) {
+        childOnRun();
+      }
+      setOpen(true);
+    },
+    [clearTimers],
+  );
 
   return (
     <ToolbarPopover open={open} onOpenChange={handleOpenChange}>

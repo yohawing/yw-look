@@ -164,6 +164,97 @@ describe("ViewportControls", () => {
     expect(getByRole("menu")).toBeTruthy();
   });
 
+  it("keeps clicked viewport submenus open after the trigger pointer leaves", () => {
+    vi.useFakeTimers();
+    try {
+      const items: ToolbarItem[] = [
+        {
+          id: "display",
+          mode: "3d",
+          group: "display",
+          kind: "popover",
+          label: "Display",
+          iconId: "light",
+          children: [
+            {
+              id: "display-shaded",
+              mode: "3d",
+              group: "display",
+              kind: "button",
+              label: "Shaded",
+              onRun: vi.fn(),
+            },
+          ],
+        },
+      ];
+
+      const { getByRole } = render(<ViewportControls items={items} />);
+      const trigger = getByRole("button", { name: "Display" });
+
+      fireEvent.click(trigger);
+      expect(getByRole("menu")).toBeTruthy();
+
+      fireEvent.pointerLeave(trigger, { relatedTarget: document.body });
+      act(() => {
+        vi.advanceTimersByTime(180);
+      });
+
+      expect(getByRole("menu")).toBeTruthy();
+      expect(getByRole("button", { name: "Shaded" })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("renders the Display popover title only once", () => {
+    const items: ToolbarItem[] = [
+      {
+        id: "display",
+        mode: "3d",
+        group: "display",
+        kind: "popover",
+        label: "Display",
+        iconId: "light",
+        children: [
+          {
+            id: "display-shaded",
+            mode: "3d",
+            group: "display",
+            kind: "button",
+            label: "Shaded",
+            active: true,
+            onRun: vi.fn(),
+          },
+          { kind: "separator" },
+          {
+            id: "wireframe-section-label",
+            mode: "3d",
+            group: "wireframe",
+            kind: "status",
+            label: "Wireframe",
+          },
+          {
+            id: "display-wireframe-overlay",
+            mode: "3d",
+            group: "wireframe",
+            kind: "button",
+            label: "Overlay",
+            onRun: vi.fn(),
+          },
+        ],
+      },
+    ];
+
+    const { getAllByText, getByRole, getByText } = render(
+      <ViewportControls items={items} />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Display" }));
+
+    expect(getAllByText("Display")).toHaveLength(1);
+    expect(getByText("Wireframe")).toBeTruthy();
+  });
+
   it("does not render icons on viewport submenu items", () => {
     const items: ToolbarItem[] = [
       {
@@ -232,6 +323,58 @@ describe("ViewportControls", () => {
       expect(getByRole("menu")).toBeTruthy();
 
       fireEvent.pointerLeave(getByRole("button", { name: "Camera" }), {
+        relatedTarget: document.body,
+      });
+      act(() => {
+        vi.advanceTimersByTime(180);
+      });
+
+      expect(queryByRole("menu")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps hover-opened viewport submenus transient after choosing an item", () => {
+    vi.useFakeTimers();
+    try {
+      const selectFront = vi.fn();
+      const items: ToolbarItem[] = [
+        {
+          id: "camera",
+          mode: "3d",
+          group: "camera",
+          kind: "popover",
+          label: "Camera",
+          iconId: "camera",
+          children: [
+            {
+              id: "front",
+              mode: "3d",
+              group: "camera",
+              kind: "button",
+              label: "Front",
+              onRun: selectFront,
+            },
+          ],
+        },
+      ];
+
+      const { getByRole, queryByRole } = render(
+        <ViewportControls items={items} />,
+      );
+
+      fireEvent.pointerEnter(getByRole("button", { name: "Camera" }));
+      act(() => {
+        vi.advanceTimersByTime(120);
+      });
+
+      fireEvent.click(getByRole("button", { name: "Front" }));
+
+      expect(selectFront).toHaveBeenCalledOnce();
+      expect(getByRole("menu")).toBeTruthy();
+
+      fireEvent.pointerLeave(getByRole("menu"), {
         relatedTarget: document.body,
       });
       act(() => {

@@ -177,7 +177,7 @@ describe("build3DToolbar", () => {
     }
   });
 
-  it("groups Display and Wireframe sections with one internal separator", () => {
+  it("uses the popover title as Display header and groups Wireframe internally", () => {
     const display = findPopover(build3DToolbar(createOptions()), "display");
     const separators =
       display?.children?.filter((item) => item.kind === "separator") ?? [];
@@ -187,7 +187,7 @@ describe("build3DToolbar", () => {
       display?.children?.some(
         (item) => item.kind === "status" && item.id === "display-section-label",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       display?.children?.some(
         (item) =>
