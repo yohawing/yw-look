@@ -48,3 +48,9 @@ export {
 } from "./SliderField";
 export { ToggleSwitch, type ToggleSwitchProps } from "./ToggleSwitch";
 export { Tooltip, TooltipProvider, type TooltipProps } from "./Tooltip";
+export {
+  WarningIcon,
+  WarningList,
+  type WarningListDensity,
+  type WarningListProps,
+} from "./WarningList";

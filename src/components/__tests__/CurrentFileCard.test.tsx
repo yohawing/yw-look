@@ -53,10 +53,12 @@ describe("CurrentFileCard", () => {
     currentFile,
     assetInspection,
     assetMetadata = null,
+    warnings = [],
   }: {
     currentFile: SelectedFile | null;
     assetInspection: AssetInspection | null;
     assetMetadata?: AssetMetadata | null;
+    warnings?: string[];
   }) => {
     useFileStore.setState({
       currentFile,
@@ -66,7 +68,7 @@ describe("CurrentFileCard", () => {
       packFileRequest: null,
       openError: null,
     });
-    render(<CurrentFileCard warnings={[]} />);
+    return render(<CurrentFileCard warnings={warnings} />);
   };
 
   it("renders file size from the file store asset inspection", () => {
@@ -100,5 +102,19 @@ describe("CurrentFileCard", () => {
     });
 
     expect(screen.queryByText(/No file selected/)).not.toBeNull();
+  });
+
+  it("renders warning summary with the shared warning list primitive", () => {
+    const { container } = renderWithFileState({
+      currentFile: makeFile(),
+      assetInspection: makeAssetInspection(),
+      warnings: ["First warning", "Second warning", "Third warning", "Hidden"],
+    });
+
+    expect(screen.queryByText("4 warnings")).not.toBeNull();
+    expect(screen.queryByText("First warning")).not.toBeNull();
+    expect(screen.queryByText("Third warning")).not.toBeNull();
+    expect(screen.queryByText("Hidden")).toBeNull();
+    expect(container.querySelector(".yl-warning-list--summary")).not.toBeNull();
   });
 });

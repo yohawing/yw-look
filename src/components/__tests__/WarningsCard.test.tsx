@@ -8,7 +8,7 @@ describe("WarningsCard", () => {
   });
 
   it("renders MMD diagnostics as ordinary warnings", () => {
-    const { getByText, queryByText } = render(
+    const { container, getByText, queryByText } = render(
       <WarningsCard
         warnings={[
           "MMD warning: Unsupported morph types are present. (UNSUPPORTED_MORPH)",
@@ -23,6 +23,8 @@ describe("WarningsCard", () => {
       ),
     ).toBeTruthy();
     expect(queryByText("MMD Diagnostics")).toBeNull();
+    expect(container.querySelector(".yl-warning-list")).toBeTruthy();
+    expect(container.querySelector(".yl-warning-list__icon")).toBeTruthy();
   });
 
   it("moves scale normalization cancellation into the warning header", () => {

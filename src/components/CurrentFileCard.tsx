@@ -7,6 +7,7 @@ import {
   SidebarSection,
   type SidebarKeyValueRow,
 } from "../lib/sidebarPrimitives";
+import { WarningList } from "./ui/WarningList";
 
 type CurrentFileCardProps = {
   debugPanelsEnabled?: boolean;
@@ -205,19 +206,13 @@ export function CurrentFileCard({
     <SidebarSection title="File Info">
       <SidebarKeyValueRows rows={summaryRows} />
       {warnings.length > 0 ? (
-        <div className="file-warning-summary">
-          <span className="file-warning-summary-title">
-            {warnings.length} warning{warnings.length === 1 ? "" : "s"}
-          </span>
-          {warnings.slice(0, 3).map((warning, index) => (
-            <span
-              className="file-warning-summary-line"
-              key={`${warning}:${index}`}
-            >
-              {warning}
-            </span>
-          ))}
-        </div>
+        <WarningList
+          density="summary"
+          maxItems={3}
+          showItemIcons={false}
+          title={`${warnings.length} warning${warnings.length === 1 ? "" : "s"}`}
+          warnings={warnings}
+        />
       ) : null}
     </SidebarSection>
   );

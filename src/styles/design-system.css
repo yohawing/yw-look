@@ -176,6 +176,7 @@
 .yl-dialog__content,
 .yl-tab-button,
 .yl-field-row,
+.yl-warning-list,
 .yl-card,
 .yl-input {
   font-family: var(--yl-font-ui);
@@ -668,6 +669,93 @@
 
 .yl-kv-value.is-danger {
   color: var(--yl-status-error);
+}
+
+.yl-warning-list {
+  display: flex;
+  flex-direction: column;
+  color: var(--yl-status-warning-bright);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.yl-warning-list--summary {
+  gap: var(--yl-space-4);
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid
+    color-mix(in srgb, var(--yl-status-warning-soft) 20%, transparent);
+  border-radius: var(--yl-radius-6);
+  background: color-mix(in srgb, var(--yl-status-warning-soft) 6%, transparent);
+}
+
+.yl-warning-list__title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--yl-space-6);
+  color: var(--yl-status-warning-soft);
+  font-size: 11px;
+  font-weight: 590;
+  line-height: 1.4;
+}
+
+.yl-warning-list__items {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.yl-warning-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--yl-space-8);
+  padding: 6px 0;
+  color: inherit;
+}
+
+.yl-warning-list__item:hover {
+  background: var(--yl-surface-glass-1);
+}
+
+.yl-warning-list__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.yl-warning-list__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.yl-warning-list__title .yl-warning-list__icon {
+  margin-top: 0;
+}
+
+.yl-warning-list--summary .yl-warning-list__items {
+  gap: var(--yl-space-4);
+}
+
+.yl-warning-list--summary .yl-warning-list__item {
+  padding: 0;
+  color: var(--yl-text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.yl-warning-list--summary .yl-warning-list__item:hover {
+  background: transparent;
+}
+
+.yl-warning-list--summary .yl-warning-list__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .yl-select-field,
