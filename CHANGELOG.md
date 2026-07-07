@@ -20,6 +20,30 @@
 - Split large app state and command modules into focused stores, hooks, command modules, and shared type definitions.
 - Centralized error handling and design tokens, and normalized formatting after the refactor.
 
+### Known limitations
+
+- Windows NSIS and MSI installers ship without Authenticode signing; SmartScreen may warn about an unknown publisher on first launch.
+- macOS DMG and app bundles are not Developer ID signed or notarized; Gatekeeper may block or require manual override on first launch.
+- Optional Loader Pack component selection in the NSIS installer UI was not confirmed for this tag; MMD and Gaussian Splat pack installation state should be verified outside the published installer.
+- GitHub Release install and updater roundtrip from production artifacts has not been confirmed on clean Windows or macOS machines for this tag.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: v0.2.2 Windows bundle artifacts were not Authenticode signed at release time. `Get-AuthenticodeSignature` was not run against the published NSIS or MSI installers, and SmartScreen behavior on a clean Windows environment was not recorded for this tag.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: v0.2.2 macOS bundle artifacts were not Developer ID signed, notarized, or stapled at release time. `codesign -dv`, `notarytool`, `stapler validate`, Gatekeeper first-launch, and Finder Open With were not confirmed on a clean macOS environment for this tag.
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: not verified — a fresh install from the v0.2.2 GitHub Release NSIS installer and an in-app update via the published `latest.json` were not completed on a clean machine.
+- macOS: not verified — a fresh install from the v0.2.2 GitHub Release DMG and an in-app update via the published `latest.json` were not completed on a clean machine.
+
 ## v0.2.1 (2026-05-26)
 
 ### Release
