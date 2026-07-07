@@ -1,11 +1,9 @@
 import {
-  Bone,
   Group,
   LoadingManager,
   Mesh,
   MeshStandardMaterial,
   type Object3D,
-  SkinnedMesh,
 } from "three";
 import { ColladaLoader } from "three/examples/jsm/loaders/ColladaLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -18,6 +16,7 @@ import { bakeImageBitmapTextures } from "./textureBake";
 import {
   canSerializeStaticNode,
   collectTransferables,
+  hasAnimatedStaticSceneBlocker,
   toStaticScenePayload,
   type ModelParseWorkerStaticScenePayload,
 } from "./staticScene";
@@ -170,58 +169,37 @@ async function parseObject(
   }
 }
 
-function canUseStaticSceneResult(
+const STATIC_SCENE_KINDS = new Set<ModelParseWorkerPayload["kind"]>([
+  "obj",
+  "ply",
+  "stl",
+  "dae",
+  "fbx",
+  "glb",
+  "gltf",
+]);
+
+const ANIMATED_STATIC_SCENE_BLOCKER_KINDS = new Set<
+  ModelParseWorkerPayload["kind"]
+>(["fbx", "glb", "gltf"]);
+
+export function canUseStaticSceneResult(
   kind: ModelParseWorkerPayload["kind"],
   object: Object3D,
 ) {
-  if (kind === "fbx" && hasFbxStaticSceneBlocker(object)) {
+  if (
+    ANIMATED_STATIC_SCENE_BLOCKER_KINDS.has(kind) &&
+    hasAnimatedStaticSceneBlocker(object)
+  ) {
     return false;
   }
 
-  return (
-    (kind === "obj" ||
-      kind === "ply" ||
-      kind === "stl" ||
-      kind === "dae" ||
-      kind === "fbx") &&
-    canSerializeStaticNode(object)
-  );
-}
-
-function hasFbxStaticSceneBlocker(object: Object3D) {
-  if ((object.animations?.length ?? 0) > 0) {
-    return true;
+  if (!STATIC_SCENE_KINDS.has(kind)) {
+    return false;
   }
 
-  let hasBlocker = false;
-  object.traverse((child) => {
-    if (hasBlocker) {
-      return;
-    }
-
-    if (
-      (child.animations?.length ?? 0) > 0 ||
-      child instanceof SkinnedMesh ||
-      child instanceof Bone
-    ) {
-      hasBlocker = true;
-      return;
-    }
-
-    if (!(child instanceof Mesh)) {
-      return;
-    }
-
-    if ((child.morphTargetInfluences?.length ?? 0) > 0) {
-      hasBlocker = true;
-      return;
-    }
-
-    hasBlocker = Object.values(child.geometry.morphAttributes).some(
-      (attributes) => (attributes as ArrayLike<unknown>).length > 0,
-    );
-  });
-  return hasBlocker;
+  const requireSerializableTextures = kind === "glb" || kind === "gltf";
+  return canSerializeStaticNode(object, { requireSerializableTextures });
 }
 
 self.addEventListener(
@@ -232,9 +210,12 @@ self.addEventListener(
       try {
         const object = await parseObject(request.payload);
         if (canUseStaticSceneResult(request.payload.kind, object)) {
+          const requireSerializableTextures =
+            request.payload.kind === "glb" || request.payload.kind === "gltf";
           const scene = toStaticScenePayload(
             object,
             request.payload.kind === "obj" || request.payload.kind === "dae",
+            { requireSerializableTextures },
           );
           if (scene) {
             const response: ModelParseWorkerResponse = {

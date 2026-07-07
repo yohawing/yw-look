@@ -1,4 +1,5 @@
 import {
+  Bone,
   BufferAttribute,
   BufferGeometry,
   Group,
@@ -11,8 +12,39 @@ import {
   MeshStandardMaterial,
   Object3D,
   Points,
+  SkinnedMesh,
+  Texture,
   type Material,
 } from "three";
+
+const SERIALIZABLE_TEXTURE_SLOTS = [
+  "map",
+  "normalMap",
+  "roughnessMap",
+  "metalnessMap",
+  "aoMap",
+  "emissiveMap",
+] as const;
+
+type SerializableTextureSlot = (typeof SERIALIZABLE_TEXTURE_SLOTS)[number];
+
+export type ModelParseWorkerStaticTexturePayload = {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+  colorSpace: Texture["colorSpace"];
+  flipY: boolean;
+  wrapS: Texture["wrapS"];
+  wrapT: Texture["wrapT"];
+  magFilter: Texture["magFilter"];
+  minFilter: Texture["minFilter"];
+  mapping: Texture["mapping"];
+  anisotropy: number;
+  offset: [number, number];
+  repeat: [number, number];
+  center: [number, number];
+  rotation: number;
+};
 
 export type ModelParseWorkerAttributeArray =
   | Float32Array
@@ -52,6 +84,13 @@ export type ModelParseWorkerStaticMaterialPayload = {
   opacity: number;
   transparent: boolean;
   side: Material["side"];
+  textures?: Partial<
+    Record<SerializableTextureSlot, ModelParseWorkerStaticTexturePayload>
+  >;
+};
+
+export type CanSerializeStaticNodeOptions = {
+  requireSerializableTextures?: boolean;
 };
 
 export type ModelParseWorkerMeshPayload = {
@@ -147,12 +186,107 @@ function isSupportedMaterialType(
   );
 }
 
-function canSerializeMaterial(material: Material | Material[] | undefined) {
+function isTexture(value: unknown): value is Texture {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "isTexture" in value &&
+    value.isTexture === true
+  );
+}
+
+function isImageData(value: unknown): value is ImageData {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "data" in value &&
+    "width" in value &&
+    "height" in value &&
+    (value as ImageData).data instanceof Uint8ClampedArray
+  );
+}
+
+function getTexturePayload(
+  texture: Texture,
+): ModelParseWorkerStaticTexturePayload | null {
+  if (!isImageData(texture.image)) {
+    return null;
+  }
+  return {
+    width: texture.image.width,
+    height: texture.image.height,
+    data: texture.image.data.slice(),
+    colorSpace: texture.colorSpace,
+    flipY: texture.flipY,
+    wrapS: texture.wrapS,
+    wrapT: texture.wrapT,
+    magFilter: texture.magFilter,
+    minFilter: texture.minFilter,
+    mapping: texture.mapping,
+    anisotropy: texture.anisotropy,
+    offset: [texture.offset.x, texture.offset.y],
+    repeat: [texture.repeat.x, texture.repeat.y],
+    center: [texture.center.x, texture.center.y],
+    rotation: texture.rotation,
+  };
+}
+
+function getMaterialTexturePayloads(
+  material: Material,
+):
+  | Partial<
+      Record<SerializableTextureSlot, ModelParseWorkerStaticTexturePayload>
+    >
+  | null
+  | undefined {
+  const materialRecord = material as unknown as Record<string, unknown>;
+  const textures: Partial<
+    Record<SerializableTextureSlot, ModelParseWorkerStaticTexturePayload>
+  > = {};
+  let hasSerializable = false;
+
+  for (const [key, value] of Object.entries(materialRecord)) {
+    if (!isTexture(value)) {
+      continue;
+    }
+    if (!(SERIALIZABLE_TEXTURE_SLOTS as readonly string[]).includes(key)) {
+      return null;
+    }
+  }
+
+  for (const slot of SERIALIZABLE_TEXTURE_SLOTS) {
+    const value = materialRecord[slot];
+    if (!isTexture(value)) {
+      continue;
+    }
+    const payload = getTexturePayload(value);
+    if (!payload) {
+      return null;
+    }
+    textures[slot] = payload;
+    hasSerializable = true;
+  }
+
+  return hasSerializable ? textures : undefined;
+}
+
+function canSerializeMaterial(
+  material: Material | Material[] | undefined,
+  options?: CanSerializeStaticNodeOptions,
+) {
   if (!material) {
     return true;
   }
   const materials = Array.isArray(material) ? material : [material];
-  return materials.every((entry) => isSupportedMaterialType(entry.type));
+  return materials.every((entry) => {
+    if (!isSupportedMaterialType(entry.type)) {
+      return false;
+    }
+    if (options?.requireSerializableTextures) {
+      return getMaterialTexturePayloads(entry) !== null;
+    }
+    return true;
+  });
 }
 
 function getMaterialPayload(
@@ -163,6 +297,7 @@ function getMaterialPayload(
     metalness?: number;
     roughness?: number;
   };
+  const textures = getMaterialTexturePayloads(material);
   return {
     type: isSupportedMaterialType(materialLike.type)
       ? materialLike.type
@@ -174,6 +309,7 @@ function getMaterialPayload(
     opacity: materialLike.opacity,
     transparent: materialLike.transparent,
     side: materialLike.side,
+    ...(textures ? { textures } : {}),
   };
 }
 
@@ -184,6 +320,25 @@ function getMaterialPayloads(material: Material | Material[] | undefined) {
   return Array.isArray(material)
     ? material.map((entry) => getMaterialPayload(entry))
     : getMaterialPayload(material);
+}
+
+function collectMaterialTextureBuffers(
+  material:
+    | ModelParseWorkerStaticMaterialPayload
+    | ModelParseWorkerStaticMaterialPayload[],
+  buffers: Set<ArrayBuffer>,
+) {
+  const materials = Array.isArray(material) ? material : [material];
+  for (const entry of materials) {
+    if (!entry.textures) {
+      continue;
+    }
+    for (const texture of Object.values(entry.textures)) {
+      if (texture?.data.buffer instanceof ArrayBuffer) {
+        buffers.add(texture.data.buffer);
+      }
+    }
+  }
 }
 
 export function collectTransferables(
@@ -208,6 +363,9 @@ export function collectTransferables(
     if (node.geometry) {
       collectGeometry(node.geometry);
     }
+    if (node.material) {
+      collectMaterialTextureBuffers(node.material, buffers);
+    }
     for (const child of node.children) {
       collectNode(child);
     }
@@ -215,6 +373,7 @@ export function collectTransferables(
 
   for (const mesh of scene.meshes) {
     collectGeometry(mesh);
+    collectMaterialTextureBuffers(mesh.material, buffers);
   }
   if (scene.root) {
     collectNode(scene.root);
@@ -233,7 +392,46 @@ function getStaticNodeType(
   return null;
 }
 
-export function canSerializeStaticNode(object: Object3D): boolean {
+export function hasAnimatedStaticSceneBlocker(object: Object3D): boolean {
+  if ((object.animations?.length ?? 0) > 0) {
+    return true;
+  }
+
+  let hasBlocker = false;
+  object.traverse((child) => {
+    if (hasBlocker) {
+      return;
+    }
+
+    if (
+      (child.animations?.length ?? 0) > 0 ||
+      child instanceof SkinnedMesh ||
+      child instanceof Bone
+    ) {
+      hasBlocker = true;
+      return;
+    }
+
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    if ((child.morphTargetInfluences?.length ?? 0) > 0) {
+      hasBlocker = true;
+      return;
+    }
+
+    hasBlocker = Object.values(child.geometry.morphAttributes).some(
+      (attributes) => (attributes as ArrayLike<unknown>).length > 0,
+    );
+  });
+  return hasBlocker;
+}
+
+export function canSerializeStaticNode(
+  object: Object3D,
+  options?: CanSerializeStaticNodeOptions,
+): boolean {
   const type = getStaticNodeType(object);
   if (!type) {
     return false;
@@ -243,17 +441,20 @@ export function canSerializeStaticNode(object: Object3D): boolean {
     const geometryOwner = object as Mesh | LineSegments | Points;
     if (
       !(geometryOwner.geometry instanceof BufferGeometry) ||
-      !canSerializeMaterial(geometryOwner.material)
+      !canSerializeMaterial(geometryOwner.material, options)
     ) {
       return false;
     }
   }
 
-  return object.children.every((child) => canSerializeStaticNode(child));
+  return object.children.every((child) =>
+    canSerializeStaticNode(child, options),
+  );
 }
 
 function toStaticNodePayload(
   object: Object3D,
+  options?: CanSerializeStaticNodeOptions,
 ): ModelParseWorkerStaticNodePayload | null {
   const type = getStaticNodeType(object);
   if (!type) {
@@ -273,7 +474,7 @@ function toStaticNodePayload(
     const geometryOwner = object as Mesh | LineSegments | Points;
     if (
       !(geometryOwner.geometry instanceof BufferGeometry) ||
-      !canSerializeMaterial(geometryOwner.material)
+      !canSerializeMaterial(geometryOwner.material, options)
     ) {
       return null;
     }
@@ -282,7 +483,7 @@ function toStaticNodePayload(
   }
 
   for (const child of object.children) {
-    const childNode = toStaticNodePayload(child);
+    const childNode = toStaticNodePayload(child, options);
     if (!childNode) {
       return null;
     }
@@ -295,10 +496,17 @@ function toStaticNodePayload(
 export function toStaticScenePayload(
   object: Object3D,
   useTree: boolean,
+  options?: CanSerializeStaticNodeOptions,
 ): ModelParseWorkerStaticScenePayload | null {
+  if (!canSerializeStaticNode(object, options)) {
+    return null;
+  }
+
   object.updateMatrixWorld(true);
   const meshes: ModelParseWorkerMeshPayload[] = [];
-  const root = useTree ? (toStaticNodePayload(object) ?? undefined) : undefined;
+  const root = useTree
+    ? (toStaticNodePayload(object, options) ?? undefined)
+    : undefined;
   if (useTree && !root) {
     return null;
   }
@@ -358,6 +566,46 @@ function createStaticGeometry(payload: ModelParseWorkerStaticGeometryPayload) {
   return geometry;
 }
 
+function createTextureFromPayload(
+  payload: ModelParseWorkerStaticTexturePayload,
+): Texture {
+  const data = new Uint8ClampedArray(payload.data.length);
+  data.set(payload.data);
+  const image = new ImageData(data, payload.width, payload.height);
+  const texture = new Texture(image);
+  texture.colorSpace = payload.colorSpace;
+  texture.flipY = payload.flipY;
+  texture.wrapS = payload.wrapS;
+  texture.wrapT = payload.wrapT;
+  texture.magFilter = payload.magFilter;
+  texture.minFilter = payload.minFilter;
+  texture.mapping = payload.mapping;
+  texture.anisotropy = payload.anisotropy;
+  texture.offset.fromArray(payload.offset);
+  texture.repeat.fromArray(payload.repeat);
+  texture.center.fromArray(payload.center);
+  texture.rotation = payload.rotation;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function applyStaticMaterialTextures(
+  material: Material,
+  textures: ModelParseWorkerStaticMaterialPayload["textures"],
+) {
+  if (!textures) {
+    return;
+  }
+  const materialRecord = material as unknown as Record<string, unknown>;
+  for (const slot of SERIALIZABLE_TEXTURE_SLOTS) {
+    const payload = textures[slot];
+    if (!payload) {
+      continue;
+    }
+    materialRecord[slot] = createTextureFromPayload(payload);
+  }
+}
+
 function createStaticMaterial(
   payload: ModelParseWorkerStaticMaterialPayload,
 ): Material {
@@ -380,6 +628,7 @@ function createStaticMaterial(
               roughness: payload.roughness,
             });
   material.name = payload.name;
+  applyStaticMaterialTextures(material, payload.textures);
   return material;
 }
 
