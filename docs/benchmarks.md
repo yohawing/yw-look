@@ -44,7 +44,36 @@ reports.
    npm run bench:load:baseline -- --report artifacts/bench/<timestamp>/report.json
    ```
 
-4. Compare a later run against the local baseline:
+4. Summarize heavy or representative real-asset metrics from a report:
+
+   ```bash
+   npm run bench:load:summary
+   ```
+
+   To pin a specific report:
+
+   ```bash
+   npm run bench:load:summary -- --report artifacts/bench/<timestamp>/report.json
+   ```
+
+   The summary writes `heavy-load-summary.json` and `heavy-load-summary.md`
+   next to the source report. It includes cases tagged `heavy` and the
+   representative USD composition case `pixar-kitchen-set`. Small GLB smoke
+   cases are not treated as heavy.
+
+   By default the command exits non-zero when the report has no heavy or
+   representative cases. Pass `--allow-empty` to record that fact in the
+   summary artifacts instead.
+
+   A real heavy recording still requires running a heavy case first, for
+   example:
+
+   ```bash
+   npm run bench:load -- --case bistro-interior --visible
+   npm run bench:load:summary -- --report artifacts/bench/<timestamp>/report.json
+   ```
+
+5. Compare a later run against the local baseline:
 
    ```bash
    npm run bench:load:compare
