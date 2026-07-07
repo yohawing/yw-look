@@ -335,6 +335,14 @@ v0.3 では Windows NSIS インストーラーに Optional Loader Pack の選択
 npm run check:nsis-loader-packs
 ```
 
+この check は次を bundle 前に静的検査する。
+
+- `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` の version 同期
+- 生成された `manifest.json` 用 `FileWrite` 行と `optional-loader-packs.meta.json` が
+  `scripts/prepare-nsis-loader-pack-hooks.mjs` の manifest 契約と一致すること
+- 対話ページ表示、silent / updater `/P` 経路の skip、POSTINSTALL の page visited guard
+- ON 時の `.removed` 削除と OFF 時の `.removed` marker 作成経路
+
 bundle 作成:
 
 ```powershell

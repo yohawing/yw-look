@@ -4,8 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   LOADER_PACKS,
+  buildPackManifest,
   generateNsisLoaderPackHooks,
   renderTemplate,
+  toNsisFileWriteLine,
 } from "./prepare-nsis-loader-pack-hooks.mjs";
 
 const repoRoot = path.resolve(
@@ -18,6 +20,11 @@ const REQUIRED_NSIS_MARKERS = [
   "!macro NSIS_HOOK_POSTUNINSTALL",
   "Function YwOptionalLoaderPacksPage",
   "Function YwOptionalLoaderPacksPageLeave",
+  "  IfSilent 0 +2",
+  '  ${GetOptions} $R0 "/P" $R1',
+  '  ${If} $YwOptionalLoaderPacksPageVisited == "1"',
+  '  FileWrite $0 "removed by installer$\\r$\\n"',
+  '"Choose optional loader packs to install with yw-look."',
 ];
 
 function assertIncludes(content, needle, label) {
@@ -28,6 +35,39 @@ function assertIncludes(content, needle, label) {
 
 async function readJson(relativePath) {
   return JSON.parse(await readFile(path.join(repoRoot, relativePath), "utf8"));
+}
+
+async function readCargoPackageVersion() {
+  const cargoToml = await readFile(
+    path.join(repoRoot, "src-tauri", "Cargo.toml"),
+    "utf8",
+  );
+  let inPackageSection = false;
+  for (const line of cargoToml.split(/\r?\n/)) {
+    if (line === "[package]") {
+      inPackageSection = true;
+      continue;
+    }
+    if (inPackageSection && line.startsWith("[")) {
+      break;
+    }
+    const version = line.match(/^\s*version\s*=\s*"(?<version>[^"]+)"\s*$/)
+      ?.groups?.version;
+    if (inPackageSection && version) {
+      return version;
+    }
+  }
+  throw new Error("src-tauri/Cargo.toml [package] version is missing");
+}
+
+function assertJsonEqual(actual, expected, label) {
+  const actualJson = JSON.stringify(actual);
+  const expectedJson = JSON.stringify(expected);
+  if (actualJson !== expectedJson) {
+    throw new Error(
+      `${label} mismatch:\nexpected ${expectedJson}\nactual   ${actualJson}`,
+    );
+  }
 }
 
 async function main() {
@@ -43,6 +83,19 @@ async function main() {
   const generated = await generateNsisLoaderPackHooks();
   const onDisk = await readFile(generated.outputPath, "utf8");
   const expected = renderTemplate(template, generated.version);
+  const cargoVersion = await readCargoPackageVersion();
+  const tauriConfig = await readJson("src-tauri/tauri.conf.json");
+
+  if (cargoVersion !== generated.version) {
+    throw new Error(
+      `src-tauri/Cargo.toml version (${cargoVersion}) must match package.json version (${generated.version})`,
+    );
+  }
+  if (tauriConfig.version !== generated.version) {
+    throw new Error(
+      `src-tauri/tauri.conf.json version (${tauriConfig.version}) must match package.json version (${generated.version})`,
+    );
+  }
 
   if (onDisk !== expected) {
     throw new Error(
@@ -59,7 +112,14 @@ async function main() {
   }
 
   for (const pack of LOADER_PACKS) {
+    const manifest = buildPackManifest(pack, generated.version);
+
     assertIncludes(onDisk, pack.checkboxLabel, `${pack.id} checkbox label`);
+    assertIncludes(
+      onDisk,
+      toNsisFileWriteLine(manifest),
+      `${pack.id} manifest FileWrite line`,
+    );
     assertIncludes(
       onDisk,
       `$\\"id$\\":$\\"${pack.id}$\\"`,
@@ -72,6 +132,31 @@ async function main() {
     );
     assertIncludes(onDisk, pack.installFunction, `${pack.id} install function`);
     assertIncludes(onDisk, pack.removeFunction, `${pack.id} remove function`);
+    assertIncludes(
+      onDisk,
+      `Call ${pack.installFunction}`,
+      `${pack.id} install call`,
+    );
+    assertIncludes(
+      onDisk,
+      `Call ${pack.removeFunction}`,
+      `${pack.id} remove call`,
+    );
+    assertIncludes(
+      onDisk,
+      `Delete "$APPDATA\\com.yohawing.ywlook\\optional-loaders\\${pack.installDir}\\.removed"`,
+      `${pack.id} install clears tombstone`,
+    );
+    assertIncludes(
+      onDisk,
+      `FileOpen $0 "$APPDATA\\com.yohawing.ywlook\\optional-loaders\\${pack.installDir}\\manifest.json" w`,
+      `${pack.id} manifest write target`,
+    );
+    assertIncludes(
+      onDisk,
+      `FileOpen $0 "$APPDATA\\com.yohawing.ywlook\\optional-loaders\\${pack.installDir}\\.removed" w`,
+      `${pack.id} remove writes tombstone`,
+    );
 
     for (const extension of pack.extensions) {
       assertIncludes(
@@ -98,9 +183,14 @@ async function main() {
   if (meta.appVersion !== generated.version) {
     throw new Error("optional-loader-packs.meta.json appVersion mismatch");
   }
-  if (meta.packs.length !== LOADER_PACKS.length) {
-    throw new Error("optional-loader-packs.meta.json pack count mismatch");
-  }
+  assertJsonEqual(
+    meta.packs,
+    LOADER_PACKS.map((pack) => ({
+      ...buildPackManifest(pack, generated.version),
+      installDir: pack.installDir,
+    })),
+    "optional-loader-packs.meta.json packs",
+  );
 
   console.log(
     `NSIS optional loader pack hooks verified for v${generated.version} (${LOADER_PACKS.length} packs)`,
