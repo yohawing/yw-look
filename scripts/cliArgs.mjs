@@ -33,3 +33,28 @@ export function readRepeatedOption(args, name) {
 export function hasFlag(args, name) {
   return args.includes(name);
 }
+
+export function parseNamedArgs(
+  tokens,
+  {
+    values = {},
+    flags = {
+      "--help": "help",
+      "-h": "help",
+    },
+    unknownMessage = (token) => `unknown argument: ${token}`,
+  } = {},
+) {
+  const parsed = {};
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (Object.hasOwn(flags, token)) {
+      parsed[flags[token]] = true;
+    } else if (Object.hasOwn(values, token)) {
+      parsed[values[token]] = readValue(tokens, ++index, token);
+    } else {
+      throw new Error(unknownMessage(token));
+    }
+  }
+  return parsed;
+}

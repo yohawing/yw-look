@@ -2,7 +2,7 @@ import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readValue } from "./cliArgs.mjs";
+import { parseNamedArgs } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -41,7 +41,14 @@ const assetTypes = {
 };
 
 const defaultKinds = new Set(["model", "motion", "splat"]);
-const argv = parseArgs(process.argv.slice(2));
+const argv = parseNamedArgs(process.argv.slice(2), {
+  values: {
+    "--root": "root",
+    "--out": "out",
+    "--kinds": "kinds",
+    "--limit": "limit",
+  },
+});
 
 if (argv.help) {
   printUsage();
@@ -227,27 +234,6 @@ function normalizePath(value) {
 
 function formatError(error) {
   return error instanceof Error ? error.message : String(error);
-}
-
-function parseArgs(tokens) {
-  const parsed = {};
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (token === "--help" || token === "-h") {
-      parsed.help = true;
-    } else if (token === "--root") {
-      parsed.root = readValue(tokens, ++index, token);
-    } else if (token === "--out") {
-      parsed.out = readValue(tokens, ++index, token);
-    } else if (token === "--kinds") {
-      parsed.kinds = readValue(tokens, ++index, token);
-    } else if (token === "--limit") {
-      parsed.limit = readValue(tokens, ++index, token);
-    } else {
-      throw new Error(`unknown argument: ${token}`);
-    }
-  }
-  return parsed;
 }
 
 function printUsage() {

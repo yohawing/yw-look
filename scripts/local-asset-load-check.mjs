@@ -4,7 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readValue } from "./cliArgs.mjs";
+import { parseNamedArgs } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -19,7 +19,17 @@ const defaultCsv = path.join(
 );
 const defaultOutDir = path.join(repoRoot, "artifacts", "local-assets");
 
-const argv = parseArgs(process.argv.slice(2));
+const argv = parseNamedArgs(process.argv.slice(2), {
+  values: {
+    "--csv": "csv",
+    "--out": "out",
+    "--kinds": "kinds",
+    "--case": "case",
+    "--offset": "offset",
+    "--limit": "limit",
+    "--timeout-ms": "timeoutMs",
+  },
+});
 
 if (argv.help) {
   printUsage();
@@ -526,33 +536,6 @@ function tail(value, maxLines = 28) {
     .filter(Boolean)
     .slice(-maxLines)
     .join("\n");
-}
-
-function parseArgs(tokens) {
-  const parsed = {};
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (token === "--help" || token === "-h") {
-      parsed.help = true;
-    } else if (token === "--csv") {
-      parsed.csv = readValue(tokens, ++index, token);
-    } else if (token === "--out") {
-      parsed.out = readValue(tokens, ++index, token);
-    } else if (token === "--kinds") {
-      parsed.kinds = readValue(tokens, ++index, token);
-    } else if (token === "--case") {
-      parsed.case = readValue(tokens, ++index, token);
-    } else if (token === "--offset") {
-      parsed.offset = readValue(tokens, ++index, token);
-    } else if (token === "--limit") {
-      parsed.limit = readValue(tokens, ++index, token);
-    } else if (token === "--timeout-ms") {
-      parsed.timeoutMs = readValue(tokens, ++index, token);
-    } else {
-      throw new Error(`unknown argument: ${token}`);
-    }
-  }
-  return parsed;
 }
 
 function printUsage() {

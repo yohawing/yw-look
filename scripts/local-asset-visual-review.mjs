@@ -5,7 +5,8 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
-import { readValue } from "./cliArgs.mjs";
+
+import { parseNamedArgs } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -31,7 +32,28 @@ const defaultLoadReport = path.join(
   "local-asset-load-report.json",
 );
 
-const argv = parseArgs(process.argv.slice(2));
+const argv = parseNamedArgs(process.argv.slice(2), {
+  values: {
+    "--csv": "csv",
+    "--out": "out",
+    "--load-report": "loadReport",
+    "--kinds": "kinds",
+    "--case": "case",
+    "--offset": "offset",
+    "--limit": "limit",
+    "--size": "size",
+    "--bg": "bg",
+    "--timeout-ms": "timeoutMs",
+    "--port": "port",
+  },
+  flags: {
+    "--help": "help",
+    "-h": "help",
+    "--serve": "serve",
+    "--serve-only": "serveOnly",
+    "--html-only": "htmlOnly",
+  },
+});
 
 if (argv.help) {
   printUsage();
@@ -1691,47 +1713,6 @@ function escapeHtml(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-function parseArgs(tokens) {
-  const parsed = {};
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (token === "--help" || token === "-h") {
-      parsed.help = true;
-    } else if (token === "--csv") {
-      parsed.csv = readValue(tokens, ++index, token);
-    } else if (token === "--out") {
-      parsed.out = readValue(tokens, ++index, token);
-    } else if (token === "--load-report") {
-      parsed.loadReport = readValue(tokens, ++index, token);
-    } else if (token === "--kinds") {
-      parsed.kinds = readValue(tokens, ++index, token);
-    } else if (token === "--case") {
-      parsed.case = readValue(tokens, ++index, token);
-    } else if (token === "--offset") {
-      parsed.offset = readValue(tokens, ++index, token);
-    } else if (token === "--limit") {
-      parsed.limit = readValue(tokens, ++index, token);
-    } else if (token === "--size") {
-      parsed.size = readValue(tokens, ++index, token);
-    } else if (token === "--bg") {
-      parsed.bg = readValue(tokens, ++index, token);
-    } else if (token === "--timeout-ms") {
-      parsed.timeoutMs = readValue(tokens, ++index, token);
-    } else if (token === "--serve") {
-      parsed.serve = true;
-    } else if (token === "--serve-only") {
-      parsed.serveOnly = true;
-    } else if (token === "--html-only") {
-      parsed.htmlOnly = true;
-    } else if (token === "--port") {
-      parsed.port = readValue(tokens, ++index, token);
-    } else {
-      throw new Error(`unknown argument: ${token}`);
-    }
-  }
-  return parsed;
 }
 
 function printUsage() {
