@@ -78,6 +78,14 @@ const cases = [
     size: "384x288",
     background: "default",
   },
+  {
+    id: "abc-monkey",
+    input: "tests/fixtures/models/monkey.abc",
+    snapshot: "tests/visual/snapshots/viewport/abc-monkey.png",
+    actual: "artifacts/screenshots/viewport/abc-monkey-current.png",
+    size: "384x288",
+    background: "default",
+  },
 ];
 
 const usage = `usage:
