@@ -32,6 +32,29 @@ const inspectionWithVariant: StageInspection = {
   loadPolicy: "loadAll",
 };
 
+const inspectionWithLayer: StageInspection = {
+  ...inspectionWithVariant,
+  layers: [
+    {
+      identifier: "file:///F:/assets/root.usda",
+      depth: 0,
+      muted: false,
+      timeOffset: 0,
+      timeScale: 1,
+      comment: null,
+    },
+    {
+      identifier: "file:///F:/assets/materials.usda",
+      depth: 1,
+      muted: true,
+      timeOffset: 24,
+      timeScale: 1,
+      comment: "layer note",
+    },
+  ],
+  variantSets: [],
+};
+
 beforeEach(() => {
   useViewerStore.setState({
     usdLoadPolicy: "loadAll",
@@ -76,6 +99,12 @@ describe("UsdInspectorSidebarPanel", () => {
     );
 
     expect(queryByText("Previous failure")).toBeTruthy();
+    expect(container.querySelector(".yl-list")).toBeTruthy();
+    expect(container.querySelector(".yl-list-row")).toBeTruthy();
+    expect(
+      container.querySelector(".yl-list-row__path")?.textContent,
+    ).toContain("/World/Hero");
+
     fireEvent.change(container.querySelector("select")!, {
       target: { value: "toon" },
     });
@@ -88,5 +117,28 @@ describe("UsdInspectorSidebarPanel", () => {
         variantName: "toon",
       },
     ]);
+  });
+
+  it("renders layer rows through the shared list row primitive", () => {
+    const { container, getByText } = render(
+      <UsdInspectorSidebarPanel
+        error={null}
+        inspection={inspectionWithLayer}
+        issues={[]}
+        loading={false}
+        summary={null}
+      />,
+    );
+
+    const rows = container.querySelectorAll(".yl-list-row--indented");
+
+    expect(container.querySelector(".yl-list")).toBeTruthy();
+    expect(rows).toHaveLength(2);
+    expect(
+      (rows[1] as HTMLElement).style.getPropertyValue("--layer-depth"),
+    ).toBe("1");
+    expect(getByText("muted")).toBeTruthy();
+    expect(getByText("offset:24")).toBeTruthy();
+    expect(getByText("layer note")).toBeTruthy();
   });
 });

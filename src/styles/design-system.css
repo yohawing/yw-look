@@ -176,6 +176,8 @@
 .yl-dialog__content,
 .yl-tab-button,
 .yl-field-row,
+.yl-list,
+.yl-list-row,
 .yl-warning-list,
 .yl-card,
 .yl-input {
@@ -380,6 +382,55 @@
 .yl-selectable-list-item:focus-visible {
   outline: none;
   box-shadow: var(--yl-shadow-focus);
+}
+
+.yl-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--yl-space-2);
+  margin: 0;
+  padding: var(--yl-space-2) 0 var(--yl-space-12);
+  list-style: none;
+}
+
+.yl-list-row {
+  min-width: 0;
+  padding: var(--yl-space-7) 0;
+  color: var(--yl-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.yl-list-row--indented {
+  padding-left: calc(var(--layer-depth, 0) * 12px);
+}
+
+.yl-list-row:hover {
+  background: var(--yl-surface-glass-1);
+}
+
+.yl-list-row__main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--yl-space-6);
+}
+
+.yl-list-row__label {
+  flex: 0 0 auto;
+  color: var(--yl-text-primary);
+  font-weight: 590;
+}
+
+.yl-list-row__path {
+  min-width: 0;
+  margin-top: 3px;
+  color: var(--yl-text-tertiary);
+  font-family: var(--yl-font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .yl-segmented-control {

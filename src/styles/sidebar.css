@@ -543,60 +543,6 @@
   margin: 0 0 10px;
 }
 
-.usd-layer-list,
-.usd-variant-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 2px 0 12px;
-  list-style: none;
-}
-
-.usd-layer-row,
-.usd-variant-row {
-  min-width: 0;
-  padding: 7px 0;
-  color: var(--yl-text-secondary, #d0d6e0);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.usd-layer-row {
-  padding-left: calc(var(--layer-depth, 0) * 12px);
-}
-
-.usd-layer-row:hover,
-.usd-variant-row:hover {
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.usd-layer-main,
-.usd-variant-main {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-
-.usd-layer-prefix,
-.usd-variant-main strong {
-  flex: 0 0 auto;
-  color: var(--yl-text-primary, #f7f8f8);
-  font-weight: 590;
-}
-
-.usd-inspector-path {
-  min-width: 0;
-  margin-top: 3px;
-  color: var(--yl-text-tertiary, #8a8f98);
-  font-family: var(--yl-font-mono, ui-monospace);
-  font-size: 11px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
 .usd-inspector-badge {
   margin-left: 0 !important;
 }

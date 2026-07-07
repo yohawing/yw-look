@@ -35,11 +35,11 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
   const hasOffset = layer.timeOffset !== 0 || layer.timeScale !== 1;
   return (
     <li
-      className="usd-layer-row"
+      className="yl-list-row yl-list-row--indented"
       style={{ "--layer-depth": layer.depth } as CSSProperties}
     >
-      <div className="usd-layer-main">
-        <span className="usd-layer-prefix">
+      <div className="yl-list-row__main">
+        <span className="yl-list-row__label">
           {layer.depth === 0 ? "root" : "↳ sublayer"}
         </span>
         {layer.muted && (
@@ -60,7 +60,7 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
           </span>
         )}
       </div>
-      <div className="usd-inspector-path">
+      <div className="yl-list-row__path">
         {shortLayerLabel(layer.identifier)}
       </div>
       {layer.comment && (
@@ -368,7 +368,7 @@ export function UsdInspectorCard({
                   collapsible
                   defaultOpen={false}
                 >
-                  <ul className="usd-layer-list">
+                  <ul className="yl-list">
                     {inspection.layers!.map((layer, i) => (
                       <LayerRow
                         key={`${layer.identifier}:${i}`}
@@ -384,25 +384,25 @@ export function UsdInspectorCard({
                   collapsible
                   defaultOpen={false}
                 >
-                  <ul className="usd-layer-list">
-                    <li className="usd-layer-row">
-                      <div className="usd-layer-main">
-                        <span className="usd-layer-prefix">root</span>
+                  <ul className="yl-list">
+                    <li className="yl-list-row yl-list-row--indented">
+                      <div className="yl-list-row__main">
+                        <span className="yl-list-row__label">root</span>
                       </div>
-                      <div className="usd-inspector-path">
+                      <div className="yl-list-row__path">
                         {shortLayerLabel(inspection.path)}
                       </div>
                     </li>
                     {inspection.composedLayers.map((layer, i) => (
                       <li
                         key={`${layer}:${i}`}
-                        className="usd-layer-row"
+                        className="yl-list-row yl-list-row--indented"
                         style={{ "--layer-depth": 1 } as CSSProperties}
                       >
-                        <div className="usd-layer-main">
-                          <span className="usd-layer-prefix">↳</span>
+                        <div className="yl-list-row__main">
+                          <span className="yl-list-row__label">↳</span>
                         </div>
-                        <div className="usd-inspector-path">
+                        <div className="yl-list-row__path">
                           {shortLayerLabel(layer)}
                         </div>
                       </li>
@@ -420,7 +420,7 @@ export function UsdInspectorCard({
                   {variantSelectionError && (
                     <SidebarError>{variantSelectionError}</SidebarError>
                   )}
-                  <ul className="usd-variant-list">
+                  <ul className="yl-list">
                     {inspection.variantSets.map((vs, i) => {
                       // Resolve the currently active selection: prefer
                       // the overridden value from variantSelections state
@@ -447,10 +447,12 @@ export function UsdInspectorCard({
                       return (
                         <li
                           key={`${vs.primPath}:${vs.setName}:${i}`}
-                          className="usd-variant-row"
+                          className="yl-list-row"
                         >
-                          <div className="usd-variant-main">
-                            <strong>{vs.setName}</strong>
+                          <div className="yl-list-row__main">
+                            <strong className="yl-list-row__label">
+                              {vs.setName}
+                            </strong>
                             {canSwitch ? (
                               <SelectField
                                 className="usd-variant-select"
@@ -482,7 +484,7 @@ export function UsdInspectorCard({
                               )
                             )}
                           </div>
-                          <div className="usd-inspector-path">
+                          <div className="yl-list-row__path">
                             <span aria-hidden="true">@ </span>
                             {vs.primPath}
                           </div>
