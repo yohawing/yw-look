@@ -349,6 +349,18 @@ bundle 作成:
 npm run bundle:win:loaders
 ```
 
+bundle 後の readiness 確認:
+
+```powershell
+npm run check:nsis-loader-pack-bundle
+```
+
+この check は `bundle:win:loaders` 完了後、実機の対話インストール確認に入る前に実行する。
+NSIS `setup.exe` / MSI、それぞれの updater 用 `.sig`、生成済み
+`optional-loader-packs.generated.nsh` / `optional-loader-packs.meta.json` が
+現在の app version と loader pack 契約どおり揃っていることを確認する。
+Optional Loader Packs ページの表示や ON/OFF 反映は自動では検証しない。
+
 確認対象:
 
 1. `src-tauri/target/release/bundle/nsis/` に `setup.exe` が生成されること
