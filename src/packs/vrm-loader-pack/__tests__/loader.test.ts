@@ -100,4 +100,56 @@ describe("loadVrmPreviewObject", () => {
       "Unable to load VRM preview: The file loaded as glTF, but no VRM extension data was found.",
     );
   });
+
+  it("rejects with AbortError before file read when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      loadVrmPreviewObject(vrmFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.readBinaryFile).not.toHaveBeenCalled();
+    expect(mocks.parseAsync).not.toHaveBeenCalled();
+  });
+
+  it("rejects with AbortError after file read when aborted before parseAsync", async () => {
+    const controller = new AbortController();
+    mocks.readBinaryFile.mockImplementation(async () => {
+      controller.abort();
+      return new Uint8Array([0, 1, 2, 3]).buffer;
+    });
+
+    await expect(
+      loadVrmPreviewObject(vrmFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.parseAsync).not.toHaveBeenCalled();
+  });
+
+  it("rejects with AbortError after parseAsync when aborted and does not mutate the scene", async () => {
+    const scene = new Group();
+    const vrm = {
+      scene,
+      meta: {
+        name: "Mock Avatar",
+        metaVersion: undefined,
+      },
+      update: vi.fn(),
+    };
+    const controller = new AbortController();
+
+    mocks.parseAsync.mockImplementation(async () => {
+      controller.abort();
+      return {
+        userData: { vrm },
+        animations: [],
+      };
+    });
+
+    await expect(
+      loadVrmPreviewObject(vrmFile, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.rotateVRM0).not.toHaveBeenCalled();
+    expect(scene.name).toBe("");
+    expect(scene.userData.vrm).toBeUndefined();
+  });
 });
