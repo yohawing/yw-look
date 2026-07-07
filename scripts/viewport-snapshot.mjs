@@ -103,6 +103,14 @@ const cases = [
     background: "default",
   },
   {
+    id: "ply-tiny-pointcloud",
+    input: "tests/fixtures/models/tiny-pointcloud.ply",
+    snapshot: "tests/visual/snapshots/viewport/ply-tiny-pointcloud.png",
+    actual: "artifacts/screenshots/viewport/ply-tiny-pointcloud-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
     id: "abc-monkey",
     input: "tests/fixtures/models/monkey.abc",
     snapshot: "tests/visual/snapshots/viewport/abc-monkey.png",
