@@ -66,10 +66,13 @@ describe("build3DToolbar", () => {
       items.some((item) => item.kind !== "separator" && item.id === "display"),
     ).toBe(true);
     expect(
+      items.some((item) => item.kind !== "separator" && item.id === "overlays"),
+    ).toBe(true);
+    expect(
       items.some(
         (item) => item.kind !== "separator" && item.id === "bounding-boxes",
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("merges surface display and wireframe into one Display popover", () => {
@@ -134,14 +137,11 @@ describe("build3DToolbar", () => {
     const display = items.find(
       (item) => item.kind !== "separator" && item.id === "display",
     );
-    const boundingBoxes = items.find(
-      (item) => item.kind !== "separator" && item.id === "bounding-boxes",
-    );
-    const skeleton = items.find(
-      (item) => item.kind !== "separator" && item.id === "skeleton",
+    const overlays = items.find(
+      (item) => item.kind !== "separator" && item.id === "overlays",
     );
 
-    for (const item of [camera, display, boundingBoxes, skeleton]) {
+    for (const item of [camera, display, overlays]) {
       expect(item?.kind).toBe("popover");
       if (item?.kind === "popover") {
         expect(item.onRun).toBeUndefined();
@@ -149,13 +149,27 @@ describe("build3DToolbar", () => {
       }
     }
 
-    const skeletonChildren =
-      skeleton?.kind === "popover"
-        ? skeleton.children?.filter((item) => item.kind !== "separator")
+    const overlayChildren =
+      overlays?.kind === "popover"
+        ? overlays.children?.filter((item) => item.kind !== "separator")
         : [];
 
-    expect(skeletonChildren).toEqual(
+    expect(overlays?.kind === "popover" ? overlays.label : null).toBe(
+      "Overlays",
+    );
+    expect(overlays?.kind === "popover" ? overlays.active : null).toBe(true);
+    expect(overlayChildren).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          id: "bounding-boxes-toggle",
+          label: "Bounding Box",
+          active: true,
+          onRun: options.onToggleBoundingBoxes,
+        }),
+        expect.objectContaining({
+          id: "skeleton-section-label",
+          label: "Skeleton",
+        }),
         expect.objectContaining({
           id: "skeleton-bones",
           label: "Bone",
@@ -172,9 +186,24 @@ describe("build3DToolbar", () => {
         }),
       ]),
     );
-    for (const child of skeletonChildren ?? []) {
+    for (const child of overlayChildren ?? []) {
       expect("iconId" in child).toBe(false);
     }
+  });
+
+  it("omits the Overlay popover when no overlay toggles are available", () => {
+    const items = build3DToolbar(
+      createOptions({
+        showBoundingBoxes: undefined,
+        onToggleBoundingBoxes: undefined,
+        showSkeleton: undefined,
+        onToggleSkeleton: undefined,
+      }),
+    );
+
+    expect(
+      items.some((item) => item.kind !== "separator" && item.id === "overlays"),
+    ).toBe(false);
   });
 
   it("uses the popover title as Display header and groups Wireframe internally", () => {

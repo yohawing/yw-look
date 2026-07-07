@@ -222,50 +222,43 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
 
   // ── Overlay ─────────────────────────────────────────────
   {
-    let hasOverlay = false;
+    const children: ToolbarItem[] = [];
 
     if (
       options.showBoundingBoxes !== undefined &&
       options.onToggleBoundingBoxes
     ) {
-      groupSep("overlay");
-      hasOverlay = true;
-      push({
-        id: "bounding-boxes",
+      children.push({
+        id: "bounding-boxes-toggle",
         mode: "3d",
         group: "overlay",
-        kind: "popover",
+        kind: "toggle",
         label: "Bounding Box",
-        iconId: "bbox",
         active: options.showBoundingBoxes,
-        children: [
-          {
-            id: "bounding-boxes-toggle",
-            mode: "3d",
-            group: "overlay",
-            kind: "toggle",
-            label: "Bounding Box",
-            active: options.showBoundingBoxes,
-            onRun: options.onToggleBoundingBoxes,
-          },
-        ],
+        onRun: options.onToggleBoundingBoxes,
       });
     }
 
     if (options.showSkeleton !== undefined && options.onToggleSkeleton) {
-      if (!hasOverlay) groupSep("overlay");
-      hasOverlay = true;
-      const children: ToolbarItem[] = [
-        {
-          id: "skeleton-bones",
-          mode: "3d",
-          group: "overlay",
-          kind: "toggle",
-          label: "Bone",
-          active: options.showSkeleton,
-          onRun: options.onToggleSkeleton,
-        },
-      ];
+      if (children.length > 0) {
+        children.push({ kind: "separator" });
+      }
+      children.push({
+        id: "skeleton-section-label",
+        mode: "3d",
+        group: "overlay",
+        kind: "status",
+        label: "Skeleton",
+      });
+      children.push({
+        id: "skeleton-bones",
+        mode: "3d",
+        group: "overlay",
+        kind: "toggle",
+        label: "Bone",
+        active: options.showSkeleton,
+        onRun: options.onToggleSkeleton,
+      });
       if (options.showLocalAxis !== undefined && options.onToggleLocalAxis) {
         children.push({
           id: "local-axis",
@@ -288,14 +281,23 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
           onRun: options.onToggleJointNames,
         });
       }
+    }
+
+    if (children.length > 0) {
+      groupSep("overlay");
       push({
-        id: "skeleton",
+        id: "overlays",
         mode: "3d",
         group: "overlay",
         kind: "popover",
-        label: "Skeleton",
-        iconId: "skeleton",
-        active: options.showSkeleton,
+        label: "Overlays",
+        iconId: "overlay",
+        active: Boolean(
+          options.showBoundingBoxes ||
+          options.showSkeleton ||
+          options.showLocalAxis ||
+          options.showJointNames,
+        ),
         children,
       });
     }
