@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
 import { flipCompare } from "./flip-compare.mjs";
+import { readOption } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -73,18 +74,6 @@ const updateSnapshots =
 const strictMode = args.includes("--strict");
 const listOnly = args.includes("--list");
 
-function readOption(name) {
-  const index = args.indexOf(name);
-  if (index === -1) {
-    return null;
-  }
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`);
-  }
-  return value;
-}
-
 if (args.includes("--help") || args.includes("-h")) {
   console.log(usage);
   process.exit(0);
@@ -92,7 +81,7 @@ if (args.includes("--help") || args.includes("-h")) {
 
 let selectedCases = cases;
 try {
-  const selectedCaseId = readOption("--case");
+  const selectedCaseId = readOption(args, "--case");
   if (selectedCaseId) {
     selectedCases = cases.filter((testCase) => testCase.id === selectedCaseId);
     if (selectedCases.length === 0) {

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readOption } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -17,8 +18,8 @@ const textReportPath = path.join(outputDir, "batch-load-report.md");
 const args = process.argv.slice(2);
 const listOnly = args.includes("--list");
 const useStaticEnumeration = args.includes("--static-enumeration");
-const selectedCaseId = readOption("--case");
-const timeoutMs = Number(readOption("--timeout-ms") ?? 180_000);
+const selectedCaseId = readOption(args, "--case");
+const timeoutMs = Number(readOption(args, "--timeout-ms") ?? 180_000);
 
 const loaderMap = {
   ".gltf": "GLTFLoader",
@@ -41,16 +42,6 @@ const loaderMap = {
   ".dds": "DDSLoader",
   ".ktx2": "KTX2Loader",
 };
-
-function readOption(name) {
-  const index = args.indexOf(name);
-  if (index === -1) return null;
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`);
-  }
-  return value;
-}
 
 function normalizeRepoPath(filePath) {
   return path.relative(repoRoot, filePath).replace(/\\/g, "/");

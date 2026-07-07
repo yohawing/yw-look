@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readOption } from "./cliArgs.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -33,13 +34,13 @@ const optionalLoaderPackages = {
 const args = process.argv.slice(2);
 const listOnly = args.includes("--list");
 const privateMode = args.includes("--private");
-const catalogOption = readOption("--catalog");
+const catalogOption = readOption(args, "--catalog");
 const catalogPath =
   catalogOption === null
     ? defaultCatalogPath
     : path.resolve(repoRoot, catalogOption);
-const selectedCaseId = readOption("--case");
-const timeoutOption = readOption("--timeout-ms");
+const selectedCaseId = readOption(args, "--case");
+const timeoutOption = readOption(args, "--timeout-ms");
 const timeoutMs = timeoutOption === null ? null : Number(timeoutOption);
 const reportStem =
   path.resolve(catalogPath) === path.resolve(defaultCatalogPath)
@@ -66,16 +67,6 @@ const usage = `usage:
 
 Runs fixture catalog cases through the real shot/check loader path and writes
 artifacts/logs/fixture-regression-report[.<catalog>].{json,md,html}.`;
-
-function readOption(name) {
-  const index = args.indexOf(name);
-  if (index === -1) return null;
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`);
-  }
-  return value;
-}
 
 function normalizeRepoPath(filePath) {
   return path.relative(repoRoot, filePath).replace(/\\/g, "/");
