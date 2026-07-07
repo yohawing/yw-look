@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { ISSUE_REPORT_URL } from "../../lib/reporting";
 import { DiagnosticsCard } from "../DiagnosticsCard";
 import type { ResourceDiagnosticsSnapshot } from "../../lib/diagnostics";
 
@@ -128,6 +135,45 @@ describe("DiagnosticsCard", () => {
     expect(report).toContain(
       "Diagnostics log: C:/logs/yw-look/diagnostics.log",
     );
+  });
+
+  it("keeps Copy Diagnostics adjacent to Report Issue", async () => {
+    const { container } = render(
+      <DiagnosticsCard
+        processMemoryMetrics={null}
+        resourceDiagnostics={null}
+      />,
+    );
+
+    const actions = container.querySelector(".card-actions");
+    expect(actions).toBeTruthy();
+    const actionBar = within(actions as HTMLElement);
+    expect(
+      await actionBar.findByRole("button", { name: "Copy Diagnostics" }),
+    ).toBeTruthy();
+    expect(
+      actionBar.getByRole("button", { name: "Report Issue" }),
+    ).toBeTruthy();
+  });
+
+  it("opens the bug-report template when Report Issue is clicked", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { findByRole, getByRole } = render(
+      <DiagnosticsCard
+        processMemoryMetrics={null}
+        resourceDiagnostics={null}
+      />,
+    );
+
+    await findByRole("button", { name: "Copy Diagnostics" });
+    fireEvent.click(getByRole("button", { name: "Report Issue" }));
+
+    expect(openSpy).toHaveBeenCalledWith(
+      ISSUE_REPORT_URL,
+      "_blank",
+      "noopener",
+    );
+    expect(ISSUE_REPORT_URL).toContain("template=bug_report.yml");
   });
 
   it("renders process memory metrics when available", () => {

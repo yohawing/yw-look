@@ -3,7 +3,7 @@ import type { BackendCapabilities } from "./usd";
 import type { OptionalLoaderPackStatus } from "../types/viewer";
 
 export const ISSUE_REPORT_URL =
-  "https://github.com/yohawing/yw-look/issues/new";
+  "https://github.com/yohawing/yw-look/issues/new?template=bug_report.yml";
 
 export function collectGpuRenderer(): string {
   if (typeof document === "undefined") {

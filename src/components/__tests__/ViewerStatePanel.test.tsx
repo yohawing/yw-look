@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import { ISSUE_REPORT_URL } from "../../lib/reporting";
 import { ViewerStatePanel } from "../ViewerStatePanel";
 
 const mocks = vi.hoisted(() => ({
@@ -152,6 +153,46 @@ describe("ViewerStatePanel", () => {
     expect(getByRole("button", { name: "Copy Details" })).toBeTruthy();
     expect(getByRole("button", { name: "Open Logs" })).toBeTruthy();
     expect(getByRole("button", { name: "Report Issue" })).toBeTruthy();
+  });
+
+  it("keeps Copy Details adjacent to Report Issue in reportable errors", () => {
+    const { container, getByRole } = render(
+      <ViewerStatePanel
+        detailMessage="USD task join error: task panicked"
+        mode="loadFailed"
+      />,
+    );
+
+    const actions = container.querySelector(".viewer-error-actions");
+    expect(actions).toBeTruthy();
+    const actionBar = within(actions as HTMLElement);
+    expect(
+      actionBar.getByRole("button", { name: "Copy Details" }),
+    ).toBeTruthy();
+    expect(
+      actionBar.getByRole("button", { name: "Report Issue" }),
+    ).toBeTruthy();
+    expect(getByRole("button", { name: "Copy Details" })).toBeTruthy();
+    expect(getByRole("button", { name: "Report Issue" })).toBeTruthy();
+  });
+
+  it("opens the bug-report template when Report Issue is clicked", () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { getByRole } = render(
+      <ViewerStatePanel
+        detailMessage="USD task join error: task panicked"
+        mode="loadFailed"
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Report Issue" }));
+
+    expect(openSpy).toHaveBeenCalledWith(
+      ISSUE_REPORT_URL,
+      "_blank",
+      "noopener",
+    );
+    expect(ISSUE_REPORT_URL).toContain("template=bug_report.yml");
   });
 
   it("copies a diagnostic report with viewer state and error detail", async () => {
