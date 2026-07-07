@@ -33,6 +33,9 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: NSIS loader pack hook check
+        run: npm run check:nsis-loader-packs
+
       - name: Unit tests (Vitest)
         run: npm run test
 

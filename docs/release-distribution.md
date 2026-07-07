@@ -322,6 +322,50 @@ workflow が Windows bundle をビルドし、GitHub Release に成果物を添�
 - updater 用 artifact
 - `latest.json`
 
+## NSIS Loader Pack 実機確認（Windows）
+
+v0.3 では Windows NSIS インストーラーに Optional Loader Pack の選択ページを含める。
+リリース前に loaders overlay 付き bundle を作成し、MMD / Gaussian Splatting の初期
+インストール選択が実際に反映されることを確認する。
+
+事前の静的確認:
+
+```powershell
+npm run check:nsis-loader-packs
+```
+
+bundle 作成:
+
+```powershell
+npm run bundle:win:loaders
+```
+
+確認対象:
+
+1. `src-tauri/target/release/bundle/nsis/` に `setup.exe` が生成されること
+2. 対話インストールで Optional Loader Packs ページが表示されること
+3. MMD / Gaussian Splatting の checkbox が表示されること
+4. 両方 ON でインストールした後、次の manifest が存在すること
+
+```powershell
+Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\mmd\manifest.json"
+Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\gaussian-splat\manifest.json"
+```
+
+5. 両方 OFF で再インストールした後、manifest が削除され、各 pack directory に
+   `.removed` marker が残ること
+
+```powershell
+Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\mmd\.removed"
+Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\gaussian-splat\.removed"
+```
+
+補足:
+
+- `src-tauri/tauri.windows.loaders.json` は NSIS hook を有効化する overlay である。
+- GitHub Release workflow の Windows build もこの overlay を使う。
+- サイレントインストールと updater の `/P` 経路では pack 選択ページを表示しない。
+
 ## ローカル更新テストフロー（Windows）
 
 これは開発中だけ使う手順です。

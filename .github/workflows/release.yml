@@ -35,7 +35,7 @@ jobs:
         include:
           - platform: windows-x86_64
             runner: windows-latest
-            args: --features flip-compare --config src-tauri/tauri.windows.json
+            args: --features flip-compare --config src-tauri/tauri.windows.json --config src-tauri/tauri.windows.loaders.json
           - platform: macos-aarch64
             runner: macos-14
             target: aarch64-apple-darwin
@@ -129,6 +129,10 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Verify NSIS loader pack hooks (Windows)
+        if: runner.os == 'Windows'
+        run: npm run check:nsis-loader-packs
 
       # Refuse to publish a tagged macOS release without the Developer
       # ID + notarization secrets. The base tauri.conf.json intentionally
