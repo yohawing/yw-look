@@ -21,12 +21,9 @@ const defaultMainBinary = path.join(
   "release",
   "yw-look.exe",
 );
-const reportPath = path.join(
-  repoRoot,
-  "artifacts",
-  "logs",
-  "win-authenticode-report.json",
-);
+const reportDir = path.join(repoRoot, "artifacts", "logs");
+const reportPath = path.join(reportDir, "win-authenticode-report.json");
+const markdownReportPath = path.join(reportDir, "win-authenticode-report.md");
 const smartScreenNote =
   "SmartScreen reputation is not proven by Authenticode alone. Verify SmartScreen manually on a clean Windows environment and record the result in release notes.";
 
@@ -44,10 +41,15 @@ Environment:
   YW_LOOK_WIN_SIGN_CHECK_ROOT       Alternate bundle root. Defaults to src-tauri/target/release/bundle.
   YW_LOOK_WIN_SIGN_CHECK_ARTIFACTS  Comma-separated explicit artifact paths.
 
+Outputs (Windows default run):
+  artifacts/logs/win-authenticode-report.json   Machine-readable audit evidence.
+  artifacts/logs/win-authenticode-report.md     Release-log draft for CHANGELOG / GitHub Release notes.
+                                                SmartScreen is not verified by this script.
+
 Modes:
-  default           Write artifacts/logs/win-authenticode-report.json and exit 0 even for NotSigned artifacts.
+  default           Write JSON and Markdown reports; exit 0 even for NotSigned artifacts.
   --require-signed  Exit 1 unless every discovered artifact has Authenticode Status Valid.
-  --json            Print the JSON report only.`);
+  --json            Write JSON and Markdown reports; print JSON report only to stdout.`);
 }
 
 function readJson(filePath) {
@@ -232,9 +234,104 @@ function buildReport(artifacts) {
   };
 }
 
-function writeReport(report) {
-  ensureDir(path.dirname(reportPath));
+function formatCommandUsed() {
+  const flags = [];
+  if (requireSigned) {
+    flags.push("--require-signed");
+  }
+  if (jsonOnly) {
+    flags.push("--json");
+  }
+  const flagSuffix = flags.length > 0 ? ` -- ${flags.join(" ")}` : "";
+  return `npm run check:win-authenticode${flagSuffix}`;
+}
+
+function deriveVerificationStatus(report) {
+  if (report.skipped) {
+    return "not verified";
+  }
+  return report.summary.valid === report.summary.total &&
+    report.summary.total > 0
+    ? "verified"
+    : "not verified";
+}
+
+function buildMarkdownReport(report) {
+  const commandUsed = formatCommandUsed();
+  const status = deriveVerificationStatus(report);
+  const lines = [
+    "# Windows Authenticode audit (release log draft)",
+    "",
+    "> Draft for `CHANGELOG.md` / GitHub Release notes. Copy the **Windows signing and SmartScreen** section into the release entry.",
+    "> SmartScreen is **not** verified by this script.",
+    "",
+    `- **Timestamp**: ${report.timestamp}`,
+    `- **Command**: \`${commandUsed}\``,
+    `- **JSON report**: \`${toRelative(reportPath)}\``,
+    `- **Markdown report**: \`${toRelative(markdownReportPath)}\``,
+    "",
+    "## Release note draft",
+    "",
+    "### Windows signing and SmartScreen",
+    "",
+    `- Status: ${status}`,
+    `- Command: \`${commandUsed}\``,
+  ];
+
+  if (report.skipped) {
+    lines.push(`- Skipped: ${report.reason}`);
+  } else {
+    lines.push(
+      `- Summary: ${report.summary.valid} valid, ${report.summary.unsigned} unsigned, ${report.summary.invalid} invalid (${report.summary.total} total)`,
+    );
+    lines.push("- Artifacts:");
+    for (const artifact of report.artifacts) {
+      const details = [artifact.status];
+      if (artifact.signer) {
+        details.push(`signer=${artifact.signer}`);
+      }
+      if (artifact.timestamped) {
+        details.push("timestamped=yes");
+        if (artifact.timeStamper) {
+          details.push(`timeStamper=${artifact.timeStamper}`);
+        }
+      }
+      lines.push(`  - \`${artifact.path}\`: ${details.join(", ")}`);
+    }
+  }
+
+  lines.push(
+    "- SmartScreen: not verified by this script — manual verification on a clean Windows environment is required before release",
+    `- JSON report: \`${toRelative(reportPath)}\``,
+    "",
+    "## Artifact details",
+    "",
+  );
+
+  if (report.skipped || report.artifacts.length === 0) {
+    lines.push("_No artifacts audited._", "");
+  } else {
+    lines.push(
+      "| Path | Authenticode status | Signer | Timestamped | TimeStamper |",
+      "| ---- | ------------------- | ------ | ----------- | ----------- |",
+    );
+    for (const artifact of report.artifacts) {
+      lines.push(
+        `| \`${artifact.path}\` | ${artifact.status} | ${artifact.signer ?? ""} | ${artifact.timestamped ? "yes" : "no"} | ${artifact.timeStamper ?? ""} |`,
+      );
+    }
+    lines.push("");
+  }
+
+  lines.push("## SmartScreen policy", "", smartScreenNote, "");
+
+  return `${lines.join("\n")}\n`;
+}
+
+function writeReports(report) {
+  ensureDir(reportDir);
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  fs.writeFileSync(markdownReportPath, buildMarkdownReport(report));
 }
 
 function printHumanSummary(report) {
@@ -253,7 +350,8 @@ function printHumanSummary(report) {
       `- ${artifact.path}: ${artifact.status}${timestamped}${signer}`,
     );
   }
-  console.log(`Report: ${toRelative(reportPath)}`);
+  console.log(`JSON report: ${toRelative(reportPath)}`);
+  console.log(`Markdown report: ${toRelative(markdownReportPath)}`);
 }
 
 function main() {
@@ -291,7 +389,7 @@ function main() {
   }
 
   const report = buildReport([...new Set(artifacts)]);
-  writeReport(report);
+  writeReports(report);
 
   if (jsonOnly) {
     console.log(JSON.stringify(report, null, 2));

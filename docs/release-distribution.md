@@ -214,7 +214,7 @@ npm run release:notes -- --tag v0.2.2 --output release-body.md
 ### Windows signing and SmartScreen
 
 - Authenticode 署名の有無と検証コマンド結果（例: `Get-AuthenticodeSignature` の `Status`）
-- `npm run check:win-authenticode` の summary と `artifacts/logs/win-authenticode-report.json` の対象 artifact / status
+- `npm run check:win-authenticode` の summary、`artifacts/logs/win-authenticode-report.json` の対象 artifact / status、および `artifacts/logs/win-authenticode-report.md` の release-log draft（`### Windows signing and SmartScreen` 節を `CHANGELOG.md` に貼る）
 - SmartScreen の挙動（警告なし / 警告ありと対策 / 未検証）または未検証理由
 - 対象 artifact 名（通常は NSIS `setup.exe` と updater 用 `.exe`）
 
@@ -441,9 +441,13 @@ Windows の発行元表示と SmartScreen 対策では Authenticode 署名を確
 npm run check:win-authenticode
 ```
 
-このコマンドは現在の Windows bundle を `Get-AuthenticodeSignature` で確認し、
-`artifacts/logs/win-authenticode-report.json` に監査ログを出します。開発用の
-未署名 bundle では `Status: NotSigned` を記録しつつ exit 0 で終わります。
+このコマンドは現在の Windows bundle を `Get-AuthenticodeSignature` で確認し、次の 2 つを出力します。
+
+- `artifacts/logs/win-authenticode-report.json` — 機械可読な監査証跡
+- `artifacts/logs/win-authenticode-report.md` — リリースノート用の下書き（`### Windows signing and SmartScreen` 節を `CHANGELOG.md` または GitHub Release body にコピーする）
+
+開発用の未署名 bundle では `Status: NotSigned` を記録しつつ exit 0 で終わります。
+Markdown 下書きも `Status: not verified` として同じ事実を残します。
 GitHub Actions の release workflow でも Windows build 後に同じ監査を実行し、
 `win-authenticode-report-<tag>-windows-x86_64` artifact として JSON report を残します。
 この CI 監査は本番 Authenticode 署名が整うまでは非 gate です。
@@ -454,10 +458,13 @@ npm run check:win-authenticode -- --require-signed
 ```
 
 `--require-signed` は対象 artifact がすべて `Status: Valid` でない場合に失敗します。
-SmartScreen の警告有無はこの script では自動判定できません。OV / EV 証明書、
+`--json` は stdout を JSON のみにし、Markdown は stdout に出しません（ファイル出力は通常どおり行われます）。
+
+SmartScreen の警告有無はこの script では自動判定できません。Markdown 下書きにも
+`SmartScreen: not verified by this script` と明記されます。OV / EV 証明書、
 タイムスタンプ、配布実績、初回リリース時の reputation で挙動が変わるため、
 公開 Release 後にクリーンな Windows 環境で手動確認し、結果または未確認理由を
-release note に残します。
+release note に追記します。
 
 ### 4. ローカル update feed を作る
 
