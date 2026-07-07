@@ -9,11 +9,17 @@ export function runChildProcess(command, args, options = {}) {
     forwardStdout = false,
     forwardStderr = false,
     signalError = true,
+    windowsHide,
   } = options;
   const startedAt = performance.now();
 
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, env, shell });
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      shell,
+      ...(windowsHide !== undefined ? { windowsHide } : {}),
+    });
     let stdout = "";
     let stderr = "";
     let settled = false;

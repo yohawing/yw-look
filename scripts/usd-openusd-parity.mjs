@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readOption, readRepeatedOption } from "./cliArgs.mjs";
+import { runChildProcess } from "./processRunner.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -307,61 +307,12 @@ async function runAppCheck(assetPath) {
 }
 
 function runProcess(command, commandArgs, options = {}) {
-  const startedAt = performance.now();
-  const timeout = options.timeout ?? 180_000;
-  return new Promise((resolve) => {
-    const child = spawn(command, commandArgs, {
-      cwd: options.cwd ?? repoRoot,
-      env: options.env ?? process.env,
-      shell: false,
-      windowsHide: true,
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill("SIGKILL");
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: `timed out after ${timeout}ms`,
-      });
-    }, timeout);
-
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: error.message,
-      });
-    });
-    child.on("exit", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        exitCode: code,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: signal ? `terminated by ${signal}` : null,
-      });
-    });
+  return runChildProcess(command, commandArgs, {
+    cwd: options.cwd ?? repoRoot,
+    env: options.env ?? process.env,
+    shell: false,
+    windowsHide: true,
+    timeoutMs: options.timeout ?? 180_000,
   });
 }
 
