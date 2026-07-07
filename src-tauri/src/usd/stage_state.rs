@@ -24,6 +24,8 @@ use std::sync::{
     Arc, Mutex,
 };
 
+use crate::shared::lock_or_recover;
+
 use super::types::StageLoadPolicy;
 
 /// An opaque integer token the frontend uses to identify an open stage
@@ -92,7 +94,7 @@ impl StageRegistry {
     /// Inserts a new session and returns its handle.
     pub fn insert(&self, session: OpenSession) -> StageSessionHandle {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        let mut map = self.sessions.lock().expect("StageRegistry lock poisoned");
+        let mut map = lock_or_recover(&self.sessions, "StageRegistry");
         map.insert(id, Arc::new(session));
         StageSessionHandle(id)
     }
@@ -101,13 +103,13 @@ impl StageRegistry {
     /// does not exist. In-flight operations that already cloned the `Arc`
     /// keep the session alive until they finish; future lookups fail.
     pub fn remove(&self, handle: StageSessionHandle) -> Option<Arc<OpenSession>> {
-        let mut map = self.sessions.lock().expect("StageRegistry lock poisoned");
+        let mut map = lock_or_recover(&self.sessions, "StageRegistry");
         map.remove(&handle.0)
     }
 
     /// Returns a cloned session handle for `handle`.
     pub fn get(&self, handle: StageSessionHandle) -> Option<Arc<OpenSession>> {
-        let map = self.sessions.lock().expect("StageRegistry lock poisoned");
+        let map = lock_or_recover(&self.sessions, "StageRegistry");
         map.get(&handle.0).cloned()
     }
 
@@ -123,10 +125,15 @@ impl StageRegistry {
     /// Returns the number of open sessions.
     #[cfg(test)]
     pub fn len(&self) -> usize {
-        self.sessions
-            .lock()
-            .expect("StageRegistry lock poisoned")
-            .len()
+        lock_or_recover(&self.sessions, "StageRegistry").len()
+    }
+
+    /// Panics while holding the registry map lock so unit tests can verify
+    /// poison recovery without exposing the internal `Mutex`.
+    #[cfg(all(test, feature = "backend-openusd-rs"))]
+    pub(super) fn poison_map_lock_for_test(&self) -> ! {
+        let _guard = self.sessions.lock().expect("test setup lock");
+        panic!("intentional StageRegistry map lock poison");
     }
 }
 
@@ -190,5 +197,21 @@ mod tests {
             .expect("active session exists");
 
         assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn registry_recovers_from_poisoned_map_lock() {
+        let registry = Arc::new(StageRegistry::new());
+        let registry_for_poison = Arc::clone(&registry);
+        let poison_thread =
+            std::thread::spawn(move || registry_for_poison.poison_map_lock_for_test());
+        assert!(
+            poison_thread.join().is_err(),
+            "poison helper thread should panic"
+        );
+
+        assert_eq!(registry.len(), 0);
+        assert!(registry.get(StageSessionHandle(1)).is_none());
+        assert!(registry.remove(StageSessionHandle(1)).is_none());
     }
 }
