@@ -4,11 +4,9 @@ import path from "node:path";
 
 const ROOT = process.cwd();
 const SRC_DIR = path.join(ROOT, "src");
-const PACKS_DIR = path.join(SRC_DIR, "packs");
-const PACKS_INDEX = path.join(PACKS_DIR, "index.ts");
-const SHARED_PACK_HELPERS = new Set([
-  normalize(path.join(PACKS_DIR, "abort.ts")),
-]);
+const VIEWER_DIR = path.join(SRC_DIR, "viewer");
+const VIEWPORT_DIR = path.join(SRC_DIR, "viewport");
+const COMPONENTS_DIR = path.join(SRC_DIR, "components");
 
 const IMPORT_RE =
   /\b(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\s+from\s+)?["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)/gms;
@@ -52,6 +50,13 @@ function isInside(child, parent) {
   );
 }
 
+function isTestFile(filePath) {
+  return (
+    /(?:^|[\\/])__tests__[\\/]/.test(filePath) ||
+    /\.(test|spec)\./.test(filePath)
+  );
+}
+
 function stripQuery(specifier) {
   const queryIndex = specifier.indexOf("?");
   return queryIndex >= 0 ? specifier.slice(0, queryIndex) : specifier;
@@ -91,81 +96,42 @@ async function resolveRelativeImport(importer, specifier) {
   return base;
 }
 
-function packageRootFor(filePath) {
-  if (!isInside(filePath, PACKS_DIR)) return null;
-  const relative = path.relative(PACKS_DIR, filePath).split(path.sep);
-  return relative[0] ? path.join(PACKS_DIR, relative[0]) : null;
-}
-
-function isTestFile(filePath) {
-  return (
-    /(?:^|[\\/])__tests__[\\/]/.test(filePath) ||
-    /\.(test|spec)\./.test(filePath)
-  );
-}
-
-function allowedPackToCoreTarget(target) {
-  const relative = rel(target);
-  return (
-    relative.startsWith("src/types/") ||
-    relative.startsWith("src/lib/") ||
-    relative === "src/viewer/index.ts" ||
-    relative === "src/viewer/index.tsx"
-  );
-}
-
-function checkImport({ importer, specifier, targets }) {
+function checkImport({ importer, specifier, target }) {
   const violations = [];
-  if (normalize(importer) === normalize(PACKS_INDEX)) {
+  const normalizedImporter = normalize(importer);
+  if (!isInside(normalizedImporter, VIEWER_DIR)) {
     return violations;
   }
-  const importerInPacks = isInside(importer, PACKS_DIR);
-  const importerPackRoot = packageRootFor(importer);
 
-  const target = Array.isArray(targets) ? targets[0] : targets;
-  if (!target || !isInside(target, SRC_DIR)) return violations;
-
-  const targetInPacks = isInside(target, PACKS_DIR);
-  if (
-    !importerInPacks &&
-    targetInPacks &&
-    normalize(target) !== normalize(PACKS_INDEX)
-  ) {
+  if (specifier === "react" || specifier.startsWith("react/")) {
     violations.push({
       importer,
       specifier,
-      message: "core must import packs only through src/packs/index.ts",
+      message: "viewer must not import React",
     });
     return violations;
   }
 
-  if (!importerInPacks || !importerPackRoot) return violations;
-  if (SHARED_PACK_HELPERS.has(normalize(target))) {
-    return violations;
-  }
-  if (targetInPacks) {
-    const targetPackRoot = packageRootFor(target);
-    if (
-      targetPackRoot &&
-      normalize(targetPackRoot) !== normalize(importerPackRoot)
-    ) {
-      violations.push({
-        importer,
-        specifier,
-        message: "pack internals must not import another pack directly",
-      });
-    }
+  if (!target || !isInside(target, SRC_DIR)) {
     return violations;
   }
 
-  if (!allowedPackToCoreTarget(target)) {
+  if (isInside(target, VIEWPORT_DIR)) {
     violations.push({
       importer,
       specifier,
-      message:
-        "pack must import core through src/viewer/index.ts, src/types, or src/lib",
+      message: "viewer must not import viewport modules",
     });
   }
+
+  if (isInside(target, COMPONENTS_DIR)) {
+    violations.push({
+      importer,
+      specifier,
+      message: "viewer must not import UI components",
+    });
+  }
+
   return violations;
 }
 
@@ -177,9 +143,8 @@ async function checkFiles(files) {
     for (const match of source.matchAll(IMPORT_RE)) {
       const specifier = match[1] ?? match[2];
       if (!specifier) continue;
-      const targets = await resolveRelativeImport(file, specifier);
-      if (!targets) continue;
-      violations.push(...checkImport({ importer: file, specifier, targets }));
+      const target = await resolveRelativeImport(file, specifier);
+      violations.push(...checkImport({ importer: file, specifier, target }));
     }
   }
   return violations;
@@ -188,45 +153,33 @@ async function checkFiles(files) {
 function runSelfTest() {
   const cases = [
     {
-      importer: path.join(SRC_DIR, "app", "App.tsx"),
-      specifier: "../packs/mmd-loader-pack/pack",
-      targets: [path.join(PACKS_DIR, "mmd-loader-pack", "pack.ts")],
+      importer: path.join(VIEWER_DIR, "loaders.ts"),
+      specifier: "react",
+      target: null,
       expectViolation: true,
     },
     {
-      importer: path.join(SRC_DIR, "app", "App.tsx"),
-      specifier: "../packs",
-      targets: [PACKS_INDEX],
-      expectViolation: false,
-    },
-    {
-      importer: path.join(PACKS_DIR, "mmd-loader-pack", "pack.ts"),
-      specifier: "../abort",
-      targets: [path.join(PACKS_DIR, "abort.ts")],
-      expectViolation: false,
-    },
-    {
-      importer: path.join(PACKS_DIR, "mmd-loader-pack", "pack.ts"),
-      specifier: "../../viewer/scene",
-      targets: [path.join(SRC_DIR, "viewer", "scene.ts")],
+      importer: path.join(VIEWER_DIR, "scene.ts"),
+      specifier: "../viewport/selection",
+      target: path.join(VIEWPORT_DIR, "selection.ts"),
       expectViolation: true,
     },
     {
-      importer: path.join(PACKS_DIR, "mmd-loader-pack", "pack.ts"),
-      specifier: "../../viewer",
-      targets: [path.join(SRC_DIR, "viewer", "index.ts")],
-      expectViolation: false,
-    },
-    {
-      importer: path.join(PACKS_DIR, "mmd-loader-pack", "pack.ts"),
-      specifier: "../../components/CurrentFileCard",
-      targets: [path.join(SRC_DIR, "components", "CurrentFileCard.tsx")],
+      importer: path.join(VIEWER_DIR, "metadata.ts"),
+      specifier: "../components/UsdInspectorCard",
+      target: path.join(COMPONENTS_DIR, "UsdInspectorCard.tsx"),
       expectViolation: true,
     },
     {
-      importer: path.join(PACKS_DIR, "mmd-loader-pack", "pack.ts"),
-      specifier: "../../types/format-pack",
-      targets: [path.join(SRC_DIR, "types", "format-pack.ts")],
+      importer: path.join(VIEWER_DIR, "scene.ts"),
+      specifier: "../types/viewer",
+      target: path.join(SRC_DIR, "types", "viewer.ts"),
+      expectViolation: false,
+    },
+    {
+      importer: path.join(SRC_DIR, "viewport", "previewLoadMount.ts"),
+      specifier: "../viewer",
+      target: path.join(VIEWER_DIR, "index.ts"),
       expectViolation: false,
     },
   ];
@@ -244,20 +197,20 @@ function runSelfTest() {
   }
 
   if (failures.length > 0) {
-    console.error("format pack boundary self-test failed:");
+    console.error("viewer/viewport boundary self-test failed:");
     for (const failure of failures) console.error(`  - ${failure}`);
     process.exit(1);
   }
-  console.log("format pack boundary self-test passed");
+  console.log("viewer/viewport boundary self-test passed");
 }
 
 if (process.argv.includes("--self-test")) {
   runSelfTest();
 } else {
-  const files = await walk(SRC_DIR);
+  const files = await walk(VIEWER_DIR);
   const violations = await checkFiles(files);
   if (violations.length > 0) {
-    console.error("format pack boundary violations:");
+    console.error("viewer/viewport boundary violations:");
     for (const violation of violations) {
       console.error(
         `  - ${rel(violation.importer)} imports "${violation.specifier}": ${violation.message}`,
@@ -265,5 +218,7 @@ if (process.argv.includes("--self-test")) {
     }
     process.exit(1);
   }
-  console.log(`format pack boundaries verified (${files.length} source files)`);
+  console.log(
+    `viewer/viewport boundaries verified (${files.length} viewer files)`,
+  );
 }

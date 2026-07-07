@@ -278,12 +278,12 @@ async function captureSnapshots(testCases) {
         await page.goto(snapshotUrl(testCase), { waitUntil: "networkidle" });
         await page.waitForFunction(
           (expectedState) =>
-            document.documentElement.dataset.viewportStateSnapshotReady ===
-            expectedState,
+            globalThis.document.documentElement.dataset
+              .viewportStateSnapshotReady === expectedState,
           testCase.state,
           { timeout: 15_000 },
         );
-        await page.evaluate(() => document.fonts.ready);
+        await page.evaluate(() => globalThis.document.fonts.ready);
         const harness = page.locator(".viewport-state-snapshot-harness");
         await harness.screenshot({ path: actualPath });
       }
