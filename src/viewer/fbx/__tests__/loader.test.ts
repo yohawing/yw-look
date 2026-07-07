@@ -1,11 +1,46 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BufferGeometry, Mesh, MeshStandardMaterial, Texture } from "three";
+import {
+  BufferGeometry,
+  Group,
+  Mesh,
+  MeshStandardMaterial,
+  Texture,
+} from "three";
+import { FBXLoader } from "../../../vendor/FBXLoaderPatched.js";
 import { formatMissingTextureWarnings } from "../../textureWarnings";
 import {
   applyMissingTextureMaterialFallback,
   registerFbxTextureMaterialFallbacks,
   resolveMissingTextureLabel,
 } from "../loader";
+
+function readFixtureArrayBuffer(...segments: string[]): ArrayBuffer {
+  const bytes = readFileSync(resolve(process.cwd(), ...segments));
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+describe("FBX animated public fixture", () => {
+  it("parses animated-triangle.fbx with animation metadata", () => {
+    const object = new FBXLoader().parse(
+      readFixtureArrayBuffer("tests/fixtures/models/animated-triangle.fbx"),
+      "",
+    ) as Group;
+
+    expect(object).toBeTruthy();
+    expect(object.type).toBe("Group");
+    expect(object.animations?.length).toBeGreaterThan(0);
+
+    const clip = object.animations![0];
+    expect(clip.name).toBe("FixtureTake");
+    expect(clip.duration).toBeGreaterThan(0);
+    expect(clip.tracks.length).toBeGreaterThan(0);
+  });
+});
 
 describe("FBX missing texture fallback", () => {
   it("removes failed texture slots from registered materials", () => {

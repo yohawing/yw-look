@@ -6,6 +6,7 @@
  *
  * Generates:
  *   textures/1x1.png, textures/1x1.jpg
+ *   models/animated-triangle.fbx
  *   broken/* error-matrix fixtures for B8 (beta error visualization)
  */
 
@@ -16,9 +17,14 @@ import { deflateSync } from "zlib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const texturesDir = join(__dirname, "textures");
+const modelsDir = join(__dirname, "models");
 const brokenDir = join(__dirname, "broken");
 mkdirSync(texturesDir, { recursive: true });
+mkdirSync(modelsDir, { recursive: true });
 mkdirSync(brokenDir, { recursive: true });
+
+// FBX KTime units per second (Three.js FBXLoader convention).
+const FBX_KTIME_PER_SECOND = 46186158000;
 
 // -----------------------------------------------------------------------
 // PNG helpers
@@ -158,6 +164,164 @@ function writeText(path, text) {
 function writeBinary(path, data) {
   writeFileSync(path, data);
   console.log(`Written: ${path}`);
+}
+
+// -----------------------------------------------------------------------
+// FBX helpers (ASCII 7.4, minimal animated triangle)
+// -----------------------------------------------------------------------
+
+function fbxArrayProperty(name, values, indentLevel = 2) {
+  const pad = "\t".repeat(indentLevel);
+  const inner = "\t".repeat(indentLevel + 1);
+  return `${pad}${name}: *${values.length} {\n${inner}a: ${values.join(",")}\n${pad}}`;
+}
+
+function makeAnimatedTriangleFbxAscii() {
+  const oneSecond = FBX_KTIME_PER_SECOND;
+  const ids = {
+    model: 100,
+    geometry: 101,
+    animStack: 200,
+    animLayer: 201,
+    curveNodeT: 210,
+    curveX: 211,
+    curveY: 212,
+    curveZ: 213,
+  };
+
+  const keyTimes = [0, oneSecond];
+  const keyTimesBlock = fbxArrayProperty("KeyTime", keyTimes, 2);
+  const curveXValues = fbxArrayProperty("KeyValueFloat", [0, 0], 2);
+  const curveYValues = fbxArrayProperty("KeyValueFloat", [0, 1], 2);
+  const curveZValues = fbxArrayProperty("KeyValueFloat", [0, 0], 2);
+
+  return `; FBX 7.4.0 project file
+; yw-look fixture: minimal animated triangle (_generate.mjs)
+
+FBXHeaderExtension: {
+\tFBXHeaderVersion: 1003
+\tFBXVersion: 7400
+\tCreator: "yw-look fixture generator"
+}
+
+GlobalSettings: {
+\tVersion: 1000
+\tProperties70: {
+\t\tP: "UpAxis", "int", "Integer", "",1
+\t\tP: "FrontAxis", "int", "Integer", "",2
+\t\tP: "CoordAxis", "int", "Integer", "",0
+\t\tP: "UnitScaleFactor", "double", "Number", "",1
+\t}
+}
+
+Documents: {
+\tCount: 1
+\tDocument: 1, "", "Scene" {
+\t\tProperties70: {
+\t\t\tP: "ActiveAnimStackName", "KString", "", "", "FixtureTake"
+\t\t}
+\t\tRootNode: 0
+\t}
+}
+
+Definitions: {
+\tVersion: 100
+\tCount: 6
+\tObjectType: "Model" {
+\t\tCount: 1
+\t}
+\tObjectType: "Geometry" {
+\t\tCount: 1
+\t}
+\tObjectType: "AnimationStack" {
+\t\tCount: 1
+\t}
+\tObjectType: "AnimationLayer" {
+\t\tCount: 1
+\t}
+\tObjectType: "AnimationCurveNode" {
+\t\tCount: 1
+\t}
+\tObjectType: "AnimationCurve" {
+\t\tCount: 3
+\t}
+}
+
+Objects: {
+\tGeometry: ${ids.geometry}, "Geometry::Triangle", "Mesh" {
+${fbxArrayProperty("Vertices", [0, 0, 0, 1, 0, 0, 0, 1, 0], 2)}
+${fbxArrayProperty("PolygonVertexIndex", [0, 1, -3], 2)}
+\t\tGeometryVersion: 124
+\t\tLayerElementNormal: 0 {
+\t\t\tVersion: 101
+\t\t\tName: ""
+\t\t\tMappingInformationType: "ByPolygonVertex"
+\t\t\tReferenceInformationType: "Direct"
+${fbxArrayProperty("Normals", [0, 0, 1], 3)}
+\t\t}
+\t\tLayer: 0 {
+\t\t\tVersion: 100
+\t\t\tLayerElement: {
+\t\t\t\tType: "LayerElementNormal"
+\t\t\t\tTypedIndex: 0
+\t\t\t}
+\t\t}
+\t}
+\tModel: ${ids.model}, "Model::AnimatedTriangle", "Mesh" {
+\t\tVersion: 232
+\t\tProperties70: {
+\t\t\tP: "Lcl Translation", "Lcl Translation", "", "A",0,0,0
+\t\t\tP: "Lcl Rotation", "Lcl Rotation", "", "A",0,0,0
+\t\t\tP: "Lcl Scaling", "Lcl Scaling", "", "A",1,1,1
+\t\t}
+\t}
+\tAnimationStack: ${ids.animStack}, "AnimStack::FixtureTake", "" {
+\t\tProperties70: {
+\t\t\tP: "LocalStart", "KTime", "Time", "",0
+\t\t\tP: "LocalStop", "KTime", "Time", "",${oneSecond}
+\t\t}
+\t}
+\tAnimationLayer: ${ids.animLayer}, "AnimLayer::BaseLayer", "" {
+\t}
+\tAnimationCurveNode: ${ids.curveNodeT}, "AnimCurveNode::T", "" {
+\t\tProperties70: {
+\t\t\tP: "d|X", "Number", "", "A",0
+\t\t\tP: "d|Y", "Number", "", "A",0
+\t\t\tP: "d|Z", "Number", "", "A",0
+\t\t}
+\t}
+\tAnimationCurve: ${ids.curveX}, "AnimCurve::X", "" {
+\t\tDefault: 0
+\t\tKeyVer: 4009
+${keyTimesBlock}
+${curveXValues}
+\t}
+\tAnimationCurve: ${ids.curveY}, "AnimCurve::Y", "" {
+\t\tDefault: 0
+\t\tKeyVer: 4009
+${keyTimesBlock}
+${curveYValues}
+\t}
+\tAnimationCurve: ${ids.curveZ}, "AnimCurve::Z", "" {
+\t\tDefault: 0
+\t\tKeyVer: 4009
+${keyTimesBlock}
+${curveZValues}
+\t}
+}
+
+Connections: {
+\tC: "OO",${ids.model},0
+\tC: "OO",${ids.geometry},${ids.model}
+\tC: "OO",${ids.animStack},0
+\tC: "OO",${ids.animLayer},${ids.animStack}
+\tC: "OO",${ids.curveNodeT},${ids.animLayer}
+\tC: "OP",${ids.curveNodeT},${ids.model},"Lcl Translation"
+\tC: "OP",${ids.curveX},${ids.curveNodeT},"d|X"
+\tC: "OP",${ids.curveY},${ids.curveNodeT},"d|Y"
+\tC: "OP",${ids.curveZ},${ids.curveNodeT},"d|Z"
+}
+`;
 }
 
 // -----------------------------------------------------------------------
@@ -371,4 +535,15 @@ writeBinary(
   makeTriangleGlb({ scale: 20000, generator: "yw-look scale-huge fixture" }),
 );
 
-console.log("Done. All fixture textures and B8 broken fixtures generated.");
+// -----------------------------------------------------------------------
+// models/animated-triangle.fbx
+// -----------------------------------------------------------------------
+
+writeText(
+  join(modelsDir, "animated-triangle.fbx"),
+  makeAnimatedTriangleFbxAscii(),
+);
+
+console.log(
+  "Done. Fixture textures, animated FBX, and B8 broken fixtures generated.",
+);

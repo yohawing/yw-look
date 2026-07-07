@@ -63,6 +63,13 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "model-fbx-animated-triangle",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/animated-triangle.fbx",
+      "format": "fbx",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "model-fbx-samba-dancing",
       "category": "valid",
       "path": "samples/assets/fbx/Samba Dancing.fbx",

@@ -11,7 +11,7 @@ tests/fixtures/
 ├── textures/        # テクスチャフォーマット (1×1 pixel)
 ├── broken/          # 壊れた / 切り詰めたファイル (エラーハンドリングテスト用)
 ├── catalog.json     # fixture regression runner の公開カタログ
-├── _generate.mjs    # PNG / JPG を生成する Node スクリプト
+├── _generate.mjs    # PNG / JPG / animated FBX を生成する Node スクリプト
 └── README.md        # このファイル
 ```
 
@@ -19,18 +19,18 @@ tests/fixtures/
 
 ## models/
 
-| ファイル                           | フォーマット                                          | 内容                                       | 由来                                                                 |
-| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------- |
-| `triangle.gltf`                    | glTF 2.0 (JSON + embedded base64)                     | 1 三角形 (頂点 3 + インデックス 3)         | 手書き JSON                                                          |
-| `box-textured.glb`                 | GLB (binary glTF)                                     | 小さい textured box                        | `samples/assets/glb/BoxTextured.glb`                                 |
-| `triangle.obj`                     | Wavefront OBJ (ASCII)                                 | 1 三角形                                   | 手書き ASCII                                                         |
-| `triangle.stl`                     | STL ASCII                                             | 1 三角形、法線付き                         | 手書き ASCII                                                         |
-| `triangle.ply`                     | PLY ASCII 1.0                                         | 1 三角形                                   | 手書き ASCII                                                         |
-| `tiny-pointcloud.ply`              | PLY ASCII 1.0                                         | 4 点の point cloud                         | 手書き ASCII                                                         |
-| `cactus-supersplat-compressed.ply` | PLY binary little endian (SuperSplat compressed 3DGS) | 139,410 splats; classifier regression only | `3DGS_PLY_sample_data`, CC0; credit URL: https://www.steam-studio.jp |
-| `tiny-tetrahedron.dae`             | COLLADA                                               | 1 四面体                                   | `samples/assets/dae/TinyTetrahedron.dae`                             |
-| `Samba Dancing.fbx`                | FBX                                                   | Samba dancing animation sample             | `samples/assets/fbx/Samba Dancing.fbx`                               |
-| `monkey.abc`                       | Alembic (Ogawa)                                       | Blender Suzanne (static)                   | Blender 3.x エクスポート                                             |
+| ファイル                           | フォーマット                                          | 内容                                        | 由来                                                                 |
+| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------- |
+| `triangle.gltf`                    | glTF 2.0 (JSON + embedded base64)                     | 1 三角形 (頂点 3 + インデックス 3)          | 手書き JSON                                                          |
+| `box-textured.glb`                 | GLB (binary glTF)                                     | 小さい textured box                         | `samples/assets/glb/BoxTextured.glb`                                 |
+| `triangle.obj`                     | Wavefront OBJ (ASCII)                                 | 1 三角形                                    | 手書き ASCII                                                         |
+| `triangle.stl`                     | STL ASCII                                             | 1 三角形、法線付き                          | 手書き ASCII                                                         |
+| `triangle.ply`                     | PLY ASCII 1.0                                         | 1 三角形                                    | 手書き ASCII                                                         |
+| `tiny-pointcloud.ply`              | PLY ASCII 1.0                                         | 4 点の point cloud                          | 手書き ASCII                                                         |
+| `cactus-supersplat-compressed.ply` | PLY binary little endian (SuperSplat compressed 3DGS) | 139,410 splats; classifier regression only  | `3DGS_PLY_sample_data`, CC0; credit URL: https://www.steam-studio.jp |
+| `tiny-tetrahedron.dae`             | COLLADA                                               | 1 四面体                                    | `samples/assets/dae/TinyTetrahedron.dae`                             |
+| `animated-triangle.fbx`            | FBX (ASCII 7.4)                                       | 1 三角形 + Y 軸 1 秒の translation クリップ | `node tests/fixtures/_generate.mjs`                                  |
+| `monkey.abc`                       | Alembic (Ogawa)                                       | Blender Suzanne (static)                    | Blender 3.x エクスポート                                             |
 
 ### 手動配置が必要なフォーマット (TODO)
 
@@ -86,7 +86,7 @@ B8 エラー fixture マトリクス（ベータ運用基盤 B1–B7 の検証�
 node tests/fixtures/_generate.mjs
 ```
 
-PNG / JPG と `broken/` 配下の B8 fixture（上表の生成対象）が再生成される。`truncated.gltf` と `garbage.obj` は手書きのため再生成不要。
+PNG / JPG、`models/animated-triangle.fbx`、および `broken/` 配下の B8 fixture（上表の生成対象）が再生成される。`truncated.gltf` と `garbage.obj` は手書きのため再生成不要。
 
 ---
 
