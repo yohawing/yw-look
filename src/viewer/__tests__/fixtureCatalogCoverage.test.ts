@@ -80,12 +80,6 @@ const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
     reason: "samples/private/catalog.json has usdz-toy-biplane",
   },
   {
-    extension: "usd",
-    publicCatalog: false,
-    privateCoverage: "planned",
-    reason: "private USD data exists but is not enrolled in Phase B-1",
-  },
-  {
     extension: "usdc",
     publicCatalog: false,
     privateCoverage: "planned",

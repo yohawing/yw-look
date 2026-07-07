@@ -84,6 +84,13 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "model-usd-tiny",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny.usd",
+      "format": "usd",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "texture-png-1x1",
       "category": "valid-minimal",
       "path": "tests/fixtures/textures/1x1.png",
