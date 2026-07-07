@@ -316,7 +316,7 @@ jobs:
             echo "::error::release notes extraction requires a v* tag ref; got: $tag"
             exit 1
           fi
-          node scripts/extract-release-notes.mjs --tag "$tag" --output release-body.md
+          node scripts/extract-release-notes.mjs --tag "$tag" --check-contract --output release-body.md
           delimiter="YW_LOOK_RELEASE_BODY_$(date +%s)_${RANDOM}"
           {
             echo "body<<$delimiter"

@@ -65,6 +65,7 @@
     "shot:batch": "node scripts/run-shot.mjs shot-batch",
     "shot:check": "node scripts/run-shot.mjs check",
     "release:notes": "node scripts/extract-release-notes.mjs",
+    "release:notes:check": "node scripts/extract-release-notes.mjs --check-contract",
     "update:local:prepare": "node scripts/prepare-local-update-feed.mjs",
     "check:update-feed": "node scripts/check-local-update-feed.mjs",
     "check:win-authenticode": "node scripts/check-win-authenticode.mjs",

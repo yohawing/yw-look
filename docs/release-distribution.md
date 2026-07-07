@@ -117,6 +117,7 @@ macOS:   ~/.tauri/yw-look-dev-pw.key
 - 日付は push 当日の日付にする
 - [リリースノート契約](#リリースノート契約) の必須フィールドを同じエントリ内に含める
 - 公開前に `npm run release:notes -- --tag vX.Y.Z` で GitHub Release body のプレビューを確認する
+- 公開前に `npm run release:notes:check -- --tag vX.Y.Z` で配布確認契約を満たしていることを確認する
 
 ## 3. ドキュメントを更新する
 
@@ -198,7 +199,14 @@ npm run release:notes -- --tag v0.2.2
 
 # ファイルへ書き出し（CI と同じ）
 npm run release:notes -- --tag v0.2.2 --output release-body.md
+
+# 配布確認契約を検証（公開前の必須ゲート。CI の release.yml も同じチェックを実行）
+npm run release:notes:check -- --tag vX.Y.Z
+# または
+npm run release:notes -- --tag vX.Y.Z --check-contract
 ```
+
+`--check-contract` は抽出した release body に次の見出しと実ステータス記載があるか検証する。必須見出しが欠ける、テンプレートの `...` や `verified | not verified` が残る、配布確認の 3 小節に `verified` / `not verified` が無い場合は失敗する。`release.yml` はタグ push 時にこのチェックを通らない限り GitHub Release を公開しない。
 
 抽出対象は `CHANGELOG.md` 先頭付近の `## vX.Y.Z (YYYY-MM-DD)` 見出し直下から、次の `##` 見出し直前まで。Release タイトル（`yw-look vX.Y.Z`）と重複するため、見出し行自体は body に含めない。
 
