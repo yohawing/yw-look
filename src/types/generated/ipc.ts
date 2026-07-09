@@ -143,3 +143,175 @@ export type AssetInspection = {
   previewImplemented: boolean;
   imageDimensions: ImageDimensions | null;
 };
+
+export type BackendCapabilities = {
+  inspect: boolean;
+  geometry: boolean;
+  source: boolean;
+  session: boolean;
+  light: boolean;
+};
+
+export type StageLoadPolicy = "loadAll" | "noPayloads";
+
+export type VariantSetInfo = {
+  primPath: string;
+  setName: string;
+  selection: string | null;
+  variants: Array<string>;
+};
+
+export type VariantSelection = {
+  primPath: string;
+  setName: string;
+  variantName: string;
+};
+
+export type PurposeModes = {
+  render: boolean;
+  proxy: boolean;
+  guide: boolean;
+};
+
+export type ExtractGeometryOptions = {
+  policy: StageLoadPolicy;
+  variantSelections: Array<VariantSelection>;
+  purposeModes: PurposeModes;
+};
+
+export type StageInspection = {
+  path: string;
+  defaultPrim: string | null;
+  upAxis: string | null;
+  metersPerUnit: number | null;
+  timeCodesPerSecond: number | null;
+  framesPerSecond: number | null;
+  startTimeCode: number | null;
+  endTimeCode: number | null;
+  comment: string | null;
+  rootLayerIsBinary: boolean;
+  rootPrims: Array<string>;
+  composedLayers: Array<string>;
+  layers: Array<LayerInfo>;
+  references: Array<CompositionArc>;
+  payloads: Array<CompositionArc>;
+  inherits: Array<CompositionArc>;
+  specializes: Array<CompositionArc>;
+  variantSelectionArcs: Array<CompositionArc>;
+  missingAssets: Array<string>;
+  variantSets: Array<VariantSetInfo>;
+  loadPolicy: StageLoadPolicy;
+};
+
+export type PrimTypeCount = { typeName: string; count: number };
+
+export type StageSummary = {
+  path: string;
+  layerCount: number;
+  rootPrimCount: number;
+  meshCount: number;
+  payloadCount: number;
+  unloadedPayloadCount: number;
+  hasVariants: boolean;
+  primTypeCounts: Array<PrimTypeCount>;
+  totalVertices: number;
+  totalTriangles: number;
+  variantSetCount: number;
+  durationSeconds: number | null;
+  resolvedReferenceCount: number;
+  unresolvedReferenceCount: number;
+  resolvedPayloadCount: number;
+  unresolvedPayloadCount: number;
+  warnings: Array<string>;
+  loadPolicy: StageLoadPolicy;
+};
+
+export type AssetIssue = {
+  code: AssetIssueCode;
+  level: AssetIssueLevel;
+  message: string;
+  detail: string | null;
+  contextPath: string | null;
+};
+
+export type AssetIssueCode =
+  | "broken-reference"
+  | "missing-sub-layer"
+  | "missing-payload"
+  | "suspicious-meters-per-unit";
+
+export type AssetIssueLevel = "warning" | "error";
+
+export type CompositionArcKind =
+  | "reference"
+  | "payload"
+  | "inherits"
+  | "specializes"
+  | "variantSelection"
+  | "over";
+
+export type CompositionArc = {
+  sourcePrim: string;
+  assetPath: string;
+  targetPrim: string;
+  state: CompositionArcState;
+  kind: CompositionArcKind;
+};
+
+export type AttributeInfo = {
+  name: string;
+  typeName: string;
+  valueSummary: string;
+  variability: string;
+  custom: boolean;
+  timeSampleCount: number;
+};
+
+export type RelationshipInfo = { name: string; targets: Array<string> };
+
+export type MetadataEntry = { key: string; valueSummary: string };
+
+export type PrimInspection = {
+  primPath: string;
+  attributes: Array<AttributeInfo>;
+  relationships: Array<RelationshipInfo>;
+  metadata: Array<MetadataEntry>;
+};
+
+export type CompositionArcState = "loaded" | "missing" | "unloaded";
+
+export type LayerInfo = {
+  identifier: string;
+  depth: number;
+  muted: boolean;
+  timeOffset: number;
+  timeScale: number;
+  comment: string | null;
+};
+
+export type ShapingCone = { angle: number; softness: number };
+
+export type UsdLightInfo = {
+  primPath: string;
+  lightKind: string;
+  color: [number, number, number];
+  intensity: number;
+  exposure: number;
+  colorTemperature: number | null;
+  specular: number;
+  diffuse: number;
+  domeTextureFile: string | null;
+  shapingCone: ShapingCone | null;
+};
+
+export type TimeSampleEntry = { time: number; valueSummary: string };
+
+export type AttributeTimeSamples = {
+  primPath: string;
+  attributeName: string;
+  samples: Array<TimeSampleEntry>;
+  totalCount: number;
+  numericMin: number | null;
+  numericMax: number | null;
+  numericMean: number | null;
+};

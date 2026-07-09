@@ -90,6 +90,7 @@ pub(crate) struct PendingUpdateState(pub(crate) Mutex<Option<tauri_plugin_update
 #[derive(Default)]
 pub(crate) struct PendingOpenFiles(pub(crate) Mutex<Vec<PathBuf>>);
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BackendCapabilities {

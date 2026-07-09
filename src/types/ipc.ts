@@ -1,17 +1,41 @@
 import type {
   AppSettings as GeneratedAppSettings,
+  AssetIssue as GeneratedAssetIssue,
+  AssetIssueCode as GeneratedAssetIssueCode,
+  AssetIssueLevel as GeneratedAssetIssueLevel,
+  AttributeInfo as GeneratedAttributeInfo,
+  AttributeTimeSamples as GeneratedAttributeTimeSamples,
+  BackendCapabilities as GeneratedBackendCapabilities,
+  CompositionArc as GeneratedCompositionArc,
+  CompositionArcKind as GeneratedCompositionArcKind,
+  CompositionArcState as GeneratedCompositionArcState,
   CrashRecoveryPayload as GeneratedCrashRecoveryPayload,
   DiagnosticRecordInput as GeneratedDiagnosticRecordInput,
   DiagnosticsPayload as GeneratedDiagnosticsPayload,
+  ExtractGeometryOptions as GeneratedExtractGeometryOptions,
+  LayerInfo as GeneratedLayerInfo,
+  MetadataEntry as GeneratedMetadataEntry,
   OptionalLoaderPackCompatibility as GeneratedOptionalLoaderPackCompatibility,
   OptionalLoaderPackManifest as GeneratedOptionalLoaderPackManifest,
   OptionalLoaderPackSettings as GeneratedOptionalLoaderPackSettings,
+  PrimInspection as GeneratedPrimInspection,
+  PrimTypeCount as GeneratedPrimTypeCount,
   ProcessMemoryPayload as GeneratedProcessMemoryPayload,
+  PurposeModes as GeneratedPurposeModes,
+  RelationshipInfo as GeneratedRelationshipInfo,
   SettingsPayload as GeneratedSettingsPayload,
+  ShapingCone as GeneratedShapingCone,
+  StageInspection as GeneratedStageInspection,
+  StageLoadPolicy as GeneratedStageLoadPolicy,
+  StageSummary as GeneratedStageSummary,
+  TimeSampleEntry as GeneratedTimeSampleEntry,
   UpdateCheckPayload as GeneratedUpdateCheckPayload,
   UpdateConfigurationPayload as GeneratedUpdateConfigurationPayload,
   UpdateInstallPayload as GeneratedUpdateInstallPayload,
   UpdateMetadataPayload as GeneratedUpdateMetadataPayload,
+  UsdLightInfo as GeneratedUsdLightInfo,
+  VariantSelection as GeneratedVariantSelection,
+  VariantSetInfo as GeneratedVariantSetInfo,
 } from "./generated/ipc";
 
 // ── Error type (mirrors Rust AppError) ──────────────────────────
@@ -23,46 +47,21 @@ export type AppError = {
 
 // ── USD IPC types ────────────────────────────────────────────────
 
-export type StageLoadPolicy = "loadAll" | "noPayloads";
+export type StageLoadPolicy = GeneratedStageLoadPolicy;
 
-export type BackendCapabilities = {
-  inspect: boolean;
-  geometry: boolean;
-  source: boolean;
-  session: boolean;
-  light: boolean;
+export type BackendCapabilities = GeneratedBackendCapabilities;
+
+export type CompositionArcState = GeneratedCompositionArcState;
+
+export type CompositionArcKind = GeneratedCompositionArcKind;
+
+export type CompositionArc = Omit<GeneratedCompositionArc, "kind"> & {
+  kind?: GeneratedCompositionArc["kind"];
 };
 
-export type CompositionArcState = "loaded" | "missing" | "unloaded";
+export type VariantSetInfo = GeneratedVariantSetInfo;
 
-export type CompositionArcKind =
-  | "reference"
-  | "payload"
-  | "inherits"
-  | "specializes"
-  | "variantSelection"
-  | "over";
-
-export type CompositionArc = {
-  sourcePrim: string;
-  assetPath: string;
-  targetPrim: string;
-  state: CompositionArcState;
-  kind?: CompositionArcKind;
-};
-
-export type VariantSetInfo = {
-  primPath: string;
-  setName: string;
-  selection: string | null;
-  variants: string[];
-};
-
-export type VariantSelection = {
-  primPath: string;
-  setName: string;
-  variantName: string;
-};
+export type VariantSelection = GeneratedVariantSelection;
 
 export type UsdInvalidVariantSelectionError = {
   kind: "invalidVariantSelection";
@@ -73,151 +72,61 @@ export type UsdInvalidVariantSelectionError = {
 
 export type UsdTypedError = UsdInvalidVariantSelectionError;
 
-export type PurposeModes = {
-  render: boolean;
-  proxy: boolean;
-  guide: boolean;
+export type PurposeModes = GeneratedPurposeModes;
+
+export type ExtractGeometryOptions = Omit<
+  GeneratedExtractGeometryOptions,
+  "policy" | "variantSelections" | "purposeModes"
+> & {
+  policy?: GeneratedExtractGeometryOptions["policy"];
+  variantSelections?: GeneratedExtractGeometryOptions["variantSelections"];
+  purposeModes?: GeneratedExtractGeometryOptions["purposeModes"];
 };
 
-export type ExtractGeometryOptions = {
-  policy?: StageLoadPolicy;
-  variantSelections?: VariantSelection[];
-  purposeModes?: PurposeModes;
-};
+export type LayerInfo = GeneratedLayerInfo;
 
-export type LayerInfo = {
-  identifier: string;
-  depth: number;
-  muted: boolean;
-  timeOffset: number;
-  timeScale: number;
-  comment: string | null;
-};
-
-export type StageInspection = {
-  path: string;
-  defaultPrim: string | null;
-  upAxis: string | null;
-  metersPerUnit: number | null;
-  timeCodesPerSecond: number | null;
-  framesPerSecond: number | null;
-  startTimeCode: number | null;
-  endTimeCode: number | null;
-  comment: string | null;
-  rootLayerIsBinary: boolean;
-  rootPrims: string[];
-  composedLayers: string[];
-  layers?: LayerInfo[];
+export type StageInspection = Omit<
+  GeneratedStageInspection,
+  | "layers"
+  | "references"
+  | "payloads"
+  | "inherits"
+  | "specializes"
+  | "variantSelectionArcs"
+> & {
+  layers?: GeneratedStageInspection["layers"];
   references: CompositionArc[];
   payloads: CompositionArc[];
   inherits?: CompositionArc[];
   specializes?: CompositionArc[];
   variantSelectionArcs?: CompositionArc[];
-  missingAssets: string[];
-  variantSets: VariantSetInfo[];
-  loadPolicy: StageLoadPolicy;
 };
 
-export type PrimTypeCount = {
-  typeName: string;
-  count: number;
-};
+export type PrimTypeCount = GeneratedPrimTypeCount;
 
-export type StageSummary = {
-  path: string;
-  layerCount: number;
-  rootPrimCount: number;
-  meshCount: number;
-  payloadCount: number;
-  unloadedPayloadCount: number;
-  hasVariants: boolean;
-  primTypeCounts: PrimTypeCount[];
-  totalVertices: number;
-  totalTriangles: number;
-  variantSetCount: number;
-  durationSeconds: number | null;
-  resolvedReferenceCount: number;
-  unresolvedReferenceCount: number;
-  resolvedPayloadCount: number;
-  unresolvedPayloadCount: number;
-  warnings: string[];
-  loadPolicy: StageLoadPolicy;
-};
+export type StageSummary = GeneratedStageSummary;
 
-export type AssetIssueCode =
-  | "broken-reference"
-  | "missing-sub-layer"
-  | "missing-payload"
-  | "suspicious-meters-per-unit";
+export type AssetIssueCode = GeneratedAssetIssueCode;
 
-export type AssetIssueLevel = "warning" | "error";
+export type AssetIssueLevel = GeneratedAssetIssueLevel;
 
-export type AssetIssue = {
-  code: AssetIssueCode;
-  level: AssetIssueLevel;
-  message: string;
-  detail: string | null;
-  contextPath: string | null;
-};
+export type AssetIssue = GeneratedAssetIssue;
 
-export type AttributeInfo = {
-  name: string;
-  typeName: string;
-  valueSummary: string;
-  variability: string;
-  custom: boolean;
-  timeSampleCount: number;
-};
+export type AttributeInfo = GeneratedAttributeInfo;
 
-export type RelationshipInfo = {
-  name: string;
-  targets: string[];
-};
+export type RelationshipInfo = GeneratedRelationshipInfo;
 
-export type MetadataEntry = {
-  key: string;
-  valueSummary: string;
-};
+export type MetadataEntry = GeneratedMetadataEntry;
 
-export type PrimInspection = {
-  primPath: string;
-  attributes: AttributeInfo[];
-  relationships: RelationshipInfo[];
-  metadata: MetadataEntry[];
-};
+export type PrimInspection = GeneratedPrimInspection;
 
-export type ShapingCone = {
-  angle: number;
-  softness: number;
-};
+export type ShapingCone = GeneratedShapingCone;
 
-export type UsdLightInfo = {
-  primPath: string;
-  lightKind: string;
-  color: [number, number, number];
-  intensity: number;
-  exposure: number;
-  colorTemperature: number | null;
-  specular: number;
-  diffuse: number;
-  domeTextureFile: string | null;
-  shapingCone: ShapingCone | null;
-};
+export type UsdLightInfo = GeneratedUsdLightInfo;
 
-export type TimeSampleEntry = {
-  time: number;
-  valueSummary: string;
-};
+export type TimeSampleEntry = GeneratedTimeSampleEntry;
 
-export type AttributeTimeSamples = {
-  primPath: string;
-  attributeName: string;
-  samples: TimeSampleEntry[];
-  totalCount: number;
-  numericMin: number | null;
-  numericMax: number | null;
-  numericMean: number | null;
-};
+export type AttributeTimeSamples = GeneratedAttributeTimeSamples;
 
 export type UsdSourcePayload =
   | { kind: "text"; source: string }

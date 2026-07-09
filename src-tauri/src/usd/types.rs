@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// the backend via Tauri command parameters so the frontend can toggle
 /// between "compose every payload" and "defer every payload" without
 /// the Rust side needing to understand the crate-level enum.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum StageLoadPolicy {
@@ -24,6 +25,7 @@ pub enum StageLoadPolicy {
 }
 
 /// One variant set found on a prim during stage inspection.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VariantSetInfo {
@@ -47,6 +49,7 @@ pub struct VariantSetInfo {
 /// so the frontend can switch a variant set without a full re-open
 /// from the user's perspective. Stateless: every extract call applies
 /// the full set of selections from scratch on a fresh stage.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VariantSelection {
@@ -65,6 +68,7 @@ pub struct VariantSelection {
 /// the GLB output. Defaults: render on, proxy / guide off (matches the
 /// pre-#32 `skip_proxy_guide_purpose` behaviour for backwards
 /// compatibility).
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PurposeModes {
@@ -89,6 +93,7 @@ impl Default for PurposeModes {
 /// trait methods. Existing call sites construct this from a
 /// `StageLoadPolicy` via `From` so the test suite keeps the terse
 /// `extract_geometry_glb(&path, policy.into())` shape.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractGeometryOptions {
@@ -119,6 +124,7 @@ impl From<StageLoadPolicy> for ExtractGeometryOptions {
 }
 
 /// Heavyweight stage detail. Returned by `inspect_stage`.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StageInspection {
@@ -187,6 +193,7 @@ pub struct StageInspection {
 /// without forcing the frontend to sort. Frontend renders each entry
 /// directly, so an ordered list of `(typeName, count)` pairs is the
 /// most ergonomic shape on both sides.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrimTypeCount {
@@ -198,6 +205,7 @@ pub struct PrimTypeCount {
 
 /// Lightweight stage header. Returned by `summarize_stage` for the
 /// "show something instantly" UX path.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StageSummary {
@@ -251,6 +259,7 @@ pub struct StageSummary {
 }
 
 /// One issue surfaced by `collect_asset_issues`.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssetIssue {
@@ -261,6 +270,7 @@ pub struct AssetIssue {
     pub context_path: Option<String>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AssetIssueCode {
@@ -270,6 +280,7 @@ pub enum AssetIssueCode {
     SuspiciousMetersPerUnit,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AssetIssueLevel {
@@ -287,6 +298,7 @@ pub enum AssetIssueLevel {
 /// `over` is listed here for completeness (anonymous overs inside a
 /// reference) but is rarely authored explicitly — the frontend shows
 /// it as a fallback kind when the backend cannot classify further.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CompositionArcKind {
@@ -306,6 +318,7 @@ impl Default for CompositionArcKind {
 
 /// One composition arc (`reference`, `payload`, `inherits`, `specializes`,
 /// `variantSelection`, or `over`) declared in a layer.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompositionArc {
@@ -325,6 +338,7 @@ pub struct CompositionArc {
 }
 
 /// One attribute on a prim, returned by `inspect_prim` (#28).
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttributeInfo {
@@ -337,6 +351,7 @@ pub struct AttributeInfo {
 }
 
 /// One relationship on a prim, returned by `inspect_prim` (#28).
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelationshipInfo {
@@ -345,6 +360,7 @@ pub struct RelationshipInfo {
 }
 
 /// One metadata entry on a prim, returned by `inspect_prim` (#28).
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MetadataEntry {
@@ -353,6 +369,7 @@ pub struct MetadataEntry {
 }
 
 /// Per-prim inspection result (#28).
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrimInspection {
@@ -370,6 +387,7 @@ pub struct PrimInspection {
 ///   skipped because the stage was opened with
 ///   `StageLoadPolicy::NoPayloads`. The target is resolvable but has
 ///   not been composed.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CompositionArcState {
@@ -383,6 +401,7 @@ pub enum CompositionArcState {
 /// Reflects the subLayers-only graph: reference/payload-introduced layers
 /// are not included. `depth` is 0 for the root layer, 1 for its direct
 /// sublayers, and so on.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LayerInfo {
@@ -404,6 +423,7 @@ pub struct LayerInfo {
 
 /// Shaping cone parameters on a UsdLux light prim that applies
 /// `UsdLuxShapingAPI` (#35).
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShapingCone {
@@ -418,6 +438,7 @@ pub struct ShapingCone {
 ///
 /// The C++ backend populates every field; the Rust-fork backend returns
 /// `Err("not supported")` so callers should ignore errors gracefully.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsdLightInfo {
@@ -427,6 +448,7 @@ pub struct UsdLightInfo {
     /// `"RectLight"`, `"DiskLight"`, `"DomeLight"`, `"CylinderLight"`, …
     pub light_kind: String,
     /// `inputs:color` as linearized RGB floats. Default is `[1, 1, 1]`.
+    #[cfg_attr(test, ts(type = "[number, number, number]"))]
     pub color: [f32; 3],
     /// `inputs:intensity`. Default 1.0.
     pub intensity: f32,
@@ -449,6 +471,7 @@ pub struct UsdLightInfo {
 
 /// One time sample entry returned by `inspect_attribute_time_samples`
 /// (#37).
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeSampleEntry {
@@ -463,6 +486,7 @@ pub struct TimeSampleEntry {
 /// `max_samples` samples plus optional numeric statistics for
 /// scalar-numeric attributes. `total_count` is the full authored count
 /// before any truncation so the UI can display "Showing first N of M".
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttributeTimeSamples {
