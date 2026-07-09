@@ -491,10 +491,16 @@ pub(crate) fn mesh_data_to_input(
                     let base = point_index * jpv;
                     let src_idx = data.joint_indices.as_ref().unwrap();
                     let src_w = data.joint_weights.as_ref().unwrap();
-                    let end = (base + jpv).min(src_idx.len()).min(src_w.len());
+                    let src_len = src_idx.len().min(src_w.len());
+                    let end = (base + jpv).min(src_len);
+                    let (point_idx, point_w) = if base < end {
+                        (&src_idx[base..end], &src_w[base..end])
+                    } else {
+                        (&[][..], &[][..])
+                    };
                     pack_skin_influences(
-                        &src_idx[base..end],
-                        &src_w[base..end],
+                        point_idx,
+                        point_w,
                         &mut joint_indices_out,
                         &mut joint_weights_out,
                         max_joint,
@@ -1119,6 +1125,45 @@ mod tests {
         assert_eq!(out.morph_weights, vec![0.0, 0.0]);
         assert_eq!(out.morph_targets[0].name.as_deref(), Some("Smile"));
         assert_eq!(out.morph_targets[1].name.as_deref(), Some("Blink"));
+    }
+
+    #[test]
+    fn mesh_data_sparse_skin_influences_zero_pad_out_of_range_points() {
+        let data = MeshData {
+            points: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            face_vertex_indices: vec![0, 1, 2],
+            face_vertex_counts: vec![3],
+            normals: None,
+            uvs: None,
+            joint_indices: Some(vec![0, 1]),
+            joint_weights: Some(vec![0.75, 0.25]),
+            joints_per_vertex: 2,
+            display_color: None,
+        };
+        let prim_path = SdfPath::new("/SparseSkin").unwrap();
+
+        let out = mesh_data_to_input(
+            &prim_path,
+            identity_matrix(),
+            &data,
+            MeshOrientation::RightHanded,
+            4,
+            &[],
+            None,
+            None,
+        )
+        .expect("sparse skin payload should not panic");
+
+        assert_eq!(
+            out.joint_indices,
+            Some(vec![0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        );
+        assert_eq!(
+            out.joint_weights,
+            Some(vec![
+                0.75, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            ])
+        );
     }
 
     #[test]

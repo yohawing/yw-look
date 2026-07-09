@@ -1517,6 +1517,9 @@ pub fn build_glb(
             let Some(&node_idx) = mesh_node_indices.get(wc.mesh_index) else {
                 continue;
             };
+            if node_idx == usize::MAX {
+                continue;
+            }
             let target_count = meshes[wc.mesh_index].morph_targets.len();
             if target_count == 0 {
                 continue;
@@ -1562,11 +1565,13 @@ pub fn build_glb(
             }));
         }
 
-        gltf_animations.push(json!({
-            "name": animation.name,
-            "samplers": samplers,
-            "channels": channels,
-        }));
+        if !channels.is_empty() {
+            gltf_animations.push(json!({
+                "name": animation.name,
+                "samplers": samplers,
+                "channels": channels,
+            }));
+        }
     }
 
     // ---- Embed textures into the BIN chunk -----------------------------
@@ -2513,6 +2518,14 @@ mod tests {
         vec![MaterialInput::default_preview()]
     }
 
+    fn glb_json(glb: &[u8]) -> serde_json::Value {
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_text = std::str::from_utf8(&glb[20..20 + json_chunk_len])
+            .expect("json chunk is utf8")
+            .trim_end_matches(' ');
+        serde_json::from_str(json_text).expect("json chunk parses")
+    }
+
     #[test]
     fn build_glb_allows_empty_scene() {
         let glb = build_glb(
@@ -2561,10 +2574,7 @@ mod tests {
         assert_eq!(json_chunk_type, CHUNK_TYPE_JSON);
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
-        let json_text = std::str::from_utf8(&glb[json_start..json_end])
-            .expect("json chunk is utf8")
-            .trim_end_matches(' ');
-        let doc: serde_json::Value = serde_json::from_str(json_text).expect("json chunk parses");
+        let doc = glb_json(&glb);
         assert_eq!(doc["asset"]["version"], "2.0");
         assert_eq!(doc["meshes"][0]["primitives"][0]["mode"], 4);
         assert_eq!(doc["accessors"].as_array().unwrap().len(), 4); // pos + normal + uv + idx
@@ -2585,6 +2595,68 @@ mod tests {
         );
         assert_eq!(bin_chunk_type, CHUNK_TYPE_BIN);
         assert!(bin_chunk_len >= 152, "bin chunk too small: {bin_chunk_len}");
+    }
+
+    #[test]
+    fn skips_weight_channels_without_resolved_mesh_node() {
+        let mut mesh = unit_quad_split_into_two_triangles();
+        mesh.morph_targets = vec![MorphTarget {
+            name: Some("Smile".to_string()),
+            position_offsets: vec![0.0; mesh.positions.len()],
+        }];
+        mesh.morph_weights = vec![0.0];
+        let skin = SkinInput {
+            name: "skin".to_string(),
+            joint_names: vec!["Root".to_string()],
+            parents: vec![None],
+            rest_local_matrices: vec![identity_matrix()],
+            inverse_bind_matrices: vec![identity_matrix()],
+            skel_root_matrix: None,
+        };
+        let animation = AnimationInput {
+            name: "weights".to_string(),
+            times: vec![0.0, 1.0],
+            skin_index: 0,
+            translations: vec![None],
+            rotations: vec![None],
+            scales: vec![None],
+            weight_channels: vec![MorphWeightChannel {
+                mesh_index: 0,
+                weights: vec![0.0, 1.0],
+            }],
+        };
+        let nodes = vec![NodeInput {
+            prim_path: "/Root".to_string(),
+            basename: "Root".to_string(),
+            parent: None,
+            local_matrix: identity_matrix(),
+            kind: NodeKind::Group,
+            mesh_payload_idx: None,
+            light_payload_idx: None,
+            camera_payload_idx: None,
+            skin_payload_idx: None,
+        }];
+
+        let glb = build_glb(
+            &nodes,
+            &[mesh],
+            &default_materials(),
+            &[],
+            &[skin],
+            &[animation],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build glb");
+        let doc = glb_json(&glb);
+
+        assert!(
+            doc.get("animations").is_none(),
+            "unresolved mesh-node weight channel must not be emitted: {:?}",
+            doc.get("animations")
+        );
     }
 
     #[test]
