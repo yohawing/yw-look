@@ -284,4 +284,68 @@ describe("useSidebarModel", () => {
 
     expect(useUiStore.getState().sidebarWidth).toBe(370);
   });
+
+  it("cleans up sidebar resize state on pointer cancel", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1000,
+    });
+    useUiStore.setState({ sidebarWidth: 320 });
+    const { result } = renderHook(() => useSidebarModel(makeOptions()));
+
+    act(() => {
+      result.current.handleSidebarResizeStart({
+        clientX: 500,
+        preventDefault: vi.fn(),
+      } as unknown as PointerEvent<HTMLDivElement>);
+    });
+    expect(document.body.classList.contains("is-resizing-sidebar")).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(new Event("pointercancel"));
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 450 }));
+    });
+
+    expect(document.body.classList.contains("is-resizing-sidebar")).toBe(false);
+    expect(useUiStore.getState().sidebarWidth).toBe(320);
+  });
+
+  it("cleans up sidebar resize state on window blur", () => {
+    useUiStore.setState({ sidebarWidth: 320 });
+    const { result } = renderHook(() => useSidebarModel(makeOptions()));
+
+    act(() => {
+      result.current.handleSidebarResizeStart({
+        clientX: 500,
+        preventDefault: vi.fn(),
+      } as unknown as PointerEvent<HTMLDivElement>);
+    });
+    expect(document.body.classList.contains("is-resizing-sidebar")).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(new Event("blur"));
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 450 }));
+    });
+
+    expect(document.body.classList.contains("is-resizing-sidebar")).toBe(false);
+    expect(useUiStore.getState().sidebarWidth).toBe(320);
+  });
+
+  it("cleans up sidebar resize state on unmount", () => {
+    const { result, unmount } = renderHook(() =>
+      useSidebarModel(makeOptions()),
+    );
+
+    act(() => {
+      result.current.handleSidebarResizeStart({
+        clientX: 500,
+        preventDefault: vi.fn(),
+      } as unknown as PointerEvent<HTMLDivElement>);
+    });
+    expect(document.body.classList.contains("is-resizing-sidebar")).toBe(true);
+
+    unmount();
+
+    expect(document.body.classList.contains("is-resizing-sidebar")).toBe(false);
+  });
 });

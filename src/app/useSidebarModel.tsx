@@ -2,7 +2,9 @@
 import {
   Suspense,
   lazy,
+  useEffect,
   useMemo,
+  useRef,
   type PointerEvent,
   type ReactNode,
 } from "react";
@@ -160,6 +162,14 @@ export function useSidebarModel({
   const activeTab = useUiStore((state) => state.activeTab);
   const sidebarWidth = useUiStore((state) => state.sidebarWidth);
   const setSidebarWidth = useUiStore((state) => state.setSidebarWidth);
+  const sidebarResizeCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(
+    () => () => {
+      sidebarResizeCleanupRef.current?.();
+    },
+    [],
+  );
   const debugPanelsEnabled = isDebugPanelsRequested();
   const { debugFixtures, useDebugFixtures } =
     useDebugPanelFixtures(debugPanelsEnabled);
@@ -417,6 +427,7 @@ export function useSidebarModel({
 
   const handleSidebarResizeStart = (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
+    sidebarResizeCleanupRef.current?.();
     const startX = event.clientX;
     const startWidth = sidebarWidth;
     const minWidth = 300;
@@ -427,15 +438,21 @@ export function useSidebarModel({
       setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, nextWidth)));
     };
 
-    const handlePointerUp = () => {
+    const stopResize = () => {
       window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+      window.removeEventListener("blur", stopResize);
       document.body.classList.remove("is-resizing-sidebar");
+      sidebarResizeCleanupRef.current = null;
     };
 
     document.body.classList.add("is-resizing-sidebar");
     window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+    window.addEventListener("blur", stopResize);
+    sidebarResizeCleanupRef.current = stopResize;
   };
 
   return {
