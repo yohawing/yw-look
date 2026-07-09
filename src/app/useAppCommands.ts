@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from "react";
-import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { deriveDisplayMode } from "./displayMode";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
@@ -99,26 +98,6 @@ export function useAppCommands({
     });
   }, [setDialogState, shortcutLines]);
 
-  const handleShowAbout = useCallback(async () => {
-    if (isTauri) {
-      try {
-        const version = await getVersion();
-        setDialogState({
-          title: "About",
-          lines: ["yw-look", `Version ${version}`],
-        });
-        return;
-      } catch {
-        // ignore
-      }
-    }
-
-    setDialogState({
-      title: "About",
-      lines: ["yw-look", "Browser preview mode"],
-    });
-  }, [isTauri, setDialogState]);
-
   const executeMenuAction = useCallback(
     async (actionId: MenuActionId) => {
       switch (actionId) {
@@ -161,14 +140,10 @@ export function useAppCommands({
         case "help.shortcuts":
           handleShowShortcuts();
           return;
-        case "help.about":
-          await handleShowAbout();
-          return;
       }
     },
     [
       handleOpenFile,
-      handleShowAbout,
       handleShowShortcuts,
       handleToggleFullscreen,
       isTauri,

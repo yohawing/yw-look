@@ -7,10 +7,6 @@ import {
   requestViewportShortcutCommand,
 } from "../../viewport/viewportCommands";
 
-vi.mock("@tauri-apps/api/app", () => ({
-  getVersion: vi.fn(() => Promise.resolve("0.0.0-test")),
-}));
-
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => ({
     close: vi.fn(() => Promise.resolve()),

@@ -1,10 +1,5 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  projectLicense,
-  projectVersion,
-  runtimeLicenseAttributions,
-} from "../../generated/licenseAttributions";
 import { SettingsCard } from "../SettingsCard";
 import type { SettingsPayload } from "../../lib/settings";
 
@@ -143,8 +138,8 @@ describe("SettingsCard", () => {
     expect(onToggleOptionalLoaderPack).toHaveBeenCalledWith("mmd-loader-pack");
   });
 
-  it("renders About with yw-look version, license, and dependency license rows", () => {
-    const { container, getByText } = render(
+  it("does not render the removed About section in settings", () => {
+    const { queryByText } = render(
       <SettingsCard
         settingsPayload={settingsPayload}
         settingsError={null}
@@ -154,62 +149,13 @@ describe("SettingsCard", () => {
       />,
     );
 
-    expect(getByText("About")).toBeTruthy();
-    expect(getByText("Application")).toBeTruthy();
-    expect(getByText("yw-look")).toBeTruthy();
-    expect(getByText("Version")).toBeTruthy();
-    expect(getByText(projectVersion)).toBeTruthy();
-    expect(getByText("License")).toBeTruthy();
-
-    const projectLicenseRow = Array.from(
-      container.querySelectorAll(".yl-kv-row"),
-    ).find((row) => row.querySelector(".yl-kv-key")?.textContent === "License");
-    expect(projectLicenseRow?.querySelector(".yl-kv-value")?.textContent).toBe(
-      projectLicense,
-    );
-
-    for (const attribution of [
-      { name: "react", source: "web" },
-      { name: "three", source: "web" },
-      { name: "@tauri-apps/api", source: "web" },
-      { name: "@tauri-apps/plugin-log", source: "web" },
-      { name: "@radix-ui/react-dialog", source: "web" },
-      { name: "zustand", source: "web" },
-      { name: "react-resizable-panels", source: "web" },
-      { name: "@pixiv/three-vrm", source: "web" },
-      { name: "@sparkjsdev/spark", source: "web" },
-      { name: "@yohawing/three-mmd-loader", source: "web" },
-      { name: "tauri", source: "native" },
-      { name: "tauri-plugin-updater", source: "native" },
-      { name: "openusd", source: "native" },
-      { name: "zip", source: "native" },
-    ] as const) {
-      const entry = runtimeLicenseAttributions.find(
-        (candidate) =>
-          candidate.name === attribution.name &&
-          candidate.source === attribution.source,
-      );
-      expect(
-        entry,
-        `missing attribution for ${attribution.source}:${attribution.name}`,
-      ).toBeTruthy();
-
-      const dependencyRow = Array.from(
-        container.querySelectorAll(".yl-kv-row"),
-      ).find(
-        (row) =>
-          row.querySelector(".yl-kv-key")?.textContent ===
-          `${entry!.source === "native" ? "Native" : "Web"}: ${entry!.name}`,
-      );
-      expect(dependencyRow).toBeTruthy();
-      expect(dependencyRow?.querySelector(".yl-kv-value")?.textContent).toBe(
-        `${entry!.license} @ ${entry!.version}`,
-      );
-    }
+    expect(queryByText("About")).toBeNull();
+    expect(queryByText("Application")).toBeNull();
+    expect(queryByText("License")).toBeNull();
   });
 
-  it("keeps About available while local settings are loading", () => {
-    const { getByText } = render(
+  it("keeps settings loading state short without About", () => {
+    const { getByText, queryByText } = render(
       <SettingsCard
         settingsPayload={null}
         settingsError={null}
@@ -220,8 +166,8 @@ describe("SettingsCard", () => {
     );
 
     expect(getByText("Loading settings.")).toBeTruthy();
-    expect(getByText("About")).toBeTruthy();
-    expect(getByText("yw-look")).toBeTruthy();
+    expect(queryByText("About")).toBeNull();
+    expect(queryByText("yw-look")).toBeNull();
   });
 
   it("reports optional loader pack manifest load failures", () => {
