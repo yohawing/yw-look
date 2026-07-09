@@ -108,7 +108,7 @@ export function useSceneObjectEffects({
     applySkeletonHelpers(
       context.scene,
       context.sourceObject,
-      showSkeleton,
+      showSkeleton || context.boneOnlyPreview,
       showLocalAxis,
       showJointNames,
     );

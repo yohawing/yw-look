@@ -314,7 +314,7 @@ export async function mountLoadedPreview(
   applySkeletonHelpers(
     context.scene,
     object,
-    state.showSkeleton,
+    state.showSkeleton || isBoneOnlyPreview,
     state.showLocalAxis,
     state.showJointNames,
   );

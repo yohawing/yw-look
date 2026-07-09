@@ -47,6 +47,7 @@ const viewerMocks = vi.hoisted(() => {
       };
     }),
     applyDynamicGrid: vi.fn(() => ({ label: "1m" })),
+    applySkeletonHelpers: vi.fn(),
     scheduleTextureThumbnailEnrichment: vi.fn(() => ({
       cancel: vi.fn(),
     })),
@@ -66,7 +67,7 @@ vi.mock("../../viewer", () => ({
   applyPreviewLightingPreset: viewerMocks.stub,
   applyPreviewRenderingPreset: viewerMocks.stub,
   applyShadows: viewerMocks.stub,
-  applySkeletonHelpers: viewerMocks.stub,
+  applySkeletonHelpers: viewerMocks.applySkeletonHelpers,
   applyTextureFilter: viewerMocks.stub,
   applyVertexColors: viewerMocks.stub,
   collectAssetMetadata: viewerMocks.collectAssetMetadata,
@@ -217,6 +218,7 @@ describe("mountLoadedPreview", () => {
     viewerMocks.revokeUrls.mockClear();
     viewerMocks.normalizeObjectScale.mockClear();
     viewerMocks.collectAssetMetadata.mockClear();
+    viewerMocks.applySkeletonHelpers.mockClear();
     viewerMocks.scheduleTextureThumbnailEnrichment.mockClear();
     viewerMocks.cleanupCallback.mockClear();
   });
@@ -296,5 +298,46 @@ describe("mountLoadedPreview", () => {
     expect(
       viewerMocks.scheduleTextureThumbnailEnrichment,
     ).not.toHaveBeenCalled();
+  });
+
+  it("shows skeleton helpers by default for bone-only previews", async () => {
+    mountState.disposeDuringNormalize = false;
+    viewerMocks.collectAssetMetadata.mockReturnValueOnce({
+      metadata: {
+        meshCount: 0,
+        hasBones: true,
+        objectInfo: {},
+        hierarchy: [],
+        materials: [],
+        lights: [],
+        cameras: [],
+        animations: [],
+        textures: [],
+      },
+      textureRegistry: new Map(),
+    });
+    const object = new Group();
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+      },
+      options,
+    );
+
+    expect(context.boneOnlyPreview).toBe(true);
+    expect(viewerMocks.applySkeletonHelpers).toHaveBeenCalledWith(
+      context.scene,
+      object,
+      true,
+      false,
+      false,
+    );
   });
 });
