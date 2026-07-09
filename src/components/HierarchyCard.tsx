@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CircleIcon,
+  DotFilledIcon,
+} from "@radix-ui/react-icons";
+import {
   Group as PanelGroup,
   Panel,
   Separator as PanelResizeHandle,
@@ -194,22 +200,10 @@ function HierarchyBranch({
             type="button"
             aria-label={showChildren ? "Collapse" : "Expand"}
           >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              width="12"
-              height="12"
+            <ChevronRightIcon
+              aria-hidden="true"
               className={showChildren ? "tree-chevron-open" : ""}
-            >
-              <path
-                d="M6 4l4 4-4 4"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            />
           </button>
         ) : (
           <span className="tree-chevron-spacer" />
@@ -229,16 +223,7 @@ function HierarchyBranch({
               onLoadPayload(primPath);
             }}
           >
-            {/* Hollow circle — payload deferred */}
-            <svg viewBox="0 0 10 10" width="10" height="10" fill="none">
-              <circle
-                cx="5"
-                cy="5"
-                r="4"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              />
-            </svg>
+            <CircleIcon aria-hidden="true" />
           </button>
         )}
         {isLoadedPayload && onUnloadPayload && (
@@ -251,10 +236,7 @@ function HierarchyBranch({
               onUnloadPayload(primPath);
             }}
           >
-            {/* Solid circle — payload loaded */}
-            <svg viewBox="0 0 10 10" width="10" height="10">
-              <circle cx="5" cy="5" r="4" fill="currentColor" />
-            </svg>
+            <DotFilledIcon aria-hidden="true" />
           </button>
         )}
       </div>
@@ -443,23 +425,10 @@ export function HierarchyCard({
       >
         <section className="hierarchy-section yl-disclosure yl-disclosure--section">
           <div className="yl-disclosure__summary">
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              width="11"
-              height="11"
+            <ChevronDownIcon
               className="yl-disclosure__chevron"
               aria-hidden="true"
-            >
-              <path
-                d="M4 6l4 4 4-4"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            />
             <span className="yl-disclosure__title">Outliner</span>
             <span className="yl-disclosure__count">{totalNodeCount}</span>
           </div>
@@ -510,23 +479,10 @@ export function HierarchyCard({
       >
         <section className="hierarchy-section yl-disclosure yl-disclosure--section">
           <div className="yl-disclosure__summary">
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              width="11"
-              height="11"
+            <ChevronDownIcon
               className="yl-disclosure__chevron"
               aria-hidden="true"
-            >
-              <path
-                d="M4 6l4 4 4-4"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            />
             <span className="yl-disclosure__title">Selected</span>
           </div>
           <div className="hierarchy-pane-scroll yl-disclosure__body">

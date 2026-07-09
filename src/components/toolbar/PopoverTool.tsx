@@ -6,6 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { CheckIcon } from "@radix-ui/react-icons";
 import { ViewportToolSvg } from "../ViewportToolIcons";
 import { PopoverContent, PopoverTrigger } from "../ui/Popover";
 import type { ToolbarAction, ToolbarItem, ToolbarStatus } from "./types";
@@ -242,16 +243,7 @@ function ToolbarPopoverActionRow({
       <span className="toolbar-popover-item-label">{action.label}</span>
       {action.active ? (
         <span className="toolbar-popover-item-check" aria-hidden="true">
-          <svg viewBox="0 0 12 12" width="10" height="10">
-            <path
-              d="M2 6l3 3 5-6"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <CheckIcon aria-hidden="true" />
         </span>
       ) : null}
       {action.shortcut ? (

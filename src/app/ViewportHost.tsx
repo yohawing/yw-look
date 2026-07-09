@@ -1,3 +1,4 @@
+import { ArrowLeftIcon, LayoutIcon } from "@radix-ui/react-icons";
 import { AssetViewport } from "../components/AssetViewport";
 import { Button } from "../components/ui/Button";
 import { ViewportControls } from "../components/ViewportControls";
@@ -121,24 +122,7 @@ export function ViewportHost({
         size="md"
         variant={sidebarOpen ? "subtle" : "ghost"}
       >
-        <svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect
-            x="2"
-            y="2"
-            width="14"
-            height="14"
-            rx="2"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          />
-          <path d="M11 2v14" stroke="currentColor" strokeWidth="1.4" />
-          <path
-            d="M13.5 6h1M13.5 9h1M13.5 12h1"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            strokeLinecap="round"
-          />
-        </svg>
+        <LayoutIcon aria-hidden="true" />
       </Button>
 
       {/* Texture mode banner */}
@@ -148,21 +132,7 @@ export function ViewportHost({
           onClick={() => viewerActions.setViewerSurfaceMode("asset")}
           type="button"
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M8.5 2L4 7l4.5 5"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <ArrowLeftIcon aria-hidden="true" />
           Back to 3D View
         </button>
       ) : null}

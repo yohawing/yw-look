@@ -1,4 +1,10 @@
 import type { CSSProperties } from "react";
+import {
+  PauseIcon,
+  PlayIcon,
+  TrackNextIcon,
+  TrackPreviousIcon,
+} from "@radix-ui/react-icons";
 import { Button, SelectField, SliderField, Tooltip } from "./ui";
 import "../styles/animation.css";
 
@@ -78,27 +84,7 @@ export function AnimationBar({
             size="sm"
             variant="ghost"
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M10 2.5L5 7l5 4.5"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.5"
-              />
-              <path
-                d="M4 3v8"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="1.5"
-              />
-            </svg>
+            <TrackPreviousIcon aria-hidden="true" />
           </Button>
         </Tooltip>
         <Tooltip content={isPlaying ? "Pause" : "Play"} side="top" size="sm">
@@ -110,26 +96,9 @@ export function AnimationBar({
             variant="primary"
           >
             {isPlaying ? (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <rect x="4" y="3" width="3" height="10" rx="0.5" />
-                <rect x="9" y="3" width="3" height="10" rx="0.5" />
-              </svg>
+              <PauseIcon aria-hidden="true" />
             ) : (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path d="M5 3l8 5-8 5V3Z" />
-              </svg>
+              <PlayIcon aria-hidden="true" />
             )}
           </Button>
         </Tooltip>
@@ -141,27 +110,7 @@ export function AnimationBar({
             size="sm"
             variant="ghost"
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M4 2.5L9 7l-5 4.5"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.5"
-              />
-              <path
-                d="M10 3v8"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="1.5"
-              />
-            </svg>
+            <TrackNextIcon aria-hidden="true" />
           </Button>
         </Tooltip>
       </div>

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ExclamationTriangleIcon } from "@radix-ui/react-icons";
 
 export type WarningListDensity = "regular" | "summary";
 
@@ -16,31 +17,7 @@ type WarningIconProps = {
 };
 
 export function WarningIcon({ className }: WarningIconProps) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      fill="none"
-      height="14"
-      viewBox="0 0 16 16"
-      width="14"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M8 1.5L1.5 13.5h13L8 1.5Z"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.2"
-      />
-      <path
-        d="M8 6v4"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.2"
-      />
-      <circle cx="8" cy="11.5" fill="currentColor" r="0.6" />
-    </svg>
-  );
+  return <ExclamationTriangleIcon aria-hidden="true" className={className} />;
 }
 
 export function WarningList({
