@@ -1,6 +1,5 @@
 import { useEffect, type RefObject } from "react";
-import type { SelectedFile } from "../lib/files";
-import type { TextureViewMode, ViewerSurfaceMode } from "../types/viewer";
+import type { ViewerSurfaceMode } from "../types/viewer";
 import {
   createTextureViewerObject,
   disposePreviewObject,
@@ -8,25 +7,31 @@ import {
 } from "../viewer";
 import { frameMountedObject } from "./camera";
 import { shouldFlipTexturePreviewY } from "./renderSettings";
+import type {
+  AssetViewportFileProps,
+  AssetViewportTextureProps,
+} from "./types";
 
-type UseTexturePreviewOptions = {
-  currentFile: SelectedFile | null;
-  selectedTextureId: string | null;
-  textureBlackPoint: number;
-  textureExposure: number;
-  textureGamma: number;
-  textureTileCount: number;
-  textureViewMode: TextureViewMode;
-  textureWhitePoint: number;
-  viewerSurfaceMode: ViewerSurfaceMode;
-  texturePreview3D: boolean;
-  sceneContextRef: RefObject<SceneContext | null>;
-  viewerSurfaceModeRef: RefObject<ViewerSurfaceMode>;
-  showGridRef: RefObject<boolean>;
-  showAxesRef: RefObject<boolean>;
-  cameraSpeedMultiplierRef: RefObject<number>;
-  texturePreview3DRef: RefObject<boolean>;
-};
+type UseTexturePreviewOptions = Pick<AssetViewportFileProps, "currentFile"> &
+  Pick<
+    AssetViewportTextureProps,
+    | "selectedTextureId"
+    | "textureBlackPoint"
+    | "textureExposure"
+    | "textureGamma"
+    | "texturePreview3D"
+    | "textureTileCount"
+    | "textureViewMode"
+    | "textureWhitePoint"
+    | "viewerSurfaceMode"
+  > & {
+    sceneContextRef: RefObject<SceneContext | null>;
+    viewerSurfaceModeRef: RefObject<ViewerSurfaceMode>;
+    showGridRef: RefObject<boolean>;
+    showAxesRef: RefObject<boolean>;
+    cameraSpeedMultiplierRef: RefObject<number>;
+    texturePreview3DRef: RefObject<boolean>;
+  };
 
 export function useTexturePreview({
   currentFile,
