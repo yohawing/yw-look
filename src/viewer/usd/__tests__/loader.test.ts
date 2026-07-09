@@ -39,7 +39,8 @@ vi.mock("../../../lib/platform", () => ({
   isTauriEnvironment: mocks.isTauriEnvironment,
 }));
 
-vi.mock("../../../lib/usd", () => ({
+vi.mock("../../../lib/usd", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/usd")>()),
   extractGeometry: mocks.extractGeometry,
   inspectStage: mocks.inspectStage,
   requiresGlbPreview: mocks.requiresGlbPreview,

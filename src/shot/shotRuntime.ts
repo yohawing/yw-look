@@ -19,9 +19,13 @@ import {
 import { resolveSelectedFile } from "../lib/files";
 import {
   collectAssetIssues,
+  deferredSummaryHasNoRenderableGeometry,
   inspectStage,
+  inspectionHasDeferredPayloads,
   summarizeStage,
+  type StageInspection,
   type StageLoadPolicy,
+  type StageSummary,
 } from "../lib/usd";
 import {
   captureRendererScreenshot,
@@ -321,6 +325,36 @@ async function validateUsdInspectorPipeline(
   }
 }
 
+export function isDeferredUsdEmptyCheckOutcome(
+  extension: string,
+  policy: StageLoadPolicy,
+  summary: Pick<StageSummary, "totalVertices" | "unloadedPayloadCount">,
+  inspection: Pick<StageInspection, "payloads">,
+) {
+  if (!USD_EXTENSIONS.has(extension) || policy !== "noPayloads") {
+    return false;
+  }
+  return (
+    deferredSummaryHasNoRenderableGeometry(summary) &&
+    inspectionHasDeferredPayloads(inspection)
+  );
+}
+
+async function isDeferredUsdEmptyCheckResult(
+  path: string,
+  extension: string,
+  policy: StageLoadPolicy,
+) {
+  if (!USD_EXTENSIONS.has(extension) || policy !== "noPayloads") {
+    return false;
+  }
+  const [summary, inspection] = await Promise.all([
+    summarizeStage(path, policy),
+    inspectStage(path, policy),
+  ]);
+  return isDeferredUsdEmptyCheckOutcome(extension, policy, summary, inspection);
+}
+
 function waitFrame() {
   return new Promise<void>((resolve) => setTimeout(resolve, 16));
 }
@@ -465,6 +499,18 @@ export async function runShot(
     outcome.loaded = true;
     outcome.meshCount = countMeshes(object);
     if (config.mode === "check" && countRenderableObjects(object) === 0) {
+      if (
+        await isDeferredUsdEmptyCheckResult(
+          selected.path,
+          selected.extension,
+          config.usdLoadPolicy,
+        )
+      ) {
+        outcome.warnings.push(
+          "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
+        );
+        return outcome;
+      }
       throw new Error(
         `No renderable geometry was loaded from ${selected.fileName}.`,
       );

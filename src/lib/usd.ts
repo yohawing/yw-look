@@ -193,6 +193,18 @@ export async function summarizeStage(
   });
 }
 
+export function inspectionHasDeferredPayloads(
+  inspection: Pick<StageInspection, "payloads">,
+): boolean {
+  return inspection.payloads.some((arc) => arc.state === "unloaded");
+}
+
+export function deferredSummaryHasNoRenderableGeometry(
+  summary: Pick<StageSummary, "totalVertices" | "unloadedPayloadCount">,
+): boolean {
+  return summary.unloadedPayloadCount > 0 && summary.totalVertices === 0;
+}
+
 export async function collectAssetIssues(
   path: string,
   invokeOptions?: UsdInvokeOptions,

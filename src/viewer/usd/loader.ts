@@ -13,11 +13,12 @@ import { type SelectedFile, readBinaryFile } from "../../lib/files";
 import { isTauriEnvironment } from "../../lib/platform";
 import {
   extractGeometry,
+  deferredSummaryHasNoRenderableGeometry,
   inspectStage,
+  inspectionHasDeferredPayloads,
   requiresGlbPreview,
   type StageInspection,
   type StageLoadPolicy,
-  type StageSummary,
 } from "../../lib/usd";
 import type { LoaderContext } from "../loaderRegistry";
 import { isAbortOrTimeoutError } from "../modelParseWorker";
@@ -59,17 +60,10 @@ export function isDeferredUsdEmptyStageError(error: unknown): boolean {
   return message.includes("no renderable Mesh prims found in stage");
 }
 
-export function inspectionHasDeferredPayloads(
-  inspection: Pick<StageInspection, "payloads">,
-): boolean {
-  return inspection.payloads.some((arc) => arc.state === "unloaded");
-}
-
-export function deferredSummaryHasNoRenderableGeometry(
-  summary: Pick<StageSummary, "totalVertices" | "unloadedPayloadCount">,
-): boolean {
-  return summary.unloadedPayloadCount > 0 && summary.totalVertices === 0;
-}
+export {
+  deferredSummaryHasNoRenderableGeometry,
+  inspectionHasDeferredPayloads,
+};
 
 type UsdRuntimeHints = {
   metersPerUnit: number | null;
