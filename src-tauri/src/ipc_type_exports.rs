@@ -1,5 +1,12 @@
 use ts_rs::{Config, TS};
 
+use crate::commands::diagnostics::{
+    CrashRecoveryPayload, DiagnosticRecordInput, DiagnosticsPayload, ProcessMemoryPayload,
+};
+use crate::commands::files::{
+    AssetInspection, DirectoryListingPayload, FormatSupportPayload, ImageDimensions,
+    RecentFileEntry, RecentFilesPayload, SelectedFilePayload,
+};
 use crate::commands::loader_packs::{OptionalLoaderPackCompatibility, OptionalLoaderPackManifest};
 use crate::commands::settings::SettingsPayload;
 use crate::commands::updater::{
@@ -33,6 +40,28 @@ fn generated_settings_ipc_types() -> String {
         &format_tsrs_object_decl(UpdateCheckPayload::decl(&cfg)),
         "",
         &format_tsrs_object_decl(UpdateInstallPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(DiagnosticRecordInput::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(DiagnosticsPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(CrashRecoveryPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(ProcessMemoryPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(SelectedFilePayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(DirectoryListingPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(RecentFileEntry::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(RecentFilesPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(FormatSupportPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(ImageDimensions::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(AssetInspection::decl(&cfg)),
         "",
     ]
     .join("\n")

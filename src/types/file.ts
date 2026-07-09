@@ -1,50 +1,32 @@
+import type {
+  AssetInspection as GeneratedAssetInspection,
+  DirectoryListingPayload as GeneratedDirectoryListing,
+  FormatSupportPayload as GeneratedFormatSupport,
+  ImageDimensions as GeneratedImageDimensions,
+  RecentFileEntry as GeneratedRecentFileEntry,
+  RecentFilesPayload as GeneratedRecentFilesPayload,
+  SelectedFilePayload as GeneratedSelectedFile,
+} from "./generated/ipc";
+
+// Frontend-normalized kind union. Rust serializes kind as a plain string.
 export type AssetKind = "model" | "texture" | "motion" | "unknown";
 
-export type SelectedFile = {
-  path: string;
-  fileName: string;
-  extension: string;
+export type SelectedFile = Omit<GeneratedSelectedFile, "kind"> & {
   kind: AssetKind;
-  parentDirectory: string;
 };
 
-export type DirectoryListing = {
+export type DirectoryListing = Omit<GeneratedDirectoryListing, "files"> & {
   files: SelectedFile[];
-  currentIndex: number | null;
 };
 
-export type ImageDimensions = {
-  width: number;
-  height: number;
-  source: string;
-};
+export type ImageDimensions = GeneratedImageDimensions;
 
-export type AssetInspection = {
-  path: string;
-  fileName: string;
-  extension: string;
+export type AssetInspection = Omit<GeneratedAssetInspection, "kind"> & {
   kind: AssetKind;
-  fileSizeBytes: number;
-  modifiedAt: string | null;
-  createdAt: string | null;
-  previewImplemented: boolean;
-  imageDimensions: ImageDimensions | null;
 };
 
-export type FormatSupport = {
-  modelExtensions: string[];
-  textureExtensions: string[];
-  motionExtensions: string[];
-  previewImplemented: string[];
-};
+export type FormatSupport = GeneratedFormatSupport;
 
-export type RecentFileEntry = {
-  path: string;
-  kind: string;
-  lastAccessedAt: string;
-};
+export type RecentFileEntry = GeneratedRecentFileEntry;
 
-export type RecentFilesPayload = {
-  recentFilesPath: string;
-  entries: RecentFileEntry[];
-};
+export type RecentFilesPayload = GeneratedRecentFilesPayload;

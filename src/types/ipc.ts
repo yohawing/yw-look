@@ -1,8 +1,12 @@
 import type {
   AppSettings as GeneratedAppSettings,
+  CrashRecoveryPayload as GeneratedCrashRecoveryPayload,
+  DiagnosticRecordInput as GeneratedDiagnosticRecordInput,
+  DiagnosticsPayload as GeneratedDiagnosticsPayload,
   OptionalLoaderPackCompatibility as GeneratedOptionalLoaderPackCompatibility,
   OptionalLoaderPackManifest as GeneratedOptionalLoaderPackManifest,
   OptionalLoaderPackSettings as GeneratedOptionalLoaderPackSettings,
+  ProcessMemoryPayload as GeneratedProcessMemoryPayload,
   SettingsPayload as GeneratedSettingsPayload,
   UpdateCheckPayload as GeneratedUpdateCheckPayload,
   UpdateConfigurationPayload as GeneratedUpdateConfigurationPayload,
@@ -223,34 +227,27 @@ export type StageSessionHandle = number;
 
 // ── Diagnostics IPC types ────────────────────────────────────────
 
-export type DiagnosticRecordInput = {
-  code: string;
-  level: string;
-  message: string;
-  detail?: string | null;
-  contextPath?: string | null;
+// Wire Option fields are `T | null`; facade keeps them optional so callers may
+// omit absent payload fields when constructing records on the frontend.
+export type DiagnosticRecordInput = Omit<
+  GeneratedDiagnosticRecordInput,
+  "detail" | "contextPath"
+> & {
+  detail?: GeneratedDiagnosticRecordInput["detail"];
+  contextPath?: GeneratedDiagnosticRecordInput["contextPath"];
 };
 
-export type DiagnosticsPayload = {
-  appVersion: string;
-  platform: string;
-  arch: string;
-  appLogDir: string;
-  diagnosticsLogPath: string;
+export type DiagnosticsPayload = Omit<
+  GeneratedDiagnosticsPayload,
+  "diagnosticsSnapshot"
+> & {
   diagnosticsSnapshot: string[];
 };
 
-export type CrashRecoveryPayload = {
-  previousCrashDetected: boolean;
-  markerPath: string;
-  previousStartedAt: string | null;
-  previousPid: number | null;
-};
+export type CrashRecoveryPayload = GeneratedCrashRecoveryPayload;
 
-export type ProcessMemoryMetrics = {
-  residentSetBytes: number;
-  virtualMemoryBytes: number;
-};
+// Rust wire name is ProcessMemoryPayload; keep the existing frontend name.
+export type ProcessMemoryMetrics = GeneratedProcessMemoryPayload;
 
 export type WebGLResourceMetrics = {
   geometries: number;

@@ -13,6 +13,7 @@ use crate::shared::{
 };
 use crate::state::PendingOpenFiles;
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SelectedFilePayload {
@@ -23,6 +24,7 @@ pub(crate) struct SelectedFilePayload {
     pub(crate) parent_directory: String,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DirectoryListingPayload {
@@ -30,6 +32,7 @@ pub(crate) struct DirectoryListingPayload {
     pub(crate) current_index: Option<usize>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecentFileEntry {
@@ -38,6 +41,7 @@ pub(crate) struct RecentFileEntry {
     pub(crate) last_accessed_at: String,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecentFilesPayload {
@@ -45,6 +49,7 @@ pub(crate) struct RecentFilesPayload {
     pub(crate) entries: Vec<RecentFileEntry>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FormatSupportPayload {
@@ -54,6 +59,7 @@ pub(crate) struct FormatSupportPayload {
     preview_implemented: Vec<String>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AssetInspection {
@@ -61,6 +67,8 @@ pub(crate) struct AssetInspection {
     file_name: String,
     extension: String,
     kind: String,
+    // JSON IPC uses number; keep TS aligned with serde wire shape.
+    #[cfg_attr(test, ts(type = "number"))]
     file_size_bytes: u64,
     modified_at: Option<String>,
     created_at: Option<String>,
@@ -68,9 +76,10 @@ pub(crate) struct AssetInspection {
     image_dimensions: Option<ImageDimensions>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ImageDimensions {
+pub(crate) struct ImageDimensions {
     width: u32,
     height: u32,
     source: String,

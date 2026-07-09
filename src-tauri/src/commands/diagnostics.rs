@@ -13,6 +13,7 @@ use tauri::Manager;
 
 const RUN_MARKER_FILE_NAME: &str = "run-marker.json";
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DiagnosticsPayload {
@@ -24,10 +25,14 @@ pub(crate) struct DiagnosticsPayload {
     pub(crate) diagnostics_snapshot: Vec<String>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProcessMemoryPayload {
+    // JSON IPC uses number; keep TS aligned with serde wire shape.
+    #[cfg_attr(test, ts(type = "number"))]
     pub(crate) resident_set_bytes: u64,
+    #[cfg_attr(test, ts(type = "number"))]
     pub(crate) virtual_memory_bytes: u64,
 }
 
@@ -39,6 +44,7 @@ pub(crate) struct RunMarkerPayload {
     pub(crate) started_at: String,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CrashRecoveryPayload {
@@ -50,6 +56,7 @@ pub(crate) struct CrashRecoveryPayload {
 
 pub(crate) struct CrashRecoveryState(pub(crate) Mutex<CrashRecoveryPayload>);
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DiagnosticRecordInput {
