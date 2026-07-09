@@ -84,6 +84,26 @@ describe("TextureListCard", () => {
     expect(card?.classList.contains("is-missing")).toBe(false);
   });
 
+  it("keeps the texture grid and selected texture details in split panes", () => {
+    const { container, getAllByText, getByLabelText, getByText } =
+      renderTextureListCard([{ ...baseTexture, previewFlipY: true }], "tex-1");
+
+    expect(container.querySelector(".texture-split-panel")).toBeTruthy();
+    expect(container.querySelector(".texture-grid-pane")).toBeTruthy();
+    expect(container.querySelector(".texture-detail-pane")).toBeTruthy();
+    expect(getByLabelText("Selected texture")).toBeTruthy();
+    expect(
+      container
+        .querySelector(".texture-resize-handle")
+        ?.getAttribute("aria-label"),
+    ).toBe("Resize texture details");
+    expect(getByText("Selected texture")).toBeTruthy();
+    expect(getAllByText("diffuse.bmp").length).toBeGreaterThan(1);
+    expect(getAllByText("Base Color").length).toBeGreaterThan(1);
+    expect(getAllByText("128x128").length).toBeGreaterThan(0);
+    expect(getByText("Flip Y")).toBeTruthy();
+  });
+
   it("applies is-missing to unresolved texture cards", () => {
     const missingTexture: TextureEntry = {
       ...baseTexture,

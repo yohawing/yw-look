@@ -1,5 +1,10 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import {
+  Group as PanelGroup,
+  Panel,
+  Separator as PanelResizeHandle,
+} from "react-resizable-panels";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { rgbToHex } from "../lib/format";
 import { useFileStore } from "../stores/fileStore";
@@ -413,38 +418,58 @@ export function MaterialListCard({
   return (
     <SidebarSection title="Materials" count={materials.length}>
       {materials.length > 0 ? (
-        <>
-          <ul className="material-list">
-            {materials.map((mat, index) => (
-              <li key={mat.id} className="material-item">
-                <button
-                  className={`material-row${index === activeIndex ? " is-selected" : ""}`}
-                  onClick={() => setSelectedIndex(index)}
-                  type="button"
-                >
-                  <span
-                    className={`material-swatch${mat.color ? "" : " material-swatch-none"}`}
-                    style={mat.color ? { background: mat.color } : undefined}
-                  />
-                  <span className="material-info">
-                    <span className="material-name">{mat.name}</span>
-                    <span className="material-meta">
-                      {mat.type} · {mat.textureCount} tex
-                      {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
-                      {mat.boundMeshes.length > 0
-                        ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
-                        : ""}
+        <PanelGroup className="material-split-panel" orientation="vertical">
+          <Panel
+            className="material-list-pane"
+            defaultSize={58}
+            id="material-list"
+            minSize={24}
+          >
+            <ul className="material-list">
+              {materials.map((mat, index) => (
+                <li key={mat.id} className="material-item">
+                  <button
+                    className={`material-row${index === activeIndex ? " is-selected" : ""}`}
+                    onClick={() => setSelectedIndex(index)}
+                    type="button"
+                  >
+                    <span
+                      className={`material-swatch${mat.color ? "" : " material-swatch-none"}`}
+                      style={mat.color ? { background: mat.color } : undefined}
+                    />
+                    <span className="material-info">
+                      <span className="material-name">{mat.name}</span>
+                      <span className="material-meta">
+                        {mat.type} · {mat.textureCount} tex
+                        {mat.transparent
+                          ? ` · a:${mat.opacity.toFixed(2)}`
+                          : ""}
+                        {mat.boundMeshes.length > 0
+                          ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
+                          : ""}
+                      </span>
                     </span>
-                  </span>
-                  <Badge className="material-count-badge" mono size="sm">
-                    {mat.textureCount}
-                  </Badge>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {selectedMaterial && <MaterialDetailPanel mat={selectedMaterial} />}
-        </>
+                    <Badge className="material-count-badge" mono size="sm">
+                      {mat.textureCount}
+                    </Badge>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+          <PanelResizeHandle
+            className="material-resize-handle"
+            aria-label="Resize material details"
+          />
+          <Panel
+            className="material-detail-pane"
+            defaultSize={42}
+            id="material-detail"
+            minSize={22}
+          >
+            {selectedMaterial && <MaterialDetailPanel mat={selectedMaterial} />}
+          </Panel>
+        </PanelGroup>
       ) : (
         <SidebarEmpty>No materials found.</SidebarEmpty>
       )}

@@ -1,8 +1,14 @@
 import { useMemo, useState } from "react";
+import {
+  Group as PanelGroup,
+  Panel,
+  Separator as PanelResizeHandle,
+} from "react-resizable-panels";
 import type { TextureEntry } from "./assetMetadata";
 import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 import { SelectableListItem } from "./ui";
 import { Badge, BadgeButton } from "./ui/Badge";
+import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
 import "../styles/texture-list.css";
 
 type TextureListCardProps = {
@@ -10,6 +16,38 @@ type TextureListCardProps = {
   activeTextureId: string | null;
   onSelectTexture: (textureId: string) => void;
 };
+
+function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
+  const rows: KeyValueRow[] = [
+    { id: "name", label: "Name", value: texture.label, mono: true },
+    { id: "channel", label: "Channel", value: texture.channel, mono: true },
+    { id: "dimensions", label: "Size", value: texture.dimensions, mono: true },
+    {
+      id: "source",
+      label: "Source",
+      value: texture.sourceKind,
+      tone: texture.sourceKind === "unresolved" ? "warn" : "muted",
+      mono: true,
+    },
+    texture.previewFlipY && {
+      id: "orientation",
+      label: "Preview",
+      value: "Flip Y",
+      mono: true,
+    },
+  ].filter(Boolean) as KeyValueRow[];
+
+  return (
+    <section className="texture-selected-panel" aria-label="Selected texture">
+      <p className="texture-selected-title">Selected texture</p>
+      <KeyValueRows
+        className="texture-detail-grid"
+        density="regular"
+        rows={rows}
+      />
+    </section>
+  );
+}
 
 export function TextureListCard({
   textures,
@@ -34,6 +72,10 @@ export function TextureListCard({
     (texture) => texture.sourceKind === "unresolved",
   ).length;
   const resolvedCount = textures.length - missingCount;
+  const selectedTexture =
+    textures.find((texture) => texture.id === activeTextureId) ??
+    visibleTextures[0] ??
+    null;
 
   return (
     <SidebarSection
@@ -59,42 +101,65 @@ export function TextureListCard({
               </BadgeButton>
             ))}
           </div>
-          <div className="texture-grid u-grid u-gap-6">
-            {visibleTextures.map((texture) => {
-              const isMissing = texture.sourceKind === "unresolved";
-              return (
-                <SelectableListItem
-                  key={texture.id}
-                  className={`texture-card u-relative u-aspect-square u-overflow-hidden u-p-0${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
-                  onClick={() => onSelectTexture(texture.id)}
-                >
-                  <div className="texture-card-preview u-absolute u-inset-0 u-size-full u-overflow-hidden u-flex u-items-center u-justify-center">
-                    {texture.thumbnailUrl && !isMissing ? (
-                      <img
-                        className={
-                          texture.previewFlipY ? "is-preview-flipped-y" : ""
-                        }
-                        src={texture.thumbnailUrl}
-                        alt={texture.label}
-                      />
-                    ) : (
-                      <span className="texture-card-preview-placeholder">
-                        {isMissing ? "!" : texture.channel}
-                      </span>
-                    )}
-                  </div>
-                  <div className="texture-card-info u-absolute u-flex u-items-end u-justify-between u-gap-4">
-                    <span className="texture-card-label u-min-w-0 u-truncate">
-                      {texture.label}
-                    </span>
-                    <span className="texture-card-dimensions u-nowrap">
-                      {texture.channel} · {texture.dimensions}
-                    </span>
-                  </div>
-                </SelectableListItem>
-              );
-            })}
-          </div>
+          <PanelGroup className="texture-split-panel" orientation="vertical">
+            <Panel
+              className="texture-grid-pane"
+              defaultSize={62}
+              id="texture-grid"
+              minSize={24}
+            >
+              <div className="texture-grid u-grid u-gap-6">
+                {visibleTextures.map((texture) => {
+                  const isMissing = texture.sourceKind === "unresolved";
+                  return (
+                    <SelectableListItem
+                      key={texture.id}
+                      className={`texture-card u-relative u-aspect-square u-overflow-hidden u-p-0${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
+                      onClick={() => onSelectTexture(texture.id)}
+                    >
+                      <div className="texture-card-preview u-absolute u-inset-0 u-size-full u-overflow-hidden u-flex u-items-center u-justify-center">
+                        {texture.thumbnailUrl && !isMissing ? (
+                          <img
+                            className={
+                              texture.previewFlipY ? "is-preview-flipped-y" : ""
+                            }
+                            src={texture.thumbnailUrl}
+                            alt={texture.label}
+                          />
+                        ) : (
+                          <span className="texture-card-preview-placeholder">
+                            {isMissing ? "!" : texture.channel}
+                          </span>
+                        )}
+                      </div>
+                      <div className="texture-card-info u-absolute u-flex u-items-end u-justify-between u-gap-4">
+                        <span className="texture-card-label u-min-w-0 u-truncate">
+                          {texture.label}
+                        </span>
+                        <span className="texture-card-dimensions u-nowrap">
+                          {texture.channel} · {texture.dimensions}
+                        </span>
+                      </div>
+                    </SelectableListItem>
+                  );
+                })}
+              </div>
+            </Panel>
+            <PanelResizeHandle
+              className="texture-resize-handle"
+              aria-label="Resize texture details"
+            />
+            <Panel
+              className="texture-detail-pane"
+              defaultSize={38}
+              id="texture-detail"
+              minSize={20}
+            >
+              {selectedTexture && (
+                <TextureDetailPanel texture={selectedTexture} />
+              )}
+            </Panel>
+          </PanelGroup>
           <div className="texture-summary u-flex u-justify-between">
             <Badge variant="success" size="sm">
               Resolved {resolvedCount}

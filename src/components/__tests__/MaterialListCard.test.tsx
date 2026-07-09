@@ -72,8 +72,16 @@ function renderWithMaterials(materials: MaterialEntry[]) {
 
 describe("MaterialListCard – shader slot details (#36)", () => {
   it("renders material names", () => {
-    const { getByText } = renderWithMaterials([baseMat]);
+    const { container, getByText } = renderWithMaterials([baseMat]);
     expect(getByText("Gold")).toBeTruthy();
+    expect(container.querySelector(".material-split-panel")).toBeTruthy();
+    expect(container.querySelector(".material-list-pane")).toBeTruthy();
+    expect(container.querySelector(".material-detail-pane")).toBeTruthy();
+    expect(
+      container
+        .querySelector(".material-resize-handle")
+        ?.getAttribute("aria-label"),
+    ).toBe("Resize material details");
   });
 
   it("renders shader inputs summary when shader detail is present", () => {
