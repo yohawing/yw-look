@@ -12,6 +12,7 @@ import {
   loadPayload,
   openStageSession,
   unloadPayload,
+  type ExtractGeometryOptions,
   type PurposeModes,
   type StageInspection,
   type StageLoadPolicy,
@@ -89,6 +90,19 @@ function appendViewerWarning(
 }
 
 type PayloadOperation = "load" | "unload";
+type AbortCheck = () => boolean;
+
+function buildPayloadExtractOptions(
+  policy: StageLoadPolicy,
+  variantSelections: VariantSelection[],
+  purposeModes: PurposeModes,
+): ExtractGeometryOptions {
+  return {
+    policy,
+    variantSelections,
+    purposeModes,
+  };
+}
 
 function isSessionStale(
   current: StageSessionHandle | null,
@@ -263,36 +277,6 @@ export function usePayloadSession(
   }, [currentFile, isTauri, previewReadyForDeferredPayloads, usdLoadPolicy]);
 
   useEffect(() => {
-    if (stageSessionHandle === null) {
-      return deferEffectStateUpdate(() => {
-        setSessionGlbBuffer(null);
-      });
-    }
-    if (sessionGlbBufferRef.current === null) {
-      return;
-    }
-    let cancelled = false;
-    extractGeometrySession(stageSessionHandle, {
-      policy: "noPayloads",
-      variantSelections,
-      purposeModes,
-    })
-      .then((buf) => {
-        if (!cancelled) setSessionGlbBuffer(buf);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        console.warn("[usd] session re-extract on variant change failed:", err);
-        recordVariantSelectionError(err);
-        setSessionGlbBuffer(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [variantSelections, stageSessionHandle]);
-
-  useEffect(() => {
     if (!usdInspection || usdLoadPolicy !== "noPayloads") {
       return deferEffectStateUpdate(() => {
         setPayloadPrimPaths(new Set());
@@ -316,13 +300,15 @@ export function usePayloadSession(
     });
   }, [usdInspection, usdLoadPolicy]);
 
-  const buildSessionExtractOptions = useCallback(
-    () => ({
-      policy: "noPayloads" as const,
-      variantSelections,
-      purposeModes,
-    }),
+  const buildExtractOptions = useCallback(
+    (policy: StageLoadPolicy) =>
+      buildPayloadExtractOptions(policy, variantSelections, purposeModes),
     [variantSelections, purposeModes],
+  );
+
+  const buildSessionExtractOptions = useCallback(
+    () => buildExtractOptions("noPayloads"),
+    [buildExtractOptions],
   );
 
   const reportPayloadOperationFailure = useCallback(
@@ -361,27 +347,58 @@ export function usePayloadSession(
     [],
   );
 
-  const reextractSessionGeometry = useCallback(
-    async (captured: StageSessionHandle, operation: PayloadOperation) => {
+  const refreshSessionGeometry = useCallback(
+    async (
+      captured: StageSessionHandle,
+      failureContext: string,
+      isAborted: AbortCheck = () => false,
+    ) => {
       try {
         const glbBuffer = await extractGeometrySession(
           captured,
           buildSessionExtractOptions(),
         );
-        if (isSessionStale(stageSessionHandleRef.current, captured)) return;
+        if (
+          isAborted() ||
+          isSessionStale(stageSessionHandleRef.current, captured)
+        ) {
+          return;
+        }
         setSessionGlbBuffer(glbBuffer);
       } catch (err: unknown) {
-        if (isSessionStale(stageSessionHandleRef.current, captured)) return;
-        console.warn(
-          `[usd] session re-extract after ${operation} failed:`,
-          err,
-        );
+        if (
+          isAborted() ||
+          isSessionStale(stageSessionHandleRef.current, captured)
+        ) {
+          return;
+        }
+        console.warn(`[usd] session re-extract ${failureContext} failed:`, err);
         recordVariantSelectionError(err);
         setSessionGlbBuffer(null);
       }
     },
     [buildSessionExtractOptions, recordVariantSelectionError],
   );
+
+  useEffect(() => {
+    if (stageSessionHandle === null) {
+      return deferEffectStateUpdate(() => {
+        setSessionGlbBuffer(null);
+      });
+    }
+    if (sessionGlbBufferRef.current === null) {
+      return;
+    }
+    let cancelled = false;
+    void refreshSessionGeometry(
+      stageSessionHandle,
+      "on variant change",
+      () => cancelled,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshSessionGeometry, stageSessionHandle]);
 
   const runPayloadMutation = useCallback(
     async (operation: PayloadOperation, primPath: string) => {
@@ -413,11 +430,11 @@ export function usePayloadSession(
         reportPayloadOperationFailure(operation, primPath, err);
         return;
       }
-      await reextractSessionGeometry(captured, operation);
+      await refreshSessionGeometry(captured, `after ${operation}`);
     },
     [
       stageSessionHandle,
-      reextractSessionGeometry,
+      refreshSessionGeometry,
       reportPayloadOperationFailure,
       updatePayloadPathState,
     ],
@@ -481,15 +498,9 @@ export function usePayloadSession(
         }
         const glbBuffer = await retryWhileBusy(
           () =>
-            extractGeometry(
-              currentFile.path,
-              {
-                policy: "loadAll",
-                variantSelections,
-                purposeModes,
-              },
-              { background: true },
-            ),
+            extractGeometry(currentFile.path, buildExtractOptions("loadAll"), {
+              background: true,
+            }),
           {
             shouldAbort: () =>
               isDeferredPreviewAborted(
@@ -565,8 +576,7 @@ export function usePayloadSession(
     usdInspection,
     usdLoadPolicy,
     previewReadyForDeferredPayloads,
-    purposeModes,
-    variantSelections,
+    buildExtractOptions,
   ]);
 
   return {
