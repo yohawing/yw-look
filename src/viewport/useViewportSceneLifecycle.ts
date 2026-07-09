@@ -12,7 +12,6 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { PackMetadata } from "../types/format-pack";
 import {
   DEFAULT_LIGHTING_PRESET,
   DEFAULT_SCENE_DIMENSION,
@@ -40,13 +39,20 @@ import { createViewportPointerInput } from "./viewportPointerInput";
 import { applyViewportResize } from "./viewportResize";
 import { disposeViewportScene } from "./viewportSceneDispose";
 import type {
-  AssetMetadata,
   BackgroundPreset,
   EnvironmentPreset,
   ToneMappingMode,
-  ViewerFeedback,
   ViewerSurfaceMode,
 } from "../types/viewer";
+import type { AssetViewportCallbackProps } from "./types";
+
+type ViewportSceneLifecycleCallbacks = Pick<
+  AssetViewportCallbackProps,
+  | "onFeedbackChange"
+  | "onGridUnitChange"
+  | "onMetadataChange"
+  | "onPackMetadataChange"
+>;
 
 type ViewportSceneLifecycleOptions = {
   activeCameraIdRef: MutableRefObject<string | null | undefined>;
@@ -55,6 +61,7 @@ type ViewportSceneLifecycleOptions = {
   backgroundPresetRef: MutableRefObject<BackgroundPreset>;
   cameraFovRef: MutableRefObject<number>;
   cameraSpeedMultiplierRef: MutableRefObject<number>;
+  callbacks: ViewportSceneLifecycleCallbacks;
   clearResourceDiagnostics: () => void;
   controlSensitivityRef: MutableRefObject<number>;
   currentFileExtension?: string;
@@ -72,10 +79,6 @@ type ViewportSceneLifecycleOptions = {
   fxaaStateRef: MutableRefObject<FxaaComposerState | null>;
   hostRef: RefObject<HTMLDivElement | null>;
   keyLightRef: MutableRefObject<DirectionalLight | null>;
-  onFeedbackChange: (feedback: ViewerFeedback) => void;
-  onGridUnitChange: (label: string) => void;
-  onMetadataChange: (metadata: AssetMetadata | null) => void;
-  onPackMetadataChange: (metadata: PackMetadata | null) => void;
   onSelectMeshRef: MutableRefObject<
     ((meshName: string | null) => void) | undefined
   >;
@@ -109,6 +112,7 @@ export function useViewportSceneLifecycle({
   backgroundPresetRef,
   cameraFovRef,
   cameraSpeedMultiplierRef,
+  callbacks,
   clearResourceDiagnostics,
   controlSensitivityRef,
   currentFileExtension,
@@ -122,10 +126,6 @@ export function useViewportSceneLifecycle({
   fxaaStateRef,
   hostRef,
   keyLightRef,
-  onFeedbackChange,
-  onGridUnitChange,
-  onMetadataChange,
-  onPackMetadataChange,
   onSelectMeshRef,
   publishResourceDiagnostics,
   renderScaleRef,
@@ -140,6 +140,12 @@ export function useViewportSceneLifecycle({
   toneMappingModeRef,
   viewerSurfaceModeRef,
 }: ViewportSceneLifecycleOptions): void {
+  const {
+    onFeedbackChange,
+    onGridUnitChange,
+    onMetadataChange,
+    onPackMetadataChange,
+  } = callbacks;
   const rendererLifetimeBoundary =
     getRendererLifetimeBoundary(currentFileExtension);
 
@@ -404,11 +410,8 @@ export function useViewportSceneLifecycle({
     // renderer instead of tearing down PMREM and controls.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    callbacks,
     clearResourceDiagnostics,
-    onFeedbackChange,
-    onGridUnitChange,
-    onMetadataChange,
-    onPackMetadataChange,
     publishResourceDiagnostics,
     rendererLifetimeBoundary,
     shouldInitializeScene,

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AmbientLight,
   Camera,
@@ -293,6 +293,20 @@ export function AssetViewport({
   useSyncRef(morphTargetValuesRef, morphTargetValues);
 
   const shouldInitializeScene = currentFile !== null;
+  const viewportLifecycleCallbacks = useMemo(
+    () => ({
+      onFeedbackChange,
+      onGridUnitChange,
+      onMetadataChange,
+      onPackMetadataChange,
+    }),
+    [
+      onFeedbackChange,
+      onGridUnitChange,
+      onMetadataChange,
+      onPackMetadataChange,
+    ],
+  );
   const previewSupportState = currentFile
     ? getRuntimePreviewSupportState(
         currentFile.extension,
@@ -384,6 +398,7 @@ export function AssetViewport({
     cameraFovRef,
     cameraSpeedMultiplierRef,
     clearResourceDiagnostics,
+    callbacks: viewportLifecycleCallbacks,
     controlSensitivityRef,
     currentFileExtension: currentFile?.extension,
     environmentPresetRef,
@@ -396,10 +411,6 @@ export function AssetViewport({
     fxaaStateRef,
     hostRef,
     keyLightRef,
-    onFeedbackChange,
-    onGridUnitChange,
-    onMetadataChange,
-    onPackMetadataChange,
     onSelectMeshRef,
     publishResourceDiagnostics,
     renderScaleRef,
