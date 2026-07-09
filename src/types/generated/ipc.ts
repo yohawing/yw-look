@@ -16,3 +16,52 @@ export type AppSettings = {
 };
 
 export type SettingsPayload = { settingsPath: string; settings: AppSettings };
+
+export type OptionalLoaderPackCompatibility = {
+  state: string;
+  message: string | null;
+};
+
+export type OptionalLoaderPackManifest = {
+  id: string;
+  name: string;
+  version: string;
+  minimumAppVersion: string | null;
+  maximumAppVersion: string | null;
+  compatibility: OptionalLoaderPackCompatibility;
+  extensions: Array<string>;
+  entry: string;
+  packPath: string;
+  entryPath: string;
+};
+
+export type UpdateConfigurationPayload = {
+  currentVersion: string;
+  defaultEndpoint: string | null;
+  defaultPubkeyAvailable: boolean;
+  effectiveEndpoint: string | null;
+  effectivePubkeyAvailable: boolean;
+  usingOverrideEndpoint: boolean;
+  usingOverridePubkey: boolean;
+  allowInsecureUpdateEndpoint: boolean;
+};
+
+export type UpdateMetadataPayload = {
+  version: string;
+  currentVersion: string;
+  notes: string | null;
+  pubDate: string | null;
+  target: string;
+  downloadUrl: string;
+};
+
+export type UpdateCheckPayload = {
+  configuration: UpdateConfigurationPayload;
+  update: UpdateMetadataPayload | null;
+};
+
+export type UpdateInstallPayload = {
+  installedVersion: string;
+  restartRequired: boolean;
+  note: string;
+};

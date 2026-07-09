@@ -1,7 +1,13 @@
 import type {
   AppSettings as GeneratedAppSettings,
+  OptionalLoaderPackCompatibility as GeneratedOptionalLoaderPackCompatibility,
+  OptionalLoaderPackManifest as GeneratedOptionalLoaderPackManifest,
   OptionalLoaderPackSettings as GeneratedOptionalLoaderPackSettings,
   SettingsPayload as GeneratedSettingsPayload,
+  UpdateCheckPayload as GeneratedUpdateCheckPayload,
+  UpdateConfigurationPayload as GeneratedUpdateConfigurationPayload,
+  UpdateInstallPayload as GeneratedUpdateInstallPayload,
+  UpdateMetadataPayload as GeneratedUpdateMetadataPayload,
 } from "./generated/ipc";
 
 // ── Error type (mirrors Rust AppError) ──────────────────────────
@@ -290,51 +296,48 @@ export type SettingsPayload = Omit<GeneratedSettingsPayload, "settings"> & {
   settings: AppSettings;
 };
 
-export type OptionalLoaderPackManifest = {
-  id: string;
-  name: string;
-  version: string;
-  minimumAppVersion?: string | null;
-  maximumAppVersion?: string | null;
-  compatibility: {
-    state: string;
-    message?: string | null;
-  };
-  extensions: string[];
-  entry: string;
-  packPath: string;
-  entryPath: string;
+// Wire Option fields are `T | null`; facade keeps them optional for frontend
+// fixtures and partial objects that may omit absent payload fields.
+export type OptionalLoaderPackCompatibility = Omit<
+  GeneratedOptionalLoaderPackCompatibility,
+  "message"
+> & {
+  message?: GeneratedOptionalLoaderPackCompatibility["message"];
+};
+
+export type OptionalLoaderPackManifest = Omit<
+  GeneratedOptionalLoaderPackManifest,
+  "minimumAppVersion" | "maximumAppVersion" | "compatibility"
+> & {
+  minimumAppVersion?: GeneratedOptionalLoaderPackManifest["minimumAppVersion"];
+  maximumAppVersion?: GeneratedOptionalLoaderPackManifest["maximumAppVersion"];
+  compatibility: OptionalLoaderPackCompatibility;
 };
 
 // ── Updater IPC types ────────────────────────────────────────────
 
-export type UpdateConfigurationPayload = {
-  currentVersion: string;
-  defaultEndpoint?: string | null;
-  defaultPubkeyAvailable: boolean;
-  effectiveEndpoint?: string | null;
-  effectivePubkeyAvailable: boolean;
-  usingOverrideEndpoint: boolean;
-  usingOverridePubkey: boolean;
-  allowInsecureUpdateEndpoint: boolean;
+export type UpdateConfigurationPayload = Omit<
+  GeneratedUpdateConfigurationPayload,
+  "defaultEndpoint" | "effectiveEndpoint"
+> & {
+  defaultEndpoint?: GeneratedUpdateConfigurationPayload["defaultEndpoint"];
+  effectiveEndpoint?: GeneratedUpdateConfigurationPayload["effectiveEndpoint"];
 };
 
-export type UpdateMetadataPayload = {
-  version: string;
-  currentVersion: string;
-  notes?: string | null;
-  pubDate?: string | null;
-  target: string;
-  downloadUrl: string;
+export type UpdateMetadataPayload = Omit<
+  GeneratedUpdateMetadataPayload,
+  "notes" | "pubDate"
+> & {
+  notes?: GeneratedUpdateMetadataPayload["notes"];
+  pubDate?: GeneratedUpdateMetadataPayload["pubDate"];
 };
 
-export type UpdateCheckPayload = {
+export type UpdateCheckPayload = Omit<
+  GeneratedUpdateCheckPayload,
+  "configuration" | "update"
+> & {
   configuration: UpdateConfigurationPayload;
   update?: UpdateMetadataPayload | null;
 };
 
-export type UpdateInstallPayload = {
-  installedVersion: string;
-  restartRequired: boolean;
-  note: string;
-};
+export type UpdateInstallPayload = GeneratedUpdateInstallPayload;

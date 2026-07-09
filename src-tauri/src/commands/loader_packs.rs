@@ -32,6 +32,7 @@ struct OptionalLoaderPackManifestRaw {
     kind: String,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OptionalLoaderPackCompatibility {
@@ -39,6 +40,7 @@ pub(crate) struct OptionalLoaderPackCompatibility {
     pub(crate) message: Option<String>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OptionalLoaderPackManifest {

@@ -9,6 +9,7 @@ use crate::shared::{
 };
 use crate::state::{AppSettings, PendingUpdateState};
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateConfigurationPayload {
@@ -22,6 +23,7 @@ pub(crate) struct UpdateConfigurationPayload {
     pub(crate) allow_insecure_update_endpoint: bool,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateMetadataPayload {
@@ -33,6 +35,7 @@ pub(crate) struct UpdateMetadataPayload {
     download_url: String,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateCheckPayload {
@@ -40,6 +43,7 @@ pub(crate) struct UpdateCheckPayload {
     pub(crate) update: Option<UpdateMetadataPayload>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateInstallPayload {

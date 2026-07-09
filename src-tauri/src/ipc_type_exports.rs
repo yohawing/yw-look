@@ -1,6 +1,10 @@
 use ts_rs::{Config, TS};
 
+use crate::commands::loader_packs::{OptionalLoaderPackCompatibility, OptionalLoaderPackManifest};
 use crate::commands::settings::SettingsPayload;
+use crate::commands::updater::{
+    UpdateCheckPayload, UpdateConfigurationPayload, UpdateInstallPayload, UpdateMetadataPayload,
+};
 use crate::state::{AppSettings, OptionalLoaderPackSettings};
 
 const GENERATED_IPC_TYPES: &str =
@@ -17,6 +21,18 @@ fn generated_settings_ipc_types() -> String {
         &format_tsrs_object_decl(AppSettings::decl(&cfg)),
         "",
         &format_tsrs_object_decl(SettingsPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(OptionalLoaderPackCompatibility::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(OptionalLoaderPackManifest::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(UpdateConfigurationPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(UpdateMetadataPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(UpdateCheckPayload::decl(&cfg)),
+        "",
+        &format_tsrs_object_decl(UpdateInstallPayload::decl(&cfg)),
         "",
     ]
     .join("\n")
@@ -35,8 +51,9 @@ fn format_tsrs_object_decl(decl: String) -> String {
         .filter(|field| !field.is_empty())
         .collect::<Vec<_>>();
 
-    if fields.len() <= 2 {
-        return format!("{prefix} = {{ {} }};", fields.join("; "));
+    let inline_decl = format!("{prefix} = {{ {} }};", fields.join("; "));
+    if fields.len() <= 2 && inline_decl.len() <= 80 {
+        return inline_decl;
     }
 
     format!("{prefix} = {{\n  {};\n}};", fields.join(";\n  "))
