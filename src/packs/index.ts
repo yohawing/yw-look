@@ -5,10 +5,15 @@ import type { FormatPack } from "../types/format-pack";
 import type { PackFileRequest, PackMetadata } from "../types/format-pack";
 import type {
   AnimationState,
+  ObjectInfo,
   SceneContext,
   ViewerFeedback,
 } from "../types/viewer";
 import { gaussianSplatLoaderPack } from "./gaussian-splat-loader-pack/pack";
+import {
+  formatMmdMorphTargetMeta,
+  getMmdBoneDetails,
+} from "./mmd-loader-pack/hierarchyDetails";
 import { mmdLoaderPack } from "./mmd-loader-pack/pack";
 import { useMmdPackFileRequest } from "./mmd-loader-pack/runtime";
 import "./mmd-loader-pack/ui/hierarchy.css";
@@ -16,6 +21,12 @@ import { vrmLoaderPack } from "./vrm-loader-pack/pack";
 
 export { loadSparkPreviewObject } from "./gaussian-splat-loader-pack/loader";
 export { gaussianSplatLoaderPack } from "./gaussian-splat-loader-pack/pack";
+export {
+  formatMmdMorphTargetMeta,
+  getMmdBoneDetails,
+  type MmdBoneDetails,
+  type MmdHierarchyDetailRow,
+} from "./mmd-loader-pack/hierarchyDetails";
 export {
   loadMmdMotion,
   loadMmdMotionPreviewObject,
@@ -63,6 +74,16 @@ export function getMetadataCardForPackMetadata(metadata: PackMetadata) {
 export function renderMetadataCardForPackMetadata(metadata: PackMetadata) {
   const MetadataCard = getMetadataCardForPackMetadata(metadata);
   return MetadataCard ? createElement(MetadataCard, { metadata }) : null;
+}
+
+export function getPackSelectedObjectDetails(objectInfo: ObjectInfo | null) {
+  return getMmdBoneDetails(objectInfo?.mmdBone ?? null);
+}
+
+export function formatPackMorphTargetMeta(
+  target: ObjectInfo["morphTargets"][number],
+) {
+  return formatMmdMorphTargetMeta(target);
 }
 
 export function createPackFileRequest(

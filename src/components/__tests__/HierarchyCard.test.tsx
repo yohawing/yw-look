@@ -13,6 +13,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { HierarchyCard } from "../HierarchyCard";
 import type { HierarchyNode, ObjectInfo } from "../assetMetadata";
+import {
+  formatPackMorphTargetMeta,
+  getPackSelectedObjectDetails,
+} from "../../packs";
+import { KeyValueRows } from "../ui/KeyValueRows";
 
 const tree: HierarchyNode[] = [
   {
@@ -52,6 +57,17 @@ const faceInfo: ObjectInfo = {
   userData: null,
   mmdBone: null,
 };
+
+function renderPackSelectedObjectDetails(objectInfo: ObjectInfo | null) {
+  const details = getPackSelectedObjectDetails(objectInfo);
+  if (!details) return null;
+  return (
+    <div className="selected-mmd-section">
+      <div className="selected-mmd-head">{details.title}</div>
+      <KeyValueRows density="regular" rows={details.rows} />
+    </div>
+  );
+}
 
 describe("HierarchyCard selection sync (#33)", () => {
   afterEach(() => {
@@ -222,6 +238,7 @@ describe("HierarchyCard selection sync (#33)", () => {
         hierarchy={faceTree}
         objectInfo={{ Face: mmdFaceInfo }}
         selectedName="Face"
+        renderMorphTargetMeta={formatPackMorphTargetMeta}
       />,
     );
 
@@ -316,6 +333,7 @@ describe("HierarchyCard selection sync (#33)", () => {
         hierarchy={boneTree}
         objectInfo={{ Arm_EN: boneInfo }}
         selectedName="Arm_EN"
+        renderSelectedObjectDetails={renderPackSelectedObjectDetails}
       />,
     );
 

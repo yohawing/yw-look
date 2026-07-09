@@ -4,9 +4,14 @@ import { isUsdFile } from "../lib/files";
 import type { StageSessionHandle } from "../lib/usd";
 import { useFileStore } from "../stores/fileStore";
 import { useViewerStore } from "../stores/viewerStore";
-import type { HierarchyNode } from "./assetMetadata";
+import type { HierarchyNode, ObjectInfo } from "./assetMetadata";
 import { HierarchyCard } from "./HierarchyCard";
 import { UsdPrimPropertyPanel } from "./UsdPrimPropertyPanel";
+import {
+  formatPackMorphTargetMeta,
+  getPackSelectedObjectDetails,
+} from "../packs";
+import { KeyValueRows } from "./ui/KeyValueRows";
 
 type HierarchySidebarPanelProps = {
   debugPanelsEnabled?: boolean;
@@ -16,6 +21,17 @@ type HierarchySidebarPanelProps = {
   onLoadPayload: (primPath: string) => Promise<void>;
   onUnloadPayload: (primPath: string) => Promise<void>;
 };
+
+function renderPackSelectedObjectDetails(objectInfo: ObjectInfo | null) {
+  const details = getPackSelectedObjectDetails(objectInfo);
+  if (!details) return null;
+  return (
+    <div className="selected-mmd-section">
+      <div className="selected-mmd-head">{details.title}</div>
+      <KeyValueRows density="regular" rows={details.rows} />
+    </div>
+  );
+}
 
 export function HierarchySidebarPanel({
   debugPanelsEnabled = false,
@@ -80,6 +96,8 @@ export function HierarchySidebarPanel({
         onUnloadPayload={
           stageSessionHandle !== null ? onUnloadPayload : undefined
         }
+        renderSelectedObjectDetails={renderPackSelectedObjectDetails}
+        renderMorphTargetMeta={formatPackMorphTargetMeta}
       />
       {isUsdFile(currentFile) && (
         <UsdPrimPropertyPanel path={currentFile?.path ?? null} />

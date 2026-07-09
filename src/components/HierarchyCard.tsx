@@ -1,15 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Group as PanelGroup,
   Panel,
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
-import type {
-  AssetMetadata,
-  HierarchyNode,
-  MmdBoneEntry,
-  ObjectInfo,
-} from "./assetMetadata";
+import type { AssetMetadata, HierarchyNode, ObjectInfo } from "./assetMetadata";
 import { Button } from "./ui/Button";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
 import "../styles/hierarchy.css";
@@ -63,6 +58,10 @@ type HierarchyCardProps = {
    * the GLB.
    */
   onUnloadPayload?: (primPath: string) => void;
+  renderSelectedObjectDetails?: (objectInfo: ObjectInfo | null) => ReactNode;
+  renderMorphTargetMeta?: (
+    target: ObjectInfo["morphTargets"][number],
+  ) => ReactNode;
 };
 
 function clampMorphValue(value: number): number {
@@ -80,142 +79,8 @@ function selectedMorphValue(
   );
 }
 
-function fmtMmdNumber(value: number): string {
-  return value.toFixed(3).replace(/\.?0+$/, "");
-}
-
-function fmtMmdVec(value: readonly number[] | null): string {
-  return value ? value.map(fmtMmdNumber).join(", ") : "none";
-}
-
-function fmtMmdFlags(flags: Record<string, boolean> | null): string {
-  if (!flags) return "none";
-  const enabled = Object.entries(flags)
-    .filter(([, enabled]) => enabled)
-    .map(([name]) => name);
-  return enabled.length > 0 ? enabled.join(", ") : "none";
-}
-
 function hierarchyDisplayName(node: HierarchyNode): string {
   return node.displayName || node.name || "(unnamed)";
-}
-
-function fmtMmdMorphOffsets(
-  mmd: ObjectInfo["morphTargets"][number]["mmd"],
-): string {
-  if (!mmd) return "";
-  const parts = [
-    mmd.boneOffsetCount > 0 ? `bone:${mmd.boneOffsetCount}` : null,
-    mmd.groupOffsetCount > 0 ? `group:${mmd.groupOffsetCount}` : null,
-    mmd.flipOffsetCount > 0 ? `flip:${mmd.flipOffsetCount}` : null,
-    mmd.impulseOffsetCount > 0 ? `impulse:${mmd.impulseOffsetCount}` : null,
-  ].filter((part): part is string => part !== null);
-  return parts.length > 0 ? parts.join(" ") : "offsets:none";
-}
-
-function SelectedMmdBone({ bone }: { bone: MmdBoneEntry | null }) {
-  if (!bone) return null;
-
-  const rows: KeyValueRow[] = [
-    bone.boneIndex !== null && {
-      id: "index",
-      label: "Index",
-      value: bone.boneIndex,
-      mono: true,
-    },
-    bone.name && {
-      id: "mmd-name",
-      label: "MMD Name",
-      value: bone.name,
-      mono: true,
-    },
-    bone.englishName &&
-      bone.englishName !== bone.name && {
-        id: "english",
-        label: "English",
-        value: bone.englishName,
-        tone: "muted",
-        mono: true,
-      },
-    {
-      id: "parent",
-      label: "Parent",
-      value:
-        bone.parentIndex !== null && bone.parentIndex >= 0
-          ? `${bone.parentIndex}${bone.parentName ? ` · ${bone.parentName}` : ""}`
-          : "none",
-      tone: "muted",
-      mono: true,
-    },
-    {
-      id: "rest-pos",
-      label: "Rest Pos",
-      value: fmtMmdVec(bone.restPosition),
-      mono: true,
-    },
-    bone.layer !== null && {
-      id: "layer",
-      label: "Layer",
-      value: bone.layer,
-      mono: true,
-    },
-    bone.appendTransform && {
-      id: "append",
-      label: "Append",
-      value: `${bone.appendTransform.parentIndex}${
-        bone.appendTransform.parentName
-          ? ` · ${bone.appendTransform.parentName}`
-          : ""
-      } x${fmtMmdNumber(bone.appendTransform.weight)}`,
-      mono: true,
-    },
-    {
-      id: "flags",
-      label: "Flags",
-      value: fmtMmdFlags(bone.flags),
-      mono: true,
-    },
-    bone.ik && {
-      id: "ik-role",
-      label: "IK Role",
-      value: bone.ik.roles.join(", "),
-      mono: true,
-    },
-    bone.ik && {
-      id: "ik-chain",
-      label: "IK Chain",
-      value: `goal:${bone.ik.goalBoneIndex ?? "?"} target:${
-        bone.ik.effectorBoneIndex ?? "?"
-      } links:${bone.ik.linkCount ?? "?"}`,
-      mono: true,
-    },
-    bone.ik &&
-      (bone.ik.iterationCount !== null ||
-        bone.ik.maxAnglePerIteration !== null) && {
-        id: "ik-solve",
-        label: "IK Solve",
-        value: `iter:${bone.ik.iterationCount ?? "?"} angle:${
-          bone.ik.maxAnglePerIteration !== null
-            ? fmtMmdNumber(bone.ik.maxAnglePerIteration)
-            : "?"
-        }`,
-        mono: true,
-      },
-    bone.ik &&
-      bone.ik.limitKinds.length > 0 && {
-        id: "ik-limits",
-        label: "IK Limits",
-        value: bone.ik.limitKinds.join(", "),
-        mono: true,
-      },
-  ].filter(Boolean) as KeyValueRow[];
-
-  return (
-    <div className="selected-mmd-section">
-      <div className="selected-mmd-head">MMD Bone</div>
-      <KeyValueRows density="regular" rows={rows} />
-    </div>
-  );
 }
 
 function HierarchyBranch({
@@ -480,6 +345,8 @@ export function HierarchyCard({
   unloadedPayloadPaths,
   onLoadPayload,
   onUnloadPayload,
+  renderSelectedObjectDetails,
+  renderMorphTargetMeta,
 }: HierarchyCardProps) {
   const selectedRef = useRef<HTMLLIElement | null>(null);
 
@@ -666,7 +533,7 @@ export function HierarchyCard({
             {selectedNode ? (
               <div className="selected-kv">
                 <KeyValueRows density="regular" rows={selectedRows} />
-                <SelectedMmdBone bone={selectedInfo?.mmdBone ?? null} />
+                {renderSelectedObjectDetails?.(selectedInfo ?? null)}
                 {normalizedSelected && selectedMorphTargets.length > 0 ? (
                   <div className="selected-morph-section">
                     <div className="selected-morph-head">
@@ -695,6 +562,7 @@ export function HierarchyCard({
                           target,
                           morphTargetValues,
                         );
+                        const morphMeta = renderMorphTargetMeta?.(target);
                         return (
                           <label
                             className="selected-morph-row"
@@ -706,14 +574,9 @@ export function HierarchyCard({
                             <span className="selected-morph-value">
                               {value.toFixed(2)}
                             </span>
-                            {target.mmd ? (
+                            {morphMeta ? (
                               <span className="selected-morph-meta">
-                                {target.mmd.type ?? "mmd"} ·{" "}
-                                {target.mmd.englishName &&
-                                target.mmd.englishName !== target.name
-                                  ? `${target.mmd.englishName} · `
-                                  : ""}
-                                {fmtMmdMorphOffsets(target.mmd)}
+                                {morphMeta}
                               </span>
                             ) : null}
                             <input
