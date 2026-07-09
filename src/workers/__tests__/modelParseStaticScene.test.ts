@@ -52,10 +52,30 @@ function makeStaticGlbScene() {
   return root;
 }
 
+function makeStaticExternalTextureScene() {
+  const root = new Group();
+  root.add(
+    new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({
+        map: new Texture(document.createElement("img")),
+      }),
+    ),
+  );
+  return root;
+}
+
 describe("model parse worker static scene policy", () => {
   it("enables staticScene for textured static GLB scenes", () => {
     expect(canUseStaticSceneResult("glb", makeStaticGlbScene())).toBe(true);
     expect(canUseStaticSceneResult("gltf", makeStaticGlbScene())).toBe(true);
+  });
+
+  it("rejects residual non-serializable texture payloads for GLB and glTF scenes", () => {
+    const root = makeStaticExternalTextureScene();
+
+    expect(canUseStaticSceneResult("glb", root)).toBe(false);
+    expect(canUseStaticSceneResult("gltf", root)).toBe(false);
   });
 
   it("rejects animated GLB/glTF scenes", () => {

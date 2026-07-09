@@ -46,6 +46,7 @@ export type ModelParseWorkerPayload =
       kind: "gltf";
       text: string;
       resourceUrls: Record<string, string>;
+      preferObjectJson?: boolean;
     }
   | {
       kind: "obj";
@@ -216,7 +217,13 @@ self.addEventListener(
     void (async () => {
       try {
         const object = await parseObject(request.payload);
-        if (canUseStaticSceneResult(request.payload.kind, object)) {
+        if (
+          !(
+            request.payload.kind === "gltf" &&
+            request.payload.preferObjectJson === true
+          ) &&
+          canUseStaticSceneResult(request.payload.kind, object)
+        ) {
           const requireSerializableTextures =
             request.payload.kind === "glb" || request.payload.kind === "gltf";
           const scene = toStaticScenePayload(

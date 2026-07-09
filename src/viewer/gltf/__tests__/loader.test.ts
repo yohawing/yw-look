@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AnimationClip, Group, NumberKeyframeTrack } from "three";
+import {
+  AnimationClip,
+  Group,
+  Mesh,
+  MeshStandardMaterial,
+  NumberKeyframeTrack,
+} from "three";
 import type { SelectedFile } from "../../../lib/files";
 import { formatMissingTextureWarnings } from "../../textureWarnings";
 import {
@@ -369,6 +375,59 @@ describe("loadGltfPreviewObject", () => {
     expect(result.object).toBe(scene);
     expect(result.cleanupUrls).toEqual(["blob:0", "blob:1"]);
     expect(result.warnings).toEqual([]);
+  });
+
+  it("strips worker glTF texture references and defers texture assignment", async () => {
+    const scene = new Group();
+    scene.add(
+      new Mesh(undefined, new MeshStandardMaterial({ name: "Helmet" })),
+    );
+    mocks.parseModelInWorker.mockResolvedValue(scene);
+    mocks.readBinaryFile.mockImplementation(async (path: string) => {
+      if (path.endsWith(".gltf")) {
+        return encoded(
+          JSON.stringify({
+            asset: { version: "2.0" },
+            buffers: [{ uri: "Helmet.bin" }],
+            images: [
+              { uri: "albedo.png" },
+              { uri: "data:image/png;base64,inline" },
+            ],
+            textures: [{ source: 0 }, { source: 1 }],
+            materials: [
+              {
+                name: "Helmet",
+                pbrMetallicRoughness: {
+                  baseColorTexture: { index: 0 },
+                },
+              },
+              {
+                name: "Inline",
+                normalTexture: { index: 1 },
+              },
+            ],
+          }),
+        );
+      }
+      return new Uint8Array([0, 1, 2, 3]).buffer;
+    });
+
+    const result = await loadGltfPreviewObject(gltfFile, {});
+    const workerPayload = mocks.parseModelInWorker.mock.calls[0][1] as {
+      text: string;
+      resourceUrls: Record<string, string>;
+    };
+
+    expect(workerPayload.text).not.toContain("baseColorTexture");
+    expect(workerPayload.text).toContain("normalTexture");
+    expect(workerPayload.text).toContain("data:image/png;base64,inline");
+    expect(workerPayload.resourceUrls).toEqual({
+      "Helmet.bin": "blob:0",
+      "albedo.png": "blob:1",
+    });
+    expect(workerPayload).toMatchObject({ preferObjectJson: true });
+    expect(result.cleanupCallbacks).toHaveLength(1);
+    result.cleanupCallbacks?.forEach((cleanup) => cleanup());
   });
 
   it("falls back to main-thread glTF parsing for small worker failures", async () => {
