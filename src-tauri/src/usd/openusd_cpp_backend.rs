@@ -23,7 +23,6 @@ use std::collections::HashSet;
 use std::path::Path as StdPath;
 use std::time::Instant;
 
-use glam::{Mat4, Quat, Vec3};
 use openusd::sdf::Path as SdfPath;
 use openusd::stage::MeshData;
 
@@ -51,7 +50,7 @@ use super::material::{
 };
 use super::math::{
     identity_mat4, invert_mat4_f32, invert_mat4_with_threshold, mat4_f64_to_f32, mat4_mul,
-    mat4_mul_f32, z_up_to_y_up_mat4,
+    mat4_mul_f32, trs_to_mat4_f32, z_up_to_y_up_mat4,
 };
 use super::node_tree::{
     collect_node_payload_maps, emit_node_inputs, order_node_paths_by_traversal,
@@ -1979,20 +1978,6 @@ fn apply_and_validate_variant_selections(
     Ok(())
 }
 
-/// #41: build a column-major 4x4 transform from glTF-style TRS
-/// (translation, rotation as `[x, y, z, w]` quaternion, scale).
-/// Used by the PointInstancer pass to compose per-instance local TRS
-/// with the instancer's world matrix before re-decomposing for
-/// `EXT_mesh_gpu_instancing`.
-fn trs_to_mat4_f32(t: [f32; 3], r: [f32; 4], s: [f32; 3]) -> [f32; 16] {
-    Mat4::from_scale_rotation_translation(
-        Vec3::from_array(s),
-        Quat::from_xyzw(r[0], r[1], r[2], r[3]),
-        Vec3::from_array(t),
-    )
-    .to_cols_array()
-}
-
 /// Collect the raw per-mesh attributes via the shim and shape them
 /// into an `openusd::MeshData` value so the shared `mesh_data_to_input`
 /// pure function can consume them unchanged.
@@ -2994,15 +2979,6 @@ fn is_root_prim_path(p: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn assert_mat4_close(actual: &[f32; 16], expected: &[f32; 16]) {
-        for (i, (actual, expected)) in actual.iter().zip(expected.iter()).enumerate() {
-            assert!(
-                (actual - expected).abs() < 1e-5,
-                "matrix[{i}] expected {expected}, got {actual}"
-            );
-        }
-    }
-
     #[test]
     fn is_root_prim_path_rules() {
         assert!(is_root_prim_path("/Root"));
@@ -3011,22 +2987,5 @@ mod tests {
         assert!(!is_root_prim_path("/"));
         assert!(!is_root_prim_path(""));
         assert!(!is_root_prim_path("NoLeadingSlash"));
-    }
-
-    #[test]
-    fn trs_to_mat4_f32_uses_gltf_quaternion_order() {
-        let half_turn = std::f32::consts::FRAC_1_SQRT_2;
-        let transform =
-            trs_to_mat4_f32([1.0, 2.0, 3.0], [0.0, 0.0, half_turn, half_turn], [1.0; 3]);
-
-        assert_mat4_close(
-            &transform,
-            &[
-                0.0, 1.0, 0.0, 0.0, //
-                -1.0, 0.0, 0.0, 0.0, //
-                0.0, 0.0, 1.0, 0.0, //
-                1.0, 2.0, 3.0, 1.0,
-            ],
-        );
     }
 }

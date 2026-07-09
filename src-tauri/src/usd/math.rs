@@ -1,6 +1,6 @@
 //! Backend-independent matrix helpers shared by USD extraction paths.
 
-use glam::{DMat4, Mat4};
+use glam::{DMat4, Mat4, Quat, Vec3};
 
 pub(crate) const IDENTITY_MAT4_F32: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, //
@@ -65,6 +65,19 @@ pub(crate) fn mat4_f64_to_f32(m: &[f64; 16]) -> [f32; 16] {
         out[i] = m[i] as f32;
     }
     out
+}
+
+/// Build a column-major 4x4 transform from glTF-style TRS
+/// (translation, rotation as `[x, y, z, w]` quaternion, scale).
+/// Used by the OpenUSD C++ backend PointInstancer pass (feature-gated).
+#[allow(dead_code)]
+pub(crate) fn trs_to_mat4_f32(t: [f32; 3], r: [f32; 4], s: [f32; 3]) -> [f32; 16] {
+    Mat4::from_scale_rotation_translation(
+        Vec3::from_array(s),
+        Quat::from_xyzw(r[0], r[1], r[2], r[3]),
+        Vec3::from_array(t),
+    )
+    .to_cols_array()
 }
 
 #[cfg(test)]
@@ -151,5 +164,31 @@ mod tests {
         );
         assert!(invert_mat4_f32(&IDENTITY_MAT4_F32).is_some());
         assert!(invert_mat4_f32(&[0.0; 16]).is_none());
+    }
+
+    fn assert_mat4_f32_close(actual: &[f32; 16], expected: &[f32; 16]) {
+        for (i, (actual, expected)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (actual - expected).abs() < 1e-5,
+                "matrix[{i}] expected {expected}, got {actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn trs_to_mat4_f32_uses_gltf_quaternion_order() {
+        let half_turn = std::f32::consts::FRAC_1_SQRT_2;
+        let transform =
+            trs_to_mat4_f32([1.0, 2.0, 3.0], [0.0, 0.0, half_turn, half_turn], [1.0; 3]);
+
+        assert_mat4_f32_close(
+            &transform,
+            &[
+                0.0, 1.0, 0.0, 0.0, //
+                -1.0, 0.0, 0.0, 0.0, //
+                0.0, 0.0, 1.0, 0.0, //
+                1.0, 2.0, 3.0, 1.0,
+            ],
+        );
     }
 }
