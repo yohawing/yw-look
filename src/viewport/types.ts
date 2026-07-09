@@ -24,13 +24,23 @@ export type RuntimePreviewUpdater = {
   update: (deltaSeconds: number) => void;
 };
 
-export type AssetViewportProps = {
+export type AssetViewportFileProps = {
   currentFile: SelectedFile | null;
   disabledOptionalLoaderPackIds?: readonly string[];
   incompatibleOptionalLoaderPackIds?: readonly string[];
   packFileRequest?: PackFileRequest | null;
-  displayMode: DisplayMode;
-  backgroundPreset: BackgroundPreset;
+  /**
+   * #44: when non-null the viewport loads this pre-extracted GLB buffer
+   * directly instead of re-extracting from the file path. Used by the
+   * per-prim payload session so the viewport reflects the current payload
+   * load state without a full round-trip through the extraction pipeline.
+   * Setting to `null` or omitting reverts to the normal file-based path.
+   */
+  glbOverride?: ArrayBuffer | null;
+  deferredProgress?: DeferredTextureSnapshot | null;
+};
+
+export type AssetViewportCallbackProps = {
   onFeedbackChange: (feedback: ViewerFeedback) => void;
   onOpenFile?: () => void;
   onUsdError?: (error: unknown) => void;
@@ -39,14 +49,15 @@ export type AssetViewportProps = {
   onResourceDiagnosticsChange?: (
     snapshot: ResourceDiagnosticsSnapshot | null,
   ) => void;
-  selectedTextureId: string | null;
-  viewerSurfaceMode: ViewerSurfaceMode;
-  textureViewMode: TextureViewMode;
-  textureExposure: number;
-  textureBlackPoint: number;
-  textureWhitePoint: number;
-  textureTileCount: number;
-  textureGamma: number;
+  onGridUnitChange: (label: string) => void;
+  onScaleNormalizationChange?: (
+    normalization: { applied: boolean; factor: number } | null,
+  ) => void;
+};
+
+export type AssetViewportSceneDisplayProps = {
+  displayMode: DisplayMode;
+  backgroundPreset: BackgroundPreset;
   showGrid: boolean;
   showAxes: boolean;
   showSkeleton: boolean;
@@ -59,26 +70,19 @@ export type AssetViewportProps = {
   environmentRotation: number;
   backfaceCulling: boolean;
   textureFilterMode: TextureFilterMode;
-  controlSensitivity: number;
-  cameraFov: number;
-  renderScale: number;
   showShadows: boolean;
   showUnlit: boolean;
-  fxaaEnabled: boolean;
-  showRendererStats: boolean;
-  toneMappingMode: ToneMappingMode;
-  exposure: number;
-  onGridUnitChange: (label: string) => void;
-  environmentPreset: EnvironmentPreset;
-  /** Multiplier applied on top of the auto-computed sensitivity (0.25 - 4). */
-  cameraSpeedMultiplier: number;
-  /**
-   * Phase 4 USD load policy. Default `"loadAll"` preserves Phase 3
-   * behavior. When this changes the viewport reloads the preview with
-   * the new policy so deferred payloads take effect.
-   */
-  usdLoadPolicy?: StageLoadPolicy;
-  usdInspection?: StageInspection | null;
+};
+
+export type AssetViewportTextureProps = {
+  selectedTextureId: string | null;
+  viewerSurfaceMode: ViewerSurfaceMode;
+  textureViewMode: TextureViewMode;
+  textureExposure: number;
+  textureBlackPoint: number;
+  textureWhitePoint: number;
+  textureTileCount: number;
+  textureGamma: number;
   /**
    * When `true`, the texture preview plane is framed with the same
    * orbit-style controls as a 3D asset so the user can rotate/zoom
@@ -87,25 +91,29 @@ export type AssetViewportProps = {
    * for a quick texture inspection.
    */
   texturePreview3D: boolean;
+};
+
+export type AssetViewportRenderProps = {
+  controlSensitivity: number;
+  cameraFov: number;
+  renderScale: number;
+  fxaaEnabled: boolean;
+  showRendererStats: boolean;
+  toneMappingMode: ToneMappingMode;
+  exposure: number;
+  environmentPreset: EnvironmentPreset;
+  /** Multiplier applied on top of the auto-computed sensitivity (0.25 - 4). */
+  cameraSpeedMultiplier: number;
+};
+
+export type AssetViewportUsdProps = {
   /**
-   * Fired when the user single-clicks the viewport (#33). Receives the
-   * `Object3D.name` of the picked mesh, or `null` when the click misses
-   * any geometry. Drags are not treated as clicks (a small movement
-   * threshold filters orbit/pan gestures out). The string is the live
-   * Three.js object name - for the GLB-routed USD path this is the
-   * authored prim path the Rust backend stamps on each mesh node, and
-   * for the Three.js USDLoader path it is whatever the loader assigned.
-   * App.tsx feeds the value into the hierarchy panel so the tree can
-   * scroll to and highlight the picked prim.
+   * Phase 4 USD load policy. Default `"loadAll"` preserves Phase 3
+   * behavior. When this changes the viewport reloads the preview with
+   * the new policy so deferred payloads take effect.
    */
-  onSelectMesh?: (meshName: string | null) => void;
-  /**
-   * Currently selected mesh name driven by the hierarchy tree (#33 reverse
-   * direction: tree -> viewport). When this changes the viewport applies a
-   * selection tint to the matching mesh; `null` clears any active tint.
-   */
-  selectedMeshName?: string | null;
-  morphTargetValues?: Record<string, Record<number, number>>;
+  usdLoadPolicy?: StageLoadPolicy;
+  usdInspection?: StageInspection | null;
   /**
    * #32: USD purpose visibility filter. `default` purpose is always shown.
    * Each of render / proxy / guide is independently toggled. When undefined
@@ -139,20 +147,34 @@ export type AssetViewportProps = {
    * callback lets App reset that state so the UI is consistent and fly
    * mode becomes available again. */
   onActiveCameraReset?: () => void;
-  /**
-   * #44: when non-null the viewport loads this pre-extracted GLB buffer
-   * directly instead of re-extracting from the file path. Used by the
-   * per-prim payload session so the viewport reflects the current payload
-   * load state without a full round-trip through the extraction pipeline.
-   * Setting to `null` or omitting reverts to the normal file-based path.
-   */
-  glbOverride?: ArrayBuffer | null;
-  deferredProgress?: DeferredTextureSnapshot | null;
-  /**
-   * #91: Called when scale normalization is applied or reverted.
-   * Parent can use this to show/hide the "Cancel Scale Normalize" button.
-   */
-  onScaleNormalizationChange?: (
-    normalization: { applied: boolean; factor: number } | null,
-  ) => void;
 };
+
+export type AssetViewportSelectionProps = {
+  /**
+   * Fired when the user single-clicks the viewport (#33). Receives the
+   * `Object3D.name` of the picked mesh, or `null` when the click misses
+   * any geometry. Drags are not treated as clicks (a small movement
+   * threshold filters orbit/pan gestures out). The string is the live
+   * Three.js object name - for the GLB-routed USD path this is the
+   * authored prim path the Rust backend stamps on each mesh node, and
+   * for the Three.js USDLoader path it is whatever the loader assigned.
+   * App.tsx feeds the value into the hierarchy panel so the tree can
+   * scroll to and highlight the picked prim.
+   */
+  onSelectMesh?: (meshName: string | null) => void;
+  /**
+   * Currently selected mesh name driven by the hierarchy tree (#33 reverse
+   * direction: tree -> viewport). When this changes the viewport applies a
+   * selection tint to the matching mesh; `null` clears any active tint.
+   */
+  selectedMeshName?: string | null;
+  morphTargetValues?: Record<string, Record<number, number>>;
+};
+
+export type AssetViewportProps = AssetViewportFileProps &
+  AssetViewportCallbackProps &
+  AssetViewportSceneDisplayProps &
+  AssetViewportTextureProps &
+  AssetViewportRenderProps &
+  AssetViewportUsdProps &
+  AssetViewportSelectionProps;

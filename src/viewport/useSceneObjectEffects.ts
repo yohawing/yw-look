@@ -12,7 +12,7 @@ import {
   applyUnlitMaterial,
   applyVertexColors,
 } from "../viewer";
-import type { AssetViewportProps } from "./types";
+import type { AssetViewportSceneDisplayProps } from "./types";
 
 export function useSceneObjectEffects({
   backfaceCulling,
@@ -29,7 +29,7 @@ export function useSceneObjectEffects({
   showVertexColors,
   textureFilterMode,
 }: Pick<
-  AssetViewportProps,
+  AssetViewportSceneDisplayProps,
   | "backfaceCulling"
   | "displayMode"
   | "showBoundingBoxes"
