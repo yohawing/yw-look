@@ -29,6 +29,7 @@
     "lint": "eslint .",
     "check:format-pack-boundaries": "node scripts/check-format-pack-boundaries.mjs",
     "check:viewer-viewport-boundaries": "node scripts/check-viewer-viewport-boundaries.mjs",
+    "check:ipc-types": "cargo test --manifest-path src-tauri/Cargo.toml ipc_type_exports::generated_ipc_types_are_current --no-default-features --features backend-openusd-rs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview",

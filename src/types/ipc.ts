@@ -1,3 +1,9 @@
+import type {
+  AppSettings as GeneratedAppSettings,
+  OptionalLoaderPackSettings as GeneratedOptionalLoaderPackSettings,
+  SettingsPayload as GeneratedSettingsPayload,
+} from "./generated/ipc";
+
 // ── Error type (mirrors Rust AppError) ──────────────────────────
 
 export type AppError = {
@@ -273,23 +279,14 @@ export type ResourceDiagnosticsSnapshot = {
 // ── Settings IPC types ───────────────────────────────────────────
 
 export type AppSettings = {
-  version: number;
-  recentFilesLimit: number;
-  diagnosticsLogLevel: string;
-  fileAssociationsEnabled: boolean;
-  optionalLoaderPacks: Record<string, OptionalLoaderPackSettings | undefined>;
-  updateEndpointOverride?: string | null;
-  updatePublicKeyOverride?: string | null;
-  allowInsecureUpdateEndpoint: boolean;
-  autoCheckForUpdates: boolean;
+  [K in keyof GeneratedAppSettings]: K extends "optionalLoaderPacks"
+    ? Record<string, OptionalLoaderPackSettings | undefined>
+    : GeneratedAppSettings[K];
 };
 
-export type OptionalLoaderPackSettings = {
-  enabled: boolean;
-};
+export type OptionalLoaderPackSettings = GeneratedOptionalLoaderPackSettings;
 
-export type SettingsPayload = {
-  settingsPath: string;
+export type SettingsPayload = Omit<GeneratedSettingsPayload, "settings"> & {
   settings: AppSettings;
 };
 

@@ -15,6 +15,7 @@ const INSTALLER_MANAGED_OPTIONAL_LOADER_PACKS: &[(&str, &str)] = &[
     ("gaussian-splat-loader-pack", "gaussian-splat"),
 ];
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SettingsPayload {

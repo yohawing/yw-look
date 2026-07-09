@@ -9,6 +9,7 @@ use crate::usd::{
     UsdSessionBackend, UsdSourceBackend,
 };
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct AppSettings {
@@ -24,6 +25,7 @@ pub(crate) struct AppSettings {
     pub(crate) auto_check_for_updates: bool,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct OptionalLoaderPackSettings {

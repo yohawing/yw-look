@@ -4,6 +4,9 @@ pub mod shared;
 pub mod state;
 pub mod usd;
 
+#[cfg(test)]
+mod ipc_type_exports;
+
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use std::path::PathBuf;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
