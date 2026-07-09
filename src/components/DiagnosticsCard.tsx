@@ -98,7 +98,7 @@ function OperationalDiagnosticsSection() {
   };
 
   return (
-    <SidebarSection title="Logs" collapsible>
+    <SidebarSection title="Log Details" collapsible>
       {rows.length > 0 ? (
         <CompactMetricRows rows={rows} />
       ) : (

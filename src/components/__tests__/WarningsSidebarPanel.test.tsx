@@ -4,12 +4,31 @@ import { WarningsSidebarPanel } from "../WarningsSidebarPanel";
 import { useViewerStore } from "../../stores/viewerStore";
 import { requestViewportScaleNormalizationCancel } from "../../viewport/viewportCommands";
 
+const diagnosticsMocks = vi.hoisted(() => ({
+  loadDiagnosticsSnapshot: vi.fn(),
+  openAppLogDir: vi.fn(),
+}));
+
+vi.mock("../../lib/diagnostics", () => ({
+  loadDiagnosticsSnapshot: diagnosticsMocks.loadDiagnosticsSnapshot,
+  openAppLogDir: diagnosticsMocks.openAppLogDir,
+}));
+
 vi.mock("../../viewport/viewportCommands", () => ({
   requestViewportScaleNormalizationCancel: vi.fn(() => true),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  diagnosticsMocks.loadDiagnosticsSnapshot.mockResolvedValue({
+    appLogDir: "C:/logs/yw-look",
+    appVersion: "0.2.2-test",
+    arch: "x64",
+    diagnosticsLogPath: "C:/logs/yw-look/diagnostics.log",
+    diagnosticsSnapshot: ["[viewer.loadFailed] Failed to load preview."],
+    platform: "windows",
+  });
+  diagnosticsMocks.openAppLogDir.mockResolvedValue(undefined);
   useViewerStore.setState({
     resourceDiagnostics: null,
     scaleNormalization: { applied: true, factor: 2 },
@@ -39,5 +58,15 @@ describe("WarningsSidebarPanel", () => {
     expect(
       queryByRole("button", { name: /cancel scale normalize/i }),
     ).toBeNull();
+  });
+
+  it("keeps log details inside the warnings panel", async () => {
+    const { findByText, getByText } = render(
+      <WarningsSidebarPanel warnings={["Missing texture"]} />,
+    );
+
+    expect(getByText("Warnings")).toBeTruthy();
+    expect(getByText("Missing texture")).toBeTruthy();
+    expect(await findByText("Log Details")).toBeTruthy();
   });
 });

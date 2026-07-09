@@ -16,7 +16,6 @@ import { useViewerStore } from "../../stores/viewerStore";
 import type { AssetIssue } from "../../lib/usd";
 import type { UpdateCheckPayload } from "../../lib/updater";
 import type { MmdAssetMetadata } from "../../types/viewer";
-import type { SettingsPayload } from "../../lib/settings";
 
 const diagnosticsMocks = vi.hoisted(() => ({
   loadDiagnosticsSnapshot: vi.fn(),
@@ -29,21 +28,6 @@ vi.mock("../../lib/diagnostics", () => ({
 }));
 
 type SidebarModelTestOptions = Parameters<typeof useSidebarModel>[0];
-
-const settingsPayload: SettingsPayload = {
-  settingsPath: "C:\\Users\\yohaw\\AppData\\Roaming\\yw-look\\settings.json",
-  settings: {
-    version: 1,
-    recentFilesLimit: 10,
-    diagnosticsLogLevel: "warn",
-    fileAssociationsEnabled: false,
-    optionalLoaderPacks: {},
-    updateEndpointOverride: null,
-    updatePublicKeyOverride: null,
-    allowInsecureUpdateEndpoint: false,
-    autoCheckForUpdates: true,
-  },
-};
 
 function makeOptions(
   overrides: Partial<SidebarModelTestOptions> = {},
@@ -224,20 +208,19 @@ describe("useSidebarModel", () => {
     });
   });
 
-  it("exposes diagnostics actions from the settings tab", async () => {
-    useUiStore.setState({ activeTab: "settings" });
+  it("exposes diagnostics log actions from the warnings tab", async () => {
+    useUiStore.setState({ activeTab: "warnings" });
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText },
     });
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
-    const { result } = renderHook(() =>
-      useSidebarModel(makeOptions({ settingsPayload })),
-    );
+    const { result } = renderHook(() => useSidebarModel(makeOptions()));
 
     render(<>{result.current.sidebarContent}</>);
 
+    expect(await screen.findByText("Log Details")).toBeTruthy();
     expect(
       await screen.findByRole("button", { name: "Open Logs" }),
     ).toBeTruthy();

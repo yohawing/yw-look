@@ -19,7 +19,6 @@ import type { SidebarTabItem } from "../components/SidebarTabs";
 import type { SidebarTabId } from "../components/SidebarTabIcons";
 import { TexturesSidebarPanel } from "../components/TexturesSidebarPanel";
 import { UsdInspectorSidebarPanel } from "../components/UsdInspectorSidebarPanel";
-import { DiagnosticsCard } from "../components/DiagnosticsCard";
 import { WarningsSidebarPanel } from "../components/WarningsSidebarPanel";
 import {
   buildDiagnosticCounts,
@@ -156,9 +155,6 @@ export function useSidebarModel({
   const assetMetadata = useFileStore((state) => state.assetMetadata);
   const packMetadata = useFileStore((state) => state.packMetadata);
   const viewerFeedback = useViewerStore((state) => state.viewerFeedback);
-  const resourceDiagnostics = useViewerStore(
-    (state) => state.resourceDiagnostics,
-  );
   const activeTab = useUiStore((state) => state.activeTab);
   const sidebarWidth = useUiStore((state) => state.sidebarWidth);
   const setSidebarWidth = useUiStore((state) => state.setSidebarWidth);
@@ -344,10 +340,6 @@ export function useSidebarModel({
                 updateError={updateError}
               />
             </Suspense>
-            <DiagnosticsCard
-              processMemoryMetrics={null}
-              resourceDiagnostics={resourceDiagnostics}
-            />
           </>
         );
       case "warnings":
@@ -371,7 +363,6 @@ export function useSidebarModel({
     optionalLoaderManifestsError,
     payloadPrimPaths,
     performSelectFilePath,
-    resourceDiagnostics,
     setRecentFilesError,
     sessionAdjustedUsdSummary,
     settingsError,
