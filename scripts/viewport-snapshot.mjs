@@ -111,6 +111,15 @@ const cases = [
     background: "default",
   },
   {
+    id: "vmd-tiny-motion",
+    input: "tests/fixtures/models/tiny-motion.vmd",
+    snapshot: "tests/visual/snapshots/viewport/vmd-tiny-motion.png",
+    actual: "artifacts/screenshots/viewport/vmd-tiny-motion-current.png",
+    size: "384x288",
+    background: "default",
+    requiresLoader: "mmd",
+  },
+  {
     id: "gltf-duck",
     input: "samples/assets/gltf/Duck.gltf",
     snapshot: "tests/visual/snapshots/viewport/gltf-duck.png",

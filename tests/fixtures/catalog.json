@@ -70,6 +70,14 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "motion-vmd-tiny",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny-motion.vmd",
+      "format": "vmd",
+      "requiresLoader": "mmd",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "model-fbx-samba-dancing",
       "category": "valid",
       "path": "samples/assets/fbx/Samba Dancing.fbx",

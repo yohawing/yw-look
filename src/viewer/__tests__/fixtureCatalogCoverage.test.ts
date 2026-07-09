@@ -85,12 +85,6 @@ const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
     privateCoverage: "planned",
     reason: "MMD enrollment is Phase B-2",
   },
-  {
-    extension: "vmd",
-    publicCatalog: false,
-    privateCoverage: "planned",
-    reason: "MMD motion enrollment is Phase B-2",
-  },
 ];
 
 const KNOWN_COVERAGE_GAPS: CoverageGap[] = [
