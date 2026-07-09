@@ -1,7 +1,7 @@
 import type { SelectedFile } from "../lib/files";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { useFileStore } from "../stores/fileStore";
-import { SelectableListItem } from "./ui";
+import { FileItemList, type FileItemListEntry } from "./FileItemList";
 import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 
 type FileBrowserCardProps = {
@@ -34,6 +34,23 @@ export function FileBrowserCard({
   const files = directoryListing?.files ?? [];
   const currentPath = currentFile?.path ?? null;
   const currentDirectory = currentFile?.parentDirectory ?? null;
+  const fileItems: FileItemListEntry[] = files.map((file, index) => {
+    const kind = formatKind(file);
+    const isCurrent =
+      currentPath !== null &&
+      file.path.toLocaleLowerCase() === currentPath.toLocaleLowerCase();
+
+    return {
+      id: `${file.path}-${index}`,
+      name: file.fileName,
+      secondary: file.path,
+      leading: kind.slice(0, 3),
+      trailing: kind,
+      selected: isCurrent,
+      className: "file-browser-entry",
+      onSelect: () => onOpenPath(file.path),
+    };
+  });
 
   return (
     <SidebarSection
@@ -50,24 +67,7 @@ export function FileBrowserCard({
         <SidebarEmpty>No folder selected.</SidebarEmpty>
       )}
       {files.length > 0 ? (
-        <ul className="file-browser-list">
-          {files.map((file, index) => {
-            const isCurrent =
-              currentPath !== null &&
-              file.path.toLocaleLowerCase() === currentPath.toLocaleLowerCase();
-            return (
-              <li key={`${file.path}-${index}`}>
-                <SelectableListItem
-                  className={`file-browser-entry${isCurrent ? " is-current" : ""}`}
-                  onClick={() => onOpenPath(file.path)}
-                >
-                  <span className="file-browser-name">{file.fileName}</span>
-                  <span className="file-browser-meta">{formatKind(file)}</span>
-                </SelectableListItem>
-              </li>
-            );
-          })}
-        </ul>
+        <FileItemList className="file-browser-list" items={fileItems} />
       ) : currentDirectory ? (
         <SidebarEmpty>No supported siblings found.</SidebarEmpty>
       ) : null}

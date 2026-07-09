@@ -1,6 +1,6 @@
 import type { RecentFilesPayload } from "../lib/recentFiles";
 import { AsyncSidebarSection, SidebarEmpty } from "../lib/sidebarPrimitives";
-import { SelectableListItem } from "./ui";
+import { FileItemList, type FileItemListEntry } from "./FileItemList";
 
 type RecentFilesCardProps = {
   recentFilesPayload: RecentFilesPayload | null;
@@ -29,29 +29,20 @@ export function RecentFilesCard({
         <>
           <p className="sidebar-path">{payload.recentFilesPath}</p>
           {payload.entries.length > 0 ? (
-            <ul className="recent-list">
-              {payload.entries.map((entry) => (
-                <li key={entry.path}>
-                  <SelectableListItem
-                    className="recent-entry"
-                    onClick={() => onOpenPath(entry.path)}
-                  >
-                    <span className="recent-entry-thumb">
-                      {entry.kind.slice(0, 3).toUpperCase()}
-                    </span>
-                    <span className="recent-entry-info">
-                      <span className="recent-entry-name">
-                        {basename(entry.path)}
-                      </span>
-                      <span className="recent-entry-path">{entry.path}</span>
-                    </span>
-                    <span className="recent-entry-meta">
-                      {entry.lastAccessedAt}
-                    </span>
-                  </SelectableListItem>
-                </li>
-              ))}
-            </ul>
+            <FileItemList
+              className="recent-list"
+              items={payload.entries.map(
+                (entry): FileItemListEntry => ({
+                  id: entry.path,
+                  name: basename(entry.path),
+                  secondary: entry.path,
+                  leading: entry.kind.slice(0, 3).toUpperCase(),
+                  trailing: entry.lastAccessedAt,
+                  className: "recent-entry",
+                  onSelect: () => onOpenPath(entry.path),
+                }),
+              )}
+            />
           ) : (
             <SidebarEmpty>No recent files recorded yet.</SidebarEmpty>
           )}
