@@ -18,7 +18,7 @@ modified while writing them. The repo is in **alpha mode** (direct commits to
 | 002  | Extension allowlist on raw binary-read IPC (security)  | P1       | S/M    | —          | BLOCKED (fixture gate 35/37: VMD geometry and OBJ warning expectation failures unrelated to allowlist) |
 | 003  | Characterization tests for `useAppFileOpen`            | P1       | M      | —          | DONE                                                                                                   |
 | 004  | Stale-request guard for file navigation (bug)          | P1       | S      | 003        | DONE                                                                                                   |
-| 005  | Revoke loader blob URLs on abort/fallback (leak)       | P2       | S      | —          | TODO                                                                                                   |
+| 005  | Revoke loader blob URLs on abort/fallback (leak)       | P2       | S      | —          | DONE                                                                                                   |
 | 006  | USD inspector busy-retry instead of silent empty (bug) | P2       | S/M    | —          | TODO                                                                                                   |
 | 007  | Re-vendor FBXLoader + three drift check (deps)         | P2       | M      | —          | TODO                                                                                                   |
 | 008  | Refresh README test counts + drift check (docs)        | P3       | S      | —          | TODO                                                                                                   |

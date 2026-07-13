@@ -83,14 +83,18 @@ async function createBlobUrlFromPath(path: string, extension: string) {
 }
 
 async function tryLoadTextureFromPath(path: string) {
+  const extension = path.split(".").pop()?.toLowerCase() ?? "bin";
+  let objectUrl: string | null = null;
   try {
-    const extension = path.split(".").pop()?.toLowerCase() ?? "bin";
-    const objectUrl = await createBlobUrlFromPath(path, extension);
+    objectUrl = await createBlobUrlFromPath(path, extension);
     const texture = await new TextureLoader().loadAsync(objectUrl);
     texture.colorSpace = SRGBColorSpace;
     texture.userData.textureSourceKind = "external";
     return { texture, objectUrl };
   } catch {
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+    }
     return null;
   }
 }

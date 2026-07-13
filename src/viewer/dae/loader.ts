@@ -170,59 +170,66 @@ export async function loadDaePreviewObject(
     }
   }
 
-  if (missingPaths.length > 0) {
-    warnTextureFallback("[dae] missing texture references; continuing:", {
-      file: file.fileName,
-      missingTextures: missingPaths,
-    });
-  }
-  reportStage("resolve");
-  const manager = new LoadingManager();
-  const missingPathSet = new Set(missingPaths);
-  manager.setURLModifier((url) => {
-    return resolveColladaTextureUrl(url, blobCache, missingPathSet);
-  });
-  const loader = new ColladaLoader(manager);
-  const workerTexturePayload = buildColladaWorkerTexturePayload(
-    blobCache,
-    missingPaths,
-  );
-  reportStage("scene");
-  let wrapped: Group;
   try {
-    wrapped = (await parseModelInWorker(
-      file.path,
-      {
-        kind: "dae",
-        text,
-        basePath: file.parentDirectory,
-        ...workerTexturePayload,
-      },
-      { signal: context.signal, timeoutMs: context.parseTimeoutMs },
-    )) as Group;
-  } catch (error) {
-    if (isAbortOrTimeoutError(error)) {
-      throw error;
+    if (missingPaths.length > 0) {
+      warnTextureFallback("[dae] missing texture references; continuing:", {
+        file: file.fileName,
+        missingTextures: missingPaths,
+      });
     }
-    console.warn(
-      "[dae] worker parse failed, falling back to main thread:",
-      error,
+    reportStage("resolve");
+    const manager = new LoadingManager();
+    const missingPathSet = new Set(missingPaths);
+    manager.setURLModifier((url) => {
+      return resolveColladaTextureUrl(url, blobCache, missingPathSet);
+    });
+    const loader = new ColladaLoader(manager);
+    const workerTexturePayload = buildColladaWorkerTexturePayload(
+      blobCache,
+      missingPaths,
     );
-    throwIfAborted(context.signal);
-    const collada = loader.parse(text, file.parentDirectory);
-    if (!collada) {
-      throw new Error(
-        "Collada parse returned no result; the document may be malformed.",
+    reportStage("scene");
+    let wrapped: Group;
+    try {
+      wrapped = (await parseModelInWorker(
+        file.path,
+        {
+          kind: "dae",
+          text,
+          basePath: file.parentDirectory,
+          ...workerTexturePayload,
+        },
+        { signal: context.signal, timeoutMs: context.parseTimeoutMs },
+      )) as Group;
+    } catch (error) {
+      if (isAbortOrTimeoutError(error)) {
+        throw error;
+      }
+      console.warn(
+        "[dae] worker parse failed, falling back to main thread:",
+        error,
       );
+      throwIfAborted(context.signal);
+      const collada = loader.parse(text, file.parentDirectory);
+      if (!collada) {
+        throw new Error(
+          "Collada parse returned no result; the document may be malformed.",
+        );
+      }
+      wrapped = new Group();
+      wrapped.add(collada.scene);
     }
-    wrapped = new Group();
-    wrapped.add(collada.scene);
+    return {
+      object: wrapped,
+      cleanupUrls,
+      clips: [],
+      formatVersion: null,
+      warnings: formatMissingTextureWarnings(missingPaths),
+    };
+  } catch (error) {
+    for (const url of cleanupUrls) {
+      URL.revokeObjectURL(url);
+    }
+    throw error;
   }
-  return {
-    object: wrapped,
-    cleanupUrls,
-    clips: [],
-    formatVersion: null,
-    warnings: formatMissingTextureWarnings(missingPaths),
-  };
 }

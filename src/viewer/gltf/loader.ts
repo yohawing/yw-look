@@ -1000,83 +1000,90 @@ export async function loadGltfPreviewObject(
     case "gltf": {
       reportStage("resolve");
       const materialized = await materializeGltf(file);
-      throwIfAborted(context.signal);
-      await yieldToPaint();
-      reportStage("gpu");
-      let object:
-        | (LoadedPreview["object"] & {
-            animations?: LoadedPreview["clips"];
-          })
-        | null = null;
-      let parsedInWorker = false;
       try {
-        object = (await parseModelInWorker(
-          file.path,
-          {
-            kind: "gltf",
-            text: materialized.workerText,
-            resourceUrls: materialized.resourceUrls,
-            ...(materialized.deferredTextureJobs.length > 0
-              ? { preferObjectJson: true }
-              : {}),
-          },
-          { signal: context.signal, timeoutMs: context.parseTimeoutMs },
-        )) as LoadedPreview["object"] & {
-          animations?: LoadedPreview["clips"];
-        };
-        parsedInWorker = true;
-      } catch (error) {
-        if (isAbortOrTimeoutError(error)) {
-          throw error;
-        }
-        if (materialized.rawText.length >= WORKER_FALLBACK_SIZE_LIMIT) {
-          const fileSizeMb = (
-            materialized.rawText.length /
-            (1024 * 1024)
-          ).toFixed(1);
-          throw new Error(
-            `Worker parsing failed for large file (${fileSizeMb} MB). ` +
-              "Main thread fallback is disabled for files over 50 MB to prevent UI freeze.",
-            { cause: error },
+        throwIfAborted(context.signal);
+        await yieldToPaint();
+        reportStage("gpu");
+        let object:
+          | (LoadedPreview["object"] & {
+              animations?: LoadedPreview["clips"];
+            })
+          | null = null;
+        let parsedInWorker = false;
+        try {
+          object = (await parseModelInWorker(
+            file.path,
+            {
+              kind: "gltf",
+              text: materialized.workerText,
+              resourceUrls: materialized.resourceUrls,
+              ...(materialized.deferredTextureJobs.length > 0
+                ? { preferObjectJson: true }
+                : {}),
+            },
+            { signal: context.signal, timeoutMs: context.parseTimeoutMs },
+          )) as LoadedPreview["object"] & {
+            animations?: LoadedPreview["clips"];
+          };
+          parsedInWorker = true;
+        } catch (error) {
+          if (isAbortOrTimeoutError(error)) {
+            throw error;
+          }
+          if (materialized.rawText.length >= WORKER_FALLBACK_SIZE_LIMIT) {
+            const fileSizeMb = (
+              materialized.rawText.length /
+              (1024 * 1024)
+            ).toFixed(1);
+            throw new Error(
+              `Worker parsing failed for large file (${fileSizeMb} MB). ` +
+                "Main thread fallback is disabled for files over 50 MB to prevent UI freeze.",
+              { cause: error },
+            );
+          }
+          console.warn(
+            "[gltf] worker parse failed, falling back to main thread:",
+            error,
           );
         }
-        console.warn(
-          "[gltf] worker parse failed, falling back to main thread:",
-          error,
-        );
+        if (!parsedInWorker) {
+          const { GLTFLoader } =
+            await import("three/examples/jsm/loaders/GLTFLoader.js");
+          const gltf = await new GLTFLoader(materialized.manager).parseAsync(
+            materialized.rawText,
+            "",
+          );
+          gltf.scene.animations = gltf.animations;
+          object = gltf.scene;
+        }
+        if (object === null) {
+          throw new Error(
+            "Unable to parse glTF preview: no object was returned.",
+          );
+        }
+        throwIfAborted(context.signal);
+        const cleanupCallbacks = parsedInWorker
+          ? installDeferredGltfTextures(
+              object,
+              materialized.deferredTextureJobs,
+              materialized.resourceUrls,
+              context,
+            )
+          : [];
+        return {
+          object,
+          cleanupUrls: materialized.cleanupUrls,
+          cleanupCallbacks,
+          clips: object.animations ?? [],
+          formatVersion: materialized.formatVersion,
+          warnings: materialized.warnings,
+        };
+      } catch (error) {
+        for (const url of materialized.cleanupUrls) {
+          URL.revokeObjectURL(url);
+        }
+        throw error;
       }
-      if (!parsedInWorker) {
-        const { GLTFLoader } =
-          await import("three/examples/jsm/loaders/GLTFLoader.js");
-        const gltf = await new GLTFLoader(materialized.manager).parseAsync(
-          materialized.rawText,
-          "",
-        );
-        gltf.scene.animations = gltf.animations;
-        object = gltf.scene;
-      }
-      if (object === null) {
-        throw new Error(
-          "Unable to parse glTF preview: no object was returned.",
-        );
-      }
-      throwIfAborted(context.signal);
-      const cleanupCallbacks = parsedInWorker
-        ? installDeferredGltfTextures(
-            object,
-            materialized.deferredTextureJobs,
-            materialized.resourceUrls,
-            context,
-          )
-        : [];
-      return {
-        object,
-        cleanupUrls: materialized.cleanupUrls,
-        cleanupCallbacks,
-        clips: object.animations ?? [],
-        formatVersion: materialized.formatVersion,
-        warnings: materialized.warnings,
-      };
     }
     default:
       throw new Error(

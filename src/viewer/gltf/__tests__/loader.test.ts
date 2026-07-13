@@ -462,6 +462,8 @@ describe("loadGltfPreviewObject", () => {
 
     await expect(loadGltfPreviewObject(gltfFile, {})).rejects.toBe(abortError);
     expect(mocks.parseAsync).not.toHaveBeenCalled();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:0");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
   });
 
   it("does not fall back when the glTF worker reports timeout", async () => {
@@ -549,6 +551,8 @@ describe("loadGltfPreviewObject", () => {
   it("fails closed for large glTF worker failures", async () => {
     const largeJson = JSON.stringify({
       asset: { version: "2.0" },
+      buffers: [{ uri: "Large.bin" }],
+      images: [{ uri: "Large.png" }],
       extras: "x".repeat(50 * 1024 * 1024),
     });
     mocks.readBinaryFile.mockImplementation(async (path: string) => {
@@ -563,6 +567,8 @@ describe("loadGltfPreviewObject", () => {
       "Worker parsing failed for large file",
     );
     expect(mocks.parseAsync).not.toHaveBeenCalled();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:0");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
   });
 
   it("reports loader stages in order", async () => {

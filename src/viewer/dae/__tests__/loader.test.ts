@@ -131,6 +131,7 @@ describe("loadDaePreviewObject", () => {
     vi.restoreAllMocks();
     mockDaeReads();
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:present");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   });
 
   it("loads DAE files through the model parse worker with resolved texture payloads", async () => {
@@ -195,6 +196,7 @@ describe("loadDaePreviewObject", () => {
 
     await expect(loadDaePreviewObject(daeFile, {})).rejects.toBe(abortError);
     expect(mocks.colladaParse).not.toHaveBeenCalled();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:present");
   });
 
   it("reports decode, resolve, and scene stages in order", async () => {

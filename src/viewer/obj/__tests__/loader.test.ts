@@ -168,4 +168,31 @@ describe("loadObjPreviewObject", () => {
     expect(mesh.material).toBeInstanceOf(MeshStandardMaterial);
     expect((mesh.material as MeshStandardMaterial).map).toBe(texture);
   });
+
+  it("revokes an object URL when adjacent texture decoding fails", async () => {
+    const object = buildGroup();
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:broken-texture");
+    const revokeSpy = vi
+      .spyOn(URL, "revokeObjectURL")
+      .mockImplementation(() => undefined);
+    vi.spyOn(TextureLoader.prototype, "loadAsync").mockRejectedValue(
+      new Error("decode failed"),
+    );
+    mocks.readBinaryFile.mockImplementation((path: string) => {
+      if (path === objFile.path) {
+        return Promise.resolve(encoded(objText()));
+      }
+      if (path === "C:\\assets\\asset_A.png") {
+        return Promise.resolve(new ArrayBuffer(4));
+      }
+      return Promise.reject(new Error(`missing texture: ${path}`));
+    });
+    mocks.parseModelInWorker.mockResolvedValue(object);
+    const { loadObjPreviewObject } = await import("../loader");
+
+    const result = await loadObjPreviewObject(objFile, {});
+
+    expect(result.cleanupUrls).toEqual([]);
+    expect(revokeSpy).toHaveBeenCalledWith("blob:broken-texture");
+  });
 });
