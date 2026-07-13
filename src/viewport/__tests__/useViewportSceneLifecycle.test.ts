@@ -33,6 +33,17 @@ const rendererMocks = vi.hoisted(() => {
   return { instances };
 });
 
+const pickerMocks = vi.hoisted(() => ({
+  dispose: vi.fn(),
+  pickSelectionKey: vi.fn(() => null),
+  syncMountedObject: vi.fn(),
+}));
+
+vi.mock("../selection", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../selection")>()),
+  createViewportPicker: () => pickerMocks,
+}));
+
 vi.mock("three", async (importOriginal) => {
   const actual = await importOriginal<typeof import("three")>();
 
@@ -190,6 +201,9 @@ function makeLifecycleOptions() {
 afterEach(() => {
   cleanup();
   rendererMocks.instances.length = 0;
+  pickerMocks.dispose.mockClear();
+  pickerMocks.pickSelectionKey.mockClear();
+  pickerMocks.syncMountedObject.mockClear();
   vi.restoreAllMocks();
 });
 
@@ -226,6 +240,24 @@ describe("getRendererLifetimeBoundary", () => {
 });
 
 describe("useViewportSceneLifecycle", () => {
+  it("renders once before synchronizing a mounted object for BVH transfer", () => {
+    const options = makeLifecycleOptions();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+
+    renderHook(() =>
+      useViewportSceneLifecycle({
+        ...options,
+        currentFileExtension: "glb",
+      }),
+    );
+
+    const renderOrder =
+      rendererMocks.instances[0].render.mock.invocationCallOrder[0];
+    const syncOrder = pickerMocks.syncMountedObject.mock.invocationCallOrder[0];
+    expect(renderOrder).toBeLessThan(syncOrder);
+  });
+
   it("reuses the renderer when switching among default-format extensions", () => {
     const options = makeLifecycleOptions();
     const raf = vi

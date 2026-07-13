@@ -145,3 +145,9 @@ export {
   clearSelectionHighlight,
   clearSelectionHighlightFromObject,
 } from "./highlight";
+export {
+  createMeshBvhRaycastBuilder,
+  isStaticMeshBvhCandidate,
+  LARGE_PICK_MESH_TRIANGLE_THRESHOLD,
+  meshTriangleCount,
+} from "./meshBvhRaycast";

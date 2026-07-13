@@ -27,7 +27,9 @@ function createHarness() {
     isActive: vi.fn(() => flyActive),
   };
   const picker = {
-    pickSelectionKey: vi.fn(() => "mesh-a"),
+    pickSelectionKey: vi.fn<() => string | null | Promise<string | null>>(
+      () => "mesh-a",
+    ),
   };
   const input = createViewportPointerInput({
     controls,
@@ -78,6 +80,32 @@ describe("createViewportPointerInput", () => {
 
     expect(harness.picker.pickSelectionKey).not.toHaveBeenCalled();
     expect(harness.selectMesh).not.toHaveBeenCalled();
+  });
+
+  it("applies only the latest click after asynchronous preparation", async () => {
+    const harness = createHarness();
+    let resolveFirst!: (value: string | null) => void;
+    let resolveSecond!: (value: string | null) => void;
+    harness.picker.pickSelectionKey
+      .mockReturnValueOnce(
+        new Promise<string | null>((resolve) => (resolveFirst = resolve)),
+      )
+      .mockReturnValueOnce(
+        new Promise<string | null>((resolve) => (resolveSecond = resolve)),
+      );
+
+    harness.input.pointerDownHandler(pointerEvent(0, 10, 20));
+    harness.input.pointerUpHandler(pointerEvent(0, 10, 20));
+    harness.input.pointerDownHandler(pointerEvent(0, 11, 20));
+    harness.input.pointerUpHandler(pointerEvent(0, 11, 20));
+    resolveFirst("stale");
+    await Promise.resolve();
+    expect(harness.selectMesh).not.toHaveBeenCalled();
+    resolveSecond("latest");
+    await Promise.resolve();
+
+    expect(harness.selectMesh).toHaveBeenCalledOnce();
+    expect(harness.selectMesh).toHaveBeenCalledWith("latest");
   });
 
   it("deselects when clicking an empty scene", () => {

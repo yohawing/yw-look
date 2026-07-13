@@ -337,6 +337,12 @@ export function useViewportSceneLifecycle({
         statsState,
         viewerSurfaceMode: viewerSurfaceModeRef.current,
       });
+      // GenerateMeshBVHWorker transfers the geometry's CPU ArrayBuffers. Keep
+      // this after rendering so a newly mounted geometry receives at least one
+      // GPU upload before BVH preparation can temporarily neuter those arrays.
+      viewportPicker.syncMountedObject(
+        sceneContextRef.current?.mountedObject ?? null,
+      );
     };
     renderLoop();
 
@@ -372,6 +378,7 @@ export function useViewportSceneLifecycle({
       window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
       flyCameraControls.exit();
+      viewportPicker.dispose();
       renderer.domElement.removeEventListener(
         "pointerdown",
         pointerDownHandler,

@@ -7,7 +7,7 @@ type ViewportPicker = {
   pickSelectionKey(
     mounted: Object3D,
     event: Pick<PointerEvent, "clientX" | "clientY">,
-  ): string | null;
+  ): string | null | Promise<string | null>;
 };
 
 type CreateViewportPointerInputOptions = {
@@ -30,8 +30,10 @@ export function createViewportPointerInput({
   picker,
 }: CreateViewportPointerInputOptions) {
   let clickStart: { x: number; y: number; button: number } | null = null;
+  let pickGeneration = 0;
 
   const performPick = (event: PointerEvent): void => {
+    const generation = ++pickGeneration;
     const callback = getSelectMesh();
     if (!callback) return;
     const mounted = getMountedObject();
@@ -39,7 +41,18 @@ export function createViewportPointerInput({
       callback(null);
       return;
     }
-    callback(picker.pickSelectionKey(mounted, event));
+    const result = picker.pickSelectionKey(mounted, event);
+    if (!(result instanceof Promise)) {
+      if (generation === pickGeneration && getMountedObject() === mounted) {
+        getSelectMesh()?.(result);
+      }
+      return;
+    }
+    void result.then((selectionKey) => {
+      if (generation !== pickGeneration || getMountedObject() !== mounted)
+        return;
+      getSelectMesh()?.(selectionKey);
+    });
   };
 
   const pointerDownHandler = (event: PointerEvent): void => {

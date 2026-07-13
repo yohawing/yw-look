@@ -1,6 +1,13 @@
-import { Camera, Mesh, Object3D, Raycaster, Vector2 } from "three";
+import { Camera, Mesh, Object3D, Ray, Raycaster, Vector2 } from "three";
 import type { PurposeModes } from "../lib/usd";
-import { isViewportHelperObject, selectionProxyTarget } from "../viewer";
+import {
+  createMeshBvhRaycastBuilder,
+  isStaticMeshBvhCandidate,
+  isViewportHelperObject,
+  LARGE_PICK_MESH_TRIANGLE_THRESHOLD,
+  meshTriangleCount,
+  selectionProxyTarget,
+} from "../viewer";
 import { resolveObjectSelectionKey } from "../viewer/selectionKeys";
 
 export const MANUAL_HIDDEN_KEY = "__ywManualHidden";
@@ -51,40 +58,125 @@ export function collectSelectablePickTargets(root: Object3D): Mesh[] {
 export function createViewportPicker(
   camera: Camera,
   domElement: Pick<HTMLElement, "getBoundingClientRect">,
+  options: {
+    bvhBuilder?: ReturnType<typeof createMeshBvhRaycastBuilder>;
+    largeTriangleThreshold?: number;
+  } = {},
 ) {
   const raycaster = new Raycaster();
   const ndc = new Vector2();
+  const bvhBuilder = options.bvhBuilder ?? createMeshBvhRaycastBuilder();
+  const largeTriangleThreshold =
+    options.largeTriangleThreshold ?? LARGE_PICK_MESH_TRIANGLE_THRESHOLD;
+  let mountedRoot: Object3D | null = null;
+  let mountedSyncToken = 0;
+  let targets: Mesh[] = [];
+  let preparation: Promise<void> = Promise.resolve();
+  let preparationPending = false;
+
+  const syncMountedObject = (mounted: Object3D | null | undefined) => {
+    const next = mounted ?? null;
+    if (next === mountedRoot) return;
+    const syncToken = ++mountedSyncToken;
+    bvhBuilder.invalidate();
+    mountedRoot = next;
+    const collected = next ? collectSelectablePickTargets(next) : [];
+    const largeTargets = collected.filter(
+      (mesh) =>
+        meshTriangleCount(mesh) >= largeTriangleThreshold &&
+        isStaticMeshBvhCandidate(mesh),
+    );
+    targets = collected.filter(
+      (mesh) => meshTriangleCount(mesh) < largeTriangleThreshold,
+    );
+    for (const mesh of collected) {
+      if (
+        meshTriangleCount(mesh) >= largeTriangleThreshold &&
+        !isStaticMeshBvhCandidate(mesh)
+      ) {
+        console.warn(
+          `[selection-bvh] ${mesh.name || mesh.uuid}: dynamic or unsupported geometry excluded from BVH picking`,
+        );
+      }
+    }
+    preparationPending = largeTargets.length > 0;
+    preparation = largeTargets
+      .reduce(
+        (chain, mesh) =>
+          chain
+            .then(() =>
+              mountedRoot === next && mountedSyncToken === syncToken
+                ? bvhBuilder.build(mesh)
+                : false,
+            )
+            .then((ready) => {
+              if (
+                ready &&
+                mountedRoot === next &&
+                mountedSyncToken === syncToken
+              ) {
+                targets.push(mesh);
+              }
+            }),
+        Promise.resolve(),
+      )
+      .finally(() => {
+        if (mountedRoot === next && mountedSyncToken === syncToken) {
+          preparationPending = false;
+        }
+      });
+  };
+
+  const snapshotPickRay = (
+    event: Pick<PointerEvent, "clientX" | "clientY">,
+  ) => {
+    const rect = domElement.getBoundingClientRect();
+    ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(ndc, camera);
+    return raycaster.ray.clone();
+  };
+
+  const intersectPrepared = (mounted: Object3D, pickRay: Ray) => {
+    if (mounted !== mountedRoot) return null;
+    raycaster.ray.copy(pickRay);
+
+    const hits = raycaster.intersectObjects(targets, false);
+    if (hits.length === 0) return null;
+
+    let node: Object3D | null = hits[0].object;
+    while (node) {
+      if (node instanceof Mesh && node.name !== "__yw_shadow_catcher") {
+        return selectionKeyForObject(node);
+      }
+      if (node === mounted) break;
+      node = node.parent;
+    }
+    return null;
+  };
 
   return {
+    syncMountedObject,
     pickSelectionKey(
       mounted: Object3D,
       event: Pick<PointerEvent, "clientX" | "clientY">,
     ) {
-      const rect = domElement.getBoundingClientRect();
-      ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(ndc, camera);
-
-      const hits = raycaster.intersectObjects(
-        collectSelectablePickTargets(mounted),
-        false,
-      );
-      if (hits.length === 0) {
-        return null;
-      }
-
-      let node: Object3D | null = hits[0].object;
-      while (node) {
-        if (node instanceof Mesh && node.name !== "__yw_shadow_catcher") {
-          return selectionKeyForObject(node);
-        }
-        if (node === mounted) {
-          break;
-        }
-        node = node.parent;
-      }
-
-      return null;
+      // Only the post-render lifecycle call may start BVH preparation. A click
+      // arriving before that synchronization must not transfer CPU geometry
+      // buffers before their first GPU upload.
+      if (mounted !== mountedRoot) return null;
+      const pickRay = snapshotPickRay(event);
+      if (!preparationPending) return intersectPrepared(mounted, pickRay);
+      const expectedRoot = mountedRoot;
+      return preparation.then(() => {
+        if (mountedRoot !== expectedRoot) return null;
+        return intersectPrepared(mounted, pickRay);
+      });
+    },
+    dispose() {
+      mountedRoot = null;
+      targets = [];
+      bvhBuilder.dispose();
     },
   };
 }
