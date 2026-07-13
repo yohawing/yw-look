@@ -48,6 +48,7 @@ const viewerMocks = vi.hoisted(() => {
     }),
     applyDynamicGrid: vi.fn(() => ({ label: "1m" })),
     applySkeletonHelpers: vi.fn(),
+    applySurfaceMaterialMode: vi.fn(),
     scheduleTextureThumbnailEnrichment: vi.fn(() => ({
       cancel: vi.fn(),
     })),
@@ -63,13 +64,12 @@ vi.mock("../../viewer", () => ({
   applyDisplayMode: viewerMocks.stub,
   applyDynamicAxes: viewerMocks.stub,
   applyDynamicGrid: viewerMocks.applyDynamicGrid,
-  applyNormalHelpers: viewerMocks.stub,
+  applySurfaceMaterialMode: viewerMocks.applySurfaceMaterialMode,
   applyPreviewLightingPreset: viewerMocks.stub,
   applyPreviewRenderingPreset: viewerMocks.stub,
   applyShadows: viewerMocks.stub,
   applySkeletonHelpers: viewerMocks.applySkeletonHelpers,
   applyTextureFilter: viewerMocks.stub,
-  applyVertexColors: viewerMocks.stub,
   collectAssetMetadata: viewerMocks.collectAssetMetadata,
   disposeObject: viewerMocks.disposeObject,
   getClipLabel: viewerMocks.stub,
@@ -169,6 +169,7 @@ function createMountOptions(context: SceneContext) {
         showNormals: false,
         showShadows: false,
         showSkeleton: false,
+        showUnlit: false,
         showVertexColors: false,
         textureFilterMode: "linear" as const,
         texturePreview3D: false,
@@ -219,6 +220,7 @@ describe("mountLoadedPreview", () => {
     viewerMocks.normalizeObjectScale.mockClear();
     viewerMocks.collectAssetMetadata.mockClear();
     viewerMocks.applySkeletonHelpers.mockClear();
+    viewerMocks.applySurfaceMaterialMode.mockClear();
     viewerMocks.scheduleTextureThumbnailEnrichment.mockClear();
     viewerMocks.cleanupCallback.mockClear();
   });
@@ -338,6 +340,63 @@ describe("mountLoadedPreview", () => {
       true,
       false,
       false,
+    );
+  });
+
+  it("applies the mounted surface mode through the viewer material API", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    options.getMountState = () => ({
+      ...createMountOptions(context).options.getMountState(),
+      showNormals: true,
+      showUnlit: true,
+      showVertexColors: true,
+    });
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+      },
+      options,
+    );
+
+    expect(viewerMocks.applySurfaceMaterialMode).toHaveBeenCalledWith(
+      object,
+      "normals",
+    );
+  });
+
+  it("applies unlit on mount ahead of vertex color", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    options.getMountState = () => ({
+      ...createMountOptions(context).options.getMountState(),
+      showUnlit: true,
+      showVertexColors: true,
+    });
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+      },
+      options,
+    );
+
+    expect(viewerMocks.applySurfaceMaterialMode).toHaveBeenCalledWith(
+      object,
+      "unlit",
     );
   });
 });

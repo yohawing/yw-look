@@ -189,6 +189,7 @@ export function AssetViewport({
   const showJointNamesRef = useRef(showJointNames);
   const showBoundingBoxesRef = useRef(showBoundingBoxes);
   const showNormalsRef = useRef(showNormals);
+  const showUnlitRef = useRef(showUnlit);
   const showVertexColorsRef = useRef(showVertexColors);
   const viewerSurfaceModeRef = useRef(viewerSurfaceMode);
   const showGridRef = useRef(showGrid);
@@ -275,6 +276,7 @@ export function AssetViewport({
   useSyncRef(showJointNamesRef, showJointNames);
   useSyncRef(showBoundingBoxesRef, showBoundingBoxes);
   useSyncRef(showNormalsRef, showNormals);
+  useSyncRef(showUnlitRef, showUnlit);
   useSyncRef(showVertexColorsRef, showVertexColors);
   useSyncRef(viewerSurfaceModeRef, viewerSurfaceMode);
   useSyncRef(showGridRef, showGrid);
@@ -814,6 +816,7 @@ export function AssetViewport({
             showNormals: showNormalsRef.current,
             showShadows: showShadowsRef.current,
             showSkeleton: showSkeletonRef.current,
+            showUnlit: showUnlitRef.current,
             showVertexColors: showVertexColorsRef.current,
             textureFilterMode: textureFilterModeRef.current,
             texturePreview3D: texturePreview3DRef.current,

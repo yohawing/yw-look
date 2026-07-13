@@ -21,6 +21,7 @@ import {
   MathUtils,
   Mesh,
   MeshBasicMaterial,
+  MeshNormalMaterial,
   type MinificationTextureFilter,
   NearestFilter,
   NearestMipMapNearestFilter,
@@ -38,7 +39,6 @@ import {
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import { VertexNormalsHelper } from "three/examples/jsm/helpers/VertexNormalsHelper.js";
 import type { DisplayMode, SceneContext } from "./types";
 import {
   copyMmdMaterialUserData,
@@ -68,7 +68,6 @@ const SKELETON_HELPER_FLAG = "__yw_skeleton_helper";
 const JOINT_AXIS_HELPER_FLAG = "__yw_joint_axis_helper";
 const JOINT_LABEL_HELPER_FLAG = "__yw_joint_label_helper";
 const BBOX_HELPER_FLAG = "__yw_bbox_helper";
-const NORMAL_HELPER_FLAG = "__yw_normal_helper";
 const WIREFRAME_OVERLAY_FLAG = "__yw_wireframe_overlay";
 const WIREFRAME_PROXY_FLAG = "__yw_wireframe_proxy";
 const WIREFRAME_OVERLAY_COLOR_TOKEN = "--yl-accent-bg";
@@ -78,6 +77,15 @@ const WIREFRAME_MATERIAL_COLOR_FALLBACK = "#f7f8f8";
 const WIREFRAME_ORIGINAL_COLOR_KEY = "__yw_wireframe_original_color";
 const WIREFRAME_ORIGINAL_MATERIAL_KEY = "__yw_wireframe_original_material";
 const WIREFRAME_MATERIAL_FLAG = "__yw_wireframe_material";
+const NORMAL_ORIGINAL_MATERIAL_KEY = "__yw_normal_original_material";
+const NORMAL_MATERIAL_FLAG = "__yw_normal_material";
+const SELECTION_ORIGINAL_MATERIAL_KEY = "__yw_origMaterial";
+const SELECTION_CLONE_FLAG = "__yw_selectionClone";
+const SELECTION_NORMAL_SUPPRESSED_FLAG = "__yw_selectionSuppressedByNormals";
+const SELECTION_NORMAL_TINT_KEY = "__yw_selectionNormalTint";
+const SELECTION_WIREFRAME_TINT_FLAG = "__yw_selectionWireframeTint";
+const SELECTION_TINT = new Color(0x7170ff);
+const SELECTION_EMISSIVE_INTENSITY = 0.35;
 const GRID_DIVISIONS = 20;
 const JOINT_AXIS_SIZE_FACTOR = 0.02 / 3;
 const JOINT_AXIS_MIN_SIZE = 0.015;
@@ -137,7 +145,6 @@ export function isViewportHelperObject(child: Object3D) {
     child.userData[JOINT_AXIS_HELPER_FLAG] === true ||
     child.userData[JOINT_LABEL_HELPER_FLAG] === true ||
     child.userData[BBOX_HELPER_FLAG] === true ||
-    child.userData[NORMAL_HELPER_FLAG] === true ||
     child.userData[WIREFRAME_OVERLAY_FLAG] === true ||
     child.userData[WIREFRAME_PROXY_FLAG] === true
   );
@@ -248,9 +255,49 @@ function setWireframeOriginalMaterial(
 
 function getMaterialControlTargets(mesh: Mesh) {
   const storedOriginal = getWireframeOriginalMaterial(mesh);
-  return storedOriginal !== undefined
-    ? [...getMaterials(mesh.material), ...getMaterials(storedOriginal)]
-    : getMaterials(mesh.material);
+  const normalOriginal = mesh.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
+    | Material
+    | Material[]
+    | undefined;
+  return [
+    ...getMaterials(mesh.material),
+    ...(storedOriginal === undefined ? [] : getMaterials(storedOriginal)),
+    ...(normalOriginal === undefined ? [] : getMaterials(normalOriginal)),
+  ];
+}
+
+function hasEmissive(
+  material: Material,
+): material is Material & { emissive: Color; emissiveIntensity: number } {
+  return "emissive" in material;
+}
+
+function createSelectionTintMaterial(source: Material) {
+  const clone = source.clone();
+  clone.userData[SELECTION_CLONE_FLAG] = true;
+  if (hasEmissive(clone)) {
+    clone.emissive.lerp(SELECTION_TINT, 0.6);
+    if (clone.emissiveIntensity === 0) {
+      clone.emissiveIntensity = SELECTION_EMISSIVE_INTENSITY;
+    }
+  } else if ("color" in clone) {
+    (clone as Material & { color: Color }).color.lerp(SELECTION_TINT, 0.3);
+  }
+  return clone;
+}
+
+export function createSelectionTintMaterialSet(source: Material | Material[]) {
+  return Array.isArray(source)
+    ? source.map(createSelectionTintMaterial)
+    : createSelectionTintMaterial(source);
+}
+
+function disposeSelectionTintMaterialSet(material: Material | Material[]) {
+  for (const item of getMaterials(material)) {
+    if (item.userData[SELECTION_CLONE_FLAG] === true) {
+      item.dispose();
+    }
+  }
 }
 
 function applyWireframeMaterialOverride(mesh: Mesh, color: Color) {
@@ -275,6 +322,7 @@ function restoreWireframeMaterialOverride(mesh: Mesh) {
   disposeWireframeMaterialSet(mesh.material);
   mesh.material = original;
   delete mesh.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY];
+  delete mesh.userData[SELECTION_WIREFRAME_TINT_FLAG];
 }
 
 function createWireframeOverlayMeshMaterial(source: Material, color: Color) {
@@ -492,6 +540,27 @@ export function disposeObject(object: Object3D | null) {
               child.userData[UNLIT_ORIGINAL_KEY] as Material | Material[],
             )
           : []),
+        ...(child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] !== undefined
+          ? getMaterials(
+              child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
+                | Material
+                | Material[],
+            )
+          : []),
+        ...(child.userData[SELECTION_ORIGINAL_MATERIAL_KEY] !== undefined
+          ? getMaterials(
+              child.userData[SELECTION_ORIGINAL_MATERIAL_KEY] as
+                | Material
+                | Material[],
+            )
+          : []),
+        ...(child.userData[SELECTION_NORMAL_TINT_KEY] !== undefined
+          ? getMaterials(
+              child.userData[SELECTION_NORMAL_TINT_KEY] as
+                | Material
+                | Material[],
+            )
+          : []),
       ];
       for (const material of materialsToDispose) {
         if (!material) {
@@ -502,6 +571,11 @@ export function disposeObject(object: Object3D | null) {
       }
       delete child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY];
       delete child.userData[UNLIT_ORIGINAL_KEY];
+      delete child.userData[NORMAL_ORIGINAL_MATERIAL_KEY];
+      delete child.userData[SELECTION_ORIGINAL_MATERIAL_KEY];
+      delete child.userData[SELECTION_NORMAL_TINT_KEY];
+      delete child.userData[SELECTION_NORMAL_SUPPRESSED_FLAG];
+      delete child.userData[SELECTION_WIREFRAME_TINT_FLAG];
     }
   });
 }
@@ -540,7 +614,6 @@ export function resetSceneObjects(context: SceneContext) {
   // reference freed buffers until the next toggle.
   removeSkeletonHelpers(context.scene);
   removeBoundingBoxHelpers(context.scene);
-  removeNormalHelpers(context.scene);
 
   if (context.previewObject) {
     context.scene.remove(context.previewObject);
@@ -1330,11 +1403,10 @@ export function removeSkeletonHelpers(scene: Scene) {
   }
 }
 
-// SkeletonHelper / Box3Helper / VertexNormalsHelper all compute line
-// positions using the target mesh's matrixWorld. Adding them as a
-// child of the mounted object would apply the parent's transform a
-// second time, so all helpers live directly under the scene and we
-// track them with userData flags for cleanup.
+// SkeletonHelper and Box3Helper compute line positions using the target
+// object's matrixWorld. Adding them as a child of the mounted object would
+// apply the parent's transform a second time, so these helpers live directly
+// under the scene and are tracked with userData flags for cleanup.
 export function applySkeletonHelpers(
   scene: Scene,
   object: Group | Mesh,
@@ -1462,68 +1534,195 @@ export function applyBoundingBoxHelpers(
   });
 }
 
-function disposeNormalHelper(helper: VertexNormalsHelper) {
-  helper.geometry.dispose();
-  for (const material of getMaterials(helper.material)) {
-    material.dispose();
-  }
-}
-
-export function removeNormalHelpers(scene: Scene) {
-  const toRemove: VertexNormalsHelper[] = [];
-  scene.traverse((child: Object3D) => {
-    if (
-      child instanceof VertexNormalsHelper &&
-      child.userData[NORMAL_HELPER_FLAG] === true
-    ) {
-      toRemove.push(child);
-    }
+function createNormalMaterial(source: Material) {
+  const material = new MeshNormalMaterial({
+    alphaTest: source.alphaTest,
+    depthTest: source.depthTest,
+    depthWrite: source.depthWrite,
+    opacity: source.opacity,
+    side: source.side,
+    transparent: source.transparent || source.opacity < 1,
   });
-  for (const helper of toRemove) {
-    helper.parent?.remove(helper);
-    disposeNormalHelper(helper);
+  material.visible = source.visible;
+  material.colorWrite = source.colorWrite;
+  material.depthFunc = source.depthFunc;
+  material.stencilWrite = source.stencilWrite;
+  material.stencilWriteMask = source.stencilWriteMask;
+  material.stencilFunc = source.stencilFunc;
+  material.stencilRef = source.stencilRef;
+  material.stencilFuncMask = source.stencilFuncMask;
+  material.stencilFail = source.stencilFail;
+  material.stencilZFail = source.stencilZFail;
+  material.stencilZPass = source.stencilZPass;
+  material.polygonOffset = source.polygonOffset;
+  material.polygonOffsetFactor = source.polygonOffsetFactor;
+  material.polygonOffsetUnits = source.polygonOffsetUnits;
+  material.clippingPlanes = source.clippingPlanes;
+  material.clipIntersection = source.clipIntersection;
+  material.clipShadows = source.clipShadows;
+  material.alphaToCoverage = source.alphaToCoverage;
+  material.forceSinglePass = source.forceSinglePass;
+  material.toneMapped = false;
+  material.userData[NORMAL_MATERIAL_FLAG] = true;
+  return material;
+}
+
+function createNormalMaterialSet(source: Material | Material[]) {
+  return Array.isArray(source)
+    ? source.map(createNormalMaterial)
+    : createNormalMaterial(source);
+}
+
+function disposeNormalMaterialSet(material: Material | Material[]) {
+  for (const item of getMaterials(material)) {
+    if (item.userData[NORMAL_MATERIAL_FLAG] === true) {
+      item.dispose();
+    }
   }
 }
 
-export function applyNormalHelpers(
-  scene: Scene,
-  object: Group | Mesh,
-  visible: boolean,
-) {
-  removeNormalHelpers(scene);
-  if (!visible) {
-    return;
+function suppressSelectionTintForNormalSurface(mesh: Mesh) {
+  const selectionOriginal = mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY] as
+    | Material
+    | Material[]
+    | undefined;
+  if (selectionOriginal === undefined) {
+    return mesh.material;
   }
 
-  // Pick a line length relative to the whole object so the normals
-  // read correctly regardless of model scale. Per-mesh bounds would
-  // make tiny meshes show huge spikes.
-  const bounds = new Box3().setFromObject(object);
-  const size = bounds.getSize(new Vector3());
-  const reference = Math.max(size.x, size.y, size.z, 0.001);
-  const lineLength = reference * 0.02;
+  disposeSelectionTintMaterialSet(mesh.material);
+  mesh.material = selectionOriginal;
+  delete mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY];
+  const source = getWireframeOriginalMaterial(mesh) ?? selectionOriginal;
+  mesh.userData[SELECTION_NORMAL_TINT_KEY] =
+    createSelectionTintMaterialSet(source);
+  mesh.userData[SELECTION_NORMAL_SUPPRESSED_FLAG] = true;
+  return selectionOriginal;
+}
 
+export function isNormalSurfaceMaterialActive(mesh: Mesh) {
+  return mesh.userData[NORMAL_ORIGINAL_MATERIAL_KEY] !== undefined;
+}
+
+export function getNormalSurfaceOriginalMaterial(mesh: Mesh) {
+  return mesh.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
+    | Material
+    | Material[]
+    | undefined;
+}
+
+export function storeSuppressedNormalSelectionTint(
+  mesh: Mesh,
+  material: Material | Material[],
+) {
+  const previous = mesh.userData[SELECTION_NORMAL_TINT_KEY] as
+    | Material
+    | Material[]
+    | undefined;
+  if (previous !== undefined) {
+    disposeSelectionTintMaterialSet(previous);
+  }
+  mesh.userData[SELECTION_NORMAL_TINT_KEY] = material;
+  mesh.userData[SELECTION_NORMAL_SUPPRESSED_FLAG] = true;
+}
+
+export function clearNormalSurfaceSelection(mesh: Mesh) {
+  const suppressedTint = mesh.userData[SELECTION_NORMAL_TINT_KEY] as
+    | Material
+    | Material[]
+    | undefined;
+  if (suppressedTint !== undefined) {
+    disposeSelectionTintMaterialSet(suppressedTint);
+    delete mesh.userData[SELECTION_NORMAL_TINT_KEY];
+    delete mesh.userData[SELECTION_NORMAL_SUPPRESSED_FLAG];
+    return true;
+  }
+
+  if (mesh.userData[SELECTION_WIREFRAME_TINT_FLAG] === true) {
+    const authored = mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY] as
+      | Material
+      | Material[]
+      | undefined;
+    const tint = getWireframeOriginalMaterial(mesh);
+    if (tint !== undefined) {
+      disposeSelectionTintMaterialSet(tint);
+    }
+    if (authored !== undefined) {
+      setWireframeOriginalMaterial(mesh, authored);
+    }
+    delete mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY];
+    delete mesh.userData[SELECTION_WIREFRAME_TINT_FLAG];
+    return true;
+  }
+
+  return false;
+}
+
+function restoreSuppressedNormalSelectionTint(
+  mesh: Mesh,
+  authored: Material | Material[],
+) {
+  const tint = mesh.userData[SELECTION_NORMAL_TINT_KEY] as
+    | Material
+    | Material[]
+    | undefined;
+  if (tint === undefined) return;
+
+  if (getWireframeOriginalMaterial(mesh) !== undefined) {
+    setWireframeOriginalMaterial(mesh, tint);
+    mesh.userData[SELECTION_WIREFRAME_TINT_FLAG] = true;
+  } else {
+    mesh.material = tint;
+  }
+  mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY] = authored;
+  delete mesh.userData[SELECTION_NORMAL_TINT_KEY];
+  delete mesh.userData[SELECTION_NORMAL_SUPPRESSED_FLAG];
+}
+
+export function applyNormalSurfaceMaterial(
+  object: Group | Mesh,
+  enabled: boolean,
+) {
   traverseMeshesExcludingHelpers(object, (child) => {
+    const original = child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
+      | Material
+      | Material[]
+      | undefined;
+
+    if (!enabled) {
+      if (original === undefined) return;
+      const wireframeOriginal = getWireframeOriginalMaterial(child);
+      disposeNormalMaterialSet(wireframeOriginal ?? child.material);
+      if (wireframeOriginal !== undefined) {
+        setWireframeOriginalMaterial(child, original);
+      } else {
+        child.material = original;
+      }
+      delete child.userData[NORMAL_ORIGINAL_MATERIAL_KEY];
+      restoreSuppressedNormalSelectionTint(child, original);
+      return;
+    }
+
+    if (original !== undefined) return;
     const geometry = child.geometry;
     if (
+      child.material instanceof ShadowMaterial ||
       !(geometry instanceof BufferGeometry) ||
       geometry.getAttribute("normal") === undefined
     ) {
       return;
     }
 
-    const helper = new VertexNormalsHelper(child, lineLength, 0x5ec4ff);
-    helper.userData[NORMAL_HELPER_FLAG] = true;
-    for (const material of getMaterials(helper.material)) {
-      if ("depthTest" in material) {
-        material.depthTest = false;
-      }
-      if ("transparent" in material) {
-        material.transparent = true;
-      }
+    const selectionBase = suppressSelectionTintForNormalSurface(child);
+    const wireframeOriginal = getWireframeOriginalMaterial(child);
+    const source = wireframeOriginal ?? selectionBase;
+    const normal = createNormalMaterialSet(source);
+    child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] = source;
+    if (wireframeOriginal !== undefined) {
+      setWireframeOriginalMaterial(child, normal);
+    } else {
+      child.material = normal;
     }
-    helper.renderOrder = 2;
-    scene.add(helper);
   });
 }
 
@@ -1801,4 +2000,30 @@ export function applyUnlitMaterial(
       delete child.userData[UNLIT_ORIGINAL_KEY];
     }
   });
+}
+
+export type SurfaceMaterialMode =
+  | "shaded"
+  | "unlit"
+  | "normals"
+  | "vertexColors";
+
+export function applySurfaceMaterialMode(
+  object: Group | Mesh,
+  mode: SurfaceMaterialMode,
+) {
+  // Restore every temporary surface layer before applying the next one. This
+  // makes transitions independent of React effect ordering and keeps authored
+  // material references as the sole base of the stack.
+  applyNormalSurfaceMaterial(object, false);
+  applyUnlitMaterial(object, false);
+  applyVertexColors(object, false);
+
+  if (mode === "normals") {
+    applyNormalSurfaceMaterial(object, true);
+  } else if (mode === "unlit") {
+    applyUnlitMaterial(object, true);
+  } else if (mode === "vertexColors") {
+    applyVertexColors(object, true);
+  }
 }

@@ -49,8 +49,9 @@ export {
   removeSkeletonHelpers,
   applyBoundingBoxHelpers,
   removeBoundingBoxHelpers,
-  applyNormalHelpers,
-  removeNormalHelpers,
+  applyNormalSurfaceMaterial,
+  applySurfaceMaterialMode,
+  isNormalSurfaceMaterialActive,
   isViewportHelperObject,
   ensureShadowCatcher,
   applyShadows,
@@ -61,6 +62,7 @@ export type {
   GridConfig,
   ScaleNormalizationResult,
   TextureFilterMode,
+  SurfaceMaterialMode,
 } from "./scene";
 
 export {

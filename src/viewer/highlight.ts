@@ -14,25 +14,20 @@
  * on the mesh so we can restore it without keeping a separate Map.
  */
 
-import { Color, Mesh, type Material, type Object3D } from "three";
+import { Mesh, type Material, type Object3D } from "three";
 import type { Group } from "three";
-import { isViewportHelperObject } from "./scene";
+import {
+  clearNormalSurfaceSelection,
+  createSelectionTintMaterialSet,
+  getNormalSurfaceOriginalMaterial,
+  isNormalSurfaceMaterialActive,
+  isViewportHelperObject,
+  storeSuppressedNormalSelectionTint,
+} from "./scene";
 import { isSelectionProxy } from "./selectionProxy";
 import { resolveObjectSelectionKey } from "./selectionKeys";
 
-/** Accent Violet from the yw-look design system (docs/DESIGN.md). */
-const SELECTION_TINT = new Color(0x7170ff);
-/** Additive emissive intensity added to the original emissive value. */
-const EMISSIVE_INTENSITY = 0.35;
-
 // ─── Internal helpers ────────────────────────────────────────────────────────
-
-/** True when `material` supports an `emissive` color property. */
-function hasEmissive(
-  material: Material,
-): material is Material & { emissive: Color; emissiveIntensity: number } {
-  return "emissive" in material;
-}
 
 function shouldHighlightMesh(mesh: Mesh): boolean {
   return (
@@ -44,30 +39,26 @@ function shouldHighlightMesh(mesh: Mesh): boolean {
 
 /** Clone `material` and apply the selection tint.  Returns the clone. */
 function cloneWithTint(material: Material): Material {
-  const clone = material.clone();
-  // Mark so we can identify it later for cleanup.
-  clone.userData.__yw_selectionClone = true;
-
-  if (hasEmissive(clone)) {
-    // Add tint on top of whatever emissive was already there.
-    const blended = clone.emissive.clone().lerp(SELECTION_TINT, 0.6);
-    clone.emissive.copy(blended);
-    // Ensure the emissive channel actually contributes.
-    if (clone.emissiveIntensity === 0) {
-      clone.emissiveIntensity = EMISSIVE_INTENSITY;
-    }
-  } else if ("color" in clone) {
-    // MeshBasicMaterial: lerp the diffuse colour towards the tint in place.
-    (clone as Material & { color: Color }).color.lerp(SELECTION_TINT, 0.3);
-  }
-
-  return clone;
+  return createSelectionTintMaterialSet(material) as Material;
 }
 
 /** Apply the selection tint to a single mesh. */
 function applyTintToMesh(mesh: Mesh): void {
+  // MeshNormalMaterial already consumes RGB to visualize view-space normals;
+  // a color/emissive selection tint cannot be represented meaningfully. Keep
+  // selection lifecycle state without replacing the active normal material.
+  if (isNormalSurfaceMaterialActive(mesh)) {
+    const original = getNormalSurfaceOriginalMaterial(mesh);
+    if (original !== undefined) {
+      storeSuppressedNormalSelectionTint(
+        mesh,
+        createSelectionTintMaterialSet(original),
+      );
+    }
+    return;
+  }
   if (Array.isArray(mesh.material)) {
-    mesh.userData.__yw_origMaterial = mesh.material.slice();
+    mesh.userData.__yw_origMaterial = mesh.material;
     mesh.material = mesh.material.map(cloneWithTint);
   } else {
     mesh.userData.__yw_origMaterial = mesh.material;
@@ -134,6 +125,9 @@ export function applySelectionHighlight(
 export function clearSelectionHighlight(root: Object3D | Group): void {
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
+    if (clearNormalSurfaceSelection(child)) {
+      return;
+    }
     if (child.userData.__yw_origMaterial !== undefined) {
       removeTintFromMesh(child);
     }
@@ -146,7 +140,11 @@ export function applySelectionHighlightToObject(
   object.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     if (!shouldHighlightMesh(child)) return;
-    if (child.userData.__yw_origMaterial !== undefined) return;
+    if (
+      child.userData.__yw_origMaterial !== undefined ||
+      child.userData.__yw_selectionSuppressedByNormals === true
+    )
+      return;
     applyTintToMesh(child);
   });
 }
@@ -156,6 +154,9 @@ export function clearSelectionHighlightFromObject(
 ): void {
   object.traverse((child) => {
     if (!(child instanceof Mesh)) return;
+    if (clearNormalSurfaceSelection(child)) {
+      return;
+    }
     if (child.userData.__yw_origMaterial !== undefined) {
       removeTintFromMesh(child);
     }

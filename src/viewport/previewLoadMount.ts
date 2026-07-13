@@ -18,13 +18,12 @@ import {
   applyDisplayMode,
   applyDynamicAxes,
   applyDynamicGrid,
-  applyNormalHelpers,
+  applySurfaceMaterialMode,
   applyPreviewLightingPreset,
   applyPreviewRenderingPreset,
   applyShadows,
   applySkeletonHelpers,
   applyTextureFilter,
-  applyVertexColors,
   collectAssetMetadata,
   disposeObject,
   getClipLabel,
@@ -71,6 +70,7 @@ type LoadedPreviewMountState = {
   showNormals: boolean;
   showShadows: boolean;
   showSkeleton: boolean;
+  showUnlit: boolean;
   showVertexColors: boolean;
   textureFilterMode: TextureFilterMode;
   texturePreview3D: boolean;
@@ -250,7 +250,16 @@ export async function mountLoadedPreview(
   applyDisplayMode(object, state.displayMode);
   applyBackfaceCulling(object, state.backfaceCulling);
   applyTextureFilter(object, state.textureFilterMode);
-  applyVertexColors(object, state.showVertexColors);
+  applySurfaceMaterialMode(
+    object,
+    state.showNormals
+      ? "normals"
+      : state.showUnlit
+        ? "unlit"
+        : state.showVertexColors
+          ? "vertexColors"
+          : "shaded",
+  );
   applyMorphTargetValues(object, state.morphTargetValues);
   applyShadows(context.scene, object, keyLight, state.showShadows);
   if (!preserveCameraView) {
@@ -319,7 +328,6 @@ export async function mountLoadedPreview(
     state.showJointNames,
   );
   applyBoundingBoxHelpers(context.scene, object, state.showBoundingBoxes);
-  applyNormalHelpers(context.scene, object, state.showNormals);
   applyPurposeVisibility(object, state.selectedPurposeModes);
 
   context.clips = clips;

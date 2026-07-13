@@ -5,12 +5,10 @@ import {
   applyBackfaceCulling,
   applyBoundingBoxHelpers,
   applyDisplayMode,
-  applyNormalHelpers,
+  applySurfaceMaterialMode,
   applyShadows,
   applySkeletonHelpers,
   applyTextureFilter,
-  applyUnlitMaterial,
-  applyVertexColors,
 } from "../viewer";
 import type { AssetViewportSceneDisplayProps } from "./types";
 
@@ -54,16 +52,6 @@ export function useSceneObjectEffects({
 
     applyDisplayMode(context.sourceObject, displayMode);
   }, [displayMode, sceneContextRef]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applyUnlitMaterial(context.sourceObject, showUnlit);
-  }, [sceneContextRef, showUnlit]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -135,16 +123,15 @@ export function useSceneObjectEffects({
       return;
     }
 
-    applyNormalHelpers(context.scene, context.sourceObject, showNormals);
-  }, [sceneContextRef, showNormals]);
-
-  useEffect(() => {
-    const context = sceneContextRef.current;
-
-    if (!context?.sourceObject) {
-      return;
-    }
-
-    applyVertexColors(context.sourceObject, showVertexColors);
-  }, [sceneContextRef, showVertexColors]);
+    applySurfaceMaterialMode(
+      context.sourceObject,
+      showNormals
+        ? "normals"
+        : showUnlit
+          ? "unlit"
+          : showVertexColors
+            ? "vertexColors"
+            : "shaded",
+    );
+  }, [sceneContextRef, showNormals, showUnlit, showVertexColors]);
 }
