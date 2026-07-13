@@ -2,9 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AnimationClip,
   Group,
+  LinearFilter,
   Mesh,
   MeshStandardMaterial,
+  MirroredRepeatWrapping,
+  NearestFilter,
   NumberKeyframeTrack,
+  RepeatWrapping,
+  SRGBColorSpace,
+  Texture,
+  TextureLoader,
 } from "three";
 import type { SelectedFile } from "../../../lib/files";
 import { formatMissingTextureWarnings } from "../../textureWarnings";
@@ -83,6 +90,75 @@ function defaultGltfDocument() {
     buffers: [{ uri: "Duck.bin" }],
     images: [{ uri: "Duck.png" }],
   });
+}
+
+function sharedDeferredTextureDocument() {
+  return JSON.stringify({
+    asset: { version: "2.0" },
+    buffers: [{ uri: "Helmet.bin" }],
+    images: [{ uri: "shared.png" }],
+    samplers: [
+      { wrapS: 10497, minFilter: 9728 },
+      { wrapS: 33648, magFilter: 9729 },
+    ],
+    textures: [
+      { source: 0, sampler: 0 },
+      { source: 0, sampler: 1 },
+    ],
+    materials: [
+      {
+        name: "Shared",
+        pbrMetallicRoughness: {
+          baseColorTexture: {
+            index: 0,
+            texCoord: 0,
+            extensions: {
+              KHR_texture_transform: {
+                offset: [0.25, 0.5],
+                texCoord: 1,
+              },
+            },
+          },
+          metallicRoughnessTexture: {
+            index: 1,
+            texCoord: 0,
+            extensions: {
+              KHR_texture_transform: { scale: [0.5, 0.75] },
+            },
+          },
+        },
+      },
+    ],
+  });
+}
+
+function sharedDeferredTextureScene() {
+  const material = new MeshStandardMaterial();
+  material.name = "__yw_deferred_gltf_material__0:Shared";
+  const scene = new Group();
+  scene.add(new Mesh(undefined, material));
+  return { scene, material };
+}
+
+function manySharedDeferredTextures(count: number) {
+  const scene = new Group();
+  const materials = Array.from({ length: count }, (_, index) => {
+    const material = new MeshStandardMaterial();
+    material.name = `__yw_deferred_gltf_material__${index}:Shared ${index}`;
+    scene.add(new Mesh(undefined, material));
+    return material;
+  });
+  const document = JSON.stringify({
+    asset: { version: "2.0" },
+    buffers: [{ uri: "Shared.bin" }],
+    images: [{ uri: "shared.png" }],
+    textures: [{ source: 0 }],
+    materials: materials.map((_, index) => ({
+      name: `Shared ${index}`,
+      pbrMetallicRoughness: { baseColorTexture: { index: 0 } },
+    })),
+  });
+  return { document, materials, scene };
 }
 
 describe("getMimeType", () => {
@@ -525,6 +601,200 @@ describe("loadGltfPreviewObject", () => {
     expect(workerPayload).toMatchObject({ preferObjectJson: true });
     expect(result.cleanupCallbacks).toHaveLength(1);
     result.cleanupCallbacks?.forEach((cleanup) => cleanup());
+  });
+
+  it("decodes a shared image once and applies independent job texture settings", async () => {
+    const { scene, material } = sharedDeferredTextureScene();
+    const baseTexture = new Texture();
+    const baseDispose = vi.spyOn(baseTexture, "dispose");
+    const loadTexture = vi
+      .spyOn(TextureLoader.prototype, "loadAsync")
+      .mockResolvedValue(baseTexture);
+    const onDeferredTexture = vi.fn();
+    mocks.parseModelInWorker.mockResolvedValue(scene);
+    mocks.readBinaryFile.mockImplementation(async (path: string) => {
+      if (path.endsWith(".gltf")) {
+        return encoded(sharedDeferredTextureDocument());
+      }
+      return new Uint8Array([0, 1, 2, 3]).buffer;
+    });
+
+    const result = await loadGltfPreviewObject(gltfFile, {
+      onDeferredTexture,
+    });
+    await vi.waitFor(() => expect(loadTexture).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(onDeferredTexture).toHaveBeenLastCalledWith({
+        kind: "texture",
+        total: 2,
+        loaded: 2,
+        failed: 0,
+        pending: 0,
+        activeLabel: null,
+      }),
+    );
+
+    expect(loadTexture).toHaveBeenCalledTimes(1);
+    expect(loadTexture).toHaveBeenCalledWith("blob:1");
+    expect(material.map).toBeInstanceOf(Texture);
+    expect(material.metalnessMap).toBeInstanceOf(Texture);
+    expect(material.roughnessMap).toBe(material.metalnessMap);
+    expect(material.map).not.toBe(material.metalnessMap);
+    expect(material.map?.source).toBe(material.metalnessMap?.source);
+    expect(material.map?.colorSpace).toBe(SRGBColorSpace);
+    expect(material.metalnessMap?.colorSpace).not.toBe(SRGBColorSpace);
+    expect(material.map?.wrapS).toBe(RepeatWrapping);
+    expect(material.map?.minFilter).toBe(NearestFilter);
+    expect(material.metalnessMap?.wrapS).toBe(MirroredRepeatWrapping);
+    expect(material.metalnessMap?.magFilter).toBe(LinearFilter);
+    expect(material.map?.offset.toArray()).toEqual([0.25, 0.5]);
+    expect(material.metalnessMap?.repeat.toArray()).toEqual([0.5, 0.75]);
+    expect(material.map?.channel).toBe(1);
+    expect(material.metalnessMap?.channel).toBe(0);
+    expect(baseDispose).toHaveBeenCalledTimes(1);
+    result.cleanupCallbacks?.forEach((cleanup) => cleanup());
+    material.map?.dispose();
+    material.metalnessMap?.dispose();
+  });
+
+  it("counts every shared-image job as failed and warns once when decode fails", async () => {
+    const { scene } = sharedDeferredTextureScene();
+    const loadTexture = vi
+      .spyOn(TextureLoader.prototype, "loadAsync")
+      .mockRejectedValue(new Error("decode failed"));
+    const onDeferredTexture = vi.fn();
+    const onWarning = vi.fn();
+    mocks.parseModelInWorker.mockResolvedValue(scene);
+    mocks.readBinaryFile.mockImplementation(async (path: string) => {
+      if (path.endsWith(".gltf")) {
+        return encoded(sharedDeferredTextureDocument());
+      }
+      return new Uint8Array([0, 1, 2, 3]).buffer;
+    });
+
+    const result = await loadGltfPreviewObject(gltfFile, {
+      onDeferredTexture,
+      onWarning,
+    });
+    await vi.waitFor(() => expect(onWarning).toHaveBeenCalledTimes(1));
+
+    expect(loadTexture).toHaveBeenCalledTimes(1);
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    expect(onWarning).toHaveBeenCalledWith(
+      formatMissingTextureWarnings(["shared.png"])[0],
+    );
+    expect(onDeferredTexture).toHaveBeenLastCalledWith({
+      kind: "texture",
+      total: 2,
+      loaded: 0,
+      failed: 2,
+      pending: 0,
+      activeLabel: null,
+    });
+    result.cleanupCallbacks?.forEach((cleanup) => cleanup());
+  });
+
+  it("disposes a decoded base texture when cancelled during an active shared-image job", async () => {
+    const { scene, material } = sharedDeferredTextureScene();
+    const textureLoad = deferred<Texture>();
+    const baseTexture = new Texture();
+    const baseDispose = vi.spyOn(baseTexture, "dispose");
+    const loadTexture = vi
+      .spyOn(TextureLoader.prototype, "loadAsync")
+      .mockReturnValue(textureLoad.promise);
+    mocks.parseModelInWorker.mockResolvedValue(scene);
+    mocks.readBinaryFile.mockImplementation(async (path: string) => {
+      if (path.endsWith(".gltf")) {
+        return encoded(sharedDeferredTextureDocument());
+      }
+      return new Uint8Array([0, 1, 2, 3]).buffer;
+    });
+
+    const result = await loadGltfPreviewObject(gltfFile, {});
+    await vi.waitFor(() => expect(loadTexture).toHaveBeenCalledTimes(1));
+    result.cleanupCallbacks?.forEach((cleanup) => cleanup());
+    textureLoad.resolve(baseTexture);
+    await vi.waitFor(() => expect(baseDispose).toHaveBeenCalledTimes(1));
+
+    expect(baseDispose).toHaveBeenCalledTimes(1);
+    expect(material.map).toBeNull();
+    expect(material.metalnessMap).toBeNull();
+    expect(material.roughnessMap).toBeNull();
+  });
+
+  it("fans out many shared-image jobs in bounded batches and cancels the remainder", async () => {
+    const jobCount = 12;
+    const { document, materials, scene } = manySharedDeferredTextures(jobCount);
+    const idleCallbacks: Array<() => void> = [];
+    const requestIdleCallback = vi.fn((callback: () => void) => {
+      idleCallbacks.push(callback);
+      return idleCallbacks.length;
+    });
+    const cancelIdleCallback = vi.fn();
+    vi.stubGlobal("requestIdleCallback", requestIdleCallback);
+    vi.stubGlobal("cancelIdleCallback", cancelIdleCallback);
+    try {
+      const baseTexture = new Texture();
+      const baseDispose = vi.spyOn(baseTexture, "dispose");
+      const loadTexture = vi
+        .spyOn(TextureLoader.prototype, "loadAsync")
+        .mockResolvedValue(baseTexture);
+      const onDeferredTexture = vi.fn();
+      mocks.parseModelInWorker.mockResolvedValue(scene);
+      mocks.readBinaryFile.mockImplementation(async (path: string) => {
+        if (path.endsWith(".gltf")) {
+          return encoded(document);
+        }
+        return new Uint8Array([0, 1, 2, 3]).buffer;
+      });
+
+      const result = await loadGltfPreviewObject(gltfFile, {
+        onDeferredTexture,
+      });
+      expect(idleCallbacks).toHaveLength(1);
+
+      idleCallbacks.shift()?.();
+      await vi.waitFor(() => expect(loadTexture).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() =>
+        expect(
+          materials.filter((material) => material.map !== null),
+        ).toHaveLength(4),
+      );
+      expect(onDeferredTexture).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: jobCount,
+          loaded: 4,
+          failed: 0,
+          pending: 8,
+        }),
+      );
+      expect(idleCallbacks).toHaveLength(1);
+
+      idleCallbacks.shift()?.();
+      expect(
+        materials.filter((material) => material.map !== null),
+      ).toHaveLength(8);
+      expect(onDeferredTexture).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: jobCount,
+          loaded: 8,
+          failed: 0,
+          pending: 4,
+        }),
+      );
+      expect(idleCallbacks).toHaveLength(1);
+
+      result.cleanupCallbacks?.forEach((cleanup) => cleanup());
+      expect(baseDispose).toHaveBeenCalledTimes(1);
+      expect(cancelIdleCallback).toHaveBeenCalled();
+      idleCallbacks.splice(0).forEach((callback) => callback());
+      expect(
+        materials.filter((material) => material.map !== null),
+      ).toHaveLength(8);
+      materials.slice(0, 8).forEach((material) => material.map?.dispose());
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("falls back to main-thread glTF parsing for small worker failures", async () => {

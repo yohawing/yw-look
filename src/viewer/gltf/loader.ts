@@ -375,6 +375,7 @@ type GltfSampler = {
 };
 
 const DEFERRED_GLTF_MATERIAL_NAME_PREFIX = "__yw_deferred_gltf_material__";
+const DEFERRED_GLTF_TEXTURE_ASSIGNMENT_BATCH_SIZE = 4;
 
 function deferredGltfMaterialName(index: number, name: string | null) {
   return `${DEFERRED_GLTF_MATERIAL_NAME_PREFIX}${index}:${name ?? ""}`;
@@ -667,17 +668,33 @@ function installDeferredGltfTextures(
     material.name = originalDeferredGltfMaterialName(workerName) ?? "";
   }
 
-  const queue = [...jobs];
+  const jobsByImageUri = new Map<string, DeferredGltfTextureJob[]>();
+  for (const job of jobs) {
+    const uriJobs = jobsByImageUri.get(job.imageUri);
+    if (uriJobs) {
+      uriJobs.push(job);
+    } else {
+      jobsByImageUri.set(job.imageUri, [job]);
+    }
+  }
+  const queue = [...jobsByImageUri.entries()].map(([imageUri, uriJobs]) => ({
+    imageUri,
+    jobs: uriJobs,
+  }));
   const timeoutIds: Array<ReturnType<typeof setTimeout>> = [];
   const idleIds: number[] = [];
+  const warnedImageUris = new Set<string>();
   let running = false;
   let cancelled = false;
   let loaded = 0;
   let failed = 0;
-  let activeLabel: string | null = queue[0]?.label ?? null;
+  let activeLabel: string | null = queue[0]?.jobs[0]?.label ?? null;
+  let activeBaseTexture: Texture | null = null;
 
   const report = () => {
     const completed = loaded + failed;
+    // Progress remains material-job based for compatibility even though one
+    // shared image decode fans out across bounded assignment batches.
     context.onDeferredTexture?.({
       kind: "texture",
       total: jobs.length,
@@ -713,55 +730,13 @@ function installDeferredGltfTextures(
     material.needsUpdate = true;
   };
 
-  const runNext = () => {
-    if (cancelled || running) {
-      return;
-    }
-    const job = queue.shift();
-    if (!job) {
-      activeLabel = null;
-      report();
-      return;
-    }
-
-    running = true;
-    activeLabel = job.label;
-    report();
-    const material = resolveMaterial(job);
-    const url = resourceUrls[job.imageUri];
-    if (!material || !url) {
-      failed += 1;
-      running = false;
-      activeLabel = null;
-      report();
-      scheduleNext();
-      return;
-    }
-
-    void loader
-      .loadAsync(url)
-      .then((texture) => {
-        if (cancelled) {
-          texture.dispose();
-          return;
-        }
-        assignTexture(material, job, texture);
-        loaded += 1;
-      })
-      .catch(() => {
-        failed += 1;
-        context.onWarning?.(formatMissingTextureWarnings([job.imageUri])[0]);
-      })
-      .finally(() => {
-        running = false;
-        activeLabel = null;
-        report();
-        scheduleNext();
-      });
+  const disposeActiveBaseTexture = () => {
+    activeBaseTexture?.dispose();
+    activeBaseTexture = null;
   };
 
-  const scheduleNext = () => {
-    if (cancelled || running || queue.length === 0) {
+  const scheduleIdle = (callback: () => void) => {
+    if (cancelled) {
       return;
     }
     const globalWithIdle = globalThis as typeof globalThis & {
@@ -772,11 +747,128 @@ function installDeferredGltfTextures(
     };
     if (typeof globalWithIdle.requestIdleCallback === "function") {
       idleIds.push(
-        globalWithIdle.requestIdleCallback(runNext, { timeout: 500 }),
+        globalWithIdle.requestIdleCallback(callback, { timeout: 500 }),
       );
     } else {
-      timeoutIds.push(setTimeout(runNext, 16));
+      timeoutIds.push(setTimeout(callback, 16));
     }
+  };
+
+  const finishActiveGroup = () => {
+    disposeActiveBaseTexture();
+    running = false;
+    activeLabel = null;
+    if (!cancelled) {
+      report();
+      scheduleNext();
+    }
+  };
+
+  const runNext = () => {
+    if (cancelled || running) {
+      return;
+    }
+    const group = queue.shift();
+    if (!group) {
+      activeLabel = null;
+      report();
+      return;
+    }
+
+    running = true;
+    activeLabel = group.jobs[0]?.label ?? group.imageUri;
+    report();
+    const url = resourceUrls[group.imageUri];
+    const resolvedJobs = group.jobs.map((job) => ({
+      job,
+      material: resolveMaterial(job),
+    }));
+    if (!url || resolvedJobs.every(({ material }) => material === null)) {
+      failed += group.jobs.length;
+      finishActiveGroup();
+      return;
+    }
+
+    void loader.loadAsync(url).then(
+      (baseTexture) => {
+        if (cancelled) {
+          baseTexture.dispose();
+          return;
+        }
+        activeBaseTexture = baseTexture;
+        let jobIndex = 0;
+        const assignNextBatch = () => {
+          if (cancelled) {
+            disposeActiveBaseTexture();
+            return;
+          }
+          // Four jobs bounds each synchronous fan-out turn while letting the
+          // common <=4-job image group complete immediately after decode.
+          const batchEnd = Math.min(
+            jobIndex + DEFERRED_GLTF_TEXTURE_ASSIGNMENT_BATCH_SIZE,
+            resolvedJobs.length,
+          );
+          while (jobIndex < batchEnd) {
+            const resolvedJob = resolvedJobs[jobIndex];
+            jobIndex += 1;
+            if (!resolvedJob) {
+              continue;
+            }
+            const { job, material } = resolvedJob;
+            if (!material) {
+              failed += 1;
+            } else {
+              let texture: Texture | null = null;
+              try {
+                texture = baseTexture.clone();
+                if (cancelled) {
+                  texture.dispose();
+                  disposeActiveBaseTexture();
+                  return;
+                }
+                assignTexture(material, job, texture);
+                loaded += 1;
+              } catch {
+                texture?.dispose();
+                failed += 1;
+              }
+            }
+          }
+          activeLabel = resolvedJobs[jobIndex]?.job.label ?? null;
+          report();
+          if (cancelled) {
+            disposeActiveBaseTexture();
+            return;
+          }
+          if (jobIndex < resolvedJobs.length) {
+            scheduleIdle(assignNextBatch);
+          } else {
+            finishActiveGroup();
+          }
+        };
+        assignNextBatch();
+      },
+      () => {
+        if (cancelled) {
+          return;
+        }
+        failed += group.jobs.length;
+        if (!warnedImageUris.has(group.imageUri)) {
+          warnedImageUris.add(group.imageUri);
+          context.onWarning?.(
+            formatMissingTextureWarnings([group.imageUri])[0],
+          );
+        }
+        finishActiveGroup();
+      },
+    );
+  };
+
+  const scheduleNext = () => {
+    if (cancelled || running || queue.length === 0) {
+      return;
+    }
+    scheduleIdle(runNext);
   };
 
   report();
@@ -786,6 +878,8 @@ function installDeferredGltfTextures(
     () => {
       cancelled = true;
       queue.length = 0;
+      disposeActiveBaseTexture();
+      running = false;
       for (const timeoutId of timeoutIds) {
         clearTimeout(timeoutId);
       }
