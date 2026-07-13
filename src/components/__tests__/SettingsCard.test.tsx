@@ -105,6 +105,98 @@ describe("SettingsCard", () => {
     expect(queryByText("Remove")).toBeNull();
   });
 
+  it("renders supported Windows file association controls and callbacks", () => {
+    const onToggleFileAssociations = vi.fn();
+    const onOpenDefaultAppsSettings = vi.fn();
+    const { getByRole, getByText } = render(
+      <SettingsCard
+        settingsPayload={settingsPayload}
+        settingsError={null}
+        fileAssociationResult={{
+          platform: "windows",
+          supported: true,
+          effectiveExtensions: ["usd", "pmx"],
+          requiresUserConfirmation: true,
+          message: "Choose defaults in Windows Settings.",
+        }}
+        fileAssociationsAvailable
+        optionalLoaderPacks={[]}
+        onOpenDefaultAppsSettings={onOpenDefaultAppsSettings}
+        onToggleAutoCheckForUpdates={() => undefined}
+        onToggleFileAssociations={onToggleFileAssociations}
+        onToggleOptionalLoaderPack={() => undefined}
+      />,
+    );
+
+    expect(getByText("File Associations")).toBeTruthy();
+    fireEvent.click(
+      getByRole("switch", {
+        name: "Offer enabled formats as Windows app candidates",
+      }),
+    );
+    fireEvent.click(getByRole("button", { name: "Open Windows Default Apps" }));
+    expect(onToggleFileAssociations).toHaveBeenCalledTimes(1);
+    expect(onOpenDefaultAppsSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides file association controls for unsupported platforms", () => {
+    const { queryByRole, queryByText } = render(
+      <SettingsCard
+        settingsPayload={settingsPayload}
+        settingsError={null}
+        fileAssociationResult={{
+          platform: "macos",
+          supported: false,
+          effectiveExtensions: [],
+          requiresUserConfirmation: false,
+          message: "File associations are unsupported on this platform.",
+        }}
+        fileAssociationsAvailable
+        optionalLoaderPacks={[]}
+        onToggleAutoCheckForUpdates={() => undefined}
+        onToggleOptionalLoaderPack={() => undefined}
+      />,
+    );
+
+    expect(queryByText("File Associations")).toBeNull();
+    expect(
+      queryByRole("button", { name: "Open Windows Default Apps" }),
+    ).toBeNull();
+  });
+
+  it("keeps Windows file association recovery controls available after failure", () => {
+    const onToggleFileAssociations = vi.fn();
+    const onOpenDefaultAppsSettings = vi.fn();
+    const onRetryFileAssociations = vi.fn();
+    const { getByRole, getByText } = render(
+      <SettingsCard
+        settingsPayload={settingsPayload}
+        settingsError={null}
+        fileAssociationError="Failed to synchronize file associations."
+        fileAssociationsAvailable
+        optionalLoaderPacks={[]}
+        onOpenDefaultAppsSettings={onOpenDefaultAppsSettings}
+        onRetryFileAssociations={onRetryFileAssociations}
+        onToggleAutoCheckForUpdates={() => undefined}
+        onToggleFileAssociations={onToggleFileAssociations}
+        onToggleOptionalLoaderPack={() => undefined}
+      />,
+    );
+
+    expect(getByText("File Associations")).toBeTruthy();
+    expect(getByText("Failed to synchronize file associations.")).toBeTruthy();
+    fireEvent.click(
+      getByRole("switch", {
+        name: "Offer enabled formats as Windows app candidates",
+      }),
+    );
+    fireEvent.click(getByRole("button", { name: "Open Windows Default Apps" }));
+    fireEvent.click(getByRole("button", { name: "Retry File Associations" }));
+    expect(onToggleFileAssociations).toHaveBeenCalledTimes(1);
+    expect(onOpenDefaultAppsSettings).toHaveBeenCalledTimes(1);
+    expect(onRetryFileAssociations).toHaveBeenCalledTimes(1);
+  });
+
   it("requests optional loader pack toggles for installed packs", () => {
     const onToggleOptionalLoaderPack = vi.fn();
     const { getByRole } = render(

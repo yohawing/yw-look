@@ -40,6 +40,7 @@ import { useUiStore } from "../stores/uiStore";
 import type { OptionalLoaderPackManifest } from "../lib/loaderPacks";
 import type { RecentFilesPayload } from "../lib/recentFiles";
 import type { SettingsPayload } from "../lib/settings";
+import type { FileAssociationSyncResult } from "../lib/fileAssociations";
 import type {
   UpdateCheckPayload,
   UpdateConfigurationPayload,
@@ -87,12 +88,18 @@ type UseSidebarModelOptions = {
   handleCheckForUpdate: () => Promise<void>;
   handleInstallUpdate: () => Promise<void>;
   handleLoadPayload: (primPath: string) => Promise<void>;
+  handleOpenDefaultAppsSettings?: () => Promise<void>;
+  handleRetryFileAssociations?: () => Promise<void>;
   handleToggleAutoCheckForUpdates: () => Promise<void>;
+  handleToggleFileAssociations?: () => Promise<void>;
   handleToggleOptionalLoaderPack: (packId: string) => Promise<void>;
   handleUnloadPayload: (primPath: string) => Promise<void>;
   isCheckingForUpdate: boolean;
   isInstallingUpdate: boolean;
   isTauri: boolean;
+  fileAssociationError?: string | null;
+  fileAssociationResult?: FileAssociationSyncResult | null;
+  fileAssociationsAvailable?: boolean;
   optionalLoaderManifests: readonly OptionalLoaderPackManifest[];
   optionalLoaderManifestsError: string | null;
   payloadPrimPaths: ReadonlySet<string>;
@@ -123,12 +130,18 @@ export function useSidebarModel({
   handleCheckForUpdate,
   handleInstallUpdate,
   handleLoadPayload,
+  handleOpenDefaultAppsSettings,
+  handleRetryFileAssociations,
   handleToggleAutoCheckForUpdates,
+  handleToggleFileAssociations,
   handleToggleOptionalLoaderPack,
   handleUnloadPayload,
   isCheckingForUpdate,
   isInstallingUpdate,
   isTauri,
+  fileAssociationError,
+  fileAssociationResult,
+  fileAssociationsAvailable,
   optionalLoaderManifests,
   optionalLoaderManifestsError,
   payloadPrimPaths,
@@ -316,6 +329,9 @@ export function useSidebarModel({
               <SettingsCard
                 settingsPayload={settingsPayload}
                 settingsError={settingsError}
+                fileAssociationError={fileAssociationError}
+                fileAssociationResult={fileAssociationResult}
+                fileAssociationsAvailable={fileAssociationsAvailable}
                 optionalLoaderPacks={listOptionalLoaderPacks(
                   settingsPayload?.settings.optionalLoaderPacks,
                   optionalLoaderManifests,
@@ -324,8 +340,17 @@ export function useSidebarModel({
                 onToggleAutoCheckForUpdates={() =>
                   void handleToggleAutoCheckForUpdates()
                 }
+                onToggleFileAssociations={() =>
+                  void handleToggleFileAssociations?.()
+                }
                 onToggleOptionalLoaderPack={(packId) =>
                   void handleToggleOptionalLoaderPack(packId)
+                }
+                onOpenDefaultAppsSettings={() =>
+                  void handleOpenDefaultAppsSettings?.()
+                }
+                onRetryFileAssociations={() =>
+                  void handleRetryFileAssociations?.()
                 }
               />
             </Suspense>
@@ -353,12 +378,18 @@ export function useSidebarModel({
     handleCheckForUpdate,
     handleInstallUpdate,
     handleLoadPayload,
+    handleOpenDefaultAppsSettings,
+    handleRetryFileAssociations,
     handleToggleAutoCheckForUpdates,
+    handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,
     handleUnloadPayload,
     isCheckingForUpdate,
     isInstallingUpdate,
     isTauri,
+    fileAssociationError,
+    fileAssociationResult,
+    fileAssociationsAvailable,
     optionalLoaderManifests,
     optionalLoaderManifestsError,
     payloadPrimPaths,

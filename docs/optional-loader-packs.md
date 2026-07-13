@@ -258,9 +258,16 @@ plan from `AppSettings`, scanned optional pack manifests, and
 `KNOWN_OPTIONAL_LOADER_EXTENSIONS`. `npm run check:file-associations` keeps the
 static bundle aligned with that split.
 
-Actual OS association sync is still open. Windows registry / macOS
-LaunchServices updates should consume the resolved plan in a later slice instead
-of expanding the signed bundle manifest whenever a pack is enabled.
+On Windows, Settings now synchronizes the resolved runtime plan into the current
+user's Registered Applications / Capabilities registry entries. Each extension
+uses an independent ProgID, so disabling or removing one optional pack removes
+only its candidates. This registration does not write `UserChoice` and does not
+force yw-look to become the default application; the user confirms defaults in
+Windows Default Apps.
+
+macOS runtime synchronization remains open. The signed bundle's
+`CFBundleDocumentTypes` is still core-only, so changing optional packs at runtime
+does not dynamically add or remove Finder `Open With` candidates.
 
 ## Security Boundary
 
@@ -279,10 +286,9 @@ yohawing/yw-look release process.
 3. Add manifest scan and validation from the app-managed pack directory.
 4. Add Settings read-only reporting for known packs.
 5. Add Settings enable/disable state and make loader registration respect it.
-6. Make file association sync respect enabled optional packs. Preparatory work:
-   core-only static bundle associations, `file_associations.rs` plan resolver,
-   and `check:file-associations` are in place; OS registry / LaunchServices sync
-   remains open.
+6. Make file association sync respect enabled optional packs. Windows per-user
+   candidate registration and the Default Apps handoff are implemented. macOS
+   LaunchServices synchronization remains open.
 7. Add Settings install/remove for first-party packs.
 8. Wire NSIS Custom Install sections to seed selected pack directories.
 9. Implement VRM (#70), MMD (#71), and Gaussian Splat as first-party packs

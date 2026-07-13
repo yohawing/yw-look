@@ -209,15 +209,24 @@ export function App() {
     performSelectFilePath,
   });
 
-  const { handleToggleAutoCheckForUpdates, handleToggleOptionalLoaderPack } =
-    useSettingsActions({
-      refreshUpdateConfiguration,
-      setSettingsError,
-      setOptionalLoaderManifests,
-      setSettingsPayload,
-      setUpdateError,
-      settingsPayload,
-    });
+  const {
+    fileAssociationError,
+    fileAssociationResult,
+    fileAssociationsAvailable,
+    handleOpenDefaultAppsSettings,
+    handleRetryFileAssociations,
+    handleToggleAutoCheckForUpdates,
+    handleToggleFileAssociations,
+    handleToggleOptionalLoaderPack,
+  } = useSettingsActions({
+    isTauri,
+    refreshUpdateConfiguration,
+    setSettingsError,
+    setOptionalLoaderManifests,
+    setSettingsPayload,
+    setUpdateError,
+    settingsPayload,
+  });
 
   const sessionAdjustedUsdSummary = useSessionAdjustedUsdSummary({
     payloadPrimPaths,
@@ -232,12 +241,18 @@ export function App() {
       handleCheckForUpdate,
       handleInstallUpdate,
       handleLoadPayload,
+      handleOpenDefaultAppsSettings,
+      handleRetryFileAssociations,
       handleToggleAutoCheckForUpdates,
+      handleToggleFileAssociations,
       handleToggleOptionalLoaderPack,
       handleUnloadPayload,
       isCheckingForUpdate,
       isInstallingUpdate,
       isTauri,
+      fileAssociationError,
+      fileAssociationResult,
+      fileAssociationsAvailable,
       optionalLoaderManifests,
       optionalLoaderManifestsError,
       payloadPrimPaths,

@@ -35,6 +35,14 @@ export type OptionalLoaderPackManifest = {
   entryPath: string;
 };
 
+export type FileAssociationSyncResult = {
+  platform: string;
+  supported: boolean;
+  effectiveExtensions: Array<string>;
+  requiresUserConfirmation: boolean;
+  message: string;
+};
+
 export type UpdateConfigurationPayload = {
   currentVersion: string;
   defaultEndpoint: string | null;

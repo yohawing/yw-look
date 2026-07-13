@@ -23,6 +23,7 @@ use crate::commands::diagnostics::{
     clear_crash_marker, initialize_crash_marker, load_crash_recovery_status,
     load_diagnostics_snapshot, load_process_memory_metrics, log_diagnostic_event, open_app_log_dir,
 };
+use crate::commands::file_associations::{open_default_apps_settings, sync_file_associations};
 use crate::commands::files::{
     get_startup_file, inspect_asset, list_supported_siblings, load_format_support,
     load_recent_files, open_file_dialog, read_binary_file, read_binary_file_prefix,
@@ -228,6 +229,8 @@ pub fn run() {
             load_optional_loader_manifests,
             install_optional_loader_pack,
             remove_optional_loader_pack,
+            sync_file_associations,
+            open_default_apps_settings,
             log_diagnostic_event,
             load_diagnostics_snapshot,
             load_crash_recovery_status,

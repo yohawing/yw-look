@@ -13,6 +13,7 @@ import type {
   DiagnosticRecordInput as GeneratedDiagnosticRecordInput,
   DiagnosticsPayload as GeneratedDiagnosticsPayload,
   ExtractGeometryOptions as GeneratedExtractGeometryOptions,
+  FileAssociationSyncResult as GeneratedFileAssociationSyncResult,
   LayerInfo as GeneratedLayerInfo,
   MetadataEntry as GeneratedMetadataEntry,
   OptionalLoaderPackCompatibility as GeneratedOptionalLoaderPackCompatibility,
@@ -201,6 +202,8 @@ export type OptionalLoaderPackSettings = GeneratedOptionalLoaderPackSettings;
 export type SettingsPayload = Omit<GeneratedSettingsPayload, "settings"> & {
   settings: AppSettings;
 };
+
+export type FileAssociationSyncResult = GeneratedFileAssociationSyncResult;
 
 // Wire Option fields are `T | null`; facade keeps them optional for frontend
 // fixtures and partial objects that may omit absent payload fields.

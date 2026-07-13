@@ -478,6 +478,20 @@ Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\gaussian-splat\.rem
 
 これは開発中だけ使う手順です。
 
+### File Associations の実機確認
+
+Settings の `File Associations` は、enabled な core / optional formats を
+Windows のアプリ候補として HKCU に登録する。既定アプリは強制変更しない。
+
+1. `Offer enabled formats as Windows app candidates` を ON にする
+2. `Open Windows Default Apps` から対象拡張子の候補に `yw-look` が出ることを確認する
+3. optional pack を既定候補にした後、その pack を disable / remove する
+4. 対象の per-extension ProgID と候補が消え、core formats の候補は残ることを確認する
+5. toggle を OFF にし、yw-look の per-user Capabilities / ProgID が削除されることを確認する
+
+自動テストは registry operation plan と直列化までを検証する。実 HKCU readback と
+Windows 10 / 11 の Default Apps 表示は実機 gate として release log に残す。
+
 ### 1. パスワード付き開発鍵を作る
 
 パスワードなし鍵より、明示的にパスワード付きにしたほうが混乱が少ないです。

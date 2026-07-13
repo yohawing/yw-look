@@ -6430,6 +6430,8 @@ dependencies = [
  "thiserror 2.0.18",
  "ts-rs",
  "url",
+ "windows-sys 0.59.0",
+ "winreg",
  "zip 8.5.0",
 ]
 

@@ -3,6 +3,7 @@ use ts_rs::{Config, TS};
 use crate::commands::diagnostics::{
     CrashRecoveryPayload, DiagnosticRecordInput, DiagnosticsPayload, ProcessMemoryPayload,
 };
+use crate::commands::file_associations::FileAssociationSyncResult;
 use crate::commands::files::{
     AssetInspection, DirectoryListingPayload, FormatSupportPayload, ImageDimensions,
     RecentFileEntry, RecentFilesPayload, SelectedFilePayload,
@@ -39,6 +40,8 @@ fn generated_ipc_types() -> String {
         &format_tsrs_decl(OptionalLoaderPackCompatibility::decl(&cfg)),
         "",
         &format_tsrs_decl(OptionalLoaderPackManifest::decl(&cfg)),
+        "",
+        &format_tsrs_decl(FileAssociationSyncResult::decl(&cfg)),
         "",
         &format_tsrs_decl(UpdateConfigurationPayload::decl(&cfg)),
         "",
