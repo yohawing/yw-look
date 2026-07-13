@@ -9,9 +9,9 @@ import {
   Object3D,
   RGBAFormat,
   SRGBColorSpace,
+  Texture,
   TextureLoader,
   type Material,
-  type Texture,
   Loader as ThreeLoader,
 } from "three";
 import { errorMessage } from "../../lib/errors";
@@ -298,8 +298,11 @@ function createPendingCompressedTexture() {
   return new PendingCompressedTexture();
 }
 
-function createFallbackTexture(name: string) {
-  const texture = new DataTexture(new Uint8Array([199, 210, 227, 255]), 1, 1);
+export function createFbxPendingImageTexture(name: string) {
+  // Keep this a regular Texture. The deferred PNG/JPEG decode replaces the
+  // empty image with an HTML image; a DataTexture instance would keep Three's
+  // data-texture GPU upload path and render the decoded image black.
+  const texture = new Texture();
   texture.name = filenameFromUrl(name);
   texture.colorSpace = SRGBColorSpace;
   texture.needsUpdate = true;
@@ -307,30 +310,12 @@ function createFallbackTexture(name: string) {
   return texture;
 }
 
-function copyTextureInto(target: Texture, source: Texture) {
+export function copyDecodedFbxTextureImage(target: Texture, source: Texture) {
   target.image = source.image;
   target.mipmaps = source.mipmaps;
-  target.mapping = source.mapping;
-  target.channel = source.channel;
-  target.wrapS = source.wrapS;
-  target.wrapT = source.wrapT;
-  target.magFilter = source.magFilter;
-  target.minFilter = source.minFilter;
-  target.anisotropy = source.anisotropy;
   target.format = source.format;
   target.internalFormat = source.internalFormat;
   target.type = source.type;
-  target.offset.copy(source.offset);
-  target.repeat.copy(source.repeat);
-  target.center.copy(source.center);
-  target.rotation = source.rotation;
-  target.matrix.copy(source.matrix);
-  target.matrixAutoUpdate = source.matrixAutoUpdate;
-  target.generateMipmaps = source.generateMipmaps;
-  target.premultiplyAlpha = source.premultiplyAlpha;
-  target.flipY = source.flipY;
-  target.unpackAlignment = source.unpackAlignment;
-  target.colorSpace = source.colorSpace;
   target.needsUpdate = true;
 }
 
@@ -937,7 +922,7 @@ async function createFbxLoadingManager(
       const resourceUrl = `${this.path ?? ""}${url}`;
       const textureReference = stripUrlSuffix(url);
       const textureLabel = filenameFromUrl(textureReference);
-      const texture = createFallbackTexture(resourceUrl);
+      const texture = createFbxPendingImageTexture(resourceUrl);
       texture.userData.fbxSourceName = textureReference;
 
       trackTextureStart(textureLabel);
@@ -960,7 +945,7 @@ async function createFbxLoadingManager(
               if (cancelled) {
                 return;
               }
-              copyTextureInto(texture, loadedTexture);
+              copyDecodedFbxTextureImage(texture, loadedTexture);
               loadedTexture.dispose();
               texture.name = textureLabel;
               texture.userData.fbxSourceName = textureReference;

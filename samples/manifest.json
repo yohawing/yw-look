@@ -274,6 +274,22 @@
         "hasMetadata": true,
         "hasTextureList": true
       }
+    },
+    {
+      "id": "fbx-physics-bake-texture-upload-local-regression",
+      "kind": "model",
+      "format": "fbx",
+      "path": "F:\\Develop\\MMDDev\\mmd-anim\\.ai\\fbx-physics-bake\\sour_miku_white_rabbit_hole_f300_physics_bindfixed.fbx",
+      "tags": ["fbx", "private", "local-regression", "textured", "physics-bake"],
+      "private": true,
+      "notes": "User-owned local physics-bake FBX used to reproduce deferred raster textures rendering black after decode; do not redistribute.",
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": true,
+        "hasAnimation": true
+      }
     }
   ]
 }

@@ -13,6 +13,8 @@ import { FBXLoader } from "../../../vendor/FBXLoaderPatched.js";
 import { formatMissingTextureWarnings } from "../../textureWarnings";
 import {
   applyMissingTextureMaterialFallback,
+  copyDecodedFbxTextureImage,
+  createFbxPendingImageTexture,
   hydrateFbxDeferredTexturePlaceholders,
   registerFbxTextureMaterialFallbacks,
   resolveMissingTextureLabel,
@@ -72,6 +74,46 @@ describe("FBX animated public fixture", () => {
 });
 
 describe("FBX missing texture fallback", () => {
+  it("keeps deferred raster textures on the regular GPU upload path", () => {
+    const texture = createFbxPendingImageTexture("tex/albedo.png");
+
+    expect(texture.isTexture).toBe(true);
+    expect(
+      (texture as Texture & { isDataTexture?: boolean }).isDataTexture,
+    ).not.toBe(true);
+    expect(texture.colorSpace).toBe("srgb");
+    expect(texture.image).toBeNull();
+  });
+
+  it("copies decoded pixels without discarding FBX sampler transforms", () => {
+    const target = createFbxPendingImageTexture("tex/albedo.png");
+    target.offset.set(0.25, 0.5);
+    target.repeat.set(2, -3);
+    target.center.set(0.5, 0.5);
+    target.rotation = 0.75;
+    target.flipY = false;
+
+    const source = new Texture({
+      width: 4,
+      height: 8,
+    } as HTMLImageElement);
+    source.offset.set(0, 0);
+    source.repeat.set(1, 1);
+    source.rotation = 0;
+    source.flipY = true;
+
+    copyDecodedFbxTextureImage(target, source);
+
+    expect(target.image).toBe(source.image);
+    expect(target.offset.toArray()).toEqual([0.25, 0.5]);
+    expect(target.repeat.toArray()).toEqual([2, -3]);
+    expect(target.center.toArray()).toEqual([0.5, 0.5]);
+    expect(target.rotation).toBe(0.75);
+    expect(target.flipY).toBe(false);
+    expect(target.colorSpace).toBe("srgb");
+    expect(target.version).toBeGreaterThan(1);
+  });
+
   it("removes failed texture slots from registered materials", () => {
     const texture = new Texture();
     const material = new MeshStandardMaterial({
