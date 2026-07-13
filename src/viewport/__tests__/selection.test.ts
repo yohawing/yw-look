@@ -12,7 +12,11 @@ import {
 } from "three";
 import { acceleratedRaycast, MeshBVH } from "three-mesh-bvh";
 import { createViewportPicker } from "../selection";
-import { createMeshBvhRaycastBuilder, meshTriangleCount } from "../../viewer";
+import {
+  createMeshBvhRaycastBuilder,
+  meshTriangleCount,
+  setSelectionProxyTarget,
+} from "../../viewer";
 
 function makeDomElement() {
   return {
@@ -67,6 +71,29 @@ function makeInterleavedPlaneGeometry() {
 }
 
 describe("createViewportPicker", () => {
+  it("uses the last rendered active camera for static CPU picking", async () => {
+    const mesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    mesh.name = "ActiveCameraTarget";
+    mesh.position.z = -5;
+    mesh.updateMatrixWorld(true);
+    const defaultCamera = new PerspectiveCamera(60, 1, 0.1, 100);
+    defaultCamera.position.x = 20;
+    defaultCamera.updateMatrixWorld(true);
+    const activeCamera = new PerspectiveCamera(60, 1, 0.1, 100);
+    activeCamera.updateMatrixWorld(true);
+    const picker = createViewportPicker(defaultCamera, makeDomElement());
+    picker.syncMountedObject(mesh);
+    await picker.flushPendingGpuPick({
+      camera: activeCamera,
+      renderer: {} as never,
+      scene: new Scene(),
+    });
+
+    expect(picker.pickSelectionKey(mesh, makePointer(50, 50))).toBe(
+      "ActiveCameraTarget",
+    );
+  });
+
   it("does not prepare or raycast before post-render mounted synchronization", () => {
     const mesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
     mesh.name = "NotUploadedYet";
@@ -292,33 +319,189 @@ describe("createViewportPicker", () => {
     expect(worker.dispose).toHaveBeenCalled();
   });
 
-  it("does not fall back to synchronous triangles for a large dynamic mesh", () => {
+  it("flushes a large dynamic mesh through GPU picking without raycasting", async () => {
+    const root = new Scene();
     const mesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
     mesh.name = "DynamicLarge";
     mesh.morphTargetInfluences = [0];
+    root.add(mesh);
     const raycast = vi.spyOn(mesh, "raycast");
-    const warning = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
     const builder = {
       build: vi.fn(async () => true),
       invalidate: vi.fn(),
       dispose: vi.fn(),
     } as unknown as ReturnType<typeof createMeshBvhRaycastBuilder>;
-    const picker = createViewportPicker(
-      new PerspectiveCamera(),
-      makeDomElement(),
-      { bvhBuilder: builder, largeTriangleThreshold: 1 },
-    );
-    picker.syncMountedObject(mesh);
+    const gpuPicker = {
+      dispose: vi.fn(),
+      pick: vi.fn(async () => "DynamicLarge"),
+    };
+    const defaultCamera = new PerspectiveCamera();
+    const activeCamera = new PerspectiveCamera();
+    const picker = createViewportPicker(defaultCamera, makeDomElement(), {
+      bvhBuilder: builder,
+      gpuPicker,
+      largeTriangleThreshold: 1,
+    });
+    picker.syncMountedObject(root);
 
-    expect(picker.pickSelectionKey(mesh, makePointer(50, 50))).toBeNull();
+    const result = picker.pickSelectionKey(root, makePointer(50, 50));
+    expect(result).toBeInstanceOf(Promise);
     expect(builder.build).not.toHaveBeenCalled();
     expect(raycast).not.toHaveBeenCalled();
-    expect(warning).toHaveBeenCalledWith(
-      expect.stringContaining("dynamic or unsupported geometry excluded"),
+    await picker.flushPendingGpuPick({
+      camera: activeCamera,
+      renderer: {} as never,
+      scene: root,
+    });
+    await expect(result).resolves.toBe("DynamicLarge");
+    expect(gpuPicker.pick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        camera: activeCamera,
+        clientX: 50,
+        clientY: 50,
+        targets: [{ key: "DynamicLarge", mesh }],
+      }),
     );
+    expect(raycast).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates selection proxy keys in the GPU target list", async () => {
+    const root = new Scene();
+    const target = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    target.name = "Target";
+    target.morphTargetInfluences = [0];
+    const proxy = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    proxy.name = "Proxy";
+    setSelectionProxyTarget(proxy, target);
+    root.add(target, proxy);
+    const gpuPicker = {
+      dispose: vi.fn(),
+      pick: vi.fn(async () => "Target"),
+    };
+    const camera = new PerspectiveCamera();
+    const picker = createViewportPicker(camera, makeDomElement(), {
+      gpuPicker,
+      largeTriangleThreshold: 1,
+    });
+    picker.syncMountedObject(root);
+
+    const result = picker.pickSelectionKey(root, makePointer(50, 50));
+    await picker.flushPendingGpuPick({
+      camera,
+      renderer: {} as never,
+      scene: root,
+    });
+
+    await expect(result).resolves.toBe("Target");
+    expect(gpuPicker.pick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: [
+          { key: "Target", mesh: target },
+          { key: "Target", mesh: proxy },
+        ],
+      }),
+    );
+  });
+
+  it("settles stale, failed, and disposed GPU picks as null", async () => {
+    let finishRead!: (key: string | null) => void;
+    const gpuPicker = {
+      dispose: vi.fn(),
+      pick: vi.fn(
+        () =>
+          new Promise<string | null>((resolve) => {
+            finishRead = resolve;
+          }),
+      ),
+    };
+    const first = new Scene();
+    const dynamic = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    dynamic.name = "Dynamic";
+    dynamic.morphTargetInfluences = [0];
+    first.add(dynamic);
+    const camera = new PerspectiveCamera();
+    const picker = createViewportPicker(camera, makeDomElement(), {
+      gpuPicker,
+      largeTriangleThreshold: 1,
+    });
+    picker.syncMountedObject(first);
+
+    const stale = picker.pickSelectionKey(first, makePointer(50, 50));
+    const flush = picker.flushPendingGpuPick({
+      camera,
+      renderer: {} as never,
+      scene: first,
+    });
+    picker.syncMountedObject(new Scene());
+    await expect(stale).resolves.toBeNull();
+    finishRead("Dynamic");
+    await flush;
+
+    picker.syncMountedObject(first);
+    const disposed = picker.pickSelectionKey(first, makePointer(50, 50));
+    picker.dispose();
+    await expect(disposed).resolves.toBeNull();
+    expect(gpuPicker.dispose).toHaveBeenCalledTimes(1);
+
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const failedGpuPicker = {
+      dispose: vi.fn(),
+      pick: vi.fn(async () => {
+        throw new Error("read failed");
+      }),
+    };
+    const failed = createViewportPicker(camera, makeDomElement(), {
+      gpuPicker: failedGpuPicker,
+      largeTriangleThreshold: 1,
+    });
+    failed.syncMountedObject(first);
+    const failedResult = failed.pickSelectionKey(first, makePointer(50, 50));
+    await failed.flushPendingGpuPick({
+      camera,
+      renderer: {} as never,
+      scene: first,
+    });
+    await expect(failedResult).resolves.toBeNull();
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("read failed"),
+    );
+    failed.dispose();
     warning.mockRestore();
+  });
+
+  it("cancels an older GPU click before flushing the latest click", async () => {
+    const root = new Scene();
+    const dynamic = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    dynamic.name = "Dynamic";
+    dynamic.morphTargetInfluences = [0];
+    root.add(dynamic);
+    const gpuPicker = {
+      dispose: vi.fn(),
+      pick: vi.fn(async () => "Dynamic"),
+    };
+    const camera = new PerspectiveCamera();
+    const picker = createViewportPicker(camera, makeDomElement(), {
+      gpuPicker,
+      largeTriangleThreshold: 1,
+    });
+    picker.syncMountedObject(root);
+
+    const older = picker.pickSelectionKey(root, makePointer(10, 10));
+    const latest = picker.pickSelectionKey(root, makePointer(80, 80));
+    await expect(older).resolves.toBeNull();
+    await picker.flushPendingGpuPick({
+      camera,
+      renderer: {} as never,
+      scene: root,
+    });
+
+    await expect(latest).resolves.toBe("Dynamic");
+    expect(gpuPicker.pick).toHaveBeenCalledTimes(1);
+    expect(gpuPicker.pick).toHaveBeenCalledWith(
+      expect.objectContaining({ clientX: 80, clientY: 80 }),
+    );
   });
 
   it("picks ready interleaved geometry without synchronous triangle fallback", async () => {

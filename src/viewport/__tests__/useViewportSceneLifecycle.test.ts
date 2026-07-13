@@ -35,6 +35,7 @@ const rendererMocks = vi.hoisted(() => {
 
 const pickerMocks = vi.hoisted(() => ({
   dispose: vi.fn(),
+  flushPendingGpuPick: vi.fn(async () => undefined),
   pickSelectionKey: vi.fn(() => null),
   syncMountedObject: vi.fn(),
 }));
@@ -202,6 +203,7 @@ afterEach(() => {
   cleanup();
   rendererMocks.instances.length = 0;
   pickerMocks.dispose.mockClear();
+  pickerMocks.flushPendingGpuPick.mockClear();
   pickerMocks.pickSelectionKey.mockClear();
   pickerMocks.syncMountedObject.mockClear();
   vi.restoreAllMocks();
@@ -256,6 +258,30 @@ describe("useViewportSceneLifecycle", () => {
       rendererMocks.instances[0].render.mock.invocationCallOrder[0];
     const syncOrder = pickerMocks.syncMountedObject.mock.invocationCallOrder[0];
     expect(renderOrder).toBeLessThan(syncOrder);
+  });
+
+  it("flushes GPU picking after color render with the active camera", () => {
+    const options = makeLifecycleOptions();
+    const activeCamera = {} as Camera;
+    options.activeCameraRef.current = activeCamera;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+
+    renderHook(() =>
+      useViewportSceneLifecycle({
+        ...options,
+        currentFileExtension: "glb",
+      }),
+    );
+
+    const renderOrder =
+      rendererMocks.instances[0].render.mock.invocationCallOrder[0];
+    const flushOrder =
+      pickerMocks.flushPendingGpuPick.mock.invocationCallOrder[0];
+    expect(renderOrder).toBeLessThan(flushOrder);
+    expect(pickerMocks.flushPendingGpuPick).toHaveBeenCalledWith(
+      expect.objectContaining({ camera: activeCamera }),
+    );
   });
 
   it("reuses the renderer when switching among default-format extensions", () => {

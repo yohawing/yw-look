@@ -343,6 +343,11 @@ export function useViewportSceneLifecycle({
       viewportPicker.syncMountedObject(
         sceneContextRef.current?.mountedObject ?? null,
       );
+      void viewportPicker.flushPendingGpuPick({
+        camera: activeCameraRef.current ?? camera,
+        renderer,
+        scene,
+      });
     };
     renderLoop();
 

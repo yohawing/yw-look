@@ -1,10 +1,4 @@
-import {
-  DirectionalLight,
-  Group,
-  Object3D,
-  type Material,
-  type Mesh,
-} from "three";
+import { DirectionalLight, Group, Mesh, Object3D, type Material } from "three";
 import { errorMessage } from "../../lib/errors";
 import type { SelectedFile } from "../../lib/files";
 import { readBinaryFile } from "../../lib/files";
@@ -12,6 +6,7 @@ import {
   MMD_EXAMPLE_LIGHTING_PRESET,
   MMD_PREVIEW_RENDERING_PRESET,
   setObjectSelectionKey,
+  setSelectionMaterialCustomizer,
   setSelectionProxyTarget,
 } from "../../viewer";
 import type {
@@ -73,6 +68,7 @@ type MmdParserCore = {
 };
 
 type ThreeMmdLoaderModule = {
+  attachMmdSdefSkinning(material: Material): void;
   ThreeMmdLoader: new (options: {
     geometryAwareAlpha: boolean;
     runtime: unknown;
@@ -627,6 +623,33 @@ function getMmdMorphSplitBodyMeshes(mmd: MmdRuntimeModelHandle): Object3D[] {
     : [];
 }
 
+function attachMmdSelectionMaterialCustomizers(
+  mmd: MmdRuntimeModelHandle & {
+    outlineMeshes?: Object3D[];
+    renderOrderMeshes?: Object3D[];
+  },
+  attachMmdSdefSkinning: (material: Material) => void,
+) {
+  const visited = new Set<Object3D>();
+  for (const object of [
+    mmd.mesh,
+    ...getMmdMorphSplitBodyMeshes(mmd),
+    ...(mmd.outlineMeshes ?? []),
+    ...(mmd.renderOrderMeshes ?? []),
+  ]) {
+    object.traverse((child) => {
+      if (visited.has(child)) return;
+      visited.add(child);
+      if (
+        child instanceof Mesh &&
+        (child.geometry.userData.mmdSdef || child.geometry.userData.mmdQdef)
+      ) {
+        setSelectionMaterialCustomizer(child, attachMmdSdefSkinning);
+      }
+    });
+  }
+}
+
 export async function loadMmdPreviewObject(
   file: SelectedFile,
   context: LoaderContext,
@@ -640,6 +663,7 @@ export async function loadMmdPreviewObject(
 
   try {
     const {
+      attachMmdSdefSkinning,
       ThreeMmdLoader,
       parsePmdMetadata,
       parsePmdSectionInventory,
@@ -701,6 +725,7 @@ export async function loadMmdPreviewObject(
       frustumCulled: false,
     });
     throwIfAborted(signal);
+    attachMmdSelectionMaterialCustomizers(mmd, attachMmdSdefSkinning);
 
     if (mmd.root) {
       syncMmdMaterialRenderStates(mmd.root);

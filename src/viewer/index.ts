@@ -131,9 +131,12 @@ export {
 
 export { getCachedBuffer, evictAll, prefetchAdjacent } from "./prefetchCache";
 export {
+  applySelectionMaterialCustomizer,
   isSelectionProxy,
   selectionProxyTarget,
+  setSelectionMaterialCustomizer,
   setSelectionProxyTarget,
+  type SelectionMaterialCustomizer,
 } from "./selectionProxy";
 export {
   explicitObjectSelectionKey,

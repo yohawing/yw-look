@@ -4,6 +4,7 @@ import type { SelectedFile } from "../../../lib/files";
 
 const mocks = vi.hoisted(() => ({
   convertFileSrc: vi.fn((path: string) => `asset://localhost/${path}`),
+  attachMmdSdefSkinning: vi.fn(),
   loadAsync: vi.fn(),
   initCore: vi.fn(),
   syncMmdMaterialStates: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("../../../lib/files", async (importOriginal) => ({
 }));
 
 vi.mock("@yohawing/three-mmd-loader", () => ({
+  attachMmdSdefSkinning: mocks.attachMmdSdefSkinning,
   loadAmmoNamespace: vi.fn(async () => ({})),
   createAmmoMmdPhysicsBackend: vi.fn(() => mocks.physicsBackend),
   initCore: mocks.initCore,
@@ -159,6 +161,7 @@ vi.mock("#yw-look-mmd-loader-entry", () => import("../loaderInstalled"));
 
 import * as threeMmdLoader from "@yohawing/three-mmd-loader";
 import { loadMmdMotion, loadPreviewObject } from "../../../viewer/loaders";
+import { applySelectionMaterialCustomizer } from "../../../viewer";
 import {
   loadMmdMotionPreviewObject,
   loadMmdPreviewObject,
@@ -232,6 +235,7 @@ function createParsedMaterialMorphModel() {
 describe("MMD preview loader", () => {
   beforeEach(() => {
     mocks.convertFileSrc.mockClear();
+    mocks.attachMmdSdefSkinning.mockClear();
     mocks.initCore.mockReset();
     mocks.initCore.mockResolvedValue({
       loadModel: vi.fn(() => ({
@@ -589,6 +593,47 @@ describe("MMD preview loader", () => {
     expect(selectionKeyForObject(morphSplitBody)).toBe(meshKey);
     expect(isInternalMmdProxyObject(morphSplitBody)).toBe(true);
     expect(findObjectBySelectionKey(result.object, meshKey!)).toBe(mesh);
+  });
+
+  it("customizes SDEF and QDEF selection materials without copying source shaders", async () => {
+    const mesh = new Mesh();
+    mesh.geometry.userData.mmdSdef = { vertexCount: 1 };
+    const morphSplitBody = new Mesh();
+    morphSplitBody.geometry.userData.mmdQdef = { vertexCount: 1 };
+    mesh.userData.mmdMorphSplitBodyMeshes = [morphSplitBody];
+    const outline = new Mesh();
+    outline.geometry.userData.mmdSdef = { vertexCount: 1 };
+    const renderOrder = new Mesh();
+    renderOrder.geometry.userData.mmdQdef = { vertexCount: 1 };
+    const regular = new Mesh();
+    mocks.loadAsync.mockResolvedValue({
+      mesh,
+      outlineMeshes: [outline, regular],
+      renderOrderMeshes: [renderOrder],
+      diagnostics: { textures: [] },
+    });
+
+    await loadPreviewObject(pmxFile);
+    const selectionMaterials = [mesh, morphSplitBody, outline, renderOrder].map(
+      (candidate) => {
+        const material = new MeshBasicMaterial();
+        applySelectionMaterialCustomizer(candidate, material);
+        return material;
+      },
+    );
+    applySelectionMaterialCustomizer(regular, new MeshBasicMaterial());
+
+    expect(mocks.attachMmdSdefSkinning).toHaveBeenCalledTimes(4);
+    expect(
+      mocks.attachMmdSdefSkinning.mock.calls.map(([material]) => material),
+    ).toEqual(selectionMaterials);
+    expect(
+      (
+        threeMmdLoader as typeof threeMmdLoader & {
+          attachMmdSdefSkinning: unknown;
+        }
+      ).attachMmdSdefSkinning,
+    ).toBe(mocks.attachMmdSdefSkinning);
   });
 
   it("suppresses PMX local axis attach failures from user warnings", async () => {
