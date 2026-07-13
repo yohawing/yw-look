@@ -10,6 +10,16 @@ const repoRoot = path.resolve(
 
 export const LOADER_PACKS = [
   {
+    id: "vrm-loader-pack",
+    name: "VRM Loader Pack",
+    installDir: "vrm",
+    extensions: ["vrm", "vrma"],
+    checkboxLabel: "VRM Loader Pack (.vrm, .vrma)",
+    manifestPlaceholder: "__YW_VRM_MANIFEST_FILEWRITE__",
+    installFunction: "YwInstallVrmLoaderPack",
+    removeFunction: "YwRemoveVrmLoaderPack",
+  },
+  {
     id: "mmd-loader-pack",
     name: "MMD Loader Pack",
     installDir: "mmd",

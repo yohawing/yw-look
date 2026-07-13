@@ -411,7 +411,7 @@ npm run check:release-updater -- --url https://github.com/yohawing/yw-look/relea
 ## NSIS Loader Pack 実機確認（Windows）
 
 v0.3 では Windows NSIS インストーラーに Optional Loader Pack の選択ページを含める。
-リリース前に loaders overlay 付き bundle を作成し、MMD / Gaussian Splatting の初期
+リリース前に loaders overlay 付き bundle を作成し、VRM / MMD / Gaussian Splatting の初期
 インストール選択が実際に反映されることを確認する。
 
 事前の静的確認:
@@ -450,18 +450,20 @@ Optional Loader Packs ページの表示や ON/OFF 反映は自動では検証�
 
 1. `src-tauri/target/release/bundle/nsis/` に `setup.exe` が生成されること
 2. 対話インストールで Optional Loader Packs ページが表示されること
-3. MMD / Gaussian Splatting の checkbox が表示されること
-4. 両方 ON でインストールした後、次の manifest が存在すること
+3. VRM / MMD / Gaussian Splatting の checkbox が表示されること（この順）
+4. 3 つとも ON でインストールした後、次の manifest が存在すること
 
 ```powershell
+Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\vrm\manifest.json"
 Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\mmd\manifest.json"
 Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\gaussian-splat\manifest.json"
 ```
 
-5. 両方 OFF で再インストールした後、manifest が削除され、各 pack directory に
+5. 3 つとも OFF で再インストールした後、manifest が削除され、各 pack directory に
    `.removed` marker が残ること
 
 ```powershell
+Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\vrm\.removed"
 Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\mmd\.removed"
 Test-Path "$env:APPDATA\com.yohawing.ywlook\optional-loaders\gaussian-splat\.removed"
 ```

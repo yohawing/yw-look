@@ -3,8 +3,10 @@
 !include FileFunc.nsh
 
 Var YwOptionalLoaderPacksPageVisited
+Var YwVrmLoaderPackCheckbox
 Var YwMmdLoaderPackCheckbox
 Var YwGaussianSplatLoaderPackCheckbox
+Var YwInstallVrmLoaderPack
 Var YwInstallMmdLoaderPack
 Var YwInstallGaussianSplatLoaderPack
 
@@ -32,29 +34,41 @@ Function YwOptionalLoaderPacksPage
   ${NSD_CreateLabel} 0 0 100% 20u "Choose optional loader packs to install with yw-look."
   Pop $0
 
-  ${NSD_CreateCheckbox} 0 30u 100% 12u "MMD Loader Pack (.pmx, .pmd, .vmd)"
+  ${NSD_CreateCheckbox} 0 30u 100% 12u "VRM Loader Pack (.vrm, .vrma)"
+  Pop $YwVrmLoaderPackCheckbox
+  IfFileExists "$APPDATA\com.yohawing.ywlook\optional-loaders\vrm\manifest.json" 0 +2
+    ${NSD_Check} $YwVrmLoaderPackCheckbox
+
+  ${NSD_CreateCheckbox} 0 50u 100% 12u "MMD Loader Pack (.pmx, .pmd, .vmd)"
   Pop $YwMmdLoaderPackCheckbox
   IfFileExists "$APPDATA\com.yohawing.ywlook\optional-loaders\mmd\manifest.json" 0 +2
     ${NSD_Check} $YwMmdLoaderPackCheckbox
 
-  ${NSD_CreateCheckbox} 0 50u 100% 12u "Gaussian Splat Loader Pack (.splat, .spz, .ksplat, .sog)"
+  ${NSD_CreateCheckbox} 0 70u 100% 12u "Gaussian Splat Loader Pack (.splat, .spz, .ksplat, .sog)"
   Pop $YwGaussianSplatLoaderPackCheckbox
   IfFileExists "$APPDATA\com.yohawing.ywlook\optional-loaders\gaussian-splat\manifest.json" 0 +2
     ${NSD_Check} $YwGaussianSplatLoaderPackCheckbox
 
-  ${NSD_CreateLabel} 0 74u 100% 28u "Unchecked packs are left out of the initial install. You can still install or remove first-party loader packs later from Settings."
+  ${NSD_CreateLabel} 0 94u 100% 28u "Unchecked packs are left out of the initial install. You can still install or remove first-party loader packs later from Settings."
   Pop $0
 
   nsDialogs::Show
 FunctionEnd
 
 Function YwOptionalLoaderPacksPageLeave
+  ${NSD_GetState} $YwVrmLoaderPackCheckbox $YwInstallVrmLoaderPack
   ${NSD_GetState} $YwMmdLoaderPackCheckbox $YwInstallMmdLoaderPack
   ${NSD_GetState} $YwGaussianSplatLoaderPackCheckbox $YwInstallGaussianSplatLoaderPack
 FunctionEnd
 
 !macro NSIS_HOOK_POSTINSTALL
   ${If} $YwOptionalLoaderPacksPageVisited == "1"
+    ${If} $YwInstallVrmLoaderPack == ${BST_CHECKED}
+      Call YwInstallVrmLoaderPack
+    ${Else}
+      Call YwRemoveVrmLoaderPack
+    ${EndIf}
+
     ${If} $YwInstallMmdLoaderPack == ${BST_CHECKED}
       Call YwInstallMmdLoaderPack
     ${Else}
@@ -72,6 +86,19 @@ FunctionEnd
 !macro NSIS_HOOK_POSTUNINSTALL
   RMDir /r "$APPDATA\com.yohawing.ywlook\optional-loaders"
 !macroend
+
+Function YwInstallVrmLoaderPack
+  CreateDirectory "$APPDATA\com.yohawing.ywlook\optional-loaders\vrm"
+  Delete "$APPDATA\com.yohawing.ywlook\optional-loaders\vrm\.removed"
+
+  FileOpen $0 "$APPDATA\com.yohawing.ywlook\optional-loaders\vrm\loader.js" w
+  FileWrite $0 "export {}; // First-party loader entry is provided by the app bundle.$\r$\n"
+  FileClose $0
+
+  FileOpen $0 "$APPDATA\com.yohawing.ywlook\optional-loaders\vrm\manifest.json" w
+__YW_VRM_MANIFEST_FILEWRITE__
+  FileClose $0
+FunctionEnd
 
 Function YwInstallMmdLoaderPack
   CreateDirectory "$APPDATA\com.yohawing.ywlook\optional-loaders\mmd"
@@ -96,6 +123,14 @@ Function YwInstallGaussianSplatLoaderPack
 
   FileOpen $0 "$APPDATA\com.yohawing.ywlook\optional-loaders\gaussian-splat\manifest.json" w
 __YW_GAUSSIAN_SPLAT_MANIFEST_FILEWRITE__
+  FileClose $0
+FunctionEnd
+
+Function YwRemoveVrmLoaderPack
+  RMDir /r "$APPDATA\com.yohawing.ywlook\optional-loaders\vrm"
+  CreateDirectory "$APPDATA\com.yohawing.ywlook\optional-loaders\vrm"
+  FileOpen $0 "$APPDATA\com.yohawing.ywlook\optional-loaders\vrm\.removed" w
+  FileWrite $0 "removed by installer$\r$\n"
   FileClose $0
 FunctionEnd
 

@@ -11,6 +11,7 @@ use crate::shared::{
 use crate::state::{AppSettings, OptionalLoaderPackSettings};
 
 const INSTALLER_MANAGED_OPTIONAL_LOADER_PACKS: &[(&str, &str)] = &[
+    ("vrm-loader-pack", "vrm"),
     ("mmd-loader-pack", "mmd"),
     ("gaussian-splat-loader-pack", "gaussian-splat"),
 ];
@@ -162,18 +163,26 @@ mod tests {
     #[test]
     fn load_settings_uses_installer_loader_pack_markers_for_initial_defaults() {
         let dir = tempdir().expect("tempdir");
+        let vrm_dir = dir.path().join("optional-loaders").join("vrm");
         let mmd_dir = dir.path().join("optional-loaders").join("mmd");
         let gaussian_dir = dir.path().join("optional-loaders").join("gaussian-splat");
+        fs::create_dir_all(&vrm_dir).expect("create vrm marker dir");
         fs::create_dir_all(&mmd_dir).expect("create mmd marker dir");
         fs::create_dir_all(&gaussian_dir).expect("create gaussian marker dir");
+        fs::write(vrm_dir.join("manifest.json"), "{}").expect("write vrm manifest marker");
         fs::write(mmd_dir.join(".removed"), "removed by installer\n").expect("write marker");
         fs::write(gaussian_dir.join("manifest.json"), "{}").expect("write manifest marker");
 
         let (settings_path, settings) = load_settings_from_path(dir.path()).expect("load settings");
         let json = read_settings_value(&settings_path);
 
+        assert!(settings.optional_loader_packs["vrm-loader-pack"].enabled);
         assert!(!settings.optional_loader_packs["mmd-loader-pack"].enabled);
         assert!(settings.optional_loader_packs["gaussian-splat-loader-pack"].enabled);
+        assert_eq!(
+            json["optionalLoaderPacks"]["vrm-loader-pack"]["enabled"],
+            serde_json::json!(true)
+        );
         assert_eq!(
             json["optionalLoaderPacks"]["mmd-loader-pack"]["enabled"],
             serde_json::json!(false)
