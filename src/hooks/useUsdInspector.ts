@@ -4,7 +4,6 @@ import {
   collectAssetIssues,
   inspectStage,
   inspectUsdLights,
-  isUsdTaskBusyError,
   summarizeStage,
   type AssetIssue,
   type StageInspection,
@@ -13,6 +12,7 @@ import {
   type UsdLightInfo,
 } from "../lib/usd";
 import { errorMessage } from "../lib/errors";
+import { retryWhileBusy } from "../lib/usdBusyRetry";
 
 const USD_INSPECTOR_DEFER_MS = 1_000;
 
@@ -66,31 +66,43 @@ export function useUsdInspector(
     const usdInspectorStartMs = performance.now();
 
     const timer = window.setTimeout(() => {
-      const summarizePromise = summarizeStage(path, usdLoadPolicy, {
-        background: true,
-      })
+      const busyExhaustedMessage =
+        "USD backend stayed busy; inspection is incomplete. Reopen the file to retry.";
+      const summarizePromise = retryWhileBusy(
+        () => summarizeStage(path, usdLoadPolicy, { background: true }),
+        { shouldAbort: () => cancelled },
+      )
         .then((summary) => {
           if (cancelled) return;
+          if (summary === undefined) {
+            setUsdInspectorError(busyExhaustedMessage);
+            return;
+          }
           setUsdSummary(summary);
         })
         .catch((error: unknown) => {
           if (cancelled) return;
-          if (isUsdTaskBusyError(error)) return;
           setUsdInspectorError(
             errorMessage(error, "Failed to summarize USD stage."),
           );
         });
 
-      const inspectPromise = inspectStage(path, usdLoadPolicy, {
-        background: true,
-      })
+      const inspectPromise = retryWhileBusy(
+        () => inspectStage(path, usdLoadPolicy, { background: true }),
+        { shouldAbort: () => cancelled },
+      )
         .then((inspection) => {
           if (cancelled) return;
+          if (inspection === undefined) {
+            setUsdInspectorError(
+              (previous) => previous ?? busyExhaustedMessage,
+            );
+            return;
+          }
           setUsdInspection(inspection);
         })
         .catch((error: unknown) => {
           if (cancelled) return;
-          if (isUsdTaskBusyError(error)) return;
           setUsdInspectorError(
             (previous) =>
               previous ?? errorMessage(error, "Failed to inspect USD stage."),
@@ -99,14 +111,22 @@ export function useUsdInspector(
 
       const issuesPromise =
         usdLoadPolicy === "loadAll"
-          ? collectAssetIssues(path, { background: true })
+          ? retryWhileBusy(
+              () => collectAssetIssues(path, { background: true }),
+              { shouldAbort: () => cancelled },
+            )
               .then((issues) => {
                 if (cancelled) return;
+                if (issues === undefined) {
+                  setUsdInspectorError(
+                    (previous) => previous ?? busyExhaustedMessage,
+                  );
+                  return;
+                }
                 setUsdIssues(issues);
               })
               .catch((error: unknown) => {
                 if (cancelled) return;
-                if (isUsdTaskBusyError(error)) return;
                 setUsdInspectorError(
                   (previous) =>
                     previous ??
@@ -117,15 +137,21 @@ export function useUsdInspector(
 
       const lightsPromise =
         usdLoadPolicy === "loadAll"
-          ? inspectUsdLights(path, { background: true })
+          ? retryWhileBusy(() => inspectUsdLights(path, { background: true }), {
+              shouldAbort: () => cancelled,
+            })
               .then((lights) => {
                 if (cancelled) return;
+                if (lights === undefined) {
+                  setUsdLights(null);
+                  setUsdLightsError(busyExhaustedMessage);
+                  return;
+                }
                 setUsdLights(lights);
                 setUsdLightsError(null);
               })
               .catch((error: unknown) => {
                 if (cancelled) return;
-                if (isUsdTaskBusyError(error)) return;
                 setUsdLights(null);
                 setUsdLightsError(
                   errorMessage(error, "Failed to inspect USD lights."),

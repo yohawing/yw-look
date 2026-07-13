@@ -3,12 +3,12 @@ import { DEFERRED_PAYLOAD_PREVIEW_LIMITS } from "../config/viewerLimits";
 import { deferEffectStateUpdate } from "../lib/deferEffectStateUpdate";
 import { errorMessage } from "../lib/errors";
 import { isUsdFile, type SelectedFile } from "../lib/files";
+import { retryWhileBusy, yieldDeferredPreviewFrame } from "../lib/usdBusyRetry";
 import {
   backendCapabilities,
   closeStageSession,
   extractGeometry,
   extractGeometrySession,
-  isUsdTaskBusyError,
   loadPayload,
   openStageSession,
   unloadPayload,
@@ -47,14 +47,6 @@ function glbMeshCount(buffer: ArrayBuffer): number {
     offset += chunkLength;
   }
   return 0;
-}
-
-function yieldDeferredPreviewFrame(
-  delayMs: number = DEFERRED_PAYLOAD_PREVIEW_LIMITS.yieldMs,
-): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, delayMs);
-  });
 }
 
 function payloadOperationWarning(
@@ -117,36 +109,6 @@ function isDeferredPreviewAborted(
   cancelled: boolean,
 ): boolean {
   return cancelled || isSessionStale(current, captured);
-}
-
-async function retryWhileBusy<T>(
-  task: () => Promise<T>,
-  options: {
-    shouldAbort?: () => boolean;
-    onBusyRetry?: () => void;
-  } = {},
-): Promise<T | undefined> {
-  for (
-    let attempt = 0;
-    attempt <= DEFERRED_PAYLOAD_PREVIEW_LIMITS.maxBusyRetries;
-    attempt += 1
-  ) {
-    try {
-      return await task();
-    } catch (error) {
-      if (!isUsdTaskBusyError(error)) {
-        throw error;
-      }
-      if (options.shouldAbort?.()) {
-        return undefined;
-      }
-      options.onBusyRetry?.();
-      await yieldDeferredPreviewFrame(
-        DEFERRED_PAYLOAD_PREVIEW_LIMITS.busyRetryMs,
-      );
-    }
-  }
-  return undefined;
 }
 
 export function usePayloadSession(
