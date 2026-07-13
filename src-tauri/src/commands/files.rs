@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 use crate::shared::{
-    current_timestamp, dialog_filter_extensions, infer_file_kind, is_supported_extension,
-    load_or_initialize_settings, lock_or_recover, model_extensions, motion_extensions,
-    normalize_file_path, preview_implemented_extensions, read_json_file, repo_root,
-    resolve_app_data_dir, system_time_to_unix_string, texture_extensions, write_json_file,
-    RECENT_FILES_FILE_NAME,
+    current_timestamp, dialog_filter_extensions, infer_file_kind, is_readable_asset_extension,
+    is_supported_extension, load_or_initialize_settings, lock_or_recover, model_extensions,
+    motion_extensions, normalize_file_path, preview_implemented_extensions, read_json_file,
+    repo_root, resolve_app_data_dir, system_time_to_unix_string, texture_extensions,
+    write_json_file, RECENT_FILES_FILE_NAME,
 };
 use crate::state::PendingOpenFiles;
 
@@ -462,14 +462,33 @@ pub(crate) fn list_supported_siblings(path: String) -> Result<DirectoryListingPa
 
 #[tauri::command]
 pub(crate) fn read_binary_file(path: String) -> Result<tauri::ipc::Response, AppError> {
+    Ok(tauri::ipc::Response::new(read_binary_file_impl(path)?))
+}
+
+fn ensure_readable_asset_path(path: &Path) -> Result<(), AppError> {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
+    if !is_readable_asset_extension(extension) {
+        return Err(AppError::Io(format!(
+            "refusing to read unsupported file type: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn read_binary_file_impl(path: String) -> Result<Vec<u8>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
+    ensure_readable_asset_path(&normalized)?;
     let bytes = fs::read(normalized)
         .map_err(|error| AppError::Io(format!("failed to read file bytes: {error}")))?;
     // Return raw bytes via `tauri::ipc::Response` (→ ArrayBuffer on the JS
     // side) instead of a JSON number array. The number-array path balloons
     // memory and stalls on large assets (e.g. 100-260 MB Gaussian splats),
     // which is why big `.splat`/`.ply` files failed to open.
-    Ok(tauri::ipc::Response::new(bytes))
+    Ok(bytes)
 }
 
 #[tauri::command]
@@ -477,14 +496,21 @@ pub(crate) fn read_binary_file_prefix(
     path: String,
     max_bytes: usize,
 ) -> Result<tauri::ipc::Response, AppError> {
+    Ok(tauri::ipc::Response::new(read_binary_file_prefix_impl(
+        path, max_bytes,
+    )?))
+}
+
+fn read_binary_file_prefix_impl(path: String, max_bytes: usize) -> Result<Vec<u8>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
+    ensure_readable_asset_path(&normalized)?;
     let file = fs::File::open(normalized)
         .map_err(|error| AppError::Io(format!("failed to open file bytes: {error}")))?;
     let mut bytes = Vec::with_capacity(max_bytes);
     file.take(max_bytes as u64)
         .read_to_end(&mut bytes)
         .map_err(|error| AppError::Io(format!("failed to read file prefix: {error}")))?;
-    Ok(tauri::ipc::Response::new(bytes))
+    Ok(bytes)
 }
 
 #[tauri::command]
@@ -557,6 +583,42 @@ mod tests {
 
     fn write_entries(dir: &Path, entries: &[RecentFileEntry]) {
         save_recent_file_entries(&recent_files_path(dir), entries).expect("write recent files");
+    }
+
+    #[test]
+    fn raw_binary_reads_allow_supported_and_sidecar_extensions_case_insensitively() {
+        let dir = tempdir().expect("tempdir");
+        for file_name in [
+            "model.glb",
+            "texture.PNG",
+            "buffer.bin",
+            "toon.bmp",
+            "sphere.sph",
+            "sphere.spa",
+            "animation.vrma",
+        ] {
+            let path = create_file(dir.path(), file_name);
+            assert_eq!(
+                read_binary_file_impl(path.display().to_string()).expect("read allowed file"),
+                b"fixture"
+            );
+        }
+    }
+
+    #[test]
+    fn raw_binary_reads_reject_unsupported_and_extensionless_paths() {
+        let dir = tempdir().expect("tempdir");
+        for file_name in ["secrets.txt", "id_rsa"] {
+            let path = create_file(dir.path(), file_name);
+            let path = path.display().to_string();
+
+            let full_error = read_binary_file_impl(path.clone()).expect_err("reject full read");
+            assert!(full_error.to_string().contains("unsupported file type"));
+
+            let prefix_error =
+                read_binary_file_prefix_impl(path, 2).expect_err("reject prefix read");
+            assert!(prefix_error.to_string().contains("unsupported file type"));
+        }
     }
 
     #[test]
