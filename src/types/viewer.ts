@@ -162,6 +162,11 @@ export type MmdAnimationHandle = {
 export type MmdRuntimeModelHandle = {
   root?: Object3D;
   mesh: Object3D;
+  outlineMeshes?: Object3D[];
+  renderOrderMeshes?: Object3D[];
+  syncMaterialMorphs?: (
+    directWeights?: Readonly<Record<number, number>>,
+  ) => void;
   runtime?: {
     reset(time: number): void;
     setAnimation(animation: MmdAnimationHandle, mesh: Object3D): void;

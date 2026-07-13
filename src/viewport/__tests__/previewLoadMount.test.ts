@@ -88,6 +88,7 @@ vi.mock("../../viewer", () => ({
 
 vi.mock("../../viewer/morphTargets", () => ({
   applyMorphTargetValues: viewerMocks.stub,
+  morphTargetValuesForObject: vi.fn(() => ({ 0: 0.5 })),
 }));
 
 vi.mock("../../packs", () => ({
@@ -159,7 +160,9 @@ function createMountOptions(context: SceneContext) {
         backfaceCulling: false,
         cameraSpeedMultiplier: 1,
         displayMode: "textured" as const,
-        morphTargetValues: undefined,
+        morphTargetValues: undefined as
+          | Record<string, Record<number, number>>
+          | undefined,
         selectedPurposeModes: undefined,
         showAxes: false,
         showBoundingBoxes: false,
@@ -398,5 +401,35 @@ describe("mountLoadedPreview", () => {
       object,
       "unlit",
     );
+  });
+
+  it("syncs initial MMD material morph values before publishing the model", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const syncMaterialMorphs = vi.fn();
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    options.getMountState = () => ({
+      ...createMountOptions(context).options.getMountState(),
+      morphTargetValues: { Body: { 0: 0.5 } },
+    });
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: "PMX 2.1",
+        mmdModel: {
+          mesh: object,
+          syncMaterialMorphs,
+        },
+      },
+      options,
+    );
+
+    expect(syncMaterialMorphs).toHaveBeenCalledOnce();
+    expect(context.mmdModel?.syncMaterialMorphs).toBe(syncMaterialMorphs);
   });
 });

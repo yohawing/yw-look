@@ -460,6 +460,7 @@ export async function runShot(
         ik: true,
         physics: false,
       });
+      preview.mmdModel.syncMaterialMorphs?.();
       const sceneContext = {
         mmdModel: preview.mmdModel,
         mmdMotion: {

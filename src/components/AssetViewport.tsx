@@ -35,7 +35,10 @@ import { usePackFileRequest } from "../packs";
 import type { ViewerMode } from "../viewer";
 import { AssetViewportOverlay } from "./AssetViewportOverlay";
 import { emptyAnimationState, type AnimationState } from "./animation";
-import { applyMorphTargetValues } from "./morphTargets";
+import {
+  applyMorphTargetValues,
+  morphTargetValuesForObject,
+} from "./morphTargets";
 
 import type { EnvironmentPreset } from "../types/viewer";
 import {
@@ -324,9 +327,14 @@ export function AssetViewport({
   });
 
   useEffect(() => {
-    const source = sceneContextRef.current?.sourceObject;
+    const context = sceneContextRef.current;
+    const source = context?.sourceObject;
     if (!source) return;
     applyMorphTargetValues(source, morphTargetValues);
+    const mmdModel = context.mmdModel;
+    mmdModel?.syncMaterialMorphs?.(
+      morphTargetValuesForObject(mmdModel.mesh, morphTargetValues),
+    );
   }, [morphTargetValues]);
 
   // #33 reverse direction: tree → viewport highlight.

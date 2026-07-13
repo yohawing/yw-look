@@ -12,7 +12,10 @@ import {
   stepAction,
 } from "../viewer";
 import type { AnimationState, ViewerSurfaceMode } from "../types/viewer";
-import { applyMorphTargetValues } from "../viewer/morphTargets";
+import {
+  applyMorphTargetValues,
+  morphTargetValuesForObject,
+} from "../viewer/morphTargets";
 
 type UseViewportAnimationOptions = {
   animationState: AnimationState;
@@ -61,10 +64,14 @@ export function useViewportAnimation({
           context.mixer?.update(deltaSeconds);
         }
         if (context.sourceObject) {
-          applyMorphTargetValues(
-            context.sourceObject,
-            morphTargetValuesRef.current,
-          );
+          const morphOverrides = morphTargetValuesRef.current;
+          applyMorphTargetValues(context.sourceObject, morphOverrides);
+          if (hasMorphOverrides(morphOverrides)) {
+            const mmdModel = context.mmdModel;
+            mmdModel?.syncMaterialMorphs?.(
+              morphTargetValuesForObject(mmdModel.mesh, morphOverrides),
+            );
+          }
         }
       }
 
@@ -226,4 +233,13 @@ export function useViewportAnimation({
     handleStep,
     handleTogglePlayback,
   };
+}
+
+function hasMorphOverrides(
+  values: Record<string, Record<number, number>> | undefined,
+): boolean {
+  if (!values) return false;
+  return Object.values(values).some(
+    (targetValues) => Object.keys(targetValues).length > 0,
+  );
 }

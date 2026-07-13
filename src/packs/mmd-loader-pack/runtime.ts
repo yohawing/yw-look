@@ -16,7 +16,7 @@ import type {
   ViewerFeedback,
 } from "../../types/viewer";
 import { loadMmdMotion } from "./loader";
-import { syncMmdMaterialRenderStates } from "./userData";
+import { syncMmdMaterialMorphRuntime } from "./materialMorph";
 
 type UseMmdPackFileRequestOptions = {
   currentFileName?: string;
@@ -52,7 +52,7 @@ function retargetMmdMotion(context: SceneContext, seconds: number) {
     ik: true,
     physics: false,
   });
-  syncMmdMaterialRenderStates(model.root ?? model.mesh);
+  syncMmdMaterialMorphRuntime(model);
 }
 
 function setMmdMotionCurrentTime(context: SceneContext, currentTime: number) {
@@ -88,9 +88,7 @@ export function createMmdRuntime(context: SceneContext): PackRuntime {
             ik: true,
             physics: false,
           });
-          syncMmdMaterialRenderStates(
-            context.mmdModel.root ?? context.mmdModel.mesh,
-          );
+          syncMmdMaterialMorphRuntime(context.mmdModel);
         }
         setMmdMotionCurrentTime(context, nextTime);
       },
@@ -177,7 +175,7 @@ export function useMmdPackFileRequest({
           ik: true,
           physics: false,
         });
-        syncMmdMaterialRenderStates(model.root ?? model.mesh);
+        syncMmdMaterialMorphRuntime(model);
 
         const duration = Math.max(motion.duration, 1 / 30);
         context.mmdMotion = {

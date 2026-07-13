@@ -1,1 +1,4 @@
-export { applyMorphTargetValues } from "../viewer/morphTargets";
+export {
+  applyMorphTargetValues,
+  morphTargetValuesForObject,
+} from "../viewer/morphTargets";

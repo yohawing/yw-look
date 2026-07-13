@@ -39,7 +39,10 @@ import {
   DEFAULT_LIGHTING_PRESET,
   type SceneContext,
 } from "../viewer";
-import { applyMorphTargetValues } from "../viewer/morphTargets";
+import {
+  applyMorphTargetValues,
+  morphTargetValuesForObject,
+} from "../viewer/morphTargets";
 import { syncMmdPreviewSpecularDirection } from "../packs";
 import {
   findCameraBySelectionKey,
@@ -261,6 +264,9 @@ export async function mountLoadedPreview(
           : "shaded",
   );
   applyMorphTargetValues(object, state.morphTargetValues);
+  mmdModel?.syncMaterialMorphs?.(
+    morphTargetValuesForObject(mmdModel.mesh, state.morphTargetValues),
+  );
   applyShadows(context.scene, object, keyLight, state.showShadows);
   if (!preserveCameraView) {
     frameMountedObject(

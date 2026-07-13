@@ -27,3 +27,12 @@ export function applyMorphTargetValues(
     }
   });
 }
+
+export function morphTargetValuesForObject(
+  object: Object3D,
+  values?: Record<string, Record<number, number>>,
+): Record<number, number> | undefined {
+  if (!values) return undefined;
+  const selectionKey = resolveObjectSelectionKey(object);
+  return selectionKey ? values[selectionKey] : undefined;
+}

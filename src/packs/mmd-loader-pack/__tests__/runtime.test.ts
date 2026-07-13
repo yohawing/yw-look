@@ -9,6 +9,7 @@ function createSceneContext(): SceneContext {
   return {
     mmdModel: {
       mesh,
+      syncMaterialMorphs: vi.fn(),
       runtime: {
         reset: vi.fn(),
         setAnimation: vi.fn(),
@@ -37,6 +38,7 @@ describe("createMmdRuntime", () => {
       ik: true,
       physics: false,
     });
+    expect(model.syncMaterialMorphs).toHaveBeenCalledOnce();
     expect(runtime.animation?.getSnapshot()).toEqual({
       currentTime: 0.5,
       duration: 2,
@@ -61,5 +63,6 @@ describe("createMmdRuntime", () => {
       currentTime: 1.25 + 1 / 30,
       duration: 2,
     });
+    expect(model.syncMaterialMorphs).toHaveBeenCalledTimes(2);
   });
 });

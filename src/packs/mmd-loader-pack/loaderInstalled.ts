@@ -23,6 +23,12 @@ import type {
 } from "../../types/viewer";
 import { throwIfAborted } from "../abort";
 import { storeMmdAssetMetadata } from "./metadata";
+import {
+  attachMmdMaterialMorphRuntime,
+  createMmdMaterialMorphData,
+  type MmdMaterialMorph,
+  type MmdMaterialState,
+} from "./materialMorph";
 import { MMD_MODEL_KEY, syncMmdMaterialRenderStates } from "./userData";
 import MMD_ANIM_WASM_URL from "virtual:yw-look-mmd-wasm-url";
 
@@ -52,6 +58,13 @@ type ParsedMmdModel = {
   skeleton(): {
     bones: ParsedMmdModelBone[];
   };
+  materials(): Array<
+    Omit<
+      MmdMaterialState,
+      "textureFactor" | "sphereTextureFactor" | "toonTextureFactor"
+    >
+  >;
+  morphs(): MmdMaterialMorph[];
   dispose?(): void;
 };
 
@@ -97,6 +110,14 @@ type ThreeMmdLoaderModule = {
   syncMmdSpecularDirection(
     material: Material | Material[],
     light: DirectionalLight,
+  ): void;
+  syncMmdMaterialStates(
+    material: Material | Material[],
+    states: readonly MmdMaterialState[],
+  ): void;
+  syncMmdOutlineMaterialStates(
+    material: Material | Material[],
+    states: readonly MmdMaterialState[],
   ): void;
 };
 
@@ -562,23 +583,39 @@ function attachParsedLocalAxisToBones(
   return attached;
 }
 
-async function attachPmxLocalAxes(
+async function attachPmxRuntimeMetadata(
   buffer: ArrayBuffer,
   mmd: MmdRuntimeModelHandle,
-) {
+): Promise<string | null> {
   try {
-    const { initCore } = await importThreeMmdLoader();
+    const { initCore, syncMmdMaterialStates, syncMmdOutlineMaterialStates } =
+      await importThreeMmdLoader();
     const core = await initCore({ wasmUrl: MMD_ANIM_WASM_URL });
     let parsedModel: ParsedMmdModel | null = null;
     try {
       parsedModel = core.loadModel(buffer);
       attachParsedLocalAxisToBones(mmd, parsedModel.skeleton().bones);
+      const morphs = parsedModel.morphs();
+      if (morphs.some((morph) => morph.materialOffsets.length > 0)) {
+        try {
+          attachMmdMaterialMorphRuntime(
+            mmd,
+            createMmdMaterialMorphData(parsedModel.materials(), morphs),
+            syncMmdMaterialStates,
+            syncMmdOutlineMaterialStates,
+          );
+        } catch {
+          delete mmd.syncMaterialMorphs;
+          return "PMX material morphs were found, but runtime material synchronization could not be initialized.";
+        }
+      }
     } finally {
       parsedModel?.dispose?.();
     }
   } catch {
-    return;
+    return null;
   }
+  return null;
 }
 
 export async function loadMmdPreviewObject(
@@ -667,9 +704,10 @@ export async function loadMmdPreviewObject(
         syncMmdMaterialRenderStates(proxy);
       }
     }
-    if (file.extension === "pmx") {
-      await attachPmxLocalAxes(buffer, mmd);
-    }
+    const materialMorphWarning =
+      file.extension === "pmx"
+        ? await attachPmxRuntimeMetadata(buffer, mmd)
+        : null;
     throwIfAborted(signal);
 
     reportStage("scene");
@@ -709,6 +747,7 @@ export async function loadMmdPreviewObject(
     }
 
     const warnings = [
+      ...(materialMorphWarning ? [materialMorphWarning] : []),
       ...new Map(
         mmd.diagnostics.textures.map((diagnostic) => {
           const path = formatMmdResourceDisplayPath(diagnostic.path);

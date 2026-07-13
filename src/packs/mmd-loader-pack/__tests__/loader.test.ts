@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Group } from "three";
+import { Group, Mesh, MeshBasicMaterial, MeshToonMaterial } from "three";
 import type { SelectedFile } from "../../../lib/files";
 
 const mocks = vi.hoisted(() => ({
   convertFileSrc: vi.fn((path: string) => `asset://localhost/${path}`),
   loadAsync: vi.fn(),
   initCore: vi.fn(),
+  syncMmdMaterialStates: vi.fn(),
+  syncMmdOutlineMaterialStates: vi.fn(),
   readBinaryFile: vi.fn(),
   revokeObjectURL: vi.fn(),
   physicsBackend: { dispose: vi.fn() },
@@ -25,6 +27,8 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
   loadAmmoNamespace: vi.fn(async () => ({})),
   createAmmoMmdPhysicsBackend: vi.fn(() => mocks.physicsBackend),
   initCore: mocks.initCore,
+  syncMmdMaterialStates: mocks.syncMmdMaterialStates,
+  syncMmdOutlineMaterialStates: mocks.syncMmdOutlineMaterialStates,
   parseVmd: vi.fn(() => ({
     kind: "vmd",
     metadata: { maxFrame: 60, modelName: "Hatsune Miku" },
@@ -189,6 +193,41 @@ const vmdFile: SelectedFile = {
   parentDirectory: "C:\\mmd",
 };
 
+function createParsedMaterialMorphModel() {
+  return {
+    skeleton: () => ({ bones: [] }),
+    materials: () => [
+      {
+        diffuse: [1, 1, 1, 1],
+        specular: [0, 0, 0],
+        specularPower: 1,
+        ambient: [0, 0, 0],
+        edgeColor: [0, 0, 0, 1],
+        edgeSize: 1,
+      },
+    ],
+    morphs: () => [
+      {
+        materialOffsets: [
+          {
+            materialIndex: -1,
+            operation: "add",
+            diffuse: [0, 0, 0, -1],
+            specular: [0, 0, 0],
+            specularPower: 0,
+            ambient: [0, 0, 0],
+            edgeColor: [0, 0, 0, -0.5],
+            edgeSize: -0.5,
+            textureFactor: [0, 0, 0, 0],
+            sphereTextureFactor: [0, 0, 0, 0],
+            toonTextureFactor: [0, 0, 0, 0],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 describe("MMD preview loader", () => {
   beforeEach(() => {
     mocks.convertFileSrc.mockClear();
@@ -196,8 +235,12 @@ describe("MMD preview loader", () => {
     mocks.initCore.mockResolvedValue({
       loadModel: vi.fn(() => ({
         skeleton: () => ({ bones: [] }),
+        materials: () => [],
+        morphs: () => [],
       })),
     });
+    mocks.syncMmdMaterialStates.mockReset();
+    mocks.syncMmdOutlineMaterialStates.mockReset();
     mocks.loadAsync.mockReset();
     mocks.readBinaryFile.mockReset();
     mocks.revokeObjectURL.mockReset();
@@ -415,6 +458,92 @@ describe("MMD preview loader", () => {
     expect(warnings).toEqual(result.warnings);
     expect(stages).toEqual(["scan", "decode", "scene"]);
     expect(mocks.physicsBackend.dispose).not.toHaveBeenCalled();
+  });
+
+  it("attaches parsed PMX material morphs to runtime mesh weights", async () => {
+    const material = new MeshToonMaterial();
+    const mesh = new Mesh(undefined, material);
+    mesh.morphTargetInfluences = [0.5];
+    const outlineMaterial = new MeshBasicMaterial();
+    const outline = new Mesh(undefined, outlineMaterial);
+    mocks.initCore.mockResolvedValue({
+      loadModel: vi.fn(() => ({
+        skeleton: () => ({ bones: [] }),
+        materials: () => [
+          {
+            diffuse: [1, 1, 1, 1],
+            specular: [0, 0, 0],
+            specularPower: 1,
+            ambient: [0, 0, 0],
+            edgeColor: [0, 0, 0, 1],
+            edgeSize: 1,
+          },
+        ],
+        morphs: () => [
+          {
+            materialOffsets: [
+              {
+                materialIndex: -1,
+                operation: "add",
+                diffuse: [0, 0, 0, -1],
+                specular: [0, 0, 0],
+                specularPower: 0,
+                ambient: [0, 0, 0],
+                edgeColor: [0, 0, 0, -0.5],
+                edgeSize: -0.5,
+                textureFactor: [0, 0, 0, 0],
+                sphereTextureFactor: [0, 0, 0, 0],
+                toonTextureFactor: [0, 0, 0, 0],
+              },
+            ],
+          },
+        ],
+      })),
+    });
+    mocks.loadAsync.mockResolvedValue({
+      mesh,
+      outlineMeshes: [outline],
+      renderOrderMeshes: [],
+      diagnostics: { textures: [] },
+    });
+
+    const result = await loadPreviewObject(pmxFile);
+
+    expect(result.mmdModel?.syncMaterialMorphs).toBeTypeOf("function");
+    expect(mocks.syncMmdMaterialStates).toHaveBeenCalledWith(
+      material,
+      expect.arrayContaining([
+        expect.objectContaining({ diffuse: [1, 1, 1, 0.5], edgeSize: 0.75 }),
+      ]),
+    );
+    expect(mocks.syncMmdOutlineMaterialStates).toHaveBeenCalledWith(
+      outlineMaterial,
+      expect.any(Array),
+    );
+  });
+
+  it("reports a warning when parsed material morph sync cannot initialize", async () => {
+    const mesh = new Mesh(undefined, new MeshToonMaterial());
+    mesh.morphTargetInfluences = [0.5];
+    mocks.initCore.mockResolvedValue({
+      loadModel: vi.fn(createParsedMaterialMorphModel),
+    });
+    mocks.syncMmdMaterialStates.mockImplementationOnce(() => {
+      throw new Error("material sync failed");
+    });
+    mocks.loadAsync.mockResolvedValue({
+      mesh,
+      outlineMeshes: [],
+      renderOrderMeshes: [],
+      diagnostics: { textures: [] },
+    });
+
+    const result = await loadPreviewObject(pmxFile);
+
+    expect(result.warnings).toContain(
+      "PMX material morphs were found, but runtime material synchronization could not be initialized.",
+    );
+    expect(result.mmdModel?.syncMaterialMorphs).toBeUndefined();
   });
 
   it("labels PMD previews by the opened source format", async () => {
