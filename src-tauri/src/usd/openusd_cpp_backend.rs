@@ -19,7 +19,7 @@
 //! Rust fork, default) and `OpenusdCppBackend` (this file) via the
 //! `DefaultBackend` type alias in `super::mod`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path as StdPath;
 use std::time::Instant;
 
@@ -979,11 +979,16 @@ fn extract_from_stage_with_options(
     // frontend's purposeModes default (render=true, proxy=false,
     // guide=false) hides them by default, so any over-inclusion is not
     // user-visible at startup.
-    let all_prims_a = stage.traverse_instance_proxies().map_err(map_c_error)?;
-    let mut mesh_paths: Vec<String> = all_prims_a
-        .into_iter()
-        .filter(|p| stage.prim_is_renderable_mesh(p))
-        .collect();
+    let all_instance_proxy_prims = stage.traverse_instance_proxies().map_err(map_c_error)?;
+    let direct_children_by_parent = index_direct_children(&all_instance_proxy_prims);
+    let mut mesh_paths = Vec::new();
+    let mut mesh_path_set = HashSet::new();
+    for prim_path in &all_instance_proxy_prims {
+        if stage.prim_is_renderable_mesh(prim_path) {
+            mesh_path_set.insert(prim_path.clone());
+            mesh_paths.push(prim_path.clone());
+        }
+    }
 
     // Collect proxy/guide meshes not covered by prim_is_renderable_mesh.
     // NOTE (known limitation, #32): `prim_attr_token` reads the authored
@@ -994,21 +999,18 @@ fn extract_from_stage_with_options(
     // repeated here, so a proxy/guide mesh under an invisible imageable
     // will still be extracted. Both gaps require C-shim or USD API changes
     // to fix properly and are deferred.
-    let all_prims_b = stage.traverse_instance_proxies().map_err(map_c_error)?;
-    let extra_paths: Vec<String> = all_prims_b
-        .into_iter()
-        .filter(|p| {
-            if mesh_paths.contains(p) {
-                return false; // already present
-            }
-            if !stage.prim_type_is_mesh(p) {
-                return false;
-            }
-            let purpose = stage.prim_attr_token(p, "purpose").unwrap_or_default();
-            purpose == "proxy" || purpose == "guide"
-        })
-        .collect();
-    mesh_paths.extend(extra_paths);
+    for prim_path in &all_instance_proxy_prims {
+        if mesh_path_set.contains(prim_path.as_str()) || !stage.prim_type_is_mesh(prim_path) {
+            continue;
+        }
+        let purpose = stage
+            .prim_attr_token(prim_path, "purpose")
+            .unwrap_or_default();
+        if purpose == "proxy" || purpose == "guide" {
+            mesh_path_set.insert(prim_path.clone());
+            mesh_paths.push(prim_path.clone());
+        }
+    }
 
     // Drop "leaked" root prims from referenced / payloaded layers
     // when the stage authors a defaultPrim. Matches the Rust
@@ -1265,7 +1267,10 @@ fn extract_from_stage_with_options(
         // drives every piece).
         let record_start = inputs.len();
 
-        let subsets = collect_material_bind_subsets(stage, prim_path)?;
+        let direct_children = direct_children_by_parent
+            .get(prim_path.as_str())
+            .map_or(&[][..], Vec::as_slice);
+        let subsets = collect_material_bind_subsets(stage, direct_children)?;
         let display_opacity_cpp = read_display_opacity_cpp(&stage, prim_path);
         let display_opacity_values: Option<&[f32]> = display_opacity_cpp
             .as_ref()
@@ -2188,6 +2193,23 @@ struct GeomSubsetBinding {
     face_indices: Vec<u32>,
 }
 
+/// Build a stable, borrowed index of direct prim children from one stage
+/// traversal. Root prims are intentionally omitted because the pseudo-root is
+/// not a real prim path; their descendants are still indexed under the root
+/// prim path as usual.
+fn index_direct_children(prim_paths: &[String]) -> HashMap<&str, Vec<&str>> {
+    let mut children_by_parent: HashMap<&str, Vec<&str>> = HashMap::new();
+    for path in prim_paths {
+        if let Some(parent) = parent_prim_path(path) {
+            children_by_parent
+                .entry(parent)
+                .or_default()
+                .push(path.as_str());
+        }
+    }
+    children_by_parent
+}
+
 /// Enumerate GeomSubset children of a mesh whose `familyName` is
 /// `materialBind` (the UsdShadeMaterialBindingAPI convention).
 /// Subsets without the right family, with `elementType != "face"`, or
@@ -2196,30 +2218,16 @@ struct GeomSubsetBinding {
 /// etc.) and are out of scope for materialBind splitting.
 fn collect_material_bind_subsets(
     stage: &CStage,
-    mesh_path: &str,
+    direct_children: &[&str],
 ) -> Result<Vec<GeomSubsetBinding>, UsdError> {
-    // Traverse returns every prim; filter to direct children of the
-    // mesh by path prefix. A GeomSubset always lives as a direct
-    // child of its parent mesh (UsdGeomSubset schema).
-    let prefix = format!("{mesh_path}/");
     let mut out = Vec::new();
-    for p in stage.traverse().map_err(map_c_error)? {
-        if !p.starts_with(&prefix) {
-            continue;
-        }
-        // Require exactly one additional path segment so deeper
-        // descendants (e.g. shader children of a Material nested in
-        // the mesh hierarchy, unusual but possible) don't leak in.
-        let tail = &p[prefix.len()..];
-        if tail.contains('/') {
-            continue;
-        }
-        if stage.prim_type_name(&p).as_deref() != Some("GeomSubset") {
+    for &p in direct_children {
+        if stage.prim_type_name(p).as_deref() != Some("GeomSubset") {
             continue;
         }
         // materialBind family. When unauthored, UsdGeomSubset defaults
         // to an empty family token which we treat as non-materialBind.
-        let family = stage.prim_attr_token(&p, "familyName").unwrap_or_default();
+        let family = stage.prim_attr_token(p, "familyName").unwrap_or_default();
         if family != "materialBind" {
             continue;
         }
@@ -2227,12 +2235,12 @@ fn collect_material_bind_subsets(
         // but accept the unauthored case since the default is what
         // we want anyway.
         let element = stage
-            .prim_attr_token(&p, "elementType")
+            .prim_attr_token(p, "elementType")
             .unwrap_or_else(|| "face".to_string());
         if element != "face" {
             continue;
         }
-        let face_indices_i32 = stage.prim_attr_i32_array(&p, "indices");
+        let face_indices_i32 = stage.prim_attr_i32_array(p, "indices");
         if face_indices_i32.is_empty() {
             continue;
         }
@@ -2244,7 +2252,7 @@ fn collect_material_bind_subsets(
             continue;
         }
         out.push(GeomSubsetBinding {
-            path: p,
+            path: p.to_string(),
             face_indices,
         });
     }
@@ -2987,5 +2995,47 @@ mod tests {
         assert!(!is_root_prim_path("/"));
         assert!(!is_root_prim_path(""));
         assert!(!is_root_prim_path("NoLeadingSlash"));
+    }
+
+    #[test]
+    fn direct_child_index_skips_pseudo_root_and_excludes_nested_descendants() {
+        let paths = vec![
+            "/World".to_string(),
+            "/World/Mesh".to_string(),
+            "/World/Mesh/Subset".to_string(),
+            "/World/Mesh/Subset/Shader".to_string(),
+        ];
+
+        let index = index_direct_children(&paths);
+
+        assert!(!index.contains_key("/"));
+        assert_eq!(index.get("/World"), Some(&vec!["/World/Mesh"]));
+        assert_eq!(index.get("/World/Mesh"), Some(&vec!["/World/Mesh/Subset"]));
+        assert_eq!(
+            index.get("/World/Mesh/Subset"),
+            Some(&vec!["/World/Mesh/Subset/Shader"])
+        );
+    }
+
+    #[test]
+    fn direct_child_index_preserves_instance_proxy_traversal_order() {
+        let paths = vec![
+            "/Root".to_string(),
+            "/Root/Mesh".to_string(),
+            "/Root/Mesh/SubsetB".to_string(),
+            "/Root/Mesh/SubsetA".to_string(),
+            "/Root/Mesh/SubsetC".to_string(),
+        ];
+
+        let index = index_direct_children(&paths);
+
+        assert_eq!(
+            index.get("/Root/Mesh"),
+            Some(&vec![
+                "/Root/Mesh/SubsetB",
+                "/Root/Mesh/SubsetA",
+                "/Root/Mesh/SubsetC"
+            ])
+        );
     }
 }
