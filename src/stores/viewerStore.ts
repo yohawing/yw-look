@@ -161,10 +161,10 @@ export const useViewerStore = create<ViewerState>((set) => ({
   textureGamma: 2.2,
   texturePreview3D: false,
   resourceDiagnostics: null,
-  // Phase 4: deferred-payload toggle. Default to `noPayloads` so large
-  // payload-heavy stages can open quickly; individual payload prims can
-  // then be loaded from the hierarchy tree.
-  usdLoadPolicy: "noPayloads",
+  // Model inspection should display complete geometry by default. Deferred
+  // loading remains opt-in and upgrades its lightweight stage to a full
+  // payload preview asynchronously.
+  usdLoadPolicy: "loadAll",
   selectedMeshName: null,
   morphTargetValues: {},
   selectedUsdPrimPath: null,

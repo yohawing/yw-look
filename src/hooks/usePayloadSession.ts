@@ -84,6 +84,12 @@ function appendViewerWarning(
 type PayloadOperation = "load" | "unload";
 type AbortCheck = () => boolean;
 
+type SessionRefreshInputs = {
+  handle: StageSessionHandle;
+  purposeModes: PurposeModes;
+  variantSelections: VariantSelection[];
+};
+
 function buildPayloadExtractOptions(
   policy: StageLoadPolicy,
   variantSelections: VariantSelection[],
@@ -142,6 +148,7 @@ export function usePayloadSession(
   );
   const payloadSessionSupportedRef = useRef<boolean | null>(null);
   const deferredPreviewSessionRef = useRef<StageSessionHandle | null>(null);
+  const sessionRefreshInputsRef = useRef<SessionRefreshInputs | null>(null);
   const sessionLoadedPayloadPathsRef = useRef<Set<string>>(new Set());
   const viewerWarningRef = useRef<string | null>(viewerWarning);
   useEffect(() => {
@@ -273,6 +280,16 @@ export function usePayloadSession(
     [buildExtractOptions],
   );
 
+  const deferredPreviewPayloadsJson = JSON.stringify(
+    Array.from(
+      new Set(
+        (usdInspection?.payloads ?? [])
+          .filter((arc) => arc.state === "unloaded")
+          .map((arc) => arc.sourcePrim),
+      ),
+    ),
+  );
+
   const reportPayloadOperationFailure = useCallback(
     (operation: PayloadOperation, primPath: string, error: unknown) => {
       const warning = appendViewerWarning(
@@ -344,23 +361,47 @@ export function usePayloadSession(
 
   useEffect(() => {
     if (stageSessionHandle === null) {
+      sessionRefreshInputsRef.current = null;
       return deferEffectStateUpdate(() => {
         setSessionGlbBuffer(null);
       });
+    }
+
+    const previousInputs = sessionRefreshInputsRef.current;
+    sessionRefreshInputsRef.current = {
+      handle: stageSessionHandle,
+      purposeModes,
+      variantSelections,
+    };
+    const sessionOptionsChanged =
+      previousInputs !== null &&
+      previousInputs.handle === stageSessionHandle &&
+      (previousInputs.purposeModes !== purposeModes ||
+        previousInputs.variantSelections !== variantSelections);
+    if (!sessionOptionsChanged) {
+      return;
     }
     if (sessionGlbBufferRef.current === null) {
       return;
     }
     let cancelled = false;
-    void refreshSessionGeometry(
-      stageSessionHandle,
-      "on variant change",
-      () => cancelled,
-    );
+    queueMicrotask(() => {
+      if (cancelled) return;
+      void refreshSessionGeometry(
+        stageSessionHandle,
+        "on variant change",
+        () => cancelled,
+      );
+    });
     return () => {
       cancelled = true;
     };
-  }, [refreshSessionGeometry, stageSessionHandle]);
+  }, [
+    purposeModes,
+    refreshSessionGeometry,
+    stageSessionHandle,
+    variantSelections,
+  ]);
 
   const runPayloadMutation = useCallback(
     async (operation: PayloadOperation, primPath: string) => {
@@ -423,21 +464,22 @@ export function usePayloadSession(
     ) {
       return;
     }
-    if (!usdInspection) return;
+    const previewPayloads = JSON.parse(deferredPreviewPayloadsJson) as string[];
+    if (previewPayloads.length === 0) return;
+
+    // Reserve before yielding or invoking the backend. Inspection refreshes
+    // and viewport feedback updates must not enqueue duplicate full previews.
+    deferredPreviewSessionRef.current = captured;
 
     let cancelled = false;
+    const releaseDeferredPreviewReservation = () => {
+      if (deferredPreviewSessionRef.current === captured) {
+        deferredPreviewSessionRef.current = null;
+      }
+    };
 
     const loadDeferredPreview = async () => {
       try {
-        const previewPayloads = Array.from(
-          new Set(
-            usdInspection.payloads
-              .filter((arc) => arc.state === "unloaded")
-              .map((arc) => arc.sourcePrim),
-          ),
-        );
-        if (previewPayloads.length === 0) return;
-
         setDeferredPayloadProgress({
           kind: "payload",
           total: previewPayloads.length,
@@ -483,6 +525,7 @@ export function usePayloadSession(
           },
         );
         if (glbBuffer === undefined) {
+          releaseDeferredPreviewReservation();
           if (
             !isDeferredPreviewAborted(
               stageSessionHandleRef.current,
@@ -504,7 +547,6 @@ export function usePayloadSession(
           return;
         }
         setSessionGlbBuffer(glbBuffer);
-        deferredPreviewSessionRef.current = captured;
         setDeferredPayloadProgress(null);
         if (import.meta.env.DEV) {
           const meshCount = glbMeshCount(glbBuffer);
@@ -523,6 +565,7 @@ export function usePayloadSession(
           return;
         }
         console.warn("[usd] deferred preview payload load failed:", err);
+        releaseDeferredPreviewReservation();
         setDeferredPayloadProgress(null);
       }
     };
@@ -530,12 +573,13 @@ export function usePayloadSession(
     void loadDeferredPreview();
     return () => {
       cancelled = true;
+      releaseDeferredPreviewReservation();
       setDeferredPayloadProgress(null);
     };
   }, [
     currentFile,
     stageSessionHandle,
-    usdInspection,
+    deferredPreviewPayloadsJson,
     usdLoadPolicy,
     previewReadyForDeferredPayloads,
     buildExtractOptions,

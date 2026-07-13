@@ -101,24 +101,43 @@ function buffer(byteLength: number) {
   return new ArrayBuffer(byteLength);
 }
 
-function renderPayloadSession() {
+type PayloadSessionProps = {
+  inspection: StageInspection;
+  purposeModes: PurposeModes;
+  variantSelections: VariantSelection[];
+};
+
+function renderPayloadSession(
+  initialProps: PayloadSessionProps = {
+    inspection,
+    purposeModes,
+    variantSelections,
+  },
+) {
   const recordVariantSelectionError = vi.fn(() => false);
   const updateViewerFeedback = vi.fn();
-  const result = renderHook(() =>
-    usePayloadSession(
-      file,
-      true,
-      "noPayloads",
-      inspection,
-      variantSelections,
-      purposeModes,
-      recordVariantSelectionError,
-      null,
-      updateViewerFeedback,
-      true,
-    ),
+  const result = renderHook(
+    ({ inspection, purposeModes, variantSelections }: PayloadSessionProps) =>
+      usePayloadSession(
+        file,
+        true,
+        "noPayloads",
+        inspection,
+        variantSelections,
+        purposeModes,
+        recordVariantSelectionError,
+        null,
+        updateViewerFeedback,
+        true,
+      ),
+    { initialProps },
   );
-  return { ...result, recordVariantSelectionError, updateViewerFeedback };
+  return {
+    ...result,
+    initialProps,
+    recordVariantSelectionError,
+    updateViewerFeedback,
+  };
 }
 
 describe("usePayloadSession", () => {
@@ -202,6 +221,76 @@ describe("usePayloadSession", () => {
     });
     expect(extractGeometry).toHaveBeenCalledTimes(2);
     expect(result.current.deferredPayloadProgress).toBeNull();
+
+    unmount();
+  });
+
+  it("does not enqueue the same deferred preview when inspection refreshes", async () => {
+    const fullPreviewBuffer = buffer(256);
+    let resolvePreview: ((value: ArrayBuffer) => void) | undefined;
+    vi.mocked(extractGeometry).mockImplementation(
+      () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          resolvePreview = resolve;
+        }),
+    );
+
+    const { initialProps, rerender, result, unmount } = renderPayloadSession();
+
+    await waitFor(() => {
+      expect(extractGeometry).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({
+      ...initialProps,
+      inspection: {
+        ...inspection,
+        payloads: inspection.payloads.map((payload) => ({ ...payload })),
+      },
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(extractGeometry).toHaveBeenCalledTimes(1);
+
+    resolvePreview?.(fullPreviewBuffer);
+    await waitFor(() => {
+      expect(result.current.sessionGlbBuffer).toBe(fullPreviewBuffer);
+    });
+
+    unmount();
+  });
+
+  it("restarts a cancelled deferred preview with changed extraction options", async () => {
+    const pendingPreviews: Array<(value: ArrayBuffer) => void> = [];
+    vi.mocked(extractGeometry).mockImplementation(
+      () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          pendingPreviews.push(resolve);
+        }),
+    );
+
+    const { initialProps, rerender, result, unmount } = renderPayloadSession();
+
+    await waitFor(() => {
+      expect(extractGeometry).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({
+      ...initialProps,
+      purposeModes: { ...purposeModes, proxy: true },
+    });
+    await waitFor(() => {
+      expect(extractGeometry).toHaveBeenCalledTimes(2);
+    });
+
+    const cancelledPreview = buffer(128);
+    const currentPreview = buffer(256);
+    pendingPreviews[0]?.(cancelledPreview);
+    pendingPreviews[1]?.(currentPreview);
+
+    await waitFor(() => {
+      expect(result.current.sessionGlbBuffer).toBe(currentPreview);
+    });
+    expect(result.current.sessionGlbBuffer).not.toBe(cancelledPreview);
 
     unmount();
   });

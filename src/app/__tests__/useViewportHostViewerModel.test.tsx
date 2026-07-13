@@ -27,6 +27,7 @@ describe("useViewportHostViewerModel", () => {
 
     expect(result.current.showGrid).toBe(true);
     expect(result.current.viewerSurfaceMode).toBe("asset");
+    expect(result.current.usdLoadPolicy).toBe("loadAll");
     expect(result.current.actions).toBeDefined();
   });
 
