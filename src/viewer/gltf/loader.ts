@@ -232,8 +232,13 @@ async function materializeGltf(file: SelectedFile) {
     return objectUrl;
   };
 
-  const bufferResults = await mapWithConcurrency(
-    bufferUris,
+  const bufferUriSet = new Set(bufferUris);
+  const resourceUris = [
+    ...bufferUris,
+    ...imageUris.filter((uri) => !bufferUriSet.has(uri)),
+  ];
+  const resourceResults = await mapWithConcurrency(
+    resourceUris,
     GLTF_RESOURCE_PREFETCH_CONCURRENCY,
     async (uri) => {
       try {
@@ -243,31 +248,14 @@ async function materializeGltf(file: SelectedFile) {
       }
     },
   );
-  for (const { uri, objectUrl } of bufferResults) {
+  for (const { uri, objectUrl } of resourceResults) {
     if (objectUrl === null) {
-      missingPaths.push(uri);
-      continue;
-    }
-    cleanupUrls.push(objectUrl);
-    urlMap.set(uri, objectUrl);
-  }
-
-  const pendingImageUris = imageUris.filter((uri) => !urlMap.has(uri));
-  const imageResults = await mapWithConcurrency(
-    pendingImageUris,
-    GLTF_RESOURCE_PREFETCH_CONCURRENCY,
-    async (uri) => {
-      try {
-        return { uri, objectUrl: await createMappedBlobUrl(uri) };
-      } catch {
-        return { uri, objectUrl: null };
+      if (bufferUriSet.has(uri)) {
+        missingPaths.push(uri);
+      } else {
+        unresolvedImages.push(uri);
+        urlMap.set(uri, FALLBACK_TEXTURE_DATA_URL);
       }
-    },
-  );
-  for (const { uri, objectUrl } of imageResults) {
-    if (objectUrl === null) {
-      unresolvedImages.push(uri);
-      urlMap.set(uri, FALLBACK_TEXTURE_DATA_URL);
       continue;
     }
     cleanupUrls.push(objectUrl);

@@ -69,6 +69,14 @@ function encoded(text: string) {
   return new TextEncoder().encode(text).buffer;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function defaultGltfDocument() {
   return JSON.stringify({
     asset: { version: "2.0" },
@@ -375,6 +383,95 @@ describe("loadGltfPreviewObject", () => {
     expect(result.object).toBe(scene);
     expect(result.cleanupUrls).toEqual(["blob:0", "blob:1"]);
     expect(result.warnings).toEqual([]);
+  });
+
+  it("starts image reads before a pending external buffer read completes", async () => {
+    const bufferRead = deferred<ArrayBuffer>();
+    const startedPaths: string[] = [];
+    mocks.parseModelInWorker.mockResolvedValue(new Group());
+    mocks.readBinaryFile.mockImplementation((path: string) => {
+      startedPaths.push(path);
+      if (path.endsWith(".gltf")) {
+        return Promise.resolve(
+          encoded(
+            JSON.stringify({
+              asset: { version: "2.0" },
+              buffers: [{ uri: "Geometry.bin" }],
+              images: [{ uri: "A.png" }, { uri: "B.png" }, { uri: "C.png" }],
+            }),
+          ),
+        );
+      }
+      if (path.endsWith("Geometry.bin")) return bufferRead.promise;
+      return Promise.resolve(new Uint8Array([1, 2, 3]).buffer);
+    });
+
+    const loading = loadGltfPreviewObject(gltfFile, {});
+    await vi.waitFor(() => {
+      expect(startedPaths).toEqual(
+        expect.arrayContaining([
+          "C:\\assets\\Geometry.bin",
+          "C:\\assets\\A.png",
+          "C:\\assets\\B.png",
+          "C:\\assets\\C.png",
+        ]),
+      );
+    });
+    expect(mocks.parseModelInWorker).not.toHaveBeenCalled();
+
+    bufferRead.resolve(new Uint8Array([4, 5, 6]).buffer);
+    await loading;
+    expect(mocks.parseModelInWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads and materializes a URI used by both buffer and image once", async () => {
+    mocks.parseModelInWorker.mockResolvedValue(new Group());
+    mocks.readBinaryFile.mockImplementation(async (path: string) => {
+      if (path.endsWith(".gltf")) {
+        return encoded(
+          JSON.stringify({
+            asset: { version: "2.0" },
+            buffers: [{ uri: "Shared.bin" }],
+            images: [{ uri: "Shared.bin" }],
+          }),
+        );
+      }
+      return new Uint8Array([1, 2, 3]).buffer;
+    });
+
+    const result = await loadGltfPreviewObject(gltfFile, {});
+    const sharedReads = mocks.readBinaryFile.mock.calls.filter(
+      ([path]) => path === "C:\\assets\\Shared.bin",
+    );
+    const workerPayload = mocks.parseModelInWorker.mock.calls[0][1] as {
+      resourceUrls: Record<string, string>;
+    };
+
+    expect(sharedReads).toHaveLength(1);
+    expect(workerPayload.resourceUrls).toEqual({ "Shared.bin": "blob:0" });
+    expect(result.cleanupUrls).toEqual(["blob:0"]);
+  });
+
+  it("treats a missing URI shared by buffer and image as a fatal buffer", async () => {
+    mocks.readBinaryFile.mockImplementation(async (path: string) => {
+      if (path.endsWith(".gltf")) {
+        return encoded(
+          JSON.stringify({
+            asset: { version: "2.0" },
+            buffers: [{ uri: "Missing.bin" }],
+            images: [{ uri: "Missing.bin" }],
+          }),
+        );
+      }
+      throw new Error(`missing file: ${path}`);
+    });
+
+    await expect(loadGltfPreviewObject(gltfFile, {})).rejects.toMatchObject({
+      missingPaths: ["Missing.bin"],
+      unresolvedImages: [],
+    });
+    expect(mocks.parseModelInWorker).not.toHaveBeenCalled();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
   it("strips worker glTF texture references and defers texture assignment", async () => {
