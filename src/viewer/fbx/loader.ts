@@ -21,7 +21,13 @@ import { isAbortOrTimeoutError, parseModelInWorker } from "../modelParseWorker";
 import { formatMissingTextureWarnings } from "../textureWarnings";
 import type { DeferredTextureSnapshot, LoadedPreview } from "../types";
 
-const WORKER_FALLBACK_SIZE_LIMIT = 50 * 1024 * 1024;
+/**
+ * Files at or above this size transfer ArrayBuffer ownership to the model
+ * parse worker and never fall back to the main-thread FBX parser.
+ * Kept at the established no-fallback boundary until every production FBX
+ * material shape is verified through the static worker reconstruction path.
+ */
+const WORKER_TRANSFER_SIZE_LIMIT = 50 * 1024 * 1024;
 
 async function readArrayBuffer(path: string) {
   return readBinaryFile(path);
@@ -986,9 +992,33 @@ async function createFbxLoadingManager(
     }
   }
 
-  manager.addHandler(/\.dds$/i, new LocalDdsLoader());
-  manager.addHandler(/\.tga$/i, new LocalTgaLoader());
-  manager.addHandler(/\.(?:png|jpe?g|webp|bmp|gif)$/i, new LocalImageLoader());
+  const ddsLoader = new LocalDdsLoader();
+  const tgaLoader = new LocalTgaLoader();
+  const imageLoader = new LocalImageLoader();
+  manager.addHandler(/\.dds$/i, ddsLoader);
+  manager.addHandler(/\.tga$/i, tgaLoader);
+  manager.addHandler(/\.(?:png|jpe?g|webp|bmp|gif)$/i, imageLoader);
+
+  /**
+   * Start deferred external texture loading for a relative FBX source reference
+   * using the same extension handlers as live FBX parse. Does not block; file
+   * reads are queued by the existing Local* loaders.
+   */
+  const loadDeferredTexture = (reference: string): Texture => {
+    const stripped = stripUrlSuffix(reference);
+    const handler =
+      manager.getHandler(stripped) ??
+      manager.getHandler(`placeholder.${stripped.split(".").pop() ?? "bin"}`);
+    // Local* loaders override load() to return Texture immediately (async fill).
+    if (handler && typeof (handler as { load?: unknown }).load === "function") {
+      return (handler as unknown as { load: (url: string) => Texture }).load(
+        stripped,
+      );
+    }
+    // Unknown extension: still attempt image path so hydration is best-effort.
+    return imageLoader.load(stripped);
+  };
+
   const cleanup = () => {
     cancelled = true;
     deferredTextureQueue.length = 0;
@@ -1004,7 +1034,94 @@ async function createFbxLoadingManager(
       }
     }
   };
-  return { manager, cleanupUrls: [], cleanupCallbacks: [cleanup] };
+  return {
+    manager,
+    cleanupUrls: [] as string[],
+    cleanupCallbacks: [cleanup],
+    loadDeferredTexture,
+  };
+}
+
+/**
+ * Replace worker static-scene texture placeholders (`userData.fbxSourceName`)
+ * with main-thread deferred textures from `createFbxLoadingManager`.
+ * Preserves sampler/transform properties from the placeholder and does not
+ * re-parse the FBX or await texture file I/O.
+ */
+export function hydrateFbxDeferredTexturePlaceholders(
+  object: Object3D,
+  loadDeferredTexture: (reference: string) => Texture,
+) {
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    const materials = Array.isArray(child.material)
+      ? child.material
+      : [child.material];
+
+    for (const material of materials) {
+      if (!material) {
+        continue;
+      }
+      const materialRecord = material as unknown as Record<string, unknown>;
+      let materialDirty = false;
+
+      for (const [key, value] of Object.entries(materialRecord)) {
+        if (!value || typeof value !== "object") {
+          continue;
+        }
+        const placeholder = value as Texture;
+        if (!placeholder.isTexture) {
+          continue;
+        }
+        const sourceName = placeholder.userData?.fbxSourceName;
+        if (typeof sourceName !== "string" || sourceName.length === 0) {
+          continue;
+        }
+        // Already has pixel data (ImageData path) — leave alone.
+        if (
+          placeholder.image &&
+          typeof placeholder.image === "object" &&
+          "data" in placeholder.image &&
+          (placeholder.image as ImageData).data instanceof Uint8ClampedArray &&
+          (placeholder.image as ImageData).width > 0 &&
+          (placeholder.image as ImageData).height > 0
+        ) {
+          continue;
+        }
+        if (/^(data:|blob:)/i.test(sourceName)) {
+          continue;
+        }
+
+        const deferred = loadDeferredTexture(sourceName);
+        // Preserve transform/sampler state from the static-scene placeholder.
+        deferred.offset.copy(placeholder.offset);
+        deferred.repeat.copy(placeholder.repeat);
+        deferred.center.copy(placeholder.center);
+        deferred.rotation = placeholder.rotation;
+        deferred.wrapS = placeholder.wrapS;
+        deferred.wrapT = placeholder.wrapT;
+        deferred.magFilter = placeholder.magFilter;
+        deferred.minFilter = placeholder.minFilter;
+        deferred.mapping = placeholder.mapping;
+        deferred.anisotropy = placeholder.anisotropy;
+        deferred.colorSpace = placeholder.colorSpace;
+        deferred.flipY = placeholder.flipY;
+        deferred.userData.fbxSourceName =
+          deferred.userData.fbxSourceName ?? sourceName;
+        deferred.needsUpdate = true;
+
+        materialRecord[key] = deferred;
+        materialDirty = true;
+      }
+
+      if (materialDirty) {
+        material.needsUpdate = true;
+      }
+    }
+  });
 }
 
 export async function loadFbxPreviewObject(
@@ -1023,6 +1140,11 @@ export async function loadFbxPreviewObject(
   await yieldToPaint();
   throwIfAborted(context.signal);
   const parseStartedAt = performance.now();
+  // Capture size before an opt-in transfer detaches the ArrayBuffer.
+  const bufferByteLength = buffer.byteLength;
+  // At/above the transfer threshold the path is worker-only: transfer ownership
+  // and avoid an extra main-thread slice/structured-clone before decompress.
+  const transferBuffer = bufferByteLength >= WORKER_TRANSFER_SIZE_LIMIT;
   let object:
     | (LoadedPreview["object"] & {
         animations?: LoadedPreview["clips"];
@@ -1037,7 +1159,11 @@ export async function loadFbxPreviewObject(
         buffer,
         resourcePath: `${file.parentDirectory.replace(/\\/g, "/")}/`,
       },
-      { signal: context.signal, timeoutMs: context.parseTimeoutMs },
+      {
+        signal: context.signal,
+        timeoutMs: context.parseTimeoutMs,
+        transferBuffer,
+      },
     )) as LoadedPreview["object"] & {
       animations?: LoadedPreview["clips"];
     };
@@ -1046,11 +1172,15 @@ export async function loadFbxPreviewObject(
     if (isAbortOrTimeoutError(error)) {
       throw error;
     }
-    if (buffer.byteLength >= WORKER_FALLBACK_SIZE_LIMIT) {
-      const fileSizeMb = (buffer.byteLength / (1024 * 1024)).toFixed(1);
+    // Transferred buffers are detached — never attempt main-thread fallback.
+    if (transferBuffer) {
+      const fileSizeMb = (bufferByteLength / (1024 * 1024)).toFixed(1);
+      const limitMb = WORKER_TRANSFER_SIZE_LIMIT / (1024 * 1024);
+      const workerDetail = errorMessage(error, "Unknown error");
       throw new Error(
         `Worker parsing failed for large file (${fileSizeMb} MB). ` +
-          "Main thread fallback is disabled for files over 50 MB to prevent UI freeze.",
+          `Main thread fallback is disabled for files at or above ${limitMb} MB to prevent UI freeze. ` +
+          `Worker error: ${workerDetail}`,
         { cause: error },
       );
     }
@@ -1059,7 +1189,7 @@ export async function loadFbxPreviewObject(
       error,
     );
   }
-  const { manager, cleanupCallbacks, cleanupUrls } =
+  const { manager, cleanupCallbacks, cleanupUrls, loadDeferredTexture } =
     await createFbxLoadingManager(
       file,
       context.onDeferredTexture,
@@ -1083,6 +1213,11 @@ export async function loadFbxPreviewObject(
   if (!object) {
     throw new Error("Unable to parse FBX preview: no object was returned.");
   }
+  if (parsedInWorker) {
+    // Worker retained geometry/scene; hydrate external texture placeholders
+    // asynchronously via the existing deferred loaders (non-blocking).
+    hydrateFbxDeferredTexturePlaceholders(object, loadDeferredTexture);
+  }
   const parseMs = performance.now() - parseStartedAt;
   flipFbxDdsTextureV(object);
   registerFbxTextureMaterialFallbacks(object);
@@ -1090,7 +1225,7 @@ export async function loadFbxPreviewObject(
   if (import.meta.env.DEV) {
     console.info("[fbx] timing", {
       file: file.fileName,
-      bytes: buffer.byteLength,
+      bytes: bufferByteLength,
       readMs: Math.round(readMs),
       parseMs: Math.round(parseMs),
     });

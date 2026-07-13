@@ -11,7 +11,10 @@ import {
   Texture,
 } from "three";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { canUseStaticSceneResult } from "../modelParse.worker";
+import {
+  canUseStaticSceneResult,
+  createWorkerFbxLoadingManager,
+} from "../modelParse.worker";
 
 class TestImageData {
   constructor(
@@ -124,5 +127,48 @@ describe("model parse worker static scene policy", () => {
     expect(canUseStaticSceneResult("ply", plyMesh)).toBe(true);
     expect(canUseStaticSceneResult("stl", plyMesh)).toBe(true);
     expect(canUseStaticSceneResult("dae", objRoot)).toBe(true);
+  });
+
+  it("enables staticScene for FBX meshes with deferred texture placeholders", () => {
+    const map = new Texture();
+    map.userData.fbxSourceName = "Textures/wall.png";
+    const root = new Group();
+    root.add(
+      new Mesh(new BoxGeometry(1, 1, 1), new MeshStandardMaterial({ map })),
+    );
+
+    expect(canUseStaticSceneResult("fbx", root)).toBe(true);
+  });
+});
+
+describe("worker FBX DOM-free LoadingManager", () => {
+  it("registers image/DDS/TGA handlers that return fbxSourceName placeholders", () => {
+    const manager = createWorkerFbxLoadingManager();
+
+    const dds = manager.getHandler("Textures/normal.dds");
+    const tga = manager.getHandler("Textures/mask.tga");
+    const png = manager.getHandler("Textures/albedo.png");
+    const jpg = manager.getHandler("foo/bar.JPG");
+
+    expect(dds).toBeTruthy();
+    expect(tga).toBeTruthy();
+    expect(png).toBeTruthy();
+    expect(jpg).toBeTruthy();
+
+    const load = (handler: NonNullable<typeof dds>, url: string) =>
+      (handler as unknown as { load: (u: string) => Texture }).load(url);
+
+    const ddsTex = load(dds!, "Textures/normal.dds");
+    const tgaTex = load(tga!, "Textures/mask.tga");
+    const pngTex = load(png!, "Textures/albedo.png");
+
+    expect(ddsTex.userData.fbxSourceName).toBe("Textures/normal.dds");
+    expect(tgaTex.userData.fbxSourceName).toBe("Textures/mask.tga");
+    expect(pngTex.userData.fbxSourceName).toBe("Textures/albedo.png");
+    expect(pngTex.name).toBe("albedo.png");
+
+    // Handlers must not create ImageData or touch DOM APIs.
+    expect(ddsTex.image).toBeFalsy();
+    expect(tgaTex.image).toBeFalsy();
   });
 });

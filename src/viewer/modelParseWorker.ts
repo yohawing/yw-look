@@ -5,15 +5,16 @@
  * because per-request workers keep abort/error/timeout cleanup isolated and
  * prevent cross-request buffer lifetime bugs when a peer aborts mid-flight.
  *
- * Buffer ownership: binary payloads are cloned via `buffer.slice(0)` before
- * postMessage. Transfer would detach the caller's ArrayBuffer and break the
- * documented fallback path where loaders retry on the main thread with the
- * original buffer after a worker failure. Abort/timeout rejections suppress
- * that fallback via `isAbortOrTimeoutError`.
+ * Buffer ownership: by default binary payloads are cloned via `buffer.slice(0)`
+ * before postMessage. Transfer would detach the caller's ArrayBuffer and break
+ * the documented fallback path where loaders retry on the main thread with the
+ * original buffer after a worker failure. Opt-in `transferBuffer` is only for
+ * worker-only / no-fallback callers (e.g. large FBX). Abort/timeout rejections
+ * suppress that fallback via `isAbortOrTimeoutError`.
  */
 
 import { ObjectLoader, type Object3D } from "three";
-import { createStaticSceneObject } from "../workers/staticScene";
+import { createStaticSceneObjectAsync } from "../workers/staticScene";
 import type {
   ModelParseWorkerPayload,
   ModelParseWorkerRequest,
@@ -57,13 +58,21 @@ export function isAbortOrTimeoutError(error: unknown): boolean {
 
 let nextRequestId = 1;
 
+export type ParseModelInWorkerOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  /**
+   * When true and the payload carries an ArrayBuffer, transfer ownership to the
+   * worker instead of cloning. Callers must not use main-thread fallback after a
+   * transfer — the source buffer is detached. Default is false (safe clone).
+   */
+  transferBuffer?: boolean;
+};
+
 export async function parseModelInWorker(
   path: string,
   payload: ModelParseWorkerPayload,
-  options: {
-    signal?: AbortSignal;
-    timeoutMs?: number;
-  } = {},
+  options: ParseModelInWorkerOptions = {},
 ): Promise<Object3D> {
   if (!isModelParseWorkerEnabled()) {
     throw new Error("Model parse worker is not enabled");
@@ -110,20 +119,29 @@ export async function parseModelInWorker(
         settleReject(new Error(event.data.error));
         return;
       }
-      try {
-        if (event.data.result.kind === "staticScene") {
-          settleResolve(createStaticSceneObject(event.data.result.scene));
-          return;
+      // Narrow before the async reconstruction path so TypeScript keeps the
+      // success payload type across the await boundary.
+      const result = event.data.result;
+      // Static-scene reconstruction is cooperative/async; ObjectJSON stays sync.
+      void (async () => {
+        try {
+          if (result.kind === "staticScene") {
+            const object = await createStaticSceneObjectAsync(result.scene, {
+              signal: options.signal,
+            });
+            settleResolve(object);
+            return;
+          }
+          const loader = new ObjectLoader();
+          settleResolve(loader.parse(result.sceneJson as object));
+        } catch (error) {
+          settleReject(
+            error instanceof Error
+              ? error
+              : new Error("Failed to deserialize model worker payload"),
+          );
         }
-        const loader = new ObjectLoader();
-        settleResolve(loader.parse(event.data.result.sceneJson as object));
-      } catch (error) {
-        settleReject(
-          error instanceof Error
-            ? error
-            : new Error("Failed to deserialize model worker payload"),
-        );
-      }
+      })();
     };
     const handleError = (event: ErrorEvent) => {
       settleReject(
@@ -146,14 +164,26 @@ export async function parseModelInWorker(
     worker.addEventListener("error", handleError);
     worker.addEventListener("messageerror", handleMessageError);
 
-    // Clone binary buffers so callers retain ownership for main-thread fallback.
-    const safePayload: ModelParseWorkerPayload =
-      "buffer" in payload
-        ? { ...payload, buffer: payload.buffer.slice(0) }
-        : payload;
+    const hasBuffer = "buffer" in payload;
+    const shouldTransfer =
+      options.transferBuffer === true &&
+      hasBuffer &&
+      payload.buffer instanceof ArrayBuffer;
+
+    // Default: clone so callers retain ownership for main-thread fallback.
+    // Opt-in transfer: post the caller's buffer and detach it (worker-only path).
+    const safePayload: ModelParseWorkerPayload = hasBuffer
+      ? shouldTransfer
+        ? payload
+        : { ...payload, buffer: payload.buffer.slice(0) }
+      : payload;
     const request: ModelParseWorkerRequest = { id, path, payload: safePayload };
     try {
-      worker.postMessage(request);
+      if (shouldTransfer && "buffer" in safePayload) {
+        worker.postMessage(request, [safePayload.buffer]);
+      } else {
+        worker.postMessage(request);
+      }
     } catch (error) {
       settleReject(
         error instanceof Error

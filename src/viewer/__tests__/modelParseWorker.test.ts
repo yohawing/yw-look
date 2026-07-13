@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnimationClip, Group, NumberKeyframeTrack, ObjectLoader } from "three";
 import type { ModelParseWorkerPayload } from "../../workers/modelParse.worker";
+import type { ModelParseWorkerStaticScenePayload } from "../../workers/staticScene";
 
 type MockWorkerInstance = {
   addEventListener: ReturnType<typeof vi.fn>;
@@ -44,10 +45,25 @@ const mocks = vi.hoisted(() => {
   return {
     workers,
     Worker: MockWorker,
+    createStaticSceneObjectAsync: vi.fn(
+      async (
+        ...args: [unknown?, { signal?: AbortSignal }?]
+      ): Promise<Group> => {
+        void args;
+        return new Group();
+      },
+    ),
   };
 });
 
 vi.stubGlobal("Worker", mocks.Worker);
+
+vi.mock("../../workers/staticScene", () => ({
+  createStaticSceneObjectAsync: (
+    ...args: Parameters<typeof mocks.createStaticSceneObjectAsync>
+  ) => mocks.createStaticSceneObjectAsync(...args),
+  createStaticSceneObject: vi.fn(() => new Group()),
+}));
 
 import {
   DEFAULT_MODEL_PARSE_TIMEOUT_MS,
@@ -157,6 +173,10 @@ describe("parseModelInWorker lifecycle and ownership", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.workers.length = 0;
+    mocks.createStaticSceneObjectAsync.mockReset();
+    mocks.createStaticSceneObjectAsync.mockImplementation(
+      async () => new Group(),
+    );
   });
 
   afterEach(() => {
@@ -374,5 +394,105 @@ describe("parseModelInWorker lifecycle and ownership", () => {
     await expect(promise).rejects.toThrow("worker failed");
     expect(buffer.byteLength).toBe(8);
     expect(Array.from(new Uint8Array(buffer))).toEqual(originalBytes);
+  });
+
+  it("transfers binary buffers when transferBuffer is opted in", async () => {
+    const buffer = new ArrayBuffer(8);
+    const sliceSpy = vi.spyOn(buffer, "slice");
+
+    const promise = parseModelInWorker(
+      "large.fbx",
+      { kind: "fbx", buffer, resourcePath: "/models/" },
+      { transferBuffer: true },
+    );
+
+    const worker = mocks.workers[0];
+    const [posted, transferList] = worker.postMessage.mock.calls[0];
+
+    expect(sliceSpy).not.toHaveBeenCalled();
+    expect(posted.payload.buffer).toBe(buffer);
+    expect(transferList).toEqual([buffer]);
+
+    worker.emit("message", successMessage(posted.id, new Group().toJSON()));
+    await promise;
+  });
+
+  it("still clones by default when transferBuffer is not set", async () => {
+    const buffer = new ArrayBuffer(4);
+    const sliceSpy = vi.spyOn(buffer, "slice");
+
+    const promise = parseModelInWorker(
+      "small.fbx",
+      { kind: "fbx", buffer, resourcePath: "/models/" },
+      { transferBuffer: false },
+    );
+
+    const worker = mocks.workers[0];
+    const call = worker.postMessage.mock.calls[0];
+
+    expect(sliceSpy).toHaveBeenCalledWith(0);
+    expect(call[0].payload.buffer).not.toBe(buffer);
+    expect(call[1]).toBeUndefined();
+
+    worker.emit("message", successMessage(call[0].id, new Group().toJSON()));
+    await promise;
+  });
+
+  it("uses cooperative static-scene reconstruction and aborts with cleanup", async () => {
+    const scene: ModelParseWorkerStaticScenePayload = {
+      rootKind: "group",
+      rootName: "Root",
+      rootUserData: { source: "test" },
+      meshes: [],
+    };
+    let sawSignal: AbortSignal | undefined;
+    let releaseReconstruction: ((value: Group) => void) | undefined;
+
+    mocks.createStaticSceneObjectAsync.mockImplementationOnce(
+      (
+        _payload?: unknown,
+        options?: { signal?: AbortSignal },
+      ): Promise<Group> => {
+        sawSignal = options?.signal;
+        return new Promise<Group>((resolve) => {
+          releaseReconstruction = resolve;
+        });
+      },
+    );
+
+    const controller = new AbortController();
+    const promise = parseModelInWorker(
+      "flat.fbx",
+      { kind: "fbx", buffer: new ArrayBuffer(4), resourcePath: "/" },
+      { signal: controller.signal },
+    );
+
+    const worker = mocks.workers[0];
+    const id = worker.postMessage.mock.calls[0][0].id;
+
+    worker.emit("message", {
+      data: {
+        id,
+        ok: true as const,
+        result: { kind: "staticScene" as const, scene },
+      },
+    });
+
+    // Allow the async static-scene path to start before aborting.
+    await Promise.resolve();
+    expect(mocks.createStaticSceneObjectAsync).toHaveBeenCalledWith(scene, {
+      signal: controller.signal,
+    });
+    expect(sawSignal).toBe(controller.signal);
+
+    controller.abort();
+
+    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+
+    // Late reconstruction completion must not re-resolve after abort cleanup.
+    releaseReconstruction?.(new Group());
+    await Promise.resolve();
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
   });
 });

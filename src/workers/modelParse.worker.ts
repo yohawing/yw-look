@@ -1,8 +1,10 @@
 import {
   Group,
+  Loader,
   LoadingManager,
   Mesh,
   MeshStandardMaterial,
+  Texture,
   type BufferGeometry,
   type Object3D,
 } from "three";
@@ -101,6 +103,61 @@ function isRemoteOrInlineUrl(url: string) {
   return /^(data:|blob:|https?:)/i.test(url);
 }
 
+function stripTextureUrlSuffix(value: string) {
+  return value.replace(/\\/g, "/").split(/[?#]/, 1)[0];
+}
+
+/**
+ * DOM-free FBX texture handlers for the model worker.
+ * Return Texture placeholders that only record a relative source reference —
+ * no file I/O, ImageData, or document/Image access.
+ */
+class WorkerFbxPlaceholderTextureLoader extends Loader<Texture> {
+  override load(url: string, onLoad?: (texture: Texture) => void): Texture {
+    const texture = new Texture();
+    const reference = stripTextureUrlSuffix(url);
+    texture.userData.fbxSourceName = reference;
+    texture.name = reference.slice(reference.lastIndexOf("/") + 1);
+    // Synchronous callback keeps FBXLoader parse fully worker-side.
+    onLoad?.(texture);
+    return texture;
+  }
+}
+
+/**
+ * LoadingManager used for worker FBX parse. Handlers cover the same external
+ * texture extensions as main-thread `createFbxLoadingManager` so the default
+ * TextureLoader (which needs `document`) is never selected.
+ */
+export function createWorkerFbxLoadingManager(): LoadingManager {
+  const manager = new LoadingManager();
+  const placeholderLoader = new WorkerFbxPlaceholderTextureLoader(manager);
+  manager.addHandler(/\.dds$/i, placeholderLoader);
+  manager.addHandler(/\.tga$/i, placeholderLoader);
+  manager.addHandler(/\.(?:png|jpe?g|webp|bmp|gif)$/i, placeholderLoader);
+  return manager;
+}
+
+function installWorkerFbxWindowShim(): void {
+  // FBXLoader's binary embedded-image branch calls window.URL.createObjectURL.
+  // The worker never decodes those bytes; external texture slots are deferred to
+  // the main thread, and embedded/blob values are intentionally omitted there.
+  const scope = self as unknown as {
+    window?: { URL?: { createObjectURL?: (value: Blob) => string } };
+  };
+  scope.window ??= {};
+  scope.window.URL ??= {};
+  scope.window.URL.createObjectURL ??= () => "data:,";
+}
+
+function parseFbxPayload(
+  payload: Extract<ModelParseWorkerPayload, { kind: "fbx" }>,
+): Object3D {
+  installWorkerFbxWindowShim();
+  const manager = createWorkerFbxLoadingManager();
+  return new FBXLoader(manager).parse(payload.buffer, payload.resourcePath);
+}
+
 async function parseGltfPayload(
   payload: Extract<ModelParseWorkerPayload, { kind: "glb" | "gltf" }>,
 ): Promise<Object3D> {
@@ -126,7 +183,7 @@ async function parseObject(
 ): Promise<Object3D> {
   switch (payload.kind) {
     case "fbx":
-      return new FBXLoader().parse(payload.buffer, payload.resourcePath);
+      return parseFbxPayload(payload);
     case "glb":
     case "gltf":
       return parseGltfPayload(payload);

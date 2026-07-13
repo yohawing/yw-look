@@ -28,10 +28,8 @@ const SERIALIZABLE_TEXTURE_SLOTS = [
 
 type SerializableTextureSlot = (typeof SERIALIZABLE_TEXTURE_SLOTS)[number];
 
-export type ModelParseWorkerStaticTexturePayload = {
-  width: number;
-  height: number;
-  data: Uint8ClampedArray;
+/** Shared sampler/transform fields for both ImageData and deferred textures. */
+export type ModelParseWorkerStaticTextureSamplerPayload = {
   colorSpace: Texture["colorSpace"];
   flipY: boolean;
   wrapS: Texture["wrapS"];
@@ -45,6 +43,45 @@ export type ModelParseWorkerStaticTexturePayload = {
   center: [number, number];
   rotation: number;
 };
+
+/**
+ * Baked pixel texture (glTF/GLB ImageData path).
+ * Main-thread reconstruction builds a Texture with an ImageData image.
+ */
+export type ModelParseWorkerStaticTextureImagePayload =
+  ModelParseWorkerStaticTextureSamplerPayload & {
+    kind: "imageData";
+    width: number;
+    height: number;
+    data: Uint8ClampedArray;
+  };
+
+/**
+ * Worker-safe deferred FBX texture placeholder.
+ * Records a relative source reference for main-thread hydration via
+ * `createFbxLoadingManager().loadDeferredTexture`.
+ */
+export type ModelParseWorkerStaticTextureDeferredPayload =
+  ModelParseWorkerStaticTextureSamplerPayload & {
+    kind: "deferred";
+    fbxSourceName: string;
+  };
+
+export type ModelParseWorkerStaticTexturePayload =
+  | ModelParseWorkerStaticTextureImagePayload
+  | ModelParseWorkerStaticTextureDeferredPayload;
+
+export function isDeferredStaticTexturePayload(
+  payload: ModelParseWorkerStaticTexturePayload,
+): payload is ModelParseWorkerStaticTextureDeferredPayload {
+  return payload.kind === "deferred";
+}
+
+export function isImageDataStaticTexturePayload(
+  payload: ModelParseWorkerStaticTexturePayload,
+): payload is ModelParseWorkerStaticTextureImagePayload {
+  return payload.kind === "imageData";
+}
 
 export type ModelParseWorkerAttributeArray =
   | Float32Array
@@ -206,16 +243,10 @@ function isImageData(value: unknown): value is ImageData {
   );
 }
 
-function getTexturePayload(
+function getTextureSamplerPayload(
   texture: Texture,
-): ModelParseWorkerStaticTexturePayload | null {
-  if (!isImageData(texture.image)) {
-    return null;
-  }
+): ModelParseWorkerStaticTextureSamplerPayload {
   return {
-    width: texture.image.width,
-    height: texture.image.height,
-    data: texture.image.data.slice(),
     colorSpace: texture.colorSpace,
     flipY: texture.flipY,
     wrapS: texture.wrapS,
@@ -231,8 +262,43 @@ function getTexturePayload(
   };
 }
 
+/**
+ * Prefer baked ImageData (glTF). Otherwise preserve FBX deferred placeholders
+ * that record an external relative source name. blob/data URIs are omitted —
+ * embedded texture content is out of scope for the worker path.
+ */
+function getTexturePayload(
+  texture: Texture,
+): ModelParseWorkerStaticTexturePayload | null {
+  const sampler = getTextureSamplerPayload(texture);
+  if (isImageData(texture.image)) {
+    return {
+      kind: "imageData",
+      width: texture.image.width,
+      height: texture.image.height,
+      data: texture.image.data.slice(),
+      ...sampler,
+    };
+  }
+
+  const sourceName = texture.userData?.fbxSourceName;
+  if (typeof sourceName !== "string" || sourceName.length === 0) {
+    return null;
+  }
+  if (/^(data:|blob:)/i.test(sourceName)) {
+    return null;
+  }
+
+  return {
+    kind: "deferred",
+    fbxSourceName: sourceName,
+    ...sampler,
+  };
+}
+
 function getMaterialTexturePayloads(
   material: Material,
+  options?: CanSerializeStaticNodeOptions,
 ):
   | Partial<
       Record<SerializableTextureSlot, ModelParseWorkerStaticTexturePayload>
@@ -244,13 +310,19 @@ function getMaterialTexturePayloads(
     Record<SerializableTextureSlot, ModelParseWorkerStaticTexturePayload>
   > = {};
   let hasSerializable = false;
+  const requireStrict = options?.requireSerializableTextures === true;
 
   for (const [key, value] of Object.entries(materialRecord)) {
     if (!isTexture(value)) {
       continue;
     }
     if (!(SERIALIZABLE_TEXTURE_SLOTS as readonly string[]).includes(key)) {
-      return null;
+      // glTF requires every texture slot to be serializable; FBX soft mode
+      // ignores unsupported slots (e.g. specularMap) so deferred map/normalMap
+      // still transfer.
+      if (requireStrict) {
+        return null;
+      }
     }
   }
 
@@ -261,6 +333,9 @@ function getMaterialTexturePayloads(
     }
     const payload = getTexturePayload(value);
     if (!payload) {
+      return null;
+    }
+    if (requireStrict && !isImageDataStaticTexturePayload(payload)) {
       return null;
     }
     textures[slot] = payload;
@@ -283,7 +358,7 @@ function canSerializeMaterial(
       return false;
     }
     if (options?.requireSerializableTextures) {
-      return getMaterialTexturePayloads(entry) !== null;
+      return getMaterialTexturePayloads(entry, options) !== null;
     }
     return true;
   });
@@ -291,13 +366,14 @@ function canSerializeMaterial(
 
 function getMaterialPayload(
   material: Material,
+  options?: CanSerializeStaticNodeOptions,
 ): ModelParseWorkerStaticMaterialPayload {
   const materialLike = material as Material & {
     color?: { getHex: () => number };
     metalness?: number;
     roughness?: number;
   };
-  const textures = getMaterialTexturePayloads(material);
+  const textures = getMaterialTexturePayloads(material, options);
   return {
     type: isSupportedMaterialType(materialLike.type)
       ? materialLike.type
@@ -313,13 +389,16 @@ function getMaterialPayload(
   };
 }
 
-function getMaterialPayloads(material: Material | Material[] | undefined) {
+function getMaterialPayloads(
+  material: Material | Material[] | undefined,
+  options?: CanSerializeStaticNodeOptions,
+) {
   if (!material) {
-    return getMaterialPayload(new MeshStandardMaterial());
+    return getMaterialPayload(new MeshStandardMaterial(), options);
   }
   return Array.isArray(material)
-    ? material.map((entry) => getMaterialPayload(entry))
-    : getMaterialPayload(material);
+    ? material.map((entry) => getMaterialPayload(entry, options))
+    : getMaterialPayload(material, options);
 }
 
 function collectMaterialTextureBuffers(
@@ -334,7 +413,11 @@ function collectMaterialTextureBuffers(
       continue;
     }
     for (const texture of Object.values(entry.textures)) {
-      if (texture?.data.buffer instanceof ArrayBuffer) {
+      if (
+        texture &&
+        isImageDataStaticTexturePayload(texture) &&
+        texture.data.buffer instanceof ArrayBuffer
+      ) {
         buffers.add(texture.data.buffer);
       }
     }
@@ -479,7 +562,7 @@ function toStaticNodePayload(
       return null;
     }
     node.geometry = cloneGeometryPayload(geometryOwner.geometry);
-    node.material = getMaterialPayloads(geometryOwner.material);
+    node.material = getMaterialPayloads(geometryOwner.material, options);
   }
 
   for (const child of object.children) {
@@ -529,7 +612,7 @@ export function toStaticScenePayload(
         attributes: geometry.attributes,
         index: geometry.index,
         groups: geometry.groups,
-        material: getMaterialPayloads(child.material),
+        material: getMaterialPayloads(child.material, options),
       });
     });
   }
@@ -566,13 +649,10 @@ function createStaticGeometry(payload: ModelParseWorkerStaticGeometryPayload) {
   return geometry;
 }
 
-function createTextureFromPayload(
-  payload: ModelParseWorkerStaticTexturePayload,
-): Texture {
-  const data = new Uint8ClampedArray(payload.data.length);
-  data.set(payload.data);
-  const image = new ImageData(data, payload.width, payload.height);
-  const texture = new Texture(image);
+function applyTextureSamplerPayload(
+  texture: Texture,
+  payload: ModelParseWorkerStaticTextureSamplerPayload,
+) {
   texture.colorSpace = payload.colorSpace;
   texture.flipY = payload.flipY;
   texture.wrapS = payload.wrapS;
@@ -585,6 +665,27 @@ function createTextureFromPayload(
   texture.repeat.fromArray(payload.repeat);
   texture.center.fromArray(payload.center);
   texture.rotation = payload.rotation;
+}
+
+function createTextureFromPayload(
+  payload: ModelParseWorkerStaticTexturePayload,
+): Texture {
+  if (isDeferredStaticTexturePayload(payload)) {
+    // Empty placeholder; main-thread FBX hydration replaces this via
+    // loadDeferredTexture(fbxSourceName) without re-parsing the FBX.
+    const texture = new Texture();
+    texture.userData.fbxSourceName = payload.fbxSourceName;
+    const baseName = payload.fbxSourceName.replace(/\\/g, "/");
+    texture.name = baseName.slice(baseName.lastIndexOf("/") + 1);
+    applyTextureSamplerPayload(texture, payload);
+    return texture;
+  }
+
+  const data = new Uint8ClampedArray(payload.data.length);
+  data.set(payload.data);
+  const image = new ImageData(data, payload.width, payload.height);
+  const texture = new Texture(image);
+  applyTextureSamplerPayload(texture, payload);
   texture.needsUpdate = true;
   return texture;
 }
@@ -677,6 +778,17 @@ function createStaticNodeObject(node: ModelParseWorkerStaticNodePayload) {
   return object;
 }
 
+function createFlatMeshFromPayload(meshPayload: ModelParseWorkerMeshPayload) {
+  const geometry = createStaticGeometry(meshPayload);
+  const material = createStaticMaterials(meshPayload.material);
+
+  const mesh = new Mesh(geometry, material);
+  mesh.name = meshPayload.name;
+  mesh.userData = meshPayload.userData;
+  mesh.applyMatrix4(new Matrix4().fromArray(meshPayload.matrix));
+  return mesh;
+}
+
 function createFlatStaticSceneObject(
   payload: ModelParseWorkerStaticScenePayload,
 ) {
@@ -686,14 +798,7 @@ function createFlatStaticSceneObject(
   const meshes: Mesh[] = [];
 
   for (const meshPayload of payload.meshes) {
-    const geometry = createStaticGeometry(meshPayload);
-    const material = createStaticMaterials(meshPayload.material);
-
-    const mesh = new Mesh(geometry, material);
-    mesh.name = meshPayload.name;
-    mesh.userData = meshPayload.userData;
-    mesh.applyMatrix4(new Matrix4().fromArray(meshPayload.matrix));
-    meshes.push(mesh);
+    meshes.push(createFlatMeshFromPayload(meshPayload));
   }
 
   if (payload.rootKind === "mesh" && meshes.length === 1) {
@@ -704,6 +809,67 @@ function createFlatStaticSceneObject(
   return root;
 }
 
+/**
+ * Default mesh batch size for cooperative flat-scene reconstruction.
+ * Keeps main-thread work short enough for paint while avoiding excessive yields
+ * on modest scenes.
+ */
+export const DEFAULT_STATIC_SCENE_BATCH_SIZE = 16;
+
+export type CreateStaticSceneObjectAsyncOptions = {
+  signal?: AbortSignal;
+  /** Meshes constructed per cooperative turn. Defaults to {@link DEFAULT_STATIC_SCENE_BATCH_SIZE}. */
+  batchSize?: number;
+  /**
+   * Injectable yield used between batches (tests inject a deterministic scheduler).
+   * Defaults to rAF + setTimeout(0), or setTimeout(0) when rAF is unavailable.
+   */
+  yieldFn?: () => Promise<void>;
+};
+
+function createAbortError(message = "Static scene construction was canceled.") {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+}
+
+async function defaultCooperativeYield(): Promise<void> {
+  if (typeof requestAnimationFrame === "function") {
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => {
+        setTimeout(() => resolve(), 0);
+      }),
+    );
+    return;
+  }
+  await new Promise<void>((resolve) => setTimeout(() => resolve(), 0));
+}
+
+function finalizeFlatStaticScene(
+  payload: ModelParseWorkerStaticScenePayload,
+  meshes: Mesh[],
+) {
+  if (payload.rootKind === "mesh" && meshes.length === 1) {
+    return meshes[0];
+  }
+
+  const root = new Group();
+  root.name = payload.rootName;
+  root.userData = payload.rootUserData;
+  root.add(...meshes);
+  return root;
+}
+
+/**
+ * Synchronous reconstruction used by callers/tests that need a blocking API.
+ * Prefer {@link createStaticSceneObjectAsync} for large flat worker payloads.
+ */
 export function createStaticSceneObject(
   payload: ModelParseWorkerStaticScenePayload,
 ) {
@@ -711,4 +877,41 @@ export function createStaticSceneObject(
     return createStaticNodeObject(payload.root);
   }
   return createFlatStaticSceneObject(payload);
+}
+
+/**
+ * Cooperative reconstruction for flat static-scene payloads.
+ * Builds meshes in batches and yields between batches so a large FBX scene
+ * does not create every geometry/material/mesh in one uninterrupted task.
+ * Tree payloads (`payload.root`) still use the synchronous path.
+ * Preserves mesh order, transforms, materials, root metadata, and single-mesh return.
+ */
+export async function createStaticSceneObjectAsync(
+  payload: ModelParseWorkerStaticScenePayload,
+  options: CreateStaticSceneObjectAsyncOptions = {},
+): Promise<Object3D> {
+  throwIfAborted(options.signal);
+
+  if (payload.root) {
+    return createStaticNodeObject(payload.root);
+  }
+
+  const batchSize = Math.max(
+    1,
+    options.batchSize ?? DEFAULT_STATIC_SCENE_BATCH_SIZE,
+  );
+  const yieldFn = options.yieldFn ?? defaultCooperativeYield;
+  const meshes: Mesh[] = [];
+  const total = payload.meshes.length;
+
+  for (let index = 0; index < total; index += 1) {
+    if (index > 0 && index % batchSize === 0) {
+      await yieldFn();
+      throwIfAborted(options.signal);
+    }
+    meshes.push(createFlatMeshFromPayload(payload.meshes[index]));
+  }
+
+  throwIfAborted(options.signal);
+  return finalizeFlatStaticScene(payload, meshes);
 }
