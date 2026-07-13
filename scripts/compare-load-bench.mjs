@@ -95,6 +95,9 @@ function buildBaseline(report) {
         resolveFileMs: benchCase.resolveFileMs ?? null,
         listSiblingsMs: benchCase.listSiblingsMs ?? null,
         loadTimeMs: benchCase.loadTimeMs,
+        textureReadyMs: benchCase.textureReadyMs ?? null,
+        deferredTextureMs: benchCase.deferredTextureMs ?? null,
+        deferredTextureCounts: benchCase.deferredTextureCounts ?? null,
         loadResponsiveness: benchCase.loadResponsiveness ?? null,
         stageTimeMs: benchCase.stageTimeMs ?? {},
         frameTimeP95Ms: benchCase.frameTimeMs?.p95 ?? null,
@@ -202,6 +205,35 @@ function compareReport(baseline, report) {
         limit: loadLimit,
         message: "load time exceeded threshold",
       });
+    }
+
+    const textureReadyLimit = metricThreshold(
+      baseCase.textureReadyMs,
+      baseline.thresholds.loadTimeRatio,
+      baseline.thresholds.loadTimeSlackMs,
+    );
+    if (textureReadyLimit !== null) {
+      if (typeof current.textureReadyMs !== "number") {
+        findings.push({
+          level: "fail",
+          id,
+          metric: "textureReadyMs",
+          baseline: baseCase.textureReadyMs,
+          current: current.textureReadyMs ?? null,
+          limit: textureReadyLimit,
+          message: "texture-ready metric missing from current report",
+        });
+      } else if (current.textureReadyMs > textureReadyLimit) {
+        findings.push({
+          level: "fail",
+          id,
+          metric: "textureReadyMs",
+          baseline: baseCase.textureReadyMs,
+          current: current.textureReadyMs,
+          limit: textureReadyLimit,
+          message: "texture-ready time exceeded threshold",
+        });
+      }
     }
 
     const openPipelineLimit = metricThreshold(

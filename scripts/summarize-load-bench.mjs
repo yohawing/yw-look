@@ -77,6 +77,9 @@ function summarizeCase(benchCase) {
     meshCount: benchCase.meshCount,
     openPipelineMs: benchCase.openPipelineMs ?? null,
     loadTimeMs: benchCase.loadTimeMs ?? null,
+    textureReadyMs: benchCase.textureReadyMs ?? null,
+    deferredTextureMs: benchCase.deferredTextureMs ?? null,
+    deferredTextureCounts: benchCase.deferredTextureCounts ?? null,
     screenshot: benchCase.screenshot ?? null,
     error: benchCase.error ?? null,
     consoleErrors: benchCase.consoleErrors ?? 0,
@@ -216,18 +219,18 @@ function renderMarkdown(summary) {
     "",
     "## Matched Cases",
     "",
-    "| ID | Loaded | Load ms | Open pipeline ms | Max gap ms | Frame p95 ms | Mesh count |",
-    "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    "| ID | Loaded | Shell-ready ms | Texture-ready ms | Deferred ms | Textures loaded/failed/total | Open pipeline ms | Max gap ms | Frame p95 ms | Mesh count |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
   );
 
   for (const benchCase of summary.cases) {
     lines.push(
-      `| ${benchCase.id} | ${benchCase.loaded ? "yes" : "no"} | ${benchCase.loadTimeMs ?? "n/a"} | ${benchCase.openPipelineMs ?? "n/a"} | ${benchCase.loadResponsiveness?.maxGapMs ?? "n/a"} | ${benchCase.frameTimeMs?.p95 ?? "n/a"} | ${benchCase.meshCount ?? "n/a"} |`,
+      `| ${benchCase.id} | ${benchCase.loaded ? "yes" : "no"} | ${benchCase.loadTimeMs ?? "n/a"} | ${benchCase.textureReadyMs ?? "n/a"} | ${benchCase.deferredTextureMs ?? "n/a"} | ${benchCase.deferredTextureCounts ? `${benchCase.deferredTextureCounts.loaded}/${benchCase.deferredTextureCounts.failed}/${benchCase.deferredTextureCounts.total}` : "n/a"} | ${benchCase.openPipelineMs ?? "n/a"} | ${benchCase.loadResponsiveness?.maxGapMs ?? "n/a"} | ${benchCase.frameTimeMs?.p95 ?? "n/a"} | ${benchCase.meshCount ?? "n/a"} |`,
     );
   }
 
   if (summary.cases.length === 0) {
-    lines.push("| _none_ | | | | | | |");
+    lines.push("| _none_ | | | | | | | | | |");
   }
 
   lines.push("", "## Case Details", "");
@@ -245,6 +248,13 @@ function renderMarkdown(summary) {
     lines.push(`- Mesh count: ${benchCase.meshCount ?? "n/a"}`);
     lines.push(`- Open pipeline ms: ${benchCase.openPipelineMs ?? "n/a"}`);
     lines.push(`- Load time ms: ${benchCase.loadTimeMs ?? "n/a"}`);
+    lines.push(`- Texture-ready ms: ${benchCase.textureReadyMs ?? "n/a"}`);
+    lines.push(
+      `- Deferred texture ms: ${benchCase.deferredTextureMs ?? "n/a"}`,
+    );
+    lines.push(
+      `- Deferred textures loaded/failed/total: ${benchCase.deferredTextureCounts ? `${benchCase.deferredTextureCounts.loaded}/${benchCase.deferredTextureCounts.failed}/${benchCase.deferredTextureCounts.total}` : "n/a"}`,
+    );
     lines.push(
       `- Load responsiveness max gap ms: ${benchCase.loadResponsiveness?.maxGapMs ?? "n/a"}`,
     );

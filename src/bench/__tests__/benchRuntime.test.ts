@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createDeferredTextureTracker,
   loadBenchManifest,
   measureMainThreadResponsiveness,
   renderReportMarkdown,
@@ -78,6 +79,60 @@ describe("measureMainThreadResponsiveness", () => {
   });
 });
 
+describe("createDeferredTextureTracker", () => {
+  it("arms after preview return and uses the latest completed snapshot", async () => {
+    let now = 10;
+    const tracker = createDeferredTextureTracker(() => now);
+    tracker.onSnapshot({
+      total: 1,
+      loaded: 1,
+      failed: 0,
+      pending: 0,
+      activeLabel: null,
+    });
+    now = 20;
+    tracker.onSnapshot({
+      total: 2,
+      loaded: 1,
+      failed: 0,
+      pending: 1,
+      activeLabel: "second.png",
+    });
+
+    const completion = tracker.waitForCompletion();
+    now = 30;
+    tracker.onSnapshot({
+      total: 2,
+      loaded: 1,
+      failed: 1,
+      pending: 0,
+      activeLabel: null,
+    });
+
+    await expect(completion).resolves.toEqual({
+      counts: { total: 2, loaded: 1, failed: 1 },
+      completedAt: 30,
+    });
+  });
+
+  it("does not hang when completion happens before it is armed", async () => {
+    const tracker = createDeferredTextureTracker(() => 42);
+    tracker.onSnapshot({
+      total: 3,
+      loaded: 3,
+      failed: 0,
+      pending: 0,
+      activeLabel: null,
+    });
+
+    expect(tracker.hasDeferredWork()).toBe(true);
+    await expect(tracker.waitForCompletion()).resolves.toEqual({
+      counts: { total: 3, loaded: 3, failed: 0 },
+      completedAt: 42,
+    });
+  });
+});
+
 describe("renderReportMarkdown", () => {
   it("includes load responsiveness columns", () => {
     const report: BenchReport = {
@@ -111,6 +166,9 @@ describe("renderReportMarkdown", () => {
           resolveFileMs: 10,
           listSiblingsMs: 5,
           loadTimeMs: 140,
+          textureReadyMs: 210,
+          deferredTextureMs: 70,
+          deferredTextureCounts: { total: 10, loaded: 9, failed: 1 },
           loadResponsiveness: { sampleCount: 12, maxGapMs: 45.5 },
           stageTimeMs: { decode: 50, gpu: 80 },
           fps: 60,
@@ -127,6 +185,9 @@ describe("renderReportMarkdown", () => {
 
     expect(markdown).toContain("Resp samples");
     expect(markdown).toContain("Resp max gap ms");
+    expect(markdown).toContain("Texture ready ms");
+    expect(markdown).toContain("Deferred ms");
+    expect(markdown).toContain("9 | 1 | 10");
     expect(markdown).toContain("12");
     expect(markdown).toContain("45.5");
   });

@@ -127,7 +127,10 @@ The comparison checks the fixed report schema from `src/bench/benchTypes.ts`:
 - `openPipelineMs` (file resolve + sibling listing + preview load)
 - `resolveFileMs`
 - `listSiblingsMs`
-- `loadTimeMs`
+- `loadTimeMs` (preview shell-ready; deferred textures may still be loading)
+- `textureReadyMs` (load start until both the preview shell and all reported deferred textures are ready)
+- `deferredTextureMs` (additional time from shell-ready until deferred textures finish)
+- `deferredTextureCounts` (final loaded / failed / total deferred texture counts)
 - `stageTimeMs.resolve` (USD backend preview decision / dependency scan)
 - `stageTimeMs.decode` (USD GLB extraction for composed stages)
 - `stageTimeMs.gpu` (WebView-side GLTF parse / upload stage)
@@ -137,6 +140,7 @@ The comparison checks the fixed report schema from `src/bench/benchTypes.ts`:
 The default thresholds are intentionally loose enough for local machine noise:
 
 - load time: baseline `* 1.35 + 250ms`
+- texture-ready time: baseline `* 1.35 + 250ms` when the baseline records it; a missing current value then fails comparison
 - open pipeline time: baseline `* 1.35 + 250ms`
 - frame p95: baseline `* 1.20 + 2ms`
 

@@ -51,6 +51,7 @@ export async function loadCorePreviewObject(
       const { loadGltfPreviewObject } = await import("./gltf/loader");
       return loadGltfPreviewObject(file, {
         onStage: context.onStage,
+        onDeferredTexture: context.onDeferredTexture,
         signal: context.signal,
         parseTimeoutMs: context.parseTimeoutMs,
       });

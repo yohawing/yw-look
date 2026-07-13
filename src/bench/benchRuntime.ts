@@ -14,6 +14,7 @@ import {
   WebGLRenderer,
 } from "three";
 import type { SelectedFile } from "../lib/files";
+import type { DeferredTextureSnapshot } from "../types/viewer";
 import { listSupportedSiblings, resolveSelectedFile } from "../lib/files";
 import {
   captureRendererScreenshot,
@@ -32,6 +33,7 @@ import type {
   BenchReport,
   BenchStageId,
   BenchStageMetrics,
+  DeferredTextureCounts,
   RendererMemoryMetrics,
   RendererRenderMetrics,
 } from "./benchTypes";
@@ -292,15 +294,96 @@ async function measureFrames(
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
-        timeoutMs,
-      ),
-    ),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      Math.max(0, timeoutMs),
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
+}
+
+type DeferredTextureCompletion = {
+  counts: DeferredTextureCounts;
+  completedAt: number;
+};
+
+export function createDeferredTextureTracker(
+  now: () => number = () => performance.now(),
+) {
+  let latestSnapshot: DeferredTextureSnapshot | null = null;
+  let latestCompletedAt: number | null = null;
+  let resolveCompletion:
+    | ((completion: DeferredTextureCompletion) => void)
+    | null = null;
+
+  const completionFromLatest = (): DeferredTextureCompletion | null => {
+    if (
+      !latestSnapshot ||
+      latestSnapshot.total <= 0 ||
+      latestSnapshot.pending !== 0 ||
+      latestSnapshot.loaded + latestSnapshot.failed !== latestSnapshot.total
+    ) {
+      return null;
+    }
+    return {
+      counts: {
+        total: latestSnapshot.total,
+        loaded: latestSnapshot.loaded,
+        failed: latestSnapshot.failed,
+      },
+      completedAt: latestCompletedAt ?? now(),
+    };
+  };
+
+  return {
+    onSnapshot(snapshot: DeferredTextureSnapshot) {
+      latestSnapshot = snapshot;
+      latestCompletedAt =
+        snapshot.total > 0 &&
+        snapshot.pending === 0 &&
+        snapshot.loaded + snapshot.failed === snapshot.total
+          ? now()
+          : null;
+      const completion = completionFromLatest();
+      if (completion && resolveCompletion) {
+        const resolve = resolveCompletion;
+        resolveCompletion = null;
+        resolve(completion);
+      }
+    },
+    hasDeferredWork() {
+      return (latestSnapshot?.total ?? 0) > 0;
+    },
+    waitForCompletion() {
+      const completion = completionFromLatest();
+      if (completion) {
+        return Promise.resolve(completion);
+      }
+      return new Promise<DeferredTextureCompletion>((resolve) => {
+        resolveCompletion = resolve;
+      });
+    },
+  };
+}
+
+function runBenchCleanupCallbacks(callbacks: Array<() => void>) {
+  for (const callback of callbacks) {
+    try {
+      callback();
+    } catch (error) {
+      console.error("Bench cleanup callback failed", error);
+    }
+  }
 }
 
 async function saveScreenshot(fileName: string, dataUrl: string) {
@@ -338,6 +421,7 @@ export async function runBenchCase(
 
   let object: Group | Mesh | null = null;
   let cleanupUrls: string[] = [];
+  let cleanupCallbacks: Array<() => void> = [];
   const stageTimeMs: BenchStageMetrics = {};
   let activeStage: BenchStageId | null = null;
   let activeStageStartedAt = 0;
@@ -381,6 +465,9 @@ export async function runBenchCase(
     resolveFileMs: null,
     listSiblingsMs: null,
     loadTimeMs: null,
+    textureReadyMs: null,
+    deferredTextureMs: null,
+    deferredTextureCounts: null,
     loadResponsiveness: null,
     stageTimeMs: {},
     fps: null,
@@ -411,10 +498,15 @@ export async function runBenchCase(
 
     const selected = selectedFileFromModel(model, resolved.value);
     const loadStarted = performance.now();
+    const loadDeadline = loadStarted + model.bench.timeoutMs;
+    const deferredTextureTracker = createDeferredTextureTracker();
     const loadResult = await measureMainThreadResponsiveness(() =>
       withTimeout(
-        loadPreviewObject(selected, renderer, { onStage: recordStage }),
-        model.bench.timeoutMs,
+        loadPreviewObject(selected, renderer, {
+          onStage: recordStage,
+          onDeferredTexture: deferredTextureTracker.onSnapshot,
+        }),
+        loadDeadline - performance.now(),
         model.id,
       ),
     );
@@ -423,8 +515,22 @@ export async function runBenchCase(
     finishActiveStage();
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
-    baseResult.loadTimeMs = roundMetric(performance.now() - loadStarted);
+    cleanupCallbacks = preview.cleanupCallbacks ?? [];
+    const shellReadyAt = performance.now();
+    baseResult.loadTimeMs = roundMetric(shellReadyAt - loadStarted);
     baseResult.openPipelineMs = roundMetric(performance.now() - openStarted);
+
+    if (deferredTextureTracker.hasDeferredWork()) {
+      const completion = await withTimeout(
+        deferredTextureTracker.waitForCompletion(),
+        loadDeadline - performance.now(),
+        `${model.id} deferred textures`,
+      );
+      const textureReadyAt = Math.max(shellReadyAt, completion.completedAt);
+      baseResult.textureReadyMs = roundMetric(textureReadyAt - loadStarted);
+      baseResult.deferredTextureMs = roundMetric(textureReadyAt - shellReadyAt);
+      baseResult.deferredTextureCounts = completion.counts;
+    }
 
     normalizeObjectScale(object);
     scene.add(object);
@@ -471,6 +577,8 @@ export async function runBenchCase(
   } catch (error) {
     baseResult.error = errorMessage(error, "Bench case failed.");
   } finally {
+    runBenchCleanupCallbacks(cleanupCallbacks);
+    cleanupCallbacks = [];
     if (object) {
       scene.remove(object);
       disposeObject(object);
@@ -528,8 +636,8 @@ export function renderReportMarkdown(report: BenchReport) {
     `- Platform: ${report.os}/${report.arch}`,
     `- Node: ${report.nodeVersion ?? "unknown"}`,
     "",
-    "| Case | Loaded | Non-blank | Console errors | Meshes | Open ms | Resolve ms | Siblings ms | Preview load ms | Resp samples | Resp max gap ms | USD resolve ms | USD decode ms | WebView/GPU ms | Scene ms | FPS | p50 ms | p95 ms | Error |",
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+    "| Case | Loaded | Non-blank | Console errors | Meshes | Open ms | Resolve ms | Siblings ms | Preview load ms | Texture ready ms | Deferred ms | Texture loaded | Texture failed | Texture total | Resp samples | Resp max gap ms | USD resolve ms | USD decode ms | WebView/GPU ms | Scene ms | FPS | p50 ms | p95 ms | Error |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
   ];
 
   for (const result of report.cases) {
@@ -544,6 +652,11 @@ export function renderReportMarkdown(report: BenchReport) {
         result.resolveFileMs ?? "",
         result.listSiblingsMs ?? "",
         result.loadTimeMs ?? "",
+        result.textureReadyMs ?? "",
+        result.deferredTextureMs ?? "",
+        result.deferredTextureCounts?.loaded ?? "",
+        result.deferredTextureCounts?.failed ?? "",
+        result.deferredTextureCounts?.total ?? "",
         result.loadResponsiveness?.sampleCount ?? "",
         result.loadResponsiveness?.maxGapMs ?? "",
         result.stageTimeMs.resolve ?? "",
