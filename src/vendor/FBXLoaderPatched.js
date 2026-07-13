@@ -1,7 +1,9 @@
-// Vendored from three/examples/jsm/loaders/FBXLoader.js in three 0.179.1.
+// Vendored from three/examples/jsm/loaders/FBXLoader.js in three 0.180.0.
 // Local changes:
 // - Resolve relative helper imports through the three package so this file can
 //   live under src/vendor.
+// - Skip disconnected or parentless deformers found in animation-only FBX
+//   files instead of dereferencing absent geometry connection data.
 // - Ignore AnimationCurve connections whose parent AnimationCurveNode was
 //   intentionally filtered out by parseAnimationCurveNodes(). Amazon
 //   Lumberyard Bistro Exterior v5.2 contains such curves; upstream FBXLoader
