@@ -593,6 +593,7 @@ mod tests {
             "texture.PNG",
             "buffer.bin",
             "toon.bmp",
+            "material.mtl",
             "sphere.sph",
             "sphere.spa",
             "animation.vrma",

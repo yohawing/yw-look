@@ -125,11 +125,12 @@ pub(crate) fn is_supported_extension(extension: &str) -> bool {
 
 /// Extensions readable by the raw byte-read IPC commands. Wider than
 /// `is_supported_extension` because loaders fetch sidecar files that are not
-/// themselves openable formats: glTF external buffers (`bin`), MMD toon and
-/// sphere textures (`bmp`, `sph`, `spa`). `vrma` is read by the optional VRM
-/// loader pack but is not an openable core format. Keep this list in sync with
-/// the frontend loader sidecar reads — see plans/002 for the caller inventory.
-const SIDECAR_READ_EXTENSIONS: &[&str] = &["bin", "bmp", "sph", "spa", "vrma"];
+/// themselves openable formats: glTF external buffers (`bin`), OBJ material
+/// libraries (`mtl`), and MMD toon and sphere textures (`bmp`, `sph`, `spa`).
+/// `vrma` is read by the optional VRM loader pack but is not an openable core
+/// format. Keep this list in sync with the frontend loader sidecar reads — see
+/// plans/002 for the caller inventory.
+const SIDECAR_READ_EXTENSIONS: &[&str] = &["bin", "bmp", "mtl", "sph", "spa", "vrma"];
 
 pub(crate) fn is_readable_asset_extension(extension: &str) -> bool {
     let lowered = extension.to_ascii_lowercase();

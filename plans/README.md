@@ -12,16 +12,16 @@ modified while writing them. The repo is in **alpha mode** (direct commits to
 
 ## Execution order & status
 
-| Plan | Title                                                  | Priority | Effort | Depends on | Status                                                                                                 |
-| ---- | ------------------------------------------------------ | -------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------ |
-| 001  | Gate updater public-key override (security)            | P1       | M      | —          | DONE                                                                                                   |
-| 002  | Extension allowlist on raw binary-read IPC (security)  | P1       | S/M    | —          | BLOCKED (fixture gate 35/37: VMD geometry and OBJ warning expectation failures unrelated to allowlist) |
-| 003  | Characterization tests for `useAppFileOpen`            | P1       | M      | —          | DONE                                                                                                   |
-| 004  | Stale-request guard for file navigation (bug)          | P1       | S      | 003        | DONE                                                                                                   |
-| 005  | Revoke loader blob URLs on abort/fallback (leak)       | P2       | S      | —          | DONE                                                                                                   |
-| 006  | USD inspector busy-retry instead of silent empty (bug) | P2       | S/M    | —          | DONE                                                                                                   |
-| 007  | Re-vendor FBXLoader + three drift check (deps)         | P2       | M      | —          | TODO                                                                                                   |
-| 008  | Refresh README test counts + drift check (docs)        | P3       | S      | —          | TODO                                                                                                   |
+| Plan | Title                                                  | Priority | Effort | Depends on | Status |
+| ---- | ------------------------------------------------------ | -------- | ------ | ---------- | ------ |
+| 001  | Gate updater public-key override (security)            | P1       | M      | —          | DONE   |
+| 002  | Extension allowlist on raw binary-read IPC (security)  | P1       | S/M    | —          | DONE   |
+| 003  | Characterization tests for `useAppFileOpen`            | P1       | M      | —          | DONE   |
+| 004  | Stale-request guard for file navigation (bug)          | P1       | S      | 003        | DONE   |
+| 005  | Revoke loader blob URLs on abort/fallback (leak)       | P2       | S      | —          | DONE   |
+| 006  | USD inspector busy-retry instead of silent empty (bug) | P2       | S/M    | —          | DONE   |
+| 007  | Re-vendor FBXLoader + three drift check (deps)         | P2       | M      | —          | TODO   |
+| 008  | Refresh README test counts + drift check (docs)        | P3       | S      | —          | TODO   |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) |
 REJECTED (one-line rationale).
