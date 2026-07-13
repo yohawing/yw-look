@@ -499,6 +499,9 @@ export async function runShot(
     outcome.loaded = true;
     outcome.meshCount = countMeshes(object);
     if (config.mode === "check" && countRenderableObjects(object) === 0) {
+      if (preview.assetKind === "motion") {
+        return outcome;
+      }
       if (
         await isDeferredUsdEmptyCheckResult(
           selected.path,

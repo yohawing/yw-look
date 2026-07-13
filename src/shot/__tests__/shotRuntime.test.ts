@@ -341,3 +341,39 @@ describe("runShot USD check mode", () => {
     expect(outcome.loaded).toBe(true);
   });
 });
+
+describe("runShot motion check mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolveSelectedFile.mockResolvedValue({
+      path: "C:\\assets\\motion.vmd",
+      fileName: "motion.vmd",
+      extension: "vmd",
+      kind: "motion",
+      parentDirectory: "C:\\assets",
+    });
+    mocks.collectAssetIssues.mockResolvedValue([]);
+    mocks.getScaleWarning.mockReturnValue(null);
+    mocks.loadPreviewObject.mockResolvedValue({
+      ...emptyPreview(),
+      assetKind: "motion",
+    });
+    mocks.normalizeObjectScale.mockReturnValue({});
+  });
+
+  it("accepts metadata-only motion previews without renderable geometry", async () => {
+    const { runShot } = await import("../shotRuntime");
+
+    const outcome = await runShot({
+      ...baseShotConfig(),
+      inputPath: "C:\\assets\\motion.vmd",
+      fileName: "motion.vmd",
+      extension: "vmd",
+    });
+
+    expect(outcome.error).toBeNull();
+    expect(outcome.loaded).toBe(true);
+    expect(outcome.meshCount).toBe(0);
+    expect(outcome.warnings).toEqual([]);
+  });
+});
