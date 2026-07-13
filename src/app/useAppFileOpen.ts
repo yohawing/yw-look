@@ -72,6 +72,7 @@ export function useAppFileOpen({
     path: string;
     requestedAt: number;
   } | null>(null);
+  const selectRequestIdRef = useRef(0);
 
   useEffect(() => {
     useViewerStore.getState().setMorphTargetValues({});
@@ -161,6 +162,7 @@ export function useAppFileOpen({
 
   const performSelectFilePath = useCallback(
     async (path: string, reason: OpenReason = "open") => {
+      const requestId = ++selectRequestIdRef.current;
       const startedAt = performance.now();
       setOpenError(null);
       useViewerStore.getState().updateViewerFeedback({
@@ -174,6 +176,10 @@ export function useAppFileOpen({
         resolveSelectedFile(path),
         listSupportedSiblings(path),
       ]);
+
+      if (requestId !== selectRequestIdRef.current) {
+        return;
+      }
 
       setCurrentFile(resolvedFile);
       setPackFileRequest(null);

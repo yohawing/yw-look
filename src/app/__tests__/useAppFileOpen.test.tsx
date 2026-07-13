@@ -255,7 +255,7 @@ describe("useAppFileOpen", () => {
     );
   });
 
-  it("documents that an older request can overwrite a newer result", async () => {
+  it("drops results of superseded selections that resolve out of order", async () => {
     const first = selected("C:\\assets\\slow.glb");
     const second = selected("C:\\assets\\fast.glb");
     const firstResult = deferred<SelectedFile>();
@@ -281,11 +281,46 @@ describe("useAppFileOpen", () => {
     });
     expect(useFileStore.getState().currentFile).toEqual(second);
 
-    // BUG (plan 004 fixes this): last-resolved wins, not last-requested.
     await act(async () => {
       firstResult.resolve(first);
       await firstSelection;
     });
-    expect(useFileStore.getState().currentFile).toEqual(first);
+    expect(useFileStore.getState().currentFile).toEqual(second);
+    expect(useFileStore.getState().directoryListing).toEqual(
+      listingFor(second),
+    );
+  });
+
+  it("keeps the newest selection when overlapping requests resolve in order", async () => {
+    const first = selected("C:\\assets\\first.glb");
+    const second = selected("C:\\assets\\second.glb");
+    const firstResult = deferred<SelectedFile>();
+    const secondResult = deferred<SelectedFile>();
+    mocks.resolveSelectedFile.mockImplementation((path: string) =>
+      path === first.path ? firstResult.promise : secondResult.promise,
+    );
+    mocks.listSupportedSiblings.mockImplementation(async (path: string) =>
+      listingFor(path === first.path ? first : second),
+    );
+    const { result } = renderFileOpen();
+
+    let firstSelection!: Promise<void>;
+    let secondSelection!: Promise<void>;
+    act(() => {
+      firstSelection = result.current.performSelectFilePath(first.path);
+      secondSelection = result.current.performSelectFilePath(second.path);
+    });
+
+    await act(async () => {
+      firstResult.resolve(first);
+      await firstSelection;
+      secondResult.resolve(second);
+      await secondSelection;
+    });
+
+    expect(useFileStore.getState().currentFile).toEqual(second);
+    expect(useFileStore.getState().directoryListing).toEqual(
+      listingFor(second),
+    );
   });
 });
