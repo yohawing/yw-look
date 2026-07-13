@@ -1,9 +1,9 @@
 import {
   DirectionalLight,
   Group,
+  Object3D,
   type Material,
   type Mesh,
-  type Object3D,
 } from "three";
 import { errorMessage } from "../../lib/errors";
 import type { SelectedFile } from "../../lib/files";
@@ -618,6 +618,15 @@ async function attachPmxRuntimeMetadata(
   return null;
 }
 
+function getMmdMorphSplitBodyMeshes(mmd: MmdRuntimeModelHandle): Object3D[] {
+  const bodyMeshes = mmd.mesh.userData?.mmdMorphSplitBodyMeshes;
+  return Array.isArray(bodyMeshes)
+    ? bodyMeshes.filter(
+        (candidate): candidate is Object3D => candidate instanceof Object3D,
+      )
+    : [];
+}
+
 export async function loadMmdPreviewObject(
   file: SelectedFile,
   context: LoaderContext,
@@ -688,7 +697,7 @@ export async function loadMmdPreviewObject(
     const mmd = await loader.loadModel(buffer, {
       outline: true,
       materialRenderOrder: true,
-      morphSplit: false,
+      morphSplit: true,
       frustumCulled: false,
     });
     throwIfAborted(signal);
@@ -731,6 +740,7 @@ export async function loadMmdPreviewObject(
     mmd.mesh.userData[MMD_MODEL_KEY] = mmd;
     mmd.mesh.userData.mmdSourceFile = file.path;
     for (const proxy of [
+      ...getMmdMorphSplitBodyMeshes(mmd),
       ...(mmd.outlineMeshes ?? []),
       ...(mmd.renderOrderMeshes ?? []),
     ]) {

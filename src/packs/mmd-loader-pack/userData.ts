@@ -65,7 +65,8 @@ export function syncMmdMaterialRenderStates(object: Object3D) {
 export function isMmdProxyObject(object: Object3D): boolean {
   return (
     isMmdOutlineProxyObject(object) ||
-    object.userData?.mmdMaterialRenderProxy !== undefined
+    object.userData?.mmdMaterialRenderProxy !== undefined ||
+    object.userData?.mmdMorphSplitBody !== undefined
   );
 }
 

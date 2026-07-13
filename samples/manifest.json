@@ -259,6 +259,21 @@
         "shouldLoad": true,
         "isZipContainer": true
       }
+    },
+    {
+      "id": "pmx-kotora-yurii-local-regression",
+      "kind": "model",
+      "format": "pmx",
+      "path": "F:\\MMD\\pmx\\EL-Pr252 KOTORA _ 虎寅\\小寅 百合ヰ.pmx",
+      "tags": ["pmx", "mmd", "private", "local-regression", "missing-mesh"],
+      "private": true,
+      "notes": "User-owned local PMX used to reproduce the partial-mesh disappearance regression; do not redistribute.",
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": true
+      }
     }
   ]
 }

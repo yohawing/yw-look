@@ -164,6 +164,7 @@ import {
   loadMmdPreviewObject,
 } from "../loaderInstalled";
 import { collectMmdMetadata } from "../metadata";
+import { isInternalMmdProxyObject } from "../userData";
 import {
   findObjectBySelectionKey,
   selectionKeyForObject,
@@ -374,7 +375,7 @@ describe("MMD preview loader", () => {
       {
         outline: true,
         materialRenderOrder: true,
-        morphSplit: false,
+        morphSplit: true,
         frustumCulled: false,
       },
     );
@@ -565,7 +566,10 @@ describe("MMD preview loader", () => {
   it("keeps PMX root and mesh selection keys distinct", async () => {
     const root = new Group();
     const mesh = new Group();
-    root.add(mesh);
+    const morphSplitBody = new Mesh();
+    morphSplitBody.userData.mmdMorphSplitBody = { materialIndex: 0 };
+    mesh.userData.mmdMorphSplitBodyMeshes = [morphSplitBody];
+    root.add(mesh, morphSplitBody);
     mocks.loadAsync.mockResolvedValue({
       root,
       mesh,
@@ -582,6 +586,8 @@ describe("MMD preview loader", () => {
     expect(mesh.name).toBe("Hatsune Miku");
     expect(rootKey).toBe("Hatsune Miku::mmd-root");
     expect(meshKey).toBe("Hatsune Miku::mmd-mesh");
+    expect(selectionKeyForObject(morphSplitBody)).toBe(meshKey);
+    expect(isInternalMmdProxyObject(morphSplitBody)).toBe(true);
     expect(findObjectBySelectionKey(result.object, meshKey!)).toBe(mesh);
   });
 
