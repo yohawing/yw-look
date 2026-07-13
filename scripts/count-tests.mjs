@@ -2,6 +2,7 @@
 // README の Test Coverage 表を更新するための小スクリプト。
 //   node scripts/count-tests.mjs        # 表形式で出力
 //   node scripts/count-tests.mjs --json # JSON で出力 (CI / 自動化向け)
+//   node scripts/count-tests.mjs --check # README の件数と照合
 //
 // テストランナーを起動せずに静的にカウントするため、動的生成された
 // テストケースは無視される。値は README 用の概算。
@@ -94,7 +95,50 @@ const result = {
   ),
 };
 
-if (process.argv.includes("--json")) {
+if (process.argv.includes("--check")) {
+  const readme = await readFile(join(ROOT, "README.md"), "utf8");
+  const expectations = [
+    ["badge", /tests-(\d+)-brightgreen/, result.testCases],
+    ["テストファイル", /\| テストファイル\s+\|\s+(\d+) \|/, result.testFiles],
+    ["テストケース", /\| テストケース\s+\|\s+(\d+) \|/, result.testCases],
+    [
+      "フロントエンドのテストケース",
+      /\| フロントエンドのテストケース\s+\|\s+(\d+) \|/,
+      result.frontendTestCases,
+    ],
+    [
+      "Rust のテストケース",
+      /\| Rust のテストケース\s+\|\s+(\d+) \|/,
+      result.rustTestCases,
+    ],
+    [
+      "Fixture アセット",
+      /\| Fixture アセット\s+\|\s+(\d+) \|/,
+      result.fixtureFiles,
+    ],
+    [
+      "Fixture カタログケース",
+      /\| Fixture カタログケース\s+\|\s+(\d+) \|/,
+      result.fixtureCatalogCases,
+    ],
+  ];
+  const mismatches = expectations.flatMap(([label, pattern, expected]) => {
+    const match = readme.match(pattern);
+    const actual = match ? Number(match[1]) : "missing";
+    return actual === expected
+      ? []
+      : [`${label}: expected ${expected}, found ${actual}`];
+  });
+
+  if (mismatches.length > 0) {
+    process.stderr.write(
+      `README test counts are stale:\n${mismatches.join("\n")}\n`,
+    );
+    process.exitCode = 1;
+  } else {
+    process.stdout.write("README test counts are current.\n");
+  }
+} else if (process.argv.includes("--json")) {
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
 } else {
   const rows = [

@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 ![Development](https://img.shields.io/badge/development-active-blue)
-![Tests](https://img.shields.io/badge/tests-314-brightgreen)
+![Tests](https://img.shields.io/badge/tests-972-brightgreen)
 ![Formats](https://img.shields.io/badge/formats-14-informational)
 
 Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動せず、3Dモデル、テクスチャ、HDR / EXR、メタデータ、欠損参照をすばやく確認するためのデスクトップアプリである。
@@ -46,12 +46,12 @@ yw-look は「何でもできるビューア」ではなく、**開く前後の�
 
 | 項目                         | 件数 |
 | ---------------------------- | ---: |
-| テストファイル               |   39 |
-| テストケース                 |  314 |
-| フロントエンドのテストケース |  216 |
-| Rust のテストケース          |   98 |
-| Fixture アセット             |   14 |
-| Fixture カタログケース       |   14 |
+| テストファイル               |  136 |
+| テストケース                 |  972 |
+| フロントエンドのテストケース |  679 |
+| Rust のテストケース          |  293 |
+| Fixture アセット             |   35 |
+| Fixture カタログケース       |   37 |
 | 対応 3D フォーマット         |    7 |
 | 対応画像フォーマット         |    7 |
 
