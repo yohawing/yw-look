@@ -39,7 +39,11 @@ import type {
 } from "../types/viewer";
 import { isInternalMmdProxyObject } from "../packs";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
-import { isViewportHelperObject, getMaterials } from "./scene";
+import {
+  isViewportHelperObject,
+  getMaterials,
+  type SceneTraversalSnapshot,
+} from "./scene";
 import {
   explicitObjectSelectionKey,
   resolveObjectSelectionKey,
@@ -462,10 +466,13 @@ function boneDisplayName(bone: Bone): string {
   );
 }
 
-function buildMmdBoneMetadata(root: Object3D): Map<Bone, MmdBoneEntry> {
+function buildMmdBoneMetadata(
+  root: Object3D,
+  objects?: readonly Object3D[],
+): Map<Bone, MmdBoneEntry> {
   const entries = new Map<Bone, MmdBoneEntry>();
 
-  root.traverse((object) => {
+  const visit = (object: Object3D) => {
     if (!(object instanceof SkinnedMesh) || !object.skeleton) return;
     if (isSyntheticWrapper(object)) return;
     const bones = object.skeleton.bones;
@@ -515,7 +522,12 @@ function buildMmdBoneMetadata(root: Object3D): Map<Bone, MmdBoneEntry> {
         ik,
       });
     });
-  });
+  };
+  if (objects) {
+    for (const object of objects) visit(object);
+  } else {
+    root.traverse(visit);
+  }
 
   return entries;
 }
@@ -1128,6 +1140,7 @@ export function collectAssetMetadata(
   clips: AnimationClip[],
   formatVersion: string | null,
   mmdMetadata?: MmdAssetMetadata,
+  traversal?: Pick<SceneTraversalSnapshot, "objects">,
 ): MetadataCollection {
   let nodeCount = 0;
   let meshCount = 0;
@@ -1148,9 +1161,9 @@ export function collectAssetMetadata(
   const cameraSeenCounts = new Map<string, number>();
   // Selection key → per-object info for the shared inspector (#80)
   const objectInfoMap = new Map<string, ObjectInfo>();
-  const mmdBoneMetadata = buildMmdBoneMetadata(object);
+  const mmdBoneMetadata = buildMmdBoneMetadata(object, traversal?.objects);
 
-  object.traverse((child: Object3D) => {
+  const visit = (child: Object3D) => {
     if (isSyntheticWrapper(child)) return;
     nodeCount += 1;
     if (child instanceof Bone) {
@@ -1231,7 +1244,12 @@ export function collectAssetMetadata(
         textureRegistry.set(textureId, textureValue);
       }
     }
-  });
+  };
+  if (traversal) {
+    for (const child of traversal.objects) visit(child);
+  } else {
+    object.traverse(visit);
+  }
 
   return {
     metadata: {

@@ -34,6 +34,7 @@ export {
   applyControlsSensitivity,
   computeAutoSensitivity,
   getObjectMaxDimension,
+  collectSceneTraversal,
   normalizeObjectScale,
   cancelScaleNormalization,
   formatScaleFactor,
@@ -63,6 +64,7 @@ export type {
   ScaleNormalizationResult,
   TextureFilterMode,
   SurfaceMaterialMode,
+  SceneTraversalSnapshot,
 } from "./scene";
 
 export {

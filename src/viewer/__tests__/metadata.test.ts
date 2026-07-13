@@ -35,7 +35,11 @@ import {
   collectAssetMetadata,
   scheduleTextureThumbnailEnrichment,
 } from "../metadata";
-import { applyDisplayMode } from "../scene";
+import {
+  applyDisplayMode,
+  collectSceneTraversal,
+  normalizeObjectScale,
+} from "../scene";
 import type { SelectedFile } from "../../lib/files";
 
 const fakeFile: SelectedFile = {
@@ -106,6 +110,38 @@ afterEach(() => {
 });
 
 describe("collectAssetMetadata", () => {
+  it("reuses one scene traversal for load-time scale, display, and metadata work", () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+    const mesh = new Mesh(geometry, new MeshBasicMaterial());
+    mesh.name = "Triangle";
+    const root = new Group();
+    root.add(mesh);
+    const traverseSpy = vi.spyOn(root, "traverse");
+
+    const traversal = collectSceneTraversal(root);
+    normalizeObjectScale(root, traversal);
+    applyDisplayMode(root, "texturedWireframe", traversal);
+    const result = collectAssetMetadata(
+      root,
+      fakeFile,
+      [],
+      null,
+      undefined,
+      traversal,
+    );
+
+    expect(traverseSpy).toHaveBeenCalledTimes(1);
+    expect(result.metadata.meshCount).toBe(1);
+    expect(result.metadata.objectInfo.Triangle).toBeDefined();
+    expect(
+      result.metadata.objectInfo.__yw_textured_wireframe_overlay,
+    ).toBeUndefined();
+  });
+
   it("does not throw when an Object3D has a null name (Collada parity)", () => {
     const root = new Group();
     // Simulate ColladaLoader assigning null instead of "" — this is what

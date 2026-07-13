@@ -153,7 +153,27 @@ export function isViewportHelperObject(child: Object3D) {
 type TraverseMeshesExcludingHelpersOptions = {
   excludeMmdOutlineMeshes?: boolean;
   excludeShadowCatcher?: boolean;
+  meshes?: readonly Mesh[];
 };
+
+export type SceneTraversalSnapshot = {
+  maxDimension: number;
+  meshes: readonly Mesh[];
+  objects: readonly Object3D[];
+};
+
+export function collectSceneTraversal(
+  object: Group | Mesh,
+): SceneTraversalSnapshot {
+  const maxDimension = getObjectMaxDimension(object);
+  const objects: Object3D[] = [];
+  const meshes: Mesh[] = [];
+  object.traverse((child) => {
+    objects.push(child);
+    if (child instanceof Mesh) meshes.push(child);
+  });
+  return { maxDimension, meshes, objects };
+}
 
 export function traverseMeshesExcludingHelpers(
   object: Group | Mesh,
@@ -163,7 +183,7 @@ export function traverseMeshesExcludingHelpers(
   const excludeMmdOutlineMeshes = options.excludeMmdOutlineMeshes ?? true;
   const excludeShadowCatcher = options.excludeShadowCatcher ?? false;
 
-  object.traverse((child: Object3D) => {
+  const visit = (child: Object3D) => {
     if (!(child instanceof Mesh)) {
       return;
     }
@@ -177,7 +197,12 @@ export function traverseMeshesExcludingHelpers(
       return;
     }
     callback(child);
-  });
+  };
+  if (options.meshes) {
+    for (const mesh of options.meshes) visit(mesh);
+  } else {
+    object.traverse(visit);
+  }
 }
 
 function readCssColorToken(token: string, fallback: string) {
@@ -895,8 +920,10 @@ export function getObjectMaxDimension(object: Group | Mesh) {
 
 export function normalizeObjectScale(
   object: Group | Mesh,
+  traversal?: Pick<SceneTraversalSnapshot, "maxDimension">,
 ): ScaleNormalizationResult {
-  const originalMaxDimension = getObjectMaxDimension(object);
+  const originalMaxDimension =
+    traversal?.maxDimension ?? getObjectMaxDimension(object);
   if (!Number.isFinite(originalMaxDimension) || originalMaxDimension <= 0) {
     return {
       applied: false,
@@ -951,7 +978,11 @@ export function normalizeObjectScale(
     factor,
     originalMaxDimension,
     normalizedMaxDimension: applied
-      ? getObjectMaxDimension(object)
+      ? traversal
+        ? object.userData?.disableAutoFrame
+          ? originalMaxDimension
+          : originalMaxDimension * Math.abs(factor)
+        : getObjectMaxDimension(object)
       : originalMaxDimension,
     originalScale,
   };
@@ -1074,7 +1105,8 @@ export function getScaleWarning(
     return `Scale normalized (${formatScaleFactor(normalized.factor)}×). Click "Cancel Scale Normalize" to revert.`;
   }
 
-  const maxDimension = getObjectMaxDimension(object);
+  const maxDimension =
+    normalized?.normalizedMaxDimension ?? getObjectMaxDimension(object);
 
   if (maxDimension <= 0.001) {
     return "Scale warning: the loaded content is extremely small.";
@@ -1820,6 +1852,7 @@ export function applyBackfaceCulling(
 export function applyDisplayMode(
   object: Group | Mesh,
   displayMode: DisplayMode,
+  traversal?: Pick<SceneTraversalSnapshot, "meshes">,
 ) {
   const showWireframeOverlay = displayMode === "texturedWireframe";
   const wireframeColor = new Color(
@@ -1907,7 +1940,7 @@ export function applyDisplayMode(
         }
       }
     },
-    { excludeMmdOutlineMeshes: false },
+    { excludeMmdOutlineMeshes: false, meshes: traversal?.meshes },
   );
 }
 

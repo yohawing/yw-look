@@ -25,6 +25,7 @@ import {
   applySkeletonHelpers,
   applyTextureFilter,
   collectAssetMetadata,
+  collectSceneTraversal,
   disposeObject,
   getClipLabel,
   getObjectMaxDimension,
@@ -216,13 +217,14 @@ export async function mountLoadedPreview(
   }
 
   const state = getMountState();
+  const traversal = collectSceneTraversal(object);
 
   if (rendering) {
     applyPreviewRenderingPreset(context.renderer, rendering);
   }
   const normalization = skipScaleNormalization
-    ? buildSkippedNormalization(object)
-    : normalizeObjectScale(object);
+    ? buildSkippedNormalization(object, traversal.maxDimension)
+    : normalizeObjectScale(object, traversal);
   refs.scaleNormalizationRef.current =
     normalization.applied && normalization.originalScale
       ? {
@@ -250,7 +252,7 @@ export async function mountLoadedPreview(
     normalization.normalizedMaxDimension,
     state.showAxes,
   );
-  applyDisplayMode(object, state.displayMode);
+  applyDisplayMode(object, state.displayMode, traversal);
   applyBackfaceCulling(object, state.backfaceCulling);
   applyTextureFilter(object, state.textureFilterMode);
   applySurfaceMaterialMode(
@@ -294,6 +296,7 @@ export async function mountLoadedPreview(
     clips,
     formatVersion,
     packMetadata?.kind === "mmd" ? packMetadata.asset : undefined,
+    traversal,
   );
   if (isDisposed()) {
     return abortMountedPreview();
@@ -391,8 +394,11 @@ export async function mountLoadedPreview(
   return readyFeedbackBase;
 }
 
-function buildSkippedNormalization(object: LoadedPreviewObject["object"]) {
-  const maxDimension = getObjectMaxDimension(object);
+function buildSkippedNormalization(
+  object: LoadedPreviewObject["object"],
+  maxDimension?: number,
+) {
+  maxDimension ??= getObjectMaxDimension(object);
   return {
     applied: false,
     factor: 1,

@@ -20,15 +20,66 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import {
   applyBackfaceCulling,
+  collectSceneTraversal,
   applyDisplayMode,
   applyShadows,
   applySurfaceMaterialMode,
   disposeObject,
+  getScaleWarning,
   applyUnlitMaterial,
   applyVertexColors,
   traverseMeshesExcludingHelpers,
+  normalizeObjectScale,
 } from "../scene";
 import { syncMmdTransparentMaterialRenderState } from "../../packs";
+
+describe("load-time traversal snapshot", () => {
+  it("preserves disableAutoFrame normalization parity", () => {
+    const createSplatRoot = () => {
+      const root = new Group();
+      root.userData.disableAutoFrame = true;
+      root.userData.splatBoundsMaxDimension = 540;
+      return root;
+    };
+    const baselineRoot = createSplatRoot();
+    const snapshotRoot = createSplatRoot();
+    const traversal = collectSceneTraversal(snapshotRoot);
+
+    const baseline = normalizeObjectScale(baselineRoot);
+    const optimized = normalizeObjectScale(snapshotRoot, traversal);
+
+    expect(optimized).toEqual(baseline);
+    expect(optimized).toMatchObject({
+      applied: true,
+      factor: 0.1,
+      originalMaxDimension: 540,
+      normalizedMaxDimension: 540,
+    });
+  });
+
+  it("uses the normalization dimension for warnings without recomputing bounds", () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0]), 3),
+    );
+    const computeBoundsSpy = vi.spyOn(geometry, "computeBoundingBox");
+    const root = new Group().add(new Mesh(geometry, new MeshBasicMaterial()));
+
+    const warning = getScaleWarning(root, {
+      applied: false,
+      factor: 1,
+      originalMaxDimension: 0.0005,
+      normalizedMaxDimension: 0.0005,
+      originalScale: null,
+    });
+
+    expect(warning).toBe(
+      "Scale warning: the loaded content is extremely small.",
+    );
+    expect(computeBoundsSpy).not.toHaveBeenCalled();
+  });
+});
 
 describe("traverseMeshesExcludingHelpers", () => {
   it("skips viewport helpers and supports optional outline and shadow catcher filters", () => {

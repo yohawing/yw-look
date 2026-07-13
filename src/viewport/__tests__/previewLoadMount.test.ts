@@ -13,6 +13,12 @@ const viewerMocks = vi.hoisted(() => {
   const cleanupCallback = vi.fn();
   return {
     cleanupCallback,
+    applyDisplayMode: vi.fn(),
+    collectSceneTraversal: vi.fn((object: Group) => ({
+      maxDimension: 1,
+      meshes: [],
+      objects: [object],
+    })),
     disposeObject: vi.fn(),
     revokeUrls: vi.fn(),
     normalizeObjectScale: vi.fn(() => {
@@ -61,7 +67,7 @@ vi.mock("../../viewer", () => ({
   activateClip: viewerMocks.stub,
   applyBackfaceCulling: viewerMocks.stub,
   applyBoundingBoxHelpers: viewerMocks.stub,
-  applyDisplayMode: viewerMocks.stub,
+  applyDisplayMode: viewerMocks.applyDisplayMode,
   applyDynamicAxes: viewerMocks.stub,
   applyDynamicGrid: viewerMocks.applyDynamicGrid,
   applySurfaceMaterialMode: viewerMocks.applySurfaceMaterialMode,
@@ -71,6 +77,7 @@ vi.mock("../../viewer", () => ({
   applySkeletonHelpers: viewerMocks.applySkeletonHelpers,
   applyTextureFilter: viewerMocks.stub,
   collectAssetMetadata: viewerMocks.collectAssetMetadata,
+  collectSceneTraversal: viewerMocks.collectSceneTraversal,
   disposeObject: viewerMocks.disposeObject,
   getClipLabel: viewerMocks.stub,
   getObjectMaxDimension: viewerMocks.stub,
@@ -222,6 +229,8 @@ describe("mountLoadedPreview", () => {
     viewerMocks.revokeUrls.mockClear();
     viewerMocks.normalizeObjectScale.mockClear();
     viewerMocks.collectAssetMetadata.mockClear();
+    viewerMocks.collectSceneTraversal.mockClear();
+    viewerMocks.applyDisplayMode.mockClear();
     viewerMocks.applySkeletonHelpers.mockClear();
     viewerMocks.applySurfaceMaterialMode.mockClear();
     viewerMocks.scheduleTextureThumbnailEnrichment.mockClear();
@@ -372,6 +381,44 @@ describe("mountLoadedPreview", () => {
     expect(viewerMocks.applySurfaceMaterialMode).toHaveBeenCalledWith(
       object,
       "normals",
+    );
+  });
+
+  it("reuses one load-completion traversal snapshot", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+      },
+      options,
+    );
+
+    const traversal = viewerMocks.collectSceneTraversal.mock.results[0]?.value;
+    expect(viewerMocks.collectSceneTraversal).toHaveBeenCalledOnce();
+    expect(viewerMocks.normalizeObjectScale).toHaveBeenCalledWith(
+      object,
+      traversal,
+    );
+    expect(viewerMocks.applyDisplayMode).toHaveBeenCalledWith(
+      object,
+      "textured",
+      traversal,
+    );
+    expect(viewerMocks.collectAssetMetadata).toHaveBeenCalledWith(
+      object,
+      options.currentFile,
+      [],
+      null,
+      undefined,
+      traversal,
     );
   });
 
