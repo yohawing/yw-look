@@ -119,6 +119,23 @@ const cases = [
     background: "default",
     requiresLoader: "mmd",
   },
+  ...[
+    ["initial", undefined],
+    ["explicit-zero", [0, 0]],
+    ["global-half", [0.5, 0]],
+    ["global-one", [1, 0]],
+    ["individual-one", [0, 1]],
+    ["combined", [0.5, 1]],
+  ].map(([state, morphWeights]) => ({
+    id: `pmx-material-morph-${state}`,
+    input: "tests/fixtures/models/material-morph-two-materials.pmx",
+    snapshot: `tests/visual/snapshots/viewport/pmx-material-morph-${state}.png`,
+    actual: `artifacts/screenshots/viewport/pmx-material-morph-${state}-current.png`,
+    size: "512x384",
+    background: "#20242c",
+    requiresLoader: "mmd",
+    ...(morphWeights ? { morphWeights } : {}),
+  })),
   {
     id: "gltf-duck",
     input: "samples/assets/gltf/Duck.gltf",
@@ -256,6 +273,9 @@ function formatCaseListEntry(testCase) {
     testCase.requiresLoader
       ? `requiresLoader=${testCase.requiresLoader}`
       : null,
+    testCase.morphWeights
+      ? `morphWeights=${testCase.morphWeights.join(",")}`
+      : null,
   ].filter(Boolean);
   const suffix = details.length > 0 ? ` [${details.join(", ")}]` : "";
   return `${testCase.id}: ${testCase.input}${suffix}`;
@@ -375,6 +395,9 @@ async function runShot(testCase) {
     "--bg",
     testCase.background,
   ];
+  if (testCase.morphWeights) {
+    shotArgs.push("--morph-weights", testCase.morphWeights.join(","));
+  }
 
   const result = await runChildProcess(process.execPath, shotArgs, {
     cwd: repoRoot,
@@ -396,6 +419,7 @@ async function runShotBatch(testCases) {
       width,
       height,
       background: testCase.background,
+      ...(testCase.morphWeights ? { morphWeights: testCase.morphWeights } : {}),
     };
   });
   const batchConfigPath = resolveRepoPath(

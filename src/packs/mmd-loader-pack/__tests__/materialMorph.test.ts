@@ -227,6 +227,44 @@ describe("attachMmdMaterialMorphRuntime", () => {
     expect(syncMaterials).toHaveBeenCalledTimes(2);
   });
 
+  it("reuses evaluated states and nested vectors across changing frames", () => {
+    const material = new MeshBasicMaterial();
+    const mesh = new Mesh(undefined, material);
+    mesh.morphTargetInfluences = [0];
+    let firstStates: readonly MmdMaterialState[] | undefined;
+    let firstDiffuse: MmdMaterialState["diffuse"] | undefined;
+    let syncCount = 0;
+    const syncMaterials = vi.fn(
+      (_materials: unknown, states: readonly MmdMaterialState[]) => {
+        if (!firstStates) {
+          firstStates = states;
+          firstDiffuse = states[0].diffuse;
+        } else {
+          expect(states).toBe(firstStates);
+          expect(states[0].diffuse).toBe(firstDiffuse);
+        }
+        syncCount += 1;
+      },
+    );
+    const model = { mesh } as unknown as MmdRuntimeModelHandle;
+
+    attachMmdMaterialMorphRuntime(
+      model,
+      createData([
+        createOffset({ operation: "add", diffuse: [0.2, 0, 0, -0.5] }),
+      ]),
+      syncMaterials,
+      vi.fn(),
+    );
+
+    for (let frame = 1; frame <= 240; frame += 1) {
+      mesh.morphTargetInfluences[0] = frame % 2;
+      model.syncMaterialMorphs?.();
+    }
+
+    expect(syncCount).toBe(241);
+  });
+
   it("syncs an independent render-order proxy by its material index", () => {
     const bodyMaterials = [new MeshBasicMaterial(), new MeshBasicMaterial()];
     const body = new Mesh(undefined, bodyMaterials);

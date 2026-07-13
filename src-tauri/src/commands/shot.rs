@@ -17,6 +17,7 @@ pub(crate) struct ShotConfigPayload {
     file_name: String,
     extension: String,
     motion_path: Option<String>,
+    morph_weights: Vec<f64>,
     width: u32,
     height: u32,
     background: Option<String>,
@@ -57,6 +58,28 @@ fn parse_usd_load_policy_argument(value: &str) -> Result<StageLoadPolicy, AppErr
             "--usd-load-policy expects loadAll or noPayloads, got '{value}'"
         ))),
     }
+}
+
+fn parse_morph_weights_argument(value: &str) -> Result<Vec<f64>, AppError> {
+    if value.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    value
+        .split(',')
+        .map(|entry| {
+            let weight = entry.trim().parse::<f64>().map_err(|error| {
+                AppError::Internal(format!(
+                    "--morph-weights expects comma-separated numbers, got '{entry}': {error}"
+                ))
+            })?;
+            if !weight.is_finite() {
+                return Err(AppError::Internal(format!(
+                    "--morph-weights values must be finite, got '{entry}'"
+                )));
+            }
+            Ok(weight)
+        })
+        .collect()
 }
 
 fn resolve_shot_input(path: &Path) -> Result<PathBuf, AppError> {
@@ -114,6 +137,7 @@ fn to_shot_config_payload(case_index: usize, config: &ShotCliCase) -> ShotConfig
             .motion_path
             .as_ref()
             .map(|path| path.display().to_string()),
+        morph_weights: config.morph_weights.clone(),
         width: config.width,
         height: config.height,
         background: config.background.clone(),
@@ -196,6 +220,7 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
                         .as_deref()
                         .map(resolve_shot_input)
                         .transpose()?,
+                    morph_weights: case.morph_weights,
                     width: case.width,
                     height: case.height,
                     background: case.background,
@@ -219,6 +244,7 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
     let mut input_path: Option<PathBuf> = None;
     let mut output_path: Option<PathBuf> = None;
     let mut motion_path: Option<PathBuf> = None;
+    let mut morph_weights = Vec::new();
     let mut size: Option<(u32, u32)> = None;
     let mut background: Option<String> = None;
     let mut usd_load_policy = StageLoadPolicy::LoadAll;
@@ -246,6 +272,13 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
                     .get(index)
                     .ok_or_else(|| AppError::Internal("--motion requires a path".into()))?;
                 motion_path = Some(PathBuf::from(value));
+            }
+            "--morph-weights" => {
+                index += 1;
+                let value = args.get(index).ok_or_else(|| {
+                    AppError::Internal("--morph-weights requires comma-separated values".into())
+                })?;
+                morph_weights = parse_morph_weights_argument(value)?;
             }
             "--size" => {
                 index += 1;
@@ -302,6 +335,7 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
             input_path,
             output_path,
             motion_path,
+            morph_weights,
             width,
             height,
             background,
@@ -453,6 +487,7 @@ mod tests {
         assert_eq!(case.height, 180);
         assert_eq!(case.background.as_deref(), Some("transparent"));
         assert!(case.motion_path.is_none());
+        assert!(case.morph_weights.is_empty());
         assert_eq!(case.usd_load_policy, StageLoadPolicy::NoPayloads);
         assert_eq!(case.input_path.file_name().unwrap(), "input.glb");
         assert_eq!(
@@ -508,6 +543,8 @@ mod tests {
             input_path.display().to_string(),
             "--motion".to_string(),
             motion_path.display().to_string(),
+            "--morph-weights".to_string(),
+            "0.5,1".to_string(),
             "--out".to_string(),
             output_path.display().to_string(),
         ];
@@ -522,6 +559,7 @@ mod tests {
             case.motion_path.as_ref().unwrap().file_name().unwrap(),
             "motion.vmd"
         );
+        assert_eq!(case.morph_weights, vec![0.5, 1.0]);
 
         let _ = fs::remove_dir_all(root);
     }

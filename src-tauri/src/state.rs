@@ -38,6 +38,8 @@ pub(crate) struct ShotBatchCaseArgument {
     pub(crate) input_path: PathBuf,
     pub(crate) output_path: PathBuf,
     pub(crate) motion_path: Option<PathBuf>,
+    #[serde(default)]
+    pub(crate) morph_weights: Vec<f64>,
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) background: Option<String>,
@@ -67,6 +69,7 @@ pub(crate) struct ShotCliCase {
     pub(crate) input_path: PathBuf,
     pub(crate) output_path: Option<PathBuf>,
     pub(crate) motion_path: Option<PathBuf>,
+    pub(crate) morph_weights: Vec<f64>,
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) background: Option<String>,

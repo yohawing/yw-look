@@ -43,6 +43,7 @@ import {
   type SceneContext,
 } from "../viewer";
 import { createMmdRuntime, syncMmdPreviewSpecularDirection } from "../packs";
+import type { MmdRuntimeModelHandle } from "../types/viewer";
 
 export type ShotMode = "shot" | "check";
 
@@ -53,6 +54,7 @@ export type ShotConfig = {
   fileName: string;
   extension: string;
   motionPath: string | null;
+  morphWeights: number[];
   width: number;
   height: number;
   background: string | null;
@@ -269,6 +271,27 @@ function countRenderableObjects(object: Group | Mesh) {
   return count;
 }
 
+export function applyShotMorphWeights(
+  model: MmdRuntimeModelHandle | undefined,
+  weights: readonly number[],
+) {
+  if (weights.length === 0) return;
+  if (!model) {
+    throw new Error("Morph weights require a loaded MMD model.");
+  }
+  const mesh = model.mesh as Mesh;
+  const influences = mesh.morphTargetInfluences ?? [];
+  while (influences.length < weights.length) influences.push(0);
+  weights.forEach((weight, index) => {
+    if (!Number.isFinite(weight)) {
+      throw new Error(`Morph weight ${index} must be finite.`);
+    }
+    influences[index] = weight;
+  });
+  mesh.morphTargetInfluences = influences;
+  model.syncMaterialMorphs?.();
+}
+
 async function validateUsdInspection(path: string, policy: StageLoadPolicy) {
   const [summary, inspection] = await Promise.all([
     summarizeStage(path, policy),
@@ -479,6 +502,7 @@ export async function runShot(
         "MMD motion requires a loaded MMD model with runtime support.",
       );
     }
+    applyShotMorphWeights(preview.mmdModel, config.morphWeights);
     outcome.loadTimeMs = Math.round((performance.now() - started) * 100) / 100;
 
     const normalization = normalizeObjectScale(object);

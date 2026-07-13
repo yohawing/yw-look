@@ -19,22 +19,23 @@ tests/fixtures/
 
 ## models/
 
-| ファイル                           | フォーマット                                          | 内容                                        | 由来                                                                 |
-| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------- |
-| `triangle.gltf`                    | glTF 2.0 (JSON + embedded base64)                     | 1 三角形 (頂点 3 + インデックス 3)          | 手書き JSON                                                          |
-| `box-textured.glb`                 | GLB (binary glTF)                                     | 小さい textured box                         | `samples/assets/glb/BoxTextured.glb`                                 |
-| `triangle.obj`                     | Wavefront OBJ (ASCII)                                 | 1 三角形                                    | 手書き ASCII                                                         |
-| `triangle.stl`                     | STL ASCII                                             | 1 三角形、法線付き                          | 手書き ASCII                                                         |
-| `triangle.ply`                     | PLY ASCII 1.0                                         | 1 三角形                                    | 手書き ASCII                                                         |
-| `tiny-pointcloud.ply`              | PLY ASCII 1.0                                         | 4 点の point cloud                          | 手書き ASCII                                                         |
-| `cactus-supersplat-compressed.ply` | PLY binary little endian (SuperSplat compressed 3DGS) | 139,410 splats; classifier regression only  | `3DGS_PLY_sample_data`, CC0; credit URL: https://www.steam-studio.jp |
-| `tiny-tetrahedron.dae`             | COLLADA                                               | 1 四面体                                    | `samples/assets/dae/TinyTetrahedron.dae`                             |
-| `animated-triangle.fbx`            | FBX (ASCII 7.4)                                       | 1 三角形 + Y 軸 1 秒の translation クリップ | `node tests/fixtures/_generate.mjs`                                  |
-| `tiny.usda`                        | USDA 1.0 (ASCII)                                      | 1 四角形メッシュ + stage metadata           | `samples/assets/usd/tiny.usda`                                       |
-| `tiny.usd`                         | USD (ASCII, USDA syntax)                              | 1 四角形メッシュ + stage metadata           | `tiny.usda` と同一内容（`.usd` 拡張子の回帰用）                      |
-| `tiny.usdc`                        | USDC (binary crate)                                   | 1 四角形メッシュ + stage metadata           | `usdcat -o tiny.usdc tiny.usda`（OpenUSD CLI）                       |
-| `tiny.usdz`                        | USDZ (ZIP, USDA root)                                 | 1 四角形メッシュ + stage metadata           | `usdzip -c tiny.usdz tiny.usda`（OpenUSD CLI）                       |
-| `monkey.abc`                       | Alembic (Ogawa)                                       | Blender Suzanne (static)                    | Blender 3.x エクスポート                                             |
+| ファイル                           | フォーマット                                          | 内容                                                | 由来                                                                 |
+| ---------------------------------- | ----------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------- |
+| `triangle.gltf`                    | glTF 2.0 (JSON + embedded base64)                     | 1 三角形 (頂点 3 + インデックス 3)                  | 手書き JSON                                                          |
+| `box-textured.glb`                 | GLB (binary glTF)                                     | 小さい textured box                                 | `samples/assets/glb/BoxTextured.glb`                                 |
+| `triangle.obj`                     | Wavefront OBJ (ASCII)                                 | 1 三角形                                            | 手書き ASCII                                                         |
+| `triangle.stl`                     | STL ASCII                                             | 1 三角形、法線付き                                  | 手書き ASCII                                                         |
+| `triangle.ply`                     | PLY ASCII 1.0                                         | 1 三角形                                            | 手書き ASCII                                                         |
+| `tiny-pointcloud.ply`              | PLY ASCII 1.0                                         | 4 点の point cloud                                  | 手書き ASCII                                                         |
+| `cactus-supersplat-compressed.ply` | PLY binary little endian (SuperSplat compressed 3DGS) | 139,410 splats; classifier regression only          | `3DGS_PLY_sample_data`, CC0; credit URL: https://www.steam-studio.jp |
+| `tiny-tetrahedron.dae`             | COLLADA                                               | 1 四面体                                            | `samples/assets/dae/TinyTetrahedron.dae`                             |
+| `animated-triangle.fbx`            | FBX (ASCII 7.4)                                       | 1 三角形 + Y 軸 1 秒の translation クリップ         | `node tests/fixtures/_generate.mjs`                                  |
+| `material-morph-two-materials.pmx` | PMX 2.0                                               | 2 material + global multiply / individual add morph | `node tests/fixtures/_generate.mjs`                                  |
+| `tiny.usda`                        | USDA 1.0 (ASCII)                                      | 1 四角形メッシュ + stage metadata                   | `samples/assets/usd/tiny.usda`                                       |
+| `tiny.usd`                         | USD (ASCII, USDA syntax)                              | 1 四角形メッシュ + stage metadata                   | `tiny.usda` と同一内容（`.usd` 拡張子の回帰用）                      |
+| `tiny.usdc`                        | USDC (binary crate)                                   | 1 四角形メッシュ + stage metadata                   | `usdcat -o tiny.usdc tiny.usda`（OpenUSD CLI）                       |
+| `tiny.usdz`                        | USDZ (ZIP, USDA root)                                 | 1 四角形メッシュ + stage metadata                   | `usdzip -c tiny.usdz tiny.usda`（OpenUSD CLI）                       |
+| `monkey.abc`                       | Alembic (Ogawa)                                       | Blender Suzanne (static)                            | Blender 3.x エクスポート                                             |
 
 ### 手動配置が必要なフォーマット (TODO)
 
@@ -95,7 +96,15 @@ B8 エラー fixture マトリクス（ベータ運用基盤 B1–B7 の検証�
 node tests/fixtures/_generate.mjs
 ```
 
-PNG / JPG / JPEG、`models/animated-triangle.fbx`、および `broken/` 配下の B8 fixture（上表の生成対象）が再生成される。`truncated.gltf` と `garbage.obj` は手書きのため再生成不要。
+PNG / JPG / JPEG、`models/animated-triangle.fbx`、`models/material-morph-two-materials.pmx`、および `broken/` 配下の B8 fixture（上表の生成対象）が再生成される。`truncated.gltf` と `garbage.obj` は手書きのため再生成不要。
+
+### PMX material morph の検証範囲
+
+対応対象は multiply / add、全 material (`materialIndex = -1`) / 個別 material、
+複数 morph の合成、0 / 0.5 / 1 の weight、body / outline / render-order proxy
+への同期、group / flip から material morph への展開である。material morph 以外の
+vertex / bone / UV / impulse morph の評価はこの fixture と
+`materialMorph.ts` の責務外であり、MMD runtime 側の回帰として扱う。
 
 ---
 

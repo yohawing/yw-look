@@ -41,7 +41,9 @@ class Object3D {
 }
 
 class Group extends Object3D {}
-class Mesh extends Object3D {}
+class Mesh extends Object3D {
+  morphTargetInfluences?: number[];
+}
 class Points extends Object3D {}
 class Line extends Object3D {}
 class LineSegments extends Object3D {}
@@ -225,12 +227,35 @@ function baseShotConfig() {
     fileName: "stage.usda",
     extension: "usda",
     motionPath: null,
+    morphWeights: [],
     width: 64,
     height: 64,
     background: null,
     usdLoadPolicy: "noPayloads" as const,
   };
 }
+
+describe("applyShotMorphWeights", () => {
+  it("sets indexed influences and synchronizes material morphs", async () => {
+    const { applyShotMorphWeights } = await import("../shotRuntime");
+    const mesh = new Mesh();
+    mesh.morphTargetInfluences = [0, 0, 0];
+    const syncMaterialMorphs = vi.fn();
+
+    applyShotMorphWeights({ mesh, syncMaterialMorphs } as never, [0.5, 1]);
+
+    expect(mesh.morphTargetInfluences).toEqual([0.5, 1, 0]);
+    expect(syncMaterialMorphs).toHaveBeenCalledOnce();
+  });
+
+  it("rejects weights without an MMD model", async () => {
+    const { applyShotMorphWeights } = await import("../shotRuntime");
+
+    expect(() => applyShotMorphWeights(undefined, [1])).toThrow(
+      "Morph weights require a loaded MMD model.",
+    );
+  });
+});
 
 function emptyPreview() {
   return {

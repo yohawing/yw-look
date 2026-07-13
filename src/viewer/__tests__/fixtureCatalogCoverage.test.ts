@@ -74,12 +74,6 @@ const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
     reason: "samples/private/catalog.json has vrm-constraint-twist",
   },
   {
-    extension: "pmx",
-    publicCatalog: false,
-    privateCoverage: "planned",
-    reason: "MMD enrollment is Phase B-2",
-  },
-  {
     extension: "pmd",
     publicCatalog: false,
     privateCoverage: "planned",

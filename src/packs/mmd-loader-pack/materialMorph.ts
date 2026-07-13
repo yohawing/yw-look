@@ -87,32 +87,50 @@ export function evaluateMmdMaterialMorphs(
   data: MmdMaterialMorphData,
   weights: readonly number[],
 ): MmdMaterialState[] {
+  return createMmdMaterialMorphEvaluator(data)(weights);
+}
+
+function createMmdMaterialMorphEvaluator(data: MmdMaterialMorphData) {
   const states = data.materials.map(cloneMaterialState);
   const multipliers = data.materials.map(createIdentityMaterialState);
   const additions = data.materials.map(createZeroMaterialState);
 
-  data.morphs.forEach((morph, morphIndex) => {
-    const weight = weights[morphIndex] ?? 0;
-    if (weight === 0 || !Number.isFinite(weight)) return;
-    for (const offset of morph.materialOffsets) {
-      const first = offset.materialIndex === -1 ? 0 : offset.materialIndex;
-      const end = offset.materialIndex === -1 ? states.length : first + 1;
-      for (let materialIndex = first; materialIndex < end; materialIndex += 1) {
-        if (!states[materialIndex]) continue;
-        accumulateOffset(
-          offset.operation === "multiply"
-            ? multipliers[materialIndex]
-            : additions[materialIndex],
-          offset,
-          weight,
-        );
+  return (weights: readonly number[]): MmdMaterialState[] => {
+    for (let index = 0; index < states.length; index += 1) {
+      copyMaterialState(states[index], data.materials[index]);
+      resetMaterialState(multipliers[index], 1);
+      resetMaterialState(additions[index], 0);
+    }
+
+    for (let morphIndex = 0; morphIndex < data.morphs.length; morphIndex += 1) {
+      const morph = data.morphs[morphIndex];
+      const weight = weights[morphIndex] ?? 0;
+      if (weight === 0 || !Number.isFinite(weight)) continue;
+      for (const offset of morph.materialOffsets) {
+        const first = offset.materialIndex === -1 ? 0 : offset.materialIndex;
+        const end = offset.materialIndex === -1 ? states.length : first + 1;
+        for (
+          let materialIndex = first;
+          materialIndex < end;
+          materialIndex += 1
+        ) {
+          if (!states[materialIndex]) continue;
+          accumulateOffset(
+            offset.operation === "multiply"
+              ? multipliers[materialIndex]
+              : additions[materialIndex],
+            offset,
+            weight,
+          );
+        }
       }
     }
-  });
 
-  return states.map((state, index) =>
-    combineMaterialState(state, multipliers[index], additions[index]),
-  );
+    for (let index = 0; index < states.length; index += 1) {
+      combineMaterialState(states[index], multipliers[index], additions[index]);
+    }
+    return states;
+  };
 }
 
 export function attachMmdMaterialMorphRuntime(
@@ -144,7 +162,8 @@ export function attachMmdMaterialMorphRuntime(
     const material = (outline as Partial<Mesh>).material;
     return material ? [material] : [];
   });
-  let runtimeWeights = Array.from(readMorphWeights(model.mesh));
+  const evaluate = createMmdMaterialMorphEvaluator(data);
+  const runtimeWeights = Array.from(readMorphWeights(model.mesh));
   let lastWeights: number[] | null = null;
 
   model.syncMaterialMorphs = (directWeights) => {
@@ -157,10 +176,11 @@ export function attachMmdMaterialMorphRuntime(
           directWeights,
         )
       : meshWeights;
-    if (!directWeights) runtimeWeights = Array.from(meshWeights);
+    if (!directWeights) copyWeights(runtimeWeights, meshWeights);
     if (lastWeights && weightsEqual(lastWeights, weights)) return;
-    lastWeights = Array.from(weights);
-    const states = evaluateMmdMaterialMorphs(data, weights);
+    if (lastWeights) copyWeights(lastWeights, weights);
+    else lastWeights = Array.from(weights);
+    const states = evaluate(weights);
     if (bodyMaterial) syncMaterials(bodyMaterial, states);
     for (const { material, materialIndex } of renderOrderMaterials) {
       if (bodyMaterials.has(material)) continue;
@@ -199,10 +219,18 @@ function readRenderOrderMaterialIndex(proxy: Object3D): number {
 }
 
 function weightsEqual(previous: readonly number[], next: readonly number[]) {
-  return (
-    previous.length === next.length &&
-    previous.every((value, index) => value === next[index])
-  );
+  if (previous.length !== next.length) return false;
+  for (let index = 0; index < previous.length; index += 1) {
+    if (previous[index] !== next[index]) return false;
+  }
+  return true;
+}
+
+function copyWeights(target: number[], source: readonly number[]) {
+  target.length = source.length;
+  for (let index = 0; index < source.length; index += 1) {
+    target[index] = source[index];
+  }
 }
 
 function resolveDirectMorphWeights(
@@ -316,6 +344,22 @@ function cloneMaterialState(state: MmdMaterialState): MmdMaterialState {
     sphereTextureFactor: [...state.sphereTextureFactor],
     toonTextureFactor: [...state.toonTextureFactor],
   };
+}
+
+function copyMaterialState(target: MmdMaterialState, source: MmdMaterialState) {
+  for (const key of MATERIAL_VECTOR_KEYS) {
+    const targetValues = target[key];
+    const sourceValues = source[key];
+    for (let index = 0; index < targetValues.length; index += 1) {
+      targetValues[index] = sourceValues[index];
+    }
+  }
+  for (const key of MATERIAL_SCALAR_KEYS) target[key] = source[key];
+}
+
+function resetMaterialState(target: MmdMaterialState, value: number) {
+  for (const key of MATERIAL_VECTOR_KEYS) target[key].fill(value);
+  for (const key of MATERIAL_SCALAR_KEYS) target[key] = value;
 }
 
 function createIdentityMaterialState(): MmdMaterialState {

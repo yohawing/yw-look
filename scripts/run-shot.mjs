@@ -10,7 +10,7 @@ const repoRoot = path.resolve(
 );
 
 const usage = `usage:
-  npm run shot -- --in <model> --out <png> [--motion <vmd>] [--size WxH] [--bg color]
+  npm run shot -- --in <model> --out <png> [--motion <vmd>] [--morph-weights w0,w1,...] [--size WxH] [--bg color]
   npm run shot:batch -- --config <json>
   npm run shot:batch -- --config-file <path>
   npm run check -- --in <model> [--usd-load-policy loadAll|noPayloads]

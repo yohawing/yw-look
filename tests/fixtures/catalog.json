@@ -78,6 +78,14 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "model-pmx-material-morph-two-materials",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/material-morph-two-materials.pmx",
+      "format": "pmx",
+      "requiresLoader": "mmd",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "model-fbx-samba-dancing",
       "category": "valid",
       "path": "samples/assets/fbx/Samba Dancing.fbx",
