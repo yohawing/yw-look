@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   BoxGeometry,
+  BufferGeometry,
   InterleavedBuffer,
   InterleavedBufferAttribute,
   Mesh,
@@ -27,6 +28,42 @@ function makeDomElement() {
 
 function makePointer(clientX: number, clientY: number) {
   return { clientX, clientY } as PointerEvent;
+}
+
+function makeInterleavedPlaneGeometry() {
+  const source = new PlaneGeometry(2, 2);
+  const position = source.getAttribute("position");
+  const positionArray = new Float32Array(position.count * 4);
+  for (let item = 0; item < position.count; item += 1) {
+    const offset = item * 4;
+    positionArray[offset] = position.getX(item);
+    positionArray[offset + 1] = position.getY(item);
+    positionArray[offset + 2] = position.getZ(item);
+    positionArray[offset + 3] = 456;
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new InterleavedBufferAttribute(
+      new InterleavedBuffer(positionArray, 4),
+      3,
+      0,
+    ),
+  );
+  const sourceIndex = source.index!;
+  const indexArray = new Uint16Array(sourceIndex.count * 2);
+  for (let item = 0; item < sourceIndex.count; item += 1) {
+    indexArray[item * 2] = sourceIndex.getX(item);
+    indexArray[item * 2 + 1] = 999;
+  }
+  geometry.setIndex(
+    new InterleavedBufferAttribute(
+      new InterleavedBuffer(indexArray, 2),
+      1,
+      0,
+    ) as never,
+  );
+  return geometry;
 }
 
 describe("createViewportPicker", () => {
@@ -284,42 +321,102 @@ describe("createViewportPicker", () => {
     warning.mockRestore();
   });
 
-  it("settles without build or synchronous raycast for interleaved geometry", async () => {
-    const data = new InterleavedBuffer(
-      new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]),
-      3,
-    );
-    const geometry = new BoxGeometry();
-    geometry.setAttribute(
-      "position",
-      new InterleavedBufferAttribute(data, 3, 0),
-    );
+  it("picks ready interleaved geometry without synchronous triangle fallback", async () => {
+    let workerInput: BufferGeometry | null = null;
+    let finishBuild!: () => void;
+    const worker = {
+      generate: vi.fn(
+        (input: BufferGeometry) =>
+          new Promise<MeshBVH>((resolve) => {
+            workerInput = input;
+            finishBuild = () => resolve(new MeshBVH(input));
+          }),
+      ),
+      dispose: vi.fn(),
+    };
+    const builder = createMeshBvhRaycastBuilder(() => worker);
+    const geometry = makeInterleavedPlaneGeometry();
     const mesh = new Mesh(geometry, new MeshBasicMaterial());
     mesh.name = "InterleavedLarge";
-    const raycast = vi.spyOn(mesh, "raycast");
+    mesh.position.z = -5;
+    mesh.updateMatrixWorld(true);
+    const originalPosition = geometry.getAttribute("position");
+    const originalIndex = geometry.index;
+    const originalPositionData = (
+      originalPosition as InterleavedBufferAttribute
+    ).data.array;
+    const originalIndexData = (
+      originalIndex as unknown as InterleavedBufferAttribute
+    ).data.array;
+    const originalRaycast = vi.spyOn(mesh, "raycast");
+    const camera = new PerspectiveCamera(60, 1, 0.1, 100);
+    camera.updateMatrixWorld(true);
+    const picker = createViewportPicker(camera, makeDomElement(), {
+      bvhBuilder: builder,
+      largeTriangleThreshold: 1,
+    });
+    picker.syncMountedObject(mesh);
+
+    const pending = picker.pickSelectionKey(mesh, makePointer(50, 50));
+    expect(pending).toBeInstanceOf(Promise);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(originalRaycast).not.toHaveBeenCalled();
+    expect(
+      (workerInput as unknown as BufferGeometry).getAttribute(
+        "position",
+      ) instanceof InterleavedBufferAttribute,
+    ).toBe(false);
+    expect(
+      (workerInput as unknown as BufferGeometry).index instanceof
+        InterleavedBufferAttribute,
+    ).toBe(false);
+    finishBuild();
+
+    await expect(pending).resolves.toBe("InterleavedLarge");
+    expect(originalRaycast).not.toHaveBeenCalled();
+    expect(geometry.getAttribute("position")).toBe(originalPosition);
+    expect(geometry.index).toBe(originalIndex);
+    expect((originalPosition as InterleavedBufferAttribute).data.array).toBe(
+      originalPositionData,
+    );
+    expect(
+      (originalIndex as unknown as InterleavedBufferAttribute).data.array,
+    ).toBe(originalIndexData);
+  });
+
+  it("settles a failed interleaved build without synchronous triangle fallback", async () => {
     const warning = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
-    const builder = {
-      build: vi.fn(async () => true),
-      invalidate: vi.fn(),
+    const worker = {
+      generate: vi.fn(async () => {
+        throw new Error("proxy build failed");
+      }),
       dispose: vi.fn(),
-    } as unknown as ReturnType<typeof createMeshBvhRaycastBuilder>;
+    };
+    const builder = createMeshBvhRaycastBuilder(() => worker);
+    const geometry = makeInterleavedPlaneGeometry();
+    const mesh = new Mesh(geometry, new MeshBasicMaterial());
+    mesh.name = "InterleavedFailure";
+    const originalPosition = geometry.getAttribute("position");
+    const originalIndex = geometry.index;
+    const originalRaycast = vi.spyOn(mesh, "raycast");
     const picker = createViewportPicker(
       new PerspectiveCamera(),
       makeDomElement(),
       { bvhBuilder: builder, largeTriangleThreshold: 1 },
     );
-    picker.syncMountedObject(mesh);
 
+    picker.syncMountedObject(mesh);
     await expect(
-      Promise.resolve(picker.pickSelectionKey(mesh, makePointer(50, 50))),
+      picker.pickSelectionKey(mesh, makePointer(50, 50)),
     ).resolves.toBeNull();
-    expect(builder.build).not.toHaveBeenCalled();
-    expect(raycast).not.toHaveBeenCalled();
-    expect(warning).toHaveBeenCalledWith(
-      expect.stringContaining("dynamic or unsupported geometry excluded"),
-    );
+
+    expect(originalRaycast).not.toHaveBeenCalled();
+    expect(geometry.getAttribute("position")).toBe(originalPosition);
+    expect(geometry.index).toBe(originalIndex);
+    expect(geometry.boundsTree).toBeUndefined();
     warning.mockRestore();
   });
 
