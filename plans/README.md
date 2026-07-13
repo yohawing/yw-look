@@ -14,7 +14,7 @@ modified while writing them. The repo is in **alpha mode** (direct commits to
 
 | Plan | Title                                                  | Priority | Effort | Depends on | Status                                                                                                 |
 | ---- | ------------------------------------------------------ | -------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------ |
-| 001  | Gate updater public-key override (security)            | P1       | M      | —          | TODO                                                                                                   |
+| 001  | Gate updater public-key override (security)            | P1       | M      | —          | DONE                                                                                                   |
 | 002  | Extension allowlist on raw binary-read IPC (security)  | P1       | S/M    | —          | BLOCKED (fixture gate 35/37: VMD geometry and OBJ warning expectation failures unrelated to allowlist) |
 | 003  | Characterization tests for `useAppFileOpen`            | P1       | M      | —          | TODO                                                                                                   |
 | 004  | Stale-request guard for file navigation (bug)          | P1       | S      | 003        | TODO                                                                                                   |

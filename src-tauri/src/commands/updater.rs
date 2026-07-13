@@ -73,10 +73,22 @@ fn effective_updater_endpoint(settings: &AppSettings) -> Option<String> {
         .or_else(default_updater_endpoint)
 }
 
+/// The pubkey override exists only for local update-feed testing. It takes
+/// effect solely when the insecure-endpoint toggle is on and the effective
+/// endpoint is loopback. In every other configuration the compiled-in key
+/// remains authoritative.
+fn pubkey_override_permitted(settings: &AppSettings) -> bool {
+    settings.allow_insecure_update_endpoint
+        && effective_updater_endpoint(settings)
+            .as_deref()
+            .is_some_and(is_loopback_update_endpoint)
+}
+
 fn effective_updater_public_key(settings: &AppSettings) -> Option<String> {
     settings
         .update_public_key_override
         .clone()
+        .filter(|_| pubkey_override_permitted(settings))
         .or_else(default_updater_public_key)
 }
 
@@ -90,20 +102,112 @@ pub(crate) fn build_update_configuration_payload(
     app: &tauri::AppHandle,
     settings: &AppSettings,
 ) -> UpdateConfigurationPayload {
+    build_update_configuration_payload_for_version(current_app_version(app), settings)
+}
+
+fn build_update_configuration_payload_for_version(
+    current_version: String,
+    settings: &AppSettings,
+) -> UpdateConfigurationPayload {
     let default_endpoint = default_updater_endpoint();
     let default_pubkey = default_updater_public_key();
     let effective_endpoint = effective_updater_endpoint(settings);
     let effective_pubkey = effective_updater_public_key(settings);
 
     UpdateConfigurationPayload {
-        current_version: current_app_version(app),
+        current_version,
         default_endpoint,
         default_pubkey_available: default_pubkey.is_some(),
         effective_endpoint,
         effective_pubkey_available: effective_pubkey.is_some(),
         using_override_endpoint: settings.update_endpoint_override.is_some(),
-        using_override_pubkey: settings.update_public_key_override.is_some(),
+        using_override_pubkey: settings.update_public_key_override.is_some()
+            && pubkey_override_permitted(settings),
         allow_insecure_update_endpoint: settings.allow_insecure_update_endpoint,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings_with_pubkey_override() -> AppSettings {
+        AppSettings {
+            update_public_key_override: Some("test override key".to_string()),
+            ..AppSettings::default()
+        }
+    }
+
+    #[test]
+    fn loopback_endpoint_detection_accepts_only_local_http_hosts() {
+        for endpoint in [
+            "http://127.0.0.1:8080/x",
+            "http://localhost:9000/latest.json",
+            "http://[::1]/f",
+        ] {
+            assert!(is_loopback_update_endpoint(endpoint), "{endpoint}");
+        }
+        for endpoint in [
+            "https://github.com/example/latest.json",
+            "http://192.168.1.5/latest.json",
+            "http://evil.example/latest.json",
+        ] {
+            assert!(!is_loopback_update_endpoint(endpoint), "{endpoint}");
+        }
+    }
+
+    #[test]
+    fn pubkey_override_is_ignored_without_insecure_toggle() {
+        let settings = settings_with_pubkey_override();
+        assert_ne!(
+            effective_updater_public_key(&settings).as_deref(),
+            settings.update_public_key_override.as_deref()
+        );
+    }
+
+    #[test]
+    fn pubkey_override_is_ignored_for_non_loopback_endpoint() {
+        let settings = AppSettings {
+            allow_insecure_update_endpoint: true,
+            update_endpoint_override: Some("https://attacker.example/latest.json".to_string()),
+            ..settings_with_pubkey_override()
+        };
+        assert_ne!(
+            effective_updater_public_key(&settings).as_deref(),
+            settings.update_public_key_override.as_deref()
+        );
+    }
+
+    #[test]
+    fn pubkey_override_is_used_for_explicit_loopback_testing() {
+        let settings = AppSettings {
+            allow_insecure_update_endpoint: true,
+            update_endpoint_override: Some("http://127.0.0.1:1430/latest.json".to_string()),
+            ..settings_with_pubkey_override()
+        };
+        assert_eq!(
+            effective_updater_public_key(&settings),
+            settings.update_public_key_override
+        );
+    }
+
+    #[test]
+    fn configuration_reports_inactive_pubkey_override() {
+        let settings = settings_with_pubkey_override();
+        let payload = build_update_configuration_payload_for_version("1.2.3".into(), &settings);
+        assert!(!payload.using_override_pubkey);
+    }
+
+    #[test]
+    fn configuration_reports_active_loopback_pubkey_override() {
+        let settings = AppSettings {
+            allow_insecure_update_endpoint: true,
+            update_endpoint_override: Some("http://localhost:1430/latest.json".to_string()),
+            ..settings_with_pubkey_override()
+        };
+        let payload = build_update_configuration_payload_for_version("1.2.3".into(), &settings);
+        assert!(payload.using_override_pubkey);
+        assert!(payload.effective_pubkey_available);
     }
 }
 
