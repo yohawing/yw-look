@@ -14,11 +14,7 @@ import {
   WebGLRenderer,
 } from "three";
 import type { SelectedFile } from "../lib/files";
-import {
-  listSupportedSiblings,
-  readBinaryFile,
-  resolveSelectedFile,
-} from "../lib/files";
+import { listSupportedSiblings, resolveSelectedFile } from "../lib/files";
 import {
   captureRendererScreenshot,
   disposeObject,
@@ -105,8 +101,8 @@ export async function loadBenchConfig() {
   return config;
 }
 
-export async function loadBenchManifest(path: string) {
-  const text = new TextDecoder().decode(await readBinaryFile(path));
+export async function loadBenchManifest() {
+  const text = await invoke<string>("read_bench_manifest");
   return JSON.parse(text) as BenchManifest;
 }
 

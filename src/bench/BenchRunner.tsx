@@ -47,7 +47,7 @@ export function BenchRunner() {
           throw new Error("bench mode is not enabled");
         }
 
-        const manifest = await loadBenchManifest(config.modelsPath);
+        const manifest = await loadBenchManifest();
         const models =
           config.caseIds.length === 0
             ? manifest.models

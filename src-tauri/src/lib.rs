@@ -16,8 +16,8 @@ use url::Url;
 
 use crate::commands::alembic::convert_alembic_to_preview;
 use crate::commands::bench::{
-    finish_bench_run, get_bench_config, parse_bench_cli_config, write_bench_report,
-    write_bench_screenshot, write_bench_status,
+    finish_bench_run, get_bench_config, parse_bench_cli_config, read_bench_manifest,
+    write_bench_report, write_bench_screenshot, write_bench_status,
 };
 use crate::commands::diagnostics::{
     clear_crash_marker, initialize_crash_marker, load_crash_recovery_status,
@@ -237,6 +237,7 @@ pub fn run() {
             open_app_log_dir,
             load_process_memory_metrics,
             get_bench_config,
+            read_bench_manifest,
             write_bench_report,
             write_bench_status,
             write_bench_screenshot,

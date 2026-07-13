@@ -170,6 +170,26 @@ pub(crate) fn get_bench_config(
     }))
 }
 
+fn read_bench_manifest_from_config(config: Option<&BenchCliConfig>) -> Result<String, AppError> {
+    let Some(config) = config else {
+        return Err(AppError::Internal("bench mode is not enabled".into()));
+    };
+
+    fs::read_to_string(&config.models_path).map_err(|error| {
+        AppError::Io(format!(
+            "failed to read bench models manifest '{}': {error}",
+            config.models_path.display()
+        ))
+    })
+}
+
+#[tauri::command]
+pub(crate) fn read_bench_manifest(
+    config: tauri::State<'_, Option<BenchCliConfig>>,
+) -> Result<String, AppError> {
+    read_bench_manifest_from_config(config.as_ref())
+}
+
 #[tauri::command]
 pub(crate) fn write_bench_report(
     config: tauri::State<'_, Option<BenchCliConfig>>,
@@ -233,4 +253,46 @@ pub(crate) fn write_bench_screenshot(
 #[tauri::command]
 pub(crate) fn finish_bench_run(app: tauri::AppHandle, exit_code: i32) {
     app.exit(exit_code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bench_config(models_path: PathBuf) -> BenchCliConfig {
+        BenchCliConfig {
+            models_path,
+            repo_root: PathBuf::new(),
+            out_dir: PathBuf::new(),
+            case_ids: Vec::new(),
+            visible: false,
+            node_version: None,
+        }
+    }
+
+    #[test]
+    fn bench_manifest_reader_reads_only_the_configured_models_path() {
+        let directory = tempfile::tempdir().expect("create temp directory");
+        let configured = directory.path().join("models.json");
+        let other = directory.path().join("other.json");
+        fs::write(&configured, r#"{"models":[{"id":"configured"}]}"#)
+            .expect("write configured manifest");
+        fs::write(&other, r#"{"models":[{"id":"other"}]}"#).expect("write other manifest");
+        let config = bench_config(configured);
+
+        let manifest =
+            read_bench_manifest_from_config(Some(&config)).expect("read configured manifest");
+
+        assert_eq!(manifest, r#"{"models":[{"id":"configured"}]}"#);
+    }
+
+    #[test]
+    fn bench_manifest_reader_is_unavailable_outside_bench_mode() {
+        let error = read_bench_manifest_from_config(None).expect_err("reject non-bench read");
+
+        assert!(matches!(
+            error,
+            AppError::Internal(message) if message == "bench mode is not enabled"
+        ));
+    }
 }

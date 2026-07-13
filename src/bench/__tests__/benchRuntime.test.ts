@@ -1,10 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  loadBenchManifest,
   measureMainThreadResponsiveness,
   renderReportMarkdown,
   responsivenessGapMs,
 } from "../benchRuntime";
 import type { BenchReport } from "../benchTypes";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+}));
+
+const invokeMock = vi.mocked(invoke);
+
+beforeEach(() => {
+  invokeMock.mockReset();
+});
+
+describe("loadBenchManifest", () => {
+  it("reads the bench-configured manifest without passing a frontend path", async () => {
+    invokeMock.mockResolvedValueOnce(
+      JSON.stringify({ models: [{ id: "flight-helmet" }] }),
+    );
+
+    const manifest = await loadBenchManifest();
+
+    expect(manifest.models).toEqual([{ id: "flight-helmet" }]);
+    expect(invokeMock).toHaveBeenCalledWith("read_bench_manifest");
+  });
+});
 
 describe("responsivenessGapMs", () => {
   it("returns zero when ticks arrive on schedule", () => {
