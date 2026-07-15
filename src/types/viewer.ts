@@ -214,6 +214,8 @@ export type LoadedPreview = {
   rendering?: PreviewRenderingPreset;
   skipScaleNormalization?: boolean;
   mmdModel?: MmdRuntimeModelHandle;
+  /** Motion already bound to `mmdModel`, used by standalone motion previews. */
+  mmdMotion?: LoadedMmdMotion;
   /**
    * Viewer-side classification of the loaded content. Omitted ⇒ treated as
    * `mesh`. Point clouds and Gaussian splats wrap their specialized object

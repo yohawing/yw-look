@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Group, Mesh, MeshBasicMaterial, MeshToonMaterial } from "three";
+import {
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshToonMaterial,
+  SkinnedMesh,
+} from "three";
 import type { SelectedFile } from "../../../lib/files";
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   syncMmdOutlineMaterialStates: vi.fn(),
   readBinaryFile: vi.fn(),
   revokeObjectURL: vi.fn(),
+  runtimeSetAnimation: vi.fn(),
+  runtimeTick: vi.fn(),
+  runtimeReset: vi.fn(),
   physicsBackend: { dispose: vi.fn() },
 }));
 
@@ -31,10 +40,15 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
   initCore: mocks.initCore,
   syncMmdMaterialStates: mocks.syncMmdMaterialStates,
   syncMmdOutlineMaterialStates: mocks.syncMmdOutlineMaterialStates,
+  DefaultMmdRuntime: class {
+    setAnimation = mocks.runtimeSetAnimation;
+    tick = mocks.runtimeTick;
+    reset = mocks.runtimeReset;
+  },
   parseVmd: vi.fn(() => ({
     kind: "vmd",
     metadata: { maxFrame: 60, modelName: "Hatsune Miku" },
-    boneTracks: { センター: {} },
+    boneTracks: { センター: {}, customBone: {} },
     morphTracks: { smile: {} },
     cameraFrames: [{ frame: 45 }],
     lightFrames: [{ frame: 30 }],
@@ -249,6 +263,9 @@ describe("MMD preview loader", () => {
     mocks.loadAsync.mockReset();
     mocks.readBinaryFile.mockReset();
     mocks.revokeObjectURL.mockReset();
+    mocks.runtimeSetAnimation.mockReset();
+    mocks.runtimeTick.mockReset();
+    mocks.runtimeReset.mockReset();
     mocks.readBinaryFile.mockResolvedValue(
       new Uint8Array([0x50, 0x4d, 0x58, 0x20]).buffer,
     );
@@ -671,15 +688,15 @@ describe("MMD preview loader", () => {
     expect(result.animation.metadata.maxFrame).toBe(60);
   });
 
-  it("loads VMD as a standalone motion metadata preview", async () => {
+  it("loads VMD as an animated standalone kuroko preview", async () => {
     const stages: string[] = [];
     const result = await loadPreviewObject(vmdFile, undefined, {
       onStage: (stage) => stages.push(stage),
     });
 
-    expect(result.object).toBeInstanceOf(Group);
+    expect(result.object).toBeInstanceOf(SkinnedMesh);
     expect(result.object.name).toBe("Hatsune Miku Motion Preview");
-    expect(result.object.userData.disableAutoFrame).toBe(true);
+    expect(result.object.userData.motionPreviewRig).toBe(true);
     expect(result.object.userData.mmdMotionSourceFile).toBe(
       "C:\\mmd\\motion.vmd",
     );
@@ -689,7 +706,27 @@ describe("MMD preview loader", () => {
       formatVersion: "VMD",
       skipScaleNormalization: true,
       assetKind: "motion",
+      mmdMotion: {
+        duration: 2,
+        label: "motion.vmd",
+      },
     });
+    expect(result.mmdModel?.mesh).toBe(result.object);
+    expect(mocks.runtimeSetAnimation).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "vmd" }),
+      result.object,
+    );
+    expect(mocks.runtimeTick).toHaveBeenCalledWith(0, {
+      mesh: result.object,
+      ik: true,
+      physics: false,
+    });
+    expect(
+      result.object.getObjectByName("センター 黒子ジョイント"),
+    ).toBeInstanceOf(Mesh);
+    expect(
+      result.object.getObjectByName("customBone 黒子ジョイント"),
+    ).toBeUndefined();
     expect("mmdMetadata" in result).toBe(false);
     expect(collectMmdMetadata(result.object, vmdFile)).toMatchObject({
       kind: "mmd",
@@ -700,7 +737,7 @@ describe("MMD preview loader", () => {
         name: "Hatsune Miku",
         counts: {
           maxFrame: 60,
-          boneTracks: 1,
+          boneTracks: 2,
           morphTracks: 1,
           boneKeyframes: 3,
           morphKeyframes: 2,

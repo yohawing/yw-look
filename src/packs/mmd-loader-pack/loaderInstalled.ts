@@ -25,6 +25,7 @@ import {
   type MmdMaterialState,
 } from "./materialMorph";
 import { MMD_MODEL_KEY, syncMmdMaterialRenderStates } from "./userData";
+import { createVmdMotionPreviewRig } from "./motionPreviewRig";
 import MMD_ANIM_WASM_URL from "virtual:yw-look-mmd-wasm-url";
 
 const MMD_FRAME_RATE = 30;
@@ -102,6 +103,10 @@ type ThreeMmdLoaderModule = {
   parseVmd(buffer: ArrayBuffer): ParsedVmdAnimation;
   parseVmdMetadata(buffer: ArrayBuffer): ParsedVmdMetadata;
   parseVmdSectionInventory(buffer: ArrayBuffer): ParsedVmdInventory;
+  DefaultMmdRuntime: new (options: {
+    frameRate: number;
+    physics: "none";
+  }) => NonNullable<MmdRuntimeModelHandle["runtime"]>;
   initCore(options?: { wasmUrl?: string }): Promise<MmdParserCore>;
   syncMmdSpecularDirection(
     material: Material | Material[],
@@ -838,8 +843,12 @@ export async function loadMmdMotionPreviewObject(
   throwIfAborted(signal);
 
   try {
-    const { parseVmd, parseVmdMetadata, parseVmdSectionInventory } =
-      await importThreeMmdLoader();
+    const {
+      DefaultMmdRuntime,
+      parseVmd,
+      parseVmdMetadata,
+      parseVmdSectionInventory,
+    } = await importThreeMmdLoader();
     throwIfAborted(signal);
 
     const buffer = await readArrayBuffer(file.path);
@@ -855,9 +864,11 @@ export async function loadMmdMotionPreviewObject(
     reportStage("scene");
     throwIfAborted(signal);
 
-    const object = new Group();
+    const { object, mmdModel } = createVmdMotionPreviewRig(
+      animation,
+      DefaultMmdRuntime,
+    );
     object.name = `${metadata.modelName || file.fileName} Motion Preview`;
-    object.userData.disableAutoFrame = true;
     object.userData.mmdSourceFile = file.path;
     object.userData.mmdMotionSourceFile = file.path;
     storeMmdAssetMetadata(
@@ -872,6 +883,15 @@ export async function loadMmdMotionPreviewObject(
       formatVersion: "VMD",
       skipScaleNormalization: true,
       assetKind: "motion",
+      mmdModel,
+      mmdMotion: {
+        animation,
+        duration: Math.max(
+          (animation.metadata?.maxFrame ?? 0) / MMD_FRAME_RATE,
+          1 / MMD_FRAME_RATE,
+        ),
+        label: file.fileName,
+      },
     };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {

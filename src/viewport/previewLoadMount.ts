@@ -150,6 +150,7 @@ export async function mountLoadedPreview(
     rendering,
     skipScaleNormalization = false,
     mmdModel,
+    mmdMotion,
     warnings = [],
     assetKind = "mesh",
   } = result;
@@ -309,7 +310,8 @@ export async function mountLoadedPreview(
   const isBoneOnlyPreview =
     metadataCollection.metadata.meshCount === 0 &&
     metadataCollection.metadata.hasBones === true;
-  context.boneOnlyPreview = isBoneOnlyPreview;
+  const isMotionPreviewRig = object.userData.motionPreviewRig === true;
+  context.boneOnlyPreview = isBoneOnlyPreview || isMotionPreviewRig;
   context.animationRoot = object;
   context.textureRegistry = metadataCollection.textureRegistry;
   const textureRegistry = metadataCollection.textureRegistry;
@@ -332,7 +334,7 @@ export async function mountLoadedPreview(
   applySkeletonHelpers(
     context.scene,
     object,
-    state.showSkeleton || isBoneOnlyPreview,
+    state.showSkeleton || isBoneOnlyPreview || isMotionPreviewRig,
     state.showLocalAxis,
     state.showJointNames,
   );
@@ -341,13 +343,21 @@ export async function mountLoadedPreview(
 
   context.clips = clips;
   context.mmdModel = mmdModel ?? null;
-  context.mmdMotion = null;
+  context.mmdMotion = mmdMotion ? { ...mmdMotion, currentTime: 0 } : null;
   context.packRuntime?.dispose();
   context.packRuntime =
     loaderRegistry
       .getByExtension(currentFile.extension)
       ?.createRuntime?.(context) ?? null;
-  if (clips.length > 0) {
+  if (mmdMotion && context.mmdModel?.runtime) {
+    update.setAnimationState({
+      clipNames: [mmdMotion.label],
+      activeClipIndex: 0,
+      currentTime: 0,
+      duration: mmdMotion.duration,
+      isPlaying: true,
+    });
+  } else if (clips.length > 0) {
     context.mixer = new AnimationMixer(context.animationRoot ?? object);
     const activated = activateClip(context, 0, true);
     update.setAnimationState({

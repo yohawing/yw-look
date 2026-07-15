@@ -355,6 +355,59 @@ describe("mountLoadedPreview", () => {
     );
   });
 
+  it("starts standalone VMD rigs and keeps their skeleton visible", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    object.userData.motionPreviewRig = true;
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    const runtime = {
+      reset: vi.fn(),
+      setAnimation: vi.fn(),
+      tick: vi.fn(),
+    };
+    const animation = { metadata: { maxFrame: 60 } };
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: "VMD",
+        mmdModel: { mesh: object, runtime },
+        mmdMotion: {
+          animation,
+          duration: 2,
+          label: "walk.vmd",
+        },
+      },
+      options,
+    );
+
+    expect(context.boneOnlyPreview).toBe(true);
+    expect(context.mmdMotion).toEqual({
+      animation,
+      duration: 2,
+      currentTime: 0,
+      label: "walk.vmd",
+    });
+    expect(viewerMocks.applySkeletonHelpers).toHaveBeenCalledWith(
+      context.scene,
+      object,
+      true,
+      false,
+      false,
+    );
+    expect(options.update.setAnimationState).toHaveBeenCalledWith({
+      clipNames: ["walk.vmd"],
+      activeClipIndex: 0,
+      currentTime: 0,
+      duration: 2,
+      isPlaying: true,
+    });
+  });
+
   it("applies the mounted surface mode through the viewer material API", async () => {
     mountState.disposeDuringNormalize = false;
     const object = new Group();
