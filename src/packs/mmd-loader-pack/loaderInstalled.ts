@@ -25,10 +25,18 @@ import {
   type MmdMaterialState,
 } from "./materialMorph";
 import { MMD_MODEL_KEY, syncMmdMaterialRenderStates } from "./userData";
-import { createVmdMotionPreviewRig } from "./motionPreviewRig";
 import MMD_ANIM_WASM_URL from "virtual:yw-look-mmd-wasm-url";
 
 const MMD_FRAME_RATE = 30;
+const KUROKO_MODEL_URL = new URL("./assets/yw_test_model.pmx", import.meta.url)
+  .href;
+const KUROKO_TEXTURE_URLS = new Map([
+  [
+    "tex/diffuse.png",
+    new URL("./assets/tex/diffuse.png", import.meta.url).href,
+  ],
+  ["tex/sph.png", new URL("./assets/tex/sph.png", import.meta.url).href],
+]);
 
 const SUPPRESSED_MMD_DIAGNOSTIC_CODES = new Set([
   "IK_PMX_LINK_LIMITS_APPROXIMATE",
@@ -103,10 +111,6 @@ type ThreeMmdLoaderModule = {
   parseVmd(buffer: ArrayBuffer): ParsedVmdAnimation;
   parseVmdMetadata(buffer: ArrayBuffer): ParsedVmdMetadata;
   parseVmdSectionInventory(buffer: ArrayBuffer): ParsedVmdInventory;
-  DefaultMmdRuntime: new (options: {
-    frameRate: number;
-    physics: "none";
-  }) => NonNullable<MmdRuntimeModelHandle["runtime"]>;
   initCore(options?: { wasmUrl?: string }): Promise<MmdParserCore>;
   syncMmdSpecularDirection(
     material: Material | Material[],
@@ -842,9 +846,12 @@ export async function loadMmdMotionPreviewObject(
   reportStage("scan");
   throwIfAborted(signal);
 
+  let runtimeOptions: MmdRuntimeOptions | null = null;
+
   try {
     const {
-      DefaultMmdRuntime,
+      attachMmdSdefSkinning,
+      ThreeMmdLoader,
       parseVmd,
       parseVmdMetadata,
       parseVmdSectionInventory,
@@ -861,16 +868,72 @@ export async function loadMmdMotionPreviewObject(
     const inventory = parseVmdSectionInventory(buffer);
     throwIfAborted(signal);
 
+    const kurokoResponse = await fetch(KUROKO_MODEL_URL, { signal });
+    if (!kurokoResponse.ok) {
+      throw new Error(
+        `Bundled kuroko model could not be read (${kurokoResponse.status}).`,
+      );
+    }
+    const kurokoBuffer = await kurokoResponse.arrayBuffer();
+    throwIfAborted(signal);
+
+    runtimeOptions = await createMmdRuntimeOptions();
+    const loader = new ThreeMmdLoader({
+      geometryAwareAlpha: true,
+      runtime: runtimeOptions.runtime,
+      textureResolver: {
+        resolve(texturePath) {
+          if (isRemoteOrInlineUrl(texturePath)) {
+            return Promise.resolve(texturePath);
+          }
+          const normalizedPath = texturePath
+            .replaceAll("\\", "/")
+            .toLowerCase();
+          return Promise.resolve(
+            KUROKO_TEXTURE_URLS.get(normalizedPath) ??
+              resolveMmdBuiltInToonTextureUrl(texturePath),
+          );
+        },
+      },
+    });
+
     reportStage("scene");
     throwIfAborted(signal);
 
-    const { object, mmdModel } = createVmdMotionPreviewRig(
-      animation,
-      DefaultMmdRuntime,
-    );
+    const mmd = await loader.loadModel(kurokoBuffer, {
+      outline: true,
+      materialRenderOrder: true,
+      morphSplit: true,
+      frustumCulled: false,
+    });
+    throwIfAborted(signal);
+    attachMmdSelectionMaterialCustomizers(mmd, attachMmdSdefSkinning);
+    await attachPmxRuntimeMetadata(kurokoBuffer, mmd);
+    throwIfAborted(signal);
+
+    if (mmd.root) {
+      syncMmdMaterialRenderStates(mmd.root);
+    } else {
+      syncMmdMaterialRenderStates(mmd.mesh);
+    }
+    const object = new Group();
     object.name = `${metadata.modelName || file.fileName} Motion Preview`;
+    object.userData[MMD_MODEL_KEY] = mmd;
+    object.userData.motionPreviewRig = true;
     object.userData.mmdSourceFile = file.path;
     object.userData.mmdMotionSourceFile = file.path;
+    if (mmd.root) {
+      object.add(mmd.root);
+    } else {
+      object.add(
+        mmd.mesh,
+        ...(mmd.outlineMeshes ?? []),
+        ...(mmd.renderOrderMeshes ?? []),
+      );
+    }
+
+    mmd.runtime?.setAnimation(animation, mmd.mesh);
+    mmd.runtime?.tick(0, { mesh: mmd.mesh, ik: true, physics: false });
     storeMmdAssetMetadata(
       object,
       buildVmdAssetMetadata(metadata, inventory, animation),
@@ -878,12 +941,15 @@ export async function loadMmdMotionPreviewObject(
 
     return {
       object,
+      cleanupCallbacks: runtimeOptions.cleanup ? [runtimeOptions.cleanup] : [],
       cleanupUrls: [],
       clips: [],
       formatVersion: "VMD",
+      lighting: MMD_EXAMPLE_LIGHTING_PRESET,
+      rendering: MMD_PREVIEW_RENDERING_PRESET,
       skipScaleNormalization: true,
       assetKind: "motion",
-      mmdModel,
+      mmdModel: mmd as MmdRuntimeModelHandle,
       mmdMotion: {
         animation,
         duration: Math.max(
@@ -894,6 +960,7 @@ export async function loadMmdMotionPreviewObject(
       },
     };
   } catch (error) {
+    runtimeOptions?.cleanup?.();
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
     }

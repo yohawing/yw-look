@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  Group,
-  Mesh,
-  MeshBasicMaterial,
-  MeshToonMaterial,
-  SkinnedMesh,
-} from "three";
+import { Group, Mesh, MeshBasicMaterial, MeshToonMaterial } from "three";
 import type { SelectedFile } from "../../../lib/files";
 
 const mocks = vi.hoisted(() => ({
@@ -20,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   runtimeSetAnimation: vi.fn(),
   runtimeTick: vi.fn(),
   runtimeReset: vi.fn(),
+  fetchKuroko: vi.fn(),
   physicsBackend: { dispose: vi.fn() },
 }));
 
@@ -40,11 +35,6 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
   initCore: mocks.initCore,
   syncMmdMaterialStates: mocks.syncMmdMaterialStates,
   syncMmdOutlineMaterialStates: mocks.syncMmdOutlineMaterialStates,
-  DefaultMmdRuntime: class {
-    setAnimation = mocks.runtimeSetAnimation;
-    tick = mocks.runtimeTick;
-    reset = mocks.runtimeReset;
-  },
   parseVmd: vi.fn(() => ({
     kind: "vmd",
     metadata: { maxFrame: 60, modelName: "Hatsune Miku" },
@@ -266,6 +256,13 @@ describe("MMD preview loader", () => {
     mocks.runtimeSetAnimation.mockReset();
     mocks.runtimeTick.mockReset();
     mocks.runtimeReset.mockReset();
+    mocks.fetchKuroko.mockReset();
+    mocks.fetchKuroko.mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new Uint8Array([0x50, 0x4d, 0x58]).buffer,
+    });
+    vi.stubGlobal("fetch", mocks.fetchKuroko);
     mocks.readBinaryFile.mockResolvedValue(
       new Uint8Array([0x50, 0x4d, 0x58, 0x20]).buffer,
     );
@@ -689,12 +686,31 @@ describe("MMD preview loader", () => {
   });
 
   it("loads VMD as an animated standalone kuroko preview", async () => {
+    const kurokoMesh = new Mesh(
+      undefined,
+      new MeshBasicMaterial({ color: 0x111111 }),
+    );
+    kurokoMesh.name = "yw_test_model";
+    const kurokoRoot = new Group();
+    kurokoRoot.add(kurokoMesh);
+    mocks.loadAsync.mockResolvedValue({
+      root: kurokoRoot,
+      mesh: kurokoMesh,
+      outlineMeshes: [],
+      renderOrderMeshes: [],
+      diagnostics: { textures: [] },
+      runtime: {
+        reset: mocks.runtimeReset,
+        setAnimation: mocks.runtimeSetAnimation,
+        tick: mocks.runtimeTick,
+      },
+    });
     const stages: string[] = [];
     const result = await loadPreviewObject(vmdFile, undefined, {
       onStage: (stage) => stages.push(stage),
     });
 
-    expect(result.object).toBeInstanceOf(SkinnedMesh);
+    expect(result.object).toBeInstanceOf(Group);
     expect(result.object.name).toBe("Hatsune Miku Motion Preview");
     expect(result.object.userData.motionPreviewRig).toBe(true);
     expect(result.object.userData.mmdMotionSourceFile).toBe(
@@ -711,22 +727,21 @@ describe("MMD preview loader", () => {
         label: "motion.vmd",
       },
     });
-    expect(result.mmdModel?.mesh).toBe(result.object);
+    expect(result.mmdModel?.mesh).toBe(kurokoMesh);
+    expect(result.object.getObjectByName("yw_test_model")).toBe(kurokoMesh);
+    expect(mocks.fetchKuroko).toHaveBeenCalledWith(
+      expect.stringContaining("yw_test_model.pmx"),
+      { signal: undefined },
+    );
     expect(mocks.runtimeSetAnimation).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "vmd" }),
-      result.object,
+      kurokoMesh,
     );
     expect(mocks.runtimeTick).toHaveBeenCalledWith(0, {
-      mesh: result.object,
+      mesh: kurokoMesh,
       ik: true,
       physics: false,
     });
-    expect(
-      result.object.getObjectByName("センター 黒子ジョイント"),
-    ).toBeInstanceOf(Mesh);
-    expect(
-      result.object.getObjectByName("customBone 黒子ジョイント"),
-    ).toBeUndefined();
     expect("mmdMetadata" in result).toBe(false);
     expect(collectMmdMetadata(result.object, vmdFile)).toMatchObject({
       kind: "mmd",
