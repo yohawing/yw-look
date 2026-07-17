@@ -178,8 +178,8 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       mode: "3d",
       group: "display",
       kind: "popover",
-      label: "Display",
-      iconId: "light",
+      label: "Shading",
+      iconId: "shading",
       children,
     });
   }

@@ -58,6 +58,7 @@ export type ViewportToolIcon =
   | "overlay"
   | "palette"
   | "sceneLight"
+  | "shading"
   | "shadow"
   | "skeleton"
   | "texture"

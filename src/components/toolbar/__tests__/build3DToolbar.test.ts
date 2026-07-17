@@ -78,7 +78,7 @@ describe("build3DToolbar", () => {
     ).toBe(true);
   });
 
-  it("keeps Display and Wireframe as separate top-level popovers", () => {
+  it("keeps Shading and Wireframe as separate top-level popovers", () => {
     const items = build3DToolbar(createOptions());
     const display = findPopover(items, "display");
     const displayLabels =
@@ -91,7 +91,8 @@ describe("build3DToolbar", () => {
         item.kind === "button" ? [item.label] : [],
       ) ?? [];
 
-    expect(display?.iconId).toBe("light");
+    expect(display?.label).toBe("Shading");
+    expect(display?.iconId).toBe("shading");
     expect(displayLabels).toEqual([
       "Shaded",
       "Unlit",

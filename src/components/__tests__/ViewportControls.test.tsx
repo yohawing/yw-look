@@ -275,13 +275,13 @@ describe("ViewportControls", () => {
     });
     const { getByRole } = render(<ViewportControls items={items} />);
 
-    fireEvent.click(getByRole("button", { name: "Display" }));
+    fireEvent.click(getByRole("button", { name: "Shading" }));
 
     const normals = getByRole("button", { name: "Normals" });
     expect(normals.classList.contains("is-active")).toBe(true);
     expect(normals.querySelector(".toolbar-popover-item-check")).toBeTruthy();
 
-    fireEvent.click(getByRole("button", { name: "Display" }));
+    fireEvent.click(getByRole("button", { name: "Shading" }));
     fireEvent.click(getByRole("button", { name: "Wireframe" }));
 
     const overlay = getByRole("button", { name: "Overlay" });
