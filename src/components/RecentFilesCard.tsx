@@ -12,6 +12,19 @@ function basename(path: string) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
 
+function kindLabel(kind: string) {
+  switch (kind.toLowerCase()) {
+    case "model":
+      return "Model";
+    case "texture":
+      return "Texture";
+    case "motion":
+      return "Motion";
+    default:
+      return kind;
+  }
+}
+
 export function RecentFilesCard({
   recentFilesPayload,
   recentFilesError,
@@ -25,28 +38,25 @@ export function RecentFilesCard({
       loadingLabel="Loading recent files."
       count={(payload) => payload.entries.length}
     >
-      {(payload) => (
-        <>
-          <p className="sidebar-path">{payload.recentFilesPath}</p>
-          {payload.entries.length > 0 ? (
-            <FileItemList
-              className="recent-list"
-              items={payload.entries.map(
-                (entry): FileItemListEntry => ({
-                  id: entry.path,
-                  name: basename(entry.path),
-                  leading: entry.kind.slice(0, 3).toUpperCase(),
-                  tooltip: entry.path,
-                  className: "recent-entry",
-                  onSelect: () => onOpenPath(entry.path),
-                }),
-              )}
-            />
-          ) : (
-            <SidebarEmpty>No recent files recorded yet.</SidebarEmpty>
-          )}
-        </>
-      )}
+      {(payload) =>
+        payload.entries.length > 0 ? (
+          <FileItemList
+            className="recent-list"
+            items={payload.entries.map(
+              (entry): FileItemListEntry => ({
+                id: entry.path,
+                name: basename(entry.path),
+                leading: kindLabel(entry.kind),
+                tooltip: entry.path,
+                className: "recent-entry",
+                onSelect: () => onOpenPath(entry.path),
+              }),
+            )}
+          />
+        ) : (
+          <SidebarEmpty>No recent files recorded yet.</SidebarEmpty>
+        )
+      }
     </AsyncSidebarSection>
   );
 }

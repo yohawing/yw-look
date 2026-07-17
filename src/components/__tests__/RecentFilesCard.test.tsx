@@ -67,12 +67,12 @@ describe("RecentFilesCard", () => {
     const payload = makePayload([
       {
         path: "/projects/demo/scene.usd",
-        kind: "usd",
+        kind: "model",
         lastAccessedAt: "2m ago",
       },
       {
         path: "C:\\Users\\test\\model.abc",
-        kind: "abc",
+        kind: "texture",
         lastAccessedAt: "1h ago",
       },
     ]);
@@ -88,10 +88,13 @@ describe("RecentFilesCard", () => {
     // basename rendering (getByText throws if absent; also verify query form)
     expect(screen.queryByText("scene.usd")).not.toBeNull();
     expect(screen.queryByText("model.abc")).not.toBeNull();
+    expect(screen.getByText("Model")).toBeTruthy();
+    expect(screen.getByText("Texture")).toBeTruthy();
 
     // Full paths stay out of the rows and appear on demand.
     expect(screen.queryByText("/projects/demo/scene.usd")).toBeNull();
     expect(screen.queryByText("C:\\Users\\test\\model.abc")).toBeNull();
+    expect(screen.queryByText("/path/to/recent.json")).toBeNull();
 
     fireEvent.pointerMove(screen.getAllByRole("button")[0], {
       pointerType: "mouse",
