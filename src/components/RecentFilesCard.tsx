@@ -23,7 +23,6 @@ export function RecentFilesCard({
       error={recentFilesError}
       data={recentFilesPayload}
       loadingLabel="Loading recent files."
-      count={(payload) => payload.entries.length}
     >
       {(payload) => (
         <>

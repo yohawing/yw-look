@@ -54,7 +54,7 @@ describe("RecentFilesCard", () => {
     );
 
     expect(screen.getByText("No recent files recorded yet.")).toBeTruthy();
-    expect(screen.getByText("0")).toBeTruthy();
+    expect(screen.queryByText("0")).toBeNull();
   });
 
   it("renders basename for each recent file entry", () => {
