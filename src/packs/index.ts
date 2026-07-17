@@ -26,6 +26,7 @@ export {
   getMmdBoneDetails,
   type MmdBoneDetails,
   type MmdHierarchyDetailRow,
+  type MmdMorphTargetMeta,
 } from "./mmd-loader-pack/hierarchyDetails";
 export {
   loadMmdMotion,
@@ -83,7 +84,10 @@ export function getPackSelectedObjectDetails(objectInfo: ObjectInfo | null) {
 export function formatPackMorphTargetMeta(
   target: ObjectInfo["morphTargets"][number],
 ) {
-  return formatMmdMorphTargetMeta(target);
+  const meta = formatMmdMorphTargetMeta(target);
+  return meta
+    ? createElement("span", { title: meta.label }, meta.compact)
+    : null;
 }
 
 export function createPackFileRequest(

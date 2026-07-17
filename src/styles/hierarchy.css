@@ -242,14 +242,15 @@
 .selected-morph-list {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 3px;
 }
 
 .selected-morph-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px;
+  min-height: 22px;
+  grid-template-columns: minmax(40px, 0.72fr) 16px minmax(126px, 2.2fr);
   align-items: center;
-  gap: 4px 8px;
+  gap: 6px;
 }
 
 .selected-morph-name {
@@ -262,13 +263,6 @@
   white-space: nowrap;
 }
 
-.selected-morph-value {
-  color: var(--yl-text-tertiary);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  text-align: right;
-}
-
 .selected-morph-meta {
   min-width: 0;
   overflow: hidden;
@@ -279,8 +273,7 @@
   white-space: nowrap;
 }
 
-.selected-morph-slider {
-  grid-column: 1 / -1;
-  width: 100%;
-  accent-color: var(--yl-accent);
+.selected-morph-slider-field {
+  min-width: 0;
+  gap: 0;
 }

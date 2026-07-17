@@ -1,14 +1,10 @@
 import { useMemo, useState } from "react";
-import {
-  Group as PanelGroup,
-  Panel,
-  Separator as PanelResizeHandle,
-} from "react-resizable-panels";
 import type { TextureEntry } from "./assetMetadata";
-import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
+import { SidebarEmpty } from "../lib/sidebarPrimitives";
 import { SelectableListItem } from "./ui";
 import { Badge, BadgeButton } from "./ui/Badge";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
+import { SidebarSplitPanel } from "./ui/SidebarSplitPanel";
 import "../styles/texture-list.css";
 
 type TextureListCardProps = {
@@ -17,9 +13,26 @@ type TextureListCardProps = {
   onSelectTexture: (textureId: string) => void;
 };
 
+function textureExtension(label: string): string | null {
+  const cleanLabel = label.split(/[?#]/, 1)[0];
+  const dotIndex = cleanLabel.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === cleanLabel.length - 1) return null;
+  const extension = cleanLabel.slice(dotIndex + 1);
+  return extension.length <= 8 ? extension.toUpperCase() : null;
+}
+
+function textureRowMetadata(texture: TextureEntry): string {
+  const dimensions = texture.dimensions.replace(/(\d)x(\d)/i, "$1×$2");
+  return [textureExtension(texture.label), texture.channel, dimensions]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
+  const extension = textureExtension(texture.label);
   const rows: KeyValueRow[] = [
     { id: "name", label: "Name", value: texture.label, mono: true },
+    extension && { id: "type", label: "Type", value: extension, mono: true },
     { id: "channel", label: "Channel", value: texture.channel, mono: true },
     { id: "dimensions", label: "Size", value: texture.dimensions, mono: true },
     {
@@ -77,105 +90,114 @@ export function TextureListCard({
     visibleTextures[0] ??
     null;
 
-  return (
-    <SidebarSection
-      title="Textures"
-      count={`${resolvedCount} / ${textures.length}`}
-    >
-      {textures.length > 0 ? (
-        <>
-          <div
-            className="texture-channel-filters u-flex u-flex-wrap u-gap-4"
-            aria-label="Texture channels"
-          >
-            {channels.map((channel) => (
-              <BadgeButton
-                key={channel}
-                className="texture-channel-filter"
-                variant={channel === activeChannel ? "info" : "neutral"}
-                mono
-                onClick={() => setActiveChannel(channel)}
-                size="sm"
-              >
-                {channel}
-              </BadgeButton>
-            ))}
-          </div>
-          <PanelGroup className="texture-split-panel" orientation="vertical">
-            <Panel
-              className="texture-grid-pane"
-              defaultSize={62}
-              id="texture-grid"
-              minSize={24}
-            >
-              <div className="texture-grid u-grid u-gap-6">
-                {visibleTextures.map((texture) => {
-                  const isMissing = texture.sourceKind === "unresolved";
-                  return (
-                    <SelectableListItem
-                      key={texture.id}
-                      className={`texture-card u-relative u-aspect-square u-overflow-hidden u-p-0${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
-                      onClick={() => onSelectTexture(texture.id)}
-                    >
-                      <div className="texture-card-preview u-absolute u-inset-0 u-size-full u-overflow-hidden u-flex u-items-center u-justify-center">
-                        {texture.thumbnailUrl && !isMissing ? (
-                          <img
-                            className={
-                              texture.previewFlipY ? "is-preview-flipped-y" : ""
-                            }
-                            src={texture.thumbnailUrl}
-                            alt={texture.label}
-                          />
-                        ) : (
-                          <span className="texture-card-preview-placeholder">
-                            {isMissing ? "!" : texture.channel}
-                          </span>
-                        )}
-                      </div>
-                      <div className="texture-card-info u-absolute u-flex u-items-end u-justify-between u-gap-4">
-                        <span className="texture-card-label u-min-w-0 u-truncate">
-                          {texture.label}
-                        </span>
-                        <span className="texture-card-dimensions u-nowrap">
-                          {texture.channel} · {texture.dimensions}
-                        </span>
-                      </div>
-                    </SelectableListItem>
-                  );
-                })}
-              </div>
-            </Panel>
-            <PanelResizeHandle
-              className="texture-resize-handle"
-              aria-label="Resize texture details"
-            />
-            <Panel
-              className="texture-detail-pane"
-              defaultSize={38}
-              id="texture-detail"
-              minSize={20}
-            >
-              {selectedTexture && (
-                <TextureDetailPanel texture={selectedTexture} />
-              )}
-            </Panel>
-          </PanelGroup>
-          <div className="texture-summary u-flex u-justify-between">
-            <Badge variant="success" size="sm">
-              Resolved {resolvedCount}
-            </Badge>
-            <Badge
-              className={missingCount > 0 ? "is-warning" : ""}
-              variant={missingCount > 0 ? "warning" : "neutral"}
+  const textureList =
+    textures.length > 0 ? (
+      <div className="texture-list-layout">
+        <div
+          className="texture-channel-filters u-flex u-flex-wrap u-gap-4"
+          aria-label="Texture channels"
+        >
+          {channels.map((channel) => (
+            <BadgeButton
+              key={channel}
+              className="texture-channel-filter"
+              variant={channel === activeChannel ? "info" : "neutral"}
+              mono
+              onClick={() => setActiveChannel(channel)}
               size="sm"
             >
-              Missing {missingCount}
-            </Badge>
-          </div>
-        </>
+              {channel}
+            </BadgeButton>
+          ))}
+        </div>
+        <div className="texture-list">
+          {visibleTextures.map((texture) => {
+            const isMissing = texture.sourceKind === "unresolved";
+            return (
+              <SelectableListItem
+                key={texture.id}
+                className={`texture-row${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
+                onClick={() => onSelectTexture(texture.id)}
+              >
+                <span className="texture-row-preview">
+                  {texture.thumbnailUrl && !isMissing ? (
+                    <img
+                      className={
+                        texture.previewFlipY ? "is-preview-flipped-y" : ""
+                      }
+                      src={texture.thumbnailUrl}
+                      alt={texture.label}
+                    />
+                  ) : (
+                    <span
+                      aria-label={isMissing ? "Missing texture" : "No preview"}
+                      className="texture-row-preview-placeholder"
+                    >
+                      {isMissing ? "!" : ""}
+                    </span>
+                  )}
+                </span>
+                <span className="texture-row-info">
+                  <span className="texture-row-label">{texture.label}</span>
+                  <span className="texture-row-meta">
+                    {textureRowMetadata(texture)}
+                  </span>
+                </span>
+              </SelectableListItem>
+            );
+          })}
+        </div>
+      </div>
+    ) : (
+      <SidebarEmpty>No textures referenced.</SidebarEmpty>
+    );
+
+  const textureDetails = (
+    <div className="texture-detail-layout">
+      {selectedTexture ? (
+        <TextureDetailPanel texture={selectedTexture} />
       ) : (
-        <SidebarEmpty>No textures referenced.</SidebarEmpty>
+        <SidebarEmpty>Select a texture to inspect it.</SidebarEmpty>
       )}
-    </SidebarSection>
+      <div className="texture-summary u-flex u-justify-between">
+        <Badge variant="success" size="sm">
+          Resolved {resolvedCount}
+        </Badge>
+        <Badge
+          className={missingCount > 0 ? "is-warning" : ""}
+          variant={missingCount > 0 ? "warning" : "neutral"}
+          size="sm"
+        >
+          Missing {missingCount}
+        </Badge>
+      </div>
+    </div>
+  );
+
+  return (
+    <SidebarSplitPanel
+      className="texture-split-panel"
+      handleClassName="texture-resize-handle"
+      primary={{
+        bodyClassName: "texture-list-scroll",
+        children: textureList,
+        className: "texture-grid-pane",
+        count: `${resolvedCount} / ${textures.length}`,
+        defaultSize: 62,
+        id: "texture-grid",
+        minSize: 24,
+        title: "Textures",
+      }}
+      resizeLabel="Resize texture details"
+      secondary={{
+        bodyClassName: "texture-detail-scroll",
+        children: textureDetails,
+        className: "texture-detail-pane",
+        defaultSize: 38,
+        id: "texture-detail",
+        minSize: 20,
+        title: "Selected",
+      }}
+    />
   );
 }

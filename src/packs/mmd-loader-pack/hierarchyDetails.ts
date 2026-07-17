@@ -13,6 +13,36 @@ export type MmdBoneDetails = {
   rows: MmdHierarchyDetailRow[];
 };
 
+export type MmdMorphTargetMeta = {
+  compact: string;
+  label: string;
+};
+
+const MMD_MORPH_TYPE_CODES: Record<string, string> = {
+  "0": "G",
+  "1": "V",
+  "2": "B",
+  "3": "U",
+  "4": "U1",
+  "5": "U2",
+  "6": "U3",
+  "7": "U4",
+  "8": "M",
+  "9": "F",
+  "10": "I",
+  group: "G",
+  vertex: "V",
+  bone: "B",
+  uv: "U",
+  uv1: "U1",
+  uv2: "U2",
+  uv3: "U3",
+  uv4: "U4",
+  material: "M",
+  flip: "F",
+  impulse: "I",
+};
+
 function fmtMmdNumber(value: number): string {
   return value.toFixed(3).replace(/\.?0+$/, "");
 }
@@ -31,7 +61,7 @@ function fmtMmdFlags(flags: Record<string, boolean> | null): string {
 
 export function formatMmdMorphTargetMeta(
   target: ObjectInfo["morphTargets"][number],
-): string | null {
+): MmdMorphTargetMeta | null {
   const { mmd } = target;
   if (!mmd) return null;
   const parts = [
@@ -45,7 +75,13 @@ export function formatMmdMorphTargetMeta(
     mmd.englishName && mmd.englishName !== target.name
       ? `${mmd.englishName} · `
       : "";
-  return `${mmd.type ?? "mmd"} · ${englishName}${offsets}`;
+  const type = mmd.type?.trim() || "mmd";
+  return {
+    compact:
+      MMD_MORPH_TYPE_CODES[type.toLowerCase()] ??
+      type.slice(0, 2).toUpperCase(),
+    label: `${type} · ${englishName}${offsets}`,
+  };
 }
 
 export function getMmdBoneDetails(

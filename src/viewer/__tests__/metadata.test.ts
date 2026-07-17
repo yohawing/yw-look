@@ -93,10 +93,16 @@ function createManualTaskScheduler() {
 
 function mockCanvasThumbnail(thumbnailUrl = "data:image/jpeg;base64,thumb") {
   const drawImageMock = vi.fn();
+  const createImageDataMock = vi.fn((width: number, height: number) => ({
+    data: new Uint8ClampedArray(width * height * 4),
+  }));
+  const putImageDataMock = vi.fn();
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
     () =>
       ({
+        createImageData: createImageDataMock,
         drawImage: drawImageMock,
+        putImageData: putImageDataMock,
       }) as unknown as CanvasRenderingContext2D,
   );
   vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
@@ -319,6 +325,9 @@ describe("collectAssetMetadata", () => {
   it("prefers MMD Japanese material names and records MMD parameters", () => {
     const root = new Group();
     const material = new MeshBasicMaterial();
+    const texture = new Texture();
+    texture.name = "Base Color Texture";
+    material.map = texture;
     material.name = "Body_EN";
     material.userData.mmdMaterial = {
       materialIndex: 2,
@@ -358,6 +367,28 @@ describe("collectAssetMetadata", () => {
       sphereMode: "add",
       unsupportedDrawFlags: ["pointDraw"],
     });
+    expect(result.metadata.textures[0]?.label).toBe("body.png");
+  });
+
+  it("deduplicates separate MMD texture instances that reference the same file", () => {
+    const root = new Group();
+    for (const materialName of ["Face", "Body"]) {
+      const texture = new Texture();
+      texture.name = "Base Color Texture";
+      const material = new MeshBasicMaterial({ map: texture });
+      material.name = materialName;
+      material.userData.mmdMaterial = {
+        name: materialName,
+        texturePath: "textures/shared.tga",
+      };
+      root.add(new Mesh(new BufferGeometry(), material));
+    }
+
+    const result = collectAssetMetadata(root, fakeMmdFile, [], null);
+
+    expect(result.metadata.textures).toHaveLength(1);
+    expect(result.metadata.textures[0]?.label).toBe("shared.tga");
+    expect(result.textureRegistry.size).toBe(1);
   });
 
   it("records MMD bone parameters for selected bone inspection", () => {
@@ -687,6 +718,36 @@ describe("collectAssetMetadata", () => {
       sourceKind: "unknown",
       thumbnailUrl: "data:image/jpeg;base64,thumb",
     });
+    expect(drawImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("generates thumbnails from raw RGBA texture data such as TGA DataTexture images", () => {
+    const texture = new Texture();
+    texture.name = "face.tga";
+    texture.image = {
+      data: new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]),
+      height: 1,
+      width: 2,
+    };
+    const material = new MeshBasicMaterial({ map: texture });
+    const root = new Group();
+    root.add(new Mesh(new BufferGeometry(), material));
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    const updates: Array<typeof result.metadata> = [];
+    const scheduler = createManualTaskScheduler();
+    const drawImage = mockCanvasThumbnail("data:image/jpeg;base64,tga-thumb");
+
+    scheduleTextureThumbnailEnrichment({
+      metadata: result.metadata,
+      onUpdate: (metadata) => updates.push(metadata),
+      scheduleTask: scheduler.scheduleTask,
+      textureRegistry: result.textureRegistry,
+    });
+    scheduler.runNext();
+
+    expect(updates[0]?.textures[0]?.thumbnailUrl).toBe(
+      "data:image/jpeg;base64,tga-thumb",
+    );
     expect(drawImage).toHaveBeenCalledTimes(1);
   });
 

@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useState } from "react";
 import {
   PauseIcon,
   PlayIcon,
@@ -19,6 +19,8 @@ type AnimationBarProps = {
   onSeek: (time: number) => void;
   onStep: (direction: -1 | 1) => void;
 };
+
+const DEFAULT_PLAYBACK_FRAME_RATE = 30;
 
 function formatTime(seconds: number) {
   const safeSeconds = Number.isFinite(seconds) ? Math.max(seconds, 0) : 0;
@@ -42,12 +44,16 @@ export function AnimationBar({
   onSeek,
   onStep,
 }: AnimationBarProps) {
+  const [timeDisplayMode, setTimeDisplayMode] = useState<"frames" | "time">(
+    "frames",
+  );
   const safeDuration = duration > 0 ? duration : 0;
   const safeCurrentTime = Math.min(Math.max(currentTime, 0), safeDuration);
+  const currentFrame = Math.round(
+    safeCurrentTime * DEFAULT_PLAYBACK_FRAME_RATE,
+  );
+  const totalFrames = Math.ceil(safeDuration * DEFAULT_PLAYBACK_FRAME_RATE);
   const activeClipName = clipNames[activeClipIndex] ?? "Animation";
-  const progress =
-    safeDuration > 0 ? (safeCurrentTime / safeDuration) * 100 : 0;
-
   return (
     <div
       className="animation-bar u-grid u-items-center"
@@ -122,15 +128,39 @@ export function AnimationBar({
         max={safeDuration || 0}
         min={0}
         onChange={(event) => onSeek(Number(event.target.value))}
-        style={{ "--animation-progress": `${progress}%` } as CSSProperties}
-        step={Math.max(safeDuration / 300, 1 / 120)}
+        step={1 / DEFAULT_PLAYBACK_FRAME_RATE}
         value={safeCurrentTime}
       />
 
-      <div className="animation-time-readout u-grid u-gap-6 u-nowrap u-sm-hidden">
-        <span>{formatTime(safeCurrentTime)}</span>
-        <span className="animation-time-total">{formatTime(safeDuration)}</span>
-      </div>
+      <button
+        aria-label={
+          timeDisplayMode === "frames"
+            ? `Time display: frames at ${DEFAULT_PLAYBACK_FRAME_RATE} fps. Click to show clock time.`
+            : "Time display: clock time. Click to show frames."
+        }
+        className={`animation-time-readout u-grid u-gap-6 u-nowrap u-sm-hidden is-${timeDisplayMode}`}
+        onClick={() =>
+          setTimeDisplayMode((mode) => (mode === "frames" ? "time" : "frames"))
+        }
+        type="button"
+      >
+        {timeDisplayMode === "frames" ? (
+          <>
+            <span>{currentFrame}f</span>
+            <span className="animation-time-total">{totalFrames}f</span>
+            <span className="animation-frame-rate">
+              {DEFAULT_PLAYBACK_FRAME_RATE} fps
+            </span>
+          </>
+        ) : (
+          <>
+            <span>{formatTime(safeCurrentTime)}</span>
+            <span className="animation-time-total">
+              {formatTime(safeDuration)}
+            </span>
+          </>
+        )}
+      </button>
     </div>
   );
 }

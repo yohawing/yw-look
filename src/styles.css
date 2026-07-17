@@ -107,6 +107,37 @@ body.is-resizing-sidebar {
   padding: 0;
 }
 
+.sidebar-content,
+.sidebar-content * {
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  scrollbar-width: thin;
+}
+
+.sidebar-content::-webkit-scrollbar,
+.sidebar-content *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.sidebar-content::-webkit-scrollbar-track,
+.sidebar-content *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-content::-webkit-scrollbar-thumb,
+.sidebar-content *::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: var(--yl-radius-pill);
+  background: rgba(255, 255, 255, 0.18);
+  background-clip: content-box;
+}
+
+.sidebar-content::-webkit-scrollbar-thumb:hover,
+.sidebar-content *::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+  background-clip: content-box;
+}
+
 button {
   border: none;
   background: transparent;

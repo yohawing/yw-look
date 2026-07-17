@@ -44,22 +44,20 @@ describe("TextureListCard", () => {
     );
   });
 
-  it("renders texture cards as SelectableListItem buttons inside the texture grid", () => {
+  it("renders compact texture rows as SelectableListItem buttons", () => {
     const { container } = renderTextureListCard([baseTexture]);
 
-    const grid = container.querySelector(".texture-grid");
-    expect(grid).not.toBeNull();
+    const list = container.querySelector(".texture-list");
+    expect(list).not.toBeNull();
 
-    const card = grid?.querySelector("button.texture-card");
-    expect(card).not.toBeNull();
-    expect(card?.classList.contains("yl-button")).toBe(true);
-    expect(card?.classList.contains("yl-button--unstyled")).toBe(true);
-    expect(card?.classList.contains("yl-selectable-list-item")).toBe(true);
-    expect(card?.classList.contains("texture-card")).toBe(true);
-    expect(card?.classList.contains("u-relative")).toBe(true);
-    expect(card?.classList.contains("u-aspect-square")).toBe(true);
-    expect(card?.classList.contains("u-overflow-hidden")).toBe(true);
-    expect(card?.classList.contains("u-p-0")).toBe(true);
+    const row = list?.querySelector("button.texture-row");
+    expect(row).not.toBeNull();
+    expect(row?.classList.contains("yl-button")).toBe(true);
+    expect(row?.classList.contains("yl-button--unstyled")).toBe(true);
+    expect(row?.classList.contains("yl-selectable-list-item")).toBe(true);
+    expect(row?.querySelector(".texture-row-preview")).not.toBeNull();
+    expect(row?.querySelector(".texture-row-info")).not.toBeNull();
+    expect(row?.textContent).toContain("BMP · Base Color · 128×128");
   });
 
   it("calls onSelectTexture when a texture card is clicked", () => {
@@ -79,9 +77,9 @@ describe("TextureListCard", () => {
   it("applies is-active to the selected texture card", () => {
     const { container } = renderTextureListCard([baseTexture], "tex-1");
 
-    const card = container.querySelector("button.texture-card");
-    expect(card?.classList.contains("is-active")).toBe(true);
-    expect(card?.classList.contains("is-missing")).toBe(false);
+    const row = container.querySelector("button.texture-row");
+    expect(row?.classList.contains("is-active")).toBe(true);
+    expect(row?.classList.contains("is-missing")).toBe(false);
   });
 
   it("keeps the texture grid and selected texture details in split panes", () => {
@@ -89,8 +87,19 @@ describe("TextureListCard", () => {
       renderTextureListCard([{ ...baseTexture, previewFlipY: true }], "tex-1");
 
     expect(container.querySelector(".texture-split-panel")).toBeTruthy();
+    expect(
+      container
+        .querySelector(".texture-split-panel")
+        ?.classList.contains("yl-sidebar-split"),
+    ).toBe(true);
+    expect(
+      container.querySelectorAll(".yl-sidebar-split__section"),
+    ).toHaveLength(2);
     expect(container.querySelector(".texture-grid-pane")).toBeTruthy();
     expect(container.querySelector(".texture-detail-pane")).toBeTruthy();
+    expect(
+      container.querySelector(".texture-detail-layout > .texture-summary"),
+    ).toBeTruthy();
     expect(getByLabelText("Selected texture")).toBeTruthy();
     expect(
       container
@@ -99,6 +108,7 @@ describe("TextureListCard", () => {
     ).toBe("Resize texture details");
     expect(getByText("Selected texture")).toBeTruthy();
     expect(getAllByText("diffuse.bmp").length).toBeGreaterThan(1);
+    expect(getByText("BMP")).toBeTruthy();
     expect(getAllByText("Base Color").length).toBeGreaterThan(1);
     expect(getAllByText("128x128").length).toBeGreaterThan(0);
     expect(getByText("Flip Y")).toBeTruthy();
@@ -114,8 +124,19 @@ describe("TextureListCard", () => {
     };
     const { container } = renderTextureListCard([missingTexture]);
 
-    const card = container.querySelector("button.texture-card");
-    expect(card?.classList.contains("is-missing")).toBe(true);
-    expect(card?.classList.contains("is-active")).toBe(false);
+    const row = container.querySelector("button.texture-row");
+    expect(row?.classList.contains("is-missing")).toBe(true);
+    expect(row?.classList.contains("is-active")).toBe(false);
+  });
+
+  it("keeps the split layout and bottom summary in the empty state", () => {
+    const { container, getByText } = renderTextureListCard([]);
+
+    expect(getByText("No textures referenced.")).toBeTruthy();
+    expect(getByText("Select a texture to inspect it.")).toBeTruthy();
+    expect(container.querySelector(".texture-split-panel")).toBeTruthy();
+    expect(
+      container.querySelector(".texture-detail-layout > .texture-summary"),
+    ).toBeTruthy();
   });
 });

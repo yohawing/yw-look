@@ -47,10 +47,19 @@ export {
   type SelectableListItemProps,
 } from "./SelectableListItem";
 export {
+  SidebarSplitPanel,
+  type SidebarSplitPane,
+  type SidebarSplitPanelProps,
+} from "./SidebarSplitPanel";
+export {
   SliderField,
   type SliderFieldProps,
   type SliderFieldSize,
 } from "./SliderField";
+export {
+  SliderNumberField,
+  type SliderNumberFieldProps,
+} from "./SliderNumberField";
 export { ToggleSwitch, type ToggleSwitchProps } from "./ToggleSwitch";
 export { Tooltip, TooltipProvider, type TooltipProps } from "./Tooltip";
 export {

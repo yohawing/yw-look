@@ -504,7 +504,7 @@ or when a large feature area finishes migration.
 
 - `Button`, `Badge` / `BadgeButton`, `Disclosure`, `Dialog`, `Popover`,
   `Tooltip`
-- `FieldRow`, `SelectField`, `SliderField`, `ToggleSwitch`
+- `FieldRow`, `SelectField`, `SliderField`, `SliderNumberField`, `ToggleSwitch`
 - `IconTabButton`, `KeyValueRows`, `SegmentedControl`, `Kbd`
 
 Import from `src/components/ui` when possible so the public primitive surface
@@ -519,8 +519,9 @@ should not be the default pattern for new feature code.
   new feature-local `segmented-*` classes.
 - Use `SelectField` for native select controls. Radix Select remains out of
   scope unless native select stops meeting the interaction requirement.
-- Use `SliderField` for range inputs and expose formatted values through
-  `valueLabel`.
+- Use `SliderField` for range-only inputs and expose formatted values through
+  `valueLabel`. Use `SliderNumberField` when the value must also be directly
+  editable as a number.
 - Keep dense, domain-specific rows as feature components first. Promote a row
   primitive only after the same interaction shape appears in at least two
   feature areas.

@@ -359,6 +359,72 @@ function textureSlot(
   return { name };
 }
 
+function textureFileName(value: string): string {
+  const normalized = value.trim().replace(/\\/g, "/").split(/[?#]/, 1)[0];
+  const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
+  if (!basename) return value.trim();
+  try {
+    return decodeURIComponent(basename);
+  } catch {
+    return basename;
+  }
+}
+
+function textureSourceReference(
+  texture: Texture,
+  material: Material,
+  slot: TextureSlotKey,
+  channel: string,
+  currentFile: SelectedFile,
+): string | null {
+  const genericName = `${channel} Texture`;
+  const userData = texture.userData as Record<string, unknown>;
+  const sourcePath =
+    stringValue(userData.path) ??
+    stringValue(userData.fbxSourceName) ??
+    stringValue(userData.sourcePath) ??
+    stringValue(userData.uri);
+  if (sourcePath) return sourcePath;
+
+  const mmd = buildMmdMaterialEntry(material);
+  const mmdPath = slot === "map" ? mmd?.texturePath : null;
+  if (mmdPath) return mmdPath;
+
+  if (currentFile.kind === "texture") {
+    return currentFile.path;
+  }
+
+  const textureName = stringValue(texture.name);
+  return textureName && textureName !== genericName ? textureName : null;
+}
+
+function textureDisplayName(
+  texture: Texture,
+  material: Material,
+  slot: TextureSlotKey,
+  channel: string,
+  currentFile: SelectedFile,
+): string {
+  const sourceReference = textureSourceReference(
+    texture,
+    material,
+    slot,
+    channel,
+    currentFile,
+  );
+  return sourceReference
+    ? textureFileName(sourceReference)
+    : `${channel} Texture`;
+}
+
+function textureSourceKey(sourceReference: string, channel: string): string {
+  const normalized = sourceReference
+    .trim()
+    .replace(/\\/g, "/")
+    .split(/[?#]/, 1)[0];
+  return `${channel}:${normalized}`;
+}
+
 /** Infer the glTF alpha mode from Three.js material flags. Prefers the
  * value stored in `material.userData.gltfAlphaMode` if the GLTFLoader
  * wrote it. Falls back to heuristics for non-glTF assets. */
@@ -755,11 +821,57 @@ function shouldFlipTexturePreviewY(
   );
 }
 
+function drawRawTextureImage(
+  targetContext: CanvasRenderingContext2D,
+  image: { data: unknown; height: number; width: number },
+): boolean {
+  const { data, height, width } = image;
+  if (
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    (!(data instanceof Uint8Array) && !(data instanceof Uint8ClampedArray))
+  ) {
+    return false;
+  }
+
+  const pixelCount = width * height;
+  if (data.length !== pixelCount * 4 && data.length !== pixelCount * 3) {
+    return false;
+  }
+
+  const rgba = new Uint8ClampedArray(pixelCount * 4);
+  if (data.length === pixelCount * 4) {
+    rgba.set(data);
+  } else {
+    for (let source = 0, target = 0; source < data.length; source += 3) {
+      rgba[target++] = data[source];
+      rgba[target++] = data[source + 1];
+      rgba[target++] = data[source + 2];
+      rgba[target++] = 255;
+    }
+  }
+
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = width;
+  sourceCanvas.height = height;
+  const sourceContext = sourceCanvas.getContext("2d");
+  if (!sourceContext) return false;
+
+  const imageData = sourceContext.createImageData(width, height);
+  imageData.data.set(rgba);
+  sourceContext.putImageData(imageData, 0, 0);
+  targetContext.drawImage(sourceCanvas, 0, 0, THUMB_SIZE, THUMB_SIZE);
+  return true;
+}
+
 function generateThumbnailUrl(texture: Texture): string | null {
   const image = texture.image as
     | HTMLImageElement
     | HTMLCanvasElement
     | ImageBitmap
+    | { data: unknown; height: number; width: number }
     | undefined;
 
   if (!image) return null;
@@ -771,7 +883,17 @@ function generateThumbnailUrl(texture: Texture): string | null {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
-    ctx.drawImage(image as CanvasImageSource, 0, 0, THUMB_SIZE, THUMB_SIZE);
+    const isRawImage =
+      typeof image === "object" &&
+      image !== null &&
+      "data" in image &&
+      "width" in image &&
+      "height" in image;
+    if (isRawImage) {
+      if (!drawRawTextureImage(ctx, image)) return null;
+    } else {
+      ctx.drawImage(image as CanvasImageSource, 0, 0, THUMB_SIZE, THUMB_SIZE);
+    }
     return canvas.toDataURL("image/jpeg", 0.7);
   } catch {
     return null;
@@ -1224,7 +1346,17 @@ export function collectAssetMetadata(
         }
 
         const textureId = String(textureValue.uuid);
-        if (textures.has(textureId)) {
+        const sourceReference = textureSourceReference(
+          textureValue,
+          material,
+          key,
+          channel,
+          currentFile,
+        );
+        const textureKey = sourceReference
+          ? textureSourceKey(sourceReference, channel)
+          : `uuid:${textureId}`;
+        if (textures.has(textureKey)) {
           continue;
         }
 
@@ -1232,9 +1364,15 @@ export function collectAssetMetadata(
           textureValue,
           currentFile,
         );
-        textures.set(textureId, {
+        textures.set(textureKey, {
           id: textureId,
-          label: textureValue.name.trim() || `${channel} Texture`,
+          label: textureDisplayName(
+            textureValue,
+            material,
+            key,
+            channel,
+            currentFile,
+          ),
           channel,
           dimensions: getTextureDimensions(textureValue),
           thumbnailUrl: null,

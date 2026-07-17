@@ -1,11 +1,17 @@
 .material-split-panel {
   min-height: 320px;
+  height: 100%;
   overflow: hidden;
 }
 
 .material-list-pane,
 .material-detail-pane {
   min-height: 0;
+  overflow: hidden;
+}
+
+.material-list-scroll,
+.material-detail-scroll {
   overflow: hidden;
 }
 
@@ -19,48 +25,6 @@
   list-style: none;
   padding: 0 0 8px;
   margin: 0;
-}
-
-.material-resize-handle {
-  position: relative;
-  flex: 0 0 8px;
-  border-top: 1px solid var(--yl-border-subtle);
-  border-bottom: 1px solid var(--yl-border-subtle);
-  background: rgba(255, 255, 255, 0.012);
-  cursor: row-resize;
-  transition:
-    background 0.12s,
-    border-color 0.12s;
-}
-
-.material-resize-handle::after {
-  position: absolute;
-  top: 3px;
-  right: 42%;
-  bottom: 3px;
-  left: 42%;
-  border-radius: var(--yl-radius-pill);
-  background: rgba(255, 255, 255, 0.12);
-  content: "";
-  opacity: 0.6;
-  transition:
-    background 0.12s,
-    opacity 0.12s;
-}
-
-.material-resize-handle:hover,
-.material-resize-handle:focus-visible,
-.material-resize-handle[data-resize-handle-active] {
-  border-color: rgba(113, 112, 255, 0.32);
-  background: rgba(113, 112, 255, 0.08);
-  outline: none;
-}
-
-.material-resize-handle:hover::after,
-.material-resize-handle:focus-visible::after,
-.material-resize-handle[data-resize-handle-active]::after {
-  background: var(--yl-accent);
-  opacity: 1;
 }
 
 .material-item {
@@ -163,7 +127,7 @@
 .material-selected-panel {
   height: 100%;
   overflow: auto;
-  padding: 10px 0 12px;
+  padding: 10px var(--yl-space-16) 12px 0;
 }
 
 .material-selected-title {

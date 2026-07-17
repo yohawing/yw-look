@@ -13,6 +13,7 @@ import {
 import type { AssetMetadata, HierarchyNode, ObjectInfo } from "./assetMetadata";
 import { Button } from "./ui/Button";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
+import { SliderNumberField } from "./ui/SliderNumberField";
 import "../styles/hierarchy.css";
 
 type HierarchyCardProps = {
@@ -520,38 +521,37 @@ export function HierarchyCard({
                         );
                         const morphMeta = renderMorphTargetMeta?.(target);
                         return (
-                          <label
+                          <div
                             className="selected-morph-row"
                             key={target.index}
                           >
                             <span className="selected-morph-name">
                               {target.name}
                             </span>
-                            <span className="selected-morph-value">
-                              {value.toFixed(2)}
-                            </span>
                             {morphMeta ? (
                               <span className="selected-morph-meta">
                                 {morphMeta}
                               </span>
                             ) : null}
-                            <input
+                            <SliderNumberField
                               aria-label={`Shape key ${target.name}`}
-                              className="selected-morph-slider"
+                              className="selected-morph-slider-field"
                               max="1"
                               min="0"
-                              step="0.01"
-                              type="range"
-                              value={value}
-                              onChange={(event) =>
+                              numberInputAriaLabel={`Shape key ${target.name} value`}
+                              onValueChange={(nextValue) =>
                                 onMorphTargetChange?.(
                                   normalizedSelected,
                                   target.index,
-                                  Number(event.currentTarget.value),
+                                  nextValue,
                                 )
                               }
+                              precision={2}
+                              size="sm"
+                              step="0.01"
+                              value={value}
                             />
-                          </label>
+                          </div>
                         );
                       })}
                     </div>

@@ -75,6 +75,14 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     const { container, getByText } = renderWithMaterials([baseMat]);
     expect(getByText("Gold")).toBeTruthy();
     expect(container.querySelector(".material-split-panel")).toBeTruthy();
+    expect(
+      container
+        .querySelector(".material-split-panel")
+        ?.classList.contains("yl-sidebar-split"),
+    ).toBe(true);
+    expect(
+      container.querySelectorAll(".yl-sidebar-split__section"),
+    ).toHaveLength(2);
     expect(container.querySelector(".material-list-pane")).toBeTruthy();
     expect(container.querySelector(".material-detail-pane")).toBeTruthy();
     expect(
@@ -163,7 +171,10 @@ describe("MaterialListCard – shader slot details (#36)", () => {
       },
     };
     const { getByText } = renderWithMaterials([mat]);
-    expect(getByText("MMD material")).toBeTruthy();
+    const disclosure = getByText("MMD material").closest("details");
+    expect(disclosure).toBeTruthy();
+    expect(disclosure?.querySelector(".yl-kv--regular")).toBeTruthy();
+    expect(disclosure?.querySelector(".mat-slot-table")).toBeNull();
     expect(getByText("Material01")).toBeTruthy();
     expect(getByText("tex/body.png")).toBeTruthy();
     expect(getByText("doubleSided")).toBeTruthy();
@@ -171,7 +182,9 @@ describe("MaterialListCard – shader slot details (#36)", () => {
   });
 
   it("renders empty state when no materials", () => {
-    const { getByText } = renderWithMaterials([]);
+    const { container, getByText } = renderWithMaterials([]);
     expect(getByText("No materials found.")).toBeTruthy();
+    expect(container.querySelector(".material-split-panel")).toBeTruthy();
+    expect(getByText("Select a material to inspect it.")).toBeTruthy();
   });
 });
