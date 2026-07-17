@@ -23,6 +23,7 @@ export function RecentFilesCard({
       error={recentFilesError}
       data={recentFilesPayload}
       loadingLabel="Loading recent files."
+      count={(payload) => payload.entries.length}
     >
       {(payload) => (
         <>
@@ -36,7 +37,6 @@ export function RecentFilesCard({
                   name: basename(entry.path),
                   secondary: entry.path,
                   leading: entry.kind.slice(0, 3).toUpperCase(),
-                  trailing: entry.lastAccessedAt,
                   className: "recent-entry",
                   onSelect: () => onOpenPath(entry.path),
                 }),

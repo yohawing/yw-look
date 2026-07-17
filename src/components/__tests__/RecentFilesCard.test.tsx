@@ -54,7 +54,7 @@ describe("RecentFilesCard", () => {
     );
 
     expect(screen.getByText("No recent files recorded yet.")).toBeTruthy();
-    expect(screen.queryByText("0")).toBeNull();
+    expect(screen.getByText("0")).toBeTruthy();
   });
 
   it("renders basename for each recent file entry", () => {
@@ -86,6 +86,10 @@ describe("RecentFilesCard", () => {
     // full paths still shown
     expect(screen.queryByText("/projects/demo/scene.usd")).not.toBeNull();
     expect(screen.queryByText("C:\\Users\\test\\model.abc")).not.toBeNull();
+
+    // Last-access timestamps are metadata only and stay hidden from each row.
+    expect(screen.queryByText("2m ago")).toBeNull();
+    expect(screen.queryByText("1h ago")).toBeNull();
   });
 
   it("calls onOpenPath with full path when a recent file row is clicked", () => {
