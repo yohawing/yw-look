@@ -35,8 +35,8 @@ export function RecentFilesCard({
                 (entry): FileItemListEntry => ({
                   id: entry.path,
                   name: basename(entry.path),
-                  secondary: entry.path,
                   leading: entry.kind.slice(0, 3).toUpperCase(),
+                  tooltip: entry.path,
                   className: "recent-entry",
                   onSelect: () => onOpenPath(entry.path),
                 }),

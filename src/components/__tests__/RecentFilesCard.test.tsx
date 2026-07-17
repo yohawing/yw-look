@@ -1,7 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { RecentFilesCard } from "../RecentFilesCard";
+import { TooltipProvider } from "../ui";
 import type { RecentFilesPayload } from "../../lib/recentFiles";
+
+function renderWithTooltipProvider(ui: ReactElement) {
+  return render(<TooltipProvider delayDuration={0}>{ui}</TooltipProvider>);
+}
 
 describe("RecentFilesCard", () => {
   const makePayload = (
@@ -20,7 +26,7 @@ describe("RecentFilesCard", () => {
       },
     ]);
 
-    render(
+    renderWithTooltipProvider(
       <RecentFilesCard
         recentFilesPayload={payload}
         recentFilesError="Failed to load recent files."
@@ -33,7 +39,7 @@ describe("RecentFilesCard", () => {
   });
 
   it("renders a loading state while payload is absent", () => {
-    render(
+    renderWithTooltipProvider(
       <RecentFilesCard
         recentFilesPayload={null}
         recentFilesError={null}
@@ -45,7 +51,7 @@ describe("RecentFilesCard", () => {
   });
 
   it("renders the loaded empty state inside the card body", () => {
-    render(
+    renderWithTooltipProvider(
       <RecentFilesCard
         recentFilesPayload={makePayload([])}
         recentFilesError={null}
@@ -57,7 +63,7 @@ describe("RecentFilesCard", () => {
     expect(screen.getByText("0")).toBeTruthy();
   });
 
-  it("renders basename for each recent file entry", () => {
+  it("renders basenames and reveals full paths only in tooltips", async () => {
     const payload = makePayload([
       {
         path: "/projects/demo/scene.usd",
@@ -71,7 +77,7 @@ describe("RecentFilesCard", () => {
       },
     ]);
 
-    render(
+    renderWithTooltipProvider(
       <RecentFilesCard
         recentFilesPayload={payload}
         recentFilesError={null}
@@ -83,9 +89,16 @@ describe("RecentFilesCard", () => {
     expect(screen.queryByText("scene.usd")).not.toBeNull();
     expect(screen.queryByText("model.abc")).not.toBeNull();
 
-    // full paths still shown
-    expect(screen.queryByText("/projects/demo/scene.usd")).not.toBeNull();
-    expect(screen.queryByText("C:\\Users\\test\\model.abc")).not.toBeNull();
+    // Full paths stay out of the rows and appear on demand.
+    expect(screen.queryByText("/projects/demo/scene.usd")).toBeNull();
+    expect(screen.queryByText("C:\\Users\\test\\model.abc")).toBeNull();
+
+    fireEvent.pointerMove(screen.getAllByRole("button")[0], {
+      pointerType: "mouse",
+    });
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "/projects/demo/scene.usd",
+    );
 
     // Last-access timestamps are metadata only and stay hidden from each row.
     expect(screen.queryByText("2m ago")).toBeNull();
@@ -102,7 +115,7 @@ describe("RecentFilesCard", () => {
       },
     ]);
 
-    render(
+    renderWithTooltipProvider(
       <RecentFilesCard
         recentFilesPayload={payload}
         recentFilesError={null}
@@ -123,7 +136,7 @@ describe("RecentFilesCard", () => {
       { path: "/b/two.usd", kind: "usd", lastAccessedAt: "now" },
     ]);
 
-    render(
+    renderWithTooltipProvider(
       <RecentFilesCard
         recentFilesPayload={payload}
         recentFilesError={null}

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { SelectableListItem } from "./ui";
+import { SelectableListItem, Tooltip } from "./ui";
 
 export type FileItemListEntry = {
   id: string;
@@ -7,6 +7,7 @@ export type FileItemListEntry = {
   secondary?: ReactNode;
   leading?: ReactNode;
   trailing?: ReactNode;
+  tooltip?: ReactNode;
   selected?: boolean;
   className?: string;
   onSelect: () => void;
@@ -22,8 +23,8 @@ export function FileItemList({ items, className }: FileItemListProps) {
 
   return (
     <ul className={listClassName}>
-      {items.map((item) => (
-        <li key={item.id}>
+      {items.map((item) => {
+        const row = (
           <SelectableListItem
             className={[
               "file-item-row",
@@ -48,8 +49,20 @@ export function FileItemList({ items, className }: FileItemListProps) {
               <span className="file-item-meta">{item.trailing}</span>
             )}
           </SelectableListItem>
-        </li>
-      ))}
+        );
+
+        return (
+          <li key={item.id}>
+            <Tooltip
+              content={item.tooltip}
+              disabled={!item.tooltip}
+              side="right"
+            >
+              {row}
+            </Tooltip>
+          </li>
+        );
+      })}
     </ul>
   );
 }
