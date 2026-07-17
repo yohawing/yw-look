@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, LayoutIcon } from "@radix-ui/react-icons";
+import { ArrowLeftIcon, InfoCircledIcon } from "@radix-ui/react-icons";
 import { AssetViewport } from "../components/AssetViewport";
 import { Button } from "../components/ui/Button";
 import { ViewportControls } from "../components/ViewportControls";
@@ -122,7 +122,7 @@ export function ViewportHost({
         size="md"
         variant={sidebarOpen ? "subtle" : "ghost"}
       >
-        <LayoutIcon aria-hidden="true" />
+        <InfoCircledIcon aria-hidden="true" />
       </Button>
 
       {/* Texture mode banner */}

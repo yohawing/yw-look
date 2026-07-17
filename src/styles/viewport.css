@@ -83,6 +83,11 @@
   top: 12px;
   right: 12px;
   z-index: var(--yl-z-raised);
+  background: var(--yl-viewport-overlay-bg-strong);
+}
+
+.viewport-sidebar-toggle:hover {
+  background: var(--yl-surface-overlay);
 }
 
 .viewport-sidebar-toggle svg {
