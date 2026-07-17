@@ -126,7 +126,8 @@ export function ViewportHost({
       </Button>
 
       {/* Texture mode banner */}
-      {viewer.viewerSurfaceMode === "texture" ? (
+      {viewer.viewerSurfaceMode === "texture" &&
+      currentFile?.kind !== "texture" ? (
         <button
           className="viewport-texture-mode-banner"
           onClick={() => viewerActions.setViewerSurfaceMode("asset")}
