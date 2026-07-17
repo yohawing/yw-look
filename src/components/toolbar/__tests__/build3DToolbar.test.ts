@@ -66,58 +66,50 @@ describe("build3DToolbar", () => {
       items.some((item) => item.kind !== "separator" && item.id === "display"),
     ).toBe(true);
     expect(
-      items.some((item) => item.kind !== "separator" && item.id === "overlays"),
-    ).toBe(true);
-    expect(
-      items.some(
-        (item) => item.kind !== "separator" && item.id === "bounding-boxes",
-      ),
-    ).toBe(false);
-  });
-
-  it("merges surface display and wireframe into one Display popover", () => {
-    const items = build3DToolbar(createOptions());
-
-    expect(
-      items.some((item) => item.kind !== "separator" && item.id === "shading"),
-    ).toBe(false);
-    expect(
       items.some(
         (item) => item.kind !== "separator" && item.id === "wireframe",
       ),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      items.some((item) => item.kind !== "separator" && item.id === "overlays"),
+    ).toBe(true);
+    expect(
+      items.some((item) => item.kind !== "separator" && item.id === "skeleton"),
+    ).toBe(true);
+  });
 
+  it("keeps Display and Wireframe as separate top-level popovers", () => {
+    const items = build3DToolbar(createOptions());
     const display = findPopover(items, "display");
-    const childLabels =
+    const displayLabels =
       display?.children?.flatMap((item) =>
         item.kind === "button" ? [item.label] : [],
       ) ?? [];
+    const wireframe = findPopover(items, "wireframe");
+    const wireframeLabels =
+      wireframe?.children?.flatMap((item) =>
+        item.kind === "button" ? [item.label] : [],
+      ) ?? [];
 
-    expect(childLabels).toEqual([
+    expect(display?.iconId).toBe("light");
+    expect(displayLabels).toEqual([
       "Shaded",
       "Unlit",
       "Normals",
       "Vertex Color",
-      "Off",
-      "Overlay",
-      "Only",
     ]);
+    expect(wireframe?.iconId).toBe("wireframe");
+    expect(wireframeLabels).toEqual(["Off", "Overlay", "Only"]);
     expect(
       display?.children?.some(
         (item) => item.kind !== "separator" && item.id === "display-shaded",
       ),
     ).toBe(true);
     expect(
-      display?.children?.some(
-        (item) =>
-          item.kind !== "separator" && item.id === "display-wireframe-overlay",
+      wireframe?.children?.some(
+        (item) => item.kind !== "separator" && item.id === "wireframe-overlay",
       ),
     ).toBe(true);
-    expect(
-      display?.children?.some(
-        (item) => item.kind !== "separator" && item.id === "shading-texture",
-      ),
-    ).toBe(false);
   });
 
   it("keeps viewport setting changes inside popover children", () => {
@@ -137,11 +129,17 @@ describe("build3DToolbar", () => {
     const display = items.find(
       (item) => item.kind !== "separator" && item.id === "display",
     );
+    const wireframe = items.find(
+      (item) => item.kind !== "separator" && item.id === "wireframe",
+    );
     const overlays = items.find(
       (item) => item.kind !== "separator" && item.id === "overlays",
     );
+    const skeleton = items.find(
+      (item) => item.kind !== "separator" && item.id === "skeleton",
+    );
 
-    for (const item of [camera, display, overlays]) {
+    for (const item of [camera, display, wireframe, overlays, skeleton]) {
       expect(item?.kind).toBe("popover");
       if (item?.kind === "popover") {
         expect(item.onRun).toBeUndefined();
@@ -153,11 +151,18 @@ describe("build3DToolbar", () => {
       overlays?.kind === "popover"
         ? overlays.children?.filter((item) => item.kind !== "separator")
         : [];
+    const skeletonChildren =
+      skeleton?.kind === "popover"
+        ? skeleton.children?.filter((item) => item.kind !== "separator")
+        : [];
 
     expect(overlays?.kind === "popover" ? overlays.label : null).toBe(
       "Overlays",
     );
     expect(overlays?.kind === "popover" ? overlays.active : null).toBe(true);
+    expect(overlays?.kind === "popover" ? overlays.iconId : null).toBe(
+      "overlay",
+    );
     expect(overlayChildren).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -166,10 +171,16 @@ describe("build3DToolbar", () => {
           active: true,
           onRun: options.onToggleBoundingBoxes,
         }),
-        expect.objectContaining({
-          id: "skeleton-section-label",
-          label: "Skeleton",
-        }),
+      ]),
+    );
+    expect(skeleton?.kind === "popover" ? skeleton.label : null).toBe(
+      "Skeleton",
+    );
+    expect(skeleton?.kind === "popover" ? skeleton.iconId : null).toBe(
+      "skeleton",
+    );
+    expect(skeletonChildren).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           id: "skeleton-bones",
           label: "Bone",
@@ -186,7 +197,10 @@ describe("build3DToolbar", () => {
         }),
       ]),
     );
-    for (const child of overlayChildren ?? []) {
+    for (const child of [
+      ...(overlayChildren ?? []),
+      ...(skeletonChildren ?? []),
+    ]) {
       expect("iconId" in child).toBe(false);
     }
   });
@@ -206,23 +220,21 @@ describe("build3DToolbar", () => {
     ).toBe(false);
   });
 
-  it("uses the popover title as Display header and groups Wireframe internally", () => {
-    const display = findPopover(build3DToolbar(createOptions()), "display");
-    const separators =
-      display?.children?.filter((item) => item.kind === "separator") ?? [];
+  it("does not nest Wireframe or Skeleton inside another popover", () => {
+    const items = build3DToolbar(createOptions());
+    const display = findPopover(items, "display");
+    const overlays = findPopover(items, "overlays");
 
-    expect(separators).toHaveLength(1);
     expect(
       display?.children?.some(
-        (item) => item.kind === "status" && item.id === "display-section-label",
+        (item) => item.kind !== "separator" && item.id.startsWith("wireframe"),
       ),
     ).toBe(false);
     expect(
-      display?.children?.some(
-        (item) =>
-          item.kind === "status" && item.id === "wireframe-section-label",
+      overlays?.children?.some(
+        (item) => item.kind !== "separator" && item.id.startsWith("skeleton"),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("marks mutually exclusive surface display modes as active", () => {
@@ -349,23 +361,23 @@ describe("build3DToolbar", () => {
       build3DToolbar(
         createOptions({ showWireframe: false, showTexture: true }),
       ),
-      "display",
+      "wireframe",
     );
-    expect(findChild(off!, "display-wireframe-off")?.active).toBe(true);
+    expect(findChild(off!, "wireframe-off")?.active).toBe(true);
 
     const overlay = findPopover(
       build3DToolbar(createOptions({ showWireframe: true, showTexture: true })),
-      "display",
+      "wireframe",
     );
-    expect(findChild(overlay!, "display-wireframe-overlay")?.active).toBe(true);
+    expect(findChild(overlay!, "wireframe-overlay")?.active).toBe(true);
 
     const only = findPopover(
       build3DToolbar(
         createOptions({ showWireframe: true, showTexture: false }),
       ),
-      "display",
+      "wireframe",
     );
-    expect(findChild(only!, "display-wireframe-only")?.active).toBe(true);
+    expect(findChild(only!, "wireframe-only")?.active).toBe(true);
   });
 
   it("applies wireframe tri-state side effects", () => {
@@ -373,8 +385,8 @@ describe("build3DToolbar", () => {
       showWireframe: true,
       showTexture: false,
     });
-    const offDisplay = findPopover(build3DToolbar(offOptions), "display");
-    findChild(offDisplay!, "display-wireframe-off")?.onRun?.();
+    const offDisplay = findPopover(build3DToolbar(offOptions), "wireframe");
+    findChild(offDisplay!, "wireframe-off")?.onRun?.();
     expect(offOptions.onToggleWireframe).toHaveBeenCalledTimes(1);
     expect(offOptions.onToggleTexture).toHaveBeenCalledTimes(1);
 
@@ -384,9 +396,9 @@ describe("build3DToolbar", () => {
     });
     const overlayDisplay = findPopover(
       build3DToolbar(overlayOptions),
-      "display",
+      "wireframe",
     );
-    findChild(overlayDisplay!, "display-wireframe-overlay")?.onRun?.();
+    findChild(overlayDisplay!, "wireframe-overlay")?.onRun?.();
     expect(overlayOptions.onToggleWireframe).toHaveBeenCalledTimes(1);
     expect(overlayOptions.onToggleTexture).toHaveBeenCalledTimes(1);
 
@@ -394,8 +406,8 @@ describe("build3DToolbar", () => {
       showWireframe: false,
       showTexture: true,
     });
-    const onlyDisplay = findPopover(build3DToolbar(onlyOptions), "display");
-    findChild(onlyDisplay!, "display-wireframe-only")?.onRun?.();
+    const onlyDisplay = findPopover(build3DToolbar(onlyOptions), "wireframe");
+    findChild(onlyDisplay!, "wireframe-only")?.onRun?.();
     expect(onlyOptions.onToggleWireframe).toHaveBeenCalledTimes(1);
     expect(onlyOptions.onToggleTexture).toHaveBeenCalledTimes(1);
   });

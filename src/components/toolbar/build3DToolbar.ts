@@ -136,7 +136,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
     });
   }
 
-  // ── Display (surface + wireframe) ───────────────────────
+  // ── Display ─────────────────────────────────────────────
   {
     groupSep("display");
     const children: ToolbarItem[] = [];
@@ -173,37 +173,6 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       });
     }
 
-    children.push({ kind: "separator" });
-
-    children.push({
-      id: "wireframe-section-label",
-      mode: "3d",
-      group: "wireframe",
-      kind: "status",
-      label: "Wireframe",
-    });
-
-    const wireframeModes: Array<{
-      id: ViewportWireframeMode;
-      label: string;
-    }> = [
-      { id: "off", label: "Off" },
-      { id: "overlay", label: "Overlay" },
-      { id: "only", label: "Only" },
-    ];
-
-    for (const mode of wireframeModes) {
-      children.push({
-        id: `display-wireframe-${mode.id}`,
-        mode: "3d",
-        group: "wireframe",
-        kind: "button",
-        label: mode.label,
-        active: activeDisplayState.wireframe === mode.id,
-        onRun: () => applyWireframeMode(mode.id, options),
-      });
-    }
-
     push({
       id: "display",
       mode: "3d",
@@ -215,45 +184,83 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
     });
   }
 
-  // ── Overlay ─────────────────────────────────────────────
+  // ── Wireframe ───────────────────────────────────────────
   {
-    const children: ToolbarItem[] = [];
+    groupSep("wireframe");
+    const wireframeModes: Array<{
+      id: ViewportWireframeMode;
+      label: string;
+    }> = [
+      { id: "off", label: "Off" },
+      { id: "overlay", label: "Overlay" },
+      { id: "only", label: "Only" },
+    ];
 
+    push({
+      id: "wireframe",
+      mode: "3d",
+      group: "wireframe",
+      kind: "popover",
+      label: "Wireframe",
+      iconId: "wireframe",
+      active: activeDisplayState.wireframe !== "off",
+      children: wireframeModes.map((mode) => ({
+        id: `wireframe-${mode.id}`,
+        mode: "3d" as const,
+        group: "wireframe" as const,
+        kind: "button" as const,
+        label: mode.label,
+        active: activeDisplayState.wireframe === mode.id,
+        onRun: () => applyWireframeMode(mode.id, options),
+      })),
+    });
+  }
+
+  // ── Overlays ────────────────────────────────────────────
+  {
     if (
       options.showBoundingBoxes !== undefined &&
       options.onToggleBoundingBoxes
     ) {
-      children.push({
-        id: "bounding-boxes-toggle",
+      groupSep("overlay");
+      push({
+        id: "overlays",
         mode: "3d",
         group: "overlay",
-        kind: "toggle",
-        label: "Bounding Box",
+        kind: "popover",
+        label: "Overlays",
+        iconId: "overlay",
         active: options.showBoundingBoxes,
-        onRun: options.onToggleBoundingBoxes,
+        children: [
+          {
+            id: "bounding-boxes-toggle",
+            mode: "3d",
+            group: "overlay",
+            kind: "toggle",
+            label: "Bounding Box",
+            active: options.showBoundingBoxes,
+            onRun: options.onToggleBoundingBoxes,
+          },
+        ],
       });
     }
+  }
 
+  // ── Skeleton ────────────────────────────────────────────
+  {
     if (options.showSkeleton !== undefined && options.onToggleSkeleton) {
-      if (children.length > 0) {
-        children.push({ kind: "separator" });
-      }
-      children.push({
-        id: "skeleton-section-label",
-        mode: "3d",
-        group: "overlay",
-        kind: "status",
-        label: "Skeleton",
-      });
-      children.push({
-        id: "skeleton-bones",
-        mode: "3d",
-        group: "overlay",
-        kind: "toggle",
-        label: "Bone",
-        active: options.showSkeleton,
-        onRun: options.onToggleSkeleton,
-      });
+      groupSep("overlay");
+      const children: ToolbarItem[] = [
+        {
+          id: "skeleton-bones",
+          mode: "3d",
+          group: "overlay",
+          kind: "toggle",
+          label: "Bone",
+          active: options.showSkeleton,
+          onRun: options.onToggleSkeleton,
+        },
+      ];
       if (options.showLocalAxis !== undefined && options.onToggleLocalAxis) {
         children.push({
           id: "local-axis",
@@ -276,19 +283,14 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
           onRun: options.onToggleJointNames,
         });
       }
-    }
-
-    if (children.length > 0) {
-      groupSep("overlay");
       push({
-        id: "overlays",
+        id: "skeleton",
         mode: "3d",
         group: "overlay",
         kind: "popover",
-        label: "Overlays",
-        iconId: "overlay",
+        label: "Skeleton",
+        iconId: "skeleton",
         active: Boolean(
-          options.showBoundingBoxes ||
           options.showSkeleton ||
           options.showLocalAxis ||
           options.showJointNames,

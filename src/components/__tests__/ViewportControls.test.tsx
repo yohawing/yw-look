@@ -278,10 +278,14 @@ describe("ViewportControls", () => {
     fireEvent.click(getByRole("button", { name: "Display" }));
 
     const normals = getByRole("button", { name: "Normals" });
-    const overlay = getByRole("button", { name: "Overlay" });
     expect(normals.classList.contains("is-active")).toBe(true);
-    expect(overlay.classList.contains("is-active")).toBe(true);
     expect(normals.querySelector(".toolbar-popover-item-check")).toBeTruthy();
+
+    fireEvent.click(getByRole("button", { name: "Display" }));
+    fireEvent.click(getByRole("button", { name: "Wireframe" }));
+
+    const overlay = getByRole("button", { name: "Overlay" });
+    expect(overlay.classList.contains("is-active")).toBe(true);
     expect(overlay.querySelector(".toolbar-popover-item-check")).toBeTruthy();
   });
 

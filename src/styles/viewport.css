@@ -83,10 +83,14 @@
   top: 12px;
   right: 12px;
   z-index: var(--yl-z-raised);
+}
+
+.yl-button.viewport-sidebar-toggle,
+.yl-button.viewport-sidebar-toggle[aria-pressed="true"] {
   background: var(--yl-viewport-overlay-bg-strong);
 }
 
-.viewport-sidebar-toggle:hover {
+.yl-button.viewport-sidebar-toggle:hover:not(:disabled) {
   background: var(--yl-surface-overlay);
 }
 
