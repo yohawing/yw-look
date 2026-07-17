@@ -8,6 +8,7 @@ import {
   CubeIcon,
   DiscIcon,
   EyeOpenIcon,
+  GlobeIcon,
   GridIcon,
   ImageIcon,
   LayersIcon,
@@ -20,7 +21,6 @@ import {
   SunIcon,
   TransparencyGridIcon,
   ViewGridIcon,
-  ViewNoneIcon,
 } from "@radix-ui/react-icons";
 import type { ViewportToolIcon } from "../types/ui";
 
@@ -41,7 +41,7 @@ const viewportToolIcons: Record<ViewportToolIcon, RadixIcon> = {
   skeleton: PersonIcon,
   texture: ImageIcon,
   vertex: Component1Icon,
-  wireframe: ViewNoneIcon,
+  wireframe: GlobeIcon,
   channel: ViewGridIcon,
   checker: TransparencyGridIcon,
   colorspace: ColorWheelIcon,
