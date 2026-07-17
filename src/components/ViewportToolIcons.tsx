@@ -19,8 +19,8 @@ import {
   ShadowIcon,
   SunIcon,
   TransparencyGridIcon,
-  TriangleUpIcon,
   ViewGridIcon,
+  ViewNoneIcon,
 } from "@radix-ui/react-icons";
 import type { ViewportToolIcon } from "../types/ui";
 
@@ -41,7 +41,7 @@ const viewportToolIcons: Record<ViewportToolIcon, RadixIcon> = {
   skeleton: PersonIcon,
   texture: ImageIcon,
   vertex: Component1Icon,
-  wireframe: TriangleUpIcon,
+  wireframe: ViewNoneIcon,
   channel: ViewGridIcon,
   checker: TransparencyGridIcon,
   colorspace: ColorWheelIcon,
