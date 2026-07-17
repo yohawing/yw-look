@@ -54,6 +54,7 @@ export function FileItemList({ items, className }: FileItemListProps) {
         return (
           <li key={item.id}>
             <Tooltip
+              className="file-path-tooltip"
               content={item.tooltip}
               disabled={!item.tooltip}
               side="right"

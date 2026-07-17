@@ -99,9 +99,9 @@ describe("RecentFilesCard", () => {
     fireEvent.pointerMove(screen.getAllByRole("button")[0], {
       pointerType: "mouse",
     });
-    expect((await screen.findByRole("tooltip")).textContent).toBe(
-      "/projects/demo/scene.usd",
-    );
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toBe("/projects/demo/scene.usd");
+    expect(tooltip.closest(".file-path-tooltip")).not.toBeNull();
 
     // Last-access timestamps are metadata only and stay hidden from each row.
     expect(screen.queryByText("2m ago")).toBeNull();

@@ -450,6 +450,14 @@
   white-space: nowrap;
 }
 
+.file-path-tooltip {
+  max-width: min(360px, calc(100vw - 32px));
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  font-family: var(--yl-font-mono);
+}
+
 .yl-disclosure__body > .yl-segmented-control {
   margin: 0 0 10px;
 }
