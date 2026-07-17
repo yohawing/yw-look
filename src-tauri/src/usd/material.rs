@@ -137,9 +137,8 @@ pub(crate) fn apply_material_wrap_tokens(
 
 /// Picks the resolved texture sampler that supplies material-level
 /// `wrapS/T`. Diffuse wins when present. Rust passes
-/// `tex_path.is_none()` to block normal fallback when the fork's
-/// `MaterialData.diffuse_texture` already supplies a diffuse texture
-/// path; C++ passes `true` because it has no equivalent side channel.
+/// `tex_path.is_none()` to block normal fallback when
+/// `MaterialData.diffuse_texture` already supplies a diffuse texture path.
 pub(crate) fn select_wrap_sampler_source<'a, N>(
     diffuse: Option<&'a ResolvedTextureSampler<N>>,
     normal: Option<&'a ResolvedTextureSampler<N>>,

@@ -1,23 +1,20 @@
 //! Tauri-managed registry of opened USD stages (#44 — per-prim payload
 //! session). Each `open_stage_session` Tauri command stores its concrete
-//! `Stage` (or C++ shim handle) here and returns a `StageSessionHandle`
+//! Rust `Stage` here and returns a `StageSessionHandle`
 //! integer the frontend uses for follow-up `load_payload` /
 //! `unload_payload` / `extract_geometry_session` calls.
 //!
 //! The registry is bound to the app lifetime; closing the file (or app)
 //! drops every session via `close_stage_session`.
 //!
-//! Thread-safety note: `StageRegistry` wraps each `OpenStage` variant in a
-//! `Mutex` so the registry itself is `Send + Sync` — required by Tauri's
-//! `app.manage()`. The `CStage` handle is explicitly NOT `Sync` (only
-//! `Send`), so we keep it behind a per-session `Mutex<CStage>`. The
-//! registry map stores sessions behind `Arc` handles so lookup only holds
-//! the map lock long enough to clone the session pointer; heavyweight stage
-//! operations contend only on the individual session's stage mutex.
+//! Thread-safety note: `OpenStage` keeps the parser stage behind a `Mutex`
+//! so the registry itself is `Send + Sync` — required by Tauri's
+//! `app.manage()`. The registry map stores sessions behind `Arc` handles so
+//! lookup only holds the map lock long enough to clone the session pointer;
+//! heavyweight stage operations contend only on the individual session's
+//! stage mutex.
 
-use std::collections::HashMap;
-#[cfg(feature = "backend-openusd-rs")]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -34,32 +31,18 @@ use super::types::StageLoadPolicy;
 #[serde(transparent)]
 pub struct StageSessionHandle(pub u64);
 
-#[cfg(feature = "backend-openusd-rs")]
 pub struct RustStageSession {
     pub stage: openusd::Stage,
     pub loaded_payload_paths: HashSet<String>,
 }
 
-/// The backend-specific stage object held for the lifetime of a session.
-///
-/// `Rust` wraps an `openusd::Stage` from the Rust-fork backend.
-/// `Cpp` wraps a `CStage` from the C++ shim backend.
-///
-/// Both variants are behind a `Mutex` so the enum itself is `Send + Sync`
-/// regardless of whether the inner handle is `Sync` on its own. The Mutex
-/// is used exclusively by the Tauri commands; normal single-threaded usage
-/// (tests, blocking tasks) can lock without contention.
+/// The Rust parser stage held for the lifetime of a session.
 pub enum OpenStage {
-    #[cfg(feature = "backend-openusd-rs")]
     Rust(Mutex<RustStageSession>),
-    #[cfg(feature = "backend-openusd-cpp")]
-    Cpp(Mutex<super::cpp_sys::CStage>),
 }
 
-// SAFETY: both `openusd::Stage` and `CStage` are opened fresh by the
-// calling thread and are NOT shared across threads except through
-// `Mutex`. Neither variant exposes a shared `*const` or `*mut` raw
-// pointer outside of locked critical sections.
+// SAFETY: the openusd stage is opened fresh by the calling thread and is not
+// shared across threads except through the session Mutex.
 unsafe impl Send for OpenStage {}
 unsafe impl Sync for OpenStage {}
 
@@ -130,7 +113,7 @@ impl StageRegistry {
 
     /// Panics while holding the registry map lock so unit tests can verify
     /// poison recovery without exposing the internal `Mutex`.
-    #[cfg(all(test, feature = "backend-openusd-rs"))]
+    #[cfg(test)]
     pub(super) fn poison_map_lock_for_test(&self) -> ! {
         let _guard = self.sessions.lock().expect("test setup lock");
         panic!("intentional StageRegistry map lock poison");
@@ -143,7 +126,7 @@ impl Default for StageRegistry {
     }
 }
 
-#[cfg(all(test, feature = "backend-openusd-rs"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::usd::{OpenusdBackend, UsdSessionBackend};

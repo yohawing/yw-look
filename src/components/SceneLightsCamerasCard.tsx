@@ -12,10 +12,10 @@ import { Badge, BadgeButton } from "./ui/Badge";
 type SceneLightsCamerasCardProps = {
   lights: LightEntry[];
   cameras: CameraEntry[];
-  /** #35 — USD light details fetched via the C++ backend. When present,
+  /** #35 — USD light details fetched via a USD backend. When present,
    * a "USD Lights" section is rendered alongside (or instead of) the
    * Three.js-derived light list. `undefined` means the data has not
-   * been fetched yet or is unavailable (Rust-fork backend). */
+   * been fetched yet or is unavailable. */
   usdLights?: UsdLightInfo[];
   usdLightsError?: string | null;
   /** Stable composite key (`CameraEntry.id`) of the USD camera currently
@@ -75,7 +75,7 @@ export function SceneLightsCamerasCard({
       <SidebarKeyValueRows rows={summaryRows} />
       {usdLightsError ? <SidebarError>{usdLightsError}</SidebarError> : null}
 
-      {/* #35 — USD Lights section (C++ backend only) */}
+      {/* #35 — USD Lights section when the backend provides details. */}
       {usdLights && usdLights.length > 0 && (
         <SidebarSection
           title="USD Lights"

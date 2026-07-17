@@ -125,7 +125,7 @@ where
 /// `maps` are ignored, repeated traversal paths are emitted once, and
 /// map keys missing from traversal are appended in lexicographic order
 /// for deterministic fallback output.
-#[cfg_attr(not(feature = "backend-openusd-cpp"), allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn order_node_paths_by_traversal(
     maps: &NodePayloadMaps,
     traversal_paths: &[String],

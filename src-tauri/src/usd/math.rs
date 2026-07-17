@@ -69,7 +69,6 @@ pub(crate) fn mat4_f64_to_f32(m: &[f64; 16]) -> [f32; 16] {
 
 /// Build a column-major 4x4 transform from glTF-style TRS
 /// (translation, rotation as `[x, y, z, w]` quaternion, scale).
-/// Used by the OpenUSD C++ backend PointInstancer pass (feature-gated).
 #[allow(dead_code)]
 pub(crate) fn trs_to_mat4_f32(t: [f32; 3], r: [f32; 4], s: [f32; 3]) -> [f32; 16] {
     Mat4::from_scale_rotation_translation(

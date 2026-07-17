@@ -318,7 +318,8 @@ export function UsdSourceCard() {
               ) : !flattenError ? (
                 <SidebarEmpty>
                   Binary stage — click <strong>Show flattened</strong> above to
-                  view the composed USDA text (requires the C++ backend).
+                  view the composed USDA text (not available in the current USD
+                  backend).
                 </SidebarEmpty>
               ) : null}
             </>

@@ -128,7 +128,7 @@ type UsdInspectorCardProps = {
    * #31: called when the user selects a different variant in the
    * inspector pulldown. The parent (App.tsx) accumulates selections
    * and re-triggers geometry extraction.
-   * Only wired when the backend can enumerate variants (C++ path).
+   * Only wired when the backend can enumerate variants.
    */
   onVariantChange?: (
     primPath: string,

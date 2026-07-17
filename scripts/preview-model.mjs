@@ -244,36 +244,14 @@ process.exit(verdict.ok ? 0 : 1);
 
 async function runUsdToGlb(inputAbs, outputAbs) {
   const cargoManifest = path.resolve("src-tauri/Cargo.toml");
-  // Backend is chosen at build time via Cargo features. Phase 2.J
-  // flipped the default from the Rust fork to the C++ backend, so
-  // the selection now works as:
-  //   YW_LOOK_USD_BACKEND=cpp  → explicit C++ backend (vcpkg OpenUSD
-  //                              via usd_c_shim; requires VCPKG_ROOT
-  //                              + LLVM locally). Same as unset,
-  //                              but kept for clarity in scripts.
-  //   YW_LOOK_USD_BACKEND=rs   → explicit Rust fork (yohawing/openusd),
-  //                              for parity comparisons or on hosts
-  //                              without vcpkg/LLVM.
-  //   unset                    → default features = cpp backend.
-  // `usd_to_glb` uses `DefaultBackend`, which resolves per feature in
-  // src/usd/mod.rs, so toggling this env var is enough to drive the
-  // two backends through the same preview-model skill.
-  const backend = (process.env.YW_LOOK_USD_BACKEND || "").toLowerCase();
-  const features = [];
-  const noDefault = backend === "cpp" || backend === "rs";
-  if (backend === "cpp") {
-    features.push("backend-openusd-cpp");
-  } else if (backend === "rs") {
-    features.push("backend-openusd-rs");
-  }
+  // `usd_to_glb` uses the repository's sole Rust USD backend through
+  // `DefaultBackend`.
   const args = [
     "run",
     "--quiet",
     "--release",
     "--manifest-path",
     cargoManifest,
-    ...(noDefault ? ["--no-default-features"] : []),
-    ...(features.length > 0 ? ["--features", features.join(",")] : []),
     "--bin",
     "usd_to_glb",
     "--",

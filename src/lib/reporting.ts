@@ -31,9 +31,6 @@ export function formatUsdBackend(capabilities: BackendCapabilities | null) {
   if (!capabilities) {
     return "unknown";
   }
-  if (capabilities.geometry && capabilities.session && capabilities.light) {
-    return "openusd-cpp";
-  }
   if (capabilities.inspect) {
     return "openusd-rs";
   }

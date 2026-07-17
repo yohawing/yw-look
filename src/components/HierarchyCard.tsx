@@ -176,7 +176,7 @@ function HierarchyBranch({
           // stable selection key, so skip the click rather than letting
           // every unnamed row share the empty-string identity. This
           // also prevents `(unnamed)` (the display label) from leaking
-          // into a USD prim path passed to the C++ backend.
+          // into a USD prim path passed to the native backend.
           onSelectName && node.name
             ? (event) => {
                 event.stopPropagation();

@@ -113,19 +113,6 @@ pub(crate) struct UsdBackendState {
 }
 
 impl UsdBackendState {
-    #[cfg(feature = "backend-openusd-cpp")]
-    pub(crate) fn new(backend: DefaultBackend) -> Self {
-        let backend = Arc::new(backend);
-        Self {
-            inspect: backend.clone() as Arc<dyn UsdInspectBackend>,
-            geometry: Some(backend.clone() as Arc<dyn UsdGeometryBackend>),
-            source: Some(backend.clone() as Arc<dyn UsdSourceBackend>),
-            session: Some(backend.clone() as Arc<dyn UsdSessionBackend>),
-            light: Some(backend as Arc<dyn UsdLightBackend>),
-        }
-    }
-
-    #[cfg(all(feature = "backend-openusd-rs", not(feature = "backend-openusd-cpp")))]
     pub(crate) fn new(backend: DefaultBackend) -> Self {
         let backend = Arc::new(backend);
         Self {

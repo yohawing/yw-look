@@ -1,4 +1,4 @@
-//! Small extraction helpers shared by the Rust-fork and C++ USD backends.
+//! Small extraction helpers for the Rust USD backend.
 
 use std::collections::HashMap;
 
@@ -112,10 +112,8 @@ pub(crate) fn apply_display_color_fallback(
 /// Filter a per-mesh `displayOpacity` array down to the faces referenced
 /// by a GeomSubset while preserving the authored scalar topology.
 ///
-/// `original_mesh` is the pre-filter `MeshData`. Rust-fork extraction can
-/// pass `None` to keep the existing length-based inference. The C++ shim
-/// should pass a known `opacity_kind` when authored interpolation metadata
-/// is available, with `Unknown` mapped to `None`.
+/// `original_mesh` is the pre-filter `MeshData`; `opacity_kind` is optional
+/// because the parser may not expose authored interpolation metadata.
 pub(crate) fn filter_display_opacity_for_subset(
     opacity: &[f32],
     original_mesh: &MeshData,

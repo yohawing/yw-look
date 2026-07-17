@@ -156,17 +156,15 @@ pub struct StageInspection {
     pub root_prims: Vec<String>,
     pub composed_layers: Vec<String>,
     /// #29 — detailed per-layer information for the subLayers hierarchy.
-    /// Populated by the C++ backend; the Rust-fork backend fills this with
-    /// degraded entries (muted=false, offset=0/1) derived from
-    /// `composed_layers`. Never empty when `composed_layers` is non-empty.
+    /// The Rust backend derives degraded entries (muted=false, offset=0/1)
+    /// from `composed_layers`. Never empty when `composed_layers` is non-empty.
     #[serde(default)]
     pub layers: Vec<LayerInfo>,
     pub references: Vec<CompositionArc>,
     pub payloads: Vec<CompositionArc>,
     /// #30 — inherits arcs (stage-internal, `asset_path` always empty).
     /// `target_prim` is the SdfPath of the base prim being inherited.
-    /// Populated by the C++ backend; empty for the Rust-fork backend
-    /// (the fork API does not expose `GetInherits` yet).
+    /// Empty because the Rust parser does not expose inherits yet.
     #[serde(default)]
     pub inherits: Vec<CompositionArc>,
     /// #30 — specializes arcs. Same shape as `inherits`.
@@ -436,8 +434,8 @@ pub struct ShapingCone {
 /// Detailed information about one UsdLux light prim, returned by
 /// `inspect_usd_lights` (#35).
 ///
-/// The C++ backend populates every field; the Rust-fork backend returns
-/// `Err("not supported")` so callers should ignore errors gracefully.
+/// The Rust backend returns `Err("not supported")` so callers should ignore
+/// errors gracefully.
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -10,16 +10,9 @@ export default tseslint.config(
       "dist",
       "node_modules",
       "src-tauri/target",
-      // C++ backend build outputs. vcpkg_installed/ ships third-party
-      // JS assets (hwloc visualizer etc.) that trip no-undef /
-      // no-array-constructor; cpp-artifacts/ is pure .dll / .dylib
-      // but a future port could drop JS there too. Both dirs are
-      // gitignored and never materialize on CI, so ignoring them
-      // only shuts up local runs on machines that built the C++
-      // backend.
+      // Alembic helper regeneration can populate third-party assets that
+      // should not be linted as application source.
       "src-tauri/vcpkg_installed",
-      "src-tauri/prebuilt-vcpkg_installed",
-      "src-tauri/cpp-artifacts",
       "public",
       "src/vendor/FBXLoaderPatched.js",
     ],

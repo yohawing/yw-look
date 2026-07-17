@@ -257,7 +257,7 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
   // display layer (HierarchyCard) substitutes "(unnamed)" purely for
   // the visible label; storing that placeholder in `name` would leak
   // the parens into USD prim path construction (#28) and trigger
-  // `Ill-formed SdfPath` warnings when the C++ backend tries to
+  // `Ill-formed SdfPath` warnings when the USD backend tries to
   // resolve `/(unnamed)/...`.
   const primPath: string | undefined =
     typeof object.userData?.primPath === "string"

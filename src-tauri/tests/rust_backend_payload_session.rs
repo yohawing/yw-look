@@ -1,6 +1,6 @@
 //! Integration tests for the Rust OpenUSD fallback payload session.
 
-#![cfg(all(feature = "backend-openusd-rs", not(feature = "backend-openusd-cpp")))]
+#![cfg(feature = "backend-openusd-rs")]
 
 use std::path::PathBuf;
 

@@ -98,10 +98,6 @@ impl UsdSessionBackend for OpenusdBackend {
                 session.loaded_payload_paths.insert(prim_path.to_string());
                 Ok(())
             }
-            #[cfg(feature = "backend-openusd-cpp")]
-            OpenStage::Cpp(_) => Err(UsdError::Parse(
-                "load_payload: Cpp stage handle passed to Rust backend".to_string(),
-            )),
         }
     }
 
@@ -116,10 +112,6 @@ impl UsdSessionBackend for OpenusdBackend {
                 session.loaded_payload_paths.remove(prim_path);
                 Ok(())
             }
-            #[cfg(feature = "backend-openusd-cpp")]
-            OpenStage::Cpp(_) => Err(UsdError::Parse(
-                "unload_payload: Cpp stage handle passed to Rust backend".to_string(),
-            )),
         }
     }
 
@@ -145,11 +137,6 @@ impl UsdSessionBackend for OpenusdBackend {
                     extract_geometry_from_open_stage_rs(&stage_with_payloads, stage_path, options)
                 }
             }
-            #[cfg(feature = "backend-openusd-cpp")]
-            OpenStage::Cpp(_) => Err(UsdError::Parse(
-                "extract_geometry_from_session: Cpp stage handle passed to Rust backend"
-                    .to_string(),
-            )),
         }
     }
 }

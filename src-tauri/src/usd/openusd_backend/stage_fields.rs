@@ -8,10 +8,7 @@ use crate::usd::types::StageLoadPolicy;
 /// a double. Returns `None` when the field is not authored on the
 /// root layer or when the value is some unrelated type. Float values
 /// (some DCCs author `framesPerSecond` as `Float` instead of the
-/// USD-spec `Double`) are widened so the inspector can still surface
-/// them. This is the Rust-fork backend equivalent of the C shim's
-/// `usdc_stage_authored_*` family; see
-/// `usd_c_shim.cpp::read_authored_root_field_double`.
+/// USD-spec `Double`) are widened so the inspector can still surface them.
 pub(crate) fn read_root_double_field(
     stage: &Stage,
     pseudo_root: &SdfPath,

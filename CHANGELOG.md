@@ -12,7 +12,7 @@
 
 ### Build and release
 
-- Included platform-specific Tauri overlay configs in local Windows and macOS bundle scripts so local installers ship the OpenUSD runtime payload.
+- Included platform-specific Tauri overlay configs in local Windows and macOS bundle scripts.
 - Updated the Optional Loader Pack dependency and kept frontend preview-support tables aligned with newly supported splat formats.
 
 ### Refactoring
@@ -100,8 +100,7 @@
 
 ### Build, release, and docs
 
-- Added prebuilt OpenUSD payload extraction and macOS OpenUSD payload support.
-- Bundled the macOS Alembic helper and allowed prebuilt OpenUSD startup without a local vcpkg root.
+- Bundled the macOS Alembic helper.
 - Built the FLIP comparison helper during release bundling so Tauri's package binary scan has all expected binaries.
 - Made local Windows update feed generation select the installer that matches the current release version.
 - Signed the bundled macOS Alembic helper before notarization.
@@ -150,9 +149,6 @@
   enumeration, bound-mesh material details, RGBA displayColor /
   displayOpacity handling, PointInstancer previews, and Z-up correction
   for synthetic up-axis nodes.
-- Ported more hierarchy construction to the C++ backend and propagated
-  typed errors through stage flattening, variant selection, and shim
-  callback paths.
 - Made the loader fail closed for composition-bearing USD files when a
   JavaScript fallback would otherwise hide unsupported composition
   semantics.
@@ -175,19 +171,11 @@
 - Added load-regression benchmark scripts and sample-fetch support for
   multi-file and zip-based reference models.
 - Clarified macOS distribution boundaries and release requirements.
-- Skipped the expensive C++ backend workflow on develop while keeping
-  release/main coverage.
 
 ## v0.1.2 (2026-04-19)
 
 ### USD backend
 
-- C++ OpenUSD backend (Pixar OpenUSD via vcpkg + handwritten C shim)
-  promoted to the default build. The pure-Rust fork (`yohawing/openusd`)
-  stays opt-in via `--no-default-features --features backend-openusd-rs`
-  for parity verification and Linux hosts (vcpkg OpenUSD is Windows +
-  macOS only; Linux surfaces a `compile_error!` unless the Rust fork
-  feature is selected).
 - UsdPreviewSurface material pipeline covering scalar inputs
   (diffuseColor / metallic / roughness / opacity / emissiveColor),
   texture resolution (USDZ archive + filesystem search), normal maps,
@@ -215,10 +203,6 @@ vector2 / vector3 / vector4 / float`, `ND_tiledimage_color3 / 4`,
 
 ### Infrastructure
 
-- `ci-cpp-backend.yml` runs on `develop` pushes and PRs, with vcpkg
-  binary cache + `Swatinem/rust-cache` for build reuse across runs.
-- `scripts/preview-model.mjs` honors `YW_LOOK_USD_BACKEND=cpp|rs` for
-  side-by-side backend comparisons during visual debugging.
 - Added `default-run = "yw-look"` in `src-tauri/Cargo.toml` so
   `cargo run` keeps targeting the Tauri binary alongside helper
   CLIs like `usd_to_glb`.

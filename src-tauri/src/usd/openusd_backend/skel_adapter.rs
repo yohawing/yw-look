@@ -74,14 +74,10 @@ pub(crate) fn skin_input_from_skel(
         parents: skel.parents.clone(),
         rest_local_matrices,
         inverse_bind_matrices,
-        // The Rust fork doesn't expose the Skeleton prim's
-        // composed world transform through `SkeletonData`, so we
-        // can't easily recover the wrapper-node transform yw-look
-        // uses on the cpp side to fix the scale mismatch between
-        // skinned and unskinned meshes. Leave `None` until the
-        // fork grows the field — assets that need it (ARKit
-        // chameleon) should switch to the cpp backend in the
-        // meantime.
+        // The Rust fork doesn't expose the Skeleton prim's composed world
+        // transform through `SkeletonData`, so the wrapper-node transform
+        // cannot be recovered here. Keep this optional until the fork grows
+        // the field.
         skel_root_matrix: None,
     }
 }
@@ -174,11 +170,9 @@ pub(crate) fn animation_input_from_skel(
         translations,
         rotations,
         scales,
-        // Phase 2.O: morph-target weight channels are resolved at
-        // the cpp-backend level today (the fork's SkelAnimationData
-        // doesn't yet expose `blendShapeWeights`). Rust-fork
-        // animations stay static-rest for blend shapes until the
-        // fork grows the field.
+        // The fork's SkelAnimationData does not yet expose
+        // `blendShapeWeights`, so blend-shape animations stay at their
+        // static rest-pose weights.
         weight_channels: Vec::new(),
     })
 }

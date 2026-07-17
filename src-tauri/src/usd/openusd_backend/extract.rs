@@ -82,10 +82,8 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // (The legacy `is_renderable_mesh` helper also excluded proxy /
     // guide — that behaviour now lives on the frontend via the
     // `purposeModes` default render=true, proxy=false, guide=false.)
-    // #41: The Rust fork backend does not support UsdGeomPointInstancer.
-    // PointInstancer prims are silently skipped because they do not
-    // satisfy `is_mesh_active_and_visible`. Use the C++ backend
-    // (feature: backend-openusd-cpp) for EXT_mesh_gpu_instancing preview.
+    // PointInstancer prims are currently skipped because they do not
+    // satisfy `is_mesh_active_and_visible`.
     let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
     let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
     stage
@@ -112,9 +110,8 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         let instancer_list = instancer_paths.into_inner();
         if !instancer_list.is_empty() {
             log::warn!(
-                "[usd-rs] {} PointInstancer prim(s) found (e.g. '{}') — not supported by \
-                     the Rust fork backend; skipped. Use `--features backend-openusd-cpp` \
-                     for EXT_mesh_gpu_instancing preview (#41).",
+                "[usd-rs] {} PointInstancer prim(s) found (e.g. '{}') — \
+                     PointInstancer preview is not supported; skipped.",
                 instancer_list.len(),
                 instancer_list[0]
             );
@@ -569,7 +566,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         &lights,
         &cameras,
         up_correction_f32,
-        &[], // #41: Rust fork backend skips PointInstancer (no instancing support)
+        &[], // PointInstancer preview is not supported by the Rust backend.
     )
     .map_err(UsdError::Parse)
 }

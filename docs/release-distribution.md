@@ -677,9 +677,9 @@ Release に載せないためです。
 ### 3. bundle 設定を確認する
 
 `tauri.conf.json` は `bundle.targets = "all"` と OS 別 icon を含みます。
-macOS の C++ backend 配布では `tauri.macos.json` overlay を併用し、
-OpenUSD dylib を `Contents/Frameworks/`、plugin tree を
-`Contents/Resources/usd/` に含めます。
+macOS では `tauri.macos.json` overlay を併用し、同梱する Alembic preview
+helper を bundle resource に含めます。USD の読み込みに外部 native runtime は
+必要ありません。
 
 `bundle.macOS.signingIdentity` は通常設定しません。CI では
 `APPLE_CERTIFICATE` から import された Developer ID 証明書を Tauri が推論します。

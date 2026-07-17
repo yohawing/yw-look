@@ -25,7 +25,6 @@ mod material_adapter;
 mod mesh_attributes;
 mod mesh_visibility;
 mod node_tree;
-#[cfg(feature = "backend-openusd-rs")]
 mod session;
 mod shader_fields;
 mod skel_adapter;
@@ -289,7 +288,7 @@ impl UsdInspectBackend for OpenusdBackend {
             payloads: payloads.into_inner(),
             // #30: Rust-fork backend does not expose GetInherits() /
             // GetSpecializes() yet. Return empty Vecs so the wire type
-            // is valid; the C++ backend populates these.
+            // is valid; the Rust crate does not expose them yet.
             inherits: Vec::new(),
             specializes: Vec::new(),
             variant_selection_arcs: Vec::new(),

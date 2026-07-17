@@ -138,7 +138,7 @@ export async function inspectUsdLights(
  * #28 — inspect the attributes, relationships, and metadata for the
  * prim at `primPath` inside the USD file at `path`.
  *
- * Only available on the C++ backend; the Rust fork backend returns an
+ * The current Rust backend does not expose this inspector API and returns an
  * error, which this wrapper re-throws so callers can handle gracefully.
  */
 export async function inspectPrim(
@@ -152,8 +152,8 @@ export async function inspectPrim(
  * #37 — fetch up to `maxSamples` time samples for the named attribute
  * on the prim at `primPath` inside the USD file at `path`.
  *
- * `maxSamples` defaults to 100 on the Rust side when omitted.
- * Only available on the C++ backend; the Rust fork returns an error.
+ * `maxSamples` defaults to 100 on the Rust side when omitted. The current
+ * backend returns an error because this inspector API is not implemented.
  */
 export async function inspectAttributeTimeSamples(
   path: string,
@@ -339,9 +339,9 @@ export async function backendCapabilities(): Promise<BackendCapabilities> {
  * equivalent to `usdcat --flatten`. Every reference, payload, and sublayer
  * is composed and inlined into the returned string.
  *
- * Only implemented on the C++ backend. On the Rust backend the promise
- * rejects with a descriptive error — callers should handle that case
- * gracefully (e.g. keep the "Binary stage" placeholder).
+ * The current Rust backend does not implement source flattening, so the
+ * promise rejects with a descriptive error. Callers should keep the "Binary
+ * stage" placeholder in that case.
  */
 export async function flattenStage(path: string): Promise<string> {
   return invokeUsd<string>("flatten_stage", { path });
@@ -409,7 +409,8 @@ export async function closeStageSession(
  * Loads the payload arc at `primPath` in the open stage identified by
  * `handle`. Descendants are loaded as well (`UsdLoadWithDescendants`).
  *
- * Only supported on the C++ backend; throws on the Rust-fork backend.
+ * The current Rust backend applies this request by reopening its session
+ * stage with the requested payload roots loaded.
  */
 export async function loadPayload(
   handle: StageSessionHandle,
@@ -422,7 +423,8 @@ export async function loadPayload(
  * Unloads the payload arc at `primPath` in the open stage identified by
  * `handle`.
  *
- * Only supported on the C++ backend; throws on the Rust-fork backend.
+ * The current Rust backend applies this request by reopening its session
+ * stage without the requested payload roots.
  */
 export async function unloadPayload(
   handle: StageSessionHandle,
