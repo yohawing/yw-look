@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { FileBrowserCard } from "../FileBrowserCard";
+import { TooltipProvider } from "../ui";
 import type { DirectoryListing, SelectedFile } from "../../lib/files";
 import { useFileStore } from "../../stores/fileStore";
 
@@ -39,11 +40,15 @@ describe("FileBrowserCard", () => {
       packFileRequest: null,
       openError: null,
     });
-    render(<FileBrowserCard onOpenPath={onOpenPath} />);
+    render(
+      <TooltipProvider delayDuration={0}>
+        <FileBrowserCard onOpenPath={onOpenPath} />
+      </TooltipProvider>,
+    );
     return { onOpenPath };
   };
 
-  it("renders sibling file names and kind metadata", () => {
+  it("renders sibling file names with shared kind labels", () => {
     const listing = makeListing([
       makeFile({ path: "/projects/demo/scene.usd", fileName: "scene.usd" }),
       makeFile({
@@ -58,8 +63,10 @@ describe("FileBrowserCard", () => {
 
     expect(screen.queryByText("scene.usd")).not.toBeNull();
     expect(screen.queryByText("model.glb")).not.toBeNull();
-    expect(screen.getAllByText("USD").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("GLB").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Model")).toHaveLength(2);
+    expect(screen.queryByText("USD")).toBeNull();
+    expect(screen.queryByText("GLB")).toBeNull();
+    expect(screen.queryByText("/projects/demo/scene.usd")).toBeNull();
   });
 
   it("calls onOpenPath with file path when a row is clicked", () => {
@@ -97,11 +104,9 @@ describe("FileBrowserCard", () => {
 
     const buttons = screen.getAllByRole("button");
     expect(buttons[0].classList.contains("file-item-row")).toBe(true);
-    expect(buttons[0].classList.contains("file-browser-entry")).toBe(true);
     expect(buttons[0].classList.contains("is-current")).toBe(true);
     expect(buttons[0].getAttribute("aria-current")).toBe("true");
     expect(buttons[1].classList.contains("file-item-row")).toBe(true);
-    expect(buttons[1].classList.contains("file-browser-entry")).toBe(true);
     expect(buttons[1].classList.contains("is-current")).toBe(false);
   });
 
@@ -125,7 +130,6 @@ describe("FileBrowserCard", () => {
       expect(button.classList.contains("yl-button--unstyled")).toBe(true);
       expect(button.classList.contains("yl-selectable-list-item")).toBe(true);
       expect(button.classList.contains("file-item-row")).toBe(true);
-      expect(button.classList.contains("file-browser-entry")).toBe(true);
     }
   });
 });
