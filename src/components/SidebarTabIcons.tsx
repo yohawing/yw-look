@@ -5,7 +5,7 @@ import {
   ImageIcon,
   InfoCircledIcon,
   LayersIcon,
-  MixIcon,
+  ShadowInnerIcon,
 } from "@radix-ui/react-icons";
 import type { SidebarTabId } from "../types/ui";
 
@@ -20,7 +20,7 @@ export function SidebarTabIcon({ kind }: { kind: SidebarTabId }) {
     case "hierarchy":
       return <LayersIcon aria-hidden="true" />;
     case "materials":
-      return <MixIcon aria-hidden="true" />;
+      return <ShadowInnerIcon aria-hidden="true" />;
     case "textures":
       return <ImageIcon aria-hidden="true" />;
     case "settings":
