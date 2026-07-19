@@ -167,6 +167,7 @@ const cases = [
     actual: "artifacts/screenshots/viewport/abc-monkey-current.png",
     size: "384x288",
     background: "default",
+    platforms: ["win32", "darwin"],
   },
   {
     id: "ply-cactus-supersplat-compressed",
@@ -270,6 +271,7 @@ function buildShotEnv(testCases) {
 
 function formatCaseListEntry(testCase) {
   const details = [
+    testCase.platforms ? `platforms=${testCase.platforms.join(",")}` : null,
     testCase.requiresLoader
       ? `requiresLoader=${testCase.requiresLoader}`
       : null,
@@ -283,6 +285,12 @@ function formatCaseListEntry(testCase) {
 
 const optionalLoaderAvailability = await getOptionalLoaderAvailability();
 const runnableCases = selectedCases.filter((testCase) => {
+  if (testCase.platforms && !testCase.platforms.includes(process.platform)) {
+    console.log(
+      `Skipping viewport snapshot (unsupported platform ${process.platform}): ${testCase.id}`,
+    );
+    return false;
+  }
   if (
     testCase.requiresLoader &&
     optionalLoaderAvailability[testCase.requiresLoader] === false

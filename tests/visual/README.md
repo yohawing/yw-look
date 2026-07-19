@@ -20,6 +20,8 @@ Alembic, glTF JSON, USD, USDC, USDZ) and write current renders to
 `artifacts/screenshots/viewport/`. PMX material morph coverage includes initial,
 explicit zero, global 0.5 / 1, individual 1, and combined weights. On
 mismatch, keep the actual image, FLIP error map, and report for review.
+The Alembic case runs on Windows and macOS only because no Linux preview helper
+is distributed.
 
 ## Viewport comparison
 
