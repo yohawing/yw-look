@@ -42,7 +42,7 @@
 #### Windows signing and SmartScreen
 
 - Status: not verified
-- Details: v0.3.0 Windows artifacts have not been produced yet. The previous local audit found updater signatures present but no Authenticode signature; `npm run check:win-authenticode` and a clean-machine SmartScreen check must be repeated against the final v0.3.0 NSIS and MSI artifacts.
+- Details: the local v0.3.0 NSIS and MSI bundles were produced with updater signatures, and `npm run check:nsis-loader-pack-bundle` verified all three Optional Loader Packs. `npm run check:win-authenticode` audited the NSIS installer, MSI installer, and application executable as 0 valid, 3 unsigned, and 0 invalid; SmartScreen remains unverified on a clean Windows environment.
 
 #### macOS codesign, notarization, and Gatekeeper
 
