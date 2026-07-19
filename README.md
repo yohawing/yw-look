@@ -96,9 +96,6 @@ npm run bundle:win
 npm run bundle:mac
 ```
 
-OS 別バンドル設定の詳細は [`docs/release-distribution.md`](docs/release-distribution.md) を参照。
-Optional Loader Pack の方針は [`docs/optional-loader-packs.md`](docs/optional-loader-packs.md) を参照。
-
 ## Optional Loader Packs
 
 VRM、MMD、Gaussian Splat など一部フォーマットは、コアアプリに同梱せず別途インストールする **Optional Loader Pack** として提供される。
@@ -109,7 +106,7 @@ VRM、MMD、Gaussian Splat など一部フォーマットは、コアアプリ�
 | MMD Loader Pack            | `.pmd`, `.pmx`, `.vmd`                      | MikuMikuDance モデル・モーションのプレビュー        |
 | Gaussian Splat Loader Pack | `.ply`, `.splat`, `.spz`, `.ksplat`, `.sog` | 3D Gaussian Splat / SuperSplat 系データのプレビュー |
 
-パックは Settings パネルからインストール・アンインストールできる。インストール済みパックはコアアプリ更新後も保持される。詳細は [`docs/optional-loader-packs.md`](docs/optional-loader-packs.md) を参照。
+パックは Settings パネルからインストール・アンインストールできる。インストール済みパックはコアアプリ更新後も保持される。
 
 ## CLI モード
 
@@ -207,4 +204,4 @@ npm run test:viewport-snapshot:update
 
 このリポジトリで管理している yw-look のソースコードは MIT License です。詳細は [LICENSE](LICENSE) を参照してください。
 
-依存ライブラリ、ビルドツール、OS / SDK コンポーネントにはそれぞれのライセンスが適用されます。確認メモは [docs/license-notes.md](docs/license-notes.md) を参照してください。
+依存ライブラリ、同梱素材、ビルドツール、OS / SDK コンポーネントにはそれぞれのライセンスが適用されます。第三者素材の出典は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。

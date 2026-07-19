@@ -1086,10 +1086,9 @@ def Xform "Root" (
 
     // ----- Phase 0 production-asset parity tests --------------------------
     //
-    // These tests reproduce the numbers we observed in `experiments/usd-poc`
-    // (see docs/usd.md) but through `OpenusdBackend` instead of the
-    // raw `openusd` API. They confirm the adapter does not lose information
-    // for real-world USD scenes.
+    // These tests reproduce production-asset observations through
+    // `OpenusdBackend` instead of the raw `openusd` API. They confirm the
+    // adapter does not lose information for real-world USD scenes.
     //
     // The assets live under `samples/private/` (license-restricted), so the
     // tests are `#[ignore]`d by default and skipped automatically when the

@@ -128,8 +128,7 @@ pub(crate) fn is_supported_extension(extension: &str) -> bool {
 /// themselves openable formats: glTF external buffers (`bin`), OBJ material
 /// libraries (`mtl`), and MMD toon and sphere textures (`bmp`, `sph`, `spa`).
 /// `vrma` is read by the optional VRM loader pack but is not an openable core
-/// format. Keep this list in sync with the frontend loader sidecar reads — see
-/// plans/002 for the caller inventory.
+/// format. Keep this list in sync with the frontend loader sidecar reads.
 const SIDECAR_READ_EXTENSIONS: &[&str] = &["bin", "bmp", "mtl", "sph", "spa", "vrma"];
 
 pub(crate) fn is_readable_asset_extension(extension: &str) -> bool {

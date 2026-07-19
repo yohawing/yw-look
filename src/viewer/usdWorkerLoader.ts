@@ -9,8 +9,6 @@
  * Worker errors fall back to the synchronous main-thread parse in
  * `loaders.ts`, so flipping this off via env should only be necessary
  * if a regression is suspected.
- *
- * See docs/usd.md §"Web Worker スケルトン".
  */
 
 import { ObjectLoader, type Object3D } from "three";

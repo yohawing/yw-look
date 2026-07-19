@@ -13,8 +13,6 @@
  * worker only sees single-buffer USDA. `usdWorkerLoader.ts` rejects
  * worker failures into a synchronous fallback, so flipping
  * `VITE_USD_WORKER=0` is only needed for diagnosing regressions.
- *
- * See docs/usd.md §"Web Worker スケルトン".
  */
 
 import { USDLoader } from "three/examples/jsm/loaders/USDLoader.js";

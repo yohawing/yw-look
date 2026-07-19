@@ -33,5 +33,13 @@ debug.log
 /PLAN.md
 /CONCEPT.md
 
+# Local development notes.
+/samples/README.md
+/samples/sources.md
+/src/packs/mmd-loader-pack/assets/README.md
+/tests/fixtures/README.md
+/tests/fixtures/textures/README.md
+/tests/visual/README.md
+
 docs/*
 !docs/images/
