@@ -32,6 +32,7 @@ type SampleCase = {
   kind: "model" | "texture";
   format: string;
   path: string;
+  private?: boolean;
   expect?: {
     shouldLoad?: boolean;
     hasAnimation?: boolean;
@@ -422,23 +423,25 @@ function validateExpectations(sample: SampleCase, object: Group | Mesh) {
 async function main() {
   const manifestResponse = await fetch("/samples/manifest.json");
   const manifest = (await manifestResponse.json()) as Manifest;
-  const supportedCases = manifest.cases.filter((sample) =>
-    [
-      "glb",
-      "gltf",
-      "fbx",
-      "obj",
-      "ply",
-      "stl",
-      "dae",
-      "png",
-      "jpg",
-      "jpeg",
-      "tga",
-      "dds",
-      "hdr",
-      "exr",
-    ].includes(sample.format),
+  const supportedCases = manifest.cases.filter(
+    (sample) =>
+      !sample.private &&
+      [
+        "glb",
+        "gltf",
+        "fbx",
+        "obj",
+        "ply",
+        "stl",
+        "dae",
+        "png",
+        "jpg",
+        "jpeg",
+        "tga",
+        "dds",
+        "hdr",
+        "exr",
+      ].includes(sample.format),
   );
 
   const results: CaseResult[] = [];
