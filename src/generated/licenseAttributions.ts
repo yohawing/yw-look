@@ -9,7 +9,7 @@ export type LicenseAttribution = {
 };
 
 export const projectName = "yw-look" as const;
-export const projectVersion = "0.2.2" as const;
+export const projectVersion = "0.3.0" as const;
 export const projectLicense = "MIT" as const;
 
 export const webRuntimeLicenseAttributions = [
@@ -22,6 +22,12 @@ export const webRuntimeLicenseAttributions = [
   {
     name: "@radix-ui/react-dialog",
     version: "1.1.17",
+    license: "MIT",
+    source: "web",
+  },
+  {
+    name: "@radix-ui/react-icons",
+    version: "1.3.2",
     license: "MIT",
     source: "web",
   },
@@ -57,7 +63,7 @@ export const webRuntimeLicenseAttributions = [
   },
   {
     name: "@yohawing/three-mmd-loader",
-    version: "0.4.0",
+    version: "0.6.0",
     license: "MIT",
     source: "web",
   },
@@ -82,6 +88,12 @@ export const webRuntimeLicenseAttributions = [
   {
     name: "three",
     version: "0.180.0",
+    license: "MIT",
+    source: "web",
+  },
+  {
+    name: "three-mesh-bvh",
+    version: "0.9.11",
     license: "MIT",
     source: "web",
   },
@@ -182,6 +194,18 @@ export const nativeRuntimeLicenseAttributions = [
     name: "url",
     version: "2.5.8",
     license: "MIT OR Apache-2.0",
+    source: "native",
+  },
+  {
+    name: "windows-sys",
+    version: "0.59.0",
+    license: "MIT OR Apache-2.0",
+    source: "native",
+  },
+  {
+    name: "winreg",
+    version: "0.55.0",
+    license: "MIT",
     source: "native",
   },
   {

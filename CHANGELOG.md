@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.3.0 (2026-07-19)
+
+### Viewer and loader packs
+
+- Made the pure-Rust OpenUSD implementation the sole USD backend, removed the C++ runtime payload, and pinned the compatibility source used by local, CI, and release builds.
+- Made fully loaded USD previews the default while retaining deferred payload loading as an explicit asynchronous mode, with more reliable payload sessions, inspection retries, and error reporting.
+- Moved heavy FBX, glTF, OBJ, DAE, USD, and Alembic preparation away from the main thread where practical, reduced redundant scene traversals and texture decoding, and improved cancellation of stale loads.
+- Expanded Optional Loader Pack management across manifests, compatibility reporting, Settings actions, file associations, build profiles, and NSIS component selection for VRM, MMD, and Gaussian Splat support.
+- Updated the MMD loader, added PMX material morph playback and regression coverage, restored standalone VMD playback, and bundled the preview model used by release builds.
+- Improved skeleton, animation, high-poly selection, material, texture, camera, light, and USD inspection behavior across supported formats.
+
+### Reliability and diagnostics
+
+- Added persistent application diagnostics, crash recovery records, release-safe log redaction, frontend fatal-error capture, diagnostics access from Settings, and a prefilled issue-reporting path.
+- Added stronger binary-read boundaries, stale file-open protection, blob URL cleanup, loader abort handling, release content security policy, and loopback-only updater overrides.
+- Added public fixture, viewport snapshot, loader-pack, startup, responsiveness, and local visual-review coverage, with test-count drift enforced against the documented QA inventory.
+
+### Interface
+
+- Adopted shared Radix-based dialog, popover, and tooltip primitives and consolidated repeated sidebar, toolbar, status, warning, material, and file-list UI.
+- Refined viewport tool grouping and icons, recent-file presentation, long-path tooltips, skeleton overlays, animation metadata, texture split panes, and standalone image behavior.
+- Hid development-only diagnostics and controls from release builds while keeping actionable warnings and failure details visible.
+
+### Build and release
+
+- Added release-note contract checks, consolidated local release preflight reporting, updater-manifest validation, local updater-feed smoke tests, and Windows/macOS signing audit reports.
+- Added loader-enabled Windows bundle profiles and checks that verify NSIS/MSI artifacts, updater signatures, generated installer hooks, and all three Optional Loader Packs.
+- Added packaged startup measurement, reproducible IPC type generation checks, and release-checkout-safe OpenUSD dependency resolution.
+
+### Known limitations
+
+- Windows installers do not yet have production Authenticode signing; SmartScreen may identify the publisher as unknown.
+- The macOS artifacts for this tag have not yet been built, notarized, stapled, or exercised through Gatekeeper on a clean Mac.
+- Optional Loader Pack selection is covered by generated-hook and bundle checks, but the final v0.3.0 NSIS component page still requires a human interactive install check.
+- GitHub Release installation and updater roundtrips cannot be completed until the v0.3.0 artifacts and `latest.json` are published.
+- MMD physics remains disabled by default; MMD model and motion preview support does not imply production physics parity.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: v0.3.0 Windows artifacts have not been produced yet. The previous local audit found updater signatures present but no Authenticode signature; `npm run check:win-authenticode` and a clean-machine SmartScreen check must be repeated against the final v0.3.0 NSIS and MSI artifacts.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: v0.3.0 macOS artifacts have not been produced yet. The release workflow requires Apple signing and notarization secrets, but `codesign`, notarization, stapling, Gatekeeper first launch, and Finder Open With must be confirmed from the final artifacts.
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: not verified — the v0.3.0 GitHub Release installer and updater manifest do not exist until the tag is published; verify a clean install and an update from v0.2.2 after publication.
+- macOS: not verified — the v0.3.0 GitHub Release DMG and updater manifest do not exist until the tag is published; verify a clean install and an update from v0.2.2 after publication.
+
 ## v0.2.2 (2026-05-31)
 
 ### Viewer and loaders
