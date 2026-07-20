@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PerformanceSnapshot } from "../components/PerformanceCard";
+import type { PerformanceSnapshot } from "../types/ui";
 import type { SettingsPayload } from "../lib/settings";
 
 type WindowWithIdleCallback = Window & {

@@ -41,7 +41,6 @@ describe("UpdateCard", () => {
         isInstallingUpdate={false}
         onCheckForUpdate={() => undefined}
         onInstallUpdate={() => undefined}
-        onSaveOverride={() => undefined}
         updateCheck={updateCheck}
         updateConfiguration={configuration}
         updateError={null}
@@ -61,7 +60,6 @@ describe("UpdateCard", () => {
         isInstallingUpdate={false}
         onCheckForUpdate={() => undefined}
         onInstallUpdate={onInstallUpdate}
-        onSaveOverride={() => undefined}
         updateCheck={updateCheck}
         updateConfiguration={configuration}
         updateError={null}

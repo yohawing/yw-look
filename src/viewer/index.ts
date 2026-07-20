@@ -11,12 +11,13 @@ export type {
   LoadingStageId,
   LoadingStageSnapshot,
   MissingReferenceError,
+  OptionalLoaderPackStatus,
 } from "./types";
 
-export { implementedPreviewExtensions, neutralFeedback } from "./types";
+export { neutralFeedback } from "./types";
 export {
-  optionalPreviewLoaders,
-  getPreviewSupportState,
+  formatDisabledOptionalLoaderMessage,
+  formatIncompatibleOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
 } from "./types";
@@ -33,6 +34,7 @@ export {
   applyControlsSensitivity,
   computeAutoSensitivity,
   getObjectMaxDimension,
+  collectSceneTraversal,
   normalizeObjectScale,
   cancelScaleNormalization,
   formatScaleFactor,
@@ -48,8 +50,9 @@ export {
   removeSkeletonHelpers,
   applyBoundingBoxHelpers,
   removeBoundingBoxHelpers,
-  applyNormalHelpers,
-  removeNormalHelpers,
+  applyNormalSurfaceMaterial,
+  applySurfaceMaterialMode,
+  isNormalSurfaceMaterialActive,
   isViewportHelperObject,
   ensureShadowCatcher,
   applyShadows,
@@ -60,6 +63,8 @@ export type {
   GridConfig,
   ScaleNormalizationResult,
   TextureFilterMode,
+  SurfaceMaterialMode,
+  SceneTraversalSnapshot,
 } from "./scene";
 
 export {
@@ -67,9 +72,19 @@ export {
   loadMmdMotion,
   tryExtractUsdaText,
   loaderRegistry,
+  getPreviewSupportState,
   listRegisteredLoaders,
+  listOptionalLoaderPacks,
+  disabledOptionalLoaderPackIds,
+  incompatibleOptionalLoaderPackIds,
 } from "./loaders";
-export type { LoaderContext, LoaderPlugin } from "./loaderRegistry";
+export type {
+  FormatPack,
+  LoaderContext,
+  LoaderPlugin,
+  PackMetadata,
+  PackRuntime,
+} from "./loaderRegistry";
 
 export {
   captureRendererScreenshot,
@@ -87,6 +102,7 @@ export {
   buildMissingReferenceMetadata,
   cameraDisplayName,
   cameraSelectionKey,
+  scheduleTextureThumbnailEnrichment,
 } from "./metadata";
 export type { MetadataCollection } from "./metadata";
 
@@ -115,10 +131,18 @@ export {
 
 export { getCachedBuffer, evictAll, prefetchAdjacent } from "./prefetchCache";
 export {
+  applySelectionMaterialCustomizer,
   isSelectionProxy,
   selectionProxyTarget,
+  setSelectionMaterialCustomizer,
   setSelectionProxyTarget,
+  type SelectionMaterialCustomizer,
 } from "./selectionProxy";
+export {
+  explicitObjectSelectionKey,
+  resolveObjectSelectionKey,
+  setObjectSelectionKey,
+} from "./selectionKeys";
 
 export {
   applySelectionHighlight,
@@ -126,3 +150,9 @@ export {
   clearSelectionHighlight,
   clearSelectionHighlightFromObject,
 } from "./highlight";
+export {
+  createMeshBvhRaycastBuilder,
+  isStaticMeshBvhCandidate,
+  LARGE_PICK_MESH_TRIANGLE_THRESHOLD,
+  meshTriangleCount,
+} from "./meshBvhRaycast";

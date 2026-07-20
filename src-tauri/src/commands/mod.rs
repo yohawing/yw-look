@@ -1,9 +1,11 @@
 pub(crate) mod alembic;
 pub(crate) mod bench;
 pub(crate) mod diagnostics;
+pub(crate) mod file_associations;
 pub(crate) mod files;
-pub(crate) mod integrations;
+pub(crate) mod loader_packs;
 pub(crate) mod settings;
 pub(crate) mod shot;
+pub(crate) mod startup_bench;
 pub(crate) mod updater;
 pub(crate) mod usd;

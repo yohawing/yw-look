@@ -1,10 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type {
-  AssetMetadata,
-  HierarchyNode,
-  MmdBoneEntry,
-  ObjectInfo,
-} from "./assetMetadata";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CircleIcon,
+  DotFilledIcon,
+} from "@radix-ui/react-icons";
+import {
+  Group as PanelGroup,
+  Panel,
+  Separator as PanelResizeHandle,
+} from "react-resizable-panels";
+import type { AssetMetadata, HierarchyNode, ObjectInfo } from "./assetMetadata";
+import { Button } from "./ui/Button";
+import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
+import { SliderNumberField } from "./ui/SliderNumberField";
+import "../styles/hierarchy.css";
 
 type HierarchyCardProps = {
   hierarchy: HierarchyNode[];
@@ -55,6 +65,10 @@ type HierarchyCardProps = {
    * the GLB.
    */
   onUnloadPayload?: (primPath: string) => void;
+  renderSelectedObjectDetails?: (objectInfo: ObjectInfo | null) => ReactNode;
+  renderMorphTargetMeta?: (
+    target: ObjectInfo["morphTargets"][number],
+  ) => ReactNode;
 };
 
 function clampMorphValue(value: number): number {
@@ -72,139 +86,8 @@ function selectedMorphValue(
   );
 }
 
-function fmtMmdNumber(value: number): string {
-  return value.toFixed(3).replace(/\.?0+$/, "");
-}
-
-function fmtMmdVec(value: readonly number[] | null): string {
-  return value ? value.map(fmtMmdNumber).join(", ") : "none";
-}
-
-function fmtMmdFlags(flags: Record<string, boolean> | null): string {
-  if (!flags) return "none";
-  const enabled = Object.entries(flags)
-    .filter(([, enabled]) => enabled)
-    .map(([name]) => name);
-  return enabled.length > 0 ? enabled.join(", ") : "none";
-}
-
 function hierarchyDisplayName(node: HierarchyNode): string {
   return node.displayName || node.name || "(unnamed)";
-}
-
-function fmtMmdMorphOffsets(
-  mmd: ObjectInfo["morphTargets"][number]["mmd"],
-): string {
-  if (!mmd) return "";
-  const parts = [
-    mmd.boneOffsetCount > 0 ? `bone:${mmd.boneOffsetCount}` : null,
-    mmd.groupOffsetCount > 0 ? `group:${mmd.groupOffsetCount}` : null,
-    mmd.flipOffsetCount > 0 ? `flip:${mmd.flipOffsetCount}` : null,
-    mmd.impulseOffsetCount > 0 ? `impulse:${mmd.impulseOffsetCount}` : null,
-  ].filter((part): part is string => part !== null);
-  return parts.length > 0 ? parts.join(" ") : "offsets:none";
-}
-
-function SelectedMmdBone({ bone }: { bone: MmdBoneEntry | null }) {
-  if (!bone) return null;
-
-  return (
-    <div className="selected-mmd-section">
-      <div className="selected-mmd-head">MMD Bone</div>
-      {bone.boneIndex !== null ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">Index</span>
-          <span className="selected-kv-value">{bone.boneIndex}</span>
-        </div>
-      ) : null}
-      {bone.name ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">MMD Name</span>
-          <span className="selected-kv-value">{bone.name}</span>
-        </div>
-      ) : null}
-      {bone.englishName && bone.englishName !== bone.name ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">English</span>
-          <span className="selected-kv-value is-muted">{bone.englishName}</span>
-        </div>
-      ) : null}
-      <div className="selected-kv-row">
-        <span className="selected-kv-key">Parent</span>
-        <span className="selected-kv-value is-muted">
-          {bone.parentIndex !== null && bone.parentIndex >= 0
-            ? `${bone.parentIndex}${bone.parentName ? ` · ${bone.parentName}` : ""}`
-            : "none"}
-        </span>
-      </div>
-      <div className="selected-kv-row">
-        <span className="selected-kv-key">Rest Pos</span>
-        <span className="selected-kv-value">
-          {fmtMmdVec(bone.restPosition)}
-        </span>
-      </div>
-      {bone.layer !== null ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">Layer</span>
-          <span className="selected-kv-value">{bone.layer}</span>
-        </div>
-      ) : null}
-      {bone.appendTransform ? (
-        <div className="selected-kv-row">
-          <span className="selected-kv-key">Append</span>
-          <span className="selected-kv-value">
-            {bone.appendTransform.parentIndex}
-            {bone.appendTransform.parentName
-              ? ` · ${bone.appendTransform.parentName}`
-              : ""}{" "}
-            x{fmtMmdNumber(bone.appendTransform.weight)}
-          </span>
-        </div>
-      ) : null}
-      <div className="selected-kv-row">
-        <span className="selected-kv-key">Flags</span>
-        <span className="selected-kv-value">{fmtMmdFlags(bone.flags)}</span>
-      </div>
-      {bone.ik ? (
-        <>
-          <div className="selected-kv-row">
-            <span className="selected-kv-key">IK Role</span>
-            <span className="selected-kv-value">
-              {bone.ik.roles.join(", ")}
-            </span>
-          </div>
-          <div className="selected-kv-row">
-            <span className="selected-kv-key">IK Chain</span>
-            <span className="selected-kv-value">
-              goal:{bone.ik.goalBoneIndex ?? "?"} target:
-              {bone.ik.effectorBoneIndex ?? "?"} links:
-              {bone.ik.linkCount ?? "?"}
-            </span>
-          </div>
-          {bone.ik.iterationCount !== null ||
-          bone.ik.maxAnglePerIteration !== null ? (
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">IK Solve</span>
-              <span className="selected-kv-value">
-                iter:{bone.ik.iterationCount ?? "?"} angle:
-                {bone.ik.maxAnglePerIteration !== null
-                  ? fmtMmdNumber(bone.ik.maxAnglePerIteration)
-                  : "?"}
-              </span>
-            </div>
-          ) : null}
-          {bone.ik.limitKinds.length > 0 ? (
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">IK Limits</span>
-              <span className="selected-kv-value">
-                {bone.ik.limitKinds.join(", ")}
-              </span>
-            </div>
-          ) : null}
-        </>
-      ) : null}
-    </div>
-  );
 }
 
 function HierarchyBranch({
@@ -293,7 +176,7 @@ function HierarchyBranch({
           // stable selection key, so skip the click rather than letting
           // every unnamed row share the empty-string identity. This
           // also prevents `(unnamed)` (the display label) from leaking
-          // into a USD prim path passed to the C++ backend.
+          // into a USD prim path passed to the native backend.
           onSelectName && node.name
             ? (event) => {
                 event.stopPropagation();
@@ -318,22 +201,10 @@ function HierarchyBranch({
             type="button"
             aria-label={showChildren ? "Collapse" : "Expand"}
           >
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              width="12"
-              height="12"
+            <ChevronRightIcon
+              aria-hidden="true"
               className={showChildren ? "tree-chevron-open" : ""}
-            >
-              <path
-                d="M6 4l4 4-4 4"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            />
           </button>
         ) : (
           <span className="tree-chevron-spacer" />
@@ -346,7 +217,6 @@ function HierarchyBranch({
         {isUnloadedPayload && onLoadPayload && (
           <button
             className="tree-payload-btn tree-payload-btn--unloaded"
-            title={`Load payload at ${primPath}`}
             aria-label="Load payload"
             type="button"
             onClick={(e) => {
@@ -354,22 +224,12 @@ function HierarchyBranch({
               onLoadPayload(primPath);
             }}
           >
-            {/* Hollow circle — payload deferred */}
-            <svg viewBox="0 0 10 10" width="10" height="10" fill="none">
-              <circle
-                cx="5"
-                cy="5"
-                r="4"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              />
-            </svg>
+            <CircleIcon aria-hidden="true" />
           </button>
         )}
         {isLoadedPayload && onUnloadPayload && (
           <button
             className="tree-payload-btn tree-payload-btn--loaded"
-            title={`Unload payload at ${primPath}`}
             aria-label="Unload payload"
             type="button"
             onClick={(e) => {
@@ -377,10 +237,7 @@ function HierarchyBranch({
               onUnloadPayload(primPath);
             }}
           >
-            {/* Solid circle — payload loaded */}
-            <svg viewBox="0 0 10 10" width="10" height="10">
-              <circle cx="5" cy="5" r="4" fill="currentColor" />
-            </svg>
+            <DotFilledIcon aria-hidden="true" />
           </button>
         )}
       </div>
@@ -471,6 +328,8 @@ export function HierarchyCard({
   unloadedPayloadPaths,
   onLoadPayload,
   onUnloadPayload,
+  renderSelectedObjectDetails,
+  renderMorphTargetMeta,
 }: HierarchyCardProps) {
   const selectedRef = useRef<HTMLLIElement | null>(null);
 
@@ -503,207 +362,210 @@ export function HierarchyCard({
         ? "Deferred"
         : "Loaded"
       : null;
+  const selectedRows: KeyValueRow[] = selectedNode
+    ? ([
+        {
+          id: "name",
+          label: "Name",
+          value: hierarchyDisplayName(selectedNode),
+          mono: true,
+        },
+        {
+          id: "type",
+          label: "Type",
+          value: selectedNode.kind,
+          tone: "muted",
+          mono: true,
+        },
+        selectedPath && {
+          id: "path",
+          label: "Path",
+          value: selectedPath,
+          tone: "muted",
+          mono: true,
+        },
+        {
+          id: "children",
+          label: "Children",
+          value: selectedChildCount,
+          mono: true,
+        },
+        selectedPayloadState && {
+          id: "payload",
+          label: "Payload",
+          value: selectedPayloadState,
+          mono: true,
+        },
+        selectedInfo?.vertexCount !== null &&
+          selectedInfo?.vertexCount !== undefined && {
+            id: "vertices",
+            label: "Vertices",
+            value: selectedInfo.vertexCount.toLocaleString(),
+            mono: true,
+          },
+        selectedInfo &&
+          selectedInfo.materialNames.length > 0 && {
+            id: "material",
+            label: "Material",
+            value: selectedInfo.materialNames.join(", "),
+            mono: true,
+          },
+      ].filter(Boolean) as KeyValueRow[])
+    : [];
 
   return (
-    <div className="hierarchy-card">
-      <section className="hierarchy-section">
-        <div className="sec-head">
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            width="11"
-            height="11"
-            className="sec-head-chevron"
-            aria-hidden="true"
-          >
-            <path
-              d="M4 6l4 4 4-4"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+    <PanelGroup
+      className="hierarchy-card hierarchy-split"
+      orientation="vertical"
+    >
+      <Panel
+        className="hierarchy-pane"
+        defaultSize={62}
+        id="hierarchy-outliner"
+        minSize={25}
+      >
+        <section className="hierarchy-section yl-disclosure yl-disclosure--section">
+          <div className="yl-disclosure__summary">
+            <ChevronDownIcon
+              className="yl-disclosure__chevron"
+              aria-hidden="true"
             />
-          </svg>
-          <span>Outliner</span>
-          <span className="sec-head-count">{totalNodeCount}</span>
-        </div>
-        {hierarchy.length > 0 ? (
-          <ul className="tree-root">
-            {hierarchy.map((node, index) => (
-              <HierarchyBranch
-                key={`${node.name}-${index}`}
-                node={node}
-                depth={0}
-                selectedName={normalizedSelected}
-                onSelectName={onSelectName}
-                onSelectPrimPath={onSelectPrimPath}
-                parentPath="/"
-                forceExpanded={
-                  normalizedSelected !== null &&
-                  selectedAncestorKeys.has(node.primPath ?? node.name)
-                }
-                forceExpandedKeys={selectedAncestorKeys}
-                selectedRef={selectedRef}
-                payloadPrimPaths={payloadPrimPaths}
-                unloadedPayloadPaths={unloadedPayloadPaths}
-                onLoadPayload={onLoadPayload}
-                onUnloadPayload={onUnloadPayload}
-              />
-            ))}
-          </ul>
-        ) : (
-          <p className="sidebar-empty">
-            No hierarchy available for the current asset.
-          </p>
-        )}
-      </section>
+            <span className="yl-disclosure__title">Outliner</span>
+            <span className="yl-disclosure__count">{totalNodeCount}</span>
+          </div>
+          <div className="hierarchy-pane-scroll yl-disclosure__body">
+            {hierarchy.length > 0 ? (
+              <ul className="tree-root">
+                {hierarchy.map((node, index) => (
+                  <HierarchyBranch
+                    key={`${node.name}-${index}`}
+                    node={node}
+                    depth={0}
+                    selectedName={normalizedSelected}
+                    onSelectName={onSelectName}
+                    onSelectPrimPath={onSelectPrimPath}
+                    parentPath="/"
+                    forceExpanded={
+                      normalizedSelected !== null &&
+                      selectedAncestorKeys.has(node.primPath ?? node.name)
+                    }
+                    forceExpandedKeys={selectedAncestorKeys}
+                    selectedRef={selectedRef}
+                    payloadPrimPaths={payloadPrimPaths}
+                    unloadedPayloadPaths={unloadedPayloadPaths}
+                    onLoadPayload={onLoadPayload}
+                    onUnloadPayload={onUnloadPayload}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <p className="sidebar-empty">
+                No hierarchy available for the current asset.
+              </p>
+            )}
+          </div>
+        </section>
+      </Panel>
 
-      <section className="hierarchy-section">
-        <div className="sec-head">
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            width="11"
-            height="11"
-            className="sec-head-chevron"
-            aria-hidden="true"
-          >
-            <path
-              d="M4 6l4 4 4-4"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+      <PanelResizeHandle
+        aria-label="Resize outliner details"
+        className="hierarchy-resize-handle"
+      />
+
+      <Panel
+        className="hierarchy-pane"
+        defaultSize={38}
+        id="hierarchy-selected"
+        minSize={20}
+      >
+        <section className="hierarchy-section yl-disclosure yl-disclosure--section">
+          <div className="yl-disclosure__summary">
+            <ChevronDownIcon
+              className="yl-disclosure__chevron"
+              aria-hidden="true"
             />
-          </svg>
-          <span>Selected</span>
-        </div>
-        {selectedNode ? (
-          <div className="selected-kv">
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">Name</span>
-              <span className="selected-kv-value">
-                {hierarchyDisplayName(selectedNode)}
-              </span>
-            </div>
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">Type</span>
-              <span className="selected-kv-value is-muted">
-                {selectedNode.kind}
-              </span>
-            </div>
-            {selectedPath ? (
-              <div className="selected-kv-row">
-                <span className="selected-kv-key">Path</span>
-                <span className="selected-kv-value is-muted">
-                  {selectedPath}
-                </span>
-              </div>
-            ) : null}
-            <div className="selected-kv-row">
-              <span className="selected-kv-key">Children</span>
-              <span className="selected-kv-value">{selectedChildCount}</span>
-            </div>
-            {selectedPayloadState ? (
-              <div className="selected-kv-row">
-                <span className="selected-kv-key">Payload</span>
-                <span className="selected-kv-value">
-                  {selectedPayloadState}
-                </span>
-              </div>
-            ) : null}
-            {selectedInfo?.vertexCount !== null &&
-            selectedInfo?.vertexCount !== undefined ? (
-              <div className="selected-kv-row">
-                <span className="selected-kv-key">Vertices</span>
-                <span className="selected-kv-value">
-                  {selectedInfo.vertexCount.toLocaleString()}
-                </span>
-              </div>
-            ) : null}
-            {selectedInfo && selectedInfo.materialNames.length > 0 ? (
-              <div className="selected-kv-row">
-                <span className="selected-kv-key">Material</span>
-                <span className="selected-kv-value">
-                  {selectedInfo.materialNames.join(", ")}
-                </span>
-              </div>
-            ) : null}
-            <SelectedMmdBone bone={selectedInfo?.mmdBone ?? null} />
-            {normalizedSelected && selectedMorphTargets.length > 0 ? (
-              <div className="selected-morph-section">
-                <div className="selected-morph-head">
-                  <span>Shape Keys</span>
-                  <button
-                    className="selected-morph-reset"
-                    type="button"
-                    onClick={() => {
-                      for (const target of selectedMorphTargets) {
-                        onMorphTargetChange?.(
-                          normalizedSelected,
-                          target.index,
-                          0,
-                        );
-                      }
-                    }}
-                  >
-                    Reset All
-                  </button>
-                </div>
-                <div className="selected-morph-list">
-                  {selectedMorphTargets.map((target) => {
-                    const value = selectedMorphValue(
-                      normalizedSelected,
-                      target,
-                      morphTargetValues,
-                    );
-                    return (
-                      <label className="selected-morph-row" key={target.index}>
-                        <span className="selected-morph-name">
-                          {target.name}
-                        </span>
-                        <span className="selected-morph-value">
-                          {value.toFixed(2)}
-                        </span>
-                        {target.mmd ? (
-                          <span className="selected-morph-meta">
-                            {target.mmd.type ?? "mmd"} ·{" "}
-                            {target.mmd.englishName &&
-                            target.mmd.englishName !== target.name
-                              ? `${target.mmd.englishName} · `
-                              : ""}
-                            {fmtMmdMorphOffsets(target.mmd)}
-                          </span>
-                        ) : null}
-                        <input
-                          aria-label={`Shape key ${target.name}`}
-                          className="selected-morph-slider"
-                          max="1"
-                          min="0"
-                          step="0.01"
-                          type="range"
-                          value={value}
-                          onChange={(event) =>
+            <span className="yl-disclosure__title">Selected</span>
+          </div>
+          <div className="hierarchy-pane-scroll yl-disclosure__body">
+            {selectedNode ? (
+              <div className="selected-kv">
+                <KeyValueRows density="regular" rows={selectedRows} />
+                {renderSelectedObjectDetails?.(selectedInfo ?? null)}
+                {normalizedSelected && selectedMorphTargets.length > 0 ? (
+                  <div className="selected-morph-section">
+                    <div className="selected-morph-head">
+                      <span>Shape Keys</span>
+                      <Button
+                        className="u-ml-auto"
+                        size="sm"
+                        variant="subtle"
+                        onClick={() => {
+                          for (const target of selectedMorphTargets) {
                             onMorphTargetChange?.(
                               normalizedSelected,
                               target.index,
-                              Number(event.currentTarget.value),
-                            )
+                              0,
+                            );
                           }
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
+                        }}
+                      >
+                        Reset All
+                      </Button>
+                    </div>
+                    <div className="selected-morph-list">
+                      {selectedMorphTargets.map((target) => {
+                        const value = selectedMorphValue(
+                          normalizedSelected,
+                          target,
+                          morphTargetValues,
+                        );
+                        const morphMeta = renderMorphTargetMeta?.(target);
+                        return (
+                          <div
+                            className="selected-morph-row"
+                            key={target.index}
+                          >
+                            <span className="selected-morph-name">
+                              {target.name}
+                            </span>
+                            {morphMeta ? (
+                              <span className="selected-morph-meta">
+                                {morphMeta}
+                              </span>
+                            ) : null}
+                            <SliderNumberField
+                              aria-label={`Shape key ${target.name}`}
+                              className="selected-morph-slider-field"
+                              max="1"
+                              min="0"
+                              numberInputAriaLabel={`Shape key ${target.name} value`}
+                              onValueChange={(nextValue) =>
+                                onMorphTargetChange?.(
+                                  normalizedSelected,
+                                  target.index,
+                                  nextValue,
+                                )
+                              }
+                              precision={2}
+                              size="sm"
+                              step="0.01"
+                              value={value}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            ) : (
+              <p className="sidebar-empty">
+                Select a row to inspect node details.
+              </p>
+            )}
           </div>
-        ) : (
-          <p className="sidebar-empty">Select a row to inspect node details.</p>
-        )}
-      </section>
-    </div>
+        </section>
+      </Panel>
+    </PanelGroup>
   );
 }

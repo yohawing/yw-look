@@ -12,7 +12,6 @@ const menuActionIds = [
   "window.toggleFullscreen",
   "app.openSettings",
   "help.shortcuts",
-  "help.about",
 ] as const;
 const menuActionIdSet = new Set<string>(menuActionIds);
 

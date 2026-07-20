@@ -2,10 +2,14 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default desktop capability for yw-look during initial setup",
+  "remote": {
+    "urls": ["http://localhost:1420/*", "http://127.0.0.1:1420/*"]
+  },
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-show",
-    "core:window:allow-set-position"
+    "core:window:allow-set-position",
+    "log:allow-log"
   ]
 }

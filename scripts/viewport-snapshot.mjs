@@ -1,15 +1,40 @@
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { inflateSync } from "node:zlib";
 import { flipCompare } from "./flip-compare.mjs";
+import { comparePixels } from "./pngPixels.mjs";
+import { readOption } from "./cliArgs.mjs";
+import { runChildProcess } from "./processRunner.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
+const optionalLoaderPackages = {
+  spark: {
+    env: "YW_LOOK_HAS_SPARK_LOADER",
+    packagePath: path.join(repoRoot, "node_modules", "@sparkjsdev", "spark"),
+    includeEnv: "YW_INCLUDE_SPARK_LOADER_PACK",
+  },
+  mmd: {
+    env: "YW_LOOK_HAS_THREE_MMD_LOADER",
+    packagePath: path.join(
+      repoRoot,
+      "node_modules",
+      "@yohawing",
+      "three-mmd-loader",
+    ),
+    includeEnv: "YW_INCLUDE_MMD_LOADER_PACK",
+  },
+};
 
 const cases = [
   {
@@ -17,6 +42,30 @@ const cases = [
     input: "samples/assets/usd/tiny.usda",
     snapshot: "tests/visual/snapshots/viewport/usda-tiny-sanity.png",
     actual: "artifacts/screenshots/viewport/usda-tiny-sanity-current.png",
+    size: "640x480",
+    background: "default",
+  },
+  {
+    id: "usd-tiny-sanity",
+    input: "tests/fixtures/models/tiny.usd",
+    snapshot: "tests/visual/snapshots/viewport/usd-tiny-sanity.png",
+    actual: "artifacts/screenshots/viewport/usd-tiny-sanity-current.png",
+    size: "640x480",
+    background: "default",
+  },
+  {
+    id: "usdc-tiny-sanity",
+    input: "tests/fixtures/models/tiny.usdc",
+    snapshot: "tests/visual/snapshots/viewport/usdc-tiny-sanity.png",
+    actual: "artifacts/screenshots/viewport/usdc-tiny-sanity-current.png",
+    size: "640x480",
+    background: "default",
+  },
+  {
+    id: "usdz-tiny-sanity",
+    input: "tests/fixtures/models/tiny.usdz",
+    snapshot: "tests/visual/snapshots/viewport/usdz-tiny-sanity.png",
+    actual: "artifacts/screenshots/viewport/usdz-tiny-sanity-current.png",
     size: "640x480",
     background: "default",
   },
@@ -53,6 +102,84 @@ const cases = [
     size: "384x288",
     background: "default",
   },
+  {
+    id: "fbx-animated-triangle",
+    input: "tests/fixtures/models/animated-triangle.fbx",
+    snapshot: "tests/visual/snapshots/viewport/fbx-animated-triangle.png",
+    actual: "artifacts/screenshots/viewport/fbx-animated-triangle-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
+    id: "vmd-tiny-motion",
+    input: "tests/fixtures/models/tiny-motion.vmd",
+    snapshot: "tests/visual/snapshots/viewport/vmd-tiny-motion.png",
+    actual: "artifacts/screenshots/viewport/vmd-tiny-motion-current.png",
+    size: "384x288",
+    background: "default",
+    requiresLoader: "mmd",
+  },
+  ...[
+    ["initial", undefined],
+    ["explicit-zero", [0, 0]],
+    ["global-half", [0.5, 0]],
+    ["global-one", [1, 0]],
+    ["individual-one", [0, 1]],
+    ["combined", [0.5, 1]],
+  ].map(([state, morphWeights]) => ({
+    id: `pmx-material-morph-${state}`,
+    input: "tests/fixtures/models/material-morph-two-materials.pmx",
+    snapshot: `tests/visual/snapshots/viewport/pmx-material-morph-${state}.png`,
+    actual: `artifacts/screenshots/viewport/pmx-material-morph-${state}-current.png`,
+    size: "512x384",
+    background: "#20242c",
+    requiresLoader: "mmd",
+    ...(morphWeights ? { morphWeights } : {}),
+  })),
+  {
+    id: "gltf-duck",
+    input: "samples/assets/gltf/Duck.gltf",
+    snapshot: "tests/visual/snapshots/viewport/gltf-duck.png",
+    actual: "artifacts/screenshots/viewport/gltf-duck-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
+    id: "ply-triangle",
+    input: "tests/fixtures/models/triangle.ply",
+    snapshot: "tests/visual/snapshots/viewport/ply-triangle.png",
+    actual: "artifacts/screenshots/viewport/ply-triangle-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
+    id: "ply-tiny-pointcloud",
+    input: "tests/fixtures/models/tiny-pointcloud.ply",
+    snapshot: "tests/visual/snapshots/viewport/ply-tiny-pointcloud.png",
+    actual: "artifacts/screenshots/viewport/ply-tiny-pointcloud-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
+    id: "abc-monkey",
+    input: "tests/fixtures/models/monkey.abc",
+    snapshot: "tests/visual/snapshots/viewport/abc-monkey.png",
+    actual: "artifacts/screenshots/viewport/abc-monkey-current.png",
+    size: "384x288",
+    background: "default",
+    platforms: ["win32", "darwin"],
+  },
+  {
+    id: "ply-cactus-supersplat-compressed",
+    input: "tests/fixtures/models/cactus-supersplat-compressed.ply",
+    snapshot:
+      "tests/visual/snapshots/viewport/ply-cactus-supersplat-compressed.png",
+    actual:
+      "artifacts/screenshots/viewport/ply-cactus-supersplat-compressed-current.png",
+    size: "384x288",
+    background: "#ffffff",
+    requiresLoader: "spark",
+  },
 ];
 
 const usage = `usage:
@@ -73,18 +200,6 @@ const updateSnapshots =
 const strictMode = args.includes("--strict");
 const listOnly = args.includes("--list");
 
-function readOption(name) {
-  const index = args.indexOf(name);
-  if (index === -1) {
-    return null;
-  }
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`);
-  }
-  return value;
-}
-
 if (args.includes("--help") || args.includes("-h")) {
   console.log(usage);
   process.exit(0);
@@ -92,7 +207,7 @@ if (args.includes("--help") || args.includes("-h")) {
 
 let selectedCases = cases;
 try {
-  const selectedCaseId = readOption("--case");
+  const selectedCaseId = readOption(args, "--case");
   if (selectedCaseId) {
     selectedCases = cases.filter((testCase) => testCase.id === selectedCaseId);
     if (selectedCases.length === 0) {
@@ -105,10 +220,97 @@ try {
   process.exit(2);
 }
 
+async function pathExists(filePath) {
+  try {
+    await stat(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readEnvBoolean(name) {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return null;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  throw new Error(`${name} must be one of 1/0, true/false, yes/no, or on/off`);
+}
+
+async function getOptionalLoaderAvailability() {
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(optionalLoaderPackages).map(async ([loader, config]) => {
+        const envOverride = readEnvBoolean(config.env);
+        return [loader, envOverride ?? (await pathExists(config.packagePath))];
+      }),
+    ),
+  );
+}
+
+function buildShotEnv(testCases) {
+  const env = {
+    ...process.env,
+    YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+      process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+    YW_LOOK_CARGO_FEATURES:
+      process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+  };
+
+  for (const testCase of testCases) {
+    const loader = testCase.requiresLoader;
+    if (!loader) continue;
+    const config = optionalLoaderPackages[loader];
+    if (config) {
+      env[config.includeEnv] = "1";
+    }
+  }
+
+  return env;
+}
+
+function formatCaseListEntry(testCase) {
+  const details = [
+    testCase.platforms ? `platforms=${testCase.platforms.join(",")}` : null,
+    testCase.requiresLoader
+      ? `requiresLoader=${testCase.requiresLoader}`
+      : null,
+    testCase.morphWeights
+      ? `morphWeights=${testCase.morphWeights.join(",")}`
+      : null,
+  ].filter(Boolean);
+  const suffix = details.length > 0 ? ` [${details.join(", ")}]` : "";
+  return `${testCase.id}: ${testCase.input}${suffix}`;
+}
+
+const optionalLoaderAvailability = await getOptionalLoaderAvailability();
+const runnableCases = selectedCases.filter((testCase) => {
+  if (testCase.platforms && !testCase.platforms.includes(process.platform)) {
+    console.log(
+      `Skipping viewport snapshot (unsupported platform ${process.platform}): ${testCase.id}`,
+    );
+    return false;
+  }
+  if (
+    testCase.requiresLoader &&
+    optionalLoaderAvailability[testCase.requiresLoader] === false
+  ) {
+    console.log(
+      `Skipping viewport snapshot (optional loader pack not installed): ${testCase.id}`,
+    );
+    return false;
+  }
+  return true;
+});
+
 if (listOnly) {
   for (const testCase of selectedCases) {
-    console.log(`${testCase.id}: ${testCase.input}`);
+    console.log(formatCaseListEntry(testCase));
   }
+  process.exit(0);
+}
+
+if (runnableCases.length === 0) {
   process.exit(0);
 }
 
@@ -118,119 +320,6 @@ function resolveRepoPath(repoPath) {
 
 function sha256(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
-}
-
-function paethPredictor(left, up, upLeft) {
-  const estimate = left + up - upLeft;
-  const leftDistance = Math.abs(estimate - left);
-  const upDistance = Math.abs(estimate - up);
-  const upLeftDistance = Math.abs(estimate - upLeft);
-  if (leftDistance <= upDistance && leftDistance <= upLeftDistance) return left;
-  if (upDistance <= upLeftDistance) return up;
-  return upLeft;
-}
-
-function decodePngPixels(buffer) {
-  if (buffer.length < 8 || buffer.toString("ascii", 1, 4) !== "PNG") {
-    throw new Error("not a PNG file");
-  }
-
-  let width = 0;
-  let height = 0;
-  let bitDepth = 0;
-  let colorType = 0;
-  const idatChunks = [];
-
-  let offset = 8;
-  while (offset < buffer.length) {
-    const length = buffer.readUInt32BE(offset);
-    const type = buffer.toString("ascii", offset + 4, offset + 8);
-    const dataStart = offset + 8;
-    const dataEnd = dataStart + length;
-    const data = buffer.subarray(dataStart, dataEnd);
-
-    if (type === "IHDR") {
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      bitDepth = data[8];
-      colorType = data[9];
-    } else if (type === "IDAT") {
-      idatChunks.push(data);
-    } else if (type === "IEND") {
-      break;
-    }
-
-    offset = dataEnd + 4;
-  }
-
-  if (bitDepth !== 8) {
-    throw new Error(`unsupported PNG bit depth: ${bitDepth}`);
-  }
-
-  const channelsByColorType = new Map([
-    [0, 1],
-    [2, 3],
-    [4, 2],
-    [6, 4],
-  ]);
-  const channels = channelsByColorType.get(colorType);
-  if (!channels) {
-    throw new Error(`unsupported PNG color type: ${colorType}`);
-  }
-
-  const stride = width * channels;
-  const inflated = inflateSync(Buffer.concat(idatChunks));
-  const pixels = Buffer.alloc(stride * height);
-
-  for (let y = 0; y < height; y += 1) {
-    const sourceOffset = y * (stride + 1);
-    const filter = inflated[sourceOffset];
-    const rowStart = sourceOffset + 1;
-    const outputOffset = y * stride;
-    const prevOutputOffset = outputOffset - stride;
-
-    for (let x = 0; x < stride; x += 1) {
-      const raw = inflated[rowStart + x];
-      const left = x >= channels ? pixels[outputOffset + x - channels] : 0;
-      const up = y > 0 ? pixels[prevOutputOffset + x] : 0;
-      const upLeft =
-        y > 0 && x >= channels ? pixels[prevOutputOffset + x - channels] : 0;
-
-      switch (filter) {
-        case 0:
-          pixels[outputOffset + x] = raw;
-          break;
-        case 1:
-          pixels[outputOffset + x] = (raw + left) & 0xff;
-          break;
-        case 2:
-          pixels[outputOffset + x] = (raw + up) & 0xff;
-          break;
-        case 3:
-          pixels[outputOffset + x] = (raw + Math.floor((left + up) / 2)) & 0xff;
-          break;
-        case 4:
-          pixels[outputOffset + x] =
-            (raw + paethPredictor(left, up, upLeft)) & 0xff;
-          break;
-        default:
-          throw new Error(`unsupported PNG filter: ${filter}`);
-      }
-    }
-  }
-
-  return { width, height, colorType, pixels };
-}
-
-function comparePixels(actualBuffer, expectedBuffer) {
-  const actual = decodePngPixels(actualBuffer);
-  const expected = decodePngPixels(expectedBuffer);
-  return (
-    actual.width === expected.width &&
-    actual.height === expected.height &&
-    actual.colorType === expected.colorType &&
-    Buffer.compare(actual.pixels, expected.pixels) === 0
-  );
 }
 
 function flipErrorMapPath(testCase) {
@@ -256,6 +345,19 @@ function parseSize(size) {
 
 const FLIP_MEAN_THRESHOLD = Number(process.env.FLIP_MEAN_THRESHOLD ?? 0.05);
 const FLIP_MAX_THRESHOLD = Number(process.env.FLIP_MAX_THRESHOLD ?? 0.3);
+
+function assertShotProcessResult(result, label) {
+  if (result.error?.startsWith("terminated by ")) {
+    const signal = result.error.slice("terminated by ".length);
+    throw new Error(`${label} was terminated by ${signal}`);
+  }
+  if (result.error) {
+    throw new Error(result.error);
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(`${label} exited with code ${result.exitCode ?? 1}`);
+  }
+}
 
 async function compareWithFlip(testCase) {
   const reportPath = flipReportPath(testCase);
@@ -288,7 +390,7 @@ async function compareWithFlip(testCase) {
   );
 }
 
-function runShot(testCase) {
+async function runShot(testCase) {
   const shotArgs = [
     path.join(repoRoot, "scripts/run-shot.mjs"),
     "shot",
@@ -301,35 +403,19 @@ function runShot(testCase) {
     "--bg",
     testCase.background,
   ];
+  if (testCase.morphWeights) {
+    shotArgs.push("--morph-weights", testCase.morphWeights.join(","));
+  }
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, shotArgs, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-        YW_LOOK_CARGO_FEATURES:
-          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-      },
-      stdio: "inherit",
-      shell: process.platform === "win32",
-    });
-
-    child.on("exit", (code, signal) => {
-      if (signal) {
-        reject(new Error(`shot CLI was terminated by ${signal}`));
-        return;
-      }
-      if (code !== 0) {
-        reject(new Error(`shot CLI exited with code ${code ?? 1}`));
-        return;
-      }
-      resolve();
-    });
-
-    child.on("error", reject);
+  const result = await runChildProcess(process.execPath, shotArgs, {
+    cwd: repoRoot,
+    env: buildShotEnv([testCase]),
+    shell: process.platform === "win32",
+    forwardStdout: true,
+    forwardStderr: true,
   });
+
+  assertShotProcessResult(result, "shot CLI");
 }
 
 async function runShotBatch(testCases) {
@@ -341,6 +427,7 @@ async function runShotBatch(testCases) {
       width,
       height,
       background: testCase.background,
+      ...(testCase.morphWeights ? { morphWeights: testCase.morphWeights } : {}),
     };
   });
   const batchConfigPath = resolveRepoPath(
@@ -355,34 +442,15 @@ async function runShotBatch(testCases) {
     batchConfigPath,
   ];
 
-  await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, shotArgs, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-        YW_LOOK_CARGO_FEATURES:
-          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-      },
-      stdio: "inherit",
-      shell: process.platform === "win32",
-    });
-
-    child.on("exit", (code, signal) => {
-      if (signal) {
-        reject(new Error(`shot batch was terminated by ${signal}`));
-        return;
-      }
-      if (code !== 0) {
-        reject(new Error(`shot batch exited with code ${code ?? 1}`));
-        return;
-      }
-      resolve();
-    });
-
-    child.on("error", reject);
+  const result = await runChildProcess(process.execPath, shotArgs, {
+    cwd: repoRoot,
+    env: buildShotEnv(testCases),
+    shell: process.platform === "win32",
+    forwardStdout: true,
+    forwardStderr: true,
   });
+
+  assertShotProcessResult(result, "shot batch");
 }
 
 async function compareSnapshot(testCase) {
@@ -425,7 +493,7 @@ async function compareSnapshot(testCase) {
 }
 
 let failed = false;
-for (const testCase of selectedCases) {
+for (const testCase of runnableCases) {
   try {
     await mkdir(path.dirname(resolveRepoPath(testCase.actual)), {
       recursive: true,
@@ -439,12 +507,12 @@ for (const testCase of selectedCases) {
 
 if (!failed) {
   try {
-    if (selectedCases.length === 1) {
-      console.log(`Rendering viewport snapshot: ${selectedCases[0].id}`);
-      await runShot(selectedCases[0]);
+    if (runnableCases.length === 1) {
+      console.log(`Rendering viewport snapshot: ${runnableCases[0].id}`);
+      await runShot(runnableCases[0]);
     } else {
-      console.log(`Rendering ${selectedCases.length} viewport snapshots`);
-      await runShotBatch(selectedCases);
+      console.log(`Rendering ${runnableCases.length} viewport snapshots`);
+      await runShotBatch(runnableCases);
     }
   } catch (error) {
     failed = true;
@@ -452,7 +520,7 @@ if (!failed) {
   }
 }
 
-for (const testCase of selectedCases) {
+for (const testCase of runnableCases) {
   try {
     if (failed) {
       continue;

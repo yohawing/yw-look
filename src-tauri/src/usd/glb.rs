@@ -16,6 +16,22 @@
 //!   - resolving UsdPreviewSurface inputs into `MaterialInput` scalars
 
 use serde_json::{json, Value};
+use std::mem::size_of;
+use std::time::Instant;
+
+fn glb_timing_enabled() -> bool {
+    std::env::var_os("YW_LOOK_USD_TIMING").is_some()
+}
+
+fn log_glb_phase_timing(label: &str, phase_started: &mut Option<Instant>) {
+    if let Some(started) = phase_started.as_mut() {
+        log::debug!(
+            "[usd glb timing] {label}: {}ms",
+            started.elapsed().as_millis()
+        );
+        *started = Instant::now();
+    }
+}
 
 /// PBR material slot referenced from one or more `MeshInput`s. All
 /// fields have GLTF-compatible defaults so callers can omit unauthored
@@ -65,10 +81,10 @@ pub struct MaterialInput {
     /// independently so per-channel transforms (rare but valid) come
     /// through correctly.
     pub normal_texture_transform: Option<TextureTransform>,
-    /// Phase 5e L1: glTF wrap mode for the base color texture sampler.
+    /// Phase 5e L1: glTF wrap mode for the material's texture sampler.
     /// `10497` = REPEAT (default), `33071` = CLAMP_TO_EDGE,
-    /// `33648` = MIRRORED_REPEAT. Only meaningful when
-    /// `base_color_texture` is `Some`.
+    /// `33648` = MIRRORED_REPEAT. Applied to base color and normal map
+    /// textures under the current one-wrap-per-material model.
     pub wrap_s: u32,
     /// Same as `wrap_s` for the T axis.
     pub wrap_t: u32,
@@ -740,6 +756,133 @@ const CHUNK_TYPE_BIN: u32 = 0x004E4942; // "BIN\0"
 const COMPONENT_TYPE_FLOAT: u32 = 5126;
 const COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
 
+fn checked_padded_section_len(element_count: usize, element_size: usize) -> Option<usize> {
+    let byte_len = element_count.checked_mul(element_size)?;
+    let padding = (4 - (byte_len % 4)) % 4;
+    byte_len.checked_add(padding)
+}
+
+fn checked_add_bin_section(
+    total: &mut usize,
+    element_count: usize,
+    element_size: usize,
+) -> Option<()> {
+    *total = total.checked_add(checked_padded_section_len(element_count, element_size)?)?;
+    Some(())
+}
+
+fn mesh_output_node_flags(
+    mesh_count: usize,
+    nodes: &[NodeInput],
+    instancing: &[InstancingInput],
+) -> Vec<bool> {
+    // Weight channels are serialized before the hierarchy-aware node pass.
+    // In that mode mesh_node_indices still contains only usize::MAX sentinels,
+    // so build_glb deliberately skips every weight channel at this point.
+    if !nodes.is_empty() {
+        return vec![false; mesh_count];
+    }
+    let mut flags = vec![true; mesh_count];
+    for input in instancing {
+        if let Some(flag) = flags.get_mut(input.prototype_mesh_idx) {
+            *flag = false;
+        }
+    }
+    flags
+}
+
+/// Estimate the exact padded BIN payload size from the same section-emission
+/// conditions used by `build_glb`. Returning `None` on arithmetic overflow
+/// lets the caller safely fall back to normal Vec growth instead of attempting
+/// an erroneous near-`usize::MAX` reservation.
+fn estimate_bin_capacity(
+    nodes: &[NodeInput],
+    meshes: &[MeshInput],
+    textures: &[TextureInput],
+    skins: &[SkinInput],
+    animations: &[AnimationInput],
+    instancing: &[InstancingInput],
+) -> Option<usize> {
+    let mut total = 0usize;
+    let mesh_output_nodes = mesh_output_node_flags(meshes.len(), nodes, instancing);
+
+    for mesh in meshes {
+        checked_add_bin_section(&mut total, mesh.positions.len(), size_of::<f32>())?;
+        if let Some(normals) = &mesh.normals {
+            checked_add_bin_section(&mut total, normals.len(), size_of::<f32>())?;
+        }
+        if let Some(uvs) = &mesh.uvs {
+            checked_add_bin_section(&mut total, uvs.len(), size_of::<f32>())?;
+        }
+        checked_add_bin_section(&mut total, mesh.indices.len(), size_of::<u32>())?;
+        if let Some(colors) = &mesh.colors {
+            checked_add_bin_section(&mut total, colors.len(), size_of::<f32>())?;
+        }
+        if let (Some(joint_indices), Some(joint_weights)) =
+            (&mesh.joint_indices, &mesh.joint_weights)
+        {
+            checked_add_bin_section(&mut total, joint_indices.len(), size_of::<u16>())?;
+            checked_add_bin_section(&mut total, joint_weights.len(), size_of::<f32>())?;
+        }
+        for target in &mesh.morph_targets {
+            checked_add_bin_section(&mut total, target.position_offsets.len(), size_of::<f32>())?;
+        }
+    }
+
+    for skin in skins {
+        checked_add_bin_section(
+            &mut total,
+            skin.inverse_bind_matrices.len(),
+            size_of::<[f32; 16]>(),
+        )?;
+    }
+
+    for animation in animations {
+        checked_add_bin_section(&mut total, animation.times.len(), size_of::<f32>())?;
+        for samples in animation
+            .translations
+            .iter()
+            .chain(&animation.rotations)
+            .chain(&animation.scales)
+            .flatten()
+        {
+            checked_add_bin_section(&mut total, samples.len(), size_of::<f32>())?;
+        }
+        for channel in &animation.weight_channels {
+            let Some(mesh) = meshes.get(channel.mesh_index) else {
+                continue;
+            };
+            let target_count = mesh.morph_targets.len();
+            let expected_weights = animation.times.len().checked_mul(target_count);
+            if target_count == 0
+                || expected_weights != Some(channel.weights.len())
+                || !mesh_output_nodes
+                    .get(channel.mesh_index)
+                    .copied()
+                    .unwrap_or(false)
+            {
+                continue;
+            }
+            checked_add_bin_section(&mut total, channel.weights.len(), size_of::<f32>())?;
+        }
+    }
+
+    for texture in textures {
+        checked_add_bin_section(&mut total, texture.data.len(), size_of::<u8>())?;
+    }
+
+    for input in instancing {
+        if input.translations.is_empty() {
+            continue;
+        }
+        checked_add_bin_section(&mut total, input.translations.len(), size_of::<[f32; 3]>())?;
+        checked_add_bin_section(&mut total, input.rotations.len(), size_of::<[f32; 4]>())?;
+        checked_add_bin_section(&mut total, input.scales.len(), size_of::<[f32; 3]>())?;
+    }
+
+    Some(total)
+}
+
 /// Build a GLB binary from a list of meshes, materials, textures,
 /// skins, and animations. Returns the GLB byte stream ready to send
 /// via `tauri::ipc::Response`.
@@ -780,6 +923,37 @@ pub fn build_glb(
     up_correction: Option<[f32; 16]>,
     instancing: &[InstancingInput],
 ) -> Result<Vec<u8>, String> {
+    build_glb_with_bin_capacity(
+        nodes,
+        meshes,
+        materials,
+        textures,
+        skins,
+        animations,
+        lights,
+        cameras,
+        up_correction,
+        instancing,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_glb_with_bin_capacity(
+    nodes: &[NodeInput],
+    meshes: &[MeshInput],
+    materials: &[MaterialInput],
+    textures: &[TextureInput],
+    skins: &[SkinInput],
+    animations: &[AnimationInput],
+    lights: &[LightInput],
+    cameras: &[CameraInput],
+    up_correction: Option<[f32; 16]>,
+    instancing: &[InstancingInput],
+    bin_capacity_override: Option<usize>,
+) -> Result<Vec<u8>, String> {
+    let timing_enabled = glb_timing_enabled();
+    let mut phase_started = timing_enabled.then(Instant::now);
     if materials.is_empty() {
         return Err("at least one material is required".to_string());
     }
@@ -888,6 +1062,7 @@ pub fn build_glb(
             ));
         }
     }
+    log_glb_phase_timing("validate", &mut phase_started);
 
     // ---- Layout the binary buffer ---------------------------------------
     //
@@ -895,7 +1070,10 @@ pub fn build_glb(
     // the size of the component. Floats (4 bytes) and u32 indices (4 bytes)
     // both need 4-byte alignment, so we pad each section to 4 bytes.
 
-    let mut bin: Vec<u8> = Vec::new();
+    let bin_capacity = bin_capacity_override.unwrap_or_else(|| {
+        estimate_bin_capacity(nodes, meshes, textures, skins, animations, instancing).unwrap_or(0)
+    });
+    let mut bin: Vec<u8> = Vec::with_capacity(bin_capacity);
     let mut buffer_views: Vec<Value> = Vec::new();
     let mut accessors: Vec<Value> = Vec::new();
     let mut gltf_meshes: Vec<Value> = Vec::new();
@@ -1243,6 +1421,7 @@ pub fn build_glb(
 
         let _ = mesh_idx; // silence unused if compiler complains
     }
+    log_glb_phase_timing("mesh layout", &mut phase_started);
 
     // ---- Phase 5c E: build joint nodes + skin objects -----------------
     //
@@ -1517,6 +1696,9 @@ pub fn build_glb(
             let Some(&node_idx) = mesh_node_indices.get(wc.mesh_index) else {
                 continue;
             };
+            if node_idx == usize::MAX {
+                continue;
+            }
             let target_count = meshes[wc.mesh_index].morph_targets.len();
             if target_count == 0 {
                 continue;
@@ -1562,11 +1744,13 @@ pub fn build_glb(
             }));
         }
 
-        gltf_animations.push(json!({
-            "name": animation.name,
-            "samplers": samplers,
-            "channels": channels,
-        }));
+        if !channels.is_empty() {
+            gltf_animations.push(json!({
+                "name": animation.name,
+                "samplers": samplers,
+                "channels": channels,
+            }));
+        }
     }
 
     // ---- Embed textures into the BIN chunk -----------------------------
@@ -1699,6 +1883,7 @@ pub fn build_glb(
         }
         gltf_materials.push(material);
     }
+    log_glb_phase_timing("aux layout", &mut phase_started);
 
     // ---- #46: hierarchy-aware node tree building pass ---------------
     //
@@ -2191,6 +2376,7 @@ pub fn build_glb(
 
         has_instancing_ext = true;
     }
+    log_glb_phase_timing("scene layout", &mut phase_started);
 
     // ---- Build GLTF JSON document --------------------------------------
     let total_bin_length = bin.len() as u64;
@@ -2242,14 +2428,14 @@ pub fn build_glb(
         // Phase 5e L1: build a sampler per unique (wrapS, wrapT) pair
         // so different materials can use different wrap modes. Most
         // assets share the same mode, so this typically produces just
-        // one sampler entry. Each texture entry references the sampler
-        // whose wrap matches the first material that uses that texture.
+        // one sampler entry. Texture entries referenced by material
+        // channels are patched to the sampler matching that material.
         let mut sampler_dedup: std::collections::HashMap<(u32, u32), usize> =
             std::collections::HashMap::new();
         let mut gltf_samplers: Vec<Value> = Vec::new();
         // Re-map gltf_textures sampler indices per material wrap mode.
         for m in materials.iter() {
-            if let Some(tex_idx) = m.base_color_texture {
+            let mut apply_material_sampler = |tex_idx: usize| {
                 let key = (m.wrap_s, m.wrap_t);
                 if !sampler_dedup.contains_key(&key) {
                     let idx = gltf_samplers.len();
@@ -2266,6 +2452,12 @@ pub fn build_glb(
                 if let Some(tex) = gltf_textures.get_mut(tex_idx) {
                     tex["sampler"] = json!(sampler_idx);
                 }
+            };
+            if let Some(tex_idx) = m.base_color_texture {
+                apply_material_sampler(tex_idx);
+            }
+            if let Some(tex_idx) = m.normal_texture {
+                apply_material_sampler(tex_idx);
             }
         }
         // Fallback: if no material referenced any texture (shouldn't
@@ -2288,11 +2480,13 @@ pub fn build_glb(
     if !gltf_animations.is_empty() {
         document["animations"] = Value::Array(gltf_animations);
     }
+    log_glb_phase_timing("document", &mut phase_started);
 
     let mut json_bytes =
         serde_json::to_vec(&document).map_err(|e| format!("failed to serialize GLTF JSON: {e}"))?;
     pad_chunk(&mut json_bytes, 0x20); // ASCII space for JSON chunk
     pad_chunk(&mut bin, 0x00); // zeros for BIN chunk
+    log_glb_phase_timing("json serialize", &mut phase_started);
 
     // ---- Stitch GLB binary container -----------------------------------
     let json_chunk_len = json_bytes.len() as u32;
@@ -2314,6 +2508,20 @@ pub fn build_glb(
     out.extend_from_slice(&bin);
 
     debug_assert_eq!(out.len() as u32, total_length);
+    log_glb_phase_timing("final concat", &mut phase_started);
+    if timing_enabled {
+        log::debug!(
+            "[usd glb timing] sizes: meshes={}, nodes={}, materials={}, textures={}, bin_len={}, bin_capacity={}, json_len={}, out_len={}",
+            meshes.len(),
+            nodes.len(),
+            materials.len(),
+            textures.len(),
+            bin.len(),
+            bin.capacity(),
+            json_bytes.len(),
+            out.len()
+        );
+    }
     Ok(out)
 }
 
@@ -2507,6 +2715,121 @@ mod tests {
         vec![MaterialInput::default_preview()]
     }
 
+    fn glb_json(glb: &[u8]) -> serde_json::Value {
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_text = std::str::from_utf8(&glb[20..20 + json_chunk_len])
+            .expect("json chunk is utf8")
+            .trim_end_matches(' ');
+        serde_json::from_str(json_text).expect("json chunk parses")
+    }
+
+    fn glb_bin_chunk_len(glb: &[u8]) -> usize {
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let bin_header = 20 + json_chunk_len;
+        u32::from_le_bytes(glb[bin_header..bin_header + 4].try_into().unwrap()) as usize
+    }
+
+    #[test]
+    fn bin_capacity_estimate_covers_all_emitted_sections_exactly() {
+        let mut skinned_mesh = unit_quad_split_into_two_triangles();
+        skinned_mesh.colors = Some(vec![1.0; 16]);
+        skinned_mesh.joint_indices = Some(vec![0; 16]);
+        skinned_mesh.joint_weights = Some(vec![0.25; 16]);
+        skinned_mesh.skin_index = Some(0);
+        skinned_mesh.morph_targets = vec![MorphTarget {
+            name: Some("Smile".to_string()),
+            position_offsets: vec![0.0; skinned_mesh.positions.len()],
+        }];
+        skinned_mesh.morph_weights = vec![0.0];
+
+        let meshes = vec![skinned_mesh, unit_quad_split_into_two_triangles()];
+        let textures = vec![TextureInput {
+            name: "three-byte.png".to_string(),
+            mime_type: "image/png".to_string(),
+            data: vec![1, 2, 3],
+        }];
+        let skins = vec![SkinInput {
+            name: "skin".to_string(),
+            joint_names: vec!["Root".to_string()],
+            parents: vec![None],
+            rest_local_matrices: vec![identity_matrix()],
+            inverse_bind_matrices: vec![identity_matrix()],
+            skel_root_matrix: None,
+        }];
+        let animations = vec![AnimationInput {
+            name: "animation".to_string(),
+            times: vec![0.0, 1.0],
+            skin_index: 0,
+            translations: vec![Some(vec![0.0; 6])],
+            rotations: vec![Some(vec![0.0; 8])],
+            scales: vec![Some(vec![1.0; 6])],
+            weight_channels: vec![MorphWeightChannel {
+                mesh_index: 0,
+                weights: vec![0.0, 1.0],
+            }],
+        }];
+        let instancing = vec![InstancingInput {
+            prototype_mesh_idx: 1,
+            parent_node_idx: None,
+            instancer_prim_path: "/World/Instancer".to_string(),
+            translations: vec![[0.0, 0.0, 0.0]],
+            rotations: vec![[0.0, 0.0, 0.0, 1.0]],
+            scales: vec![[1.0, 1.0, 1.0]],
+        }];
+        let materials = default_materials();
+
+        let estimate =
+            estimate_bin_capacity(&[], &meshes, &textures, &skins, &animations, &instancing)
+                .expect("capacity estimate");
+        let optimized = build_glb(
+            &[],
+            &meshes,
+            &materials,
+            &textures,
+            &skins,
+            &animations,
+            &[],
+            &[],
+            None,
+            &instancing,
+        )
+        .expect("build comprehensive glb");
+        let legacy_growth = build_glb_with_bin_capacity(
+            &[],
+            &meshes,
+            &materials,
+            &textures,
+            &skins,
+            &animations,
+            &[],
+            &[],
+            None,
+            &instancing,
+            Some(0),
+        )
+        .expect("build comprehensive glb without preallocation");
+
+        assert_eq!(estimate, glb_bin_chunk_len(&optimized));
+        assert_eq!(
+            optimized, legacy_growth,
+            "preallocation must not alter GLB bytes"
+        );
+    }
+
+    #[test]
+    fn bin_capacity_estimate_handles_padding_empty_and_overflow() {
+        assert_eq!(checked_padded_section_len(0, 4), Some(0));
+        assert_eq!(checked_padded_section_len(1, 1), Some(4));
+        assert_eq!(checked_padded_section_len(4, 1), Some(4));
+        assert_eq!(checked_padded_section_len(5, 1), Some(8));
+        assert_eq!(checked_padded_section_len(usize::MAX, 2), None);
+
+        let mut total = usize::MAX;
+        assert_eq!(checked_add_bin_section(&mut total, 1, 1), None);
+        assert_eq!(total, usize::MAX);
+        assert_eq!(estimate_bin_capacity(&[], &[], &[], &[], &[], &[]), Some(0));
+    }
+
     #[test]
     fn build_glb_allows_empty_scene() {
         let glb = build_glb(
@@ -2555,10 +2878,7 @@ mod tests {
         assert_eq!(json_chunk_type, CHUNK_TYPE_JSON);
         let json_start = 20;
         let json_end = json_start + json_chunk_len;
-        let json_text = std::str::from_utf8(&glb[json_start..json_end])
-            .expect("json chunk is utf8")
-            .trim_end_matches(' ');
-        let doc: serde_json::Value = serde_json::from_str(json_text).expect("json chunk parses");
+        let doc = glb_json(&glb);
         assert_eq!(doc["asset"]["version"], "2.0");
         assert_eq!(doc["meshes"][0]["primitives"][0]["mode"], 4);
         assert_eq!(doc["accessors"].as_array().unwrap().len(), 4); // pos + normal + uv + idx
@@ -2579,6 +2899,74 @@ mod tests {
         );
         assert_eq!(bin_chunk_type, CHUNK_TYPE_BIN);
         assert!(bin_chunk_len >= 152, "bin chunk too small: {bin_chunk_len}");
+    }
+
+    #[test]
+    fn skips_weight_channels_without_resolved_mesh_node() {
+        let mut mesh = unit_quad_split_into_two_triangles();
+        mesh.morph_targets = vec![MorphTarget {
+            name: Some("Smile".to_string()),
+            position_offsets: vec![0.0; mesh.positions.len()],
+        }];
+        mesh.morph_weights = vec![0.0];
+        let skin = SkinInput {
+            name: "skin".to_string(),
+            joint_names: vec!["Root".to_string()],
+            parents: vec![None],
+            rest_local_matrices: vec![identity_matrix()],
+            inverse_bind_matrices: vec![identity_matrix()],
+            skel_root_matrix: None,
+        };
+        let animation = AnimationInput {
+            name: "weights".to_string(),
+            times: vec![0.0, 1.0],
+            skin_index: 0,
+            translations: vec![None],
+            rotations: vec![None],
+            scales: vec![None],
+            weight_channels: vec![MorphWeightChannel {
+                mesh_index: 0,
+                weights: vec![0.0, 1.0],
+            }],
+        };
+        let nodes = vec![NodeInput {
+            prim_path: "/Root".to_string(),
+            basename: "Root".to_string(),
+            parent: None,
+            local_matrix: identity_matrix(),
+            kind: NodeKind::Group,
+            mesh_payload_idx: None,
+            light_payload_idx: None,
+            camera_payload_idx: None,
+            skin_payload_idx: None,
+        }];
+        let meshes = vec![mesh];
+        let skins = vec![skin];
+        let animations = vec![animation];
+        let estimated = estimate_bin_capacity(&nodes, &meshes, &[], &skins, &animations, &[])
+            .expect("capacity estimate");
+
+        let glb = build_glb(
+            &nodes,
+            &meshes,
+            &default_materials(),
+            &[],
+            &skins,
+            &animations,
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build glb");
+        let doc = glb_json(&glb);
+
+        assert_eq!(estimated, glb_bin_chunk_len(&glb));
+        assert!(
+            doc.get("animations").is_none(),
+            "unresolved mesh-node weight channel must not be emitted: {:?}",
+            doc.get("animations")
+        );
     }
 
     #[test]
@@ -2704,6 +3092,53 @@ mod tests {
         // field rather than writing "OPAQUE" explicitly — a minor
         // size + review-noise win.
         assert!(doc["materials"][0].get("alphaMode").is_none());
+    }
+
+    #[test]
+    fn normal_texture_uses_material_wrap_sampler() {
+        let mesh = unit_quad_split_into_two_triangles();
+        let materials = vec![MaterialInput {
+            name: "normal_only".to_string(),
+            normal_texture: Some(0),
+            wrap_s: 33071,
+            wrap_t: 33648,
+            ..MaterialInput::default_preview()
+        }];
+        let textures = vec![TextureInput {
+            name: "normal.png".to_string(),
+            mime_type: "image/png".to_string(),
+            data: vec![
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+                0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+                0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+                0x99, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x5C, 0xCD, 0xFF,
+                0x69, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+            ],
+        }];
+
+        let glb = build_glb(
+            &[],
+            &[mesh],
+            &materials,
+            &textures,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build glb");
+        let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json_text = std::str::from_utf8(&glb[20..20 + json_chunk_len])
+            .unwrap()
+            .trim_end_matches(' ');
+        let doc: serde_json::Value = serde_json::from_str(json_text).unwrap();
+
+        assert_eq!(doc["materials"][0]["normalTexture"]["index"], 0);
+        assert_eq!(doc["textures"][0]["sampler"], 0);
+        assert_eq!(doc["samplers"][0]["wrapS"], 33071);
+        assert_eq!(doc["samplers"][0]["wrapT"], 33648);
     }
 
     #[test]

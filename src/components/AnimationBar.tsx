@@ -1,4 +1,12 @@
-import type { CSSProperties } from "react";
+import { useState } from "react";
+import {
+  PauseIcon,
+  PlayIcon,
+  TrackNextIcon,
+  TrackPreviousIcon,
+} from "@radix-ui/react-icons";
+import { Button, SelectField, SliderField, Tooltip } from "./ui";
+import "../styles/animation.css";
 
 type AnimationBarProps = {
   clipNames: string[];
@@ -11,6 +19,8 @@ type AnimationBarProps = {
   onSeek: (time: number) => void;
   onStep: (direction: -1 | 1) => void;
 };
+
+const DEFAULT_PLAYBACK_FRAME_RATE = 30;
 
 function formatTime(seconds: number) {
   const safeSeconds = Number.isFinite(seconds) ? Math.max(seconds, 0) : 0;
@@ -34,131 +44,123 @@ export function AnimationBar({
   onSeek,
   onStep,
 }: AnimationBarProps) {
+  const [timeDisplayMode, setTimeDisplayMode] = useState<"frames" | "time">(
+    "frames",
+  );
   const safeDuration = duration > 0 ? duration : 0;
   const safeCurrentTime = Math.min(Math.max(currentTime, 0), safeDuration);
+  const currentFrame = Math.round(
+    safeCurrentTime * DEFAULT_PLAYBACK_FRAME_RATE,
+  );
+  const totalFrames = Math.ceil(safeDuration * DEFAULT_PLAYBACK_FRAME_RATE);
   const activeClipName = clipNames[activeClipIndex] ?? "Animation";
-  const progress =
-    safeDuration > 0 ? (safeCurrentTime / safeDuration) * 100 : 0;
-
   return (
-    <div className="animation-bar" role="group" aria-label="Animation controls">
-      <div className="animation-clip">
+    <div
+      className="animation-bar u-grid u-items-center"
+      role="group"
+      aria-label="Animation controls"
+    >
+      <div className="animation-clip u-min-w-0 u-md-hidden">
         {clipNames.length > 1 ? (
-          <label>
-            <span className="sr-only">Animation clip</span>
-            <select
-              onChange={(event) => onSelectClip(Number(event.target.value))}
-              value={activeClipIndex}
-            >
-              {clipNames.map((clipName, index) => (
-                <option key={`${clipName}-${index}`} value={index}>
-                  {clipName}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SelectField
+            aria-label="Animation clip"
+            onChange={(event) => onSelectClip(Number(event.target.value))}
+            size="sm"
+            value={activeClipIndex}
+          >
+            {clipNames.map((clipName, index) => (
+              <option key={`${clipName}-${index}`} value={index}>
+                {clipName}
+              </option>
+            ))}
+          </SelectField>
         ) : (
-          <span title={activeClipName}>{activeClipName}</span>
+          <Tooltip content={activeClipName} side="top" size="sm">
+            <span>{activeClipName}</span>
+          </Tooltip>
         )}
       </div>
 
-      <div className="animation-primary-controls">
-        <button onClick={() => onStep(-1)} type="button" title="Previous frame">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
+      <div className="animation-primary-controls u-flex u-items-center u-gap-2">
+        <Tooltip content="Previous frame" side="top" size="sm">
+          <Button
+            className="yl-button--unstyled"
+            iconOnly
+            onClick={() => onStep(-1)}
+            size="sm"
+            variant="ghost"
           >
-            <path
-              d="M10 2.5L5 7l5 4.5"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.5"
-            />
-            <path
-              d="M4 3v8"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1.5"
-            />
-          </svg>
-        </button>
-        <button
-          className="animation-play-button"
-          onClick={onTogglePlayback}
-          type="button"
-          title={isPlaying ? "Pause" : "Play"}
-        >
-          {isPlaying ? (
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect x="4" y="3" width="3" height="10" rx="0.5" />
-              <rect x="9" y="3" width="3" height="10" rx="0.5" />
-            </svg>
-          ) : (
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path d="M5 3l8 5-8 5V3Z" />
-            </svg>
-          )}
-        </button>
-        <button onClick={() => onStep(1)} type="button" title="Next frame">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
+            <TrackPreviousIcon aria-hidden="true" />
+          </Button>
+        </Tooltip>
+        <Tooltip content={isPlaying ? "Pause" : "Play"} side="top" size="sm">
+          <Button
+            className="yl-button--unstyled animation-play-button"
+            iconOnly
+            onClick={onTogglePlayback}
+            size="sm"
+            variant="primary"
           >
-            <path
-              d="M4 2.5L9 7l-5 4.5"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.5"
-            />
-            <path
-              d="M10 3v8"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1.5"
-            />
-          </svg>
-        </button>
+            {isPlaying ? (
+              <PauseIcon aria-hidden="true" />
+            ) : (
+              <PlayIcon aria-hidden="true" />
+            )}
+          </Button>
+        </Tooltip>
+        <Tooltip content="Next frame" side="top" size="sm">
+          <Button
+            className="yl-button--unstyled"
+            iconOnly
+            onClick={() => onStep(1)}
+            size="sm"
+            variant="ghost"
+          >
+            <TrackNextIcon aria-hidden="true" />
+          </Button>
+        </Tooltip>
       </div>
 
-      <label
-        className="animation-seek"
-        style={{ "--animation-progress": `${progress}%` } as CSSProperties}
+      <SliderField
+        aria-label="Animation seek"
+        className="animation-seek u-flex u-min-w-0 u-items-center"
+        inputClassName="animation-seek-input"
+        max={safeDuration || 0}
+        min={0}
+        onChange={(event) => onSeek(Number(event.target.value))}
+        step={1 / DEFAULT_PLAYBACK_FRAME_RATE}
+        value={safeCurrentTime}
+      />
+
+      <button
+        aria-label={
+          timeDisplayMode === "frames"
+            ? `Time display: frames at ${DEFAULT_PLAYBACK_FRAME_RATE} fps. Click to show clock time.`
+            : "Time display: clock time. Click to show frames."
+        }
+        className={`animation-time-readout u-grid u-gap-6 u-nowrap u-sm-hidden is-${timeDisplayMode}`}
+        onClick={() =>
+          setTimeDisplayMode((mode) => (mode === "frames" ? "time" : "frames"))
+        }
+        type="button"
       >
-        <span className="sr-only">Animation seek</span>
-        <input
-          max={safeDuration || 0}
-          min={0}
-          onChange={(event) => onSeek(Number(event.target.value))}
-          step={Math.max(safeDuration / 300, 1 / 120)}
-          type="range"
-          value={safeCurrentTime}
-        />
-      </label>
-
-      <div className="animation-time-readout">
-        <span>{formatTime(safeCurrentTime)}</span>
-        <span className="animation-time-total">{formatTime(safeDuration)}</span>
-      </div>
+        {timeDisplayMode === "frames" ? (
+          <>
+            <span>{currentFrame}f</span>
+            <span className="animation-time-total">{totalFrames}f</span>
+            <span className="animation-frame-rate">
+              {DEFAULT_PLAYBACK_FRAME_RATE} fps
+            </span>
+          </>
+        ) : (
+          <>
+            <span>{formatTime(safeCurrentTime)}</span>
+            <span className="animation-time-total">
+              {formatTime(safeDuration)}
+            </span>
+          </>
+        )}
+      </button>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import type { WebGLRenderer } from "three";
+import { errorMessage } from "../lib/errors";
 
 import type {
   CanvasScreenshotOptions,
@@ -20,9 +21,7 @@ function canvasToDataUrl(
     return canvas.toDataURL(mimeType, quality);
   } catch (error) {
     throw new Error(
-      `failed to capture WebGL canvas screenshot: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `failed to capture WebGL canvas screenshot: ${errorMessage(error, "Unknown error")}`,
     );
   }
 }

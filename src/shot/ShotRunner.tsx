@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../lib/errors";
 import {
   finishShotRun,
   loadShotBatchConfig,
@@ -81,16 +82,22 @@ export function ShotRunner() {
           config: lastConfig,
           outcome: lastOutcome,
         });
-        await finishShotRun(failed ? 1 : 0);
+        await finishShotRun(
+          failed ? 1 : 0,
+          failed
+            ? (lastOutcome?.error ?? "One or more shot cases failed.")
+            : null,
+          lastOutcome,
+        );
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error, "Shot run failed.");
         setStatus({
           state: "failed",
           message,
           config: null,
           outcome: null,
         });
-        await finishShotRun(1);
+        await finishShotRun(1, message, null);
       }
     };
 

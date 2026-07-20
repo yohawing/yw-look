@@ -11,31 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Phase 2.J onward: the C++ backend (vcpkg OpenUSD) only
-        # supports windows-x86_64 and macos-aarch64. macos-x86_64
-        # was dropped because vcpkg's `usd` port does not build on
-        # Intel macOS without extra wrangling, and the ARKit assets
-        # yw-look targets run natively on Apple Silicon anyway.
-        # `args` must include the per-OS overlay config so the C++
-        # backend's runtime libraries (staged into
-        # `src-tauri/cpp-artifacts/<triplet>/` by build.rs) get picked
-        # up by the bundler. Without `--config`, tauri build reads
-        # only tauri.conf.json and the installer ships without the
-        # OpenUSD DLLs / dylibs — the app launches but every USD
-        # open fails with a missing-library error on end-user
-        # machines.
-        # Pin macOS to `macos-14` to match `ci-cpp-backend.yml`.
-        # `macos-latest` advanced to macOS 15 + Xcode 16, which ships
-        # a libc++ that gates `<filesystem>` behind an explicit
-        # `MACOSX_DEPLOYMENT_TARGET`; without it, pegtl inside
-        # OpenUSD fails to compile with `'path' is unavailable:
-        # introduced in macOS 10.15 unknown`. We also export
-        # `MACOSX_DEPLOYMENT_TARGET=11.0` as a belt-and-braces
-        # (ignored on Windows).
         include:
           - platform: windows-x86_64
             runner: windows-latest
-            args: --features flip-compare --config src-tauri/tauri.windows.json
+            args: --features flip-compare --config src-tauri/tauri.windows.json --config src-tauri/tauri.windows.loaders.json
           - platform: macos-aarch64
             runner: macos-14
             target: aarch64-apple-darwin
@@ -44,54 +23,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
-    env:
-      # vcpkg's x-gha binary cache so repeat releases don't rebuild
-      # OpenUSD from source. First tag on a fresh vcpkg baseline
-      # populates ~1 GB into the GHA cache; subsequent runs restore
-      # in seconds.
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-      # Anchor macOS builds to a deployment target that allows
-      # `<filesystem>` (introduced in 10.15). vcpkg's `arm64-osx`
-      # triplet does not export this itself; without it, libc++
-      # conservatively marks `std::filesystem::path` as unavailable
-      # and OpenUSD's pegtl file_reader.hpp fails to compile.
-      MACOSX_DEPLOYMENT_TARGET: "11.0"
 
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: true
-
-      # `x-gha` reads these from env; JS steps get them natively but
-      # shell steps do not, so re-export before the bootstrap block.
-      - name: Export GitHub Actions cache env vars
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
-      - name: Bootstrap vcpkg (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          git clone --depth=1 https://github.com/microsoft/vcpkg "$env:USERPROFILE\vcpkg"
-          $baseline = (Get-Content src-tauri/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
-          git -C "$env:USERPROFILE\vcpkg" fetch --depth=1 origin $baseline
-          git -C "$env:USERPROFILE\vcpkg" checkout FETCH_HEAD
-          & "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
-          "VCPKG_ROOT=$env:USERPROFILE\vcpkg" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-
-      - name: Bootstrap vcpkg (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          git clone --depth=1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
-          BASELINE=$(python3 -c "import json,sys; print(json.load(open('src-tauri/vcpkg.json'))['builtin-baseline'])")
-          git -C "$HOME/vcpkg" fetch --depth=1 origin "$BASELINE"
-          git -C "$HOME/vcpkg" checkout FETCH_HEAD
-          "$HOME/vcpkg/bootstrap-vcpkg.sh"
-          echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -111,29 +47,13 @@ jobs:
           shared-key: release-${{ matrix.platform }}
           cache-on-failure: true
 
-      # bindgen needs libclang. Windows runners ship LLVM; macOS
-      # needs `brew install llvm` (runner image only includes
-      # Xcode's bundled clang-format / clang-tidy).
-      - name: Set LIBCLANG_PATH (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-
-      - name: Set LIBCLANG_PATH (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          brew list --formula llvm >/dev/null 2>&1 || brew install llvm
-          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
-
       - name: Install frontend dependencies
         run: npm ci
 
-      # Refuse to publish a tagged macOS release without the Developer
-      # ID + notarization secrets. The base tauri.conf.json intentionally
-      # does not pin `bundle.macOS.signingIdentity`; Tauri infers the
-      # imported certificate identity from APPLE_CERTIFICATE on CI.
+      - name: Verify NSIS loader pack hooks (Windows)
+        if: runner.os == 'Windows'
+        run: npm run check:nsis-loader-packs
+
       - name: Validate macOS signing secrets
         if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
         env:
@@ -147,135 +67,15 @@ jobs:
         run: |
           set -euo pipefail
           missing=()
-          for name in \
-            APPLE_CERTIFICATE \
-            APPLE_CERTIFICATE_PASSWORD \
-            APPLE_SIGNING_IDENTITY \
-            APPLE_ID \
-            APPLE_PASSWORD \
-            APPLE_TEAM_ID; do
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
             fi
           done
-
           if [ "${#missing[@]}" -gt 0 ]; then
             printf '::error::missing required macOS signing secret: %s\n' "${missing[@]}"
             exit 1
           fi
-
-      # Sanity gate: tauri-action runs `tauri build`, which triggers
-      # build.rs, which stages the USD runtime libraries into
-      # `src-tauri/cpp-artifacts/<triplet>/`. The overlay configs
-      # reference that directory so the installer can find the USD
-      # runtime libraries. The post-build verification step below
-      # fails the job if build.rs failed to populate the tree.
-      - name: Prepare cpp-artifacts sentinel
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "${{ matrix.platform }}" in
-            windows-x86_64) triplet=x64-windows ;;
-            macos-aarch64)  triplet=arm64-osx ;;
-            *) echo "unknown platform: ${{ matrix.platform }}"; exit 1 ;;
-          esac
-          echo "CPP_ARTIFACTS_TRIPLET=$triplet" >> "$GITHUB_ENV"
-
-      # macOS-only: tauri-bundler's `bundle.macOS.frameworks` field
-      # does NOT glob — each entry must be a literal `.dylib` path
-      # (see tauri-bundler/src/bundle/macos/app.rs::copy_frameworks_to_bundle).
-      # The list of USD runtime dylibs produced by the vcpkg `usd`
-      # port varies between port revisions (26.03 split the old
-      # monolithic `libusd_ms.dylib` into ~45 `libusd_*.dylib`
-      # fragments), so we refuse to enumerate them by hand. Instead
-      # we run `vcpkg install` ahead of the tauri build, scan the
-      # resulting `lib/` directory for every dylib the shim could
-      # load, and emit a fresh `src-tauri/tauri.macos.json` whose
-      # frameworks array lists those files explicitly — plus
-      # `libusd_c_shim.dylib`, which build.rs will produce during
-      # the subsequent tauri-action invocation.
-      #
-      # Prefer the Git LFS prebuilt payload. vcpkg remains as an
-      # explicit fallback / regeneration path if the manifest does not
-      # contain the requested triplet.
-      - name: Pre-stage USD dylibs + generate tauri.macos.json (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd src-tauri
-
-          if node ../scripts/extract-openusd-prebuilt.mjs \
-            --triplet arm64-osx \
-            --dest vcpkg_installed/arm64-osx; then
-            echo "Using prebuilt OpenUSD payload for arm64-osx"
-          else
-            "$VCPKG_ROOT/vcpkg" install \
-              --x-manifest-root=. \
-              --triplet=arm64-osx \
-              --x-install-root=vcpkg_installed \
-              --overlay-triplets=triplets
-          fi
-
-          # build.rs builds and ad-hoc signs alembic-tools/arm64-osx/abc_to_obj
-          # from the optional Alembic vcpkg package during the later tauri build.
-
-          mkdir -p cpp-artifacts/arm64-osx
-          for pattern in 'libusd_*.dylib' 'libtbb*.dylib' 'libhwloc*.dylib' 'libz.*.dylib'; do
-            for src in vcpkg_installed/arm64-osx/lib/$pattern; do
-              [ -f "$src" ] || continue
-              cp -f "$src" cpp-artifacts/arm64-osx/
-            done
-          done
-
-          # Build the frameworks list: every staged `libusd_*.dylib`
-          # plus the shim dylib (produced later by build.rs's cmake
-          # step). Sort for reproducible diffs.
-          frameworks=$(
-            {
-              for f in cpp-artifacts/arm64-osx/*.dylib; do
-                [ -f "$f" ] || continue
-                basename "$f"
-              done
-              echo "libusd_c_shim.dylib"
-            } | sort -u | while read -r name; do
-              printf '    "cpp-artifacts/arm64-osx/%s",\n' "$name"
-            done | sed '$s/,$//'
-          )
-
-          # Hard guard: refuse to bundle a USD-less installer.
-          count=$(printf '%s\n' "$frameworks" | grep -c '^' || true)
-          if [ "$count" -lt 10 ]; then
-            echo "::error::only $count dylibs discovered under cpp-artifacts/arm64-osx/; vcpkg install likely failed silently"
-            exit 1
-          fi
-          if ! printf '%s' "$frameworks" | grep -q 'libusd_c_shim.dylib'; then
-            echo "::error::generated frameworks list is missing libusd_c_shim.dylib"
-            exit 1
-          fi
-
-          cat > tauri.macos.json <<JSON
-          {
-            "\$schema": "https://schema.tauri.app/config/2",
-            "build": {
-              "beforeBundleCommand": "bash scripts/sign-macos-release-helpers.sh"
-            },
-            "bundle": {
-              "resources": {
-                "alembic-tools/arm64-osx/": "alembic-tools/arm64-osx/",
-                "cpp-artifacts/arm64-osx/usd/": "usd/"
-              },
-              "macOS": {
-                "frameworks": [
-          $frameworks
-                ]
-              }
-            }
-          }
-          JSON
-
-          echo "Generated tauri.macos.json with $count frameworks entries:"
-          cat tauri.macos.json
 
       - name: Import macOS signing certificate for helper signing
         if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
@@ -285,15 +85,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           keychain="$RUNNER_TEMP/yw-look-signing.keychain-db"
           keychain_password="$(openssl rand -base64 32)"
           cert_path="$RUNNER_TEMP/apple-certificate.p12"
-
           if ! printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$cert_path" 2>/dev/null; then
             printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$cert_path"
           fi
-
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
@@ -302,21 +99,30 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain"
 
+      - name: Extract release notes from CHANGELOG
+        id: release_notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          if [[ ! "$tag" =~ ^v[0-9] ]]; then
+            echo "::error::release notes extraction requires a v* tag ref; got: $tag"
+            exit 1
+          fi
+          node scripts/extract-release-notes.mjs --tag "$tag" --check-contract --output release-body.md
+          delimiter="YW_LOOK_RELEASE_BODY_$(date +%s)_${RANDOM}"
+          {
+            echo "body<<$delimiter"
+            cat release-body.md
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Bake the default updater endpoint + pubkey into the release
-          # build. Rust reads these via `option_env!` in lib.rs's
-          # `build_updater` flow (tauri.conf.json's plugins.updater
-          # entries are intentionally unused — the custom flow lets the
-          # endpoint be overridden at runtime via AppSettings).
-          # `releases/latest/download/latest.json` is a GitHub redirect
-          # that always points at the newest non-prerelease's
-          # `latest.json` asset, so we never have to bump this URL on
-          # each tag.
           YW_LOOK_UPDATER_ENDPOINT: https://github.com/yohawing/yw-look/releases/latest/download/latest.json
           YW_LOOK_UPDATER_PUBLIC_KEY: dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCQ0M2RDM1Qzc5RkE4REEKUldUYXFKL0hOVzNNSzNMbmRwUXpPazlRa3NZRzJtTVlKSVFvVHRDK05CellrYXZSRGJlTGR6elYK
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -328,33 +134,41 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: yw-look ${{ github.ref_name }}
-          releaseBody: See the attached installers and updater manifest for this release.
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           tauriScript: npm run tauri
           args: ${{ matrix.args }}
 
-      # Post-build sanity check: the overlay configs wire
-      # `cpp-artifacts/<triplet>/` into the installer, so the bundled
-      # payload is only correct if build.rs actually staged files
-      # there. Fail the job loudly if the directory is empty, rather
-      # than quietly shipping a USD-less installer.
-      - name: Verify USD runtime libs were staged
-        shell: bash
-        run: |
-          set -euo pipefail
-          dir="src-tauri/cpp-artifacts/${CPP_ARTIFACTS_TRIPLET}"
-          if [ ! -d "$dir" ]; then
-            echo "::error::$dir does not exist — build.rs did not stage USD runtime libraries"
-            exit 1
-          fi
-          count=$(find "$dir" -type f | wc -l | tr -d ' ')
-          echo "Staged $count files under $dir"
-          find "$dir" -maxdepth 2 -type f | sort
-          if [ "$count" -eq 0 ]; then
-            echo "::error::$dir is empty — USD runtime libraries would be missing from the installer"
-            exit 1
-          fi
+      - name: Audit macOS codesign status
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: npm run check:macos-codesign
+
+      - name: Upload macOS codesign audit report
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-codesign-report-${{ github.ref_name }}-${{ matrix.platform }}
+          path: |
+            artifacts/logs/macos-codesign-report.json
+            artifacts/logs/macos-codesign-report.md
+          if-no-files-found: ignore
+
+      - name: Audit Windows Authenticode status
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: npm run check:win-authenticode
+
+      - name: Upload Windows Authenticode audit report
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-authenticode-report-${{ github.ref_name }}-${{ matrix.platform }}
+          path: |
+            artifacts/logs/win-authenticode-report.json
+            artifacts/logs/win-authenticode-report.md
+          if-no-files-found: ignore
 
   patch-updater-manifest:
     needs: build
@@ -362,15 +176,8 @@ jobs:
     permissions:
       contents: write
     if: startsWith(github.ref, 'refs/tags/v')
-
     steps:
       - uses: actions/checkout@v4
-
-      # tauri-action emits both MSI and NSIS updater artifacts on Windows.
-      # Its generic `windows-x86_64` entry currently points at MSI, but
-      # yw-look's public Windows download path is the NSIS setup.exe.
-      # Keep installer-specific keys intact while making the default
-      # Windows updater path match what users are most likely running.
       - name: Prefer NSIS for default Windows updater artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -380,21 +187,16 @@ jobs:
           set -euo pipefail
           mkdir manifest
           gh release download "$TAG" --pattern latest.json --dir manifest --clobber
-
           node <<'NODE'
           const fs = require("fs");
           const path = "manifest/latest.json";
           const latest = JSON.parse(fs.readFileSync(path, "utf8"));
           const nsis = latest.platforms?.["windows-x86_64-nsis"];
-          if (!nsis?.url || !nsis?.signature) {
-            throw new Error("latest.json is missing windows-x86_64-nsis updater metadata");
-          }
+          if (!nsis?.url || !nsis?.signature) throw new Error("latest.json is missing windows-x86_64-nsis updater metadata");
           const macos = latest.platforms?.["darwin-aarch64"];
-          if (!macos?.url || !macos?.signature) {
-            throw new Error("latest.json is missing darwin-aarch64 updater metadata");
-          }
+          if (!macos?.url || !macos?.signature) throw new Error("latest.json is missing darwin-aarch64 updater metadata");
           latest.platforms["windows-x86_64"] = { ...nsis };
           fs.writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
           NODE
-
+          node scripts/check-release-updater-manifest.mjs --manifest manifest/latest.json --skip-url-check
           gh release upload "$TAG" manifest/latest.json --clobber

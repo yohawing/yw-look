@@ -35,6 +35,24 @@
       "category": "valid-minimal",
       "path": "tests/fixtures/models/triangle.ply",
       "format": "ply",
+      "assetKind": "mesh",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-ply-tiny-pointcloud",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny-pointcloud.ply",
+      "format": "ply",
+      "assetKind": "pointCloud",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-ply-cactus-supersplat-compressed",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/cactus-supersplat-compressed.ply",
+      "format": "ply",
+      "assetKind": "gaussianSplat",
+      "requiresLoader": "spark",
       "expect": { "shouldLoad": true }
     },
     {
@@ -45,10 +63,61 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "model-fbx-animated-triangle",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/animated-triangle.fbx",
+      "format": "fbx",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "motion-vmd-tiny",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny-motion.vmd",
+      "format": "vmd",
+      "requiresLoader": "mmd",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-pmx-material-morph-two-materials",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/material-morph-two-materials.pmx",
+      "format": "pmx",
+      "requiresLoader": "mmd",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-fbx-samba-dancing",
+      "category": "valid",
+      "path": "samples/assets/fbx/Samba Dancing.fbx",
+      "format": "fbx",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "model-usda-tiny",
       "category": "valid-minimal",
-      "path": "samples/assets/usd/tiny.usda",
+      "path": "tests/fixtures/models/tiny.usda",
       "format": "usda",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-usd-tiny",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny.usd",
+      "format": "usd",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-usdc-tiny",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny.usdc",
+      "format": "usdc",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-usdz-tiny",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/tiny.usdz",
+      "format": "usdz",
       "expect": { "shouldLoad": true }
     },
     {
@@ -63,6 +132,13 @@
       "category": "valid-minimal",
       "path": "tests/fixtures/textures/1x1.jpg",
       "format": "jpg",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-jpeg-1x1",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/textures/1x1.jpeg",
+      "format": "jpeg",
       "expect": { "shouldLoad": true }
     },
     {
@@ -87,12 +163,54 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "texture-hdr-venice-sunset",
+      "category": "valid",
+      "path": "samples/assets/hdr/venice_sunset_1k.hdr",
+      "format": "hdr",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-exr-piz-compressed",
+      "category": "valid",
+      "path": "samples/assets/exr/piz_compressed.exr",
+      "format": "exr",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "error-unsupported-extension",
+      "category": "unsupported-format",
+      "path": "tests/fixtures/broken/model.xyz",
+      "format": "xyz",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "unsupported-format",
+        "reasonContains": ["unsupported", "extension"],
+        "logContains": ["unsupported file extension", "xyz"]
+      }
+    },
+    {
+      "id": "error-unsupported-glb-content",
+      "category": "unsupported-format",
+      "path": "tests/fixtures/broken/png-as-glb.glb",
+      "format": "glb",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "unsupported-format",
+        "reasonContains": ["glb", "parse"],
+        "logContains": ["glb", "parse"]
+      }
+    },
+    {
       "id": "broken-gltf-truncated",
       "category": "malformed",
       "path": "tests/fixtures/broken/truncated.gltf",
       "format": "gltf",
       "expect": { "shouldLoad": false },
-      "knownFailure": "shot/check currently exits successfully for this malformed glTF; keep as regression target."
+      "errorExpect": {
+        "category": "load-failure",
+        "reasonContains": ["parse", "gltf"],
+        "logContains": ["gltf", "parse"]
+      }
     },
     {
       "id": "broken-obj-garbage",
@@ -100,7 +218,126 @@
       "path": "tests/fixtures/broken/garbage.obj",
       "format": "obj",
       "expect": { "shouldLoad": false },
-      "knownFailure": "shot/check currently exits successfully for OBJ files that parse to an empty scene; keep as regression target."
+      "errorExpect": {
+        "category": "load-failure",
+        "reasonContains": ["load", "obj"],
+        "logContains": ["obj"]
+      }
+    },
+    {
+      "id": "error-load-truncated-glb",
+      "category": "malformed",
+      "path": "tests/fixtures/broken/truncated.glb",
+      "format": "glb",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "load-failure",
+        "reasonContains": ["parse", "glb"],
+        "logContains": ["glb", "parse"]
+      }
+    },
+    {
+      "id": "error-load-broken-usda",
+      "category": "malformed",
+      "path": "tests/fixtures/broken/broken.usda",
+      "format": "usda",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "load-failure",
+        "reasonContains": ["usda", "parse"],
+        "logContains": ["usd", "parse"]
+      }
+    },
+    {
+      "id": "error-ref-missing-buffer-gltf",
+      "category": "missing-reference",
+      "path": "tests/fixtures/broken/missing-buffer.gltf",
+      "format": "gltf",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "reference-resolution-failure",
+        "reasonContains": ["missing-buffer.bin", "reference"],
+        "logContains": ["missing-buffer.bin", "missing"]
+      }
+    },
+    {
+      "id": "error-ref-missing-usda",
+      "category": "missing-reference",
+      "path": "tests/fixtures/broken/missing-ref.usda",
+      "format": "usda",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "reference-resolution-failure",
+        "reasonContains": ["does_not_exist.usda", "reference"],
+        "logContains": ["does_not_exist.usda", "unresolved"]
+      }
+    },
+    {
+      "id": "error-ref-missing-payload-usda",
+      "category": "missing-reference",
+      "path": "tests/fixtures/broken/missing-payload.usda",
+      "format": "usda",
+      "expect": { "shouldLoad": false },
+      "errorExpect": {
+        "category": "reference-resolution-failure",
+        "reasonContains": ["missing_payload_layer.usda", "payload"],
+        "logContains": ["missing_payload_layer.usda", "payload"]
+      }
+    },
+    {
+      "id": "error-texture-missing-gltf",
+      "category": "warning",
+      "path": "tests/fixtures/broken/missing-texture.gltf",
+      "format": "gltf",
+      "expect": { "shouldLoad": true, "shouldWarn": true },
+      "errorExpect": {
+        "category": "missing-texture",
+        "reasonContains": ["Missing texture reference", "missing-albedo.png"],
+        "logContains": ["missing texture", "missing-albedo.png"]
+      }
+    },
+    {
+      "id": "error-texture-missing-obj",
+      "category": "warning",
+      "path": "tests/fixtures/broken/missing-texture.obj",
+      "format": "obj",
+      "expect": { "shouldLoad": true, "shouldWarn": true },
+      "errorExpect": {
+        "category": "missing-texture",
+        "reasonContains": ["missing-albedo.png", "texture"],
+        "logContains": ["missing-albedo.png", "texture"]
+      }
+    },
+    {
+      "id": "error-scale-tiny-glb",
+      "category": "warning",
+      "path": "tests/fixtures/broken/scale-tiny.glb",
+      "format": "glb",
+      "expect": { "shouldLoad": true, "shouldWarn": true },
+      "errorExpect": {
+        "category": "scale-warning",
+        "reasonContains": ["Scale normalized", "10000"],
+        "logContains": ["Scale normalized", "10000"]
+      }
+    },
+    {
+      "id": "error-scale-huge-glb",
+      "category": "warning",
+      "path": "tests/fixtures/broken/scale-huge.glb",
+      "format": "glb",
+      "expect": { "shouldLoad": true, "shouldWarn": true },
+      "errorExpect": {
+        "category": "scale-warning",
+        "reasonContains": ["Scale normalized", "0.001"],
+        "logContains": ["Scale normalized", "0.001"]
+      }
+    },
+    {
+      "id": "model-abc-monkey",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/monkey.abc",
+      "format": "abc",
+      "expect": { "shouldLoad": true }
     }
   ]
 }

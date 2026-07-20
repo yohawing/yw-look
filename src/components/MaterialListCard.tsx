@@ -1,28 +1,28 @@
 import { useState } from "react";
-import type { ReactNode } from "react";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
+import { rgbToHex } from "../lib/format";
+import { useFileStore } from "../stores/fileStore";
 import type {
   MaterialEntry,
   MaterialTextureSlot,
   MmdMaterialEntry,
 } from "./assetMetadata";
-import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { SidebarEmpty } from "../lib/sidebarPrimitives";
+import { Badge } from "./ui/Badge";
+import { Disclosure } from "./ui/Disclosure";
+import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
+import { SidebarSplitPanel } from "./ui/SidebarSplitPanel";
+import "../styles/material-list.css";
 
 type MaterialListCardProps = {
-  materials: MaterialEntry[];
+  debugPanelsEnabled?: boolean;
 };
+
+const EMPTY_MATERIALS: MaterialEntry[] = [];
 
 /** Format a 0-1 float as a 0-255 decimal integer string for display. */
 function fmt255(v: number): string {
   return String(Math.round(v * 255));
-}
-
-/** Convert linear-float RGB to a CSS hex string (#rrggbb). */
-function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (v: number) =>
-    Math.round(Math.min(1, Math.max(0, v)) * 255)
-      .toString(16)
-      .padStart(2, "0");
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 function fmtFloat(v: number): string {
@@ -61,116 +61,132 @@ function TextureSlotRow({
   );
 }
 
-function MmdValueRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <tr className="mat-slot-row">
-      <td className="mat-slot-label">{label}</td>
-      <td className="mat-slot-value">{children}</td>
-    </tr>
-  );
-}
-
-function MmdColorRow({
-  label,
+function MmdColorValue({
   value,
 }: {
-  label: string;
   value: [number, number, number] | [number, number, number, number] | null;
 }) {
-  if (!value) return null;
+  if (!value) return "none";
+  const color = rgbToHex(value[0], value[1], value[2]);
   return (
-    <MmdValueRow label={label}>
-      <span
-        className="mat-inline-swatch"
-        style={{ background: rgbToHex(value[0], value[1], value[2]) }}
-      />
-      <span className="mat-slot-hex">
-        {rgbToHex(value[0], value[1], value[2])}
-      </span>
-      <span className="mat-slot-alpha"> ({fmtVec(value)})</span>
-    </MmdValueRow>
+    <span className="material-detail-value material-detail-color">
+      <span className="mat-inline-swatch" style={{ background: color }} />
+      <span>{color}</span>
+      <span>({fmtVec(value)})</span>
+    </span>
   );
 }
 
 function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
   if (!mmd) return null;
+  const flags = fmtFlags(mmd.flags);
+  const rows: KeyValueRow[] = [
+    mmd.materialIndex !== null && {
+      id: "index",
+      label: "Index",
+      value: mmd.materialIndex,
+      mono: true,
+    },
+    mmd.englishName &&
+      mmd.englishName !== mmd.name && {
+        id: "english",
+        label: "English",
+        value: mmd.englishName,
+      },
+    mmd.diffuse && {
+      id: "diffuse",
+      label: "Diffuse",
+      value: <MmdColorValue value={mmd.diffuse} />,
+      mono: true,
+    },
+    mmd.specular && {
+      id: "specular",
+      label: "Specular",
+      value: <MmdColorValue value={mmd.specular} />,
+      mono: true,
+    },
+    mmd.specularPower !== null && {
+      id: "specular-power",
+      label: "Spec Power",
+      value: fmtFloat(mmd.specularPower),
+      mono: true,
+    },
+    mmd.ambient && {
+      id: "ambient",
+      label: "Ambient",
+      value: <MmdColorValue value={mmd.ambient} />,
+      mono: true,
+    },
+    mmd.edgeColor && {
+      id: "edge",
+      label: "Edge",
+      value: <MmdColorValue value={mmd.edgeColor} />,
+      mono: true,
+    },
+    mmd.edgeSize !== null && {
+      id: "edge-size",
+      label: "Edge Size",
+      value: fmtFloat(mmd.edgeSize),
+      mono: true,
+    },
+    {
+      id: "texture",
+      label: "Texture",
+      value: fmtTexturePath(mmd.texturePath),
+      mono: true,
+    },
+    {
+      id: "sphere",
+      label: "Sphere",
+      value: `${fmtTexturePath(mmd.sphereTexturePath)}${mmd.sphereMode ? ` (${mmd.sphereMode})` : ""}`,
+      mono: true,
+    },
+    {
+      id: "toon",
+      label: "Toon",
+      value: `${fmtTexturePath(mmd.toonTexturePath)}${mmd.sharedToonIndex !== null ? ` shared:${mmd.sharedToonIndex}` : ""}`,
+      mono: true,
+    },
+    mmd.transparencyMode && {
+      id: "transparency",
+      label: "Transparency",
+      value: <Badge size="sm">{mmd.transparencyMode}</Badge>,
+    },
+    mmd.renderOrderBucket && {
+      id: "render-order",
+      label: "Render Order",
+      value: mmd.renderOrderBucket,
+      mono: true,
+    },
+    mmd.faceCount !== null && {
+      id: "faces",
+      label: "Faces",
+      value: mmd.faceCount,
+      mono: true,
+    },
+    {
+      id: "flags",
+      label: "Flags",
+      value: <span title={flags}>{flags}</span>,
+      mono: true,
+    },
+    mmd.unsupportedDrawFlags.length > 0 && {
+      id: "unsupported",
+      label: "Unsupported",
+      value: mmd.unsupportedDrawFlags.join(", "),
+      tone: "warn",
+      mono: true,
+    },
+  ].filter(Boolean) as KeyValueRow[];
+
   return (
-    <details className="material-bindings material-shader-details" open>
-      <summary className="material-detail">MMD material</summary>
-      <table className="mat-slot-table">
-        <tbody>
-          {mmd.materialIndex !== null && (
-            <MmdValueRow label="Index">{mmd.materialIndex}</MmdValueRow>
-          )}
-          {mmd.englishName && mmd.englishName !== mmd.name && (
-            <MmdValueRow label="English">{mmd.englishName}</MmdValueRow>
-          )}
-          <MmdColorRow label="Diffuse" value={mmd.diffuse} />
-          <MmdColorRow label="Specular" value={mmd.specular} />
-          {mmd.specularPower !== null && (
-            <MmdValueRow label="Spec Power">
-              {fmtFloat(mmd.specularPower)}
-            </MmdValueRow>
-          )}
-          <MmdColorRow label="Ambient" value={mmd.ambient} />
-          <MmdColorRow label="Edge" value={mmd.edgeColor} />
-          {mmd.edgeSize !== null && (
-            <MmdValueRow label="Edge Size">
-              {fmtFloat(mmd.edgeSize)}
-            </MmdValueRow>
-          )}
-          <MmdValueRow label="Texture">
-            <span className="mat-slot-texture">
-              {fmtTexturePath(mmd.texturePath)}
-            </span>
-          </MmdValueRow>
-          <MmdValueRow label="Sphere">
-            <span className="mat-slot-texture">
-              {fmtTexturePath(mmd.sphereTexturePath)}
-            </span>
-            {mmd.sphereMode && (
-              <span className="mat-slot-alpha"> ({mmd.sphereMode})</span>
-            )}
-          </MmdValueRow>
-          <MmdValueRow label="Toon">
-            <span className="mat-slot-texture">
-              {fmtTexturePath(mmd.toonTexturePath)}
-            </span>
-            {mmd.sharedToonIndex !== null && (
-              <span className="mat-slot-alpha">
-                {" "}
-                shared:{mmd.sharedToonIndex}
-              </span>
-            )}
-          </MmdValueRow>
-          {mmd.transparencyMode && (
-            <MmdValueRow label="Transparency">
-              <span className="sidebar-chip">{mmd.transparencyMode}</span>
-            </MmdValueRow>
-          )}
-          {mmd.renderOrderBucket && (
-            <MmdValueRow label="Render Order">
-              {mmd.renderOrderBucket}
-            </MmdValueRow>
-          )}
-          {mmd.faceCount !== null && (
-            <MmdValueRow label="Faces">{mmd.faceCount}</MmdValueRow>
-          )}
-          <MmdValueRow label="Flags">{fmtFlags(mmd.flags)}</MmdValueRow>
-          {mmd.unsupportedDrawFlags.length > 0 && (
-            <MmdValueRow label="Unsupported">
-              {mmd.unsupportedDrawFlags.join(", ")}
-            </MmdValueRow>
-          )}
-        </tbody>
-      </table>
-    </details>
+    <Disclosure variant="inline" title="MMD material" defaultOpen>
+      <KeyValueRows
+        className="mmd-material-details"
+        density="regular"
+        rows={rows}
+      />
+    </Disclosure>
   );
 }
 
@@ -189,8 +205,7 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
   if (!hasAnyDetail) return null;
 
   return (
-    <details className="material-bindings material-shader-details">
-      <summary className="material-detail">shader inputs</summary>
+    <Disclosure variant="inline" title="shader inputs" defaultOpen={false}>
       <table className="mat-slot-table">
         <tbody>
           {mat.baseColorFactor !== null && (
@@ -277,7 +292,7 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
             <tr className="mat-slot-row">
               <td className="mat-slot-label">Alpha</td>
               <td className="mat-slot-value">
-                <span className="sidebar-chip">{mat.alphaMode}</span>
+                <Badge size="sm">{mat.alphaMode}</Badge>
               </td>
             </tr>
           )}
@@ -291,7 +306,7 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
           )}
         </tbody>
       </table>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -310,7 +325,7 @@ function MaterialBaseColor({ mat }: { mat: MaterialEntry }) {
       {color ? (
         <>
           <span className="mat-inline-swatch" style={{ background: color }} />
-          {color.toUpperCase()}
+          {color}
         </>
       ) : (
         "unknown"
@@ -320,54 +335,67 @@ function MaterialBaseColor({ mat }: { mat: MaterialEntry }) {
 }
 
 function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
+  const rows: KeyValueRow[] = [
+    { id: "shader", label: "Shader", value: mat.type },
+    {
+      id: "base-color",
+      label: "Base color",
+      value: <MaterialBaseColor mat={mat} />,
+    },
+    mat.metallicFactor !== null && {
+      id: "metallic",
+      label: "Metallic",
+      value: mat.metallicFactor.toFixed(2),
+      mono: true,
+    },
+    mat.roughnessFactor !== null && {
+      id: "roughness",
+      label: "Roughness",
+      value: mat.roughnessFactor.toFixed(2),
+      mono: true,
+    },
+    {
+      id: "alpha-mode",
+      label: "Alpha mode",
+      value: mat.alphaMode,
+      tone: mat.alphaMode === "OPAQUE" ? "muted" : "default",
+      mono: true,
+    },
+    {
+      id: "opacity",
+      label: "Opacity",
+      value: mat.opacity.toFixed(2),
+      mono: true,
+    },
+    {
+      id: "textures",
+      label: "Textures",
+      value: mat.textureCount,
+      mono: true,
+    },
+    {
+      id: "bindings",
+      label: "Bindings",
+      value: mat.boundMeshes.length,
+      mono: true,
+    },
+  ].filter(Boolean) as KeyValueRow[];
+
   return (
     <section className="material-selected-panel" aria-label="Selected material">
       <p className="material-selected-title">Selected material</p>
-      <dl className="material-detail-grid">
-        <div className="material-detail-row">
-          <dt>Shader</dt>
-          <dd>{mat.type}</dd>
-        </div>
-        <div className="material-detail-row">
-          <dt>Base color</dt>
-          <dd>
-            <MaterialBaseColor mat={mat} />
-          </dd>
-        </div>
-        {mat.metallicFactor !== null && (
-          <div className="material-detail-row">
-            <dt>Metallic</dt>
-            <dd>{mat.metallicFactor.toFixed(2)}</dd>
-          </div>
-        )}
-        {mat.roughnessFactor !== null && (
-          <div className="material-detail-row">
-            <dt>Roughness</dt>
-            <dd>{mat.roughnessFactor.toFixed(2)}</dd>
-          </div>
-        )}
-        <div className="material-detail-row">
-          <dt>Alpha mode</dt>
-          <dd className={mat.alphaMode === "OPAQUE" ? "muted-value" : ""}>
-            {mat.alphaMode}
-          </dd>
-        </div>
-        <div className="material-detail-row">
-          <dt>Opacity</dt>
-          <dd>{mat.opacity.toFixed(2)}</dd>
-        </div>
-        <div className="material-detail-row">
-          <dt>Textures</dt>
-          <dd>{mat.textureCount}</dd>
-        </div>
-        <div className="material-detail-row">
-          <dt>Bindings</dt>
-          <dd>{mat.boundMeshes.length}</dd>
-        </div>
-      </dl>
+      <KeyValueRows
+        className="material-detail-grid"
+        density="regular"
+        rows={rows}
+      />
       {mat.boundMeshes.length > 0 && (
-        <details className="material-bindings">
-          <summary className="material-detail">bound meshes</summary>
+        <Disclosure
+          variant="inline"
+          title="bound meshes"
+          count={mat.boundMeshes.length}
+          defaultOpen={false}
+        >
           <ul className="material-bindings-list">
             {mat.boundMeshes.map((meshName, index) => (
               <li key={`${meshName}:${index}`} className="material-binding">
@@ -375,7 +403,7 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
               </li>
             ))}
           </ul>
-        </details>
+        </Disclosure>
       )}
       <MmdMaterialDetails mmd={mat.mmd} />
       <ShaderDetails mat={mat} />
@@ -383,50 +411,85 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
   );
 }
 
-export function MaterialListCard({ materials }: MaterialListCardProps) {
+export function MaterialListCard({
+  debugPanelsEnabled = false,
+}: MaterialListCardProps) {
+  const storeMaterials = useFileStore(
+    (state) => state.assetMetadata?.materials,
+  );
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
+  const materials = useDebugFixtures
+    ? debugFixtures.debugPanelMetadata.materials
+    : (storeMaterials ?? EMPTY_MATERIALS);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const activeIndex =
     materials.length > 0 ? Math.min(selectedIndex, materials.length - 1) : -1;
   const selectedMaterial = activeIndex >= 0 ? materials[activeIndex] : null;
 
+  const materialList =
+    materials.length > 0 ? (
+      <ul className="material-list">
+        {materials.map((mat, index) => (
+          <li key={mat.id} className="material-item">
+            <button
+              className={`material-row${index === activeIndex ? " is-selected" : ""}`}
+              onClick={() => setSelectedIndex(index)}
+              type="button"
+            >
+              <span
+                className={`material-swatch${mat.color ? "" : " material-swatch-none"}`}
+                style={mat.color ? { background: mat.color } : undefined}
+              />
+              <span className="material-info">
+                <span className="material-name">{mat.name}</span>
+                <span className="material-meta">
+                  {mat.type} · {mat.textureCount} tex
+                  {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
+                  {mat.boundMeshes.length > 0
+                    ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
+                    : ""}
+                </span>
+              </span>
+              <Badge className="material-count-badge" mono size="sm">
+                {mat.textureCount}
+              </Badge>
+            </button>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <SidebarEmpty>No materials found.</SidebarEmpty>
+    );
+
   return (
-    <SidebarSection title="Materials" count={materials.length}>
-      {materials.length > 0 ? (
-        <>
-          <ul className="material-list">
-            {materials.map((mat, index) => (
-              <li key={mat.id} className="material-item">
-                <button
-                  className={`material-row${index === activeIndex ? " is-selected" : ""}`}
-                  onClick={() => setSelectedIndex(index)}
-                  type="button"
-                >
-                  <span
-                    className={`material-swatch${mat.color ? "" : " material-swatch-none"}`}
-                    style={mat.color ? { background: mat.color } : undefined}
-                  />
-                  <span className="material-info">
-                    <span className="material-name">{mat.name}</span>
-                    <span className="material-meta">
-                      {mat.type} · {mat.textureCount} tex
-                      {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
-                      {mat.boundMeshes.length > 0
-                        ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
-                        : ""}
-                    </span>
-                  </span>
-                  <span className="material-count-pill">
-                    {mat.textureCount}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {selectedMaterial && <MaterialDetailPanel mat={selectedMaterial} />}
-        </>
-      ) : (
-        <SidebarEmpty>No materials found.</SidebarEmpty>
-      )}
-    </SidebarSection>
+    <SidebarSplitPanel
+      className="material-split-panel"
+      handleClassName="material-resize-handle"
+      primary={{
+        bodyClassName: "material-list-scroll",
+        children: materialList,
+        className: "material-list-pane",
+        count: materials.length,
+        defaultSize: 58,
+        id: "material-list",
+        minSize: 24,
+        title: "Materials",
+      }}
+      resizeLabel="Resize material details"
+      secondary={{
+        bodyClassName: "material-detail-scroll",
+        children: selectedMaterial ? (
+          <MaterialDetailPanel mat={selectedMaterial} />
+        ) : (
+          <SidebarEmpty>Select a material to inspect it.</SidebarEmpty>
+        ),
+        className: "material-detail-pane",
+        defaultSize: 42,
+        id: "material-detail",
+        minSize: 22,
+        title: "Selected",
+      }}
+    />
   );
 }

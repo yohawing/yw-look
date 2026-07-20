@@ -1,55 +1,72 @@
+import { PREFETCH_CACHE_LIMITS } from "../config/viewerLimits";
 import { readBinaryFile, type SelectedFile } from "../lib/files";
 
 type CacheEntry = {
-  path: string;
   data: ArrayBuffer;
-  fetchedAt: number;
 };
-
-const MAX_ENTRIES = 3;
-const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB limit per file
 
 const cache = new Map<string, CacheEntry>();
 const pending = new Map<string, Promise<ArrayBuffer | null>>();
+let totalCachedBytes = 0;
+
+function touchEntry(path: string, entry: CacheEntry) {
+  cache.delete(path);
+  cache.set(path, entry);
+}
+
+function evictLeastRecentlyUsed() {
+  const oldestKey = cache.keys().next().value;
+  if (!oldestKey) {
+    return;
+  }
+
+  const oldest = cache.get(oldestKey);
+  if (!oldest) {
+    return;
+  }
+
+  totalCachedBytes -= oldest.data.byteLength;
+  cache.delete(oldestKey);
+}
+
+function evictUntilWithinLimits(incomingBytes = 0) {
+  while (
+    cache.size >= PREFETCH_CACHE_LIMITS.maxEntries ||
+    totalCachedBytes + incomingBytes > PREFETCH_CACHE_LIMITS.maxTotalBytes
+  ) {
+    if (cache.size === 0) {
+      break;
+    }
+    evictLeastRecentlyUsed();
+  }
+}
 
 export function getCachedBuffer(path: string): ArrayBuffer | null {
   const entry = cache.get(path);
-  return entry?.data ?? null;
+  if (!entry) {
+    return null;
+  }
+
+  touchEntry(path, entry);
+  return entry.data;
 }
 
 export function evictAll() {
   cache.clear();
   pending.clear();
-}
-
-function evictOldest() {
-  if (cache.size < MAX_ENTRIES) {
-    return;
-  }
-
-  let oldestKey: string | null = null;
-  let oldestTime = Infinity;
-
-  for (const [key, entry] of cache) {
-    if (entry.fetchedAt < oldestTime) {
-      oldestTime = entry.fetchedAt;
-      oldestKey = key;
-    }
-  }
-
-  if (oldestKey) {
-    cache.delete(oldestKey);
-  }
+  totalCachedBytes = 0;
 }
 
 async function fetchAndCache(path: string): Promise<ArrayBuffer | null> {
   try {
     const buffer = await readBinaryFile(path);
-    if (buffer.byteLength > MAX_FILE_SIZE_BYTES) {
+    if (buffer.byteLength > PREFETCH_CACHE_LIMITS.maxFileSizeBytes) {
       return null;
     }
-    evictOldest();
-    cache.set(path, { path, data: buffer, fetchedAt: Date.now() });
+
+    evictUntilWithinLimits(buffer.byteLength);
+    cache.set(path, { data: buffer });
+    totalCachedBytes += buffer.byteLength;
     return buffer;
   } catch {
     return null;

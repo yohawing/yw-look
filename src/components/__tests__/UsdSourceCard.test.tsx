@@ -12,7 +12,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { UsdSourceCard } from "../UsdSourceCard";
+import { flattenStage, loadUsdSource } from "../../lib/usd";
 import type { SelectedFile } from "../../lib/files";
+import { useFileStore } from "../../stores/fileStore";
 
 vi.mock("../../lib/usd", () => ({
   // The card consumes `loadUsdSource` only — the rest of `lib/usd`
@@ -21,6 +23,7 @@ vi.mock("../../lib/usd", () => ({
     kind: "text" as const,
     source: 'string greeting = "class def" # comment',
   })),
+  flattenStage: vi.fn(),
 }));
 
 function makeFile(extension: string): SelectedFile {
@@ -33,32 +36,55 @@ function makeFile(extension: string): SelectedFile {
   };
 }
 
+function renderWithCurrentFile(currentFile: SelectedFile | null) {
+  useFileStore.setState({
+    currentFile,
+    directoryListing: null,
+    assetInspection: null,
+    assetMetadata: null,
+    packFileRequest: null,
+    openError: null,
+  });
+  return render(<UsdSourceCard />);
+}
+
 describe("UsdSourceCard", () => {
   afterEach(() => {
     cleanup();
+    useFileStore.setState({
+      currentFile: null,
+      directoryListing: null,
+      assetInspection: null,
+      assetMetadata: null,
+      packFileRequest: null,
+      openError: null,
+    });
+    vi.mocked(loadUsdSource).mockReset();
+    vi.mocked(loadUsdSource).mockResolvedValue({
+      kind: "text",
+      source: 'string greeting = "class def" # comment',
+    });
+    vi.mocked(flattenStage).mockReset();
+    vi.restoreAllMocks();
   });
 
   it("renders nothing when no file is open", () => {
-    const { container } = render(<UsdSourceCard currentFile={null} />);
+    const { container } = renderWithCurrentFile(null);
     expect(container.firstChild).toBeNull();
   });
 
   it("renders nothing for non-USD assets", () => {
-    const { container } = render(
-      <UsdSourceCard currentFile={makeFile("glb")} />,
-    );
+    const { container } = renderWithCurrentFile(makeFile("glb"));
     expect(container.firstChild).toBeNull();
   });
 
   it.each(["usda", "usd", "usdc", "usdz"] as const)(
     "exposes a Show button for .%s",
     (ext) => {
-      const { container, getByRole } = render(
-        <UsdSourceCard currentFile={makeFile(ext)} />,
-      );
-      expect(container.querySelector(".card-title")?.textContent).toBe(
-        "USD Source",
-      );
+      const { container, getByRole } = renderWithCurrentFile(makeFile(ext));
+      expect(
+        container.querySelector(".yl-disclosure__title")?.textContent,
+      ).toBe("Advanced: USD Source");
       expect(getByRole("button").textContent).toBe("Show");
     },
   );
@@ -70,9 +96,7 @@ describe("UsdSourceCard", () => {
     // because `class` would be re-wrapped as a keyword. With a
     // single-pass tokenizer the literal `class def` inside the quoted
     // string must stay verbatim, with no nested span attributes.
-    const { container, getByRole } = render(
-      <UsdSourceCard currentFile={makeFile("usda")} />,
-    );
+    const { container, getByRole } = renderWithCurrentFile(makeFile("usda"));
     await act(async () => {
       getByRole("button").click();
     });
@@ -89,5 +113,24 @@ describe("UsdSourceCard", () => {
     // each branch correctly.
     expect(html).toContain('<span class="usd-type">string</span>');
     expect(html).toContain('<span class="usd-comment"># comment</span>');
+  });
+
+  it("warns in user-facing language before rendering large composed source", async () => {
+    vi.mocked(loadUsdSource).mockResolvedValueOnce({ kind: "binary" });
+    vi.mocked(flattenStage).mockResolvedValueOnce("x".repeat(1_000_001));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { getByRole } = renderWithCurrentFile(makeFile("usdc"));
+
+    await act(async () => {
+      getByRole("button", { name: "Show" }).click();
+    });
+    await act(async () => {
+      getByRole("button", { name: "Show flattened" }).click();
+    });
+
+    expect(confirm).toHaveBeenCalledWith(
+      "The composed USD view is large (1.0 MB) and may take a moment to render. Continue?",
+    );
   });
 });

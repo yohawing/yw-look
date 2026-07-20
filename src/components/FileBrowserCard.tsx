@@ -1,28 +1,45 @@
-import type { DirectoryListing, SelectedFile } from "../lib/files";
-import { SidebarEmpty, SidebarSection } from "./sidebarPrimitives";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
+import { formatFileKindLabel } from "../lib/fileKindLabel";
+import { useFileStore } from "../stores/fileStore";
+import { FileItemList, type FileItemListEntry } from "./FileItemList";
+import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 
 type FileBrowserCardProps = {
-  currentFile: SelectedFile | null;
-  directoryListing: DirectoryListing | null;
   onOpenPath: (path: string) => void;
+  debugPanelsEnabled?: boolean;
 };
 
-function formatKind(file: SelectedFile) {
-  if (file.extension) {
-    return file.extension.toUpperCase();
-  }
-
-  return file.kind === "model" ? "3D" : file.kind.toUpperCase();
-}
-
 export function FileBrowserCard({
-  currentFile,
-  directoryListing,
   onOpenPath,
+  debugPanelsEnabled = false,
 }: FileBrowserCardProps) {
+  const storeCurrentFile = useFileStore((state) => state.currentFile);
+  const storeDirectoryListing = useFileStore((state) => state.directoryListing);
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
+  const currentFile = useDebugFixtures
+    ? debugFixtures.debugPanelFile
+    : storeCurrentFile;
+  const directoryListing = useDebugFixtures
+    ? debugFixtures.debugPanelDirectoryListing
+    : storeDirectoryListing;
   const files = directoryListing?.files ?? [];
   const currentPath = currentFile?.path ?? null;
   const currentDirectory = currentFile?.parentDirectory ?? null;
+  const fileItems: FileItemListEntry[] = files.map((file, index) => {
+    const isCurrent =
+      currentPath !== null &&
+      file.path.toLocaleLowerCase() === currentPath.toLocaleLowerCase();
+
+    return {
+      id: `${file.path}-${index}`,
+      name: file.fileName,
+      leading: formatFileKindLabel(file.kind),
+      tooltip: file.path,
+      selected: isCurrent,
+      onSelect: () => onOpenPath(file.path),
+    };
+  });
 
   return (
     <SidebarSection
@@ -39,25 +56,7 @@ export function FileBrowserCard({
         <SidebarEmpty>No folder selected.</SidebarEmpty>
       )}
       {files.length > 0 ? (
-        <ul className="file-browser-list">
-          {files.map((file, index) => {
-            const isCurrent =
-              currentPath !== null &&
-              file.path.toLocaleLowerCase() === currentPath.toLocaleLowerCase();
-            return (
-              <li key={`${file.path}-${index}`}>
-                <button
-                  className={`file-browser-entry${isCurrent ? " is-current" : ""}`}
-                  onClick={() => onOpenPath(file.path)}
-                  type="button"
-                >
-                  <span className="file-browser-name">{file.fileName}</span>
-                  <span className="file-browser-meta">{formatKind(file)}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <FileItemList items={fileItems} />
       ) : currentDirectory ? (
         <SidebarEmpty>No supported siblings found.</SidebarEmpty>
       ) : null}

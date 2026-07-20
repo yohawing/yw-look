@@ -6,6 +6,9 @@ import {
   Color,
   Euler,
   Group,
+  InterpolateDiscrete,
+  InterpolateLinear,
+  InterpolateSmooth,
   Light,
   Material,
   MathUtils,
@@ -16,6 +19,7 @@ import {
   Object3D,
   OrthographicCamera,
   PerspectiveCamera,
+  PropertyBinding,
   SkinnedMesh,
   Texture,
 } from "three";
@@ -32,12 +36,24 @@ import type {
   MmdBoneEntry,
   MmdMaterialEntry,
   MmdMorphEntry,
-} from "../components/assetMetadata";
+} from "../types/viewer";
+import { isInternalMmdProxyObject } from "../packs";
 import type { TextureSlotKey, TexturedMaterial } from "./types";
-import { isViewportHelperObject, getMaterials } from "./scene";
-import { isInternalMmdProxyObject } from "./mmd/userData";
+import {
+  isViewportHelperObject,
+  getMaterials,
+  type SceneTraversalSnapshot,
+} from "./scene";
+import {
+  explicitObjectSelectionKey,
+  resolveObjectSelectionKey,
+} from "./selectionKeys";
 
-import type { MetadataCollection } from "../types/viewer";
+import type {
+  AnimationClipMetadata,
+  AnimationTrackMetadata,
+  MetadataCollection,
+} from "../types/viewer";
 
 export type { MetadataCollection } from "../types/viewer";
 
@@ -51,6 +67,145 @@ function getObjectKind(object: Object3D) {
   }
 
   return object.type.toLowerCase();
+}
+
+function fallbackTrackNameParts(name: string): {
+  target: string;
+  propertyPath: string;
+} {
+  const dotIndex = name.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex >= name.length - 1) {
+    return {
+      target: name || "(unknown target)",
+      propertyPath: "(unknown property)",
+    };
+  }
+
+  return {
+    target: name.slice(0, dotIndex) || "(unknown target)",
+    propertyPath: name.slice(dotIndex + 1) || "(unknown property)",
+  };
+}
+
+function parseAnimationTrackName(name: string): {
+  target: string;
+  propertyPath: string;
+} {
+  try {
+    const parsed = PropertyBinding.parseTrackName(name);
+    const objectSegment = parsed.objectName
+      ? `${parsed.objectName}${parsed.objectIndex ? `[${parsed.objectIndex}]` : ""}`
+      : "";
+    const propertySegment = parsed.propertyName
+      ? `${parsed.propertyName}${parsed.propertyIndex ? `[${parsed.propertyIndex}]` : ""}`
+      : "";
+    const propertyPath = [objectSegment, propertySegment]
+      .filter(Boolean)
+      .join(".");
+    const target =
+      parsed.objectName === "bones" && parsed.objectIndex
+        ? parsed.objectIndex
+        : parsed.nodeName || "(root)";
+
+    return {
+      target,
+      propertyPath: propertyPath || "(unknown property)",
+    };
+  } catch {
+    return fallbackTrackNameParts(name);
+  }
+}
+
+function interpolationLabel(
+  interpolation: number,
+): AnimationTrackMetadata["interpolation"] {
+  switch (interpolation) {
+    case InterpolateLinear:
+      return "linear";
+    case InterpolateDiscrete:
+      return "discrete";
+    case InterpolateSmooth:
+      return "smooth";
+    default:
+      return "unknown";
+  }
+}
+
+function timeRange(times: ArrayLike<number>): [number, number] {
+  if (times.length === 0) {
+    return [0, 0];
+  }
+
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < times.length; i += 1) {
+    const time = times[i];
+    if (!Number.isFinite(time)) continue;
+    min = Math.min(min, time);
+    max = Math.max(max, time);
+  }
+
+  return Number.isFinite(min) && Number.isFinite(max) ? [min, max] : [0, 0];
+}
+
+function estimateFrameRateFromDeltas(deltas: number[]): number | null {
+  if (deltas.length === 0) {
+    return null;
+  }
+
+  const counts = new Map<string, number>();
+  for (const delta of deltas) {
+    if (!Number.isFinite(delta) || delta <= Number.EPSILON) continue;
+    const key = delta.toFixed(6);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  let modeDelta = 0;
+  let modeCount = 0;
+  for (const [key, count] of counts) {
+    if (count > modeCount) {
+      modeDelta = Number(key);
+      modeCount = count;
+    }
+  }
+
+  return modeDelta > 0 ? 1 / modeDelta : null;
+}
+
+export function buildAnimationClipMetadata(
+  clips: AnimationClip[],
+): AnimationClipMetadata[] {
+  return clips.map((clip, clipIndex) => {
+    const deltas: number[] = [];
+    const tracks = clip.tracks.map((track) => {
+      const times = track.times;
+      for (let i = 1; i < times.length; i += 1) {
+        deltas.push(times[i] - times[i - 1]);
+      }
+
+      const parsedName = parseAnimationTrackName(track.name);
+      return {
+        name: track.name,
+        target: parsedName.target,
+        propertyPath: parsedName.propertyPath,
+        keyframeCount: times.length,
+        timeRange: timeRange(times),
+        interpolation: interpolationLabel(track.getInterpolation()),
+      };
+    });
+
+    return {
+      name: clip.name.trim() || `Clip ${clipIndex + 1}`,
+      duration: clip.duration,
+      trackCount: tracks.length,
+      keyframeCount: tracks.reduce(
+        (sum, track) => sum + track.keyframeCount,
+        0,
+      ),
+      estimatedFrameRate: estimateFrameRateFromDeltas(deltas),
+      tracks,
+    };
+  });
 }
 
 /** Trim `Object3D.name` while tolerating loaders that leave the field as
@@ -102,7 +257,7 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
   // display layer (HierarchyCard) substitutes "(unnamed)" purely for
   // the visible label; storing that placeholder in `name` would leak
   // the parens into USD prim path construction (#28) and trigger
-  // `Ill-formed SdfPath` warnings when the C++ backend tries to
+  // `Ill-formed SdfPath` warnings when the USD backend tries to
   // resolve `/(unnamed)/...`.
   const primPath: string | undefined =
     typeof object.userData?.primPath === "string"
@@ -116,12 +271,15 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
   const displayName = primPath
     ? basenameFromPrimPath(primPath)
     : safeTrimmedName(object);
+  const explicitSelectionKey = explicitObjectSelectionKey(object);
   const mmdBoneName =
     object instanceof Bone ? stringValue(object.userData.mmdBoneName) : null;
+  const nodeName = explicitSelectionKey ?? displayName;
+  const visibleName = mmdBoneName ?? displayName;
   return {
-    name: displayName,
-    ...(mmdBoneName && mmdBoneName !== displayName
-      ? { displayName: mmdBoneName }
+    name: nodeName,
+    ...(visibleName && visibleName !== nodeName
+      ? { displayName: visibleName }
       : {}),
     kind: getObjectKind(object),
     children: collectHierarchyChildren(object),
@@ -199,6 +357,72 @@ function textureSlot(
       ? texture.userData.path
       : slotLabel);
   return { name };
+}
+
+function textureFileName(value: string): string {
+  const normalized = value.trim().replace(/\\/g, "/").split(/[?#]/, 1)[0];
+  const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
+  if (!basename) return value.trim();
+  try {
+    return decodeURIComponent(basename);
+  } catch {
+    return basename;
+  }
+}
+
+function textureSourceReference(
+  texture: Texture,
+  material: Material,
+  slot: TextureSlotKey,
+  channel: string,
+  currentFile: SelectedFile,
+): string | null {
+  const genericName = `${channel} Texture`;
+  const userData = texture.userData as Record<string, unknown>;
+  const sourcePath =
+    stringValue(userData.path) ??
+    stringValue(userData.fbxSourceName) ??
+    stringValue(userData.sourcePath) ??
+    stringValue(userData.uri);
+  if (sourcePath) return sourcePath;
+
+  const mmd = buildMmdMaterialEntry(material);
+  const mmdPath = slot === "map" ? mmd?.texturePath : null;
+  if (mmdPath) return mmdPath;
+
+  if (currentFile.kind === "texture") {
+    return currentFile.path;
+  }
+
+  const textureName = stringValue(texture.name);
+  return textureName && textureName !== genericName ? textureName : null;
+}
+
+function textureDisplayName(
+  texture: Texture,
+  material: Material,
+  slot: TextureSlotKey,
+  channel: string,
+  currentFile: SelectedFile,
+): string {
+  const sourceReference = textureSourceReference(
+    texture,
+    material,
+    slot,
+    channel,
+    currentFile,
+  );
+  return sourceReference
+    ? textureFileName(sourceReference)
+    : `${channel} Texture`;
+}
+
+function textureSourceKey(sourceReference: string, channel: string): string {
+  const normalized = sourceReference
+    .trim()
+    .replace(/\\/g, "/")
+    .split(/[?#]/, 1)[0];
+  return `${channel}:${normalized}`;
 }
 
 /** Infer the glTF alpha mode from Three.js material flags. Prefers the
@@ -308,10 +532,13 @@ function boneDisplayName(bone: Bone): string {
   );
 }
 
-function buildMmdBoneMetadata(root: Object3D): Map<Bone, MmdBoneEntry> {
+function buildMmdBoneMetadata(
+  root: Object3D,
+  objects?: readonly Object3D[],
+): Map<Bone, MmdBoneEntry> {
   const entries = new Map<Bone, MmdBoneEntry>();
 
-  root.traverse((object) => {
+  const visit = (object: Object3D) => {
     if (!(object instanceof SkinnedMesh) || !object.skeleton) return;
     if (isSyntheticWrapper(object)) return;
     const bones = object.skeleton.bones;
@@ -361,7 +588,12 @@ function buildMmdBoneMetadata(root: Object3D): Map<Bone, MmdBoneEntry> {
         ik,
       });
     });
-  });
+  };
+  if (objects) {
+    for (const object of objects) visit(object);
+  } else {
+    root.traverse(visit);
+  }
 
   return entries;
 }
@@ -562,6 +794,22 @@ function getTextureDimensions(texture: Texture) {
 }
 
 const THUMB_SIZE = 128;
+const DEFAULT_THUMBNAIL_CHUNK_SIZE = 4;
+
+type ScheduledTextureThumbnailEnrichment = {
+  cancel: () => void;
+};
+
+type TextureThumbnailTaskScheduler = (callback: () => void) => () => void;
+
+type ScheduleTextureThumbnailEnrichmentOptions = {
+  chunkSize?: number;
+  metadata: AssetMetadata;
+  onUpdate: (metadata: AssetMetadata) => void;
+  scheduleTask?: TextureThumbnailTaskScheduler;
+  shouldContinue?: () => boolean;
+  textureRegistry: ReadonlyMap<string, Texture>;
+};
 
 function shouldFlipTexturePreviewY(
   texture: Texture,
@@ -573,11 +821,57 @@ function shouldFlipTexturePreviewY(
   );
 }
 
+function drawRawTextureImage(
+  targetContext: CanvasRenderingContext2D,
+  image: { data: unknown; height: number; width: number },
+): boolean {
+  const { data, height, width } = image;
+  if (
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    (!(data instanceof Uint8Array) && !(data instanceof Uint8ClampedArray))
+  ) {
+    return false;
+  }
+
+  const pixelCount = width * height;
+  if (data.length !== pixelCount * 4 && data.length !== pixelCount * 3) {
+    return false;
+  }
+
+  const rgba = new Uint8ClampedArray(pixelCount * 4);
+  if (data.length === pixelCount * 4) {
+    rgba.set(data);
+  } else {
+    for (let source = 0, target = 0; source < data.length; source += 3) {
+      rgba[target++] = data[source];
+      rgba[target++] = data[source + 1];
+      rgba[target++] = data[source + 2];
+      rgba[target++] = 255;
+    }
+  }
+
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = width;
+  sourceCanvas.height = height;
+  const sourceContext = sourceCanvas.getContext("2d");
+  if (!sourceContext) return false;
+
+  const imageData = sourceContext.createImageData(width, height);
+  imageData.data.set(rgba);
+  sourceContext.putImageData(imageData, 0, 0);
+  targetContext.drawImage(sourceCanvas, 0, 0, THUMB_SIZE, THUMB_SIZE);
+  return true;
+}
+
 function generateThumbnailUrl(texture: Texture): string | null {
   const image = texture.image as
     | HTMLImageElement
     | HTMLCanvasElement
     | ImageBitmap
+    | { data: unknown; height: number; width: number }
     | undefined;
 
   if (!image) return null;
@@ -589,11 +883,118 @@ function generateThumbnailUrl(texture: Texture): string | null {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
-    ctx.drawImage(image as CanvasImageSource, 0, 0, THUMB_SIZE, THUMB_SIZE);
+    const isRawImage =
+      typeof image === "object" &&
+      image !== null &&
+      "data" in image &&
+      "width" in image &&
+      "height" in image;
+    if (isRawImage) {
+      if (!drawRawTextureImage(ctx, image)) return null;
+    } else {
+      ctx.drawImage(image as CanvasImageSource, 0, 0, THUMB_SIZE, THUMB_SIZE);
+    }
     return canvas.toDataURL("image/jpeg", 0.7);
   } catch {
     return null;
   }
+}
+
+function scheduleIdleTask(callback: () => void): () => void {
+  const maybeWindow =
+    typeof window === "undefined"
+      ? null
+      : (window as Window & {
+          cancelIdleCallback?: (handle: number) => void;
+          requestIdleCallback?: (callback: () => void) => number;
+        });
+
+  if (maybeWindow?.requestIdleCallback && maybeWindow.cancelIdleCallback) {
+    const handle = maybeWindow.requestIdleCallback(callback);
+    return () => maybeWindow.cancelIdleCallback?.(handle);
+  }
+
+  const handle = globalThis.setTimeout(callback, 16);
+  return () => globalThis.clearTimeout(handle);
+}
+
+export function scheduleTextureThumbnailEnrichment({
+  chunkSize = DEFAULT_THUMBNAIL_CHUNK_SIZE,
+  metadata,
+  onUpdate,
+  scheduleTask = scheduleIdleTask,
+  shouldContinue = () => true,
+  textureRegistry,
+}: ScheduleTextureThumbnailEnrichmentOptions): ScheduledTextureThumbnailEnrichment {
+  if (metadata.textures.length === 0 || textureRegistry.size === 0) {
+    return { cancel: () => {} };
+  }
+
+  let cancelled = false;
+  let cancelScheduledTask: (() => void) | null = null;
+  let textureIndex = 0;
+  let currentMetadata = metadata;
+  let currentTextures = metadata.textures;
+  const safeChunkSize = Math.max(1, Math.floor(chunkSize));
+  const canContinue = () => !cancelled && shouldContinue();
+
+  const scheduleNext = () => {
+    cancelScheduledTask = scheduleTask(runChunk);
+  };
+
+  const runChunk = () => {
+    cancelScheduledTask = null;
+    if (!canContinue()) return;
+
+    let nextTextures = currentTextures;
+    let changed = false;
+    let processed = 0;
+
+    while (
+      textureIndex < currentTextures.length &&
+      processed < safeChunkSize &&
+      canContinue()
+    ) {
+      const index = textureIndex;
+      const entry = currentTextures[index];
+      textureIndex += 1;
+      processed += 1;
+
+      if (entry.thumbnailUrl) continue;
+
+      const texture = textureRegistry.get(entry.id);
+      if (!texture) continue;
+
+      const thumbnailUrl = generateThumbnailUrl(texture);
+      if (!thumbnailUrl) continue;
+
+      if (nextTextures === currentTextures) {
+        nextTextures = [...currentTextures];
+      }
+      nextTextures[index] = { ...entry, thumbnailUrl };
+      changed = true;
+    }
+
+    if (changed && canContinue()) {
+      currentTextures = nextTextures;
+      currentMetadata = { ...currentMetadata, textures: currentTextures };
+      onUpdate(currentMetadata);
+    }
+
+    if (textureIndex < currentTextures.length && canContinue()) {
+      scheduleNext();
+    }
+  };
+
+  scheduleNext();
+
+  return {
+    cancel: () => {
+      cancelled = true;
+      cancelScheduledTask?.();
+      cancelScheduledTask = null;
+    },
+  };
 }
 
 function inferTextureSourceKind(
@@ -722,13 +1123,7 @@ function buildCameraEntry(
  * trimmed `Object3D.name` for non-USD assets.  Returns `null` for
  * unnamed meshes / groups that cannot be meaningfully selected. */
 function resolveSelectionKey(object: Object3D): string | null {
-  const primPath =
-    typeof object.userData?.primPath === "string"
-      ? object.userData.primPath
-      : undefined;
-  if (primPath !== undefined) return primPath;
-  const name = safeTrimmedName(object);
-  return name.length > 0 ? name : null;
+  return resolveObjectSelectionKey(object);
 }
 
 /** Build an `ObjectInfo` entry for one traversed Object3D.  Handles
@@ -867,9 +1262,11 @@ export function collectAssetMetadata(
   clips: AnimationClip[],
   formatVersion: string | null,
   mmdMetadata?: MmdAssetMetadata,
+  traversal?: Pick<SceneTraversalSnapshot, "objects">,
 ): MetadataCollection {
   let nodeCount = 0;
   let meshCount = 0;
+  let boneCount = 0;
   const materials = new Set<Material>();
   // Material → mesh-name list. Insertion-ordered so the UI shows binds
   // in scene-graph traversal order. A mesh that authors an array
@@ -880,16 +1277,20 @@ export function collectAssetMetadata(
   const textureRegistry = new Map<string, Texture>();
   const lights: LightEntry[] = [];
   const cameras: CameraEntry[] = [];
+  const animationClips = buildAnimationClipMetadata(clips);
   // Tracks camera-name occurrences during traversal so duplicate-named
   // cameras get suffixed selection ids (#1, #2, …).
   const cameraSeenCounts = new Map<string, number>();
   // Selection key → per-object info for the shared inspector (#80)
   const objectInfoMap = new Map<string, ObjectInfo>();
-  const mmdBoneMetadata = buildMmdBoneMetadata(object);
+  const mmdBoneMetadata = buildMmdBoneMetadata(object, traversal?.objects);
 
-  object.traverse((child: Object3D) => {
+  const visit = (child: Object3D) => {
     if (isSyntheticWrapper(child)) return;
     nodeCount += 1;
+    if (child instanceof Bone) {
+      boneCount += 1;
+    }
 
     // Collect ObjectInfo for every traversed node that has a stable
     // selection key (meshes, named groups, lights, cameras).
@@ -945,7 +1346,17 @@ export function collectAssetMetadata(
         }
 
         const textureId = String(textureValue.uuid);
-        if (textures.has(textureId)) {
+        const sourceReference = textureSourceReference(
+          textureValue,
+          material,
+          key,
+          channel,
+          currentFile,
+        );
+        const textureKey = sourceReference
+          ? textureSourceKey(sourceReference, channel)
+          : `uuid:${textureId}`;
+        if (textures.has(textureKey)) {
           continue;
         }
 
@@ -953,19 +1364,30 @@ export function collectAssetMetadata(
           textureValue,
           currentFile,
         );
-        textures.set(textureId, {
+        textures.set(textureKey, {
           id: textureId,
-          label: textureValue.name.trim() || `${channel} Texture`,
+          label: textureDisplayName(
+            textureValue,
+            material,
+            key,
+            channel,
+            currentFile,
+          ),
           channel,
           dimensions: getTextureDimensions(textureValue),
-          thumbnailUrl: generateThumbnailUrl(textureValue),
+          thumbnailUrl: null,
           ...(previewFlipY ? { previewFlipY } : {}),
           sourceKind: inferTextureSourceKind(textureValue, currentFile),
         });
         textureRegistry.set(textureId, textureValue);
       }
     }
-  });
+  };
+  if (traversal) {
+    for (const child of traversal.objects) visit(child);
+  } else {
+    object.traverse(visit);
+  }
 
   return {
     metadata: {
@@ -973,9 +1395,12 @@ export function collectAssetMetadata(
       formatVersion,
       nodeCount,
       meshCount,
+      boneCount,
+      hasBones: boneCount > 0,
       materialCount: materials.size,
       textureCount: textures.size,
       hasAnimation: clips.length > 0,
+      animationClips,
       hierarchy: buildHierarchyForest(object),
       textures: [...textures.values()],
       materials: [...materials].map((material) =>

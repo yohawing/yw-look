@@ -1,43 +1,39 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-/* eslint-disable react-hooks/set-state-in-effect -- deferred data effects intentionally reset state synchronously */
-import {
-  loadDiagnosticsSnapshot,
-  loadProcessMemoryMetrics,
-  logDiagnosticEvent,
-  type DiagnosticsPayload,
-  type ProcessMemoryMetrics,
-  type ResourceDiagnosticsSnapshot,
-} from "../lib/diagnostics";
+import { useCallback, useEffect, useState } from "react";
+import { logDiagnosticEvent } from "../lib/diagnostics";
 import { type SelectedFile } from "../lib/files";
 import {
-  loadSupportedExtensions,
-  type IntegrationPayload,
-} from "../lib/integrations";
+  loadOptionalLoaderManifests,
+  type OptionalLoaderPackManifest,
+} from "../lib/loaderPacks";
 import { loadRecentFiles, type RecentFilesPayload } from "../lib/recentFiles";
 import { loadSettings, type SettingsPayload } from "../lib/settings";
-import { errorMessage } from "../lib/invokeSafe";
+import { errorMessage } from "../lib/errors";
 
 export function useDeferredData(
   isTauri: boolean,
   shouldLoadRecentFiles: boolean,
   shouldLoadDeferredData: boolean,
   currentFile: SelectedFile | null,
-  resourceDiagnostics: ResourceDiagnosticsSnapshot | null,
 ) {
+  void isTauri;
   const [settingsPayload, setSettingsPayload] =
     useState<SettingsPayload | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [recentFilesPayload, setRecentFilesPayload] =
     useState<RecentFilesPayload | null>(null);
   const [recentFilesError, setRecentFilesError] = useState<string | null>(null);
-  const [diagnosticsPayload, setDiagnosticsPayload] =
-    useState<DiagnosticsPayload | null>(null);
-  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
-  const [processMemoryMetrics, setProcessMemoryMetrics] =
-    useState<ProcessMemoryMetrics | null>(null);
-  const [integrationPayload, setIntegrationPayload] =
-    useState<IntegrationPayload | null>(null);
-  const [integrationError, setIntegrationError] = useState<string | null>(null);
+  const [optionalLoaderManifests, setOptionalLoaderManifests] = useState<
+    OptionalLoaderPackManifest[]
+  >([]);
+  const [optionalLoaderManifestsError, setOptionalLoaderManifestsError] =
+    useState<string | null>(null);
+  const replaceOptionalLoaderManifests = useCallback(
+    (manifests: OptionalLoaderPackManifest[]) => {
+      setOptionalLoaderManifests(manifests);
+      setOptionalLoaderManifestsError(null);
+    },
+    [],
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -81,23 +77,6 @@ export function useDeferredData(
     };
   }, [currentFile, shouldLoadRecentFiles]);
 
-  const refreshDiagnosticsRef = useRef(async () => {
-    try {
-      const payload = await loadDiagnosticsSnapshot();
-      setDiagnosticsPayload(payload);
-      setDiagnosticsError(null);
-    } catch (error: unknown) {
-      setDiagnosticsError(
-        errorMessage(error, "Failed to load diagnostics snapshot."),
-      );
-    }
-  });
-
-  useEffect(() => {
-    if (!shouldLoadDeferredData) return;
-    void refreshDiagnosticsRef.current();
-  }, [shouldLoadDeferredData]);
-
   const logDiagnosticEventAndRefresh = useCallback(
     async (params: {
       code: string;
@@ -113,69 +92,32 @@ export function useDeferredData(
         detail: params.detail,
         contextPath: params.contextPath ?? null,
       });
-      void refreshDiagnosticsRef.current();
     },
     [],
   );
-
-  const refreshProcessMemoryRef = useRef(async () => {
-    if (!isTauri) {
-      setProcessMemoryMetrics(null);
-      return;
-    }
-    try {
-      const metrics = await loadProcessMemoryMetrics();
-      setProcessMemoryMetrics(metrics);
-    } catch {
-      setProcessMemoryMetrics(null);
-    }
-  });
-
-  useEffect(() => {
-    if (!isTauri) {
-      setProcessMemoryMetrics(null);
-      return;
-    }
-
-    void refreshProcessMemoryRef.current();
-    const interval = window.setInterval(() => {
-      void refreshProcessMemoryRef.current();
-    }, 2000);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [isTauri]);
-
-  useEffect(() => {
-    if (!isTauri || !resourceDiagnostics) return;
-    void refreshProcessMemoryRef.current();
-  }, [isTauri, resourceDiagnostics]);
 
   useEffect(() => {
     if (!shouldLoadDeferredData) return;
 
     let isActive = true;
 
-    loadSupportedExtensions()
-      .then((payload) => {
+    loadOptionalLoaderManifests()
+      .then((manifests) => {
         if (!isActive) return;
-        setIntegrationPayload(payload);
-        setIntegrationError(null);
+        replaceOptionalLoaderManifests(manifests);
       })
       .catch((error: unknown) => {
         if (!isActive) return;
-        setIntegrationError(
-          errorMessage(error, "Failed to load Windows integration details."),
+        setOptionalLoaderManifestsError(
+          errorMessage(error, "Failed to load optional loader pack manifests."),
         );
+        setOptionalLoaderManifests([]);
       });
 
     return () => {
       isActive = false;
     };
-  }, [
-    settingsPayload?.settings.fileAssociationsEnabled,
-    shouldLoadDeferredData,
-  ]);
+  }, [replaceOptionalLoaderManifests, shouldLoadDeferredData]);
 
   return {
     settingsPayload,
@@ -185,11 +127,9 @@ export function useDeferredData(
     recentFilesPayload,
     recentFilesError,
     setRecentFilesError,
-    diagnosticsPayload,
-    diagnosticsError,
-    processMemoryMetrics,
-    integrationPayload,
-    integrationError,
+    setOptionalLoaderManifests: replaceOptionalLoaderManifests,
+    optionalLoaderManifests,
+    optionalLoaderManifestsError,
     logDiagnosticEventAndRefresh,
   };
 }

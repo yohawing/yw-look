@@ -33,6 +33,12 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: NSIS loader pack hook check
+        run: npm run check:nsis-loader-packs
+
+      - name: Unit tests (Vitest)
+        run: npm run test
+
       - name: Type check (TypeScript)
         run: |
           npx tsc --noEmit
@@ -112,7 +118,7 @@ jobs:
         run: >-
           cargo build --manifest-path src-tauri/Cargo.toml
           --bin flip_compare
-          --no-default-features --features flip-compare,backend-openusd-rs
+          --features flip-compare
 
       - name: Run visual regression
         run: |
@@ -156,7 +162,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          lfs: false
+          lfs: true
 
       - name: Install system dependencies
         run: |
@@ -166,18 +172,8 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Phase 2.J: the default feature set pulls in `backend-openusd-cpp`
-      # (vcpkg OpenUSD + LLVM), which yw-look does not yet provision on
-      # Linux hosts. Build the Rust-fork backend explicitly here so
-      # ubuntu-runner CI covers the openusd crate without the vcpkg hop.
-      # Windows + macOS coverage for the C++ default lives in
-      # `ci-cpp-backend.yml`.
-      - name: Cargo check (Rust fork backend)
-        run: >-
-          cargo check --manifest-path src-tauri/Cargo.toml
-          --no-default-features --features backend-openusd-rs
+      - name: Cargo check (Rust USD backend)
+        run: cargo check --manifest-path src-tauri/Cargo.toml
 
-      - name: Cargo test (Rust fork backend)
-        run: >-
-          cargo test --manifest-path src-tauri/Cargo.toml
-          --no-default-features --features backend-openusd-rs
+      - name: Cargo test (Rust USD backend)
+        run: cargo test --manifest-path src-tauri/Cargo.toml

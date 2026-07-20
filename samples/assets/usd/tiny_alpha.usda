@@ -3,7 +3,7 @@
     defaultPrim = "Root"
     upAxis = "Y"
     metersPerUnit = 1.0
-    doc = "Phase 2.M fixture: two quads with UsdPreviewSurface opacity / opacityThreshold authoring, exercising the cpp backend's glTF alphaMode BLEND / MASK emission."
+    doc = "Phase 2.M fixture: two quads with UsdPreviewSurface opacity / opacityThreshold authoring."
 )
 
 def Xform "Root" (

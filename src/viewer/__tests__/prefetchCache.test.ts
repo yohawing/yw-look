@@ -14,6 +14,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { prefetchAdjacent, getCachedBuffer, evictAll } from "../prefetchCache";
 import type { SelectedFile } from "../../lib/files";
+import { PREFETCH_CACHE_LIMITS } from "../../config/viewerLimits";
+
+const mocks = vi.hoisted(() => ({
+  readBinaryFile: vi.fn(),
+}));
+
+vi.mock("../../lib/files", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/files")>()),
+  readBinaryFile: mocks.readBinaryFile,
+}));
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -36,6 +46,9 @@ function makeFakeBytes(size = 8): ArrayBuffer {
 beforeEach(() => {
   evictAll();
   vi.clearAllMocks();
+  mocks.readBinaryFile.mockImplementation(async (path: string) => {
+    return invoke<ArrayBuffer>("read_binary_file", { path });
+  });
 });
 
 describe("prefetchAdjacent – boundary conditions", () => {
@@ -147,5 +160,69 @@ describe("evictAll", () => {
     evictAll();
 
     expect(getCachedBuffer(files[1].path)).toBeNull();
+  });
+});
+
+describe("byte-capacity LRU eviction", () => {
+  const BUFFER_SIZE = 40 * 1024 * 1024;
+
+  function makeSizedBuffer(size = BUFFER_SIZE): ArrayBuffer {
+    return new ArrayBuffer(size);
+  }
+
+  beforeEach(() => {
+    mocks.readBinaryFile.mockImplementation(async () => makeSizedBuffer());
+  });
+
+  it("evicts the oldest entry when total bytes exceed maxTotalBytes", async () => {
+    const ab = [makeFile("a.glb"), makeFile("b.glb")];
+    const bc = [makeFile("b.glb"), makeFile("c.glb")];
+    const abcd = [
+      makeFile("a.glb"),
+      makeFile("b.glb"),
+      makeFile("c.glb"),
+      makeFile("d.glb"),
+    ];
+
+    prefetchAdjacent(ab, 0);
+    await vi.waitFor(() => expect(getCachedBuffer(ab[1].path)).not.toBeNull());
+
+    prefetchAdjacent(bc, 0);
+    await vi.waitFor(() => expect(getCachedBuffer(bc[1].path)).not.toBeNull());
+
+    prefetchAdjacent(abcd, 1);
+    await vi.waitFor(() =>
+      expect(getCachedBuffer(abcd[0].path)).not.toBeNull(),
+    );
+
+    expect(BUFFER_SIZE * 3).toBeGreaterThan(
+      PREFETCH_CACHE_LIMITS.maxTotalBytes,
+    );
+    expect(getCachedBuffer(abcd[1].path)).toBeNull();
+    expect(getCachedBuffer(abcd[0].path)).not.toBeNull();
+    expect(getCachedBuffer(abcd[2].path)).not.toBeNull();
+  });
+
+  it("refreshes recency on cache hit so a touched entry survives eviction", async () => {
+    const ab = [makeFile("a.glb"), makeFile("b.glb")];
+    const bc = [makeFile("b.glb"), makeFile("c.glb")];
+    const abc = [makeFile("a.glb"), makeFile("b.glb"), makeFile("c.glb")];
+
+    prefetchAdjacent(ab, 0);
+    await vi.waitFor(() => expect(getCachedBuffer(ab[1].path)).not.toBeNull());
+
+    prefetchAdjacent(bc, 0);
+    await vi.waitFor(() => expect(getCachedBuffer(bc[1].path)).not.toBeNull());
+
+    expect(getCachedBuffer(ab[1].path)).not.toBeNull();
+
+    getCachedBuffer(ab[1].path);
+
+    prefetchAdjacent(abc, 1);
+    await vi.waitFor(() => expect(getCachedBuffer(abc[0].path)).not.toBeNull());
+
+    expect(getCachedBuffer(abc[2].path)).toBeNull();
+    expect(getCachedBuffer(abc[1].path)).not.toBeNull();
+    expect(getCachedBuffer(abc[0].path)).not.toBeNull();
   });
 });

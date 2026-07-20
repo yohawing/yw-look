@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 ![Development](https://img.shields.io/badge/development-active-blue)
-![Tests](https://img.shields.io/badge/tests-314-brightgreen)
+![Tests](https://img.shields.io/badge/tests-1080-brightgreen)
 ![Formats](https://img.shields.io/badge/formats-14-informational)
 
 Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動せず、3Dモデル、テクスチャ、HDR / EXR、メタデータ、欠損参照をすばやく確認するためのデスクトップアプリである。
@@ -46,12 +46,12 @@ yw-look は「何でもできるビューア」ではなく、**開く前後の�
 
 | 項目                         | 件数 |
 | ---------------------------- | ---: |
-| テストファイル               |   39 |
-| テストケース                 |  314 |
-| フロントエンドのテストケース |  216 |
-| Rust のテストケース          |   98 |
-| Fixture アセット             |   14 |
-| Fixture カタログケース       |   14 |
+| テストファイル               |  139 |
+| テストケース                 | 1080 |
+| フロントエンドのテストケース |  797 |
+| Rust のテストケース          |  283 |
+| Fixture アセット             |   36 |
+| Fixture カタログケース       |   38 |
 | 対応 3D フォーマット         |    7 |
 | 対応画像フォーマット         |    7 |
 
@@ -96,9 +96,6 @@ npm run bundle:win
 npm run bundle:mac
 ```
 
-OS 別バンドル設定の詳細は [`docs/release-distribution.md`](docs/release-distribution.md) を参照。
-Optional Loader Pack の方針は [`docs/optional-loader-packs.md`](docs/optional-loader-packs.md) を参照。
-
 ## Optional Loader Packs
 
 VRM、MMD、Gaussian Splat など一部フォーマットは、コアアプリに同梱せず別途インストールする **Optional Loader Pack** として提供される。
@@ -109,7 +106,7 @@ VRM、MMD、Gaussian Splat など一部フォーマットは、コアアプリ�
 | MMD Loader Pack            | `.pmd`, `.pmx`, `.vmd`                      | MikuMikuDance モデル・モーションのプレビュー        |
 | Gaussian Splat Loader Pack | `.ply`, `.splat`, `.spz`, `.ksplat`, `.sog` | 3D Gaussian Splat / SuperSplat 系データのプレビュー |
 
-パックは Settings パネルからインストール・アンインストールできる。インストール済みパックはコアアプリ更新後も保持される。詳細は [`docs/optional-loader-packs.md`](docs/optional-loader-packs.md) を参照。
+パックは Settings パネルからインストール・アンインストールできる。インストール済みパックはコアアプリ更新後も保持される。
 
 ## CLI モード
 
@@ -172,8 +169,6 @@ npm run typecheck:ts
 # Rust だけ確認（高速な Rust fork backend）
 npm run typecheck:rust
 
-# C++ OpenUSD backend を明示確認（通常より時間がかかる）
-npm run typecheck:rust:cpp
 
 # Cargo を直接使う場合の高速チェック
 cargo check-fast
@@ -209,4 +204,4 @@ npm run test:viewport-snapshot:update
 
 このリポジトリで管理している yw-look のソースコードは MIT License です。詳細は [LICENSE](LICENSE) を参照してください。
 
-依存ライブラリ、ビルドツール、OS / SDK コンポーネントにはそれぞれのライセンスが適用されます。確認メモは [docs/license-notes.md](docs/license-notes.md) を参照してください。
+依存ライブラリ、同梱素材、ビルドツール、OS / SDK コンポーネントにはそれぞれのライセンスが適用されます。第三者素材の出典は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。

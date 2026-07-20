@@ -1,12 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
+import { error as logError } from "@tauri-apps/plugin-log";
+import { errorMessage } from "../lib/errors";
 import {
   AmbientLight,
   AnimationMixer,
   Box3,
   DirectionalLight,
   Group,
+  Line,
+  LineSegments,
   Mesh,
   PerspectiveCamera,
+  Points,
   Scene,
   Vector3,
   WebGLRenderer,
@@ -14,18 +19,31 @@ import {
 import { resolveSelectedFile } from "../lib/files";
 import {
   collectAssetIssues,
+  deferredSummaryHasNoRenderableGeometry,
   inspectStage,
+  inspectionHasDeferredPayloads,
   summarizeStage,
+  type StageInspection,
   type StageLoadPolicy,
+  type StageSummary,
 } from "../lib/usd";
 import {
   captureRendererScreenshot,
   disposeObject,
+  getPreviewRenderingPresetForExtension,
   isRendererCanvasNonBlank,
+  loadMmdMotion,
   loadPreviewObject,
+  MMD_EXAMPLE_LIGHTING_PRESET,
+  MMD_PREVIEW_RENDERING_PRESET,
   normalizeObjectScale,
+  getScaleWarning,
+  applyPreviewRenderingPreset,
   revokeUrls,
+  type SceneContext,
 } from "../viewer";
+import { createMmdRuntime, syncMmdPreviewSpecularDirection } from "../packs";
+import type { MmdRuntimeModelHandle } from "../types/viewer";
 
 export type ShotMode = "shot" | "check";
 
@@ -35,9 +53,12 @@ export type ShotConfig = {
   inputPath: string;
   fileName: string;
   extension: string;
+  motionPath: string | null;
+  morphWeights: number[];
   width: number;
   height: number;
   background: string | null;
+  usdLoadPolicy: StageLoadPolicy;
 };
 
 export type ShotOutcome = {
@@ -46,11 +67,14 @@ export type ShotOutcome = {
   meshCount: number;
   loadTimeMs: number;
   outputPath: string | null;
+  warnings: string[];
   error: string | null;
 };
 
 const DEFAULT_BG = "#111318";
 const USD_EXTENSIONS = new Set(["usd", "usda", "usdc", "usdz"]);
+const DEFAULT_CAMERA_POSITION = new Vector3(5, 4, 5);
+const DEFAULT_CAMERA_TARGET = new Vector3(0, 0, 0);
 
 export async function loadShotConfig() {
   return invoke<ShotConfig | null>("get_shot_config");
@@ -60,8 +84,16 @@ export async function loadShotBatchConfig() {
   return invoke<ShotConfig[]>("get_shot_batch_config");
 }
 
-export async function finishShotRun(exitCode: number) {
-  await invoke("finish_shot_run", { exitCode });
+export async function finishShotRun(
+  exitCode: number,
+  message?: string | null,
+  outcome?: ShotOutcome | null,
+) {
+  await invoke("finish_shot_run", {
+    exitCode,
+    message: message ?? null,
+    outcome: outcome ?? null,
+  });
 }
 
 export async function writeShotOutput(dataUrl: string, caseIndex?: number) {
@@ -97,15 +129,21 @@ function createRenderer(
   width: number,
   height: number,
   background: string | null,
+  extension: string,
 ) {
   const bg = parseBackground(background);
+  const renderingPreset = getPreviewRenderingPresetForExtension(extension);
   const renderer = new WebGLRenderer({
     antialias: true,
     alpha: bg.alpha,
+    logarithmicDepthBuffer: renderingPreset.logarithmicDepthBuffer,
     preserveDrawingBuffer: true,
   });
   renderer.setSize(width, height, false);
   renderer.setPixelRatio(1);
+  if (renderingPreset === MMD_PREVIEW_RENDERING_PRESET) {
+    applyPreviewRenderingPreset(renderer, renderingPreset);
+  }
   if (bg.alpha) {
     renderer.setClearColor("#000000", 0);
   } else {
@@ -121,10 +159,75 @@ function setupScene(width: number, height: number) {
   const key = new DirectionalLight("#ffffff", 2.2);
   key.position.set(3, 6, 4);
   scene.add(key);
-  return { scene, camera };
+  return { scene, camera, key };
+}
+
+function applyShotMmdLighting(scene: Scene, key: DirectionalLight) {
+  for (const child of scene.children) {
+    if (child instanceof AmbientLight) {
+      child.intensity = MMD_EXAMPLE_LIGHTING_PRESET.ambientIntensity;
+    }
+  }
+  key.intensity = MMD_EXAMPLE_LIGHTING_PRESET.keyIntensity;
+  key.position.set(...MMD_EXAMPLE_LIGHTING_PRESET.keyPosition);
+}
+
+function readVector3UserData(value: unknown) {
+  if (!Array.isArray(value) || value.length !== 3) {
+    return null;
+  }
+  const [x, y, z] = value;
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof z !== "number" ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(z)
+  ) {
+    return null;
+  }
+  return new Vector3(x, y, z);
+}
+
+function readPositiveNumberUserData(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
 }
 
 function frameObject(camera: PerspectiveCamera, object: Group | Mesh) {
+  if (object.userData?.disableAutoFrame) {
+    const splatCenter = readVector3UserData(object.userData.splatBoundsCenter);
+    const splatMaxDimension = readPositiveNumberUserData(
+      object.userData.splatBoundsMaxDimension,
+    );
+    if (splatCenter && splatMaxDimension) {
+      const fitHeightDistance =
+        splatMaxDimension / (2 * Math.tan((camera.fov * Math.PI) / 360));
+      const distance = fitHeightDistance * 1.55;
+      camera.position.copy(
+        splatCenter
+          .clone()
+          .add(
+            new Vector3(1.1, 0.75, 1.1).normalize().multiplyScalar(distance),
+          ),
+      );
+      camera.near = Math.max(splatMaxDimension / 500, 0.01);
+      camera.far = Math.max(splatMaxDimension * 20, 200);
+      camera.lookAt(splatCenter);
+      camera.updateProjectionMatrix();
+      return;
+    }
+
+    camera.position.copy(DEFAULT_CAMERA_POSITION);
+    camera.near = 0.01;
+    camera.far = 100_000;
+    camera.lookAt(DEFAULT_CAMERA_TARGET);
+    camera.updateProjectionMatrix();
+    return;
+  }
+
   const bounds = new Box3().setFromObject(object);
   const size = bounds.getSize(new Vector3());
   const center = bounds.getCenter(new Vector3());
@@ -153,14 +256,40 @@ function countMeshes(object: Group | Mesh) {
   return count;
 }
 
-function describeError(error: unknown, fallback: string) {
-  if (error instanceof Error) {
-    return error.message;
+function countRenderableObjects(object: Group | Mesh) {
+  let count = 0;
+  object.traverse((child) => {
+    if (
+      child instanceof Mesh ||
+      child instanceof Points ||
+      child instanceof Line ||
+      child instanceof LineSegments
+    ) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+export function applyShotMorphWeights(
+  model: MmdRuntimeModelHandle | undefined,
+  weights: readonly number[],
+) {
+  if (weights.length === 0) return;
+  if (!model) {
+    throw new Error("Morph weights require a loaded MMD model.");
   }
-  if (typeof error === "string" && error.trim()) {
-    return error;
-  }
-  return fallback;
+  const mesh = model.mesh as Mesh;
+  const influences = mesh.morphTargetInfluences ?? [];
+  while (influences.length < weights.length) influences.push(0);
+  weights.forEach((weight, index) => {
+    if (!Number.isFinite(weight)) {
+      throw new Error(`Morph weight ${index} must be finite.`);
+    }
+    influences[index] = weight;
+  });
+  mesh.morphTargetInfluences = influences;
+  model.syncMaterialMorphs?.();
 }
 
 async function validateUsdInspection(path: string, policy: StageLoadPolicy) {
@@ -168,15 +297,19 @@ async function validateUsdInspection(path: string, policy: StageLoadPolicy) {
     summarizeStage(path, policy),
     inspectStage(path, policy),
   ]);
+  const missingAssetDetails =
+    inspection.missingAssets.length > 0
+      ? `: ${inspection.missingAssets.join(", ")}`
+      : ".";
 
   if (summary.unresolvedReferenceCount > 0) {
     throw new Error(
-      `USD inspection found ${summary.unresolvedReferenceCount} unresolved reference(s) under ${policy}.`,
+      `USD inspection found ${summary.unresolvedReferenceCount} unresolved reference(s) under ${policy}${missingAssetDetails}`,
     );
   }
   if (policy === "loadAll" && summary.unresolvedPayloadCount > 0) {
     throw new Error(
-      `USD inspection found ${summary.unresolvedPayloadCount} unresolved payload(s) under ${policy}.`,
+      `USD inspection found ${summary.unresolvedPayloadCount} unresolved payload(s) under ${policy}${missingAssetDetails}`,
     );
   }
   if (policy === "loadAll" && inspection.missingAssets.length > 0) {
@@ -186,27 +319,63 @@ async function validateUsdInspection(path: string, policy: StageLoadPolicy) {
   }
 }
 
-async function validateUsdInspectorPipeline(path: string, extension: string) {
+async function validateUsdInspectorPipeline(
+  path: string,
+  extension: string,
+  policy: StageLoadPolicy,
+) {
   if (!USD_EXTENSIONS.has(extension)) {
     return;
   }
 
   try {
-    await validateUsdInspection(path, "loadAll");
-    await validateUsdInspection(path, "noPayloads");
-    const issues = await collectAssetIssues(path);
-    const errors = issues.filter((issue) => issue.level === "error");
-    if (errors.length > 0) {
-      throw new Error(
-        `USD asset issue(s): ${errors.map((issue) => issue.message).join("; ")}`,
-      );
+    await validateUsdInspection(path, policy);
+    if (policy === "loadAll") {
+      await validateUsdInspection(path, "noPayloads");
+      const issues = await collectAssetIssues(path);
+      const errors = issues.filter((issue) => issue.level === "error");
+      if (errors.length > 0) {
+        throw new Error(
+          `USD asset issue(s): ${errors.map((issue) => issue.message).join("; ")}`,
+        );
+      }
     }
   } catch (error) {
     throw new Error(
-      `USD inspector validation failed: ${describeError(error, "unknown inspector error")}`,
+      `USD inspector validation failed: ${errorMessage(error, "unknown inspector error")}`,
       { cause: error },
     );
   }
+}
+
+export function isDeferredUsdEmptyCheckOutcome(
+  extension: string,
+  policy: StageLoadPolicy,
+  summary: Pick<StageSummary, "totalVertices" | "unloadedPayloadCount">,
+  inspection: Pick<StageInspection, "payloads">,
+) {
+  if (!USD_EXTENSIONS.has(extension) || policy !== "noPayloads") {
+    return false;
+  }
+  return (
+    deferredSummaryHasNoRenderableGeometry(summary) &&
+    inspectionHasDeferredPayloads(inspection)
+  );
+}
+
+async function isDeferredUsdEmptyCheckResult(
+  path: string,
+  extension: string,
+  policy: StageLoadPolicy,
+) {
+  if (!USD_EXTENSIONS.has(extension) || policy !== "noPayloads") {
+    return false;
+  }
+  const [summary, inspection] = await Promise.all([
+    summarizeStage(path, policy),
+    inspectStage(path, policy),
+  ]);
+  return isDeferredUsdEmptyCheckOutcome(extension, policy, summary, inspection);
 }
 
 function waitFrame() {
@@ -225,6 +394,27 @@ async function settleFrames(
   }
 }
 
+async function updateSparkRenderers(scene: Scene, camera: PerspectiveCamera) {
+  const updates: Array<Promise<void>> = [];
+  scene.traverse((child) => {
+    const update = (child as { update?: unknown }).update;
+    if (
+      child.userData?.ywSparkRenderer === true &&
+      typeof update === "function"
+    ) {
+      updates.push(
+        Promise.resolve(
+          update.call(child, {
+            scene,
+            camera,
+          }),
+        ),
+      );
+    }
+  });
+  await Promise.all(updates);
+}
+
 export async function runShot(
   config: ShotConfig,
   writeOutput: (
@@ -236,8 +426,9 @@ export async function runShot(
     config.width,
     config.height,
     config.background,
+    config.extension,
   );
-  const { scene, camera } = setupScene(config.width, config.height);
+  const { scene, camera, key } = setupScene(config.width, config.height);
   const host = document.createElement("div");
   host.style.cssText = `width:${config.width}px;height:${config.height}px;position:absolute;left:-10000px;top:0;`;
   host.appendChild(renderer.domElement);
@@ -249,6 +440,7 @@ export async function runShot(
     meshCount: 0,
     loadTimeMs: 0,
     outputPath: null,
+    warnings: [],
     error: null,
   };
 
@@ -257,16 +449,67 @@ export async function runShot(
 
   try {
     const selected = await resolveSelectedFile(config.inputPath);
+    if (
+      getPreviewRenderingPresetForExtension(selected.extension) ===
+      MMD_PREVIEW_RENDERING_PRESET
+    ) {
+      applyShotMmdLighting(scene, key);
+    }
     if (config.mode === "check") {
-      await validateUsdInspectorPipeline(selected.path, selected.extension);
+      await validateUsdInspectorPipeline(
+        selected.path,
+        selected.extension,
+        config.usdLoadPolicy,
+      );
     }
     const started = performance.now();
-    const preview = await loadPreviewObject(selected, renderer);
+    const preview = await loadPreviewObject(selected, renderer, {
+      usdLoadPolicy: config.usdLoadPolicy,
+    });
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
+    outcome.warnings.push(...(preview.warnings ?? []));
+    await syncMmdPreviewSpecularDirection(preview.mmdModel, key);
+    if (config.motionPath && preview.mmdModel?.runtime) {
+      const motion = await loadMmdMotion(
+        await resolveSelectedFile(config.motionPath),
+      );
+      preview.mmdModel.runtime.setAnimation(
+        motion.animation,
+        preview.mmdModel.mesh,
+      );
+      preview.mmdModel.runtime.tick(0, {
+        mesh: preview.mmdModel.mesh,
+        ik: true,
+        physics: false,
+      });
+      preview.mmdModel.syncMaterialMorphs?.();
+      const sceneContext = {
+        mmdModel: preview.mmdModel,
+        mmdMotion: {
+          animation: motion.animation,
+          duration: Math.max(motion.duration, 1 / 30),
+          currentTime: 0,
+          label: motion.label,
+        },
+      } as SceneContext;
+      const runtime = createMmdRuntime(sceneContext);
+      runtime.animation?.seek(Math.min(0.5, motion.duration));
+      runtime.dispose();
+      await syncMmdPreviewSpecularDirection(preview.mmdModel, key);
+    } else if (config.motionPath) {
+      throw new Error(
+        "MMD motion requires a loaded MMD model with runtime support.",
+      );
+    }
+    applyShotMorphWeights(preview.mmdModel, config.morphWeights);
     outcome.loadTimeMs = Math.round((performance.now() - started) * 100) / 100;
 
-    normalizeObjectScale(object);
+    const normalization = normalizeObjectScale(object);
+    const scaleWarning = getScaleWarning(object, normalization);
+    if (scaleWarning) {
+      outcome.warnings.push(scaleWarning);
+    }
     scene.add(object);
     frameObject(camera, object);
 
@@ -280,8 +523,29 @@ export async function runShot(
 
     outcome.loaded = true;
     outcome.meshCount = countMeshes(object);
+    if (config.mode === "check" && countRenderableObjects(object) === 0) {
+      if (preview.assetKind === "motion") {
+        return outcome;
+      }
+      if (
+        await isDeferredUsdEmptyCheckResult(
+          selected.path,
+          selected.extension,
+          config.usdLoadPolicy,
+        )
+      ) {
+        outcome.warnings.push(
+          "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
+        );
+        return outcome;
+      }
+      throw new Error(
+        `No renderable geometry was loaded from ${selected.fileName}.`,
+      );
+    }
 
     if (config.mode === "shot") {
+      await updateSparkRenderers(scene, camera);
       await settleFrames(renderer, scene, camera, 3);
       renderer.render(scene, camera);
       outcome.nonBlankCanvas = isRendererCanvasNonBlank(renderer);
@@ -294,7 +558,12 @@ export async function runShot(
       );
     }
   } catch (error) {
-    outcome.error = error instanceof Error ? error.message : String(error);
+    outcome.error = errorMessage(error, "Shot case failed.");
+    try {
+      await logError(`[shot] ${config.fileName}: ${outcome.error}`);
+    } catch {
+      // Shot/check mode still returns the error through its outcome.
+    }
   } finally {
     if (object) {
       scene.remove(object);

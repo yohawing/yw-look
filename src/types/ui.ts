@@ -58,6 +58,7 @@ export type ViewportToolIcon =
   | "overlay"
   | "palette"
   | "sceneLight"
+  | "shading"
   | "shadow"
   | "skeleton"
   | "texture"
@@ -77,6 +78,7 @@ export type ToolbarActionGroup =
   | "camera"
   | "channel"
   | "color"
+  | "display"
   | "inspect"
   | "look"
   | "overlay"
@@ -101,7 +103,15 @@ export type ToolbarAction = {
 
 export type ToolbarSeparator = { kind: "separator" };
 
-export type ToolbarItem = ToolbarAction | ToolbarSeparator;
+export type ToolbarStatus = {
+  id: string;
+  mode: ToolbarMode;
+  group: ToolbarActionGroup;
+  kind: "status";
+  label: string;
+};
+
+export type ToolbarItem = ToolbarAction | ToolbarSeparator | ToolbarStatus;
 
 // ── Viewer shortcuts ─────────────────────────────────────────────
 
@@ -117,12 +127,12 @@ export type ViewerShortcutAction =
   | "toggleGrid";
 
 export type ViewportShortcutCommand =
-  | { kind: "focusSelected"; selectionKey: string; version: number }
-  | { kind: "frameAll"; version: number }
-  | { kind: "resetView"; version: number }
-  | { kind: "hideSelected"; selectionKey: string; version: number }
-  | { kind: "isolateSelected"; selectionKey: string; version: number }
-  | { kind: "unhideAll"; version: number };
+  | { kind: "focusSelected"; selectionKey: string }
+  | { kind: "frameAll" }
+  | { kind: "resetView" }
+  | { kind: "hideSelected"; selectionKey: string }
+  | { kind: "isolateSelected"; selectionKey: string }
+  | { kind: "unhideAll" };
 
 export type ViewerShortcutState = {
   showTexture: boolean;
@@ -130,6 +140,9 @@ export type ViewerShortcutState = {
   showGrid: boolean;
   selectedMeshName: string | null;
   selectedUsdPrimPath: string | null;
+};
+
+export type ViewerShortcutResult = ViewerShortcutState & {
   viewportCommand: ViewportShortcutCommand | null;
 };
 

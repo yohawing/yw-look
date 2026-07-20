@@ -228,6 +228,62 @@
       }
     },
     {
+      "id": "fbx-urara-kiwamete-kawaii",
+      "name": "Urara Kiwamete Kawaii Dance Motion",
+      "kind": "manual",
+      "manualSource": "F:\\3dcg\\Motion\\NanamiUrara_Kiwametekawaii_DanceMotion\\Urara_KiwameteKawaii.fbx",
+      "sha256": "",
+      "sizeBytes": null,
+      "license": "NanamiUrara_Kiwametekawaii_DanceMotion private dance motion",
+      "tags": ["fbx", "animation", "motion", "private-regression"],
+      "ext": "fbx",
+      "path": "samples/private/fbx/NanamiUrara_Kiwametekawaii_DanceMotion/Urara_KiwameteKawaii.fbx",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 0
+      },
+      "bench": {
+        "runs": 30,
+        "timeoutMs": 180000,
+        "settleFrames": 12,
+        "screenshot": true,
+        "noAnimation": false,
+        "timeSeek": 0
+      }
+    },
+    {
+      "id": "fbx-maya2026-mocap-walk",
+      "name": "Maya 2026 Motion Capture Walk",
+      "kind": "manual",
+      "manualSource": "C:\\Program Files\\Autodesk\\Maya2026\\Examples\\Animation\\Motion_Capture\\FBX\\Walk.fbx",
+      "sha256": "",
+      "sizeBytes": null,
+      "license": "Autodesk Maya 2026 Examples (Autodesk license)",
+      "tags": [
+        "fbx",
+        "animation",
+        "motion-capture",
+        "bone-only",
+        "private-regression"
+      ],
+      "ext": "fbx",
+      "path": "samples/private/fbx/maya2026-motion-capture/Walk.fbx",
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true,
+        "minMeshCount": 0
+      },
+      "bench": {
+        "runs": 30,
+        "timeoutMs": 180000,
+        "settleFrames": 12,
+        "screenshot": true,
+        "noAnimation": false,
+        "timeSeek": 0
+      }
+    },
+    {
       "id": "pixar-kitchen-set",
       "name": "Pixar Kitchen Set",
       "kind": "zip",

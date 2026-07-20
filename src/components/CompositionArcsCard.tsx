@@ -9,7 +9,9 @@ import {
   SidebarKeyValueRows,
   SidebarSection,
   type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
+import { Badge, type BadgeVariant } from "./ui/Badge";
+import { Disclosure } from "./ui/Disclosure";
 
 type CompositionArcsCardProps = {
   inspection: StageInspection | null;
@@ -56,6 +58,12 @@ function kindLabel(kind: CompositionArcKind | undefined): string {
   }
 }
 
+function stateVariant(state: CompositionArc["state"]): BadgeVariant {
+  if (state === "missing") return "error";
+  if (state === "unloaded") return "neutral";
+  return "success";
+}
+
 type ArcSectionProps = {
   title: string;
   arcs: readonly CompositionArc[];
@@ -75,27 +83,36 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
       collapsible
       defaultOpen={false}
     >
-      <ul className="card-list">
+      <ul className="yl-status-list">
         {groups.map((group) => (
           <li key={group.sourcePrim}>
-            <details>
-              <summary className="card-path">
-                {group.sourcePrim}{" "}
-                <span className="muted">({group.arcs.length})</span>
-              </summary>
-              <ul className="card-list">
+            <Disclosure
+              variant="inline"
+              title={
+                <>
+                  {group.sourcePrim}{" "}
+                  <span className="muted">({group.arcs.length})</span>
+                </>
+              }
+              defaultOpen={false}
+            >
+              <ul className="yl-status-list">
                 {group.arcs.map((arc, i) => (
                   <li
                     key={`${arc.kind ?? ""}:${arc.assetPath}:${arc.targetPrim}:${i}`}
                     className={
-                      arc.state === "missing" ? "issue issue-error" : "issue"
+                      arc.state === "missing"
+                        ? "yl-status-row yl-status-row--error"
+                        : "yl-status-row"
                     }
                   >
                     <strong>{kindLabel(arc.kind)}</strong>
                     {arc.kind === "variantSelection" ? (
                       <>
                         {" "}
-                        <span className="badge badge-ok">{arc.targetPrim}</span>
+                        <Badge variant="success" size="sm">
+                          {arc.targetPrim}
+                        </Badge>
                       </>
                     ) : arc.kind === "inherits" ||
                       arc.kind === "specializes" ? (
@@ -110,21 +127,13 @@ function ArcSection({ title, arcs }: ArcSectionProps) {
                         {arc.targetPrim && <> @ {arc.targetPrim}</>}
                       </>
                     )}{" "}
-                    <span
-                      className={
-                        arc.state === "missing"
-                          ? "badge badge-error"
-                          : arc.state === "unloaded"
-                            ? "badge badge-muted"
-                            : "badge badge-ok"
-                      }
-                    >
+                    <Badge variant={stateVariant(arc.state)} size="sm">
                       {arc.state}
-                    </span>
+                    </Badge>
                   </li>
                 ))}
               </ul>
-            </details>
+            </Disclosure>
           </li>
         ))}
       </ul>
@@ -219,7 +228,7 @@ export function CompositionArcsCard({
 
   return (
     <SidebarSection
-      title="Composition Arcs"
+      title="Advanced: Composition Arcs"
       count={totalCount || undefined}
       collapsible
       defaultOpen={false}

@@ -130,10 +130,8 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let ref_flip =
-        FlipImageRgb8::with_data(ref_img.width(), ref_img.height(), &ref_img);
-    let test_flip =
-        FlipImageRgb8::with_data(test_img.width(), test_img.height(), &test_img);
+    let ref_flip = FlipImageRgb8::with_data(ref_img.width(), ref_img.height(), &ref_img);
+    let test_flip = FlipImageRgb8::with_data(test_img.width(), test_img.height(), &test_img);
 
     let error_map = flip(ref_flip, test_flip, args.pixels_per_degree);
     let mut pool = FlipPool::from_image(&error_map);
@@ -149,12 +147,9 @@ fn main() -> ExitCode {
 
     if let Some(ref path) = args.error_map {
         let visualized = error_map.apply_color_lut(&nv_flip::magma_lut());
-        let img = image::RgbImage::from_raw(
-            visualized.width(),
-            visualized.height(),
-            visualized.to_vec(),
-        )
-        .expect("error map dimensions");
+        let img =
+            image::RgbImage::from_raw(visualized.width(), visualized.height(), visualized.to_vec())
+                .expect("error map dimensions");
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -188,10 +183,7 @@ fn main() -> ExitCode {
         }
     }
 
-    println!(
-        "{}",
-        serde_json::to_string(&report).unwrap_or_default()
-    );
+    println!("{}", serde_json::to_string(&report).unwrap_or_default());
 
     if passed {
         ExitCode::SUCCESS

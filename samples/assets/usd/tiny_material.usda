@@ -3,7 +3,7 @@
     defaultPrim = "Root"
     upAxis = "Y"
     metersPerUnit = 0.01
-    doc = "yw-look Phase 2.E.1 fixture: single Mesh with a bound UsdPreviewSurface that authors only scalar inputs (no texture connections). Exercises the cpp backend's material-resolve path end-to-end."
+    doc = "yw-look Phase 2.E.1 fixture: single Mesh with a bound UsdPreviewSurface that authors only scalar inputs (no texture connections)."
 )
 
 def Xform "Root" (

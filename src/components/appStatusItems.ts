@@ -1,6 +1,5 @@
 import type { AppStatusBarItem } from "./AppStatusBar";
 import type { AssetMetadata } from "./assetMetadata";
-import type { PerformanceSnapshot } from "./PerformanceCard";
 import type { ViewerFeedback } from "./AssetViewport";
 import type { SelectedFile } from "../lib/files";
 
@@ -74,20 +73,10 @@ export function buildStatusLeftItems({
 
 export function buildStatusRightItems({
   currentFileSummary,
-  performanceSnapshot,
 }: {
   currentFileSummary: string;
-  performanceSnapshot: PerformanceSnapshot;
 }): AppStatusBarItem[] {
   const items: AppStatusBarItem[] = [];
-
-  if (performanceSnapshot.loadMs !== null) {
-    items.push({
-      id: "load",
-      content: `Load: ${performanceSnapshot.loadMs.toFixed(0)}ms`,
-      mono: true,
-    });
-  }
 
   if (currentFileSummary !== "none") {
     items.push({ id: "summary", content: currentFileSummary, mono: true });

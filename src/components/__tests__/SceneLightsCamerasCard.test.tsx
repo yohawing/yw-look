@@ -350,6 +350,29 @@ describe("SceneLightsCamerasCard – USD Lights section (#35)", () => {
     expect(getByText("ThreeLight")).toBeTruthy();
   });
 
+  it("reports USD light inspection failures without hiding fallback lights", () => {
+    const threeLights: LightEntry[] = [
+      {
+        id: "l1",
+        name: "ThreeLight",
+        type: "PointLight",
+        intensity: 1,
+        color: "#ffffff",
+      },
+    ];
+    const { getByText } = render(
+      <SceneLightsCamerasCard
+        lights={threeLights}
+        cameras={[]}
+        usdLights={undefined}
+        usdLightsError="Failed to inspect USD lights."
+      />,
+    );
+
+    expect(getByText("Failed to inspect USD lights.")).toBeTruthy();
+    expect(getByText("ThreeLight")).toBeTruthy();
+  });
+
   it("returns null when usdLights is empty and no Three.js lights or cameras", () => {
     const { container } = render(
       <SceneLightsCamerasCard lights={[]} cameras={[]} usdLights={[]} />,

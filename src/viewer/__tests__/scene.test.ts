@@ -11,6 +11,7 @@ import {
   InstancedMesh,
   Mesh,
   MeshBasicMaterial,
+  MeshNormalMaterial,
   MeshStandardMaterial,
   Scene,
   SkinnedMesh,
@@ -19,11 +20,97 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import {
   applyBackfaceCulling,
+  collectSceneTraversal,
   applyDisplayMode,
   applyShadows,
+  applySurfaceMaterialMode,
+  disposeObject,
+  getScaleWarning,
   applyUnlitMaterial,
   applyVertexColors,
+  traverseMeshesExcludingHelpers,
+  normalizeObjectScale,
 } from "../scene";
+import { syncMmdTransparentMaterialRenderState } from "../../packs";
+
+describe("load-time traversal snapshot", () => {
+  it("preserves disableAutoFrame normalization parity", () => {
+    const createSplatRoot = () => {
+      const root = new Group();
+      root.userData.disableAutoFrame = true;
+      root.userData.splatBoundsMaxDimension = 540;
+      return root;
+    };
+    const baselineRoot = createSplatRoot();
+    const snapshotRoot = createSplatRoot();
+    const traversal = collectSceneTraversal(snapshotRoot);
+
+    const baseline = normalizeObjectScale(baselineRoot);
+    const optimized = normalizeObjectScale(snapshotRoot, traversal);
+
+    expect(optimized).toEqual(baseline);
+    expect(optimized).toMatchObject({
+      applied: true,
+      factor: 0.1,
+      originalMaxDimension: 540,
+      normalizedMaxDimension: 540,
+    });
+  });
+
+  it("uses the normalization dimension for warnings without recomputing bounds", () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0]), 3),
+    );
+    const computeBoundsSpy = vi.spyOn(geometry, "computeBoundingBox");
+    const root = new Group().add(new Mesh(geometry, new MeshBasicMaterial()));
+
+    const warning = getScaleWarning(root, {
+      applied: false,
+      factor: 1,
+      originalMaxDimension: 0.0005,
+      normalizedMaxDimension: 0.0005,
+      originalScale: null,
+    });
+
+    expect(warning).toBe(
+      "Scale warning: the loaded content is extremely small.",
+    );
+    expect(computeBoundsSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("traverseMeshesExcludingHelpers", () => {
+  it("skips viewport helpers and supports optional outline and shadow catcher filters", () => {
+    const root = new Group();
+    const regular = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    const outlineMaterial = new MeshBasicMaterial();
+    outlineMaterial.userData.mmdOutlineMaterial = { materialIndex: 0 };
+    const outline = new Mesh(new BufferGeometry(), outlineMaterial);
+    const helperProxy = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    helperProxy.userData.__yw_wireframe_proxy = true;
+    const catcher = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    catcher.name = "__yw_shadow_catcher";
+    root.add(regular, outline, helperProxy, catcher);
+
+    const visited: Mesh[] = [];
+    traverseMeshesExcludingHelpers(root, (mesh) => visited.push(mesh));
+    expect(visited).toEqual([regular, catcher]);
+
+    const withOutline: Mesh[] = [];
+    traverseMeshesExcludingHelpers(root, (mesh) => withOutline.push(mesh), {
+      excludeMmdOutlineMeshes: false,
+    });
+    expect(withOutline).toEqual([regular, outline, catcher]);
+
+    const withoutCatcher: Mesh[] = [];
+    traverseMeshesExcludingHelpers(root, (mesh) => withoutCatcher.push(mesh), {
+      excludeShadowCatcher: true,
+    });
+    expect(withoutCatcher).toEqual([regular]);
+  });
+});
 
 describe("scene material display helpers", () => {
   it("renders textured wireframe as a mesh with a line overlay", () => {
@@ -317,6 +404,159 @@ describe("scene material display helpers", () => {
     expect(material.side).toBe(DoubleSide);
   });
 
+  it("forces single-pass rendering for double-sided transparent MMD materials", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.45,
+      side: FrontSide,
+    });
+    material.userData.mmdMaterial = { transparencyMode: "alphaBlend" };
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+
+    applyBackfaceCulling(root, false);
+
+    expect(material.side).toBe(DoubleSide);
+    expect(material.forceSinglePass).toBe(true);
+
+    applyBackfaceCulling(root, true);
+
+    expect(material.side).toBe(FrontSide);
+    expect(material.forceSinglePass).toBe(false);
+  });
+
+  it("prevents hidden MMD color-suppressed materials from writing depth", () => {
+    const material = new MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      side: DoubleSide,
+    });
+    material.colorWrite = false;
+    material.depthWrite = true;
+    material.userData.mmdMaterial = { transparencyMode: "alphaBlend" };
+
+    syncMmdTransparentMaterialRenderState(material);
+
+    expect(material.depthWrite).toBe(false);
+    expect(material.forceSinglePass).toBe(true);
+  });
+
+  it("prevents fully transparent MMD outline materials from writing depth", () => {
+    const material = new MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      side: BackSide,
+    });
+    material.depthWrite = true;
+    material.userData.mmdOutlineMaterial = { materialIndex: 0 };
+
+    syncMmdTransparentMaterialRenderState(material);
+
+    expect(material.depthWrite).toBe(false);
+  });
+
+  it("preserves MMD transparent render state when creating unlit materials", () => {
+    const root = new Group();
+    const material = new MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.45,
+      side: DoubleSide,
+    });
+    material.forceSinglePass = true;
+    material.userData.mmdMaterial = { transparencyMode: "alphaBlend" };
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+
+    applyUnlitMaterial(root, true);
+
+    const unlit = mesh.material as MeshBasicMaterial;
+    expect(unlit).not.toBe(material);
+    expect(unlit.userData.mmdMaterial).toBe(material.userData.mmdMaterial);
+    expect(unlit.transparent).toBe(true);
+    expect(unlit.side).toBe(DoubleSide);
+    expect(unlit.forceSinglePass).toBe(true);
+  });
+
+  it("disposes unlit originals without double-disposing shared map textures", () => {
+    const root = new Group();
+    const texture = new Texture();
+    const material = new MeshBasicMaterial({ map: texture });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+    const disposeTexture = vi.spyOn(texture, "dispose");
+    const disposeMaterial = vi.spyOn(material, "dispose");
+
+    applyUnlitMaterial(root, true);
+
+    const unlit = mesh.material as MeshBasicMaterial;
+    const disposeUnlit = vi.spyOn(unlit, "dispose");
+
+    disposeObject(root);
+
+    expect(disposeMaterial).toHaveBeenCalledTimes(1);
+    expect(disposeUnlit).toHaveBeenCalledTimes(1);
+    expect(disposeTexture).toHaveBeenCalledTimes(1);
+    expect(mesh.userData._ywUnlitOriginal).toBeUndefined();
+  });
+
+  it("disposes originalMap textures that are hidden by display mode", () => {
+    const root = new Group();
+    const texture = new Texture();
+    const material = new MeshBasicMaterial({ map: texture });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    root.add(mesh);
+    const disposeTexture = vi.spyOn(texture, "dispose");
+
+    applyDisplayMode(root, "untextured");
+
+    expect(material.map).toBeNull();
+    expect(material.userData.originalMap).toBe(texture);
+
+    disposeObject(root);
+
+    expect(disposeTexture).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes original textured materials when unlit is enabled in wireframe mode", () => {
+    const root = new Group();
+    const map = new Texture();
+    const normalMap = new Texture();
+    const material = new MeshStandardMaterial({ map, normalMap });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    mesh.geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    root.add(mesh);
+    const disposeMap = vi.spyOn(map, "dispose");
+    const disposeNormalMap = vi.spyOn(normalMap, "dispose");
+    const disposeMaterial = vi.spyOn(material, "dispose");
+
+    applyDisplayMode(root, "wireframe");
+    applyUnlitMaterial(root, true);
+
+    const wireframe = mesh.material as unknown as MeshBasicMaterial;
+    const unlit = mesh.userData.__yw_wireframe_original_material as
+      | MeshBasicMaterial
+      | MeshBasicMaterial[];
+    const disposeWireframe = vi.spyOn(wireframe, "dispose");
+    const disposeUnlit = vi.spyOn(
+      Array.isArray(unlit) ? unlit[0] : unlit,
+      "dispose",
+    );
+
+    disposeObject(root);
+
+    expect(disposeMaterial).toHaveBeenCalledTimes(1);
+    expect(disposeWireframe).toHaveBeenCalledTimes(1);
+    expect(disposeUnlit).toHaveBeenCalledTimes(1);
+    expect(disposeMap).toHaveBeenCalledTimes(1);
+    expect(disposeNormalMap).toHaveBeenCalledTimes(1);
+    expect(mesh.userData._ywUnlitOriginal).toBeUndefined();
+    expect(mesh.userData.__yw_wireframe_original_material).toBeUndefined();
+  });
+
   it("preserves vertex color toggles made while wireframe mode is active", () => {
     const root = new Group();
     const material = new MeshBasicMaterial();
@@ -404,5 +644,221 @@ describe("scene material display helpers", () => {
     expect(
       outline.children.filter((child) => child instanceof LineSegments),
     ).toHaveLength(0);
+  });
+});
+
+function createNormalGeometry() {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+  );
+  geometry.setAttribute(
+    "normal",
+    new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3),
+  );
+  return geometry;
+}
+
+describe("normal surface material mode", () => {
+  it("replaces a static mesh surface while preserving authored render state", () => {
+    const root = new Group();
+    const original = new MeshStandardMaterial({
+      depthTest: false,
+      depthWrite: false,
+      opacity: 0.42,
+      side: BackSide,
+      transparent: true,
+    });
+    original.visible = false;
+    original.colorWrite = false;
+    const mesh = new Mesh(createNormalGeometry(), original);
+    root.add(mesh);
+
+    applySurfaceMaterialMode(root, "normals");
+
+    const normal = mesh.material as unknown as MeshNormalMaterial;
+    expect(normal).toBeInstanceOf(MeshNormalMaterial);
+    expect(normal).not.toBe(original);
+    expect(normal.visible).toBe(false);
+    expect(normal.opacity).toBe(0.42);
+    expect(normal.transparent).toBe(true);
+    expect(normal.side).toBe(BackSide);
+    expect(normal.depthTest).toBe(false);
+    expect(normal.depthWrite).toBe(false);
+    expect(normal.colorWrite).toBe(false);
+    expect(root.children).toEqual([mesh]);
+
+    const disposeNormal = vi.spyOn(normal, "dispose");
+    applySurfaceMaterialMode(root, "shaded");
+
+    expect(mesh.material).toBe(original);
+    expect(disposeNormal).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the exact authored material array and disposes each temporary", () => {
+    const first = new MeshStandardMaterial({ side: FrontSide });
+    const second = new MeshBasicMaterial({ side: DoubleSide });
+    const authored = [first, second];
+    const mesh = new Mesh(createNormalGeometry(), authored);
+    const root = new Group().add(mesh);
+
+    applySurfaceMaterialMode(root, "normals");
+
+    const normals = mesh.material as unknown as MeshNormalMaterial[];
+    expect(normals).toHaveLength(2);
+    expect(
+      normals.every((material) => material instanceof MeshNormalMaterial),
+    ).toBe(true);
+    expect(normals[0].side).toBe(FrontSide);
+    expect(normals[1].side).toBe(DoubleSide);
+    const disposals = normals.map((material) => vi.spyOn(material, "dispose"));
+
+    applySurfaceMaterialMode(root, "shaded");
+
+    expect(mesh.material).toBe(authored);
+    expect(mesh.material[0]).toBe(first);
+    expect(mesh.material[1]).toBe(second);
+    for (const dispose of disposals) {
+      expect(dispose).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("keeps skinned and morph state on the rendered mesh", () => {
+    const original = new MeshStandardMaterial();
+    const mesh = new SkinnedMesh(createNormalGeometry(), original);
+    mesh.morphTargetDictionary = { smile: 0 };
+    mesh.morphTargetInfluences = [0.75];
+    const influences = mesh.morphTargetInfluences;
+    const dictionary = mesh.morphTargetDictionary;
+    const geometry = mesh.geometry;
+    const root = new Group().add(mesh);
+
+    applySurfaceMaterialMode(root, "normals");
+
+    expect(mesh.material).toBeInstanceOf(MeshNormalMaterial);
+    expect(mesh).toBeInstanceOf(SkinnedMesh);
+    expect(mesh.geometry).toBe(geometry);
+    expect(mesh.morphTargetDictionary).toBe(dictionary);
+    expect(mesh.morphTargetInfluences).toBe(influences);
+
+    applySurfaceMaterialMode(root, "shaded");
+    expect(mesh.material).toBe(original);
+  });
+
+  it("keeps MMD outline meshes authored while replacing regular surfaces", () => {
+    const regularMaterial = new MeshStandardMaterial();
+    const outlineMaterial = new MeshBasicMaterial();
+    outlineMaterial.userData.mmdOutlineMaterial = { materialIndex: 0 };
+    const regular = new Mesh(createNormalGeometry(), regularMaterial);
+    const outline = new Mesh(createNormalGeometry(), outlineMaterial);
+    const root = new Group().add(regular, outline);
+
+    applySurfaceMaterialMode(root, "normals");
+
+    expect(regular.material).toBeInstanceOf(MeshNormalMaterial);
+    expect(outline.material).toBe(outlineMaterial);
+
+    applySurfaceMaterialMode(root, "shaded");
+    expect(regular.material).toBe(regularMaterial);
+    expect(outline.material).toBe(outlineMaterial);
+  });
+
+  it("keeps wireframe overlay and only as independent layers", () => {
+    const original = new MeshStandardMaterial();
+    const mesh = new Mesh(createNormalGeometry(), original);
+    const root = new Group().add(mesh);
+
+    applySurfaceMaterialMode(root, "normals");
+    const normal = mesh.material;
+    applyDisplayMode(root, "texturedWireframe");
+
+    expect(mesh.material).toBe(normal);
+    expect(mesh.children.some((child) => child instanceof LineSegments)).toBe(
+      true,
+    );
+
+    applyDisplayMode(root, "wireframe");
+    expect(mesh.material).toBeInstanceOf(MeshBasicMaterial);
+    expect((mesh.material as unknown as MeshBasicMaterial).wireframe).toBe(
+      true,
+    );
+
+    applyDisplayMode(root, "textured");
+    expect(mesh.material).toBe(normal);
+
+    applyDisplayMode(root, "wireframe");
+    applySurfaceMaterialMode(root, "shaded");
+    expect((mesh.material as unknown as MeshBasicMaterial).wireframe).toBe(
+      true,
+    );
+    applyDisplayMode(root, "textured");
+    expect(mesh.material).toBe(original);
+  });
+
+  it("restores authored references through forward and reverse surface switching", () => {
+    const original = new MeshStandardMaterial({ vertexColors: false });
+    const mesh = new Mesh(createNormalGeometry(), original);
+    mesh.geometry.setAttribute(
+      "color",
+      new BufferAttribute(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), 3),
+    );
+    const root = new Group().add(mesh);
+
+    for (const mode of [
+      "normals",
+      "unlit",
+      "vertexColors",
+      "shaded",
+      "vertexColors",
+      "unlit",
+      "normals",
+      "shaded",
+    ] as const) {
+      applySurfaceMaterialMode(root, mode);
+      if (mode === "normals") {
+        expect(mesh.material).toBeInstanceOf(MeshNormalMaterial);
+      } else if (mode === "unlit") {
+        expect(mesh.material).toBeInstanceOf(MeshBasicMaterial);
+        expect(mesh.material).not.toBe(original);
+      } else {
+        expect(mesh.material).toBe(original);
+        expect(original.vertexColors).toBe(mode === "vertexColors");
+      }
+    }
+  });
+
+  it("updates backface state underneath normals and restores it", () => {
+    const original = new MeshStandardMaterial({ side: BackSide });
+    const mesh = new Mesh(createNormalGeometry(), original);
+    const root = new Group().add(mesh);
+
+    applySurfaceMaterialMode(root, "normals");
+    applyBackfaceCulling(root, false);
+    expect((mesh.material as unknown as MeshNormalMaterial).side).toBe(
+      DoubleSide,
+    );
+    expect(original.side).toBe(DoubleSide);
+
+    applySurfaceMaterialMode(root, "shaded");
+    expect(mesh.material).toBe(original);
+    expect(original.side).toBe(DoubleSide);
+    applyBackfaceCulling(root, true);
+    expect(original.side).toBe(BackSide);
+  });
+
+  it("disposes temporary and authored materials once during asset disposal", () => {
+    const original = new MeshStandardMaterial();
+    const mesh = new Mesh(createNormalGeometry(), original);
+    const root = new Group().add(mesh);
+    applySurfaceMaterialMode(root, "normals");
+    const normal = mesh.material as unknown as MeshNormalMaterial;
+    const disposeOriginal = vi.spyOn(original, "dispose");
+    const disposeNormal = vi.spyOn(normal, "dispose");
+
+    disposeObject(root);
+
+    expect(disposeOriginal).toHaveBeenCalledTimes(1);
+    expect(disposeNormal).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,5 +1,7 @@
-import { invoke } from "@tauri-apps/api/core";
-import { readBinaryFile } from "./files";
+import { readBinaryFile, readBinaryFilePrefix } from "./files";
+import { errorMessage } from "./errors";
+import { invokeSafe } from "./invokeSafe";
+import { isTauriEnvironment } from "./platform";
 
 import type {
   StageLoadPolicy,
@@ -15,7 +17,6 @@ import type {
   ExtractGeometryOptions,
   StageSessionHandle,
   UsdSourcePayload,
-  AppError,
 } from "../types/ipc";
 
 export type {
@@ -50,23 +51,26 @@ export type {
 } from "../types/ipc";
 
 const INVALID_VARIANT_SELECTION_PREFIX = "USD_INVALID_VARIANT_SELECTION\t";
+const USD_TASK_BUSY_MESSAGE = "USD_TASK_BUSY";
+const USD_FAST_DECISION_SCAN_BYTES = 64 * 1024;
+const USDC_MAGIC = new TextEncoder().encode("PXR-USDC");
+const USD_COMPOSITION_KEYWORDS = ["subLayers", "references", "payload"].map(
+  (keyword) => new TextEncoder().encode(keyword),
+);
 
-function tauriErrorMessage(error: unknown): string | null {
-  if (typeof error === "string") return error;
-  if (error instanceof Error) return error.message;
-  if (isAppError(error)) return error.message;
-  return null;
-}
+type UsdInvokeOptions = {
+  background?: boolean;
+};
 
-function isAppError(error: unknown): error is AppError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "kind" in error &&
-    "message" in error &&
-    typeof (error as Record<string, unknown>).kind === "string" &&
-    typeof (error as Record<string, unknown>).message === "string"
-  );
+async function invokeUsd<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  const result = await invokeSafe<T>(cmd, args);
+  if (!result.ok) {
+    throw result.error;
+  }
+  return result.value;
 }
 
 export function isInvalidVariantSelectionError(
@@ -76,8 +80,8 @@ export function isInvalidVariantSelectionError(
 }
 
 export function parseUsdError(error: unknown): UsdTypedError | null {
-  const message = tauriErrorMessage(error);
-  if (!message?.startsWith(INVALID_VARIANT_SELECTION_PREFIX)) {
+  const message = errorMessage(error, "");
+  if (!message.startsWith(INVALID_VARIANT_SELECTION_PREFIX)) {
     return null;
   }
 
@@ -113,33 +117,43 @@ export function formatUsdErrorForDisplay(
     return `Variant selection failed: ${parsed.setName}=${parsed.variantName} on ${parsed.primPath}`;
   }
 
-  return tauriErrorMessage(error) ?? fallback;
+  return errorMessage(error, fallback);
 }
 
-export async function inspectUsdLights(path: string): Promise<UsdLightInfo[]> {
-  return invoke<UsdLightInfo[]>("inspect_usd_lights", { path });
+export function isUsdTaskBusyError(error: unknown): boolean {
+  return errorMessage(error, "") === USD_TASK_BUSY_MESSAGE;
+}
+
+export async function inspectUsdLights(
+  path: string,
+  invokeOptions?: UsdInvokeOptions,
+): Promise<UsdLightInfo[]> {
+  return invokeUsd<UsdLightInfo[]>("inspect_usd_lights", {
+    path,
+    background: invokeOptions?.background,
+  });
 }
 
 /**
  * #28 — inspect the attributes, relationships, and metadata for the
  * prim at `primPath` inside the USD file at `path`.
  *
- * Only available on the C++ backend; the Rust fork backend returns an
+ * The current Rust backend does not expose this inspector API and returns an
  * error, which this wrapper re-throws so callers can handle gracefully.
  */
 export async function inspectPrim(
   path: string,
   primPath: string,
 ): Promise<PrimInspection> {
-  return invoke<PrimInspection>("inspect_prim", { path, primPath });
+  return invokeUsd<PrimInspection>("inspect_prim", { path, primPath });
 }
 
 /**
  * #37 — fetch up to `maxSamples` time samples for the named attribute
  * on the prim at `primPath` inside the USD file at `path`.
  *
- * `maxSamples` defaults to 100 on the Rust side when omitted.
- * Only available on the C++ backend; the Rust fork returns an error.
+ * `maxSamples` defaults to 100 on the Rust side when omitted. The current
+ * backend returns an error because this inspector API is not implemented.
  */
 export async function inspectAttributeTimeSamples(
   path: string,
@@ -147,7 +161,7 @@ export async function inspectAttributeTimeSamples(
   attrName: string,
   maxSamples?: number,
 ): Promise<AttributeTimeSamples> {
-  return invoke<AttributeTimeSamples>("inspect_attribute_time_samples", {
+  return invokeUsd<AttributeTimeSamples>("inspect_attribute_time_samples", {
     path,
     primPath,
     attrName,
@@ -155,16 +169,50 @@ export async function inspectAttributeTimeSamples(
   });
 }
 
-export async function inspectStage(path: string, policy?: StageLoadPolicy) {
-  return invoke<StageInspection>("inspect_stage", { path, policy });
+export async function inspectStage(
+  path: string,
+  policy?: StageLoadPolicy,
+  invokeOptions?: UsdInvokeOptions,
+) {
+  return invokeUsd<StageInspection>("inspect_stage", {
+    path,
+    policy,
+    background: invokeOptions?.background,
+  });
 }
 
-export async function summarizeStage(path: string, policy?: StageLoadPolicy) {
-  return invoke<StageSummary>("summarize_stage", { path, policy });
+export async function summarizeStage(
+  path: string,
+  policy?: StageLoadPolicy,
+  invokeOptions?: UsdInvokeOptions,
+) {
+  return invokeUsd<StageSummary>("summarize_stage", {
+    path,
+    policy,
+    background: invokeOptions?.background,
+  });
 }
 
-export async function collectAssetIssues(path: string) {
-  return invoke<AssetIssue[]>("collect_asset_issues", { path });
+export function inspectionHasDeferredPayloads(
+  inspection: Pick<StageInspection, "payloads">,
+): boolean {
+  return inspection.payloads.some((arc) => arc.state === "unloaded");
+}
+
+export function deferredSummaryHasNoRenderableGeometry(
+  summary: Pick<StageSummary, "totalVertices" | "unloadedPayloadCount">,
+): boolean {
+  return summary.unloadedPayloadCount > 0 && summary.totalVertices === 0;
+}
+
+export async function collectAssetIssues(
+  path: string,
+  invokeOptions?: UsdInvokeOptions,
+) {
+  return invokeUsd<AssetIssue[]>("collect_asset_issues", {
+    path,
+    background: invokeOptions?.background,
+  });
 }
 
 /**
@@ -185,6 +233,40 @@ function extensionFromPath(path: string) {
   return path.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() ?? "";
 }
 
+function bytesStartWith(bytes: Uint8Array, prefix: Uint8Array) {
+  if (bytes.byteLength < prefix.byteLength) {
+    return false;
+  }
+  return prefix.every((value, index) => bytes[index] === value);
+}
+
+function bytesInclude(bytes: Uint8Array, needle: Uint8Array) {
+  if (needle.byteLength === 0 || needle.byteLength > bytes.byteLength) {
+    return false;
+  }
+
+  const lastStart = bytes.byteLength - needle.byteLength;
+  for (let start = 0; start <= lastStart; start += 1) {
+    let matched = true;
+    for (let offset = 0; offset < needle.byteLength; offset += 1) {
+      if (bytes[start + offset] !== needle[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function bytesIncludeUsdCompositionKeyword(bytes: Uint8Array) {
+  return USD_COMPOSITION_KEYWORDS.some((keyword) =>
+    bytesInclude(bytes, keyword),
+  );
+}
+
 async function fastTextUsdRequiresGlbPreview(path: string) {
   const extension = extensionFromPath(path);
   if (extension === "usdc") {
@@ -198,16 +280,24 @@ async function fastTextUsdRequiresGlbPreview(path: string) {
   }
 
   try {
-    const buffer = new Uint8Array(await readBinaryFile(path));
-    if (new TextDecoder().decode(buffer.slice(0, 8)) === "PXR-USDC") {
+    const prefix = new Uint8Array(
+      await readBinaryFilePrefix(path, USD_FAST_DECISION_SCAN_BYTES),
+    );
+    if (bytesStartWith(prefix, USDC_MAGIC)) {
       return true;
     }
-    const source = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-    return (
-      source.includes("subLayers") ||
-      source.includes("references") ||
-      source.includes("payload")
-    );
+    if (bytesIncludeUsdCompositionKeyword(prefix)) {
+      return true;
+    }
+    if (prefix.byteLength < USD_FAST_DECISION_SCAN_BYTES) {
+      return false;
+    }
+    if (isTauriEnvironment()) {
+      return null;
+    }
+
+    const buffer = new Uint8Array(await readBinaryFile(path));
+    return bytesIncludeUsdCompositionKeyword(buffer);
   } catch {
     return null;
   }
@@ -218,7 +308,7 @@ export async function requiresGlbPreview(path: string) {
   if (fastDecision !== null) {
     return fastDecision;
   }
-  return invoke<boolean>("requires_glb_preview", { path });
+  return invokeUsd<boolean>("requires_glb_preview", { path });
 }
 
 export async function loadUsdSource(
@@ -241,7 +331,7 @@ export async function loadUsdSource(
 }
 
 export async function backendCapabilities(): Promise<BackendCapabilities> {
-  return invoke<BackendCapabilities>("backendCapabilities");
+  return invokeUsd<BackendCapabilities>("backend_capabilities");
 }
 
 /**
@@ -249,12 +339,12 @@ export async function backendCapabilities(): Promise<BackendCapabilities> {
  * equivalent to `usdcat --flatten`. Every reference, payload, and sublayer
  * is composed and inlined into the returned string.
  *
- * Only implemented on the C++ backend. On the Rust backend the promise
- * rejects with a descriptive error — callers should handle that case
- * gracefully (e.g. keep the "Binary stage" placeholder).
+ * The current Rust backend does not implement source flattening, so the
+ * promise rejects with a descriptive error. Callers should keep the "Binary
+ * stage" placeholder in that case.
  */
 export async function flattenStage(path: string): Promise<string> {
-  return invoke<string>("flatten_stage", { path });
+  return invokeUsd<string>("flatten_stage", { path });
 }
 
 /**
@@ -272,19 +362,22 @@ export async function flattenStage(path: string): Promise<string> {
 export async function extractGeometry(
   path: string,
   policyOrOptions?: StageLoadPolicy | ExtractGeometryOptions,
+  invokeOptions?: UsdInvokeOptions,
 ) {
   // Backwards compatible: callers can still pass a bare policy string.
   // When an options object is supplied it goes through to the Tauri
   // command's `options` arg, which takes precedence over `policy`.
   if (typeof policyOrOptions === "object" && policyOrOptions !== null) {
-    return invoke<ArrayBuffer>("extract_geometry", {
+    return invokeUsd<ArrayBuffer>("extract_geometry", {
       path,
       options: policyOrOptions,
+      background: invokeOptions?.background,
     });
   }
-  return invoke<ArrayBuffer>("extract_geometry", {
+  return invokeUsd<ArrayBuffer>("extract_geometry", {
     path,
     policy: policyOrOptions,
+    background: invokeOptions?.background,
   });
 }
 
@@ -293,8 +386,13 @@ export async function extractGeometry(
 export async function openStageSession(
   path: string,
   policy?: StageLoadPolicy,
+  invokeOptions?: UsdInvokeOptions,
 ): Promise<StageSessionHandle> {
-  return invoke<StageSessionHandle>("open_stage_session", { path, policy });
+  return invokeUsd<StageSessionHandle>("open_stage_session", {
+    path,
+    policy,
+    background: invokeOptions?.background,
+  });
 }
 
 /**
@@ -304,33 +402,35 @@ export async function openStageSession(
 export async function closeStageSession(
   handle: StageSessionHandle,
 ): Promise<void> {
-  return invoke<void>("close_stage_session", { handle });
+  return invokeUsd<void>("close_stage_session", { handle });
 }
 
 /**
  * Loads the payload arc at `primPath` in the open stage identified by
  * `handle`. Descendants are loaded as well (`UsdLoadWithDescendants`).
  *
- * Only supported on the C++ backend; throws on the Rust-fork backend.
+ * The current Rust backend applies this request by reopening its session
+ * stage with the requested payload roots loaded.
  */
 export async function loadPayload(
   handle: StageSessionHandle,
   primPath: string,
 ): Promise<void> {
-  return invoke<void>("load_payload", { handle, primPath });
+  return invokeUsd<void>("load_payload", { handle, primPath });
 }
 
 /**
  * Unloads the payload arc at `primPath` in the open stage identified by
  * `handle`.
  *
- * Only supported on the C++ backend; throws on the Rust-fork backend.
+ * The current Rust backend applies this request by reopening its session
+ * stage without the requested payload roots.
  */
 export async function unloadPayload(
   handle: StageSessionHandle,
   primPath: string,
 ): Promise<void> {
-  return invoke<void>("unload_payload", { handle, primPath });
+  return invokeUsd<void>("unload_payload", { handle, primPath });
 }
 
 /**
@@ -342,5 +442,8 @@ export async function extractGeometrySession(
   handle: StageSessionHandle,
   options?: ExtractGeometryOptions,
 ): Promise<ArrayBuffer> {
-  return invoke<ArrayBuffer>("extract_geometry_session", { handle, options });
+  return invokeUsd<ArrayBuffer>("extract_geometry_session", {
+    handle,
+    options,
+  });
 }

@@ -13,6 +13,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { HierarchyCard } from "../HierarchyCard";
 import type { HierarchyNode, ObjectInfo } from "../assetMetadata";
+import {
+  formatPackMorphTargetMeta,
+  getPackSelectedObjectDetails,
+} from "../../packs";
+import { KeyValueRows } from "../ui/KeyValueRows";
 
 const tree: HierarchyNode[] = [
   {
@@ -52,6 +57,17 @@ const faceInfo: ObjectInfo = {
   userData: null,
   mmdBone: null,
 };
+
+function renderPackSelectedObjectDetails(objectInfo: ObjectInfo | null) {
+  const details = getPackSelectedObjectDetails(objectInfo);
+  if (!details) return null;
+  return (
+    <div className="selected-mmd-section">
+      <div className="selected-mmd-head">{details.title}</div>
+      <KeyValueRows density="regular" rows={details.rows} />
+    </div>
+  );
+}
 
 describe("HierarchyCard selection sync (#33)", () => {
   afterEach(() => {
@@ -188,6 +204,9 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(getByText("Face_Mat")).toBeTruthy();
     const mouth = getByLabelText("Shape key mouth_A") as HTMLInputElement;
     expect(mouth.value).toBe("0.2");
+    expect(mouth.classList.contains("yl-slider-field__control")).toBe(true);
+    expect(mouth.style.getPropertyValue("--yl-slider-progress")).toBe("20%");
+    expect(mouth.closest(".selected-morph-row")).toBeTruthy();
 
     fireEvent.change(mouth, { target: { value: "0.42" } });
     expect(onMorphTargetChange).toHaveBeenCalledWith("Face", 1, 0.42);
@@ -217,16 +236,18 @@ describe("HierarchyCard selection sync (#33)", () => {
       { name: "Face", kind: "mesh", children: [] },
     ];
 
-    const { getByText } = render(
+    const { getByText, getByTitle } = render(
       <HierarchyCard
         hierarchy={faceTree}
         objectInfo={{ Face: mmdFaceInfo }}
         selectedName="Face"
+        renderMorphTargetMeta={formatPackMorphTargetMeta}
       />,
     );
 
     expect(getByText("笑い")).toBeTruthy();
-    expect(getByText("group · smile · group:2 flip:1")).toBeTruthy();
+    expect(getByText("G")).toBeTruthy();
+    expect(getByTitle("group · smile · group:2 flip:1")).toBeTruthy();
   });
 
   it("resets every morph target to zero", () => {
@@ -316,6 +337,7 @@ describe("HierarchyCard selection sync (#33)", () => {
         hierarchy={boneTree}
         objectInfo={{ Arm_EN: boneInfo }}
         selectedName="Arm_EN"
+        renderSelectedObjectDetails={renderPackSelectedObjectDetails}
       />,
     );
 

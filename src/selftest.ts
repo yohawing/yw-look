@@ -25,12 +25,14 @@ import {
   type LoadingManager,
 } from "three";
 import type { DDSLoader as DDSLoaderClass } from "three/examples/jsm/loaders/DDSLoader.js";
+import { errorMessage } from "./lib/errors";
 
 type SampleCase = {
   id: string;
   kind: "model" | "texture";
   format: string;
   path: string;
+  private?: boolean;
   expect?: {
     shouldLoad?: boolean;
     hasAnimation?: boolean;
@@ -421,23 +423,25 @@ function validateExpectations(sample: SampleCase, object: Group | Mesh) {
 async function main() {
   const manifestResponse = await fetch("/samples/manifest.json");
   const manifest = (await manifestResponse.json()) as Manifest;
-  const supportedCases = manifest.cases.filter((sample) =>
-    [
-      "glb",
-      "gltf",
-      "fbx",
-      "obj",
-      "ply",
-      "stl",
-      "dae",
-      "png",
-      "jpg",
-      "jpeg",
-      "tga",
-      "dds",
-      "hdr",
-      "exr",
-    ].includes(sample.format),
+  const supportedCases = manifest.cases.filter(
+    (sample) =>
+      !sample.private &&
+      [
+        "glb",
+        "gltf",
+        "fbx",
+        "obj",
+        "ply",
+        "stl",
+        "dae",
+        "png",
+        "jpg",
+        "jpeg",
+        "tga",
+        "dds",
+        "hdr",
+        "exr",
+      ].includes(sample.format),
   );
 
   const results: CaseResult[] = [];
@@ -468,7 +472,7 @@ async function main() {
         format: sample.format,
         path: sample.path,
         ok: false,
-        detail: error instanceof Error ? error.message : String(error),
+        detail: errorMessage(error, "Sample load failed."),
       });
     }
 
@@ -589,7 +593,7 @@ async function runSingleModelMode(rawPath: string) {
       ok: false,
       format,
       path: rawPath,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error, "Preview load failed."),
     });
   }
 }
@@ -601,13 +605,13 @@ if (singlePath) {
   runSingleModelMode(singlePath).catch((error) => {
     setOutput({
       mode: "single",
-      fatal: error instanceof Error ? error.message : String(error),
+      fatal: errorMessage(error, "Single model selftest failed."),
     });
   });
 } else {
   main().catch((error) => {
     setOutput({
-      fatal: error instanceof Error ? error.message : String(error),
+      fatal: errorMessage(error, "Selftest failed."),
     });
   });
 }

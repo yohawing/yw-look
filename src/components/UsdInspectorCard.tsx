@@ -7,13 +7,19 @@ import type {
   StageSummary,
   VariantSelection,
 } from "../lib/usd";
+import { Badge, Disclosure, SegmentedControl, SelectField } from "./ui";
 import {
   SidebarEmpty,
   SidebarError,
   SidebarKeyValueRows,
   SidebarSection,
   type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
+
+const loadPolicyOptions = [
+  { value: "loadAll", label: "Loaded" },
+  { value: "noPayloads", label: "Deferred" },
+] as const;
 
 /** Pretty-print a numeric metadatum, falling back to "(default)" when
  * the stage didn't author the field. The fallback wording is shared
@@ -29,21 +35,22 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
   const hasOffset = layer.timeOffset !== 0 || layer.timeScale !== 1;
   return (
     <li
-      className="usd-layer-row"
-      title={layer.identifier}
+      className="yl-list-row yl-list-row--indented"
       style={{ "--layer-depth": layer.depth } as CSSProperties}
     >
-      <div className="usd-layer-main">
-        <span className="usd-layer-prefix">
+      <div className="yl-list-row__main">
+        <span className="yl-list-row__label">
           {layer.depth === 0 ? "root" : "↳ sublayer"}
         </span>
         {layer.muted && (
-          <span
-            className="badge badge-error usd-inspector-chip"
-            title="This layer is muted and does not contribute to the composed stage"
+          <Badge
+            className="usd-inspector-badge"
+            variant="error"
+            size="sm"
+            uppercase
           >
             muted
-          </span>
+          </Badge>
         )}
         {hasOffset && (
           <span className="usd-inspector-note">
@@ -53,14 +60,13 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
           </span>
         )}
       </div>
-      <div className="usd-inspector-path">
+      <div className="yl-list-row__path">
         {shortLayerLabel(layer.identifier)}
       </div>
       {layer.comment && (
-        <details className="usd-layer-comment">
-          <summary>comment</summary>
-          <p>{layer.comment}</p>
-        </details>
+        <Disclosure variant="minimal" title="comment" defaultOpen={false}>
+          <p className="usd-layer-comment-text">{layer.comment}</p>
+        </Disclosure>
       )}
     </li>
   );
@@ -122,7 +128,7 @@ type UsdInspectorCardProps = {
    * #31: called when the user selects a different variant in the
    * inspector pulldown. The parent (App.tsx) accumulates selections
    * and re-triggers geometry extraction.
-   * Only wired when the backend can enumerate variants (C++ path).
+   * Only wired when the backend can enumerate variants.
    */
   onVariantChange?: (
     primPath: string,
@@ -152,32 +158,13 @@ export function UsdInspectorCard({
   return (
     <SidebarSection title="USD Details" collapsible defaultOpen={false}>
       {showControl && (
-        <div
-          className="segmented-control"
-          role="group"
+        <SegmentedControl
           aria-label="USD load policy"
-        >
-          <button
-            type="button"
-            className={`segmented-option${
-              loadPolicy === "loadAll" ? " is-active" : ""
-            }`}
-            aria-pressed={loadPolicy === "loadAll"}
-            onClick={() => onLoadPolicyChange("loadAll")}
-          >
-            Loaded
-          </button>
-          <button
-            type="button"
-            className={`segmented-option${
-              loadPolicy === "noPayloads" ? " is-active" : ""
-            }`}
-            aria-pressed={loadPolicy === "noPayloads"}
-            onClick={() => onLoadPolicyChange("noPayloads")}
-          >
-            Deferred
-          </button>
-        </div>
+          onValueChange={onLoadPolicyChange}
+          options={loadPolicyOptions}
+          size="sm"
+          value={loadPolicy}
+        />
       )}
       {error ? (
         <SidebarError>{error}</SidebarError>
@@ -297,7 +284,7 @@ export function UsdInspectorCard({
           {inspection && (
             <>
               <SidebarSection
-                title="Stage Metadata"
+                title="Advanced: Stage Metadata"
                 collapsible
                 defaultOpen={false}
               >
@@ -376,12 +363,12 @@ export function UsdInspectorCard({
                 ? inspection.layers
                 : null) !== null && inspection.layers!.length > 0 ? (
                 <SidebarSection
-                  title="Layer Stack"
+                  title="Advanced: Layer Stack"
                   count={inspection.layers!.length}
                   collapsible
                   defaultOpen={false}
                 >
-                  <ul className="usd-layer-list">
+                  <ul className="yl-list">
                     {inspection.layers!.map((layer, i) => (
                       <LayerRow
                         key={`${layer.identifier}:${i}`}
@@ -392,31 +379,30 @@ export function UsdInspectorCard({
                 </SidebarSection>
               ) : inspection.composedLayers.length > 0 ? (
                 <SidebarSection
-                  title="Layer Stack"
+                  title="Advanced: Layer Stack"
                   count={inspection.composedLayers.length + 1}
                   collapsible
                   defaultOpen={false}
                 >
-                  <ul className="usd-layer-list">
-                    <li className="usd-layer-row" title={inspection.path}>
-                      <div className="usd-layer-main">
-                        <span className="usd-layer-prefix">root</span>
+                  <ul className="yl-list">
+                    <li className="yl-list-row yl-list-row--indented">
+                      <div className="yl-list-row__main">
+                        <span className="yl-list-row__label">root</span>
                       </div>
-                      <div className="usd-inspector-path">
+                      <div className="yl-list-row__path">
                         {shortLayerLabel(inspection.path)}
                       </div>
                     </li>
                     {inspection.composedLayers.map((layer, i) => (
                       <li
                         key={`${layer}:${i}`}
-                        className="usd-layer-row"
-                        title={layer}
+                        className="yl-list-row yl-list-row--indented"
                         style={{ "--layer-depth": 1 } as CSSProperties}
                       >
-                        <div className="usd-layer-main">
-                          <span className="usd-layer-prefix">↳</span>
+                        <div className="yl-list-row__main">
+                          <span className="yl-list-row__label">↳</span>
                         </div>
-                        <div className="usd-inspector-path">
+                        <div className="yl-list-row__path">
                           {shortLayerLabel(layer)}
                         </div>
                       </li>
@@ -434,7 +420,7 @@ export function UsdInspectorCard({
                   {variantSelectionError && (
                     <SidebarError>{variantSelectionError}</SidebarError>
                   )}
-                  <ul className="usd-variant-list">
+                  <ul className="yl-list">
                     {inspection.variantSets.map((vs, i) => {
                       // Resolve the currently active selection: prefer
                       // the overridden value from variantSelections state
@@ -461,13 +447,16 @@ export function UsdInspectorCard({
                       return (
                         <li
                           key={`${vs.primPath}:${vs.setName}:${i}`}
-                          className="usd-variant-row"
+                          className="yl-list-row"
                         >
-                          <div className="usd-variant-main">
-                            <strong>{vs.setName}</strong>
+                          <div className="yl-list-row__main">
+                            <strong className="yl-list-row__label">
+                              {vs.setName}
+                            </strong>
                             {canSwitch ? (
-                              <select
-                                className="variant-select"
+                              <SelectField
+                                className="usd-variant-select"
+                                selectClassName="usd-variant-select__control"
                                 value={activeSelection}
                                 onChange={(e) =>
                                   onVariantChange(
@@ -476,23 +465,26 @@ export function UsdInspectorCard({
                                     e.target.value,
                                   )
                                 }
-                                title={`Switch variant set "${vs.setName}" on ${vs.primPath}`}
                               >
                                 {vs.variants.map((v) => (
                                   <option key={v} value={v}>
                                     {v}
                                   </option>
                                 ))}
-                              </select>
+                              </SelectField>
                             ) : (
                               activeSelection && (
-                                <span className="badge badge-ok usd-inspector-chip">
+                                <Badge
+                                  className="usd-inspector-badge"
+                                  variant="success"
+                                  size="sm"
+                                >
                                   {activeSelection}
-                                </span>
+                                </Badge>
                               )
                             )}
                           </div>
-                          <div className="usd-inspector-path">
+                          <div className="yl-list-row__path">
                             <span aria-hidden="true">@ </span>
                             {vs.primPath}
                           </div>
@@ -523,11 +515,11 @@ export function UsdInspectorCard({
               collapsible
               defaultOpen={false}
             >
-              <ul className="card-list">
+              <ul className="yl-status-list">
                 {issues.map((issue) => (
                   <li
                     key={`${issue.code}:${issue.contextPath ?? ""}:${issue.message}`}
-                    className={`issue issue-${issue.level}`}
+                    className={`yl-status-row yl-status-row--${issue.level}`}
                   >
                     <strong>{issue.code}</strong>: {issue.message}
                   </li>

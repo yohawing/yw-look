@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "description": "Private real-load fixture regression catalog for yw-look asset loading. Catalog metadata is committed; private assets remain gitignored.",
+  "cases": [
+    {
+      "id": "splat-nike",
+      "category": "private-real-load",
+      "path": "samples/private/splat/nike.splat",
+      "format": "splat",
+      "assetKind": "gaussianSplat",
+      "requiresLoader": "spark",
+      "private": true,
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true
+      }
+    },
+    {
+      "id": "vrm-constraint-twist",
+      "category": "private-real-load",
+      "path": "samples/private/vrm/VRM1_Constraint_Twist_Sample.vrm",
+      "format": "vrm",
+      "assetKind": "mesh",
+      "private": true,
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true
+      }
+    },
+    {
+      "id": "abc-monkey",
+      "category": "private-real-load",
+      "path": "samples/private/abc/monkey.abc",
+      "format": "abc",
+      "assetKind": "mesh",
+      "private": true,
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true
+      }
+    },
+    {
+      "id": "usdz-toy-biplane",
+      "category": "private-real-load",
+      "path": "samples/private/usdz/toy_biplane.usdz",
+      "format": "usdz",
+      "assetKind": "mesh",
+      "private": true,
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true
+      }
+    },
+    {
+      "id": "fbx-urara-kiwamete-kawaii",
+      "category": "private-real-load",
+      "path": "samples/private/fbx/NanamiUrara_Kiwametekawaii_DanceMotion/Urara_KiwameteKawaii.fbx",
+      "format": "fbx",
+      "private": true,
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true
+      }
+    },
+    {
+      "id": "fbx-maya2026-mocap-walk",
+      "category": "private-real-load",
+      "path": "samples/private/fbx/maya2026-motion-capture/Walk.fbx",
+      "format": "fbx",
+      "private": true,
+      "expect": {
+        "shouldLoad": true,
+        "nonBlankCanvas": true
+      }
+    }
+  ]
+}

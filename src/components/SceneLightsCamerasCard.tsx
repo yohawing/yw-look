@@ -1,19 +1,23 @@
-import type { CameraEntry, LightEntry } from "./assetMetadata";
+import { rgbToHex } from "../lib/format";
 import type { UsdLightInfo } from "../lib/usd";
+import type { CameraEntry, LightEntry } from "./assetMetadata";
 import {
+  SidebarError,
   SidebarKeyValueRows,
   SidebarSection,
   type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
+import { Badge, BadgeButton } from "./ui/Badge";
 
 type SceneLightsCamerasCardProps = {
   lights: LightEntry[];
   cameras: CameraEntry[];
-  /** #35 — USD light details fetched via the C++ backend. When present,
+  /** #35 — USD light details fetched via a USD backend. When present,
    * a "USD Lights" section is rendered alongside (or instead of) the
    * Three.js-derived light list. `undefined` means the data has not
-   * been fetched yet or is unavailable (Rust-fork backend). */
+   * been fetched yet or is unavailable. */
   usdLights?: UsdLightInfo[];
+  usdLightsError?: string | null;
   /** Stable composite key (`CameraEntry.id`) of the USD camera currently
    * used as the active viewport camera. `null` means the default free-
    * orbit camera is active. The id is `cameraSelectionKey()` output —
@@ -39,27 +43,20 @@ function formatAspect(aspect: number | null): string {
   return aspect === null ? "—" : aspect.toFixed(3);
 }
 
-/** Convert a linear [0,1] float to a 2-digit hex string. */
-function linearToHex(v: number): string {
-  const clamped = Math.max(0, Math.min(1, v));
-  return Math.round(clamped * 255)
-    .toString(16)
-    .padStart(2, "0");
-}
-
-/** Format a linearized RGB triple as a CSS hex color string. */
-function rgbToHex(r: number, g: number, b: number): string {
-  return `#${linearToHex(r)}${linearToHex(g)}${linearToHex(b)}`;
-}
-
 export function SceneLightsCamerasCard({
   lights,
   cameras,
   usdLights,
+  usdLightsError = null,
   activeCameraId = null,
   onSelectCamera,
 }: SceneLightsCamerasCardProps) {
-  if (lights.length === 0 && cameras.length === 0 && !usdLights?.length) {
+  if (
+    lights.length === 0 &&
+    cameras.length === 0 &&
+    !usdLights?.length &&
+    !usdLightsError
+  ) {
     return null;
   }
 
@@ -76,8 +73,9 @@ export function SceneLightsCamerasCard({
   return (
     <SidebarSection title="Scene" collapsible defaultOpen={false}>
       <SidebarKeyValueRows rows={summaryRows} />
+      {usdLightsError ? <SidebarError>{usdLightsError}</SidebarError> : null}
 
-      {/* #35 — USD Lights section (C++ backend only) */}
+      {/* #35 — USD Lights section when the backend provides details. */}
       {usdLights && usdLights.length > 0 && (
         <SidebarSection
           title="USD Lights"
@@ -97,9 +95,13 @@ export function SceneLightsCamerasCard({
                   <strong className="scene-fixture-name">
                     {light.primPath}
                   </strong>
-                  <span className="badge badge-ok scene-fixture-chip">
+                  <Badge
+                    className="scene-fixture-badge"
+                    variant="success"
+                    size="sm"
+                  >
                     {shortLightLabel(light.lightKind)}
-                  </span>
+                  </Badge>
                   <span className="muted scene-fixture-detail">
                     intensity {light.intensity.toFixed(2)}
                   </span>
@@ -112,17 +114,17 @@ export function SceneLightsCamerasCard({
                       </span>
                     </>
                   )}{" "}
-                  <span
-                    className="badge scene-fixture-chip"
+                  <Badge
+                    className="scene-fixture-badge"
+                    mono
+                    size="sm"
                     style={{
                       backgroundColor: hex,
                       color: "#0e1116",
-                      fontFamily: "monospace",
                     }}
-                    title="inputs:color"
                   >
                     {hex}
-                  </span>
+                  </Badge>
                   {light.colorTemperature !== null && (
                     <>
                       {" "}
@@ -145,7 +147,6 @@ export function SceneLightsCamerasCard({
                       {" "}
                       <span
                         className="muted scene-fixture-detail"
-                        title={light.domeTextureFile}
                         style={{ fontFamily: "monospace", fontSize: "0.85em" }}
                       >
                         {light.domeTextureFile.split(/[\\/]/).pop()}
@@ -179,25 +180,30 @@ export function SceneLightsCamerasCard({
             {lights.map((light) => (
               <li key={light.id} className="scene-fixture-item">
                 <strong className="scene-fixture-name">{light.name}</strong>
-                <span className="badge badge-ok scene-fixture-chip">
+                <Badge
+                  className="scene-fixture-badge"
+                  variant="success"
+                  size="sm"
+                >
                   {shortLightLabel(light.type)}
-                </span>
+                </Badge>
                 <span className="muted scene-fixture-detail">
                   intensity {light.intensity.toFixed(2)}
                 </span>
                 {light.color && (
                   <>
                     {" "}
-                    <span
-                      className="badge scene-fixture-chip"
+                    <Badge
+                      className="scene-fixture-badge"
+                      mono
+                      size="sm"
                       style={{
                         backgroundColor: light.color,
                         color: "#0e1116",
-                        fontFamily: "monospace",
                       }}
                     >
                       {light.color}
-                    </span>
+                    </Badge>
                   </>
                 )}
               </li>
@@ -216,15 +222,15 @@ export function SceneLightsCamerasCard({
           <ul className="scene-fixture-list">
             {onSelectCamera && (
               <li className="scene-fixture-item">
-                <button
-                  className={`badge scene-fixture-button${activeCameraId === null ? " badge-ok" : ""}`}
+                <BadgeButton
+                  className="scene-fixture-button"
+                  variant={activeCameraId === null ? "success" : "neutral"}
+                  size="sm"
                   onClick={() => onSelectCamera(null)}
-                  type="button"
-                  title="Switch to free-orbit camera"
                   aria-pressed={activeCameraId === null}
                 >
                   Free Orbit
-                </button>
+                </BadgeButton>
               </li>
             )}
             {cameras.map((camera) => {
@@ -238,25 +244,25 @@ export function SceneLightsCamerasCard({
                     <strong className="scene-fixture-name">
                       {camera.name}
                     </strong>
-                    <span className="badge badge-ok scene-fixture-chip">
+                    <Badge
+                      className="scene-fixture-badge"
+                      variant="success"
+                      size="sm"
+                    >
                       {camera.projection}
-                    </span>
+                    </Badge>
                     {onSelectCamera && (
-                      <button
-                        className={`badge scene-fixture-button${isActive ? " badge-ok" : ""}`}
+                      <BadgeButton
+                        className="scene-fixture-button"
+                        variant={isActive ? "success" : "neutral"}
+                        size="sm"
                         onClick={() =>
                           onSelectCamera(isActive ? null : camera.id)
-                        }
-                        type="button"
-                        title={
-                          isActive
-                            ? "Reset to free orbit"
-                            : `Use ${camera.name} as active camera`
                         }
                         aria-pressed={isActive}
                       >
                         {isActive ? "Active" : "View"}
-                      </button>
+                      </BadgeButton>
                     )}
                   </div>
                   <span className="muted scene-fixture-detail scene-fixture-detail--full">

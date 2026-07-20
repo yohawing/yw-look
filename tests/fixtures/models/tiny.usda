@@ -1,0 +1,20 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    metersPerUnit = 0.01
+    doc = "yw-look Phase 0 sanity asset. Single-file USDA with explicit stage metadata and one mesh."
+)
+
+def Xform "Root" (
+    kind = "component"
+)
+{
+    def Mesh "Quad"
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-1, 0, -1), (1, 0, -1), (1, 0, 1), (-1, 0, 1)]
+        uniform token subdivisionScheme = "none"
+    }
+}

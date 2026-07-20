@@ -5,13 +5,15 @@ use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 use crate::shared::{
-    current_timestamp, infer_file_kind, is_supported_extension, load_or_initialize_settings,
-    normalize_file_path, read_json_file, repo_root, resolve_recent_files_path,
-    system_time_to_unix_string, write_json_file, MODEL_EXTENSIONS, PREVIEW_IMPLEMENTED_EXTENSIONS,
-    TEXTURE_EXTENSIONS,
+    current_timestamp, dialog_filter_extensions, infer_file_kind, is_readable_asset_extension,
+    is_supported_extension, load_or_initialize_settings, lock_or_recover, model_extensions,
+    motion_extensions, normalize_file_path, preview_implemented_extensions, read_json_file,
+    repo_root, resolve_app_data_dir, system_time_to_unix_string, texture_extensions,
+    write_json_file, RECENT_FILES_FILE_NAME,
 };
 use crate::state::PendingOpenFiles;
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SelectedFilePayload {
@@ -22,6 +24,7 @@ pub(crate) struct SelectedFilePayload {
     pub(crate) parent_directory: String,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DirectoryListingPayload {
@@ -29,6 +32,7 @@ pub(crate) struct DirectoryListingPayload {
     pub(crate) current_index: Option<usize>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecentFileEntry {
@@ -37,6 +41,7 @@ pub(crate) struct RecentFileEntry {
     pub(crate) last_accessed_at: String,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecentFilesPayload {
@@ -44,14 +49,17 @@ pub(crate) struct RecentFilesPayload {
     pub(crate) entries: Vec<RecentFileEntry>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FormatSupportPayload {
     model_extensions: Vec<String>,
     texture_extensions: Vec<String>,
+    motion_extensions: Vec<String>,
     preview_implemented: Vec<String>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AssetInspection {
@@ -59,6 +67,8 @@ pub(crate) struct AssetInspection {
     file_name: String,
     extension: String,
     kind: String,
+    // JSON IPC uses number; keep TS aligned with serde wire shape.
+    #[cfg_attr(test, ts(type = "number"))]
     file_size_bytes: u64,
     modified_at: Option<String>,
     created_at: Option<String>,
@@ -66,9 +76,10 @@ pub(crate) struct AssetInspection {
     image_dimensions: Option<ImageDimensions>,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ImageDimensions {
+pub(crate) struct ImageDimensions {
     width: u32,
     height: u32,
     source: String,
@@ -84,7 +95,9 @@ fn build_selected_file_payload(path: PathBuf) -> Result<SelectedFilePayload, App
         .unwrap_or_default();
 
     if !is_supported_extension(&extension) {
-        return Err(AppError::Internal(format!("unsupported file extension: {extension}")));
+        return Err(AppError::Internal(format!(
+            "unsupported file extension: {extension}"
+        )));
     }
 
     let file_name = normalized
@@ -120,7 +133,9 @@ fn build_selected_file_payload_from_cli_arg(
     build_selected_file_payload(repo_root()?.join(path))
 }
 
-fn list_supported_files_in_directory(directory: &Path) -> Result<Vec<SelectedFilePayload>, AppError> {
+fn list_supported_files_in_directory(
+    directory: &Path,
+) -> Result<Vec<SelectedFilePayload>, AppError> {
     let mut files = fs::read_dir(directory)
         .map_err(|error| AppError::Io(format!("failed to read directory: {error}")))?
         .filter_map(|entry| entry.ok())
@@ -136,16 +151,43 @@ fn list_supported_files_in_directory(directory: &Path) -> Result<Vec<SelectedFil
     Ok(files)
 }
 
-fn load_recent_file_entries(
-    app: &tauri::AppHandle,
+fn recent_files_path_from_dir(dir: &Path) -> PathBuf {
+    dir.join(RECENT_FILES_FILE_NAME)
+}
+
+fn load_recent_file_entries_from_path(
+    dir: &Path,
 ) -> Result<(PathBuf, Vec<RecentFileEntry>), AppError> {
-    let recent_files_path = resolve_recent_files_path(app)?;
+    let recent_files_path = recent_files_path_from_dir(dir);
 
     if !recent_files_path.exists() {
         write_json_file(&recent_files_path, &Vec::<RecentFileEntry>::new())?;
     }
 
-    let entries = read_json_file::<Vec<RecentFileEntry>>(&recent_files_path)?;
+    let entries = match read_json_file::<Vec<RecentFileEntry>>(&recent_files_path) {
+        Ok(entries) => entries,
+        Err(AppError::Serde(message)) => {
+            let backup_path = recent_files_path.with_file_name(format!(
+                "{RECENT_FILES_FILE_NAME}.corrupt-{}.bak",
+                current_timestamp()
+            ));
+            fs::copy(&recent_files_path, &backup_path).map_err(|error| {
+                AppError::Io(format!(
+                    "failed to back up corrupt recent files '{}': {error}",
+                    recent_files_path.display()
+                ))
+            })?;
+            log::warn!(
+                "recent files JSON was corrupt and has been reset: {}; backup={}",
+                message,
+                backup_path.display()
+            );
+            let entries = Vec::<RecentFileEntry>::new();
+            write_json_file(&recent_files_path, &entries)?;
+            entries
+        }
+        Err(error) => return Err(error),
+    };
     Ok((recent_files_path, entries))
 }
 
@@ -153,15 +195,15 @@ fn save_recent_file_entries(path: &Path, entries: &[RecentFileEntry]) -> Result<
     write_json_file(path, &entries.to_vec())
 }
 
-fn load_clean_recent_file_entries(
-    app: &tauri::AppHandle,
+fn load_clean_recent_file_entries_from_path(
+    dir: &Path,
+    recent_files_limit: usize,
 ) -> Result<(PathBuf, Vec<RecentFileEntry>), AppError> {
-    let (_, settings) = load_or_initialize_settings(app)?;
-    let (recent_files_path, mut entries) = load_recent_file_entries(app)?;
+    let (recent_files_path, mut entries) = load_recent_file_entries_from_path(dir)?;
     let original_len = entries.len();
 
     entries.retain(|entry| Path::new(&entry.path).exists());
-    entries.truncate(settings.recent_files_limit);
+    entries.truncate(recent_files_limit);
 
     if entries.len() != original_len {
         save_recent_file_entries(&recent_files_path, &entries)?;
@@ -170,9 +212,21 @@ fn load_clean_recent_file_entries(
     Ok((recent_files_path, entries))
 }
 
-fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Result<(), AppError> {
+fn load_clean_recent_file_entries(
+    app: &tauri::AppHandle,
+) -> Result<(PathBuf, Vec<RecentFileEntry>), AppError> {
     let (_, settings) = load_or_initialize_settings(app)?;
-    let (recent_files_path, mut entries) = load_recent_file_entries(app)?;
+    let app_data_dir = resolve_app_data_dir(app)?;
+    load_clean_recent_file_entries_from_path(&app_data_dir, settings.recent_files_limit)
+}
+
+fn sync_recent_file_from_path(
+    dir: &Path,
+    file: &SelectedFilePayload,
+    recent_files_limit: usize,
+    last_accessed_at: String,
+) -> Result<(), AppError> {
+    let (recent_files_path, mut entries) = load_recent_file_entries_from_path(dir)?;
 
     entries.retain(|entry| entry.path != file.path && Path::new(&entry.path).exists());
     entries.insert(
@@ -180,14 +234,25 @@ fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Resul
         RecentFileEntry {
             path: file.path.clone(),
             kind: file.kind.clone(),
-            last_accessed_at: current_timestamp(),
+            last_accessed_at,
         },
     );
-    entries.truncate(settings.recent_files_limit);
+    entries.truncate(recent_files_limit);
 
     save_recent_file_entries(&recent_files_path, &entries)?;
 
     Ok(())
+}
+
+fn sync_recent_file(app: &tauri::AppHandle, file: &SelectedFilePayload) -> Result<(), AppError> {
+    let (_, settings) = load_or_initialize_settings(app)?;
+    let app_data_dir = resolve_app_data_dir(app)?;
+    sync_recent_file_from_path(
+        &app_data_dir,
+        file,
+        settings.recent_files_limit,
+        current_timestamp(),
+    )
 }
 
 fn read_png_dimensions(path: &Path) -> Option<ImageDimensions> {
@@ -267,7 +332,18 @@ fn read_tga_dimensions(path: &Path) -> Option<ImageDimensions> {
     })
 }
 
+/// Texture formats accepted by inspect_asset but not header-probed for width/height yet.
+/// KTX2 needs a KTX2 header parse; HDR/EXR need Radiance/OpenEXR header reads (tracked R23 gap).
+const DIMENSION_PROBE_DEFERRED_EXTENSIONS: &[&str] = &["ktx2", "hdr", "exr"];
+
+fn dimension_probe_deferred(extension: &str) -> bool {
+    DIMENSION_PROBE_DEFERRED_EXTENSIONS.contains(&extension)
+}
+
 fn read_image_dimensions(path: &Path, extension: &str) -> Option<ImageDimensions> {
+    if dimension_probe_deferred(extension) {
+        return None;
+    }
     match extension {
         "png" => read_png_dimensions(path),
         "jpg" | "jpeg" => read_jpeg_dimensions(path),
@@ -298,15 +374,17 @@ fn build_asset_inspection(path: PathBuf) -> Result<AssetInspection, AppError> {
         .ok_or_else(|| AppError::Internal("failed to resolve file name".into()))?
         .to_string();
 
-    let metadata =
-        fs::metadata(&normalized).map_err(|e| AppError::Io(format!("failed to read file metadata: {e}")))?;
+    let metadata = fs::metadata(&normalized)
+        .map_err(|e| AppError::Io(format!("failed to read file metadata: {e}")))?;
 
     let modified_at = metadata
         .modified()
         .ok()
         .and_then(system_time_to_unix_string);
     let created_at = metadata.created().ok().and_then(system_time_to_unix_string);
-    let preview_implemented = PREVIEW_IMPLEMENTED_EXTENSIONS.contains(&extension.as_str());
+    let preview_implemented = preview_implemented_extensions()
+        .iter()
+        .any(|value| value == &extension);
     let image_dimensions = read_image_dimensions(&normalized, &extension);
 
     Ok(AssetInspection {
@@ -330,12 +408,10 @@ pub(crate) fn inspect_asset(path: String) -> Result<AssetInspection, AppError> {
 #[tauri::command]
 pub(crate) fn load_format_support() -> FormatSupportPayload {
     FormatSupportPayload {
-        model_extensions: MODEL_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
-        texture_extensions: TEXTURE_EXTENSIONS.iter().map(|e| e.to_string()).collect(),
-        preview_implemented: PREVIEW_IMPLEMENTED_EXTENSIONS
-            .iter()
-            .map(|e| e.to_string())
-            .collect(),
+        model_extensions: model_extensions().to_vec(),
+        texture_extensions: texture_extensions().to_vec(),
+        motion_extensions: motion_extensions().to_vec(),
+        preview_implemented: preview_implemented_extensions().to_vec(),
     }
 }
 
@@ -343,16 +419,14 @@ pub(crate) fn load_format_support() -> FormatSupportPayload {
 pub(crate) fn open_file_dialog(
     app: tauri::AppHandle,
 ) -> Result<Option<SelectedFilePayload>, AppError> {
+    let dialog_extensions = dialog_filter_extensions();
+    let dialog_extension_refs: Vec<&str> = dialog_extensions
+        .iter()
+        .map(|extension| extension.as_str())
+        .collect();
     let file_path = rfd::FileDialog::new()
         .set_title("Open asset file")
-        .add_filter(
-            "Supported assets",
-            &[
-                "glb", "gltf", "fbx", "obj", "ply", "stl", "usd", "usda", "usdc", "usdz", "dae",
-                "vrm", "abc", "pmx", "pmd", "splat", "spz", "ksplat", "sog", "png", "jpg",
-                "jpeg", "tga", "dds", "ktx2", "hdr", "exr",
-            ],
-        )
+        .add_filter("Supported assets", &dialog_extension_refs)
         .pick_file();
 
     let file = file_path.map(build_selected_file_payload).transpose()?;
@@ -388,14 +462,55 @@ pub(crate) fn list_supported_siblings(path: String) -> Result<DirectoryListingPa
 
 #[tauri::command]
 pub(crate) fn read_binary_file(path: String) -> Result<tauri::ipc::Response, AppError> {
+    Ok(tauri::ipc::Response::new(read_binary_file_impl(path)?))
+}
+
+fn ensure_readable_asset_path(path: &Path) -> Result<(), AppError> {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
+    if !is_readable_asset_extension(extension) {
+        return Err(AppError::Io(format!(
+            "refusing to read unsupported file type: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn read_binary_file_impl(path: String) -> Result<Vec<u8>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
+    ensure_readable_asset_path(&normalized)?;
     let bytes = fs::read(normalized)
         .map_err(|error| AppError::Io(format!("failed to read file bytes: {error}")))?;
     // Return raw bytes via `tauri::ipc::Response` (→ ArrayBuffer on the JS
     // side) instead of a JSON number array. The number-array path balloons
     // memory and stalls on large assets (e.g. 100-260 MB Gaussian splats),
     // which is why big `.splat`/`.ply` files failed to open.
-    Ok(tauri::ipc::Response::new(bytes))
+    Ok(bytes)
+}
+
+#[tauri::command]
+pub(crate) fn read_binary_file_prefix(
+    path: String,
+    max_bytes: usize,
+) -> Result<tauri::ipc::Response, AppError> {
+    Ok(tauri::ipc::Response::new(read_binary_file_prefix_impl(
+        path, max_bytes,
+    )?))
+}
+
+fn read_binary_file_prefix_impl(path: String, max_bytes: usize) -> Result<Vec<u8>, AppError> {
+    let normalized = normalize_file_path(PathBuf::from(path))?;
+    ensure_readable_asset_path(&normalized)?;
+    let file = fs::File::open(normalized)
+        .map_err(|error| AppError::Io(format!("failed to open file bytes: {error}")))?;
+    let mut bytes = Vec::with_capacity(max_bytes);
+    file.take(max_bytes as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| AppError::Io(format!("failed to read file prefix: {error}")))?;
+    Ok(bytes)
 }
 
 #[tauri::command]
@@ -404,7 +519,7 @@ pub(crate) fn get_startup_file(
     pending: tauri::State<'_, PendingOpenFiles>,
 ) -> Result<Option<SelectedFilePayload>, AppError> {
     let queued: Vec<PathBuf> = {
-        let mut guard = pending.0.lock().unwrap();
+        let mut guard = lock_or_recover(&pending.0, "pending open files");
         std::mem::take(&mut *guard)
     };
 
@@ -433,4 +548,323 @@ pub(crate) fn load_recent_files(app: tauri::AppHandle) -> Result<RecentFilesPayl
         recent_files_path: recent_files_path.display().to_string(),
         entries,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn recent_files_path(dir: &Path) -> PathBuf {
+        dir.join(RECENT_FILES_FILE_NAME)
+    }
+
+    fn create_file(dir: &Path, file_name: &str) -> PathBuf {
+        let path = dir.join(file_name);
+        fs::write(&path, b"fixture").expect("write fixture");
+        path
+    }
+
+    fn selected_file(dir: &Path, file_name: &str) -> SelectedFilePayload {
+        build_selected_file_payload(create_file(dir, file_name)).expect("selected file")
+    }
+
+    fn entry_for_path(path: &Path, kind: &str, last_accessed_at: &str) -> RecentFileEntry {
+        RecentFileEntry {
+            path: path.display().to_string(),
+            kind: kind.to_string(),
+            last_accessed_at: last_accessed_at.to_string(),
+        }
+    }
+
+    fn read_entries(dir: &Path) -> Vec<RecentFileEntry> {
+        read_json_file(&recent_files_path(dir)).expect("read recent files")
+    }
+
+    fn write_entries(dir: &Path, entries: &[RecentFileEntry]) {
+        save_recent_file_entries(&recent_files_path(dir), entries).expect("write recent files");
+    }
+
+    #[test]
+    fn raw_binary_reads_allow_supported_and_sidecar_extensions_case_insensitively() {
+        let dir = tempdir().expect("tempdir");
+        for file_name in [
+            "model.glb",
+            "texture.PNG",
+            "buffer.bin",
+            "toon.bmp",
+            "material.mtl",
+            "sphere.sph",
+            "sphere.spa",
+            "animation.vrma",
+        ] {
+            let path = create_file(dir.path(), file_name);
+            assert_eq!(
+                read_binary_file_impl(path.display().to_string()).expect("read allowed file"),
+                b"fixture"
+            );
+        }
+    }
+
+    #[test]
+    fn raw_binary_reads_reject_unsupported_and_extensionless_paths() {
+        let dir = tempdir().expect("tempdir");
+        for file_name in ["secrets.txt", "id_rsa"] {
+            let path = create_file(dir.path(), file_name);
+            let path = path.display().to_string();
+
+            let full_error = read_binary_file_impl(path.clone()).expect_err("reject full read");
+            assert!(full_error.to_string().contains("unsupported file type"));
+
+            let prefix_error =
+                read_binary_file_prefix_impl(path, 2).expect_err("reject prefix read");
+            assert!(prefix_error.to_string().contains("unsupported file type"));
+        }
+    }
+
+    #[test]
+    fn load_recent_files_creates_empty_file_when_missing() {
+        let dir = tempdir().expect("tempdir");
+
+        let (path, entries) =
+            load_recent_file_entries_from_path(dir.path()).expect("load recent files");
+
+        assert_eq!(path, recent_files_path(dir.path()));
+        assert!(entries.is_empty());
+        assert_eq!(fs::read_to_string(path).expect("recent files json"), "[]");
+    }
+
+    #[test]
+    fn cleanup_removes_entries_for_missing_paths() {
+        let dir = tempdir().expect("tempdir");
+        let keep = create_file(dir.path(), "keep.glb");
+        let missing = dir.path().join("missing.glb");
+        write_entries(
+            dir.path(),
+            &[
+                entry_for_path(&missing, "model", "1"),
+                entry_for_path(&keep, "model", "2"),
+            ],
+        );
+
+        let (_, entries) =
+            load_clean_recent_file_entries_from_path(dir.path(), 20).expect("clean entries");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, keep.display().to_string());
+    }
+
+    #[test]
+    fn cleanup_truncates_entries_to_recent_files_limit() {
+        let dir = tempdir().expect("tempdir");
+        let first = create_file(dir.path(), "first.glb");
+        let second = create_file(dir.path(), "second.png");
+        let third = create_file(dir.path(), "third.vmd");
+        write_entries(
+            dir.path(),
+            &[
+                entry_for_path(&first, "model", "1"),
+                entry_for_path(&second, "texture", "2"),
+                entry_for_path(&third, "motion", "3"),
+            ],
+        );
+
+        let (_, entries) =
+            load_clean_recent_file_entries_from_path(dir.path(), 2).expect("clean entries");
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, first.display().to_string());
+        assert_eq!(entries[1].path, second.display().to_string());
+    }
+
+    #[test]
+    fn sync_recent_file_adds_new_file_to_front() {
+        let dir = tempdir().expect("tempdir");
+        let file = selected_file(dir.path(), "asset.glb");
+
+        sync_recent_file_from_path(dir.path(), &file, 20, "12345".to_string())
+            .expect("sync recent file");
+        let entries = read_entries(dir.path());
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, file.path);
+        assert_eq!(entries[0].kind, "model");
+        assert_eq!(entries[0].last_accessed_at, "12345");
+    }
+
+    #[test]
+    fn sync_recent_file_deduplicates_and_moves_existing_entry_to_front() {
+        let dir = tempdir().expect("tempdir");
+        let first = selected_file(dir.path(), "first.glb");
+        let second = selected_file(dir.path(), "second.png");
+        write_entries(
+            dir.path(),
+            &[
+                RecentFileEntry {
+                    path: first.path.clone(),
+                    kind: first.kind.clone(),
+                    last_accessed_at: "1".to_string(),
+                },
+                RecentFileEntry {
+                    path: second.path.clone(),
+                    kind: second.kind.clone(),
+                    last_accessed_at: "2".to_string(),
+                },
+            ],
+        );
+
+        sync_recent_file_from_path(dir.path(), &second, 20, "99".to_string())
+            .expect("sync recent file");
+        let entries = read_entries(dir.path());
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, second.path);
+        assert_eq!(entries[0].last_accessed_at, "99");
+        assert_eq!(entries[1].path, first.path);
+    }
+
+    #[test]
+    fn sync_recent_file_cleans_missing_entries() {
+        let dir = tempdir().expect("tempdir");
+        let existing = selected_file(dir.path(), "existing.glb");
+        let incoming = selected_file(dir.path(), "incoming.png");
+        let missing = dir.path().join("missing.vmd");
+        write_entries(
+            dir.path(),
+            &[
+                entry_for_path(&missing, "motion", "1"),
+                RecentFileEntry {
+                    path: existing.path.clone(),
+                    kind: existing.kind.clone(),
+                    last_accessed_at: "2".to_string(),
+                },
+            ],
+        );
+
+        sync_recent_file_from_path(dir.path(), &incoming, 20, "3".to_string())
+            .expect("sync recent file");
+        let entries = read_entries(dir.path());
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, incoming.path);
+        assert_eq!(entries[1].path, existing.path);
+    }
+
+    #[test]
+    fn sync_recent_file_applies_limit_after_insert() {
+        let dir = tempdir().expect("tempdir");
+        let first = selected_file(dir.path(), "first.glb");
+        let second = selected_file(dir.path(), "second.png");
+        let incoming = selected_file(dir.path(), "incoming.vmd");
+        write_entries(
+            dir.path(),
+            &[
+                RecentFileEntry {
+                    path: first.path.clone(),
+                    kind: first.kind.clone(),
+                    last_accessed_at: "1".to_string(),
+                },
+                RecentFileEntry {
+                    path: second.path.clone(),
+                    kind: second.kind.clone(),
+                    last_accessed_at: "2".to_string(),
+                },
+            ],
+        );
+
+        sync_recent_file_from_path(dir.path(), &incoming, 2, "3".to_string())
+            .expect("sync recent file");
+        let entries = read_entries(dir.path());
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, incoming.path);
+        assert_eq!(entries[1].path, first.path);
+    }
+
+    #[test]
+    fn load_recent_files_recovers_invalid_json_with_backup() {
+        let dir = tempdir().expect("tempdir");
+        fs::write(recent_files_path(dir.path()), "{ invalid json").expect("write recent files");
+
+        let (_path, entries) =
+            load_recent_file_entries_from_path(dir.path()).expect("recover invalid json");
+        let backups = fs::read_dir(dir.path())
+            .expect("read tempdir")
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("recent-files.json.corrupt-")
+            })
+            .collect::<Vec<_>>();
+
+        assert!(entries.is_empty());
+        assert_eq!(backups.len(), 1);
+        assert!(read_entries(dir.path()).is_empty());
+    }
+
+    fn texture_fixtures_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/textures")
+    }
+
+    #[test]
+    fn dimension_probe_deferred_extensions_record_ktx2_hdr_exr_gap() {
+        assert_eq!(DIMENSION_PROBE_DEFERRED_EXTENSIONS, &["ktx2", "hdr", "exr"]);
+        for extension in DIMENSION_PROBE_DEFERRED_EXTENSIONS {
+            assert!(dimension_probe_deferred(extension));
+        }
+        assert!(!dimension_probe_deferred("png"));
+    }
+
+    #[test]
+    fn read_image_dimensions_defers_ktx2_hdr_exr_without_header_probe() {
+        let fixtures = texture_fixtures_dir();
+        let ktx2 = fixtures.join("2d-uastc.ktx2");
+        assert!(ktx2.is_file(), "missing ktx2 fixture at {}", ktx2.display());
+
+        assert!(read_image_dimensions(&ktx2, "ktx2").is_none());
+        assert!(read_image_dimensions(Path::new("unused.hdr"), "hdr").is_none());
+        assert!(read_image_dimensions(Path::new("unused.exr"), "exr").is_none());
+    }
+
+    #[test]
+    fn load_format_support_matches_manifest_groups() {
+        let support = load_format_support();
+
+        assert_eq!(support.model_extensions, model_extensions().to_vec());
+        assert_eq!(support.texture_extensions, texture_extensions().to_vec());
+        assert_eq!(support.motion_extensions, motion_extensions().to_vec());
+        assert_eq!(
+            support.preview_implemented,
+            preview_implemented_extensions().to_vec()
+        );
+    }
+
+    #[test]
+    fn read_image_dimensions_reads_supported_texture_headers() {
+        let fixtures = texture_fixtures_dir();
+
+        let png = read_image_dimensions(&fixtures.join("1x1.png"), "png").expect("png dimensions");
+        assert_eq!(png.width, 1);
+        assert_eq!(png.height, 1);
+        assert_eq!(png.source, "png-header");
+
+        let jpg = read_image_dimensions(&fixtures.join("1x1.jpg"), "jpg").expect("jpg dimensions");
+        assert_eq!(jpg.width, 1);
+        assert_eq!(jpg.height, 1);
+        assert_eq!(jpg.source, "jpeg-header");
+
+        let dds = read_image_dimensions(&fixtures.join("disturb-dxt1-nomip.dds"), "dds")
+            .expect("dds dimensions");
+        assert_eq!(dds.width, 512);
+        assert_eq!(dds.height, 512);
+        assert_eq!(dds.source, "dds-header");
+
+        let tga = read_image_dimensions(&fixtures.join("crate-grey8.tga"), "tga")
+            .expect("tga dimensions");
+        assert_eq!(tga.width, 256);
+        assert_eq!(tga.height, 256);
+        assert_eq!(tga.source, "tga-header");
+    }
 }

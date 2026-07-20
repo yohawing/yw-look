@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readOption } from "./cliArgs.mjs";
+import { runChildProcess } from "./processRunner.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -17,8 +18,8 @@ const textReportPath = path.join(outputDir, "batch-load-report.md");
 const args = process.argv.slice(2);
 const listOnly = args.includes("--list");
 const useStaticEnumeration = args.includes("--static-enumeration");
-const selectedCaseId = readOption("--case");
-const timeoutMs = Number(readOption("--timeout-ms") ?? 180_000);
+const selectedCaseId = readOption(args, "--case");
+const timeoutMs = Number(readOption(args, "--timeout-ms") ?? 180_000);
 
 const loaderMap = {
   ".gltf": "GLTFLoader",
@@ -41,16 +42,6 @@ const loaderMap = {
   ".dds": "DDSLoader",
   ".ktx2": "KTX2Loader",
 };
-
-function readOption(name) {
-  const index = args.indexOf(name);
-  if (index === -1) return null;
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`);
-  }
-  return value;
-}
 
 function normalizeRepoPath(filePath) {
   return path.relative(repoRoot, filePath).replace(/\\/g, "/");
@@ -164,7 +155,6 @@ function classifyFailure({ exitCode, error, output, loader }) {
 }
 
 function runCheck(testCase) {
-  const startedAt = performance.now();
   const runArgs = [
     path.join(repoRoot, "scripts/run-shot.mjs"),
     "check",
@@ -172,64 +162,17 @@ function runCheck(testCase) {
     testCase.absolutePath,
   ];
 
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, runArgs, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
-          process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
-        YW_LOOK_CARGO_FEATURES:
-          process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
-      },
-      shell: process.platform === "win32",
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const timeout = setTimeout(() => {
-      settled = true;
-      child.kill("SIGKILL");
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: `timed out after ${timeoutMs}ms`,
-      });
-    }, timeoutMs);
-
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve({
-        exitCode: null,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: error.message,
-      });
-    });
-    child.on("exit", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve({
-        exitCode: code,
-        durationMs: Math.round(performance.now() - startedAt),
-        stdout,
-        stderr,
-        error: signal ? `terminated by ${signal}` : null,
-      });
-    });
+  return runChildProcess(process.execPath, runArgs, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      YW_LOOK_CARGO_NO_DEFAULT_FEATURES:
+        process.env.YW_LOOK_CARGO_NO_DEFAULT_FEATURES ?? "1",
+      YW_LOOK_CARGO_FEATURES:
+        process.env.YW_LOOK_CARGO_FEATURES ?? "backend-openusd-rs",
+    },
+    shell: process.platform === "win32",
+    timeoutMs,
   });
 }
 

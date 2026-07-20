@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh } from "three";
 import { applyMorphTargetValues } from "../morphTargets";
+import { setObjectSelectionKey } from "../../viewer/selectionKeys";
 
 function makeMorphMesh(name: string): Mesh {
   const geometry = new BufferGeometry();
@@ -44,5 +45,19 @@ describe("applyMorphTargetValues", () => {
     });
 
     expect(mesh.morphTargetInfluences?.[0]).toBe(0.7);
+  });
+
+  it("uses explicit selection keys for duplicate named meshes", () => {
+    const root = new Group();
+    const mesh = makeMorphMesh("Face");
+    setObjectSelectionKey(mesh, "Face::mmd-mesh");
+    root.add(mesh);
+
+    applyMorphTargetValues(root, {
+      Face: { 0: 0.1 },
+      "Face::mmd-mesh": { 0: 0.8 },
+    });
+
+    expect(mesh.morphTargetInfluences?.[0]).toBe(0.8);
   });
 });

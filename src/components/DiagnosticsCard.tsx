@@ -1,26 +1,23 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   DiagnosticsPayload,
   ProcessMemoryMetrics,
   ResourceDiagnosticsSnapshot,
 } from "../lib/diagnostics";
+import { loadDiagnosticsSnapshot, openAppLogDir } from "../lib/diagnostics";
+import { formatBytes } from "../lib/format";
+import { buildDiagnosticsReport, ISSUE_REPORT_URL } from "../lib/reporting";
+import { backendCapabilities } from "../lib/usd";
 import { CompactMetricRows, type CompactMetricRow } from "./CompactMetricRows";
-import {
-  SidebarEmpty,
-  SidebarError,
-  SidebarSection,
-} from "./sidebarPrimitives";
+import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
+import { Button } from "./ui/Button";
 
 type DiagnosticsCardProps = {
-  diagnosticsPayload: DiagnosticsPayload | null;
-  diagnosticsError: string | null;
   processMemoryMetrics: ProcessMemoryMetrics | null;
   resourceDiagnostics: ResourceDiagnosticsSnapshot | null;
 };
 
 export function DiagnosticsCard({
-  diagnosticsPayload,
-  diagnosticsError,
   processMemoryMetrics,
   resourceDiagnostics,
 }: DiagnosticsCardProps) {
@@ -29,45 +26,122 @@ export function DiagnosticsCard({
     [processMemoryMetrics, resourceDiagnostics],
   );
 
-  if (diagnosticsError) {
-    return (
-      <>
-        <ResourceDiagnosticsSection rows={resourceRows} />
-        <SidebarSection title="Diagnostics">
-          <SidebarError>{diagnosticsError}</SidebarError>
-        </SidebarSection>
-      </>
-    );
-  }
-
-  if (!diagnosticsPayload) {
-    return (
-      <>
-        <ResourceDiagnosticsSection rows={resourceRows} />
-        <SidebarSection title="Diagnostics">
-          <SidebarEmpty>Loading diagnostics log.</SidebarEmpty>
-        </SidebarSection>
-      </>
-    );
-  }
-
   return (
     <>
+      <OperationalDiagnosticsSection />
       <ResourceDiagnosticsSection rows={resourceRows} />
-      <SidebarSection
-        title="Diagnostics"
-        count={diagnosticsPayload.diagnosticsSnapshot.length}
-      >
-        <p className="sidebar-path">{diagnosticsPayload.diagnosticsLogPath}</p>
-        {diagnosticsPayload.diagnosticsSnapshot.length > 0 ? (
-          <pre className="log-preview">
-            {diagnosticsPayload.diagnosticsSnapshot.join("\n")}
-          </pre>
-        ) : (
-          <SidebarEmpty>No diagnostics events recorded yet.</SidebarEmpty>
-        )}
-      </SidebarSection>
     </>
+  );
+}
+
+function OperationalDiagnosticsSection() {
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsPayload | null>(
+    null,
+  );
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+
+  const refreshDiagnostics = async () => {
+    setDiagnostics(await loadDiagnosticsSnapshot());
+  };
+
+  useEffect(() => {
+    let active = true;
+    void loadDiagnosticsSnapshot().then((snapshot) => {
+      if (active) {
+        setDiagnostics(snapshot);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const rows = useMemo<CompactMetricRow[]>(() => {
+    if (!diagnostics) {
+      return [];
+    }
+    return [
+      {
+        label: "App logs",
+        value: diagnostics.appLogDir || "unavailable",
+        mono: true,
+      },
+      {
+        label: "Diagnostics log",
+        value: diagnostics.diagnosticsLogPath || "unavailable",
+        mono: true,
+      },
+      {
+        label: "Recent records",
+        value: diagnostics.diagnosticsSnapshot.length.toLocaleString(),
+        mono: true,
+      },
+    ];
+  }, [diagnostics]);
+
+  const copyDiagnostics = async () => {
+    const snapshot = await loadDiagnosticsSnapshot();
+    setDiagnostics(snapshot);
+    const capabilities = await backendCapabilities().catch(() => null);
+    const report = buildDiagnosticsReport({
+      capabilities,
+      diagnostics: snapshot,
+    });
+    try {
+      await navigator.clipboard.writeText(report);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+  };
+
+  return (
+    <SidebarSection title="Log Details" collapsible>
+      {rows.length > 0 ? (
+        <CompactMetricRows rows={rows} />
+      ) : (
+        <SidebarEmpty>No diagnostics snapshot loaded.</SidebarEmpty>
+      )}
+      {diagnostics && diagnostics.diagnosticsSnapshot.length > 0 ? (
+        <ul className="diagnostics-log-list" aria-label="Recent diagnostics">
+          {diagnostics.diagnosticsSnapshot.slice(-8).map((line, index) => (
+            <li key={`${line}:${index}`}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="card-actions">
+        <Button onClick={() => void openAppLogDir()} size="sm" variant="ghost">
+          Open Logs
+        </Button>
+        <Button
+          onClick={() => void copyDiagnostics()}
+          size="sm"
+          variant="ghost"
+        >
+          {copyState === "copied"
+            ? "Copied"
+            : copyState === "failed"
+              ? "Copy Failed"
+              : "Copy Diagnostics"}
+        </Button>
+        <Button
+          onClick={() => window.open(ISSUE_REPORT_URL, "_blank", "noopener")}
+          size="sm"
+          variant="ghost"
+        >
+          Report Issue
+        </Button>
+        <Button
+          onClick={() => void refreshDiagnostics()}
+          size="sm"
+          variant="subtle"
+        >
+          Refresh
+        </Button>
+      </div>
+    </SidebarSection>
   );
 }
 
@@ -200,21 +274,4 @@ function buildResourceRows(
 
 function formatCount(value: number) {
   return Number.isFinite(value) ? value.toLocaleString() : "0";
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return "0 B";
-  }
-
-  const units = ["B", "KB", "MB", "GB"] as const;
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
-  return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }

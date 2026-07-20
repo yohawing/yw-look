@@ -1,13 +1,20 @@
 import { LoadingScreen } from "./LoadingScreen";
+import { useState } from "react";
+import { loadDiagnosticsSnapshot, openAppLogDir } from "../lib/diagnostics";
+import { buildDiagnosticsReport, ISSUE_REPORT_URL } from "../lib/reporting";
+import { backendCapabilities } from "../lib/usd";
 import {
+  formatDisabledOptionalLoaderMessage,
+  formatIncompatibleOptionalLoaderMessage,
   formatMissingOptionalLoaderMessage,
   formatUnsupportedFormatMessage,
-  optionalPreviewLoaders,
+  listRegisteredLoaders,
   type DeferredTextureSnapshot,
   type LoadingStageSnapshot,
 } from "../viewer";
 
 import type { ViewerMode } from "../types/viewer";
+import "../styles/viewer-state.css";
 
 export type { ViewerMode } from "../types/viewer";
 
@@ -15,26 +22,22 @@ type ViewerStatePanelProps = {
   mode: ViewerMode;
   fileName?: string | null;
   fileExtension?: string | null;
+  detailMessage?: string | null;
   loadingStage?: LoadingStageSnapshot | null;
   deferredTexture?: DeferredTextureSnapshot | null;
   onOpenFile?: () => void;
 };
 
-const coreFormats = [
-  "glb",
-  "gltf",
-  "fbx",
-  "obj",
-  "usd",
-  "usdz",
-  "png",
-  "jpg",
-  "exr",
-  "hdr",
-  "ktx2",
-];
-
-const optionalFormats = Object.keys(optionalPreviewLoaders);
+const registeredLoaders = listRegisteredLoaders();
+const supportedPreviewExtensions = registeredLoaders.map(
+  (loader) => loader.extension,
+);
+const coreFormats = registeredLoaders
+  .filter((loader) => !loader.optional)
+  .map((loader) => loader.extension);
+const optionalFormats = registeredLoaders
+  .filter((loader) => loader.optional)
+  .map((loader) => loader.extension);
 
 const stateContent: Record<
   ViewerMode,
@@ -53,13 +56,13 @@ const stateContent: Record<
     tone: "neutral",
   },
   loading: {
-    label: "Loading State",
-    title: "Preparing asset preview and metadata panels.",
-    body: "Use this state while a file is being resolved, decoded, and fitted to the viewer camera.",
+    label: "Loading",
+    title: "Preparing preview",
+    body: "The file is being opened and prepared for display.",
     tone: "neutral",
     details: [
-      "Lock navigation during critical scene replacement.",
-      "Keep the last stable status visible in the footer.",
+      "Large files can take a moment.",
+      "Linked textures or payloads may continue loading after the preview appears.",
     ],
   },
   ready: {
@@ -71,7 +74,7 @@ const stateContent: Record<
   unsupported: {
     label: "Unsupported Format",
     title: "This file type is not mapped to a loader yet.",
-    body: "The app should clearly show that the file was opened, but the current build does not have a compatible reader for this extension.",
+    body: "This build cannot preview the selected file type.",
     tone: "warning",
     details: [
       "Core loader support is built into this app.",
@@ -85,52 +88,124 @@ const stateContent: Record<
     tone: "warning",
     details: [
       "Install the matching loader pack when it becomes available.",
-      "Technical details are recorded in Diagnostics.",
+      "Reopen the file after the loader pack is installed.",
+    ],
+  },
+  disabledOptionalLoader: {
+    label: "Optional Loader Disabled",
+    title: "A loader pack is disabled for this file.",
+    body: "The file extension is recognized, but its optional loader pack is currently disabled.",
+    tone: "warning",
+    details: [
+      "Enable the matching loader pack in Settings.",
+      "Reopen the file after changing the loader pack setting.",
+    ],
+  },
+  incompatibleOptionalLoader: {
+    label: "Optional Loader Incompatible",
+    title: "A loader pack is not compatible with this app version.",
+    body: "The file extension is recognized, but its optional loader pack cannot run with the current app version.",
+    tone: "warning",
+    details: [
+      "Update yw-look or reinstall the matching loader pack.",
+      "Reopen the file after the app and loader pack versions match.",
     ],
   },
   loadFailed: {
     label: "Load Error",
-    title: "The asset could not be parsed into a preview scene.",
-    body: "Use this screen for broken files, parser exceptions, or renderer setup failures that block preview generation.",
+    title: "This file could not be previewed.",
+    body: "The file may be damaged or use data this build cannot read.",
     tone: "danger",
     details: [
-      "Expose a concise user-facing reason first.",
-      "Keep technical details for logs and diagnostics.",
+      "Try another file or check that linked resources are available.",
+      "If this keeps happening, share the file and error details with support.",
     ],
   },
   missingReference: {
     label: "Missing Reference",
     title:
       "The main file was found, but one or more linked resources are missing.",
-    body: "Use this state when external textures, buffers, or sidecar files cannot be resolved from the opened asset.",
+    body: "Some linked textures, buffers, or sidecar files could not be found.",
     tone: "warning",
     details: [
-      "Preserve enough context for reloading after the files are restored.",
-      "Surface unresolved file names in a dedicated details area later.",
+      "Move the missing files next to the asset, then reopen it.",
+      "File names may appear in the warning panel when available.",
     ],
   },
 };
 
 export function ViewerStatePanel({
   deferredTexture,
+  detailMessage,
   fileExtension,
   fileName,
   loadingStage,
   mode,
   onOpenFile,
 }: ViewerStatePanelProps) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const baseContent = stateContent[mode];
   const unsupportedMessage =
     mode === "unsupported" && fileExtension
-      ? formatUnsupportedFormatMessage(fileExtension)
+      ? formatUnsupportedFormatMessage(
+          fileExtension,
+          supportedPreviewExtensions,
+        )
       : null;
   const optionalLoaderMessage =
     mode === "missingOptionalLoader" && fileExtension
       ? formatMissingOptionalLoaderMessage(fileExtension)
       : null;
+  const disabledOptionalLoaderMessage =
+    mode === "disabledOptionalLoader" && fileExtension
+      ? formatDisabledOptionalLoaderMessage(fileExtension)
+      : null;
+  const incompatibleOptionalLoaderMessage =
+    mode === "incompatibleOptionalLoader" && fileExtension
+      ? formatIncompatibleOptionalLoaderMessage(fileExtension)
+      : null;
   const content = {
     ...baseContent,
-    ...(unsupportedMessage ?? optionalLoaderMessage ?? {}),
+    ...(unsupportedMessage ??
+      optionalLoaderMessage ??
+      disabledOptionalLoaderMessage ??
+      incompatibleOptionalLoaderMessage ??
+      {}),
+  };
+  const reportable =
+    mode === "unsupported" ||
+    mode === "missingOptionalLoader" ||
+    mode === "disabledOptionalLoader" ||
+    mode === "incompatibleOptionalLoader" ||
+    mode === "loadFailed" ||
+    mode === "missingReference";
+
+  const handleCopyDetails = async () => {
+    const diagnostics = await loadDiagnosticsSnapshot();
+    const capabilities = await backendCapabilities().catch(() => null);
+    const report = buildDiagnosticsReport({
+      capabilities,
+      diagnostics,
+      errorDetail: detailMessage,
+      viewerState: [
+        `Mode: ${mode}`,
+        fileName ? `File: ${fileName}` : null,
+        fileExtension ? `Extension: .${fileExtension}` : null,
+        `Reason: ${content.title}`,
+        content.body,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+
+    try {
+      await navigator.clipboard.writeText(report);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
   };
 
   if (mode === "loading") {
@@ -228,6 +303,32 @@ export function ViewerStatePanel({
             <li key={detail}>{detail}</li>
           ))}
         </ul>
+      ) : null}
+      {detailMessage ? (
+        <div className="viewer-error-detail" role="status">
+          <p>Error details</p>
+          <pre>{detailMessage}</pre>
+        </div>
+      ) : null}
+      {reportable ? (
+        <div className="viewer-error-actions">
+          <button onClick={() => void handleCopyDetails()} type="button">
+            {copyState === "copied"
+              ? "Details Copied"
+              : copyState === "failed"
+                ? "Copy Failed"
+                : "Copy Details"}
+          </button>
+          <button onClick={() => void openAppLogDir()} type="button">
+            Open Logs
+          </button>
+          <button
+            onClick={() => window.open(ISSUE_REPORT_URL, "_blank", "noopener")}
+            type="button"
+          >
+            Report Issue
+          </button>
+        </div>
       ) : null}
     </div>
   );

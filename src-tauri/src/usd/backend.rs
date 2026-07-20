@@ -167,8 +167,7 @@ pub trait UsdSourceBackend: Send + Sync {
     /// equivalent to `usdcat --flatten`. Every reference, payload, and
     /// sublayer is composed and inlined into the returned string.
     ///
-    /// The C++ backend delegates to `UsdStage::ExportToString`. The Rust
-    /// fork backend returns a degraded error because the `openusd` crate
+    /// The Rust backend returns a degraded error because the `openusd` crate
     /// does not yet expose an `ExportToString`-equivalent API.
     ///
     /// Frontend callers should only invoke this for binary stages (USDC /
@@ -184,11 +183,10 @@ pub trait UsdLightBackend: Send + Sync {
     /// their detailed attributes (intensity, color, exposure, color
     /// temperature, specular/diffuse multipliers, shaping cone, dome texture).
     ///
-    /// The C++ backend implements this against `UsdLuxLightAPI`. The Rust-fork
-    /// backend returns `Err(UsdError::Parse("not supported"))` because the
-    /// openusd crate does not yet expose UsdLux APIs. Callers should treat
-    /// an error from this method as "no USD light detail available" and fall
-    /// back to the Three.js-derived `LightEntry` list.
+    /// The Rust backend returns `Err(UsdError::Parse("not supported"))`
+    /// because the openusd crate does not yet expose UsdLux APIs. Callers
+    /// should treat an error from this method as "no USD light detail
+    /// available" and fall back to the Three.js-derived `LightEntry` list.
     fn inspect_usd_lights(&self, path: &Path) -> Result<Vec<UsdLightInfo>, UsdError>;
 }
 
@@ -200,8 +198,7 @@ pub trait UsdSessionBackend: Send + Sync {
     /// the duration of the call — the `OpenStage` is meant to persist until
     /// `close_stage_session` / the registry drops it.
     ///
-    /// The Rust-fork backend returns `OpenStage::Rust(...)`.
-    /// The C++ backend returns `OpenStage::Cpp(...)`.
+    /// The Rust backend returns `OpenStage::Rust(...)`.
     fn open_stage_session(
         &self,
         path: &Path,
@@ -210,10 +207,9 @@ pub trait UsdSessionBackend: Send + Sync {
 
     /// Loads the payload arc(s) rooted at `prim_path` on an open stage.
     ///
-    /// The Rust-fork backend always returns
-    /// `Err(UsdError::Parse("per-prim payload load not supported …"))` because
-    /// the openusd crate only supports stage-wide load policies (D6 from the
-    /// plan). The C++ backend calls `UsdStage::Load(SdfPath, UsdLoadPolicy)`.
+    /// The Rust backend tracks requested payload roots and reopens a masked
+    /// LoadAll stage for extraction because the crate does not expose mutable
+    /// per-prim load rules.
     fn load_payload(&self, stage: &OpenStage, prim_path: &str) -> Result<(), UsdError>;
 
     /// Unloads the payload arc(s) rooted at `prim_path` on an open stage.

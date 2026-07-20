@@ -14,12 +14,12 @@ type LoadingScreenProps = {
 };
 
 const consoleRows: Array<{ id: LoadingStageId; text: string }> = [
-  { id: "scan", text: "opening file stream" },
-  { id: "resolve", text: "resolving references and sidecars" },
-  { id: "decode", text: "parsing asset data" },
-  { id: "gpu", text: "preparing GPU resources" },
-  { id: "scene", text: "mounting preview scene" },
-  { id: "ui", text: "syncing inspector panels" },
+  { id: "scan", text: "Opening file" },
+  { id: "resolve", text: "Finding linked files" },
+  { id: "decode", text: "Reading asset data" },
+  { id: "gpu", text: "Preparing preview" },
+  { id: "scene", text: "Building scene" },
+  { id: "ui", text: "Updating panels" },
 ];
 
 type ConsoleRow = {
@@ -51,13 +51,13 @@ export function LoadingScreen({
     deferredKind === "payload"
       ? {
           id: "payload" as const,
-          text: "streaming deferred payloads",
-          idle: "await payloads.idle",
+          text: "Loading linked scene data",
+          idle: "Finishing linked data",
         }
       : {
           id: "texture" as const,
-          text: "streaming deferred textures",
-          idle: "await textures.idle",
+          text: "Loading textures",
+          idle: "Finishing textures",
         };
   const rows: ConsoleRow[] = deferredTextureProgress
     ? [
@@ -113,7 +113,7 @@ export function LoadingScreen({
           <span />
         </div>
         <div className="loader-console-head">
-          <span className="loader-console-label">Console</span>
+          <span className="loader-console-label">Loading</span>
           <strong className="loader-console-file" title={displayName}>
             {displayName}
           </strong>
@@ -136,7 +136,7 @@ export function LoadingScreen({
               ? deferredTextureProgress.activeLabel
               : deferredTextureProgress
                 ? deferredLabel.idle
-                : "await preview.ready"}
+                : "Preparing preview"}
           </span>
           <b>
             {deferredTextureProgress

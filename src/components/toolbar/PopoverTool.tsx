@@ -1,15 +1,38 @@
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { CheckIcon } from "@radix-ui/react-icons";
 import { ViewportToolSvg } from "../ViewportToolIcons";
-import type { ToolbarAction, ToolbarItem } from "./types";
+import { PopoverContent, PopoverTrigger } from "../ui/Popover";
+import type { ToolbarAction, ToolbarItem, ToolbarStatus } from "./types";
 import { ToolbarPopover } from "./ToolbarPopover";
 
 type PopoverToolProps = {
   action: ToolbarAction;
 };
 
+const toolbarPopoverHoverEvent = "viewport-toolbar-popover-hover";
+
+type ToolbarPopoverHoverEvent = CustomEvent<{ id: string }>;
+
+function isToolbarPopoverInteractionTarget(
+  target: EventTarget | null,
+): boolean {
+  return (
+    target instanceof Element &&
+    (target.closest(".viewport-controls") !== null ||
+      target.closest(".toolbar-popover") !== null)
+  );
+}
+
 export function PopoverTool({ action }: PopoverToolProps) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const openModeRef = useRef<"hover" | "click" | null>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
@@ -31,15 +54,24 @@ export function PopoverTool({ action }: PopoverToolProps) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
+    if (openModeRef.current !== "click") {
+      openModeRef.current = "hover";
+    }
+    window.dispatchEvent(
+      new CustomEvent(toolbarPopoverHoverEvent, { detail: { id: action.id } }),
+    );
     if (!openTimerRef.current) {
       openTimerRef.current = setTimeout(() => {
         openTimerRef.current = null;
         setOpen(true);
-      }, 300);
+      }, 120);
     }
-  }, []);
+  }, [action.id]);
 
   const scheduleClose = useCallback(() => {
+    if (openModeRef.current === "click") {
+      return;
+    }
     if (openTimerRef.current) {
       clearTimeout(openTimerRef.current);
       openTimerRef.current = null;
@@ -48,18 +80,91 @@ export function PopoverTool({ action }: PopoverToolProps) {
       closeTimerRef.current = setTimeout(() => {
         closeTimerRef.current = null;
         setOpen(false);
-      }, 200);
+      }, 180);
     }
   }, []);
 
   const handleClose = useCallback(() => {
     clearTimers();
+    openModeRef.current = null;
     setOpen(false);
   }, [clearTimers]);
 
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      clearTimers();
+      if (!nextOpen) {
+        openModeRef.current = null;
+      } else if (openModeRef.current === null) {
+        openModeRef.current = "click";
+      }
+      setOpen(nextOpen);
+    },
+    [clearTimers],
+  );
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (isToolbarPopoverInteractionTarget(event.target)) {
+        return;
+      }
+      handleClose();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, {
+      capture: true,
+    });
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, {
+        capture: true,
+      });
+    };
+  }, [handleClose, open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleToolbarHover = (event: Event) => {
+      const nextId = (event as ToolbarPopoverHoverEvent).detail?.id;
+      if (nextId !== action.id) {
+        handleClose();
+      }
+    };
+
+    window.addEventListener(toolbarPopoverHoverEvent, handleToolbarHover);
+    return () => {
+      window.removeEventListener(toolbarPopoverHoverEvent, handleToolbarHover);
+    };
+  }, [action.id, handleClose, open]);
+
+  const handlePointerLeave = useCallback(
+    (event: ReactPointerEvent) => {
+      if (isToolbarPopoverInteractionTarget(event.relatedTarget)) {
+        return;
+      }
+      scheduleClose();
+    },
+    [scheduleClose],
+  );
+
   const handleTriggerClick = useCallback(() => {
-    if (hasChildren && !open) {
-      setOpen(true);
+    clearTimers();
+    if (hasChildren) {
+      setOpen((current) => {
+        const nextOpen = !current;
+        openModeRef.current = nextOpen ? "click" : null;
+        return nextOpen;
+      });
+      return;
+    }
+    if (action.kind === "toggle") {
+      action.onRun?.();
       return;
     }
     if (action.onRun) {
@@ -69,62 +174,86 @@ export function PopoverTool({ action }: PopoverToolProps) {
     if (open) {
       setOpen(false);
     }
-  }, [action, hasChildren, open]);
+  }, [action, clearTimers, hasChildren, open]);
 
   const handleChildAction = useCallback(
     (childOnRun?: () => void) => {
+      clearTimers();
       if (childOnRun) {
         childOnRun();
       }
-      handleClose();
+      setOpen(true);
     },
-    [handleClose],
+    [clearTimers],
   );
 
   return (
-    <>
-      <button
-        ref={triggerRef}
-        aria-expanded={open}
-        aria-haspopup={hasChildren ? "menu" : undefined}
-        aria-label={action.label}
-        className={`viewport-tool${action.active ? " is-active" : ""}${open ? " is-hover" : ""}`}
-        data-tooltip={action.description ?? action.label}
-        onClick={handleTriggerClick}
-        onMouseEnter={scheduleOpen}
-        onMouseLeave={scheduleClose}
-        title={action.description ?? action.label}
-        type="button"
-      >
-        {action.iconId ? <ViewportToolSvg icon={action.iconId} /> : null}
-        {hasChildren ? (
-          <span className="viewport-tool-popover-indicator" aria-hidden="true">
-            <svg viewBox="0 0 10 10" width="6" height="6">
-              <path d="M2 3l3 4 3-4" fill="currentColor" />
-            </svg>
-          </span>
-        ) : null}
-      </button>
+    <ToolbarPopover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          aria-expanded={open}
+          aria-haspopup={hasChildren ? "menu" : undefined}
+          aria-label={action.label}
+          className={`viewport-tool${action.active ? " is-active" : ""}${open ? " is-hover" : ""}`}
+          disabled={action.disabled}
+          onClick={handleTriggerClick}
+          onPointerEnter={scheduleOpen}
+          onPointerLeave={handlePointerLeave}
+          type="button"
+        >
+          {action.iconId ? <ViewportToolSvg icon={action.iconId} /> : null}
+        </button>
+      </PopoverTrigger>
 
       {hasChildren ? (
-        <ToolbarPopover
-          triggerRef={triggerRef}
-          open={open}
-          onClose={handleClose}
-          onMouseEnter={scheduleOpen}
-          onMouseLeave={scheduleClose}
+        <PopoverContent
+          align="start"
+          className="toolbar-popover"
+          role="menu"
+          side="right"
+          onPointerEnter={scheduleOpen}
+          onPointerLeave={handlePointerLeave}
         >
-          <PopoverContent
+          <div className="toolbar-popover-header">{action.label}</div>
+          <ToolbarPopoverItems
             items={action.children!}
             onAction={handleChildAction}
           />
-        </ToolbarPopover>
+        </PopoverContent>
       ) : null}
-    </>
+    </ToolbarPopover>
   );
 }
 
-function PopoverContent({
+function ToolbarPopoverActionRow({
+  action,
+  onAction,
+}: {
+  action: ToolbarAction;
+  onAction: (onRun?: () => void) => void;
+}) {
+  return (
+    <button
+      aria-label={action.label}
+      className={`toolbar-popover-item${action.active ? " is-active" : ""}`}
+      disabled={action.disabled}
+      onClick={() => onAction(action.onRun)}
+      type="button"
+    >
+      <span className="toolbar-popover-item-label">{action.label}</span>
+      {action.active ? (
+        <span className="toolbar-popover-item-check" aria-hidden="true">
+          <CheckIcon aria-hidden="true" />
+        </span>
+      ) : null}
+      {action.shortcut ? (
+        <kbd className="toolbar-popover-item-shortcut">{action.shortcut}</kbd>
+      ) : null}
+    </button>
+  );
+}
+
+function ToolbarPopoverItems({
   items,
   onAction,
 }: {
@@ -147,6 +276,30 @@ function PopoverContent({
       continue;
     }
 
+    if (item.kind === "status") {
+      const status = item as ToolbarStatus;
+      if (lastGroup !== null && lastGroup !== status.group) {
+        rows.push(
+          <div
+            key={`sep-${rows.length}`}
+            className="toolbar-popover-separator"
+            aria-hidden="true"
+          />,
+        );
+      }
+      lastGroup = status.group;
+      rows.push(
+        <div
+          key={status.id}
+          className="toolbar-popover-item is-status"
+          role="status"
+        >
+          <span className="toolbar-popover-item-label">{status.label}</span>
+        </div>,
+      );
+      continue;
+    }
+
     const a = item as ToolbarAction;
 
     if (lastGroup !== null && lastGroup !== a.group) {
@@ -161,34 +314,7 @@ function PopoverContent({
     lastGroup = a.group;
 
     rows.push(
-      <button
-        key={a.id}
-        aria-label={a.label}
-        className={`toolbar-popover-item${a.active ? " is-active" : ""}`}
-        disabled={a.disabled}
-        onClick={() => onAction(a.onRun)}
-        type="button"
-      >
-        {a.iconId ? <ViewportToolSvg icon={a.iconId} /> : null}
-        <span className="toolbar-popover-item-label">{a.label}</span>
-        {a.active ? (
-          <span className="toolbar-popover-item-check" aria-hidden="true">
-            <svg viewBox="0 0 12 12" width="10" height="10">
-              <path
-                d="M2 6l3 3 5-6"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </span>
-        ) : null}
-        {a.shortcut ? (
-          <kbd className="toolbar-popover-item-shortcut">{a.shortcut}</kbd>
-        ) : null}
-      </button>,
+      <ToolbarPopoverActionRow key={a.id} action={a} onAction={onAction} />,
     );
   }
 

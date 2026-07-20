@@ -1,14 +1,15 @@
-import type { DisplayMode } from "../viewer";
+import { deriveDisplayFlags, type DisplayMode } from "../types/viewer";
 
 import type {
   ViewerShortcutAction,
-  ViewportShortcutCommand,
+  ViewerShortcutResult,
   ViewerShortcutState,
 } from "../types/ui";
 
 export type {
   ViewerShortcutAction,
   ViewportShortcutCommand,
+  ViewerShortcutResult,
   ViewerShortcutState,
 } from "../types/ui";
 
@@ -110,38 +111,26 @@ export function resolveViewerShortcutAction(
   }
 }
 
-export function deriveDisplayFlags(displayMode: DisplayMode) {
-  return {
-    showTexture:
-      displayMode === "textured" || displayMode === "texturedWireframe",
-    showWireframe:
-      displayMode === "wireframe" || displayMode === "texturedWireframe",
-  };
-}
-
 export function cycleDisplayMode(current: DisplayMode): DisplayMode {
   const index = displayModeCycle.indexOf(current);
   return displayModeCycle[(index + 1) % displayModeCycle.length] ?? "textured";
-}
-
-function nextCommandVersion(command: ViewportShortcutCommand | null) {
-  return (command?.version ?? 0) + 1;
 }
 
 export function applyViewerShortcutAction(
   state: ViewerShortcutState,
   action: ViewerShortcutAction,
   displayMode: DisplayMode,
-): ViewerShortcutState {
+): ViewerShortcutResult {
   switch (action) {
     case "focusSelected":
-      if (!state.selectedMeshName) return state;
+      if (!state.selectedMeshName) {
+        return { ...state, viewportCommand: null };
+      }
       return {
         ...state,
         viewportCommand: {
           kind: "focusSelected",
           selectionKey: state.selectedMeshName,
-          version: nextCommandVersion(state.viewportCommand),
         },
       };
     case "frameAll":
@@ -149,7 +138,6 @@ export function applyViewerShortcutAction(
         ...state,
         viewportCommand: {
           kind: "frameAll",
-          version: nextCommandVersion(state.viewportCommand),
         },
       };
     case "resetView":
@@ -157,7 +145,6 @@ export function applyViewerShortcutAction(
         ...state,
         viewportCommand: {
           kind: "resetView",
-          version: nextCommandVersion(state.viewportCommand),
         },
       };
     case "clearSelection":
@@ -165,25 +152,28 @@ export function applyViewerShortcutAction(
         ...state,
         selectedMeshName: null,
         selectedUsdPrimPath: null,
+        viewportCommand: null,
       };
     case "hideSelected":
-      if (!state.selectedMeshName) return state;
+      if (!state.selectedMeshName) {
+        return { ...state, viewportCommand: null };
+      }
       return {
         ...state,
         viewportCommand: {
           kind: "hideSelected",
           selectionKey: state.selectedMeshName,
-          version: nextCommandVersion(state.viewportCommand),
         },
       };
     case "isolateSelected":
-      if (!state.selectedMeshName) return state;
+      if (!state.selectedMeshName) {
+        return { ...state, viewportCommand: null };
+      }
       return {
         ...state,
         viewportCommand: {
           kind: "isolateSelected",
           selectionKey: state.selectedMeshName,
-          version: nextCommandVersion(state.viewportCommand),
         },
       };
     case "unhideAll":
@@ -191,7 +181,6 @@ export function applyViewerShortcutAction(
         ...state,
         viewportCommand: {
           kind: "unhideAll",
-          version: nextCommandVersion(state.viewportCommand),
         },
       };
     case "cycleDisplayMode": {
@@ -200,12 +189,14 @@ export function applyViewerShortcutAction(
         ...state,
         showTexture: next.showTexture,
         showWireframe: next.showWireframe,
+        viewportCommand: null,
       };
     }
     case "toggleGrid":
       return {
         ...state,
         showGrid: !state.showGrid,
+        viewportCommand: null,
       };
   }
 }

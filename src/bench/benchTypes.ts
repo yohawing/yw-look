@@ -67,6 +67,17 @@ export type BenchStageId =
 
 export type BenchStageMetrics = Partial<Record<BenchStageId, number>>;
 
+export type BenchLoadResponsiveness = {
+  sampleCount: number;
+  maxGapMs: number | null;
+};
+
+export type DeferredTextureCounts = {
+  total: number;
+  loaded: number;
+  failed: number;
+};
+
 export type BenchCaseResult = {
   id: string;
   name: string;
@@ -84,6 +95,10 @@ export type BenchCaseResult = {
   resolveFileMs: number | null;
   listSiblingsMs: number | null;
   loadTimeMs: number | null;
+  textureReadyMs: number | null;
+  deferredTextureMs: number | null;
+  deferredTextureCounts: DeferredTextureCounts | null;
+  loadResponsiveness: BenchLoadResponsiveness | null;
   stageTimeMs: BenchStageMetrics;
   fps: number | null;
   frameTimeMs: {

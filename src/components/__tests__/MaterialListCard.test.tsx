@@ -2,10 +2,22 @@
  * Tests for MaterialListCard shader-slot detail panel (#36).
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { MaterialListCard } from "../MaterialListCard";
-import type { MaterialEntry } from "../assetMetadata";
+import type { AssetMetadata, MaterialEntry } from "../assetMetadata";
+import { useFileStore } from "../../stores/fileStore";
+
+beforeEach(() => {
+  useFileStore.setState({
+    currentFile: null,
+    directoryListing: null,
+    assetInspection: null,
+    assetMetadata: null,
+    packFileRequest: null,
+    openError: null,
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -33,15 +45,63 @@ const baseMat: MaterialEntry = {
   mmd: null,
 };
 
+function makeMetadata(materials: MaterialEntry[]): AssetMetadata {
+  return {
+    formatLabel: "Test",
+    formatVersion: null,
+    nodeCount: 0,
+    meshCount: 0,
+    materialCount: materials.length,
+    textureCount: 0,
+    hasAnimation: false,
+    hierarchy: [],
+    textures: [],
+    materials,
+    lights: [],
+    cameras: [],
+    objectInfo: {},
+  };
+}
+
+function renderWithMaterials(materials: MaterialEntry[]) {
+  useFileStore.setState({
+    assetMetadata: makeMetadata(materials),
+  });
+  return render(<MaterialListCard />);
+}
+
 describe("MaterialListCard – shader slot details (#36)", () => {
   it("renders material names", () => {
-    const { getByText } = render(<MaterialListCard materials={[baseMat]} />);
+    const { container, getByText } = renderWithMaterials([baseMat]);
     expect(getByText("Gold")).toBeTruthy();
+    expect(container.querySelector(".material-split-panel")).toBeTruthy();
+    expect(
+      container
+        .querySelector(".material-split-panel")
+        ?.classList.contains("yl-sidebar-split"),
+    ).toBe(true);
+    expect(
+      container.querySelectorAll(".yl-sidebar-split__section"),
+    ).toHaveLength(2);
+    expect(container.querySelector(".material-list-pane")).toBeTruthy();
+    expect(container.querySelector(".material-detail-pane")).toBeTruthy();
+    expect(
+      container
+        .querySelector(".material-resize-handle")
+        ?.getAttribute("aria-label"),
+    ).toBe("Resize material details");
   });
 
   it("renders shader inputs summary when shader detail is present", () => {
-    const { getByText } = render(<MaterialListCard materials={[baseMat]} />);
+    const { getByText } = renderWithMaterials([baseMat]);
     expect(getByText("shader inputs")).toBeTruthy();
+  });
+
+  it("renders base color hex values in the shared lowercase format", () => {
+    const { getAllByText, queryByText } = renderWithMaterials([baseMat]);
+
+    expect(getAllByText("#b5a642").length).toBeGreaterThan(0);
+    expect(queryByText("#B5A642")).toBeNull();
   });
 
   it("does not render shader inputs when all slots are null", () => {
@@ -59,7 +119,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
       alphaMode: "OPAQUE",
       usdPrimPath: null,
     };
-    const { queryByText } = render(<MaterialListCard materials={[mat]} />);
+    const { queryByText } = renderWithMaterials([mat]);
     expect(queryByText("shader inputs")).toBeNull();
   });
 
@@ -69,7 +129,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
       id: "mat-tex",
       baseColorTexture: { name: "albedo_4k.png" },
     };
-    const { getByText } = render(<MaterialListCard materials={[mat]} />);
+    const { getByText } = renderWithMaterials([mat]);
     expect(getByText("albedo_4k.png")).toBeTruthy();
   });
 
@@ -79,7 +139,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
       id: "mat-usd",
       usdPrimPath: "/World/Materials/Gold",
     };
-    const { getByText } = render(<MaterialListCard materials={[mat]} />);
+    const { getByText } = renderWithMaterials([mat]);
     expect(getByText("/World/Materials/Gold")).toBeTruthy();
   });
 
@@ -110,8 +170,11 @@ describe("MaterialListCard – shader slot details (#36)", () => {
         unsupportedDrawFlags: ["pointDraw"],
       },
     };
-    const { getByText } = render(<MaterialListCard materials={[mat]} />);
-    expect(getByText("MMD material")).toBeTruthy();
+    const { getByText } = renderWithMaterials([mat]);
+    const disclosure = getByText("MMD material").closest("details");
+    expect(disclosure).toBeTruthy();
+    expect(disclosure?.querySelector(".yl-kv--regular")).toBeTruthy();
+    expect(disclosure?.querySelector(".mat-slot-table")).toBeNull();
     expect(getByText("Material01")).toBeTruthy();
     expect(getByText("tex/body.png")).toBeTruthy();
     expect(getByText("doubleSided")).toBeTruthy();
@@ -119,7 +182,9 @@ describe("MaterialListCard – shader slot details (#36)", () => {
   });
 
   it("renders empty state when no materials", () => {
-    const { getByText } = render(<MaterialListCard materials={[]} />);
+    const { container, getByText } = renderWithMaterials([]);
     expect(getByText("No materials found.")).toBeTruthy();
+    expect(container.querySelector(".material-split-panel")).toBeTruthy();
+    expect(getByText("Select a material to inspect it.")).toBeTruthy();
   });
 });

@@ -1,5 +1,5 @@
-import "../styles/sidebar.css";
-import type { CompactMetricRow } from "../types/ui";
+import { KeyValueRows, type KeyValueRow, type KeyValueTone } from "./ui";
+import type { CompactMetricRow, CompactMetricStatus } from "../types/ui";
 
 export type { CompactMetricStatus, CompactMetricRow } from "../types/ui";
 
@@ -8,39 +8,23 @@ type CompactMetricRowsProps = {
   className?: string;
 };
 
+const statusToTone: Record<CompactMetricStatus, KeyValueTone> = {
+  neutral: "default",
+  good: "ok",
+  warning: "warn",
+  danger: "danger",
+};
+
 export function CompactMetricRows({ rows, className }: CompactMetricRowsProps) {
+  const metricRows: KeyValueRow[] = rows.map((row, index) => ({
+    id: `${String(row.label)}-${index}`,
+    label: row.label,
+    value: row.value,
+    tone: row.status ? statusToTone[row.status] : undefined,
+    mono: row.mono,
+  }));
+
   return (
-    <div
-      className={["compact-metric-rows", "card-rows", className]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {rows.map((row, index) => (
-        <div
-          className={[
-            "compact-metric-row",
-            "card-row",
-            row.status ? `is-${row.status}` : null,
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          key={`${String(row.label)}-${index}`}
-        >
-          <span className="compact-metric-label card-row-label">
-            {row.label}
-          </span>
-          <span
-            className={[
-              "compact-metric-value",
-              row.mono ? "card-row-value-mono" : "card-row-value",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            {row.value}
-          </span>
-        </div>
-      ))}
-    </div>
+    <KeyValueRows className={className} density="metric" rows={metricRows} />
   );
 }

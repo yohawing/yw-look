@@ -5,6 +5,7 @@
  *   jsdom environment does not throw "window.__TAURI_IPC__ is not a function".
  * - Provides a no-op URL.createObjectURL / revokeObjectURL because jsdom
  *   does not implement these.
+ * - Provides a no-op ResizeObserver for layout-driven UI primitives.
  */
 
 import { vi } from "vitest";
@@ -26,6 +27,17 @@ if (typeof URL.createObjectURL === "undefined") {
 if (typeof URL.revokeObjectURL === "undefined") {
   Object.defineProperty(URL, "revokeObjectURL", {
     value: vi.fn(),
+    writable: true,
+  });
+}
+
+if (typeof ResizeObserver === "undefined") {
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    value: class ResizeObserver {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
     writable: true,
   });
 }

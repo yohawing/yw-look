@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
 import * as THREE from "three";
+
+import { parseNamedArgs } from "./cliArgs.mjs";
 import {
   ThreeMmdLoader,
   parsePmdMetadata,
@@ -29,7 +32,15 @@ const loaderAssetRoot = path.join(
 const modelExtensions = new Set([".pmd", ".pmx"]);
 const motionExtensions = new Set([".vmd", ".vpd"]);
 
-const argv = parseArgs(process.argv.slice(2));
+const argv = parseNamedArgs(process.argv.slice(2), {
+  values: {
+    "--root": "root",
+    "--out": "out",
+    "--limit": "limit",
+  },
+  unknownMessage: (token) => `Unknown argument: ${token}`,
+  requireValues: false,
+});
 const scanRoot = path.resolve(argv.root ?? defaultRoot);
 const outDir = path.resolve(argv.out ?? defaultOut);
 const limit = argv.limit === undefined ? undefined : Number(argv.limit);
@@ -333,25 +344,6 @@ function summarizeWarnings(warnings) {
     .slice(0, 5)
     .map(([key, count]) => `${key} x${count}`)
     .join(", ");
-}
-
-function parseArgs(tokens) {
-  const parsed = {};
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (token === "--help" || token === "-h") {
-      parsed.help = true;
-    } else if (token === "--root") {
-      parsed.root = tokens[++index];
-    } else if (token === "--out") {
-      parsed.out = tokens[++index];
-    } else if (token === "--limit") {
-      parsed.limit = tokens[++index];
-    } else {
-      throw new Error(`Unknown argument: ${token}`);
-    }
-  }
-  return parsed;
 }
 
 function isRemoteOrInlineUrl(value) {

@@ -1,4 +1,6 @@
+use std::io::Read as _;
 use std::path::PathBuf;
+use std::sync::{MutexGuard, TryLockError};
 
 use crate::error::AppError;
 use crate::shared::{normalize_file_path, USD_TASK_LOCK};
@@ -9,8 +11,35 @@ use crate::usd::{
     UsdLightInfo,
 };
 
+const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
+const USD_FAST_DECISION_SCAN_BYTES: usize = 64 * 1024;
+const USDC_MAGIC: &[u8] = b"PXR-USDC";
+const USD_COMPOSITION_KEYWORDS: [&[u8]; 3] = [b"subLayers", b"references", b"payload"];
+
 fn map_usd_error(error: UsdError) -> AppError {
     AppError::Usd(error.to_string())
+}
+
+fn recover_poisoned_usd_lock(
+    guard: std::sync::PoisonError<MutexGuard<'static, ()>>,
+) -> MutexGuard<'static, ()> {
+    log::warn!("[usd] USD task lock was poisoned; continuing with recovered lock");
+    guard.into_inner()
+}
+
+fn lock_usd_task(background: bool) -> Result<MutexGuard<'static, ()>, AppError> {
+    if background {
+        return match USD_TASK_LOCK.try_lock() {
+            Ok(guard) => Ok(guard),
+            Err(TryLockError::WouldBlock) => Err(AppError::Internal(USD_TASK_BUSY.into())),
+            Err(TryLockError::Poisoned(guard)) => Ok(recover_poisoned_usd_lock(guard)),
+        };
+    }
+
+    match USD_TASK_LOCK.lock() {
+        Ok(guard) => Ok(guard),
+        Err(guard) => Ok(recover_poisoned_usd_lock(guard)),
+    }
 }
 
 async fn run_blocking_usd<T, F>(task: F) -> Result<T, AppError>
@@ -18,10 +47,36 @@ where
     F: FnOnce() -> Result<T, UsdError> + Send + 'static,
     T: Send + 'static,
 {
+    run_usd_task(false, task).await
+}
+
+async fn run_background_usd<T, F>(task: F) -> Result<T, AppError>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
+    run_usd_task(true, task).await
+}
+
+async fn run_maybe_background_usd<T, F>(background: Option<bool>, task: F) -> Result<T, AppError>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
+    if background.unwrap_or(false) {
+        run_background_usd(task).await
+    } else {
+        run_blocking_usd(task).await
+    }
+}
+
+async fn run_usd_task<T, F>(background: bool, task: F) -> Result<T, AppError>
+where
+    F: FnOnce() -> Result<T, UsdError> + Send + 'static,
+    T: Send + 'static,
+{
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = USD_TASK_LOCK
-            .lock()
-            .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?;
+        let _guard = lock_usd_task(background)?;
         task().map_err(map_usd_error)
     })
     .await
@@ -42,19 +97,31 @@ fn fast_usd_requires_glb_preview(path: &std::path::Path) -> Option<bool> {
         return None;
     }
 
-    let bytes = std::fs::read(path).ok()?;
-    if bytes.starts_with(b"PXR-USDC") {
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::with_capacity(USD_FAST_DECISION_SCAN_BYTES);
+    std::io::Read::by_ref(&mut file)
+        .take(USD_FAST_DECISION_SCAN_BYTES as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+
+    if bytes.starts_with(USDC_MAGIC) {
         return Some(true);
     }
-    let source = std::str::from_utf8(&bytes).ok()?;
-    Some(
-        source.contains("subLayers") || source.contains("references") || source.contains("payload"),
-    )
+    if USD_COMPOSITION_KEYWORDS.iter().any(|keyword| {
+        bytes
+            .windows(keyword.len())
+            .any(|window| window == *keyword)
+    }) {
+        return Some(true);
+    }
+    if bytes.len() < USD_FAST_DECISION_SCAN_BYTES {
+        return Some(false);
+    }
+    None
 }
 
-#[allow(non_snake_case)]
 #[tauri::command]
-pub(crate) async fn backendCapabilities(
+pub(crate) async fn backend_capabilities(
     backend: tauri::State<'_, UsdBackendState>,
 ) -> Result<crate::state::BackendCapabilities, AppError> {
     Ok(backend.capabilities())
@@ -65,11 +132,15 @@ pub(crate) async fn inspect_stage(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
     policy: Option<StageLoadPolicy>,
+    background: Option<bool>,
 ) -> Result<StageInspection, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
     let policy = policy.unwrap_or_default();
-    run_blocking_usd(move || handle.inspect_stage(&normalized, policy)).await
+    run_maybe_background_usd(background, move || {
+        handle.inspect_stage(&normalized, policy)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -104,10 +175,11 @@ pub(crate) async fn inspect_prim(
 pub(crate) async fn inspect_usd_lights(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
+    background: Option<bool>,
 ) -> Result<Vec<UsdLightInfo>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.light()?;
-    run_blocking_usd(move || handle.inspect_usd_lights(&normalized)).await
+    run_maybe_background_usd(background, move || handle.inspect_usd_lights(&normalized)).await
 }
 
 #[tauri::command]
@@ -115,21 +187,26 @@ pub(crate) async fn summarize_stage(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
     policy: Option<StageLoadPolicy>,
+    background: Option<bool>,
 ) -> Result<StageSummary, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
     let policy = policy.unwrap_or_default();
-    run_blocking_usd(move || handle.summarize_stage(&normalized, policy)).await
+    run_maybe_background_usd(background, move || {
+        handle.summarize_stage(&normalized, policy)
+    })
+    .await
 }
 
 #[tauri::command]
 pub(crate) async fn collect_asset_issues(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
+    background: Option<bool>,
 ) -> Result<Vec<AssetIssue>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
-    run_blocking_usd(move || handle.collect_asset_issues(&normalized)).await
+    run_maybe_background_usd(background, move || handle.collect_asset_issues(&normalized)).await
 }
 
 #[tauri::command]
@@ -151,12 +228,13 @@ pub(crate) async fn extract_geometry(
     path: String,
     policy: Option<StageLoadPolicy>,
     options: Option<ExtractGeometryOptions>,
+    background: Option<bool>,
 ) -> Result<tauri::ipc::Response, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.geometry()?;
     let resolved_options =
         options.unwrap_or_else(|| ExtractGeometryOptions::from(policy.unwrap_or_default()));
-    let bytes = run_blocking_usd(move || {
+    let bytes = run_maybe_background_usd(background, move || {
         handle.extract_geometry_glb_with_options(&normalized, &resolved_options)
     })
     .await?;
@@ -179,12 +257,15 @@ pub(crate) async fn open_stage_session(
     registry: tauri::State<'_, StageRegistry>,
     path: String,
     policy: Option<StageLoadPolicy>,
+    background: Option<bool>,
 ) -> Result<StageSessionHandle, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path.clone()))?;
     let handle = backend.session()?;
     let policy = policy.unwrap_or_default();
-    let open_stage =
-        run_blocking_usd(move || handle.open_stage_session(&normalized, policy)).await?;
+    let open_stage = run_maybe_background_usd(background, move || {
+        handle.open_stage_session(&normalized, policy)
+    })
+    .await?;
 
     let session = crate::usd::OpenSession {
         path: PathBuf::from(path),
@@ -200,12 +281,9 @@ pub(crate) async fn close_stage_session(
     registry: tauri::State<'_, StageRegistry>,
     handle: StageSessionHandle,
 ) -> Result<(), AppError> {
-    registry
-        .remove(handle)
-        .ok_or_else(|| AppError::Internal(format!(
-            "close_stage_session: unknown handle {}",
-            handle.0
-        )))?;
+    registry.remove(handle).ok_or_else(|| {
+        AppError::Internal(format!("close_stage_session: unknown handle {}", handle.0))
+    })?;
     Ok(())
 }
 
@@ -219,9 +297,7 @@ pub(crate) async fn load_payload(
     use tauri::Manager;
     let backend_handle = backend.session()?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), AppError> {
-        let _guard = USD_TASK_LOCK
-            .lock()
-            .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?;
+        let _guard = lock_usd_task(false)?;
         let registry = app.state::<StageRegistry>();
         let session = registry.get(handle).ok_or_else(|| {
             AppError::Internal(format!("load_payload: unknown session handle {}", handle.0))
@@ -244,12 +320,13 @@ pub(crate) async fn unload_payload(
     use tauri::Manager;
     let backend_handle = backend.session()?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), AppError> {
-        let _guard = USD_TASK_LOCK
-            .lock()
-            .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?;
+        let _guard = lock_usd_task(false)?;
         let registry = app.state::<StageRegistry>();
         let session = registry.get(handle).ok_or_else(|| {
-            AppError::Internal(format!("unload_payload: unknown session handle {}", handle.0))
+            AppError::Internal(format!(
+                "unload_payload: unknown session handle {}",
+                handle.0
+            ))
         })?;
         backend_handle
             .unload_payload(&session.stage, &prim_path)
@@ -272,9 +349,7 @@ pub(crate) async fn extract_geometry_session(
         options.unwrap_or_else(|| ExtractGeometryOptions::from(policy.unwrap_or_default()));
     let backend_handle = backend.session()?;
     let bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, AppError> {
-        let _guard = USD_TASK_LOCK
-            .lock()
-            .map_err(|_| AppError::Internal("USD task lock was poisoned".into()))?;
+        let _guard = lock_usd_task(false)?;
         let registry = app.state::<StageRegistry>();
         let session = registry.get(handle).ok_or_else(|| {
             AppError::Internal(format!(
@@ -289,4 +364,43 @@ pub(crate) async fn extract_geometry_session(
     .await
     .map_err(|e| AppError::Internal(format!("USD task join error: {e}")))??;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::{tempdir, TempDir};
+
+    fn write_usda(name: &str, bytes: &[u8]) -> (TempDir, std::path::PathBuf) {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join(name);
+        std::fs::write(&path, bytes).expect("write usda");
+        (dir, path)
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_detects_prefix_composition() {
+        let (_dir, path) = write_usda(
+            "composed.usda",
+            b"#usda 1.0\ndef Xform \"Root\" (references = @asset.usda@) {}",
+        );
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_accepts_small_plain_usda() {
+        let (_dir, path) = write_usda("plain.usda", b"#usda 1.0\ndef Xform \"Root\" {}");
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), Some(false));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_defers_saturated_plain_prefix() {
+        let mut bytes = b"#usda 1.0\n".to_vec();
+        bytes.resize(USD_FAST_DECISION_SCAN_BYTES, b' ');
+        let (_dir, path) = write_usda("large.usda", &bytes);
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), None);
+    }
 }

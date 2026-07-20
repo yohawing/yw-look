@@ -1,25 +1,54 @@
 import type { SettingsPayload } from "../lib/settings";
+import type { FileAssociationSyncResult } from "../lib/fileAssociations";
+import type { OptionalLoaderPackStatus } from "../viewer";
 import {
   SidebarEmpty,
   SidebarError,
-  SidebarKeyValueRows,
   SidebarSection,
-  type SidebarKeyValueRow,
-} from "./sidebarPrimitives";
+} from "../lib/sidebarPrimitives";
+import { FieldRow } from "./ui/FieldRow";
+import { ToggleSwitch } from "./ui/ToggleSwitch";
+import { Button } from "./ui/Button";
 
 type SettingsCardProps = {
   settingsPayload: SettingsPayload | null;
   settingsError: string | null;
-  onToggleFileAssociations: () => void;
+  optionalLoaderPacks?: readonly OptionalLoaderPackStatus[];
+  optionalLoaderPacksError?: string | null;
+  fileAssociationResult?: FileAssociationSyncResult | null;
+  fileAssociationError?: string | null;
+  fileAssociationsAvailable?: boolean;
   /** #26: flips `autoCheckForUpdates` and persists via save_settings. */
   onToggleAutoCheckForUpdates: () => void;
+  onToggleFileAssociations?: () => void;
+  onToggleOptionalLoaderPack: (packId: string) => void;
+  onOpenDefaultAppsSettings?: () => void;
+  onRetryFileAssociations?: () => void;
 };
+
+function canToggleOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
+  return (
+    pack.runtimeAvailable &&
+    pack.compatibility.state !== "requiresNewerApp" &&
+    pack.compatibility.state !== "requiresOlderApp" &&
+    pack.compatibility.state !== "unknown" &&
+    pack.compatibility.state !== "runtimeMissing"
+  );
+}
 
 export function SettingsCard({
   settingsPayload,
   settingsError,
-  onToggleFileAssociations,
+  optionalLoaderPacks = [],
+  optionalLoaderPacksError = null,
+  fileAssociationResult = null,
+  fileAssociationError = null,
+  fileAssociationsAvailable = false,
   onToggleAutoCheckForUpdates,
+  onToggleFileAssociations,
+  onToggleOptionalLoaderPack,
+  onOpenDefaultAppsSettings,
+  onRetryFileAssociations,
 }: SettingsCardProps) {
   if (settingsError) {
     return (
@@ -37,76 +66,91 @@ export function SettingsCard({
     );
   }
 
-  const configRows: SidebarKeyValueRow[] = [
-    {
-      id: "schema",
-      label: "Schema version",
-      value: settingsPayload.settings.version,
-      mono: true,
-    },
-    {
-      id: "recent",
-      label: "Recent files limit",
-      value: settingsPayload.settings.recentFilesLimit,
-      mono: true,
-    },
-    {
-      id: "log",
-      label: "Log level",
-      value: settingsPayload.settings.diagnosticsLogLevel,
-      tone: "muted",
-    },
-  ];
-
   return (
     <>
-      <SidebarSection title="Local Settings">
-        <p className="sidebar-path">{settingsPayload.settingsPath}</p>
-        <SidebarKeyValueRows rows={configRows} />
-      </SidebarSection>
-      <SidebarSection title="Integration">
-        <div className="sidebar-kv">
-          <div className="sidebar-kv-row">
-            <span className="sidebar-kv-key">File associations</span>
-            <span className="sidebar-kv-value">
-              <button
-                aria-pressed={settingsPayload.settings.fileAssociationsEnabled}
-                className={`settings-switch ${
-                  settingsPayload.settings.fileAssociationsEnabled
-                    ? "is-on"
-                    : ""
-                }`}
-                onClick={onToggleFileAssociations}
-                type="button"
-              >
-                <span className="settings-switch-label">
-                  {settingsPayload.settings.fileAssociationsEnabled
-                    ? "Enabled"
-                    : "Disabled"}
-                </span>
-                <span className="settings-switch-track" aria-hidden="true" />
-              </button>
-            </span>
-          </div>
-          <div className="sidebar-kv-row">
-            <span className="sidebar-kv-key">Auto-check updates</span>
-            <span className="sidebar-kv-value">
-              <button
-                aria-pressed={settingsPayload.settings.autoCheckForUpdates}
-                className={`settings-switch ${
-                  settingsPayload.settings.autoCheckForUpdates ? "is-on" : ""
-                }`}
-                onClick={onToggleAutoCheckForUpdates}
-                type="button"
-              >
-                <span className="settings-switch-label">
-                  {settingsPayload.settings.autoCheckForUpdates ? "On" : "Off"}
-                </span>
-                <span className="settings-switch-track" aria-hidden="true" />
-              </button>
-            </span>
-          </div>
+      <SidebarSection title="Update Preferences">
+        <div className="yl-kv">
+          <FieldRow
+            className="yl-kv-row"
+            controlClassName="yl-kv-value"
+            label="Auto-check updates"
+            labelClassName="yl-kv-key"
+          >
+            <ToggleSwitch
+              aria-label="Auto-check updates"
+              checked={settingsPayload.settings.autoCheckForUpdates}
+              onCheckedChange={() => onToggleAutoCheckForUpdates()}
+              size="sm"
+            />
+          </FieldRow>
         </div>
+      </SidebarSection>
+      {fileAssociationsAvailable &&
+      fileAssociationResult?.supported !== false ? (
+        <SidebarSection title="File Associations">
+          {fileAssociationError ? (
+            <SidebarError>{fileAssociationError}</SidebarError>
+          ) : null}
+          <div className="yl-kv">
+            <FieldRow
+              className="yl-kv-row"
+              controlClassName="yl-kv-value"
+              label="Offer enabled formats as Windows app candidates"
+              labelClassName="yl-kv-key"
+            >
+              <ToggleSwitch
+                aria-label="Offer enabled formats as Windows app candidates"
+                checked={settingsPayload.settings.fileAssociationsEnabled}
+                onCheckedChange={() => onToggleFileAssociations?.()}
+                size="sm"
+              />
+            </FieldRow>
+          </div>
+          <Button
+            onClick={() => onOpenDefaultAppsSettings?.()}
+            size="sm"
+            variant="subtle"
+          >
+            Open Windows Default Apps
+          </Button>
+          {fileAssociationError ? (
+            <Button
+              onClick={() => onRetryFileAssociations?.()}
+              size="sm"
+              variant="subtle"
+            >
+              Retry File Associations
+            </Button>
+          ) : null}
+        </SidebarSection>
+      ) : null}
+      <SidebarSection title="Optional Loader Packs" collapsible>
+        {optionalLoaderPacksError ? (
+          <SidebarError>{optionalLoaderPacksError}</SidebarError>
+        ) : null}
+        {optionalLoaderPacks.length > 0 ? (
+          <div className="yl-kv">
+            {optionalLoaderPacks.map((pack) => (
+              <FieldRow
+                className="yl-kv-row"
+                controlClassName="yl-kv-value"
+                key={pack.id}
+                label={pack.name}
+                labelClassName="yl-kv-key"
+              >
+                <ToggleSwitch
+                  aria-label={`${pack.name} loader pack`}
+                  checked={pack.installed && pack.enabled}
+                  disabled={!canToggleOptionalLoaderPack(pack)}
+                  onCheckedChange={() => onToggleOptionalLoaderPack(pack.id)}
+                  size="sm"
+                />
+              </FieldRow>
+            ))}
+          </div>
+        ) : (
+          <SidebarEmpty>No optional loader packs registered.</SidebarEmpty>
+        )}
       </SidebarSection>
     </>
   );

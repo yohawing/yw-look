@@ -1,0 +1,35 @@
+name: yw-look bug report
+description: Report a file loading, rendering, or runtime issue.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostic-report
+    attributes:
+      label: Diagnostic report
+      description: Paste the output from Copy Diagnostics or Copy Details.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: asset-notes
+    attributes:
+      label: Asset notes
+      description: File format, approximate size, linked textures/payloads, and whether the file can be shared.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant lines from the local log folder if they are not already in the diagnostic report. Local logs may include file paths.
+      render: text
+    validations:
+      required: false

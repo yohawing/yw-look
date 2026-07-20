@@ -14,6 +14,7 @@ import type {
   ToneMapping,
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import type { PackRuntime } from "./format-pack";
 
 // ── Viewer mode & feedback ───────────────────────────────────────
 
@@ -23,6 +24,8 @@ export type ViewerMode =
   | "ready"
   | "unsupported"
   | "missingOptionalLoader"
+  | "disabledOptionalLoader"
+  | "incompatibleOptionalLoader"
   | "loadFailed"
   | "missingReference";
 
@@ -41,6 +44,84 @@ export type DisplayMode =
   | "wireframe"
   | "texturedWireframe";
 
+export type ViewportDisplayFlags = {
+  showTexture: boolean;
+  showWireframe: boolean;
+  showUnlit: boolean;
+  showNormals?: boolean;
+  showVertexColors?: boolean;
+};
+
+/** Mutually exclusive surface display choices in the viewport Display popover. */
+export type ViewportSurfaceDisplay =
+  | "shaded"
+  | "unlit"
+  | "normals"
+  | "vertexColor";
+
+/** Tri-state wireframe overlay mode in the viewport Display popover. */
+export type ViewportWireframeMode = "off" | "overlay" | "only";
+
+export type ViewportDisplayState = {
+  surface: ViewportSurfaceDisplay;
+  wireframe: ViewportWireframeMode;
+  displayMode: DisplayMode;
+};
+
+export function deriveDisplayMode(
+  flags: Pick<ViewportDisplayFlags, "showTexture" | "showWireframe">,
+): DisplayMode {
+  if (flags.showTexture && flags.showWireframe) return "texturedWireframe";
+  if (flags.showTexture) return "textured";
+  if (flags.showWireframe) return "wireframe";
+  return "untextured";
+}
+
+export function deriveDisplayFlags(displayMode: DisplayMode) {
+  return {
+    showTexture:
+      displayMode === "textured" || displayMode === "texturedWireframe",
+    showWireframe:
+      displayMode === "wireframe" || displayMode === "texturedWireframe",
+  };
+}
+
+export function deriveViewportSurfaceDisplay(flags: {
+  showUnlit: boolean;
+  showNormals?: boolean;
+  showVertexColors?: boolean;
+}): ViewportSurfaceDisplay {
+  if (flags.showVertexColors && !flags.showUnlit && !flags.showNormals) {
+    return "vertexColor";
+  }
+  if (flags.showNormals && !flags.showUnlit && !flags.showVertexColors) {
+    return "normals";
+  }
+  if (flags.showUnlit && !flags.showNormals && !flags.showVertexColors) {
+    return "unlit";
+  }
+  return "shaded";
+}
+
+export function deriveViewportWireframeMode(flags: {
+  showWireframe: boolean;
+  showTexture: boolean;
+}): ViewportWireframeMode {
+  if (!flags.showWireframe) return "off";
+  if (flags.showTexture) return "overlay";
+  return "only";
+}
+
+export function deriveViewportDisplayState(
+  flags: ViewportDisplayFlags,
+): ViewportDisplayState {
+  return {
+    surface: deriveViewportSurfaceDisplay(flags),
+    wireframe: deriveViewportWireframeMode(flags),
+    displayMode: deriveDisplayMode(flags),
+  };
+}
+
 export type ViewerSurfaceMode = "asset" | "texture";
 
 export type TextureViewMode = "rgb" | "rgba" | "r" | "g" | "b" | "alpha";
@@ -56,11 +137,14 @@ export type SceneContext = {
   mountedObject: Group | Mesh | null;
   sourceObject: Group | Mesh | null;
   previewObject: Group | Mesh | null;
+  boneOnlyPreview: boolean;
   cleanupUrls: string[];
   cleanupCallbacks: Array<() => void>;
+  animationRoot: Object3D | null;
   mixer: AnimationMixer | null;
   clips: AnimationClip[];
   activeAction: AnimationAction | null;
+  packRuntime: PackRuntime | null;
   mmdModel: MmdRuntimeModelHandle | null;
   mmdMotion: MmdMotionPlayback | null;
   textureRegistry: Map<string, Texture>;
@@ -76,7 +160,13 @@ export type MmdAnimationHandle = {
 };
 
 export type MmdRuntimeModelHandle = {
+  root?: Object3D;
   mesh: Object3D;
+  outlineMeshes?: Object3D[];
+  renderOrderMeshes?: Object3D[];
+  syncMaterialMorphs?: (
+    directWeights?: Readonly<Record<number, number>>,
+  ) => void;
   runtime?: {
     reset(time: number): void;
     setAnimation(animation: MmdAnimationHandle, mesh: Object3D): void;
@@ -107,7 +197,11 @@ export type MmdMotionPlayback = {
  * renderer-appropriate UI. `.ply` is classified by header content into one of
  * these; other formats default to `mesh`.
  */
-export type ViewerAssetKind = "mesh" | "pointCloud" | "gaussianSplat";
+export type ViewerAssetKind =
+  | "mesh"
+  | "pointCloud"
+  | "gaussianSplat"
+  | "motion";
 
 export type LoadedPreview = {
   object: Group | Mesh;
@@ -119,8 +213,9 @@ export type LoadedPreview = {
   lighting?: PreviewLightingPreset;
   rendering?: PreviewRenderingPreset;
   skipScaleNormalization?: boolean;
-  mmdMetadata?: MmdAssetMetadata;
   mmdModel?: MmdRuntimeModelHandle;
+  /** Motion already bound to `mmdModel`, used by standalone motion previews. */
+  mmdMotion?: LoadedMmdMotion;
   /**
    * Viewer-side classification of the loaded content. Omitted ⇒ treated as
    * `mesh`. Point clouds and Gaussian splats wrap their specialized object
@@ -201,6 +296,8 @@ export type MissingReferenceError = Error & {
 export type PreviewSupportState =
   | "implemented"
   | "missingOptionalLoader"
+  | "disabledOptionalLoader"
+  | "incompatibleOptionalLoader"
   | "unsupported";
 
 // ── Scene config (grid, scale, camera, texture filter) ───────────
@@ -272,11 +369,16 @@ export type AssetViewportApi = {
 export type LoaderContext = {
   renderer?: WebGLRenderer;
   usdLoadPolicy?: import("./ipc").StageLoadPolicy;
+  getUsdInspection?: () => import("./ipc").StageInspection | null;
   variantSelections?: import("./ipc").VariantSelection[];
   glbOverride?: ArrayBuffer | null;
+  disabledOptionalLoaderPackIds?: readonly string[] | ReadonlySet<string>;
+  incompatibleOptionalLoaderPackIds?: readonly string[] | ReadonlySet<string>;
   onStage?: LoadingStageReporter;
   onDeferredTexture?: (snapshot: DeferredTextureSnapshot) => void;
   onWarning?: (warning: string) => void;
+  signal?: AbortSignal;
+  parseTimeoutMs?: number;
 };
 
 export type LoaderPlugin = {
@@ -297,6 +399,30 @@ export type RegisteredLoaderInfo = {
   extension: string;
   optional: boolean;
   installed: boolean;
+};
+
+export type OptionalLoaderPackStatus = {
+  id: string;
+  name: string;
+  extensions: readonly string[];
+  installed: boolean;
+  enabled: boolean;
+  manifestInstalled: boolean;
+  runtimeAvailable: boolean;
+  version?: string;
+  compatibility: {
+    state:
+      | "compatible"
+      | "bundled"
+      | "disabled"
+      | "manifestMissing"
+      | "requiresNewerApp"
+      | "requiresOlderApp"
+      | "runtimeMissing"
+      | "unknown";
+    label: string;
+    detail?: string;
+  };
 };
 
 // ── Metadata collection ──────────────────────────────────────────
@@ -382,6 +508,26 @@ export type MaterialEntry = {
   mmd: MmdMaterialEntry | null;
 };
 
+// ── Animation metadata ───────────────────────────────────────────
+
+export type AnimationTrackMetadata = {
+  name: string;
+  target: string;
+  propertyPath: string;
+  keyframeCount: number;
+  timeRange: [number, number];
+  interpolation: "linear" | "discrete" | "smooth" | "unknown";
+};
+
+export type AnimationClipMetadata = {
+  name: string;
+  duration: number;
+  trackCount: number;
+  keyframeCount: number;
+  estimatedFrameRate: number | null;
+  tracks: AnimationTrackMetadata[];
+};
+
 // ── Light entry ──────────────────────────────────────────────────
 
 export type LightEntry = {
@@ -414,8 +560,8 @@ export type MmdSectionEntry = {
 };
 
 export type MmdAssetMetadata = {
-  format: "pmx" | "pmd";
-  version: number;
+  format: "pmx" | "pmd" | "vmd";
+  version: number | null;
   encoding: string | null;
   name: string;
   englishName: string;
@@ -508,9 +654,12 @@ export type AssetMetadata = {
   assetKind?: ViewerAssetKind;
   nodeCount: number;
   meshCount: number;
+  boneCount?: number;
+  hasBones?: boolean;
   materialCount: number;
   textureCount: number;
   hasAnimation: boolean;
+  animationClips?: AnimationClipMetadata[];
   hierarchy: HierarchyNode[];
   textures: TextureEntry[];
   materials: MaterialEntry[];
@@ -523,11 +672,6 @@ export type AssetMetadata = {
 // ── AssetViewport viewer settings ────────────────────────────────
 
 export type BackgroundPreset = "gray" | "charcoal" | "light";
-
-export type CameraPresetRequest = {
-  preset: CameraPreset;
-  version: number;
-};
 
 export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
 
@@ -557,7 +701,6 @@ export type Build3DToolbarOptions = {
   cameraPreset: string | null;
   cameraPresetOptions: Array<{ id: string; label: string }>;
   onSelectCameraPreset?: (preset: string) => void;
-  onCycleCamera?: () => void;
   showTexture: boolean;
   onToggleTexture: () => void;
   showUnlit: boolean;
@@ -579,6 +722,10 @@ export type Build3DToolbarOptions = {
   onToggleBoundingBoxes?: () => void;
   showSkeleton?: boolean;
   onToggleSkeleton?: () => void;
+  showLocalAxis?: boolean;
+  onToggleLocalAxis?: () => void;
+  showJointNames?: boolean;
+  onToggleJointNames?: () => void;
 };
 
 // ── Animation state ──────────────────────────────────────────────
@@ -589,4 +736,12 @@ export type AnimationState = {
   currentTime: number;
   duration: number;
   isPlaying: boolean;
+};
+
+export const emptyAnimationState: AnimationState = {
+  clipNames: [],
+  activeClipIndex: 0,
+  currentTime: 0,
+  duration: 0,
+  isPlaying: false,
 };

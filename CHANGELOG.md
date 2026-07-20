@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.3.0 (2026-07-19)
+
+### Viewer and loader packs
+
+- Made the pure-Rust OpenUSD implementation the sole USD backend, removed the C++ runtime payload, and pinned the compatibility source used by local, CI, and release builds.
+- Made fully loaded USD previews the default while retaining deferred payload loading as an explicit asynchronous mode, with more reliable payload sessions, inspection retries, and error reporting.
+- Moved heavy FBX, glTF, OBJ, DAE, USD, and Alembic preparation away from the main thread where practical, reduced redundant scene traversals and texture decoding, and improved cancellation of stale loads.
+- Expanded Optional Loader Pack management across manifests, compatibility reporting, Settings actions, file associations, build profiles, and NSIS component selection for VRM, MMD, and Gaussian Splat support.
+- Updated the MMD loader, added PMX material morph playback and regression coverage, restored standalone VMD playback, and bundled the preview model used by release builds.
+- Improved skeleton, animation, high-poly selection, material, texture, camera, light, and USD inspection behavior across supported formats.
+
+### Reliability and diagnostics
+
+- Added persistent application diagnostics, crash recovery records, release-safe log redaction, frontend fatal-error capture, diagnostics access from Settings, and a prefilled issue-reporting path.
+- Added stronger binary-read boundaries, stale file-open protection, blob URL cleanup, loader abort handling, release content security policy, and loopback-only updater overrides.
+- Added public fixture, viewport snapshot, loader-pack, startup, responsiveness, and local visual-review coverage, with test-count drift enforced against the documented QA inventory.
+
+### Interface
+
+- Adopted shared Radix-based dialog, popover, and tooltip primitives and consolidated repeated sidebar, toolbar, status, warning, material, and file-list UI.
+- Refined viewport tool grouping and icons, recent-file presentation, long-path tooltips, skeleton overlays, animation metadata, texture split panes, and standalone image behavior.
+- Hid development-only diagnostics and controls from release builds while keeping actionable warnings and failure details visible.
+
+### Build and release
+
+- Added release-note contract checks, consolidated local release preflight reporting, updater-manifest validation, local updater-feed smoke tests, and Windows/macOS signing audit reports.
+- Added loader-enabled Windows bundle profiles and checks that verify NSIS/MSI artifacts, updater signatures, generated installer hooks, and all three Optional Loader Packs.
+- Added packaged startup measurement, reproducible IPC type generation checks, and release-checkout-safe OpenUSD dependency resolution.
+
+### Known limitations
+
+- Windows installers do not yet have production Authenticode signing; SmartScreen may identify the publisher as unknown.
+- The macOS artifacts for this tag have not yet been built, notarized, stapled, or exercised through Gatekeeper on a clean Mac.
+- Optional Loader Pack selection is covered by generated-hook and bundle checks, but the final v0.3.0 NSIS component page still requires a human interactive install check.
+- GitHub Release installation and updater roundtrips cannot be completed until the v0.3.0 artifacts and `latest.json` are published.
+- MMD physics remains disabled by default; MMD model and motion preview support does not imply production physics parity.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: the local v0.3.0 NSIS and MSI bundles were produced with updater signatures, and `npm run check:nsis-loader-pack-bundle` verified all three Optional Loader Packs. `npm run check:win-authenticode` audited the NSIS installer, MSI installer, and application executable as 0 valid, 3 unsigned, and 0 invalid; SmartScreen remains unverified on a clean Windows environment.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: v0.3.0 macOS artifacts have not been produced yet. The release workflow requires Apple signing and notarization secrets, but `codesign`, notarization, stapling, Gatekeeper first launch, and Finder Open With must be confirmed from the final artifacts.
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: not verified — the v0.3.0 GitHub Release installer and updater manifest do not exist until the tag is published; verify a clean install and an update from v0.2.2 after publication.
+- macOS: not verified — the v0.3.0 GitHub Release DMG and updater manifest do not exist until the tag is published; verify a clean install and an update from v0.2.2 after publication.
+
 ## v0.2.2 (2026-05-31)
 
 ### Viewer and loaders
@@ -12,7 +66,7 @@
 
 ### Build and release
 
-- Included platform-specific Tauri overlay configs in local Windows and macOS bundle scripts so local installers ship the OpenUSD runtime payload.
+- Included platform-specific Tauri overlay configs in local Windows and macOS bundle scripts.
 - Updated the Optional Loader Pack dependency and kept frontend preview-support tables aligned with newly supported splat formats.
 
 ### Refactoring
@@ -20,12 +74,36 @@
 - Split large app state and command modules into focused stores, hooks, command modules, and shared type definitions.
 - Centralized error handling and design tokens, and normalized formatting after the refactor.
 
+### Known limitations
+
+- Windows NSIS and MSI installers ship without Authenticode signing; SmartScreen may warn about an unknown publisher on first launch.
+- macOS DMG and app bundles are not Developer ID signed or notarized; Gatekeeper may block or require manual override on first launch.
+- Optional Loader Pack component selection in the NSIS installer UI was not confirmed for this tag; MMD and Gaussian Splat pack installation state should be verified outside the published installer.
+- GitHub Release install and updater roundtrip from production artifacts has not been confirmed on clean Windows or macOS machines for this tag.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: v0.2.2 Windows bundle artifacts were not Authenticode signed at release time. `Get-AuthenticodeSignature` was not run against the published NSIS or MSI installers, and SmartScreen behavior on a clean Windows environment was not recorded for this tag.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: v0.2.2 macOS bundle artifacts were not Developer ID signed, notarized, or stapled at release time. `codesign -dv`, `notarytool`, `stapler validate`, Gatekeeper first-launch, and Finder Open With were not confirmed on a clean macOS environment for this tag.
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: not verified — a fresh install from the v0.2.2 GitHub Release NSIS installer and an in-app update via the published `latest.json` were not completed on a clean machine.
+- macOS: not verified — a fresh install from the v0.2.2 GitHub Release DMG and an in-app update via the published `latest.json` were not completed on a clean machine.
+
 ## v0.2.1 (2026-05-26)
 
 ### Release
 
 - Fixed the macOS release build by importing the Tauri event emitter trait used by Finder open-file handling.
-- Consolidated the release checklist into `docs/release-distribution.md` and documented the Optional Loader Pack release check.
+- Consolidated the release checklist into `docs/RELEASE.md` and documented the Optional Loader Pack release check.
 - Added USD load timing diagnostics used during release performance validation.
 
 ## v0.2.0 (2026-05-25)
@@ -76,8 +154,7 @@
 
 ### Build, release, and docs
 
-- Added prebuilt OpenUSD payload extraction and macOS OpenUSD payload support.
-- Bundled the macOS Alembic helper and allowed prebuilt OpenUSD startup without a local vcpkg root.
+- Bundled the macOS Alembic helper.
 - Built the FLIP comparison helper during release bundling so Tauri's package binary scan has all expected binaries.
 - Made local Windows update feed generation select the installer that matches the current release version.
 - Signed the bundled macOS Alembic helper before notarization.
@@ -126,9 +203,6 @@
   enumeration, bound-mesh material details, RGBA displayColor /
   displayOpacity handling, PointInstancer previews, and Z-up correction
   for synthetic up-axis nodes.
-- Ported more hierarchy construction to the C++ backend and propagated
-  typed errors through stage flattening, variant selection, and shim
-  callback paths.
 - Made the loader fail closed for composition-bearing USD files when a
   JavaScript fallback would otherwise hide unsupported composition
   semantics.
@@ -151,19 +225,11 @@
 - Added load-regression benchmark scripts and sample-fetch support for
   multi-file and zip-based reference models.
 - Clarified macOS distribution boundaries and release requirements.
-- Skipped the expensive C++ backend workflow on develop while keeping
-  release/main coverage.
 
 ## v0.1.2 (2026-04-19)
 
 ### USD backend
 
-- C++ OpenUSD backend (Pixar OpenUSD via vcpkg + handwritten C shim)
-  promoted to the default build. The pure-Rust fork (`yohawing/openusd`)
-  stays opt-in via `--no-default-features --features backend-openusd-rs`
-  for parity verification and Linux hosts (vcpkg OpenUSD is Windows +
-  macOS only; Linux surfaces a `compile_error!` unless the Rust fork
-  feature is selected).
 - UsdPreviewSurface material pipeline covering scalar inputs
   (diffuseColor / metallic / roughness / opacity / emissiveColor),
   texture resolution (USDZ archive + filesystem search), normal maps,
@@ -191,10 +257,6 @@ vector2 / vector3 / vector4 / float`, `ND_tiledimage_color3 / 4`,
 
 ### Infrastructure
 
-- `ci-cpp-backend.yml` runs on `develop` pushes and PRs, with vcpkg
-  binary cache + `Swatinem/rust-cache` for build reuse across runs.
-- `scripts/preview-model.mjs` honors `YW_LOOK_USD_BACKEND=cpp|rs` for
-  side-by-side backend comparisons during visual debugging.
 - Added `default-run = "yw-look"` in `src-tauri/Cargo.toml` so
   `cargo run` keeps targeting the Tauri binary alongside helper
   CLIs like `usd_to_glb`.

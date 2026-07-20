@@ -1,6 +1,6 @@
 [package]
 name = "yw-look"
-version = "0.2.2"
+version = "0.3.0"
 description = "Quick look style asset viewer for CG workflows"
 authors = ["OpenAI Codex"]
 edition = "2021"
@@ -22,60 +22,27 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.1.0", features = [] }
-# Optional build-time deps enabled by the `backend-openusd-cpp`
-# feature. They are kept out of `default` so feature-off builds never
-# require a C++ toolchain, CMake, or vcpkg.
-bindgen = { version = "0.70", optional = true }
-cmake = { version = "0.1", optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
-sha2 = { version = "0.10", optional = true }
-zip = { version = "8", default-features = false, features = ["deflate"], optional = true }
+# The build script uses this only when an Alembic preview helper must be
+# regenerated. Normal Rust builds use the bundled helper and do not invoke
+# CMake or vcpkg.
+cmake = { version = "0.1" }
 
 [features]
-# Phase 2.J: the C++ backend (Pixar OpenUSD via vcpkg + a handwritten
-# C shim) is now the default. Pre-Phase-2.J builds used the pure-Rust
-# `yohawing/openusd` fork as the default; that backend still compiles
-# under the opt-in `backend-openusd-rs` feature for parity testing
-# and for targets that cannot (yet) consume the C++ toolchain.
-#
-# To build the pure-Rust flavor explicitly, pass:
-#   cargo build --no-default-features --features backend-openusd-rs
-default = ["backend-openusd-cpp"]
-# Pure-Rust backend (yohawing/openusd fork). Keeps the existing
-# `OpenusdBackend` compiled in and wired up.
+# The pure-Rust OpenUSD backend is the only USD implementation.
+default = ["backend-openusd-rs"]
 backend-openusd-rs = []
-# C++ backend (Pixar OpenUSD via vcpkg + a handwritten C shim).
-# Enabling this pulls in the build-time dependencies above and
-# uses the Git LFS prebuilt OpenUSD payload when available. VCPKG_ROOT
-# is only needed for fallback/source rebuilds or forced helper regeneration.
-# See `docs/usd-cpp.md` for setup.
-#
-# Linux is intentionally unsupported while the vcpkg + OpenUSD build
-# is still Windows-first; the C++ backend compile-errors out on
-# `target_os = "linux"` so Linux builders must drop back to the Rust
-# backend via `--no-default-features --features backend-openusd-rs`.
-backend-openusd-cpp = [
-  "dep:bindgen",
-  "dep:cmake",
-  "dep:serde",
-  "dep:serde_json",
-  "dep:sha2",
-  "dep:zip",
-]
 # Flip comparison helper (flip_compare bin). Optional to avoid pulling
 # nv-flip and image into the main Tauri binary build.
 flip-compare = ["dep:nv-flip", "dep:image"]
 
 [dependencies]
-# Phase 5e F3 fix on `yw-look-phase4`. Carries every Phase 4/5 fork
-# API plus the pcp false-cycle-detection fix (`b895c9b`) that lets
-# HumanFemale.walk.usd and similar multi-payload USD stages compose
-# without falsely hitting `Error::ArcCycle`.
-openusd = { git = "https://github.com/yohawing/openusd.git", rev = "0419da04a703e5857b67afedbe7f0d3007225bbf" }
+# Pin the pure-Rust OpenUSD compatibility layer used by yw-look so local,
+# CI, and release builds resolve the same source without a sibling checkout.
+openusd = { git = "https://github.com/yohawing/openusd.git", rev = "98364275b34c441468014a27b2c820dc21b84f4b" }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1"
 sysinfo = { version = "0.37.2", default-features = false, features = ["system"] }
 tauri = { version = "2.8.5", features = [] }
 tauri-plugin-updater = "2.10.0"
@@ -90,3 +57,14 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 # Gated behind the `flip-compare` feature so only the flip_compare bin pulls them in.
 nv-flip = { version = "0.1", optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+glam = { version = "0.33.2", default-features = false, features = ["std", "f64"] }
+log = "0.4.33"
+tauri-plugin-log = "2.8.0"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55.0"
+windows-sys = { version = "0.59.0", features = ["Win32_UI_Shell"] }
+
+[dev-dependencies]
+tempfile = "3"
+ts-rs = "12.0.1"

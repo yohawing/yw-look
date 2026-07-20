@@ -1,22 +1,20 @@
 import { create } from "zustand";
 import type {
   BackgroundPreset,
-  CameraPresetRequest,
   EnvironmentPreset,
   TextureFilterMode,
   TextureViewMode,
+  TextureColorSpace,
   ToneMappingMode,
   ViewerFeedback,
   ViewerSurfaceMode,
-} from "../components/AssetViewport";
-import type { TextureColorSpace } from "../components/toolbar/buildImageToolbar";
+} from "../types/viewer";
 import type { ResourceDiagnosticsSnapshot } from "../lib/diagnostics";
 import type {
   PurposeModes,
   StageLoadPolicy,
   VariantSelection,
 } from "../lib/usd";
-import type { ViewportShortcutCommand } from "../lib/viewerShortcuts";
 
 export interface ViewerState {
   showTexture: boolean;
@@ -25,6 +23,8 @@ export interface ViewerState {
   showGrid: boolean;
   showAxes: boolean;
   showSkeleton: boolean;
+  showLocalAxis: boolean;
+  showJointNames: boolean;
   showBoundingBoxes: boolean;
   showNormals: boolean;
   showVertexColors: boolean;
@@ -32,7 +32,6 @@ export interface ViewerState {
   environmentRotation: number;
   backfaceCulling: boolean;
   textureFilterMode: TextureFilterMode;
-  cameraPresetRequest: CameraPresetRequest | null;
   controlSensitivity: number;
   cameraFov: number;
   renderScale: number;
@@ -65,10 +64,7 @@ export interface ViewerState {
   activeCameraId: string | null;
   variantSelections: VariantSelection[];
   variantSelectionError: string | null;
-  resetVersion: number;
   scaleNormalization: { applied: boolean; factor: number } | null;
-  cancelScaleNormalizeVersion: number;
-  viewportShortcutCommand: ViewportShortcutCommand | null;
 
   setShowTexture: (v: boolean) => void;
   setShowWireframe: (v: boolean) => void;
@@ -76,11 +72,12 @@ export interface ViewerState {
   setShowGrid: (v: boolean) => void;
   setShowAxes: (v: boolean) => void;
   setShowSkeleton: (v: boolean) => void;
+  setShowLocalAxis: (v: boolean) => void;
+  setShowJointNames: (v: boolean) => void;
   setShowBoundingBoxes: (v: boolean) => void;
   setShowNormals: (v: boolean) => void;
   setShowVertexColors: (v: boolean) => void;
   setShowEnvironmentBackground: (v: boolean) => void;
-  setCameraPresetRequest: (v: CameraPresetRequest | null) => void;
   setShowShadows: (v: boolean) => void;
   setEnvironmentPreset: (v: EnvironmentPreset) => void;
   setBackgroundPreset: (v: BackgroundPreset) => void;
@@ -100,14 +97,10 @@ export interface ViewerState {
   setActiveCameraId: (v: string | null) => void;
   setVariantSelections: (v: VariantSelection[]) => void;
   setVariantSelectionError: (v: string | null) => void;
-  setResetVersion: (v: number) => void;
   setScaleNormalization: (
     v: { applied: boolean; factor: number } | null,
   ) => void;
-  setCancelScaleNormalizeVersion: (v: number) => void;
-  setViewportShortcutCommand: (v: ViewportShortcutCommand | null) => void;
 
-  bumpResetVersion: () => void;
   toggleShowTexture: () => void;
   toggleShowWireframe: () => void;
   toggleShowGrid: () => void;
@@ -118,7 +111,8 @@ export interface ViewerState {
   toggleShowEnvironmentBackground: () => void;
   toggleShowBoundingBoxes: () => void;
   toggleShowSkeleton: () => void;
-  bumpCancelScaleNormalizeVersion: () => void;
+  toggleShowLocalAxis: () => void;
+  toggleShowJointNames: () => void;
   updateViewerFeedback: (partial: Partial<ViewerFeedback>) => void;
 }
 
@@ -129,6 +123,8 @@ export const useViewerStore = create<ViewerState>((set) => ({
   showGrid: true,
   showAxes: false,
   showSkeleton: false,
+  showLocalAxis: true,
+  showJointNames: false,
   showBoundingBoxes: false,
   showNormals: false,
   showVertexColors: false,
@@ -136,7 +132,6 @@ export const useViewerStore = create<ViewerState>((set) => ({
   environmentRotation: 0,
   backfaceCulling: true,
   textureFilterMode: "trilinear",
-  cameraPresetRequest: null,
   controlSensitivity: 1,
   cameraFov: 45,
   renderScale: 1,
@@ -166,10 +161,10 @@ export const useViewerStore = create<ViewerState>((set) => ({
   textureGamma: 2.2,
   texturePreview3D: false,
   resourceDiagnostics: null,
-  // Phase 4: deferred-payload toggle. Default to `noPayloads` so large
-  // payload-heavy stages can open quickly; individual payload prims can
-  // then be loaded from the hierarchy tree.
-  usdLoadPolicy: "noPayloads",
+  // Model inspection should display complete geometry by default. Deferred
+  // loading remains opt-in and upgrades its lightweight stage to a full
+  // payload preview asynchronously.
+  usdLoadPolicy: "loadAll",
   selectedMeshName: null,
   morphTargetValues: {},
   selectedUsdPrimPath: null,
@@ -177,10 +172,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
   activeCameraId: null,
   variantSelections: [],
   variantSelectionError: null,
-  resetVersion: 0,
   scaleNormalization: null,
-  cancelScaleNormalizeVersion: 0,
-  viewportShortcutCommand: null,
 
   setShowTexture: (showTexture) => set({ showTexture }),
   setShowWireframe: (showWireframe) => set({ showWireframe }),
@@ -188,12 +180,13 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setShowGrid: (showGrid) => set({ showGrid }),
   setShowAxes: (showAxes) => set({ showAxes }),
   setShowSkeleton: (showSkeleton) => set({ showSkeleton }),
+  setShowLocalAxis: (showLocalAxis) => set({ showLocalAxis }),
+  setShowJointNames: (showJointNames) => set({ showJointNames }),
   setShowBoundingBoxes: (showBoundingBoxes) => set({ showBoundingBoxes }),
   setShowNormals: (showNormals) => set({ showNormals }),
   setShowVertexColors: (showVertexColors) => set({ showVertexColors }),
   setShowEnvironmentBackground: (showEnvironmentBackground) =>
     set({ showEnvironmentBackground }),
-  setCameraPresetRequest: (cameraPresetRequest) => set({ cameraPresetRequest }),
   setShowShadows: (showShadows) => set({ showShadows }),
   setEnvironmentPreset: (environmentPreset) => set({ environmentPreset }),
   setBackgroundPreset: (backgroundPreset) => set({ backgroundPreset }),
@@ -214,14 +207,8 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setVariantSelections: (variantSelections) => set({ variantSelections }),
   setVariantSelectionError: (variantSelectionError) =>
     set({ variantSelectionError }),
-  setResetVersion: (resetVersion) => set({ resetVersion }),
   setScaleNormalization: (scaleNormalization) => set({ scaleNormalization }),
-  setCancelScaleNormalizeVersion: (cancelScaleNormalizeVersion) =>
-    set({ cancelScaleNormalizeVersion }),
-  setViewportShortcutCommand: (viewportShortcutCommand) =>
-    set({ viewportShortcutCommand }),
 
-  bumpResetVersion: () => set((s) => ({ resetVersion: s.resetVersion + 1 })),
   toggleShowTexture: () => set((s) => ({ showTexture: !s.showTexture })),
   toggleShowWireframe: () => set((s) => ({ showWireframe: !s.showWireframe })),
   toggleShowGrid: () => set((s) => ({ showGrid: !s.showGrid })),
@@ -239,10 +226,9 @@ export const useViewerStore = create<ViewerState>((set) => ({
       showBoundingBoxes: !s.showBoundingBoxes,
     })),
   toggleShowSkeleton: () => set((s) => ({ showSkeleton: !s.showSkeleton })),
-  bumpCancelScaleNormalizeVersion: () =>
-    set((s) => ({
-      cancelScaleNormalizeVersion: s.cancelScaleNormalizeVersion + 1,
-    })),
+  toggleShowLocalAxis: () => set((s) => ({ showLocalAxis: !s.showLocalAxis })),
+  toggleShowJointNames: () =>
+    set((s) => ({ showJointNames: !s.showJointNames })),
   updateViewerFeedback: (partial) =>
     set((s) => ({
       viewerFeedback: { ...s.viewerFeedback, ...partial },

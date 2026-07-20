@@ -1,0 +1,80 @@
+.statusbar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  height: 26px;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--yl-border-subtle);
+  background: var(--yl-surface-panel);
+  color: var(--yl-text-tertiary);
+  padding: 0 12px;
+  font-size: 11px;
+}
+
+.statusbar-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.statusbar-separator {
+  width: 4px;
+  height: 4px;
+  flex-shrink: 0;
+  border-radius: var(--yl-radius-pill);
+  background: var(--yl-text-muted);
+}
+
+.statusbar-mono {
+  font-family: var(--font-mono);
+}
+
+.app-statusbar {
+  min-width: 0;
+}
+
+.app-statusbar-group {
+  gap: 0;
+  min-width: 0;
+}
+
+.app-statusbar-item {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 16px;
+}
+
+.app-statusbar-item-content {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-statusbar-button {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  border: 0;
+  border-radius: var(--yl-radius-4);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--yl-text-secondary);
+  padding: 1px 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.app-statusbar-button:hover {
+  background: rgba(255, 255, 255, 0.065);
+  color: var(--yl-text-primary);
+}
+
+.app-statusbar-button.is-warning {
+  color: var(--yl-status-warning);
+}
+
+.app-statusbar-button.is-danger {
+  color: var(--yl-status-error-bright);
+}

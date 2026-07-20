@@ -1,3 +1,44 @@
+import type {
+  AppSettings as GeneratedAppSettings,
+  AssetIssue as GeneratedAssetIssue,
+  AssetIssueCode as GeneratedAssetIssueCode,
+  AssetIssueLevel as GeneratedAssetIssueLevel,
+  AttributeInfo as GeneratedAttributeInfo,
+  AttributeTimeSamples as GeneratedAttributeTimeSamples,
+  BackendCapabilities as GeneratedBackendCapabilities,
+  CompositionArc as GeneratedCompositionArc,
+  CompositionArcKind as GeneratedCompositionArcKind,
+  CompositionArcState as GeneratedCompositionArcState,
+  CrashRecoveryPayload as GeneratedCrashRecoveryPayload,
+  DiagnosticRecordInput as GeneratedDiagnosticRecordInput,
+  DiagnosticsPayload as GeneratedDiagnosticsPayload,
+  ExtractGeometryOptions as GeneratedExtractGeometryOptions,
+  FileAssociationSyncResult as GeneratedFileAssociationSyncResult,
+  LayerInfo as GeneratedLayerInfo,
+  MetadataEntry as GeneratedMetadataEntry,
+  OptionalLoaderPackCompatibility as GeneratedOptionalLoaderPackCompatibility,
+  OptionalLoaderPackManifest as GeneratedOptionalLoaderPackManifest,
+  OptionalLoaderPackSettings as GeneratedOptionalLoaderPackSettings,
+  PrimInspection as GeneratedPrimInspection,
+  PrimTypeCount as GeneratedPrimTypeCount,
+  ProcessMemoryPayload as GeneratedProcessMemoryPayload,
+  PurposeModes as GeneratedPurposeModes,
+  RelationshipInfo as GeneratedRelationshipInfo,
+  SettingsPayload as GeneratedSettingsPayload,
+  ShapingCone as GeneratedShapingCone,
+  StageInspection as GeneratedStageInspection,
+  StageLoadPolicy as GeneratedStageLoadPolicy,
+  StageSummary as GeneratedStageSummary,
+  TimeSampleEntry as GeneratedTimeSampleEntry,
+  UpdateCheckPayload as GeneratedUpdateCheckPayload,
+  UpdateConfigurationPayload as GeneratedUpdateConfigurationPayload,
+  UpdateInstallPayload as GeneratedUpdateInstallPayload,
+  UpdateMetadataPayload as GeneratedUpdateMetadataPayload,
+  UsdLightInfo as GeneratedUsdLightInfo,
+  VariantSelection as GeneratedVariantSelection,
+  VariantSetInfo as GeneratedVariantSetInfo,
+} from "./generated/ipc";
+
 // ── Error type (mirrors Rust AppError) ──────────────────────────
 
 export type AppError = {
@@ -7,46 +48,21 @@ export type AppError = {
 
 // ── USD IPC types ────────────────────────────────────────────────
 
-export type StageLoadPolicy = "loadAll" | "noPayloads";
+export type StageLoadPolicy = GeneratedStageLoadPolicy;
 
-export type BackendCapabilities = {
-  inspect: boolean;
-  geometry: boolean;
-  source: boolean;
-  session: boolean;
-  light: boolean;
+export type BackendCapabilities = GeneratedBackendCapabilities;
+
+export type CompositionArcState = GeneratedCompositionArcState;
+
+export type CompositionArcKind = GeneratedCompositionArcKind;
+
+export type CompositionArc = Omit<GeneratedCompositionArc, "kind"> & {
+  kind?: GeneratedCompositionArc["kind"];
 };
 
-export type CompositionArcState = "loaded" | "missing" | "unloaded";
+export type VariantSetInfo = GeneratedVariantSetInfo;
 
-export type CompositionArcKind =
-  | "reference"
-  | "payload"
-  | "inherits"
-  | "specializes"
-  | "variantSelection"
-  | "over";
-
-export type CompositionArc = {
-  sourcePrim: string;
-  assetPath: string;
-  targetPrim: string;
-  state: CompositionArcState;
-  kind?: CompositionArcKind;
-};
-
-export type VariantSetInfo = {
-  primPath: string;
-  setName: string;
-  selection: string | null;
-  variants: string[];
-};
-
-export type VariantSelection = {
-  primPath: string;
-  setName: string;
-  variantName: string;
-};
+export type VariantSelection = GeneratedVariantSelection;
 
 export type UsdInvalidVariantSelectionError = {
   kind: "invalidVariantSelection";
@@ -57,151 +73,61 @@ export type UsdInvalidVariantSelectionError = {
 
 export type UsdTypedError = UsdInvalidVariantSelectionError;
 
-export type PurposeModes = {
-  render: boolean;
-  proxy: boolean;
-  guide: boolean;
+export type PurposeModes = GeneratedPurposeModes;
+
+export type ExtractGeometryOptions = Omit<
+  GeneratedExtractGeometryOptions,
+  "policy" | "variantSelections" | "purposeModes"
+> & {
+  policy?: GeneratedExtractGeometryOptions["policy"];
+  variantSelections?: GeneratedExtractGeometryOptions["variantSelections"];
+  purposeModes?: GeneratedExtractGeometryOptions["purposeModes"];
 };
 
-export type ExtractGeometryOptions = {
-  policy?: StageLoadPolicy;
-  variantSelections?: VariantSelection[];
-  purposeModes?: PurposeModes;
-};
+export type LayerInfo = GeneratedLayerInfo;
 
-export type LayerInfo = {
-  identifier: string;
-  depth: number;
-  muted: boolean;
-  timeOffset: number;
-  timeScale: number;
-  comment: string | null;
-};
-
-export type StageInspection = {
-  path: string;
-  defaultPrim: string | null;
-  upAxis: string | null;
-  metersPerUnit: number | null;
-  timeCodesPerSecond: number | null;
-  framesPerSecond: number | null;
-  startTimeCode: number | null;
-  endTimeCode: number | null;
-  comment: string | null;
-  rootLayerIsBinary: boolean;
-  rootPrims: string[];
-  composedLayers: string[];
-  layers?: LayerInfo[];
+export type StageInspection = Omit<
+  GeneratedStageInspection,
+  | "layers"
+  | "references"
+  | "payloads"
+  | "inherits"
+  | "specializes"
+  | "variantSelectionArcs"
+> & {
+  layers?: GeneratedStageInspection["layers"];
   references: CompositionArc[];
   payloads: CompositionArc[];
   inherits?: CompositionArc[];
   specializes?: CompositionArc[];
   variantSelectionArcs?: CompositionArc[];
-  missingAssets: string[];
-  variantSets: VariantSetInfo[];
-  loadPolicy: StageLoadPolicy;
 };
 
-export type PrimTypeCount = {
-  typeName: string;
-  count: number;
-};
+export type PrimTypeCount = GeneratedPrimTypeCount;
 
-export type StageSummary = {
-  path: string;
-  layerCount: number;
-  rootPrimCount: number;
-  meshCount: number;
-  payloadCount: number;
-  unloadedPayloadCount: number;
-  hasVariants: boolean;
-  primTypeCounts: PrimTypeCount[];
-  totalVertices: number;
-  totalTriangles: number;
-  variantSetCount: number;
-  durationSeconds: number | null;
-  resolvedReferenceCount: number;
-  unresolvedReferenceCount: number;
-  resolvedPayloadCount: number;
-  unresolvedPayloadCount: number;
-  warnings: string[];
-  loadPolicy: StageLoadPolicy;
-};
+export type StageSummary = GeneratedStageSummary;
 
-export type AssetIssueCode =
-  | "broken-reference"
-  | "missing-sub-layer"
-  | "missing-payload"
-  | "suspicious-meters-per-unit";
+export type AssetIssueCode = GeneratedAssetIssueCode;
 
-export type AssetIssueLevel = "warning" | "error";
+export type AssetIssueLevel = GeneratedAssetIssueLevel;
 
-export type AssetIssue = {
-  code: AssetIssueCode;
-  level: AssetIssueLevel;
-  message: string;
-  detail: string | null;
-  contextPath: string | null;
-};
+export type AssetIssue = GeneratedAssetIssue;
 
-export type AttributeInfo = {
-  name: string;
-  typeName: string;
-  valueSummary: string;
-  variability: string;
-  custom: boolean;
-  timeSampleCount: number;
-};
+export type AttributeInfo = GeneratedAttributeInfo;
 
-export type RelationshipInfo = {
-  name: string;
-  targets: string[];
-};
+export type RelationshipInfo = GeneratedRelationshipInfo;
 
-export type MetadataEntry = {
-  key: string;
-  valueSummary: string;
-};
+export type MetadataEntry = GeneratedMetadataEntry;
 
-export type PrimInspection = {
-  primPath: string;
-  attributes: AttributeInfo[];
-  relationships: RelationshipInfo[];
-  metadata: MetadataEntry[];
-};
+export type PrimInspection = GeneratedPrimInspection;
 
-export type ShapingCone = {
-  angle: number;
-  softness: number;
-};
+export type ShapingCone = GeneratedShapingCone;
 
-export type UsdLightInfo = {
-  primPath: string;
-  lightKind: string;
-  color: [number, number, number];
-  intensity: number;
-  exposure: number;
-  colorTemperature: number | null;
-  specular: number;
-  diffuse: number;
-  domeTextureFile: string | null;
-  shapingCone: ShapingCone | null;
-};
+export type UsdLightInfo = GeneratedUsdLightInfo;
 
-export type TimeSampleEntry = {
-  time: number;
-  valueSummary: string;
-};
+export type TimeSampleEntry = GeneratedTimeSampleEntry;
 
-export type AttributeTimeSamples = {
-  primPath: string;
-  attributeName: string;
-  samples: TimeSampleEntry[];
-  totalCount: number;
-  numericMin: number | null;
-  numericMax: number | null;
-  numericMean: number | null;
-};
+export type AttributeTimeSamples = GeneratedAttributeTimeSamples;
 
 export type UsdSourcePayload =
   | { kind: "text"; source: string }
@@ -211,23 +137,27 @@ export type StageSessionHandle = number;
 
 // ── Diagnostics IPC types ────────────────────────────────────────
 
-export type DiagnosticRecordInput = {
-  code: string;
-  level: string;
-  message: string;
-  detail?: string | null;
-  contextPath?: string | null;
+// Wire Option fields are `T | null`; facade keeps them optional so callers may
+// omit absent payload fields when constructing records on the frontend.
+export type DiagnosticRecordInput = Omit<
+  GeneratedDiagnosticRecordInput,
+  "detail" | "contextPath"
+> & {
+  detail?: GeneratedDiagnosticRecordInput["detail"];
+  contextPath?: GeneratedDiagnosticRecordInput["contextPath"];
 };
 
-export type DiagnosticsPayload = {
-  diagnosticsLogPath: string;
+export type DiagnosticsPayload = Omit<
+  GeneratedDiagnosticsPayload,
+  "diagnosticsSnapshot"
+> & {
   diagnosticsSnapshot: string[];
 };
 
-export type ProcessMemoryMetrics = {
-  residentSetBytes: number;
-  virtualMemoryBytes: number;
-};
+export type CrashRecoveryPayload = GeneratedCrashRecoveryPayload;
+
+// Rust wire name is ProcessMemoryPayload; keep the existing frontend name.
+export type ProcessMemoryMetrics = GeneratedProcessMemoryPayload;
 
 export type WebGLResourceMetrics = {
   geometries: number;
@@ -262,58 +192,61 @@ export type ResourceDiagnosticsSnapshot = {
 // ── Settings IPC types ───────────────────────────────────────────
 
 export type AppSettings = {
-  version: number;
-  recentFilesLimit: number;
-  diagnosticsLogLevel: string;
-  fileAssociationsEnabled: boolean;
-  updateEndpointOverride?: string | null;
-  updatePublicKeyOverride?: string | null;
-  allowInsecureUpdateEndpoint: boolean;
-  autoCheckForUpdates: boolean;
+  [K in keyof GeneratedAppSettings]: K extends "optionalLoaderPacks"
+    ? Record<string, OptionalLoaderPackSettings | undefined>
+    : GeneratedAppSettings[K];
 };
 
-export type SettingsPayload = {
-  settingsPath: string;
+export type OptionalLoaderPackSettings = GeneratedOptionalLoaderPackSettings;
+
+export type SettingsPayload = Omit<GeneratedSettingsPayload, "settings"> & {
   settings: AppSettings;
+};
+
+export type FileAssociationSyncResult = GeneratedFileAssociationSyncResult;
+
+// Wire Option fields are `T | null`; facade keeps them optional for frontend
+// fixtures and partial objects that may omit absent payload fields.
+export type OptionalLoaderPackCompatibility = Omit<
+  GeneratedOptionalLoaderPackCompatibility,
+  "message"
+> & {
+  message?: GeneratedOptionalLoaderPackCompatibility["message"];
+};
+
+export type OptionalLoaderPackManifest = Omit<
+  GeneratedOptionalLoaderPackManifest,
+  "minimumAppVersion" | "maximumAppVersion" | "compatibility"
+> & {
+  minimumAppVersion?: GeneratedOptionalLoaderPackManifest["minimumAppVersion"];
+  maximumAppVersion?: GeneratedOptionalLoaderPackManifest["maximumAppVersion"];
+  compatibility: OptionalLoaderPackCompatibility;
 };
 
 // ── Updater IPC types ────────────────────────────────────────────
 
-export type UpdateConfigurationPayload = {
-  currentVersion: string;
-  defaultEndpoint?: string | null;
-  defaultPubkeyAvailable: boolean;
-  effectiveEndpoint?: string | null;
-  effectivePubkeyAvailable: boolean;
-  usingOverrideEndpoint: boolean;
-  usingOverridePubkey: boolean;
-  allowInsecureUpdateEndpoint: boolean;
+export type UpdateConfigurationPayload = Omit<
+  GeneratedUpdateConfigurationPayload,
+  "defaultEndpoint" | "effectiveEndpoint"
+> & {
+  defaultEndpoint?: GeneratedUpdateConfigurationPayload["defaultEndpoint"];
+  effectiveEndpoint?: GeneratedUpdateConfigurationPayload["effectiveEndpoint"];
 };
 
-export type UpdateMetadataPayload = {
-  version: string;
-  currentVersion: string;
-  notes?: string | null;
-  pubDate?: string | null;
-  target: string;
-  downloadUrl: string;
+export type UpdateMetadataPayload = Omit<
+  GeneratedUpdateMetadataPayload,
+  "notes" | "pubDate"
+> & {
+  notes?: GeneratedUpdateMetadataPayload["notes"];
+  pubDate?: GeneratedUpdateMetadataPayload["pubDate"];
 };
 
-export type UpdateCheckPayload = {
+export type UpdateCheckPayload = Omit<
+  GeneratedUpdateCheckPayload,
+  "configuration" | "update"
+> & {
   configuration: UpdateConfigurationPayload;
   update?: UpdateMetadataPayload | null;
 };
 
-export type UpdateInstallPayload = {
-  installedVersion: string;
-  restartRequired: boolean;
-  note: string;
-};
-
-// ── Integrations IPC types ───────────────────────────────────────
-
-export type IntegrationPayload = {
-  fileAssociationsEnabled: boolean;
-  installStrategy: string;
-  supportedExtensions: string[];
-};
+export type UpdateInstallPayload = GeneratedUpdateInstallPayload;

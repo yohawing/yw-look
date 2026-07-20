@@ -3,9 +3,9 @@
  *
  * Goal: move the synchronous `USDLoader.parse(buffer)` call off the main
  * thread so the UI stays responsive while Three.js walks the USD scene
- * graph. Three.js `Group` instances are not structured-cloneable, so we
- * serialize via `Object3D.toJSON()` in the worker and rebuild on the
- * main thread with `ObjectLoader.parse()`.
+ * graph. Three.js `Group` instances are not structured-cloneable, so the
+ * worker sends a typed static scene payload when possible and falls back
+ * to `Object3D.toJSON()` for unsupported scene shapes.
  *
  * Status: ON by default since #45. Anything that would have hit the
  * lossy roundtrip cases (USDC decoding, USDZ archives, layered
@@ -13,12 +13,16 @@
  * worker only sees single-buffer USDA. `usdWorkerLoader.ts` rejects
  * worker failures into a synchronous fallback, so flipping
  * `VITE_USD_WORKER=0` is only needed for diagnosing regressions.
- *
- * See docs/usd.md §"Web Worker スケルトン".
  */
 
 import { USDLoader } from "three/examples/jsm/loaders/USDLoader.js";
 import type { Object3D } from "three";
+import { errorMessage } from "../lib/errors";
+import {
+  collectTransferables,
+  toStaticScenePayload,
+  type ModelParseWorkerStaticScenePayload,
+} from "./staticScene";
 
 export type UsdWorkerRequest = {
   id: number;
@@ -34,8 +38,9 @@ export type UsdWorkerResponse =
   | {
       id: number;
       ok: true;
-      /** Serialized via `Object3D.toJSON()`. */
-      sceneJson: unknown;
+      result:
+        | { kind: "staticScene"; scene: ModelParseWorkerStaticScenePayload }
+        | { kind: "objectJson"; sceneJson: unknown };
     }
   | {
       id: number;
@@ -53,11 +58,25 @@ self.addEventListener("message", (event: MessageEvent<UsdWorkerRequest>) => {
     } else {
       object = loader.parse(request.payload.buffer);
     }
-    const sceneJson = object.toJSON();
+    const staticScene = toStaticScenePayload(object, true);
+    if (staticScene) {
+      const response: UsdWorkerResponse = {
+        id: request.id,
+        ok: true,
+        result: { kind: "staticScene", scene: staticScene },
+      };
+      (
+        self as unknown as {
+          postMessage: (payload: unknown, transfer: Transferable[]) => void;
+        }
+      ).postMessage(response, collectTransferables(staticScene));
+      return;
+    }
+
     const response: UsdWorkerResponse = {
       id: request.id,
       ok: true,
-      sceneJson,
+      result: { kind: "objectJson", sceneJson: object.toJSON() },
     };
     (
       self as unknown as { postMessage: (payload: unknown) => void }
@@ -66,7 +85,7 @@ self.addEventListener("message", (event: MessageEvent<UsdWorkerRequest>) => {
     const response: UsdWorkerResponse = {
       id: request.id,
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error, "Failed to parse USD in worker."),
     };
     (
       self as unknown as { postMessage: (payload: unknown) => void }

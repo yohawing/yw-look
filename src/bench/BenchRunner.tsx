@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../lib/errors";
 import {
   buildReport,
   finishBenchRun,
@@ -46,7 +47,7 @@ export function BenchRunner() {
           throw new Error("bench mode is not enabled");
         }
 
-        const manifest = await loadBenchManifest(config.modelsPath);
+        const manifest = await loadBenchManifest();
         const models =
           config.caseIds.length === 0
             ? manifest.models
@@ -93,7 +94,7 @@ export function BenchRunner() {
         });
         await finishBenchRun(report.summary.failed > 0 ? 1 : 0);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error, "Load bench failed.");
         await publishStatus({
           state: "failed",
           message,

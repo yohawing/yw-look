@@ -1,0 +1,292 @@
+import { useCallback, useEffect, useMemo } from "react";
+import {
+  buildDiagnosticCounts,
+  buildDiagnosticWarnings,
+  isDebugPanelsRequested,
+  type DiagnosticCounts,
+} from "./assetDiagnostics";
+import {
+  buildStatusLeftItems,
+  buildStatusRightItems,
+} from "../components/appStatusItems";
+import {
+  formatUsdErrorForDisplay,
+  isInvalidVariantSelectionError,
+  parseUsdError,
+  type AssetIssue,
+} from "../lib/usd";
+import type { FileState } from "../stores/fileStore";
+import { useUiStore } from "../stores/uiStore";
+import { useViewerStore, type ViewerState } from "../stores/viewerStore";
+import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
+import type { AppStatusBarItem } from "../types/ui";
+import type { UpdateCheckPayload } from "../lib/updater";
+
+type UseViewerDiagnosticsModelOptions = {
+  assetMetadata: FileState["assetMetadata"];
+  currentFile: FileState["currentFile"];
+  directoryListing: FileState["directoryListing"];
+  gridUnitLabel: ViewerState["gridUnitLabel"];
+  logDiagnosticEventAndRefresh: (params: {
+    code: string;
+    level: string;
+    message: string;
+    detail?: string | null;
+    contextPath?: string | null;
+  }) => Promise<void>;
+  openError: FileState["openError"];
+  refreshUpdateConfiguration: () => Promise<void>;
+  settingsError: string | null;
+  showGrid: ViewerState["showGrid"];
+  updateCheck: UpdateCheckPayload | null;
+  usdIssues: AssetIssue[];
+  viewerFeedback: ViewerState["viewerFeedback"];
+};
+
+export function useViewerDiagnosticsModel({
+  assetMetadata,
+  currentFile,
+  directoryListing,
+  gridUnitLabel,
+  logDiagnosticEventAndRefresh,
+  openError,
+  refreshUpdateConfiguration,
+  settingsError,
+  showGrid,
+  updateCheck,
+  usdIssues,
+  viewerFeedback,
+}: UseViewerDiagnosticsModelOptions) {
+  const setActiveTab = useUiStore((state) => state.setActiveTab);
+  const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
+  const debugPanelsEnabled = isDebugPanelsRequested();
+  const { debugFixtures, useDebugFixtures } =
+    useDebugPanelFixtures(debugPanelsEnabled);
+
+  const sidebarCurrentFile = useDebugFixtures
+    ? debugFixtures.debugPanelFile
+    : currentFile;
+  const sidebarAssetMetadata = useDebugFixtures
+    ? debugFixtures.debugPanelMetadata
+    : assetMetadata;
+  const sidebarDirectoryListing = useDebugFixtures
+    ? debugFixtures.debugPanelDirectoryListing
+    : directoryListing;
+
+  const recordVariantSelectionError = useCallback((error: unknown): boolean => {
+    const parsed = parseUsdError(error);
+    if (!isInvalidVariantSelectionError(parsed)) {
+      return false;
+    }
+
+    const message = formatUsdErrorForDisplay(
+      error,
+      "Variant selection failed.",
+    );
+    console.error("[usd] variant selection failed:", error);
+    useViewerStore.getState().setVariantSelectionError(message);
+    return true;
+  }, []);
+
+  const viewerStatusLabel = useMemo(() => {
+    switch (viewerFeedback.mode) {
+      case "loading":
+        return "loading preview";
+      case "ready":
+        return "preview ready";
+      case "unsupported":
+        return "unsupported format";
+      case "missingOptionalLoader":
+        return "optional loader missing";
+      case "disabledOptionalLoader":
+        return "optional loader disabled";
+      case "incompatibleOptionalLoader":
+        return "optional loader incompatible";
+      case "loadFailed":
+        return "preview failed";
+      case "missingReference":
+        return "missing external resource";
+      default:
+        return "idle";
+    }
+  }, [viewerFeedback.mode]);
+
+  const currentFileSummary = useMemo(() => {
+    if (!sidebarCurrentFile) {
+      return "none";
+    }
+
+    if (
+      sidebarDirectoryListing?.currentIndex !== null &&
+      sidebarDirectoryListing?.files.length
+    ) {
+      return `${sidebarCurrentFile.fileName} (${sidebarDirectoryListing.currentIndex + 1}/${sidebarDirectoryListing.files.length})`;
+    }
+
+    return `${sidebarCurrentFile.fileName} (${sidebarCurrentFile.kind})`;
+  }, [sidebarDirectoryListing, sidebarCurrentFile]);
+
+  const warnings = useMemo(() => {
+    return buildDiagnosticWarnings({
+      assetMetadata,
+      usdIssues,
+      viewerFeedback,
+    });
+  }, [assetMetadata, usdIssues, viewerFeedback]);
+  const sidebarWarnings = useDebugFixtures
+    ? debugFixtures.debugPanelWarnings
+    : warnings;
+  const debugPanelWarnings = useDebugFixtures
+    ? debugFixtures.debugPanelWarnings
+    : null;
+
+  const diagnosticCounts = useMemo<DiagnosticCounts>(() => {
+    return buildDiagnosticCounts({
+      assetMetadata,
+      debugPanelWarnings,
+      usdIssues,
+      viewerFeedback,
+    });
+  }, [assetMetadata, debugPanelWarnings, usdIssues, viewerFeedback]);
+
+  useEffect(() => {
+    if (!openError) {
+      return;
+    }
+
+    void (async () => {
+      await logDiagnosticEventAndRefresh({
+        code: "APP_OPEN_ERROR",
+        level: "error",
+        message: openError,
+        contextPath: currentFile?.path ?? null,
+      });
+    })();
+  }, [currentFile?.path, openError, logDiagnosticEventAndRefresh]);
+
+  useEffect(() => {
+    // "loading" is a transient state — do not record it as a diagnostic
+    // event. Only terminal states (failure / unsupported / missingReference)
+    // are worth persisting so the Diagnostics panel stays signal-rich.
+    if (
+      viewerFeedback.mode === "ready" ||
+      viewerFeedback.mode === "empty" ||
+      viewerFeedback.mode === "loading"
+    ) {
+      return;
+    }
+
+    const level =
+      viewerFeedback.mode === "missingReference" ||
+      viewerFeedback.mode === "unsupported" ||
+      viewerFeedback.mode === "missingOptionalLoader" ||
+      viewerFeedback.mode === "disabledOptionalLoader" ||
+      viewerFeedback.mode === "incompatibleOptionalLoader"
+        ? "warn"
+        : "error";
+
+    // Mirror to the webview console so the issue is visible in devtools
+    // (Tauri: Ctrl+Shift+I) without having to open the Diagnostics panel.
+    const logFn = level === "warn" ? console.warn : console.error;
+    logFn(
+      `[viewer] ${viewerFeedback.mode}:`,
+      viewerFeedback.message,
+      viewerFeedback.warning ?? "",
+    );
+
+    void (async () => {
+      await logDiagnosticEventAndRefresh({
+        code: `VIEWER_${viewerFeedback.mode.toUpperCase()}`,
+        level,
+        message: viewerFeedback.message,
+        detail: viewerFeedback.warning,
+        contextPath: currentFile?.path ?? null,
+      });
+    })();
+  }, [
+    currentFile?.path,
+    viewerFeedback.message,
+    viewerFeedback.mode,
+    viewerFeedback.warning,
+    logDiagnosticEventAndRefresh,
+  ]);
+
+  const openDiagnosticsPanel = useCallback(() => {
+    setSidebarOpen(true);
+    setActiveTab("warnings");
+  }, [setActiveTab, setSidebarOpen]);
+
+  const openUpdatePanel = useCallback(() => {
+    setSidebarOpen(true);
+    setActiveTab("settings");
+    void refreshUpdateConfiguration();
+  }, [refreshUpdateConfiguration, setActiveTab, setSidebarOpen]);
+
+  const statusLeftItems = useMemo<AppStatusBarItem[]>(() => {
+    const items = buildStatusLeftItems({
+      assetMetadata: sidebarAssetMetadata,
+      currentFile: sidebarCurrentFile,
+      gridUnitLabel,
+      settingsError,
+      showGrid,
+      viewerFeedback,
+      viewerStatusLabel,
+    });
+
+    if (diagnosticCounts.total > 0) {
+      const label =
+        diagnosticCounts.errorCount > 0
+          ? `${diagnosticCounts.errorCount} error${diagnosticCounts.errorCount === 1 ? "" : "s"}`
+          : `${diagnosticCounts.warningCount} warning${diagnosticCounts.warningCount === 1 ? "" : "s"}`;
+      items.push({
+        id: "diagnostics",
+        content: `Diagnostics: ${label}`,
+        onClick: openDiagnosticsPanel,
+        tone: diagnosticCounts.errorCount > 0 ? "danger" : "warning",
+      });
+    }
+
+    return items;
+  }, [
+    diagnosticCounts.errorCount,
+    diagnosticCounts.total,
+    diagnosticCounts.warningCount,
+    gridUnitLabel,
+    openDiagnosticsPanel,
+    sidebarAssetMetadata,
+    sidebarCurrentFile,
+    settingsError,
+    showGrid,
+    viewerFeedback,
+    viewerStatusLabel,
+  ]);
+
+  const statusRightItems = useMemo<AppStatusBarItem[]>(() => {
+    const items = buildStatusRightItems({
+      currentFileSummary,
+    });
+
+    if (updateCheck?.update) {
+      items.unshift({
+        id: "update-available",
+        content: `Update: ${updateCheck.update.version}`,
+        onClick: openUpdatePanel,
+        tone: "warning",
+      });
+    }
+
+    return items;
+  }, [currentFileSummary, openUpdatePanel, updateCheck]);
+
+  return {
+    currentFileSummary,
+    debugPanelsEnabled,
+    diagnosticCounts,
+    recordVariantSelectionError,
+    sidebarWarnings,
+    statusLeftItems,
+    statusRightItems,
+    viewerStatusLabel,
+    warnings,
+  };
+}

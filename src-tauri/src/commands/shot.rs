@@ -6,6 +6,7 @@ use serde::Serialize;
 use crate::error::AppError;
 use crate::shared::canonicalize_existing_path;
 use crate::state::{ShotBatchCaseArgument, ShotCliCase, ShotCliConfig, ShotMode};
+use crate::usd::StageLoadPolicy;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,23 +16,27 @@ pub(crate) struct ShotConfigPayload {
     input_path: String,
     file_name: String,
     extension: String,
+    motion_path: Option<String>,
+    morph_weights: Vec<f64>,
     width: u32,
     height: u32,
     background: Option<String>,
+    usd_load_policy: StageLoadPolicy,
 }
 
 fn parse_size_argument(value: &str) -> Result<(u32, u32), AppError> {
-    let (w, h) = value
-        .split_once(['x', 'X', '×'])
-        .ok_or_else(|| AppError::Internal(format!("--size expects WxH (e.g. 1920x1080), got '{value}'")))?;
+    let (w, h) = value.split_once(['x', 'X', '×']).ok_or_else(|| {
+        AppError::Internal(format!(
+            "--size expects WxH (e.g. 1920x1080), got '{value}'"
+        ))
+    })?;
     let width: u32 = w
         .trim()
         .parse()
         .map_err(|error| AppError::Internal(format!("--size width '{w}' is not a u32: {error}")))?;
-    let height: u32 = h
-        .trim()
-        .parse()
-        .map_err(|error| AppError::Internal(format!("--size height '{h}' is not a u32: {error}")))?;
+    let height: u32 = h.trim().parse().map_err(|error| {
+        AppError::Internal(format!("--size height '{h}' is not a u32: {error}"))
+    })?;
     if width == 0 || height == 0 {
         return Err(AppError::Internal(format!(
             "--size width/height must be > 0, got {width}x{height}"
@@ -43,6 +48,38 @@ fn parse_size_argument(value: &str) -> Result<(u32, u32), AppError> {
         )));
     }
     Ok((width, height))
+}
+
+fn parse_usd_load_policy_argument(value: &str) -> Result<StageLoadPolicy, AppError> {
+    match value {
+        "loadAll" | "load-all" | "all" => Ok(StageLoadPolicy::LoadAll),
+        "noPayloads" | "no-payloads" | "deferred" => Ok(StageLoadPolicy::NoPayloads),
+        _ => Err(AppError::Internal(format!(
+            "--usd-load-policy expects loadAll or noPayloads, got '{value}'"
+        ))),
+    }
+}
+
+fn parse_morph_weights_argument(value: &str) -> Result<Vec<f64>, AppError> {
+    if value.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    value
+        .split(',')
+        .map(|entry| {
+            let weight = entry.trim().parse::<f64>().map_err(|error| {
+                AppError::Internal(format!(
+                    "--morph-weights expects comma-separated numbers, got '{entry}': {error}"
+                ))
+            })?;
+            if !weight.is_finite() {
+                return Err(AppError::Internal(format!(
+                    "--morph-weights values must be finite, got '{entry}'"
+                )));
+            }
+            Ok(weight)
+        })
+        .collect()
 }
 
 fn resolve_shot_input(path: &Path) -> Result<PathBuf, AppError> {
@@ -69,11 +106,11 @@ fn resolve_shot_output(path: &Path) -> Result<PathBuf, AppError> {
             parent.display()
         ))
     })?;
-    let normalized_parent =
-        canonicalize_existing_path(&parent).map_err(|error| AppError::Io(format!("--out parent {error}")))?;
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| AppError::Internal(format!("--out path '{}' has no file name", path.display())))?;
+    let normalized_parent = canonicalize_existing_path(&parent)
+        .map_err(|error| AppError::Io(format!("--out parent {error}")))?;
+    let file_name = path.file_name().ok_or_else(|| {
+        AppError::Internal(format!("--out path '{}' has no file name", path.display()))
+    })?;
     Ok(normalized_parent.join(file_name))
 }
 
@@ -96,9 +133,15 @@ fn to_shot_config_payload(case_index: usize, config: &ShotCliCase) -> ShotConfig
         input_path: config.input_path.display().to_string(),
         file_name,
         extension,
+        motion_path: config
+            .motion_path
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        morph_weights: config.morph_weights.clone(),
         width: config.width,
         height: config.height,
         background: config.background.clone(),
+        usd_load_policy: config.usd_load_policy,
     }
 }
 
@@ -116,11 +159,15 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
         return Ok(None);
     }
     if shot_batch_index.is_some() && shot_batch_file_index.is_some() {
-        return Err(AppError::Internal("--shot-batch and --shot-batch-file are mutually exclusive".into()));
+        return Err(AppError::Internal(
+            "--shot-batch and --shot-batch-file are mutually exclusive".into(),
+        ));
     }
     if (shot_batch_index.is_some() || shot_batch_file_index.is_some()) && (shot_flag || check_flag)
     {
-        return Err(AppError::Internal("--shot-batch cannot be combined with --shot or --check".into()));
+        return Err(AppError::Internal(
+            "--shot-batch cannot be combined with --shot or --check".into(),
+        ));
     }
     if let Some(index) = shot_batch_index.or(shot_batch_file_index) {
         let raw_value = args.get(index + 1).ok_or_else(|| {
@@ -140,10 +187,14 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
         } else {
             raw_value.clone()
         };
-        let batch_cases = serde_json::from_str::<Vec<ShotBatchCaseArgument>>(&value)
-            .map_err(|error| AppError::Serde(format!("failed to parse --shot-batch JSON: {error}")))?;
+        let batch_cases =
+            serde_json::from_str::<Vec<ShotBatchCaseArgument>>(&value).map_err(|error| {
+                AppError::Serde(format!("failed to parse --shot-batch JSON: {error}"))
+            })?;
         if batch_cases.is_empty() {
-            return Err(AppError::Internal("--shot-batch requires at least one case".into()));
+            return Err(AppError::Internal(
+                "--shot-batch requires at least one case".into(),
+            ));
         }
         let cases = batch_cases
             .into_iter()
@@ -164,16 +215,25 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
                     mode: ShotMode::Shot,
                     input_path: resolve_shot_input(&case.input_path)?,
                     output_path: Some(resolve_shot_output(&case.output_path)?),
+                    motion_path: case
+                        .motion_path
+                        .as_deref()
+                        .map(resolve_shot_input)
+                        .transpose()?,
+                    morph_weights: case.morph_weights,
                     width: case.width,
                     height: case.height,
                     background: case.background,
+                    usd_load_policy: case.usd_load_policy.unwrap_or_default(),
                 })
             })
             .collect::<Result<Vec<_>, AppError>>()?;
         return Ok(Some(ShotCliConfig { cases }));
     }
     if shot_flag && check_flag {
-        return Err(AppError::Internal("--shot and --check are mutually exclusive".into()));
+        return Err(AppError::Internal(
+            "--shot and --check are mutually exclusive".into(),
+        ));
     }
     let mode = if shot_flag {
         ShotMode::Shot
@@ -183,8 +243,11 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
 
     let mut input_path: Option<PathBuf> = None;
     let mut output_path: Option<PathBuf> = None;
+    let mut motion_path: Option<PathBuf> = None;
+    let mut morph_weights = Vec::new();
     let mut size: Option<(u32, u32)> = None;
     let mut background: Option<String> = None;
+    let mut usd_load_policy = StageLoadPolicy::LoadAll;
     let mut index = 0;
 
     while index < args.len() {
@@ -203,6 +266,20 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
                     .ok_or_else(|| AppError::Internal("--out requires a path".into()))?;
                 output_path = Some(PathBuf::from(value));
             }
+            "--motion" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| AppError::Internal("--motion requires a path".into()))?;
+                motion_path = Some(PathBuf::from(value));
+            }
+            "--morph-weights" => {
+                index += 1;
+                let value = args.get(index).ok_or_else(|| {
+                    AppError::Internal("--morph-weights requires comma-separated values".into())
+                })?;
+                morph_weights = parse_morph_weights_argument(value)?;
+            }
             "--size" => {
                 index += 1;
                 let value = args
@@ -216,6 +293,13 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
                     .get(index)
                     .ok_or_else(|| AppError::Internal("--bg requires a value".into()))?;
                 background = Some(value.clone());
+            }
+            "--usd-load-policy" => {
+                index += 1;
+                let value = args.get(index).ok_or_else(|| {
+                    AppError::Internal("--usd-load-policy requires a value".into())
+                })?;
+                usd_load_policy = parse_usd_load_policy_argument(value)?;
             }
             _ => {}
         }
@@ -243,15 +327,19 @@ fn parse_shot_cli_config_from_args(args: &[String]) -> Result<Option<ShotCliConf
     };
 
     let (width, height) = size.unwrap_or((1024, 768));
+    let motion_path = motion_path.as_deref().map(resolve_shot_input).transpose()?;
 
     Ok(Some(ShotCliConfig {
         cases: vec![ShotCliCase {
             mode,
             input_path,
             output_path,
+            motion_path,
+            morph_weights,
             width,
             height,
             background,
+            usd_load_policy,
         }],
     }))
 }
@@ -293,10 +381,14 @@ pub(crate) fn write_shot_output(
         return Err(AppError::Internal("shot mode is not enabled".into()));
     };
     let Some(shot_case) = config.cases.first() else {
-        return Err(AppError::Internal("shot mode has no configured cases".into()));
+        return Err(AppError::Internal(
+            "shot mode has no configured cases".into(),
+        ));
     };
     let Some(output_path) = shot_case.output_path.as_ref() else {
-        return Err(AppError::Internal("--out is not configured (check mode does not write images)".into()));
+        return Err(AppError::Internal(
+            "--out is not configured (check mode does not write images)".into(),
+        ));
     };
     fs::write(output_path, &png_bytes)
         .map_err(|error| AppError::Io(format!("failed to write shot output: {error}")))?;
@@ -318,7 +410,9 @@ pub(crate) fn write_shot_batch_output(
         )));
     };
     let Some(output_path) = shot_case.output_path.as_ref() else {
-        return Err(AppError::Internal("shot batch case has no output path".into()));
+        return Err(AppError::Internal(
+            "shot batch case has no output path".into(),
+        ));
     };
     fs::write(output_path, &png_bytes)
         .map_err(|error| AppError::Io(format!("failed to write shot batch output: {error}")))?;
@@ -326,8 +420,21 @@ pub(crate) fn write_shot_batch_output(
 }
 
 #[tauri::command]
-pub(crate) fn finish_shot_run(app: tauri::AppHandle, exit_code: i32) {
+pub(crate) fn finish_shot_run(
+    app: tauri::AppHandle,
+    exit_code: i32,
+    message: Option<String>,
+    outcome: Option<serde_json::Value>,
+) {
+    if let Some(outcome) = outcome {
+        eprintln!("YW_LOOK_SHOT_OUTCOME:{outcome}");
+    }
+    if let Some(message) = message.as_deref().filter(|message| !message.is_empty()) {
+        log::error!("shot/check failed: {message}");
+        eprintln!("shot/check failed: {message}");
+    }
     app.exit(exit_code);
+    std::process::exit(exit_code);
 }
 
 #[cfg(test)]
@@ -358,7 +465,8 @@ mod tests {
                 "outputPath": output_path,
                 "width": 320,
                 "height": 180,
-                "background": "transparent"
+                "background": "transparent",
+                "usdLoadPolicy": "noPayloads"
             }
         ]);
         fs::write(&config_path, config_json.to_string()).expect("write config");
@@ -378,11 +486,80 @@ mod tests {
         assert_eq!(case.width, 320);
         assert_eq!(case.height, 180);
         assert_eq!(case.background.as_deref(), Some("transparent"));
+        assert!(case.motion_path.is_none());
+        assert!(case.morph_weights.is_empty());
+        assert_eq!(case.usd_load_policy, StageLoadPolicy::NoPayloads);
         assert_eq!(case.input_path.file_name().unwrap(), "input.glb");
         assert_eq!(
             case.output_path.as_ref().unwrap().file_name().unwrap(),
             "shot.png"
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_check_usd_load_policy() {
+        let root = unique_temp_dir("shot-check-usd-policy");
+        fs::create_dir_all(&root).expect("create temp root");
+        let input_path = root.join("input.usda");
+        fs::write(&input_path, b"#usda 1.0\n").expect("write input");
+
+        let args = vec![
+            "yw-look".to_string(),
+            "--check".to_string(),
+            "--in".to_string(),
+            input_path.display().to_string(),
+            "--usd-load-policy".to_string(),
+            "noPayloads".to_string(),
+        ];
+        let config = parse_shot_cli_config_from_args(&args)
+            .expect("parse shot check")
+            .expect("shot check config");
+
+        assert_eq!(config.cases.len(), 1);
+        let case = &config.cases[0];
+        assert_eq!(case.mode, ShotMode::Check);
+        assert!(case.motion_path.is_none());
+        assert_eq!(case.usd_load_policy, StageLoadPolicy::NoPayloads);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_shot_motion_path() {
+        let root = unique_temp_dir("shot-motion");
+        fs::create_dir_all(&root).expect("create temp root");
+        let input_path = root.join("input.pmx");
+        let motion_path = root.join("motion.vmd");
+        let output_path = root.join("out").join("shot.png");
+        fs::write(&input_path, b"placeholder").expect("write input");
+        fs::write(&motion_path, b"motion").expect("write motion");
+
+        let args = vec![
+            "yw-look".to_string(),
+            "--shot".to_string(),
+            "--in".to_string(),
+            input_path.display().to_string(),
+            "--motion".to_string(),
+            motion_path.display().to_string(),
+            "--morph-weights".to_string(),
+            "0.5,1".to_string(),
+            "--out".to_string(),
+            output_path.display().to_string(),
+        ];
+        let config = parse_shot_cli_config_from_args(&args)
+            .expect("parse shot")
+            .expect("shot config");
+
+        assert_eq!(config.cases.len(), 1);
+        let case = &config.cases[0];
+        assert_eq!(case.mode, ShotMode::Shot);
+        assert_eq!(
+            case.motion_path.as_ref().unwrap().file_name().unwrap(),
+            "motion.vmd"
+        );
+        assert_eq!(case.morph_weights, vec![0.5, 1.0]);
 
         let _ = fs::remove_dir_all(root);
     }

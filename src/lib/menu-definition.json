@@ -79,8 +79,7 @@
       "id": "help",
       "label": "Help",
       "entries": [
-        { "type": "item", "id": "help.shortcuts", "label": "Shortcuts" },
-        { "type": "item", "id": "help.about", "label": "About" }
+        { "type": "item", "id": "help.shortcuts", "label": "Shortcuts" }
       ]
     }
   ]

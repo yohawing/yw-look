@@ -5,7 +5,7 @@
     timeCodesPerSecond = 24
     startTimeCode = 0
     endTimeCode = 24
-    doc = "Phase 2.O fixture: a quad with two UsdSkelBlendShape targets driven by a UsdSkelAnimation.blendShapeWeights track. Verifies cpp backend's morph-target weight channel emission (target.path = 'weights')."
+    doc = "Phase 2.O fixture: a quad with two UsdSkelBlendShape targets driven by a UsdSkelAnimation.blendShapeWeights track."
 )
 
 def Xform "Root"
@@ -27,7 +27,7 @@ def Xform "Root"
 
             # Every vertex rigidly follows the one authored joint so
             # the mesh stays in place while the animation drives its
-            # blend-shape weights. Without this, the cpp backend
+            # blend-shape weights. Without this, a backend
             # treats the mesh as static (no skin) and the weight
             # channel still applies — both are valid.
             uniform token[] skel:joints = ["Hip"]

@@ -195,6 +195,24 @@
       }
     },
     {
+      "id": "usda-tiny-payload",
+      "kind": "model",
+      "format": "usda",
+      "path": "samples/assets/usd/tiny_payload.usda",
+      "tags": ["usd", "usda", "phase0", "payload", "generated-local"],
+      "phase": "phase0",
+      "notes": "Small payload fixture for deferred payload load/unload session checks. Payload prim: /Root/PayloadRoot.",
+      "expect": {
+        "shouldLoad": true,
+        "defaultPrim": "Root",
+        "upAxis": "Y",
+        "metersPerUnit": 0.01,
+        "hasReferences": false,
+        "hasPayloads": true,
+        "hasSubLayers": false
+      }
+    },
+    {
       "id": "usd-kitchen-set",
       "kind": "model",
       "format": "usd",
@@ -240,6 +258,37 @@
       "expect": {
         "shouldLoad": true,
         "isZipContainer": true
+      }
+    },
+    {
+      "id": "pmx-kotora-yurii-local-regression",
+      "kind": "model",
+      "format": "pmx",
+      "path": "F:\\MMD\\pmx\\EL-Pr252 KOTORA _ 虎寅\\小寅 百合ヰ.pmx",
+      "tags": ["pmx", "mmd", "private", "local-regression", "missing-mesh"],
+      "private": true,
+      "notes": "User-owned local PMX used to reproduce the partial-mesh disappearance regression; do not redistribute.",
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": true
+      }
+    },
+    {
+      "id": "fbx-physics-bake-texture-upload-local-regression",
+      "kind": "model",
+      "format": "fbx",
+      "path": "F:\\Develop\\MMDDev\\mmd-anim\\.ai\\fbx-physics-bake\\sour_miku_white_rabbit_hole_f300_physics_bindfixed.fbx",
+      "tags": ["fbx", "private", "local-regression", "textured", "physics-bake"],
+      "private": true,
+      "notes": "User-owned local physics-bake FBX used to reproduce deferred raster textures rendering black after decode; do not redistribute.",
+      "expect": {
+        "shouldLoad": true,
+        "hasHierarchy": true,
+        "hasMetadata": true,
+        "hasTextureList": true,
+        "hasAnimation": true
       }
     }
   ]
