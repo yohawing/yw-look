@@ -103,7 +103,7 @@
 ### Release
 
 - Fixed the macOS release build by importing the Tauri event emitter trait used by Finder open-file handling.
-- Consolidated the release checklist into `docs/release-distribution.md` and documented the Optional Loader Pack release check.
+- Consolidated the release checklist into `docs/RELEASE.md` and documented the Optional Loader Pack release check.
 - Added USD load timing diagnostics used during release performance validation.
 
 ## v0.2.0 (2026-05-25)
