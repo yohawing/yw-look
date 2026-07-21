@@ -28,7 +28,8 @@ use super::mesh_attributes::{expand_indexed_uvs, read_display_opacity};
 use super::mesh_visibility::{is_mesh_active_and_visible, read_mesh_orientation, resolve_purpose};
 use super::node_tree::build_node_tree;
 use super::skel_adapter::{
-    animation_input_from_skel, read_mesh_skel_joints_override, skin_input_from_skel,
+    animation_input_from_skel, apply_geom_bind_transform, read_geom_bind_transform,
+    read_mesh_skel_joints_override, skin_input_from_skel,
 };
 use super::xform::compose_world_xform;
 use super::LEGACY_TRAVERSE_PREDICATE;
@@ -267,6 +268,17 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                 if let Some(skin) = skins.get(skin_slot) {
                     remap_mesh_skin_indices(&mut mesh_data, &local_joints, &skin.joint_names);
                 }
+            }
+            // UsdSkel `primvars:skel:geomBindTransform`: maps the mesh's
+            // points into the skeleton's bind space before skinning.
+            // glTF's skin formula has no per-mesh equivalent (the mesh
+            // node transform is ignored and inverseBindMatrices are
+            // shared per skin), so bake it into the vertices — without
+            // this every skinned part is offset by its geom-bind matrix
+            // and the character comes apart at the joints (move.ai /
+            // Blender USDC exports author this on every mesh).
+            if let Some(geom_bind) = read_geom_bind_transform(&stage, prim_path) {
+                apply_geom_bind_transform(&mut mesh_data, &geom_bind);
             }
         }
 

@@ -3,7 +3,7 @@ use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::Stage;
 
 use crate::usd::glb;
-use crate::usd::math::{invert_mat4_f32, IDENTITY_MAT4_F32};
+use crate::usd::math::{invert_mat4_f32, mat4_mul_f32, IDENTITY_MAT4_F32};
 
 use super::stage_fields::token_vec_to_strings;
 
@@ -29,21 +29,101 @@ pub(crate) fn read_mesh_skel_joints_override(
     }
 }
 
+/// Reads a mesh prim's `primvars:skel:geomBindTransform` — the
+/// UsdSkel matrix that maps the mesh's points from geometry space
+/// into the skeleton's bind space. `None` when not authored
+/// (equivalent to identity).
+pub(crate) fn read_geom_bind_transform(
+    stage: &Stage,
+    mesh_path: &SdfPath,
+) -> Option<[f64; 16]> {
+    let attr_path = mesh_path
+        .append_property("primvars:skel:geomBindTransform")
+        .ok()?;
+    let value: Option<SdfValue> = stage.field(attr_path, FieldKey::Default).ok()?;
+    match value? {
+        SdfValue::Matrix4d(m) => Some(m.into()),
+        _ => None,
+    }
+}
+
+/// Bakes a `geomBindTransform` into a skinned mesh's points and
+/// normals.
+///
+/// glTF has no equivalent of UsdSkel's geom-bind matrix: the spec's
+/// skinning formula is `skinMatrix * vertex` with the mesh node's own
+/// transform ignored, and `inverseBindMatrices` are shared per skin —
+/// while each USD mesh can author its own geomBindTransform. The only
+/// faithful translation is to pre-transform the vertices so they live
+/// in the skeleton's bind space, which is exactly what
+/// `UsdSkelSkinningQuery` does before skinning.
+///
+/// Normals get the inverse-transpose of the 3×3 linear part (without
+/// renormalisation — Three.js normalises in the shader). Blend-shape
+/// offsets are resolved from separate target prims later and are NOT
+/// rotated here; a non-identity geomBindTransform combined with blend
+/// shapes is currently unhandled.
+pub(crate) fn apply_geom_bind_transform(
+    mesh_data: &mut openusd::stage::MeshData,
+    matrix: &[f64; 16],
+) {
+    let m: Vec<f32> = matrix.iter().map(|&v| v as f32).collect();
+    let m: &[f32; 16] = m.as_slice().try_into().expect("mat4 has 16 elements");
+    for p in mesh_data.points.chunks_exact_mut(3) {
+        let (x, y, z) = (p[0], p[1], p[2]);
+        p[0] = m[0] * x + m[4] * y + m[8] * z + m[12];
+        p[1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+        p[2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    }
+    if let Some(normals) = mesh_data.normals.as_mut() {
+        if let Some(inv) = invert_mat4_f32(m) {
+            // Inverse-transpose of the linear part: read the inverse's
+            // ROWS as the transformed basis (transpose fold-in).
+            for n in normals.chunks_exact_mut(3) {
+                let (x, y, z) = (n[0], n[1], n[2]);
+                n[0] = inv[0] * x + inv[1] * y + inv[2] * z;
+                n[1] = inv[4] * x + inv[5] * y + inv[6] * z;
+                n[2] = inv[8] * x + inv[9] * y + inv[10] * z;
+            }
+        }
+    }
+}
+
 /// Phase 5c E: convert a fork-level `SkeletonData` into a yw-look
 /// `SkinInput` ready for the GLB writer.
 ///
-/// `SkeletonData::{bind_transforms, rest_transforms}` are already
-/// stored in **column-major** layout by the fork (matching glTF's
-/// expectation), so we pass them through verbatim — Codex P1: an
-/// earlier version mistakenly transposed both arrays which flipped
-/// every joint transform.
+/// ### Matrix layout
 ///
+/// USD stores `matrix4d` values row-major with the **row-vector**
+/// convention (`v' = v * M`, translation in the last row, flat
+/// indices 12–14). That flat layout is byte-identical to glTF's
+/// column-major column-vector layout, so `SkeletonData` matrices pass
+/// through verbatim — exactly what `xformOp:transform` values get in
+/// `xform.rs` (`SdfValue::Matrix4d(m) => m.0`). An earlier fork
+/// revision transposed them in `read_mat4_vec_attr`, which shoved
+/// every joint's translation into the projection slots and exploded
+/// the mesh into spikes; the fork now passes them through unchanged.
 /// `bindTransforms` are world-space bind transforms; glTF wants the
 /// **inverse** of those for the `inverseBindMatrices` accessor, so
 /// we invert each one before writing the GLB. `restTransforms` are
-/// local-space bind-pose transforms and pass through unchanged for
-/// use as the joint nodes' default TRS (the matrix is decomposed in
-/// `glb.rs` because glTF disallows animating a node's `matrix`).
+/// local-space bind-pose transforms per the UsdSkel spec, used as the
+/// joint nodes' default TRS (the matrix is decomposed in `glb.rs`
+/// because glTF disallows animating a node's `matrix`).
+///
+/// ### Skel-space `restTransforms` fallback
+///
+/// Some exporters (move.ai's Blender pipeline, e.g. `bbibbi.usdc`)
+/// author `restTransforms` as **skeleton-space** cumulatives — byte
+/// for byte identical to `bindTransforms` — instead of the
+/// spec-mandated joint-local transforms. Treating those as local
+/// double-accumulates every ancestor's transform, so deep joints
+/// (fingers, neck, toes) fly off while near-root joints look almost
+/// right. When `restTransforms` is missing or ≈ `bindTransforms`, we
+/// instead derive each joint's local rest as
+/// `inverse(bind[parent]) * bind[joint]`. This is exact in both
+/// interpretations: if rest really was authored local AND equals
+/// bind everywhere, every parent bind must be identity, making the
+/// derivation a no-op.
 pub(crate) fn skin_input_from_skel(
     name: &str,
     skel: &openusd::stage::SkeletonData,
@@ -57,9 +137,21 @@ pub(crate) fn skin_input_from_skel(
     // skinning computation (`meshMatrix * skin(vertex, joints)`).
     // Rotating the skeleton transforms here would double-rotate the
     // result because the mesh node already carries the correction.
-    let rest_local_matrices: Vec<[f32; 16]> = skel.rest_transforms.clone();
-    let inverse_bind_matrices: Vec<[f32; 16]> = skel
-        .bind_transforms
+    let bind_world_matrices: &[[f32; 16]] = &skel.bind_transforms;
+    let rest_matrices: Vec<[f32; 16]> = skel.rest_transforms.clone();
+    let rest_looks_skel_space = !bind_world_matrices.is_empty()
+        && rest_matrices.len() == bind_world_matrices.len()
+        && rest_matrices
+            .iter()
+            .zip(bind_world_matrices)
+            .all(|(r, b)| mat4_approx_eq(r, b, 1e-5));
+    let rest_local_matrices: Vec<[f32; 16]> = if rest_matrices.is_empty() || rest_looks_skel_space
+    {
+        joint_locals_from_world(bind_world_matrices, &skel.parents)
+    } else {
+        rest_matrices
+    };
+    let inverse_bind_matrices: Vec<[f32; 16]> = bind_world_matrices
         .iter()
         .map(|m| invert_mat4_f32(m).unwrap_or(IDENTITY_MAT4_F32))
         .collect();
@@ -82,12 +174,112 @@ pub(crate) fn skin_input_from_skel(
     }
 }
 
+fn mat4_approx_eq(a: &[f32; 16], b: &[f32; 16], eps: f32) -> bool {
+    a.iter().zip(b).all(|(x, y)| (x - y).abs() <= eps)
+}
+
+/// Converts skeleton-space joint transforms into joint-local ones:
+/// `local[i] = inverse(world[parent(i)]) * world[i]` (column-vector
+/// convention). Roots keep their world transform as-is. A parent
+/// index outside the slice or a singular parent matrix falls back to
+/// the world transform, matching `pad_to_len`'s lenient stance on
+/// malformed assets.
+fn joint_locals_from_world(
+    world: &[[f32; 16]],
+    parents: &[Option<usize>],
+) -> Vec<[f32; 16]> {
+    world
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let Some(parent) = parents.get(i).copied().flatten() else {
+                return *w;
+            };
+            let Some(parent_world) = world.get(parent) else {
+                return *w;
+            };
+            match invert_mat4_f32(parent_world) {
+                Some(inv_parent) => mat4_mul_f32(&inv_parent, w),
+                None => *w,
+            }
+        })
+        .collect()
+}
+
 fn pad_to_len<T: Clone>(mut v: Vec<T>, len: usize, fill: T) -> Vec<T> {
     while v.len() < len {
         v.push(fill.clone());
     }
     v.truncate(len);
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn translate_z(z: f32) -> [f32; 16] {
+        let mut m = IDENTITY_MAT4_F32;
+        m[14] = z;
+        m
+    }
+
+    #[test]
+    fn joint_locals_from_world_subtracts_parent_transform() {
+        // Chain: root at z=1, child at z=3 (both skel-space cumulative).
+        let world = vec![translate_z(1.0), translate_z(3.0)];
+        let parents = vec![None, Some(0)];
+        let locals = joint_locals_from_world(&world, &parents);
+        assert_eq!(locals[0], translate_z(1.0));
+        assert_eq!(locals[1], translate_z(2.0));
+    }
+
+    #[test]
+    fn skin_input_derives_locals_when_rest_equals_bind() {
+        // move.ai-style rig: restTransforms authored as skel-space
+        // cumulatives, identical to bindTransforms. The converter must
+        // NOT treat them as joint-local.
+        let skel = openusd::stage::SkeletonData {
+            joints: vec!["Root".into(), "Root/Hips".into()],
+            bind_transforms: vec![translate_z(1.0), translate_z(3.0)],
+            rest_transforms: vec![translate_z(1.0), translate_z(3.0)],
+            parents: vec![None, Some(0)],
+        };
+        let skin = skin_input_from_skel("skel", &skel, None);
+        assert_eq!(skin.rest_local_matrices[1], translate_z(2.0));
+        // Inverse bind of translate(z=3) is translate(z=-3).
+        assert_eq!(skin.inverse_bind_matrices[1], translate_z(-3.0));
+    }
+
+    #[test]
+    fn skin_input_keeps_authored_local_rest_when_it_differs_from_bind() {
+        let skel = openusd::stage::SkeletonData {
+            joints: vec!["Root".into(), "Root/Hips".into()],
+            bind_transforms: vec![translate_z(1.0), translate_z(3.0)],
+            rest_transforms: vec![translate_z(1.0), translate_z(2.5)],
+            parents: vec![None, Some(0)],
+        };
+        let skin = skin_input_from_skel("skel", &skel, None);
+        assert_eq!(skin.rest_local_matrices[1], translate_z(2.5));
+    }
+
+    #[test]
+    fn apply_geom_bind_transform_moves_points_into_bind_space() {
+        let mut mesh = openusd::stage::MeshData {
+            points: vec![0.0, 0.0, 0.0, 1.0, 2.0, 3.0],
+            normals: Some(vec![0.0, 0.0, 1.0]),
+            ..Default::default()
+        };
+        let mut geom_bind = [0.0_f64; 16];
+        for i in [0, 5, 10, 15] {
+            geom_bind[i] = 1.0;
+        }
+        geom_bind[14] = 0.875; // translate z, USD flat layout
+        apply_geom_bind_transform(&mut mesh, &geom_bind);
+        assert_eq!(mesh.points, vec![0.0, 0.0, 0.875, 1.0, 2.0, 3.875]);
+        // Pure translation leaves normals untouched.
+        assert_eq!(mesh.normals, Some(vec![0.0, 0.0, 1.0]));
+    }
 }
 
 /// Phase 5c E: convert a fork-level `SkelAnimationData` into the

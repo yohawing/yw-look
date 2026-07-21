@@ -38,7 +38,7 @@ flip-compare = ["dep:nv-flip", "dep:image"]
 [dependencies]
 # Pin the pure-Rust OpenUSD compatibility layer used by yw-look so local,
 # CI, and release builds resolve the same source without a sibling checkout.
-openusd = { git = "https://github.com/yohawing/openusd.git", rev = "98364275b34c441468014a27b2c820dc21b84f4b" }
+openusd = { git = "https://github.com/yohawing/openusd.git", rev = "ccb0ddba0662a94d0e39e44c45ff82cb0b1be597" }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
