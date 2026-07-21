@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::stage::MaterialData;
 use openusd::Stage;
 
 use crate::usd::glb;
+use crate::usd::ir::MaterialData;
 use crate::usd::material::{
     apply_material_wrap_tokens, apply_resolved_texture_transforms, build_material_slot_paths,
     is_preview_surface_shader_id, is_texture_shader_id, lookup_material_slot,
@@ -110,7 +110,7 @@ pub(crate) fn resolve_material_slot(
     if let Some(existing) = lookup_material_slot(&key, material_slots) {
         return existing;
     }
-    let data = stage.material_of(prim_path.clone());
+    let data: Option<MaterialData> = stage.material_of(prim_path.clone()).map(Into::into);
     let surface_shader = find_preview_surface_shader(stage, mat_path);
     if data.is_none() && surface_shader.is_none() {
         return 0;

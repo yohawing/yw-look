@@ -3,6 +3,7 @@ use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::Stage;
 
 use crate::usd::glb;
+use crate::usd::ir;
 use crate::usd::math::{invert_mat4_f32, mat4_mul_f32, IDENTITY_MAT4_F32};
 
 use super::stage_fields::token_vec_to_strings;
@@ -63,10 +64,7 @@ pub(crate) fn read_geom_bind_transform(
 /// offsets are resolved from separate target prims later and are NOT
 /// rotated here; a non-identity geomBindTransform combined with blend
 /// shapes is currently unhandled.
-pub(crate) fn apply_geom_bind_transform(
-    mesh_data: &mut openusd::stage::MeshData,
-    matrix: &[f64; 16],
-) {
+pub(crate) fn apply_geom_bind_transform(mesh_data: &mut ir::MeshData, matrix: &[f64; 16]) {
     let m: Vec<f32> = matrix.iter().map(|&v| v as f32).collect();
     let m: &[f32; 16] = m.as_slice().try_into().expect("mat4 has 16 elements");
     for p in mesh_data.points.chunks_exact_mut(3) {
@@ -126,7 +124,7 @@ pub(crate) fn apply_geom_bind_transform(
 /// derivation a no-op.
 pub(crate) fn skin_input_from_skel(
     name: &str,
-    skel: &openusd::stage::SkeletonData,
+    skel: &ir::SkeletonData,
     _up_axis_correction: Option<&[f32; 16]>,
 ) -> glb::SkinInput {
     let joint_count = skel.joints.len();
@@ -239,7 +237,7 @@ mod tests {
         // move.ai-style rig: restTransforms authored as skel-space
         // cumulatives, identical to bindTransforms. The converter must
         // NOT treat them as joint-local.
-        let skel = openusd::stage::SkeletonData {
+        let skel = ir::SkeletonData {
             joints: vec!["Root".into(), "Root/Hips".into()],
             bind_transforms: vec![translate_z(1.0), translate_z(3.0)],
             rest_transforms: vec![translate_z(1.0), translate_z(3.0)],
@@ -253,7 +251,7 @@ mod tests {
 
     #[test]
     fn skin_input_keeps_authored_local_rest_when_it_differs_from_bind() {
-        let skel = openusd::stage::SkeletonData {
+        let skel = ir::SkeletonData {
             joints: vec!["Root".into(), "Root/Hips".into()],
             bind_transforms: vec![translate_z(1.0), translate_z(3.0)],
             rest_transforms: vec![translate_z(1.0), translate_z(2.5)],
@@ -265,7 +263,7 @@ mod tests {
 
     #[test]
     fn apply_geom_bind_transform_moves_points_into_bind_space() {
-        let mut mesh = openusd::stage::MeshData {
+        let mut mesh = ir::MeshData {
             points: vec![0.0, 0.0, 0.0, 1.0, 2.0, 3.0],
             normals: Some(vec![0.0, 0.0, 1.0]),
             ..Default::default()
@@ -301,7 +299,7 @@ mod tests {
 pub(crate) fn animation_input_from_skel(
     skin_index: usize,
     skin_joint_names: &[String],
-    anim: &openusd::stage::SkelAnimationData,
+    anim: &ir::SkelAnimationData,
     time_codes_per_second: f64,
 ) -> Option<glb::AnimationInput> {
     if anim.times.is_empty() {

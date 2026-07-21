@@ -2,9 +2,8 @@
 
 use std::collections::HashMap;
 
-use openusd::stage::MeshData;
-
 use super::glb::{AlphaMode, MaterialInput, MeshInput};
+use super::ir::MeshData;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]

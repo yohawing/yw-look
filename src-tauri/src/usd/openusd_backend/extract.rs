@@ -15,6 +15,7 @@ use crate::usd::geometry::{
     filter_mesh_by_face_indices, mesh_data_to_input, validate_mesh_topology,
 };
 use crate::usd::glb::{self, MeshInput};
+use crate::usd::ir;
 use crate::usd::math::{mat4_f64_to_f32, mat4_mul, z_up_to_y_up_mat4};
 use crate::usd::skel::remap_mesh_skin_indices;
 use crate::usd::texture_loader::{embed_material_textures, TextureEmbedLogStyle, TextureLoader};
@@ -216,6 +217,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                 existing
             } else {
                 let slot = skins.len();
+                let skel_data: ir::SkeletonData = skel_data.into();
                 let skin_input = skin_input_from_skel(&key, &skel_data, up_correction_f32.as_ref());
                 skins.push(skin_input);
                 skin_slots.insert(key, slot);
@@ -231,13 +233,14 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // up-axis correction.
     let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
     for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
-        let Some(mut mesh_data) = stage
+        let Some(mesh_data) = stage
             .mesh_of(prim_path.clone())
             .map_err(|e| UsdError::Parse(e.to_string()))?
         else {
             continue;
         };
-        validate_mesh_topology(prim_path, &mesh_data)?;
+        let mut mesh_data: ir::MeshData = mesh_data.into();
+        validate_mesh_topology(prim_path.as_str(), &mesh_data)?;
 
         let mut world = compose_world_xform(&stage, prim_path)?;
         if let Some(correction) = &up_axis_correction {
@@ -346,7 +349,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                 let subset_name = SdfPath::new(&format!("{}/{}", prim_path.as_str(), subset.name))
                     .unwrap_or_else(|_| prim_path.clone());
                 let mut tri = mesh_data_to_input(
-                    &subset_name,
+                    subset_name.as_str(),
                     world_f32,
                     &filtered,
                     orientation,
@@ -391,7 +394,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         }
 
         let mut triangulated = mesh_data_to_input(
-            prim_path,
+            prim_path.as_str(),
             world_f32,
             &mesh_data,
             orientation,
@@ -480,6 +483,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
             continue;
         };
         if let Some(anim_data) = stage.skel_animation_of(skel_path) {
+            let anim_data: ir::SkelAnimationData = anim_data.into();
             if let Some(anim_input) = animation_input_from_skel(
                 skin_idx,
                 &skin.joint_names,

@@ -20,6 +20,7 @@ mod blend_shapes;
 mod cameras;
 mod composition_arcs;
 mod extract;
+mod ir_bridge;
 mod lights;
 mod material_adapter;
 mod mesh_attributes;

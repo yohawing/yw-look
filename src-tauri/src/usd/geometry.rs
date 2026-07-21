@@ -1,11 +1,9 @@
 //! Backend-independent USD mesh geometry helpers.
 
-use openusd::sdf::Path as SdfPath;
-use openusd::stage::MeshData;
-
 use super::backend::UsdError;
 use super::extract_shared::ScalarAttributeKind;
 use super::glb::{self, MeshInput};
+use super::ir::MeshData;
 use super::skel::{pack_skin_influences, DenseBlendShape};
 
 /// USD mesh face-vertex winding convention. Determines the triangle
@@ -233,7 +231,7 @@ fn fan_triangulate(n: usize) -> Vec<[usize; 3]> {
 /// the asset sizes we currently care about; revisit if Kitchen Set timings
 /// regress noticeably.
 pub(crate) fn mesh_data_to_input(
-    prim_path: &SdfPath,
+    prim_path: &str,
     world: [f32; 16],
     data: &MeshData,
     orientation: MeshOrientation,
@@ -341,7 +339,7 @@ pub(crate) fn mesh_data_to_input(
             if point_index >= point_count {
                 return Err(UsdError::Parse(format!(
                     "Mesh '{}' faceVertexIndex {} out of range (point_count={})",
-                    prim_path.as_str(),
+                    prim_path,
                     point_index,
                     point_count
                 )));
@@ -562,12 +560,12 @@ pub(crate) fn mesh_data_to_input(
     })
 }
 
-pub(crate) fn validate_mesh_topology(prim_path: &SdfPath, data: &MeshData) -> Result<(), UsdError> {
+pub(crate) fn validate_mesh_topology(prim_path: &str, data: &MeshData) -> Result<(), UsdError> {
     let point_count = data.points.len() / 3;
     if data.points.len() % 3 != 0 || point_count == 0 {
         return Err(UsdError::Parse(format!(
             "Mesh '{}' has malformed points (len={})",
-            prim_path.as_str(),
+            prim_path,
             data.points.len()
         )));
     }
@@ -582,14 +580,14 @@ pub(crate) fn validate_mesh_topology(prim_path: &SdfPath, data: &MeshData) -> Re
     if let Some(bad) = data.face_vertex_counts.iter().find(|c| **c < 0) {
         return Err(UsdError::Parse(format!(
             "Mesh '{}' has negative faceVertexCounts entry ({}); file is malformed",
-            prim_path.as_str(),
+            prim_path,
             bad
         )));
     }
     if let Some(bad) = data.face_vertex_indices.iter().find(|i| **i < 0) {
         return Err(UsdError::Parse(format!(
             "Mesh '{}' has negative faceVertexIndices entry ({}); file is malformed",
-            prim_path.as_str(),
+            prim_path,
             bad
         )));
     }
@@ -598,7 +596,7 @@ pub(crate) fn validate_mesh_topology(prim_path: &SdfPath, data: &MeshData) -> Re
     if total_face_vertices != data.face_vertex_indices.len() {
         return Err(UsdError::Parse(format!(
             "Mesh '{}' faceVertexIndices length {} doesn't match sum of faceVertexCounts ({})",
-            prim_path.as_str(),
+            prim_path,
             data.face_vertex_indices.len(),
             total_face_vertices
         )));
@@ -826,7 +824,7 @@ mod tests {
     fn validate_mesh_topology_rejects_malformed_points() {
         let mut mesh = base_mesh();
         mesh.points = vec![0.0, 1.0];
-        let prim_path = SdfPath::new("/MalformedPoints").unwrap();
+        let prim_path = "/MalformedPoints";
 
         let err = validate_mesh_topology(&prim_path, &mesh)
             .expect_err("malformed point buffer must be rejected");
@@ -839,7 +837,7 @@ mod tests {
         let mut mesh = base_mesh();
         mesh.face_vertex_counts = vec![3, 3];
         mesh.face_vertex_indices = vec![0, 1, 2];
-        let prim_path = SdfPath::new("/MismatchedTopology").unwrap();
+        let prim_path = "/MismatchedTopology";
 
         let err = validate_mesh_topology(&prim_path, &mesh)
             .expect_err("faceVertexCounts sum mismatch must be rejected");
@@ -899,7 +897,7 @@ mod tests {
             joints_per_vertex: 0,
             display_color: None,
         };
-        let prim_path = SdfPath::new("/Malicious").unwrap();
+        let prim_path = "/Malicious";
         let err = mesh_data_to_input(
             &prim_path,
             [0.0; 16],
@@ -933,7 +931,7 @@ mod tests {
             joints_per_vertex: 0,
             display_color: None,
         };
-        let prim_path = SdfPath::new("/Malicious").unwrap();
+        let prim_path = "/Malicious";
         let err = mesh_data_to_input(
             &prim_path,
             [0.0; 16],
@@ -981,7 +979,7 @@ mod tests {
             joints_per_vertex: 0,
             display_color: None,
         };
-        let prim_path = SdfPath::new("/L").unwrap();
+        let prim_path = "/L";
         let out = mesh_data_to_input(
             &prim_path,
             identity_matrix(),
@@ -1032,7 +1030,7 @@ mod tests {
             joints_per_vertex: 0,
             display_color: Some(vec![0.8, 0.2, 0.1]),
         };
-        let prim_path = SdfPath::new("/ConstantColor").unwrap();
+        let prim_path = "/ConstantColor";
 
         let out = mesh_data_to_input(
             &prim_path,
@@ -1062,7 +1060,7 @@ mod tests {
             joints_per_vertex: 0,
             display_color: None,
         };
-        let prim_path = SdfPath::new("/OpacityOnly").unwrap();
+        let prim_path = "/OpacityOnly";
 
         let out = mesh_data_to_input(
             &prim_path,
@@ -1107,7 +1105,7 @@ mod tests {
                 offsets: vec![0.0; 9],
             },
         ];
-        let prim_path = SdfPath::new("/Morph").unwrap();
+        let prim_path = "/Morph";
 
         let out = mesh_data_to_input(
             &prim_path,
@@ -1140,7 +1138,7 @@ mod tests {
             joints_per_vertex: 2,
             display_color: None,
         };
-        let prim_path = SdfPath::new("/SparseSkin").unwrap();
+        let prim_path = "/SparseSkin";
 
         let out = mesh_data_to_input(
             &prim_path,

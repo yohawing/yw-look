@@ -1,7 +1,8 @@
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::stage::MeshData;
 use openusd::Stage;
+
+use crate::usd::ir::MeshData;
 
 /// Expand indexed face-varying UVs. USD allows `primvars:st:indices`
 /// to decouple the UV array from face-vertex order — the UV array
