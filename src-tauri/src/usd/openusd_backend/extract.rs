@@ -3,7 +3,6 @@ use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::stage::UpAxis;
 use openusd::Stage;
 
 use crate::usd::backend::UsdError;
@@ -15,7 +14,6 @@ use crate::usd::geometry::{
     filter_mesh_by_face_indices, mesh_data_to_input, validate_mesh_topology,
 };
 use crate::usd::glb::{self, MeshInput};
-use crate::usd::ir;
 use crate::usd::math::{mat4_f64_to_f32, mat4_mul, z_up_to_y_up_mat4};
 use crate::usd::skel::remap_mesh_skin_indices;
 use crate::usd::texture_loader::{embed_material_textures, TextureEmbedLogStyle, TextureLoader};
@@ -32,6 +30,7 @@ use super::skel_adapter::{
     animation_input_from_skel, apply_geom_bind_transform, read_geom_bind_transform,
     read_mesh_skel_joints_override, skin_input_from_skel,
 };
+use super::stage_query::{self, UpAxis};
 use super::xform::compose_world_xform;
 use super::LEGACY_TRAVERSE_PREDICATE;
 // ---------------------------------------------------------------------------
@@ -54,8 +53,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     }
 
     let skipped_payload_sources: Vec<String> = if options.policy == StageLoadPolicy::NoPayloads {
-        stage
-            .skipped_payloads()
+        stage_query::skipped_payloads(&stage)
             .iter()
             .map(|payload| payload.prim_path.to_string())
             .collect()
@@ -69,7 +67,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // correction into every mesh's world matrix below so the GLB is
     // self-describing — the frontend doesn't need to know the
     // original stage's up-axis.
-    let up_axis_correction = match stage.up_axis() {
+    let up_axis_correction = match stage_query::up_axis(&stage) {
         Some(UpAxis::Z) => Some(z_up_to_y_up_mat4()),
         _ => None,
     };
@@ -211,13 +209,12 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     let up_correction_f32: Option<[f32; 16]> = up_axis_correction.map(|c| mat4_f64_to_f32(&c));
 
     for (i, prim_path) in mesh_paths.iter().enumerate() {
-        if let Some((skel_path, skel_data)) = stage.skeleton_of(prim_path.clone()) {
+        if let Some((skel_path, skel_data)) = stage_query::skeleton_of(&stage, prim_path.clone()) {
             let key = skel_path.to_string();
             let slot = if let Some(&existing) = skin_slots.get(&key) {
                 existing
             } else {
                 let slot = skins.len();
-                let skel_data: ir::SkeletonData = skel_data.into();
                 let skin_input = skin_input_from_skel(&key, &skel_data, up_correction_f32.as_ref());
                 skins.push(skin_input);
                 skin_slots.insert(key, slot);
@@ -233,13 +230,11 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // up-axis correction.
     let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
     for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
-        let Some(mesh_data) = stage
-            .mesh_of(prim_path.clone())
+        let Some(mut mesh_data) = stage_query::mesh_of(&stage, prim_path.clone())
             .map_err(|e| UsdError::Parse(e.to_string()))?
         else {
             continue;
         };
-        let mut mesh_data: ir::MeshData = mesh_data.into();
         validate_mesh_topology(prim_path.as_str(), &mesh_data)?;
 
         let mut world = compose_world_xform(&stage, prim_path)?;
@@ -311,7 +306,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // bindings, produce one MeshInput per subset so each face
         // group gets its own material. Otherwise fall through to
         // the whole-mesh path.
-        let subsets = stage.geom_subsets_of(prim_path.clone());
+        let subsets = stage_query::geom_subsets_of(&stage, prim_path.clone());
         let has_subset_materials =
             !subsets.is_empty() && subsets.iter().any(|s| s.material_binding.is_some());
 
@@ -408,7 +403,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // fall back to slot 0 (default).
         let slot = resolve_material_slot(
             &stage,
-            stage.bound_material(prim_path.clone()).as_ref(),
+            stage_query::bound_material(&stage, prim_path.clone()).as_ref(),
             prim_path,
             &mut materials,
             &mut material_texture_paths,
@@ -482,8 +477,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         let Ok(skel_path) = SdfPath::new(&skel_path_str) else {
             continue;
         };
-        if let Some(anim_data) = stage.skel_animation_of(skel_path) {
-            let anim_data: ir::SkelAnimationData = anim_data.into();
+        if let Some(anim_data) = stage_query::skel_animation_of(&stage, skel_path) {
             if let Some(anim_input) = animation_input_from_skel(
                 skin_idx,
                 &skin.joint_names,

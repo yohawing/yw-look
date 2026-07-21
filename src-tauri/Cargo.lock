@@ -6333,6 +6333,7 @@ dependencies = [
 name = "yw-look"
 version = "0.3.0"
 dependencies = [
+ "anyhow",
  "cmake",
  "glam",
  "image",

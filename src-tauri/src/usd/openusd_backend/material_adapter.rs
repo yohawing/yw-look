@@ -16,6 +16,7 @@ use crate::usd::material::{
 
 use super::shader_fields::{read_shader_color, read_shader_float, read_shader_token};
 use super::stage_fields::read_token_or_string_field;
+use super::stage_query;
 use super::LEGACY_TRAVERSE_PREDICATE;
 
 /// Name-based material fallback for GeomSubsets without authored
@@ -110,7 +111,7 @@ pub(crate) fn resolve_material_slot(
     if let Some(existing) = lookup_material_slot(&key, material_slots) {
         return existing;
     }
-    let data: Option<MaterialData> = stage.material_of(prim_path.clone()).map(Into::into);
+    let data: Option<MaterialData> = stage_query::material_of(stage, prim_path.clone());
     let surface_shader = find_preview_surface_shader(stage, mat_path);
     if data.is_none() && surface_shader.is_none() {
         return 0;
@@ -206,7 +207,7 @@ fn resolve_shader_texture_asset(
 /// the shader inside nested NodeGraphs we'll miss it, which is the
 /// same single-hop limitation `material_of` has for the diffuse channel.
 fn find_preview_surface_shader(stage: &Stage, material_path: &SdfPath) -> Option<SdfPath> {
-    let children = stage.prim_children(material_path.clone()).ok()?;
+    let children = stage_query::prim_children(stage, material_path.clone()).ok()?;
     for child_name in children {
         // SdfPath has no `append_child`; compose the child path via
         // string concat (same pattern used for GeomSubset names).

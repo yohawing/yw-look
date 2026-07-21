@@ -5,10 +5,10 @@
 //! these types so they stay usable by any USD backend. Each backend
 //! maps its own native stage-query output into these structs at its
 //! own boundary (currently `openusd_backend/`) so the processing layer
-//! never depends on a specific USD parser crate. This is what lets the
-//! backend move off the fork's `yw_look_compat` surface onto upstream
-//! `openusd` APIs (USD-NATIVE-01) without touching the processing
-//! layer.
+//! never depends on a specific USD parser crate. This is what let the
+//! backend move off the fork's pre-0.5 compatibility surface onto
+//! upstream `openusd` APIs (USD-NATIVE-01) without touching the
+//! processing layer.
 
 /// A triangulated-input-ready USD Mesh prim's authored attributes,
 /// before triangulation / face-varying expansion.

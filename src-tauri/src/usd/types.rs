@@ -7,10 +7,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Phase 4 wire equivalent of `openusd::StageLoadPolicy`. Carried into
-/// the backend via Tauri command parameters so the frontend can toggle
-/// between "compose every payload" and "defer every payload" without
-/// the Rust side needing to understand the crate-level enum.
+/// Phase 4 wire equivalent of the openusd backend's payload-load
+/// policy. Carried into the backend via Tauri command parameters so
+/// the frontend can toggle between "compose every payload" and "defer
+/// every payload" without the Rust side needing to understand the
+/// crate-level enum.
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

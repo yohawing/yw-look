@@ -1,8 +1,6 @@
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::{Stage, StageLoadPolicy as OpenusdLoadPolicy};
-
-use crate::usd::types::StageLoadPolicy;
+use openusd::Stage;
 
 /// Reads a stage-level metadatum authored on the pseudoroot (`/`) as
 /// a double. Returns `None` when the field is not authored on the
@@ -19,18 +17,6 @@ pub(crate) fn read_root_double_field(
         SdfValue::Double(v) => Some(v),
         SdfValue::Float(v) => Some(v as f64),
         _ => None,
-    }
-}
-
-/// Translate the wire-level `StageLoadPolicy` used by Tauri commands
-/// into the corresponding `openusd::StageLoadPolicy`. Kept as a plain
-/// function so the conversion is in one place and the two enum types
-/// can evolve independently if the fork adds a variant yw-look does
-/// not yet expose to the frontend.
-pub(crate) fn to_openusd_policy(policy: StageLoadPolicy) -> OpenusdLoadPolicy {
-    match policy {
-        StageLoadPolicy::LoadAll => OpenusdLoadPolicy::LoadAll,
-        StageLoadPolicy::NoPayloads => OpenusdLoadPolicy::NoPayloads,
     }
 }
 

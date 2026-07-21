@@ -12,7 +12,6 @@ use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::stage::UpAxis;
 use openusd::usd::PrimPredicate;
 use openusd::Stage;
 
@@ -20,16 +19,17 @@ mod blend_shapes;
 mod cameras;
 mod composition_arcs;
 mod extract;
-mod ir_bridge;
 mod lights;
 mod material_adapter;
 mod mesh_attributes;
 mod mesh_visibility;
 mod node_tree;
+mod nonpublic_api;
 mod session;
 mod shader_fields;
 mod skel_adapter;
 mod stage_fields;
+mod stage_query;
 mod xform;
 
 use super::asset_resolution::filter_resolvable_relative_assets;
@@ -45,9 +45,8 @@ use composition_arcs::{payload_arc_state, reference_arc_state};
 use extract::extract_geometry_from_open_stage_rs;
 #[cfg(test)]
 use mesh_visibility::is_renderable_mesh;
-use stage_fields::{
-    read_root_double_field, read_token_or_string_field, to_openusd_policy, token_vec_to_strings,
-};
+use stage_fields::{read_root_double_field, read_token_or_string_field, token_vec_to_strings};
+use stage_query::UpAxis;
 #[cfg(test)]
 use xform::{build_xform_op_matrix, compose_prim_local_xform, read_quat};
 
@@ -85,8 +84,7 @@ impl OpenusdBackend {
         let path_str = path
             .to_str()
             .ok_or_else(|| UsdError::Io(format!("non-UTF8 path: {}", path.display())))?;
-        Stage::builder()
-            .load_policy(to_openusd_policy(policy))
+        stage_query::apply_load_policy(Stage::builder(), policy)
             .open(path_str)
             .map_err(|e| UsdError::Parse(e.to_string()))
     }
@@ -107,11 +105,11 @@ impl UsdInspectBackend for OpenusdBackend {
         let stage = Self::open(path, policy)?;
 
         let default_prim = stage.default_prim().map(|token| token.as_str().to_owned());
-        let up_axis = stage.up_axis().map(|axis| match axis {
+        let up_axis = stage_query::up_axis(&stage).map(|axis| match axis {
             UpAxis::Y => "Y".to_string(),
             UpAxis::Z => "Z".to_string(),
         });
-        let meters_per_unit = stage.meters_per_unit();
+        let meters_per_unit = stage_query::meters_per_unit(&stage);
 
         let root_prims = stage
             .root_prims()
@@ -126,7 +124,7 @@ impl UsdInspectBackend for OpenusdBackend {
         let missing_assets = filter_resolvable_relative_assets(
             path,
             layer_ids.iter().cloned(),
-            stage.unresolved_assets(),
+            stage_query::unresolved_assets(&stage),
         );
         let composed_layers: Vec<String> = layer_ids.into_iter().skip(1).collect();
 
@@ -148,7 +146,7 @@ impl UsdInspectBackend for OpenusdBackend {
         // `/Root` is stored as `(foo.usda, /Root)`, not `(foo.usda,
         // /Target)`, and a target-based lookup would miss it whenever
         // source and target differ.
-        let skipped_payloads = stage.skipped_payloads();
+        let skipped_payloads = stage_query::skipped_payloads(&stage);
         let skipped_set: HashSet<(String, String)> = skipped_payloads
             .iter()
             .map(|sp| (sp.asset_path.clone(), sp.prim_path.to_string()))
@@ -194,7 +192,7 @@ impl UsdInspectBackend for OpenusdBackend {
                     }
                 }
 
-                for r in stage.references_in(prim_path.clone()) {
+                for r in stage_query::references_in(&stage, prim_path.clone()) {
                     let state = reference_arc_state(&unresolved_set, &r.asset_path);
                     references.borrow_mut().push(CompositionArc {
                         source_prim: source.clone(),
@@ -204,7 +202,7 @@ impl UsdInspectBackend for OpenusdBackend {
                         kind: CompositionArcKind::Reference,
                     });
                 }
-                for p in stage.payloads_in(prim_path.clone()) {
+                for p in stage_query::payloads_in(&stage, prim_path.clone()) {
                     // `source` is the prim that authored the payload
                     // (what `Stage::skipped_payloads` keys on); `p.prim_path`
                     // is the target prim inside the external layer (what the
@@ -240,7 +238,7 @@ impl UsdInspectBackend for OpenusdBackend {
             .ok()
             .flatten()
             .filter(|s| !s.is_empty());
-        let root_layer_is_binary = stage.root_layer_is_binary();
+        let root_layer_is_binary = stage_query::root_layer_is_binary(&stage);
 
         // #29 — degraded layer info: the Rust fork doesn't expose
         // per-layer muted / offset APIs, so we synthesise LayerInfo
@@ -330,12 +328,12 @@ impl UsdInspectBackend for OpenusdBackend {
         let unresolved_assets = filter_resolvable_relative_assets(
             path,
             stage.layer_identifiers(),
-            stage.unresolved_assets(),
+            stage_query::unresolved_assets(&stage),
         );
         let unresolved_set: HashSet<&str> = unresolved_assets.iter().map(String::as_str).collect();
 
         // #38: skipped payloads for NoPayloads policy classification.
-        let skipped_payloads = stage.skipped_payloads();
+        let skipped_payloads = stage_query::skipped_payloads(&stage);
         let skipped_set: HashSet<(String, String)> = skipped_payloads
             .iter()
             .map(|sp| (sp.asset_path.clone(), sp.prim_path.to_string()))
@@ -392,7 +390,7 @@ impl UsdInspectBackend for OpenusdBackend {
                     }
                 }
                 // #38: classify reference arcs.
-                for r in stage.references_in(prim_path.clone()) {
+                for r in stage_query::references_in(&stage, prim_path.clone()) {
                     if reference_arc_state(&unresolved_set, &r.asset_path)
                         == CompositionArcState::Missing
                     {
@@ -402,7 +400,7 @@ impl UsdInspectBackend for OpenusdBackend {
                     }
                 }
                 // #38: classify payload arcs.
-                let payloads = stage.payloads_in(prim_path.clone());
+                let payloads = stage_query::payloads_in(&stage, prim_path.clone());
                 for p in &payloads {
                     let source = prim_path.as_str().to_string();
                     let state =
@@ -461,7 +459,7 @@ impl UsdInspectBackend for OpenusdBackend {
             root_prim_count,
             mesh_count: mesh_count.into_inner(),
             payload_count: payload_count.into_inner(),
-            unloaded_payload_count: stage.skipped_payloads().len(),
+            unloaded_payload_count: stage_query::skipped_payloads(&stage).len(),
             has_variants: has_variants.into_inner(),
             prim_type_counts: prim_type_counts.into_inner(),
             total_vertices: total_vertices.into_inner(),
@@ -478,13 +476,16 @@ impl UsdInspectBackend for OpenusdBackend {
     }
 
     fn root_layer_is_binary(&self, path: &StdPath) -> Result<bool, UsdError> {
-        Ok(Self::open(path, StageLoadPolicy::LoadAll)?.root_layer_is_binary())
+        Ok(stage_query::root_layer_is_binary(&Self::open(
+            path,
+            StageLoadPolicy::LoadAll,
+        )?))
     }
 
     fn requires_glb_preview(&self, path: &StdPath) -> Result<bool, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         // Binary root → Three.js USDLoader can't parse it at all.
-        if stage.root_layer_is_binary() {
+        if stage_query::root_layer_is_binary(&stage) {
             return Ok(true);
         }
         // More than one composed layer → the stage depends on at least
@@ -522,7 +523,7 @@ impl UsdInspectBackend for OpenusdBackend {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         let mut issues = Vec::new();
 
-        if let Some(mpu) = stage.meters_per_unit() {
+        if let Some(mpu) = stage_query::meters_per_unit(&stage) {
             if mpu <= 0.0 || mpu > 100.0 {
                 issues.push(AssetIssue {
                     code: AssetIssueCode::SuspiciousMetersPerUnit,
@@ -537,7 +538,7 @@ impl UsdInspectBackend for OpenusdBackend {
         let unresolved_owned = filter_resolvable_relative_assets(
             path,
             stage.layer_identifiers(),
-            stage.unresolved_assets(),
+            stage_query::unresolved_assets(&stage),
         );
         let unresolved: HashSet<&str> = unresolved_owned.iter().map(|s| s.as_str()).collect();
 
@@ -547,7 +548,7 @@ impl UsdInspectBackend for OpenusdBackend {
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let source = prim_path.as_str().to_string();
-                for r in stage.references_in(prim_path.clone()) {
+                for r in stage_query::references_in(&stage, prim_path.clone()) {
                     if reference_arc_state(&unresolved, &r.asset_path)
                         == CompositionArcState::Missing
                     {
@@ -561,7 +562,7 @@ impl UsdInspectBackend for OpenusdBackend {
                         });
                     }
                 }
-                for p in stage.payloads_in(prim_path.clone()) {
+                for p in stage_query::payloads_in(&stage, prim_path.clone()) {
                     if reference_arc_state(&unresolved, &p.asset_path)
                         == CompositionArcState::Missing
                     {
@@ -1576,7 +1577,7 @@ def Xform "Root" (
         let mesh_path = SdfPath::new("/seahorse_bind/seahorse/seahorse_combined_mesh").unwrap();
 
         // Mesh stats
-        let mesh_data = stage.mesh_of(mesh_path.clone()).ok().flatten();
+        let mesh_data = stage_query::mesh_of(&stage, mesh_path.clone()).ok().flatten();
         if let Some(ref md) = mesh_data {
             let total_fv: usize = md.face_vertex_counts.iter().map(|c| *c as usize).sum();
             let point_count = md.points.len() / 3;
@@ -1614,7 +1615,7 @@ def Xform "Root" (
         }
 
         // Check GeomSubsets
-        let subsets = stage.geom_subsets_of(mesh_path.clone());
+        let subsets = stage_query::geom_subsets_of(&stage, mesh_path.clone());
         eprintln!("GeomSubsets: {} found", subsets.len());
         for s in &subsets {
             eprintln!(
@@ -1626,7 +1627,7 @@ def Xform "Root" (
             // Check alternative binding names
             let subset_path = SdfPath::new(&format!("{}/{}", mesh_path.as_str(), s.name)).unwrap();
             // Brute-force: try bound_material directly on the subset
-            let bm_sub = stage.bound_material(subset_path.clone());
+            let bm_sub = stage_query::bound_material(&stage, subset_path.clone());
             eprintln!(
                 "    bound_material(subset) = {:?}",
                 bm_sub.as_ref().map(|p| p.to_string())
@@ -1651,15 +1652,13 @@ def Xform "Root" (
         let parents = ["/seahorse_bind/seahorse", "/seahorse_bind"];
         for p in &parents {
             if let Ok(pp) = SdfPath::new(p) {
-                let bm = stage.bound_material(pp).map(|p| p.to_string());
+                let bm = stage_query::bound_material(&stage, pp).map(|p| p.to_string());
                 eprintln!("parent {} -> bound_material={:?}", p, bm);
             }
         }
 
         // Check direct mesh bound_material
-        let bm = stage
-            .bound_material(mesh_path.clone())
-            .map(|p| p.to_string());
+        let bm = stage_query::bound_material(&stage, mesh_path.clone()).map(|p| p.to_string());
         eprintln!("mesh -> bound_material={:?}", bm);
 
         // List all Material prims
@@ -1754,10 +1753,8 @@ def Xform "Root" (
                     return;
                 }
                 checked += 1;
-                let bm = stage
-                    .bound_material(prim_path.clone())
-                    .map(|p| p.to_string());
-                let mo = stage.material_of(prim_path.clone());
+                let bm = stage_query::bound_material(&stage, prim_path.clone()).map(|p| p.to_string());
+                let mo = stage_query::material_of(&stage, prim_path.clone());
                 let dc_path = prim_path.append_property("primvars:displayColor").ok();
                 let dc = dc_path
                     .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
@@ -1836,9 +1833,8 @@ def Xform "Root" (
                 }
                 checked += 1;
                 if checked <= 10 {
-                    let bm = stage
-                        .bound_material(prim_path.clone())
-                        .map(|p| p.to_string());
+                    let bm =
+                        stage_query::bound_material(&stage, prim_path.clone()).map(|p| p.to_string());
                     // Check for primvars:displayColor
                     let dc_path = prim_path.append_property("primvars:displayColor").ok();
                     let dc = dc_path

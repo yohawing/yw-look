@@ -1,6 +1,6 @@
 //! Backend-independent USD skeleton, skinning, and blend-shape helpers.
 
-use openusd::stage::MeshData;
+use super::ir::MeshData;
 
 /// Rewrites `mesh.joint_indices` so every influence references the
 /// bound Skeleton's full joint order (what the GLB skin exposes)
