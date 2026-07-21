@@ -26,7 +26,6 @@ mod material_adapter;
 mod mesh_attributes;
 mod mesh_visibility;
 mod node_tree;
-mod nonpublic_api;
 mod session;
 mod shader_fields;
 mod skel_adapter;
@@ -164,36 +163,33 @@ impl UsdInspectBackend for OpenusdBackend {
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let source = prim_path.as_str().to_string();
 
-                // Collect variant sets for the inspector UI.
-                if let Ok(Some(value)) =
-                    nonpublic_api::variant_set_names_field(&stage, prim_path.clone())
+                // Collect variant sets for the inspector UI via the public
+                // `Prim::variant_sets().get_all_variant_selections()`.
+                //
+                // USD-NATIVE-01: this used to read the raw authored
+                // `variantSetNames` list plus the raw `variantSelection`
+                // dictionary, so a variant set with no selection at all
+                // (no authored opinion, no fallback, no default) still
+                // showed up with `selection: None`. The public accessor
+                // only reports variant sets that actually resolved to a
+                // composed node, so that authored-but-unselected case no
+                // longer appears in the inspector. Every set that *does*
+                // show up now always carries a `Some` selection (composed
+                // — authored, fallback, or first-variant default).
+                if let Ok(selections) = stage
+                    .prim(prim_path.clone())
+                    .variant_sets()
+                    .get_all_variant_selections()
                 {
-                    let set_names: Vec<String> = match value {
-                        SdfValue::TokenVec(set_names) => token_vec_to_strings(set_names),
-                        SdfValue::TokenListOp(op) => {
-                            op.iter().map(|token| token.as_str().to_owned()).collect()
-                        }
-                        _ => Vec::new(),
-                    };
-                    if !set_names.is_empty() {
-                        let selection_map = match nonpublic_api::variant_selection_field(
-                            &stage,
-                            prim_path.clone(),
-                        ) {
-                            Ok(Some(SdfValue::VariantSelectionMap(map))) => map,
-                            _ => Default::default(),
-                        };
-                        for set_name in set_names {
-                            let selection = selection_map.get(&set_name).cloned();
-                            variant_sets_out
-                                .borrow_mut()
-                                .push(super::types::VariantSetInfo {
-                                    prim_path: source.clone(),
-                                    set_name,
-                                    selection,
-                                    variants: Vec::new(),
-                                });
-                        }
+                    for (set_name, selection) in selections {
+                        variant_sets_out
+                            .borrow_mut()
+                            .push(super::types::VariantSetInfo {
+                                prim_path: source.clone(),
+                                set_name,
+                                selection: Some(selection),
+                                variants: Vec::new(),
+                            });
                     }
                 }
 
@@ -420,19 +416,21 @@ impl UsdInspectBackend for OpenusdBackend {
                 if !payloads.is_empty() {
                     *payload_count.borrow_mut() += payloads.len();
                 }
-                // VariantSetNames may be authored as several different
-                // value types depending on the layer; we only care that
-                // *something* is authored, so query as raw Value.
-                if let Ok(Some(value)) =
-                    nonpublic_api::variant_set_names_field(&stage, prim_path.clone())
+                // USD-NATIVE-01: counts composed variant selections via
+                // the public API (see the matching comment in
+                // `inspect_stage`) rather than the raw authored
+                // `variantSetNames` field, so a variant set with no
+                // resolved selection no longer contributes to either
+                // counter.
+                if let Ok(selections) = stage
+                    .prim(prim_path.clone())
+                    .variant_sets()
+                    .get_all_variant_selections()
                 {
-                    *has_variants.borrow_mut() = true;
-                    let set_count = match value {
-                        SdfValue::TokenVec(set_names) => set_names.len(),
-                        SdfValue::TokenListOp(op) => op.iter().count(),
-                        _ => 0,
-                    };
-                    *variant_set_count.borrow_mut() += set_count;
+                    if !selections.is_empty() {
+                        *has_variants.borrow_mut() = true;
+                        *variant_set_count.borrow_mut() += selections.len();
+                    }
                 }
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
@@ -1638,12 +1636,9 @@ def Xform "Root" (
                 "material:binding:full",
             ] {
                 if let Ok(prop) = subset_path.append_property(*rel_name) {
-                    let val: Option<SdfValue> =
-                        nonpublic_api::relationship_target_paths_field(&stage, prop)
-                            .ok()
-                            .flatten();
-                    if val.is_some() {
-                        eprintln!("    {} = {:?}", rel_name, val);
+                    let targets = stage.relationship(prop).targets().unwrap_or_default();
+                    if !targets.is_empty() {
+                        eprintln!("    {} = {:?}", rel_name, targets);
                     }
                 }
             }
@@ -1792,11 +1787,8 @@ def Xform "Root" (
                 let dc: Option<SdfValue> =
                     dc_path.and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
                 let dc_conn_path = prim_path.append_property("inputs:diffuseColor").ok();
-                let dc_conn: Option<SdfValue> = dc_conn_path.and_then(|p| {
-                    nonpublic_api::attribute_connection_paths_field(&stage, p)
-                        .ok()
-                        .flatten()
-                });
+                let dc_conn: Option<Vec<SdfPath>> =
+                    dc_conn_path.and_then(|p| stage.attribute(p).connections().ok());
                 eprintln!(
                     "  {} type={:?} info:id={:?} diffuseColor={:?} diffuseColor.connect={:?}",
                     prim_path.as_str(),

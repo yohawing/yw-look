@@ -9,9 +9,32 @@
 //! function here is implemented with `Stage::attribute(..).get()` /
 //! `get_metadata()` / `time_samples()`, `Stage::prim(..).type_name()`,
 //! `Stage::relationship(..).targets()`, and `Attribute::connections()`
-//! — all confirmed-public upstream APIs — except the composed
-//! reference/payload-list reads and asset resolution probe, which have
-//! no public upstream equivalent yet and live in [`super::nonpublic_api`].
+//! — all confirmed-public upstream APIs.
+//!
+//! USD-NATIVE-01 Phase 3: the composed reference/payload-list reads and
+//! the asset-resolution probe no longer reach for the private
+//! `Stage::field` escape hatch (nor the fork-only `Stage::asset_resolves`
+//! probe) that the deleted `nonpublic_api` module used to wrap. Instead:
+//!
+//! - [`references_in`] / [`payloads_in`] walk `Prim::prim_stack()` —
+//!   upstream's public `(layer identifier, spec path)` list of every site
+//!   that contributes a spec to a composed prim, strongest first — and
+//!   read the raw `references` / `payload` field off each site's
+//!   [`sdf::Layer::prim`] spec via the public [`sdf::Spec::field`]. This
+//!   reproduces `Stage::field`'s own "strongest opinion wins" resolution
+//!   (see its doc comment in the fork) without calling it: `prim_stack`
+//!   is backed by the same composition cache `Stage::field` uses
+//!   internally, just exposed as a public accessor.
+//! - [`resolve_asset`] rebuilds the fork's `Stage::asset_resolves` /
+//!   `LayerGraph::asset_path_resolves` probe from the public
+//!   `openusd::ar::{DefaultResolver, Resolver, ResolvedPath}` asset
+//!   resolution API plus `Stage::layer_identifiers()` — an unanchored
+//!   resolve first (absolute path / cwd-relative), then an anchored
+//!   resolve against every loaded layer's identifier (skipping anonymous
+//!   layers via `sdf::Layer::is_anonymous_identifier`). `DefaultResolver`
+//!   already understands package-relative (`pkg.usdz[entry]`) identifiers,
+//!   so USDZ-packaged assets resolve the same way without any bespoke zip
+//!   handling here.
 //!
 //! Deliberately **free functions**, not an extension trait: the fork
 //! this crate still depends on for Phase 2a defines inherent methods of
@@ -27,14 +50,14 @@
 
 use std::io::Read;
 
+use openusd::ar::{DefaultResolver, ResolvedPath, Resolver as AssetResolver};
+use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{self, Value};
 use openusd::usd::{InitialLoadSet, PrimPredicate};
 use openusd::{Stage, StageBuilder};
 
 use crate::usd::ir::{MaterialData, MeshData, SkelAnimationData, SkeletonData};
 use crate::usd::types::StageLoadPolicy;
-
-use super::nonpublic_api::{authored_payloads_at, authored_references_at, resolve_asset};
 
 /// Payload arc skipped during composition under
 /// [`StageLoadPolicy::NoPayloads`]. `prim_path` is the prim that
@@ -93,8 +116,17 @@ pub(crate) fn meters_per_unit(stage: &Stage) -> Option<f64> {
         })
 }
 
+/// Unresolved layer/sublayer arcs from `Stage::composition_errors()`,
+/// plus every authored reference/payload `asset_path` (see
+/// [`references_in`] / [`payloads_in`]) that [`resolve_asset`] can't
+/// locate. The latter catches broken reference/payload targets *inside*
+/// otherwise-composed layers (e.g. `error-ref-missing-usda`,
+/// `error-ref-missing-payload-usda`) that the composer's own error list
+/// doesn't cover, because the composer only fails to open the arc's
+/// *layer* when the layer itself can't be found — a reference to a
+/// prim path or asset that a still-openable layer never authored is not
+/// a composition error, so it has to be checked here explicitly.
 pub(crate) fn unresolved_assets(stage: &Stage) -> Vec<String> {
-    let _ = stage.traverse(PrimPredicate::ALL, |_| {});
     let mut unresolved: Vec<String> = stage
         .composition_errors()
         .into_iter()
@@ -128,6 +160,12 @@ pub(crate) fn unresolved_assets(stage: &Stage) -> Vec<String> {
     unresolved
 }
 
+/// Payload arcs authored on a composed prim while the stage was opened
+/// under [`StageLoadPolicy::NoPayloads`] (`InitialLoadSet::LoadNone`):
+/// with that policy every authored payload is skipped by definition, so
+/// every arc [`payloads_in`] finds while traversing the composed prim
+/// tree qualifies. Composing this list needs [`payloads_in`] on every
+/// composed prim path, same as [`unresolved_assets`].
 pub(crate) fn skipped_payloads(stage: &Stage) -> Vec<SkippedPayload> {
     if stage.load() != InitialLoadSet::LoadNone {
         return Vec::new();
@@ -169,12 +207,89 @@ pub(crate) fn prim_children(stage: &Stage, path: impl Into<sdf::Path>) -> anyhow
         .collect())
 }
 
+/// The strongest authored `references` list-op at `path`, read off
+/// whichever site in `Prim::prim_stack` authors
+/// one — see the module doc for why this reproduces `Stage::field`'s
+/// "strongest opinion wins" resolution without calling it. There is no
+/// public *composed* reference-list accessor (the composer that would
+/// provide one, `pcp::compose_site::compose_references_in`, is private
+/// to the prim-index builder), so, like the fork's own pre-0.5
+/// compatibility layer, this only exposes the strongest authored field
+/// for the arc — not a list-op-folded merge across every contributing
+/// layer.
 pub(crate) fn references_in(stage: &Stage, path: impl Into<sdf::Path>) -> Vec<sdf::Reference> {
-    authored_references_at(stage, path.into())
+    match read_composed_field(stage, path.into(), FieldKey::References.as_str()) {
+        Some(Value::ReferenceListOp(op)) => op.iter().cloned().collect(),
+        _ => Vec::new(),
+    }
 }
 
+/// The strongest authored `payload` field at `path`, same rationale and
+/// strongest-authored-site-only limitation as [`references_in`] but for
+/// `FieldKey::Payload`.
 pub(crate) fn payloads_in(stage: &Stage, path: impl Into<sdf::Path>) -> Vec<sdf::Payload> {
-    authored_payloads_at(stage, path.into())
+    match read_composed_field(stage, path.into(), FieldKey::Payload.as_str()) {
+        Some(Value::Payload(payload)) => vec![payload],
+        Some(Value::PayloadListOp(op)) => op.iter().cloned().collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Reads `key` off the first (strongest) site in `path`'s
+/// `Prim::prim_stack` that authors it.
+/// `prim_stack` lists every `(layer identifier, spec path)` site
+/// contributing a prim spec to the composed prim, strongest first —
+/// the same order `Stage::field`'s internal prim-index walk uses — so
+/// resolving each site's `sdf::Layer::prim(..)` spec and reading
+/// `sdf::Spec::field` in that order reproduces `Stage::field`'s
+/// "first opinion found wins" behavior via public API only.
+fn read_composed_field(stage: &Stage, path: sdf::Path, key: &str) -> Option<Value> {
+    let stack = stage.prim(path).prim_stack().ok()?;
+    for (layer_id, local_path) in stack {
+        let Some(layer) = stage.layer(&layer_id) else {
+            continue;
+        };
+        let Some(spec) = layer.prim(local_path) else {
+            continue;
+        };
+        if let Ok(Some(value)) = spec.field(key) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+/// Reimplementation of the fork's `Stage::asset_resolves` /
+/// `pcp::LayerGraph::asset_path_resolves` probe using only public
+/// `openusd::ar` API: an unanchored resolve first (handles absolute
+/// paths and cwd-relative lookups the same way `DefaultResolver` always
+/// has), then an anchored resolve against every loaded layer's
+/// identifier (`Stage::layer_identifiers()`), skipping anonymous layers
+/// since anchoring a relative path against an in-memory layer identifier
+/// would produce a bogus path. `DefaultResolver` already understands
+/// package-relative (`pkg.usdz[entry]`) identifiers end to end — both as
+/// the anchor and as the asset path being resolved — so a stage opened
+/// from a `.usdz` resolves its internal references the same way without
+/// any bespoke archive handling here.
+fn resolve_asset(stage: &Stage, asset_path: &str) -> bool {
+    if asset_path.is_empty() {
+        return true;
+    }
+
+    let resolver = DefaultResolver::new();
+    let unanchored = resolver.create_identifier(asset_path, None);
+    if resolver.resolve(&unanchored).is_some() {
+        return true;
+    }
+
+    stage.layer_identifiers().into_iter().any(|layer_id| {
+        if sdf::Layer::is_anonymous_identifier(&layer_id) {
+            return false;
+        }
+        let anchor = ResolvedPath::new(std::path::PathBuf::from(&layer_id));
+        let identifier = resolver.create_identifier(asset_path, Some(&anchor));
+        resolver.resolve(&identifier).is_some()
+    })
 }
 
 pub(crate) fn mesh_of(stage: &Stage, prim_path: impl Into<sdf::Path>) -> anyhow::Result<Option<MeshData>> {

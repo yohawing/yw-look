@@ -3,7 +3,6 @@ use openusd::Stage;
 
 use crate::usd::skel::DenseBlendShape;
 
-use super::nonpublic_api;
 use super::stage_fields::{read_token_or_string_field, token_vec_to_strings};
 
 /// Phase 6d: resolve every `UsdSkelBlendShape` target bound to a
@@ -31,23 +30,19 @@ pub(crate) fn resolve_blend_shapes(
     point_count: usize,
 ) -> Vec<DenseBlendShape> {
     // Authored targets live on `skel:blendShapeTargets` as a USD
-    // relationship, which the fork exposes via
-    // `FieldKey::TargetPaths`. USDA parse example:
+    // relationship. `Relationship::targets()` is the public composed
+    // accessor (list-op edits folded across every contributing layer,
+    // matching every other relationship read in this backend). USDA
+    // parse example:
     //
     //     rel skel:blendShapeTargets = [</Mesh/Shapes/Smile>]
     let targets_path = match mesh_path.append_property("skel:blendShapeTargets") {
         Ok(p) => p,
         Err(_) => return Vec::new(),
     };
-    let targets_value: Option<SdfValue> = nonpublic_api::relationship_target_paths_field(
-        stage,
-        targets_path,
-    )
-    .ok()
-    .flatten();
-    let list_op = match targets_value {
-        Some(SdfValue::PathListOp(op)) => op,
-        _ => return Vec::new(),
+    let targets = match stage.relationship(targets_path).targets() {
+        Ok(targets) => targets,
+        Err(_) => return Vec::new(),
     };
 
     // Read `skel:blendShapes` token array (if authored) so we can
@@ -57,8 +52,7 @@ pub(crate) fn resolve_blend_shapes(
     let skel_blend_shapes = read_blend_shape_names(stage, mesh_path);
 
     let mut out: Vec<DenseBlendShape> = Vec::new();
-    for (i, target) in list_op.iter().enumerate() {
-        let target_path = target.clone();
+    for (i, target_path) in targets.into_iter().enumerate() {
         let Some(dense) = read_dense_blend_shape(stage, &target_path, point_count) else {
             continue;
         };

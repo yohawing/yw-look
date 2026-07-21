@@ -3,7 +3,6 @@ use openusd::Stage;
 
 use crate::usd::geometry::MeshOrientation;
 
-use super::nonpublic_api;
 use super::stage_fields::{read_token_or_string_field, token_or_string_value_to_string};
 
 /// Reads the `orientation` metadata from a Mesh prim. USD's default is
@@ -59,20 +58,24 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         return false;
     }
 
+    // `Prim::is_active()` already composes the whole ancestor chain
+    // (see its doc comment), so a single upfront call replaces the
+    // per-ancestor `active` check that used to run inline with the
+    // visibility/purpose walk below. `unwrap_or(true)` matches the old
+    // fallback (an unreadable field never hid the mesh).
+    if !stage.prim(prim_path.clone()).is_active().unwrap_or(true) {
+        return false;
+    }
+
     // Walk from the leaf toward the pseudo-root. Every step checks the
-    // current prim's own opinions for active/visibility/purpose. If any
-    // ancestor hides or deactivates the subtree, the mesh is skipped.
+    // current prim's own opinions for visibility/purpose. If any
+    // ancestor hides the subtree, the mesh is skipped.
     // String-based parent walk matches `compose_world_xform`.
     let mut path_str = prim_path.as_str().to_string();
     loop {
         let Ok(ancestor) = SdfPath::new(&path_str) else {
             break;
         };
-
-        // `active = false` at any level drops the whole subtree.
-        if let Ok(Some(false)) = nonpublic_api::prim_active_field(stage, ancestor.clone()) {
-            return false;
-        }
 
         // `visibility = "invisible"` hides the prim and all descendants
         // until an inner prim re-authors `visibility = "inherited"`. We
@@ -133,15 +136,18 @@ pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> 
         return false;
     }
 
+    // See the matching comment in `is_renderable_mesh`: `is_active()`
+    // composes the ancestor chain itself, so this replaces the
+    // per-ancestor `active` check that used to run inside the loop.
+    if !stage.prim(prim_path.clone()).is_active().unwrap_or(true) {
+        return false;
+    }
+
     let mut path_str = prim_path.as_str().to_string();
     loop {
         let Ok(ancestor) = SdfPath::new(&path_str) else {
             break;
         };
-
-        if let Ok(Some(false)) = nonpublic_api::prim_active_field(stage, ancestor.clone()) {
-            return false;
-        }
 
         if let Ok(prop) = ancestor.append_property("visibility") {
             if stage

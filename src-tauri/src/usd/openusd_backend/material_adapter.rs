@@ -13,7 +13,6 @@ use crate::usd::material::{
     ResolvedTextureSampler, TextureNodeGraph,
 };
 
-use super::nonpublic_api;
 use super::shader_fields::{read_shader_color, read_shader_float, read_shader_token};
 use super::stage_fields::{read_string_or_token_attribute, read_token_or_string_field};
 use super::stage_query;
@@ -307,20 +306,19 @@ fn resolve_texture_transform_from_sampler(
     )
 }
 
-/// Follow one `ConnectionPaths` hop from a property path and return
-/// the target shader's prim path (property suffix stripped). Returns
-/// `None` when the property has no authored connection or the target
-/// resolves to something other than a Shader prim.
+/// Follow one connection hop from a property path and return the
+/// target shader's prim path (property suffix stripped). Returns `None`
+/// when the property has no authored connection or the target resolves
+/// to something other than a Shader prim. Uses `Attribute::connections()`,
+/// the public composed accessor (list-op edits folded across every
+/// contributing layer).
 fn follow_connection_to_shader(stage: &Stage, input_path: &SdfPath) -> Option<SdfPath> {
-    let connections: Option<SdfValue> =
-        nonpublic_api::attribute_connection_paths_field(stage, input_path.clone())
-            .ok()
-            .flatten();
-    let list_op = match connections? {
-        SdfValue::PathListOp(op) => op,
-        _ => return None,
-    };
-    let target = list_op.iter().next()?.clone();
+    let target = stage
+        .attribute(input_path.clone())
+        .connections()
+        .ok()?
+        .into_iter()
+        .next()?;
     let shader_path = target.prim_path();
     if read_token_or_string_field(stage, shader_path.clone()).as_deref() != Some("Shader") {
         return None;
