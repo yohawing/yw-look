@@ -1,5 +1,4 @@
 use openusd::gf::f16;
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::Stage;
 
@@ -118,7 +117,7 @@ pub(crate) fn compose_world_xform(
 ///
 /// For each entry:
 ///   1. Strip an optional `!invert!` prefix, remembering the flag.
-///   2. Look up the underlying attribute via `stage.field::<Value>(...)`.
+///   2. Look up the underlying attribute via `stage.attribute(path).get::<Value>()`.
 ///   3. Build the op matrix via [`build_xform_op_matrix`].
 ///   4. Invert the matrix when the flag was set.
 ///   5. Append on the right: `result = result * op` -- so iterating the
@@ -133,7 +132,8 @@ pub(crate) fn compose_prim_local_xform(
         .append_property("xformOpOrder")
         .map_err(|e| UsdError::Parse(e.to_string()))?;
     let Some(order_value) = stage
-        .field::<SdfValue>(order_path, FieldKey::Default)
+        .attribute(order_path)
+        .get::<SdfValue>()
         .map_err(|e| UsdError::Parse(e.to_string()))?
     else {
         return Ok(None);
@@ -167,7 +167,8 @@ pub(crate) fn compose_prim_local_xform(
             .append_property(attr_name)
             .map_err(|e| UsdError::Parse(e.to_string()))?;
         let Some(value) = stage
-            .field::<SdfValue>(prop_path, FieldKey::Default)
+            .attribute(prop_path)
+            .get::<SdfValue>()
             .map_err(|e| UsdError::Parse(e.to_string()))?
         else {
             continue;
@@ -422,7 +423,7 @@ fn has_reset_xform_stack(stage: &Stage, prim_path: &SdfPath) -> bool {
     // `xformOpOrder` is authored as a token[] (or, rarely, a string[]). The
     // fork's `Value` enum stores these as `TokenVec` / `StringVec`; no
     // `TryFrom<Value>` for `Vec<String>` exists so we match the raw enum.
-    match stage.field::<SdfValue>(order_path, FieldKey::Default) {
+    match stage.attribute(order_path).get::<SdfValue>() {
         Ok(Some(SdfValue::TokenVec(ops))) => {
             ops.iter().any(|op| op.as_str() == "!resetXformStack!")
         }

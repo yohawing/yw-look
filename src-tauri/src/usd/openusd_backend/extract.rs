@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
-use openusd::sdf::{Path as SdfPath, Value as SdfValue};
+use openusd::sdf::Path as SdfPath;
 use openusd::Stage;
 
 use crate::usd::backend::UsdError;
@@ -90,9 +90,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
             // Detect PointInstancer type by path heuristic: the stage's
             // type_name field. We emit a warning and skip rather than error.
-            if let Ok(Some(SdfValue::Token(type_name))) =
-                stage.field::<SdfValue>(prim_path.clone(), FieldKey::TypeName)
-            {
+            if let Ok(Some(type_name)) = stage.prim(prim_path.clone()).type_name() {
                 if type_name.as_str() == "PointInstancer" {
                     instancer_paths.borrow_mut().push(prim_path.clone());
                     return; // skip from mesh traversal
@@ -459,9 +457,10 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // returns) to glTF seconds — the spec defaults to 24 when
     // not authored, so we mirror that fallback. (Codex P1.)
     let time_codes_per_second: f64 = stage
-        .field::<f64>(SdfPath::abs_root(), FieldKey::TimeCodesPerSecond)
+        .stage_metadata(FieldKey::TimeCodesPerSecond)
         .ok()
         .flatten()
+        .and_then(|v| f64::try_from(v).ok())
         .filter(|v| *v > 0.0)
         .unwrap_or(24.0);
     let mut animations: Vec<glb::AnimationInput> = Vec::new();

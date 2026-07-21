@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::path::Path as StdPath;
 use std::sync::Mutex;
 
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::Path as SdfPath;
 use openusd::usd::{InitialLoadSet, StagePopulationMask};
 use openusd::Stage;
@@ -38,7 +37,7 @@ fn is_rust_session_mask_prim(stage: &Stage, prim_path: &SdfPath) -> bool {
     }
 
     matches!(
-        read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref(),
+        read_token_or_string_field(stage, prim_path.clone()).as_deref(),
         Some("Camera" | "PointInstancer")
     )
 }

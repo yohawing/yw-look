@@ -1,4 +1,3 @@
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::Stage;
 
@@ -22,7 +21,7 @@ pub(crate) fn read_mesh_skel_joints_override(
     mesh_path: &SdfPath,
 ) -> Option<Vec<String>> {
     let attr_path = mesh_path.append_property("skel:joints").ok()?;
-    let value: Option<SdfValue> = stage.field(attr_path, FieldKey::Default).ok()?;
+    let value: Option<SdfValue> = stage.attribute(attr_path).get::<SdfValue>().ok()?;
     match value? {
         SdfValue::TokenVec(v) => Some(token_vec_to_strings(v)),
         SdfValue::StringVec(v) => Some(v),
@@ -41,7 +40,7 @@ pub(crate) fn read_geom_bind_transform(
     let attr_path = mesh_path
         .append_property("primvars:skel:geomBindTransform")
         .ok()?;
-    let value: Option<SdfValue> = stage.field(attr_path, FieldKey::Default).ok()?;
+    let value: Option<SdfValue> = stage.attribute(attr_path).get::<SdfValue>().ok()?;
     match value? {
         SdfValue::Matrix4d(m) => Some(m.into()),
         _ => None,

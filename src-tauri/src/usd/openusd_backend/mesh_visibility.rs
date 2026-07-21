@@ -1,9 +1,9 @@
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::Stage;
 
 use crate::usd::geometry::MeshOrientation;
 
+use super::nonpublic_api;
 use super::stage_fields::{read_token_or_string_field, token_or_string_value_to_string};
 
 /// Reads the `orientation` metadata from a Mesh prim. USD's default is
@@ -14,7 +14,8 @@ pub(crate) fn read_mesh_orientation(stage: &Stage, prim_path: &SdfPath) -> MeshO
         return MeshOrientation::RightHanded;
     };
     match stage
-        .field::<SdfValue>(prop_path, FieldKey::Default)
+        .attribute(prop_path)
+        .get::<SdfValue>()
         .ok()
         .flatten()
         .and_then(token_or_string_value_to_string)
@@ -54,9 +55,7 @@ pub(crate) fn read_mesh_orientation(stage: &Stage, prim_path: &SdfPath) -> MeshO
 #[allow(dead_code)]
 pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
     // Must be a Mesh at the leaf.
-    if read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref()
-        != Some("Mesh")
-    {
+    if read_token_or_string_field(stage, prim_path.clone()).as_deref() != Some("Mesh") {
         return false;
     }
 
@@ -71,7 +70,7 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         };
 
         // `active = false` at any level drops the whole subtree.
-        if let Ok(Some(false)) = stage.field::<bool>(ancestor.clone(), FieldKey::Active) {
+        if let Ok(Some(false)) = nonpublic_api::prim_active_field(stage, ancestor.clone()) {
             return false;
         }
 
@@ -83,7 +82,8 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         // enough for the scenes yw-look targets.
         if let Ok(prop) = ancestor.append_property("visibility") {
             if stage
-                .field::<SdfValue>(prop, FieldKey::Default)
+                .attribute(prop)
+                .get::<SdfValue>()
                 .ok()
                 .flatten()
                 .and_then(token_or_string_value_to_string)
@@ -97,7 +97,8 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         if let Ok(prop) = ancestor.append_property("purpose") {
             if matches!(
                 stage
-                    .field::<SdfValue>(prop, FieldKey::Default)
+                    .attribute(prop)
+                    .get::<SdfValue>()
                     .ok()
                     .flatten()
                     .and_then(token_or_string_value_to_string)
@@ -128,9 +129,7 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
 /// writing the resolved purpose onto each `MeshInput`.
 pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> bool {
     // Must be a Mesh at the leaf.
-    if read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref()
-        != Some("Mesh")
-    {
+    if read_token_or_string_field(stage, prim_path.clone()).as_deref() != Some("Mesh") {
         return false;
     }
 
@@ -140,13 +139,14 @@ pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> 
             break;
         };
 
-        if let Ok(Some(false)) = stage.field::<bool>(ancestor.clone(), FieldKey::Active) {
+        if let Ok(Some(false)) = nonpublic_api::prim_active_field(stage, ancestor.clone()) {
             return false;
         }
 
         if let Ok(prop) = ancestor.append_property("visibility") {
             if stage
-                .field::<SdfValue>(prop, FieldKey::Default)
+                .attribute(prop)
+                .get::<SdfValue>()
                 .ok()
                 .flatten()
                 .and_then(token_or_string_value_to_string)
@@ -181,7 +181,8 @@ pub(crate) fn resolve_purpose(stage: &Stage, prim_path: &SdfPath) -> String {
 
         if let Ok(prop) = ancestor.append_property("purpose") {
             if let Some(token) = stage
-                .field::<SdfValue>(prop, FieldKey::Default)
+                .attribute(prop)
+                .get::<SdfValue>()
                 .ok()
                 .flatten()
                 .and_then(token_or_string_value_to_string)

@@ -11,7 +11,9 @@ use std::collections::HashSet;
 use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
-use openusd::sdf::{Path as SdfPath, Value as SdfValue};
+#[cfg(test)]
+use openusd::sdf::Path as SdfPath;
+use openusd::sdf::Value as SdfValue;
 use openusd::usd::PrimPredicate;
 use openusd::Stage;
 
@@ -47,6 +49,8 @@ use extract::extract_geometry_from_open_stage_rs;
 use mesh_visibility::is_renderable_mesh;
 use stage_fields::{read_root_double_field, read_token_or_string_field, token_vec_to_strings};
 use stage_query::UpAxis;
+#[cfg(test)]
+use stage_fields::read_string_or_token_attribute;
 #[cfg(test)]
 use xform::{build_xform_op_matrix, compose_prim_local_xform, read_quat};
 
@@ -162,7 +166,7 @@ impl UsdInspectBackend for OpenusdBackend {
 
                 // Collect variant sets for the inspector UI.
                 if let Ok(Some(value)) =
-                    stage.field::<SdfValue>(prim_path.clone(), FieldKey::VariantSetNames)
+                    nonpublic_api::variant_set_names_field(&stage, prim_path.clone())
                 {
                     let set_names: Vec<String> = match value {
                         SdfValue::TokenVec(set_names) => token_vec_to_strings(set_names),
@@ -172,9 +176,10 @@ impl UsdInspectBackend for OpenusdBackend {
                         _ => Vec::new(),
                     };
                     if !set_names.is_empty() {
-                        let selection_map = match stage
-                            .field::<SdfValue>(prim_path.clone(), FieldKey::VariantSelection)
-                        {
+                        let selection_map = match nonpublic_api::variant_selection_field(
+                            &stage,
+                            prim_path.clone(),
+                        ) {
                             Ok(Some(SdfValue::VariantSelectionMap(map))) => map,
                             _ => Default::default(),
                         };
@@ -222,21 +227,19 @@ impl UsdInspectBackend for OpenusdBackend {
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
 
-        // Stage timing metadata authored on the root layer. The Rust
-        // fork doesn't expose dedicated accessors for these, so we
-        // query the pseudoroot's field directly via `Stage::field`.
-        // Each returns `None` when the metadatum is unauthored.
-        let pseudo_root = SdfPath::from("/");
-        let time_codes_per_second =
-            read_root_double_field(&stage, &pseudo_root, FieldKey::TimeCodesPerSecond);
-        let frames_per_second =
-            read_root_double_field(&stage, &pseudo_root, FieldKey::FramesPerSecond);
-        let start_time_code = read_root_double_field(&stage, &pseudo_root, FieldKey::StartTimeCode);
-        let end_time_code = read_root_double_field(&stage, &pseudo_root, FieldKey::EndTimeCode);
+        // Stage timing metadata, composed via `Stage::stage_metadata`
+        // (session layer honored, same as `up_axis` / `meters_per_unit` in
+        // `stage_query.rs`). Each returns `None` when the metadatum is
+        // unauthored.
+        let time_codes_per_second = read_root_double_field(&stage, FieldKey::TimeCodesPerSecond);
+        let frames_per_second = read_root_double_field(&stage, FieldKey::FramesPerSecond);
+        let start_time_code = read_root_double_field(&stage, FieldKey::StartTimeCode);
+        let end_time_code = read_root_double_field(&stage, FieldKey::EndTimeCode);
         let comment = stage
-            .field::<String>(pseudo_root, FieldKey::Comment)
+            .stage_metadata(FieldKey::Comment)
             .ok()
             .flatten()
+            .and_then(|v| String::try_from(v).ok())
             .filter(|s| !s.is_empty());
         let root_layer_is_binary = stage_query::root_layer_is_binary(&stage);
 
@@ -341,9 +344,7 @@ impl UsdInspectBackend for OpenusdBackend {
 
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
-                if let Some(type_name) =
-                    read_token_or_string_field(&stage, prim_path.clone(), FieldKey::TypeName)
-                {
+                if let Some(type_name) = read_token_or_string_field(&stage, prim_path.clone()) {
                     if !type_name.is_empty() {
                         let mut buckets = prim_type_counts.borrow_mut();
                         if let Some(slot) = buckets.iter_mut().find(|c| c.type_name == type_name) {
@@ -364,8 +365,7 @@ impl UsdInspectBackend for OpenusdBackend {
                         // `mesh_of` (no skinning / xform / triangulation)
                         // because we're only counting authored data.
                         if let Ok(points_path) = prim_path.append_property("points") {
-                            if let Ok(Some(value)) =
-                                stage.field::<SdfValue>(points_path, FieldKey::Default)
+                            if let Ok(Some(value)) = stage.attribute(points_path).get::<SdfValue>()
                             {
                                 let count = match value {
                                     SdfValue::Vec3fVec(v) => v.len(),
@@ -378,7 +378,7 @@ impl UsdInspectBackend for OpenusdBackend {
                         }
                         if let Ok(counts_path) = prim_path.append_property("faceVertexCounts") {
                             if let Ok(Some(SdfValue::IntVec(counts))) =
-                                stage.field::<SdfValue>(counts_path, FieldKey::Default)
+                                stage.attribute(counts_path).get::<SdfValue>()
                             {
                                 for n in counts {
                                     if n >= 3 {
@@ -424,7 +424,7 @@ impl UsdInspectBackend for OpenusdBackend {
                 // value types depending on the layer; we only care that
                 // *something* is authored, so query as raw Value.
                 if let Ok(Some(value)) =
-                    stage.field::<SdfValue>(prim_path.clone(), FieldKey::VariantSetNames)
+                    nonpublic_api::variant_set_names_field(&stage, prim_path.clone())
                 {
                     *has_variants.borrow_mut() = true;
                     let set_count = match value {
@@ -439,10 +439,9 @@ impl UsdInspectBackend for OpenusdBackend {
 
         // #38: duration_seconds = (end - start) / fps, only when all
         // three time metadata fields are authored on the root layer.
-        let pseudo_root = SdfPath::from("/");
-        let fps = read_root_double_field(&stage, &pseudo_root, FieldKey::FramesPerSecond);
-        let start = read_root_double_field(&stage, &pseudo_root, FieldKey::StartTimeCode);
-        let end = read_root_double_field(&stage, &pseudo_root, FieldKey::EndTimeCode);
+        let fps = read_root_double_field(&stage, FieldKey::FramesPerSecond);
+        let start = read_root_double_field(&stage, FieldKey::StartTimeCode);
+        let end = read_root_double_field(&stage, FieldKey::EndTimeCode);
         let duration_seconds = match (start, end, fps) {
             (Some(s), Some(e), Some(f)) if f > 0.0 => Some((e - s) / f),
             _ => None,
@@ -1602,7 +1601,7 @@ def Xform "Root" (
             "primvars:uv",
         ] {
             if let Ok(prop) = mesh_path.append_property(*uv_name) {
-                let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
+                let val: Option<SdfValue> = stage.attribute(prop).get::<SdfValue>().ok().flatten();
                 if val.is_some() {
                     let len = match &val {
                         Some(SdfValue::Vec2fVec(v)) => v.len(),
@@ -1640,7 +1639,9 @@ def Xform "Root" (
             ] {
                 if let Ok(prop) = subset_path.append_property(*rel_name) {
                     let val: Option<SdfValue> =
-                        stage.field(prop, FieldKey::TargetPaths).ok().flatten();
+                        nonpublic_api::relationship_target_paths_field(&stage, prop)
+                            .ok()
+                            .flatten();
                     if val.is_some() {
                         eprintln!("    {} = {:?}", rel_name, val);
                     }
@@ -1671,8 +1672,7 @@ def Xform "Root" (
                     || path_str.contains("Material")
                     || path_str.contains("mat")
                 {
-                    let type_name =
-                        read_token_or_string_field(&stage, prim_path.clone(), FieldKey::TypeName);
+                    let type_name = read_token_or_string_field(&stage, prim_path.clone());
                     eprintln!("  {} type={:?}", path_str, type_name);
                 }
             })
@@ -1692,7 +1692,7 @@ def Xform "Root" (
 
         // Read xformOpOrder via property path (same method as compose_prim_local_xform)
         let order_path = root.append_property("xformOpOrder").unwrap();
-        let order: Option<SdfValue> = stage.field(order_path, FieldKey::Default).ok().flatten();
+        let order: Option<SdfValue> = stage.attribute(order_path).get::<SdfValue>().ok().flatten();
         eprintln!("xformOpOrder = {:?}", order);
 
         // Try reading individual xformOps
@@ -1705,7 +1705,7 @@ def Xform "Root" (
             "xformOp:orient",
         ] {
             if let Ok(prop) = root.append_property(*op_name) {
-                let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
+                let val: Option<SdfValue> = stage.attribute(prop).get::<SdfValue>().ok().flatten();
                 if val.is_some() {
                     eprintln!("  {} = {:?}", op_name, val);
                 }
@@ -1756,8 +1756,8 @@ def Xform "Root" (
                 let bm = stage_query::bound_material(&stage, prim_path.clone()).map(|p| p.to_string());
                 let mo = stage_query::material_of(&stage, prim_path.clone());
                 let dc_path = prim_path.append_property("primvars:displayColor").ok();
-                let dc = dc_path
-                    .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+                let dc =
+                    dc_path.and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
                 eprintln!(
                     "  {} -> bound={:?} material_of={:?} displayColor={}",
                     prim_path.as_str(),
@@ -1783,19 +1783,17 @@ def Xform "Root" (
                 {
                     return;
                 }
-                let type_name =
-                    read_token_or_string_field(&stage, prim_path.clone(), FieldKey::TypeName);
+                let type_name = read_token_or_string_field(&stage, prim_path.clone());
                 let info_id_path = prim_path.append_property("info:id").ok();
-                let info_id: Option<String> = info_id_path
-                    .and_then(|p| read_token_or_string_field(&stage, p, FieldKey::Default));
+                let info_id: Option<String> =
+                    info_id_path.and_then(|p| read_string_or_token_attribute(&stage, p));
                 // Check for inputs:diffuseColor
                 let dc_path = prim_path.append_property("inputs:diffuseColor").ok();
                 let dc: Option<SdfValue> =
-                    dc_path.and_then(|p| stage.field(p, FieldKey::Default).ok().flatten());
+                    dc_path.and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
                 let dc_conn_path = prim_path.append_property("inputs:diffuseColor").ok();
                 let dc_conn: Option<SdfValue> = dc_conn_path.and_then(|p| {
-                    stage
-                        .field::<SdfValue>(p, FieldKey::ConnectionPaths)
+                    nonpublic_api::attribute_connection_paths_field(&stage, p)
                         .ok()
                         .flatten()
                 });
@@ -1838,7 +1836,7 @@ def Xform "Root" (
                     // Check for primvars:displayColor
                     let dc_path = prim_path.append_property("primvars:displayColor").ok();
                     let dc = dc_path
-                        .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+                        .and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
                     let dc_label = match &dc {
                         Some(SdfValue::Vec3fVec(v)) => format!("Vec3f[{}]", v.len()),
                         Some(SdfValue::Vec3f(v)) => {
