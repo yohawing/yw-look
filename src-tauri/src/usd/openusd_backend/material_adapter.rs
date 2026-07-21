@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::glb;
 use crate::usd::ir::MaterialData;

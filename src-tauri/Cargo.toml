@@ -38,7 +38,7 @@ flip-compare = ["dep:nv-flip", "dep:image"]
 [dependencies]
 # Pin the pure-Rust OpenUSD compatibility layer used by yw-look so local,
 # CI, and release builds resolve the same source without a sibling checkout.
-openusd = { git = "https://github.com/yohawing/openusd.git", rev = "ccb0ddba0662a94d0e39e44c45ff82cb0b1be597" }
+openusd = { git = "https://github.com/mxpv/openusd.git", rev = "659917514b462834293094b93d62b5decb7133db" }
 # Error type for the yw-look-owned stage-query surface in
 # `usd::openusd_backend::stage_query` (USD-NATIVE-01 Phase 2a). openusd
 # already depends on anyhow and returns it from its public API, so this

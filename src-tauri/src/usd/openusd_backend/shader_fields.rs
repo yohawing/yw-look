@@ -1,5 +1,5 @@
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use super::stage_fields::read_string_or_token_attribute;
 

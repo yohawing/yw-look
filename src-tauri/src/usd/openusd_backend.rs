@@ -15,7 +15,7 @@ use openusd::sdf::schema::FieldKey;
 use openusd::sdf::Path as SdfPath;
 use openusd::sdf::Value as SdfValue;
 use openusd::usd::PrimPredicate;
-use openusd::Stage;
+use openusd::usd::Stage;
 
 mod blend_shapes;
 mod cameras;
@@ -149,7 +149,7 @@ impl UsdInspectBackend for OpenusdBackend {
         // `/Root` is stored as `(foo.usda, /Root)`, not `(foo.usda,
         // /Target)`, and a target-based lookup would miss it whenever
         // source and target differ.
-        let skipped_payloads = stage_query::skipped_payloads(&stage);
+        let skipped_payloads = stage_query::skipped_payloads(&stage, policy);
         let skipped_set: HashSet<(String, String)> = skipped_payloads
             .iter()
             .map(|sp| (sp.asset_path.clone(), sp.prim_path.to_string()))
@@ -332,7 +332,7 @@ impl UsdInspectBackend for OpenusdBackend {
         let unresolved_set: HashSet<&str> = unresolved_assets.iter().map(String::as_str).collect();
 
         // #38: skipped payloads for NoPayloads policy classification.
-        let skipped_payloads = stage_query::skipped_payloads(&stage);
+        let skipped_payloads = stage_query::skipped_payloads(&stage, policy);
         let skipped_set: HashSet<(String, String)> = skipped_payloads
             .iter()
             .map(|sp| (sp.asset_path.clone(), sp.prim_path.to_string()))
@@ -456,7 +456,7 @@ impl UsdInspectBackend for OpenusdBackend {
             root_prim_count,
             mesh_count: mesh_count.into_inner(),
             payload_count: payload_count.into_inner(),
-            unloaded_payload_count: stage_query::skipped_payloads(&stage).len(),
+            unloaded_payload_count: stage_query::skipped_payloads(&stage, policy).len(),
             has_variants: has_variants.into_inner(),
             prim_type_counts: prim_type_counts.into_inner(),
             total_vertices: total_vertices.into_inner(),

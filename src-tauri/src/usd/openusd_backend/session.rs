@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use openusd::sdf::Path as SdfPath;
 use openusd::usd::{InitialLoadSet, StagePopulationMask};
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::backend::{UsdError, UsdSessionBackend};
 use crate::usd::stage_state::{OpenStage, RustStageSession};

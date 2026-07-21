@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use openusd::sdf::Path as SdfPath;
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::glb;
 use crate::usd::lights::{

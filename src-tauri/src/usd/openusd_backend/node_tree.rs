@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use openusd::sdf::Path as SdfPath;
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::glb::{self, MeshInput};
 use crate::usd::math::{identity_mat4, invert_mat4, mat4_f64_to_f32, mat4_mul};

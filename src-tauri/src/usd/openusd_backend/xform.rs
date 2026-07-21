@@ -1,6 +1,6 @@
 use openusd::gf::f16;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::backend::UsdError;
 use crate::usd::math::{identity_mat4, invert_mat4, mat4_mul};

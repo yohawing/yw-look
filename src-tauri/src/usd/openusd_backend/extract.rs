@@ -3,7 +3,7 @@ use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::Path as SdfPath;
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::backend::UsdError;
 use crate::usd::extract_shared::{
@@ -53,7 +53,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     }
 
     let skipped_payload_sources: Vec<String> = if options.policy == StageLoadPolicy::NoPayloads {
-        stage_query::skipped_payloads(&stage)
+        stage_query::skipped_payloads(&stage, options.policy)
             .iter()
             .map(|payload| payload.prim_path.to_string())
             .collect()

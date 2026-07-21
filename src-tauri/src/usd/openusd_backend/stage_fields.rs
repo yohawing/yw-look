@@ -1,6 +1,6 @@
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::Stage;
+use openusd::usd::Stage;
 
 /// Reads a stage-level metadatum (composed over the session layer, same as
 /// `up_axis` / `meters_per_unit` in `stage_query.rs`) as a double. Returns

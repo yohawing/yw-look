@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::glb;
 use crate::usd::math::{mat4_f64_to_f32, mat4_mul};
