@@ -755,4 +755,20 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn reads_integer_compressed_float_weights_from_usdc_fixture() -> anyhow::Result<()> {
+        // This is an actual OpenUSD-usdcat binary fixture, not a USDA
+        // round-trip: its `float[]` value uses the USDC `i` compression code.
+        let stage = Stage::open("../tests/fixtures/models/integer-compressed-float-weights.usdc")?;
+        let weights = read_f32_array(&stage, &sdf::path("/IntegerCompressedFloats")?, "weights")?;
+
+        assert_eq!(
+            weights,
+            Some(vec![
+                1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
+            ])
+        );
+        Ok(())
+    }
 }
