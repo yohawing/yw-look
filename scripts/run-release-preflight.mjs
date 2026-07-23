@@ -164,10 +164,6 @@ function hasWindowsSigningArtifacts() {
     directoryHasEntry(
       path.join(bundleRoot, "nsis"),
       (entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".exe"),
-    ) ||
-    directoryHasEntry(
-      path.join(bundleRoot, "msi"),
-      (entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".msi"),
     )
   );
 }

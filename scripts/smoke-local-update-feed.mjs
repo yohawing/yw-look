@@ -17,7 +17,6 @@ const contentTypes = {
   ".json": "application/json; charset=utf-8",
   ".sig": "text/plain; charset=utf-8",
   ".exe": "application/vnd.microsoft.portable-executable",
-  ".msi": "application/x-msi",
 };
 
 function detectTarget() {

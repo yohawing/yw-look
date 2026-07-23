@@ -48,6 +48,7 @@ function findVersionedInstaller(directory, extension, version) {
     .filter(
       (name) =>
         name.toLowerCase().endsWith(extension) &&
+        (extension !== ".exe" || name.toLowerCase().endsWith("-setup.exe")) &&
         !name.toLowerCase().endsWith(".sig") &&
         name.includes(versionMarker),
     );
@@ -105,13 +106,7 @@ async function main() {
     ".exe",
     version,
   );
-  const msiInstaller = findVersionedInstaller(
-    path.join(bundleRoot, "msi"),
-    ".msi",
-    version,
-  );
-
-  if (!nsisInstaller && !msiInstaller) {
+  if (!nsisInstaller) {
     throw new Error(
       "No Windows NSIS Loader Pack bundle artifacts found. Run `npm run bundle:win:loaders` first.",
     );
@@ -121,13 +116,7 @@ async function main() {
     nsisInstaller,
     `Missing NSIS setup .exe for v${version} under src-tauri/target/release/bundle/nsis/`,
   );
-  assert(
-    msiInstaller,
-    `Missing MSI for v${version} under src-tauri/target/release/bundle/msi/`,
-  );
-
   const nsisSignaturePath = assertUpdaterSignature(nsisInstaller);
-  const msiSignaturePath = assertUpdaterSignature(msiInstaller);
 
   const hookPath = path.join(
     nsisHookDir,
@@ -185,8 +174,6 @@ async function main() {
   );
   console.log(`  NSIS: ${toRelative(nsisInstaller)}`);
   console.log(`  NSIS sig: ${toRelative(nsisSignaturePath)}`);
-  console.log(`  MSI: ${toRelative(msiInstaller)}`);
-  console.log(`  MSI sig: ${toRelative(msiSignaturePath)}`);
   console.log(`  Hook: ${toRelative(hookPath)}`);
   console.log(`  Meta: ${toRelative(metaPath)}`);
 }

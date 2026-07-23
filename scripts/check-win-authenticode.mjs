@@ -98,14 +98,7 @@ function discoverArtifacts() {
     ...collectFiles(
       path.join(bundleRoot, "nsis"),
       (name) =>
-        name.toLowerCase().endsWith(".exe") &&
-        !name.toLowerCase().endsWith(".sig") &&
-        name.includes(versionMarker),
-    ),
-    ...collectFiles(
-      path.join(bundleRoot, "msi"),
-      (name) =>
-        name.toLowerCase().endsWith(".msi") &&
+        name.toLowerCase().endsWith("-setup.exe") &&
         !name.toLowerCase().endsWith(".sig") &&
         name.includes(versionMarker),
     ),
