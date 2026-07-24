@@ -26,8 +26,21 @@ fn extract_options() -> ExtractGeometryOptions {
     }
 }
 
+fn glb_mesh_count(glb: &[u8]) -> usize {
+    assert_eq!(&glb[0..4], b"glTF", "expected a GLB payload");
+    let json_length = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+    let json = std::str::from_utf8(&glb[20..20 + json_length])
+        .expect("GLB JSON should be UTF-8")
+        .trim_end_matches(' ');
+    serde_json::from_str::<serde_json::Value>(json)
+        .expect("GLB JSON should parse")
+        .get("meshes")
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len)
+}
+
 #[test]
-fn rust_session_load_unload_payload_changes_glb_size() {
+fn rust_session_loaded_unloaded_reloaded_is_deterministic() {
     let backend = OpenusdBackend::new();
     let path = tiny_payload_path();
     assert!(
@@ -40,35 +53,53 @@ fn rust_session_load_unload_payload_changes_glb_size() {
         .open_stage_session(&path, StageLoadPolicy::NoPayloads)
         .expect("open_stage_session should succeed");
     let options = extract_options();
-
-    let glb_before = backend
+    let glb_initial = backend
         .extract_geometry_from_session(&stage, &path, &options)
-        .expect("extract before load should succeed");
+        .expect("initial payload-free extract should succeed");
+    assert_eq!(
+        glb_mesh_count(&glb_initial),
+        1,
+        "session starts with only the inline mesh"
+    );
 
     backend
         .load_payload(&stage, "/Root/PayloadRoot")
         .expect("load_payload should succeed");
-    let glb_after_load = backend
+    let glb_loaded = backend
         .extract_geometry_from_session(&stage, &path, &options)
         .expect("extract after load should succeed");
-
-    assert!(
-        glb_after_load.len() > glb_before.len(),
-        "GLB after load ({} bytes) should be larger than before load ({} bytes)",
-        glb_after_load.len(),
-        glb_before.len()
+    assert_eq!(
+        glb_mesh_count(&glb_loaded),
+        2,
+        "inline and loaded payload meshes"
     );
 
     backend
         .unload_payload(&stage, "/Root/PayloadRoot")
         .expect("unload_payload should succeed");
-    let glb_after_unload = backend
+    let glb_unloaded = backend
         .extract_geometry_from_session(&stage, &path, &options)
         .expect("extract after unload should succeed");
-
     assert_eq!(
-        glb_after_unload.len(),
-        glb_before.len(),
-        "unloaded Rust session should return to the no-payload GLB"
+        glb_mesh_count(&glb_unloaded),
+        1,
+        "only the inline mesh remains after unload"
+    );
+    assert_eq!(
+        glb_unloaded, glb_initial,
+        "unload should restore the initial payload-free GLB bytes"
+    );
+
+    backend
+        .load_payload(&stage, "/Root/PayloadRoot")
+        .expect("reload_payload should succeed");
+    let glb_reloaded = backend
+        .extract_geometry_from_session(&stage, &path, &options)
+        .expect("extract after reload should succeed");
+
+    assert_eq!(glb_mesh_count(&glb_reloaded), 2, "reloaded payload mesh");
+    assert_eq!(
+        glb_reloaded, glb_loaded,
+        "reloading the same payload should reproduce identical GLB bytes"
     );
 }
