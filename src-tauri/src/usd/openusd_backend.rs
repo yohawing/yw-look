@@ -26,6 +26,7 @@ mod material_adapter;
 mod mesh_attributes;
 mod mesh_visibility;
 mod node_tree;
+mod point_instancer;
 mod session;
 mod shader_fields;
 mod skel_adapter;
@@ -492,6 +493,23 @@ impl UsdInspectBackend for OpenusdBackend {
         if stage.layer_count() > 1 {
             return Ok(true);
         }
+        let has_point_instancer = RefCell::new(false);
+        stage
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+                if stage
+                    .prim(prim_path.clone())
+                    .type_name()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|type_name| type_name.as_str() == "PointInstancer")
+                {
+                    *has_point_instancer.borrow_mut() = true;
+                }
+            })
+            .map_err(|error| UsdError::Parse(error.to_string()))?;
+        if *has_point_instancer.borrow() {
+            return Ok(true);
+        }
         // Single self-contained USDA layer — USDLoader handles hierarchy
         // and xform composition better than the GLB flattener, so prefer
         // the JS path.
@@ -641,6 +659,46 @@ mod tests {
             .unwrap_or(false)
     }
 
+    fn glb_json(glb: &[u8]) -> serde_json::Value {
+        let json_length = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json = std::str::from_utf8(&glb[20..20 + json_length])
+            .expect("GLB JSON UTF-8")
+            .trim_end_matches(' ');
+        serde_json::from_str(json).expect("GLB JSON")
+    }
+
+    fn glb_accessor_f32(
+        glb: &[u8],
+        document: &serde_json::Value,
+        accessor_index: usize,
+    ) -> Vec<f32> {
+        let accessor = &document["accessors"][accessor_index];
+        let view = &document["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize];
+        let component_count = match accessor["type"].as_str().unwrap() {
+            "VEC3" => 3,
+            "VEC4" => 4,
+            other => panic!("unsupported accessor type {other}"),
+        };
+        let count = accessor["count"].as_u64().unwrap() as usize * component_count;
+        let json_length = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let bin_start = 20 + json_length + 8;
+        let offset = bin_start
+            + view["byteOffset"].as_u64().unwrap_or(0) as usize
+            + accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+        (0..count)
+            .map(|index| {
+                let start = offset + index * 4;
+                f32::from_le_bytes(glb[start..start + 4].try_into().unwrap())
+            })
+            .collect()
+    }
+
+    fn instancing_accessor(node: &serde_json::Value, name: &str) -> usize {
+        node["extensions"]["EXT_mesh_gpu_instancing"]["attributes"][name]
+            .as_u64()
+            .expect("instancing accessor") as usize
+    }
+
     #[test]
     fn summarize_tiny_usda() {
         let path = tiny_usda();
@@ -679,6 +737,68 @@ mod tests {
         assert!(inspection.references.is_empty());
         assert!(inspection.payloads.is_empty());
         assert!(inspection.missing_assets.is_empty());
+    }
+
+    #[test]
+    fn extract_point_instancer_emits_prototype_groups_and_visible_trs() {
+        let path = PathBuf::from("../samples/assets/usd/tiny_point_instancer.usda");
+        let glb = OpenusdBackend::new()
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract PointInstancer fixture");
+        let document = glb_json(&glb);
+        let nodes = document["nodes"].as_array().expect("GLB nodes");
+        let instanced_nodes = nodes
+            .iter()
+            .filter(|node| node.get("extensions").is_some())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            document["extensionsUsed"],
+            serde_json::json!(["EXT_mesh_gpu_instancing"])
+        );
+        assert_eq!(instanced_nodes.len(), 2);
+        assert!(nodes.iter().all(|node| {
+            !matches!(
+                node["name"].as_str(),
+                Some("PrototypeCube" | "PrototypePyramid")
+            )
+        }));
+
+        let cube = instanced_nodes
+            .iter()
+            .find(|node| node["name"].as_str().unwrap().contains("PrototypeCube"))
+            .expect("cube instances");
+        let pyramid = instanced_nodes
+            .iter()
+            .find(|node| node["name"].as_str().unwrap().contains("PrototypePyramid"))
+            .expect("pyramid instances");
+        assert_eq!(
+            document["accessors"][instancing_accessor(cube, "TRANSLATION")]["count"],
+            3
+        );
+        assert_eq!(
+            document["accessors"][instancing_accessor(pyramid, "TRANSLATION")]["count"],
+            2
+        );
+        assert_eq!(
+            glb_accessor_f32(&glb, &document, instancing_accessor(cube, "TRANSLATION"),),
+            vec![-3.0, 0.0, 0.0, -0.6, 0.0, 0.0, 1.8, 0.0, 0.0]
+        );
+        assert_eq!(
+            glb_accessor_f32(&glb, &document, instancing_accessor(cube, "SCALE")),
+            vec![1.0, 1.0, 1.0, 0.75, 0.75, 0.75, 1.25, 1.25, 1.25]
+        );
+        let pyramid_rotations =
+            glb_accessor_f32(&glb, &document, instancing_accessor(pyramid, "ROTATION"));
+        assert!((pyramid_rotations[1] - 0.382_683).abs() < 1e-3);
+        assert!((pyramid_rotations[3] - 0.923_88).abs() < 1e-3);
+        assert!((pyramid_rotations[5] + 0.382_683).abs() < 1e-3);
+        assert_eq!(
+            glb_accessor_f32(&glb, &document, instancing_accessor(pyramid, "TRANSLATION")),
+            vec![-1.8, 0.3, 0.0, 3.0, 0.225, 0.0]
+        );
+        assert_eq!(cube["extras"]["primPath"], "/Root/Instancer");
+        assert_eq!(pyramid["extras"]["primPath"], "/Root/Instancer");
     }
 
     #[test]

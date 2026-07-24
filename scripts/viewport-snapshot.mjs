@@ -46,6 +46,15 @@ const cases = [
     background: "default",
   },
   {
+    id: "usda-tiny-point-instancer",
+    input: "samples/assets/usd/tiny_point_instancer.usda",
+    snapshot: "tests/visual/snapshots/viewport/usda-tiny-point-instancer.png",
+    actual:
+      "artifacts/screenshots/viewport/usda-tiny-point-instancer-current.png",
+    size: "640x480",
+    background: "default",
+  },
+  {
     id: "usd-tiny-sanity",
     input: "tests/fixtures/models/tiny.usd",
     snapshot: "tests/visual/snapshots/viewport/usd-tiny-sanity.png",

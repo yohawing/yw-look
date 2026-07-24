@@ -26,6 +26,7 @@ use super::material_adapter::{find_material_by_name_fallback, resolve_material_s
 use super::mesh_attributes::{expand_indexed_uvs, read_display_opacity};
 use super::mesh_visibility::{is_mesh_active_and_visible, read_mesh_orientation, resolve_purpose};
 use super::node_tree::build_node_tree;
+use super::point_instancer::resolve_point_instancing;
 use super::skel_adapter::{
     animation_input_from_skel, apply_geom_bind_transform, read_geom_bind_transform,
     read_mesh_skel_joints_override, skin_input_from_skel,
@@ -82,18 +83,16 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // (The legacy `is_renderable_mesh` helper also excluded proxy /
     // guide — that behaviour now lives on the frontend via the
     // `purposeModes` default render=true, proxy=false, guide=false.)
-    // PointInstancer prims are currently skipped because they do not
-    // satisfy `is_mesh_active_and_visible`.
+    // PointInstancer prims do not satisfy `is_mesh_active_and_visible`,
+    // so collect them separately for the instancing pass.
     let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
     let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
     stage
         .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
-            // Detect PointInstancer type by path heuristic: the stage's
-            // type_name field. We emit a warning and skip rather than error.
             if let Ok(Some(type_name)) = stage.prim(prim_path.clone()).type_name() {
                 if type_name.as_str() == "PointInstancer" {
                     instancer_paths.borrow_mut().push(prim_path.clone());
-                    return; // skip from mesh traversal
+                    return;
                 }
             }
             if !is_mesh_active_and_visible(&stage, prim_path) {
@@ -103,19 +102,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         })
         .map_err(|e| UsdError::Parse(e.to_string()))?;
 
-    // Emit a single warning if any PointInstancer prims were found.
-    {
-        let instancer_list = instancer_paths.into_inner();
-        if !instancer_list.is_empty() {
-            log::warn!(
-                "[usd-rs] {} PointInstancer prim(s) found (e.g. '{}') — \
-                     PointInstancer preview is not supported; skipped.",
-                instancer_list.len(),
-                instancer_list[0]
-            );
-        }
-    }
-
+    let instancer_paths = instancer_paths.into_inner();
     let mesh_paths = mesh_paths.into_inner();
 
     // Filter out "leaked" root prims from referenced/payloaded
@@ -227,6 +214,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // world transform along the parent chain and pre-applying the
     // up-axis correction.
     let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
+    let mut input_source_paths: Vec<SdfPath> = Vec::with_capacity(mesh_paths.len());
     for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
         let Some(mut mesh_data) = stage_query::mesh_of(&stage, prim_path.clone())
             .map_err(|e| UsdError::Parse(e.to_string()))?
@@ -381,6 +369,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                 tri.skin_index = skin_index_from_payload(&tri, mesh_skin_slots[mesh_idx]);
                 // #32: inherit parent mesh's purpose for subsets.
                 tri.purpose = Some(resolve_purpose(&stage, prim_path));
+                input_source_paths.push(prim_path.clone());
                 inputs.push(tri);
             }
             continue; // skip whole-mesh path
@@ -432,6 +421,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // after GLTFLoader copies node extras → userData.
         triangulated.purpose = Some(resolve_purpose(&stage, prim_path));
 
+        input_source_paths.push(prim_path.clone());
         inputs.push(triangulated);
     }
 
@@ -448,6 +438,8 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
             ));
         }
     }
+
+    let mut instancing = resolve_point_instancing(stage, &instancer_paths, &input_source_paths);
 
     // Phase 5c E: per skin, resolve the bound SkelAnimation and
     // convert it into a glTF animation. Stages without
@@ -562,8 +554,19 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         &inputs,
         &lights,
         &cameras,
+        &instancing,
         up_axis_correction.as_ref(),
     );
+    let node_indices = node_tree
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (node.prim_path.as_str(), index))
+        .collect::<std::collections::HashMap<_, _>>();
+    for input in &mut instancing {
+        input.parent_node_idx = node_indices
+            .get(input.instancer_prim_path.as_str())
+            .copied();
+    }
 
     glb::build_glb(
         &node_tree,
@@ -575,7 +578,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         &lights,
         &cameras,
         up_correction_f32,
-        &[], // PointInstancer preview is not supported by the Rust backend.
+        &instancing,
     )
     .map_err(UsdError::Parse)
 }

@@ -11,13 +11,19 @@ def Xform "Root"
     {
         # The prototypes relationship must point at prims UNDER the
         # PointInstancer prim (USD spec requirement for PointInstancer).
-        rel prototypes = [</Root/Instancer/PrototypeCube>]
+        rel prototypes = [
+            </Root/Instancer/PrototypeCube>,
+            </Root/Instancer/PrototypePyramid>
+        ]
 
-        # 5 instances in a row along the X axis, all visible.
-        int[] protoIndices = [0, 0, 0, 0, 0]
-        point3f[] positions = [(0, 0, 0), (2, 0, 0), (4, 0, 0), (6, 0, 0), (8, 0, 0)]
-        quath[] orientations = [(1, 0, 0, 0), (1, 0, 0, 0), (1, 0, 0, 0), (1, 0, 0, 0), (1, 0, 0, 0)]
-        float3[] scales = [(1, 1, 1), (1, 1, 1), (1, 1, 1), (1, 1, 1), (1, 1, 1)]
+        # Six authored instances across two prototypes. id 103 is hidden,
+        # leaving three cubes and two pyramids in the preview.
+        int[] protoIndices = [0, 1, 0, 1, 0, 1]
+        point3f[] positions = [(-3, 0, 0), (-1.8, 0, 0), (-0.6, 0, 0), (0.6, 0, 0), (1.8, 0, 0), (3, 0, 0)]
+        quath[] orientations = [(1, 0, 0, 0), (0.92388, 0, 0.382683, 0), (1, 0, 0, 0), (1, 0, 0, 0), (1, 0, 0, 0), (0.92388, 0, -0.382683, 0)]
+        float3[] scales = [(1, 1, 1), (0.8, 1.2, 0.8), (0.75, 0.75, 0.75), (1, 1, 1), (1.25, 1.25, 1.25), (1.1, 0.9, 1.1)]
+        int64[] ids = [100, 101, 102, 103, 104, 105]
+        int64[] invisibleIds = [103]
 
         def Mesh "PrototypeCube"
         {
@@ -32,6 +38,21 @@ def Xform "Root"
                 ( 0.5,  0.5, -0.5),
                 (-0.5, -0.5, -0.5),
                 ( 0.5, -0.5, -0.5)
+            ]
+        }
+
+        def Mesh "PrototypePyramid"
+        {
+            double3 xformOp:translate = (0, 0.25, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+            int[] faceVertexCounts = [4, 3, 3, 3, 3]
+            int[] faceVertexIndices = [0, 1, 2, 3, 0, 4, 1, 1, 4, 2, 2, 4, 3, 3, 4, 0]
+            point3f[] points = [
+                (-0.5, -0.5,  0.5),
+                ( 0.5, -0.5,  0.5),
+                ( 0.5, -0.5, -0.5),
+                (-0.5, -0.5, -0.5),
+                ( 0.0,  0.6,  0.0)
             ]
         }
     }

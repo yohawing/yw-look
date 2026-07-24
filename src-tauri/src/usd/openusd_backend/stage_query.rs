@@ -51,6 +51,7 @@
 use std::io::Read;
 
 use openusd::ar::{DefaultResolver, ResolvedPath, Resolver as AssetResolver};
+use openusd::schemas::geom::PointInstancer;
 use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{self, Value};
 use openusd::usd::{InitialLoadSet, PrimPredicate};
@@ -82,6 +83,17 @@ pub(crate) struct GeomSubsetData {
     pub name: String,
     pub indices: Vec<u32>,
     pub material_binding: Option<sdf::Path>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct PointInstancerData {
+    pub prototypes: Vec<sdf::Path>,
+    pub proto_indices: Vec<i32>,
+    pub positions: Vec<[f32; 3]>,
+    pub orientations: Vec<[f32; 4]>,
+    pub scales: Vec<[f32; 3]>,
+    pub ids: Vec<i64>,
+    pub invisible_ids: Vec<i64>,
 }
 
 /// Maps the wire-level [`StageLoadPolicy`] onto upstream's
@@ -331,6 +343,52 @@ pub(crate) fn mesh_of(stage: &Stage, prim_path: impl Into<sdf::Path>) -> anyhow:
     }))
 }
 
+pub(crate) fn point_instancer_of(
+    stage: &Stage,
+    prim_path: impl Into<sdf::Path>,
+) -> anyhow::Result<Option<PointInstancerData>> {
+    let prim_path = prim_path.into();
+    let Some(instancer) = PointInstancer::get(stage, prim_path.clone())? else {
+        return Ok(None);
+    };
+
+    let prototypes = instancer.prototypes_rel().targets()?;
+    let proto_indices = read_i32_array(stage, &prim_path, "protoIndices")?.unwrap_or_default();
+    let positions = read_vec3_array(stage, &prim_path, "positions")?
+        .map(vec3_chunks)
+        .unwrap_or_default();
+    let orientations = if let Some(values) =
+        read_attr(stage, &prim_path, "orientationsf")?.and_then(flatten_quat_value)
+    {
+        values
+    } else {
+        read_attr(stage, &prim_path, "orientations")?
+            .and_then(flatten_quat_value)
+            .unwrap_or_default()
+    };
+    let orientations = if orientations.is_empty() {
+        vec![[0.0, 0.0, 0.0, 1.0]; proto_indices.len()]
+    } else {
+        quat_chunks(orientations)
+    };
+    let scales = read_vec3_array(stage, &prim_path, "scales")?
+        .map(vec3_chunks)
+        .unwrap_or_else(|| vec![[1.0, 1.0, 1.0]; proto_indices.len()]);
+    let ids = read_i64_array(stage, &prim_path, "ids")?
+        .unwrap_or_else(|| (0..proto_indices.len() as i64).collect());
+    let invisible_ids = read_i64_array(stage, &prim_path, "invisibleIds")?.unwrap_or_default();
+
+    Ok(Some(PointInstancerData {
+        prototypes,
+        proto_indices,
+        positions,
+        orientations,
+        scales,
+        ids,
+        invisible_ids,
+    }))
+}
+
 pub(crate) fn bound_material(stage: &Stage, mesh_path: impl Into<sdf::Path>) -> Option<sdf::Path> {
     let mesh_path = mesh_path.into();
     for rel_name in ["material:binding:preview", "material:binding:full", "material:binding"] {
@@ -532,6 +590,35 @@ fn read_f32_array(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::R
         Value::HalfVec(v) => Some(v.into_iter().map(f32::from).collect()),
         _ => None,
     })
+}
+
+fn read_i64_array(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    name: &str,
+) -> anyhow::Result<Option<Vec<i64>>> {
+    let Some(value) = read_attr(stage, prim_path, name)? else {
+        return Ok(None);
+    };
+    Ok(match value {
+        Value::Int64Vec(values) => Some(values),
+        Value::IntVec(values) => Some(values.into_iter().map(i64::from).collect()),
+        _ => None,
+    })
+}
+
+fn vec3_chunks(values: Vec<f32>) -> Vec<[f32; 3]> {
+    values
+        .chunks_exact(3)
+        .map(|value| [value[0], value[1], value[2]])
+        .collect()
+}
+
+fn quat_chunks(values: Vec<f32>) -> Vec<[f32; 4]> {
+    values
+        .chunks_exact(4)
+        .map(|value| [value[0], value[1], value[2], value[3]])
+        .collect()
 }
 
 /// `elementSize` metadata via `Attribute::get_metadata::<Value>()` —
@@ -868,6 +955,45 @@ mod tests {
                 .map(sdf::Path::as_str),
             Some("/Mat/Surface")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn reads_point_instancer_arrays_and_visibility() -> anyhow::Result<()> {
+        let stage = Stage::builder().in_memory("anon.usda")?;
+        stage
+            .define_prim("/World/Prototype")?
+            .set_type_name("Mesh")?;
+        let instancer = PointInstancer::define(&stage, "/World/Instances")?;
+        instancer
+            .create_prototypes_rel()?
+            .set_targets([sdf::path("/World/Prototype")?])?;
+        instancer
+            .create_proto_indices_attr()?
+            .set(Value::IntVec(vec![0, 0]))?;
+        instancer
+            .create_positions_attr()?
+            .set(Value::Vec3fVec(vec![
+                [1.0, 2.0, 3.0].into(),
+                [4.0, 5.0, 6.0].into(),
+            ]))?;
+        instancer
+            .create_ids_attr()?
+            .set(Value::Int64Vec(vec![10, 20]))?;
+        instancer
+            .create_invisible_ids_attr()?
+            .set(Value::Int64Vec(vec![20]))?;
+
+        let data = point_instancer_of(&stage, sdf::path("/World/Instances")?)?
+            .expect("PointInstancer data");
+
+        assert_eq!(data.prototypes, vec![sdf::path("/World/Prototype")?]);
+        assert_eq!(data.proto_indices, vec![0, 0]);
+        assert_eq!(data.positions, vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+        assert_eq!(data.orientations, vec![[0.0, 0.0, 0.0, 1.0]; 2]);
+        assert_eq!(data.scales, vec![[1.0, 1.0, 1.0]; 2]);
+        assert_eq!(data.ids, vec![10, 20]);
+        assert_eq!(data.invisible_ids, vec![20]);
         Ok(())
     }
 
