@@ -68,8 +68,34 @@ describe("FBX animated public fixture", () => {
 
     const clip = object.animations![0];
     expect(clip.name).toBe("FixtureTake");
-    expect(clip.duration).toBeGreaterThan(0);
+    expect(clip.duration).toBeCloseTo(1);
     expect(clip.tracks.length).toBeGreaterThan(0);
+    expect(clip.tracks[0].times[0]).toBeCloseTo(0);
+    expect(clip.tracks[0].times.at(-1)).toBeCloseTo(1);
+  });
+
+  it("clips multiple takes to LocalTime and normalizes negative starts", () => {
+    const object = new FBXLoader().parse(
+      readFixtureArrayBuffer("tests/fixtures/models/animated-take-ranges.fbx"),
+      "",
+    ) as Group;
+
+    const takeA = object.animations?.find((clip) => clip.name === "Take A");
+    const takeB = object.animations?.find((clip) => clip.name === "Take B");
+
+    expect(takeA).toBeTruthy();
+    expect(takeA?.duration).toBeCloseTo(1);
+    expect(Array.from(takeA!.tracks[0].times)).toEqual([0, 0.5, 1]);
+    expect(Array.from(takeA!.tracks[0].values)).toEqual([
+      0, 0, 0, 5, 0, 0, 10, 0, 0,
+    ]);
+
+    expect(takeB).toBeTruthy();
+    expect(takeB?.duration).toBeCloseTo(1.5);
+    expect(Array.from(takeB!.tracks[0].times)).toEqual([0, 1, 1.5]);
+    expect(Array.from(takeB!.tracks[0].values)).toEqual([
+      -10, 0, 0, 0, 0, 0, 5, 0, 0,
+    ]);
   });
 });
 

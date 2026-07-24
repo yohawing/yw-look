@@ -400,11 +400,12 @@ function makeAnimatedTriangleFbxAscii() {
     curveZ: 213,
   };
 
-  const keyTimes = [0, oneSecond];
+  // Keep one key beyond AnimationStack.LocalStop so range clipping is covered.
+  const keyTimes = [0, oneSecond, oneSecond * 2];
   const keyTimesBlock = fbxArrayProperty("KeyTime", keyTimes, 2);
-  const curveXValues = fbxArrayProperty("KeyValueFloat", [0, 0], 2);
-  const curveYValues = fbxArrayProperty("KeyValueFloat", [0, 1], 2);
-  const curveZValues = fbxArrayProperty("KeyValueFloat", [0, 0], 2);
+  const curveXValues = fbxArrayProperty("KeyValueFloat", [0, 0, 0], 2);
+  const curveYValues = fbxArrayProperty("KeyValueFloat", [0, 1, 2], 2);
+  const curveZValues = fbxArrayProperty("KeyValueFloat", [0, 0, 0], 2);
 
   return `; FBX 7.4.0 project file
 ; yw-look fixture: minimal animated triangle (_generate.mjs)
