@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::io::Read as IoRead;
 use std::path::{Path, PathBuf};
@@ -148,6 +149,57 @@ fn list_supported_files_in_directory(
             .cmp(&right.file_name.to_ascii_lowercase())
     });
 
+    Ok(files)
+}
+
+fn collect_supported_files(paths: Vec<PathBuf>) -> Result<Vec<SelectedFilePayload>, AppError> {
+    let mut pending = VecDeque::from(paths);
+    let mut files = Vec::new();
+    let mut seen_paths = HashSet::new();
+
+    while let Some(path) = pending.pop_front() {
+        let metadata = fs::symlink_metadata(&path).map_err(|error| {
+            AppError::Io(format!("failed to inspect '{}': {error}", path.display()))
+        })?;
+
+        if metadata.file_type().is_symlink() {
+            let target_metadata = fs::metadata(&path).map_err(|error| {
+                AppError::Io(format!("failed to inspect '{}': {error}", path.display()))
+            })?;
+            if target_metadata.is_dir() {
+                continue;
+            }
+        }
+        if metadata.is_dir() {
+            let mut entries = fs::read_dir(&path)
+                .map_err(|error| {
+                    AppError::Io(format!(
+                        "failed to read directory '{}': {error}",
+                        path.display()
+                    ))
+                })?
+                .map(|entry| {
+                    entry.map(|entry| entry.path()).map_err(|error| {
+                        AppError::Io(format!("failed to read directory entry: {error}"))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            entries.sort_by(|left, right| {
+                left.to_string_lossy()
+                    .to_ascii_lowercase()
+                    .cmp(&right.to_string_lossy().to_ascii_lowercase())
+                    .then_with(|| left.cmp(right))
+            });
+            pending.extend(entries);
+            continue;
+        }
+
+        if let Ok(file) = build_selected_file_payload(path) {
+            if seen_paths.insert(file.path.clone()) {
+                files.push(file);
+            }
+        }
+    }
     Ok(files)
 }
 
@@ -417,25 +469,26 @@ pub(crate) fn load_format_support() -> FormatSupportPayload {
 
 #[tauri::command]
 pub(crate) fn open_file_dialog(
-    app: tauri::AppHandle,
-) -> Result<Option<SelectedFilePayload>, AppError> {
+    _app: tauri::AppHandle,
+) -> Result<Option<Vec<SelectedFilePayload>>, AppError> {
     let dialog_extensions = dialog_filter_extensions();
     let dialog_extension_refs: Vec<&str> = dialog_extensions
         .iter()
         .map(|extension| extension.as_str())
         .collect();
-    let file_path = rfd::FileDialog::new()
+    let file_paths = rfd::FileDialog::new()
         .set_title("Open asset file")
         .add_filter("Supported assets", &dialog_extension_refs)
-        .pick_file();
+        .pick_files();
 
-    let file = file_path.map(build_selected_file_payload).transpose()?;
+    file_paths.map(collect_supported_files).transpose()
+}
 
-    if let Some(ref payload) = file {
-        sync_recent_file(&app, payload)?;
-    }
-
-    Ok(file)
+#[tauri::command]
+pub(crate) fn resolve_selected_files(
+    paths: Vec<String>,
+) -> Result<Vec<SelectedFilePayload>, AppError> {
+    collect_supported_files(paths.into_iter().map(PathBuf::from).collect())
 }
 
 #[tauri::command]
@@ -567,6 +620,65 @@ mod tests {
 
     fn selected_file(dir: &Path, file_name: &str) -> SelectedFilePayload {
         build_selected_file_payload(create_file(dir, file_name)).expect("selected file")
+    }
+
+    #[test]
+    fn collect_supported_files_recurses_and_keeps_asset_paths() {
+        let dir = tempdir().expect("tempdir");
+        let layers = dir.path().join("layers");
+        let payloads = dir.path().join("payloads");
+        let textures = dir.path().join("textures");
+        fs::create_dir_all(&layers).expect("layers directory");
+        fs::create_dir_all(&payloads).expect("payloads directory");
+        fs::create_dir_all(&textures).expect("textures directory");
+        create_file(dir.path(), "scene.usda");
+        create_file(&layers, "geometry.usdc");
+        create_file(&payloads, "hero.usda");
+        create_file(&textures, "albedo.png");
+        create_file(dir.path(), "notes.txt");
+
+        let files = collect_supported_files(vec![dir.path().to_path_buf()])
+            .expect("collect supported files");
+        let relative_paths = files
+            .iter()
+            .map(|file| {
+                Path::new(&file.path)
+                    .strip_prefix(dir.path())
+                    .expect("relative path")
+                    .to_path_buf()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(relative_paths.len(), 4);
+        assert!(relative_paths.contains(&PathBuf::from("scene.usda")));
+        assert!(relative_paths.contains(&PathBuf::from("layers/geometry.usdc")));
+        assert!(relative_paths.contains(&PathBuf::from("payloads/hero.usda")));
+        assert!(relative_paths.contains(&PathBuf::from("textures/albedo.png")));
+    }
+
+    #[test]
+    fn collect_supported_files_deduplicates_overlapping_inputs() {
+        let dir = tempdir().expect("tempdir");
+        let root = create_file(dir.path(), "scene.usda");
+
+        let files = collect_supported_files(vec![dir.path().to_path_buf(), root])
+            .expect("collect supported files");
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name, "scene.usda");
+    }
+
+    #[test]
+    fn collect_supported_files_preserves_explicit_file_order() {
+        let dir = tempdir().expect("tempdir");
+        let second = create_file(dir.path(), "second.glb");
+        let first = create_file(dir.path(), "first.glb");
+
+        let files = collect_supported_files(vec![second, first]).expect("collect supported files");
+
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].file_name, "second.glb");
+        assert_eq!(files[1].file_name, "first.glb");
     }
 
     fn entry_for_path(path: &Path, kind: &str, last_accessed_at: &str) -> RecentFileEntry {

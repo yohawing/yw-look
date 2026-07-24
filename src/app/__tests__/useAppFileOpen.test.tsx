@@ -9,8 +9,10 @@ const mocks = vi.hoisted(() => ({
   inspectAsset: vi.fn(),
   listSupportedSiblings: vi.fn(),
   openFileDialog: vi.fn(),
-  registerBrowserFile: vi.fn(),
+  registerBrowserFiles: vi.fn(),
   resolveSelectedFile: vi.fn(),
+  resolveSelectedFiles: vi.fn(),
+  selectPrimaryFile: vi.fn((files: SelectedFile[]) => files[0] ?? null),
   prefetchAdjacent: vi.fn(),
   createPackFileRequest: vi.fn(),
   listenHandler: undefined as
@@ -32,8 +34,10 @@ vi.mock("../../lib/files", () => ({
   inspectAsset: mocks.inspectAsset,
   listSupportedSiblings: mocks.listSupportedSiblings,
   openFileDialog: mocks.openFileDialog,
-  registerBrowserFile: mocks.registerBrowserFile,
+  registerBrowserFiles: mocks.registerBrowserFiles,
   resolveSelectedFile: mocks.resolveSelectedFile,
+  resolveSelectedFiles: mocks.resolveSelectedFiles,
+  selectPrimaryFile: mocks.selectPrimaryFile,
 }));
 
 vi.mock("../../viewer", () => ({
@@ -119,6 +123,12 @@ beforeEach(() => {
   mocks.getStartupFile.mockResolvedValue(null);
   mocks.inspectAsset.mockResolvedValue(null);
   mocks.openFileDialog.mockResolvedValue(null);
+  mocks.resolveSelectedFiles.mockImplementation(async (paths: string[]) =>
+    paths.map(selected),
+  );
+  mocks.selectPrimaryFile.mockImplementation(
+    (files: SelectedFile[]) => files[0] ?? null,
+  );
   mocks.createPackFileRequest.mockReturnValue(null);
   useFileStore.setState({
     currentFile: null,
@@ -181,7 +191,7 @@ describe("useAppFileOpen", () => {
     const previous = selected("C:\\assets\\previous.glb");
     const next = selected("C:\\assets\\broken.glb");
     useFileStore.setState({ currentFile: previous });
-    mocks.openFileDialog.mockResolvedValue(next);
+    mocks.openFileDialog.mockResolvedValue([next]);
     mocks.resolveSelectedFile.mockRejectedValue(new Error("resolve exploded"));
     mocks.listSupportedSiblings.mockResolvedValue(listingFor(next));
     const { result } = renderFileOpen();
@@ -237,22 +247,45 @@ describe("useAppFileOpen", () => {
     );
   });
 
-  it("opens the first file from a Tauri drop event", async () => {
-    const file = selected("C:\\assets\\dropped.glb");
-    mocks.resolveSelectedFile.mockResolvedValue(file);
-    mocks.listSupportedSiblings.mockResolvedValue(listingFor(file));
+  it("resolves every path from a Tauri drop event and opens the selected root", async () => {
+    const sublayer = selected("C:\\assets\\layers\\geometry.usda");
+    const root = selected("C:\\assets\\assets.usda");
+    mocks.resolveSelectedFiles.mockResolvedValue([sublayer, root]);
+    mocks.selectPrimaryFile.mockReturnValue(root);
+    mocks.resolveSelectedFile.mockResolvedValue(root);
+    mocks.listSupportedSiblings.mockResolvedValue(listingFor(root));
     renderFileOpen(true);
     await waitFor(() => expect(mocks.dragDropHandler).toBeDefined());
 
     act(() => {
       mocks.dragDropHandler?.({
-        payload: { type: "drop", paths: [file.path] },
+        payload: { type: "drop", paths: [sublayer.path, root.path] },
       });
     });
 
     await waitFor(() =>
-      expect(useFileStore.getState().currentFile).toEqual(file),
+      expect(mocks.resolveSelectedFiles).toHaveBeenCalledWith([
+        sublayer.path,
+        root.path,
+      ]),
     );
+    await waitFor(() =>
+      expect(useFileStore.getState().currentFile).toEqual(root),
+    );
+  });
+
+  it("leaves the current file unchanged when the open dialog is canceled", async () => {
+    const previous = selected("C:\\assets\\previous.glb");
+    useFileStore.setState({ currentFile: previous });
+    mocks.openFileDialog.mockResolvedValue(null);
+    const { result } = renderFileOpen();
+
+    await act(async () => {
+      await result.current.handleOpenFile();
+    });
+
+    expect(useFileStore.getState().currentFile).toEqual(previous);
+    expect(mocks.resolveSelectedFile).not.toHaveBeenCalled();
   });
 
   it("drops results of superseded selections that resolve out of order", async () => {
