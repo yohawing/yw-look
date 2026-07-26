@@ -11,7 +11,6 @@ use std::collections::HashSet;
 use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
-#[cfg(test)]
 use openusd::sdf::Path as SdfPath;
 use openusd::sdf::Value as SdfValue;
 use openusd::usd::PrimPredicate;
@@ -41,20 +40,127 @@ use super::extract_shared::srgb_to_linear;
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
     CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection,
-    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
+    PrimTypeCount, StageCapabilityInfo, StageCapabilityKind, StageCapabilitySupport,
+    StageInspection, StageLoadPolicy, StageSummary,
 };
 use composition_arcs::{payload_arc_state, reference_arc_state};
 use extract::extract_geometry_from_open_stage_rs;
 #[cfg(test)]
 use mesh_visibility::is_renderable_mesh;
-use stage_fields::{read_root_double_field, read_token_or_string_field, token_vec_to_strings};
+use stage_fields::{
+    read_root_double_field, read_string_or_token_attribute, read_token_or_string_field,
+    token_vec_to_strings,
+};
 use stage_query::UpAxis;
-#[cfg(test)]
-use stage_fields::read_string_or_token_attribute;
 #[cfg(test)]
 use xform::{build_xform_op_matrix, compose_prim_local_xform, read_quat};
 
 pub(super) const LEGACY_TRAVERSE_PREDICATE: PrimPredicate = PrimPredicate::ALL;
+
+#[derive(Default)]
+struct StageCapabilityDetection {
+    point_instancer: bool,
+    material_x: bool,
+    skel: bool,
+    payload: bool,
+    variant_override: bool,
+    usd_authored_splat: bool,
+}
+
+impl StageCapabilityDetection {
+    fn observe_prim(&mut self, stage: &Stage, prim_path: &SdfPath) {
+        let Some(type_name) = read_token_or_string_field(stage, prim_path.clone()) else {
+            return;
+        };
+
+        match type_name.as_str() {
+            "PointInstancer" => self.point_instancer = true,
+            "Points" => self.usd_authored_splat = true,
+            "Skeleton" | "SkelRoot" | "SkelAnimation" | "BlendShape" => self.skel = true,
+            _ if type_name.starts_with("Skel") => self.skel = true,
+            _ => {}
+        }
+
+        if type_name == "Shader" {
+            let info_id = prim_path
+                .append_property("info:id")
+                .ok()
+                .and_then(|path| read_string_or_token_attribute(stage, path));
+            if info_id.as_deref().is_some_and(is_material_x_shader_id) {
+                self.material_x = true;
+            }
+        }
+    }
+}
+
+fn is_material_x_shader_id(id: &str) -> bool {
+    // MaterialX node identifiers emitted by the USD interchange commonly
+    // use the `ND_` namespace. Keep the check intentionally name-based: the
+    // Rust backend does not expose a richer MaterialX schema query yet.
+    id.starts_with("ND_") || id.starts_with("MaterialX")
+}
+
+fn stage_capability_infos(
+    detection: StageCapabilityDetection,
+    start_time_code: Option<f64>,
+    end_time_code: Option<f64>,
+) -> Vec<StageCapabilityInfo> {
+    const MATERIAL_X_REASON: &str =
+        "MaterialX preview is limited to known shader aliases and direct graphs.";
+    const SKEL_REASON: &str =
+        "UsdSkel preview supports the current GLB skinning path only; arbitrary rig data is not covered.";
+    const ANIMATION_RANGE_REASON: &str =
+        "Only authored stage start/end metadata is reported; time-varying attributes are not scanned.";
+    const VARIANT_OVERRIDE_REASON: &str =
+        "Variant session overrides are not supported by the current backend.";
+    const USD_AUTHORED_SPLAT_REASON: &str =
+        "USD-authored Points/splat geometry is not supported by the preview backend.";
+
+    vec![
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::PointInstancer,
+            detected: detection.point_instancer,
+            support: StageCapabilitySupport::Supported,
+            reason: String::new(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::MaterialX,
+            detected: detection.material_x,
+            support: StageCapabilitySupport::Degraded,
+            reason: MATERIAL_X_REASON.to_owned(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::Skel,
+            detected: detection.skel,
+            support: StageCapabilitySupport::Degraded,
+            reason: SKEL_REASON.to_owned(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::AnimationRange,
+            detected: start_time_code.is_some() && end_time_code.is_some(),
+            support: StageCapabilitySupport::Degraded,
+            reason: ANIMATION_RANGE_REASON.to_owned(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::Payload,
+            detected: detection.payload,
+            support: StageCapabilitySupport::Supported,
+            reason: String::new(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::VariantOverride,
+            detected: detection.variant_override,
+            support: StageCapabilitySupport::Unsupported,
+            reason: VARIANT_OVERRIDE_REASON.to_owned(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::UsdAuthoredSplat,
+            detected: detection.usd_authored_splat,
+            support: StageCapabilitySupport::Unsupported,
+            reason: USD_AUTHORED_SPLAT_REASON.to_owned(),
+        },
+    ]
+}
 
 /// Real backend backed by `openusd`.
 pub struct OpenusdBackend;
@@ -159,10 +265,12 @@ impl UsdInspectBackend for OpenusdBackend {
         let references = RefCell::new(Vec::new());
         let payloads = RefCell::new(Vec::new());
         let variant_sets_out = RefCell::new(Vec::<super::types::VariantSetInfo>::new());
+        let mut capability_detection = StageCapabilityDetection::default();
 
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let source = prim_path.as_str().to_string();
+                capability_detection.observe_prim(&stage, &prim_path);
 
                 // Collect variant sets for the inspector UI via the public
                 // `Prim::variant_sets().get_all_variant_selections()`.
@@ -183,6 +291,7 @@ impl UsdInspectBackend for OpenusdBackend {
                     .get_all_variant_selections()
                 {
                     for (set_name, selection) in selections {
+                        capability_detection.variant_override = true;
                         variant_sets_out
                             .borrow_mut()
                             .push(super::types::VariantSetInfo {
@@ -204,7 +313,9 @@ impl UsdInspectBackend for OpenusdBackend {
                         kind: CompositionArcKind::Reference,
                     });
                 }
-                for p in stage_query::payloads_in(&stage, prim_path.clone()) {
+                let prim_payloads = stage_query::payloads_in(&stage, prim_path.clone());
+                let has_payloads = !prim_payloads.is_empty();
+                for p in prim_payloads {
                     // `source` is the prim that authored the payload
                     // (what `Stage::skipped_payloads` keys on); `p.prim_path`
                     // is the target prim inside the external layer (what the
@@ -220,6 +331,9 @@ impl UsdInspectBackend for OpenusdBackend {
                         state,
                         kind: CompositionArcKind::Payload,
                     });
+                }
+                if has_payloads {
+                    capability_detection.payload = true;
                 }
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
@@ -239,6 +353,8 @@ impl UsdInspectBackend for OpenusdBackend {
             .and_then(|v| String::try_from(v).ok())
             .filter(|s| !s.is_empty());
         let root_layer_is_binary = stage_query::root_layer_is_binary(&stage);
+        let capabilities =
+            stage_capability_infos(capability_detection, start_time_code, end_time_code);
 
         // #29 — degraded layer info: the Rust fork doesn't expose
         // per-layer muted / offset APIs, so we synthesise LayerInfo
@@ -293,6 +409,7 @@ impl UsdInspectBackend for OpenusdBackend {
             variant_selection_arcs: Vec::new(),
             missing_assets,
             variant_sets: variant_sets_out.into_inner(),
+            capabilities,
             load_policy: policy,
         })
     }
@@ -322,6 +439,7 @@ impl UsdInspectBackend for OpenusdBackend {
         let unresolved_reference_count = RefCell::new(0usize);
         let resolved_payload_count = RefCell::new(0usize);
         let unresolved_payload_count_stat = RefCell::new(0usize);
+        let mut capability_detection = StageCapabilityDetection::default();
 
         // #38: build unresolved-asset set upfront so arc classification
         // in the traverse closure can borrow it without moving `stage`.
@@ -341,6 +459,7 @@ impl UsdInspectBackend for OpenusdBackend {
 
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+                capability_detection.observe_prim(&stage, &prim_path);
                 if let Some(type_name) = read_token_or_string_field(&stage, prim_path.clone()) {
                     if !type_name.is_empty() {
                         let mut buckets = prim_type_counts.borrow_mut();
@@ -415,6 +534,7 @@ impl UsdInspectBackend for OpenusdBackend {
                     }
                 }
                 if !payloads.is_empty() {
+                    capability_detection.payload = true;
                     *payload_count.borrow_mut() += payloads.len();
                 }
                 // USD-NATIVE-01: counts composed variant selections via
@@ -429,6 +549,7 @@ impl UsdInspectBackend for OpenusdBackend {
                     .get_all_variant_selections()
                 {
                     if !selections.is_empty() {
+                        capability_detection.variant_override = true;
                         *has_variants.borrow_mut() = true;
                         *variant_set_count.borrow_mut() += selections.len();
                     }
@@ -450,6 +571,7 @@ impl UsdInspectBackend for OpenusdBackend {
             .into_iter()
             .map(|a| format!("unresolved asset: {a}"))
             .collect();
+        let capabilities = stage_capability_infos(capability_detection, start, end);
 
         Ok(StageSummary {
             path: path.display().to_string(),
@@ -469,6 +591,7 @@ impl UsdInspectBackend for OpenusdBackend {
             resolved_payload_count: resolved_payload_count.into_inner(),
             unresolved_payload_count: unresolved_payload_count_stat.into_inner(),
             warnings,
+            capabilities,
             load_policy: policy,
         })
     }
@@ -737,6 +860,130 @@ mod tests {
         assert!(inspection.references.is_empty());
         assert!(inspection.payloads.is_empty());
         assert!(inspection.missing_assets.is_empty());
+    }
+
+    #[test]
+    fn stage_capabilities_point_instancer_are_supported_and_shared() {
+        let path = PathBuf::from("../samples/assets/usd/tiny_point_instancer.usda");
+        let backend = OpenusdBackend::new();
+        let summary = backend
+            .summarize_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("summarize PointInstancer fixture");
+        let inspection = backend
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("inspect PointInstancer fixture");
+
+        assert_eq!(summary.capabilities, inspection.capabilities);
+        assert_eq!(summary.capabilities.len(), 7);
+        let point_instancer = &summary.capabilities[0];
+        assert_eq!(point_instancer.kind, StageCapabilityKind::PointInstancer);
+        assert!(point_instancer.detected);
+        assert_eq!(point_instancer.support, StageCapabilitySupport::Supported);
+        assert!(point_instancer.reason.is_empty());
+    }
+
+    #[test]
+    fn stage_capabilities_cover_points_variants_materialx_skel_and_range() {
+        let root = std::env::temp_dir()
+            .join(format!("yw-look-stage-capabilities-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let path = root.join("capabilities.usda");
+        std::fs::write(
+            &path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    startTimeCode = 1
+    endTimeCode = 24
+    framesPerSecond = 24
+)
+
+def Xform "Root" (
+    variants = {
+        string look = "blue"
+    }
+    prepend variantSets = ["look"]
+)
+{
+    variantSet "look" = {
+        "red" {
+        }
+        "blue" {
+        }
+    }
+}
+
+def Points "Cloud"
+{
+    point3f[] points = [(0, 0, 0)]
+}
+
+def Shader "MaterialXShader"
+{
+    uniform token info:id = "ND_standard_surface_surfaceshader"
+}
+
+def Skeleton "Rig"
+{
+}
+"#,
+        )
+        .expect("write capability fixture");
+
+        let backend = OpenusdBackend::new();
+        let summary = backend
+            .summarize_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("summarize capability fixture");
+        let inspection = backend
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("inspect capability fixture");
+
+        let expected_kinds = [
+            StageCapabilityKind::PointInstancer,
+            StageCapabilityKind::MaterialX,
+            StageCapabilityKind::Skel,
+            StageCapabilityKind::AnimationRange,
+            StageCapabilityKind::Payload,
+            StageCapabilityKind::VariantOverride,
+            StageCapabilityKind::UsdAuthoredSplat,
+        ];
+        assert_eq!(summary.capabilities, inspection.capabilities);
+        assert_eq!(summary.capabilities.len(), expected_kinds.len());
+        assert_eq!(
+            summary
+                .capabilities
+                .iter()
+                .map(|entry| entry.kind)
+                .collect::<Vec<_>>(),
+            expected_kinds
+        );
+        assert!(summary.capabilities[1].detected);
+        assert_eq!(
+            summary.capabilities[1].support,
+            StageCapabilitySupport::Degraded
+        );
+        assert!(summary.capabilities[2].detected);
+        assert!(summary.capabilities[3].detected);
+        assert!(summary.capabilities[5].detected);
+        assert!(summary.capabilities[6].detected);
+        for entry in &summary.capabilities {
+            if matches!(
+                entry.support,
+                StageCapabilitySupport::Degraded | StageCapabilitySupport::Unsupported
+            ) {
+                assert!(
+                    !entry.reason.is_empty(),
+                    "missing reason for {:?}",
+                    entry.kind
+                );
+            }
+        }
+        assert_eq!(
+            summary.capabilities[6].support,
+            StageCapabilitySupport::Unsupported
+        );
+
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
