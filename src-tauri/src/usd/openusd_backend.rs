@@ -293,13 +293,21 @@ impl UsdInspectBackend for OpenusdBackend {
                 {
                     for (set_name, selection) in selections {
                         capability_detection.variant_override = true;
+                        let mut variants =
+                            stage_query::variant_names(&stage, prim_path.clone(), &set_name);
+                        // Keep the controlled value valid even when the
+                        // effective selection came from a composed opinion
+                        // that is not present in the authored child list.
+                        if !variants.iter().any(|variant| variant == &selection) {
+                            variants.insert(0, selection.clone());
+                        }
                         variant_sets_out
                             .borrow_mut()
                             .push(super::types::VariantSetInfo {
                                 prim_path: source.clone(),
                                 set_name,
                                 selection: Some(selection),
-                                variants: Vec::new(),
+                                variants,
                             });
                     }
                 }
@@ -1089,6 +1097,107 @@ def Xform "Root" (
             .find(|entry| entry.prim_path == "/Root" && entry.set_name == "look")
             .expect("look variant set");
         assert_eq!(variant.selection.as_deref(), Some("blue"));
+        assert_eq!(variant.variants, vec!["red", "blue"]);
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn variant_candidates_merge_strongest_first_across_sublayer_and_reference_sites() {
+        let unique = format!(
+            "yw-look-variant-candidates-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&root).expect("create variant candidate temp dir");
+        let asset = root.join("asset.usda");
+        let sub = root.join("sub.usda");
+        let root_usda = root.join("root.usda");
+
+        std::fs::write(
+            &asset,
+            r#"#usda 1.0
+(
+    defaultPrim = "Asset"
+)
+
+def Xform "Asset" (
+    prepend variantSets = ["look"]
+)
+{
+    variantSet "look" = {
+        "shared" { }
+        "referenced" { }
+    }
+}
+"#,
+        )
+        .expect("write asset variant fixture");
+        std::fs::write(
+            &sub,
+            r#"#usda 1.0
+
+over "World" {
+    over "Hero" (
+        prepend variantSets = ["look"]
+    )
+    {
+        variantSet "look" = {
+            "shared" { }
+            "sublayer" { }
+        }
+    }
+}
+"#,
+        )
+        .expect("write sublayer variant fixture");
+        std::fs::write(
+            &root_usda,
+            r#"#usda 1.0
+(
+    defaultPrim = "World"
+    subLayers = [@sub.usda@]
+)
+
+def Xform "World"
+{
+    def Xform "Hero" (
+        references = @asset.usda@</Asset>
+        prepend variantSets = ["look"]
+        variants = {
+            string look = "local"
+        }
+    )
+    {
+        variantSet "look" = {
+            "local" { }
+            "shared" { }
+        }
+    }
+}
+"#,
+        )
+        .expect("write root variant fixture");
+
+        let stage = OpenusdBackend::open(&root_usda, super::StageLoadPolicy::LoadAll)
+            .expect("open layered variant fixture");
+        let variants = stage_query::variant_names(&stage, "/World/Hero", "look");
+        assert_eq!(variants, vec!["local", "shared", "sublayer", "referenced"]);
+
+        let inspection = OpenusdBackend::new()
+            .inspect_stage(&root_usda, super::StageLoadPolicy::LoadAll)
+            .expect("inspect layered variant fixture");
+        let variant = inspection
+            .variant_sets
+            .iter()
+            .find(|entry| entry.prim_path == "/World/Hero" && entry.set_name == "look")
+            .expect("layered look variant set");
+        assert_eq!(variant.selection.as_deref(), Some("local"));
+        assert_eq!(variant.variants, variants);
 
         std::fs::remove_dir_all(root).ok();
     }

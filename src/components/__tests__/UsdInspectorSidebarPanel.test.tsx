@@ -32,6 +32,18 @@ const inspectionWithVariant: StageInspection = {
   loadPolicy: "loadAll",
 };
 
+const inspectionWithSupportedVariant: StageInspection = {
+  ...inspectionWithVariant,
+  capabilities: [
+    {
+      kind: "variantOverride",
+      detected: true,
+      support: "supported",
+      reason: "",
+    },
+  ],
+};
+
 const inspectionWithLayer: StageInspection = {
   ...inspectionWithVariant,
   layers: [
@@ -179,7 +191,7 @@ describe("UsdInspectorSidebarPanel", () => {
     const { container, queryByText } = render(
       <UsdInspectorSidebarPanel
         error={null}
-        inspection={inspectionWithVariant}
+        inspection={inspectionWithSupportedVariant}
         issues={[]}
         loading={false}
         summary={null}
@@ -205,6 +217,32 @@ describe("UsdInspectorSidebarPanel", () => {
         variantName: "toon",
       },
     ]);
+  });
+
+  it("keeps variant selection read-only when override capability is unsupported", () => {
+    const unsupportedInspection: StageInspection = {
+      ...inspectionWithVariant,
+      capabilities: [
+        {
+          kind: "variantOverride",
+          detected: true,
+          support: "unsupported",
+          reason: "Variant session overrides are not supported.",
+        },
+      ],
+    };
+    const { container, getByText } = render(
+      <UsdInspectorSidebarPanel
+        error={null}
+        inspection={unsupportedInspection}
+        issues={[]}
+        loading={false}
+        summary={null}
+      />,
+    );
+
+    expect(container.querySelector("select")).toBeNull();
+    expect(getByText("default")).toBeTruthy();
   });
 
   it("renders layer rows through the shared list row primitive", () => {

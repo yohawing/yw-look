@@ -238,6 +238,14 @@ export function UsdInspectorCard({
   variantSelectionError,
 }: UsdInspectorCardProps) {
   const showControl = loadPolicy !== null;
+  const effectiveCapabilities =
+    summary?.capabilities ?? inspection?.capabilities ?? [];
+  const variantOverrideSupported = effectiveCapabilities.some(
+    (capability) =>
+      capability.kind === "variantOverride" &&
+      capability.detected &&
+      capability.support === "supported",
+  );
   return (
     <SidebarSection title="USD Details" collapsible defaultOpen={false}>
       {showControl && (
@@ -347,11 +355,7 @@ export function UsdInspectorCard({
       )}
       {!error && !loading && (summary || inspection) ? (
         <>
-          <StageCapabilities
-            capabilities={
-              summary?.capabilities ?? inspection?.capabilities ?? []
-            }
-          />
+          <StageCapabilities capabilities={effectiveCapabilities} />
           {summary && summary.primTypeCounts.length > 0 && (
             <SidebarSection
               title="Prim Types"
@@ -531,7 +535,8 @@ export function UsdInspectorCard({
                         "";
                       const canSwitch =
                         vs.variants.length > 0 &&
-                        typeof onVariantChange === "function";
+                        typeof onVariantChange === "function" &&
+                        variantOverrideSupported;
                       return (
                         <li
                           key={`${vs.primPath}:${vs.setName}:${i}`}

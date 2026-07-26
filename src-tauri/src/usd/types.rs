@@ -78,10 +78,9 @@ pub struct VariantSetInfo {
     /// prim does not explicitly author a selection (the first variant
     /// becomes the implicit default).
     pub selection: Option<String>,
-    /// Available variant names in this set. Empty when the backend
-    /// cannot enumerate them (e.g. the openusd Rust fork — only the
-    /// C++ shim populates this for now). The frontend uses this to
-    /// drive a switcher pulldown; an empty list disables the control.
+    /// Authored variant names in this set, strongest site first with
+    /// duplicates removed. The frontend uses this to drive a switcher
+    /// pulldown; an empty list means no authored candidates were found.
     #[serde(default)]
     pub variants: Vec<String>,
 }
@@ -217,9 +216,9 @@ pub struct StageInspection {
     #[serde(default)]
     pub variant_selection_arcs: Vec<CompositionArc>,
     pub missing_assets: Vec<String>,
-    /// Variant sets found across all prims (read-only for now;
-    /// interactive switching needs a fork API for session-layer
-    /// variant selection override).
+    /// Variant sets found across all prims. Candidate names are authored
+    /// data for display; interactive switching still depends on the
+    /// backend capability diagnostic and may remain read-only.
     pub variant_sets: Vec<VariantSetInfo>,
     /// Deterministic capability diagnostics. Older payloads may omit this
     /// field while the Rust backend is upgraded, so deserialization defaults

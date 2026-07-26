@@ -48,11 +48,12 @@
 //! [`crate::usd::ir`] structs, so callers no longer need a separate
 //! bridging conversion step.
 
+use std::collections::HashSet;
 use std::io::Read;
 
 use openusd::ar::{DefaultResolver, ResolvedPath, Resolver as AssetResolver};
 use openusd::schemas::geom::PointInstancer;
-use openusd::sdf::schema::FieldKey;
+use openusd::sdf::schema::{ChildrenKey, FieldKey};
 use openusd::sdf::{self, Value};
 use openusd::usd::{InitialLoadSet, PrimPredicate};
 use openusd::usd::{Stage, StageBuilder};
@@ -217,6 +218,46 @@ pub(crate) fn prim_children(stage: &Stage, path: impl Into<sdf::Path>) -> anyhow
         .into_iter()
         .map(|prim| prim.path().name().unwrap_or_default().to_owned())
         .collect())
+}
+
+/// Enumerate the authored variant names for `set_name` across every site in
+/// the composed prim stack. `Prim::prim_stack` is strongest-first, and the
+/// names authored at each site retain their original order; duplicate names
+/// are ignored after their first occurrence. Missing layers, malformed paths,
+/// read errors, and non-`TokenVec` fields are all treated as absent opinions.
+pub(crate) fn variant_names(
+    stage: &Stage,
+    prim_path: impl Into<sdf::Path>,
+    set_name: &str,
+) -> Vec<String> {
+    let Ok(stack) = stage.prim(prim_path.into()).prim_stack() else {
+        return Vec::new();
+    };
+
+    let mut names = Vec::new();
+    let mut seen = HashSet::new();
+    for (layer_id, local_prim_path) in stack {
+        let Some(layer) = stage.layer(&layer_id) else {
+            continue;
+        };
+        let variant_set_path = local_prim_path.append_variant_selection(set_name, "");
+        let Ok(Some(value)) = layer
+            .data()
+            .try_field(&variant_set_path, ChildrenKey::VariantChildren.as_str())
+        else {
+            continue;
+        };
+        let sdf::Value::TokenVec(tokens) = value.as_ref() else {
+            continue;
+        };
+        for token in tokens {
+            let name = token.as_str().to_owned();
+            if seen.insert(name.clone()) {
+                names.push(name);
+            }
+        }
+    }
+    names
 }
 
 /// The strongest authored `references` list-op at `path`, read off
