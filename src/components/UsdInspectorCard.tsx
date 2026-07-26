@@ -7,6 +7,11 @@ import type {
   StageSummary,
   VariantSelection,
 } from "../lib/usd";
+import type {
+  StageCapabilityInfo,
+  StageCapabilityKind,
+  StageCapabilitySupport,
+} from "../types/ipc";
 import { Badge, Disclosure, SegmentedControl, SelectField } from "./ui";
 import {
   SidebarEmpty,
@@ -109,6 +114,84 @@ function asRows(
   entries: Array<SidebarKeyValueRow | false | null | undefined>,
 ): SidebarKeyValueRow[] {
   return entries.filter(Boolean) as SidebarKeyValueRow[];
+}
+
+const capabilityLabels: Record<StageCapabilityKind, string> = {
+  pointInstancer: "Point Instancer",
+  materialX: "MaterialX",
+  skel: "UsdSkel",
+  animationRange: "Animation Range",
+  payload: "Payload",
+  variantOverride: "Variant Override",
+  usdAuthoredSplat: "USD-authored Splat",
+};
+
+const capabilityBadgeVariants: Record<
+  StageCapabilitySupport,
+  "success" | "warning" | "error"
+> = {
+  supported: "success",
+  degraded: "warning",
+  unsupported: "error",
+};
+
+function StageCapabilities({
+  capabilities,
+}: {
+  capabilities: readonly StageCapabilityInfo[];
+}) {
+  const detectedCapabilities = capabilities.filter(
+    (capability) => capability.detected,
+  );
+
+  if (detectedCapabilities.length === 0) {
+    return null;
+  }
+
+  return (
+    <SidebarSection
+      title="Capabilities"
+      count={detectedCapabilities.length}
+      collapsible
+      defaultOpen={false}
+    >
+      <ul className="yl-status-list">
+        {detectedCapabilities.map((capability) => {
+          const statusClass =
+            capability.support === "degraded"
+              ? "yl-status-row--warning"
+              : capability.support === "unsupported"
+                ? "yl-status-row--error"
+                : null;
+          const reasonVisible =
+            capability.support !== "supported" && capability.reason;
+
+          return (
+            <li
+              key={capability.kind}
+              className={["yl-status-row", statusClass]
+                .filter(Boolean)
+                .join(" ")}
+            >
+              <div className="yl-list-row__main">
+                <strong>{capabilityLabels[capability.kind]}</strong>
+                <Badge
+                  className="usd-inspector-badge"
+                  variant={capabilityBadgeVariants[capability.support]}
+                  size="sm"
+                >
+                  {capability.support}
+                </Badge>
+              </div>
+              {reasonVisible && (
+                <div className="usd-inspector-note">{capability.reason}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </SidebarSection>
+  );
 }
 
 type UsdInspectorCardProps = {
@@ -264,6 +347,11 @@ export function UsdInspectorCard({
       )}
       {!error && !loading && (summary || inspection) ? (
         <>
+          <StageCapabilities
+            capabilities={
+              summary?.capabilities ?? inspection?.capabilities ?? []
+            }
+          />
           {summary && summary.primTypeCounts.length > 0 && (
             <SidebarSection
               title="Prim Types"
