@@ -13,7 +13,7 @@ import { useSidebarModel } from "../useSidebarModel";
 import { useUiStore } from "../../stores/uiStore";
 import { useFileStore } from "../../stores/fileStore";
 import { useViewerStore } from "../../stores/viewerStore";
-import type { AssetIssue } from "../../lib/usd";
+import type { AssetIssue, StageInspection } from "../../lib/usd";
 import type { UpdateCheckPayload } from "../../lib/updater";
 import type { MmdAssetMetadata } from "../../types/viewer";
 
@@ -177,6 +177,40 @@ describe("useSidebarModel", () => {
       label: "Active diagnostics",
       tone: "danger",
     });
+  });
+
+  it("shows detected unsupported USD capabilities in warnings", () => {
+    useUiStore.setState({ activeTab: "warnings" });
+    const usdInspection = {
+      capabilities: [
+        {
+          kind: "pointInstancer",
+          detected: true,
+          support: "unsupported",
+          reason: "Point instancers are not rendered by the preview backend.",
+        },
+      ],
+    } as unknown as StageInspection;
+
+    const { result } = renderHook(() =>
+      useSidebarModel(makeOptions({ usdInspection })),
+    );
+
+    const warningsTab = result.current.sidebarTabs.find(
+      (tab) => tab.id === "warnings",
+    );
+    expect(warningsTab?.badge).toEqual({
+      label: "Active diagnostics",
+      tone: "warning",
+    });
+
+    render(<>{result.current.sidebarContent}</>);
+
+    expect(
+      screen.getByText(
+        "USD capability warning: Point Instancer (pointInstancer) unsupported: Point instancers are not rendered by the preview backend.",
+      ),
+    ).toBeTruthy();
   });
 
   it("adds an update dot to the settings tab when an update is available", () => {

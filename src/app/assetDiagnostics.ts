@@ -1,4 +1,5 @@
 import type { AssetIssue } from "../lib/usd";
+import type { StageInspection, StageSummary } from "../lib/usd";
 import type { FileState } from "../stores/fileStore";
 import type { ViewerState } from "../stores/viewerStore";
 
@@ -10,6 +11,7 @@ export type DiagnosticCounts = {
 
 type AssetDiagnosticInputs = {
   assetMetadata: FileState["assetMetadata"];
+  usdCapabilities?: readonly UsdCapabilityInfo[];
   usdIssues: readonly AssetIssue[];
   viewerFeedback: ViewerState["viewerFeedback"];
 };
@@ -17,6 +19,67 @@ type AssetDiagnosticInputs = {
 type DiagnosticCountInputs = AssetDiagnosticInputs & {
   debugPanelWarnings?: readonly string[] | null;
 };
+
+export type UsdCapabilityInfo = NonNullable<
+  StageSummary["capabilities"]
+>[number];
+
+const usdCapabilityLabels: Record<UsdCapabilityInfo["kind"], string> = {
+  pointInstancer: "Point Instancer",
+  materialX: "MaterialX",
+  skel: "UsdSkel",
+  animationRange: "Animation Range",
+  payload: "Payload",
+  variantOverride: "Variant Override",
+  usdAuthoredSplat: "USD-authored Splat",
+};
+
+export function selectUsdCapabilities(
+  summary: StageSummary | null | undefined,
+  inspection: StageInspection | null | undefined,
+): readonly UsdCapabilityInfo[] {
+  if (Array.isArray(summary?.capabilities)) {
+    return summary.capabilities;
+  }
+
+  if (Array.isArray(inspection?.capabilities)) {
+    return inspection.capabilities;
+  }
+
+  return [];
+}
+
+export function formatUsdCapabilityWarnings(
+  capabilities: readonly UsdCapabilityInfo[],
+): string[] {
+  const warnings: string[] = [];
+  const seen = new Set<string>();
+
+  for (const capability of capabilities) {
+    if (
+      !capability.detected ||
+      (capability.support !== "degraded" &&
+        capability.support !== "unsupported")
+    ) {
+      continue;
+    }
+
+    const reason =
+      typeof capability.reason === "string" ? capability.reason.trim() : "";
+    if (!reason) {
+      continue;
+    }
+
+    const label = usdCapabilityLabels[capability.kind] ?? capability.kind;
+    const warning = `USD capability warning: ${label} (${capability.kind}) ${capability.support}: ${reason}`;
+    if (!seen.has(warning)) {
+      seen.add(warning);
+      warnings.push(warning);
+    }
+  }
+
+  return warnings;
+}
 
 function formatAssetIssue(issue: AssetIssue): string {
   const prefix = issue.level === "error" ? "USD error" : "USD warning";
@@ -44,6 +107,7 @@ export function splitViewerWarnings(warning: string | null): string[] {
 
 export function buildDiagnosticWarnings({
   assetMetadata,
+  usdCapabilities,
   usdIssues,
   viewerFeedback,
 }: AssetDiagnosticInputs): string[] {
@@ -63,6 +127,8 @@ export function buildDiagnosticWarnings({
     nextWarnings.push(formatAssetIssue(issue));
   }
 
+  nextWarnings.push(...formatUsdCapabilityWarnings(usdCapabilities ?? []));
+
   for (const diagnostic of assetMetadata?.mmd?.diagnostics ?? []) {
     nextWarnings.push(formatMmdDiagnostic(diagnostic));
   }
@@ -73,6 +139,7 @@ export function buildDiagnosticWarnings({
 export function buildDiagnosticCounts({
   assetMetadata,
   debugPanelWarnings,
+  usdCapabilities,
   usdIssues,
   viewerFeedback,
 }: DiagnosticCountInputs): DiagnosticCounts {
@@ -95,6 +162,9 @@ export function buildDiagnosticCounts({
   const usdWarningCount = usdIssues.filter(
     (issue) => issue.level === "warning",
   ).length;
+  const usdCapabilityWarningCount = formatUsdCapabilityWarnings(
+    usdCapabilities ?? [],
+  ).length;
   const unresolvedTextureCount =
     assetMetadata?.textures.filter(
       (texture) => texture.sourceKind === "unresolved",
@@ -111,6 +181,7 @@ export function buildDiagnosticCounts({
   const errorCount = loadErrorCount + usdErrorCount + mmdErrorCount;
   const warningCount =
     usdWarningCount +
+    usdCapabilityWarningCount +
     unresolvedTextureCount +
     viewerWarningCount +
     mmdWarningCount;

@@ -141,7 +141,9 @@ export function App() {
       settingsError,
       showGrid,
       updateCheck,
+      usdInspection,
       usdIssues,
+      usdSummary,
       viewerFeedback,
     });
 

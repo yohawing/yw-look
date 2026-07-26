@@ -3,6 +3,7 @@ import {
   buildDiagnosticCounts,
   buildDiagnosticWarnings,
   isDebugPanelsRequested,
+  selectUsdCapabilities,
   type DiagnosticCounts,
 } from "./assetDiagnostics";
 import {
@@ -14,6 +15,8 @@ import {
   isInvalidVariantSelectionError,
   parseUsdError,
   type AssetIssue,
+  type StageInspection,
+  type StageSummary,
 } from "../lib/usd";
 import type { FileState } from "../stores/fileStore";
 import { useUiStore } from "../stores/uiStore";
@@ -39,7 +42,9 @@ type UseViewerDiagnosticsModelOptions = {
   settingsError: string | null;
   showGrid: ViewerState["showGrid"];
   updateCheck: UpdateCheckPayload | null;
+  usdInspection: StageInspection | null;
   usdIssues: AssetIssue[];
+  usdSummary: StageSummary | null;
   viewerFeedback: ViewerState["viewerFeedback"];
 };
 
@@ -54,7 +59,9 @@ export function useViewerDiagnosticsModel({
   settingsError,
   showGrid,
   updateCheck,
+  usdInspection,
   usdIssues,
+  usdSummary,
   viewerFeedback,
 }: UseViewerDiagnosticsModelOptions) {
   const setActiveTab = useUiStore((state) => state.setActiveTab);
@@ -72,6 +79,10 @@ export function useViewerDiagnosticsModel({
   const sidebarDirectoryListing = useDebugFixtures
     ? debugFixtures.debugPanelDirectoryListing
     : directoryListing;
+  const usdCapabilities = useMemo(
+    () => selectUsdCapabilities(usdSummary, usdInspection),
+    [usdInspection, usdSummary],
+  );
 
   const recordVariantSelectionError = useCallback((error: unknown): boolean => {
     const parsed = parseUsdError(error);
@@ -129,10 +140,11 @@ export function useViewerDiagnosticsModel({
   const warnings = useMemo(() => {
     return buildDiagnosticWarnings({
       assetMetadata,
+      usdCapabilities,
       usdIssues,
       viewerFeedback,
     });
-  }, [assetMetadata, usdIssues, viewerFeedback]);
+  }, [assetMetadata, usdCapabilities, usdIssues, viewerFeedback]);
   const sidebarWarnings = useDebugFixtures
     ? debugFixtures.debugPanelWarnings
     : warnings;
@@ -144,10 +156,17 @@ export function useViewerDiagnosticsModel({
     return buildDiagnosticCounts({
       assetMetadata,
       debugPanelWarnings,
+      usdCapabilities,
       usdIssues,
       viewerFeedback,
     });
-  }, [assetMetadata, debugPanelWarnings, usdIssues, viewerFeedback]);
+  }, [
+    assetMetadata,
+    debugPanelWarnings,
+    usdCapabilities,
+    usdIssues,
+    viewerFeedback,
+  ]);
 
   useEffect(() => {
     if (!openError) {
