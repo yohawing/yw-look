@@ -16,6 +16,7 @@ use openusd::sdf::Value as SdfValue;
 use openusd::usd::PrimPredicate;
 use openusd::usd::Stage;
 
+mod attribute_samples;
 mod blend_shapes;
 mod cameras;
 mod composition_arcs;
@@ -647,14 +648,13 @@ impl UsdInspectBackend for OpenusdBackend {
 
     fn inspect_attribute_time_samples(
         &self,
-        _path: &StdPath,
-        _prim_path: &str,
-        _attr_name: &str,
-        _max_samples: usize,
+        path: &StdPath,
+        prim_path: &str,
+        attr_name: &str,
+        max_samples: usize,
     ) -> Result<AttributeTimeSamples, UsdError> {
-        Err(UsdError::Parse(
-            "inspect_attribute_time_samples is not supported on the openusd Rust backend".into(),
-        ))
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        attribute_samples::inspect_attribute_time_samples(&stage, prim_path, attr_name, max_samples)
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
