@@ -1,4 +1,11 @@
-import { DirectionalLight, Group, Mesh, Object3D, type Material } from "three";
+import {
+  DirectionalLight,
+  Group,
+  Mesh,
+  Object3D,
+  Vector3,
+  type Material,
+} from "three";
 import { errorMessage } from "../../lib/errors";
 import type { SelectedFile } from "../../lib/files";
 import { readBinaryFile } from "../../lib/files";
@@ -14,6 +21,8 @@ import type {
   LoadedPreview,
   LoaderContext,
   MmdAssetMetadata,
+  MmdLightState,
+  MmdPreviewLightSync,
   MmdRuntimeModelHandle,
 } from "../../types/viewer";
 import { throwIfAborted } from "../abort";
@@ -116,6 +125,11 @@ type ThreeMmdLoaderModule = {
     material: Material | Material[],
     light: DirectionalLight,
   ): void;
+  applyMmdLightStateToThreeDirectionalLight(
+    light: DirectionalLight,
+    state: MmdLightState | undefined,
+    options?: { directionScratch?: Vector3 },
+  ): DirectionalLight;
   syncMmdMaterialStates(
     material: Material | Material[],
     states: readonly MmdMaterialState[],
@@ -133,50 +147,98 @@ async function importThreeMmdLoader(): Promise<ThreeMmdLoaderModule> {
 export async function syncMmdPreviewSpecularDirection(
   mmd: MmdRuntimeModelHandle | null | undefined,
   light: DirectionalLight | null,
-) {
+): Promise<MmdPreviewLightSync | null> {
   if (!mmd || !light) {
-    return;
+    return null;
   }
 
-  const { syncMmdSpecularDirection } = await importThreeMmdLoader();
+  const {
+    applyMmdLightStateToThreeDirectionalLight,
+    syncMmdSpecularDirection,
+  } = await importThreeMmdLoader();
   const proxyModel = mmd as MmdRuntimeModelHandle & {
     root?: Object3D;
     outlineMeshes?: Object3D[];
     renderOrderMeshes?: Object3D[];
   };
-  if (proxyModel.root) {
-    syncMmdSpecularDirectionForObject(
-      proxyModel.root,
-      light,
-      syncMmdSpecularDirection,
-    );
-    return;
-  }
 
-  syncMmdSpecularDirectionForObject(
-    proxyModel.mesh,
-    light,
-    syncMmdSpecularDirection,
-  );
-  for (const proxy of [
-    ...(proxyModel.renderOrderMeshes ?? []),
-    ...(proxyModel.outlineMeshes ?? []),
-  ]) {
-    syncMmdSpecularDirectionForObject(proxy, light, syncMmdSpecularDirection);
-  }
+  const materials = collectMmdMaterials(proxyModel);
+  const directionScratch = new Vector3();
+  const baseline = {
+    color: light.color.clone(),
+    position: light.position.clone(),
+    targetPosition: light.target.position.clone(),
+  };
+  let hasAppliedLightState = false;
+  let initialized = false;
+  const sync = () => {
+    const lightState = proxyModel.runtime?.lightState?.();
+    if (lightState) {
+      applyMmdLightStateToThreeDirectionalLight(light, lightState, {
+        directionScratch,
+      });
+      hasAppliedLightState = true;
+      syncMmdSpecularDirection(materials, light);
+      initialized = true;
+      return;
+    }
+
+    if (hasAppliedLightState) {
+      light.color.copy(baseline.color);
+      light.position.copy(baseline.position);
+      light.target.position.copy(baseline.targetPosition);
+      light.target.updateMatrixWorld();
+      light.updateMatrixWorld();
+      hasAppliedLightState = false;
+      syncMmdSpecularDirection(materials, light);
+      initialized = true;
+      return;
+    }
+
+    // An absent light track intentionally leaves the preset color/direction
+    // untouched. Only the initial mount needs a specular sync; repeated
+    // undefined samples are a no-op to keep the per-frame path O(1).
+    if (!initialized) {
+      syncMmdSpecularDirection(materials, light);
+      initialized = true;
+    }
+  };
+
+  // Keep the existing mount-time behavior (preset lighting + specular sync).
+  sync();
+  return sync;
 }
 
-function syncMmdSpecularDirectionForObject(
-  object: Object3D,
-  light: DirectionalLight,
-  sync: (material: Material | Material[], light: DirectionalLight) => void,
-) {
-  object.traverse((child) => {
-    const material = (child as Partial<Mesh>).material;
-    if (material) {
-      sync(material, light);
-    }
-  });
+function collectMmdMaterials(
+  proxyModel: MmdRuntimeModelHandle & {
+    root?: Object3D;
+    outlineMeshes?: Object3D[];
+    renderOrderMeshes?: Object3D[];
+  },
+): Material[] {
+  const materials: Material[] = [];
+  const seen = new Set<Material>();
+  const roots = proxyModel.root
+    ? [proxyModel.root]
+    : [
+        proxyModel.mesh,
+        ...(proxyModel.renderOrderMeshes ?? []),
+        ...(proxyModel.outlineMeshes ?? []),
+      ];
+  for (const object of roots) {
+    object.traverse((child) => {
+      const material = (child as Partial<Mesh>).material;
+      const candidates = Array.isArray(material) ? material : [material];
+      for (const candidate of candidates) {
+        if (!candidate || seen.has(candidate)) {
+          continue;
+        }
+        seen.add(candidate);
+        materials.push(candidate);
+      }
+    });
+  }
+  return materials;
 }
 
 type ParsedMmdMetadata = {

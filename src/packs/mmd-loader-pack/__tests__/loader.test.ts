@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Group, Mesh, MeshBasicMaterial, MeshToonMaterial } from "three";
+import {
+  DirectionalLight,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshToonMaterial,
+} from "three";
 import type { SelectedFile } from "../../../lib/files";
 
 const mocks = vi.hoisted(() => ({
@@ -9,6 +15,27 @@ const mocks = vi.hoisted(() => ({
   initCore: vi.fn(),
   syncMmdMaterialStates: vi.fn(),
   syncMmdOutlineMaterialStates: vi.fn(),
+  syncMmdSpecularDirection: vi.fn(),
+  applyMmdLightStateToThreeDirectionalLight: vi.fn(
+    (light, state, options = {}) => {
+      if (!state) return light;
+      light.color.setRGB(state.color[0], state.color[1], state.color[2]);
+      const direction = options.directionScratch;
+      direction?.set(
+        -state.direction[0],
+        -state.direction[1],
+        state.direction[2],
+      );
+      if (direction && direction.lengthSq() > 0) {
+        direction.normalize();
+        light.target.position.set(0, 0, 0);
+        light.position.copy(direction).multiplyScalar(5);
+        light.target.updateMatrixWorld();
+        light.updateMatrixWorld();
+      }
+      return light;
+    },
+  ),
   readBinaryFile: vi.fn(),
   revokeObjectURL: vi.fn(),
   runtimeSetAnimation: vi.fn(),
@@ -33,8 +60,11 @@ vi.mock("@yohawing/three-mmd-loader", () => ({
   loadAmmoNamespace: vi.fn(async () => ({})),
   createAmmoMmdPhysicsBackend: vi.fn(() => mocks.physicsBackend),
   initCore: mocks.initCore,
+  applyMmdLightStateToThreeDirectionalLight:
+    mocks.applyMmdLightStateToThreeDirectionalLight,
   syncMmdMaterialStates: mocks.syncMmdMaterialStates,
   syncMmdOutlineMaterialStates: mocks.syncMmdOutlineMaterialStates,
+  syncMmdSpecularDirection: mocks.syncMmdSpecularDirection,
   parseVmd: vi.fn(() => ({
     kind: "vmd",
     metadata: { maxFrame: 60, modelName: "Hatsune Miku" },
@@ -169,6 +199,7 @@ import { applySelectionMaterialCustomizer } from "../../../viewer";
 import {
   loadMmdMotionPreviewObject,
   loadMmdPreviewObject,
+  syncMmdPreviewSpecularDirection,
 } from "../loaderInstalled";
 import { collectMmdMetadata } from "../metadata";
 import { isInternalMmdProxyObject } from "../userData";
@@ -250,6 +281,8 @@ describe("MMD preview loader", () => {
     });
     mocks.syncMmdMaterialStates.mockReset();
     mocks.syncMmdOutlineMaterialStates.mockReset();
+    mocks.syncMmdSpecularDirection.mockReset();
+    mocks.applyMmdLightStateToThreeDirectionalLight.mockClear();
     mocks.loadAsync.mockReset();
     mocks.readBinaryFile.mockReset();
     mocks.revokeObjectURL.mockReset();
@@ -267,6 +300,111 @@ describe("MMD preview loader", () => {
       new Uint8Array([0x50, 0x4d, 0x58, 0x20]).buffer,
     );
     mocks.physicsBackend.dispose.mockClear();
+  });
+
+  it("applies the upstream VMD light direction convention numerically", async () => {
+    const material = new MeshBasicMaterial();
+    const mesh = new Mesh(undefined, material);
+    const traverse = vi.spyOn(mesh, "traverse");
+    const light = new DirectionalLight("#ffffff", 1);
+    light.position.set(9, 9, 9);
+    const model = {
+      mesh,
+      runtime: {
+        reset: vi.fn(),
+        setAnimation: vi.fn(),
+        tick: vi.fn(),
+        lightState: vi.fn(() => ({
+          color: [0.2, 0.4, 0.6] as const,
+          direction: [0.25, -0.5, 0.75] as const,
+        })),
+      },
+    };
+
+    const sync = await syncMmdPreviewSpecularDirection(model, light);
+
+    expect(sync).toBeTypeOf("function");
+    expect(light.color.r).toBeCloseTo(0.2);
+    expect(light.color.g).toBeCloseTo(0.4);
+    expect(light.color.b).toBeCloseTo(0.6);
+    // three-mmd-loader maps MMD direction [x,y,z] to Three direction
+    // [-x,-y,+z] and places the key at distance 5 from its origin target.
+    expect(light.target.position.toArray()).toEqual([0, 0, 0]);
+    expect(light.position.x).toBeCloseTo(-1.336306);
+    expect(light.position.y).toBeCloseTo(2.672612);
+    expect(light.position.z).toBeCloseTo(4.008919);
+    expect(mocks.syncMmdSpecularDirection).toHaveBeenCalledWith(
+      [material],
+      light,
+    );
+    sync?.();
+    expect(traverse).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the preset light untouched when VMD has no light track", async () => {
+    const mesh = new Mesh(undefined, new MeshBasicMaterial());
+    const light = new DirectionalLight("#ffffff", 1);
+    light.color.setRGB(0.7, 0.6, 0.5);
+    light.position.set(3, 4, 5);
+    const initialPosition = light.position.toArray();
+    const model = {
+      mesh,
+      runtime: {
+        reset: vi.fn(),
+        setAnimation: vi.fn(),
+        tick: vi.fn(),
+        lightState: vi.fn(() => undefined),
+      },
+    };
+
+    const sync = await syncMmdPreviewSpecularDirection(model, light);
+    sync?.();
+    sync?.();
+
+    expect(light.color.toArray()).toEqual([0.7, 0.6, 0.5]);
+    expect(light.position.toArray()).toEqual(initialPosition);
+    expect(mocks.syncMmdSpecularDirection).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the mount baseline when a light track becomes absent", async () => {
+    const mesh = new Mesh(undefined, new MeshBasicMaterial());
+    const light = new DirectionalLight("#ffffff", 1);
+    light.color.setRGB(0.7, 0.6, 0.5);
+    light.position.set(3, 4, 5);
+    light.target.position.set(1, 2, 3);
+    light.target.updateMatrixWorld();
+    light.updateMatrixWorld();
+    const baselineColor = light.color.clone();
+    const baselinePosition = light.position.clone();
+    const baselineTarget = light.target.position.clone();
+    const lightState = vi
+      .fn()
+      .mockReturnValueOnce({
+        color: [0.2, 0.4, 0.6] as const,
+        direction: [0.25, -0.5, 0.75] as const,
+      })
+      .mockReturnValue(undefined);
+    const model = {
+      mesh,
+      runtime: {
+        reset: vi.fn(),
+        setAnimation: vi.fn(),
+        tick: vi.fn(),
+        lightState,
+      },
+    };
+
+    const sync = await syncMmdPreviewSpecularDirection(model, light);
+    expect(light.position.toArray()).not.toEqual(baselinePosition.toArray());
+    lightState.mockReturnValue(undefined);
+    sync?.();
+
+    expect(light.color.toArray()).toEqual(baselineColor.toArray());
+    expect(light.position.toArray()).toEqual(baselinePosition.toArray());
+    expect(light.target.position.toArray()).toEqual(baselineTarget.toArray());
+    expect(light.matrixWorld.elements[12]).toBeCloseTo(baselinePosition.x);
+    expect(light.target.matrixWorld.elements[13]).toBeCloseTo(baselineTarget.y);
+    expect(mocks.syncMmdSpecularDirection).toHaveBeenCalledTimes(2);
   });
 
   it("registers the optional MMD loader and returns a static mesh preview", async () => {
