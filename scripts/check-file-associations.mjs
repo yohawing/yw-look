@@ -18,6 +18,7 @@ const OPTIONAL_EXTENSIONS = new Set([
   "spz",
   "ksplat",
   "sog",
+  "ifc",
 ]);
 
 async function readJson(relativePath) {

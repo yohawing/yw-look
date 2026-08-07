@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "imports": {
+    "#yw-look-ifc-loader-entry": "./src/packs/ifc-loader-pack/loaderInstalled.ts",
     "#yw-look-mmd-loader-entry": "./src/packs/mmd-loader-pack/loaderInstalled.ts",
     "#yw-look-spark-loader-entry": "./src/packs/gaussian-splat-loader-pack/loaderInstalled.ts"
   },
@@ -93,13 +94,15 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-resizable-panels": "^4.11.2",
-    "three": "^0.180.0",
+    "three": "^0.182.0",
     "three-mesh-bvh": "0.9.11",
     "zustand": "^5.0.14"
   },
   "optionalDependencies": {
+    "@thatopen/fragments": "3.4.7",
     "@sparkjsdev/spark": "^2.1.0",
-    "@yohawing/three-mmd-loader": "0.6.0"
+    "@yohawing/three-mmd-loader": "0.6.0",
+    "web-ifc": "0.0.77"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -109,7 +112,7 @@
     "@types/node": "^25.5.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "@types/three": "^0.180.0",
+    "@types/three": "^0.182.0",
     "@vitejs/plugin-react": "^5.0.0",
     "@vitest/coverage-v8": "^4.1.3",
     "eslint": "^9.39.4",

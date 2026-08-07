@@ -58,6 +58,9 @@ const viewerMocks = vi.hoisted(() => {
     scheduleTextureThumbnailEnrichment: vi.fn(() => ({
       cancel: vi.fn(),
     })),
+    loaderRegistryGetByExtension: vi.fn((): unknown => undefined),
+    resetSceneObjects: vi.fn(),
+    syncMmdPreviewSpecularDirection: vi.fn(async () => undefined),
     stub: vi.fn(),
   };
 });
@@ -83,10 +86,10 @@ vi.mock("../../viewer", () => ({
   getObjectMaxDimension: viewerMocks.stub,
   getScaleWarning: viewerMocks.stub,
   loaderRegistry: {
-    getByExtension: vi.fn(() => undefined),
+    getByExtension: viewerMocks.loaderRegistryGetByExtension,
   },
   normalizeObjectScale: viewerMocks.normalizeObjectScale,
-  resetSceneObjects: viewerMocks.stub,
+  resetSceneObjects: viewerMocks.resetSceneObjects,
   revokeUrls: viewerMocks.revokeUrls,
   scheduleTextureThumbnailEnrichment:
     viewerMocks.scheduleTextureThumbnailEnrichment,
@@ -99,7 +102,7 @@ vi.mock("../../viewer/morphTargets", () => ({
 }));
 
 vi.mock("../../packs", () => ({
-  syncMmdPreviewSpecularDirection: vi.fn(async () => undefined),
+  syncMmdPreviewSpecularDirection: viewerMocks.syncMmdPreviewSpecularDirection,
 }));
 
 vi.mock("../camera", () => ({
@@ -230,11 +233,383 @@ describe("mountLoadedPreview", () => {
     viewerMocks.normalizeObjectScale.mockClear();
     viewerMocks.collectAssetMetadata.mockClear();
     viewerMocks.collectSceneTraversal.mockClear();
+    viewerMocks.resetSceneObjects.mockClear();
     viewerMocks.applyDisplayMode.mockClear();
     viewerMocks.applySkeletonHelpers.mockClear();
     viewerMocks.applySurfaceMaterialMode.mockClear();
     viewerMocks.scheduleTextureThumbnailEnrichment.mockClear();
+    viewerMocks.loaderRegistryGetByExtension.mockReset();
+    viewerMocks.loaderRegistryGetByExtension.mockReturnValue(undefined);
+    viewerMocks.syncMmdPreviewSpecularDirection.mockReset();
+    viewerMocks.syncMmdPreviewSpecularDirection.mockResolvedValue(undefined);
     viewerMocks.cleanupCallback.mockClear();
+  });
+
+  it("prefers a loader-created runtime factory over the registry runtime", async () => {
+    mountState.disposeDuringNormalize = false;
+    const registryRuntime = { dispose: vi.fn() };
+    const registryFactory = vi.fn(() => registryRuntime);
+    viewerMocks.loaderRegistryGetByExtension.mockReturnValue({
+      createRuntime: registryFactory,
+    });
+    const loaderRuntime = { dispose: vi.fn() };
+    const createPackRuntime = vi.fn(() => loaderRuntime);
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+
+    await mountLoadedPreview(
+      {
+        object: new Group(),
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+        createPackRuntime,
+      },
+      options,
+    );
+
+    expect(createPackRuntime).toHaveBeenCalledWith(context);
+    expect(registryFactory).not.toHaveBeenCalled();
+    expect(context.packRuntime).toBe(loaderRuntime);
+  });
+
+  it("disposes a loader-created runtime on an initially stale result", async () => {
+    mountState.disposed = true;
+    const object = new Group();
+    const runtime = { dispose: vi.fn(), ownsMountedObjectResources: true };
+    const createPackRuntime = vi.fn(() => runtime);
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+
+    const result = await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+        createPackRuntime,
+      },
+      options,
+    );
+
+    expect(result).toBeNull();
+    expect(createPackRuntime).toHaveBeenCalledWith(context);
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(viewerMocks.disposeObject).not.toHaveBeenCalledWith(object);
+  });
+
+  it("disposes a distinct existing runtime before installing the loader runtime", async () => {
+    mountState.disposeDuringNormalize = false;
+    const existingRuntime = { dispose: vi.fn() };
+    const loaderRuntime = { dispose: vi.fn() };
+    const context = createSceneContext();
+    context.packRuntime = existingRuntime;
+    const { options } = createMountOptions(context);
+
+    await mountLoadedPreview(
+      {
+        object: new Group(),
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+        createPackRuntime: () => loaderRuntime,
+      },
+      options,
+    );
+
+    expect(existingRuntime.dispose).toHaveBeenCalledOnce();
+    expect(loaderRuntime.dispose).not.toHaveBeenCalled();
+    expect(context.packRuntime).toBe(loaderRuntime);
+  });
+
+  it("preserves the active runtime and cleans an incoming same-instance result", async () => {
+    const object = new Group();
+    const existingRuntime = { dispose: vi.fn() };
+    const context = createSceneContext();
+    context.packRuntime = existingRuntime;
+    const { options } = createMountOptions(context);
+
+    await expect(
+      mountLoadedPreview(
+        {
+          object,
+          cleanupCallbacks: [],
+          cleanupUrls: [],
+          clips: [],
+          formatVersion: null,
+          createPackRuntime: () => existingRuntime,
+        },
+        { ...options, replaceExistingPreview: true },
+      ),
+    ).rejects.toThrow("fresh PackRuntime instance");
+
+    expect(existingRuntime.dispose).not.toHaveBeenCalled();
+    expect(context.packRuntime).toBe(existingRuntime);
+    expect(viewerMocks.disposeObject).toHaveBeenCalledWith(object);
+  });
+
+  it("keeps the active object when a cached result reuses the active runtime and object", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const existingRuntime = { dispose: vi.fn() };
+    const context = createSceneContext();
+    context.scene.add(object);
+    context.mountedObject = object;
+    context.sourceObject = object;
+    context.packRuntime = existingRuntime;
+    const { options } = createMountOptions(context);
+
+    await expect(
+      mountLoadedPreview(
+        {
+          object,
+          cleanupCallbacks: [],
+          cleanupUrls: [],
+          clips: [],
+          formatVersion: null,
+          createPackRuntime: () => existingRuntime,
+        },
+        options,
+      ),
+    ).rejects.toThrow("fresh PackRuntime instance");
+
+    expect(context.scene.children).toContain(object);
+    expect(context.mountedObject).toBe(object);
+    expect(context.sourceObject).toBe(object);
+    expect(context.packRuntime).toBe(existingRuntime);
+    expect(existingRuntime.dispose).not.toHaveBeenCalled();
+    expect(viewerMocks.disposeObject).not.toHaveBeenCalledWith(object);
+  });
+
+  it("aborts post-mount failures and disposes loader runtime exactly once", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const cleanupCallback = viewerMocks.cleanupCallback;
+    const cleanupUrls = ["blob:failed-preview"];
+    const runtime = { dispose: vi.fn(), ownsMountedObjectResources: true };
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    viewerMocks.syncMmdPreviewSpecularDirection.mockRejectedValueOnce(
+      new Error("specular sync failed"),
+    );
+
+    await expect(
+      mountLoadedPreview(
+        {
+          object,
+          cleanupCallbacks: [cleanupCallback],
+          cleanupUrls,
+          clips: [],
+          formatVersion: null,
+          createPackRuntime: () => runtime,
+        },
+        options,
+      ),
+    ).rejects.toThrow("specular sync failed");
+
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(context.scene.children).not.toContain(object);
+    expect(cleanupCallback).toHaveBeenCalledOnce();
+    expect(viewerMocks.revokeUrls).toHaveBeenCalledWith(cleanupUrls);
+    expect(viewerMocks.disposeObject).not.toHaveBeenCalledWith(object);
+  });
+
+  it("preserves the mount error when a cleanup callback throws", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const cleanupUrls = ["blob:callback-failure"];
+    const runtime = { dispose: vi.fn(), ownsMountedObjectResources: false };
+    const callbackError = new Error("cleanup callback failed");
+    const throwingCleanup = vi.fn(() => {
+      throw callbackError;
+    });
+    const laterCleanup = vi.fn();
+    const mountError = new Error("post-mount failure");
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    viewerMocks.syncMmdPreviewSpecularDirection.mockRejectedValueOnce(
+      mountError,
+    );
+
+    await expect(
+      mountLoadedPreview(
+        {
+          object,
+          cleanupCallbacks: [throwingCleanup, laterCleanup],
+          cleanupUrls,
+          clips: [],
+          formatVersion: null,
+          createPackRuntime: () => runtime,
+        },
+        options,
+      ),
+    ).rejects.toBe(mountError);
+
+    expect(throwingCleanup).toHaveBeenCalledOnce();
+    expect(laterCleanup).toHaveBeenCalledOnce();
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(viewerMocks.disposeObject).toHaveBeenCalledWith(object);
+    expect(viewerMocks.revokeUrls).toHaveBeenCalledWith(cleanupUrls);
+  });
+
+  it("continues replacing the previous preview when its cleanup callback throws", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const previousObject = new Group();
+    const callbackError = new Error("previous cleanup failed");
+    const throwingCleanup = vi.fn(() => {
+      throw callbackError;
+    });
+    const laterCleanup = vi.fn();
+    const context = createSceneContext();
+    context.scene.add(previousObject);
+    context.mountedObject = previousObject;
+    context.sourceObject = previousObject;
+    context.cleanupCallbacks = [throwingCleanup, laterCleanup];
+    const { options } = createMountOptions(context);
+
+    await expect(
+      mountLoadedPreview(
+        {
+          object,
+          cleanupCallbacks: [],
+          cleanupUrls: [],
+          clips: [],
+          formatVersion: null,
+        },
+        { ...options, replaceExistingPreview: true },
+      ),
+    ).rejects.toBe(callbackError);
+
+    expect(throwingCleanup).toHaveBeenCalledOnce();
+    expect(laterCleanup).toHaveBeenCalledOnce();
+    expect(viewerMocks.resetSceneObjects).toHaveBeenCalledOnce();
+    expect(context.cleanupCallbacks).toEqual([]);
+  });
+
+  it("preserves the mount error when runtime disposal throws", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const cleanupUrls = ["blob:runtime-failure"];
+    const runtimeError = new Error("runtime dispose failed");
+    const runtime = {
+      dispose: vi.fn(() => {
+        throw runtimeError;
+      }),
+      ownsMountedObjectResources: false,
+    };
+    const mountError = new Error("post-mount failure");
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    viewerMocks.syncMmdPreviewSpecularDirection.mockRejectedValueOnce(
+      mountError,
+    );
+
+    await expect(
+      mountLoadedPreview(
+        {
+          object,
+          cleanupCallbacks: [],
+          cleanupUrls,
+          clips: [],
+          formatVersion: null,
+          createPackRuntime: () => runtime,
+        },
+        options,
+      ),
+    ).rejects.toBe(mountError);
+
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(context.packRuntime).toBeNull();
+    expect(viewerMocks.disposeObject).toHaveBeenCalledWith(object);
+    expect(viewerMocks.revokeUrls).toHaveBeenCalledWith(cleanupUrls);
+  });
+
+  it("tracks and disposes a late registry runtime when a later callback throws", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const cleanupUrls = ["blob:registry-failure"];
+    const registryRuntime = { dispose: vi.fn() };
+    const registryFactory = vi.fn(() => registryRuntime);
+    const mountError = new Error("animation state callback failed");
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    viewerMocks.loaderRegistryGetByExtension.mockReturnValue({
+      createRuntime: registryFactory,
+    });
+    options.update.setAnimationState.mockImplementation(() => {
+      throw mountError;
+    });
+
+    await expect(
+      mountLoadedPreview(
+        {
+          object,
+          cleanupCallbacks: [],
+          cleanupUrls,
+          clips: [],
+          formatVersion: null,
+        },
+        options,
+      ),
+    ).rejects.toBe(mountError);
+
+    expect(registryFactory).toHaveBeenCalledOnce();
+    expect(registryRuntime.dispose).toHaveBeenCalledOnce();
+    expect(context.packRuntime).toBeNull();
+    expect(viewerMocks.disposeObject).toHaveBeenCalledWith(object);
+    expect(viewerMocks.revokeUrls).toHaveBeenCalledWith(cleanupUrls);
+  });
+
+  it("disposes a loader-created pack-owned runtime once on a mid-mount abort", async () => {
+    const object = new Group();
+    const runtime = { dispose: vi.fn(), ownsMountedObjectResources: true };
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+
+    const result = await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+        createPackRuntime: () => runtime,
+      },
+      options,
+    );
+
+    expect(result).toBeNull();
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(viewerMocks.disposeObject).not.toHaveBeenCalledWith(object);
+    expect(context.packRuntime).toBeNull();
+    expect(context.scene.children).not.toContain(object);
+  });
+
+  it("keeps generic disposal for a loader-created viewer-owned runtime", async () => {
+    const object = new Group();
+    const runtime = { dispose: vi.fn(), ownsMountedObjectResources: false };
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+
+    const result = await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+        createPackRuntime: () => runtime,
+      },
+      options,
+    );
+
+    expect(result).toBeNull();
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(viewerMocks.disposeObject).toHaveBeenCalledWith(object);
   });
 
   it("aborts late mount processing without publishing preview state when disposed during normalization", async () => {

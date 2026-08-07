@@ -59,7 +59,7 @@ import {
 import {
   applyViewportBackground,
   applyViewportRenderingSettings,
-  runCleanupCallbacks,
+  runCleanupCallbacksSafely,
   toneMappingModeMap,
 } from "../viewport/renderSettings";
 import {
@@ -98,6 +98,31 @@ export type {
   EnvironmentPreset,
   ToneMappingMode,
 } from "../types/viewer";
+
+function cleanupSceneContext(context: SceneContext) {
+  let firstCleanupError = runCleanupCallbacksSafely(context.cleanupCallbacks);
+  context.cleanupCallbacks = [];
+  try {
+    stopAnimations(context);
+  } catch (error) {
+    firstCleanupError ??= error;
+  }
+  context.mmdModel = null;
+  try {
+    resetSceneObjects(context);
+  } catch (error) {
+    firstCleanupError ??= error;
+  }
+  try {
+    revokeUrls(context.cleanupUrls);
+  } catch (error) {
+    firstCleanupError ??= error;
+  }
+  context.cleanupUrls = [];
+  if (firstCleanupError) {
+    console.error("[viewer] preview cleanup failed", firstCleanupError);
+  }
+}
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
@@ -637,15 +662,7 @@ export function AssetViewport({
       return;
     }
 
-    runCleanupCallbacks(context.cleanupCallbacks);
-    context.cleanupCallbacks = [];
-    context.packRuntime?.dispose();
-    context.packRuntime = null;
-    stopAnimations(context);
-    context.mmdModel = null;
-    resetSceneObjects(context);
-    revokeUrls(context.cleanupUrls);
-    context.cleanupUrls = [];
+    cleanupSceneContext(context);
     assetResourceMetricsRef.current = null;
     publishResourceDiagnostics(context);
     context.controls.enabled = false;
@@ -968,15 +985,7 @@ export function AssetViewport({
       if (keepMountedForDeferredReload) {
         return;
       }
-      runCleanupCallbacks(context.cleanupCallbacks);
-      context.cleanupCallbacks = [];
-      context.packRuntime?.dispose();
-      context.packRuntime = null;
-      stopAnimations(context);
-      context.mmdModel = null;
-      resetSceneObjects(context);
-      revokeUrls(context.cleanupUrls);
-      context.cleanupUrls = [];
+      cleanupSceneContext(context);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
     };

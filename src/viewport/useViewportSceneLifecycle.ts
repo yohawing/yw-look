@@ -2,7 +2,7 @@ import { useEffect, type MutableRefObject, type RefObject } from "react";
 import {
   AmbientLight,
   DirectionalLight,
-  PCFSoftShadowMap,
+  PCFShadowMap,
   PerspectiveCamera,
   PMREMGenerator,
   Scene,
@@ -179,7 +179,7 @@ export function useViewportSceneLifecycle({
       exposureRef.current,
     );
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = PCFSoftShadowMap;
+    renderer.shadowMap.type = PCFShadowMap;
 
     const scene = new Scene();
     const camera = new PerspectiveCamera(

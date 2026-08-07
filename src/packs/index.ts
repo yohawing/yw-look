@@ -10,6 +10,7 @@ import type {
   ViewerFeedback,
 } from "../types/viewer";
 import { gaussianSplatLoaderPack } from "./gaussian-splat-loader-pack/pack";
+import { ifcLoaderPack } from "./ifc-loader-pack/pack";
 import {
   formatMmdMorphTargetMeta,
   getMmdBoneDetails,
@@ -21,6 +22,7 @@ import { vrmLoaderPack } from "./vrm-loader-pack/pack";
 
 export { loadSparkPreviewObject } from "./gaussian-splat-loader-pack/loader";
 export { gaussianSplatLoaderPack } from "./gaussian-splat-loader-pack/pack";
+export { ifcLoaderPack } from "./ifc-loader-pack/pack";
 export {
   formatMmdMorphTargetMeta,
   getMmdBoneDetails,
@@ -51,6 +53,7 @@ export { vrmLoaderPack } from "./vrm-loader-pack/pack";
 
 export const formatPacks = [
   gaussianSplatLoaderPack,
+  ifcLoaderPack,
   mmdLoaderPack,
   vrmLoaderPack,
 ] as const;

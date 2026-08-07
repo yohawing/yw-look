@@ -18,6 +18,7 @@ import {
   Texture,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
+import type { SceneContext } from "../../types/viewer";
 import {
   applyBackfaceCulling,
   collectSceneTraversal,
@@ -30,6 +31,7 @@ import {
   applyVertexColors,
   traverseMeshesExcludingHelpers,
   normalizeObjectScale,
+  resetSceneObjects,
 } from "../scene";
 import { syncMmdTransparentMaterialRenderState } from "../../packs";
 
@@ -860,5 +862,77 @@ describe("normal surface material mode", () => {
 
     expect(disposeOriginal).toHaveBeenCalledTimes(1);
     expect(disposeNormal).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("scene reset resource ownership", () => {
+  function makeContext(object: Mesh, packRuntime: SceneContext["packRuntime"]) {
+    const scene = new Scene();
+    scene.add(object);
+    return {
+      scene,
+      mountedObject: object,
+      sourceObject: object,
+      previewObject: null,
+      boneOnlyPreview: false,
+      cleanupUrls: [],
+      cleanupCallbacks: [],
+      animationRoot: null,
+      mixer: null,
+      clips: [],
+      activeAction: null,
+      packRuntime,
+      mmdModel: null,
+      mmdMotion: null,
+      mmdLightSync: null,
+      textureRegistry: new Map(),
+      rawMaxDimension: 1,
+    } as unknown as SceneContext;
+  }
+
+  it("removes but does not generically dispose pack-owned mounted resources", () => {
+    const object = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    const disposeGeometry = vi.spyOn(object.geometry, "dispose");
+    const disposeMaterial = vi.spyOn(object.material, "dispose");
+    const runtime = { dispose: vi.fn(), ownsMountedObjectResources: true };
+    const context = makeContext(object, runtime);
+
+    resetSceneObjects(context);
+
+    expect(context.scene.children).not.toContain(object);
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(disposeGeometry).not.toHaveBeenCalled();
+    expect(disposeMaterial).not.toHaveBeenCalled();
+    expect(context.packRuntime).toBeNull();
+  });
+
+  it("generically disposes viewer-owned mounted resources by default", () => {
+    const object = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    const disposeGeometry = vi.spyOn(object.geometry, "dispose");
+    const disposeMaterial = vi.spyOn(object.material, "dispose");
+    const context = makeContext(object, null);
+
+    resetSceneObjects(context);
+
+    expect(disposeGeometry).toHaveBeenCalledOnce();
+    expect(disposeMaterial).toHaveBeenCalledOnce();
+  });
+
+  it("completes scene reset before rethrowing a runtime disposal error", () => {
+    const object = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    const runtimeError = new Error("runtime dispose failed");
+    const runtime = {
+      dispose: vi.fn(() => {
+        throw runtimeError;
+      }),
+      ownsMountedObjectResources: true,
+    };
+    const context = makeContext(object, runtime);
+
+    expect(() => resetSceneObjects(context)).toThrow(runtimeError);
+    expect(context.packRuntime).toBeNull();
+    expect(context.scene.children).not.toContain(object);
+    expect(context.mountedObject).toBeNull();
+    expect(context.sourceObject).toBeNull();
   });
 });

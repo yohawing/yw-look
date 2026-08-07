@@ -97,14 +97,16 @@ function mockCanvasThumbnail(thumbnailUrl = "data:image/jpeg;base64,thumb") {
     data: new Uint8ClampedArray(width * height * 4),
   }));
   const putImageDataMock = vi.fn();
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-    () =>
-      ({
-        createImageData: createImageDataMock,
-        drawImage: drawImageMock,
-        putImageData: putImageDataMock,
-      }) as unknown as CanvasRenderingContext2D,
-  );
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(((
+    contextId: string,
+  ) =>
+    contextId === "2d"
+      ? ({
+          createImageData: createImageDataMock,
+          drawImage: drawImageMock,
+          putImageData: putImageDataMock,
+        } as unknown as CanvasRenderingContext2D)
+      : null) as HTMLCanvasElement["getContext"]);
   vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
     thumbnailUrl,
   );

@@ -54,6 +54,7 @@ describe("preview support classification", () => {
     expect(loaderRegistry.listPacks().map((pack) => pack.id)).toEqual([
       "core-preview-loader",
       "gaussian-splat-loader-pack",
+      "ifc-loader-pack",
       "mmd-loader-pack",
       "vrm-loader-pack",
     ]);
@@ -70,6 +71,18 @@ describe("preview support classification", () => {
     expect(getPreviewSupportState("pmx")).toBe("implemented");
     expect(getPreviewSupportState("pmd")).toBe("implemented");
     expect(getPreviewSupportState("vmd")).toBe("implemented");
+  });
+
+  it("marks IFC as implemented only while its optional pack is available", () => {
+    expect(getPreviewSupportState("ifc")).toBe("implemented");
+    expect(
+      getPreviewSupportState("ifc", { optionalLoaderInstalled: false }),
+    ).toBe("missingOptionalLoader");
+    expect(
+      getPreviewSupportState("ifc", {
+        disabledOptionalLoaderPackIds: ["ifc-loader-pack"],
+      }),
+    ).toBe("disabledOptionalLoader");
   });
 
   it("marks optional MMD formats as missing when the pack is absent", () => {
@@ -167,6 +180,22 @@ describe("preview support classification", () => {
         id: "gaussian-splat-loader-pack",
         name: "Gaussian Splat Loader Pack",
         extensions: ["ksplat", "sog", "splat", "spz"],
+        installed: true,
+        enabled: true,
+        manifestInstalled: false,
+        runtimeAvailable: true,
+        version: undefined,
+        compatibility: {
+          state: "bundled",
+          label: "Bundled runtime",
+          detail:
+            "The loader is bundled with this build but has no managed manifest.",
+        },
+      },
+      {
+        id: "ifc-loader-pack",
+        name: "IFC Loader Pack",
+        extensions: ["ifc"],
         installed: true,
         enabled: true,
         manifestInstalled: false,

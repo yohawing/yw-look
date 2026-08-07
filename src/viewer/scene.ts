@@ -634,6 +634,15 @@ export function stopAnimations(context: SceneContext) {
 }
 
 export function resetSceneObjects(context: SceneContext) {
+  const packRuntime = context.packRuntime;
+  context.packRuntime = null;
+  let firstCleanupError: unknown = null;
+  try {
+    packRuntime?.dispose();
+  } catch (error) {
+    firstCleanupError = error;
+  }
+
   // Drop any overlay helpers pointing at the outgoing asset before
   // we dispose its geometry, otherwise the helpers would still
   // reference freed buffers until the next toggle.
@@ -648,7 +657,9 @@ export function resetSceneObjects(context: SceneContext) {
 
   if (context.sourceObject) {
     context.scene.remove(context.sourceObject);
-    disposeObject(context.sourceObject);
+    if (packRuntime?.ownsMountedObjectResources !== true) {
+      disposeObject(context.sourceObject);
+    }
     context.sourceObject = null;
   }
 
@@ -656,6 +667,10 @@ export function resetSceneObjects(context: SceneContext) {
   context.boneOnlyPreview = false;
   context.animationRoot = null;
   context.textureRegistry = new Map<string, Texture>();
+
+  if (firstCleanupError) {
+    throw firstCleanupError;
+  }
 }
 
 /**

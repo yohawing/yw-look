@@ -26,6 +26,11 @@ export const optionalLoaderPackDefinitions = [
       { extension: "sog", formatLabel: "SOG Gaussian Splat" },
     ],
   },
+  {
+    id: "ifc-loader-pack",
+    name: "IFC Loader Pack",
+    extensions: [{ extension: "ifc", formatLabel: "IFC / BIM" }],
+  },
 ] as const;
 
 export function getOptionalLoaderPackDefinition(id: string) {

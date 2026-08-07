@@ -146,6 +146,11 @@ export function tickViewportFrame({
 
   if (viewerSurfaceMode === "asset") {
     updateRuntimePreview(sceneContext, deltaSeconds);
+    sceneContext?.packRuntime?.update?.({
+      camera: activeCamera ?? defaultCamera,
+      deltaSeconds,
+      renderer,
+    });
   }
 
   renderViewportFrame({

@@ -97,7 +97,7 @@ describe("loadTexturePreviewObject", () => {
   });
 
   it("loads PNG textures as standalone previews with sRGB color space", async () => {
-    const sourceTexture = new Texture();
+    const sourceTexture = new Texture<HTMLImageElement>();
     vi.spyOn(TextureLoader.prototype, "loadAsync").mockResolvedValue(
       sourceTexture,
     );

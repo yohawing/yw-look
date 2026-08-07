@@ -14,6 +14,7 @@ const INSTALLER_MANAGED_OPTIONAL_LOADER_PACKS: &[(&str, &str)] = &[
     ("vrm-loader-pack", "vrm"),
     ("mmd-loader-pack", "mmd"),
     ("gaussian-splat-loader-pack", "gaussian-splat"),
+    ("ifc-loader-pack", "ifc"),
 ];
 
 #[cfg_attr(test, derive(ts_rs::TS))]
