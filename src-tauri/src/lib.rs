@@ -27,11 +27,12 @@ use crate::commands::file_associations::{open_default_apps_settings, sync_file_a
 use crate::commands::files::{
     get_startup_file, inspect_asset, list_supported_siblings, load_format_support,
     load_recent_files, open_file_dialog, read_binary_file, read_binary_file_prefix,
-    resolve_selected_file,
+    resolve_selected_file, resolve_selected_files,
 };
 use crate::commands::loader_packs::{
     install_optional_loader_pack, load_optional_loader_manifests, remove_optional_loader_pack,
 };
+use crate::commands::psd::decode_psd;
 use crate::commands::settings::{load_settings, load_update_configuration, save_settings};
 use crate::commands::shot::{
     finish_shot_run, get_shot_batch_config, get_shot_config, parse_shot_cli_config,
@@ -220,6 +221,7 @@ pub fn run() {
             load_update_configuration,
             open_file_dialog,
             resolve_selected_file,
+            resolve_selected_files,
             list_supported_siblings,
             read_binary_file,
             read_binary_file_prefix,
@@ -229,6 +231,7 @@ pub fn run() {
             load_optional_loader_manifests,
             install_optional_loader_pack,
             remove_optional_loader_pack,
+            decode_psd,
             sync_file_associations,
             open_default_apps_settings,
             log_diagnostic_event,

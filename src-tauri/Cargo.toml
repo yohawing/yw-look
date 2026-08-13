@@ -1,6 +1,6 @@
 [package]
 name = "yw-look"
-version = "0.3.0"
+version = "0.3.1"
 description = "Quick look style asset viewer for CG workflows"
 authors = ["OpenAI Codex"]
 edition = "2021"
@@ -38,7 +38,13 @@ flip-compare = ["dep:nv-flip", "dep:image"]
 [dependencies]
 # Pin the pure-Rust OpenUSD compatibility layer used by yw-look so local,
 # CI, and release builds resolve the same source without a sibling checkout.
-openusd = { git = "https://github.com/yohawing/openusd.git", rev = "98364275b34c441468014a27b2c820dc21b84f4b" }
+openusd = { git = "https://github.com/mxpv/openusd.git", rev = "659917514b462834293094b93d62b5decb7133db", features = ["geom"] }
+# Error type for the yw-look-owned stage-query surface in
+# `usd::openusd_backend::stage_query` (USD-NATIVE-01 Phase 2a). openusd
+# already depends on anyhow and returns it from its public API, so this
+# just names the same type on yw-look's side of that boundary.
+anyhow = "1"
+psd = "0.3.5"
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

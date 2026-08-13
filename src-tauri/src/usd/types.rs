@@ -7,10 +7,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Phase 4 wire equivalent of `openusd::StageLoadPolicy`. Carried into
-/// the backend via Tauri command parameters so the frontend can toggle
-/// between "compose every payload" and "defer every payload" without
-/// the Rust side needing to understand the crate-level enum.
+/// Phase 4 wire equivalent of the openusd backend's payload-load
+/// policy. Carried into the backend via Tauri command parameters so
+/// the frontend can toggle between "compose every payload" and "defer
+/// every payload" without the Rust side needing to understand the
+/// crate-level enum.
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +23,46 @@ pub enum StageLoadPolicy {
     /// remains queryable for inspector display; the target layers are
     /// never fetched and do not contribute to the composed stage.
     NoPayloads,
+}
+
+/// USD stage capability categories exposed to the frontend diagnostics
+/// surface. The order of entries in `StageSummary::capabilities` and
+/// `StageInspection::capabilities` is fixed by the backend, but keeping the
+/// enum explicit makes the wire contract machine-readable and stable.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StageCapabilityKind {
+    PointInstancer,
+    MaterialX,
+    Skel,
+    AnimationRange,
+    Payload,
+    VariantOverride,
+    UsdAuthoredSplat,
+}
+
+/// Current preview support level for a USD stage capability.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StageCapabilitySupport {
+    Supported,
+    Degraded,
+    Unsupported,
+}
+
+/// One deterministic capability diagnostic for a USD stage.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageCapabilityInfo {
+    pub kind: StageCapabilityKind,
+    pub detected: bool,
+    pub support: StageCapabilitySupport,
+    /// Empty for fully supported capabilities. Degraded and unsupported
+    /// capabilities always carry a stable, user-facing explanation.
+    pub reason: String,
 }
 
 /// One variant set found on a prim during stage inspection.
@@ -37,10 +78,9 @@ pub struct VariantSetInfo {
     /// prim does not explicitly author a selection (the first variant
     /// becomes the implicit default).
     pub selection: Option<String>,
-    /// Available variant names in this set. Empty when the backend
-    /// cannot enumerate them (e.g. the openusd Rust fork — only the
-    /// C++ shim populates this for now). The frontend uses this to
-    /// drive a switcher pulldown; an empty list disables the control.
+    /// Authored variant names in this set, strongest site first with
+    /// duplicates removed. The frontend uses this to drive a switcher
+    /// pulldown; an empty list means no authored candidates were found.
     #[serde(default)]
     pub variants: Vec<String>,
 }
@@ -176,10 +216,15 @@ pub struct StageInspection {
     #[serde(default)]
     pub variant_selection_arcs: Vec<CompositionArc>,
     pub missing_assets: Vec<String>,
-    /// Variant sets found across all prims (read-only for now;
-    /// interactive switching needs a fork API for session-layer
-    /// variant selection override).
+    /// Variant sets found across all prims. Candidate names are authored
+    /// data for display; interactive switching still depends on the
+    /// backend capability diagnostic and may remain read-only.
     pub variant_sets: Vec<VariantSetInfo>,
+    /// Deterministic capability diagnostics. Older payloads may omit this
+    /// field while the Rust backend is upgraded, so deserialization defaults
+    /// to an empty array for compatibility.
+    #[serde(default)]
+    pub capabilities: Vec<StageCapabilityInfo>,
     /// Phase 4: which load policy was used to build the inspected stage.
     /// Reflected back to the frontend so UI controls can render their
     /// current state from a single source of truth.
@@ -252,6 +297,11 @@ pub struct StageSummary {
     /// still *resolvable*, just not loaded.
     pub unresolved_payload_count: usize,
     pub warnings: Vec<String>,
+    /// Deterministic capability diagnostics. Older payloads may omit this
+    /// field while the Rust backend is upgraded, so deserialization defaults
+    /// to an empty array for compatibility.
+    #[serde(default)]
+    pub capabilities: Vec<StageCapabilityInfo>,
     /// Phase 4: the load policy used when summarizing.
     pub load_policy: StageLoadPolicy,
 }

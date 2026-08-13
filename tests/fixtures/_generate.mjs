@@ -7,6 +7,7 @@
  * Generates:
  *   textures/1x1.png, textures/1x1.jpg, textures/1x1.jpeg
  *   models/animated-triangle.fbx
+ *   models/minimal-motion.bvh
  *   models/material-morph-two-materials.pmx
  *   broken/* error-matrix fixtures for B8 (beta error visualization)
  */
@@ -71,6 +72,20 @@ function makePng(r, g, b, a = 255) {
     chunk("IDAT", Buffer.from(compressed)),
     chunk("IEND", Buffer.alloc(0)),
   ]);
+}
+
+function makePsd(r, g, b) {
+  const header = Buffer.alloc(40);
+  header.write("8BPS", 0, "ascii");
+  header.writeUInt16BE(1, 4);
+  header.writeUInt16BE(3, 12);
+  header.writeUInt32BE(1, 14);
+  header.writeUInt32BE(1, 18);
+  header.writeUInt16BE(8, 22);
+  header.writeUInt16BE(3, 24);
+  // Color-mode data, image resources, and layer/mask sections are empty.
+  // Raw image data follows the two-byte compression field, one plane per RGB channel.
+  return Buffer.concat([header, Buffer.from([r, g, b])]);
 }
 
 // -----------------------------------------------------------------------
@@ -400,11 +415,12 @@ function makeAnimatedTriangleFbxAscii() {
     curveZ: 213,
   };
 
-  const keyTimes = [0, oneSecond];
+  // Keep one key beyond AnimationStack.LocalStop so range clipping is covered.
+  const keyTimes = [0, oneSecond, oneSecond * 2];
   const keyTimesBlock = fbxArrayProperty("KeyTime", keyTimes, 2);
-  const curveXValues = fbxArrayProperty("KeyValueFloat", [0, 0], 2);
-  const curveYValues = fbxArrayProperty("KeyValueFloat", [0, 1], 2);
-  const curveZValues = fbxArrayProperty("KeyValueFloat", [0, 0], 2);
+  const curveXValues = fbxArrayProperty("KeyValueFloat", [0, 0, 0], 2);
+  const curveYValues = fbxArrayProperty("KeyValueFloat", [0, 1, 2], 2);
+  const curveZValues = fbxArrayProperty("KeyValueFloat", [0, 0, 0], 2);
 
   return `; FBX 7.4.0 project file
 ; yw-look fixture: minimal animated triangle (_generate.mjs)
@@ -536,7 +552,7 @@ Connections: {
 }
 
 // -----------------------------------------------------------------------
-// textures/1x1.png, textures/1x1.jpg, textures/1x1.jpeg
+// textures/1x1.png, textures/1x1.jpg, textures/1x1.jpeg, textures/1x1.psd
 // -----------------------------------------------------------------------
 
 const pngPath = join(texturesDir, "1x1.png");
@@ -548,6 +564,7 @@ const jpgBytes = Buffer.from(
 );
 writeBinary(join(texturesDir, "1x1.jpg"), jpgBytes);
 writeBinary(join(texturesDir, "1x1.jpeg"), jpgBytes);
+writeBinary(join(texturesDir, "1x1.psd"), makePsd(255, 0, 255));
 
 // -----------------------------------------------------------------------
 // B8 error-matrix fixtures (tests/fixtures/broken/)
@@ -755,11 +772,35 @@ writeText(
   join(modelsDir, "animated-triangle.fbx"),
   makeAnimatedTriangleFbxAscii(),
 );
+writeText(
+  join(modelsDir, "minimal-motion.bvh"),
+  `HIERARCHY
+ROOT Hips
+{
+  OFFSET 0.0 0.0 0.0
+  CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation
+  JOINT Chest
+  {
+    OFFSET 0.0 10.0 0.0
+    CHANNELS 3 Zrotation Xrotation Yrotation
+    End Site
+    {
+      OFFSET 0.0 10.0 0.0
+    }
+  }
+}
+MOTION
+Frames: 2
+Frame Time: 0.0333333333333333
+0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+1.0 0.0 0.0 30.0 0.0 0.0 15.0 0.0 0.0
+`,
+);
 writeBinary(
   join(modelsDir, "material-morph-two-materials.pmx"),
   makeMaterialMorphPmx(),
 );
 
 console.log(
-  "Done. Fixture textures, animated FBX, material morph PMX, and B8 broken fixtures generated.",
+  "Done. Fixture textures, animated FBX, BVH motion, material morph PMX, and B8 broken fixtures generated.",
 );

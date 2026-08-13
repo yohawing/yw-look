@@ -18,7 +18,8 @@ use crate::usd::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
     CompositionArc, CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo,
     MetadataEntry, PrimInspection, PrimTypeCount, PurposeModes, RelationshipInfo, ShapingCone,
-    StageInspection, StageLoadPolicy, StageSummary, TimeSampleEntry, UsdLightInfo,
+    StageCapabilityInfo, StageCapabilityKind, StageCapabilitySupport, StageInspection,
+    StageLoadPolicy, StageSummary, TimeSampleEntry, UsdLightInfo,
     VariantSelection, VariantSetInfo,
 };
 
@@ -84,6 +85,12 @@ fn generated_ipc_types() -> String {
         &format_tsrs_decl(PurposeModes::decl(&cfg)),
         "",
         &format_tsrs_decl(ExtractGeometryOptions::decl(&cfg)),
+        "",
+        &format_tsrs_decl(StageCapabilityKind::decl(&cfg)),
+        "",
+        &format_tsrs_decl(StageCapabilitySupport::decl(&cfg)),
+        "",
+        &format_tsrs_decl(StageCapabilityInfo::decl(&cfg)),
         "",
         &format_tsrs_decl(StageInspection::decl(&cfg)),
         "",

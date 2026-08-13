@@ -7,8 +7,10 @@ import {
   inspectAsset,
   listSupportedSiblings,
   openFileDialog,
-  registerBrowserFile,
+  registerBrowserFiles,
   resolveSelectedFile,
+  resolveSelectedFiles,
+  selectPrimaryFile,
   type SelectedFile,
 } from "../lib/files";
 import { errorMessage } from "../lib/errors";
@@ -17,26 +19,6 @@ import { prefetchAdjacent } from "../viewer";
 import { useFileStore, type FileState } from "../stores/fileStore";
 import { useUiStore } from "../stores/uiStore";
 import { useViewerStore, type ViewerState } from "../stores/viewerStore";
-
-function extensionFromPath(path: string) {
-  const fileName = path.split(/[\\/]/).pop() ?? path;
-  const dotIndex = fileName.lastIndexOf(".");
-  return dotIndex >= 0 ? fileName.slice(dotIndex + 1).toLowerCase() : "";
-}
-
-function selectedFileFromPath(path: string): SelectedFile {
-  const parts = path.split(/[\\/]/);
-  const fileName = parts.pop() || path;
-  const parentDirectory = parts.join("\\");
-  const extension = extensionFromPath(path);
-  return {
-    path,
-    fileName,
-    extension,
-    kind: extension === "vmd" ? "motion" : "model",
-    parentDirectory,
-  };
-}
 
 type OpenReason = "open" | "startup" | "navigation" | "retry" | "recent";
 
@@ -209,9 +191,14 @@ export function useAppFileOpen({
     },
   );
 
-  const handleDroppedFilePathFromEffect = useEffectEvent(
-    async (path: string) => {
-      const request = createPackFileRequest(selectedFileFromPath(path), {
+  const handleSelectedFiles = useCallback(
+    async (files: SelectedFile[]) => {
+      const selectedFile = selectPrimaryFile(files);
+      if (!selectedFile) {
+        return;
+      }
+
+      const request = createPackFileRequest(selectedFile, {
         currentFile,
         version: (packFileRequest?.version ?? 0) + 1,
       });
@@ -220,8 +207,14 @@ export function useAppFileOpen({
         return;
       }
 
-      await performSelectFilePath(path, "open");
+      await performSelectFilePath(selectedFile.path, "open");
     },
+    [
+      currentFile,
+      packFileRequest?.version,
+      performSelectFilePath,
+      setPackFileRequest,
+    ],
   );
 
   useEffect(() => {
@@ -322,16 +315,10 @@ export function useAppFileOpen({
         event.preventDefault();
         setIsDragActive(false);
         try {
-          const selectedFile = registerBrowserFile(event.dataTransfer.files[0]);
-          const request = createPackFileRequest(selectedFile, {
-            currentFile,
-            version: (packFileRequest?.version ?? 0) + 1,
-          });
-          if (request) {
-            setPackFileRequest(request);
-            return;
-          }
-          void performSelectFilePath(selectedFile.path, "open");
+          const selectedFiles = registerBrowserFiles(
+            Array.from(event.dataTransfer.files),
+          );
+          void handleSelectedFiles(selectedFiles);
         } catch (error: unknown) {
           setOpenError(errorMessage(error, "Failed to open dropped file."));
           useViewerStore.getState().updateViewerFeedback({
@@ -367,19 +354,20 @@ export function useAppFileOpen({
           }
 
           setIsDragActive(false);
-          const [firstPath] = event.payload.paths;
-
-          if (!firstPath) {
+          const paths = event.payload.paths;
+          if (paths.length === 0) {
             return;
           }
 
-          handleDroppedFilePathFromEffect(firstPath).catch((error: unknown) => {
-            setOpenError(errorMessage(error, "Failed to open dropped file."));
-            useViewerStore.getState().updateViewerFeedback({
-              mode: "loadFailed",
-              message: "Dropped file could not be resolved.",
+          resolveSelectedFiles(paths)
+            .then(handleSelectedFiles)
+            .catch((error: unknown) => {
+              setOpenError(errorMessage(error, "Failed to open dropped file."));
+              useViewerStore.getState().updateViewerFeedback({
+                mode: "loadFailed",
+                message: "Dropped file could not be resolved.",
+              });
             });
-          });
         })
         .then((dispose) => {
           unlisten = dispose;
@@ -396,6 +384,7 @@ export function useAppFileOpen({
     };
   }, [
     currentFile,
+    handleSelectedFiles,
     isTauri,
     packFileRequest?.version,
     performSelectFilePath,
@@ -408,7 +397,7 @@ export function useAppFileOpen({
     try {
       const selectedFile = await openFileDialog();
       if (!selectedFile) return;
-      await performSelectFilePath(selectedFile.path, "open");
+      await handleSelectedFiles(selectedFile);
     } catch (error: unknown) {
       setOpenError(errorMessage(error, "Failed to open file dialog."));
       useViewerStore.getState().updateViewerFeedback({
@@ -416,7 +405,7 @@ export function useAppFileOpen({
         message: "File dialog operation failed.",
       });
     }
-  }, [performSelectFilePath, setOpenError]);
+  }, [handleSelectedFiles, setOpenError]);
 
   return {
     handleOpenFile,

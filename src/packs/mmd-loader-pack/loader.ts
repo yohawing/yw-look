@@ -4,6 +4,7 @@ import type {
   LoadedMmdMotion,
   LoadedPreview,
   LoaderContext,
+  MmdPreviewLightSync,
   MmdRuntimeModelHandle,
 } from "../../types/viewer";
 
@@ -42,7 +43,7 @@ export async function loadMmdMotion(
 export async function syncMmdPreviewSpecularDirection(
   mmd: MmdRuntimeModelHandle | null | undefined,
   light: DirectionalLight | null,
-) {
+): Promise<MmdPreviewLightSync | null> {
   const { syncMmdPreviewSpecularDirection: sync } =
     await importInstalledMmdLoader();
   return sync(mmd, light);

@@ -53,6 +53,7 @@ function retargetMmdMotion(context: SceneContext, seconds: number) {
     physics: false,
   });
   syncMmdMaterialMorphRuntime(model);
+  context.mmdLightSync?.();
 }
 
 function setMmdMotionCurrentTime(context: SceneContext, currentTime: number) {
@@ -89,6 +90,7 @@ export function createMmdRuntime(context: SceneContext): PackRuntime {
             physics: false,
           });
           syncMmdMaterialMorphRuntime(context.mmdModel);
+          context.mmdLightSync?.();
         }
         setMmdMotionCurrentTime(context, nextTime);
       },
@@ -123,6 +125,7 @@ export function createMmdRuntime(context: SceneContext): PackRuntime {
     },
     dispose: () => {
       context.mmdMotion = null;
+      context.mmdLightSync = null;
     },
   };
 }
@@ -176,6 +179,7 @@ export function useMmdPackFileRequest({
           physics: false,
         });
         syncMmdMaterialMorphRuntime(model);
+        context.mmdLightSync?.();
 
         const duration = Math.max(motion.duration, 1 / 30);
         context.mmdMotion = {

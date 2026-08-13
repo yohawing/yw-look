@@ -1,11 +1,13 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use openusd::sdf::Path as SdfPath;
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::glb::{self, MeshInput};
 use crate::usd::math::{identity_mat4, invert_mat4, mat4_f64_to_f32, mat4_mul};
-use crate::usd::node_tree::{collect_node_payload_maps, emit_node_inputs};
+use crate::usd::node_tree::{
+    collect_node_payload_maps, emit_node_inputs, insert_ancestor_group_nodes,
+};
 
 use super::xform::compose_world_xform;
 
@@ -27,9 +29,28 @@ pub(crate) fn build_node_tree(
     inputs: &[MeshInput],
     lights: &[glb::LightInput],
     cameras: &[glb::CameraInput],
+    instancing: &[glb::InstancingInput],
     _up_correction: Option<&[f64; 16]>,
 ) -> Vec<glb::NodeInput> {
-    let maps = collect_node_payload_maps(inputs, lights, cameras, skin_slots, |_, _| true, false);
+    let prototype_mesh_indices = instancing
+        .iter()
+        .map(|input| input.prototype_mesh_idx)
+        .collect::<HashSet<_>>();
+    let mut maps = collect_node_payload_maps(
+        inputs,
+        lights,
+        cameras,
+        skin_slots,
+        |mesh_index, _| !prototype_mesh_indices.contains(&mesh_index),
+        false,
+    );
+    for input in instancing {
+        maps.path_to_kind.insert(
+            input.instancer_prim_path.clone(),
+            glb::NodeKind::PointInstancer,
+        );
+    }
+    insert_ancestor_group_nodes(&mut maps.path_to_kind);
 
     // ---- Step 2: topological sort (ancestor before child) ---------------
     // Lexicographic order gives a correct

@@ -37,7 +37,17 @@ const assetTypes = {
   ]),
   motion: new Set(["vmd", "vrma"]),
   splat: new Set(["ksplat", "sog", "splat", "spz"]),
-  texture: new Set(["dds", "exr", "hdr", "jpeg", "jpg", "ktx2", "png", "tga"]),
+  texture: new Set([
+    "dds",
+    "exr",
+    "hdr",
+    "jpeg",
+    "jpg",
+    "ktx2",
+    "png",
+    "psd",
+    "tga",
+  ]),
 };
 
 const defaultKinds = new Set(["model", "motion", "splat"]);

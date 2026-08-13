@@ -5,6 +5,7 @@ declare module "#yw-look-mmd-loader-entry" {
     LoadedMmdMotion,
     LoadedPreview,
     LoaderContext,
+    MmdPreviewLightSync,
     MmdRuntimeModelHandle,
   } from "../../../types/viewer";
 
@@ -26,5 +27,5 @@ declare module "#yw-look-mmd-loader-entry" {
   export function syncMmdPreviewSpecularDirection(
     mmd: MmdRuntimeModelHandle | null | undefined,
     light: DirectionalLight | null,
-  ): Promise<void>;
+  ): Promise<MmdPreviewLightSync | null>;
 }

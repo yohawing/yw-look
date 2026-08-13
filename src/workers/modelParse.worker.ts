@@ -134,6 +134,7 @@ export function createWorkerFbxLoadingManager(): LoadingManager {
   const placeholderLoader = new WorkerFbxPlaceholderTextureLoader(manager);
   manager.addHandler(/\.dds$/i, placeholderLoader);
   manager.addHandler(/\.tga$/i, placeholderLoader);
+  manager.addHandler(/\.psd$/i, placeholderLoader);
   manager.addHandler(/\.(?:png|jpe?g|webp|bmp|gif)$/i, placeholderLoader);
   return manager;
 }

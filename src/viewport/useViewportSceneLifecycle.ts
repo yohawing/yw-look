@@ -370,6 +370,7 @@ export function useViewportSceneLifecycle({
       packRuntime: null,
       mmdModel: null,
       mmdMotion: null,
+      mmdLightSync: null,
       textureRegistry: new Map<string, Texture>(),
       rawMaxDimension: 1,
     };

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { UsdInspectorSidebarPanel } from "../UsdInspectorSidebarPanel";
 import { useViewerStore } from "../../stores/viewerStore";
-import type { AssetIssue, StageInspection } from "../../lib/usd";
+import type { AssetIssue, StageInspection, StageSummary } from "../../lib/usd";
 
 const inspectionWithVariant: StageInspection = {
   path: "F:\\assets\\scene.usda",
@@ -30,6 +30,18 @@ const inspectionWithVariant: StageInspection = {
     },
   ],
   loadPolicy: "loadAll",
+};
+
+const inspectionWithSupportedVariant: StageInspection = {
+  ...inspectionWithVariant,
+  capabilities: [
+    {
+      kind: "variantOverride",
+      detected: true,
+      support: "supported",
+      reason: "",
+    },
+  ],
 };
 
 const inspectionWithLayer: StageInspection = {
@@ -72,6 +84,77 @@ const issues: AssetIssue[] = [
   },
 ];
 
+const capabilityInspection: StageInspection = {
+  ...inspectionWithVariant,
+  capabilities: [
+    {
+      kind: "pointInstancer",
+      detected: true,
+      support: "unsupported",
+      reason: "Inspection capability should lose to summary.",
+    },
+    {
+      kind: "materialX",
+      detected: true,
+      support: "supported",
+      reason: "Inspection capability should lose to summary.",
+    },
+    {
+      kind: "variantOverride",
+      detected: true,
+      support: "unsupported",
+      reason: "Inspection-only capability should not be duplicated.",
+    },
+  ],
+};
+
+const capabilitySummary: StageSummary = {
+  path: "F:\\assets\\scene.usda",
+  layerCount: 1,
+  rootPrimCount: 1,
+  meshCount: 1,
+  payloadCount: 0,
+  unloadedPayloadCount: 0,
+  hasVariants: false,
+  primTypeCounts: [],
+  totalVertices: 3,
+  totalTriangles: 1,
+  variantSetCount: 0,
+  durationSeconds: null,
+  resolvedReferenceCount: 0,
+  unresolvedReferenceCount: 0,
+  resolvedPayloadCount: 0,
+  unresolvedPayloadCount: 0,
+  warnings: [],
+  loadPolicy: "loadAll",
+  capabilities: [
+    {
+      kind: "pointInstancer",
+      detected: true,
+      support: "supported",
+      reason: "",
+    },
+    {
+      kind: "materialX",
+      detected: true,
+      support: "degraded",
+      reason: "MaterialX preview is limited to known shader aliases.",
+    },
+    {
+      kind: "usdAuthoredSplat",
+      detected: true,
+      support: "unsupported",
+      reason: "USD-authored Points/splat geometry is not supported.",
+    },
+    {
+      kind: "skel",
+      detected: false,
+      support: "degraded",
+      reason: "Undetected capability should remain hidden.",
+    },
+  ],
+};
+
 beforeEach(() => {
   useViewerStore.setState({
     usdLoadPolicy: "loadAll",
@@ -108,7 +191,7 @@ describe("UsdInspectorSidebarPanel", () => {
     const { container, queryByText } = render(
       <UsdInspectorSidebarPanel
         error={null}
-        inspection={inspectionWithVariant}
+        inspection={inspectionWithSupportedVariant}
         issues={[]}
         loading={false}
         summary={null}
@@ -134,6 +217,32 @@ describe("UsdInspectorSidebarPanel", () => {
         variantName: "toon",
       },
     ]);
+  });
+
+  it("keeps variant selection read-only when override capability is unsupported", () => {
+    const unsupportedInspection: StageInspection = {
+      ...inspectionWithVariant,
+      capabilities: [
+        {
+          kind: "variantOverride",
+          detected: true,
+          support: "unsupported",
+          reason: "Variant session overrides are not supported.",
+        },
+      ],
+    };
+    const { container, getByText } = render(
+      <UsdInspectorSidebarPanel
+        error={null}
+        inspection={unsupportedInspection}
+        issues={[]}
+        loading={false}
+        summary={null}
+      />,
+    );
+
+    expect(container.querySelector("select")).toBeNull();
+    expect(getByText("default")).toBeTruthy();
   });
 
   it("renders layer rows through the shared list row primitive", () => {
@@ -180,5 +289,47 @@ describe("UsdInspectorSidebarPanel", () => {
     expect(statusRows[1].classList.contains("yl-status-row--error")).toBe(true);
     expect(getByText("suspicious-meters-per-unit")).toBeTruthy();
     expect(getByText("broken-reference")).toBeTruthy();
+  });
+
+  it("renders detected stage capabilities with summary precedence", () => {
+    const { container, getByText, queryByText } = render(
+      <UsdInspectorSidebarPanel
+        error={null}
+        inspection={capabilityInspection}
+        issues={[]}
+        loading={false}
+        summary={capabilitySummary}
+      />,
+    );
+
+    expect(getByText("Capabilities")).toBeTruthy();
+    expect(getByText("Point Instancer")).toBeTruthy();
+    expect(getByText("supported")).toBeTruthy();
+    expect(getByText("MaterialX")).toBeTruthy();
+    expect(getByText("degraded")).toBeTruthy();
+    expect(
+      getByText("MaterialX preview is limited to known shader aliases."),
+    ).toBeTruthy();
+    expect(getByText("USD-authored Splat")).toBeTruthy();
+    expect(getByText("unsupported")).toBeTruthy();
+    expect(
+      getByText("USD-authored Points/splat geometry is not supported."),
+    ).toBeTruthy();
+
+    expect(
+      queryByText("Undetected capability should remain hidden."),
+    ).toBeNull();
+    expect(
+      queryByText("Inspection capability should lose to summary."),
+    ).toBeNull();
+    expect(
+      queryByText("Inspection-only capability should not be duplicated."),
+    ).toBeNull();
+    expect(container.querySelectorAll(".yl-status-row")).toHaveLength(3);
+    expect(
+      container.querySelectorAll(
+        ".yl-status-row > .yl-list-row__main > strong",
+      ),
+    ).toHaveLength(3);
   });
 });

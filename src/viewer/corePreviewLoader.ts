@@ -15,11 +15,13 @@ export const coreLoaderExtensions = [
   "usdc",
   "usdz",
   "abc",
+  "bvh",
   "png",
   "jpg",
   "jpeg",
   "tga",
   "dds",
+  "psd",
   "hdr",
   "exr",
   "ktx2",
@@ -107,6 +109,13 @@ export async function loadCorePreviewObject(
         signal: context.signal,
       });
     }
+    case "bvh": {
+      const { loadBvhPreviewObject } = await import("./bvh/loader");
+      return loadBvhPreviewObject(file, {
+        onStage: context.onStage,
+        signal: context.signal,
+      });
+    }
     case "usd":
     case "usda":
     case "usdc":
@@ -128,6 +137,7 @@ export async function loadCorePreviewObject(
     case "jpeg":
     case "tga":
     case "dds":
+    case "psd":
     case "hdr":
     case "exr":
     case "ktx2": {

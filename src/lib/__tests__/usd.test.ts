@@ -107,6 +107,17 @@ describe("requiresGlbPreview fast text decision", () => {
     expect(mockInvoke).not.toHaveBeenCalled();
   });
 
+  it("routes PointInstancer USDA through the GLB backend", async () => {
+    readBinaryFilePrefixMock.mockResolvedValueOnce(
+      encoded('#usda 1.0\ndef PointInstancer "Instances" {}'),
+    );
+
+    await expect(
+      requiresGlbPreview("C:\\assets\\instances.usda"),
+    ).resolves.toBe(true);
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
   it("decides small plain USDA files from the prefix without decoding the whole file", async () => {
     readBinaryFilePrefixMock.mockResolvedValueOnce(
       encoded("#usda 1.0\ndef Xform {}"),

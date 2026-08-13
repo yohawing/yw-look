@@ -8,6 +8,8 @@
 //   intentionally filtered out by parseAnimationCurveNodes(). Amazon
 //   Lumberyard Bistro Exterior v5.2 contains such curves; upstream FBXLoader
 //   otherwise dereferences an undefined curve node and aborts the load.
+// - Respect authored FBX take playback ranges and normalize resulting clips to
+//   start at zero while preserving interpolated values at range boundaries.
 
 import {
 	AmbientLight,
@@ -281,7 +283,8 @@ class FBXTreeParser {
 
 				const id = parseInt( nodeID );
 
-				images[ id ] = videoNode.RelativeFilename || videoNode.Filename;
+				const fileName = videoNode.RelativeFilename || videoNode.Filename;
+				images[ id ] = fileName;
 
 				// raw image data is in videoNode.Content
 				if ( 'Content' in videoNode ) {
@@ -293,7 +296,7 @@ class FBXTreeParser {
 
 						const image = this.parseImage( videoNodes[ nodeID ] );
 
-						blobs[ videoNode.RelativeFilename || videoNode.Filename ] = image;
+						blobs[ fileName ] = image;
 
 					}
 
@@ -308,7 +311,7 @@ class FBXTreeParser {
 			const filename = images[ id ];
 
 			if ( blobs[ filename ] !== undefined ) images[ id ] = blobs[ filename ];
-			else images[ id ] = images[ id ].split( '\\' ).pop();
+			else images[ id ] = images[ id ].replace( /\\/g, '/' );
 
 		}
 
@@ -453,19 +456,6 @@ class FBXTreeParser {
 	// load a texture specified as a blob or data URI, or via an external URL using TextureLoader
 	loadTexture( textureNode, images ) {
 
-		const extension = textureNode.FileName.split( '.' ).pop().toLowerCase();
-
-		let loader = this.manager.getHandler( `.${extension}` );
-		if ( loader === null ) loader = this.textureLoader;
-
-		const loaderPath = loader.path;
-
-		if ( ! loaderPath ) {
-
-			loader.setPath( this.textureLoader.path );
-
-		}
-
 		const children = connections.get( textureNode.id ).children;
 
 		let fileName;
@@ -474,18 +464,32 @@ class FBXTreeParser {
 
 			fileName = images[ children[ 0 ].ID ];
 
-			if ( fileName.indexOf( 'blob:' ) === 0 || fileName.indexOf( 'data:' ) === 0 ) {
-
-				loader.setPath( undefined );
-
-			}
-
 		}
 
 		if ( fileName === undefined ) {
 
 			console.warn( 'FBXLoader: Undefined filename, creating placeholder texture.' );
 			return new Texture();
+
+		}
+
+		const isInline = fileName.indexOf( 'blob:' ) === 0 || fileName.indexOf( 'data:' ) === 0;
+		const extensionSource = isInline ?
+			textureNode.FileName : fileName;
+		const extension = extensionSource.split( '?' )[ 0 ].split( '#' )[ 0 ].split( '.' ).pop().toLowerCase();
+
+		let loader = this.manager.getHandler( `.${extension}` );
+		if ( loader === null ) loader = this.textureLoader;
+
+		const loaderPath = loader.path;
+
+		if ( isInline ) {
+
+			loader.setPath( undefined );
+
+		} else if ( ! loaderPath ) {
+
+			loader.setPath( this.textureLoader.path );
 
 		}
 
@@ -2534,6 +2538,147 @@ class GeometryParser {
 // parse animation data from FBXTree
 class AnimationParser {
 
+	parseTimeSpan( value ) {
+
+		if ( value === undefined || value === null ) return undefined;
+		if ( typeof value === 'string' ) {
+
+			const parts = value.split( ',' ).map( Number );
+			if ( parts.length >= 2 && parts.every( Number.isFinite ) && parts[ 1 ] > parts[ 0 ] ) {
+
+				return {
+					start: convertFBXTimeToSeconds( parts[ 0 ] ),
+					end: convertFBXTimeToSeconds( parts[ 1 ] ),
+				};
+
+			}
+
+		}
+
+		if ( Array.isArray( value.propertyList ) && value.propertyList.length >= 2 ) {
+
+			const start = convertFBXTimeToSeconds( value.propertyList[ 0 ] );
+			const end = convertFBXTimeToSeconds( value.propertyList[ 1 ] );
+
+			if ( Number.isFinite( start ) && Number.isFinite( end ) && end > start ) return { start, end };
+
+		}
+
+		if ( typeof value === 'object' ) {
+
+			for ( const child of Object.values( value ) ) {
+
+				if ( child === value || typeof child !== 'object' ) continue;
+
+				const span = this.parseTimeSpan( child );
+				if ( span !== undefined ) return span;
+
+			}
+
+		}
+
+		return undefined;
+
+	}
+
+	collectTakeNodes() {
+
+		const takeRoot = fbxTree.Takes && fbxTree.Takes.Take;
+		if ( takeRoot === undefined ) return [];
+
+		const takes = [];
+		const visited = new Set();
+
+		function visit( value ) {
+
+			if ( value === null || typeof value !== 'object' || visited.has( value ) ) return;
+			visited.add( value );
+
+			if ( value.name === 'Take' || value.LocalTime !== undefined || value.ReferenceTime !== undefined ) takes.push( value );
+
+			for ( const child of Object.values( value ) ) visit( child );
+
+		}
+
+		visit( takeRoot );
+		return takes;
+
+	}
+
+	getTakeName( take ) {
+
+		if ( Array.isArray( take.propertyList ) && typeof take.propertyList[ 0 ] === 'string' ) return take.propertyList[ 0 ];
+		if ( typeof take.attrName === 'string' ) return take.attrName;
+		if ( typeof take.id === 'string' ) return take.id;
+		return '';
+
+	}
+
+	parseTakeRange( rawStack ) {
+
+		const stackName = rawStack.attrName || '';
+		const takes = this.collectTakeNodes();
+		const take = takes.find( candidate => this.getTakeName( candidate ) === stackName ) || ( takes.length === 1 ? takes[ 0 ] : undefined );
+		const localTime = take ? this.parseTimeSpan( take.LocalTime ) : undefined;
+
+		if ( localTime !== undefined ) return localTime;
+
+		const localStart = Number( rawStack.LocalStart && rawStack.LocalStart.value );
+		const localStop = Number( rawStack.LocalStop && rawStack.LocalStop.value );
+
+		if ( Number.isFinite( localStart ) && Number.isFinite( localStop ) && localStop > localStart ) {
+
+			return {
+				start: convertFBXTimeToSeconds( localStart ),
+				end: convertFBXTimeToSeconds( localStop ),
+			};
+
+		}
+
+		return take ? this.parseTimeSpan( take.ReferenceTime ) : undefined;
+
+	}
+
+	clipTrackToRange( track, start, end ) {
+
+		if ( track.times.length === 0 ) return track.clone();
+
+		const times = [ start ];
+		const boundaryEpsilon = 1e-6;
+		for ( const time of track.times ) {
+
+			if ( time > start + boundaryEpsilon && time < end - boundaryEpsilon ) times.push( time );
+
+		}
+		times.push( end );
+
+		const valueSize = track.getValueSize();
+		const interpolant = track.createInterpolant( new track.ValueBufferType( valueSize ) );
+		const values = [];
+
+		for ( const time of times ) {
+
+			const sample = interpolant.evaluate( time );
+			for ( let i = 0; i < valueSize; i ++ ) values.push( sample[ i ] );
+
+		}
+
+		const clipped = track.clone();
+		clipped.times = new track.TimeBufferType( times.map( time => time - start ) );
+		clipped.values = new track.ValueBufferType( values );
+		return clipped;
+
+	}
+
+	clipToRange( clip, range ) {
+
+		if ( range === undefined ) return clip;
+
+		const tracks = clip.tracks.map( track => this.clipTrackToRange( track, range.start, range.end ) );
+		return new AnimationClip( clip.name, range.end - range.start, tracks, clip.blendMode );
+
+	}
+
 	// take raw animation clips and turn them into three.js animation clips
 	parse() {
 
@@ -2826,6 +2971,7 @@ class AnimationParser {
 
 				name: rawStacks[ nodeID ].attrName,
 				layer: layer,
+				range: this.parseTakeRange( rawStacks[ nodeID ] ),
 
 			};
 
@@ -2846,7 +2992,7 @@ class AnimationParser {
 
 		} );
 
-		return new AnimationClip( rawClip.name, - 1, tracks );
+		return this.clipToRange( new AnimationClip( rawClip.name, - 1, tracks ), rawClip.range );
 
 	}
 
@@ -3333,8 +3479,10 @@ class TextParser {
 
 				} else if ( currentNode[ nodeName ].id !== undefined ) {
 
+					const existingNode = currentNode[ nodeName ];
+					const existingID = existingNode.id;
 					currentNode[ nodeName ] = {};
-					currentNode[ nodeName ][ currentNode[ nodeName ].id ] = currentNode[ nodeName ];
+					currentNode[ nodeName ][ existingID ] = existingNode;
 
 				}
 
@@ -3354,7 +3502,7 @@ class TextParser {
 
 		}
 
-		if ( typeof attrs.id === 'number' ) node.id = attrs.id;
+		if ( typeof attrs.id === 'number' || ( nodeName === 'Take' && typeof attrs.id === 'string' ) ) node.id = attrs.id;
 		if ( attrs.name !== '' ) node.attrName = attrs.name;
 		if ( attrs.type !== '' ) node.attrType = attrs.type;
 

@@ -9,8 +9,27 @@ import {
   readBinaryFile,
   readBinaryFilePrefix,
   registerBrowserFile,
+  registerBrowserFiles,
   resolveSelectedFile,
+  selectPrimaryFile,
 } from "../files";
+
+import type { SelectedFile } from "../files";
+
+function selected(path: string): SelectedFile {
+  const fileName = path.split(/[\\/]/).pop() ?? path;
+  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
+  return {
+    path,
+    fileName,
+    extension,
+    kind: extension === "png" ? "texture" : "model",
+    parentDirectory: path.slice(
+      0,
+      Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/")),
+    ),
+  };
+}
 
 const invokeMock = vi.mocked(invoke);
 const isTauriMock = vi.mocked(isTauri);
@@ -35,9 +54,9 @@ describe("browser local files", () => {
       fileName: "sample.glb",
       extension: "glb",
       kind: "model",
-      parentDirectory: "browser-local://",
     });
     expect(selected.path.startsWith("browser-local://")).toBe(true);
+    expect(selected.parentDirectory).toMatch(/^browser-local:\/\/[^/]+$/);
     expect(new Uint8Array(await readBinaryFile(selected.path))).toEqual(source);
     expect(
       new Uint8Array(await readBinaryFilePrefix(selected.path, 2)),
@@ -108,6 +127,49 @@ describe("browser local files", () => {
     expect(model.kind).toBe("model");
     expect(texture.kind).toBe("texture");
     expect(motion.kind).toBe("motion");
+  });
+
+  it("keeps relative paths for files registered in one browser selection", () => {
+    const root = new File(["#usda 1.0"], "scene.usda");
+    const layer = new File(["#usda 1.0"], "geometry.usda");
+    const files = registerBrowserFiles([
+      { file: layer, relativePath: "scene/layers/geometry.usda" },
+      { file: root, relativePath: "scene/scene.usda" },
+    ]);
+
+    expect(files[0].path).toMatch(/\/scene\/layers\/geometry\.usda$/);
+    expect(files[1].path).toMatch(/\/scene\/scene\.usda$/);
+    expect(files[0].path.split("/").slice(0, 3)).toEqual(
+      files[1].path.split("/").slice(0, 3),
+    );
+  });
+
+  it("selects a shallow USD root independently of input order", () => {
+    const root = selected("C:\\assets\\scene\\scene.usda");
+    const layer = selected("C:\\assets\\scene\\layers\\geometry.usda");
+    const payload = selected("C:\\assets\\scene\\payloads\\hero.usdc");
+    const texture = selected("C:\\assets\\scene\\textures\\albedo.png");
+
+    expect(selectPrimaryFile([layer, texture, payload, root])).toEqual(root);
+    expect(selectPrimaryFile([root, payload, layer, texture])).toEqual(root);
+  });
+
+  it("uses parent-name and extension tie-breakers for USD roots", () => {
+    const namedForParent = selected("C:\\assets\\shot\\shot.usdc");
+    const genericUsda = selected("C:\\assets\\shot\\root.usda");
+    expect(selectPrimaryFile([genericUsda, namedForParent])).toEqual(
+      namedForParent,
+    );
+
+    const genericUsd = selected("C:\\assets\\shot\\root.usd");
+    expect(selectPrimaryFile([genericUsda, genericUsd])).toEqual(genericUsd);
+  });
+
+  it("preserves the first file for non-USD and empty selections", () => {
+    const first = selected("C:\\assets\\first.glb");
+    const second = selected("C:\\assets\\second.png");
+    expect(selectPrimaryFile([first, second])).toEqual(first);
+    expect(selectPrimaryFile([])).toBeNull();
   });
 
   it("returns browser fallback format support from the manifest", async () => {

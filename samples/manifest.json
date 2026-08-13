@@ -213,6 +213,23 @@
       }
     },
     {
+      "id": "usda-tiny-point-instancer",
+      "kind": "model",
+      "format": "usda",
+      "path": "samples/assets/usd/tiny_point_instancer.usda",
+      "tags": ["usd", "usda", "instancing", "generated-local"],
+      "notes": "Self-authored two-prototype PointInstancer fixture with varied TRS and one invisible id.",
+      "expect": {
+        "shouldLoad": true,
+        "defaultPrim": "Root",
+        "upAxis": "Y",
+        "metersPerUnit": 1,
+        "hasReferences": false,
+        "hasPayloads": false,
+        "hasSubLayers": false
+      }
+    },
+    {
       "id": "usd-kitchen-set",
       "kind": "model",
       "format": "usd",

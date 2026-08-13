@@ -78,6 +78,14 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "motion-bvh-minimal",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/minimal-motion.bvh",
+      "format": "bvh",
+      "assetKind": "motion",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "model-pmx-material-morph-two-materials",
       "category": "valid-minimal",
       "path": "tests/fixtures/models/material-morph-two-materials.pmx",
@@ -153,6 +161,13 @@
       "category": "valid-minimal",
       "path": "tests/fixtures/textures/disturb-dxt1-nomip.dds",
       "format": "dds",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "texture-psd-1x1",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/textures/1x1.psd",
+      "format": "psd",
       "expect": { "shouldLoad": true }
     },
     {

@@ -2353,9 +2353,9 @@ dependencies = [
 
 [[package]]
 name = "lz4_flex"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db9a0d582c2874f68138a16ce1867e0ffde6c0bb0a0df85e1f36d04146db488a"
+checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
 dependencies = [
  "twox-hash",
 ]
@@ -2764,7 +2764,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 [[package]]
 name = "openusd"
 version = "0.5.0"
-source = "git+https://github.com/yohawing/openusd.git?rev=98364275b34c441468014a27b2c820dc21b84f4b#98364275b34c441468014a27b2c820dc21b84f4b"
+source = "git+https://github.com/mxpv/openusd.git?rev=659917514b462834293094b93d62b5decb7133db#659917514b462834293094b93d62b5decb7133db"
 dependencies = [
  "anyhow",
  "bitflags 2.13.0",
@@ -2774,6 +2774,7 @@ dependencies = [
  "logos",
  "lz4_flex",
  "num-traits",
+ "regex-lite",
  "strum",
  "thiserror 2.0.18",
  "zip 8.5.0",
@@ -3253,6 +3254,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "psd"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a25f9b8cfffd65d911baf31a033239f7a0facb755faa2481575b70db5dc9195"
+dependencies = [
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "ptr_meta"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3510,6 +3520,12 @@ dependencies = [
  "memchr",
  "regex-syntax",
 ]
+
+[[package]]
+name = "regex-lite"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab834c73d247e67f4fae452806d17d3c7501756d98c8808d7c9c7aa7d18f973"
 
 [[package]]
 name = "regex-syntax"
@@ -6331,14 +6347,16 @@ dependencies = [
 
 [[package]]
 name = "yw-look"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
+ "anyhow",
  "cmake",
  "glam",
  "image",
  "log",
  "nv-flip",
  "openusd",
+ "psd",
  "rfd",
  "semver",
  "serde",

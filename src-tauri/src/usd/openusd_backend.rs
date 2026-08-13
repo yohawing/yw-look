@@ -11,11 +11,12 @@ use std::collections::HashSet;
 use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
-use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::stage::UpAxis;
+use openusd::sdf::Path as SdfPath;
+use openusd::sdf::Value as SdfValue;
 use openusd::usd::PrimPredicate;
-use openusd::Stage;
+use openusd::usd::Stage;
 
+mod attribute_samples;
 mod blend_shapes;
 mod cameras;
 mod composition_arcs;
@@ -25,10 +26,12 @@ mod material_adapter;
 mod mesh_attributes;
 mod mesh_visibility;
 mod node_tree;
+mod point_instancer;
 mod session;
 mod shader_fields;
 mod skel_adapter;
 mod stage_fields;
+mod stage_query;
 mod xform;
 
 use super::asset_resolution::filter_resolvable_relative_assets;
@@ -38,19 +41,127 @@ use super::extract_shared::srgb_to_linear;
 use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
     CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection,
-    PrimTypeCount, StageInspection, StageLoadPolicy, StageSummary,
+    PrimTypeCount, StageCapabilityInfo, StageCapabilityKind, StageCapabilitySupport,
+    StageInspection, StageLoadPolicy, StageSummary,
 };
 use composition_arcs::{payload_arc_state, reference_arc_state};
 use extract::extract_geometry_from_open_stage_rs;
 #[cfg(test)]
 use mesh_visibility::is_renderable_mesh;
 use stage_fields::{
-    read_root_double_field, read_token_or_string_field, to_openusd_policy, token_vec_to_strings,
+    read_root_double_field, read_string_or_token_attribute, read_token_or_string_field,
+    token_vec_to_strings,
 };
+use stage_query::UpAxis;
 #[cfg(test)]
 use xform::{build_xform_op_matrix, compose_prim_local_xform, read_quat};
 
 pub(super) const LEGACY_TRAVERSE_PREDICATE: PrimPredicate = PrimPredicate::ALL;
+
+#[derive(Default)]
+struct StageCapabilityDetection {
+    point_instancer: bool,
+    material_x: bool,
+    skel: bool,
+    payload: bool,
+    variant_override: bool,
+    usd_authored_splat: bool,
+}
+
+impl StageCapabilityDetection {
+    fn observe_prim(&mut self, stage: &Stage, prim_path: &SdfPath) {
+        let Some(type_name) = read_token_or_string_field(stage, prim_path.clone()) else {
+            return;
+        };
+
+        match type_name.as_str() {
+            "PointInstancer" => self.point_instancer = true,
+            "Points" => self.usd_authored_splat = true,
+            "Skeleton" | "SkelRoot" | "SkelAnimation" | "BlendShape" => self.skel = true,
+            _ if type_name.starts_with("Skel") => self.skel = true,
+            _ => {}
+        }
+
+        if type_name == "Shader" {
+            let info_id = prim_path
+                .append_property("info:id")
+                .ok()
+                .and_then(|path| read_string_or_token_attribute(stage, path));
+            if info_id.as_deref().is_some_and(is_material_x_shader_id) {
+                self.material_x = true;
+            }
+        }
+    }
+}
+
+fn is_material_x_shader_id(id: &str) -> bool {
+    // MaterialX node identifiers emitted by the USD interchange commonly
+    // use the `ND_` namespace. Keep the check intentionally name-based: the
+    // Rust backend does not expose a richer MaterialX schema query yet.
+    id.starts_with("ND_") || id.starts_with("MaterialX")
+}
+
+fn stage_capability_infos(
+    detection: StageCapabilityDetection,
+    start_time_code: Option<f64>,
+    end_time_code: Option<f64>,
+) -> Vec<StageCapabilityInfo> {
+    const MATERIAL_X_REASON: &str =
+        "MaterialX preview is limited to known shader aliases and direct graphs.";
+    const SKEL_REASON: &str =
+        "UsdSkel preview supports the current GLB skinning path only; arbitrary rig data is not covered.";
+    const ANIMATION_RANGE_REASON: &str =
+        "Only authored stage start/end metadata is reported; time-varying attributes are not scanned.";
+    const VARIANT_OVERRIDE_REASON: &str =
+        "Variant session overrides are not supported by the current backend.";
+    const USD_AUTHORED_SPLAT_REASON: &str =
+        "USD-authored Points/splat geometry is not supported by the preview backend.";
+
+    vec![
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::PointInstancer,
+            detected: detection.point_instancer,
+            support: StageCapabilitySupport::Supported,
+            reason: String::new(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::MaterialX,
+            detected: detection.material_x,
+            support: StageCapabilitySupport::Degraded,
+            reason: MATERIAL_X_REASON.to_owned(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::Skel,
+            detected: detection.skel,
+            support: StageCapabilitySupport::Degraded,
+            reason: SKEL_REASON.to_owned(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::AnimationRange,
+            detected: start_time_code.is_some() && end_time_code.is_some(),
+            support: StageCapabilitySupport::Degraded,
+            reason: ANIMATION_RANGE_REASON.to_owned(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::Payload,
+            detected: detection.payload,
+            support: StageCapabilitySupport::Supported,
+            reason: String::new(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::VariantOverride,
+            detected: detection.variant_override,
+            support: StageCapabilitySupport::Unsupported,
+            reason: VARIANT_OVERRIDE_REASON.to_owned(),
+        },
+        StageCapabilityInfo {
+            kind: StageCapabilityKind::UsdAuthoredSplat,
+            detected: detection.usd_authored_splat,
+            support: StageCapabilitySupport::Unsupported,
+            reason: USD_AUTHORED_SPLAT_REASON.to_owned(),
+        },
+    ]
+}
 
 /// Real backend backed by `openusd`.
 pub struct OpenusdBackend;
@@ -84,8 +195,7 @@ impl OpenusdBackend {
         let path_str = path
             .to_str()
             .ok_or_else(|| UsdError::Io(format!("non-UTF8 path: {}", path.display())))?;
-        Stage::builder()
-            .load_policy(to_openusd_policy(policy))
+        stage_query::apply_load_policy(Stage::builder(), policy)
             .open(path_str)
             .map_err(|e| UsdError::Parse(e.to_string()))
     }
@@ -106,11 +216,11 @@ impl UsdInspectBackend for OpenusdBackend {
         let stage = Self::open(path, policy)?;
 
         let default_prim = stage.default_prim().map(|token| token.as_str().to_owned());
-        let up_axis = stage.up_axis().map(|axis| match axis {
+        let up_axis = stage_query::up_axis(&stage).map(|axis| match axis {
             UpAxis::Y => "Y".to_string(),
             UpAxis::Z => "Z".to_string(),
         });
-        let meters_per_unit = stage.meters_per_unit();
+        let meters_per_unit = stage_query::meters_per_unit(&stage);
 
         let root_prims = stage
             .root_prims()
@@ -125,7 +235,7 @@ impl UsdInspectBackend for OpenusdBackend {
         let missing_assets = filter_resolvable_relative_assets(
             path,
             layer_ids.iter().cloned(),
-            stage.unresolved_assets(),
+            stage_query::unresolved_assets(&stage),
         );
         let composed_layers: Vec<String> = layer_ids.into_iter().skip(1).collect();
 
@@ -147,7 +257,7 @@ impl UsdInspectBackend for OpenusdBackend {
         // `/Root` is stored as `(foo.usda, /Root)`, not `(foo.usda,
         // /Target)`, and a target-based lookup would miss it whenever
         // source and target differ.
-        let skipped_payloads = stage.skipped_payloads();
+        let skipped_payloads = stage_query::skipped_payloads(&stage, policy);
         let skipped_set: HashSet<(String, String)> = skipped_payloads
             .iter()
             .map(|sp| (sp.asset_path.clone(), sp.prim_path.to_string()))
@@ -156,44 +266,53 @@ impl UsdInspectBackend for OpenusdBackend {
         let references = RefCell::new(Vec::new());
         let payloads = RefCell::new(Vec::new());
         let variant_sets_out = RefCell::new(Vec::<super::types::VariantSetInfo>::new());
+        let mut capability_detection = StageCapabilityDetection::default();
 
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let source = prim_path.as_str().to_string();
+                capability_detection.observe_prim(&stage, &prim_path);
 
-                // Collect variant sets for the inspector UI.
-                if let Ok(Some(value)) =
-                    stage.field::<SdfValue>(prim_path.clone(), FieldKey::VariantSetNames)
+                // Collect variant sets for the inspector UI via the public
+                // `Prim::variant_sets().get_all_variant_selections()`.
+                //
+                // USD-NATIVE-01: this used to read the raw authored
+                // `variantSetNames` list plus the raw `variantSelection`
+                // dictionary, so a variant set with no selection at all
+                // (no authored opinion, no fallback, no default) still
+                // showed up with `selection: None`. The public accessor
+                // only reports variant sets that actually resolved to a
+                // composed node, so that authored-but-unselected case no
+                // longer appears in the inspector. Every set that *does*
+                // show up now always carries a `Some` selection (composed
+                // — authored, fallback, or first-variant default).
+                if let Ok(selections) = stage
+                    .prim(prim_path.clone())
+                    .variant_sets()
+                    .get_all_variant_selections()
                 {
-                    let set_names: Vec<String> = match value {
-                        SdfValue::TokenVec(set_names) => token_vec_to_strings(set_names),
-                        SdfValue::TokenListOp(op) => {
-                            op.iter().map(|token| token.as_str().to_owned()).collect()
+                    for (set_name, selection) in selections {
+                        capability_detection.variant_override = true;
+                        let mut variants =
+                            stage_query::variant_names(&stage, prim_path.clone(), &set_name);
+                        // Keep the controlled value valid even when the
+                        // effective selection came from a composed opinion
+                        // that is not present in the authored child list.
+                        if !variants.iter().any(|variant| variant == &selection) {
+                            variants.insert(0, selection.clone());
                         }
-                        _ => Vec::new(),
-                    };
-                    if !set_names.is_empty() {
-                        let selection_map = match stage
-                            .field::<SdfValue>(prim_path.clone(), FieldKey::VariantSelection)
-                        {
-                            Ok(Some(SdfValue::VariantSelectionMap(map))) => map,
-                            _ => Default::default(),
-                        };
-                        for set_name in set_names {
-                            let selection = selection_map.get(&set_name).cloned();
-                            variant_sets_out
-                                .borrow_mut()
-                                .push(super::types::VariantSetInfo {
-                                    prim_path: source.clone(),
-                                    set_name,
-                                    selection,
-                                    variants: Vec::new(),
-                                });
-                        }
+                        variant_sets_out
+                            .borrow_mut()
+                            .push(super::types::VariantSetInfo {
+                                prim_path: source.clone(),
+                                set_name,
+                                selection: Some(selection),
+                                variants,
+                            });
                     }
                 }
 
-                for r in stage.references_in(prim_path.clone()) {
+                for r in stage_query::references_in(&stage, prim_path.clone()) {
                     let state = reference_arc_state(&unresolved_set, &r.asset_path);
                     references.borrow_mut().push(CompositionArc {
                         source_prim: source.clone(),
@@ -203,7 +322,9 @@ impl UsdInspectBackend for OpenusdBackend {
                         kind: CompositionArcKind::Reference,
                     });
                 }
-                for p in stage.payloads_in(prim_path.clone()) {
+                let prim_payloads = stage_query::payloads_in(&stage, prim_path.clone());
+                let has_payloads = !prim_payloads.is_empty();
+                for p in prim_payloads {
                     // `source` is the prim that authored the payload
                     // (what `Stage::skipped_payloads` keys on); `p.prim_path`
                     // is the target prim inside the external layer (what the
@@ -220,26 +341,29 @@ impl UsdInspectBackend for OpenusdBackend {
                         kind: CompositionArcKind::Payload,
                     });
                 }
+                if has_payloads {
+                    capability_detection.payload = true;
+                }
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
 
-        // Stage timing metadata authored on the root layer. The Rust
-        // fork doesn't expose dedicated accessors for these, so we
-        // query the pseudoroot's field directly via `Stage::field`.
-        // Each returns `None` when the metadatum is unauthored.
-        let pseudo_root = SdfPath::from("/");
-        let time_codes_per_second =
-            read_root_double_field(&stage, &pseudo_root, FieldKey::TimeCodesPerSecond);
-        let frames_per_second =
-            read_root_double_field(&stage, &pseudo_root, FieldKey::FramesPerSecond);
-        let start_time_code = read_root_double_field(&stage, &pseudo_root, FieldKey::StartTimeCode);
-        let end_time_code = read_root_double_field(&stage, &pseudo_root, FieldKey::EndTimeCode);
+        // Stage timing metadata, composed via `Stage::stage_metadata`
+        // (session layer honored, same as `up_axis` / `meters_per_unit` in
+        // `stage_query.rs`). Each returns `None` when the metadatum is
+        // unauthored.
+        let time_codes_per_second = read_root_double_field(&stage, FieldKey::TimeCodesPerSecond);
+        let frames_per_second = read_root_double_field(&stage, FieldKey::FramesPerSecond);
+        let start_time_code = read_root_double_field(&stage, FieldKey::StartTimeCode);
+        let end_time_code = read_root_double_field(&stage, FieldKey::EndTimeCode);
         let comment = stage
-            .field::<String>(pseudo_root, FieldKey::Comment)
+            .stage_metadata(FieldKey::Comment)
             .ok()
             .flatten()
+            .and_then(|v| String::try_from(v).ok())
             .filter(|s| !s.is_empty());
-        let root_layer_is_binary = stage.root_layer_is_binary();
+        let root_layer_is_binary = stage_query::root_layer_is_binary(&stage);
+        let capabilities =
+            stage_capability_infos(capability_detection, start_time_code, end_time_code);
 
         // #29 — degraded layer info: the Rust fork doesn't expose
         // per-layer muted / offset APIs, so we synthesise LayerInfo
@@ -294,6 +418,7 @@ impl UsdInspectBackend for OpenusdBackend {
             variant_selection_arcs: Vec::new(),
             missing_assets,
             variant_sets: variant_sets_out.into_inner(),
+            capabilities,
             load_policy: policy,
         })
     }
@@ -323,18 +448,19 @@ impl UsdInspectBackend for OpenusdBackend {
         let unresolved_reference_count = RefCell::new(0usize);
         let resolved_payload_count = RefCell::new(0usize);
         let unresolved_payload_count_stat = RefCell::new(0usize);
+        let mut capability_detection = StageCapabilityDetection::default();
 
         // #38: build unresolved-asset set upfront so arc classification
         // in the traverse closure can borrow it without moving `stage`.
         let unresolved_assets = filter_resolvable_relative_assets(
             path,
             stage.layer_identifiers(),
-            stage.unresolved_assets(),
+            stage_query::unresolved_assets(&stage),
         );
         let unresolved_set: HashSet<&str> = unresolved_assets.iter().map(String::as_str).collect();
 
         // #38: skipped payloads for NoPayloads policy classification.
-        let skipped_payloads = stage.skipped_payloads();
+        let skipped_payloads = stage_query::skipped_payloads(&stage, policy);
         let skipped_set: HashSet<(String, String)> = skipped_payloads
             .iter()
             .map(|sp| (sp.asset_path.clone(), sp.prim_path.to_string()))
@@ -342,9 +468,8 @@ impl UsdInspectBackend for OpenusdBackend {
 
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
-                if let Some(type_name) =
-                    read_token_or_string_field(&stage, prim_path.clone(), FieldKey::TypeName)
-                {
+                capability_detection.observe_prim(&stage, &prim_path);
+                if let Some(type_name) = read_token_or_string_field(&stage, prim_path.clone()) {
                     if !type_name.is_empty() {
                         let mut buckets = prim_type_counts.borrow_mut();
                         if let Some(slot) = buckets.iter_mut().find(|c| c.type_name == type_name) {
@@ -365,8 +490,7 @@ impl UsdInspectBackend for OpenusdBackend {
                         // `mesh_of` (no skinning / xform / triangulation)
                         // because we're only counting authored data.
                         if let Ok(points_path) = prim_path.append_property("points") {
-                            if let Ok(Some(value)) =
-                                stage.field::<SdfValue>(points_path, FieldKey::Default)
+                            if let Ok(Some(value)) = stage.attribute(points_path).get::<SdfValue>()
                             {
                                 let count = match value {
                                     SdfValue::Vec3fVec(v) => v.len(),
@@ -379,7 +503,7 @@ impl UsdInspectBackend for OpenusdBackend {
                         }
                         if let Ok(counts_path) = prim_path.append_property("faceVertexCounts") {
                             if let Ok(Some(SdfValue::IntVec(counts))) =
-                                stage.field::<SdfValue>(counts_path, FieldKey::Default)
+                                stage.attribute(counts_path).get::<SdfValue>()
                             {
                                 for n in counts {
                                     if n >= 3 {
@@ -391,7 +515,7 @@ impl UsdInspectBackend for OpenusdBackend {
                     }
                 }
                 // #38: classify reference arcs.
-                for r in stage.references_in(prim_path.clone()) {
+                for r in stage_query::references_in(&stage, prim_path.clone()) {
                     if reference_arc_state(&unresolved_set, &r.asset_path)
                         == CompositionArcState::Missing
                     {
@@ -401,7 +525,7 @@ impl UsdInspectBackend for OpenusdBackend {
                     }
                 }
                 // #38: classify payload arcs.
-                let payloads = stage.payloads_in(prim_path.clone());
+                let payloads = stage_query::payloads_in(&stage, prim_path.clone());
                 for p in &payloads {
                     let source = prim_path.as_str().to_string();
                     let state =
@@ -419,31 +543,34 @@ impl UsdInspectBackend for OpenusdBackend {
                     }
                 }
                 if !payloads.is_empty() {
+                    capability_detection.payload = true;
                     *payload_count.borrow_mut() += payloads.len();
                 }
-                // VariantSetNames may be authored as several different
-                // value types depending on the layer; we only care that
-                // *something* is authored, so query as raw Value.
-                if let Ok(Some(value)) =
-                    stage.field::<SdfValue>(prim_path.clone(), FieldKey::VariantSetNames)
+                // USD-NATIVE-01: counts composed variant selections via
+                // the public API (see the matching comment in
+                // `inspect_stage`) rather than the raw authored
+                // `variantSetNames` field, so a variant set with no
+                // resolved selection no longer contributes to either
+                // counter.
+                if let Ok(selections) = stage
+                    .prim(prim_path.clone())
+                    .variant_sets()
+                    .get_all_variant_selections()
                 {
-                    *has_variants.borrow_mut() = true;
-                    let set_count = match value {
-                        SdfValue::TokenVec(set_names) => set_names.len(),
-                        SdfValue::TokenListOp(op) => op.iter().count(),
-                        _ => 0,
-                    };
-                    *variant_set_count.borrow_mut() += set_count;
+                    if !selections.is_empty() {
+                        capability_detection.variant_override = true;
+                        *has_variants.borrow_mut() = true;
+                        *variant_set_count.borrow_mut() += selections.len();
+                    }
                 }
             })
             .map_err(|e| UsdError::Parse(e.to_string()))?;
 
         // #38: duration_seconds = (end - start) / fps, only when all
         // three time metadata fields are authored on the root layer.
-        let pseudo_root = SdfPath::from("/");
-        let fps = read_root_double_field(&stage, &pseudo_root, FieldKey::FramesPerSecond);
-        let start = read_root_double_field(&stage, &pseudo_root, FieldKey::StartTimeCode);
-        let end = read_root_double_field(&stage, &pseudo_root, FieldKey::EndTimeCode);
+        let fps = read_root_double_field(&stage, FieldKey::FramesPerSecond);
+        let start = read_root_double_field(&stage, FieldKey::StartTimeCode);
+        let end = read_root_double_field(&stage, FieldKey::EndTimeCode);
         let duration_seconds = match (start, end, fps) {
             (Some(s), Some(e), Some(f)) if f > 0.0 => Some((e - s) / f),
             _ => None,
@@ -453,6 +580,7 @@ impl UsdInspectBackend for OpenusdBackend {
             .into_iter()
             .map(|a| format!("unresolved asset: {a}"))
             .collect();
+        let capabilities = stage_capability_infos(capability_detection, start, end);
 
         Ok(StageSummary {
             path: path.display().to_string(),
@@ -460,7 +588,7 @@ impl UsdInspectBackend for OpenusdBackend {
             root_prim_count,
             mesh_count: mesh_count.into_inner(),
             payload_count: payload_count.into_inner(),
-            unloaded_payload_count: stage.skipped_payloads().len(),
+            unloaded_payload_count: stage_query::skipped_payloads(&stage, policy).len(),
             has_variants: has_variants.into_inner(),
             prim_type_counts: prim_type_counts.into_inner(),
             total_vertices: total_vertices.into_inner(),
@@ -472,18 +600,22 @@ impl UsdInspectBackend for OpenusdBackend {
             resolved_payload_count: resolved_payload_count.into_inner(),
             unresolved_payload_count: unresolved_payload_count_stat.into_inner(),
             warnings,
+            capabilities,
             load_policy: policy,
         })
     }
 
     fn root_layer_is_binary(&self, path: &StdPath) -> Result<bool, UsdError> {
-        Ok(Self::open(path, StageLoadPolicy::LoadAll)?.root_layer_is_binary())
+        Ok(stage_query::root_layer_is_binary(&Self::open(
+            path,
+            StageLoadPolicy::LoadAll,
+        )?))
     }
 
     fn requires_glb_preview(&self, path: &StdPath) -> Result<bool, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         // Binary root → Three.js USDLoader can't parse it at all.
-        if stage.root_layer_is_binary() {
+        if stage_query::root_layer_is_binary(&stage) {
             return Ok(true);
         }
         // More than one composed layer → the stage depends on at least
@@ -491,6 +623,23 @@ impl UsdInspectBackend for OpenusdBackend {
         // only hands USDLoader.parse a single text buffer, so every such
         // dependency is invisible on the JS side. Route to GLB.
         if stage.layer_count() > 1 {
+            return Ok(true);
+        }
+        let has_point_instancer = RefCell::new(false);
+        stage
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+                if stage
+                    .prim(prim_path.clone())
+                    .type_name()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|type_name| type_name.as_str() == "PointInstancer")
+                {
+                    *has_point_instancer.borrow_mut() = true;
+                }
+            })
+            .map_err(|error| UsdError::Parse(error.to_string()))?;
+        if *has_point_instancer.borrow() {
             return Ok(true);
         }
         // Single self-contained USDA layer — USDLoader handles hierarchy
@@ -507,21 +656,20 @@ impl UsdInspectBackend for OpenusdBackend {
 
     fn inspect_attribute_time_samples(
         &self,
-        _path: &StdPath,
-        _prim_path: &str,
-        _attr_name: &str,
-        _max_samples: usize,
+        path: &StdPath,
+        prim_path: &str,
+        attr_name: &str,
+        max_samples: usize,
     ) -> Result<AttributeTimeSamples, UsdError> {
-        Err(UsdError::Parse(
-            "inspect_attribute_time_samples is not supported on the openusd Rust backend".into(),
-        ))
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        attribute_samples::inspect_attribute_time_samples(&stage, prim_path, attr_name, max_samples)
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
         let mut issues = Vec::new();
 
-        if let Some(mpu) = stage.meters_per_unit() {
+        if let Some(mpu) = stage_query::meters_per_unit(&stage) {
             if mpu <= 0.0 || mpu > 100.0 {
                 issues.push(AssetIssue {
                     code: AssetIssueCode::SuspiciousMetersPerUnit,
@@ -536,7 +684,7 @@ impl UsdInspectBackend for OpenusdBackend {
         let unresolved_owned = filter_resolvable_relative_assets(
             path,
             stage.layer_identifiers(),
-            stage.unresolved_assets(),
+            stage_query::unresolved_assets(&stage),
         );
         let unresolved: HashSet<&str> = unresolved_owned.iter().map(|s| s.as_str()).collect();
 
@@ -546,7 +694,7 @@ impl UsdInspectBackend for OpenusdBackend {
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let source = prim_path.as_str().to_string();
-                for r in stage.references_in(prim_path.clone()) {
+                for r in stage_query::references_in(&stage, prim_path.clone()) {
                     if reference_arc_state(&unresolved, &r.asset_path)
                         == CompositionArcState::Missing
                     {
@@ -560,7 +708,7 @@ impl UsdInspectBackend for OpenusdBackend {
                         });
                     }
                 }
-                for p in stage.payloads_in(prim_path.clone()) {
+                for p in stage_query::payloads_in(&stage, prim_path.clone()) {
                     if reference_arc_state(&unresolved, &p.asset_path)
                         == CompositionArcState::Missing
                     {
@@ -642,6 +790,46 @@ mod tests {
             .unwrap_or(false)
     }
 
+    fn glb_json(glb: &[u8]) -> serde_json::Value {
+        let json_length = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let json = std::str::from_utf8(&glb[20..20 + json_length])
+            .expect("GLB JSON UTF-8")
+            .trim_end_matches(' ');
+        serde_json::from_str(json).expect("GLB JSON")
+    }
+
+    fn glb_accessor_f32(
+        glb: &[u8],
+        document: &serde_json::Value,
+        accessor_index: usize,
+    ) -> Vec<f32> {
+        let accessor = &document["accessors"][accessor_index];
+        let view = &document["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize];
+        let component_count = match accessor["type"].as_str().unwrap() {
+            "VEC3" => 3,
+            "VEC4" => 4,
+            other => panic!("unsupported accessor type {other}"),
+        };
+        let count = accessor["count"].as_u64().unwrap() as usize * component_count;
+        let json_length = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let bin_start = 20 + json_length + 8;
+        let offset = bin_start
+            + view["byteOffset"].as_u64().unwrap_or(0) as usize
+            + accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+        (0..count)
+            .map(|index| {
+                let start = offset + index * 4;
+                f32::from_le_bytes(glb[start..start + 4].try_into().unwrap())
+            })
+            .collect()
+    }
+
+    fn instancing_accessor(node: &serde_json::Value, name: &str) -> usize {
+        node["extensions"]["EXT_mesh_gpu_instancing"]["attributes"][name]
+            .as_u64()
+            .expect("instancing accessor") as usize
+    }
+
     #[test]
     fn summarize_tiny_usda() {
         let path = tiny_usda();
@@ -680,6 +868,192 @@ mod tests {
         assert!(inspection.references.is_empty());
         assert!(inspection.payloads.is_empty());
         assert!(inspection.missing_assets.is_empty());
+    }
+
+    #[test]
+    fn stage_capabilities_point_instancer_are_supported_and_shared() {
+        let path = PathBuf::from("../samples/assets/usd/tiny_point_instancer.usda");
+        let backend = OpenusdBackend::new();
+        let summary = backend
+            .summarize_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("summarize PointInstancer fixture");
+        let inspection = backend
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("inspect PointInstancer fixture");
+
+        assert_eq!(summary.capabilities, inspection.capabilities);
+        assert_eq!(summary.capabilities.len(), 7);
+        let point_instancer = &summary.capabilities[0];
+        assert_eq!(point_instancer.kind, StageCapabilityKind::PointInstancer);
+        assert!(point_instancer.detected);
+        assert_eq!(point_instancer.support, StageCapabilitySupport::Supported);
+        assert!(point_instancer.reason.is_empty());
+    }
+
+    #[test]
+    fn stage_capabilities_cover_points_variants_materialx_skel_and_range() {
+        let root = std::env::temp_dir()
+            .join(format!("yw-look-stage-capabilities-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let path = root.join("capabilities.usda");
+        std::fs::write(
+            &path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    startTimeCode = 1
+    endTimeCode = 24
+    framesPerSecond = 24
+)
+
+def Xform "Root" (
+    variants = {
+        string look = "blue"
+    }
+    prepend variantSets = ["look"]
+)
+{
+    variantSet "look" = {
+        "red" {
+        }
+        "blue" {
+        }
+    }
+}
+
+def Points "Cloud"
+{
+    point3f[] points = [(0, 0, 0)]
+}
+
+def Shader "MaterialXShader"
+{
+    uniform token info:id = "ND_standard_surface_surfaceshader"
+}
+
+def Skeleton "Rig"
+{
+}
+"#,
+        )
+        .expect("write capability fixture");
+
+        let backend = OpenusdBackend::new();
+        let summary = backend
+            .summarize_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("summarize capability fixture");
+        let inspection = backend
+            .inspect_stage(&path, super::StageLoadPolicy::LoadAll)
+            .expect("inspect capability fixture");
+
+        let expected_kinds = [
+            StageCapabilityKind::PointInstancer,
+            StageCapabilityKind::MaterialX,
+            StageCapabilityKind::Skel,
+            StageCapabilityKind::AnimationRange,
+            StageCapabilityKind::Payload,
+            StageCapabilityKind::VariantOverride,
+            StageCapabilityKind::UsdAuthoredSplat,
+        ];
+        assert_eq!(summary.capabilities, inspection.capabilities);
+        assert_eq!(summary.capabilities.len(), expected_kinds.len());
+        assert_eq!(
+            summary
+                .capabilities
+                .iter()
+                .map(|entry| entry.kind)
+                .collect::<Vec<_>>(),
+            expected_kinds
+        );
+        assert!(summary.capabilities[1].detected);
+        assert_eq!(
+            summary.capabilities[1].support,
+            StageCapabilitySupport::Degraded
+        );
+        assert!(summary.capabilities[2].detected);
+        assert!(summary.capabilities[3].detected);
+        assert!(summary.capabilities[5].detected);
+        assert!(summary.capabilities[6].detected);
+        for entry in &summary.capabilities {
+            if matches!(
+                entry.support,
+                StageCapabilitySupport::Degraded | StageCapabilitySupport::Unsupported
+            ) {
+                assert!(
+                    !entry.reason.is_empty(),
+                    "missing reason for {:?}",
+                    entry.kind
+                );
+            }
+        }
+        assert_eq!(
+            summary.capabilities[6].support,
+            StageCapabilitySupport::Unsupported
+        );
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn extract_point_instancer_emits_prototype_groups_and_visible_trs() {
+        let path = PathBuf::from("../samples/assets/usd/tiny_point_instancer.usda");
+        let glb = OpenusdBackend::new()
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract PointInstancer fixture");
+        let document = glb_json(&glb);
+        let nodes = document["nodes"].as_array().expect("GLB nodes");
+        let instanced_nodes = nodes
+            .iter()
+            .filter(|node| node.get("extensions").is_some())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            document["extensionsUsed"],
+            serde_json::json!(["EXT_mesh_gpu_instancing"])
+        );
+        assert_eq!(instanced_nodes.len(), 2);
+        assert!(nodes.iter().all(|node| {
+            !matches!(
+                node["name"].as_str(),
+                Some("PrototypeCube" | "PrototypePyramid")
+            )
+        }));
+
+        let cube = instanced_nodes
+            .iter()
+            .find(|node| node["name"].as_str().unwrap().contains("PrototypeCube"))
+            .expect("cube instances");
+        let pyramid = instanced_nodes
+            .iter()
+            .find(|node| node["name"].as_str().unwrap().contains("PrototypePyramid"))
+            .expect("pyramid instances");
+        assert_eq!(
+            document["accessors"][instancing_accessor(cube, "TRANSLATION")]["count"],
+            3
+        );
+        assert_eq!(
+            document["accessors"][instancing_accessor(pyramid, "TRANSLATION")]["count"],
+            2
+        );
+        assert_eq!(
+            glb_accessor_f32(&glb, &document, instancing_accessor(cube, "TRANSLATION"),),
+            vec![-3.0, 0.0, 0.0, -0.6, 0.0, 0.0, 1.8, 0.0, 0.0]
+        );
+        assert_eq!(
+            glb_accessor_f32(&glb, &document, instancing_accessor(cube, "SCALE")),
+            vec![1.0, 1.0, 1.0, 0.75, 0.75, 0.75, 1.25, 1.25, 1.25]
+        );
+        let pyramid_rotations =
+            glb_accessor_f32(&glb, &document, instancing_accessor(pyramid, "ROTATION"));
+        assert!((pyramid_rotations[1] - 0.382_683).abs() < 1e-3);
+        assert!((pyramid_rotations[3] - 0.923_88).abs() < 1e-3);
+        assert!((pyramid_rotations[5] + 0.382_683).abs() < 1e-3);
+        assert_eq!(
+            glb_accessor_f32(&glb, &document, instancing_accessor(pyramid, "TRANSLATION")),
+            vec![-1.8, 0.3, 0.0, 3.0, 0.225, 0.0]
+        );
+        assert_eq!(cube["extras"]["primPath"], "/Root/Instancer");
+        assert_eq!(pyramid["extras"]["primPath"], "/Root/Instancer");
     }
 
     #[test]
@@ -723,6 +1097,107 @@ def Xform "Root" (
             .find(|entry| entry.prim_path == "/Root" && entry.set_name == "look")
             .expect("look variant set");
         assert_eq!(variant.selection.as_deref(), Some("blue"));
+        assert_eq!(variant.variants, vec!["red", "blue"]);
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn variant_candidates_merge_strongest_first_across_sublayer_and_reference_sites() {
+        let unique = format!(
+            "yw-look-variant-candidates-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&root).expect("create variant candidate temp dir");
+        let asset = root.join("asset.usda");
+        let sub = root.join("sub.usda");
+        let root_usda = root.join("root.usda");
+
+        std::fs::write(
+            &asset,
+            r#"#usda 1.0
+(
+    defaultPrim = "Asset"
+)
+
+def Xform "Asset" (
+    prepend variantSets = ["look"]
+)
+{
+    variantSet "look" = {
+        "shared" { }
+        "referenced" { }
+    }
+}
+"#,
+        )
+        .expect("write asset variant fixture");
+        std::fs::write(
+            &sub,
+            r#"#usda 1.0
+
+over "World" {
+    over "Hero" (
+        prepend variantSets = ["look"]
+    )
+    {
+        variantSet "look" = {
+            "shared" { }
+            "sublayer" { }
+        }
+    }
+}
+"#,
+        )
+        .expect("write sublayer variant fixture");
+        std::fs::write(
+            &root_usda,
+            r#"#usda 1.0
+(
+    defaultPrim = "World"
+    subLayers = [@sub.usda@]
+)
+
+def Xform "World"
+{
+    def Xform "Hero" (
+        references = @asset.usda@</Asset>
+        prepend variantSets = ["look"]
+        variants = {
+            string look = "local"
+        }
+    )
+    {
+        variantSet "look" = {
+            "local" { }
+            "shared" { }
+        }
+    }
+}
+"#,
+        )
+        .expect("write root variant fixture");
+
+        let stage = OpenusdBackend::open(&root_usda, super::StageLoadPolicy::LoadAll)
+            .expect("open layered variant fixture");
+        let variants = stage_query::variant_names(&stage, "/World/Hero", "look");
+        assert_eq!(variants, vec!["local", "shared", "sublayer", "referenced"]);
+
+        let inspection = OpenusdBackend::new()
+            .inspect_stage(&root_usda, super::StageLoadPolicy::LoadAll)
+            .expect("inspect layered variant fixture");
+        let variant = inspection
+            .variant_sets
+            .iter()
+            .find(|entry| entry.prim_path == "/World/Hero" && entry.set_name == "look")
+            .expect("layered look variant set");
+        assert_eq!(variant.selection.as_deref(), Some("local"));
+        assert_eq!(variant.variants, variants);
 
         std::fs::remove_dir_all(root).ok();
     }
@@ -1575,7 +2050,7 @@ def Xform "Root" (
         let mesh_path = SdfPath::new("/seahorse_bind/seahorse/seahorse_combined_mesh").unwrap();
 
         // Mesh stats
-        let mesh_data = stage.mesh_of(mesh_path.clone()).ok().flatten();
+        let mesh_data = stage_query::mesh_of(&stage, mesh_path.clone()).ok().flatten();
         if let Some(ref md) = mesh_data {
             let total_fv: usize = md.face_vertex_counts.iter().map(|c| *c as usize).sum();
             let point_count = md.points.len() / 3;
@@ -1600,7 +2075,7 @@ def Xform "Root" (
             "primvars:uv",
         ] {
             if let Ok(prop) = mesh_path.append_property(*uv_name) {
-                let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
+                let val: Option<SdfValue> = stage.attribute(prop).get::<SdfValue>().ok().flatten();
                 if val.is_some() {
                     let len = match &val {
                         Some(SdfValue::Vec2fVec(v)) => v.len(),
@@ -1613,7 +2088,7 @@ def Xform "Root" (
         }
 
         // Check GeomSubsets
-        let subsets = stage.geom_subsets_of(mesh_path.clone());
+        let subsets = stage_query::geom_subsets_of(&stage, mesh_path.clone());
         eprintln!("GeomSubsets: {} found", subsets.len());
         for s in &subsets {
             eprintln!(
@@ -1625,7 +2100,7 @@ def Xform "Root" (
             // Check alternative binding names
             let subset_path = SdfPath::new(&format!("{}/{}", mesh_path.as_str(), s.name)).unwrap();
             // Brute-force: try bound_material directly on the subset
-            let bm_sub = stage.bound_material(subset_path.clone());
+            let bm_sub = stage_query::bound_material(&stage, subset_path.clone());
             eprintln!(
                 "    bound_material(subset) = {:?}",
                 bm_sub.as_ref().map(|p| p.to_string())
@@ -1637,10 +2112,9 @@ def Xform "Root" (
                 "material:binding:full",
             ] {
                 if let Ok(prop) = subset_path.append_property(*rel_name) {
-                    let val: Option<SdfValue> =
-                        stage.field(prop, FieldKey::TargetPaths).ok().flatten();
-                    if val.is_some() {
-                        eprintln!("    {} = {:?}", rel_name, val);
+                    let targets = stage.relationship(prop).targets().unwrap_or_default();
+                    if !targets.is_empty() {
+                        eprintln!("    {} = {:?}", rel_name, targets);
                     }
                 }
             }
@@ -1650,15 +2124,13 @@ def Xform "Root" (
         let parents = ["/seahorse_bind/seahorse", "/seahorse_bind"];
         for p in &parents {
             if let Ok(pp) = SdfPath::new(p) {
-                let bm = stage.bound_material(pp).map(|p| p.to_string());
+                let bm = stage_query::bound_material(&stage, pp).map(|p| p.to_string());
                 eprintln!("parent {} -> bound_material={:?}", p, bm);
             }
         }
 
         // Check direct mesh bound_material
-        let bm = stage
-            .bound_material(mesh_path.clone())
-            .map(|p| p.to_string());
+        let bm = stage_query::bound_material(&stage, mesh_path.clone()).map(|p| p.to_string());
         eprintln!("mesh -> bound_material={:?}", bm);
 
         // List all Material prims
@@ -1671,8 +2143,7 @@ def Xform "Root" (
                     || path_str.contains("Material")
                     || path_str.contains("mat")
                 {
-                    let type_name =
-                        read_token_or_string_field(&stage, prim_path.clone(), FieldKey::TypeName);
+                    let type_name = read_token_or_string_field(&stage, prim_path.clone());
                     eprintln!("  {} type={:?}", path_str, type_name);
                 }
             })
@@ -1692,7 +2163,7 @@ def Xform "Root" (
 
         // Read xformOpOrder via property path (same method as compose_prim_local_xform)
         let order_path = root.append_property("xformOpOrder").unwrap();
-        let order: Option<SdfValue> = stage.field(order_path, FieldKey::Default).ok().flatten();
+        let order: Option<SdfValue> = stage.attribute(order_path).get::<SdfValue>().ok().flatten();
         eprintln!("xformOpOrder = {:?}", order);
 
         // Try reading individual xformOps
@@ -1705,7 +2176,7 @@ def Xform "Root" (
             "xformOp:orient",
         ] {
             if let Ok(prop) = root.append_property(*op_name) {
-                let val: Option<SdfValue> = stage.field(prop, FieldKey::Default).ok().flatten();
+                let val: Option<SdfValue> = stage.attribute(prop).get::<SdfValue>().ok().flatten();
                 if val.is_some() {
                     eprintln!("  {} = {:?}", op_name, val);
                 }
@@ -1753,13 +2224,11 @@ def Xform "Root" (
                     return;
                 }
                 checked += 1;
-                let bm = stage
-                    .bound_material(prim_path.clone())
-                    .map(|p| p.to_string());
-                let mo = stage.material_of(prim_path.clone());
+                let bm = stage_query::bound_material(&stage, prim_path.clone()).map(|p| p.to_string());
+                let mo = stage_query::material_of(&stage, prim_path.clone());
                 let dc_path = prim_path.append_property("primvars:displayColor").ok();
-                let dc = dc_path
-                    .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+                let dc =
+                    dc_path.and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
                 eprintln!(
                     "  {} -> bound={:?} material_of={:?} displayColor={}",
                     prim_path.as_str(),
@@ -1785,22 +2254,17 @@ def Xform "Root" (
                 {
                     return;
                 }
-                let type_name =
-                    read_token_or_string_field(&stage, prim_path.clone(), FieldKey::TypeName);
+                let type_name = read_token_or_string_field(&stage, prim_path.clone());
                 let info_id_path = prim_path.append_property("info:id").ok();
-                let info_id: Option<String> = info_id_path
-                    .and_then(|p| read_token_or_string_field(&stage, p, FieldKey::Default));
+                let info_id: Option<String> =
+                    info_id_path.and_then(|p| read_string_or_token_attribute(&stage, p));
                 // Check for inputs:diffuseColor
                 let dc_path = prim_path.append_property("inputs:diffuseColor").ok();
                 let dc: Option<SdfValue> =
-                    dc_path.and_then(|p| stage.field(p, FieldKey::Default).ok().flatten());
+                    dc_path.and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
                 let dc_conn_path = prim_path.append_property("inputs:diffuseColor").ok();
-                let dc_conn: Option<SdfValue> = dc_conn_path.and_then(|p| {
-                    stage
-                        .field::<SdfValue>(p, FieldKey::ConnectionPaths)
-                        .ok()
-                        .flatten()
-                });
+                let dc_conn: Option<Vec<SdfPath>> =
+                    dc_conn_path.and_then(|p| stage.attribute(p).connections().ok());
                 eprintln!(
                     "  {} type={:?} info:id={:?} diffuseColor={:?} diffuseColor.connect={:?}",
                     prim_path.as_str(),
@@ -1835,13 +2299,12 @@ def Xform "Root" (
                 }
                 checked += 1;
                 if checked <= 10 {
-                    let bm = stage
-                        .bound_material(prim_path.clone())
-                        .map(|p| p.to_string());
+                    let bm =
+                        stage_query::bound_material(&stage, prim_path.clone()).map(|p| p.to_string());
                     // Check for primvars:displayColor
                     let dc_path = prim_path.append_property("primvars:displayColor").ok();
                     let dc = dc_path
-                        .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+                        .and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
                     let dc_label = match &dc {
                         Some(SdfValue::Vec3fVec(v)) => format!("Vec3f[{}]", v.len()),
                         Some(SdfValue::Vec3f(v)) => {

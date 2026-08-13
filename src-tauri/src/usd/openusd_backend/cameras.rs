@@ -1,8 +1,7 @@
 use std::cell::RefCell;
 
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::glb;
 use crate::usd::math::{mat4_f64_to_f32, mat4_mul};
@@ -36,8 +35,7 @@ pub(crate) fn resolve_cameras(
     let camera_paths = RefCell::new(Vec::<SdfPath>::new());
     if stage
         .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
-            if read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref()
-                == Some("Camera")
+            if read_token_or_string_field(stage, prim_path.clone()).as_deref() == Some("Camera")
             {
                 camera_paths.borrow_mut().push(prim_path.clone());
             }
@@ -74,7 +72,7 @@ pub(crate) fn resolve_cameras(
         let clip = prim_path
             .append_property("clippingRange")
             .ok()
-            .and_then(|p| stage.field::<SdfValue>(p, FieldKey::Default).ok().flatten());
+            .and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
         let (znear, zfar) = match clip {
             Some(SdfValue::Vec2f(v)) => (v[0], Some(v[1])),
             Some(SdfValue::Vec2d(v)) => (v[0] as f32, Some(v[1] as f32)),

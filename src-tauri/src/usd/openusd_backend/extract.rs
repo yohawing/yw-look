@@ -2,9 +2,8 @@ use std::cell::RefCell;
 use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
-use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::stage::UpAxis;
-use openusd::Stage;
+use openusd::sdf::Path as SdfPath;
+use openusd::usd::Stage;
 
 use crate::usd::backend::UsdError;
 use crate::usd::extract_shared::{
@@ -27,9 +26,12 @@ use super::material_adapter::{find_material_by_name_fallback, resolve_material_s
 use super::mesh_attributes::{expand_indexed_uvs, read_display_opacity};
 use super::mesh_visibility::{is_mesh_active_and_visible, read_mesh_orientation, resolve_purpose};
 use super::node_tree::build_node_tree;
+use super::point_instancer::resolve_point_instancing;
 use super::skel_adapter::{
-    animation_input_from_skel, read_mesh_skel_joints_override, skin_input_from_skel,
+    animation_input_from_skel, apply_geom_bind_transform, read_geom_bind_transform,
+    read_mesh_skel_joints_override, skin_input_from_skel,
 };
+use super::stage_query::{self, UpAxis};
 use super::xform::compose_world_xform;
 use super::LEGACY_TRAVERSE_PREDICATE;
 // ---------------------------------------------------------------------------
@@ -52,8 +54,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     }
 
     let skipped_payload_sources: Vec<String> = if options.policy == StageLoadPolicy::NoPayloads {
-        stage
-            .skipped_payloads()
+        stage_query::skipped_payloads(&stage, options.policy)
             .iter()
             .map(|payload| payload.prim_path.to_string())
             .collect()
@@ -67,7 +68,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // correction into every mesh's world matrix below so the GLB is
     // self-describing — the frontend doesn't need to know the
     // original stage's up-axis.
-    let up_axis_correction = match stage.up_axis() {
+    let up_axis_correction = match stage_query::up_axis(&stage) {
         Some(UpAxis::Z) => Some(z_up_to_y_up_mat4()),
         _ => None,
     };
@@ -82,20 +83,16 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // (The legacy `is_renderable_mesh` helper also excluded proxy /
     // guide — that behaviour now lives on the frontend via the
     // `purposeModes` default render=true, proxy=false, guide=false.)
-    // PointInstancer prims are currently skipped because they do not
-    // satisfy `is_mesh_active_and_visible`.
+    // PointInstancer prims do not satisfy `is_mesh_active_and_visible`,
+    // so collect them separately for the instancing pass.
     let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
     let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
     stage
         .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
-            // Detect PointInstancer type by path heuristic: the stage's
-            // type_name field. We emit a warning and skip rather than error.
-            if let Ok(Some(SdfValue::Token(type_name))) =
-                stage.field::<SdfValue>(prim_path.clone(), FieldKey::TypeName)
-            {
+            if let Ok(Some(type_name)) = stage.prim(prim_path.clone()).type_name() {
                 if type_name.as_str() == "PointInstancer" {
                     instancer_paths.borrow_mut().push(prim_path.clone());
-                    return; // skip from mesh traversal
+                    return;
                 }
             }
             if !is_mesh_active_and_visible(&stage, prim_path) {
@@ -105,19 +102,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         })
         .map_err(|e| UsdError::Parse(e.to_string()))?;
 
-    // Emit a single warning if any PointInstancer prims were found.
-    {
-        let instancer_list = instancer_paths.into_inner();
-        if !instancer_list.is_empty() {
-            log::warn!(
-                "[usd-rs] {} PointInstancer prim(s) found (e.g. '{}') — \
-                     PointInstancer preview is not supported; skipped.",
-                instancer_list.len(),
-                instancer_list[0]
-            );
-        }
-    }
-
+    let instancer_paths = instancer_paths.into_inner();
     let mesh_paths = mesh_paths.into_inner();
 
     // Filter out "leaked" root prims from referenced/payloaded
@@ -209,7 +194,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     let up_correction_f32: Option<[f32; 16]> = up_axis_correction.map(|c| mat4_f64_to_f32(&c));
 
     for (i, prim_path) in mesh_paths.iter().enumerate() {
-        if let Some((skel_path, skel_data)) = stage.skeleton_of(prim_path.clone()) {
+        if let Some((skel_path, skel_data)) = stage_query::skeleton_of(&stage, prim_path.clone()) {
             let key = skel_path.to_string();
             let slot = if let Some(&existing) = skin_slots.get(&key) {
                 existing
@@ -229,14 +214,14 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // world transform along the parent chain and pre-applying the
     // up-axis correction.
     let mut inputs: Vec<MeshInput> = Vec::with_capacity(mesh_paths.len());
+    let mut input_source_paths: Vec<SdfPath> = Vec::with_capacity(mesh_paths.len());
     for (mesh_idx, prim_path) in mesh_paths.iter().enumerate() {
-        let Some(mut mesh_data) = stage
-            .mesh_of(prim_path.clone())
+        let Some(mut mesh_data) = stage_query::mesh_of(&stage, prim_path.clone())
             .map_err(|e| UsdError::Parse(e.to_string()))?
         else {
             continue;
         };
-        validate_mesh_topology(prim_path, &mesh_data)?;
+        validate_mesh_topology(prim_path.as_str(), &mesh_data)?;
 
         let mut world = compose_world_xform(&stage, prim_path)?;
         if let Some(correction) = &up_axis_correction {
@@ -268,6 +253,17 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                     remap_mesh_skin_indices(&mut mesh_data, &local_joints, &skin.joint_names);
                 }
             }
+            // UsdSkel `primvars:skel:geomBindTransform`: maps the mesh's
+            // points into the skeleton's bind space before skinning.
+            // glTF's skin formula has no per-mesh equivalent (the mesh
+            // node transform is ignored and inverseBindMatrices are
+            // shared per skin), so bake it into the vertices — without
+            // this every skinned part is offset by its geom-bind matrix
+            // and the character comes apart at the joints (move.ai /
+            // Blender USDC exports author this on every mesh).
+            if let Some(geom_bind) = read_geom_bind_transform(&stage, prim_path) {
+                apply_geom_bind_transform(&mut mesh_data, &geom_bind);
+            }
         }
 
         let orientation = read_mesh_orientation(&stage, prim_path);
@@ -296,7 +292,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // bindings, produce one MeshInput per subset so each face
         // group gets its own material. Otherwise fall through to
         // the whole-mesh path.
-        let subsets = stage.geom_subsets_of(prim_path.clone());
+        let subsets = stage_query::geom_subsets_of(&stage, prim_path.clone());
         let has_subset_materials =
             !subsets.is_empty() && subsets.iter().any(|s| s.material_binding.is_some());
 
@@ -334,7 +330,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                 let subset_name = SdfPath::new(&format!("{}/{}", prim_path.as_str(), subset.name))
                     .unwrap_or_else(|_| prim_path.clone());
                 let mut tri = mesh_data_to_input(
-                    &subset_name,
+                    subset_name.as_str(),
                     world_f32,
                     &filtered,
                     orientation,
@@ -373,13 +369,14 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                 tri.skin_index = skin_index_from_payload(&tri, mesh_skin_slots[mesh_idx]);
                 // #32: inherit parent mesh's purpose for subsets.
                 tri.purpose = Some(resolve_purpose(&stage, prim_path));
+                input_source_paths.push(prim_path.clone());
                 inputs.push(tri);
             }
             continue; // skip whole-mesh path
         }
 
         let mut triangulated = mesh_data_to_input(
-            prim_path,
+            prim_path.as_str(),
             world_f32,
             &mesh_data,
             orientation,
@@ -393,7 +390,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // fall back to slot 0 (default).
         let slot = resolve_material_slot(
             &stage,
-            stage.bound_material(prim_path.clone()).as_ref(),
+            stage_query::bound_material(&stage, prim_path.clone()).as_ref(),
             prim_path,
             &mut materials,
             &mut material_texture_paths,
@@ -424,6 +421,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // after GLTFLoader copies node extras → userData.
         triangulated.purpose = Some(resolve_purpose(&stage, prim_path));
 
+        input_source_paths.push(prim_path.clone());
         inputs.push(triangulated);
     }
 
@@ -441,6 +439,8 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         }
     }
 
+    let mut instancing = resolve_point_instancing(stage, &instancer_paths, &input_source_paths);
+
     // Phase 5c E: per skin, resolve the bound SkelAnimation and
     // convert it into a glTF animation. Stages without
     // skel:animationSource skip the conversion silently. We
@@ -449,9 +449,10 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // returns) to glTF seconds — the spec defaults to 24 when
     // not authored, so we mirror that fallback. (Codex P1.)
     let time_codes_per_second: f64 = stage
-        .field::<f64>(SdfPath::abs_root(), FieldKey::TimeCodesPerSecond)
+        .stage_metadata(FieldKey::TimeCodesPerSecond)
         .ok()
         .flatten()
+        .and_then(|v| f64::try_from(v).ok())
         .filter(|v| *v > 0.0)
         .unwrap_or(24.0);
     let mut animations: Vec<glb::AnimationInput> = Vec::new();
@@ -467,7 +468,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         let Ok(skel_path) = SdfPath::new(&skel_path_str) else {
             continue;
         };
-        if let Some(anim_data) = stage.skel_animation_of(skel_path) {
+        if let Some(anim_data) = stage_query::skel_animation_of(&stage, skel_path) {
             if let Some(anim_input) = animation_input_from_skel(
                 skin_idx,
                 &skin.joint_names,
@@ -553,8 +554,19 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         &inputs,
         &lights,
         &cameras,
+        &instancing,
         up_axis_correction.as_ref(),
     );
+    let node_indices = node_tree
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (node.prim_path.as_str(), index))
+        .collect::<std::collections::HashMap<_, _>>();
+    for input in &mut instancing {
+        input.parent_node_idx = node_indices
+            .get(input.instancer_prim_path.as_str())
+            .copied();
+    }
 
     glb::build_glb(
         &node_tree,
@@ -566,7 +578,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         &lights,
         &cameras,
         up_correction_f32,
-        &[], // PointInstancer preview is not supported by the Rust backend.
+        &instancing,
     )
     .map_err(UsdError::Parse)
 }

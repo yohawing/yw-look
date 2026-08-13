@@ -154,6 +154,9 @@ export async function mountLoadedPreview(
     warnings = [],
     assetKind = "mesh",
   } = result;
+  let mmdLightSync: Awaited<
+    ReturnType<typeof syncMmdPreviewSpecularDirection>
+  > = null;
 
   const abortMountedPreview = (): null => {
     const ownsMountedObject = context.mountedObject === object;
@@ -169,6 +172,9 @@ export async function mountLoadedPreview(
     }
     if (ownsAnimationRoot) {
       context.animationRoot = null;
+    }
+    if (context.mmdLightSync === mmdLightSync) {
+      context.mmdLightSync = null;
     }
     runCleanupCallbacks(cleanupCallbacks);
     if (context.cleanupCallbacks === cleanupCallbacks) {
@@ -199,6 +205,7 @@ export async function mountLoadedPreview(
     context.cleanupCallbacks = [];
     stopAnimations(context);
     context.mmdModel = null;
+    context.mmdLightSync = null;
     resetSceneObjects(context);
     revokeUrls(context.cleanupUrls);
     context.cleanupUrls = [];
@@ -212,7 +219,7 @@ export async function mountLoadedPreview(
   context.cleanupUrls = cleanupUrls;
   context.cleanupCallbacks = cleanupCallbacks;
   applyPreviewLightingPreset(lighting, lightingTargets);
-  await syncMmdPreviewSpecularDirection(mmdModel, keyLight);
+  mmdLightSync = await syncMmdPreviewSpecularDirection(mmdModel, keyLight);
   if (isDisposed()) {
     return abortMountedPreview();
   }
@@ -349,6 +356,7 @@ export async function mountLoadedPreview(
     loaderRegistry
       .getByExtension(currentFile.extension)
       ?.createRuntime?.(context) ?? null;
+  context.mmdLightSync = mmdLightSync;
   if (mmdMotion && context.mmdModel?.runtime) {
     update.setAnimationState({
       clipNames: [mmdMotion.label],

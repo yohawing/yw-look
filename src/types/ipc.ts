@@ -26,6 +26,9 @@ import type {
   RelationshipInfo as GeneratedRelationshipInfo,
   SettingsPayload as GeneratedSettingsPayload,
   ShapingCone as GeneratedShapingCone,
+  StageCapabilityInfo as GeneratedStageCapabilityInfo,
+  StageCapabilityKind as GeneratedStageCapabilityKind,
+  StageCapabilitySupport as GeneratedStageCapabilitySupport,
   StageInspection as GeneratedStageInspection,
   StageLoadPolicy as GeneratedStageLoadPolicy,
   StageSummary as GeneratedStageSummary,
@@ -86,6 +89,12 @@ export type ExtractGeometryOptions = Omit<
 
 export type LayerInfo = GeneratedLayerInfo;
 
+export type StageCapabilityKind = GeneratedStageCapabilityKind;
+
+export type StageCapabilitySupport = GeneratedStageCapabilitySupport;
+
+export type StageCapabilityInfo = GeneratedStageCapabilityInfo;
+
 export type StageInspection = Omit<
   GeneratedStageInspection,
   | "layers"
@@ -94,6 +103,7 @@ export type StageInspection = Omit<
   | "inherits"
   | "specializes"
   | "variantSelectionArcs"
+  | "capabilities"
 > & {
   layers?: GeneratedStageInspection["layers"];
   references: CompositionArc[];
@@ -101,11 +111,14 @@ export type StageInspection = Omit<
   inherits?: CompositionArc[];
   specializes?: CompositionArc[];
   variantSelectionArcs?: CompositionArc[];
+  capabilities?: GeneratedStageInspection["capabilities"];
 };
 
 export type PrimTypeCount = GeneratedPrimTypeCount;
 
-export type StageSummary = GeneratedStageSummary;
+export type StageSummary = Omit<GeneratedStageSummary, "capabilities"> & {
+  capabilities?: GeneratedStageSummary["capabilities"];
+};
 
 export type AssetIssueCode = GeneratedAssetIssueCode;
 

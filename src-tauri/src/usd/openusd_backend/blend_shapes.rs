@@ -1,6 +1,5 @@
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::skel::DenseBlendShape;
 
@@ -31,21 +30,19 @@ pub(crate) fn resolve_blend_shapes(
     point_count: usize,
 ) -> Vec<DenseBlendShape> {
     // Authored targets live on `skel:blendShapeTargets` as a USD
-    // relationship, which the fork exposes via
-    // `FieldKey::TargetPaths`. USDA parse example:
+    // relationship. `Relationship::targets()` is the public composed
+    // accessor (list-op edits folded across every contributing layer,
+    // matching every other relationship read in this backend). USDA
+    // parse example:
     //
     //     rel skel:blendShapeTargets = [</Mesh/Shapes/Smile>]
     let targets_path = match mesh_path.append_property("skel:blendShapeTargets") {
         Ok(p) => p,
         Err(_) => return Vec::new(),
     };
-    let targets_value: Option<SdfValue> = stage
-        .field(targets_path, FieldKey::TargetPaths)
-        .ok()
-        .flatten();
-    let list_op = match targets_value {
-        Some(SdfValue::PathListOp(op)) => op,
-        _ => return Vec::new(),
+    let targets = match stage.relationship(targets_path).targets() {
+        Ok(targets) => targets,
+        Err(_) => return Vec::new(),
     };
 
     // Read `skel:blendShapes` token array (if authored) so we can
@@ -55,8 +52,7 @@ pub(crate) fn resolve_blend_shapes(
     let skel_blend_shapes = read_blend_shape_names(stage, mesh_path);
 
     let mut out: Vec<DenseBlendShape> = Vec::new();
-    for (i, target) in list_op.iter().enumerate() {
-        let target_path = target.clone();
+    for (i, target_path) in targets.into_iter().enumerate() {
         let Some(dense) = read_dense_blend_shape(stage, &target_path, point_count) else {
             continue;
         };
@@ -81,11 +77,7 @@ fn read_blend_shape_names(stage: &Stage, mesh_path: &SdfPath) -> Vec<String> {
         Ok(p) => p,
         Err(_) => return Vec::new(),
     };
-    match stage
-        .field::<SdfValue>(prop_path, FieldKey::Default)
-        .ok()
-        .flatten()
-    {
+    match stage.attribute(prop_path).get::<SdfValue>().ok().flatten() {
         Some(SdfValue::TokenVec(names)) => token_vec_to_strings(names),
         Some(SdfValue::StringVec(names)) => names,
         _ => Vec::new(),
@@ -105,7 +97,7 @@ fn read_dense_blend_shape(
     // relationships pointing at random prims are surprisingly common
     // in production exports, so a quiet skip here is better than
     // propagating the failure up.
-    let type_name = read_token_or_string_field(stage, target_path.clone(), FieldKey::TypeName);
+    let type_name = read_token_or_string_field(stage, target_path.clone());
     if type_name.as_deref() != Some("BlendShape") {
         return None;
     }
@@ -114,18 +106,18 @@ fn read_dense_blend_shape(
     // optional -- when absent, `offsets` must match the full point
     // count (dense authoring).
     let offsets_path = target_path.append_property("offsets").ok()?;
-    let offsets_value: SdfValue = stage
-        .field(offsets_path, FieldKey::Default)
-        .ok()
-        .flatten()?;
+    let offsets_value: SdfValue = stage.attribute(offsets_path).get::<SdfValue>().ok().flatten()?;
     let offsets_vec: Vec<[f32; 3]> = match offsets_value {
         SdfValue::Vec3fVec(v) => v.into_iter().map(Into::into).collect(),
         _ => return None,
     };
 
     let indices_path = target_path.append_property("pointIndices").ok()?;
-    let indices_value: Option<SdfValue> =
-        stage.field(indices_path, FieldKey::Default).ok().flatten();
+    let indices_value: Option<SdfValue> = stage
+        .attribute(indices_path)
+        .get::<SdfValue>()
+        .ok()
+        .flatten();
 
     let mut dense = vec![0.0f32; point_count * 3];
 

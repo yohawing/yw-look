@@ -615,6 +615,11 @@ pub struct InstancingInput {
     pub rotations: Vec<[f32; 4]>,
     /// Per-instance scale `[sx, sy, sz]`.
     pub scales: Vec<[f32; 3]>,
+    /// Exact PointInstancer-relative matrices after applying the prototype
+    /// subtree transform. Empty for callers that only provide TRS. A matrix
+    /// that cannot round-trip through positive-scale TRS triggers the regular
+    /// mesh-node fallback.
+    pub matrices: Vec<[f32; 16]>,
 }
 
 impl NodeInput {
@@ -791,6 +796,74 @@ fn mesh_output_node_flags(
     flags
 }
 
+fn uses_gpu_instancing(input: &InstancingInput) -> bool {
+    let valid_trs = input
+        .translations
+        .iter()
+        .flatten()
+        .chain(input.rotations.iter().flatten())
+        .all(|value| value.is_finite())
+        && input
+            .scales
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite() && *value > 0.0);
+    if !valid_trs || input.matrices.is_empty() {
+        return valid_trs;
+    }
+    input.matrices.iter().enumerate().all(|(index, exact)| {
+        let reconstructed = crate::usd::math::trs_to_mat4_f32(
+            input.translations[index],
+            input.rotations[index],
+            input.scales[index],
+        );
+        exact
+            .iter()
+            .zip(reconstructed.iter())
+            .all(|(left, right)| (left - right).abs() <= 1e-4)
+    })
+}
+
+fn sanitized_vec3(value: [f32; 3], fallback: f32) -> [f32; 3] {
+    value.map(|component| {
+        component
+            .is_finite()
+            .then_some(component)
+            .unwrap_or(fallback)
+    })
+}
+
+fn sanitized_rotation(value: [f32; 4]) -> [f32; 4] {
+    value
+        .iter()
+        .all(|component| component.is_finite())
+        .then_some(value)
+        .unwrap_or([0.0, 0.0, 0.0, 1.0])
+}
+
+fn attach_instancing_node(
+    gltf_nodes: &mut [Value],
+    scene_nodes: &mut Vec<Value>,
+    hierarchy_nodes: &[NodeInput],
+    parent_node_idx: Option<usize>,
+    child_node_idx: usize,
+) {
+    if let Some(parent_node_idx) = parent_node_idx {
+        if !hierarchy_nodes.is_empty() {
+            let parent_gltf_idx = 1 + parent_node_idx;
+            if let Some(parent_node) = gltf_nodes.get_mut(parent_gltf_idx) {
+                if let Some(children) = parent_node["children"].as_array_mut() {
+                    children.push(json!(child_node_idx));
+                } else {
+                    parent_node["children"] = json!([child_node_idx]);
+                }
+                return;
+            }
+        }
+    }
+    scene_nodes.push(json!(child_node_idx));
+}
+
 /// Estimate the exact padded BIN payload size from the same section-emission
 /// conditions used by `build_glb`. Returning `None` on arithmetic overflow
 /// lets the caller safely fall back to normal Vec growth instead of attempting
@@ -873,6 +946,9 @@ fn estimate_bin_capacity(
 
     for input in instancing {
         if input.translations.is_empty() {
+            continue;
+        }
+        if !uses_gpu_instancing(input) {
             continue;
         }
         checked_add_bin_section(&mut total, input.translations.len(), size_of::<[f32; 3]>())?;
@@ -1059,6 +1135,13 @@ fn build_glb_with_bin_capacity(
                 inst.translations.len(),
                 inst.rotations.len(),
                 inst.scales.len()
+            ));
+        }
+        if !inst.matrices.is_empty() && inst.matrices.len() != inst.translations.len() {
+            return Err(format!(
+                "instancing[{i}] matrices length {} does not match translations length {}",
+                inst.matrices.len(),
+                inst.translations.len()
             ));
         }
     }
@@ -2224,6 +2307,50 @@ fn build_glb_with_bin_capacity(
             continue;
         }
 
+        if !uses_gpu_instancing(inst) {
+            log::warn!(
+                "[usd-glb] PointInstancer '{}' uses regular-node fallback because its transforms cannot be represented as finite positive-scale TRS",
+                inst.instancer_prim_path
+            );
+            let mesh_idx = inst.prototype_mesh_idx;
+            let mesh_name = meshes
+                .get(mesh_idx)
+                .map(|mesh| mesh.name.as_str())
+                .unwrap_or("prototype");
+            for instance_index in 0..instance_count {
+                let node_index = gltf_nodes.len();
+                let mut node = json!({
+                    "name": format!("{mesh_name}_instance_{instance_index}"),
+                    "mesh": mesh_idx,
+                    "extras": {
+                        "primPath": inst.instancer_prim_path,
+                        "instancingFallback": true,
+                    },
+                });
+                if let Some(matrix) = inst
+                    .matrices
+                    .get(instance_index)
+                    .filter(|matrix| matrix.iter().all(|value| value.is_finite()))
+                {
+                    node["matrix"] = json!(matrix);
+                } else {
+                    node["translation"] =
+                        json!(sanitized_vec3(inst.translations[instance_index], 0.0));
+                    node["rotation"] = json!(sanitized_rotation(inst.rotations[instance_index]));
+                    node["scale"] = json!(sanitized_vec3(inst.scales[instance_index], 1.0));
+                }
+                gltf_nodes.push(node);
+                attach_instancing_node(
+                    &mut gltf_nodes,
+                    &mut scene_nodes,
+                    nodes,
+                    inst.parent_node_idx,
+                    node_index,
+                );
+            }
+            continue;
+        }
+
         // ---- TRANSLATION accessor (VEC3 / FLOAT) ----
         let t_offset = bin.len() as u64;
         for t in &inst.translations {
@@ -2347,32 +2474,13 @@ fn build_glb_with_bin_capacity(
             }
         }));
 
-        // Wire the instanced node to the parent (if specified).
-        if let Some(parent_ni_idx) = inst.parent_node_idx {
-            // The NodeInput-aware path: gltf node index for parent_ni_idx
-            // was already allocated in the node-tree building pass above.
-            // The __upAxis node occupies gltf index 0 (when nodes is non-empty),
-            // then NodeInput nodes follow in order starting at index 1.
-            if !nodes.is_empty() {
-                let parent_gltf_idx = 1 + parent_ni_idx;
-                if let Some(parent_node) = gltf_nodes.get_mut(parent_gltf_idx) {
-                    if parent_node.get("children").is_some() {
-                        parent_node["children"]
-                            .as_array_mut()
-                            .unwrap()
-                            .push(json!(inst_node_idx));
-                    } else {
-                        parent_node["children"] = json!([inst_node_idx]);
-                    }
-                }
-            } else {
-                // No NodeInput tree — just add to scene root.
-                scene_nodes.push(json!(inst_node_idx));
-            }
-        } else {
-            // No explicit parent — attach to scene root.
-            scene_nodes.push(json!(inst_node_idx));
-        }
+        attach_instancing_node(
+            &mut gltf_nodes,
+            &mut scene_nodes,
+            nodes,
+            inst.parent_node_idx,
+            inst_node_idx,
+        );
 
         has_instancing_ext = true;
     }
@@ -2420,6 +2528,9 @@ fn build_glb_with_bin_capacity(
     // produced a glTF node.
     if has_instancing_ext {
         extensions_used.push("EXT_mesh_gpu_instancing");
+        // The prototype is intentionally not emitted as a non-instanced node,
+        // so there is no semantically correct core-glTF fallback.
+        document["extensionsRequired"] = json!(["EXT_mesh_gpu_instancing"]);
     }
     if !extensions_used.is_empty() {
         document["extensionsUsed"] = json!(extensions_used);
@@ -2775,6 +2886,7 @@ mod tests {
             translations: vec![[0.0, 0.0, 0.0]],
             rotations: vec![[0.0, 0.0, 0.0, 1.0]],
             scales: vec![[1.0, 1.0, 1.0]],
+            matrices: vec![],
         }];
         let materials = default_materials();
 
@@ -2814,6 +2926,106 @@ mod tests {
             optimized, legacy_growth,
             "preallocation must not alter GLB bytes"
         );
+    }
+
+    #[test]
+    fn build_glb_emits_gpu_instancing_contract() {
+        let meshes = vec![unit_quad_split_into_two_triangles()];
+        let instancing = vec![InstancingInput {
+            prototype_mesh_idx: 0,
+            parent_node_idx: None,
+            instancer_prim_path: "/World/Instances".to_string(),
+            translations: vec![[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+            rotations: vec![[0.0, 0.0, 0.0, 1.0]; 2],
+            scales: vec![[1.0, 1.0, 1.0]; 2],
+            matrices: vec![],
+        }];
+
+        let glb = build_glb(
+            &[],
+            &meshes,
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &instancing,
+        )
+        .expect("build instanced glb");
+        let document = glb_json(&glb);
+        let node = document["nodes"]
+            .as_array()
+            .and_then(|nodes| nodes.first())
+            .expect("instanced node");
+
+        assert_eq!(
+            document["extensionsUsed"],
+            json!(["EXT_mesh_gpu_instancing"])
+        );
+        assert_eq!(
+            document["extensionsRequired"],
+            json!(["EXT_mesh_gpu_instancing"])
+        );
+        assert_eq!(node["extras"]["primPath"], "/World/Instances");
+        assert_eq!(
+            node["extensions"]["EXT_mesh_gpu_instancing"]["attributes"]
+                .as_object()
+                .map(|attributes| attributes.len()),
+            Some(3)
+        );
+        assert_eq!(document["accessors"][4]["count"], 2);
+        assert_eq!(document["accessors"][5]["count"], 2);
+        assert_eq!(document["accessors"][6]["count"], 2);
+    }
+
+    #[test]
+    fn build_glb_falls_back_to_nodes_for_negative_or_non_finite_scale() {
+        let meshes = vec![unit_quad_split_into_two_triangles()];
+        let instancing = vec![InstancingInput {
+            prototype_mesh_idx: 0,
+            parent_node_idx: None,
+            instancer_prim_path: "/World/Instances".to_string(),
+            translations: vec![[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+            rotations: vec![[0.0, 0.0, 0.0, 1.0]; 2],
+            scales: vec![[-1.0, 1.0, 1.0], [f32::NAN, 1.0, 1.0]],
+            matrices: vec![
+                crate::usd::math::trs_to_mat4_f32(
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                    [-1.0, 1.0, 1.0],
+                ),
+                crate::usd::math::trs_to_mat4_f32(
+                    [2.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                    [f32::NAN, 1.0, 1.0],
+                ),
+            ],
+        }];
+
+        let glb = build_glb(
+            &[],
+            &meshes,
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &instancing,
+        )
+        .expect("build fallback instancing glb");
+        let document = glb_json(&glb);
+        let nodes = document["nodes"].as_array().expect("fallback nodes");
+
+        assert!(document.get("extensionsUsed").is_none());
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(nodes[0]["matrix"][0], -1.0);
+        assert!(nodes[0].get("scale").is_none());
+        assert_eq!(nodes[1]["scale"], json!([1.0, 1.0, 1.0]));
+        assert_eq!(nodes[0]["extras"]["instancingFallback"], true);
     }
 
     #[test]

@@ -1,6 +1,5 @@
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::geometry::MeshOrientation;
 
@@ -14,7 +13,8 @@ pub(crate) fn read_mesh_orientation(stage: &Stage, prim_path: &SdfPath) -> MeshO
         return MeshOrientation::RightHanded;
     };
     match stage
-        .field::<SdfValue>(prop_path, FieldKey::Default)
+        .attribute(prop_path)
+        .get::<SdfValue>()
         .ok()
         .flatten()
         .and_then(token_or_string_value_to_string)
@@ -54,26 +54,28 @@ pub(crate) fn read_mesh_orientation(stage: &Stage, prim_path: &SdfPath) -> MeshO
 #[allow(dead_code)]
 pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
     // Must be a Mesh at the leaf.
-    if read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref()
-        != Some("Mesh")
-    {
+    if read_token_or_string_field(stage, prim_path.clone()).as_deref() != Some("Mesh") {
+        return false;
+    }
+
+    // `Prim::is_active()` already composes the whole ancestor chain
+    // (see its doc comment), so a single upfront call replaces the
+    // per-ancestor `active` check that used to run inline with the
+    // visibility/purpose walk below. `unwrap_or(true)` matches the old
+    // fallback (an unreadable field never hid the mesh).
+    if !stage.prim(prim_path.clone()).is_active().unwrap_or(true) {
         return false;
     }
 
     // Walk from the leaf toward the pseudo-root. Every step checks the
-    // current prim's own opinions for active/visibility/purpose. If any
-    // ancestor hides or deactivates the subtree, the mesh is skipped.
+    // current prim's own opinions for visibility/purpose. If any
+    // ancestor hides the subtree, the mesh is skipped.
     // String-based parent walk matches `compose_world_xform`.
     let mut path_str = prim_path.as_str().to_string();
     loop {
         let Ok(ancestor) = SdfPath::new(&path_str) else {
             break;
         };
-
-        // `active = false` at any level drops the whole subtree.
-        if let Ok(Some(false)) = stage.field::<bool>(ancestor.clone(), FieldKey::Active) {
-            return false;
-        }
 
         // `visibility = "invisible"` hides the prim and all descendants
         // until an inner prim re-authors `visibility = "inherited"`. We
@@ -83,7 +85,8 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         // enough for the scenes yw-look targets.
         if let Ok(prop) = ancestor.append_property("visibility") {
             if stage
-                .field::<SdfValue>(prop, FieldKey::Default)
+                .attribute(prop)
+                .get::<SdfValue>()
                 .ok()
                 .flatten()
                 .and_then(token_or_string_value_to_string)
@@ -97,7 +100,8 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         if let Ok(prop) = ancestor.append_property("purpose") {
             if matches!(
                 stage
-                    .field::<SdfValue>(prop, FieldKey::Default)
+                    .attribute(prop)
+                    .get::<SdfValue>()
                     .ok()
                     .flatten()
                     .and_then(token_or_string_value_to_string)
@@ -128,9 +132,14 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
 /// writing the resolved purpose onto each `MeshInput`.
 pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> bool {
     // Must be a Mesh at the leaf.
-    if read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName).as_deref()
-        != Some("Mesh")
-    {
+    if read_token_or_string_field(stage, prim_path.clone()).as_deref() != Some("Mesh") {
+        return false;
+    }
+
+    // See the matching comment in `is_renderable_mesh`: `is_active()`
+    // composes the ancestor chain itself, so this replaces the
+    // per-ancestor `active` check that used to run inside the loop.
+    if !stage.prim(prim_path.clone()).is_active().unwrap_or(true) {
         return false;
     }
 
@@ -140,13 +149,10 @@ pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> 
             break;
         };
 
-        if let Ok(Some(false)) = stage.field::<bool>(ancestor.clone(), FieldKey::Active) {
-            return false;
-        }
-
         if let Ok(prop) = ancestor.append_property("visibility") {
             if stage
-                .field::<SdfValue>(prop, FieldKey::Default)
+                .attribute(prop)
+                .get::<SdfValue>()
                 .ok()
                 .flatten()
                 .and_then(token_or_string_value_to_string)
@@ -181,7 +187,8 @@ pub(crate) fn resolve_purpose(stage: &Stage, prim_path: &SdfPath) -> String {
 
         if let Ok(prop) = ancestor.append_property("purpose") {
             if let Some(token) = stage
-                .field::<SdfValue>(prop, FieldKey::Default)
+                .attribute(prop)
+                .get::<SdfValue>()
                 .ok()
                 .flatten()
                 .and_then(token_or_string_value_to_string)

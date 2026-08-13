@@ -24,6 +24,7 @@ import {
   buildDiagnosticCounts,
   buildDiagnosticWarnings,
   isDebugPanelsRequested,
+  selectUsdCapabilities,
 } from "./assetDiagnostics";
 import { errorMessage } from "../lib/errors";
 import { isUsdFile } from "../lib/files";
@@ -182,14 +183,19 @@ export function useSidebarModel({
   const debugPanelsEnabled = isDebugPanelsRequested();
   const { debugFixtures, useDebugFixtures } =
     useDebugPanelFixtures(debugPanelsEnabled);
+  const usdCapabilities = useMemo(
+    () => selectUsdCapabilities(sessionAdjustedUsdSummary, usdInspection),
+    [sessionAdjustedUsdSummary, usdInspection],
+  );
 
   const warnings = useMemo(() => {
     return buildDiagnosticWarnings({
       assetMetadata,
+      usdCapabilities,
       usdIssues,
       viewerFeedback,
     });
-  }, [assetMetadata, usdIssues, viewerFeedback]);
+  }, [assetMetadata, usdCapabilities, usdIssues, viewerFeedback]);
   const sidebarWarnings = useDebugFixtures
     ? debugFixtures.debugPanelWarnings
     : warnings;
@@ -219,10 +225,17 @@ export function useSidebarModel({
     return buildDiagnosticCounts({
       assetMetadata,
       debugPanelWarnings,
+      usdCapabilities,
       usdIssues,
       viewerFeedback,
     });
-  }, [assetMetadata, debugPanelWarnings, usdIssues, viewerFeedback]);
+  }, [
+    assetMetadata,
+    debugPanelWarnings,
+    usdCapabilities,
+    usdIssues,
+    viewerFeedback,
+  ]);
 
   const sidebarContent = useMemo<ReactNode>(() => {
     switch (activeTab) {

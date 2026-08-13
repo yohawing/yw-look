@@ -147,6 +147,8 @@ export type SceneContext = {
   packRuntime: PackRuntime | null;
   mmdModel: MmdRuntimeModelHandle | null;
   mmdMotion: MmdMotionPlayback | null;
+  /** Stable MMD light/specular synchronizer captured when a model mounts. */
+  mmdLightSync: MmdPreviewLightSync | null;
   textureRegistry: Map<string, Texture>;
   rawMaxDimension: number;
 };
@@ -158,6 +160,15 @@ export type MmdAnimationHandle = {
     maxFrame?: number;
   };
 };
+
+/** Runtime-sampled VMD light state, in the parser's MMD direction convention. */
+export type MmdLightState = {
+  color: readonly [number, number, number];
+  direction: readonly [number, number, number];
+};
+
+/** Applies the current runtime light state to the mounted viewport light. */
+export type MmdPreviewLightSync = () => void;
 
 export type MmdRuntimeModelHandle = {
   root?: Object3D;
@@ -178,6 +189,7 @@ export type MmdRuntimeModelHandle = {
         physics?: boolean;
       },
     ): void;
+    lightState?(): MmdLightState | undefined;
   };
 };
 

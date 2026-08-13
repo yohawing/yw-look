@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::stage::MaterialData;
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::glb;
+use crate::usd::ir::MaterialData;
 use crate::usd::material::{
     apply_material_wrap_tokens, apply_resolved_texture_transforms, build_material_slot_paths,
     is_preview_surface_shader_id, is_texture_shader_id, lookup_material_slot,
@@ -15,7 +14,8 @@ use crate::usd::material::{
 };
 
 use super::shader_fields::{read_shader_color, read_shader_float, read_shader_token};
-use super::stage_fields::read_token_or_string_field;
+use super::stage_fields::{read_string_or_token_attribute, read_token_or_string_field};
+use super::stage_query;
 use super::LEGACY_TRAVERSE_PREDICATE;
 
 /// Name-based material fallback for GeomSubsets without authored
@@ -45,7 +45,8 @@ pub(crate) fn find_material_by_name_fallback(
 
         // Check if Looks prim exists by reading its specifier.
         if stage
-            .field::<SdfValue>(looks_path.clone(), FieldKey::Specifier)
+            .prim(looks_path.clone())
+            .specifier()
             .ok()
             .flatten()
             .is_none()
@@ -72,8 +73,7 @@ pub(crate) fn find_material_by_name_fallback(
                 }
                 let child_name = remainder.trim_start_matches('/');
                 if child_name.starts_with(subset_name)
-                    && read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName)
-                        .as_deref()
+                    && read_token_or_string_field(stage, prim_path.clone()).as_deref()
                         == Some("Material")
                 {
                     found = Some(prim_path.clone());
@@ -110,7 +110,7 @@ pub(crate) fn resolve_material_slot(
     if let Some(existing) = lookup_material_slot(&key, material_slots) {
         return existing;
     }
-    let data = stage.material_of(prim_path.clone());
+    let data: Option<MaterialData> = stage_query::material_of(stage, prim_path.clone());
     let surface_shader = find_preview_surface_shader(stage, mat_path);
     if data.is_none() && surface_shader.is_none() {
         return 0;
@@ -206,18 +206,16 @@ fn resolve_shader_texture_asset(
 /// the shader inside nested NodeGraphs we'll miss it, which is the
 /// same single-hop limitation `material_of` has for the diffuse channel.
 fn find_preview_surface_shader(stage: &Stage, material_path: &SdfPath) -> Option<SdfPath> {
-    let children = stage.prim_children(material_path.clone()).ok()?;
+    let children = stage_query::prim_children(stage, material_path.clone()).ok()?;
     for child_name in children {
         // SdfPath has no `append_child`; compose the child path via
         // string concat (same pattern used for GeomSubset names).
         let child = SdfPath::new(&format!("{}/{}", material_path.as_str(), child_name)).ok()?;
-        if read_token_or_string_field(stage, child.clone(), FieldKey::TypeName).as_deref()
-            != Some("Shader")
-        {
+        if read_token_or_string_field(stage, child.clone()).as_deref() != Some("Shader") {
             continue;
         }
         let info_id_path = child.append_property("info:id").ok()?;
-        let info_id = read_token_or_string_field(stage, info_id_path, FieldKey::Default);
+        let info_id = read_string_or_token_attribute(stage, info_id_path);
         if is_preview_surface_shader_id(info_id.as_deref()) {
             return Some(child);
         }
@@ -234,16 +232,12 @@ impl TextureNodeGraph for RustTextureNodeGraph<'_> {
 
     fn shader_id(&self, node: &Self::Node) -> Option<String> {
         let info_id_path = node.append_property("info:id").ok()?;
-        read_token_or_string_field(self.stage, info_id_path, FieldKey::Default)
+        read_string_or_token_attribute(self.stage, info_id_path)
     }
 
     fn shader_input_asset(&self, node: &Self::Node, input_name: &str) -> Option<String> {
         let file_path = node.append_property(input_name).ok()?;
-        let value: Option<SdfValue> = self
-            .stage
-            .field(file_path, FieldKey::Default)
-            .ok()
-            .flatten();
+        let value: Option<SdfValue> = self.stage.attribute(file_path).get::<SdfValue>().ok().flatten();
         match value? {
             SdfValue::AssetPath(s) => Some(s.to_string()),
             SdfValue::String(s) => Some(s),
@@ -303,7 +297,7 @@ fn resolve_texture_transform_from_sampler(
     let st_input = texture_shader.append_property("inputs:st").ok()?;
     let transform_shader = follow_connection_to_shader(stage, &st_input)?;
     let info_id_path = transform_shader.append_property("info:id").ok()?;
-    let info_id = read_token_or_string_field(stage, info_id_path, FieldKey::Default);
+    let info_id = read_string_or_token_attribute(stage, info_id_path);
     texture_transform_from_usd_transform2d(
         info_id.as_deref(),
         read_vec2_input(stage, &transform_shader, "inputs:translation"),
@@ -312,24 +306,21 @@ fn resolve_texture_transform_from_sampler(
     )
 }
 
-/// Follow one `ConnectionPaths` hop from a property path and return
-/// the target shader's prim path (property suffix stripped). Returns
-/// `None` when the property has no authored connection or the target
-/// resolves to something other than a Shader prim.
+/// Follow one connection hop from a property path and return the
+/// target shader's prim path (property suffix stripped). Returns `None`
+/// when the property has no authored connection or the target resolves
+/// to something other than a Shader prim. Uses `Attribute::connections()`,
+/// the public composed accessor (list-op edits folded across every
+/// contributing layer).
 fn follow_connection_to_shader(stage: &Stage, input_path: &SdfPath) -> Option<SdfPath> {
-    let connections: Option<SdfValue> = stage
-        .field(input_path.clone(), FieldKey::ConnectionPaths)
-        .ok()
-        .flatten();
-    let list_op = match connections? {
-        SdfValue::PathListOp(op) => op,
-        _ => return None,
-    };
-    let target = list_op.iter().next()?.clone();
+    let target = stage
+        .attribute(input_path.clone())
+        .connections()
+        .ok()?
+        .into_iter()
+        .next()?;
     let shader_path = target.prim_path();
-    if read_token_or_string_field(stage, shader_path.clone(), FieldKey::TypeName).as_deref()
-        != Some("Shader")
-    {
+    if read_token_or_string_field(stage, shader_path.clone()).as_deref() != Some("Shader") {
         return None;
     }
     Some(shader_path)
@@ -339,7 +330,7 @@ fn follow_connection_to_shader(stage: &Stage, input_path: &SdfPath) -> Option<Sd
 /// `float` and `double` authoring; other numeric types are ignored.
 fn read_scalar_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> Option<f32> {
     let prop_path = shader_path.append_property(input_name).ok()?;
-    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    let value: SdfValue = stage.attribute(prop_path).get::<SdfValue>().ok().flatten()?;
     match value {
         SdfValue::Float(v) => Some(v),
         SdfValue::Double(v) => Some(v as f32),
@@ -351,7 +342,7 @@ fn read_scalar_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> 
 /// `float2` and `double2` authoring; other types fall through.
 fn read_vec2_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> Option<[f32; 2]> {
     let prop_path = shader_path.append_property(input_name).ok()?;
-    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    let value: SdfValue = stage.attribute(prop_path).get::<SdfValue>().ok().flatten()?;
     match value {
         SdfValue::Vec2f(v) => Some(v.into()),
         SdfValue::Vec2d(v) => Some([v[0] as f32, v[1] as f32]),

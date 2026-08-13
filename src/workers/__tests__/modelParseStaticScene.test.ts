@@ -142,16 +142,18 @@ describe("model parse worker static scene policy", () => {
 });
 
 describe("worker FBX DOM-free LoadingManager", () => {
-  it("registers image/DDS/TGA handlers that return fbxSourceName placeholders", () => {
+  it("registers image/DDS/TGA/PSD handlers that return fbxSourceName placeholders", () => {
     const manager = createWorkerFbxLoadingManager();
 
     const dds = manager.getHandler("Textures/normal.dds");
     const tga = manager.getHandler("Textures/mask.tga");
+    const psd = manager.getHandler("Textures/BaseColor.psd");
     const png = manager.getHandler("Textures/albedo.png");
     const jpg = manager.getHandler("foo/bar.JPG");
 
     expect(dds).toBeTruthy();
     expect(tga).toBeTruthy();
+    expect(psd).toBeTruthy();
     expect(png).toBeTruthy();
     expect(jpg).toBeTruthy();
 
@@ -160,10 +162,12 @@ describe("worker FBX DOM-free LoadingManager", () => {
 
     const ddsTex = load(dds!, "Textures/normal.dds");
     const tgaTex = load(tga!, "Textures/mask.tga");
+    const psdTex = load(psd!, "Textures/BaseColor.psd");
     const pngTex = load(png!, "Textures/albedo.png");
 
     expect(ddsTex.userData.fbxSourceName).toBe("Textures/normal.dds");
     expect(tgaTex.userData.fbxSourceName).toBe("Textures/mask.tga");
+    expect(psdTex.userData.fbxSourceName).toBe("Textures/BaseColor.psd");
     expect(pngTex.userData.fbxSourceName).toBe("Textures/albedo.png");
     expect(pngTex.name).toBe("albedo.png");
 

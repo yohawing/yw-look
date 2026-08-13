@@ -1,8 +1,7 @@
 use std::cell::RefCell;
 
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::Path as SdfPath;
-use openusd::Stage;
+use openusd::usd::Stage;
 
 use crate::usd::glb;
 use crate::usd::lights::{
@@ -84,6 +83,6 @@ pub(crate) fn resolve_lights(
 /// currently emits to glTF. Returns `None` for non-lights and for
 /// lights we intentionally skip (area lights, DomeLight).
 pub(crate) fn detect_light_kind(stage: &Stage, prim_path: &SdfPath) -> Option<glb::LightKind> {
-    let type_name = read_token_or_string_field(stage, prim_path.clone(), FieldKey::TypeName);
+    let type_name = read_token_or_string_field(stage, prim_path.clone());
     gltf_light_kind_from_usd_type_name(type_name.as_deref())
 }

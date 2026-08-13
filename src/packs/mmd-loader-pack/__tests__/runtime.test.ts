@@ -6,6 +6,7 @@ import { createMmdRuntime } from "../runtime";
 function createSceneContext(): SceneContext {
   const mesh = new Group();
   const animation = { metadata: { maxFrame: 60 } };
+  const mmdLightSync = vi.fn();
   return {
     mmdModel: {
       mesh,
@@ -16,6 +17,7 @@ function createSceneContext(): SceneContext {
         tick: vi.fn(),
       },
     },
+    mmdLightSync,
     mmdMotion: {
       animation,
       duration: 2,
@@ -39,6 +41,7 @@ describe("createMmdRuntime", () => {
       physics: false,
     });
     expect(model.syncMaterialMorphs).toHaveBeenCalledOnce();
+    expect(context.mmdLightSync).toHaveBeenCalledOnce();
     expect(runtime.animation?.getSnapshot()).toEqual({
       currentTime: 0.5,
       duration: 2,
@@ -64,5 +67,35 @@ describe("createMmdRuntime", () => {
       duration: 2,
     });
     expect(model.syncMaterialMorphs).toHaveBeenCalledTimes(2);
+    expect(context.mmdLightSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("resynchronizes the VMD light after loop wrap", () => {
+    const context = createSceneContext();
+    const runtime = createMmdRuntime(context);
+
+    context.mmdMotion!.currentTime = 1.9;
+    runtime.animation?.update(0.2);
+
+    expect(context.mmdModel?.runtime?.reset).toHaveBeenCalledWith(0);
+    expect(context.mmdModel?.runtime?.tick).toHaveBeenCalledWith(
+      expect.closeTo(0.1),
+      {
+        mesh: context.mmdModel?.mesh,
+        ik: true,
+        physics: false,
+      },
+    );
+    expect(context.mmdLightSync).toHaveBeenCalledOnce();
+  });
+
+  it("drops the light synchronizer when the pack runtime is disposed", () => {
+    const context = createSceneContext();
+    const runtime = createMmdRuntime(context);
+
+    runtime.dispose?.();
+
+    expect(context.mmdLightSync).toBeNull();
+    expect(context.mmdMotion).toBeNull();
   });
 });

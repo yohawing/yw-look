@@ -1,7 +1,7 @@
-use openusd::sdf::schema::FieldKey;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::stage::MeshData;
-use openusd::Stage;
+use openusd::usd::Stage;
+
+use crate::usd::ir::MeshData;
 
 /// Expand indexed face-varying UVs. USD allows `primvars:st:indices`
 /// to decouple the UV array from face-vertex order — the UV array
@@ -30,7 +30,7 @@ pub(crate) fn expand_indexed_uvs(stage: &Stage, prim_path: &SdfPath, mesh_data: 
     let Ok(idx_path) = prim_path.append_property("primvars:st:indices") else {
         return;
     };
-    let Ok(Some(idx_value)) = stage.field::<SdfValue>(idx_path, FieldKey::Default) else {
+    let Ok(Some(idx_value)) = stage.attribute(idx_path).get::<SdfValue>() else {
         return;
     };
     let indices: Vec<usize> = match idx_value {
@@ -66,7 +66,7 @@ pub(crate) fn expand_indexed_uvs(stage: &Stage, prim_path: &SdfPath, mesh_data: 
 /// displayColor).
 pub(crate) fn read_display_opacity(stage: &Stage, prim_path: &SdfPath) -> Option<Vec<f32>> {
     let prop_path = prim_path.append_property("primvars:displayOpacity").ok()?;
-    let value: SdfValue = stage.field(prop_path, FieldKey::Default).ok().flatten()?;
+    let value: SdfValue = stage.attribute(prop_path).get::<SdfValue>().ok().flatten()?;
     match value {
         SdfValue::Float(f) => Some(vec![f]),
         SdfValue::FloatVec(v) if !v.is_empty() => Some(v),

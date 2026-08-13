@@ -11,15 +11,18 @@
 //!   data into a binary glTF blob the frontend's `GLTFLoader` can
 //!   consume.
 //! - [`asset_resolution`] / [`extract_shared`] / [`geometry`] /
-//!   [`lights`] / [`material`] / [`math`] / [`node_tree`] /
+//!   [`ir`] / [`lights`] / [`material`] / [`math`] / [`node_tree`] /
 //!   [`prim_path`] / [`skel`] / [`texture_loader`] — small
 //!   backend-independent helpers used by the Rust extraction path.
+//!   [`ir`] holds the backend-independent mesh/material/skeleton
+//!   types every backend maps its own stage-query output into.
 
 pub mod asset_resolution;
 pub mod backend;
 pub mod extract_shared;
 pub mod geometry;
 pub mod glb;
+pub mod ir;
 pub mod lights;
 pub mod material;
 pub mod math;

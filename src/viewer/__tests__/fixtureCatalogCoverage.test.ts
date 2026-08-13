@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import catalog from "../../../tests/fixtures/catalog.json";
 import { listRegisteredLoaders } from "../loaders";
 
-type AssetKind = "mesh" | "pointCloud" | "gaussianSplat";
+type AssetKind = "mesh" | "pointCloud" | "gaussianSplat" | "motion";
 type RequiredLoader = "spark" | "mmd";
 
 const B8_ERROR_CATEGORIES = [

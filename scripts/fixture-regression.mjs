@@ -141,7 +141,7 @@ async function readCatalog() {
       format: testCase.format ?? path.extname(testCase.path).slice(1),
       assetKind: normalizeNullableEnum(
         testCase.assetKind,
-        ["mesh", "pointCloud", "gaussianSplat"],
+        ["mesh", "pointCloud", "gaussianSplat", "motion"],
         "assetKind",
         testCase.id,
       ),

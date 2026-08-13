@@ -1,13 +1,20 @@
 import {
+  DataTexture,
+  LinearFilter,
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
+  RGBAFormat,
   SRGBColorSpace,
   TextureLoader,
+  UnsignedByteType,
   type CompressedTexture,
-  type DataTexture,
 } from "three";
-import { readBinaryFile, type SelectedFile } from "../../lib/files";
+import {
+  decodePsdFile,
+  readBinaryFile,
+  type SelectedFile,
+} from "../../lib/files";
 import type { LoaderContext } from "../loaderRegistry";
 import type { LoadedPreview } from "../types";
 
@@ -102,11 +109,11 @@ function loadedTexturePreview(
     | DataTexture
     | CompressedTexture
     | Awaited<ReturnType<TextureLoader["loadAsync"]>>,
-  objectUrl: string,
+  objectUrl?: string,
 ): LoadedPreview {
   return {
     object: createTexturePreview(texture),
-    cleanupUrls: [objectUrl],
+    cleanupUrls: objectUrl ? [objectUrl] : [],
     clips: [],
     formatVersion: null,
   };
@@ -120,6 +127,28 @@ export async function loadTexturePreviewObject(
   throwIfAborted(context.signal);
 
   switch (file.extension) {
+    case "psd": {
+      reportStage("decode");
+      const decoded = await decodePsdFile(file.path);
+      throwIfAborted(context.signal);
+      const texture = new DataTexture(
+        decoded.data,
+        decoded.width,
+        decoded.height,
+        RGBAFormat,
+        UnsignedByteType,
+      );
+      texture.magFilter = LinearFilter;
+      texture.minFilter = LinearFilter;
+      texture.generateMipmaps = false;
+      texture.flipY = false;
+      texture.colorSpace = SRGBColorSpace;
+      texture.name = file.fileName;
+      texture.userData.textureSourceKind = "standalone";
+      texture.needsUpdate = true;
+      reportStage("gpu");
+      return loadedTexturePreview(texture);
+    }
     case "png":
     case "jpg":
     case "jpeg": {

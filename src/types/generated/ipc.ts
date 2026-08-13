@@ -187,6 +187,24 @@ export type ExtractGeometryOptions = {
   purposeModes: PurposeModes;
 };
 
+export type StageCapabilityKind =
+  | "pointInstancer"
+  | "materialX"
+  | "skel"
+  | "animationRange"
+  | "payload"
+  | "variantOverride"
+  | "usdAuthoredSplat";
+
+export type StageCapabilitySupport = "supported" | "degraded" | "unsupported";
+
+export type StageCapabilityInfo = {
+  kind: StageCapabilityKind;
+  detected: boolean;
+  support: StageCapabilitySupport;
+  reason: string;
+};
+
 export type StageInspection = {
   path: string;
   defaultPrim: string | null;
@@ -208,6 +226,7 @@ export type StageInspection = {
   variantSelectionArcs: Array<CompositionArc>;
   missingAssets: Array<string>;
   variantSets: Array<VariantSetInfo>;
+  capabilities: Array<StageCapabilityInfo>;
   loadPolicy: StageLoadPolicy;
 };
 
@@ -231,6 +250,7 @@ export type StageSummary = {
   resolvedPayloadCount: number;
   unresolvedPayloadCount: number;
   warnings: Array<string>;
+  capabilities: Array<StageCapabilityInfo>;
   loadPolicy: StageLoadPolicy;
 };
 

@@ -14,7 +14,8 @@ use crate::usd::{
 const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
 const USD_FAST_DECISION_SCAN_BYTES: usize = 64 * 1024;
 const USDC_MAGIC: &[u8] = b"PXR-USDC";
-const USD_COMPOSITION_KEYWORDS: [&[u8]; 3] = [b"subLayers", b"references", b"payload"];
+const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 4] =
+    [b"subLayers", b"references", b"payload", b"PointInstancer"];
 
 fn map_usd_error(error: UsdError) -> AppError {
     AppError::Usd(error.to_string())
@@ -107,7 +108,7 @@ fn fast_usd_requires_glb_preview(path: &std::path::Path) -> Option<bool> {
     if bytes.starts_with(USDC_MAGIC) {
         return Some(true);
     }
-    if USD_COMPOSITION_KEYWORDS.iter().any(|keyword| {
+    if USD_GLTF_BACKEND_KEYWORDS.iter().any(|keyword| {
         bytes
             .windows(keyword.len())
             .any(|window| window == *keyword)
@@ -383,6 +384,16 @@ mod tests {
         let (_dir, path) = write_usda(
             "composed.usda",
             b"#usda 1.0\ndef Xform \"Root\" (references = @asset.usda@) {}",
+        );
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_detects_point_instancer() {
+        let (_dir, path) = write_usda(
+            "instancer.usda",
+            b"#usda 1.0\ndef PointInstancer \"Instances\" {}",
         );
 
         assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));

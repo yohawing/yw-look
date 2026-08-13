@@ -58,10 +58,7 @@ function resetOutputDir(directoryPath) {
 }
 
 function findWindowsBundle(version) {
-  const candidates = [
-    path.join(bundleDir, "nsis"),
-    path.join(bundleDir, "msi"),
-  ];
+  const candidates = [path.join(bundleDir, "nsis")];
 
   for (const directory of candidates) {
     if (!fs.existsSync(directory)) {
@@ -72,7 +69,7 @@ function findWindowsBundle(version) {
       .readdirSync(directory)
       .find(
         (entry) =>
-          /\.(exe|msi)$/i.test(entry) &&
+          entry.toLowerCase().endsWith("-setup.exe") &&
           !entry.endsWith(".sig") &&
           entry.includes(`_${version}_`),
       );

@@ -54,9 +54,12 @@ const INVALID_VARIANT_SELECTION_PREFIX = "USD_INVALID_VARIANT_SELECTION\t";
 const USD_TASK_BUSY_MESSAGE = "USD_TASK_BUSY";
 const USD_FAST_DECISION_SCAN_BYTES = 64 * 1024;
 const USDC_MAGIC = new TextEncoder().encode("PXR-USDC");
-const USD_COMPOSITION_KEYWORDS = ["subLayers", "references", "payload"].map(
-  (keyword) => new TextEncoder().encode(keyword),
-);
+const USD_GLTF_BACKEND_KEYWORDS = [
+  "subLayers",
+  "references",
+  "payload",
+  "PointInstancer",
+].map((keyword) => new TextEncoder().encode(keyword));
 
 type UsdInvokeOptions = {
   background?: boolean;
@@ -261,8 +264,8 @@ function bytesInclude(bytes: Uint8Array, needle: Uint8Array) {
   return false;
 }
 
-function bytesIncludeUsdCompositionKeyword(bytes: Uint8Array) {
-  return USD_COMPOSITION_KEYWORDS.some((keyword) =>
+function bytesRequireUsdGltfBackend(bytes: Uint8Array) {
+  return USD_GLTF_BACKEND_KEYWORDS.some((keyword) =>
     bytesInclude(bytes, keyword),
   );
 }
@@ -286,7 +289,7 @@ async function fastTextUsdRequiresGlbPreview(path: string) {
     if (bytesStartWith(prefix, USDC_MAGIC)) {
       return true;
     }
-    if (bytesIncludeUsdCompositionKeyword(prefix)) {
+    if (bytesRequireUsdGltfBackend(prefix)) {
       return true;
     }
     if (prefix.byteLength < USD_FAST_DECISION_SCAN_BYTES) {
@@ -297,7 +300,7 @@ async function fastTextUsdRequiresGlbPreview(path: string) {
     }
 
     const buffer = new Uint8Array(await readBinaryFile(path));
-    return bytesIncludeUsdCompositionKeyword(buffer);
+    return bytesRequireUsdGltfBackend(buffer);
   } catch {
     return null;
   }

@@ -4,6 +4,7 @@ pub(crate) mod diagnostics;
 pub(crate) mod file_associations;
 pub(crate) mod files;
 pub(crate) mod loader_packs;
+pub(crate) mod psd;
 pub(crate) mod settings;
 pub(crate) mod shot;
 pub(crate) mod startup_bench;

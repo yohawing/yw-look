@@ -48,10 +48,7 @@ function hashFile(filePath) {
 function findSourceBundle(installerName) {
   const candidates = target.startsWith("darwin")
     ? [path.join(bundleDir, "macos", installerName)]
-    : [
-        path.join(bundleDir, "nsis", installerName),
-        path.join(bundleDir, "msi", installerName),
-      ];
+    : [path.join(bundleDir, "nsis", installerName)];
 
   const sourcePath = candidates.find((candidate) => fs.existsSync(candidate));
   assert(sourcePath, `No source bundle found for ${installerName}`);

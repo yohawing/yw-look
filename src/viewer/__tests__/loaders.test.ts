@@ -39,7 +39,9 @@ describe("preview support classification", () => {
     expect(extensions.has("obj")).toBe(true);
     expect(extensions.has("usdz")).toBe(true);
     expect(extensions.has("abc")).toBe(true);
+    expect(extensions.has("bvh")).toBe(true);
     expect(extensions.has("ktx2")).toBe(true);
+    expect(extensions.has("psd")).toBe(true);
   });
 
   it("exposes registered format packs by id", () => {
@@ -63,6 +65,8 @@ describe("preview support classification", () => {
     expect(getPreviewSupportState("glb")).toBe("implemented");
     expect(getPreviewSupportState("vrm")).toBe("implemented");
     expect(getPreviewSupportState("abc")).toBe("implemented");
+    expect(getPreviewSupportState("bvh")).toBe("implemented");
+    expect(getPreviewSupportState("psd")).toBe("implemented");
     expect(getPreviewSupportState("vrma")).toBe("missingOptionalLoader");
   });
 

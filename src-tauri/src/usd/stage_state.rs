@@ -32,7 +32,7 @@ use super::types::StageLoadPolicy;
 pub struct StageSessionHandle(pub u64);
 
 pub struct RustStageSession {
-    pub stage: openusd::Stage,
+    pub stage: openusd::usd::Stage,
     pub loaded_payload_paths: HashSet<String>,
 }
 
