@@ -274,6 +274,7 @@
 }
 
 .selected-morph-slider-field {
+  grid-column: 3;
   min-width: 0;
   gap: 0;
 }
