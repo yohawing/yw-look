@@ -32,6 +32,7 @@ use crate::commands::files::{
 use crate::commands::loader_packs::{
     install_optional_loader_pack, load_optional_loader_manifests, remove_optional_loader_pack,
 };
+use crate::commands::psd::decode_psd;
 use crate::commands::settings::{load_settings, load_update_configuration, save_settings};
 use crate::commands::shot::{
     finish_shot_run, get_shot_batch_config, get_shot_config, parse_shot_cli_config,
@@ -230,6 +231,7 @@ pub fn run() {
             load_optional_loader_manifests,
             install_optional_loader_pack,
             remove_optional_loader_pack,
+            decode_psd,
             sync_file_associations,
             open_default_apps_settings,
             log_diagnostic_event,

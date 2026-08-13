@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DataTexture,
   Mesh,
   MeshBasicMaterial,
   SRGBColorSpace,
@@ -19,12 +20,14 @@ const mocks = vi.hoisted(() => ({
     workerConfig?: Record<string, boolean>;
   }>,
   ktx2LoadAsync: vi.fn(),
+  decodePsdFile: vi.fn(),
   readBinaryFile: vi.fn(),
   rgbeLoadAsync: vi.fn(),
 }));
 
 vi.mock("../../../lib/files", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../lib/files")>()),
+  decodePsdFile: mocks.decodePsdFile,
   readBinaryFile: mocks.readBinaryFile,
 }));
 
@@ -92,8 +95,28 @@ describe("loadTexturePreviewObject", () => {
     vi.restoreAllMocks();
     mocks.ktx2Instances.length = 0;
     mocks.readBinaryFile.mockResolvedValue(new ArrayBuffer(4));
+    mocks.decodePsdFile.mockResolvedValue({
+      width: 2048,
+      height: 2048,
+      data: new Uint8Array(2048 * 2048 * 4),
+    });
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:texture");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+  });
+
+  it("hydrates a PSD through the Rust packet into an RGBA8 DataTexture", async () => {
+    const result = await loadTexture(fileWithExtension("psd"));
+    const texture = resultTexture(result);
+
+    expect(mocks.decodePsdFile).toHaveBeenCalledWith("C:\\assets\\texture.psd");
+    expect(texture).toBeInstanceOf(DataTexture);
+    expect(texture.image.width).toBe(2048);
+    expect(texture.image.height).toBe(2048);
+    expect(texture.image.data).toBeInstanceOf(Uint8Array);
+    expect(texture.image.data.byteLength).toBe(2048 * 2048 * 4);
+    expect(texture.colorSpace).toBe(SRGBColorSpace);
+    expect(texture.userData.textureSourceKind).toBe("standalone");
+    expect(result.cleanupUrls).toEqual([]);
   });
 
   it("loads PNG textures as standalone previews with sRGB color space", async () => {

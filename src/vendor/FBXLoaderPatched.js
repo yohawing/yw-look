@@ -283,7 +283,8 @@ class FBXTreeParser {
 
 				const id = parseInt( nodeID );
 
-				images[ id ] = videoNode.RelativeFilename || videoNode.Filename;
+				const fileName = videoNode.RelativeFilename || videoNode.Filename;
+				images[ id ] = fileName;
 
 				// raw image data is in videoNode.Content
 				if ( 'Content' in videoNode ) {
@@ -295,7 +296,7 @@ class FBXTreeParser {
 
 						const image = this.parseImage( videoNodes[ nodeID ] );
 
-						blobs[ videoNode.RelativeFilename || videoNode.Filename ] = image;
+						blobs[ fileName ] = image;
 
 					}
 
@@ -310,7 +311,7 @@ class FBXTreeParser {
 			const filename = images[ id ];
 
 			if ( blobs[ filename ] !== undefined ) images[ id ] = blobs[ filename ];
-			else images[ id ] = images[ id ].split( '\\' ).pop();
+			else images[ id ] = images[ id ].replace( /\\/g, '/' );
 
 		}
 
@@ -455,19 +456,6 @@ class FBXTreeParser {
 	// load a texture specified as a blob or data URI, or via an external URL using TextureLoader
 	loadTexture( textureNode, images ) {
 
-		const extension = textureNode.FileName.split( '.' ).pop().toLowerCase();
-
-		let loader = this.manager.getHandler( `.${extension}` );
-		if ( loader === null ) loader = this.textureLoader;
-
-		const loaderPath = loader.path;
-
-		if ( ! loaderPath ) {
-
-			loader.setPath( this.textureLoader.path );
-
-		}
-
 		const children = connections.get( textureNode.id ).children;
 
 		let fileName;
@@ -476,18 +464,32 @@ class FBXTreeParser {
 
 			fileName = images[ children[ 0 ].ID ];
 
-			if ( fileName.indexOf( 'blob:' ) === 0 || fileName.indexOf( 'data:' ) === 0 ) {
-
-				loader.setPath( undefined );
-
-			}
-
 		}
 
 		if ( fileName === undefined ) {
 
 			console.warn( 'FBXLoader: Undefined filename, creating placeholder texture.' );
 			return new Texture();
+
+		}
+
+		const isInline = fileName.indexOf( 'blob:' ) === 0 || fileName.indexOf( 'data:' ) === 0;
+		const extensionSource = isInline ?
+			textureNode.FileName : fileName;
+		const extension = extensionSource.split( '?' )[ 0 ].split( '#' )[ 0 ].split( '.' ).pop().toLowerCase();
+
+		let loader = this.manager.getHandler( `.${extension}` );
+		if ( loader === null ) loader = this.textureLoader;
+
+		const loaderPath = loader.path;
+
+		if ( isInline ) {
+
+			loader.setPath( undefined );
+
+		} else if ( ! loaderPath ) {
+
+			loader.setPath( this.textureLoader.path );
 
 		}
 

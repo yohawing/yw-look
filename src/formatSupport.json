@@ -20,7 +20,7 @@
     "ksplat",
     "sog"
   ],
-  "texture": ["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"],
+  "texture": ["png", "jpg", "jpeg", "tga", "dds", "psd", "ktx2", "hdr", "exr"],
   "motion": ["vmd", "bvh"],
   "previewImplemented": [
     "glb",
@@ -37,6 +37,7 @@
     "jpeg",
     "tga",
     "dds",
+    "psd",
     "ktx2",
     "hdr",
     "exr",

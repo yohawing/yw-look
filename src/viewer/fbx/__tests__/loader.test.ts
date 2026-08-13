@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BufferGeometry,
   Group,
+  LinearFilter,
   Mesh,
   MeshStandardMaterial,
   Texture,
@@ -21,12 +22,14 @@ import {
 } from "../loader";
 
 const mocks = vi.hoisted(() => ({
+  decodePsdFile: vi.fn(),
   parseModelInWorker: vi.fn(),
   readBinaryFile: vi.fn(),
 }));
 
 vi.mock("../../../lib/files", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../lib/files")>()),
+  decodePsdFile: mocks.decodePsdFile,
   readBinaryFile: mocks.readBinaryFile,
 }));
 
@@ -342,6 +345,82 @@ describe("loadFbxPreviewObject worker transfer policy", () => {
     expect(hydrated?.flipY).toBe(false);
 
     parseSpy.mockRestore();
+  });
+
+  it("hydrates PSD alphaMap placeholders into non-empty RGBA8 textures", async () => {
+    const placeholder = new Texture();
+    placeholder.userData.fbxSourceName =
+      "VRBase Anime Skintones/PSDs/BaseColor.psd";
+    placeholder.offset.set(0.1, 0.2);
+    placeholder.repeat.set(2, 3);
+    const material = new MeshStandardMaterial({
+      alphaMap: placeholder,
+      transparent: true,
+    });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    const object = new Group();
+    object.add(mesh);
+
+    const buffer = new ArrayBuffer(WORKER_TRANSFER_SIZE_LIMIT);
+    mocks.readBinaryFile.mockResolvedValue(buffer);
+    const decodedPsdData = new Uint8Array(2048 * 2048 * 4);
+    decodedPsdData.set([1, 2, 3, 4]);
+    mocks.parseModelInWorker.mockResolvedValue(object);
+    mocks.decodePsdFile.mockResolvedValue({
+      width: 2048,
+      height: 2048,
+      data: decodedPsdData,
+    });
+
+    const { loadFbxPreviewObject } = await import("../loader");
+    await loadFbxPreviewObject(fbxFile, {});
+
+    await vi.waitFor(() => {
+      expect(material.alphaMap).toBeTruthy();
+      expect(material.alphaMap).not.toBe(placeholder);
+      expect(
+        (material.alphaMap as (Texture & { isDataTexture?: boolean }) | null)
+          ?.isDataTexture,
+      ).toBe(true);
+      expect(material.alphaMap?.image.width).toBe(2048);
+      expect(material.alphaMap?.image.height).toBe(2048);
+      expect(material.alphaMap?.image.data.byteLength).toBe(2048 * 2048 * 4);
+    });
+    expect(material.alphaMap?.offset.toArray()).toEqual([0.1, 0.2]);
+    expect(material.alphaMap?.repeat.toArray()).toEqual([2, 3]);
+    expect(material.alphaMap?.minFilter).toBe(LinearFilter);
+    expect(material.alphaMap?.magFilter).toBe(LinearFilter);
+    expect(material.alphaMap?.generateMipmaps).toBe(false);
+    expect(material.alphaMap?.flipY).toBe(false);
+    expect(material.alphaMap?.image.data[1]).toBe(4);
+    expect(mocks.decodePsdFile).toHaveBeenCalledWith(
+      "C:\\assets\\VRBase Anime Skintones\\PSDs\\BaseColor.psd",
+    );
+  });
+
+  it("removes a failed PSD alphaMap instead of leaving a transparent placeholder", async () => {
+    const placeholder = new Texture();
+    placeholder.userData.fbxSourceName =
+      "VRBase Anime Skintones/PSDs/BaseColor.psd";
+    const material = new MeshStandardMaterial({
+      alphaMap: placeholder,
+      transparent: true,
+    });
+    const mesh = new Mesh(new BufferGeometry(), material);
+    const object = new Group();
+    object.add(mesh);
+
+    mocks.readBinaryFile.mockResolvedValue(
+      new ArrayBuffer(WORKER_TRANSFER_SIZE_LIMIT),
+    );
+    mocks.parseModelInWorker.mockResolvedValue(object);
+    mocks.decodePsdFile.mockRejectedValue(new Error("unsupported PSD"));
+
+    const { loadFbxPreviewObject } = await import("../loader");
+    await loadFbxPreviewObject(fbxFile, {});
+
+    await vi.waitFor(() => expect(material.alphaMap).toBeNull());
+    expect(material.color.getHexString()).toBe("c7d2e3");
   });
 });
 

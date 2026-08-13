@@ -74,6 +74,20 @@ function makePng(r, g, b, a = 255) {
   ]);
 }
 
+function makePsd(r, g, b) {
+  const header = Buffer.alloc(40);
+  header.write("8BPS", 0, "ascii");
+  header.writeUInt16BE(1, 4);
+  header.writeUInt16BE(3, 12);
+  header.writeUInt32BE(1, 14);
+  header.writeUInt32BE(1, 18);
+  header.writeUInt16BE(8, 22);
+  header.writeUInt16BE(3, 24);
+  // Color-mode data, image resources, and layer/mask sections are empty.
+  // Raw image data follows the two-byte compression field, one plane per RGB channel.
+  return Buffer.concat([header, Buffer.from([r, g, b])]);
+}
+
 // -----------------------------------------------------------------------
 // GLB helpers
 // -----------------------------------------------------------------------
@@ -538,7 +552,7 @@ Connections: {
 }
 
 // -----------------------------------------------------------------------
-// textures/1x1.png, textures/1x1.jpg, textures/1x1.jpeg
+// textures/1x1.png, textures/1x1.jpg, textures/1x1.jpeg, textures/1x1.psd
 // -----------------------------------------------------------------------
 
 const pngPath = join(texturesDir, "1x1.png");
@@ -550,6 +564,7 @@ const jpgBytes = Buffer.from(
 );
 writeBinary(join(texturesDir, "1x1.jpg"), jpgBytes);
 writeBinary(join(texturesDir, "1x1.jpeg"), jpgBytes);
+writeBinary(join(texturesDir, "1x1.psd"), makePsd(255, 0, 255));
 
 // -----------------------------------------------------------------------
 // B8 error-matrix fixtures (tests/fixtures/broken/)

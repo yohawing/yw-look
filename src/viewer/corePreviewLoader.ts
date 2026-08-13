@@ -21,6 +21,7 @@ export const coreLoaderExtensions = [
   "jpeg",
   "tga",
   "dds",
+  "psd",
   "hdr",
   "exr",
   "ktx2",
@@ -136,6 +137,7 @@ export async function loadCorePreviewObject(
     case "jpeg":
     case "tga":
     case "dds":
+    case "psd":
     case "hdr":
     case "exr":
     case "ktx2": {

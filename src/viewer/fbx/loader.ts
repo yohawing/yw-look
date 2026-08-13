@@ -11,11 +11,17 @@ import {
   SRGBColorSpace,
   Texture,
   TextureLoader,
+  UnsignedByteType,
   type Material,
   Loader as ThreeLoader,
 } from "three";
 import { errorMessage } from "../../lib/errors";
-import { readBinaryFile, type SelectedFile } from "../../lib/files";
+import {
+  decodePsdFile,
+  readBinaryFile,
+  type DecodedPsdImage,
+  type SelectedFile,
+} from "../../lib/files";
 import type { LoaderContext } from "../loaderRegistry";
 import { isAbortOrTimeoutError, parseModelInWorker } from "../modelParseWorker";
 import { formatMissingTextureWarnings } from "../textureWarnings";
@@ -131,6 +137,26 @@ function resolveSiblingPath(baseDirectory: string, relativePath: string) {
 
   return `${prefix}${segments.join(separator)}`;
 }
+
+/**
+ * Keep FBX sidecar lookup bounded to the existing direct and `Textures/`
+ * candidates. Package layouts that put assets in another named directory
+ * need an explicit resolver policy; this path must not become recursive.
+ */
+function resolveTextureCandidates(reference: string, baseDirectory: string) {
+  const fileName = filenameFromUrl(reference);
+  const directCandidate = isAbsoluteTexturePath(reference)
+    ? reference
+    : resolveSiblingPath(baseDirectory, reference);
+  const textureFolderCandidate = resolveSiblingPath(
+    baseDirectory,
+    `Textures/${fileName}`,
+  );
+  return directCandidate === textureFolderCandidate
+    ? [directCandidate]
+    : [directCandidate, textureFolderCandidate];
+}
+
 function filenameFromUrl(value: string) {
   const normalized = value.replace(/\\/g, "/");
   const withoutQuery = normalized.split(/[?#]/, 1)[0];
@@ -268,15 +294,117 @@ function decodeDdsAti2NormalMap(buffer: ArrayBuffer) {
 type FbxTextureWithAlphaTargets = Texture & {
   userData: Texture["userData"] & {
     fbxAlphaMode?: "blend" | "cutout";
+    fbxDecodedTexture?: Texture;
     fbxDdsTexture?: boolean;
     fbxHasAlpha?: boolean;
     fbxMaybeAlphaTexture?: boolean;
+    fbxPsdTexture?: boolean;
     fbxSourceName?: string;
     fbxTgaTexture?: boolean;
   };
 };
 
 const fbxAlphaMaterialTargets = new WeakMap<Texture, Set<Material>>();
+type FbxTextureSlotTarget = { material: Material; slot: string };
+
+const fbxTextureSlotTargets = new WeakMap<Texture, Set<FbxTextureSlotTarget>>();
+
+function copyFbxTextureState(target: Texture, source: Texture) {
+  target.name = source.name;
+  target.offset.copy(source.offset);
+  target.repeat.copy(source.repeat);
+  target.center.copy(source.center);
+  target.rotation = source.rotation;
+  target.wrapS = source.wrapS;
+  target.wrapT = source.wrapT;
+  target.mapping = source.mapping;
+  target.anisotropy = source.anisotropy;
+  target.colorSpace = source.colorSpace;
+  target.magFilter = LinearFilter;
+  target.minFilter = LinearFilter;
+  target.generateMipmaps = false;
+  target.flipY = false;
+  target.userData = { ...source.userData, textureSourceKind: "external" };
+}
+
+function createFbxPsdTexture(
+  source: Texture,
+  width: number,
+  height: number,
+  data: Uint8Array,
+) {
+  const texture = new DataTexture(
+    new Uint8Array(data),
+    width,
+    height,
+    RGBAFormat,
+    UnsignedByteType,
+  );
+  copyFbxTextureState(texture, source);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createFbxPsdAlphaMapTexture(source: Texture) {
+  const image = source.image as {
+    data?: Uint8Array;
+    width?: number;
+    height?: number;
+  };
+  if (
+    !(image.data instanceof Uint8Array) ||
+    typeof image.width !== "number" ||
+    typeof image.height !== "number"
+  ) {
+    return source;
+  }
+
+  const data = new Uint8Array(image.data);
+  for (let index = 0; index < data.length; index += 4) {
+    data[index + 1] = image.data[index + 3];
+  }
+  return createFbxPsdTexture(source, image.width, image.height, data);
+}
+
+function getFbxDecodedTextureForSlot(source: Texture, slot: string) {
+  const decoded = (source as FbxTextureWithAlphaTargets).userData
+    .fbxDecodedTexture;
+  if (!decoded) {
+    return source;
+  }
+  return slot === "alphaMap" && decoded.userData.fbxPsdTexture === true
+    ? createFbxPsdAlphaMapTexture(decoded)
+    : decoded;
+}
+
+function registerFbxTextureSlotTarget(
+  texture: Texture,
+  material: Material,
+  slot: string,
+) {
+  let targets = fbxTextureSlotTargets.get(texture);
+  if (!targets) {
+    targets = new Set<FbxTextureSlotTarget>();
+    fbxTextureSlotTargets.set(texture, targets);
+  }
+  targets.add({ material, slot });
+}
+
+function replaceFbxTextureSlotTargets(texture: Texture) {
+  const source = texture as FbxTextureWithAlphaTargets;
+  if (!source.userData.fbxDecodedTexture) {
+    return;
+  }
+
+  for (const { material, slot } of fbxTextureSlotTargets.get(texture) ?? []) {
+    const materialRecord = material as unknown as Record<string, unknown>;
+    if (materialRecord[slot] !== texture) {
+      continue;
+    }
+    materialRecord[slot] = getFbxDecodedTextureForSlot(texture, slot);
+    material.needsUpdate = true;
+  }
+}
 
 function isAlphaTextureName(value: string) {
   return /(^|[_\-.])(?:alpha|opacity|transparent|cutout|mask)([_\-.]|$)/i.test(
@@ -356,7 +484,7 @@ function registerFbxTextureTransparency(object: Object3D) {
       : [child.material];
 
     for (const material of materials) {
-      for (const value of Object.values(
+      for (const [slot, value] of Object.entries(
         material as unknown as Record<string, unknown>,
       )) {
         const targetTexture = value as FbxTextureWithAlphaTargets | null;
@@ -364,10 +492,13 @@ function registerFbxTextureTransparency(object: Object3D) {
         if (
           !targetTexture?.isTexture ||
           (!targetTexture.userData.fbxDdsTexture &&
-            !targetTexture.userData.fbxTgaTexture)
+            !targetTexture.userData.fbxTgaTexture &&
+            !targetTexture.userData.fbxPsdTexture)
         ) {
           continue;
         }
+
+        registerFbxTextureSlotTarget(targetTexture, material, slot);
 
         if (targetTexture.userData.fbxHasAlpha) {
           enableFbxMaterialTransparency(
@@ -427,12 +558,21 @@ export function registerFbxTextureMaterialFallbacks(object: Object3D) {
       : [child.material];
 
     for (const material of materials) {
-      for (const value of Object.values(
+      const materialRecord = material as unknown as Record<string, unknown>;
+      for (const [slot, value] of Object.entries(
         material as unknown as Record<string, unknown>,
       )) {
-        const texture = value as Texture | null;
-        if (!texture?.isTexture) {
+        const sourceTexture = value as Texture | null;
+        if (!sourceTexture?.isTexture) {
           continue;
+        }
+
+        const texture = getFbxDecodedTextureForSlot(sourceTexture, slot);
+        if (texture !== sourceTexture) {
+          materialRecord[slot] = texture;
+          material.needsUpdate = true;
+        } else {
+          registerFbxTextureSlotTarget(sourceTexture, material, slot);
         }
 
         let targets = fbxTextureMaterialTargets.get(texture);
@@ -628,18 +768,10 @@ async function createFbxLoadingManager(
 
   const readResolvedTextureBuffer = async (url: string) => {
     const reference = stripUrlSuffix(url);
-    const fileName = filenameFromUrl(reference);
-    const directCandidate = isAbsoluteTexturePath(reference)
-      ? reference
-      : resolveSiblingPath(file.parentDirectory, reference);
-    const textureFolderCandidate = resolveSiblingPath(
+    const candidates = resolveTextureCandidates(
+      reference,
       file.parentDirectory,
-      `Textures/${fileName}`,
     );
-    const candidates =
-      directCandidate === textureFolderCandidate
-        ? [directCandidate]
-        : [directCandidate, textureFolderCandidate];
 
     let lastError: unknown = null;
     for (const candidate of candidates) {
@@ -670,6 +802,32 @@ async function createFbxLoadingManager(
 
   const readTextureBuffer = async (url: string) =>
     (await readResolvedTextureBuffer(url)).buffer;
+
+  const decodeResolvedPsdTexture = async (url: string) => {
+    const reference = stripUrlSuffix(url);
+    const candidates = resolveTextureCandidates(
+      reference,
+      file.parentDirectory,
+    );
+    let lastError: unknown = null;
+    for (const candidate of candidates) {
+      try {
+        if (cancelled) {
+          throw new Error("FBX texture load cancelled.");
+        }
+        const decoded = await decodePsdFile(candidate);
+        if (cancelled) {
+          throw new Error("FBX texture load cancelled.");
+        }
+        return { path: candidate, decoded };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(`Missing FBX PSD texture: ${url}`);
+  };
 
   class LocalDdsLoader extends ThreeLoader<Texture> {
     constructor() {
@@ -913,6 +1071,74 @@ async function createFbxLoadingManager(
     }
   }
 
+  class LocalPsdLoader extends ThreeLoader<DataTexture> {
+    constructor() {
+      super(manager);
+    }
+
+    override load(url: string, onLoad?: (texture: DataTexture) => void) {
+      // A transparent 1x1 pixel is only a temporary slot. If decode fails,
+      // reportMissingTexture removes the material slot so it cannot leave an
+      // empty alphaMap that makes the whole FBX mesh invisible.
+      const texture = new DataTexture(
+        new Uint8Array([0, 0, 0, 0]),
+        1,
+        1,
+        RGBAFormat,
+        UnsignedByteType,
+      );
+      const resourceUrl = `${this.path ?? ""}${url}`;
+      const textureReference = stripUrlSuffix(url);
+      const textureLabel = filenameFromUrl(textureReference);
+      texture.userData.fbxPsdTexture = true;
+      texture.userData.fbxSourceName = textureReference;
+      texture.userData.textureSourceKind = "unresolved";
+      texture.colorSpace = SRGBColorSpace;
+      texture.magFilter = LinearFilter;
+      texture.minFilter = LinearFilter;
+      texture.generateMipmaps = false;
+      texture.flipY = false;
+      texture.needsUpdate = true;
+
+      trackTextureStart(textureLabel);
+      trackTextureActive(textureLabel);
+      manager.itemStart(resourceUrl);
+
+      decodeResolvedPsdTexture(resourceUrl)
+        .then(({ decoded }: { path: string; decoded: DecodedPsdImage }) => {
+          if (cancelled) {
+            return;
+          }
+          texture.name = textureLabel;
+          texture.userData.textureSourceKind = "external";
+          texture.userData.fbxDecodedTexture = createFbxPsdTexture(
+            texture,
+            decoded.width,
+            decoded.height,
+            decoded.data,
+          );
+          replaceFbxTextureSlotTargets(texture);
+          onLoad?.(texture.userData.fbxDecodedTexture);
+          trackTextureDone();
+        })
+        .catch((error: unknown) => {
+          if (cancelled) {
+            return;
+          }
+          manager.itemError(resourceUrl);
+          warnTextureFallback("[fbx] Failed to load deferred PSD texture:", {
+            url: resourceUrl,
+            error,
+          });
+          reportMissingTexture(resourceUrl, texture);
+          trackTextureFailed();
+        })
+        .finally(() => manager.itemEnd(resourceUrl));
+
+      return texture;
+    }
+  }
+
   class LocalImageLoader extends ThreeLoader<Texture> {
     constructor() {
       super(manager);
@@ -979,9 +1205,11 @@ async function createFbxLoadingManager(
 
   const ddsLoader = new LocalDdsLoader();
   const tgaLoader = new LocalTgaLoader();
+  const psdLoader = new LocalPsdLoader();
   const imageLoader = new LocalImageLoader();
   manager.addHandler(/\.dds$/i, ddsLoader);
   manager.addHandler(/\.tga$/i, tgaLoader);
+  manager.addHandler(/\.psd$/i, psdLoader);
   manager.addHandler(/\.(?:png|jpe?g|webp|bmp|gif)$/i, imageLoader);
 
   /**
@@ -1088,12 +1316,25 @@ export function hydrateFbxDeferredTexturePlaceholders(
         deferred.rotation = placeholder.rotation;
         deferred.wrapS = placeholder.wrapS;
         deferred.wrapT = placeholder.wrapT;
-        deferred.magFilter = placeholder.magFilter;
-        deferred.minFilter = placeholder.minFilter;
+        const isDataTexture =
+          (deferred as Texture & { isDataTexture?: boolean }).isDataTexture ===
+          true;
+        const isPsdTexture = deferred.userData.fbxPsdTexture === true;
+        // DataTexture loaders choose a complete sampler state themselves.
+        // A worker-side regular Texture placeholder defaults to a mipmapped
+        // minification filter, but the deferred DataTexture intentionally has
+        // no mipmaps. Copying that placeholder filter makes the WebGL texture
+        // incomplete and alphaMap samples become zero.
+        if (!isDataTexture && !isPsdTexture) {
+          deferred.magFilter = placeholder.magFilter;
+          deferred.minFilter = placeholder.minFilter;
+        }
         deferred.mapping = placeholder.mapping;
         deferred.anisotropy = placeholder.anisotropy;
         deferred.colorSpace = placeholder.colorSpace;
-        deferred.flipY = placeholder.flipY;
+        if (!isDataTexture && !isPsdTexture) {
+          deferred.flipY = placeholder.flipY;
+        }
         deferred.userData.fbxSourceName =
           deferred.userData.fbxSourceName ?? sourceName;
         deferred.needsUpdate = true;

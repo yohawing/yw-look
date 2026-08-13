@@ -164,6 +164,13 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "texture-psd-1x1",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/textures/1x1.psd",
+      "format": "psd",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "texture-ktx2-uastc",
       "category": "valid-minimal",
       "path": "tests/fixtures/textures/2d-uastc.ktx2",

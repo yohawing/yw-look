@@ -270,6 +270,51 @@ export async function readBinaryFilePrefix(path: string, maxBytes: number) {
   return invokeFile<ArrayBuffer>("read_binary_file_prefix", { path, maxBytes });
 }
 
+export type DecodedPsdImage = {
+  width: number;
+  height: number;
+  data: Uint8Array;
+};
+
+/**
+ * Decode a PSD through the native Rust command.
+ *
+ * The command returns an 8-byte little-endian width/height header followed by
+ * tightly packed RGBA8 pixels. Keeping this as a binary IPC boundary avoids
+ * the JSON number-array expansion that is especially costly for 2048² PSDs.
+ */
+export async function decodePsdFile(path: string): Promise<DecodedPsdImage> {
+  if (getBrowserFile(path)) {
+    throw new Error("PSD decoding requires the desktop Rust decoder.");
+  }
+
+  const packet = await invokeFile<ArrayBuffer>("decode_psd", { path });
+  if (packet.byteLength < 8) {
+    throw new Error("PSD decoder returned a truncated image packet.");
+  }
+
+  const view = new DataView(packet);
+  const width = view.getUint32(0, true);
+  const height = view.getUint32(4, true);
+  const pixelBytes = width * height * 4;
+  if (
+    !Number.isSafeInteger(pixelBytes) ||
+    width === 0 ||
+    height === 0 ||
+    packet.byteLength !== 8 + pixelBytes
+  ) {
+    throw new Error(
+      "PSD decoder returned invalid image dimensions or payload.",
+    );
+  }
+
+  return {
+    width,
+    height,
+    data: new Uint8Array(packet, 8, pixelBytes),
+  };
+}
+
 export async function getStartupFile() {
   if (!isTauriEnvironment()) {
     return null;
