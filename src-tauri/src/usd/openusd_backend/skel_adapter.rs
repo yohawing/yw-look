@@ -1,6 +1,8 @@
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::usd::Stage;
 
+use super::stage_fields::ValidatedStagePathExt;
+
 use crate::usd::glb;
 use crate::usd::ir;
 use crate::usd::math::{invert_mat4_f32, mat4_mul_f32, IDENTITY_MAT4_F32};
@@ -21,7 +23,7 @@ pub(crate) fn read_mesh_skel_joints_override(
     mesh_path: &SdfPath,
 ) -> Option<Vec<String>> {
     let attr_path = mesh_path.append_property("skel:joints").ok()?;
-    let value: Option<SdfValue> = stage.attribute(attr_path).get::<SdfValue>().ok()?;
+    let value: Option<SdfValue> = stage.attribute_at(attr_path).get::<SdfValue>().ok()?;
     match value? {
         SdfValue::TokenVec(v) => Some(token_vec_to_strings(v)),
         SdfValue::StringVec(v) => Some(v),
@@ -33,14 +35,11 @@ pub(crate) fn read_mesh_skel_joints_override(
 /// UsdSkel matrix that maps the mesh's points from geometry space
 /// into the skeleton's bind space. `None` when not authored
 /// (equivalent to identity).
-pub(crate) fn read_geom_bind_transform(
-    stage: &Stage,
-    mesh_path: &SdfPath,
-) -> Option<[f64; 16]> {
+pub(crate) fn read_geom_bind_transform(stage: &Stage, mesh_path: &SdfPath) -> Option<[f64; 16]> {
     let attr_path = mesh_path
         .append_property("primvars:skel:geomBindTransform")
         .ok()?;
-    let value: Option<SdfValue> = stage.attribute(attr_path).get::<SdfValue>().ok()?;
+    let value: Option<SdfValue> = stage.attribute_at(attr_path).get::<SdfValue>().ok()?;
     match value? {
         SdfValue::Matrix4d(m) => Some(m.into()),
         _ => None,
@@ -142,8 +141,7 @@ pub(crate) fn skin_input_from_skel(
             .iter()
             .zip(bind_world_matrices)
             .all(|(r, b)| mat4_approx_eq(r, b, 1e-5));
-    let rest_local_matrices: Vec<[f32; 16]> = if rest_matrices.is_empty() || rest_looks_skel_space
-    {
+    let rest_local_matrices: Vec<[f32; 16]> = if rest_matrices.is_empty() || rest_looks_skel_space {
         joint_locals_from_world(bind_world_matrices, &skel.parents)
     } else {
         rest_matrices
@@ -181,10 +179,7 @@ fn mat4_approx_eq(a: &[f32; 16], b: &[f32; 16], eps: f32) -> bool {
 /// index outside the slice or a singular parent matrix falls back to
 /// the world transform, matching `pad_to_len`'s lenient stance on
 /// malformed assets.
-fn joint_locals_from_world(
-    world: &[[f32; 16]],
-    parents: &[Option<usize>],
-) -> Vec<[f32; 16]> {
+fn joint_locals_from_world(world: &[[f32; 16]], parents: &[Option<usize>]) -> Vec<[f32; 16]> {
     world
         .iter()
         .enumerate()

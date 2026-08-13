@@ -31,6 +31,7 @@ use super::skel_adapter::{
     animation_input_from_skel, apply_geom_bind_transform, read_geom_bind_transform,
     read_mesh_skel_joints_override, skin_input_from_skel,
 };
+use super::stage_fields::ValidatedStagePathExt;
 use super::stage_query::{self, UpAxis};
 use super::xform::compose_world_xform;
 use super::LEGACY_TRAVERSE_PREDICATE;
@@ -89,7 +90,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
     stage
         .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
-            if let Ok(Some(type_name)) = stage.prim(prim_path.clone()).type_name() {
+            if let Ok(Some(type_name)) = stage.prim_at(prim_path.clone()).type_name() {
                 if type_name.as_str() == "PointInstancer" {
                     instancer_paths.borrow_mut().push(prim_path.clone());
                     return;

@@ -1,6 +1,8 @@
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::usd::Stage;
 
+use super::stage_fields::ValidatedStagePathExt;
+
 use crate::usd::skel::DenseBlendShape;
 
 use super::stage_fields::{read_token_or_string_field, token_vec_to_strings};
@@ -40,7 +42,7 @@ pub(crate) fn resolve_blend_shapes(
         Ok(p) => p,
         Err(_) => return Vec::new(),
     };
-    let targets = match stage.relationship(targets_path).targets() {
+    let targets = match stage.relationship_at(targets_path).targets() {
         Ok(targets) => targets,
         Err(_) => return Vec::new(),
     };
@@ -77,7 +79,12 @@ fn read_blend_shape_names(stage: &Stage, mesh_path: &SdfPath) -> Vec<String> {
         Ok(p) => p,
         Err(_) => return Vec::new(),
     };
-    match stage.attribute(prop_path).get::<SdfValue>().ok().flatten() {
+    match stage
+        .attribute_at(prop_path)
+        .get::<SdfValue>()
+        .ok()
+        .flatten()
+    {
         Some(SdfValue::TokenVec(names)) => token_vec_to_strings(names),
         Some(SdfValue::StringVec(names)) => names,
         _ => Vec::new(),
@@ -106,7 +113,11 @@ fn read_dense_blend_shape(
     // optional -- when absent, `offsets` must match the full point
     // count (dense authoring).
     let offsets_path = target_path.append_property("offsets").ok()?;
-    let offsets_value: SdfValue = stage.attribute(offsets_path).get::<SdfValue>().ok().flatten()?;
+    let offsets_value: SdfValue = stage
+        .attribute_at(offsets_path)
+        .get::<SdfValue>()
+        .ok()
+        .flatten()?;
     let offsets_vec: Vec<[f32; 3]> = match offsets_value {
         SdfValue::Vec3fVec(v) => v.into_iter().map(Into::into).collect(),
         _ => return None,
@@ -114,7 +125,7 @@ fn read_dense_blend_shape(
 
     let indices_path = target_path.append_property("pointIndices").ok()?;
     let indices_value: Option<SdfValue> = stage
-        .attribute(indices_path)
+        .attribute_at(indices_path)
         .get::<SdfValue>()
         .ok()
         .flatten();

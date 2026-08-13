@@ -61,6 +61,8 @@ use openusd::usd::{Stage, StageBuilder};
 use crate::usd::ir::{MaterialData, MeshData, SkelAnimationData, SkeletonData};
 use crate::usd::types::StageLoadPolicy;
 
+use super::stage_fields::ValidatedStagePathExt;
+
 /// Payload arc skipped during composition under
 /// [`StageLoadPolicy::NoPayloads`]. `prim_path` is the prim that
 /// *authored* the payload (matches [`skipped_payloads`]'s docs).
@@ -211,9 +213,12 @@ pub(crate) fn root_layer_is_binary(stage: &Stage) -> bool {
     file.read_exact(&mut magic).is_ok() && magic == *openusd::usdc::MAGIC
 }
 
-pub(crate) fn prim_children(stage: &Stage, path: impl Into<sdf::Path>) -> anyhow::Result<Vec<String>> {
+pub(crate) fn prim_children(
+    stage: &Stage,
+    path: impl Into<sdf::Path>,
+) -> anyhow::Result<Vec<String>> {
     Ok(stage
-        .prim(path)
+        .prim_at(path.into())
         .children()?
         .into_iter()
         .map(|prim| prim.path().name().unwrap_or_default().to_owned())
@@ -227,10 +232,13 @@ pub(crate) fn prim_children(stage: &Stage, path: impl Into<sdf::Path>) -> anyhow
 /// read errors, and non-`TokenVec` fields are all treated as absent opinions.
 pub(crate) fn variant_names(
     stage: &Stage,
-    prim_path: impl Into<sdf::Path>,
+    prim_path: impl sdf::IntoPath,
     set_name: &str,
 ) -> Vec<String> {
-    let Ok(stack) = stage.prim(prim_path.into()).prim_stack() else {
+    let Ok(prim_path) = sdf::try_into_path(prim_path) else {
+        return Vec::new();
+    };
+    let Ok(stack) = stage.prim_at(prim_path).prim_stack() else {
         return Vec::new();
     };
 
@@ -240,7 +248,9 @@ pub(crate) fn variant_names(
         let Some(layer) = stage.layer(&layer_id) else {
             continue;
         };
-        let variant_set_path = local_prim_path.append_variant_selection(set_name, "");
+        let Ok(variant_set_path) = local_prim_path.append_variant_selection(set_name, "") else {
+            continue;
+        };
         let Ok(Some(value)) = layer
             .data()
             .try_field(&variant_set_path, ChildrenKey::VariantChildren.as_str())
@@ -297,12 +307,12 @@ pub(crate) fn payloads_in(stage: &Stage, path: impl Into<sdf::Path>) -> Vec<sdf:
 /// `sdf::Spec::field` in that order reproduces `Stage::field`'s
 /// "first opinion found wins" behavior via public API only.
 fn read_composed_field(stage: &Stage, path: sdf::Path, key: &str) -> Option<Value> {
-    let stack = stage.prim(path).prim_stack().ok()?;
+    let stack = stage.prim_at(path).prim_stack().ok()?;
     for (layer_id, local_path) in stack {
         let Some(layer) = stage.layer(&layer_id) else {
             continue;
         };
-        let Some(spec) = layer.prim(local_path) else {
+        let Ok(Some(spec)) = layer.prim(local_path) else {
             continue;
         };
         if let Ok(Some(value)) = spec.field(key) {
@@ -345,7 +355,10 @@ fn resolve_asset(stage: &Stage, asset_path: &str) -> bool {
     })
 }
 
-pub(crate) fn mesh_of(stage: &Stage, prim_path: impl Into<sdf::Path>) -> anyhow::Result<Option<MeshData>> {
+pub(crate) fn mesh_of(
+    stage: &Stage,
+    prim_path: impl Into<sdf::Path>,
+) -> anyhow::Result<Option<MeshData>> {
     let prim_path = prim_path.into();
     if read_type_name(stage, prim_path.clone()).as_deref() != Some("Mesh") {
         return Ok(None);
@@ -354,8 +367,10 @@ pub(crate) fn mesh_of(stage: &Stage, prim_path: impl Into<sdf::Path>) -> anyhow:
     let Some(points) = read_vec3_array(stage, &prim_path, "points")? else {
         return Ok(None);
     };
-    let face_vertex_indices = read_i32_array(stage, &prim_path, "faceVertexIndices")?.unwrap_or_default();
-    let face_vertex_counts = read_i32_array(stage, &prim_path, "faceVertexCounts")?.unwrap_or_default();
+    let face_vertex_indices =
+        read_i32_array(stage, &prim_path, "faceVertexIndices")?.unwrap_or_default();
+    let face_vertex_counts =
+        read_i32_array(stage, &prim_path, "faceVertexCounts")?.unwrap_or_default();
     let normals = read_vec3_array(stage, &prim_path, "normals")?;
     let uvs = read_vec2_array(stage, &prim_path, "primvars:st")?;
     let display_color = read_vec3_array(stage, &prim_path, "primvars:displayColor")?;
@@ -366,7 +381,8 @@ pub(crate) fn mesh_of(stage: &Stage, prim_path: impl Into<sdf::Path>) -> anyhow:
         .or_else(|| {
             let point_count = points.len() / 3;
             joint_indices.as_ref().and_then(|indices: &Vec<u32>| {
-                (point_count > 0 && indices.len() % point_count == 0).then_some(indices.len() / point_count)
+                (point_count > 0 && indices.len() % point_count == 0)
+                    .then_some(indices.len() / point_count)
             })
         })
         .unwrap_or(0);
@@ -432,7 +448,11 @@ pub(crate) fn point_instancer_of(
 
 pub(crate) fn bound_material(stage: &Stage, mesh_path: impl Into<sdf::Path>) -> Option<sdf::Path> {
     let mesh_path = mesh_path.into();
-    for rel_name in ["material:binding:preview", "material:binding:full", "material:binding"] {
+    for rel_name in [
+        "material:binding:preview",
+        "material:binding:full",
+        "material:binding",
+    ] {
         if let Some(path) = first_target_in_self_or_ancestors(stage, &mesh_path, rel_name) {
             return Some(path);
         }
@@ -466,7 +486,10 @@ pub(crate) fn material_of(stage: &Stage, mesh_path: impl Into<sdf::Path>) -> Opt
     (data != MaterialData::default()).then_some(data)
 }
 
-pub(crate) fn geom_subsets_of(stage: &Stage, mesh_path: impl Into<sdf::Path>) -> Vec<GeomSubsetData> {
+pub(crate) fn geom_subsets_of(
+    stage: &Stage,
+    mesh_path: impl Into<sdf::Path>,
+) -> Vec<GeomSubsetData> {
     let mesh_path = mesh_path.into();
     let Ok(children) = prim_children(stage, mesh_path.clone()) else {
         return Vec::new();
@@ -505,14 +528,20 @@ pub(crate) fn geom_subsets_of(stage: &Stage, mesh_path: impl Into<sdf::Path>) ->
         .collect()
 }
 
-pub(crate) fn skeleton_of(stage: &Stage, mesh_path: impl Into<sdf::Path>) -> Option<(sdf::Path, SkeletonData)> {
-    let skeleton_path = first_target_in_self_or_ancestors(stage, &mesh_path.into(), "skel:skeleton")?;
+pub(crate) fn skeleton_of(
+    stage: &Stage,
+    mesh_path: impl Into<sdf::Path>,
+) -> Option<(sdf::Path, SkeletonData)> {
+    let skeleton_path =
+        first_target_in_self_or_ancestors(stage, &mesh_path.into(), "skel:skeleton")?;
     if read_type_name(stage, skeleton_path.clone()).as_deref() != Some("Skeleton") {
         return None;
     }
     let joints = read_string_vec_attr(stage, &skeleton_path, "joints")?;
-    let bind_transforms = read_mat4_vec_attr(stage, &skeleton_path, "bindTransforms").unwrap_or_default();
-    let rest_transforms = read_mat4_vec_attr(stage, &skeleton_path, "restTransforms").unwrap_or_default();
+    let bind_transforms =
+        read_mat4_vec_attr(stage, &skeleton_path, "bindTransforms").unwrap_or_default();
+    let rest_transforms =
+        read_mat4_vec_attr(stage, &skeleton_path, "restTransforms").unwrap_or_default();
     let parents = joint_parents(&joints);
     Some((
         skeleton_path,
@@ -525,8 +554,12 @@ pub(crate) fn skeleton_of(stage: &Stage, mesh_path: impl Into<sdf::Path>) -> Opt
     ))
 }
 
-pub(crate) fn skel_animation_of(stage: &Stage, skeleton_path: impl Into<sdf::Path>) -> Option<SkelAnimationData> {
-    let anim_path = first_target_in_self_or_ancestors(stage, &skeleton_path.into(), "skel:animationSource")?;
+pub(crate) fn skel_animation_of(
+    stage: &Stage,
+    skeleton_path: impl Into<sdf::Path>,
+) -> Option<SkelAnimationData> {
+    let anim_path =
+        first_target_in_self_or_ancestors(stage, &skeleton_path.into(), "skel:animationSource")?;
     if read_type_name(stage, anim_path.clone()).as_deref() != Some("SkelAnimation") {
         return None;
     }
@@ -560,7 +593,7 @@ pub(crate) fn skel_animation_of(stage: &Stage, skeleton_path: impl Into<sdf::Pat
 /// resolves through the same call internally, so behavior is identical.
 fn read_attr(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::Result<Option<Value>> {
     let attr_path = prim_path.append_property(name)?;
-    stage.attribute(attr_path).get::<Value>()
+    stage.attribute_at(attr_path).get::<Value>()
 }
 
 /// Composed `typeName` of a prim, read via `Prim::type_name()` —
@@ -568,7 +601,12 @@ fn read_attr(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::Result
 /// FieldKey::TypeName)`; `Prim::type_name` resolves through the same
 /// call internally, so behavior is identical.
 fn read_type_name(stage: &Stage, prim_path: sdf::Path) -> Option<String> {
-    stage.prim(prim_path).type_name().ok().flatten().map(|t| t.as_str().to_owned())
+    stage
+        .prim_at(prim_path)
+        .type_name()
+        .ok()
+        .flatten()
+        .map(|t| t.as_str().to_owned())
 }
 
 /// Composed default value of a property, decoded as a string-ish
@@ -576,7 +614,7 @@ fn read_type_name(stage: &Stage, prim_path: sdf::Path) -> Option<String> {
 /// used for token/string/asset-path properties like `info:id` or
 /// `elementType` that don't fit the typed helpers below.
 fn read_string_attr(stage: &Stage, path: sdf::Path) -> Option<String> {
-    let value: Option<Value> = stage.attribute(path).get::<Value>().ok().flatten();
+    let value: Option<Value> = stage.attribute_at(path).get::<Value>().ok().flatten();
     match value? {
         Value::String(v) => Some(v),
         Value::Token(v) => Some(v.as_str().to_owned()),
@@ -585,21 +623,33 @@ fn read_string_attr(stage: &Stage, path: sdf::Path) -> Option<String> {
     }
 }
 
-fn read_vec3_array(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::Result<Option<Vec<f32>>> {
+fn read_vec3_array(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    name: &str,
+) -> anyhow::Result<Option<Vec<f32>>> {
     let Some(value) = read_attr(stage, prim_path, name)? else {
         return Ok(None);
     };
     Ok(flatten_vec3_value(value))
 }
 
-fn read_vec2_array(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::Result<Option<Vec<f32>>> {
+fn read_vec2_array(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    name: &str,
+) -> anyhow::Result<Option<Vec<f32>>> {
     let Some(value) = read_attr(stage, prim_path, name)? else {
         return Ok(None);
     };
     Ok(flatten_vec2_value(value))
 }
 
-fn read_i32_array(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::Result<Option<Vec<i32>>> {
+fn read_i32_array(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    name: &str,
+) -> anyhow::Result<Option<Vec<i32>>> {
     let Some(value) = read_attr(stage, prim_path, name)? else {
         return Ok(None);
     };
@@ -610,18 +660,30 @@ fn read_i32_array(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::R
     })
 }
 
-fn read_u32_array(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::Result<Option<Vec<u32>>> {
+fn read_u32_array(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    name: &str,
+) -> anyhow::Result<Option<Vec<u32>>> {
     let Some(value) = read_attr(stage, prim_path, name)? else {
         return Ok(None);
     };
     Ok(match value {
         Value::UintVec(v) => Some(v),
-        Value::IntVec(v) => Some(v.into_iter().filter_map(|v| u32::try_from(v).ok()).collect()),
+        Value::IntVec(v) => Some(
+            v.into_iter()
+                .filter_map(|v| u32::try_from(v).ok())
+                .collect(),
+        ),
         _ => None,
     })
 }
 
-fn read_f32_array(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::Result<Option<Vec<f32>>> {
+fn read_f32_array(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    name: &str,
+) -> anyhow::Result<Option<Vec<f32>>> {
     let Some(value) = read_attr(stage, prim_path, name)? else {
         return Ok(None);
     };
@@ -668,7 +730,11 @@ fn quat_chunks(values: Vec<f32>) -> Vec<[f32; 4]> {
 /// internally, so behavior is identical.
 fn read_element_size(stage: &Stage, prim_path: &sdf::Path, name: &str) -> Option<usize> {
     let attr_path = prim_path.append_property(name).ok()?;
-    let value: Option<Value> = stage.attribute(attr_path).get_metadata("elementSize").ok().flatten();
+    let value: Option<Value> = stage
+        .attribute_at(attr_path)
+        .get_metadata("elementSize")
+        .ok()
+        .flatten();
     match value? {
         Value::Int(v) if v > 0 => Some(v as usize),
         Value::Uint(v) if v > 0 => Some(v as usize),
@@ -679,7 +745,12 @@ fn read_element_size(stage: &Stage, prim_path: &sdf::Path, name: &str) -> Option
 fn flatten_vec3_value(value: Value) -> Option<Vec<f32>> {
     match value {
         Value::Vec3fVec(v) => Some(v.into_iter().flat_map(<[f32; 3]>::from).collect()),
-        Value::Vec3dVec(v) => Some(v.into_iter().flat_map(<[f64; 3]>::from).map(|v| v as f32).collect()),
+        Value::Vec3dVec(v) => Some(
+            v.into_iter()
+                .flat_map(<[f64; 3]>::from)
+                .map(|v| v as f32)
+                .collect(),
+        ),
         Value::Vec3hVec(v) => Some(
             v.into_iter()
                 .flat_map(<[openusd::gf::f16; 3]>::from)
@@ -731,7 +802,11 @@ fn follow_texture_connection(stage: &Stage, input_path: &sdf::Path) -> Option<Te
     let info_id = read_string_attr(stage, info_id_path)?;
     if !matches!(
         info_id.as_str(),
-        "UsdUVTexture" | "ND_image_color3" | "ND_image_color4" | "ND_image_float" | "ND_image_vector3"
+        "UsdUVTexture"
+            | "ND_image_color3"
+            | "ND_image_color4"
+            | "ND_image_float"
+            | "ND_image_vector3"
     ) {
         return None;
     }
@@ -746,7 +821,11 @@ fn follow_texture_connection(stage: &Stage, input_path: &sdf::Path) -> Option<Te
         .append_property("inputs:wrapT")
         .ok()
         .and_then(|p| read_string_attr(stage, p));
-    Some(TextureConnection { file, wrap_s, wrap_t })
+    Some(TextureConnection {
+        file,
+        wrap_s,
+        wrap_t,
+    })
 }
 
 fn first_target(stage: &Stage, prim_path: &sdf::Path, rel_name: &str) -> Option<sdf::Path> {
@@ -754,7 +833,11 @@ fn first_target(stage: &Stage, prim_path: &sdf::Path, rel_name: &str) -> Option<
     first_relationship_target(stage, rel_path)
 }
 
-fn first_target_in_self_or_ancestors(stage: &Stage, prim_path: &sdf::Path, rel_name: &str) -> Option<sdf::Path> {
+fn first_target_in_self_or_ancestors(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    rel_name: &str,
+) -> Option<sdf::Path> {
     let mut path = Some(prim_path.clone());
     while let Some(current) = path {
         if let Some(target) = first_target(stage, &current, rel_name) {
@@ -775,16 +858,26 @@ fn parent_path(path: &sdf::Path) -> Option<sdf::Path> {
 }
 
 fn first_relationship_target(stage: &Stage, path: sdf::Path) -> Option<sdf::Path> {
-    stage.relationship(path).targets().ok()?.into_iter().next()
+    stage
+        .relationship_at(path)
+        .targets()
+        .ok()?
+        .into_iter()
+        .next()
 }
 
 fn first_attribute_connection(stage: &Stage, path: sdf::Path) -> Option<sdf::Path> {
-    stage.attribute(path).connections().ok()?.into_iter().next()
+    stage
+        .attribute_at(path)
+        .connections()
+        .ok()?
+        .into_iter()
+        .next()
 }
 
 fn read_float_input(stage: &Stage, shader_path: &sdf::Path, input_name: &str) -> Option<f32> {
     let input_path = shader_path.append_property(input_name).ok()?;
-    let value: Option<Value> = stage.attribute(input_path).get::<Value>().ok().flatten();
+    let value: Option<Value> = stage.attribute_at(input_path).get::<Value>().ok().flatten();
     match value? {
         Value::Float(v) => Some(v),
         Value::Double(v) => Some(v as f32),
@@ -795,7 +888,7 @@ fn read_float_input(stage: &Stage, shader_path: &sdf::Path, input_name: &str) ->
 
 fn read_vec3_input(stage: &Stage, shader_path: &sdf::Path, input_name: &str) -> Option<[f32; 3]> {
     let input_path = shader_path.append_property(input_name).ok()?;
-    let value: Option<Value> = stage.attribute(input_path).get::<Value>().ok().flatten();
+    let value: Option<Value> = stage.attribute_at(input_path).get::<Value>().ok().flatten();
     vec3_value(value?)
 }
 
@@ -818,7 +911,7 @@ fn vec3_value(value: Value) -> Option<[f32; 3]> {
 
 fn read_string_vec_attr(stage: &Stage, prim_path: &sdf::Path, name: &str) -> Option<Vec<String>> {
     let attr_path = prim_path.append_property(name).ok()?;
-    let value: Option<Value> = stage.attribute(attr_path).get::<Value>().ok().flatten();
+    let value: Option<Value> = stage.attribute_at(attr_path).get::<Value>().ok().flatten();
     match value? {
         Value::StringVec(v) => Some(v),
         Value::TokenVec(v) => Some(v.into_iter().map(|v| v.as_str().to_owned()).collect()),
@@ -828,7 +921,7 @@ fn read_string_vec_attr(stage: &Stage, prim_path: &sdf::Path, name: &str) -> Opt
 
 fn read_mat4_vec_attr(stage: &Stage, prim_path: &sdf::Path, name: &str) -> Option<Vec<[f32; 16]>> {
     let attr_path = prim_path.append_property(name).ok()?;
-    let value: Option<Value> = stage.attribute(attr_path).get::<Value>().ok().flatten();
+    let value: Option<Value> = stage.attribute_at(attr_path).get::<Value>().ok().flatten();
     match value? {
         Value::Matrix4dVec(v) => Some(v.into_iter().map(|m| mat4_f64_to_f32(m.0)).collect()),
         _ => None,
@@ -856,7 +949,11 @@ fn joint_parents(joints: &[String]) -> Vec<Option<usize>> {
         .collect()
 }
 
-fn read_vec3_time_samples(stage: &Stage, prim_path: &sdf::Path, name: &str) -> Vec<(f64, Vec<f32>)> {
+fn read_vec3_time_samples(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    name: &str,
+) -> Vec<(f64, Vec<f32>)> {
     let Some(samples) = read_time_samples(stage, prim_path, name) else {
         return Vec::new();
     };
@@ -866,7 +963,11 @@ fn read_vec3_time_samples(stage: &Stage, prim_path: &sdf::Path, name: &str) -> V
         .collect()
 }
 
-fn read_quat_time_samples(stage: &Stage, prim_path: &sdf::Path, name: &str) -> Vec<(f64, Vec<f32>)> {
+fn read_quat_time_samples(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    name: &str,
+) -> Vec<(f64, Vec<f32>)> {
     let Some(samples) = read_time_samples(stage, prim_path, name) else {
         return Vec::new();
     };
@@ -881,9 +982,13 @@ fn read_quat_time_samples(stage: &Stage, prim_path: &sdf::Path, name: &str) -> V
 /// `Attribute::time_samples` resolves through the same call
 /// internally (matching on `Value::TimeSamples`), so behavior is
 /// identical.
-fn read_time_samples(stage: &Stage, prim_path: &sdf::Path, name: &str) -> Option<sdf::TimeSampleMap> {
+fn read_time_samples(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    name: &str,
+) -> Option<sdf::TimeSampleMap> {
     let attr_path = prim_path.append_property(name).ok()?;
-    stage.attribute(attr_path).time_samples().ok().flatten()
+    stage.attribute_at(attr_path).time_samples().ok().flatten()
 }
 
 fn flatten_quat_value(value: Value) -> Option<Vec<f32>> {
@@ -900,7 +1005,12 @@ fn flatten_quat_value(value: Value) -> Option<Vec<f32>> {
                 .collect(),
         ),
         Value::Vec4fVec(v) => Some(v.into_iter().flat_map(<[f32; 4]>::from).collect()),
-        Value::Vec4dVec(v) => Some(v.into_iter().flat_map(<[f64; 4]>::from).map(|v| v as f32).collect()),
+        Value::Vec4dVec(v) => Some(
+            v.into_iter()
+                .flat_map(<[f64; 4]>::from)
+                .map(|v| v as f32)
+                .collect(),
+        ),
         _ => None,
     }
 }
@@ -911,7 +1021,9 @@ fn align_samples(times: &[f64], samples: Vec<(f64, Vec<f32>)>) -> Vec<Vec<f32>> 
         .map(|time| {
             samples
                 .iter()
-                .find_map(|(sample_time, value)| ((*sample_time - *time).abs() < f64::EPSILON).then(|| value.clone()))
+                .find_map(|(sample_time, value)| {
+                    ((*sample_time - *time).abs() < f64::EPSILON).then(|| value.clone())
+                })
                 .unwrap_or_default()
         })
         .collect()
@@ -920,7 +1032,12 @@ fn align_samples(times: &[f64], samples: Vec<(f64, Vec<f32>)>) -> Vec<Vec<f32>> 
 fn flatten_vec2_value(value: Value) -> Option<Vec<f32>> {
     match value {
         Value::Vec2fVec(v) => Some(v.into_iter().flat_map(<[f32; 2]>::from).collect()),
-        Value::Vec2dVec(v) => Some(v.into_iter().flat_map(<[f64; 2]>::from).map(|v| v as f32).collect()),
+        Value::Vec2dVec(v) => Some(
+            v.into_iter()
+                .flat_map(<[f64; 2]>::from)
+                .map(|v| v as f32)
+                .collect(),
+        ),
         Value::Vec2hVec(v) => Some(
             v.into_iter()
                 .flat_map(<[openusd::gf::f16; 2]>::from)
@@ -975,6 +1092,128 @@ mod tests {
                 .as_ref()
                 .map(sdf::Path::as_str),
             Some("/Mat")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn nested_reference_remaps_material_binding_target() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        std::fs::write(
+            temp.path().join("main.usda"),
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+def Xform "Root"
+{
+    def Scope "Materials"
+    {
+        def Material "Red"
+        {
+            token outputs:surface.connect = </Root/Materials/Red/Surface.outputs:surface>
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </Root/Materials/Red/Diffuse.outputs:rgb>
+                float inputs:metallic = 0.25
+                token outputs:surface
+            }
+            def Shader "Diffuse"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @textures/albedo.png@
+                float3 outputs:rgb
+            }
+        }
+    }
+    def Mesh "Mesh" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        rel material:binding = </Root/Materials/Red>
+    }
+}
+"#,
+        )?;
+        std::fs::write(
+            temp.path().join("BUILDINGS.usda"),
+            r#"#usda 1.0
+(
+    defaultPrim = "World"
+)
+def Xform "World"
+{
+    def Xform "BUILDINGS" (
+        variants = {
+            string activeScene = "Merge"
+        }
+        prepend variantSets = "activeScene"
+    )
+    {
+        variantSet "activeScene" = {
+            "Merge" {
+                def Xform "building" (
+                    prepend references = @main.usda@
+                )
+                {
+                }
+            }
+        }
+    }
+}
+"#,
+        )?;
+        let all_path = temp.path().join("ALL.usda");
+        std::fs::write(
+            &all_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "World"
+)
+def Xform "World" (
+    variants = {
+        string activeScene = "Merge"
+    }
+    prepend variantSets = "activeScene"
+)
+{
+    variantSet "activeScene" = {
+        "Merge" {
+            over "BUILDINGS" (
+                variants = {
+                    string activeScene = "Merge"
+                }
+            )
+            {
+            }
+        }
+    }
+    def Xform "BUILDINGS" (
+        prepend references = @BUILDINGS.usda@</World/BUILDINGS>
+    )
+    {
+    }
+}
+"#,
+        )?;
+
+        let stage = Stage::open(&all_path.to_string_lossy())?;
+        let mesh = sdf::path("/World/BUILDINGS/building/Mesh")?;
+        let expected_material = "/World/BUILDINGS/building/Materials/Red";
+
+        assert_eq!(
+            bound_material(&stage, mesh.clone())
+                .as_ref()
+                .map(sdf::Path::as_str),
+            Some(expected_material)
+        );
+        let material = material_of(&stage, mesh).expect("composed material data");
+        assert_eq!(material.diffuse_color, Some([1.0, 1.0, 1.0]));
+        assert_eq!(material.metallic, Some(0.25));
+        assert_eq!(
+            material.diffuse_texture.as_deref(),
+            Some("textures/albedo.png")
         );
         Ok(())
     }

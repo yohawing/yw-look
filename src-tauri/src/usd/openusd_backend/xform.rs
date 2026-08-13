@@ -2,6 +2,8 @@ use openusd::gf::f16;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::usd::Stage;
 
+use super::stage_fields::ValidatedStagePathExt;
+
 use crate::usd::backend::UsdError;
 use crate::usd::math::{identity_mat4, invert_mat4, mat4_mul};
 
@@ -132,7 +134,7 @@ pub(crate) fn compose_prim_local_xform(
         .append_property("xformOpOrder")
         .map_err(|e| UsdError::Parse(e.to_string()))?;
     let Some(order_value) = stage
-        .attribute(order_path)
+        .attribute_at(order_path)
         .get::<SdfValue>()
         .map_err(|e| UsdError::Parse(e.to_string()))?
     else {
@@ -167,7 +169,7 @@ pub(crate) fn compose_prim_local_xform(
             .append_property(attr_name)
             .map_err(|e| UsdError::Parse(e.to_string()))?;
         let Some(value) = stage
-            .attribute(prop_path)
+            .attribute_at(prop_path)
             .get::<SdfValue>()
             .map_err(|e| UsdError::Parse(e.to_string()))?
         else {
@@ -423,7 +425,7 @@ fn has_reset_xform_stack(stage: &Stage, prim_path: &SdfPath) -> bool {
     // `xformOpOrder` is authored as a token[] (or, rarely, a string[]). The
     // fork's `Value` enum stores these as `TokenVec` / `StringVec`; no
     // `TryFrom<Value>` for `Vec<String>` exists so we match the raw enum.
-    match stage.attribute(order_path).get::<SdfValue>() {
+    match stage.attribute_at(order_path).get::<SdfValue>() {
         Ok(Some(SdfValue::TokenVec(ops))) => {
             ops.iter().any(|op| op.as_str() == "!resetXformStack!")
         }

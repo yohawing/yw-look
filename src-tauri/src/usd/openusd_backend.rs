@@ -50,7 +50,7 @@ use extract::extract_geometry_from_open_stage_rs;
 use mesh_visibility::is_renderable_mesh;
 use stage_fields::{
     read_root_double_field, read_string_or_token_attribute, read_token_or_string_field,
-    token_vec_to_strings,
+    token_vec_to_strings, ValidatedStagePathExt,
 };
 use stage_query::UpAxis;
 #[cfg(test)]
@@ -287,7 +287,7 @@ impl UsdInspectBackend for OpenusdBackend {
                 // show up now always carries a `Some` selection (composed
                 // — authored, fallback, or first-variant default).
                 if let Ok(selections) = stage
-                    .prim(prim_path.clone())
+                    .prim_at(prim_path.clone())
                     .variant_sets()
                     .get_all_variant_selections()
                 {
@@ -490,7 +490,8 @@ impl UsdInspectBackend for OpenusdBackend {
                         // `mesh_of` (no skinning / xform / triangulation)
                         // because we're only counting authored data.
                         if let Ok(points_path) = prim_path.append_property("points") {
-                            if let Ok(Some(value)) = stage.attribute(points_path).get::<SdfValue>()
+                            if let Ok(Some(value)) =
+                                stage.attribute_at(points_path).get::<SdfValue>()
                             {
                                 let count = match value {
                                     SdfValue::Vec3fVec(v) => v.len(),
@@ -503,7 +504,7 @@ impl UsdInspectBackend for OpenusdBackend {
                         }
                         if let Ok(counts_path) = prim_path.append_property("faceVertexCounts") {
                             if let Ok(Some(SdfValue::IntVec(counts))) =
-                                stage.attribute(counts_path).get::<SdfValue>()
+                                stage.attribute_at(counts_path).get::<SdfValue>()
                             {
                                 for n in counts {
                                     if n >= 3 {
@@ -553,7 +554,7 @@ impl UsdInspectBackend for OpenusdBackend {
                 // resolved selection no longer contributes to either
                 // counter.
                 if let Ok(selections) = stage
-                    .prim(prim_path.clone())
+                    .prim_at(prim_path.clone())
                     .variant_sets()
                     .get_all_variant_selections()
                 {
@@ -629,7 +630,7 @@ impl UsdInspectBackend for OpenusdBackend {
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 if stage
-                    .prim(prim_path.clone())
+                    .prim_at(prim_path.clone())
                     .type_name()
                     .ok()
                     .flatten()
@@ -892,8 +893,8 @@ mod tests {
 
     #[test]
     fn stage_capabilities_cover_points_variants_materialx_skel_and_range() {
-        let root = std::env::temp_dir()
-            .join(format!("yw-look-stage-capabilities-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("yw-look-stage-capabilities-{}", std::process::id()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let path = root.join("capabilities.usda");
         std::fs::write(
@@ -2050,7 +2051,9 @@ def Xform "Root" (
         let mesh_path = SdfPath::new("/seahorse_bind/seahorse/seahorse_combined_mesh").unwrap();
 
         // Mesh stats
-        let mesh_data = stage_query::mesh_of(&stage, mesh_path.clone()).ok().flatten();
+        let mesh_data = stage_query::mesh_of(&stage, mesh_path.clone())
+            .ok()
+            .flatten();
         if let Some(ref md) = mesh_data {
             let total_fv: usize = md.face_vertex_counts.iter().map(|c| *c as usize).sum();
             let point_count = md.points.len() / 3;
@@ -2075,7 +2078,8 @@ def Xform "Root" (
             "primvars:uv",
         ] {
             if let Ok(prop) = mesh_path.append_property(*uv_name) {
-                let val: Option<SdfValue> = stage.attribute(prop).get::<SdfValue>().ok().flatten();
+                let val: Option<SdfValue> =
+                    stage.attribute_at(prop).get::<SdfValue>().ok().flatten();
                 if val.is_some() {
                     let len = match &val {
                         Some(SdfValue::Vec2fVec(v)) => v.len(),
@@ -2112,7 +2116,7 @@ def Xform "Root" (
                 "material:binding:full",
             ] {
                 if let Ok(prop) = subset_path.append_property(*rel_name) {
-                    let targets = stage.relationship(prop).targets().unwrap_or_default();
+                    let targets = stage.relationship_at(prop).targets().unwrap_or_default();
                     if !targets.is_empty() {
                         eprintln!("    {} = {:?}", rel_name, targets);
                     }
@@ -2163,7 +2167,11 @@ def Xform "Root" (
 
         // Read xformOpOrder via property path (same method as compose_prim_local_xform)
         let order_path = root.append_property("xformOpOrder").unwrap();
-        let order: Option<SdfValue> = stage.attribute(order_path).get::<SdfValue>().ok().flatten();
+        let order: Option<SdfValue> = stage
+            .attribute_at(order_path)
+            .get::<SdfValue>()
+            .ok()
+            .flatten();
         eprintln!("xformOpOrder = {:?}", order);
 
         // Try reading individual xformOps
@@ -2176,7 +2184,8 @@ def Xform "Root" (
             "xformOp:orient",
         ] {
             if let Ok(prop) = root.append_property(*op_name) {
-                let val: Option<SdfValue> = stage.attribute(prop).get::<SdfValue>().ok().flatten();
+                let val: Option<SdfValue> =
+                    stage.attribute_at(prop).get::<SdfValue>().ok().flatten();
                 if val.is_some() {
                     eprintln!("  {} = {:?}", op_name, val);
                 }
@@ -2224,11 +2233,12 @@ def Xform "Root" (
                     return;
                 }
                 checked += 1;
-                let bm = stage_query::bound_material(&stage, prim_path.clone()).map(|p| p.to_string());
+                let bm =
+                    stage_query::bound_material(&stage, prim_path.clone()).map(|p| p.to_string());
                 let mo = stage_query::material_of(&stage, prim_path.clone());
                 let dc_path = prim_path.append_property("primvars:displayColor").ok();
                 let dc =
-                    dc_path.and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
+                    dc_path.and_then(|p| stage.attribute_at(p).get::<SdfValue>().ok().flatten());
                 eprintln!(
                     "  {} -> bound={:?} material_of={:?} displayColor={}",
                     prim_path.as_str(),
@@ -2261,10 +2271,10 @@ def Xform "Root" (
                 // Check for inputs:diffuseColor
                 let dc_path = prim_path.append_property("inputs:diffuseColor").ok();
                 let dc: Option<SdfValue> =
-                    dc_path.and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
+                    dc_path.and_then(|p| stage.attribute_at(p).get::<SdfValue>().ok().flatten());
                 let dc_conn_path = prim_path.append_property("inputs:diffuseColor").ok();
                 let dc_conn: Option<Vec<SdfPath>> =
-                    dc_conn_path.and_then(|p| stage.attribute(p).connections().ok());
+                    dc_conn_path.and_then(|p| stage.attribute_at(p).connections().ok());
                 eprintln!(
                     "  {} type={:?} info:id={:?} diffuseColor={:?} diffuseColor.connect={:?}",
                     prim_path.as_str(),
@@ -2299,12 +2309,12 @@ def Xform "Root" (
                 }
                 checked += 1;
                 if checked <= 10 {
-                    let bm =
-                        stage_query::bound_material(&stage, prim_path.clone()).map(|p| p.to_string());
+                    let bm = stage_query::bound_material(&stage, prim_path.clone())
+                        .map(|p| p.to_string());
                     // Check for primvars:displayColor
                     let dc_path = prim_path.append_property("primvars:displayColor").ok();
                     let dc = dc_path
-                        .and_then(|p| stage.attribute(p).get::<SdfValue>().ok().flatten());
+                        .and_then(|p| stage.attribute_at(p).get::<SdfValue>().ok().flatten());
                     let dc_label = match &dc {
                         Some(SdfValue::Vec3fVec(v)) => format!("Vec3f[{}]", v.len()),
                         Some(SdfValue::Vec3f(v)) => {

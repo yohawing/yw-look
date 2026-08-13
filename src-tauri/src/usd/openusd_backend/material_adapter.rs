@@ -14,6 +14,7 @@ use crate::usd::material::{
 };
 
 use super::shader_fields::{read_shader_color, read_shader_float, read_shader_token};
+use super::stage_fields::ValidatedStagePathExt;
 use super::stage_fields::{read_string_or_token_attribute, read_token_or_string_field};
 use super::stage_query;
 use super::LEGACY_TRAVERSE_PREDICATE;
@@ -45,7 +46,7 @@ pub(crate) fn find_material_by_name_fallback(
 
         // Check if Looks prim exists by reading its specifier.
         if stage
-            .prim(looks_path.clone())
+            .prim_at(looks_path.clone())
             .specifier()
             .ok()
             .flatten()
@@ -237,7 +238,12 @@ impl TextureNodeGraph for RustTextureNodeGraph<'_> {
 
     fn shader_input_asset(&self, node: &Self::Node, input_name: &str) -> Option<String> {
         let file_path = node.append_property(input_name).ok()?;
-        let value: Option<SdfValue> = self.stage.attribute(file_path).get::<SdfValue>().ok().flatten();
+        let value: Option<SdfValue> = self
+            .stage
+            .attribute_at(file_path)
+            .get::<SdfValue>()
+            .ok()
+            .flatten();
         match value? {
             SdfValue::AssetPath(s) => Some(s.to_string()),
             SdfValue::String(s) => Some(s),
@@ -314,7 +320,7 @@ fn resolve_texture_transform_from_sampler(
 /// contributing layer).
 fn follow_connection_to_shader(stage: &Stage, input_path: &SdfPath) -> Option<SdfPath> {
     let target = stage
-        .attribute(input_path.clone())
+        .attribute_at(input_path.clone())
         .connections()
         .ok()?
         .into_iter()
@@ -330,7 +336,11 @@ fn follow_connection_to_shader(stage: &Stage, input_path: &SdfPath) -> Option<Sd
 /// `float` and `double` authoring; other numeric types are ignored.
 fn read_scalar_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> Option<f32> {
     let prop_path = shader_path.append_property(input_name).ok()?;
-    let value: SdfValue = stage.attribute(prop_path).get::<SdfValue>().ok().flatten()?;
+    let value: SdfValue = stage
+        .attribute_at(prop_path)
+        .get::<SdfValue>()
+        .ok()
+        .flatten()?;
     match value {
         SdfValue::Float(v) => Some(v),
         SdfValue::Double(v) => Some(v as f32),
@@ -342,7 +352,11 @@ fn read_scalar_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> 
 /// `float2` and `double2` authoring; other types fall through.
 fn read_vec2_input(stage: &Stage, shader_path: &SdfPath, input_name: &str) -> Option<[f32; 2]> {
     let prop_path = shader_path.append_property(input_name).ok()?;
-    let value: SdfValue = stage.attribute(prop_path).get::<SdfValue>().ok().flatten()?;
+    let value: SdfValue = stage
+        .attribute_at(prop_path)
+        .get::<SdfValue>()
+        .ok()
+        .flatten()?;
     match value {
         SdfValue::Vec2f(v) => Some(v.into()),
         SdfValue::Vec2d(v) => Some([v[0] as f32, v[1] as f32]),

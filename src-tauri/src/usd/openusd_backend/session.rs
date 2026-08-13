@@ -3,8 +3,8 @@ use std::path::Path as StdPath;
 use std::sync::Mutex;
 
 use openusd::sdf::Path as SdfPath;
-use openusd::usd::{InitialLoadSet, StagePopulationMask};
 use openusd::usd::Stage;
+use openusd::usd::{InitialLoadSet, StagePopulationMask};
 
 use crate::usd::backend::{UsdError, UsdSessionBackend};
 use crate::usd::stage_state::{OpenStage, RustStageSession};
@@ -25,7 +25,10 @@ fn open_masked_load_all(
         .ok_or_else(|| UsdError::Io(format!("non-UTF8 path: {}", path.display())))?;
     Stage::builder()
         .load(InitialLoadSet::LoadAll)
-        .mask(StagePopulationMask::new(mask_paths))
+        .mask(
+            StagePopulationMask::new(mask_paths)
+                .map_err(|e| UsdError::Parse(format!("invalid population mask path: {e}")))?,
+        )
         .open(path_str)
         .map_err(|e| UsdError::Parse(e.to_string()))
 }

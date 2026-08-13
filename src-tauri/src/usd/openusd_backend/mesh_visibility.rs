@@ -1,6 +1,8 @@
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::usd::Stage;
 
+use super::stage_fields::ValidatedStagePathExt;
+
 use crate::usd::geometry::MeshOrientation;
 
 use super::stage_fields::{read_token_or_string_field, token_or_string_value_to_string};
@@ -13,7 +15,7 @@ pub(crate) fn read_mesh_orientation(stage: &Stage, prim_path: &SdfPath) -> MeshO
         return MeshOrientation::RightHanded;
     };
     match stage
-        .attribute(prop_path)
+        .attribute_at(prop_path)
         .get::<SdfValue>()
         .ok()
         .flatten()
@@ -63,7 +65,7 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
     // per-ancestor `active` check that used to run inline with the
     // visibility/purpose walk below. `unwrap_or(true)` matches the old
     // fallback (an unreadable field never hid the mesh).
-    if !stage.prim(prim_path.clone()).is_active().unwrap_or(true) {
+    if !stage.prim_at(prim_path.clone()).is_active().unwrap_or(true) {
         return false;
     }
 
@@ -85,7 +87,7 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         // enough for the scenes yw-look targets.
         if let Ok(prop) = ancestor.append_property("visibility") {
             if stage
-                .attribute(prop)
+                .attribute_at(prop)
                 .get::<SdfValue>()
                 .ok()
                 .flatten()
@@ -100,7 +102,7 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         if let Ok(prop) = ancestor.append_property("purpose") {
             if matches!(
                 stage
-                    .attribute(prop)
+                    .attribute_at(prop)
                     .get::<SdfValue>()
                     .ok()
                     .flatten()
@@ -139,7 +141,7 @@ pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> 
     // See the matching comment in `is_renderable_mesh`: `is_active()`
     // composes the ancestor chain itself, so this replaces the
     // per-ancestor `active` check that used to run inside the loop.
-    if !stage.prim(prim_path.clone()).is_active().unwrap_or(true) {
+    if !stage.prim_at(prim_path.clone()).is_active().unwrap_or(true) {
         return false;
     }
 
@@ -151,7 +153,7 @@ pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> 
 
         if let Ok(prop) = ancestor.append_property("visibility") {
             if stage
-                .attribute(prop)
+                .attribute_at(prop)
                 .get::<SdfValue>()
                 .ok()
                 .flatten()
@@ -187,7 +189,7 @@ pub(crate) fn resolve_purpose(stage: &Stage, prim_path: &SdfPath) -> String {
 
         if let Ok(prop) = ancestor.append_property("purpose") {
             if let Some(token) = stage
-                .attribute(prop)
+                .attribute_at(prop)
                 .get::<SdfValue>()
                 .ok()
                 .flatten()

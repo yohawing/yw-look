@@ -9,7 +9,7 @@ export type LicenseAttribution = {
 };
 
 export const projectName = "yw-look" as const;
-export const projectVersion = "0.3.0" as const;
+export const projectVersion = "0.3.1" as const;
 export const projectLicense = "MIT" as const;
 
 export const webRuntimeLicenseAttributions = [
@@ -63,7 +63,7 @@ export const webRuntimeLicenseAttributions = [
   },
   {
     name: "@yohawing/three-mmd-loader",
-    version: "0.6.0",
+    version: "0.8.1",
     license: "MIT",
     source: "web",
   },
@@ -107,6 +107,12 @@ export const webRuntimeLicenseAttributions = [
 
 export const nativeRuntimeLicenseAttributions = [
   {
+    name: "anyhow",
+    version: "1.0.102",
+    license: "MIT OR Apache-2.0",
+    source: "native",
+  },
+  {
     name: "glam",
     version: "0.33.2",
     license: "MIT OR Apache-2.0",
@@ -132,8 +138,14 @@ export const nativeRuntimeLicenseAttributions = [
   },
   {
     name: "openusd",
-    version: "0.5.0",
+    version: "0.6.0",
     license: "MIT",
+    source: "native",
+  },
+  {
+    name: "psd",
+    version: "0.3.5",
+    license: "MIT/Apache-2.0",
     source: "native",
   },
   {

@@ -10,6 +10,7 @@ use openusd::usd::{Stage, TimeCode};
 
 use super::super::backend::UsdError;
 use super::super::types::{AttributeTimeSamples, TimeSampleEntry};
+use super::stage_fields::ValidatedStagePathExt;
 
 const MAX_STRING_SUMMARY_CHARS: usize = 256;
 
@@ -21,7 +22,7 @@ pub(super) fn inspect_attribute_time_samples(
     max_samples: usize,
 ) -> Result<AttributeTimeSamples, UsdError> {
     let prim_path_value = parse_prim_path(prim_path)?;
-    let prim = stage.prim(prim_path_value.clone());
+    let prim = stage.prim_at(prim_path_value.clone());
     let prim_valid = prim.is_valid().map_err(|error| {
         parse_error(
             prim_path,
@@ -86,7 +87,7 @@ pub(super) fn inspect_attribute_time_samples(
     // Resolve through the stage-level public attribute handle rather than
     // reaching into Sdf layer data. This also preserves composed/retimed
     // samples from references and payloads.
-    let attribute = stage.attribute(attr_path);
+    let attribute = stage.attribute_at(attr_path);
     let total_count = attribute.num_time_samples().map_err(|error| {
         parse_error(
             prim_path,
