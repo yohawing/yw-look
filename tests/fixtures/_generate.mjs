@@ -7,6 +7,7 @@
  * Generates:
  *   textures/1x1.png, textures/1x1.jpg, textures/1x1.jpeg
  *   models/animated-triangle.fbx
+ *   models/minimal-motion.bvh
  *   models/material-morph-two-materials.pmx
  *   broken/* error-matrix fixtures for B8 (beta error visualization)
  */
@@ -756,11 +757,35 @@ writeText(
   join(modelsDir, "animated-triangle.fbx"),
   makeAnimatedTriangleFbxAscii(),
 );
+writeText(
+  join(modelsDir, "minimal-motion.bvh"),
+  `HIERARCHY
+ROOT Hips
+{
+  OFFSET 0.0 0.0 0.0
+  CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation
+  JOINT Chest
+  {
+    OFFSET 0.0 10.0 0.0
+    CHANNELS 3 Zrotation Xrotation Yrotation
+    End Site
+    {
+      OFFSET 0.0 10.0 0.0
+    }
+  }
+}
+MOTION
+Frames: 2
+Frame Time: 0.0333333333333333
+0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+1.0 0.0 0.0 30.0 0.0 0.0 15.0 0.0 0.0
+`,
+);
 writeBinary(
   join(modelsDir, "material-morph-two-materials.pmx"),
   makeMaterialMorphPmx(),
 );
 
 console.log(
-  "Done. Fixture textures, animated FBX, material morph PMX, and B8 broken fixtures generated.",
+  "Done. Fixture textures, animated FBX, BVH motion, material morph PMX, and B8 broken fixtures generated.",
 );

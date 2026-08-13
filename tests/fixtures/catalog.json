@@ -78,6 +78,14 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "motion-bvh-minimal",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/minimal-motion.bvh",
+      "format": "bvh",
+      "assetKind": "motion",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "model-pmx-material-morph-two-materials",
       "category": "valid-minimal",
       "path": "tests/fixtures/models/material-morph-two-materials.pmx",

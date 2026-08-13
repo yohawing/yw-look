@@ -89,6 +89,11 @@
         "ext": ["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"],
         "name": "yw-look Texture Asset",
         "description": "Texture asset opened by yw-look"
+      },
+      {
+        "ext": ["bvh"],
+        "name": "yw-look Motion Asset",
+        "description": "Motion capture asset opened by yw-look"
       }
     ],
     "icon": [

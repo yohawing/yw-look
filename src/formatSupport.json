@@ -21,7 +21,7 @@
     "sog"
   ],
   "texture": ["png", "jpg", "jpeg", "tga", "dds", "ktx2", "hdr", "exr"],
-  "motion": ["vmd"],
+  "motion": ["vmd", "bvh"],
   "previewImplemented": [
     "glb",
     "gltf",
@@ -43,6 +43,7 @@
     "pmx",
     "pmd",
     "vmd",
+    "bvh",
     "splat",
     "spz",
     "ksplat",

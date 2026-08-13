@@ -15,6 +15,7 @@ export const coreLoaderExtensions = [
   "usdc",
   "usdz",
   "abc",
+  "bvh",
   "png",
   "jpg",
   "jpeg",
@@ -103,6 +104,13 @@ export async function loadCorePreviewObject(
     case "abc": {
       const { loadAbcPreviewObject } = await import("./abc/loader");
       return loadAbcPreviewObject(file, {
+        onStage: context.onStage,
+        signal: context.signal,
+      });
+    }
+    case "bvh": {
+      const { loadBvhPreviewObject } = await import("./bvh/loader");
+      return loadBvhPreviewObject(file, {
         onStage: context.onStage,
         signal: context.signal,
       });
