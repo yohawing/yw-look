@@ -1058,6 +1058,218 @@ def Skeleton "Rig"
     }
 
     #[test]
+    fn extracts_mesh_from_native_instance_proxy() {
+        let temp = tempfile::tempdir().expect("create native instance fixture directory");
+        let path = temp.path().join("native_instance.usda");
+        std::fs::write(
+            &path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+
+def Xform "Root"
+{
+    def Scope "Prototypes"
+    {
+        token visibility = "invisible"
+
+        def Xform "Triangle"
+        {
+            def Mesh "Geometry"
+            {
+                int[] faceVertexCounts = [3]
+                int[] faceVertexIndices = [0, 1, 2]
+                point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+            }
+        }
+    }
+
+    def Xform "VisibleInstance" (
+        instanceable = true
+        prepend references = </Root/Prototypes/Triangle>
+    )
+    {
+        double3 xformOp:translate = (2, 3, 4)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}
+"#,
+        )
+        .expect("write native instance fixture");
+
+        let glb = OpenusdBackend::new()
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract native instance fixture");
+        let document = glb_json(&glb);
+        let nodes = document["nodes"].as_array().expect("GLB nodes");
+        let mesh_nodes = nodes
+            .iter()
+            .filter(|node| node.get("mesh").is_some())
+            .collect::<Vec<_>>();
+
+        assert_eq!(document["meshes"].as_array().map(Vec::len), Some(1));
+        assert_eq!(mesh_nodes.len(), 1);
+        assert_eq!(
+            mesh_nodes[0]["extras"]["primPath"],
+            "/Root/VisibleInstance/Geometry"
+        );
+    }
+
+    #[test]
+    fn extracts_nested_instance_from_deep_payload_and_reference_targets() {
+        let temp = tempfile::tempdir().expect("create nested payload fixture directory");
+        std::fs::write(
+            temp.path().join("payload.usda"),
+            r#"#usda 1.0
+
+def Xform "Root"
+{
+    def Scope "Prototypes"
+    {
+        def Xform "Asset"
+        {
+            def Xform "Nested" (
+                instanceable = true
+                prepend references = @nested.usda@</Root/Prototypes/NestedRoot>
+            )
+            {
+            }
+        }
+    }
+}
+"#,
+        )
+        .expect("write payload layer");
+        std::fs::write(
+            temp.path().join("nested.usda"),
+            r#"#usda 1.0
+
+def Xform "Root"
+{
+    def Scope "Prototypes"
+    {
+        def Xform "NestedRoot"
+        {
+            def Mesh "Geometry"
+            {
+                int[] faceVertexCounts = [3]
+                int[] faceVertexIndices = [0, 1, 2]
+                point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+            }
+        }
+    }
+}
+"#,
+        )
+        .expect("write nested instance layer");
+        std::fs::write(
+            temp.path().join("prototypes.usda"),
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+
+def Xform "Root"
+{
+    def Scope "Prototypes"
+    {
+        token visibility = "invisible"
+
+        def Xform "Asset" (
+            payload = @payload.usda@</Root/Prototypes/Asset>
+        )
+        {
+        }
+    }
+}
+"#,
+        )
+        .expect("write prototype layer");
+        std::fs::write(
+            temp.path().join("scene.usda"),
+            r#"#usda 1.0
+
+def Xform "Root"
+{
+    def Xform "Tags"
+    {
+        def Xform "Placed" (
+        instanceable = true
+            prepend references = </Root/Prototypes/Asset>
+        )
+        {
+        }
+    }
+}
+"#,
+        )
+        .expect("write scene layer");
+        let root_path = temp.path().join("root.usda");
+        std::fs::write(
+            &root_path,
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+    subLayers = [
+        @scene.usda@,
+        @prototypes.usda@
+    ]
+)
+"#,
+        )
+        .expect("write root layer");
+        let path = temp.path().join("top.usda");
+        std::fs::write(
+            &path,
+            r#"#usda 1.0
+(
+    defaultPrim = "World"
+)
+
+def Xform "World"
+{
+    def Xform "PROJECTORS" (
+        variants = {
+            string activeScene = "Merge"
+        }
+        prepend variantSets = "activeScene"
+    )
+    {
+        variantSet "activeScene" = {
+            "Merge" {
+                def Xform "projector_1F" (
+                    prepend references = @root.usda@
+                )
+                {
+                }
+            }
+        }
+    }
+}
+"#,
+        )
+        .expect("write outer variant layer");
+
+        let glb = OpenusdBackend::new()
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract sublayer payload under native instance");
+        let document = glb_json(&glb);
+        let nodes = document["nodes"].as_array().expect("GLB nodes");
+        let mesh_nodes = nodes
+            .iter()
+            .filter(|node| node.get("mesh").is_some())
+            .collect::<Vec<_>>();
+
+        assert_eq!(document["meshes"].as_array().map(Vec::len), Some(1));
+        assert_eq!(mesh_nodes.len(), 1);
+        assert_eq!(
+            mesh_nodes[0]["extras"]["primPath"],
+            "/World/PROJECTORS/projector_1F/Tags/Placed/Nested/Geometry"
+        );
+    }
+
+    #[test]
     fn inspect_stage_reports_rust_backend_variant_selection() {
         let root =
             std::env::temp_dir().join(format!("yw-look-variant-selection-{}", std::process::id()));
