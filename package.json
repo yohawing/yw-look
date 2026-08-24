@@ -98,7 +98,7 @@
   },
   "optionalDependencies": {
     "@sparkjsdev/spark": "^2.1.0",
-    "@yohawing/three-mmd-loader": "0.8.1"
+    "@yohawing/three-mmd-loader": "0.8.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
