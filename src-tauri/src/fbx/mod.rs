@@ -98,6 +98,10 @@ fn vertex_vec4(v: &ufbx::VertexVec4, index: usize) -> Result<ufbx::Vec4, AppErro
         .ok_or_else(|| AppError::Fbx("vertex color value is out of range".into()))
 }
 
+fn gltf_uv(uv: ufbx::Vec2) -> Result<[f32; 2], AppError> {
+    Ok([f32v(uv.x)?, f32v(uv.y)?])
+}
+
 fn transform_json(t: ufbx::Transform) -> Result<Value, AppError> {
     Ok(json!({
         "translation": vec3(t.translation)?,
@@ -460,7 +464,10 @@ fn primitive_data(
             };
             let pf = [f32v(p.x)?, f32v(p.y)?, f32v(p.z)?];
             let nf = [f32v(n.x)?, f32v(n.y)?, f32v(n.z)?];
-            let uvf = [f32v(uv.x)?, f32v(1.0 - uv.y)?];
+            // ufbx exposes FBX UVs in the source convention expected by the
+            // decoded image. GLB textures are emitted with flipY=false, so an
+            // additional V inversion here would turn the material upside down.
+            let uvf = gltf_uv(uv)?;
             let cf = [f32v(c.x)?, f32v(c.y)?, f32v(c.z)?, f32v(c.w)?];
             let key = VertexKey {
                 control,
@@ -1235,6 +1242,14 @@ mod tests {
         assert_eq!(
             gltf_light_type(ufbx::LightType::Directional),
             ("directional", false)
+        );
+    }
+
+    #[test]
+    fn native_fbx_uv_is_not_inverted_twice() {
+        assert_eq!(
+            gltf_uv(ufbx::Vec2 { x: 0.25, y: 0.75 }).unwrap(),
+            [0.25, 0.75]
         );
     }
 
