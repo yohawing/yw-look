@@ -693,6 +693,40 @@ describe("collectAssetMetadata", () => {
     expect(result.textureRegistry.get(texture.uuid)).toBe(texture);
   });
 
+  it("preserves unresolved FBX texture state for the Texture tab", () => {
+    const texture = new Texture();
+    texture.name = "missing.png";
+    texture.userData.fbxSourceName = "../Textures/missing.png";
+    texture.userData.textureSourceKind = "unresolved";
+    const material = new MeshBasicMaterial({ map: texture });
+    const root = new Group();
+    root.add(new Mesh(new BufferGeometry(), material));
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.textures[0]).toMatchObject({
+      label: "missing.png",
+      sourceKind: "unresolved",
+    });
+  });
+
+  it("keeps hydrated FBX textures resolved", () => {
+    const texture = new Texture();
+    texture.name = "albedo.png";
+    texture.userData.fbxSourceName = "Textures/albedo.png";
+    texture.userData.textureSourceKind = "external";
+    const material = new MeshBasicMaterial({ map: texture });
+    const root = new Group();
+    root.add(new Mesh(new BufferGeometry(), material));
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.textures[0]).toMatchObject({
+      label: "albedo.png",
+      sourceKind: "external",
+    });
+  });
+
   it("enriches texture thumbnails on scheduled tasks while preserving metadata fields", () => {
     const { root } = createTexturedMeshRoot();
     const result = collectAssetMetadata(root, fakeFile, [], null);

@@ -853,6 +853,7 @@ async function createFbxLoadingManager(
       texture.userData.fbxDdsTexture = true;
       const textureLabel = filenameFromUrl(textureReference);
       texture.userData.fbxSourceName = textureReference;
+      texture.userData.textureSourceKind = "unresolved";
       if (isAlphaTextureName(textureLabel)) {
         texture.userData.fbxMaybeAlphaTexture = true;
         texture.userData.fbxAlphaMode = "cutout";
@@ -891,6 +892,7 @@ async function createFbxLoadingManager(
                   resourceUrl,
                 );
               }
+              texture.userData.textureSourceKind = "external";
               onLoad?.(texture);
               trackTextureDone();
               return;
@@ -940,6 +942,7 @@ async function createFbxLoadingManager(
             }
 
             texture.format = texData.format as CompressedTexture["format"];
+            texture.userData.textureSourceKind = "external";
             texture.needsUpdate = true;
             onLoad?.(texture);
             trackTextureDone();
@@ -982,6 +985,7 @@ async function createFbxLoadingManager(
       const textureLabel = filenameFromUrl(textureReference);
       texture.userData.fbxTgaTexture = true;
       texture.userData.fbxSourceName = textureReference;
+      texture.userData.textureSourceKind = "unresolved";
       if (isAlphaTextureName(textureLabel)) {
         texture.userData.fbxMaybeAlphaTexture = true;
         texture.userData.fbxAlphaMode = "cutout";
@@ -1056,6 +1060,7 @@ async function createFbxLoadingManager(
             texture.generateMipmaps = texData.generateMipmaps;
           }
 
+          texture.userData.textureSourceKind = "external";
           texture.needsUpdate = true;
           onLoad?.(texture);
           trackTextureDone();

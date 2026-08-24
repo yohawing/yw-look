@@ -1005,7 +1005,8 @@ function inferTextureSourceKind(
   if (
     fromUserData === "embedded" ||
     fromUserData === "external" ||
-    fromUserData === "standalone"
+    fromUserData === "standalone" ||
+    fromUserData === "unresolved"
   ) {
     return fromUserData;
   }
