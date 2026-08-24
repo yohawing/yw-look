@@ -2764,9 +2764,8 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 [[package]]
 name = "openusd"
 version = "0.6.0"
-source = "git+https://github.com/mxpv/openusd.git?rev=737118ba8ba052b2632aa65199fb0cbc85e9554d#737118ba8ba052b2632aa65199fb0cbc85e9554d"
+source = "git+https://github.com/mxpv/openusd.git?rev=ca52e1ca1326a9e34239f83fd2cdfe5488c5d516#ca52e1ca1326a9e34239f83fd2cdfe5488c5d516"
 dependencies = [
- "anyhow",
  "bitflags 2.13.0",
  "bytemuck",
  "derive_more 2.1.1",
