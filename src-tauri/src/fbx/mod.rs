@@ -878,24 +878,26 @@ fn animation_stack_name(scene: &ufbx::Scene, stack: &ufbx::AnimStack) -> String 
     }
 }
 
-pub(crate) fn convert(path: &Path, cancel: Arc<AtomicBool>) -> Result<Vec<u8>, AppError> {
-    let mut progress = |_: &ufbx::Progress| {
-        if cancel.load(Ordering::Relaxed) {
-            ufbx::ProgressResult::Cancel
-        } else {
-            ufbx::ProgressResult::Continue
-        }
-    };
-    let opts = ufbx::LoadOpts {
+fn native_load_options<'a>(
+    progress_cb: ufbx::ProgressCb<'a>,
+    space_conversion: ufbx::SpaceConversion,
+) -> ufbx::LoadOpts<'a> {
+    ufbx::LoadOpts {
         target_axes: ufbx::CoordinateAxes::right_handed_y_up(),
         target_unit_meters: 1.0,
+        // Three.js applies a mounted node's transform after skinning. A
+        // conversion root would therefore scale skinned vertices twice. The
+        // geometry-space variant is selected for skinned scenes below; the
+        // transform-root pass preserves the existing animation contract for
+        // unskinned scenes.
+        space_conversion,
         generate_missing_normals: true,
         normalize_normals: true,
         load_external_files: false,
         ignore_missing_external_files: true,
         clean_skin_weights: true,
         force_single_thread_ascii_parsing: true,
-        progress_cb: ufbx::ProgressCb::Mut(&mut progress),
+        progress_cb,
         progress_interval_hint: 64 * 1024,
         temp_allocator: ufbx::AllocatorOpts {
             memory_limit: UFBX_MEMORY_LIMIT,
@@ -908,11 +910,16 @@ pub(crate) fn convert(path: &Path, cancel: Arc<AtomicBool>) -> Result<Vec<u8>, A
             ..Default::default()
         },
         ..Default::default()
-    };
-    let bytes = std::fs::read(path)
-        .map_err(|error| AppError::Io(format!("failed to read FBX input: {error}")))?;
-    canceled(&cancel)?;
-    let scene = ufbx::load_memory(&bytes, opts).map_err(|error| {
+    }
+}
+
+fn load_native_scene(
+    bytes: &[u8],
+    opts: ufbx::LoadOpts<'_>,
+    cancel: &AtomicBool,
+) -> Result<ufbx::SceneRoot, AppError> {
+    canceled(cancel)?;
+    ufbx::load_memory(bytes, opts).map_err(|error| {
         if cancel.load(Ordering::Relaxed) {
             AppError::Cancelled
         } else {
@@ -922,7 +929,53 @@ pub(crate) fn convert(path: &Path, cancel: Arc<AtomicBool>) -> Result<Vec<u8>, A
                 error.info()
             ))
         }
-    })?;
+    })
+}
+
+fn space_conversion_for_scene(has_skin: bool) -> ufbx::SpaceConversion {
+    if has_skin {
+        ufbx::SpaceConversion::ModifyGeometry
+    } else {
+        ufbx::SpaceConversion::TransformRoot
+    }
+}
+
+pub(crate) fn convert(path: &Path, cancel: Arc<AtomicBool>) -> Result<Vec<u8>, AppError> {
+    let mut progress = |_: &ufbx::Progress| {
+        if cancel.load(Ordering::Relaxed) {
+            ufbx::ProgressResult::Cancel
+        } else {
+            ufbx::ProgressResult::Continue
+        }
+    };
+    let bytes = std::fs::read(path)
+        .map_err(|error| AppError::Io(format!("failed to read FBX input: {error}")))?;
+    let initial = load_native_scene(
+        &bytes,
+        native_load_options(
+            ufbx::ProgressCb::Mut(&mut progress),
+            space_conversion_for_scene(false),
+        ),
+        &cancel,
+    )?;
+    let scene = if initial.skin_deformers.is_empty() {
+        initial
+    } else {
+        // ufbx's TransformRoot mode is the historical path used by all
+        // unskinned assets and keeps authored animation values unchanged.
+        // For skinned assets, load once more with ModifyGeometry so the
+        // unit/axis conversion is incorporated into vertices, joints, and
+        // inverse bind matrices as one coherent coordinate space.
+        drop(initial);
+        load_native_scene(
+            &bytes,
+            native_load_options(
+                ufbx::ProgressCb::Mut(&mut progress),
+                space_conversion_for_scene(true),
+            ),
+            &cancel,
+        )?
+    };
     canceled(&cancel)?;
     build_scene(&scene, &cancel)
 }
@@ -1270,6 +1323,22 @@ mod tests {
         assert_eq!(document["asset"]["version"], "2.0");
         assert_eq!(document["scene"], 0);
         assert!(document["buffers"][0]["byteLength"].is_number());
+    }
+
+    #[test]
+    fn skinned_preview_uses_geometry_space_conversion_for_three_skinning() {
+        // FBX files with centimetre units expose a 0.01 TransformRoot. Three
+        // applies that mounted-node transform after skinning, so retaining it
+        // makes the root scale apply twice to the rendered mesh. Geometry-space
+        // conversion keeps vertices, joints, and inverse binds in one space.
+        assert_eq!(
+            space_conversion_for_scene(true),
+            ufbx::SpaceConversion::ModifyGeometry
+        );
+        assert_eq!(
+            space_conversion_for_scene(false),
+            ufbx::SpaceConversion::TransformRoot
+        );
     }
 
     fn fixture_glb(name: &str) -> (Value, Vec<u8>) {
