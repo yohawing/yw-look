@@ -1,7 +1,7 @@
 import { createReadStream, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, URL } from "node:url";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, type Connect, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 const repoRoot = fileURLToPath(new URL(".", import.meta.url));
@@ -66,7 +66,11 @@ const resolvedMmdWasmUrlModuleId = "\0yw-look-mmd-wasm-url";
 export function mmdWasmMimePlugin(): Plugin {
   let isServe = false;
 
-  const serveMmdWasm = (_request, response, next) => {
+  const serveMmdWasm: Connect.NextHandleFunction = (
+    _request,
+    response,
+    next,
+  ) => {
     if (!existsSync(mmdAnimWasmPath)) {
       next();
       return;
