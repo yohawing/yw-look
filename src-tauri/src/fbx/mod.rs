@@ -13,6 +13,7 @@ use crate::preview::glb::{GlbDocument, ARRAY_BUFFER};
 const UFBX_MEMORY_LIMIT: usize = 2 * 1024 * 1024 * 1024;
 const UFBX_ALLOCATION_LIMIT: usize = 4_000_000;
 const MAX_ANIMATION_SAMPLES: usize = 1_000_000;
+const MAX_KEYFRAME_SEGMENTS: usize = 32;
 const WHITE_PNG: &[u8] = &[
     137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
     0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 255, 255, 255, 127, 0, 9,
@@ -987,6 +988,67 @@ fn add_animation_sampler(
     Ok(index)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AnimationBakePlan {
+    duration: f64,
+    sample_rate: f64,
+    sample_count: usize,
+}
+
+fn animation_bake_plan(
+    time_begin: f64,
+    time_end: f64,
+    frames_per_second: f64,
+) -> Result<AnimationBakePlan, &'static str> {
+    if !time_begin.is_finite() || !time_end.is_finite() || time_end < time_begin {
+        return Err("has an invalid time range");
+    }
+    // ufbx's preview path uses at least 30 samples per second. Count both
+    // endpoints, and reject before calling bake_anim so hostile ranges cannot
+    // make the native baker allocate an unbounded number of keys.
+    let duration = time_end - time_begin;
+    let sample_rate = if frames_per_second.is_finite() && frames_per_second > 0.0 {
+        frames_per_second.max(30.0)
+    } else {
+        30.0
+    };
+    let frame_count = duration * sample_rate;
+    if !duration.is_finite()
+        || !frame_count.is_finite()
+        || frame_count > (MAX_ANIMATION_SAMPLES.saturating_sub(1)) as f64
+    {
+        return Err("exceeds the native preview sample limit");
+    }
+    let sample_count = frame_count.ceil() as usize + 1;
+    Ok(AnimationBakePlan {
+        duration,
+        sample_rate,
+        sample_count,
+    })
+}
+
+fn preview_allocator_opts() -> ufbx::AllocatorOpts {
+    ufbx::AllocatorOpts {
+        memory_limit: UFBX_MEMORY_LIMIT,
+        allocation_limit: UFBX_ALLOCATION_LIMIT,
+        ..Default::default()
+    }
+}
+
+fn preview_bake_opts(sample_rate: f64) -> ufbx::BakeOpts {
+    ufbx::BakeOpts {
+        temp_allocator: preview_allocator_opts(),
+        result_allocator: preview_allocator_opts(),
+        trim_start_time: false,
+        resample_rate: sample_rate,
+        maximum_sample_rate: sample_rate,
+        max_keyframe_segments: MAX_KEYFRAME_SEGMENTS,
+        key_reduction_enabled: true,
+        key_reduction_rotation: true,
+        ..Default::default()
+    }
+}
+
 fn add_animations(
     doc: &mut GlbDocument,
     scene: &ufbx::Scene,
@@ -997,57 +1059,26 @@ fn add_animations(
 ) -> Result<(), AppError> {
     for stack in &scene.anim_stacks {
         canceled(cancel)?;
-        let baked = ufbx::bake_anim(
-            scene,
-            &stack.anim,
-            ufbx::BakeOpts {
-                trim_start_time: false,
-                resample_rate: {
-                    let fps = scene.settings.frames_per_second;
-                    if fps.is_finite() && fps > 0.0 {
-                        fps.max(30.0)
-                    } else {
-                        30.0
-                    }
-                },
-                key_reduction_enabled: true,
-                key_reduction_rotation: true,
-                ..Default::default()
-            },
+        let plan = animation_bake_plan(
+            stack.time_begin,
+            stack.time_end,
+            scene.settings.frames_per_second,
         )
-        .map_err(|error| {
-            AppError::Fbx(format!(
-                "failed to bake animation '{}': {}",
-                stack.element.name,
-                error.info()
-            ))
+        .map_err(|reason| {
+            AppError::Fbx(format!("animation '{}': {}", stack.element.name, reason))
         })?;
+        let baked = ufbx::bake_anim(scene, &stack.anim, preview_bake_opts(plan.sample_rate))
+            .map_err(|error| {
+                AppError::Fbx(format!(
+                    "failed to bake animation '{}': {}",
+                    stack.element.name,
+                    error.info()
+                ))
+            })?;
+        canceled(cancel)?;
         let start = stack.time_begin;
         let end = stack.time_end;
-        if !start.is_finite() || !end.is_finite() || end < start {
-            return Err(AppError::Fbx(format!(
-                "animation '{}' has an invalid time range",
-                stack.element.name
-            )));
-        }
-        let duration = end - start;
-        let fps = {
-            let value = scene.settings.frames_per_second;
-            if value.is_finite() && value > 0.0 {
-                value.max(30.0)
-            } else {
-                30.0
-            }
-        };
-        let sample_count_f64 = duration * fps;
-        if !sample_count_f64.is_finite()
-            || sample_count_f64 > (MAX_ANIMATION_SAMPLES.saturating_sub(1)) as f64
-        {
-            return Err(AppError::Fbx(format!(
-                "animation '{}' exceeds the native preview sample limit",
-                stack.element.name
-            )));
-        }
+        let duration = plan.duration;
         let mut samplers = Vec::new();
         let mut channels = Vec::new();
         for baked_node in &baked.nodes {
@@ -1115,7 +1146,7 @@ fn add_animations(
                     .push(json!({"sampler":sampler,"target":{"node":node_index,"path":"scale"}}));
             }
         }
-        let sample_count = sample_count_f64.ceil() as usize + 1;
+        let sample_count = plan.sample_count;
         let morph_times: Vec<f32> = (0..sample_count)
             .map(|i| {
                 if sample_count == 1 {
@@ -1696,6 +1727,58 @@ mod tests {
         assert_eq!(document["asset"]["version"], "2.0");
         assert_eq!(document["scene"], 0);
         assert!(document["buffers"][0]["byteLength"].is_number());
+    }
+
+    #[test]
+    fn animation_bake_plan_rejects_huge_range_before_bake() {
+        let result = animation_bake_plan(0.0, MAX_ANIMATION_SAMPLES as f64, 30.0);
+        assert_eq!(result, Err("exceeds the native preview sample limit"));
+    }
+
+    #[test]
+    fn animation_bake_plan_accepts_exact_sample_budget_and_rejects_invalid_ranges() {
+        // Keep the accepted boundary just below the floating-point cutoff so
+        // the test does not depend on division/rounding order.
+        let duration = (MAX_ANIMATION_SAMPLES - 1) as f64 / 30.0 - 1e-6;
+        let plan = animation_bake_plan(10.0, 10.0 + duration, 30.0).unwrap();
+        assert_eq!(plan.sample_rate, 30.0);
+        assert_eq!(plan.sample_count, MAX_ANIMATION_SAMPLES);
+
+        let over_budget = (MAX_ANIMATION_SAMPLES - 1) as f64 / 30.0 + 1e-6;
+        assert_eq!(
+            animation_bake_plan(10.0, 10.0 + over_budget, 30.0),
+            Err("exceeds the native preview sample limit")
+        );
+
+        assert_eq!(
+            animation_bake_plan(1.0, 0.0, 30.0),
+            Err("has an invalid time range")
+        );
+        assert_eq!(
+            animation_bake_plan(0.0, 1.0, f64::NAN).unwrap().sample_rate,
+            30.0
+        );
+        assert_eq!(
+            animation_bake_plan(0.0, 1.0, f64::INFINITY)
+                .unwrap()
+                .sample_rate,
+            30.0
+        );
+    }
+
+    #[test]
+    fn preview_bake_opts_keep_native_allocations_and_keyframe_limits_bounded() {
+        let opts = preview_bake_opts(60.0);
+        assert_eq!(opts.temp_allocator.memory_limit, UFBX_MEMORY_LIMIT);
+        assert_eq!(opts.temp_allocator.allocation_limit, UFBX_ALLOCATION_LIMIT);
+        assert_eq!(opts.result_allocator.memory_limit, UFBX_MEMORY_LIMIT);
+        assert_eq!(
+            opts.result_allocator.allocation_limit,
+            UFBX_ALLOCATION_LIMIT
+        );
+        assert_eq!(opts.resample_rate, 60.0);
+        assert_eq!(opts.maximum_sample_rate, 60.0);
+        assert_eq!(opts.max_keyframe_segments, MAX_KEYFRAME_SEGMENTS);
     }
 
     #[test]
