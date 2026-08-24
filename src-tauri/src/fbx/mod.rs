@@ -995,7 +995,10 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
         node_map.insert(node.element.typed_id, doc.nodes.len());
         let mut value = transform_json(node.local_transform)?;
         value["name"] = json!(node.element.name.to_string());
-        value["extras"] = json!({"visible":node.visible});
+        value["extras"] = json!({
+            "visible": node.visible,
+            "fbxBone": node.bone.is_some(),
+        });
         if let Some(camera) = node.camera.as_deref() {
             let camera_index = doc.cameras.len();
             doc.cameras.push(camera_json(camera)?);
@@ -1490,6 +1493,14 @@ mod tests {
             .find(|node| node.get("mesh").is_some())
             .expect("skinned mesh node");
         assert_eq!(mesh_node["skin"], 0);
+        assert!(
+            document["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .any(|node| node["extras"]["fbxBone"] == true),
+            "native FBX bone identity must survive in node extras"
+        );
         let mesh = &document["meshes"][mesh_node["mesh"].as_u64().unwrap() as usize];
         let position_accessor = mesh["primitives"][0]["attributes"]["POSITION"]
             .as_u64()

@@ -1,4 +1,5 @@
 import {
+  Bone,
   Color,
   CompressedTexture,
   DataTexture,
@@ -1423,6 +1424,16 @@ export function hydrateFbxDeferredTexturePlaceholders(
 
 export function applyFbxNativeNodeMetadata(object: Object3D): void {
   object.traverse((child) => {
+    if (child.userData?.fbxBone === true && !(child instanceof Bone)) {
+      // Native motion-only FBX files have no glTF skin to make GLTFLoader
+      // instantiate Bone nodes. Bone adds no state beyond Object3D, so retain
+      // object identity (and animation bindings) while restoring its runtime
+      // type for bounds, metadata, and SkeletonHelper traversal.
+      Object.setPrototypeOf(child, Bone.prototype);
+      const bone = child as Bone & { isBone: boolean; type: string };
+      bone.isBone = true;
+      bone.type = "Bone";
+    }
     const visible = child.userData?.visible;
     if (typeof visible === "boolean") {
       child.visible = visible;

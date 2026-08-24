@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  Bone,
   BufferGeometry,
   Group,
   LinearFilter,
@@ -60,9 +61,14 @@ describe("FBX missing texture fallback", () => {
     const root = new Group();
     const hidden = new Group();
     hidden.userData.visible = false;
-    root.add(hidden);
+    const motionBone = new Group();
+    motionBone.userData.fbxBone = true;
+    root.add(hidden, motionBone);
     applyFbxNativeNodeMetadata(root);
     expect(hidden.visible).toBe(false);
+    expect(motionBone).toBeInstanceOf(Bone);
+    expect((motionBone as Group & { isBone?: boolean }).isBone).toBe(true);
+    expect(motionBone.type).toBe("Bone");
   });
 
   it("uses authored, basename, Textures, then parent Texture candidates", () => {
