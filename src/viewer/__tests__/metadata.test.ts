@@ -812,7 +812,11 @@ describe("collectAssetMetadata", () => {
   });
 
   it("replaces a placeholder thumbnail after deferred texture hydration", () => {
-    const texture = new Texture();
+    const texture = new Texture<{
+      data: Uint8Array;
+      height: number;
+      width: number;
+    }>();
     texture.name = "body.tga";
     texture.image = {
       data: new Uint8Array([0, 0, 0, 0]),
