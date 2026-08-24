@@ -1,5 +1,6 @@
 import {
   Bone,
+  ClampToEdgeWrapping,
   Color,
   CompressedTexture,
   DataTexture,
@@ -9,6 +10,7 @@ import {
   Mesh,
   Object3D,
   RGBAFormat,
+  RepeatWrapping,
   SRGBColorSpace,
   Texture,
   TextureLoader,
@@ -1280,6 +1282,50 @@ export function hydrateFbxDeferredTexturePlaceholders(
 ) {
   const rootBindings = object.userData?.fbxTextureBindings;
   const bindings = Array.isArray(rootBindings) ? rootBindings : [];
+
+  type FbxBinding = {
+    materialId?: number;
+    materialIndex?: number;
+    slot?: string;
+    source?: string;
+    wrapS?: number;
+    wrapT?: number;
+    transform?: {
+      offset?: [number, number];
+      scale?: [number, number];
+      rotation?: number;
+    };
+  };
+  const isBindingForMaterial = (binding: FbxBinding, material: Material) => {
+    const materialId = material.userData?.fbxMaterialId;
+    const materialIndex = material.userData?.fbxMaterialIndex;
+    if (
+      typeof materialId === "number" &&
+      typeof binding.materialId === "number"
+    ) {
+      return binding.materialId === materialId;
+    }
+    return (
+      typeof materialIndex === "number" &&
+      typeof binding.materialIndex === "number" &&
+      binding.materialIndex === materialIndex
+    );
+  };
+  const applyBindingSampler = (texture: Texture, binding: FbxBinding) => {
+    if (binding.wrapS === 33071) texture.wrapS = ClampToEdgeWrapping;
+    if (binding.wrapS === 10497) texture.wrapS = RepeatWrapping;
+    if (binding.wrapT === 33071) texture.wrapT = ClampToEdgeWrapping;
+    if (binding.wrapT === 10497) texture.wrapT = RepeatWrapping;
+    const transform = binding.transform;
+    if (transform) {
+      if (transform.offset) texture.offset.fromArray(transform.offset);
+      if (transform.scale) texture.repeat.fromArray(transform.scale);
+      if (typeof transform.rotation === "number") {
+        texture.rotation = transform.rotation;
+      }
+    }
+    texture.needsUpdate = true;
+  };
   object.traverse((child) => {
     if (!(child instanceof Mesh)) {
       return;
@@ -1294,34 +1340,86 @@ export function hydrateFbxDeferredTexturePlaceholders(
         continue;
       }
       const materialRecord = material as unknown as Record<string, unknown>;
-      for (const binding of bindings) {
-        if (
-          typeof binding !== "object" ||
-          binding === null ||
-          (binding as { material?: unknown }).material !== material.name ||
-          typeof (binding as { source?: unknown }).source !== "string"
-        ) {
+      const materialBindings = bindings.filter(
+        (candidate): candidate is FbxBinding =>
+          typeof candidate === "object" &&
+          candidate !== null &&
+          isBindingForMaterial(candidate as FbxBinding, material),
+      );
+      for (const binding of materialBindings) {
+        if (typeof binding.source !== "string" || binding.source.length === 0) {
           continue;
         }
         const slotMetadata = {
           baseColor: "fbxBaseColorSource",
           normal: "fbxNormalSource",
           emissive: "fbxEmissiveSource",
+          opacity: "fbxOpacitySource",
           roughness: "fbxRoughnessSource",
           metalness: "fbxMetalnessSource",
           ambientOcclusion: "fbxAmbientOcclusionSource",
         } as const;
-        const slot = (binding as { slot?: unknown }).slot;
+        const slot = binding.slot;
         if (typeof slot === "string" && slot in slotMetadata) {
-          material.userData[slotMetadata[slot as keyof typeof slotMetadata]] = (
-            binding as { source: string }
-          ).source;
+          material.userData[slotMetadata[slot as keyof typeof slotMetadata]] =
+            binding.source;
+          const current =
+            materialRecord[
+              slot === "baseColor"
+                ? "map"
+                : slot === "normal"
+                  ? "normalMap"
+                  : slot === "emissive"
+                    ? "emissiveMap"
+                    : slot === "opacity"
+                      ? "alphaMap"
+                      : slot === "roughness"
+                        ? "roughnessMap"
+                        : slot === "metalness"
+                          ? "metalnessMap"
+                          : "aoMap"
+            ];
+          if (current instanceof Texture) {
+            applyBindingSampler(current, binding);
+          }
         }
+      }
+      // Opacity textures are referenced through occlusionTexture in the GLB
+      // solely so GLTFLoader materializes embedded bytes. Move that texture to
+      // Three.js' actual alphaMap slot before deferred hydration.
+      if (
+        material.userData?.fbxOpacityTextureIndex !== undefined &&
+        !(materialRecord.alphaMap instanceof Texture) &&
+        materialRecord.aoMap instanceof Texture
+      ) {
+        materialRecord.alphaMap = materialRecord.aoMap;
+        materialRecord.aoMap = null;
+        const opacityBinding = materialBindings.find(
+          (binding) => binding.slot === "opacity",
+        );
+        if (opacityBinding) {
+          applyBindingSampler(
+            materialRecord.alphaMap as Texture,
+            opacityBinding,
+          );
+        }
+      }
+      const opacityMode = material.userData?.fbxOpacityMode;
+      if (material.userData?.fbxOpacitySource) {
+        if (opacityMode === "MASK") {
+          material.transparent = false;
+          material.alphaTest = Math.max(material.alphaTest, 0.5);
+        } else {
+          material.transparent = true;
+          material.depthWrite = false;
+        }
+        material.needsUpdate = true;
       }
       const deferredMaterialSlots = [
         ["map", "fbxBaseColorSource"],
         ["normalMap", "fbxNormalSource"],
         ["emissiveMap", "fbxEmissiveSource"],
+        ["alphaMap", "fbxOpacitySource"],
         ["roughnessMap", "fbxRoughnessSource"],
         ["metalnessMap", "fbxMetalnessSource"],
         ["aoMap", "fbxAmbientOcclusionSource"],
@@ -1332,13 +1430,39 @@ export function hydrateFbxDeferredTexturePlaceholders(
           continue;
         }
         const current = materialRecord[slot];
+        const bindingSlot =
+          slot === "map"
+            ? "baseColor"
+            : slot === "normalMap"
+              ? "normal"
+              : slot === "emissiveMap"
+                ? "emissive"
+                : slot === "alphaMap"
+                  ? "opacity"
+                  : slot === "roughnessMap"
+                    ? "roughness"
+                    : slot === "metalnessMap"
+                      ? "metalness"
+                      : "ambientOcclusion";
+        const binding = materialBindings.find(
+          (candidate) => candidate.slot === bindingSlot,
+        );
         if (current instanceof Texture) {
           current.userData.fbxSourceName ??= sourceName;
-          current.userData.fbxDeferred ??= true;
+          if (
+            !(
+              slot === "alphaMap" &&
+              material.userData?.fbxOpacityEmbedded === true
+            )
+          ) {
+            current.userData.fbxDeferred ??= true;
+          }
+          if (binding) applyBindingSampler(current, binding);
         } else {
           const placeholder = new Texture();
           placeholder.userData.fbxSourceName = sourceName;
           placeholder.userData.fbxDeferred = true;
+          if (binding) applyBindingSampler(placeholder, binding);
           materialRecord[slot] = placeholder;
         }
       }
@@ -1361,12 +1485,21 @@ export function hydrateFbxDeferredTexturePlaceholders(
         // data as final; fbxDeferred placeholders still need sidecar lookup.
         if (
           placeholder.userData?.fbxDeferred !== true &&
+          !(
+            key === "alphaMap" && material.userData?.fbxOpacityEmbedded === true
+          ) &&
           placeholder.image &&
           typeof placeholder.image === "object" &&
           "data" in placeholder.image &&
           (placeholder.image as ImageData).data instanceof Uint8ClampedArray &&
           (placeholder.image as ImageData).width > 0 &&
           (placeholder.image as ImageData).height > 0
+        ) {
+          continue;
+        }
+        if (
+          key === "alphaMap" &&
+          material.userData?.fbxOpacityEmbedded === true
         ) {
           continue;
         }

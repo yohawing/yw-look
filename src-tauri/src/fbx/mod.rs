@@ -19,19 +19,19 @@ const WHITE_PNG: &[u8] = &[
     251, 3, 253, 42, 134, 227, 139, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
 ];
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 struct VertexKey {
     control: u32,
     p: [u64; 3],
     n: [u64; 3],
-    uv: [u64; 2],
+    uv: Vec<[u64; 2]>,
     c: [u64; 4],
 }
 
 struct PrimitiveData {
     positions: Vec<f32>,
     normals: Vec<f32>,
-    uvs: Vec<f32>,
+    uvs: Vec<Vec<f32>>,
     colors: Vec<f32>,
     control_points: Vec<u32>,
     indices: Vec<u32>,
@@ -240,6 +240,131 @@ fn image_mime(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+fn gltf_wrap_mode(mode: ufbx::WrapMode) -> u32 {
+    match mode {
+        ufbx::WrapMode::Repeat => 10497,
+        ufbx::WrapMode::Clamp => 33071,
+    }
+}
+
+fn khr_texture_transform_from_matrix(matrix: ufbx::Matrix) -> Result<Option<Value>, AppError> {
+    let values = [
+        matrix.m00, matrix.m10, matrix.m20, matrix.m01, matrix.m11, matrix.m21, matrix.m02,
+        matrix.m12, matrix.m22, matrix.m03, matrix.m13, matrix.m23,
+    ];
+    for value in values {
+        f32v(value)?;
+    }
+
+    // KHR_texture_transform operates on a 2D UV -> texture affine matrix.
+    // Reject perspective/3D terms instead of silently dropping them.
+    let epsilon = 1.0e-6;
+    if matrix.m02.abs() > epsilon
+        || matrix.m12.abs() > epsilon
+        || matrix.m20.abs() > epsilon
+        || matrix.m21.abs() > epsilon
+        || (matrix.m22 - 1.0).abs() > epsilon
+        || matrix.m23.abs() > epsilon
+    {
+        return Ok(None);
+    }
+
+    let sx = (matrix.m00 * matrix.m00 + matrix.m10 * matrix.m10).sqrt();
+    let sy_abs = (matrix.m01 * matrix.m01 + matrix.m11 * matrix.m11).sqrt();
+    if sx <= epsilon || sy_abs <= epsilon {
+        return Ok(None);
+    }
+    let dot = matrix.m00 * matrix.m01 + matrix.m10 * matrix.m11;
+    let scale = sx.max(sy_abs);
+    if dot.abs() > epsilon * scale * scale {
+        return Ok(None);
+    }
+    let determinant = matrix.m00 * matrix.m11 - matrix.m01 * matrix.m10;
+    let sy = if determinant < 0.0 { -sy_abs } else { sy_abs };
+    let rotation = matrix.m10.atan2(matrix.m00);
+    let sin = rotation.sin();
+    let cos = rotation.cos();
+    let tolerance = epsilon * scale.max(1.0);
+    if (matrix.m01 - (-sin * sy)).abs() > tolerance || (matrix.m11 - (cos * sy)).abs() > tolerance {
+        return Ok(None);
+    }
+
+    Ok(Some(json!({
+        "offset": [f32v(matrix.m03)?, f32v(matrix.m13)?],
+        "scale": [f32v(sx)?, f32v(sy)?],
+        "rotation": f32v(rotation)?,
+    })))
+}
+
+fn texture_uv_transform(texture: &ufbx::Texture) -> Result<Option<Value>, AppError> {
+    if !texture.has_uv_transform {
+        return Ok(None);
+    }
+
+    // ufbx exposes both directions. KHR_texture_transform expects the
+    // authored UV -> texture mapping, so use uv_to_texture rather than the
+    // inverse texture_to_uv matrix.
+    khr_texture_transform_from_matrix(texture.uv_to_texture)
+}
+
+fn texture_uv_metadata(
+    texture: &ufbx::Texture,
+    uv_indices: &HashMap<String, u32>,
+) -> Result<Value, AppError> {
+    let uv_set = texture.uv_set.to_string();
+    let mut value = json!({
+        "uvSet": uv_set,
+        "wrapS": gltf_wrap_mode(texture.wrap_u),
+        "wrapT": gltf_wrap_mode(texture.wrap_v),
+    });
+    if let Some(&index) = uv_indices.get(&uv_set) {
+        value["texCoord"] = json!(index);
+    }
+    if let Some(transform) = texture_uv_transform(texture)? {
+        value["transform"] = transform;
+    }
+    Ok(value)
+}
+
+fn texture_info(
+    index: usize,
+    texture: &ufbx::Texture,
+    uv_indices: &HashMap<String, u32>,
+) -> Result<Value, AppError> {
+    let metadata = texture_uv_metadata(texture, uv_indices)?;
+    let mut value = json!({ "index": index });
+    if let Some(tex_coord) = metadata.get("texCoord") {
+        value["texCoord"] = tex_coord.clone();
+    }
+    if let Some(transform) = metadata.get("transform") {
+        value["extensions"] = json!({ "KHR_texture_transform": transform });
+    }
+    Ok(value)
+}
+
+fn texture_binding(
+    material_id: u32,
+    material_index: usize,
+    slot: &str,
+    texture: &ufbx::Texture,
+    texture_index: usize,
+    uv_indices: &HashMap<String, u32>,
+) -> Result<Value, AppError> {
+    let mut binding = json!({
+        "materialId": material_id,
+        "materialIndex": material_index,
+        "slot": slot,
+        "source": texture_source_name(texture),
+        "textureIndex": texture_index,
+    });
+    if let Value::Object(metadata) = texture_uv_metadata(texture, uv_indices)? {
+        for (key, metadata_value) in metadata {
+            binding[&key] = metadata_value;
+        }
+    }
+    Ok(binding)
+}
+
 fn texture_source_name(texture: &ufbx::Texture) -> String {
     for value in [
         &*texture.relative_filename,
@@ -253,7 +378,11 @@ fn texture_source_name(texture: &ufbx::Texture) -> String {
     texture.element.name.to_string()
 }
 
-fn add_texture(doc: &mut GlbDocument, texture: &ufbx::Texture) -> Result<usize, AppError> {
+fn add_texture(
+    doc: &mut GlbDocument,
+    texture: &ufbx::Texture,
+    sampler_index: usize,
+) -> Result<usize, AppError> {
     let source_name = texture_source_name(texture);
     let (bytes, mime, degraded) = match image_mime(&texture.content) {
         Some(mime) => (&texture.content[..], mime, false),
@@ -269,19 +398,33 @@ fn add_texture(doc: &mut GlbDocument, texture: &ufbx::Texture) -> Result<usize, 
     }));
     let texture_index = doc.textures.len();
     doc.textures
-        .push(json!({ "source": image_index, "sampler": 0 }));
+        .push(json!({ "source": image_index, "sampler": sampler_index }));
     Ok(texture_index)
 }
 
 fn texture_index(
     doc: &mut GlbDocument,
     cache: &mut HashMap<u32, usize>,
+    sampler_cache: &mut HashMap<(u32, u32), usize>,
     texture: &ufbx::Texture,
 ) -> Result<usize, AppError> {
     if let Some(&index) = cache.get(&texture.element.typed_id) {
         return Ok(index);
     }
-    let index = add_texture(doc, texture)?;
+    let wrap = (
+        gltf_wrap_mode(texture.wrap_u),
+        gltf_wrap_mode(texture.wrap_v),
+    );
+    let sampler_index = if let Some(&index) = sampler_cache.get(&wrap) {
+        index
+    } else {
+        let index = doc.samplers.len();
+        doc.samplers
+            .push(json!({ "wrapS": wrap.0, "wrapT": wrap.1 }));
+        sampler_cache.insert(wrap, index);
+        index
+    };
+    let index = add_texture(doc, texture, sampler_index)?;
     cache.insert(texture.element.typed_id, index);
     Ok(index)
 }
@@ -317,17 +460,56 @@ fn emission_value(color_map: &ufbx::MaterialMap, factor_map: &ufbx::MaterialMap)
     [color[0] * factor, color[1] * factor, color[2] * factor]
 }
 
+fn canonical_uv_indices(
+    entries: impl IntoIterator<Item = (String, u32)>,
+) -> (HashMap<String, u32>, Vec<String>) {
+    let mut indices = HashMap::new();
+    let mut source_indices = HashMap::new();
+    let mut warnings = Vec::new();
+    for (name, source_index) in entries {
+        if let Some(&canonical_index) = indices.get(&name) {
+            if source_indices.get(&name).copied() != Some(source_index)
+                && !warnings
+                    .iter()
+                    .any(|warning: &String| warning.contains(&name))
+            {
+                warnings.push(format!(
+                    "FBX UV set '{}' has conflicting source indices; using canonical TEXCOORD_{}",
+                    name, canonical_index
+                ));
+            }
+        } else {
+            let canonical_index = indices.len() as u32;
+            source_indices.insert(name.clone(), source_index);
+            indices.insert(name, canonical_index);
+        }
+    }
+    (indices, warnings)
+}
+
+fn collect_uv_indices(scene: &ufbx::Scene) -> (HashMap<String, u32>, Vec<String>) {
+    canonical_uv_indices(scene.meshes.iter().flat_map(|mesh| {
+        mesh.uv_sets
+            .iter()
+            .map(|set| (set.name.to_string(), set.index))
+    }))
+}
+
 fn add_materials(
     doc: &mut GlbDocument,
     scene: &ufbx::Scene,
     cancel: &AtomicBool,
-) -> Result<(HashMap<u32, usize>, Vec<Value>), AppError> {
-    doc.samplers.push(json!({ "wrapS": 10497, "wrapT": 10497 }));
+    uv_indices: &HashMap<String, u32>,
+) -> Result<(HashMap<u32, usize>, Vec<Value>, Vec<String>), AppError> {
     let mut texture_cache = HashMap::<u32, usize>::new();
+    let mut sampler_cache = HashMap::<(u32, u32), usize>::new();
     let mut result = HashMap::new();
     let mut texture_bindings = Vec::new();
+    let mut warnings = Vec::new();
     for material in &scene.materials {
         canceled(cancel)?;
+        let material_id = material.element.typed_id;
+        let material_index = doc.materials.len();
         let material_name = material.element.name.to_string();
         let base = map_value(&material.pbr.base_color, [1.0, 1.0, 1.0, 1.0]);
         let factor = scalar_map_value(&material.pbr.base_factor, 1.0);
@@ -352,36 +534,90 @@ fn add_materials(
             "metallicFactor": f32v(metallic)?,
             "roughnessFactor": f32v(roughness)?,
         });
+        let mut material_extras = json!({
+            "fbxMaterialId": material_id,
+            "fbxMaterialIndex": material_index,
+            "fbxOpacityAuthored": material.pbr.opacity.has_value,
+        });
         if let Some(texture) = material.pbr.base_color.texture.as_deref() {
-            let index = texture_index(doc, &mut texture_cache, texture)?;
-            pbr["baseColorTexture"] = json!({ "index": index });
-            texture_bindings.push(json!({ "material": material_name, "slot": "baseColor", "source": texture_source_name(texture), "textureIndex": index }));
+            let index = texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?;
+            pbr["baseColorTexture"] = texture_info(index, texture, &uv_indices)?;
+            material_extras["fbxBaseColorSource"] = json!(texture_source_name(texture));
+            texture_bindings.push(texture_binding(
+                material_id,
+                material_index,
+                "baseColor",
+                texture,
+                index,
+                &uv_indices,
+            )?);
+        }
+        let opacity_texture = material.pbr.opacity.texture.as_deref();
+        // ufbx's unified PBR contract does not expose an authored cutout
+        // mode. Keep opacity textures in the safe continuous-alpha path;
+        // MASK is reserved for a future explicit source-format signal.
+        let opacity_mode = opacity_texture.map(|_| "BLEND");
+        if let Some(texture) = opacity_texture {
+            let index = texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?;
+            // glTF has no separate alphaMap slot. Referencing the opacity image
+            // through occlusionTexture makes GLTFLoader materialize the embedded
+            // image; the frontend moves that texture to alphaMap during hydration.
+            material_extras["fbxOpacitySource"] = json!(texture_source_name(texture));
+            material_extras["fbxOpacityEmbedded"] = json!(image_mime(&texture.content).is_some());
+            material_extras["fbxOpacityTextureIndex"] = json!(index);
+            material_extras["fbxOpacityMode"] = json!(opacity_mode.unwrap_or("BLEND"));
+            texture_bindings.push(texture_binding(
+                material_id,
+                material_index,
+                "opacity",
+                texture,
+                index,
+                &uv_indices,
+            )?);
         }
         let emissive = emission_value(&material.pbr.emission_color, &material.pbr.emission_factor);
-        let material_extras = json!({ "fbxOpacityAuthored": material.pbr.opacity.has_value });
+        let alpha_mode = opacity_mode.unwrap_or(if opacity < 0.999 { "BLEND" } else { "OPAQUE" });
         let mut value = json!({
-            "name": material_name.clone(),
+            "name": material_name,
             "pbrMetallicRoughness": pbr,
             "emissiveFactor": [f32v(emissive[0])?, f32v(emissive[1])?, f32v(emissive[2])?],
             "doubleSided": material.features.double_sided.enabled,
-            "alphaMode": if opacity < 0.999 { "BLEND" } else { "OPAQUE" },
+            "alphaMode": alpha_mode,
             "extras": material_extras
         });
-        if let Some(texture) = material.pbr.base_color.texture.as_deref() {
-            value["extras"]["fbxBaseColorSource"] = json!(texture_source_name(texture));
+        if let Some(texture) = material.pbr.opacity.texture.as_deref() {
+            value["occlusionTexture"] = texture_info(
+                texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?,
+                texture,
+                &uv_indices,
+            )?;
         }
         if let Some(texture) = material.pbr.normal_map.texture.as_deref() {
-            let index = texture_index(doc, &mut texture_cache, texture)?;
-            value["normalTexture"] = json!({ "index": index });
+            let index = texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?;
+            value["normalTexture"] = texture_info(index, texture, &uv_indices)?;
             value["extras"]["fbxNormalSource"] = json!(texture_source_name(texture));
-            texture_bindings.push(json!({ "material": material_name, "slot": "normal", "source": texture_source_name(texture), "textureIndex": index }));
+            texture_bindings.push(texture_binding(
+                material_id,
+                material_index,
+                "normal",
+                texture,
+                index,
+                &uv_indices,
+            )?);
         }
         if emissive[0] != 0.0 || emissive[1] != 0.0 || emissive[2] != 0.0 {
             if let Some(texture) = material.pbr.emission_color.texture.as_deref() {
-                let index = texture_index(doc, &mut texture_cache, texture)?;
-                value["emissiveTexture"] = json!({ "index": index });
+                let index = texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?;
+                value["emissiveTexture"] = texture_info(index, texture, &uv_indices)?;
                 value["extras"]["fbxEmissiveSource"] = json!(texture_source_name(texture));
-                texture_bindings.push(json!({ "material": material_name, "slot": "emissive", "source": texture_source_name(texture), "textureIndex": index }));
+                texture_bindings.push(texture_binding(
+                    material_id,
+                    material_index,
+                    "emissive",
+                    texture,
+                    index,
+                    &uv_indices,
+                )?);
             }
         }
         for (slot, key, map) in [
@@ -394,29 +630,80 @@ fn add_materials(
             ),
         ] {
             if let Some(texture) = map.texture.as_deref() {
-                let index = texture_index(doc, &mut texture_cache, texture)?;
+                let index = texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?;
                 value["extras"][key] = json!(texture_source_name(texture));
-                texture_bindings.push(json!({ "material": material_name, "slot": slot, "source": texture_source_name(texture), "textureIndex": index }));
+                texture_bindings.push(texture_binding(
+                    material_id,
+                    material_index,
+                    slot,
+                    texture,
+                    index,
+                    &uv_indices,
+                )?);
             }
         }
-        result.insert(material.element.typed_id, doc.materials.len());
+        result.insert(material_id, material_index);
         doc.materials.push(value);
     }
     if doc.materials.is_empty() {
         doc.materials.push(json!({"name":"FBX Default","pbrMetallicRoughness":{"baseColorFactor":[1,1,1,1],"metallicFactor":0,"roughnessFactor":1}}));
     }
-    Ok((result, texture_bindings))
+    for material in &scene.materials {
+        for map in [
+            &material.pbr.base_color,
+            &material.pbr.opacity,
+            &material.pbr.normal_map,
+            &material.pbr.emission_color,
+            &material.pbr.roughness,
+            &material.pbr.metalness,
+            &material.pbr.ambient_occlusion,
+        ] {
+            if let Some(texture) = map.texture.as_deref() {
+                if !texture.uv_set.is_empty() && !uv_indices.contains_key(texture.uv_set.as_ref()) {
+                    warnings.push(format!(
+                        "FBX texture '{}' references missing UV set '{}'; using TEXCOORD_0",
+                        texture_source_name(texture),
+                        texture.uv_set
+                    ));
+                }
+                if texture.has_uv_transform {
+                    if texture_uv_transform(texture)?.is_some() {
+                        if !doc
+                            .extensions_used
+                            .iter()
+                            .any(|name| name == "KHR_texture_transform")
+                        {
+                            doc.extensions_used.push("KHR_texture_transform".into());
+                        }
+                    } else {
+                        warnings.push(format!(
+                            "FBX texture '{}' has a UV transform that cannot be represented by KHR_texture_transform",
+                            texture_source_name(texture)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok((result, texture_bindings, warnings))
 }
 
 fn primitive_data(
     mesh: &ufbx::Mesh,
     faces: &[u32],
+    uv_indices: &HashMap<String, u32>,
     cancel: &AtomicBool,
 ) -> Result<PrimitiveData, AppError> {
+    let uv_count = uv_indices
+        .values()
+        .copied()
+        .max()
+        .map(|index| index as usize + 1)
+        .unwrap_or(1);
     let mut out = PrimitiveData {
         positions: vec![],
         normals: vec![],
-        uvs: vec![],
+        uvs: vec![vec![]; uv_count],
         colors: vec![],
         control_points: vec![],
         indices: vec![],
@@ -447,11 +734,22 @@ fn primitive_data(
                     z: 0.0,
                 }
             };
-            let uv = if mesh.vertex_uv.exists {
-                vertex_vec2(&mesh.vertex_uv, ci)?
+            let mut uv_values = vec![ufbx::Vec2::default(); uv_count];
+            if mesh.uv_sets.is_empty() {
+                if mesh.vertex_uv.exists {
+                    uv_values[0] = vertex_vec2(&mesh.vertex_uv, ci)?;
+                }
             } else {
-                ufbx::Vec2::default()
-            };
+                for set in &mesh.uv_sets {
+                    let Some(&uv_index) = uv_indices.get(set.name.as_ref()) else {
+                        continue;
+                    };
+                    let uv_index = uv_index as usize;
+                    if set.vertex_uv.exists {
+                        uv_values[uv_index] = vertex_vec2(&set.vertex_uv, ci)?;
+                    }
+                }
+            }
             let c = if mesh.vertex_color.exists {
                 vertex_vec4(&mesh.vertex_color, ci)?
             } else {
@@ -467,13 +765,19 @@ fn primitive_data(
             // ufbx exposes FBX UVs in the source convention expected by the
             // decoded image. GLB textures are emitted with flipY=false, so an
             // additional V inversion here would turn the material upside down.
-            let uvf = gltf_uv(uv)?;
+            let uvf = uv_values
+                .iter()
+                .map(|uv| gltf_uv(*uv))
+                .collect::<Result<Vec<_>, _>>()?;
             let cf = [f32v(c.x)?, f32v(c.y)?, f32v(c.z)?, f32v(c.w)?];
             let key = VertexKey {
                 control,
                 p: [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()],
                 n: [n.x.to_bits(), n.y.to_bits(), n.z.to_bits()],
-                uv: [uv.x.to_bits(), uv.y.to_bits()],
+                uv: uv_values
+                    .iter()
+                    .map(|uv| [uv.x.to_bits(), uv.y.to_bits()])
+                    .collect(),
                 c: [c.x.to_bits(), c.y.to_bits(), c.z.to_bits(), c.w.to_bits()],
             };
             let next = u32::try_from(dedup.len())
@@ -481,7 +785,9 @@ fn primitive_data(
             let index = *dedup.entry(key).or_insert_with(|| {
                 out.positions.extend(pf);
                 out.normals.extend(nf);
-                out.uvs.extend(uvf);
+                for (set_index, uv) in uvf.iter().enumerate() {
+                    out.uvs[set_index].extend(uv);
+                }
                 out.colors.extend(cf);
                 out.control_points.push(control);
                 next
@@ -896,6 +1202,7 @@ fn native_load_options<'a>(
         load_external_files: false,
         ignore_missing_external_files: true,
         clean_skin_weights: true,
+        use_blender_pbr_material: true,
         force_single_thread_ascii_parsing: true,
         progress_cb,
         progress_interval_hint: 64 * 1024,
@@ -982,13 +1289,17 @@ pub(crate) fn convert(path: &Path, cancel: Arc<AtomicBool>) -> Result<Vec<u8>, A
 
 fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppError> {
     let mut doc = GlbDocument::default();
-    let (material_map, texture_bindings) = add_materials(&mut doc, scene, cancel)?;
+    let (uv_indices, uv_warnings) = collect_uv_indices(scene);
+    let (material_map, texture_bindings, material_warnings) =
+        add_materials(&mut doc, scene, cancel, &uv_indices)?;
     let mut warnings: Vec<String> = scene
         .metadata
         .warnings
         .iter()
         .map(|w| format!("{:?}: {}", w.type_, w.description))
         .collect();
+    warnings.extend(material_warnings);
+    warnings.extend(uv_warnings);
     let mut gltf_lights = Vec::new();
     let mut node_map = HashMap::new();
     for node in &scene.nodes {
@@ -1087,7 +1398,7 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
             }
             mesh_channels.insert(mesh.element.typed_id, channels.clone());
             for (part_index, faces) in parts {
-                let data = primitive_data(mesh, &faces, cancel)?;
+                let data = primitive_data(mesh, &faces, &uv_indices, cancel)?;
                 if data.indices.is_empty() {
                     continue;
                 }
@@ -1103,12 +1414,15 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
                 )?;
                 let normal =
                     doc.push_f32(&data.normals, Some(ARRAY_BUFFER), count, "VEC3", None, None)?;
-                let uv = doc.push_f32(&data.uvs, Some(ARRAY_BUFFER), count, "VEC2", None, None)?;
                 let color =
                     doc.push_f32(&data.colors, Some(ARRAY_BUFFER), count, "VEC4", None, None)?;
                 let indices = doc.push_u32_indices(&data.indices)?;
-                let mut attrs =
-                    json!({"POSITION":position,"NORMAL":normal,"TEXCOORD_0":uv,"COLOR_0":color});
+                let mut attrs = json!({"POSITION":position,"NORMAL":normal,"COLOR_0":color});
+                for (uv_index, uv_values) in data.uvs.iter().enumerate() {
+                    let accessor =
+                        doc.push_f32(uv_values, Some(ARRAY_BUFFER), count, "VEC2", None, None)?;
+                    attrs[&format!("TEXCOORD_{uv_index}")] = json!(accessor);
+                }
                 if let (Some(skin), Some((_, cluster_map))) =
                     (mesh.skin_deformers.first(), skin_info.as_ref())
                 {
@@ -1307,6 +1621,62 @@ mod tests {
             gltf_uv(ufbx::Vec2 { x: 0.25, y: 0.75 }).unwrap(),
             [0.25, 0.75]
         );
+    }
+
+    #[test]
+    fn khr_texture_transform_uses_uv_to_texture_direction() {
+        let matrix = ufbx::Matrix {
+            m00: 2.0,
+            m10: 0.0,
+            m20: 0.0,
+            m01: 0.0,
+            m11: 3.0,
+            m21: 0.0,
+            m02: 0.0,
+            m12: 0.0,
+            m22: 1.0,
+            m03: 0.25,
+            m13: -0.5,
+            m23: 0.0,
+        };
+        let transform = khr_texture_transform_from_matrix(matrix)
+            .unwrap()
+            .expect("2D UV-to-texture matrix is representable");
+        assert_eq!(transform["offset"], json!([0.25, -0.5]));
+        assert_eq!(transform["scale"], json!([2.0, 3.0]));
+        assert_eq!(transform["rotation"], json!(0.0));
+    }
+
+    #[test]
+    fn khr_texture_transform_rejects_shear() {
+        let matrix = ufbx::Matrix {
+            m00: 1.0,
+            m10: 0.0,
+            m20: 0.0,
+            m01: 0.25,
+            m11: 1.0,
+            m21: 0.0,
+            m02: 0.0,
+            m12: 0.0,
+            m22: 1.0,
+            m03: 0.0,
+            m13: 0.0,
+            m23: 0.0,
+        };
+        assert!(khr_texture_transform_from_matrix(matrix).unwrap().is_none());
+    }
+
+    #[test]
+    fn canonical_uv_indices_warn_on_source_index_collision() {
+        let (indices, warnings) = canonical_uv_indices([
+            ("UVMap".to_owned(), 0),
+            ("Other".to_owned(), 1),
+            ("UVMap".to_owned(), 2),
+        ]);
+        assert_eq!(indices["UVMap"], 0);
+        assert_eq!(indices["Other"], 1);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("UVMap"));
     }
 
     #[test]

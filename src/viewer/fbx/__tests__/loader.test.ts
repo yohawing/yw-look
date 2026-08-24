@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   Bone,
   BufferGeometry,
+  ClampToEdgeWrapping,
   Group,
   LinearFilter,
   Mesh,
   MeshStandardMaterial,
+  RepeatWrapping,
   Texture,
 } from "three";
 import type { SelectedFile } from "../../../lib/files";
@@ -394,10 +396,10 @@ describe("hydrateFbxDeferredTexturePlaceholders", () => {
 
   it("hydrates from native root texture bindings", () => {
     const material = new MeshStandardMaterial();
-    material.name = "Skin";
+    material.userData.fbxMaterialId = 17;
     const root = new Group();
     root.userData.fbxTextureBindings = [
-      { material: "Skin", slot: "baseColor", source: "Parts02.png" },
+      { materialId: 17, slot: "baseColor", source: "Parts02.png" },
     ];
     root.add(new Mesh(new BufferGeometry(), material));
     const replacement = new Texture();
@@ -407,6 +409,129 @@ describe("hydrateFbxDeferredTexturePlaceholders", () => {
 
     expect(loadDeferredTexture).toHaveBeenCalledWith("Parts02.png");
     expect(material.map).toBe(replacement);
+  });
+
+  it("routes duplicate material names by native numeric identity", () => {
+    const first = new MeshStandardMaterial();
+    const second = new MeshStandardMaterial();
+    first.name = second.name = "";
+    first.userData.fbxMaterialId = 11;
+    second.userData.fbxMaterialId = 12;
+    const root = new Group();
+    root.userData.fbxTextureBindings = [
+      { materialId: 11, slot: "baseColor", source: "first.png" },
+      { materialId: 12, slot: "baseColor", source: "second.png" },
+    ];
+    root.add(new Mesh(new BufferGeometry(), first));
+    root.add(new Mesh(new BufferGeometry(), second));
+    const firstTexture = new Texture();
+    const secondTexture = new Texture();
+    const loadDeferredTexture = vi.fn((source: string) =>
+      source === "first.png" ? firstTexture : secondTexture,
+    );
+
+    hydrateFbxDeferredTexturePlaceholders(root, loadDeferredTexture);
+
+    expect(first.map).toBe(firstTexture);
+    expect(second.map).toBe(secondTexture);
+    expect(loadDeferredTexture).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fall back to material index when a native ID disagrees", () => {
+    const material = new MeshStandardMaterial();
+    material.userData.fbxMaterialId = 41;
+    material.userData.fbxMaterialIndex = 3;
+    const root = new Group();
+    root.userData.fbxTextureBindings = [
+      {
+        materialId: 99,
+        materialIndex: 3,
+        slot: "baseColor",
+        source: "wrong.png",
+      },
+    ];
+    root.add(new Mesh(new BufferGeometry(), material));
+    const loadDeferredTexture = vi.fn(() => new Texture());
+
+    hydrateFbxDeferredTexturePlaceholders(root, loadDeferredTexture);
+
+    expect(loadDeferredTexture).not.toHaveBeenCalled();
+    expect(material.map).toBeNull();
+  });
+
+  it("hydrates opacity bindings as alphaMap with sampler transform and blend mode", () => {
+    const material = new MeshStandardMaterial();
+    material.userData.fbxMaterialId = 23;
+    material.userData.fbxOpacitySource = "opacity.png";
+    material.userData.fbxOpacityMode = "BLEND";
+    const root = new Group();
+    root.userData.fbxTextureBindings = [
+      {
+        materialId: 23,
+        slot: "opacity",
+        source: "opacity.png",
+        wrapS: 33071,
+        wrapT: 10497,
+        transform: { offset: [0.1, 0.2], scale: [2, 3], rotation: 0.25 },
+      },
+    ];
+    root.add(new Mesh(new BufferGeometry(), material));
+    const replacement = new Texture();
+
+    hydrateFbxDeferredTexturePlaceholders(
+      root,
+      vi.fn(() => replacement),
+    );
+
+    expect(material.alphaMap).toBe(replacement);
+    expect(material.transparent).toBe(true);
+    expect(material.alphaMap?.wrapS).toBe(ClampToEdgeWrapping);
+    expect(material.alphaMap?.wrapT).toBe(RepeatWrapping);
+    expect(material.alphaMap?.offset.toArray()).toEqual([0.1, 0.2]);
+    expect(material.alphaMap?.repeat.toArray()).toEqual([2, 3]);
+    expect(material.alphaMap?.rotation).toBe(0.25);
+  });
+
+  it("keeps opacity and ambient-occlusion bindings separate", () => {
+    const embeddedOpacity = new Texture();
+    embeddedOpacity.image = { width: 1, height: 1 };
+    const ambientOcclusion = new Texture();
+    const material = new MeshStandardMaterial({ aoMap: embeddedOpacity });
+    material.userData.fbxMaterialId = 31;
+    material.userData.fbxOpacityTextureIndex = 4;
+    material.userData.fbxOpacityEmbedded = true;
+    material.userData.fbxOpacitySource = "embedded-opacity.png";
+    material.userData.fbxAmbientOcclusionSource = "ao.png";
+    const root = new Group();
+    root.userData.fbxTextureBindings = [
+      {
+        materialId: 31,
+        slot: "opacity",
+        source: "embedded-opacity.png",
+      },
+      { materialId: 31, slot: "ambientOcclusion", source: "ao.png" },
+    ];
+    root.add(new Mesh(new BufferGeometry(), material));
+    const loadDeferredTexture = vi.fn(() => ambientOcclusion);
+
+    hydrateFbxDeferredTexturePlaceholders(root, loadDeferredTexture);
+
+    expect(material.alphaMap).toBe(embeddedOpacity);
+    expect(material.aoMap).toBe(ambientOcclusion);
+    expect(loadDeferredTexture).toHaveBeenCalledWith("ao.png");
+    expect(loadDeferredTexture).not.toHaveBeenCalledWith(
+      "embedded-opacity.png",
+    );
+  });
+
+  it("keeps unauthored opacity materials opaque", () => {
+    const material = new MeshStandardMaterial();
+    const mesh = new Mesh(new BufferGeometry(), material);
+
+    hydrateFbxDeferredTexturePlaceholders(mesh, vi.fn());
+
+    expect(material.alphaMap).toBeNull();
+    expect(material.transparent).toBe(false);
   });
 
   it("replaces fbxSourceName placeholders via loadDeferredTexture", () => {
