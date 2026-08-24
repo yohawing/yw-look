@@ -1464,6 +1464,77 @@ mod tests {
     }
 
     #[test]
+    fn native_fixture_skinned_centimetre_root_uses_geometry_space_contract() {
+        let (document, binary) = fixture_glb("skinned-centimetre-root.fbx");
+        let stats = &document["scenes"][0]["extras"]["fbxSourceStats"];
+        assert_eq!(stats["skins"], 1);
+        assert_eq!(stats["meshes"], 1);
+
+        let root_index = document["scenes"][0]["nodes"]
+            .as_array()
+            .and_then(|nodes| nodes.first())
+            .and_then(Value::as_u64)
+            .expect("fixture scene root");
+        let root = &document["nodes"][root_index as usize];
+        let root_scale = root["scale"].as_array().expect("root scale");
+        assert!(root_scale.iter().all(|value| {
+            value
+                .as_f64()
+                .is_some_and(|scale| (scale - 1.0).abs() < 1e-6)
+        }));
+
+        let mesh_node = document["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node.get("mesh").is_some())
+            .expect("skinned mesh node");
+        assert_eq!(mesh_node["skin"], 0);
+        let mesh = &document["meshes"][mesh_node["mesh"].as_u64().unwrap() as usize];
+        let position_accessor = mesh["primitives"][0]["attributes"]["POSITION"]
+            .as_u64()
+            .unwrap() as usize;
+        let position = &document["accessors"][position_accessor];
+        let min = position["min"].as_array().expect("position min");
+        let max = position["max"].as_array().expect("position max");
+        let max_dimension = min
+            .iter()
+            .zip(max)
+            .map(|(min, max)| max.as_f64().unwrap() - min.as_f64().unwrap())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            (max_dimension - 1.0).abs() < 1e-5,
+            "centimetre fixture must be converted to one metre, got {max_dimension}"
+        );
+
+        let inverse_bind_accessor = document["skins"][0]["inverseBindMatrices"]
+            .as_u64()
+            .expect("inverse bind accessor") as usize;
+        let inverse_bind_view = document["accessors"][inverse_bind_accessor]["bufferView"]
+            .as_u64()
+            .expect("inverse bind buffer view") as usize;
+        let inverse_bind_offset = document["bufferViews"][inverse_bind_view]["byteOffset"]
+            .as_u64()
+            .unwrap_or(0) as usize;
+        let inverse_bind = (0..16)
+            .map(|index| {
+                let offset = inverse_bind_offset + index * std::mem::size_of::<f32>();
+                f32::from_le_bytes(binary[offset..offset + 4].try_into().unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert!((inverse_bind[15] - 1.0).abs() < 1e-5);
+        for column in 0..3 {
+            let offset = column * 4;
+            let length = (0..3)
+                .map(|row| inverse_bind[offset + row] * inverse_bind[offset + row])
+                .sum::<f32>()
+                .sqrt();
+            assert!((length - 1.0).abs() < 1e-5, "inverse bind scale changed");
+        }
+        assert!(inverse_bind[12..15].iter().all(|value| value.abs() < 1e-5));
+    }
+
+    #[test]
     fn malformed_and_truncated_fbx_fail_closed() {
         for (name, bytes) in [
             ("malformed", b"not an FBX".as_slice()),
