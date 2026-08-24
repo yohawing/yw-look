@@ -749,6 +749,7 @@ export function AssetViewport({
     let disposed = false;
     let latestMetadata: AssetMetadata | null = null;
     let latestDeferredTexture: DeferredTextureSnapshot | null = null;
+    let refreshTextureThumbnails: (() => void) | null = null;
     const publishMetadata = (metadata: AssetMetadata | null) => {
       const nextMetadata =
         metadata &&
@@ -831,6 +832,9 @@ export function AssetViewport({
         if (disposed) return;
         latestDeferredTexture = snapshot;
         setDeferredTexture(snapshot.pending > 0 ? snapshot : null);
+        if (snapshot.total > 0 && snapshot.pending === 0) {
+          refreshTextureThumbnails?.();
+        }
         refreshDeferredTextureMetadata();
       },
       onWarning: pushRuntimeWarning,
@@ -885,6 +889,17 @@ export function AssetViewport({
             onMetadataChange: publishMetadata,
             onPackMetadataChange,
             onScaleNormalizationChange,
+            onTextureThumbnailRefresh: (refresh) => {
+              refreshTextureThumbnails = refresh;
+              if (!refresh) return;
+              if (
+                latestDeferredTexture &&
+                latestDeferredTexture.total > 0 &&
+                latestDeferredTexture.pending === 0
+              ) {
+                refresh();
+              }
+            },
             publishResourceDiagnostics,
             setActivePreviewPath,
             setAnimationState,
@@ -989,6 +1004,7 @@ export function AssetViewport({
 
     return () => {
       disposed = true;
+      refreshTextureThumbnails = null;
       abortController.abort();
       setLoadingStage(null);
       setDeferredTexture(null);

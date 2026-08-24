@@ -103,6 +103,7 @@ type MountLoadedPreviewOptions = {
     onScaleNormalizationChange?: (
       normalization: { applied: boolean; factor: number } | null,
     ) => void;
+    onTextureThumbnailRefresh?: (refresh: (() => void) | null) => void;
     publishResourceDiagnostics: (context: SceneContext | null) => void;
     setActivePreviewPath: (path: string) => void;
     setAnimationState: (state: AnimationState) => void;
@@ -336,7 +337,11 @@ export async function mountLoadedPreview(
       context.textureRegistry === textureRegistry,
     textureRegistry,
   });
-  context.cleanupCallbacks.push(thumbnailEnrichment.cancel);
+  update.onTextureThumbnailRefresh?.(thumbnailEnrichment.refresh);
+  context.cleanupCallbacks.push(() => {
+    thumbnailEnrichment.cancel();
+    update.onTextureThumbnailRefresh?.(null);
+  });
   update.publishResourceDiagnostics(context);
   applySkeletonHelpers(
     context.scene,

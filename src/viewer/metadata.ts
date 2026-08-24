@@ -798,6 +798,7 @@ const DEFAULT_THUMBNAIL_CHUNK_SIZE = 4;
 
 type ScheduledTextureThumbnailEnrichment = {
   cancel: () => void;
+  refresh: () => void;
 };
 
 type TextureThumbnailTaskScheduler = (callback: () => void) => () => void;
@@ -900,6 +901,47 @@ function generateThumbnailUrl(texture: Texture): string | null {
   }
 }
 
+type TextureThumbnailRevision = {
+  image: unknown;
+  width: number | undefined;
+  height: number | undefined;
+  data: unknown;
+  mipmaps: unknown;
+};
+
+function getTextureThumbnailRevision(
+  texture: Texture,
+): TextureThumbnailRevision {
+  const image = texture.image as
+    | {
+        width?: number;
+        height?: number;
+        data?: unknown;
+        mipmaps?: unknown;
+      }
+    | undefined;
+  return {
+    image,
+    width: image?.width,
+    height: image?.height,
+    data: image?.data,
+    mipmaps: image?.mipmaps,
+  };
+}
+
+function sameTextureThumbnailRevision(
+  left: TextureThumbnailRevision,
+  right: TextureThumbnailRevision,
+): boolean {
+  return (
+    left.image === right.image &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.data === right.data &&
+    left.mipmaps === right.mipmaps
+  );
+}
+
 function scheduleIdleTask(callback: () => void): () => void {
   const maybeWindow =
     typeof window === "undefined"
@@ -927,7 +969,7 @@ export function scheduleTextureThumbnailEnrichment({
   textureRegistry,
 }: ScheduleTextureThumbnailEnrichmentOptions): ScheduledTextureThumbnailEnrichment {
   if (metadata.textures.length === 0 || textureRegistry.size === 0) {
-    return { cancel: () => {} };
+    return { cancel: () => {}, refresh: () => {} };
   }
 
   let cancelled = false;
@@ -935,8 +977,17 @@ export function scheduleTextureThumbnailEnrichment({
   let textureIndex = 0;
   let currentMetadata = metadata;
   let currentTextures = metadata.textures;
+  const thumbnailRevisions = new Map<string, TextureThumbnailRevision>();
   const safeChunkSize = Math.max(1, Math.floor(chunkSize));
   const canContinue = () => !cancelled && shouldContinue();
+
+  const refresh = () => {
+    if (!canContinue()) return;
+    textureIndex = 0;
+    if (!cancelScheduledTask) {
+      scheduleNext();
+    }
+  };
 
   const scheduleNext = () => {
     cancelScheduledTask = scheduleTask(runChunk);
@@ -960,10 +1011,18 @@ export function scheduleTextureThumbnailEnrichment({
       textureIndex += 1;
       processed += 1;
 
-      if (entry.thumbnailUrl) continue;
-
       const texture = textureRegistry.get(entry.id);
       if (!texture) continue;
+
+      const revision = getTextureThumbnailRevision(texture);
+      const previousRevision = thumbnailRevisions.get(entry.id);
+      if (
+        entry.thumbnailUrl &&
+        (!previousRevision ||
+          sameTextureThumbnailRevision(previousRevision, revision))
+      ) {
+        continue;
+      }
 
       const thumbnailUrl = generateThumbnailUrl(texture);
       if (!thumbnailUrl) continue;
@@ -972,6 +1031,7 @@ export function scheduleTextureThumbnailEnrichment({
         nextTextures = [...currentTextures];
       }
       nextTextures[index] = { ...entry, thumbnailUrl };
+      thumbnailRevisions.set(entry.id, revision);
       changed = true;
     }
 
@@ -994,6 +1054,7 @@ export function scheduleTextureThumbnailEnrichment({
       cancelScheduledTask?.();
       cancelScheduledTask = null;
     },
+    refresh,
   };
 }
 
