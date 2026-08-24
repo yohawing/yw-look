@@ -30,8 +30,7 @@ export type UsdWorkerRequest = {
   path: string;
   /** Either raw USDA text (for `.usda`) or a full binary buffer. */
   payload:
-    | { kind: "text"; text: string }
-    | { kind: "binary"; buffer: ArrayBuffer };
+    { kind: "text"; text: string } | { kind: "binary"; buffer: ArrayBuffer };
 };
 
 export type UsdWorkerResponse =

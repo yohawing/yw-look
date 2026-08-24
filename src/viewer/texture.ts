@@ -21,8 +21,7 @@ export function createTextureViewerObject(
   previewFlipY = false,
 ) {
   const image = texture.image as
-    | { width?: number; height?: number }
-    | undefined;
+    { width?: number; height?: number } | undefined;
   const widthValue = image && typeof image.width === "number" ? image.width : 1;
   const heightValue =
     image && typeof image.height === "number" ? image.height : 1;

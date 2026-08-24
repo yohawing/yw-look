@@ -143,8 +143,7 @@ export type TimeSampleEntry = GeneratedTimeSampleEntry;
 export type AttributeTimeSamples = GeneratedAttributeTimeSamples;
 
 export type UsdSourcePayload =
-  | { kind: "text"; source: string }
-  | { kind: "binary" };
+  { kind: "text"; source: string } | { kind: "binary" };
 
 export type StageSessionHandle = number;
 

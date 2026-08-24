@@ -58,12 +58,7 @@ export type RendererRenderMetrics = {
 };
 
 export type BenchStageId =
-  | "scan"
-  | "resolve"
-  | "decode"
-  | "gpu"
-  | "scene"
-  | "ui";
+  "scan" | "resolve" | "decode" | "gpu" | "scene" | "ui";
 
 export type BenchStageMetrics = Partial<Record<BenchStageId, number>>;
 

@@ -323,8 +323,7 @@ export function createDeferredTextureTracker(
   let latestSnapshot: DeferredTextureSnapshot | null = null;
   let latestCompletedAt: number | null = null;
   let resolveCompletion:
-    | ((completion: DeferredTextureCompletion) => void)
-    | null = null;
+    ((completion: DeferredTextureCompletion) => void) | null = null;
 
   const completionFromLatest = (): DeferredTextureCompletion | null => {
     if (
