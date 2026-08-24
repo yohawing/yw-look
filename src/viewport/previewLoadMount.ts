@@ -346,11 +346,16 @@ export async function mountLoadedPreview(
   applySkeletonHelpers(
     context.scene,
     object,
-    state.showSkeleton || isBoneOnlyPreview || isMotionPreviewRig,
+    state.viewerSurfaceMode === "asset" &&
+      (state.showSkeleton || isBoneOnlyPreview || isMotionPreviewRig),
     state.showLocalAxis,
     state.showJointNames,
   );
-  applyBoundingBoxHelpers(context.scene, object, state.showBoundingBoxes);
+  applyBoundingBoxHelpers(
+    context.scene,
+    object,
+    state.viewerSurfaceMode === "asset" && state.showBoundingBoxes,
+  );
   applyPurposeVisibility(object, state.selectedPurposeModes);
 
   context.clips = clips;

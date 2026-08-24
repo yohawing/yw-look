@@ -10,7 +10,10 @@ import {
   applySkeletonHelpers,
   applyTextureFilter,
 } from "../viewer";
-import type { AssetViewportSceneDisplayProps } from "./types";
+import type {
+  AssetViewportSceneDisplayProps,
+  AssetViewportTextureProps,
+} from "./types";
 
 export function useSceneObjectEffects({
   backfaceCulling,
@@ -26,6 +29,7 @@ export function useSceneObjectEffects({
   showUnlit,
   showVertexColors,
   textureFilterMode,
+  viewerSurfaceMode,
 }: Pick<
   AssetViewportSceneDisplayProps,
   | "backfaceCulling"
@@ -39,10 +43,11 @@ export function useSceneObjectEffects({
   | "showUnlit"
   | "showVertexColors"
   | "textureFilterMode"
-> & {
-  keyLightRef: MutableRefObject<DirectionalLight | null>;
-  sceneContextRef: MutableRefObject<SceneContext | null>;
-}) {
+> &
+  Pick<AssetViewportTextureProps, "viewerSurfaceMode"> & {
+    keyLightRef: MutableRefObject<DirectionalLight | null>;
+    sceneContextRef: MutableRefObject<SceneContext | null>;
+  }) {
   useEffect(() => {
     const context = sceneContextRef.current;
 
@@ -96,11 +101,18 @@ export function useSceneObjectEffects({
     applySkeletonHelpers(
       context.scene,
       context.sourceObject,
-      showSkeleton || context.boneOnlyPreview,
+      viewerSurfaceMode === "asset" &&
+        (showSkeleton || context.boneOnlyPreview),
       showLocalAxis,
       showJointNames,
     );
-  }, [sceneContextRef, showJointNames, showLocalAxis, showSkeleton]);
+  }, [
+    sceneContextRef,
+    showJointNames,
+    showLocalAxis,
+    showSkeleton,
+    viewerSurfaceMode,
+  ]);
 
   useEffect(() => {
     const context = sceneContextRef.current;
@@ -112,9 +124,9 @@ export function useSceneObjectEffects({
     applyBoundingBoxHelpers(
       context.scene,
       context.sourceObject,
-      showBoundingBoxes,
+      viewerSurfaceMode === "asset" && showBoundingBoxes,
     );
-  }, [sceneContextRef, showBoundingBoxes]);
+  }, [sceneContextRef, showBoundingBoxes, viewerSurfaceMode]);
 
   useEffect(() => {
     const context = sceneContextRef.current;

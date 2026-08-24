@@ -1069,6 +1069,7 @@ export function AssetViewport({
     showUnlit,
     showVertexColors,
     textureFilterMode,
+    viewerSurfaceMode,
   });
 
   useEffect(() => {
