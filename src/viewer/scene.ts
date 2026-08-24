@@ -943,18 +943,20 @@ export function normalizeObjectScale(
   // Pick a power-of-10 scale factor that brings the object into
   // [MIN, MAX].  This way the factor itself is always 10ⁿ, making
   // it immediately obvious how much the scale was adjusted.
-  let factor = 1;
-  if (originalMaxDimension < MIN_NORMALIZED_DIMENSION) {
-    const targetPower = Math.ceil(
-      Math.log10(MIN_NORMALIZED_DIMENSION / originalMaxDimension),
-    );
-    factor = Math.pow(10, targetPower);
-  } else {
-    const targetPower = Math.floor(
-      Math.log10(MAX_NORMALIZED_DIMENSION / originalMaxDimension),
-    );
-    factor = Math.pow(10, targetPower);
-  }
+  const factor =
+    originalMaxDimension < MIN_NORMALIZED_DIMENSION
+      ? Math.pow(
+          10,
+          Math.ceil(
+            Math.log10(MIN_NORMALIZED_DIMENSION / originalMaxDimension),
+          ),
+        )
+      : Math.pow(
+          10,
+          Math.floor(
+            Math.log10(MAX_NORMALIZED_DIMENSION / originalMaxDimension),
+          ),
+        );
 
   const applied = Math.abs(factor - 1) > SCALE_EPSILON;
 

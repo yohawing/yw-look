@@ -22,6 +22,7 @@ function canvasToDataUrl(
   } catch (error) {
     throw new Error(
       `failed to capture WebGL canvas screenshot: ${errorMessage(error, "Unknown error")}`,
+      { cause: error },
     );
   }
 }

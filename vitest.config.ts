@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
-import { mmdWasmMimePlugin } from "./vite.config";
+import { mmdWasmMimePlugin } from "./vite.config.ts";
 
 export default defineConfig({
   plugins: [mmdWasmMimePlugin(), react()],

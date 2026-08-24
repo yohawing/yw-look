@@ -161,7 +161,7 @@ if (serveOnly || htmlOnly) {
 console.log(
   `[visual-review] rendering ${shotCases.length} screenshot(s) at ${width}x${height}`,
 );
-let htmlReportPath = path.join(outDir, "visual-review.html");
+const htmlReportPath = path.join(outDir, "visual-review.html");
 const devServer = await ensureDevServer();
 try {
   const run = await runShotBatch(configPath);
@@ -218,7 +218,6 @@ try {
   };
 
   const jsonReportPath = path.join(outDir, "visual-review-report.json");
-  htmlReportPath = path.join(outDir, "visual-review.html");
   const markdownReportPath = path.join(outDir, "visual-review.md");
   await writeFile(
     jsonReportPath,
