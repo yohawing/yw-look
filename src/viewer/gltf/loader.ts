@@ -174,7 +174,7 @@ export async function mapWithConcurrency<T, R>(
 
 async function materializeGltf(file: SelectedFile) {
   const rawText = await readTextFile(file.path);
-  let json: GltfDocument | null = null;
+  let json: GltfDocument;
   try {
     json = JSON.parse(rawText) as GltfDocument;
   } catch (error) {
@@ -213,8 +213,6 @@ async function materializeGltf(file: SelectedFile) {
         ),
     ),
   ];
-  json = null;
-
   const cleanupUrls: string[] = [];
   const missingPaths: string[] = [];
   const unresolvedImages: string[] = [];

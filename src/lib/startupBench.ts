@@ -43,8 +43,7 @@ export async function loadStartupBenchConfig() {
 
 function collectBrowserMetrics(): StartupBenchBrowserMetrics {
   const navigation = performance.getEntriesByType("navigation")[0] as
-    | PerformanceNavigationTiming
-    | undefined;
+    PerformanceNavigationTiming | undefined;
   const paints = performance.getEntriesByType("paint");
   const firstPaint = paints.find((entry) => entry.name === "first-paint");
   const firstContentfulPaint = paints.find(

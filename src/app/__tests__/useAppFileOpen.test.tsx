@@ -16,8 +16,7 @@ const mocks = vi.hoisted(() => ({
   prefetchAdjacent: vi.fn(),
   createPackFileRequest: vi.fn(),
   listenHandler: undefined as
-    | ((event: { payload: string }) => void)
-    | undefined,
+    ((event: { payload: string }) => void) | undefined,
   dragDropHandler: undefined as
     | ((event: {
         payload:

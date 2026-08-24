@@ -106,21 +106,21 @@ describe("loadTexturePreviewObject", () => {
 
   it("hydrates a PSD through the Rust packet into an RGBA8 DataTexture", async () => {
     const result = await loadTexture(fileWithExtension("psd"));
-    const texture = resultTexture(result);
+    const texture = resultTexture(result) as DataTexture;
 
     expect(mocks.decodePsdFile).toHaveBeenCalledWith("C:\\assets\\texture.psd");
     expect(texture).toBeInstanceOf(DataTexture);
     expect(texture.image.width).toBe(2048);
     expect(texture.image.height).toBe(2048);
     expect(texture.image.data).toBeInstanceOf(Uint8Array);
-    expect(texture.image.data.byteLength).toBe(2048 * 2048 * 4);
+    expect(texture.image.data?.byteLength).toBe(2048 * 2048 * 4);
     expect(texture.colorSpace).toBe(SRGBColorSpace);
     expect(texture.userData.textureSourceKind).toBe("standalone");
     expect(result.cleanupUrls).toEqual([]);
   });
 
   it("loads PNG textures as standalone previews with sRGB color space", async () => {
-    const sourceTexture = new Texture();
+    const sourceTexture = new Texture<HTMLImageElement>();
     vi.spyOn(TextureLoader.prototype, "loadAsync").mockResolvedValue(
       sourceTexture,
     );

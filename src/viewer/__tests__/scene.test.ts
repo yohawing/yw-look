@@ -596,8 +596,7 @@ describe("scene material display helpers", () => {
 
     const wireframe = mesh.material as unknown as MeshBasicMaterial;
     const unlit = mesh.userData.__yw_wireframe_original_material as
-      | MeshBasicMaterial
-      | MeshBasicMaterial[];
+      MeshBasicMaterial | MeshBasicMaterial[];
     const disposeWireframe = vi.spyOn(wireframe, "dispose");
     const disposeUnlit = vi.spyOn(
       Array.isArray(unlit) ? unlit[0] : unlit,

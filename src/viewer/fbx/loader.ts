@@ -1449,12 +1449,10 @@ export function hydrateFbxDeferredTexturePlaceholders(
         );
         if (current instanceof Texture) {
           current.userData.fbxSourceName ??= sourceName;
-          if (
-            !(
-              slot === "alphaMap" &&
-              material.userData?.fbxOpacityEmbedded === true
-            )
-          ) {
+          if (!(
+            slot === "alphaMap" &&
+            material.userData?.fbxOpacityEmbedded === true
+          )) {
             current.userData.fbxDeferred ??= true;
           }
           if (binding) applyBindingSampler(current, binding);

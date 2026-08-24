@@ -171,6 +171,7 @@ $signature = Get-AuthenticodeSignature -LiteralPath $artifactPath
   } catch (error) {
     throw new Error(
       `Get-AuthenticodeSignature failed for ${filePath}: ${error instanceof Error ? error.message : error}`,
+      { cause: error },
     );
   }
 

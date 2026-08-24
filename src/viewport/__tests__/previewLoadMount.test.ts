@@ -169,8 +169,7 @@ function createMountOptions(context: SceneContext) {
         cameraSpeedMultiplier: 1,
         displayMode: "textured" as const,
         morphTargetValues: undefined as
-          | Record<string, Record<number, number>>
-          | undefined,
+          Record<string, Record<number, number>> | undefined,
         selectedPurposeModes: undefined,
         showAxes: false,
         showBoundingBoxes: false,

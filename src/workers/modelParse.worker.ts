@@ -170,6 +170,9 @@ async function parseObject(
         payload.text,
         payload.basePath,
       );
+      if (!collada) {
+        throw new Error("Unable to parse Collada scene.");
+      }
       const wrapped = new Group();
       wrapped.add(collada.scene);
       return wrapped;

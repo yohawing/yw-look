@@ -74,9 +74,7 @@ export function summarizeOptionalLoaderPacks(
 
 export function disabledOptionalLoaderPackIds(
   settings:
-    | Record<string, { enabled?: boolean } | undefined>
-    | null
-    | undefined,
+    Record<string, { enabled?: boolean } | undefined> | null | undefined,
 ): string[] {
   if (!settings) {
     return [];

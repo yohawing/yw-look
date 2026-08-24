@@ -69,9 +69,7 @@ function applyTintToMesh(mesh: Mesh): void {
 /** Remove the selection tint from a single mesh, restoring the original. */
 function removeTintFromMesh(mesh: Mesh): void {
   const orig = mesh.userData.__yw_origMaterial as
-    | Material
-    | Material[]
-    | undefined;
+    Material | Material[] | undefined;
   if (!orig) return;
 
   // Dispose the cloned material(s) to free GPU resources.

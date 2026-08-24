@@ -146,8 +146,10 @@ pub(crate) fn unresolved_assets(stage: &Stage) -> Vec<String> {
         .composition_errors()
         .into_iter()
         .filter_map(|err| match err {
-            openusd::pcp::Error::UnresolvedLayer { asset_path, .. }
-            | openusd::pcp::Error::UnresolvedSublayer { asset_path, .. } => Some(asset_path),
+            openusd::pcp::CompositionError::UnresolvedLayer { asset_path, .. }
+            | openusd::pcp::CompositionError::UnresolvedSublayer { asset_path, .. } => {
+                Some(asset_path)
+            }
             _ => None,
         })
         .collect();
@@ -244,11 +246,11 @@ pub(crate) fn variant_names(
 
     let mut names = Vec::new();
     let mut seen = HashSet::new();
-    for (layer_id, local_prim_path) in stack {
-        let Some(layer) = stage.layer(&layer_id) else {
+    for site in stack {
+        let Some(layer) = stage.layer(&site.layer) else {
             continue;
         };
-        let Ok(variant_set_path) = local_prim_path.append_variant_selection(set_name, "") else {
+        let Ok(variant_set_path) = site.path.append_variant_selection(set_name, "") else {
             continue;
         };
         let Ok(Some(value)) = layer
@@ -308,11 +310,11 @@ pub(crate) fn payloads_in(stage: &Stage, path: impl Into<sdf::Path>) -> Vec<sdf:
 /// "first opinion found wins" behavior via public API only.
 fn read_composed_field(stage: &Stage, path: sdf::Path, key: &str) -> Option<Value> {
     let stack = stage.prim_at(path).prim_stack().ok()?;
-    for (layer_id, local_path) in stack {
-        let Some(layer) = stage.layer(&layer_id) else {
+    for site in stack {
+        let Some(layer) = stage.layer(&site.layer) else {
             continue;
         };
-        let Ok(Some(spec)) = layer.prim(local_path) else {
+        let Ok(Some(spec)) = layer.prim(site.path) else {
             continue;
         };
         if let Ok(Some(value)) = spec.field(key) {
@@ -593,7 +595,7 @@ pub(crate) fn skel_animation_of(
 /// resolves through the same call internally, so behavior is identical.
 fn read_attr(stage: &Stage, prim_path: &sdf::Path, name: &str) -> anyhow::Result<Option<Value>> {
     let attr_path = prim_path.append_property(name)?;
-    stage.attribute_at(attr_path).get::<Value>()
+    Ok(stage.attribute_at(attr_path).get::<Value>()?)
 }
 
 /// Composed `typeName` of a prim, read via `Prim::type_name()` —
@@ -1278,7 +1280,6 @@ def Xform "World" (
     }
 
     #[test]
-    #[ignore = "USDC-INTFLOAT-KNOWN-01: upstream usdc reader mis-decodes integer-compressed float arrays; fix staged in fix/usdc-integer-compressed-floats"]
     fn reads_integer_compressed_float_weights_from_usdc_fixture() -> anyhow::Result<()> {
         // This is an actual OpenUSD-usdcat binary fixture, not a USDA
         // round-trip: its `float[]` value uses the USDC `i` compression code.

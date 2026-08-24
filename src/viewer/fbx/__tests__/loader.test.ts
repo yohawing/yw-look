@@ -3,6 +3,7 @@ import {
   Bone,
   BufferGeometry,
   ClampToEdgeWrapping,
+  DataTexture,
   Group,
   LinearFilter,
   Mesh,
@@ -334,15 +335,16 @@ describe("loadFbxPreviewObject native GLB policy", () => {
     await loadFbxPreviewObject(fbxFile, {});
 
     await vi.waitFor(() => {
+      const alphaMap = material.alphaMap as DataTexture | null;
       expect(material.alphaMap).toBeTruthy();
       expect(material.alphaMap).not.toBe(placeholder);
       expect(
         (material.alphaMap as (Texture & { isDataTexture?: boolean }) | null)
           ?.isDataTexture,
       ).toBe(true);
-      expect(material.alphaMap?.image.width).toBe(2048);
-      expect(material.alphaMap?.image.height).toBe(2048);
-      expect(material.alphaMap?.image.data.byteLength).toBe(2048 * 2048 * 4);
+      expect(alphaMap?.image.width).toBe(2048);
+      expect(alphaMap?.image.height).toBe(2048);
+      expect(alphaMap?.image.data?.byteLength).toBe(2048 * 2048 * 4);
     });
     expect(material.alphaMap?.offset.toArray()).toEqual([0.1, 0.2]);
     expect(material.alphaMap?.repeat.toArray()).toEqual([2, 3]);
@@ -350,7 +352,7 @@ describe("loadFbxPreviewObject native GLB policy", () => {
     expect(material.alphaMap?.magFilter).toBe(LinearFilter);
     expect(material.alphaMap?.generateMipmaps).toBe(false);
     expect(material.alphaMap?.flipY).toBe(false);
-    expect(material.alphaMap?.image.data[1]).toBe(4);
+    expect((material.alphaMap as DataTexture | null)?.image.data?.[1]).toBe(4);
     expect(mocks.decodePsdFile).toHaveBeenCalledWith(
       "C:\\assets\\VRBase Anime Skintones\\PSDs\\BaseColor.psd",
     );

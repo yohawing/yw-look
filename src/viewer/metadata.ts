@@ -779,8 +779,7 @@ function buildMaterialEntry(
 
 function getTextureDimensions(texture: Texture) {
   const image = texture.image as
-    | { width?: number; height?: number }
-    | undefined;
+    { width?: number; height?: number } | undefined;
 
   if (
     image &&
