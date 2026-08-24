@@ -15,7 +15,9 @@ import {
   type Material,
   Loader as ThreeLoader,
 } from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { errorMessage } from "../../lib/errors";
+import { cancelFbxImport, convertFbxToPreview } from "../../lib/fbx";
 import {
   decodePsdFile,
   readBinaryFile,
@@ -23,17 +25,13 @@ import {
   type SelectedFile,
 } from "../../lib/files";
 import type { LoaderContext } from "../loaderRegistry";
-import { isAbortOrTimeoutError, parseModelInWorker } from "../modelParseWorker";
+import {
+  DEFAULT_MODEL_PARSE_TIMEOUT_MS,
+  isAbortOrTimeoutError,
+  parseModelInWorker,
+} from "../modelParseWorker";
 import { formatMissingTextureWarnings } from "../textureWarnings";
 import type { DeferredTextureSnapshot, LoadedPreview } from "../types";
-
-/**
- * Files at or above this size transfer ArrayBuffer ownership to the model
- * parse worker and never fall back to the main-thread FBX parser.
- * Kept at the established no-fallback boundary until every production FBX
- * material shape is verified through the static worker reconstruction path.
- */
-const WORKER_TRANSFER_SIZE_LIMIT = 50 * 1024 * 1024;
 
 async function readArrayBuffer(path: string) {
   return readBinaryFile(path);
@@ -138,23 +136,32 @@ function resolveSiblingPath(baseDirectory: string, relativePath: string) {
   return `${prefix}${segments.join(separator)}`;
 }
 
-/**
- * Keep FBX sidecar lookup bounded to the existing direct and `Textures/`
- * candidates. Package layouts that put assets in another named directory
- * need an explicit resolver policy; this path must not become recursive.
- */
-function resolveTextureCandidates(reference: string, baseDirectory: string) {
+/** Bounded FBX sidecar policy. Deliberately never searches recursively. */
+export function resolveTextureCandidates(
+  reference: string,
+  baseDirectory: string,
+) {
   const fileName = filenameFromUrl(reference);
   const directCandidate = isAbsoluteTexturePath(reference)
     ? reference
     : resolveSiblingPath(baseDirectory, reference);
+  const basenameCandidate = resolveSiblingPath(baseDirectory, fileName);
   const textureFolderCandidate = resolveSiblingPath(
     baseDirectory,
     `Textures/${fileName}`,
   );
-  return directCandidate === textureFolderCandidate
-    ? [directCandidate]
-    : [directCandidate, textureFolderCandidate];
+  const parentTextureCandidate = resolveSiblingPath(
+    baseDirectory,
+    `../Texture/${fileName}`,
+  );
+  return [
+    ...new Set([
+      directCandidate,
+      basenameCandidate,
+      textureFolderCandidate,
+      parentTextureCandidate,
+    ]),
+  ];
 }
 
 function filenameFromUrl(value: string) {
@@ -1265,6 +1272,8 @@ export function hydrateFbxDeferredTexturePlaceholders(
   object: Object3D,
   loadDeferredTexture: (reference: string) => Texture,
 ) {
+  const rootBindings = object.userData?.fbxTextureBindings;
+  const bindings = Array.isArray(rootBindings) ? rootBindings : [];
   object.traverse((child) => {
     if (!(child instanceof Mesh)) {
       return;
@@ -1279,6 +1288,54 @@ export function hydrateFbxDeferredTexturePlaceholders(
         continue;
       }
       const materialRecord = material as unknown as Record<string, unknown>;
+      for (const binding of bindings) {
+        if (
+          typeof binding !== "object" ||
+          binding === null ||
+          (binding as { material?: unknown }).material !== material.name ||
+          typeof (binding as { source?: unknown }).source !== "string"
+        ) {
+          continue;
+        }
+        const slotMetadata = {
+          baseColor: "fbxBaseColorSource",
+          normal: "fbxNormalSource",
+          emissive: "fbxEmissiveSource",
+          roughness: "fbxRoughnessSource",
+          metalness: "fbxMetalnessSource",
+          ambientOcclusion: "fbxAmbientOcclusionSource",
+        } as const;
+        const slot = (binding as { slot?: unknown }).slot;
+        if (typeof slot === "string" && slot in slotMetadata) {
+          material.userData[slotMetadata[slot as keyof typeof slotMetadata]] = (
+            binding as { source: string }
+          ).source;
+        }
+      }
+      const deferredMaterialSlots = [
+        ["map", "fbxBaseColorSource"],
+        ["normalMap", "fbxNormalSource"],
+        ["emissiveMap", "fbxEmissiveSource"],
+        ["roughnessMap", "fbxRoughnessSource"],
+        ["metalnessMap", "fbxMetalnessSource"],
+        ["aoMap", "fbxAmbientOcclusionSource"],
+      ] as const;
+      for (const [slot, metadataKey] of deferredMaterialSlots) {
+        const sourceName = material.userData?.[metadataKey];
+        if (typeof sourceName !== "string" || sourceName.length === 0) {
+          continue;
+        }
+        const current = materialRecord[slot];
+        if (current instanceof Texture) {
+          current.userData.fbxSourceName ??= sourceName;
+          current.userData.fbxDeferred ??= true;
+        } else {
+          const placeholder = new Texture();
+          placeholder.userData.fbxSourceName = sourceName;
+          placeholder.userData.fbxDeferred = true;
+          materialRecord[slot] = placeholder;
+        }
+      }
       let materialDirty = false;
 
       for (const [key, value] of Object.entries(materialRecord)) {
@@ -1293,8 +1350,11 @@ export function hydrateFbxDeferredTexturePlaceholders(
         if (typeof sourceName !== "string" || sourceName.length === 0) {
           continue;
         }
-        // Already has pixel data (ImageData path) — leave alone.
+        // Native GLB deferred slots intentionally carry a valid 1x1 pixel so
+        // they render opaque before hydration. Only treat real embedded image
+        // data as final; fbxDeferred placeholders still need sidecar lookup.
         if (
+          placeholder.userData?.fbxDeferred !== true &&
           placeholder.image &&
           typeof placeholder.image === "object" &&
           "data" in placeholder.image &&
@@ -1309,6 +1369,12 @@ export function hydrateFbxDeferredTexturePlaceholders(
         }
 
         const deferred = loadDeferredTexture(sourceName);
+        // Keep the native opaque/neutral pixel visible while asynchronous
+        // sidecar I/O is pending. Local loaders replace this image on success.
+        if (!deferred.image && placeholder.image) {
+          deferred.image = placeholder.image;
+          deferred.mipmaps = placeholder.mipmaps;
+        }
         // Preserve transform/sampler state from the static-scene placeholder.
         deferred.offset.copy(placeholder.offset);
         deferred.repeat.copy(placeholder.repeat);
@@ -1350,6 +1416,15 @@ export function hydrateFbxDeferredTexturePlaceholders(
   });
 }
 
+export function applyFbxNativeNodeMetadata(object: Object3D): void {
+  object.traverse((child) => {
+    const visible = child.userData?.visible;
+    if (typeof visible === "boolean") {
+      child.visible = visible;
+    }
+  });
+}
+
 export async function loadFbxPreviewObject(
   file: SelectedFile,
   context: LoaderContext,
@@ -1357,20 +1432,53 @@ export async function loadFbxPreviewObject(
   const reportStage = context.onStage ?? (() => undefined);
   throwIfAborted(context.signal);
   reportStage("decode");
-  const { FBXLoader } = await import("../../vendor/FBXLoaderPatched.js");
   const readStartedAt = performance.now();
-  const buffer = await readArrayBuffer(file.path);
+  const requestId = `fbx-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const handleAbort = () => {
+    void cancelFbxImport(requestId).catch(() => undefined);
+  };
+  context.signal?.addEventListener("abort", handleAbort, { once: true });
+  const nativeTimeoutMs =
+    context.parseTimeoutMs ?? DEFAULT_MODEL_PARSE_TIMEOUT_MS;
+  let nativeTimeoutId: ReturnType<typeof setTimeout> | undefined;
+  const nativeTimeout = new Promise<never>((_, reject) => {
+    nativeTimeoutId = setTimeout(() => {
+      void cancelFbxImport(requestId).catch(() => undefined);
+      const timeoutError = new Error(
+        `Native FBX conversion timed out after ${Math.round(nativeTimeoutMs / 1000)}s: ${file.path}`,
+      );
+      timeoutError.name = "TimeoutError";
+      reject(timeoutError);
+    }, nativeTimeoutMs);
+  });
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await Promise.race([
+      convertFbxToPreview(file.path, requestId),
+      nativeTimeout,
+    ]);
+  } catch (error) {
+    if (context.signal?.aborted) {
+      throw createAbortError();
+    }
+    throw error;
+  } finally {
+    if (nativeTimeoutId !== undefined) {
+      clearTimeout(nativeTimeoutId);
+    }
+    context.signal?.removeEventListener("abort", handleAbort);
+  }
   throwIfAborted(context.signal);
   const readMs = performance.now() - readStartedAt;
   reportStage("scene");
   await yieldToPaint();
   throwIfAborted(context.signal);
   const parseStartedAt = performance.now();
-  // Capture size before an opt-in transfer detaches the ArrayBuffer.
+  // Capture GLB size before transfer detaches the ArrayBuffer.
   const bufferByteLength = buffer.byteLength;
-  // At/above the transfer threshold the path is worker-only: transfer ownership
-  // and avoid an extra main-thread slice/structured-clone before decompress.
-  const transferBuffer = bufferByteLength >= WORKER_TRANSFER_SIZE_LIMIT;
+  // Native conversion has already completed off-thread. Retain one GLB-only
+  // fallback copy while transferring the primary buffer to the parse worker.
+  const fallbackBuffer = buffer.slice(0);
   let object:
     | (LoadedPreview["object"] & {
         animations?: LoadedPreview["clips"];
@@ -1381,14 +1489,13 @@ export async function loadFbxPreviewObject(
     object = (await parseModelInWorker(
       file.path,
       {
-        kind: "fbx",
+        kind: "fbxGlb",
         buffer,
-        resourcePath: `${file.parentDirectory.replace(/\\/g, "/")}/`,
       },
       {
         signal: context.signal,
         timeoutMs: context.parseTimeoutMs,
-        transferBuffer,
+        transferBuffer: true,
       },
     )) as LoadedPreview["object"] & {
       animations?: LoadedPreview["clips"];
@@ -1398,20 +1505,8 @@ export async function loadFbxPreviewObject(
     if (isAbortOrTimeoutError(error)) {
       throw error;
     }
-    // Transferred buffers are detached — never attempt main-thread fallback.
-    if (transferBuffer) {
-      const fileSizeMb = (bufferByteLength / (1024 * 1024)).toFixed(1);
-      const limitMb = WORKER_TRANSFER_SIZE_LIMIT / (1024 * 1024);
-      const workerDetail = errorMessage(error, "Unknown error");
-      throw new Error(
-        `Worker parsing failed for large file (${fileSizeMb} MB). ` +
-          `Main thread fallback is disabled for files at or above ${limitMb} MB to prevent UI freeze. ` +
-          `Worker error: ${workerDetail}`,
-        { cause: error },
-      );
-    }
     console.warn(
-      "[fbx] worker parse failed, falling back to main thread:",
+      "[fbx] worker GLB parse failed, retrying GLB on main thread:",
       error,
     );
   }
@@ -1424,26 +1519,29 @@ export async function loadFbxPreviewObject(
   throwIfAborted(context.signal);
   if (!parsedInWorker) {
     try {
-      object = new FBXLoader(manager).parse(
-        buffer,
-        `${file.parentDirectory.replace(/\\/g, "/")}/`,
-      );
+      const gltf = await new GLTFLoader(manager).parseAsync(fallbackBuffer, "");
+      gltf.scene.animations = gltf.animations;
+      object = gltf.scene;
     } catch (error) {
       const message = errorMessage(error, "Unknown error");
-      throw new Error(
-        `Unable to parse FBX preview: ${message}. This FBX may contain animation-only data or unsupported deformers without geometry.`,
-        { cause: error },
-      );
+      throw new Error(`Unable to parse native FBX preview GLB: ${message}.`, {
+        cause: error,
+      });
     }
   }
   if (!object) {
     throw new Error("Unable to parse FBX preview: no object was returned.");
   }
-  if (parsedInWorker) {
-    // Worker retained geometry/scene; hydrate external texture placeholders
-    // asynchronously via the existing deferred loaders (non-blocking).
-    hydrateFbxDeferredTexturePlaceholders(object, loadDeferredTexture);
+  applyFbxNativeNodeMetadata(object);
+  const nativeWarnings = object.userData?.fbxWarnings;
+  if (Array.isArray(nativeWarnings)) {
+    for (const warning of nativeWarnings) {
+      if (typeof warning === "string" && warning.length > 0) {
+        context.onWarning?.(warning);
+      }
+    }
   }
+  hydrateFbxDeferredTexturePlaceholders(object, loadDeferredTexture);
   const parseMs = performance.now() - parseStartedAt;
   flipFbxDdsTextureV(object);
   registerFbxTextureMaterialFallbacks(object);

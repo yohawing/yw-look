@@ -24,7 +24,7 @@ const timeoutMs = Number(readOption(args, "--timeout-ms") ?? 180_000);
 const loaderMap = {
   ".gltf": "GLTFLoader",
   ".glb": "GLTFLoader",
-  ".fbx": "FBXLoader",
+  ".fbx": "native-ufbx",
   ".obj": "OBJLoader",
   ".stl": "STLLoader",
   ".ply": "PLYLoader",
