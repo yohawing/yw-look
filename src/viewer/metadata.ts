@@ -1417,6 +1417,23 @@ export function collectAssetMetadata(
   };
 }
 
+export function refreshTextureSourceKinds(
+  metadata: AssetMetadata,
+  currentFile: SelectedFile,
+  textureRegistry: ReadonlyMap<string, Texture>,
+): AssetMetadata {
+  let changed = false;
+  const textures = metadata.textures.map((entry) => {
+    const texture = textureRegistry.get(entry.id);
+    if (!texture) return entry;
+    const sourceKind = inferTextureSourceKind(texture, currentFile);
+    if (sourceKind === entry.sourceKind) return entry;
+    changed = true;
+    return { ...entry, sourceKind };
+  });
+  return changed ? { ...metadata, textures } : metadata;
+}
+
 export function buildMissingReferenceMetadata(
   currentFile: SelectedFile,
   formatVersion: string | null,

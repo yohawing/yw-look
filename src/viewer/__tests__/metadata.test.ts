@@ -33,6 +33,7 @@ import {
 import {
   buildAnimationClipMetadata,
   collectAssetMetadata,
+  refreshTextureSourceKinds,
   scheduleTextureThumbnailEnrichment,
 } from "../metadata";
 import {
@@ -724,6 +725,29 @@ describe("collectAssetMetadata", () => {
 
     expect(result.metadata.textures[0]).toMatchObject({
       label: "albedo.png",
+      sourcePath: "Textures/albedo.png",
+      sourceKind: "external",
+    });
+  });
+
+  it("refreshes unresolved texture metadata after deferred hydration succeeds", () => {
+    const texture = new Texture();
+    texture.name = "albedo.png";
+    texture.userData.fbxSourceName = "Textures/albedo.png";
+    texture.userData.textureSourceKind = "unresolved";
+    const material = new MeshBasicMaterial({ map: texture });
+    const root = new Group();
+    root.add(new Mesh(new BufferGeometry(), material));
+    const collected = collectAssetMetadata(root, fakeFile, [], null);
+
+    texture.userData.textureSourceKind = "external";
+    const refreshed = refreshTextureSourceKinds(
+      collected.metadata,
+      fakeFile,
+      collected.textureRegistry,
+    );
+
+    expect(refreshed.textures[0]).toMatchObject({
       sourcePath: "Textures/albedo.png",
       sourceKind: "external",
     });
