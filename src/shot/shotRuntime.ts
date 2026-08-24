@@ -608,6 +608,7 @@ export async function runShot(
     }
     revokeUrls(cleanupUrls);
     renderer.dispose();
+    renderer.forceContextLoss();
     host.remove();
   }
 

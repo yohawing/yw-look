@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   inspectStage: vi.fn(),
   loadPreviewObject: vi.fn(),
   normalizeObjectScale: vi.fn(),
+  rendererDispose: vi.fn(),
+  rendererForceContextLoss: vi.fn(),
   resolveSelectedFile: vi.fn(),
   revokeUrls: vi.fn(),
   summarizeStage: vi.fn(),
@@ -151,7 +153,12 @@ class WebGLRenderer {
   setPixelRatio() {}
   setClearColor() {}
   render() {}
-  dispose() {}
+  dispose() {
+    mocks.rendererDispose();
+  }
+  forceContextLoss() {
+    mocks.rendererForceContextLoss();
+  }
 }
 
 vi.mock("three", () => ({
@@ -400,5 +407,7 @@ describe("runShot motion check mode", () => {
     expect(outcome.loaded).toBe(true);
     expect(outcome.meshCount).toBe(0);
     expect(outcome.warnings).toEqual([]);
+    expect(mocks.rendererDispose).toHaveBeenCalledOnce();
+    expect(mocks.rendererForceContextLoss).toHaveBeenCalledOnce();
   });
 });
