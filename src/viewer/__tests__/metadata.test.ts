@@ -706,6 +706,7 @@ describe("collectAssetMetadata", () => {
 
     expect(result.metadata.textures[0]).toMatchObject({
       label: "missing.png",
+      sourcePath: "../Textures/missing.png",
       sourceKind: "unresolved",
     });
   });
@@ -723,6 +724,7 @@ describe("collectAssetMetadata", () => {
 
     expect(result.metadata.textures[0]).toMatchObject({
       label: "albedo.png",
+      sourcePath: "Textures/albedo.png",
       sourceKind: "external",
     });
   });

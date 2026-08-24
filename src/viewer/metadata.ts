@@ -1374,6 +1374,7 @@ export function collectAssetMetadata(
             channel,
             currentFile,
           ),
+          ...(sourceReference ? { sourcePath: sourceReference } : {}),
           channel,
           dimensions: getTextureDimensions(textureValue),
           thumbnailUrl: null,
@@ -1425,6 +1426,7 @@ export function buildMissingReferenceMetadata(
   const textureEntries = unresolvedImages.map((path, index) => ({
     id: `unresolved:${path}:${index}`,
     label: path,
+    sourcePath: path,
     channel: "Missing",
     dimensions: "unknown",
     thumbnailUrl: null,

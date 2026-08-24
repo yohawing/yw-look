@@ -182,3 +182,23 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.texture-selected-path {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+}
+
+.texture-selected-path-label {
+  color: var(--yl-text-tertiary);
+  font-size: 11px;
+}
+
+.texture-selected-path code {
+  color: var(--yl-text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
