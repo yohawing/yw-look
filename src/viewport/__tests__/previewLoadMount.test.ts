@@ -1,6 +1,6 @@
 import { Group, PerspectiveCamera, Scene } from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SceneContext } from "../../types/viewer";
+import type { SceneContext, ViewerSurfaceMode } from "../../types/viewer";
 import { mountLoadedPreview } from "../previewLoadMount";
 
 const mountState = vi.hoisted(() => ({
@@ -53,6 +53,7 @@ const viewerMocks = vi.hoisted(() => {
       };
     }),
     applyDynamicGrid: vi.fn(() => ({ label: "1m" })),
+    applyBoundingBoxHelpers: vi.fn(),
     applySkeletonHelpers: vi.fn(),
     applySurfaceMaterialMode: vi.fn(),
     scheduleTextureThumbnailEnrichment: vi.fn(() => ({
@@ -66,7 +67,7 @@ vi.mock("../../viewer", () => ({
   DEFAULT_LIGHTING_PRESET: {},
   activateClip: viewerMocks.stub,
   applyBackfaceCulling: viewerMocks.stub,
-  applyBoundingBoxHelpers: viewerMocks.stub,
+  applyBoundingBoxHelpers: viewerMocks.applyBoundingBoxHelpers,
   applyDisplayMode: viewerMocks.applyDisplayMode,
   applyDynamicAxes: viewerMocks.stub,
   applyDynamicGrid: viewerMocks.applyDynamicGrid,
@@ -183,7 +184,7 @@ function createMountOptions(context: SceneContext) {
         showVertexColors: false,
         textureFilterMode: "linear" as const,
         texturePreview3D: false,
-        viewerSurfaceMode: "asset" as const,
+        viewerSurfaceMode: "asset" as ViewerSurfaceMode,
       }),
       host: null,
       isDisposed: () => mountState.disposed,
@@ -231,6 +232,7 @@ describe("mountLoadedPreview", () => {
     viewerMocks.collectAssetMetadata.mockClear();
     viewerMocks.collectSceneTraversal.mockClear();
     viewerMocks.applyDisplayMode.mockClear();
+    viewerMocks.applyBoundingBoxHelpers.mockClear();
     viewerMocks.applySkeletonHelpers.mockClear();
     viewerMocks.applySurfaceMaterialMode.mockClear();
     viewerMocks.scheduleTextureThumbnailEnrichment.mockClear();
@@ -351,6 +353,45 @@ describe("mountLoadedPreview", () => {
       object,
       true,
       false,
+      false,
+    );
+  });
+
+  it("does not mount asset helpers while texture view is active", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    options.getMountState = () => ({
+      ...createMountOptions(context).options.getMountState(),
+      showBoundingBoxes: true,
+      showJointNames: true,
+      showLocalAxis: true,
+      showSkeleton: true,
+      viewerSurfaceMode: "texture",
+    });
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+      },
+      options,
+    );
+
+    expect(viewerMocks.applySkeletonHelpers).toHaveBeenCalledWith(
+      context.scene,
+      object,
+      false,
+      true,
+      true,
+    );
+    expect(viewerMocks.applyBoundingBoxHelpers).toHaveBeenCalledWith(
+      context.scene,
+      object,
       false,
     );
   });

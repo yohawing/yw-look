@@ -66,6 +66,8 @@ image = { version = "0.25", default-features = false, features = ["png"], option
 glam = { version = "0.33.2", default-features = false, features = ["std", "f64"] }
 log = "0.4.33"
 tauri-plugin-log = "2.8.0"
+# Official safe Rust bindings; the crate compiles and statically links ufbx.c.
+ufbx = "0.11.3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55.0"

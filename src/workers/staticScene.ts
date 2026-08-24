@@ -271,6 +271,19 @@ function getTexturePayload(
   texture: Texture,
 ): ModelParseWorkerStaticTexturePayload | null {
   const sampler = getTextureSamplerPayload(texture);
+  const sourceName = texture.userData?.fbxSourceName;
+  if (
+    texture.userData?.fbxDeferred === true &&
+    typeof sourceName === "string" &&
+    sourceName.length > 0 &&
+    !/^(data:|blob:)/i.test(sourceName)
+  ) {
+    return {
+      kind: "deferred",
+      fbxSourceName: sourceName,
+      ...sampler,
+    };
+  }
   if (isImageData(texture.image)) {
     return {
       kind: "imageData",
@@ -281,7 +294,6 @@ function getTexturePayload(
     };
   }
 
-  const sourceName = texture.userData?.fbxSourceName;
   if (typeof sourceName !== "string" || sourceName.length === 0) {
     return null;
   }
@@ -675,6 +687,7 @@ function createTextureFromPayload(
     // loadDeferredTexture(fbxSourceName) without re-parsing the FBX.
     const texture = new Texture();
     texture.userData.fbxSourceName = payload.fbxSourceName;
+    texture.userData.fbxDeferred = true;
     const baseName = payload.fbxSourceName.replace(/\\/g, "/");
     texture.name = baseName.slice(baseName.lastIndexOf("/") + 1);
     applyTextureSamplerPayload(texture, payload);

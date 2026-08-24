@@ -100,6 +100,7 @@ export type {
 export {
   collectAssetMetadata,
   buildMissingReferenceMetadata,
+  refreshTextureSourceKinds,
   cameraDisplayName,
   cameraSelectionKey,
   scheduleTextureThumbnailEnrichment,

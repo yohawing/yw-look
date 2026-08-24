@@ -331,7 +331,7 @@ describe("parseModelInWorker lifecycle and ownership", () => {
   });
 
   it("clones other binary model payloads before posting to the worker", async () => {
-    const bufferKinds = ["fbx", "ply", "stl"] as const;
+    const bufferKinds = ["fbxGlb", "ply", "stl"] as const;
 
     for (const kind of bufferKinds) {
       mocks.workers.length = 0;
@@ -341,7 +341,6 @@ describe("parseModelInWorker lifecycle and ownership", () => {
       const promise = parseModelInWorker(`x.${kind}`, {
         kind,
         buffer,
-        ...(kind === "fbx" ? { resourcePath: "/models" } : {}),
       } as ModelParseWorkerPayload);
 
       const worker = mocks.workers[0];
@@ -402,7 +401,7 @@ describe("parseModelInWorker lifecycle and ownership", () => {
 
     const promise = parseModelInWorker(
       "large.fbx",
-      { kind: "fbx", buffer, resourcePath: "/models/" },
+      { kind: "fbxGlb", buffer },
       { transferBuffer: true },
     );
 
@@ -423,7 +422,7 @@ describe("parseModelInWorker lifecycle and ownership", () => {
 
     const promise = parseModelInWorker(
       "small.fbx",
-      { kind: "fbx", buffer, resourcePath: "/models/" },
+      { kind: "fbxGlb", buffer },
       { transferBuffer: false },
     );
 
@@ -463,7 +462,7 @@ describe("parseModelInWorker lifecycle and ownership", () => {
     const controller = new AbortController();
     const promise = parseModelInWorker(
       "flat.fbx",
-      { kind: "fbx", buffer: new ArrayBuffer(4), resourcePath: "/" },
+      { kind: "fbxGlb", buffer: new ArrayBuffer(4) },
       { signal: controller.signal },
     );
 

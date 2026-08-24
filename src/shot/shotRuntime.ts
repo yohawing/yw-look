@@ -271,6 +271,16 @@ function countRenderableObjects(object: Group | Mesh) {
   return count;
 }
 
+function runShotCleanupCallbacks(callbacks: Array<() => void>) {
+  for (const cleanup of callbacks.splice(0)) {
+    try {
+      cleanup();
+    } catch {
+      // Cleanup must not replace the shot/check outcome.
+    }
+  }
+}
+
 export function applyShotMorphWeights(
   model: MmdRuntimeModelHandle | undefined,
   weights: readonly number[],
@@ -446,6 +456,7 @@ export async function runShot(
 
   let object: Group | Mesh | null = null;
   let cleanupUrls: string[] = [];
+  let cleanupCallbacks: Array<() => void> = [];
 
   try {
     const selected = await resolveSelectedFile(config.inputPath);
@@ -463,11 +474,23 @@ export async function runShot(
       );
     }
     const started = performance.now();
+    let sawDeferredTextures = false;
+    let resolveDeferredTextures: (() => void) | null = null;
+    const deferredTexturesDone = new Promise<void>((resolve) => {
+      resolveDeferredTextures = resolve;
+    });
     const preview = await loadPreviewObject(selected, renderer, {
       usdLoadPolicy: config.usdLoadPolicy,
+      onDeferredTexture: (snapshot) => {
+        sawDeferredTextures ||= snapshot.total > 0;
+        if (snapshot.total > 0 && snapshot.pending === 0) {
+          resolveDeferredTextures?.();
+        }
+      },
     });
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
+    cleanupCallbacks = preview.cleanupCallbacks ?? [];
     outcome.warnings.push(...(preview.warnings ?? []));
     await syncMmdPreviewSpecularDirection(preview.mmdModel, key);
     if (config.motionPath && preview.mmdModel?.runtime) {
@@ -503,6 +526,18 @@ export async function runShot(
       );
     }
     applyShotMorphWeights(preview.mmdModel, config.morphWeights);
+    if (sawDeferredTextures) {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        deferredTexturesDone,
+        new Promise<void>((resolve) => {
+          timeoutId = setTimeout(resolve, 30_000);
+        }),
+      ]);
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    }
     outcome.loadTimeMs = Math.round((performance.now() - started) * 100) / 100;
 
     const normalization = normalizeObjectScale(object);
@@ -544,11 +579,12 @@ export async function runShot(
       );
     }
 
+    await updateSparkRenderers(scene, camera);
+    await settleFrames(renderer, scene, camera, 3);
+    renderer.render(scene, camera);
+    outcome.nonBlankCanvas = isRendererCanvasNonBlank(renderer);
+
     if (config.mode === "shot") {
-      await updateSparkRenderers(scene, camera);
-      await settleFrames(renderer, scene, camera, 3);
-      renderer.render(scene, camera);
-      outcome.nonBlankCanvas = isRendererCanvasNonBlank(renderer);
       const screenshot = await captureRendererScreenshot(renderer, {
         beforeCapture: () => renderer.render(scene, camera),
       });
@@ -565,6 +601,7 @@ export async function runShot(
       // Shot/check mode still returns the error through its outcome.
     }
   } finally {
+    runShotCleanupCallbacks(cleanupCallbacks);
     if (object) {
       scene.remove(object);
       disposeObject(object);

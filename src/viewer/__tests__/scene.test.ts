@@ -1,5 +1,7 @@
 import {
   BackSide,
+  AxesHelper,
+  Bone,
   BufferAttribute,
   BufferGeometry,
   DirectionalLight,
@@ -16,6 +18,7 @@ import {
   Scene,
   SkinnedMesh,
   Texture,
+  Vector3,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -28,6 +31,7 @@ import {
   getScaleWarning,
   applyUnlitMaterial,
   applyVertexColors,
+  applySkeletonHelpers,
   traverseMeshesExcludingHelpers,
   normalizeObjectScale,
 } from "../scene";
@@ -78,6 +82,60 @@ describe("load-time traversal snapshot", () => {
       "Scale warning: the loaded content is extremely small.",
     );
     expect(computeBoundsSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("skeleton local-axis helpers", () => {
+  it("keeps local-axis endpoints bounded in world space under shear", () => {
+    const scene = new Scene();
+    const root = new Group();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 3, 0, 0, 0, 3, 0]), 3),
+    );
+    root.add(new Mesh(geometry, new MeshBasicMaterial()));
+
+    const bone = new Bone();
+    bone.matrixAutoUpdate = false;
+    // The second basis vector is sheared into the first and the Z basis is
+    // non-uniformly scaled. A local axis rotation then produces more stretch
+    // than getWorldScale() reports.
+    bone.matrix.set(2, 1.8, 0, 0, 0, 0.8, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 1);
+    bone.userData.mmdLocalAxis = {
+      x: [Math.SQRT1_2, Math.SQRT1_2, 0],
+      z: [0, 0, 1],
+    };
+    root.add(bone);
+    scene.add(root);
+
+    applySkeletonHelpers(scene, root, true, true);
+    scene.updateMatrixWorld(true);
+
+    const axis = bone.children.find(
+      (child): child is AxesHelper => child instanceof AxesHelper,
+    );
+    expect(axis).toBeDefined();
+
+    const position = axis?.geometry.getAttribute("position");
+    expect(position).toBeDefined();
+    const origin = new Vector3().setFromMatrixPosition(axis!.matrixWorld);
+    const endpoint = new Vector3();
+    const lengths: number[] = [];
+    for (let index = 0; index < position!.count; index += 1) {
+      endpoint
+        .fromBufferAttribute(position!, index)
+        .applyMatrix4(axis!.matrixWorld);
+      const length = endpoint.distanceTo(origin);
+      if (length > 1e-8) {
+        lengths.push(length);
+      }
+    }
+
+    // The model max dimension is 3, so the target world-space axis length is
+    // 3 * (0.02 / 3) = 0.02. All three RGB endpoints must stay within it.
+    expect(lengths).toHaveLength(3);
+    expect(Math.max(...lengths)).toBeLessThanOrEqual(0.0200001);
   });
 });
 

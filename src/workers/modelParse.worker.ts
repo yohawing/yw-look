@@ -1,10 +1,8 @@
 import {
   Group,
-  Loader,
   LoadingManager,
   Mesh,
   MeshStandardMaterial,
-  Texture,
   type BufferGeometry,
   type Object3D,
 } from "three";
@@ -13,7 +11,6 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { FBXLoader } from "../vendor/FBXLoaderPatched.js";
 import { errorMessage } from "../lib/errors";
 import { bakeImageBitmapTextures } from "./textureBake";
 import {
@@ -36,12 +33,11 @@ export type {
 
 export type ModelParseWorkerPayload =
   | {
-      kind: "fbx";
+      kind: "glb";
       buffer: ArrayBuffer;
-      resourcePath: string;
     }
   | {
-      kind: "glb";
+      kind: "fbxGlb";
       buffer: ArrayBuffer;
     }
   | {
@@ -103,64 +99,11 @@ function isRemoteOrInlineUrl(url: string) {
   return /^(data:|blob:|https?:)/i.test(url);
 }
 
-function stripTextureUrlSuffix(value: string) {
-  return value.replace(/\\/g, "/").split(/[?#]/, 1)[0];
-}
-
-/**
- * DOM-free FBX texture handlers for the model worker.
- * Return Texture placeholders that only record a relative source reference —
- * no file I/O, ImageData, or document/Image access.
- */
-class WorkerFbxPlaceholderTextureLoader extends Loader<Texture> {
-  override load(url: string, onLoad?: (texture: Texture) => void): Texture {
-    const texture = new Texture();
-    const reference = stripTextureUrlSuffix(url);
-    texture.userData.fbxSourceName = reference;
-    texture.name = reference.slice(reference.lastIndexOf("/") + 1);
-    // Synchronous callback keeps FBXLoader parse fully worker-side.
-    onLoad?.(texture);
-    return texture;
-  }
-}
-
-/**
- * LoadingManager used for worker FBX parse. Handlers cover the same external
- * texture extensions as main-thread `createFbxLoadingManager` so the default
- * TextureLoader (which needs `document`) is never selected.
- */
-export function createWorkerFbxLoadingManager(): LoadingManager {
-  const manager = new LoadingManager();
-  const placeholderLoader = new WorkerFbxPlaceholderTextureLoader(manager);
-  manager.addHandler(/\.dds$/i, placeholderLoader);
-  manager.addHandler(/\.tga$/i, placeholderLoader);
-  manager.addHandler(/\.psd$/i, placeholderLoader);
-  manager.addHandler(/\.(?:png|jpe?g|webp|bmp|gif)$/i, placeholderLoader);
-  return manager;
-}
-
-function installWorkerFbxWindowShim(): void {
-  // FBXLoader's binary embedded-image branch calls window.URL.createObjectURL.
-  // The worker never decodes those bytes; external texture slots are deferred to
-  // the main thread, and embedded/blob values are intentionally omitted there.
-  const scope = self as unknown as {
-    window?: { URL?: { createObjectURL?: (value: Blob) => string } };
-  };
-  scope.window ??= {};
-  scope.window.URL ??= {};
-  scope.window.URL.createObjectURL ??= () => "data:,";
-}
-
-function parseFbxPayload(
-  payload: Extract<ModelParseWorkerPayload, { kind: "fbx" }>,
-): Object3D {
-  installWorkerFbxWindowShim();
-  const manager = createWorkerFbxLoadingManager();
-  return new FBXLoader(manager).parse(payload.buffer, payload.resourcePath);
-}
-
 async function parseGltfPayload(
-  payload: Extract<ModelParseWorkerPayload, { kind: "glb" | "gltf" }>,
+  payload: Extract<
+    ModelParseWorkerPayload,
+    { kind: "glb" | "fbxGlb" | "gltf" }
+  >,
 ): Promise<Object3D> {
   const manager = new LoadingManager();
   if (payload.kind === "gltf") {
@@ -171,7 +114,7 @@ async function parseGltfPayload(
   }
   const loader = new GLTFLoader(manager);
   const gltf =
-    payload.kind === "glb"
+    payload.kind === "glb" || payload.kind === "fbxGlb"
       ? await loader.parseAsync(payload.buffer, "")
       : await loader.parseAsync(payload.text, "");
   gltf.scene.animations = gltf.animations;
@@ -183,9 +126,8 @@ async function parseObject(
   payload: ModelParseWorkerPayload,
 ): Promise<Object3D> {
   switch (payload.kind) {
-    case "fbx":
-      return parseFbxPayload(payload);
     case "glb":
+    case "fbxGlb":
     case "gltf":
       return parseGltfPayload(payload);
     case "obj":
@@ -240,14 +182,14 @@ const STATIC_SCENE_KINDS = new Set<ModelParseWorkerPayload["kind"]>([
   "ply",
   "stl",
   "dae",
-  "fbx",
+  "fbxGlb",
   "glb",
   "gltf",
 ]);
 
 const ANIMATED_STATIC_SCENE_BLOCKER_KINDS = new Set<
   ModelParseWorkerPayload["kind"]
->(["fbx", "glb", "gltf"]);
+>(["fbxGlb", "glb", "gltf"]);
 
 export function canUseStaticSceneResult(
   kind: ModelParseWorkerPayload["kind"],

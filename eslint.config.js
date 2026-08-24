@@ -14,7 +14,6 @@ export default tseslint.config(
       // should not be linted as application source.
       "src-tauri/vcpkg_installed",
       "public",
-      "src/vendor/FBXLoaderPatched.js",
     ],
   },
   js.configs.recommended,

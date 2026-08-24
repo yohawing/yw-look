@@ -10,6 +10,7 @@ afterEach(() => {
 const baseTexture: TextureEntry = {
   id: "tex-1",
   label: "diffuse.bmp",
+  sourcePath: "C:/assets/textures/diffuse.bmp",
   channel: "Base Color",
   dimensions: "128x128",
   thumbnailUrl: "data:image/png;base64,texture",
@@ -108,6 +109,8 @@ describe("TextureListCard", () => {
     ).toBe("Resize texture details");
     expect(getByText("Selected texture")).toBeTruthy();
     expect(getAllByText("diffuse.bmp").length).toBeGreaterThan(1);
+    expect(getByText("Path")).toBeTruthy();
+    expect(getByText("C:/assets/textures/diffuse.bmp")).toBeTruthy();
     expect(getByText("BMP")).toBeTruthy();
     expect(getAllByText("Base Color").length).toBeGreaterThan(1);
     expect(getAllByText("128x128").length).toBeGreaterThan(0);
