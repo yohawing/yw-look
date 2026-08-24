@@ -1,5 +1,7 @@
 pub mod commands;
 pub mod error;
+pub mod fbx;
+pub mod preview;
 pub mod shared;
 pub mod state;
 pub mod usd;
@@ -23,6 +25,7 @@ use crate::commands::diagnostics::{
     clear_crash_marker, initialize_crash_marker, load_crash_recovery_status,
     load_diagnostics_snapshot, load_process_memory_metrics, log_diagnostic_event, open_app_log_dir,
 };
+use crate::commands::fbx::{cancel_fbx_import, convert_fbx_to_preview};
 use crate::commands::file_associations::{open_default_apps_settings, sync_file_associations};
 use crate::commands::files::{
     get_startup_file, inspect_asset, list_supported_siblings, load_format_support,
@@ -48,7 +51,7 @@ use crate::commands::usd::{
     inspect_stage, inspect_usd_lights, load_payload, open_stage_session, requires_glb_preview,
     summarize_stage, unload_payload,
 };
-use crate::state::{PendingOpenFiles, PendingUpdateState, UsdBackendState};
+use crate::state::{FbxImportState, PendingOpenFiles, PendingUpdateState, UsdBackendState};
 use crate::usd::{DefaultBackend, StageRegistry};
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -146,6 +149,7 @@ pub fn run() {
 
             app.manage(PendingUpdateState::default());
             app.manage(PendingOpenFiles::default());
+            app.manage(FbxImportState::default());
             app.manage(UsdBackendState::new(DefaultBackend::new()));
             app.manage(StageRegistry::new());
             app.manage(bench_cli_config.clone());
@@ -226,6 +230,8 @@ pub fn run() {
             read_binary_file,
             read_binary_file_prefix,
             convert_alembic_to_preview,
+            convert_fbx_to_preview,
+            cancel_fbx_import,
             get_startup_file,
             load_recent_files,
             load_optional_loader_manifests,

@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 use crate::error::AppError;
 use crate::usd::{
@@ -92,6 +95,95 @@ pub(crate) struct PendingUpdateState(pub(crate) Mutex<Option<tauri_plugin_update
 
 #[derive(Default)]
 pub(crate) struct PendingOpenFiles(pub(crate) Mutex<Vec<PathBuf>>);
+
+const MAX_FBX_CANCEL_TOMBSTONES: usize = 1024;
+
+enum FbxImportRequest {
+    Active(Arc<AtomicBool>),
+    CancelledBeforeRegistration,
+}
+
+#[derive(Default)]
+pub(crate) struct FbxImportState(Mutex<BTreeMap<String, FbxImportRequest>>);
+
+impl FbxImportState {
+    pub(crate) fn register(
+        &self,
+        request_id: String,
+        flag: Arc<AtomicBool>,
+    ) -> Result<(), AppError> {
+        let mut requests = crate::shared::lock_or_recover(&self.0, "FBX import requests");
+        match requests.entry(request_id) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(FbxImportRequest::Active(flag));
+                Ok(())
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => match entry.get() {
+                FbxImportRequest::Active(_) => {
+                    Err(AppError::Fbx("requestId is already active".into()))
+                }
+                FbxImportRequest::CancelledBeforeRegistration => {
+                    flag.store(true, Ordering::Relaxed);
+                    entry.insert(FbxImportRequest::Active(flag));
+                    Ok(())
+                }
+            },
+        }
+    }
+
+    pub(crate) fn cancel(&self, request_id: String) -> bool {
+        let mut requests = crate::shared::lock_or_recover(&self.0, "FBX import requests");
+        if let Some(request) = requests.get(&request_id) {
+            if let FbxImportRequest::Active(flag) = request {
+                flag.store(true, Ordering::Relaxed);
+                return true;
+            }
+            return true;
+        }
+        requests.insert(request_id, FbxImportRequest::CancelledBeforeRegistration);
+        while requests.len() > MAX_FBX_CANCEL_TOMBSTONES {
+            let stale = requests.iter().find_map(|(id, request)| {
+                matches!(request, FbxImportRequest::CancelledBeforeRegistration).then(|| id.clone())
+            });
+            let Some(stale) = stale else { break };
+            requests.remove(&stale);
+        }
+        true
+    }
+
+    pub(crate) fn remove(&self, request_id: &str) {
+        crate::shared::lock_or_recover(&self.0, "FBX import requests").remove(request_id);
+    }
+}
+
+#[cfg(test)]
+mod fbx_import_state_tests {
+    use super::*;
+
+    #[test]
+    fn pre_cancel_is_observed_at_registration() {
+        let state = FbxImportState::default();
+        assert!(state.cancel("pre-cancelled".into()));
+        let flag = Arc::new(AtomicBool::new(false));
+        state
+            .register("pre-cancelled".into(), Arc::clone(&flag))
+            .unwrap();
+        assert!(flag.load(Ordering::Relaxed));
+        state.remove("pre-cancelled");
+    }
+
+    #[test]
+    fn duplicate_registration_does_not_replace_active_flag() {
+        let state = FbxImportState::default();
+        let first = Arc::new(AtomicBool::new(false));
+        state.register("same".into(), Arc::clone(&first)).unwrap();
+        let second = Arc::new(AtomicBool::new(false));
+        assert!(state.register("same".into(), second).is_err());
+        assert!(state.cancel("same".into()));
+        assert!(first.load(Ordering::Relaxed));
+        state.remove("same");
+    }
+}
 
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]

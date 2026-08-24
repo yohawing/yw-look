@@ -5188,6 +5188,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ufbx"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e160c3af14ab5a02f206e3af48777cb20e09bc22a354aa77d4e5cf4acb4a11a0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "unic-char-property"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6369,6 +6378,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "ts-rs",
+ "ufbx",
  "url",
  "windows-sys 0.59.0",
  "winreg",
