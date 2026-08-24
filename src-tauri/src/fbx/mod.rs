@@ -167,6 +167,44 @@ fn camera_json(camera: &ufbx::Camera) -> Result<Value, AppError> {
     }
 }
 
+fn gltf_light_type(type_: ufbx::LightType) -> (&'static str, bool) {
+    match type_ {
+        ufbx::LightType::Directional => ("directional", false),
+        ufbx::LightType::Spot => ("spot", false),
+        ufbx::LightType::Point => ("point", false),
+        ufbx::LightType::Area | ufbx::LightType::Volume => ("point", true),
+    }
+}
+
+fn spot_cone_angles(inner_degrees: f64, outer_degrees: f64) -> [f64; 2] {
+    let outer = (outer_degrees.to_radians() * 0.5).clamp(0.0, std::f64::consts::FRAC_PI_2);
+    let inner = (inner_degrees.to_radians() * 0.5).clamp(0.0, outer);
+    [inner, outer]
+}
+
+fn light_json(light: &ufbx::Light) -> Result<(Value, bool), AppError> {
+    let (type_name, degraded) = gltf_light_type(light.type_);
+    let mut value = json!({
+        "name": light.element.name.to_string(),
+        "type": type_name,
+        "color": [f32v(light.color.x)?, f32v(light.color.y)?, f32v(light.color.z)?],
+        "intensity": f32v(if light.cast_light { light.intensity / 100.0 } else { 0.0 })?,
+        "extras": {
+            "fbxCastShadows": light.cast_shadows,
+            "fbxDecay": format!("{:?}", light.decay),
+            "fbxOriginalType": format!("{:?}", light.type_),
+        },
+    });
+    if light.type_ == ufbx::LightType::Spot {
+        let [inner, outer] = spot_cone_angles(light.inner_angle, light.outer_angle);
+        value["spot"] = json!({
+            "innerConeAngle": f32v(inner)?,
+            "outerConeAngle": f32v(outer)?,
+        });
+    }
+    Ok((value, degraded))
+}
+
 fn matrix_values(m: ufbx::Matrix) -> Result<[f32; 16], AppError> {
     Ok([
         f32v(m.m00)?,
@@ -891,6 +929,7 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
         .iter()
         .map(|w| format!("{:?}: {}", w.type_, w.description))
         .collect();
+    let mut gltf_lights = Vec::new();
     let mut node_map = HashMap::new();
     for node in &scene.nodes {
         node_map.insert(node.element.typed_id, doc.nodes.len());
@@ -902,13 +941,28 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
             doc.cameras.push(camera_json(camera)?);
             value["camera"] = json!(camera_index);
         }
-        if node.light.is_some() {
-            warnings.push(format!(
-                "FBX light '{}' is not represented in preview GLB; node transform was preserved",
-                node.element.name
-            ));
+        if let Some(light) = node.light.as_deref() {
+            let (light_value, degraded) = light_json(light)?;
+            let light_index = gltf_lights.len();
+            gltf_lights.push(light_value);
+            value["extensions"] = json!({
+                "KHR_lights_punctual": { "light": light_index }
+            });
+            if degraded {
+                warnings.push(format!(
+                    "FBX {:?} light '{}' is approximated as a point light in preview GLB",
+                    light.type_, node.element.name
+                ));
+            }
         }
         doc.nodes.push(value);
+    }
+    if !gltf_lights.is_empty() {
+        doc.extensions_used.push("KHR_lights_punctual".into());
+        doc.extensions.insert(
+            "KHR_lights_punctual".into(),
+            json!({ "lights": gltf_lights }),
+        );
     }
     for node in &scene.nodes {
         let index = node_map[&node.element.typed_id];
@@ -1166,6 +1220,22 @@ mod tests {
             value_components: 1,
         };
         assert_eq!(scalar_map_value(&factor, 1.0), 0.5);
+    }
+
+    #[test]
+    fn fbx_spot_angles_convert_to_gltf_half_cones() {
+        let [inner, outer] = spot_cone_angles(30.0, 60.0);
+        assert!((inner - 15.0_f64.to_radians()).abs() < 1e-12);
+        assert!((outer - 30.0_f64.to_radians()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn unsupported_fbx_light_types_degrade_explicitly() {
+        assert_eq!(gltf_light_type(ufbx::LightType::Area), ("point", true));
+        assert_eq!(
+            gltf_light_type(ufbx::LightType::Directional),
+            ("directional", false)
+        );
     }
 
     #[test]
