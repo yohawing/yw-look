@@ -1,5 +1,54 @@
 # Changelog
 
+## v0.3.2 (2026-08-24)
+
+### FBX preview
+
+- Replaced the patched Three.js FBX preview importer with a native Rust `ufbx` to GLB pipeline and removed the vendored legacy loader.
+- Preserved native material bindings, UV sets and transforms, texture wrapping, opacity textures, punctual lights, and motion-only bone nodes.
+- Corrected skinned-model coordinate normalization, centimetre-scale roots, and UV orientation.
+- Bounded animation baking and allocation before expensive work, with deterministic fixture and visual regression coverage.
+
+### Viewer and textures
+
+- Reported unresolved FBX textures as missing and refreshed selected-texture details and thumbnails after texture hydration.
+- Added the selected texture's source path to the details panel.
+- Kept local-axis helpers usable across asset scales and hid viewport helpers from texture-only previews.
+
+### USD preview
+
+- Updated the pinned `mxpv/openusd` revision to support nested instance proxies referenced through sub-root paths.
+- Preserved composed visibility and activity while extracting instance-proxy meshes, with focused nested-reference regression coverage.
+
+### Build and release
+
+- Removed the obsolete vendored-FBX migration gate and synchronized the application, Tauri, and Rust package versions to 0.3.2.
+
+### Known limitations
+
+- The pinned upstream `openusd` reader still mis-decodes integer-compressed float arrays in some USDC files. Rigs whose joint weights are all integral (including some move.ai exports) can have broken skinning; the tracked upstream fix remains pending.
+- Windows installers are not production Authenticode signed, and SmartScreen behavior has not been verified in a clean environment.
+- v0.3.2 macOS artifacts have not been built, Developer ID signed, notarized, stapled, or exercised through Gatekeeper and Finder Open With.
+- The Optional Loader Pack component page still requires a human interactive NSIS install check; generated-hook and bundle checks do not prove the page interaction.
+- MMD physics remains disabled by default; MMD model and motion preview support does not imply production physics parity.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: This metadata-only preparation did not build a v0.3.2 NSIS installer. Authenticode status and SmartScreen behavior therefore remain pending production signing and clean-environment verification.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: No v0.3.2 macOS `.app` or `.dmg` artifacts were produced in this pass, so Developer ID signing, notarization, stapling, Gatekeeper first launch, and Finder Open With remain unconfirmed.
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: not verified — v0.3.2 artifacts and `latest.json` are not published; clean installation and update from v0.3.1 remain pending.
+- macOS: not verified — v0.3.2 artifacts and `latest.json` are not published; clean installation and update from v0.3.1 remain pending.
+
 ## v0.3.1 (2026-08-13)
 
 ### Viewer and loader packs
