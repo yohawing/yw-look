@@ -1,12 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  readFile,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { flipCompare } from "./flip-compare.mjs";
@@ -341,17 +334,6 @@ function flipReportPath(testCase) {
   );
 }
 
-function parseSize(size) {
-  const match = /^(\d+)x(\d+)$/.exec(size);
-  if (!match) {
-    throw new Error(`invalid viewport snapshot size: ${size}`);
-  }
-  return {
-    width: Number(match[1]),
-    height: Number(match[2]),
-  };
-}
-
 const FLIP_MEAN_THRESHOLD = Number(process.env.FLIP_MEAN_THRESHOLD ?? 0.05);
 const FLIP_MAX_THRESHOLD = Number(process.env.FLIP_MAX_THRESHOLD ?? 0.3);
 
@@ -427,41 +409,6 @@ async function runShot(testCase) {
   assertShotProcessResult(result, "shot CLI");
 }
 
-async function runShotBatch(testCases) {
-  const batch = testCases.map((testCase) => {
-    const { width, height } = parseSize(testCase.size);
-    return {
-      inputPath: resolveRepoPath(testCase.input),
-      outputPath: resolveRepoPath(testCase.actual),
-      width,
-      height,
-      background: testCase.background,
-      ...(testCase.morphWeights ? { morphWeights: testCase.morphWeights } : {}),
-    };
-  });
-  const batchConfigPath = resolveRepoPath(
-    "artifacts/screenshots/viewport/shot-batch-config.json",
-  );
-  await mkdir(path.dirname(batchConfigPath), { recursive: true });
-  await writeFile(batchConfigPath, JSON.stringify(batch, null, 2));
-  const shotArgs = [
-    path.join(repoRoot, "scripts/run-shot.mjs"),
-    "shot-batch",
-    "--config-file",
-    batchConfigPath,
-  ];
-
-  const result = await runChildProcess(process.execPath, shotArgs, {
-    cwd: repoRoot,
-    env: buildShotEnv(testCases),
-    shell: process.platform === "win32",
-    forwardStdout: true,
-    forwardStderr: true,
-  });
-
-  assertShotProcessResult(result, "shot batch");
-}
-
 async function compareSnapshot(testCase) {
   const actualPath = resolveRepoPath(testCase.actual);
   const snapshotPath = resolveRepoPath(testCase.snapshot);
@@ -516,12 +463,10 @@ for (const testCase of runnableCases) {
 
 if (!failed) {
   try {
-    if (runnableCases.length === 1) {
-      console.log(`Rendering viewport snapshot: ${runnableCases[0].id}`);
-      await runShot(runnableCases[0]);
-    } else {
-      console.log(`Rendering ${runnableCases.length} viewport snapshots`);
-      await runShotBatch(runnableCases);
+    console.log(`Rendering ${runnableCases.length} viewport snapshot(s)`);
+    for (const testCase of runnableCases) {
+      console.log(`Rendering viewport snapshot: ${testCase.id}`);
+      await runShot(testCase);
     }
   } catch (error) {
     failed = true;
