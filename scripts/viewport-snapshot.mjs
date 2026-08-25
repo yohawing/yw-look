@@ -126,6 +126,7 @@ const cases = [
     actual: "artifacts/screenshots/viewport/vmd-tiny-motion-current.png",
     size: "384x288",
     background: "default",
+    recapture: true,
     requiresLoader: "mmd",
   },
   ...[
@@ -517,7 +518,9 @@ for (const testCase of runnableCases) {
 
 if (!failed) {
   try {
-    const isolatedCases = runnableCases.filter((testCase) => testCase.isolated);
+    const isolatedCases = runnableCases.filter(
+      (testCase) => testCase.isolated || testCase.recapture,
+    );
     const batchedCases = runnableCases.filter((testCase) => !testCase.isolated);
 
     if (batchedCases.length > 0) {
