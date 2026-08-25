@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, rm, stat } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { flipCompare } from "./flip-compare.mjs";
@@ -119,6 +126,7 @@ const cases = [
     actual: "artifacts/screenshots/viewport/vmd-tiny-motion-current.png",
     size: "384x288",
     background: "default",
+    isolated: true,
     requiresLoader: "mmd",
   },
   ...[
@@ -161,6 +169,7 @@ const cases = [
     actual: "artifacts/screenshots/viewport/ply-tiny-pointcloud-current.png",
     size: "384x288",
     background: "default",
+    isolated: true,
   },
   {
     id: "abc-monkey",
@@ -334,6 +343,17 @@ function flipReportPath(testCase) {
   );
 }
 
+function parseSize(size) {
+  const match = /^(\d+)x(\d+)$/.exec(size);
+  if (!match) {
+    throw new Error(`invalid viewport snapshot size: ${size}`);
+  }
+  return {
+    width: Number(match[1]),
+    height: Number(match[2]),
+  };
+}
+
 const FLIP_MEAN_THRESHOLD = Number(process.env.FLIP_MEAN_THRESHOLD ?? 0.05);
 const FLIP_MAX_THRESHOLD = Number(process.env.FLIP_MAX_THRESHOLD ?? 0.3);
 
@@ -409,6 +429,41 @@ async function runShot(testCase) {
   assertShotProcessResult(result, "shot CLI");
 }
 
+async function runShotBatch(testCases) {
+  const batch = testCases.map((testCase) => {
+    const { width, height } = parseSize(testCase.size);
+    return {
+      inputPath: resolveRepoPath(testCase.input),
+      outputPath: resolveRepoPath(testCase.actual),
+      width,
+      height,
+      background: testCase.background,
+      ...(testCase.morphWeights ? { morphWeights: testCase.morphWeights } : {}),
+    };
+  });
+  const batchConfigPath = resolveRepoPath(
+    "artifacts/screenshots/viewport/shot-batch-config.json",
+  );
+  await mkdir(path.dirname(batchConfigPath), { recursive: true });
+  await writeFile(batchConfigPath, JSON.stringify(batch, null, 2));
+  const shotArgs = [
+    path.join(repoRoot, "scripts/run-shot.mjs"),
+    "shot-batch",
+    "--config-file",
+    batchConfigPath,
+  ];
+
+  const result = await runChildProcess(process.execPath, shotArgs, {
+    cwd: repoRoot,
+    env: buildShotEnv(testCases),
+    shell: process.platform === "win32",
+    forwardStdout: true,
+    forwardStderr: true,
+  });
+
+  assertShotProcessResult(result, "shot batch");
+}
+
 async function compareSnapshot(testCase) {
   const actualPath = resolveRepoPath(testCase.actual);
   const snapshotPath = resolveRepoPath(testCase.snapshot);
@@ -463,8 +518,14 @@ for (const testCase of runnableCases) {
 
 if (!failed) {
   try {
-    console.log(`Rendering ${runnableCases.length} viewport snapshot(s)`);
-    for (const testCase of runnableCases) {
+    const isolatedCases = runnableCases.filter((testCase) => testCase.isolated);
+    const batchedCases = runnableCases.filter((testCase) => !testCase.isolated);
+
+    if (batchedCases.length > 0) {
+      console.log(`Rendering ${batchedCases.length} viewport snapshots`);
+      await runShotBatch(batchedCases);
+    }
+    for (const testCase of isolatedCases) {
       console.log(`Rendering viewport snapshot: ${testCase.id}`);
       await runShot(testCase);
     }
