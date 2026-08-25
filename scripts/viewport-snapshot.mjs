@@ -126,7 +126,7 @@ const cases = [
     actual: "artifacts/screenshots/viewport/vmd-tiny-motion-current.png",
     size: "384x288",
     background: "default",
-    isolated: true,
+    batchGroup: "mmd",
     requiresLoader: "mmd",
   },
   ...[
@@ -143,6 +143,7 @@ const cases = [
     actual: `artifacts/screenshots/viewport/pmx-material-morph-${state}-current.png`,
     size: "512x384",
     background: "#20242c",
+    batchGroup: "mmd",
     requiresLoader: "mmd",
     ...(morphWeights ? { morphWeights } : {}),
   })),
@@ -189,6 +190,7 @@ const cases = [
       "artifacts/screenshots/viewport/ply-cactus-supersplat-compressed-current.png",
     size: "384x288",
     background: "#ffffff",
+    isolated: true,
     requiresLoader: "spark",
   },
 ];
@@ -519,11 +521,20 @@ for (const testCase of runnableCases) {
 if (!failed) {
   try {
     const isolatedCases = runnableCases.filter((testCase) => testCase.isolated);
-    const batchedCases = runnableCases.filter((testCase) => !testCase.isolated);
+    const batchedGroups = new Map();
+    for (const testCase of runnableCases) {
+      if (testCase.isolated) continue;
+      const group = testCase.batchGroup ?? "default";
+      const groupCases = batchedGroups.get(group) ?? [];
+      groupCases.push(testCase);
+      batchedGroups.set(group, groupCases);
+    }
 
-    if (batchedCases.length > 0) {
-      console.log(`Rendering ${batchedCases.length} viewport snapshots`);
-      await runShotBatch(batchedCases);
+    for (const [group, groupCases] of batchedGroups) {
+      console.log(
+        `Rendering ${groupCases.length} viewport snapshots (${group} batch)`,
+      );
+      await runShotBatch(groupCases);
     }
     for (const testCase of isolatedCases) {
       console.log(`Rendering viewport snapshot: ${testCase.id}`);
