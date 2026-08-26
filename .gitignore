@@ -1,4 +1,5 @@
 node_modules/
+.pnpm-store/
 dist/
 .vite/
 target/
@@ -8,6 +9,11 @@ tsconfig.node.tsbuildinfo
 
 # Alembic helper regeneration outputs.
 src-tauri/vcpkg_installed/
+
+# Local macOS/OpenUSD build outputs.
+src-tauri/cpp-artifacts/
+src-tauri/prebuilt-vcpkg_installed/
+src-tauri/tauri.macos.generated.json
 
 artifacts/
 
