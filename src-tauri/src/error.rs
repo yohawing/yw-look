@@ -10,6 +10,12 @@ pub enum AppError {
     #[error("USD error: {0}")]
     Usd(String),
 
+    #[error("FBX error: {0}")]
+    Fbx(String),
+
+    #[error("Operation was canceled")]
+    Cancelled,
+
     #[error("Serialization error: {0}")]
     Serde(String),
 

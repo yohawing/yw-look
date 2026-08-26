@@ -6,7 +6,6 @@ import { chromium } from "playwright";
 const SUPPORTED = new Set([
   "glb",
   "gltf",
-  "fbx",
   "obj",
   "ply",
   "stl",

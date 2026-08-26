@@ -18,6 +18,12 @@ without modification from `three-mmd-loader/examples/viewer/assets/` at commit
 Model SHA-256:
 `2A18F0B92D14E2C1ED8FA75E3390FB9BAD632BF3308460A04520357753675C0D`
 
+## ufbx
+
+Native FBX preview import statically links
+[ufbx](https://github.com/ufbx/ufbx) through its official Rust bindings.
+ufbx and the bindings are available under `MIT OR PDDL-1.0`.
+
 ## Sample assets
 
 Public sample and test assets include materials derived from the

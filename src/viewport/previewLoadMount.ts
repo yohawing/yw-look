@@ -103,6 +103,7 @@ type MountLoadedPreviewOptions = {
     onScaleNormalizationChange?: (
       normalization: { applied: boolean; factor: number } | null,
     ) => void;
+    onTextureThumbnailRefresh?: (refresh: (() => void) | null) => void;
     publishResourceDiagnostics: (context: SceneContext | null) => void;
     setActivePreviewPath: (path: string) => void;
     setAnimationState: (state: AnimationState) => void;
@@ -336,16 +337,25 @@ export async function mountLoadedPreview(
       context.textureRegistry === textureRegistry,
     textureRegistry,
   });
-  context.cleanupCallbacks.push(thumbnailEnrichment.cancel);
+  update.onTextureThumbnailRefresh?.(thumbnailEnrichment.refresh);
+  context.cleanupCallbacks.push(() => {
+    thumbnailEnrichment.cancel();
+    update.onTextureThumbnailRefresh?.(null);
+  });
   update.publishResourceDiagnostics(context);
   applySkeletonHelpers(
     context.scene,
     object,
-    state.showSkeleton || isBoneOnlyPreview || isMotionPreviewRig,
+    state.viewerSurfaceMode === "asset" &&
+      (state.showSkeleton || isBoneOnlyPreview || isMotionPreviewRig),
     state.showLocalAxis,
     state.showJointNames,
   );
-  applyBoundingBoxHelpers(context.scene, object, state.showBoundingBoxes);
+  applyBoundingBoxHelpers(
+    context.scene,
+    object,
+    state.viewerSurfaceMode === "asset" && state.showBoundingBoxes,
+  );
   applyPurposeVisibility(object, state.selectedPurposeModes);
 
   context.clips = clips;

@@ -11,10 +11,11 @@ import {
   Texture,
 } from "three";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { canUseStaticSceneResult } from "../modelParse.worker";
 import {
-  canUseStaticSceneResult,
-  createWorkerFbxLoadingManager,
-} from "../modelParse.worker";
+  createStaticSceneObjectAsync,
+  toStaticScenePayload,
+} from "../staticScene";
 
 class TestImageData {
   constructor(
@@ -137,42 +138,26 @@ describe("model parse worker static scene policy", () => {
       new Mesh(new BoxGeometry(1, 1, 1), new MeshStandardMaterial({ map })),
     );
 
-    expect(canUseStaticSceneResult("fbx", root)).toBe(true);
+    expect(canUseStaticSceneResult("fbxGlb", root)).toBe(true);
   });
-});
 
-describe("worker FBX DOM-free LoadingManager", () => {
-  it("registers image/DDS/TGA/PSD handlers that return fbxSourceName placeholders", () => {
-    const manager = createWorkerFbxLoadingManager();
+  it("preserves native fbxGlb deferred identity ahead of placeholder ImageData", async () => {
+    const map = makeImageDataTexture();
+    map.userData.fbxSourceName = "Parts01.png";
+    map.userData.fbxDeferred = true;
+    const root = new Group();
+    root.add(
+      new Mesh(new BoxGeometry(1, 1, 1), new MeshStandardMaterial({ map })),
+    );
 
-    const dds = manager.getHandler("Textures/normal.dds");
-    const tga = manager.getHandler("Textures/mask.tga");
-    const psd = manager.getHandler("Textures/BaseColor.psd");
-    const png = manager.getHandler("Textures/albedo.png");
-    const jpg = manager.getHandler("foo/bar.JPG");
-
-    expect(dds).toBeTruthy();
-    expect(tga).toBeTruthy();
-    expect(psd).toBeTruthy();
-    expect(png).toBeTruthy();
-    expect(jpg).toBeTruthy();
-
-    const load = (handler: NonNullable<typeof dds>, url: string) =>
-      (handler as unknown as { load: (u: string) => Texture }).load(url);
-
-    const ddsTex = load(dds!, "Textures/normal.dds");
-    const tgaTex = load(tga!, "Textures/mask.tga");
-    const psdTex = load(psd!, "Textures/BaseColor.psd");
-    const pngTex = load(png!, "Textures/albedo.png");
-
-    expect(ddsTex.userData.fbxSourceName).toBe("Textures/normal.dds");
-    expect(tgaTex.userData.fbxSourceName).toBe("Textures/mask.tga");
-    expect(psdTex.userData.fbxSourceName).toBe("Textures/BaseColor.psd");
-    expect(pngTex.userData.fbxSourceName).toBe("Textures/albedo.png");
-    expect(pngTex.name).toBe("albedo.png");
-
-    // Handlers must not create ImageData or touch DOM APIs.
-    expect(ddsTex.image).toBeFalsy();
-    expect(tgaTex.image).toBeFalsy();
+    expect(canUseStaticSceneResult("fbxGlb", root)).toBe(true);
+    const payload = toStaticScenePayload(root, false);
+    expect(payload).toBeTruthy();
+    const rebuilt = await createStaticSceneObjectAsync(payload!);
+    const mesh = rebuilt.children[0] as Mesh;
+    const rebuiltMap = (mesh.material as MeshStandardMaterial).map;
+    expect(rebuiltMap?.userData.fbxSourceName).toBe("Parts01.png");
+    expect(rebuiltMap?.userData.fbxDeferred).toBe(true);
+    expect(rebuiltMap?.image).toBeNull();
   });
 });

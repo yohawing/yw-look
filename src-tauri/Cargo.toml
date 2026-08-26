@@ -1,6 +1,6 @@
 [package]
 name = "yw-look"
-version = "0.3.1"
+version = "0.3.2"
 description = "Quick look style asset viewer for CG workflows"
 authors = ["OpenAI Codex"]
 edition = "2021"
@@ -38,7 +38,7 @@ flip-compare = ["dep:nv-flip", "dep:image"]
 [dependencies]
 # Pin the pure-Rust OpenUSD compatibility layer used by yw-look so local,
 # CI, and release builds resolve the same source without a sibling checkout.
-openusd = { git = "https://github.com/mxpv/openusd.git", rev = "1a3bb478c96072c9bf2c7f967b34ed763c2164ac", features = ["geom"] }
+openusd = { git = "https://github.com/mxpv/openusd.git", rev = "737118ba8ba052b2632aa65199fb0cbc85e9554d", features = ["geom"] }
 # Error type for the yw-look-owned stage-query surface in
 # `usd::openusd_backend::stage_query` (USD-NATIVE-01 Phase 2a). openusd
 # already depends on anyhow and returns it from its public API, so this
@@ -66,6 +66,8 @@ image = { version = "0.25", default-features = false, features = ["png"], option
 glam = { version = "0.33.2", default-features = false, features = ["std", "f64"] }
 log = "0.4.33"
 tauri-plugin-log = "2.8.0"
+# Official safe Rust bindings; the crate compiles and statically links ufbx.c.
+ufbx = "0.11.3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55.0"

@@ -30,6 +30,7 @@ import {
   DEFAULT_LIGHTING_PRESET,
   DEFAULT_PREVIEW_RENDERING_PRESET,
   getPreviewRenderingPresetForExtension,
+  refreshTextureSourceKinds,
 } from "../viewer";
 import { usePackFileRequest } from "../packs";
 import type { ViewerMode } from "../viewer";
@@ -40,7 +41,7 @@ import {
   morphTargetValuesForObject,
 } from "./morphTargets";
 
-import type { EnvironmentPreset } from "../types/viewer";
+import type { AssetMetadata, EnvironmentPreset } from "../types/viewer";
 import {
   applyControlSensitivity,
   applyCameraPresetToMountedObject,
@@ -746,6 +747,36 @@ export function AssetViewport({
       activePreviewPathRef.current === currentFile.path &&
       context.mountedObject !== null;
     let disposed = false;
+    let latestMetadata: AssetMetadata | null = null;
+    let latestDeferredTexture: DeferredTextureSnapshot | null = null;
+    let refreshTextureThumbnails: (() => void) | null = null;
+    const publishMetadata = (metadata: AssetMetadata | null) => {
+      const nextMetadata =
+        metadata &&
+        latestDeferredTexture &&
+        latestDeferredTexture.total > 0 &&
+        latestDeferredTexture.pending === 0
+          ? refreshTextureSourceKinds(
+              metadata,
+              currentFile,
+              context.textureRegistry,
+            )
+          : metadata;
+      latestMetadata = nextMetadata;
+      onMetadataChange(nextMetadata);
+    };
+    const refreshDeferredTextureMetadata = () => {
+      if (
+        disposed ||
+        !latestMetadata ||
+        !latestDeferredTexture ||
+        latestDeferredTexture.total === 0 ||
+        latestDeferredTexture.pending > 0
+      ) {
+        return;
+      }
+      publishMetadata(latestMetadata);
+    };
     const abortController = new AbortController();
     const loadingStartedAt = performance.now();
     const loadingClock = createLoadingStageClock("scan", loadingStartedAt);
@@ -799,7 +830,12 @@ export function AssetViewport({
       onStage: reportLoadingStage,
       onDeferredTexture: (snapshot) => {
         if (disposed) return;
+        latestDeferredTexture = snapshot;
         setDeferredTexture(snapshot.pending > 0 ? snapshot : null);
+        if (snapshot.total > 0 && snapshot.pending === 0) {
+          refreshTextureThumbnails?.();
+        }
+        refreshDeferredTextureMetadata();
       },
       onWarning: pushRuntimeWarning,
     })
@@ -850,9 +886,20 @@ export function AssetViewport({
           update: {
             onFeedbackChange,
             onGridUnitChange,
-            onMetadataChange,
+            onMetadataChange: publishMetadata,
             onPackMetadataChange,
             onScaleNormalizationChange,
+            onTextureThumbnailRefresh: (refresh) => {
+              refreshTextureThumbnails = refresh;
+              if (!refresh) return;
+              if (
+                latestDeferredTexture &&
+                latestDeferredTexture.total > 0 &&
+                latestDeferredTexture.pending === 0
+              ) {
+                refresh();
+              }
+            },
             publishResourceDiagnostics,
             setActivePreviewPath,
             setAnimationState,
@@ -862,6 +909,7 @@ export function AssetViewport({
         if (!readyFeedbackBase || disposed) {
           return;
         }
+        refreshDeferredTextureMetadata();
         setErrorDetail(null);
         resetCameraRef.current = () => {
           frameCurrentMountedObject(
@@ -956,6 +1004,7 @@ export function AssetViewport({
 
     return () => {
       disposed = true;
+      refreshTextureThumbnails = null;
       abortController.abort();
       setLoadingStage(null);
       setDeferredTexture(null);
@@ -1020,6 +1069,7 @@ export function AssetViewport({
     showUnlit,
     showVertexColors,
     textureFilterMode,
+    viewerSurfaceMode,
   });
 
   useEffect(() => {

@@ -459,6 +459,7 @@ export type HierarchyNode = {
 export type TextureEntry = {
   id: string;
   label: string;
+  sourcePath?: string;
   channel: string;
   dimensions: string;
   thumbnailUrl: string | null;

@@ -2764,7 +2764,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 [[package]]
 name = "openusd"
 version = "0.6.0"
-source = "git+https://github.com/mxpv/openusd.git?rev=1a3bb478c96072c9bf2c7f967b34ed763c2164ac#1a3bb478c96072c9bf2c7f967b34ed763c2164ac"
+source = "git+https://github.com/mxpv/openusd.git?rev=737118ba8ba052b2632aa65199fb0cbc85e9554d#737118ba8ba052b2632aa65199fb0cbc85e9554d"
 dependencies = [
  "anyhow",
  "bitflags 2.13.0",
@@ -5188,6 +5188,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ufbx"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e160c3af14ab5a02f206e3af48777cb20e09bc22a354aa77d4e5cf4acb4a11a0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "unic-char-property"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6347,7 +6356,7 @@ dependencies = [
 
 [[package]]
 name = "yw-look"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "cmake",
@@ -6369,6 +6378,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "ts-rs",
+ "ufbx",
  "url",
  "windows-sys 0.59.0",
  "winreg",

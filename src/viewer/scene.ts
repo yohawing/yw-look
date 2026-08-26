@@ -98,7 +98,7 @@ const MAX_NORMALIZED_DIMENSION = 100;
 const SCALE_EPSILON = 1e-8;
 export const DEFAULT_SCENE_DIMENSION = 1;
 
-const boneWorldScaleScratch = new Vector3();
+const boneWorldAxisMatrixScratch = new Matrix4();
 const localAxisXScratch = new Vector3();
 const localAxisYScratch = new Vector3();
 const localAxisZScratch = new Vector3();
@@ -1250,20 +1250,37 @@ function getJointAxisTargetWorldSize(object: Group | Mesh) {
   return Math.max(maxDimension * JOINT_AXIS_SIZE_FACTOR, JOINT_AXIS_MIN_SIZE);
 }
 
-function getBoneWorldScaleFactor(bone: Object3D) {
-  bone.getWorldScale(boneWorldScaleScratch);
+function getBoneWorldAxisStretchFactor(
+  bone: Object3D,
+  localAxisQuaternion: Quaternion | null,
+) {
+  if (localAxisQuaternion) {
+    boneWorldAxisMatrixScratch.makeRotationFromQuaternion(localAxisQuaternion);
+    boneWorldAxisMatrixScratch.premultiply(bone.matrixWorld);
+  } else {
+    boneWorldAxisMatrixScratch.copy(bone.matrixWorld);
+  }
+
+  const elements = boneWorldAxisMatrixScratch.elements;
   const factor = Math.max(
-    Math.abs(boneWorldScaleScratch.x),
-    Math.abs(boneWorldScaleScratch.y),
-    Math.abs(boneWorldScaleScratch.z),
+    Math.hypot(elements[0], elements[1], elements[2]),
+    Math.hypot(elements[4], elements[5], elements[6]),
+    Math.hypot(elements[8], elements[9], elements[10]),
   );
   return Number.isFinite(factor) && factor > SCALE_EPSILON ? factor : 1;
 }
 
-function getJointAxisSize(bone: Object3D, targetWorldSize: number) {
+function getJointAxisSize(
+  bone: Object3D,
+  targetWorldSize: number,
+  localAxisQuaternion: Quaternion | null,
+) {
+  // AxesHelper's endpoints are unit vectors in its local X/Y/Z directions.
+  // Measure those directions after the bone and LocalAxis transforms so
+  // shear and non-uniform scale cannot make an endpoint exceed the target.
   return Math.max(
-    targetWorldSize / getBoneWorldScaleFactor(bone),
-    JOINT_AXIS_MIN_SIZE,
+    targetWorldSize / getBoneWorldAxisStretchFactor(bone, localAxisQuaternion),
+    SCALE_EPSILON,
   );
 }
 
@@ -1477,9 +1494,13 @@ export function applySkeletonHelpers(
   }
   for (const bone of bones) {
     if (showLocalAxis) {
-      const axisSize = getJointAxisSize(bone, targetAxisWorldSize);
-      const axis = new AxesHelper(axisSize);
       const localAxisQuaternion = getMmdLocalAxisQuaternion(bone);
+      const axisSize = getJointAxisSize(
+        bone,
+        targetAxisWorldSize,
+        localAxisQuaternion,
+      );
+      const axis = new AxesHelper(axisSize);
       if (localAxisQuaternion) {
         axis.quaternion.copy(localAxisQuaternion);
       }

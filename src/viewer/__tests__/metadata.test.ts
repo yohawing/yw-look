@@ -33,6 +33,7 @@ import {
 import {
   buildAnimationClipMetadata,
   collectAssetMetadata,
+  refreshTextureSourceKinds,
   scheduleTextureThumbnailEnrichment,
 } from "../metadata";
 import {
@@ -693,6 +694,65 @@ describe("collectAssetMetadata", () => {
     expect(result.textureRegistry.get(texture.uuid)).toBe(texture);
   });
 
+  it("preserves unresolved FBX texture state for the Texture tab", () => {
+    const texture = new Texture();
+    texture.name = "missing.png";
+    texture.userData.fbxSourceName = "../Textures/missing.png";
+    texture.userData.textureSourceKind = "unresolved";
+    const material = new MeshBasicMaterial({ map: texture });
+    const root = new Group();
+    root.add(new Mesh(new BufferGeometry(), material));
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.textures[0]).toMatchObject({
+      label: "missing.png",
+      sourcePath: "../Textures/missing.png",
+      sourceKind: "unresolved",
+    });
+  });
+
+  it("keeps hydrated FBX textures resolved", () => {
+    const texture = new Texture();
+    texture.name = "albedo.png";
+    texture.userData.fbxSourceName = "Textures/albedo.png";
+    texture.userData.textureSourceKind = "external";
+    const material = new MeshBasicMaterial({ map: texture });
+    const root = new Group();
+    root.add(new Mesh(new BufferGeometry(), material));
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.textures[0]).toMatchObject({
+      label: "albedo.png",
+      sourcePath: "Textures/albedo.png",
+      sourceKind: "external",
+    });
+  });
+
+  it("refreshes unresolved texture metadata after deferred hydration succeeds", () => {
+    const texture = new Texture();
+    texture.name = "albedo.png";
+    texture.userData.fbxSourceName = "Textures/albedo.png";
+    texture.userData.textureSourceKind = "unresolved";
+    const material = new MeshBasicMaterial({ map: texture });
+    const root = new Group();
+    root.add(new Mesh(new BufferGeometry(), material));
+    const collected = collectAssetMetadata(root, fakeFile, [], null);
+
+    texture.userData.textureSourceKind = "external";
+    const refreshed = refreshTextureSourceKinds(
+      collected.metadata,
+      fakeFile,
+      collected.textureRegistry,
+    );
+
+    expect(refreshed.textures[0]).toMatchObject({
+      sourcePath: "Textures/albedo.png",
+      sourceKind: "external",
+    });
+  });
+
   it("enriches texture thumbnails on scheduled tasks while preserving metadata fields", () => {
     const { root } = createTexturedMeshRoot();
     const result = collectAssetMetadata(root, fakeFile, [], null);
@@ -749,6 +809,52 @@ describe("collectAssetMetadata", () => {
       "data:image/jpeg;base64,tga-thumb",
     );
     expect(drawImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a placeholder thumbnail after deferred texture hydration", () => {
+    const texture = new Texture();
+    texture.name = "body.tga";
+    texture.image = {
+      data: new Uint8Array([0, 0, 0, 0]),
+      height: 1,
+      width: 1,
+    };
+    const material = new MeshBasicMaterial({ map: texture });
+    const root = new Group();
+    root.add(new Mesh(new BufferGeometry(), material));
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    const updates: Array<typeof result.metadata> = [];
+    const scheduler = createManualTaskScheduler();
+    const drawImage = mockCanvasThumbnail();
+
+    const scheduled = scheduleTextureThumbnailEnrichment({
+      metadata: result.metadata,
+      onUpdate: (metadata) => updates.push(metadata),
+      scheduleTask: scheduler.scheduleTask,
+      textureRegistry: result.textureRegistry,
+    });
+    scheduler.runNext();
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.textures[0]?.thumbnailUrl).not.toBeNull();
+    expect(drawImage).toHaveBeenCalledTimes(1);
+
+    // An unrelated metadata refresh must not redraw a stable texture.
+    scheduled.refresh();
+    scheduler.runNext();
+    expect(updates).toHaveLength(1);
+    expect(drawImage).toHaveBeenCalledTimes(1);
+
+    // TGA hydration mutates the existing DataTexture image in the loader.
+    texture.image.data = new Uint8Array([255, 0, 0, 255]);
+    texture.image.width = 1;
+    texture.image.height = 1;
+    scheduled.refresh();
+    scheduler.runNext();
+
+    expect(updates).toHaveLength(2);
+    expect(updates[1]?.textures[0]?.thumbnailUrl).not.toBeNull();
+    expect(drawImage).toHaveBeenCalledTimes(2);
   });
 
   it("cancels scheduled texture thumbnail enrichment", () => {

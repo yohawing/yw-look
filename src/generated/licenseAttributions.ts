@@ -203,6 +203,12 @@ export const nativeRuntimeLicenseAttributions = [
     source: "native",
   },
   {
+    name: "ufbx",
+    version: "0.11.3",
+    license: "MIT OR PDDL-1.0",
+    source: "native",
+  },
+  {
     name: "url",
     version: "2.5.8",
     license: "MIT OR Apache-2.0",

@@ -58,6 +58,12 @@ function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
         density="regular"
         rows={rows}
       />
+      {texture.sourcePath ? (
+        <div className="texture-selected-path">
+          <span className="texture-selected-path-label">Path</span>
+          <code title={texture.sourcePath}>{texture.sourcePath}</code>
+        </div>
+      ) : null}
     </section>
   );
 }

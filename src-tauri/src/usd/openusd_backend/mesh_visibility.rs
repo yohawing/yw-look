@@ -5,7 +5,7 @@ use super::stage_fields::ValidatedStagePathExt;
 
 use crate::usd::geometry::MeshOrientation;
 
-use super::stage_fields::{read_token_or_string_field, token_or_string_value_to_string};
+use super::stage_fields::token_or_string_value_to_string;
 
 /// Reads the `orientation` metadata from a Mesh prim. USD's default is
 /// `rightHanded`. Left-handed meshes are common in DCC tools authored
@@ -56,7 +56,14 @@ pub(crate) fn read_mesh_orientation(stage: &Stage, prim_path: &SdfPath) -> MeshO
 #[allow(dead_code)]
 pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
     // Must be a Mesh at the leaf.
-    if read_token_or_string_field(stage, prim_path.clone()).as_deref() != Some("Mesh") {
+    if stage
+        .prim_at(prim_path.clone())
+        .type_name()
+        .ok()
+        .flatten()
+        .as_deref()
+        != Some("Mesh")
+    {
         return false;
     }
 
@@ -65,7 +72,7 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
     // per-ancestor `active` check that used to run inline with the
     // visibility/purpose walk below. `unwrap_or(true)` matches the old
     // fallback (an unreadable field never hid the mesh).
-    if !stage.prim_at(prim_path.clone()).is_active().unwrap_or(true) {
+    if !is_composed_prim_active(stage, prim_path) {
         return false;
     }
 
@@ -134,14 +141,10 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
 /// writing the resolved purpose onto each `MeshInput`.
 pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> bool {
     // Must be a Mesh at the leaf.
-    if read_token_or_string_field(stage, prim_path.clone()).as_deref() != Some("Mesh") {
-        return false;
-    }
-
-    // See the matching comment in `is_renderable_mesh`: `is_active()`
-    // composes the ancestor chain itself, so this replaces the
-    // per-ancestor `active` check that used to run inside the loop.
-    if !stage.prim_at(prim_path.clone()).is_active().unwrap_or(true) {
+    // Use Prim::type_name rather than a raw stage field lookup. Instance proxy
+    // paths have no authored spec at their proxy namespace, so field lookup
+    // returns None even though the composed prim is a Mesh.
+    if !is_mesh_active(stage, prim_path) {
         return false;
     }
 
@@ -172,6 +175,57 @@ pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> 
             break;
         }
         path_str.truncate(slash_idx);
+    }
+
+    true
+}
+
+fn is_mesh_active(stage: &Stage, prim_path: &SdfPath) -> bool {
+    stage
+        .prim_at(prim_path.clone())
+        .type_name()
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("Mesh")
+        && is_composed_prim_active(stage, prim_path)
+}
+
+/// `Prim::is_active` currently returns false for instance proxies because
+/// their composed namespace has no directly authored prim spec. Validate the
+/// corresponding prototype prim, then validate the real instance root whose
+/// authored namespace owns the proxy subtree.
+fn is_composed_prim_active(stage: &Stage, prim_path: &SdfPath) -> bool {
+    let prim = stage.prim_at(prim_path.clone());
+    if !prim.is_instance_proxy().unwrap_or(false) {
+        return prim.is_active().unwrap_or(true);
+    }
+
+    if prim
+        .prim_in_prototype()
+        .ok()
+        .flatten()
+        .is_some_and(|prototype_prim| !prototype_prim.is_active().unwrap_or(true))
+    {
+        return false;
+    }
+
+    let mut path_str = prim_path.as_str().to_string();
+    loop {
+        let Some(slash_idx) = path_str.rfind('/') else {
+            break;
+        };
+        if slash_idx == 0 {
+            break;
+        }
+        path_str.truncate(slash_idx);
+        let Ok(ancestor_path) = SdfPath::new(&path_str) else {
+            break;
+        };
+        let ancestor = stage.prim_at(ancestor_path);
+        if !ancestor.is_instance_proxy().unwrap_or(false) {
+            return ancestor.is_active().unwrap_or(true);
+        }
     }
 
     true
