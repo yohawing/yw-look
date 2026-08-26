@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 use crate::shared::{
     current_timestamp, dialog_filter_extensions, infer_file_kind, is_readable_asset_extension,
-    is_supported_extension, load_or_initialize_settings, lock_or_recover, model_extensions,
-    motion_extensions, normalize_file_path, preview_implemented_extensions, read_json_file,
-    repo_root, resolve_app_data_dir, system_time_to_unix_string, texture_extensions,
-    write_json_file, RECENT_FILES_FILE_NAME,
+    is_supported_extension, load_or_initialize_settings, model_extensions, motion_extensions,
+    normalize_file_path, preview_implemented_extensions, read_json_file, repo_root,
+    resolve_app_data_dir, system_time_to_unix_string, texture_extensions, write_json_file,
+    RECENT_FILES_FILE_NAME,
 };
 use crate::state::PendingOpenFiles;
 
@@ -567,30 +567,31 @@ fn read_binary_file_prefix_impl(path: String, max_bytes: usize) -> Result<Vec<u8
 }
 
 #[tauri::command]
-pub(crate) fn get_startup_file(
+pub(crate) fn get_startup_files(
     app: tauri::AppHandle,
     pending: tauri::State<'_, PendingOpenFiles>,
-) -> Result<Option<SelectedFilePayload>, AppError> {
-    let queued: Vec<PathBuf> = {
-        let mut guard = lock_or_recover(&pending.0, "pending open files");
-        std::mem::take(&mut *guard)
-    };
+) -> Result<Vec<SelectedFilePayload>, AppError> {
+    let mut files = Vec::new();
 
-    for path in queued {
+    for path in pending.drain() {
         if let Ok(file) = build_selected_file_payload(path) {
-            sync_recent_file(&app, &file)?;
-            return Ok(Some(file));
+            files.push(file);
         }
     }
 
-    for argument in std::env::args().skip(1) {
-        if let Ok(file) = build_selected_file_payload_from_cli_arg(&argument) {
-            sync_recent_file(&app, &file)?;
-            return Ok(Some(file));
+    if pending.take_cli_args_once() {
+        for argument in std::env::args().skip(1) {
+            if let Ok(file) = build_selected_file_payload_from_cli_arg(&argument) {
+                files.push(file);
+            }
         }
     }
 
-    Ok(None)
+    for file in &files {
+        sync_recent_file(&app, file)?;
+    }
+
+    Ok(files)
 }
 
 #[tauri::command]

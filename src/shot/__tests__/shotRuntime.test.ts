@@ -31,6 +31,7 @@ class Object3D {
   children: Object3D[] = [];
   userData: Record<string, unknown> = {};
   scale = { multiplyScalar: vi.fn() };
+  updateMatrixWorld = vi.fn();
 
   traverse(callback: (child: Object3D) => void) {
     callback(this);
@@ -254,6 +255,39 @@ describe("applyShotMorphWeights", () => {
     expect(() => applyShotMorphWeights(undefined, [1])).toThrow(
       "Morph weights require a loaded MMD model.",
     );
+  });
+});
+
+describe("settleShotRenderers", () => {
+  it("updates world matrices before awaiting Spark depth sorting", async () => {
+    vi.useFakeTimers();
+    try {
+      const { settleShotRenderers } = await import("../shotRuntime");
+      const renderer = new WebGLRenderer();
+      const scene = new Scene();
+      const camera = new PerspectiveCamera();
+      const sparkRenderer = new Object3D() as Object3D & {
+        update: ReturnType<typeof vi.fn>;
+      };
+      sparkRenderer.userData.ywSparkRenderer = true;
+      sparkRenderer.update = vi.fn(async () => {
+        expect(scene.updateMatrixWorld).toHaveBeenCalledWith(true);
+        expect(camera.updateMatrixWorld).toHaveBeenCalledWith(true);
+      });
+      scene.add(sparkRenderer);
+
+      const settled = settleShotRenderers(
+        renderer as never,
+        scene as never,
+        camera as never,
+      );
+      await vi.runAllTimersAsync();
+      await settled;
+
+      expect(sparkRenderer.update).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

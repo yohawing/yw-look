@@ -148,8 +148,8 @@ const logPath = path.join(outDir, `${baseName}-${timestamp}.log.jsonl`);
 
 const consoleLog = [];
 let browser;
-let outputJson = null;
-let shotBuffer = null;
+let outputJson;
+let shotBuffer;
 let waitError = null;
 
 try {

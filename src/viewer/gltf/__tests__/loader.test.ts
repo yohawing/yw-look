@@ -605,7 +605,7 @@ describe("loadGltfPreviewObject", () => {
 
   it("decodes a shared image once and applies independent job texture settings", async () => {
     const { scene, material } = sharedDeferredTextureScene();
-    const baseTexture = new Texture();
+    const baseTexture = new Texture<HTMLImageElement>();
     const baseDispose = vi.spyOn(baseTexture, "dispose");
     const loadTexture = vi
       .spyOn(TextureLoader.prototype, "loadAsync")
@@ -696,8 +696,8 @@ describe("loadGltfPreviewObject", () => {
 
   it("disposes a decoded base texture when cancelled during an active shared-image job", async () => {
     const { scene, material } = sharedDeferredTextureScene();
-    const textureLoad = deferred<Texture>();
-    const baseTexture = new Texture();
+    const textureLoad = deferred<Texture<HTMLImageElement>>();
+    const baseTexture = new Texture<HTMLImageElement>();
     const baseDispose = vi.spyOn(baseTexture, "dispose");
     const loadTexture = vi
       .spyOn(TextureLoader.prototype, "loadAsync")
@@ -734,7 +734,7 @@ describe("loadGltfPreviewObject", () => {
     vi.stubGlobal("requestIdleCallback", requestIdleCallback);
     vi.stubGlobal("cancelIdleCallback", cancelIdleCallback);
     try {
-      const baseTexture = new Texture();
+      const baseTexture = new Texture<HTMLImageElement>();
       const baseDispose = vi.spyOn(baseTexture, "dispose");
       const loadTexture = vi
         .spyOn(TextureLoader.prototype, "loadAsync")

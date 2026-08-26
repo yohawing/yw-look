@@ -425,6 +425,21 @@ async function updateSparkRenderers(scene: Scene, camera: PerspectiveCamera) {
   await Promise.all(updates);
 }
 
+export async function settleShotRenderers(
+  renderer: WebGLRenderer,
+  scene: Scene,
+  camera: PerspectiveCamera,
+) {
+  // Spark generates and depth-sorts splats from world-space transforms. The
+  // regular Three.js render path updates these matrices for us, but shots call
+  // Spark's async update before the first render. Make that ordering explicit
+  // so the initial sort cannot race against stale scene/camera matrices.
+  scene.updateMatrixWorld(true);
+  camera.updateMatrixWorld(true);
+  await updateSparkRenderers(scene, camera);
+  await settleFrames(renderer, scene, camera, 3);
+}
+
 export async function runShot(
   config: ShotConfig,
   writeOutput: (
@@ -579,8 +594,7 @@ export async function runShot(
       );
     }
 
-    await updateSparkRenderers(scene, camera);
-    await settleFrames(renderer, scene, camera, 3);
+    await settleShotRenderers(renderer, scene, camera);
     renderer.render(scene, camera);
     outcome.nonBlankCanvas = isRendererCanvasNonBlank(renderer);
 

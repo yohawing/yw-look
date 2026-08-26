@@ -3,8 +3,7 @@ import type { AppError } from "../types/ipc";
 import { normalizeErrorMessage } from "./errors";
 
 export type InvokeResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: AppError };
+  { ok: true; value: T } | { ok: false; error: AppError };
 
 export async function invokeSafe<T>(
   cmd: string,

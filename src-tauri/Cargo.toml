@@ -21,7 +21,7 @@ name = "yw_look_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.1.0", features = [] }
+tauri-build = { version = "2.6.3", features = [] }
 # The build script uses this only when an Alembic preview helper must be
 # regenerated. Normal Rust builds use the bundled helper and do not invoke
 # CMake or vcpkg.
@@ -38,20 +38,19 @@ flip-compare = ["dep:nv-flip", "dep:image"]
 [dependencies]
 # Pin the pure-Rust OpenUSD compatibility layer used by yw-look so local,
 # CI, and release builds resolve the same source without a sibling checkout.
-openusd = { git = "https://github.com/mxpv/openusd.git", rev = "737118ba8ba052b2632aa65199fb0cbc85e9554d", features = ["geom"] }
-# Error type for the yw-look-owned stage-query surface in
-# `usd::openusd_backend::stage_query` (USD-NATIVE-01 Phase 2a). openusd
-# already depends on anyhow and returns it from its public API, so this
-# just names the same type on yw-look's side of that boundary.
+openusd = { git = "https://github.com/mxpv/openusd.git", rev = "ca52e1ca1326a9e34239f83fd2cdfe5488c5d516", features = ["geom"] }
+# Error aggregation for the yw-look-owned stage-query adapter. OpenUSD exposes
+# typed errors; this keeps the local multi-query helpers concise without
+# changing the upstream error contract.
 anyhow = "1"
 psd = "0.3.5"
-rfd = "0.15"
+rfd = "0.17.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 semver = "1"
-sysinfo = { version = "0.37.2", default-features = false, features = ["system"] }
-tauri = { version = "2.8.5", features = [] }
-tauri-plugin-updater = "2.10.0"
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-updater = "2.10.1"
 thiserror = "2"
 url = "2"
 # Phase 5c: USDZ archives are zip files; we open them in the GLB
@@ -63,15 +62,15 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 # Gated behind the `flip-compare` feature so only the flip_compare bin pulls them in.
 nv-flip = { version = "0.1", optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
-glam = { version = "0.33.2", default-features = false, features = ["std", "f64"] }
-log = "0.4.33"
-tauri-plugin-log = "2.8.0"
+glam = { version = "0.33.5", default-features = false, features = ["std", "f64"] }
+log = "0.4.34"
+tauri-plugin-log = "2.9.0"
 # Official safe Rust bindings; the crate compiles and statically links ufbx.c.
 ufbx = "0.11.3"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.55.0"
-windows-sys = { version = "0.59.0", features = ["Win32_UI_Shell"] }
+winreg = "0.56.0"
+windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }
 
 [dev-dependencies]
 tempfile = "3"

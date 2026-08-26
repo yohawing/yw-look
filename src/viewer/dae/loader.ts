@@ -214,6 +214,7 @@ export async function loadDaePreviewObject(
       if (!collada) {
         throw new Error(
           "Collada parse returned no result; the document may be malformed.",
+          { cause: error },
         );
       }
       wrapped = new Group();

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useEffectEvent, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  getStartupFile,
+  getStartupFiles,
   inspectAsset,
   listSupportedSiblings,
   openFileDialog,
@@ -218,43 +218,39 @@ export function useAppFileOpen({
   );
 
   useEffect(() => {
-    let isActive = true;
-
-    getStartupFile()
-      .then((startupFile) => {
-        if (!isActive || !startupFile) {
-          return;
-        }
-
-        return selectExternalFilePathFromEffect(startupFile.path);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        setOpenError(errorMessage(error, "Failed to resolve startup file."));
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!isTauri) {
       return;
     }
 
     let isDisposed = false;
     let unlisten: UnlistenFn | undefined;
+    let drainQueue = Promise.resolve();
 
-    listen<string>("yw-look://open-file", (event) => {
-      const path = event.payload;
-      if (!path) {
-        return;
+    const drainPendingOpenFiles = async () => {
+      try {
+        const files = await getStartupFiles();
+        if (isDisposed) {
+          return;
+        }
+        const selectedFile = selectPrimaryFile(files);
+        if (selectedFile) {
+          await selectExternalFilePathFromEffect(selectedFile.path);
+        }
+      } catch (error: unknown) {
+        if (!isDisposed) {
+          setOpenError(
+            errorMessage(error, "Failed to resolve externally opened file."),
+          );
+        }
       }
-      void selectExternalFilePathFromEffect(path);
+    };
+
+    const schedulePendingOpenDrain = () => {
+      drainQueue = drainQueue.then(drainPendingOpenFiles);
+    };
+
+    listen<void>("yw-look://open-file", () => {
+      schedulePendingOpenDrain();
     })
       .then((dispose) => {
         if (isDisposed) {
@@ -263,24 +259,10 @@ export function useAppFileOpen({
         }
         unlisten = dispose;
 
-        // macOS can deliver the Opened event while the webview is still
-        // mounting. The backend queues those paths; drain once after the
-        // listener is live so Finder / extension-association opens are not
-        // lost between the initial startup check and event subscription.
-        void getStartupFile()
-          .then((startupFile) => {
-            if (!isDisposed && startupFile) {
-              void selectExternalFilePathFromEffect(startupFile.path);
-            }
-          })
-          .catch((error: unknown) => {
-            if (isDisposed) {
-              return;
-            }
-            setOpenError(
-              errorMessage(error, "Failed to resolve startup file."),
-            );
-          });
+        // The backend queues Finder opens before emitting this notification.
+        // Draining once after listener registration covers cold-start events
+        // whose notification arrived before the webview was ready.
+        schedulePendingOpenDrain();
       })
       .catch(() => {
         // Tauri API unavailable (browser dev mode)
@@ -382,16 +364,7 @@ export function useAppFileOpen({
     return () => {
       unlisten?.();
     };
-  }, [
-    currentFile,
-    handleSelectedFiles,
-    isTauri,
-    packFileRequest?.version,
-    performSelectFilePath,
-    setIsDragActive,
-    setPackFileRequest,
-    setOpenError,
-  ]);
+  }, [handleSelectedFiles, isTauri, setIsDragActive, setOpenError]);
 
   const handleOpenFile = useCallback(async () => {
     try {

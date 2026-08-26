@@ -39,10 +39,7 @@ export type ViewerFeedback = {
 // ── Display & surface ────────────────────────────────────────────
 
 export type DisplayMode =
-  | "textured"
-  | "untextured"
-  | "wireframe"
-  | "texturedWireframe";
+  "textured" | "untextured" | "wireframe" | "texturedWireframe";
 
 export type ViewportDisplayFlags = {
   showTexture: boolean;
@@ -54,10 +51,7 @@ export type ViewportDisplayFlags = {
 
 /** Mutually exclusive surface display choices in the viewport Display popover. */
 export type ViewportSurfaceDisplay =
-  | "shaded"
-  | "unlit"
-  | "normals"
-  | "vertexColor";
+  "shaded" | "unlit" | "normals" | "vertexColor";
 
 /** Tri-state wireframe overlay mode in the viewport Display popover. */
 export type ViewportWireframeMode = "off" | "overlay" | "only";
@@ -210,10 +204,7 @@ export type MmdMotionPlayback = {
  * these; other formats default to `mesh`.
  */
 export type ViewerAssetKind =
-  | "mesh"
-  | "pointCloud"
-  | "gaussianSplat"
-  | "motion";
+  "mesh" | "pointCloud" | "gaussianSplat" | "motion";
 
 export type LoadedPreview = {
   object: Group | Mesh;
@@ -258,12 +249,7 @@ export type DeferredTextureSnapshot = {
 };
 
 export type LoadingStageId =
-  | "scan"
-  | "resolve"
-  | "decode"
-  | "gpu"
-  | "scene"
-  | "ui";
+  "scan" | "resolve" | "decode" | "gpu" | "scene" | "ui";
 
 export type LoadingStageReporter = (stage: LoadingStageId) => void;
 
@@ -315,12 +301,7 @@ export type PreviewSupportState =
 // ── Scene config (grid, scale, camera, texture filter) ───────────
 
 export type CameraPreset =
-  | "front"
-  | "back"
-  | "left"
-  | "right"
-  | "top"
-  | "bottom";
+  "front" | "back" | "left" | "right" | "top" | "bottom";
 
 export type GridConfig = {
   cellSize: number;

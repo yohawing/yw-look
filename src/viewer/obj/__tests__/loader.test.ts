@@ -138,7 +138,7 @@ describe("loadObjPreviewObject", () => {
   });
 
   it("loads adjacent PBR texture candidates and applies them to OBJ meshes", async () => {
-    const texture = new Texture();
+    const texture = new Texture<HTMLImageElement>();
     const object = buildGroup();
     const createObjectUrlSpy = vi
       .spyOn(URL, "createObjectURL")

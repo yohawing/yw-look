@@ -266,9 +266,7 @@ function disposeWireframeMaterialSet(material: Material | Material[]) {
 
 function getWireframeOriginalMaterial(mesh: Mesh) {
   return mesh.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] as
-    | Material
-    | Material[]
-    | undefined;
+    Material | Material[] | undefined;
 }
 
 function setWireframeOriginalMaterial(
@@ -281,9 +279,7 @@ function setWireframeOriginalMaterial(
 function getMaterialControlTargets(mesh: Mesh) {
   const storedOriginal = getWireframeOriginalMaterial(mesh);
   const normalOriginal = mesh.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
-    | Material
-    | Material[]
-    | undefined;
+    Material | Material[] | undefined;
   return [
     ...getMaterials(mesh.material),
     ...(storedOriginal === undefined ? [] : getMaterials(storedOriginal)),
@@ -556,8 +552,7 @@ export function disposeObject(object: Object3D | null) {
         ...(child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] !== undefined
           ? getMaterials(
               child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] as
-                | Material
-                | Material[],
+                Material | Material[],
             )
           : []),
         ...(child.userData[UNLIT_ORIGINAL_KEY] !== undefined
@@ -568,22 +563,19 @@ export function disposeObject(object: Object3D | null) {
         ...(child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] !== undefined
           ? getMaterials(
               child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
-                | Material
-                | Material[],
+                Material | Material[],
             )
           : []),
         ...(child.userData[SELECTION_ORIGINAL_MATERIAL_KEY] !== undefined
           ? getMaterials(
               child.userData[SELECTION_ORIGINAL_MATERIAL_KEY] as
-                | Material
-                | Material[],
+                Material | Material[],
             )
           : []),
         ...(child.userData[SELECTION_NORMAL_TINT_KEY] !== undefined
           ? getMaterials(
               child.userData[SELECTION_NORMAL_TINT_KEY] as
-                | Material
-                | Material[],
+                Material | Material[],
             )
           : []),
       ];
@@ -951,18 +943,20 @@ export function normalizeObjectScale(
   // Pick a power-of-10 scale factor that brings the object into
   // [MIN, MAX].  This way the factor itself is always 10ⁿ, making
   // it immediately obvious how much the scale was adjusted.
-  let factor = 1;
-  if (originalMaxDimension < MIN_NORMALIZED_DIMENSION) {
-    const targetPower = Math.ceil(
-      Math.log10(MIN_NORMALIZED_DIMENSION / originalMaxDimension),
-    );
-    factor = Math.pow(10, targetPower);
-  } else {
-    const targetPower = Math.floor(
-      Math.log10(MAX_NORMALIZED_DIMENSION / originalMaxDimension),
-    );
-    factor = Math.pow(10, targetPower);
-  }
+  const factor =
+    originalMaxDimension < MIN_NORMALIZED_DIMENSION
+      ? Math.pow(
+          10,
+          Math.ceil(
+            Math.log10(MIN_NORMALIZED_DIMENSION / originalMaxDimension),
+          ),
+        )
+      : Math.pow(
+          10,
+          Math.floor(
+            Math.log10(MAX_NORMALIZED_DIMENSION / originalMaxDimension),
+          ),
+        );
 
   const applied = Math.abs(factor - 1) > SCALE_EPSILON;
 
@@ -1309,8 +1303,7 @@ function readVector3Tuple(value: unknown, target: Vector3) {
 
 function getMmdLocalAxisQuaternion(bone: Object3D) {
   const localAxis = bone.userData.mmdLocalAxis as
-    | MmdLocalAxisUserData
-    | undefined;
+    MmdLocalAxisUserData | undefined;
   if (!localAxis || typeof localAxis !== "object") {
     return null;
   }
@@ -1636,9 +1629,7 @@ function disposeNormalMaterialSet(material: Material | Material[]) {
 
 function suppressSelectionTintForNormalSurface(mesh: Mesh) {
   const selectionOriginal = mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY] as
-    | Material
-    | Material[]
-    | undefined;
+    Material | Material[] | undefined;
   if (selectionOriginal === undefined) {
     return mesh.material;
   }
@@ -1659,9 +1650,7 @@ export function isNormalSurfaceMaterialActive(mesh: Mesh) {
 
 export function getNormalSurfaceOriginalMaterial(mesh: Mesh) {
   return mesh.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
-    | Material
-    | Material[]
-    | undefined;
+    Material | Material[] | undefined;
 }
 
 export function storeSuppressedNormalSelectionTint(
@@ -1669,9 +1658,7 @@ export function storeSuppressedNormalSelectionTint(
   material: Material | Material[],
 ) {
   const previous = mesh.userData[SELECTION_NORMAL_TINT_KEY] as
-    | Material
-    | Material[]
-    | undefined;
+    Material | Material[] | undefined;
   if (previous !== undefined) {
     disposeSelectionTintMaterialSet(previous);
   }
@@ -1681,9 +1668,7 @@ export function storeSuppressedNormalSelectionTint(
 
 export function clearNormalSurfaceSelection(mesh: Mesh) {
   const suppressedTint = mesh.userData[SELECTION_NORMAL_TINT_KEY] as
-    | Material
-    | Material[]
-    | undefined;
+    Material | Material[] | undefined;
   if (suppressedTint !== undefined) {
     disposeSelectionTintMaterialSet(suppressedTint);
     delete mesh.userData[SELECTION_NORMAL_TINT_KEY];
@@ -1693,9 +1678,7 @@ export function clearNormalSurfaceSelection(mesh: Mesh) {
 
   if (mesh.userData[SELECTION_WIREFRAME_TINT_FLAG] === true) {
     const authored = mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY] as
-      | Material
-      | Material[]
-      | undefined;
+      Material | Material[] | undefined;
     const tint = getWireframeOriginalMaterial(mesh);
     if (tint !== undefined) {
       disposeSelectionTintMaterialSet(tint);
@@ -1716,9 +1699,7 @@ function restoreSuppressedNormalSelectionTint(
   authored: Material | Material[],
 ) {
   const tint = mesh.userData[SELECTION_NORMAL_TINT_KEY] as
-    | Material
-    | Material[]
-    | undefined;
+    Material | Material[] | undefined;
   if (tint === undefined) return;
 
   if (getWireframeOriginalMaterial(mesh) !== undefined) {
@@ -1738,9 +1719,7 @@ export function applyNormalSurfaceMaterial(
 ) {
   traverseMeshesExcludingHelpers(object, (child) => {
     const original = child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
-      | Material
-      | Material[]
-      | undefined;
+      Material | Material[] | undefined;
 
     if (!enabled) {
       if (original === undefined) return;
@@ -2057,10 +2036,7 @@ export function applyUnlitMaterial(
 }
 
 export type SurfaceMaterialMode =
-  | "shaded"
-  | "unlit"
-  | "normals"
-  | "vertexColors";
+  "shaded" | "unlit" | "normals" | "vertexColors";
 
 export function applySurfaceMaterialMode(
   object: Group | Mesh,

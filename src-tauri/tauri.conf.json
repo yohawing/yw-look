@@ -68,42 +68,266 @@
     },
     "fileAssociations": [
       {
-        "ext": [
-          "glb",
-          "gltf",
-          "fbx",
-          "obj",
-          "ply",
-          "stl",
-          "dae",
-          "usd",
-          "usda",
-          "usdc",
-          "usdz",
-          "abc"
-        ],
-        "name": "yw-look Model Asset",
-        "description": "3D model asset opened by yw-look"
+        "ext": ["glb"],
+        "contentTypes": ["org.khronos.glb"],
+        "name": "yw-look GLB Asset",
+        "description": "GLB asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
       },
       {
-        "ext": [
-          "png",
-          "jpg",
-          "jpeg",
-          "tga",
-          "dds",
-          "psd",
-          "ktx2",
-          "hdr",
-          "exr"
-        ],
-        "name": "yw-look Texture Asset",
-        "description": "Texture asset opened by yw-look"
+        "ext": ["gltf"],
+        "contentTypes": ["org.khronos.gltf"],
+        "name": "yw-look glTF Asset",
+        "description": "glTF asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["fbx"],
+        "contentTypes": ["com.autodesk.mac.fbx"],
+        "name": "yw-look FBX Asset",
+        "description": "FBX asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["obj"],
+        "contentTypes": ["public.geometry-definition-format"],
+        "name": "yw-look OBJ Asset",
+        "description": "OBJ asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["ply"],
+        "contentTypes": ["public.polygon-file-format"],
+        "name": "yw-look PLY Asset",
+        "description": "PLY asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["stl"],
+        "contentTypes": ["public.standard-tesselated-geometry-format"],
+        "name": "yw-look STL Asset",
+        "description": "STL asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["dae"],
+        "contentTypes": ["org.khronos.collada.digital-asset-exchange"],
+        "name": "yw-look COLLADA Asset",
+        "description": "COLLADA asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["usd"],
+        "contentTypes": ["com.pixar.universal-scene-description"],
+        "name": "yw-look USD Asset",
+        "description": "USD asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["usda"],
+        "contentTypes": ["com.pixar.universal-scene-description-utf8"],
+        "name": "yw-look USDA Asset",
+        "description": "USDA asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["usdc"],
+        "contentTypes": ["com.pixar.universal-scene-description-binary"],
+        "name": "yw-look USDC Asset",
+        "description": "USDC asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["usdz"],
+        "contentTypes": ["com.pixar.universal-scene-description-mobile"],
+        "name": "yw-look USDZ Asset",
+        "description": "USDZ asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["abc"],
+        "contentTypes": ["public.alembic"],
+        "name": "yw-look Alembic Asset",
+        "description": "Alembic asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["png"],
+        "contentTypes": ["public.png"],
+        "name": "PNG Image",
+        "description": "PNG image opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["jpg", "jpeg"],
+        "contentTypes": ["public.jpeg"],
+        "name": "JPEG Image",
+        "description": "JPEG image opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["tga"],
+        "contentTypes": ["com.truevision.tga-image"],
+        "name": "yw-look TGA Image",
+        "description": "TGA image opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["dds"],
+        "contentTypes": ["com.microsoft.dds"],
+        "name": "yw-look DDS Image",
+        "description": "DDS image opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["psd"],
+        "contentTypes": ["com.adobe.photoshop-image"],
+        "name": "yw-look PSD Image",
+        "description": "PSD image opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["ktx2"],
+        "name": "yw-look KTX2 Image",
+        "description": "KTX2 image opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.ktx2",
+          "conformsTo": ["public.image"]
+        }
+      },
+      {
+        "ext": ["hdr"],
+        "contentTypes": ["public.radiance"],
+        "name": "yw-look HDR Image",
+        "description": "HDR image opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["exr"],
+        "contentTypes": ["com.ilm.openexr-image"],
+        "name": "yw-look OpenEXR Image",
+        "description": "OpenEXR image opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["vrm"],
+        "name": "yw-look VRM Asset",
+        "description": "VRM asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.vrm",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["pmx"],
+        "name": "yw-look PMX Model",
+        "description": "PMX model opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.pmx",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["pmd"],
+        "name": "yw-look PMD Model",
+        "description": "PMD model opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.pmd",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["vmd"],
+        "name": "yw-look VMD Motion",
+        "description": "VMD motion opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.vmd",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["splat"],
+        "name": "yw-look Gaussian Splat",
+        "description": "Gaussian splat opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.splat",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["spz"],
+        "name": "yw-look SPZ Asset",
+        "description": "SPZ asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.spz",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["ksplat"],
+        "name": "yw-look KSplat Asset",
+        "description": "KSplat asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.ksplat",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": ["sog"],
+        "name": "yw-look SOG Asset",
+        "description": "SOG asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.sog",
+          "conformsTo": ["public.data"]
+        }
       },
       {
         "ext": ["bvh"],
-        "name": "yw-look Motion Asset",
-        "description": "Motion capture asset opened by yw-look"
+        "name": "yw-look BVH Motion",
+        "description": "BVH motion opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.bvh",
+          "conformsTo": ["public.data"]
+        }
       }
     ],
     "icon": [

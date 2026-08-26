@@ -29,15 +29,13 @@ export function RecentFilesCard({
       {(payload) =>
         payload.entries.length > 0 ? (
           <FileItemList
-            items={payload.entries.map(
-              (entry): FileItemListEntry => ({
-                id: entry.path,
-                name: basename(entry.path),
-                leading: formatFileKindLabel(entry.kind),
-                tooltip: entry.path,
-                onSelect: () => onOpenPath(entry.path),
-              }),
-            )}
+            items={payload.entries.map((entry): FileItemListEntry => ({
+              id: entry.path,
+              name: basename(entry.path),
+              leading: formatFileKindLabel(entry.kind),
+              tooltip: entry.path,
+              onSelect: () => onOpenPath(entry.path),
+            }))}
           />
         ) : (
           <SidebarEmpty>No recent files recorded yet.</SidebarEmpty>

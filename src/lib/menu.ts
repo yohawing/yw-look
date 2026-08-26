@@ -41,9 +41,7 @@ type SharedMenuRecentFilesEntry = {
 };
 
 type SharedMenuEntry =
-  | SharedMenuItemEntry
-  | SharedMenuSeparatorEntry
-  | SharedMenuRecentFilesEntry;
+  SharedMenuItemEntry | SharedMenuSeparatorEntry | SharedMenuRecentFilesEntry;
 
 type SharedMenuSection = {
   id: string;
@@ -75,9 +73,7 @@ export type MenuRecentFilesDefinition = {
 };
 
 export type MenuEntryDefinition =
-  | MenuLeafDefinition
-  | MenuSeparatorDefinition
-  | MenuRecentFilesDefinition;
+  MenuLeafDefinition | MenuSeparatorDefinition | MenuRecentFilesDefinition;
 
 export type MenuSectionDefinition = {
   id: string;

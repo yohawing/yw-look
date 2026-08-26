@@ -315,11 +315,11 @@ export async function decodePsdFile(path: string): Promise<DecodedPsdImage> {
   };
 }
 
-export async function getStartupFile() {
+export async function getStartupFiles() {
   if (!isTauriEnvironment()) {
-    return null;
+    return [];
   }
-  return invokeFile<SelectedFile | null>("get_startup_file");
+  return invokeFile<SelectedFile[]>("get_startup_files");
 }
 
 export async function inspectAsset(path: string) {

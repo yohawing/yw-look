@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.2 (2026-08-24)
+## v0.3.2 (2026-08-26)
 
 ### FBX preview
 
@@ -15,6 +15,11 @@
 - Added the selected texture's source path to the details panel.
 - Kept local-axis helpers usable across asset scales and hid viewport helpers from texture-only previews.
 
+### Desktop integration
+
+- Registered the supported file types for macOS bundles and routed Finder and `Open With` launches through the same bounded file-open intake as in-app opens.
+- Preserved queued Finder-open requests across application startup and ignored local macOS bundle artifacts.
+
 ### USD preview
 
 - Updated the pinned `mxpv/openusd` revision to support nested instance proxies referenced through sub-root paths.
@@ -23,6 +28,8 @@
 ### Build and release
 
 - Removed the obsolete vendored-FBX migration gate and synchronized the application, Tauri, and Rust package versions to 0.3.2.
+- Updated the rendering and build toolchain, including Three.js r185, the MMD runtime, OpenUSD, Vite 8, ESLint 10, and a side-by-side TypeScript 7 check.
+- Isolated state-sensitive VMD, point-cloud, and Gaussian-splat visual captures while preserving the established shared-batch initialization order, eliminating nondeterministic CI screenshots without relaxing FLIP thresholds.
 
 ### Known limitations
 

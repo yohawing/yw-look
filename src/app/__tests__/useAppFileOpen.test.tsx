@@ -5,7 +5,7 @@ import { useFileStore } from "../../stores/fileStore";
 import { useViewerStore } from "../../stores/viewerStore";
 
 const mocks = vi.hoisted(() => ({
-  getStartupFile: vi.fn(),
+  getStartupFiles: vi.fn(),
   inspectAsset: vi.fn(),
   listSupportedSiblings: vi.fn(),
   openFileDialog: vi.fn(),
@@ -16,8 +16,7 @@ const mocks = vi.hoisted(() => ({
   prefetchAdjacent: vi.fn(),
   createPackFileRequest: vi.fn(),
   listenHandler: undefined as
-    | ((event: { payload: string }) => void)
-    | undefined,
+    ((event: { payload: undefined }) => void) | undefined,
   dragDropHandler: undefined as
     | ((event: {
         payload:
@@ -30,7 +29,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../lib/files", () => ({
-  getStartupFile: mocks.getStartupFile,
+  getStartupFiles: mocks.getStartupFiles,
   inspectAsset: mocks.inspectAsset,
   listSupportedSiblings: mocks.listSupportedSiblings,
   openFileDialog: mocks.openFileDialog,
@@ -52,7 +51,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(
     async (
       _eventName: string,
-      handler: (event: { payload: string }) => void,
+      handler: (event: { payload: undefined }) => void,
     ) => {
       mocks.listenHandler = handler;
       return mocks.unlisten;
@@ -120,7 +119,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.listenHandler = undefined;
   mocks.dragDropHandler = undefined;
-  mocks.getStartupFile.mockResolvedValue(null);
+  mocks.getStartupFiles.mockResolvedValue([]);
   mocks.inspectAsset.mockResolvedValue(null);
   mocks.openFileDialog.mockResolvedValue(null);
   mocks.resolveSelectedFiles.mockImplementation(async (paths: string[]) =>
@@ -218,9 +217,13 @@ describe("useAppFileOpen", () => {
     await waitFor(() => expect(mocks.listenHandler).toBeDefined());
 
     await act(async () => {
-      mocks.listenHandler?.({ payload: first.path });
-      mocks.listenHandler?.({ payload: first.path });
-      mocks.listenHandler?.({ payload: second.path });
+      mocks.getStartupFiles
+        .mockResolvedValueOnce([first])
+        .mockResolvedValueOnce([first])
+        .mockResolvedValueOnce([second]);
+      mocks.listenHandler?.({ payload: undefined });
+      mocks.listenHandler?.({ payload: undefined });
+      mocks.listenHandler?.({ payload: undefined });
       await Promise.resolve();
     });
 
@@ -233,10 +236,10 @@ describe("useAppFileOpen", () => {
 
   it("opens the startup file on mount", async () => {
     const file = selected("C:\\assets\\startup.glb");
-    mocks.getStartupFile.mockResolvedValue(file);
+    mocks.getStartupFiles.mockResolvedValue([file]);
     mocks.resolveSelectedFile.mockResolvedValue(file);
     mocks.listSupportedSiblings.mockResolvedValue(listingFor(file));
-    const { recordLoadTiming } = renderFileOpen();
+    const { recordLoadTiming } = renderFileOpen(true);
 
     await waitFor(() =>
       expect(useFileStore.getState().currentFile).toEqual(file),
@@ -245,6 +248,50 @@ describe("useAppFileOpen", () => {
       expect.any(Number),
       "startup",
     );
+  });
+
+  it("selects one primary file from a multi-file Finder open", async () => {
+    const sublayer = selected("C:\\assets\\geometry.usda");
+    const root = selected("C:\\assets\\root.usda");
+    mocks.getStartupFiles.mockResolvedValue([sublayer, root]);
+    mocks.selectPrimaryFile.mockReturnValue(root);
+    mocks.resolveSelectedFile.mockResolvedValue(root);
+    mocks.listSupportedSiblings.mockResolvedValue(listingFor(root));
+
+    renderFileOpen(true);
+
+    await waitFor(() =>
+      expect(useFileStore.getState().currentFile).toEqual(root),
+    );
+    expect(mocks.selectPrimaryFile).toHaveBeenCalledWith([sublayer, root]);
+  });
+
+  it("serializes the cold-start drain and later open notifications", async () => {
+    const coldDrain = deferred<SelectedFile[]>();
+    const warmFile = selected("C:\\assets\\warm.glb");
+    mocks.getStartupFiles
+      .mockReturnValueOnce(coldDrain.promise)
+      .mockResolvedValueOnce([warmFile]);
+    mocks.resolveSelectedFile.mockResolvedValue(warmFile);
+    mocks.listSupportedSiblings.mockResolvedValue(listingFor(warmFile));
+
+    renderFileOpen(true);
+    await waitFor(() => expect(mocks.listenHandler).toBeDefined());
+
+    act(() => {
+      mocks.listenHandler?.({ payload: undefined });
+    });
+    expect(mocks.getStartupFiles).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      coldDrain.resolve([]);
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(useFileStore.getState().currentFile).toEqual(warmFile),
+    );
+    expect(mocks.getStartupFiles).toHaveBeenCalledTimes(2);
   });
 
   it("resolves every path from a Tauri drop event and opens the selected root", async () => {
