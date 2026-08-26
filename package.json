@@ -26,6 +26,7 @@
     "check:nsis-loader-packs": "node scripts/check-nsis-loader-pack-hooks.mjs",
     "check:nsis-loader-pack-bundle": "node scripts/check-nsis-loader-pack-bundle.mjs",
     "check:file-associations": "node scripts/check-file-associations.mjs",
+    "check:file-associations:mac": "node scripts/check-file-associations.mjs src-tauri/target/release/bundle/macos/yw-look.app",
     "lint": "eslint .",
     "check:format-pack-boundaries": "node scripts/check-format-pack-boundaries.mjs",
     "check:viewer-viewport-boundaries": "node scripts/check-viewer-viewport-boundaries.mjs",
