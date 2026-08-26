@@ -29,7 +29,7 @@
 
 - Removed the obsolete vendored-FBX migration gate and synchronized the application, Tauri, and Rust package versions to 0.3.2.
 - Updated the rendering and build toolchain, including Three.js r185, the MMD runtime, OpenUSD, Vite 8, ESLint 10, and a side-by-side TypeScript 7 check.
-- Isolated state-sensitive VMD and point-cloud visual captures while preserving the established shared-batch initialization order, eliminating nondeterministic CI screenshots without relaxing FLIP thresholds.
+- Isolated state-sensitive VMD, point-cloud, and Gaussian-splat visual captures while preserving the established shared-batch initialization order, eliminating nondeterministic CI screenshots without relaxing FLIP thresholds.
 
 ### Known limitations
 

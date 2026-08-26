@@ -189,6 +189,7 @@ const cases = [
       "artifacts/screenshots/viewport/ply-cactus-supersplat-compressed-current.png",
     size: "384x288",
     background: "#ffffff",
+    isolated: true,
     requiresLoader: "spark",
   },
 ];
