@@ -126,6 +126,7 @@ const cases = [
     actual: "artifacts/screenshots/viewport/vmd-tiny-motion-current.png",
     size: "384x288",
     background: "default",
+    recapture: true,
     requiresLoader: "mmd",
   },
   ...[
@@ -168,6 +169,7 @@ const cases = [
     actual: "artifacts/screenshots/viewport/ply-tiny-pointcloud-current.png",
     size: "384x288",
     background: "default",
+    isolated: true,
   },
   {
     id: "abc-monkey",
@@ -516,12 +518,18 @@ for (const testCase of runnableCases) {
 
 if (!failed) {
   try {
-    if (runnableCases.length === 1) {
-      console.log(`Rendering viewport snapshot: ${runnableCases[0].id}`);
-      await runShot(runnableCases[0]);
-    } else {
-      console.log(`Rendering ${runnableCases.length} viewport snapshots`);
-      await runShotBatch(runnableCases);
+    const isolatedCases = runnableCases.filter(
+      (testCase) => testCase.isolated || testCase.recapture,
+    );
+    const batchedCases = runnableCases.filter((testCase) => !testCase.isolated);
+
+    if (batchedCases.length > 0) {
+      console.log(`Rendering ${batchedCases.length} viewport snapshots`);
+      await runShotBatch(batchedCases);
+    }
+    for (const testCase of isolatedCases) {
+      console.log(`Rendering viewport snapshot: ${testCase.id}`);
+      await runShot(testCase);
     }
   } catch (error) {
     failed = true;
