@@ -28,7 +28,7 @@ use crate::commands::diagnostics::{
 use crate::commands::fbx::{cancel_fbx_import, convert_fbx_to_preview};
 use crate::commands::file_associations::{open_default_apps_settings, sync_file_associations};
 use crate::commands::files::{
-    get_startup_file, inspect_asset, list_supported_siblings, load_format_support,
+    get_startup_files, inspect_asset, list_supported_siblings, load_format_support,
     load_recent_files, open_file_dialog, read_binary_file, read_binary_file_prefix,
     resolve_selected_file, resolve_selected_files,
 };
@@ -74,16 +74,14 @@ fn handle_opened_urls(app: &tauri::AppHandle, urls: Vec<Url>) {
         return;
     }
 
-    if let Some(pending) = app.try_state::<PendingOpenFiles>() {
-        crate::shared::lock_or_recover(&pending.0, "pending open files")
-            .extend(paths.iter().cloned());
-    }
+    let Some(pending) = app.try_state::<PendingOpenFiles>() else {
+        log::error!("pending open-file state is unavailable; Finder open was ignored");
+        return;
+    };
+    pending.enqueue(paths);
 
-    for path in &paths {
-        let payload = path.display().to_string();
-        if let Err(error) = app.emit(OPEN_FILE_EVENT, payload) {
-            log::error!("failed to emit open-file event: {error}");
-        }
+    if let Err(error) = app.emit(OPEN_FILE_EVENT, ()) {
+        log::error!("failed to emit open-file event: {error}");
     }
 }
 
@@ -127,7 +125,11 @@ pub fn run() {
         panic!("--startup-bench cannot be combined with --bench-load or --shot/--check");
     }
 
+    // macOS can deliver an Opened event before the setup callback runs during
+    // a cold launch. Register this queue on the builder so Finder-opened paths
+    // are never dropped while the application is still starting.
     let app = tauri::Builder::default()
+        .manage(PendingOpenFiles::default())
         .setup(move |app| {
             app.handle()
                 .plugin(
@@ -148,7 +150,6 @@ pub fn run() {
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
 
             app.manage(PendingUpdateState::default());
-            app.manage(PendingOpenFiles::default());
             app.manage(FbxImportState::default());
             app.manage(UsdBackendState::new(DefaultBackend::new()));
             app.manage(StageRegistry::new());
@@ -232,7 +233,7 @@ pub fn run() {
             convert_alembic_to_preview,
             convert_fbx_to_preview,
             cancel_fbx_import,
-            get_startup_file,
+            get_startup_files,
             load_recent_files,
             load_optional_loader_manifests,
             install_optional_loader_pack,

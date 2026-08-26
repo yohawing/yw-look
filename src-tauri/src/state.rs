@@ -94,7 +94,49 @@ pub(crate) struct StartupBenchCliConfig {
 pub(crate) struct PendingUpdateState(pub(crate) Mutex<Option<tauri_plugin_updater::Update>>);
 
 #[derive(Default)]
-pub(crate) struct PendingOpenFiles(pub(crate) Mutex<Vec<PathBuf>>);
+pub(crate) struct PendingOpenFiles {
+    paths: Mutex<Vec<PathBuf>>,
+    cli_args_consumed: AtomicBool,
+}
+
+impl PendingOpenFiles {
+    pub(crate) fn enqueue(&self, paths: impl IntoIterator<Item = PathBuf>) {
+        crate::shared::lock_or_recover(&self.paths, "pending open files").extend(paths);
+    }
+
+    pub(crate) fn drain(&self) -> Vec<PathBuf> {
+        let mut paths = crate::shared::lock_or_recover(&self.paths, "pending open files");
+        std::mem::take(&mut *paths)
+    }
+
+    pub(crate) fn take_cli_args_once(&self) -> bool {
+        !self.cli_args_consumed.swap(true, Ordering::AcqRel)
+    }
+}
+
+#[cfg(test)]
+mod pending_open_files_tests {
+    use super::*;
+
+    #[test]
+    fn drain_returns_every_queued_path_once() {
+        let state = PendingOpenFiles::default();
+        state.enqueue([PathBuf::from("first.glb"), PathBuf::from("second.usda")]);
+
+        assert_eq!(
+            state.drain(),
+            vec![PathBuf::from("first.glb"), PathBuf::from("second.usda")]
+        );
+        assert!(state.drain().is_empty());
+    }
+
+    #[test]
+    fn cli_arguments_are_consumed_once() {
+        let state = PendingOpenFiles::default();
+        assert!(state.take_cli_args_once());
+        assert!(!state.take_cli_args_once());
+    }
+}
 
 const MAX_FBX_CANCEL_TOMBSTONES: usize = 1024;
 
