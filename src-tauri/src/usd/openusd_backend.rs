@@ -71,6 +71,8 @@ struct StageCapabilityDetection {
     payload: bool,
     variant_override: bool,
     usd_authored_splat: bool,
+    usd_authored_gaussian_splat: bool,
+    usd_authored_points: bool,
 }
 
 impl StageCapabilityDetection {
@@ -81,7 +83,14 @@ impl StageCapabilityDetection {
 
         match type_name.as_str() {
             "PointInstancer" => self.point_instancer = true,
-            "Points" => self.usd_authored_splat = true,
+            "ParticleField3DGaussianSplat" => {
+                self.usd_authored_splat = true;
+                self.usd_authored_gaussian_splat = true;
+            }
+            "Points" => {
+                self.usd_authored_splat = true;
+                self.usd_authored_points = true;
+            }
             "Skeleton" | "SkelRoot" | "SkelAnimation" | "BlendShape" => self.skel = true,
             _ if type_name.starts_with("Skel") => self.skel = true,
             _ => {}
@@ -90,6 +99,18 @@ impl StageCapabilityDetection {
         if type_name == "Shader" && stage_query::prim_has_material_x_candidate(stage, prim_path) {
             self.material_x = true;
         }
+    }
+}
+
+/// Explain the bounded splat capability contract shared by stage summary,
+/// inspection, and extraction errors. `Points` is intentionally called out
+/// separately: generic point geometry is not a Gaussian splat representation.
+pub(crate) fn usd_authored_splat_reason(gaussian_splat: bool, points: bool) -> String {
+    match (gaussian_splat, points) {
+        (true, true) => "USD-authored ParticleField3DGaussianSplat and Points geometry are unsupported by the preview backend and omitted from mixed mesh previews; generic Points are not treated as Gaussian splats.".to_owned(),
+        (true, false) => "USD-authored ParticleField3DGaussianSplat Gaussian splats are unsupported by the preview backend and omitted from mixed mesh previews; their position, orientation, scale, opacity, and radiance attributes are not converted to GLB.".to_owned(),
+        (false, true) => "USD-authored Points geometry is unsupported by the preview backend and omitted from mixed mesh previews; generic Points are not treated as Gaussian splats.".to_owned(),
+        (false, false) => "USD-authored Points/splat geometry is not supported by the preview backend.".to_owned(),
     }
 }
 
@@ -103,9 +124,6 @@ fn stage_capability_infos(
         "UsdSkel preview supports the current GLB skinning path only; arbitrary rig data is not covered.";
     const ANIMATION_RANGE_REASON: &str =
         "Only authored stage start/end metadata is reported; time-varying attributes are not scanned.";
-    const USD_AUTHORED_SPLAT_REASON: &str =
-        "USD-authored Points/splat geometry is not supported by the preview backend.";
-
     vec![
         StageCapabilityInfo {
             kind: StageCapabilityKind::PointInstancer,
@@ -149,7 +167,10 @@ fn stage_capability_infos(
             kind: StageCapabilityKind::UsdAuthoredSplat,
             detected: detection.usd_authored_splat,
             support: StageCapabilitySupport::Unsupported,
-            reason: USD_AUTHORED_SPLAT_REASON.to_owned(),
+            reason: usd_authored_splat_reason(
+                detection.usd_authored_gaussian_splat,
+                detection.usd_authored_points,
+            ),
         },
     ]
 }
@@ -669,6 +690,16 @@ impl UsdInspectBackend for OpenusdBackend {
         if *has_point_instancer.borrow() {
             return Ok(true);
         }
+        // Single-layer USDA can contain either the formal Gaussian splat
+        // schema or generic Points. Neither representation is handled by
+        // Three.js USDLoader, and the backend must own the explicit
+        // unsupported capability / extraction diagnostic rather than letting
+        // the JS route produce an empty preview.
+        if stage_query::has_usd_authored_splat_candidate(&stage)
+            .map_err(|error| UsdError::Parse(error.to_string()))?
+        {
+            return Ok(true);
+        }
         // A single-layer USDA can still depend on variant composition. The
         // JS USDLoader path receives only the source text and does not apply
         // the composed variant state used by the backend, so route stages
@@ -1077,6 +1108,136 @@ def Skeleton "Rig"
         );
 
         std::fs::remove_dir_all(root).ok();
+    }
+
+    fn write_splat_fixture(
+        name: &str,
+        splat_type: &str,
+        mixed_with_mesh: bool,
+    ) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("create splat fixture directory");
+        let mesh = if mixed_with_mesh {
+            r#"
+    def Mesh "Witness"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+"#
+        } else {
+            ""
+        };
+        let contents = format!(
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+
+def Xform "Root"
+{{
+    def {splat_type} "Cloud"
+    {{
+    }}
+{mesh}}}
+"#
+        );
+        let path = dir.path().join(name);
+        std::fs::write(&path, contents).expect("write splat fixture");
+        (dir, path)
+    }
+
+    fn usd_authored_splat_capability(capabilities: &[StageCapabilityInfo]) -> &StageCapabilityInfo {
+        capabilities
+            .iter()
+            .find(|entry| entry.kind == StageCapabilityKind::UsdAuthoredSplat)
+            .expect("UsdAuthoredSplat capability")
+    }
+
+    #[test]
+    fn gaussian_splat_capability_and_extraction_boundary_is_explicit() {
+        let backend = OpenusdBackend::new();
+        let (_pure_dir, pure_path) =
+            write_splat_fixture("pure-gaussian.usda", "ParticleField3DGaussianSplat", false);
+        let pure_summary = backend
+            .summarize_stage(&pure_path, StageLoadPolicy::LoadAll)
+            .expect("summarize pure Gaussian splat");
+        let pure_inspection = backend
+            .inspect_stage(&pure_path, StageLoadPolicy::LoadAll)
+            .expect("inspect pure Gaussian splat");
+        assert_eq!(pure_summary.capabilities, pure_inspection.capabilities);
+        let pure_capability = usd_authored_splat_capability(&pure_summary.capabilities);
+        assert!(pure_capability.detected);
+        assert!(pure_capability
+            .reason
+            .contains("ParticleField3DGaussianSplat"));
+        assert!(pure_capability.reason.contains("unsupported"));
+        assert!(backend
+            .requires_glb_preview(&pure_path)
+            .expect("route pure Gaussian splat"));
+        let pure_error = backend
+            .extract_geometry_glb(&pure_path, StageLoadPolicy::LoadAll)
+            .expect_err("pure Gaussian splat must not become an empty success");
+        assert!(pure_error
+            .to_string()
+            .contains("ParticleField3DGaussianSplat"));
+
+        let (_mixed_dir, mixed_path) =
+            write_splat_fixture("mixed-gaussian.usda", "ParticleField3DGaussianSplat", true);
+        let mixed_summary = backend
+            .summarize_stage(&mixed_path, StageLoadPolicy::LoadAll)
+            .expect("summarize mixed Gaussian splat");
+        let mixed_capability = usd_authored_splat_capability(&mixed_summary.capabilities);
+        assert!(mixed_capability.detected);
+        assert!(mixed_capability.reason.contains("mixed mesh previews"));
+        let mixed_glb = backend
+            .extract_geometry_glb(&mixed_path, StageLoadPolicy::LoadAll)
+            .expect("mixed Gaussian splat keeps Mesh preview");
+        assert!(!glb_json(&mixed_glb)["meshes"]
+            .as_array()
+            .expect("mixed Gaussian GLB meshes")
+            .is_empty());
+    }
+
+    #[test]
+    fn points_capability_and_extraction_boundary_is_distinct_from_gaussian() {
+        let backend = OpenusdBackend::new();
+        let (_pure_dir, pure_path) = write_splat_fixture("pure-points.usda", "Points", false);
+        let pure_summary = backend
+            .summarize_stage(&pure_path, StageLoadPolicy::LoadAll)
+            .expect("summarize pure Points");
+        let pure_inspection = backend
+            .inspect_stage(&pure_path, StageLoadPolicy::LoadAll)
+            .expect("inspect pure Points");
+        assert_eq!(pure_summary.capabilities, pure_inspection.capabilities);
+        let pure_capability = usd_authored_splat_capability(&pure_summary.capabilities);
+        assert!(pure_capability.detected);
+        assert!(pure_capability.reason.contains("Points geometry"));
+        assert!(pure_capability
+            .reason
+            .contains("not treated as Gaussian splats"));
+        assert!(backend
+            .requires_glb_preview(&pure_path)
+            .expect("route pure Points"));
+        let pure_error = backend
+            .extract_geometry_glb(&pure_path, StageLoadPolicy::LoadAll)
+            .expect_err("pure Points must not become an empty success");
+        assert!(pure_error.to_string().contains("Points geometry"));
+
+        let (_mixed_dir, mixed_path) = write_splat_fixture("mixed-points.usda", "Points", true);
+        let mixed_summary = backend
+            .summarize_stage(&mixed_path, StageLoadPolicy::LoadAll)
+            .expect("summarize mixed Points");
+        let mixed_capability = usd_authored_splat_capability(&mixed_summary.capabilities);
+        assert!(mixed_capability.detected);
+        assert!(mixed_capability.reason.contains("mixed mesh previews"));
+        let mixed_glb = backend
+            .extract_geometry_glb(&mixed_path, StageLoadPolicy::LoadAll)
+            .expect("mixed Points keeps Mesh preview");
+        assert!(!glb_json(&mixed_glb)["meshes"]
+            .as_array()
+            .expect("mixed Points GLB meshes")
+            .is_empty());
     }
 
     #[test]

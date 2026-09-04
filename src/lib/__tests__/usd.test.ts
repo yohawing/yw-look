@@ -189,6 +189,26 @@ describe("requiresGlbPreview fast text decision", () => {
     expect(mockInvoke).not.toHaveBeenCalled();
   });
 
+  it("routes authored Gaussian splat and Points USDA through the GLB backend", async () => {
+    readBinaryFilePrefixMock.mockResolvedValueOnce(
+      encoded('#usda 1.0\ndef ParticleField3DGaussianSplat "Cloud" {}'),
+    );
+
+    await expect(
+      requiresGlbPreview("C:\\assets\\gaussian-splat.usda"),
+    ).resolves.toBe(true);
+    expect(mockInvoke).not.toHaveBeenCalled();
+
+    readBinaryFilePrefixMock.mockResolvedValueOnce(
+      encoded('#usda 1.0\ndef Points "Cloud" {}'),
+    );
+
+    await expect(requiresGlbPreview("C:\\assets\\points.usda")).resolves.toBe(
+      true,
+    );
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
   it("routes single-layer UsdSkel USDA through the GLB backend", async () => {
     readBinaryFilePrefixMock.mockResolvedValueOnce(
       encoded(

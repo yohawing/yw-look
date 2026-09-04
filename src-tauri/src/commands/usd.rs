@@ -15,7 +15,7 @@ const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
 const USD_FAST_DECISION_SCAN_BYTES: usize = 64 * 1024;
 const USDC_MAGIC: &[u8] = b"PXR-USDC";
 const USD_XFORM_TIME_SAMPLES_MARKER: &[u8] = b".timeSamples";
-const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 11] = [
+const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 13] = [
     b"subLayers",
     b"references",
     b"payload",
@@ -27,6 +27,8 @@ const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 11] = [
     b"MaterialX",
     b"ND_",
     b".mtlx",
+    b"ParticleField3DGaussianSplat",
+    b"Points",
 ];
 
 fn map_usd_error(error: UsdError) -> AppError {
@@ -431,6 +433,19 @@ mod tests {
         );
 
         assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_detects_authored_splat_types() {
+        let (_gaussian_dir, gaussian_path) = write_usda(
+            "gaussian-splat.usda",
+            b"#usda 1.0\ndef ParticleField3DGaussianSplat \"Cloud\" {}",
+        );
+        let (_points_dir, points_path) =
+            write_usda("points.usda", b"#usda 1.0\ndef Points \"Cloud\" {}");
+
+        assert_eq!(fast_usd_requires_glb_preview(&gaussian_path), Some(true));
+        assert_eq!(fast_usd_requires_glb_preview(&points_path), Some(true));
     }
 
     #[test]

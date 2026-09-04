@@ -697,6 +697,28 @@ pub(crate) fn has_skel_schema_candidate(stage: &Stage) -> anyhow::Result<bool> {
     Ok(candidate.get())
 }
 
+/// Detect authored splat prim types for single-layer routing. The preview
+/// backend reports these as an explicit unsupported capability and extraction
+/// can name the schema when a stage has no Mesh prims to preserve.
+pub(crate) fn has_usd_authored_splat_candidate(stage: &Stage) -> anyhow::Result<bool> {
+    let candidate = std::cell::Cell::new(false);
+    stage.traverse(PrimPredicate::ALL, |prim_path| {
+        if candidate.get() {
+            return;
+        }
+        let Some(type_name) = read_type_name(stage, prim_path.clone()) else {
+            return;
+        };
+        if matches!(
+            type_name.as_str(),
+            "ParticleField3DGaussianSplat" | "Points"
+        ) {
+            candidate.set(true);
+        }
+    })?;
+    Ok(candidate.get())
+}
+
 /// Detect a single-layer MaterialX candidate for the GLB routing decision.
 ///
 /// The text USD loader cannot evaluate even the direct MaterialX aliases

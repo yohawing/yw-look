@@ -94,9 +94,20 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
     let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
     let skel_animation_paths = RefCell::new(Vec::<SdfPath>::new());
+    let authored_gaussian_splat = RefCell::new(false);
+    let authored_points = RefCell::new(false);
     stage
         .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
             if let Ok(Some(type_name)) = stage.prim_at(prim_path.clone()).type_name() {
+                match type_name.as_str() {
+                    "ParticleField3DGaussianSplat" => {
+                        *authored_gaussian_splat.borrow_mut() = true;
+                    }
+                    "Points" => {
+                        *authored_points.borrow_mut() = true;
+                    }
+                    _ => {}
+                }
                 if type_name.as_str() == "SkelAnimation" {
                     skel_animation_paths.borrow_mut().push(prim_path.clone());
                 }
@@ -114,6 +125,8 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
 
     let instancer_paths = instancer_paths.into_inner();
     let skel_animation_paths = skel_animation_paths.into_inner();
+    let authored_gaussian_splat = authored_gaussian_splat.into_inner();
+    let authored_points = authored_points.into_inner();
     let mesh_paths = mesh_paths.into_inner();
 
     // Filter out "leaked" root prims from referenced/payloaded
@@ -155,6 +168,11 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
             log::warn!(
                 "[usd-rs] no renderable Mesh prims found in deferred-payload stage; exporting an empty GLB scene"
             );
+        } else if authored_gaussian_splat || authored_points {
+            return Err(UsdError::Parse(format!(
+                "{} No renderable Mesh prims are available for extraction.",
+                super::usd_authored_splat_reason(authored_gaussian_splat, authored_points)
+            )));
         } else {
             return Err(UsdError::Parse(
                 "no renderable Mesh prims found in stage".to_string(),

@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 ![Development](https://img.shields.io/badge/development-active-blue)
-![Tests](https://img.shields.io/badge/tests-1286-brightgreen)
+![Tests](https://img.shields.io/badge/tests-1290-brightgreen)
 ![Formats](https://img.shields.io/badge/formats-14-informational)
 
 Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動せず、3Dモデル、テクスチャ、HDR / EXR、メタデータ、欠損参照をすばやく確認するためのデスクトップアプリである。
@@ -14,6 +14,8 @@ Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動
 **3D:** glTF, FBX, OBJ, PLY, STL, USD, DAE  
 **Images:** PNG, JPG, TGA, DDS, HDR, EXR, KTX2  
 **Optional Loader Packs:** VRM / VRMA, MMD (PMD / PMX / VMD), Gaussian Splat (PLY / SPLAT / SPZ / KSPLAT / SOG) — Settings からインストール
+
+USDのアニメーション、MaterialX、Gaussian Splatの対応範囲は [USDプレビュー対応](docs/usd.md) を参照してください。
 
 ## 何をするツールか
 
@@ -47,9 +49,9 @@ yw-look は「何でもできるビューア」ではなく、**開く前後の�
 | 項目                         | 件数 |
 | ---------------------------- | ---: |
 | テストファイル               |  156 |
-| テストケース                 | 1286 |
-| フロントエンドのテストケース |  887 |
-| Rust のテストケース          |  399 |
+| テストケース                 | 1290 |
+| フロントエンドのテストケース |  888 |
+| Rust のテストケース          |  402 |
 | Fixture アセット             |   42 |
 | Fixture カタログケース       |   40 |
 | 対応 3D フォーマット         |    7 |

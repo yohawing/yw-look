@@ -68,6 +68,8 @@ const USD_GLTF_BACKEND_KEYWORDS = [
   "MaterialX",
   "ND_",
   ".mtlx",
+  "ParticleField3DGaussianSplat",
+  "Points",
 ].map((keyword) => new TextEncoder().encode(keyword));
 // A time-sampled xform must be composed by the USD backend before the GLB
 // route can expose it to the viewer. This is only a candidate marker: the
