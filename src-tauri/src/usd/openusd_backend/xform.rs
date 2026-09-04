@@ -1,6 +1,6 @@
 use openusd::gf::f16;
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
-use openusd::usd::Stage;
+use openusd::usd::{Stage, TimeCode};
 
 use super::stage_fields::ValidatedStagePathExt;
 
@@ -95,6 +95,49 @@ pub(crate) fn compose_world_xform(
     Ok(world)
 }
 
+/// Time-aware counterpart to [`compose_world_xform`]. Unlike the static
+/// preview path, a failed local composition is returned to the caller: an
+/// animation channel must never silently replace an authored transform with
+/// identity at one sample.
+pub(crate) fn compose_world_xform_at(
+    stage: &Stage,
+    prim_path: &SdfPath,
+    time_code: f64,
+) -> Result<[f64; 16], UsdError> {
+    if !time_code.is_finite() {
+        return Err(UsdError::Parse(format!(
+            "non-finite xform evaluation time {time_code}"
+        )));
+    }
+
+    let mut path_str = prim_path.as_str().to_string();
+    let mut chain: Vec<[f64; 16]> = Vec::new();
+    loop {
+        let sdf_path = SdfPath::new(&path_str)
+            .map_err(|e| UsdError::Parse(format!("invalid prim path '{path_str}': {e}")))?;
+        let resets = has_reset_xform_stack_at(stage, &sdf_path, time_code)?;
+        if let Some(local) = compose_prim_local_xform_at(stage, &sdf_path, time_code)? {
+            chain.push(local);
+        }
+        if resets {
+            break;
+        }
+        let Some(slash_idx) = path_str.rfind('/') else {
+            break;
+        };
+        if slash_idx == 0 {
+            break;
+        }
+        path_str.truncate(slash_idx);
+    }
+
+    let mut world = identity_mat4();
+    for local in chain.iter().rev() {
+        world = mat4_mul(&world, local);
+    }
+    Ok(world)
+}
+
 /// yw-look-side replacement for the fork's `local_xform_of`. Used by every
 /// Mesh prim traversed for GLB extraction, so it needs to cover anything a
 /// real-world USD asset may author -- not just the minimal op set the fork
@@ -130,14 +173,43 @@ pub(crate) fn compose_prim_local_xform(
     stage: &Stage,
     prim_path: &SdfPath,
 ) -> Result<Option<[f64; 16]>, UsdError> {
+    compose_prim_local_xform_at_optional(stage, prim_path, None)
+}
+
+/// Compose a prim's local xform at a USD time code. `None` is the existing
+/// default-value path; `Some(time_code)` resolves every xform op through
+/// `Attribute::get_at`, preserving stage interpolation and composition.
+pub(crate) fn compose_prim_local_xform_at(
+    stage: &Stage,
+    prim_path: &SdfPath,
+    time_code: f64,
+) -> Result<Option<[f64; 16]>, UsdError> {
+    if !time_code.is_finite() {
+        return Err(UsdError::Parse(format!(
+            "non-finite xform evaluation time {time_code}"
+        )));
+    }
+    compose_prim_local_xform_at_optional(stage, prim_path, Some(time_code))
+}
+
+fn compose_prim_local_xform_at_optional(
+    stage: &Stage,
+    prim_path: &SdfPath,
+    time_code: Option<f64>,
+) -> Result<Option<[f64; 16]>, UsdError> {
     let order_path = prim_path
         .append_property("xformOpOrder")
         .map_err(|e| UsdError::Parse(e.to_string()))?;
-    let Some(order_value) = stage
-        .attribute_at(order_path)
-        .get::<SdfValue>()
-        .map_err(|e| UsdError::Parse(e.to_string()))?
-    else {
+    let order_attribute = stage.attribute_at(order_path);
+    let order_value = match time_code {
+        Some(time_code) => order_attribute
+            .get_at::<SdfValue>(Some(TimeCode::new(time_code)))
+            .map_err(|e| UsdError::Parse(e.to_string()))?,
+        None => order_attribute
+            .get::<SdfValue>()
+            .map_err(|e| UsdError::Parse(e.to_string()))?,
+    };
+    let Some(order_value) = order_value else {
         return Ok(None);
     };
     let op_names: Vec<String> = match order_value {
@@ -168,11 +240,17 @@ pub(crate) fn compose_prim_local_xform(
         let prop_path = prim_path
             .append_property(attr_name)
             .map_err(|e| UsdError::Parse(e.to_string()))?;
-        let Some(value) = stage
-            .attribute_at(prop_path)
-            .get::<SdfValue>()
-            .map_err(|e| UsdError::Parse(e.to_string()))?
-        else {
+        let value = match time_code {
+            Some(time_code) => stage
+                .attribute_at(prop_path)
+                .get_at::<SdfValue>(Some(TimeCode::new(time_code)))
+                .map_err(|e| UsdError::Parse(e.to_string()))?,
+            None => stage
+                .attribute_at(prop_path)
+                .get::<SdfValue>()
+                .map_err(|e| UsdError::Parse(e.to_string()))?,
+        };
+        let Some(value) = value else {
             continue;
         };
 
@@ -418,18 +496,41 @@ fn rotate_z_mat4(deg: f64) -> [f64; 16] {
 /// list here in order to honor the boundary during parent composition.
 /// Any error or missing attribute is treated as "no reset".
 fn has_reset_xform_stack(stage: &Stage, prim_path: &SdfPath) -> bool {
+    has_reset_xform_stack_optional(stage, prim_path, None).unwrap_or(false)
+}
+
+fn has_reset_xform_stack_at(
+    stage: &Stage,
+    prim_path: &SdfPath,
+    time_code: f64,
+) -> Result<bool, UsdError> {
+    has_reset_xform_stack_optional(stage, prim_path, Some(time_code))
+}
+
+fn has_reset_xform_stack_optional(
+    stage: &Stage,
+    prim_path: &SdfPath,
+    time_code: Option<f64>,
+) -> Result<bool, UsdError> {
     let order_path = match prim_path.append_property("xformOpOrder") {
         Ok(p) => p,
-        Err(_) => return false,
+        Err(error) => return Err(UsdError::Parse(error.to_string())),
     };
     // `xformOpOrder` is authored as a token[] (or, rarely, a string[]). The
     // fork's `Value` enum stores these as `TokenVec` / `StringVec`; no
     // `TryFrom<Value>` for `Vec<String>` exists so we match the raw enum.
-    match stage.attribute_at(order_path).get::<SdfValue>() {
-        Ok(Some(SdfValue::TokenVec(ops))) => {
-            ops.iter().any(|op| op.as_str() == "!resetXformStack!")
-        }
-        Ok(Some(SdfValue::StringVec(ops))) => ops.iter().any(|op| op == "!resetXformStack!"),
+    let attribute = stage.attribute_at(order_path);
+    let value = match time_code {
+        Some(time_code) => attribute
+            .get_at::<SdfValue>(Some(TimeCode::new(time_code)))
+            .map_err(|error| UsdError::Parse(error.to_string()))?,
+        None => attribute
+            .get::<SdfValue>()
+            .map_err(|error| UsdError::Parse(error.to_string()))?,
+    };
+    Ok(match value {
+        Some(SdfValue::TokenVec(ops)) => ops.iter().any(|op| op.as_str() == "!resetXformStack!"),
+        Some(SdfValue::StringVec(ops)) => ops.iter().any(|op| op == "!resetXformStack!"),
         _ => false,
-    }
+    })
 }

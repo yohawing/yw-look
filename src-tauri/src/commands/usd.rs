@@ -14,6 +14,7 @@ use crate::usd::{
 const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
 const USD_FAST_DECISION_SCAN_BYTES: usize = 64 * 1024;
 const USDC_MAGIC: &[u8] = b"PXR-USDC";
+const USD_XFORM_TIME_SAMPLES_MARKER: &[u8] = b".timeSamples";
 const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 4] =
     [b"subLayers", b"references", b"payload", b"PointInstancer"];
 
@@ -114,6 +115,14 @@ fn fast_usd_requires_glb_preview(path: &std::path::Path) -> Option<bool> {
             .any(|window| window == *keyword)
     }) {
         return Some(true);
+    }
+    if bytes
+        .windows(USD_XFORM_TIME_SAMPLES_MARKER.len())
+        .any(|window| window == USD_XFORM_TIME_SAMPLES_MARKER)
+    {
+        // Let the OpenUSD backend confirm that the sampled property is an
+        // authored Xform animation before choosing the GLB route.
+        return None;
     }
     if bytes.len() < USD_FAST_DECISION_SCAN_BYTES {
         return Some(false);
@@ -418,6 +427,16 @@ mod tests {
         let (_dir, path) = write_usda("plain.usda", b"#usda 1.0\ndef Xform \"Root\" {}");
 
         assert_eq!(fast_usd_requires_glb_preview(&path), Some(false));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_defers_small_time_sampled_usda() {
+        let (_dir, path) = write_usda(
+            "animated_xform.usda",
+            b"#usda 1.0\ndef Xform \"Root\" { double3 xformOp:translate.timeSamples = { 1: (0, 0, 0), 2: (1, 0, 0) } }",
+        );
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), None);
     }
 
     #[test]

@@ -35,6 +35,7 @@ mod stage_fields;
 mod stage_query;
 mod variants;
 mod xform;
+mod xform_animation;
 
 use super::asset_resolution::filter_resolvable_relative_assets;
 use super::backend::{UsdError, UsdGeometryBackend, UsdInspectBackend};
@@ -686,6 +687,15 @@ impl UsdInspectBackend for OpenusdBackend {
             })
             .map_err(|error| UsdError::Parse(error.to_string()))?;
         if *has_variants.borrow() {
+            return Ok(true);
+        }
+        // Single-layer USDA with a `.timeSamples` marker is routed here by
+        // the frontend only as a candidate. Inspect the composed stage before
+        // routing: supported candidates use bounded Xform baking, while an
+        // unsupported candidate still reaches extraction so its reason is
+        // surfaced instead of silently using a static JS pose.
+        let xform_detection = xform_animation::detect_stage_xform_animation(&stage);
+        if xform_detection.should_route_to_glb() || xform_detection.candidate {
             return Ok(true);
         }
         // Single self-contained USDA layer — USDLoader handles hierarchy

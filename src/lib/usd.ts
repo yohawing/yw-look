@@ -62,6 +62,10 @@ const USD_GLTF_BACKEND_KEYWORDS = [
   "PointInstancer",
   "variantSet",
 ].map((keyword) => new TextEncoder().encode(keyword));
+// A time-sampled xform must be composed by the USD backend before the GLB
+// route can expose it to the viewer. This is only a candidate marker: the
+// backend confirms that the samples belong to a supported xform op.
+const USD_XFORM_TIME_SAMPLES_MARKER = new TextEncoder().encode(".timeSamples");
 
 type UsdInvokeOptions = {
   background?: boolean;
@@ -309,6 +313,10 @@ function bytesRequireUsdGltfBackend(bytes: Uint8Array) {
   );
 }
 
+function bytesMayContainUsdXformAnimation(bytes: Uint8Array) {
+  return bytesInclude(bytes, USD_XFORM_TIME_SAMPLES_MARKER);
+}
+
 async function fastTextUsdRequiresGlbPreview(path: string) {
   const extension = extensionFromPath(path);
   if (extension === "usdc") {
@@ -330,6 +338,11 @@ async function fastTextUsdRequiresGlbPreview(path: string) {
     }
     if (bytesRequireUsdGltfBackend(prefix)) {
       return true;
+    }
+    if (bytesMayContainUsdXformAnimation(prefix)) {
+      // JS USDLoader can still handle ordinary single-layer static USDA. A
+      // sampled candidate needs the backend's authored-xform confirmation.
+      return isTauriEnvironment() ? null : false;
     }
     if (prefix.byteLength < USD_FAST_DECISION_SCAN_BYTES) {
       return false;

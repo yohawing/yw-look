@@ -16,6 +16,7 @@
 //!   - resolving UsdPreviewSurface inputs into `MaterialInput` scalars
 
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::mem::size_of;
 use std::time::Instant;
 
@@ -288,6 +289,42 @@ pub struct AnimationInput {
     /// vector at every time in `times`. Empty when the animation
     /// drives only skeleton joints.
     pub weight_channels: Vec<MorphWeightChannel>,
+}
+
+/// One non-skin node animation clip. Times are in seconds and every
+/// channel carries all three TRS streams so the animated node can start from
+/// the first baked sample without retaining a glTF `matrix` property.
+#[derive(Debug, Clone)]
+pub struct NodeAnimationInput {
+    /// Display name attached to the glTF animation.
+    pub name: String,
+    /// Sample times in seconds. These must be finite, non-negative, and
+    /// strictly increasing.
+    pub times: Vec<f32>,
+    /// Interpolation used by every channel in this clip.
+    pub interpolation: NodeAnimationInterpolation,
+    /// Node TRS channels in the `nodes` slice passed to `build_glb`.
+    pub channels: Vec<NodeTrsChannel>,
+}
+
+/// Interpolation mode for a non-skin node animation clip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeAnimationInterpolation {
+    Linear,
+    Step,
+}
+
+/// A complete baked TRS track for one `NodeInput`.
+#[derive(Debug, Clone)]
+pub struct NodeTrsChannel {
+    /// Index into the `nodes` slice passed to `build_glb`.
+    pub node_index: usize,
+    /// Time-major translation samples (`times.len() * 3`).
+    pub translations: Vec<f32>,
+    /// Time-major glTF quaternion samples (`times.len() * 4`, x/y/z/w).
+    pub rotations: Vec<f32>,
+    /// Time-major scale samples (`times.len() * 3`).
+    pub scales: Vec<f32>,
 }
 
 /// Phase 2.O: one mesh's morph-target weight timeline. glTF
@@ -823,6 +860,173 @@ fn uses_gpu_instancing(input: &InstancingInput) -> bool {
     })
 }
 
+fn validate_node_animations(
+    node_animations: &[NodeAnimationInput],
+    nodes: &[NodeInput],
+) -> Result<(), String> {
+    for (animation_index, animation) in node_animations.iter().enumerate() {
+        if animation.times.is_empty() {
+            return Err(format!(
+                "node_animation[{animation_index}] '{}' has no time samples",
+                animation.name
+            ));
+        }
+        for (time_index, &time) in animation.times.iter().enumerate() {
+            if !time.is_finite() || time < 0.0 {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' time[{time_index}] must be finite and non-negative",
+                    animation.name
+                ));
+            }
+            if let Some(&next_time) = animation.times.get(time_index + 1) {
+                if next_time <= time {
+                    return Err(format!(
+                        "node_animation[{animation_index}] '{}' times must be strictly increasing",
+                        animation.name
+                    ));
+                }
+            }
+        }
+        if animation.channels.is_empty() {
+            return Err(format!(
+                "node_animation[{animation_index}] '{}' has no channels",
+                animation.name
+            ));
+        }
+
+        let translation_len = animation.times.len().checked_mul(3).ok_or_else(|| {
+            format!(
+                "node_animation[{animation_index}] '{}' translation sample count overflows",
+                animation.name
+            )
+        })?;
+        let rotation_len = animation.times.len().checked_mul(4).ok_or_else(|| {
+            format!(
+                "node_animation[{animation_index}] '{}' rotation sample count overflows",
+                animation.name
+            )
+        })?;
+        let mut seen_nodes = HashSet::with_capacity(animation.channels.len());
+        for (channel_index, channel) in animation.channels.iter().enumerate() {
+            if channel.node_index >= nodes.len() {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] node_index {} is out of range (nodes.len={})",
+                    animation.name,
+                    channel.node_index,
+                    nodes.len()
+                ));
+            }
+            if !seen_nodes.insert(channel.node_index) {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' has duplicate track for node_index {}",
+                    animation.name, channel.node_index
+                ));
+            }
+            if channel.translations.len() != translation_len {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] translation length {} does not match expected {}",
+                    animation.name,
+                    channel.translations.len(),
+                    translation_len
+                ));
+            }
+            if channel.rotations.len() != rotation_len {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] rotation length {} does not match expected {}",
+                    animation.name,
+                    channel.rotations.len(),
+                    rotation_len
+                ));
+            }
+            if channel.scales.len() != translation_len {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] scale length {} does not match expected {}",
+                    animation.name,
+                    channel.scales.len(),
+                    translation_len
+                ));
+            }
+            if let Some(value_index) = channel
+                .translations
+                .iter()
+                .position(|value| !value.is_finite())
+            {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] translation[{value_index}] must be finite",
+                    animation.name
+                ));
+            }
+            if let Some(value_index) = channel.scales.iter().position(|value| !value.is_finite()) {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] scale[{value_index}] must be finite",
+                    animation.name
+                ));
+            }
+            for (sample_index, rotation) in channel.rotations.chunks_exact(4).enumerate() {
+                if rotation.iter().any(|value| !value.is_finite()) {
+                    return Err(format!(
+                        "node_animation[{animation_index}] '{}' channel[{channel_index}] rotation sample {sample_index} must be finite",
+                        animation.name
+                    ));
+                }
+                let norm_squared = rotation.iter().map(|value| value * value).sum::<f32>();
+                let norm = norm_squared.sqrt();
+                if !norm.is_finite() || norm <= f32::EPSILON || (norm - 1.0).abs() > 1e-3 {
+                    return Err(format!(
+                        "node_animation[{animation_index}] '{}' channel[{channel_index}] rotation sample {sample_index} must be a normalized quaternion",
+                        animation.name
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn first_node_animation_poses(
+    node_animations: &[NodeAnimationInput],
+    node_count: usize,
+) -> Vec<Option<([f32; 3], [f32; 4], [f32; 3])>> {
+    let mut initial_poses = vec![None; node_count];
+    for animation in node_animations {
+        for channel in &animation.channels {
+            if initial_poses[channel.node_index].is_none() {
+                initial_poses[channel.node_index] = Some((
+                    [
+                        channel.translations[0],
+                        channel.translations[1],
+                        channel.translations[2],
+                    ],
+                    [
+                        channel.rotations[0],
+                        channel.rotations[1],
+                        channel.rotations[2],
+                        channel.rotations[3],
+                    ],
+                    [channel.scales[0], channel.scales[1], channel.scales[2]],
+                ));
+            }
+        }
+    }
+    initial_poses
+}
+
+fn apply_node_animation_initial_pose(
+    node_json: &mut Value,
+    initial_pose: Option<([f32; 3], [f32; 4], [f32; 3])>,
+) {
+    let Some((translation, rotation, scale)) = initial_pose else {
+        return;
+    };
+    let Some(node_object) = node_json.as_object_mut() else {
+        return;
+    };
+    node_object.remove("matrix");
+    node_object.insert("translation".to_string(), json!(translation));
+    node_object.insert("rotation".to_string(), json!(rotation));
+    node_object.insert("scale".to_string(), json!(scale));
+}
+
 fn sanitized_vec3(value: [f32; 3], fallback: f32) -> [f32; 3] {
     value.map(|component| {
         component
@@ -1013,6 +1217,39 @@ pub fn build_glb(
     )
 }
 
+/// Build a GLB with baked TRS animations for non-skin `NodeInput`s. The
+/// arguments match [`build_glb`] with `node_animations` appended so existing
+/// callers can keep using the static or skin-animation entrypoint.
+#[allow(clippy::too_many_arguments)]
+pub fn build_glb_with_node_animations(
+    nodes: &[NodeInput],
+    meshes: &[MeshInput],
+    materials: &[MaterialInput],
+    textures: &[TextureInput],
+    skins: &[SkinInput],
+    animations: &[AnimationInput],
+    lights: &[LightInput],
+    cameras: &[CameraInput],
+    up_correction: Option<[f32; 16]>,
+    instancing: &[InstancingInput],
+    node_animations: &[NodeAnimationInput],
+) -> Result<Vec<u8>, String> {
+    build_glb_with_bin_capacity_and_node_animations(
+        nodes,
+        meshes,
+        materials,
+        textures,
+        skins,
+        animations,
+        lights,
+        cameras,
+        up_correction,
+        instancing,
+        node_animations,
+        None,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_glb_with_bin_capacity(
     nodes: &[NodeInput],
@@ -1025,6 +1262,37 @@ fn build_glb_with_bin_capacity(
     cameras: &[CameraInput],
     up_correction: Option<[f32; 16]>,
     instancing: &[InstancingInput],
+    bin_capacity_override: Option<usize>,
+) -> Result<Vec<u8>, String> {
+    build_glb_with_bin_capacity_and_node_animations(
+        nodes,
+        meshes,
+        materials,
+        textures,
+        skins,
+        animations,
+        lights,
+        cameras,
+        up_correction,
+        instancing,
+        &[],
+        bin_capacity_override,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_glb_with_bin_capacity_and_node_animations(
+    nodes: &[NodeInput],
+    meshes: &[MeshInput],
+    materials: &[MaterialInput],
+    textures: &[TextureInput],
+    skins: &[SkinInput],
+    animations: &[AnimationInput],
+    lights: &[LightInput],
+    cameras: &[CameraInput],
+    up_correction: Option<[f32; 16]>,
+    instancing: &[InstancingInput],
+    node_animations: &[NodeAnimationInput],
     bin_capacity_override: Option<usize>,
 ) -> Result<Vec<u8>, String> {
     let timing_enabled = glb_timing_enabled();
@@ -1116,6 +1384,12 @@ fn build_glb_with_bin_capacity(
     for m in meshes {
         m.validate()?;
     }
+    validate_node_animations(node_animations, nodes)?;
+    let node_animation_initial_poses = if node_animations.is_empty() {
+        Vec::new()
+    } else {
+        first_node_animation_poses(node_animations, nodes.len())
+    };
     // #41: validate instancing inputs
     for (i, inst) in instancing.iter().enumerate() {
         if inst.prototype_mesh_idx >= meshes.len() {
@@ -1161,6 +1435,10 @@ fn build_glb_with_bin_capacity(
     let mut gltf_meshes: Vec<Value> = Vec::new();
     let mut gltf_nodes: Vec<Value> = Vec::new();
     let mut scene_nodes: Vec<Value> = Vec::new();
+    // Filled by the hierarchy pass after the synthetic root and any joint
+    // nodes have been allocated. Node animation targets must use these
+    // absolute glTF indices rather than the caller's NodeInput indices.
+    let mut node_gltf_indices_for_animation: Option<Vec<usize>> = None;
     // Phase 2.O: map each MeshInput index to the glTF node index
     // that hosts it, so weight-animation channels can target the
     // right node with `path = "weights"`. A mesh without morph
@@ -2185,6 +2463,11 @@ fn build_glb_with_bin_capacity(
                 }
             };
 
+            let mut node_json = node_json;
+            apply_node_animation_initial_pose(
+                &mut node_json,
+                node_animation_initial_poses.get(ni_idx).copied().flatten(),
+            );
             gltf_nodes[gltf_idx] = node_json;
         }
 
@@ -2208,6 +2491,111 @@ fn build_glb_with_bin_capacity(
         }
         gltf_nodes[up_axis_gltf_idx] = up_axis_node;
         scene_nodes.push(json!(up_axis_gltf_idx));
+        if !node_animations.is_empty() {
+            node_gltf_indices_for_animation = Some(node_gltf_indices);
+        }
+    }
+
+    // ---- USD-ANIMATION-XFORM-01: non-skin node animations -----------
+    //
+    // NodeInput glTF indices are only known after the synthetic __upAxis
+    // root and any skin joint nodes have been allocated. Emit these clips
+    // after the hierarchy pass so targets always address the actual glTF
+    // nodes, including scenes that contain skins before the hierarchy.
+    if !node_animations.is_empty() {
+        let node_gltf_indices = node_gltf_indices_for_animation
+            .as_ref()
+            .ok_or_else(|| "node animations require a non-empty NodeInput hierarchy".to_string())?;
+        for node_animation in node_animations {
+            let (t_min, t_max) = node_animation
+                .times
+                .iter()
+                .copied()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), time| {
+                    (lo.min(time), hi.max(time))
+                });
+            let time_accessor = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(node_animation.times.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: None,
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: node_animation.times.len(),
+                    type_name: "SCALAR",
+                    normalized: false,
+                    byte_offset: None,
+                    min: Some(json!([t_min])),
+                    max: Some(json!([t_max])),
+                },
+                |binary| {
+                    for &time in &node_animation.times {
+                        binary.extend_from_slice(&time.to_le_bytes());
+                    }
+                },
+            )?;
+
+            let interpolation = match node_animation.interpolation {
+                NodeAnimationInterpolation::Linear => "LINEAR",
+                NodeAnimationInterpolation::Step => "STEP",
+            };
+            let mut samplers: Vec<Value> = Vec::new();
+            let mut channels: Vec<Value> = Vec::new();
+            let mut emit_channel = |samples: &[f32],
+                                    stride: usize,
+                                    path: &str,
+                                    node_idx: usize|
+             -> Result<(), String> {
+                let accessor_idx = append_accessor_with(
+                    &mut bin,
+                    &mut buffer_views,
+                    &mut accessors,
+                    checked_binary_byte_length(samples.len(), size_of::<f32>())?,
+                    AccessorSpec {
+                        target: None,
+                        component_type: COMPONENT_TYPE_FLOAT,
+                        count: samples.len() / stride,
+                        type_name: if stride == 4 { "VEC4" } else { "VEC3" },
+                        normalized: false,
+                        byte_offset: None,
+                        min: None,
+                        max: None,
+                    },
+                    |binary| {
+                        for &value in samples {
+                            binary.extend_from_slice(&value.to_le_bytes());
+                        }
+                    },
+                )?;
+                let sampler_idx = samplers.len();
+                samplers.push(json!({
+                    "input": time_accessor,
+                    "output": accessor_idx,
+                    "interpolation": interpolation,
+                }));
+                channels.push(json!({
+                    "sampler": sampler_idx,
+                    "target": {
+                        "node": node_idx,
+                        "path": path,
+                    },
+                }));
+                Ok(())
+            };
+
+            for channel in &node_animation.channels {
+                let node_idx = node_gltf_indices[channel.node_index];
+                emit_channel(&channel.translations, 3, "translation", node_idx)?;
+                emit_channel(&channel.rotations, 4, "rotation", node_idx)?;
+                emit_channel(&channel.scales, 3, "scale", node_idx)?;
+            }
+            gltf_animations.push(json!({
+                "name": node_animation.name,
+                "samplers": samplers,
+                "channels": channels,
+            }));
+        }
     }
 
     // ---- Phase 7a: KHR_lights_punctual -----------------------------
@@ -2826,6 +3214,53 @@ mod tests {
         let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let bin_header = 20 + json_chunk_len;
         u32::from_le_bytes(glb[bin_header..bin_header + 4].try_into().unwrap()) as usize
+    }
+
+    fn accessor_f32(doc: &serde_json::Value, glb: &[u8], accessor_index: usize) -> Vec<f32> {
+        let accessor = &doc["accessors"][accessor_index];
+        let view_index = accessor["bufferView"]
+            .as_u64()
+            .expect("accessor bufferView") as usize;
+        let view = &doc["bufferViews"][view_index];
+        let view_offset = view["byteOffset"].as_u64().unwrap_or(0) as usize;
+        let accessor_offset = accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+        let count = accessor["count"].as_u64().expect("accessor count") as usize;
+        let components = match accessor["type"].as_str().expect("accessor type") {
+            "SCALAR" => 1,
+            "VEC3" => 3,
+            "VEC4" => 4,
+            other => panic!("unsupported test accessor type {other}"),
+        };
+        let bin_start = 20 + u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize + 8;
+        let start = bin_start + view_offset + accessor_offset;
+        (0..count * components)
+            .map(|index| {
+                let offset = start + index * size_of::<f32>();
+                f32::from_le_bytes(glb[offset..offset + 4].try_into().unwrap())
+            })
+            .collect()
+    }
+
+    fn node_animation_fixture(animation: NodeAnimationInput) -> Result<Vec<u8>, String> {
+        let nodes = vec![NodeInput::group(
+            "/Animated".to_string(),
+            "Animated".to_string(),
+            None,
+            identity_matrix(),
+        )];
+        build_glb_with_node_animations(
+            &nodes,
+            &[],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &[animation],
+        )
     }
 
     #[test]
@@ -3451,5 +3886,195 @@ mod tests {
         let meshes_arr = doc["meshes"].as_array().expect("meshes array");
         assert_eq!(meshes_arr[0]["primitives"][0]["material"], 0);
         assert_eq!(meshes_arr[1]["primitives"][0]["material"], 1);
+    }
+
+    #[test]
+    fn node_animation_targets_actual_node_after_synthetic_root_and_skin_joints() {
+        let nodes = vec![
+            NodeInput::group(
+                "/Root".to_string(),
+                "Root".to_string(),
+                None,
+                identity_matrix(),
+            ),
+            NodeInput::group(
+                "/Root/Animated".to_string(),
+                "Animated".to_string(),
+                Some(0),
+                [
+                    1.0, 0.0, 0.0, 0.0, // matrix must be replaced by initial TRS
+                    0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 8.0, 0.0, 0.0, 1.0,
+                ],
+            ),
+        ];
+        let skins = vec![SkinInput {
+            name: "skin".to_string(),
+            joint_names: vec!["Joint".to_string()],
+            parents: vec![None],
+            rest_local_matrices: vec![identity_matrix()],
+            inverse_bind_matrices: vec![identity_matrix()],
+            skel_root_matrix: None,
+        }];
+        let node_animation = NodeAnimationInput {
+            name: "xform_step".to_string(),
+            times: vec![0.0, 1.0],
+            interpolation: NodeAnimationInterpolation::Step,
+            channels: vec![NodeTrsChannel {
+                node_index: 1,
+                translations: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                rotations: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.70710677, 0.70710677],
+                scales: vec![1.0, 1.0, 1.0, 2.0, 2.0, 2.0],
+            }],
+        };
+
+        let glb = build_glb_with_node_animations(
+            &nodes,
+            &[],
+            &default_materials(),
+            &[],
+            &skins,
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &[node_animation],
+        )
+        .expect("build node animation glb");
+        let doc = glb_json(&glb);
+
+        // Skin joint = 0, synthetic __upAxis = 1, Root = 2, Animated = 3.
+        let animated_node = &doc["nodes"][3];
+        assert!(animated_node.get("matrix").is_none());
+        assert_eq!(animated_node["translation"], json!([1.0, 2.0, 3.0]));
+        assert_eq!(animated_node["rotation"], json!([0.0, 0.0, 0.0, 1.0]));
+        assert_eq!(animated_node["scale"], json!([1.0, 1.0, 1.0]));
+
+        let animation = &doc["animations"][0];
+        assert_eq!(animation["name"], "xform_step");
+        assert_eq!(animation["samplers"].as_array().unwrap().len(), 3);
+        assert_eq!(animation["channels"][0]["target"]["node"], 3);
+        assert_eq!(animation["channels"][0]["target"]["path"], "translation");
+        assert_eq!(animation["channels"][1]["target"]["path"], "rotation");
+        assert_eq!(animation["channels"][2]["target"]["path"], "scale");
+        for sampler in animation["samplers"].as_array().unwrap() {
+            assert_eq!(sampler["interpolation"], "STEP");
+            assert_eq!(
+                accessor_f32(&doc, &glb, sampler["input"].as_u64().unwrap() as usize),
+                vec![0.0, 1.0]
+            );
+        }
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                animation["samplers"][0]["output"].as_u64().unwrap() as usize
+            ),
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        );
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                animation["samplers"][1]["output"].as_u64().unwrap() as usize
+            ),
+            vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.70710677, 0.70710677]
+        );
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                animation["samplers"][2]["output"].as_u64().unwrap() as usize
+            ),
+            vec![1.0, 1.0, 1.0, 2.0, 2.0, 2.0]
+        );
+    }
+
+    #[test]
+    fn build_glb_with_empty_node_animations_is_byte_identical() {
+        let nodes = vec![NodeInput::group(
+            "/Static".to_string(),
+            "Static".to_string(),
+            None,
+            identity_matrix(),
+        )];
+        let old = build_glb(
+            &nodes,
+            &[],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build static glb");
+        let additive = build_glb_with_node_animations(
+            &nodes,
+            &[],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &[],
+        )
+        .expect("build static glb through additive entrypoint");
+        assert_eq!(old, additive);
+    }
+
+    #[test]
+    fn rejects_malformed_node_animation_tracks() {
+        let valid_channel = || NodeTrsChannel {
+            node_index: 0,
+            translations: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            rotations: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            scales: vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        };
+        let valid = || NodeAnimationInput {
+            name: "invalid".to_string(),
+            times: vec![0.0, 1.0],
+            interpolation: NodeAnimationInterpolation::Linear,
+            channels: vec![valid_channel()],
+        };
+
+        let mut cases = Vec::new();
+        let mut no_times = valid();
+        no_times.times.clear();
+        cases.push((no_times, "no time samples"));
+        let mut no_channels = valid();
+        no_channels.channels.clear();
+        cases.push((no_channels, "no channels"));
+        let mut bad_length = valid();
+        bad_length.channels[0].scales.pop();
+        cases.push((bad_length, "scale length"));
+        let mut bad_index = valid();
+        bad_index.channels[0].node_index = 1;
+        cases.push((bad_index, "out of range"));
+        let mut bad_time = valid();
+        bad_time.times = vec![1.0, 1.0];
+        cases.push((bad_time, "strictly increasing"));
+        let mut bad_negative_time = valid();
+        bad_negative_time.times[0] = -0.1;
+        cases.push((bad_negative_time, "non-negative"));
+        let mut bad_finite = valid();
+        bad_finite.channels[0].translations[0] = f32::NAN;
+        cases.push((bad_finite, "must be finite"));
+        let mut bad_quaternion = valid();
+        bad_quaternion.channels[0].rotations[3] = 0.5;
+        cases.push((bad_quaternion, "normalized quaternion"));
+        let mut duplicate = valid();
+        duplicate.channels.push(valid_channel());
+        cases.push((duplicate, "duplicate track"));
+
+        for (animation, expected_error) in cases {
+            let error = node_animation_fixture(animation).expect_err(expected_error);
+            assert!(error.contains(expected_error), "{error}");
+        }
     }
 }

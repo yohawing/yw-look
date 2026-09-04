@@ -34,6 +34,7 @@ use super::skel_adapter::{
 use super::stage_fields::ValidatedStagePathExt;
 use super::stage_query::{self, UpAxis};
 use super::xform::compose_world_xform;
+use super::xform_animation::build_node_animation;
 use super::LEGACY_TRAVERSE_PREDICATE;
 // ---------------------------------------------------------------------------
 // Free function: the actual geometry-extraction pipeline, callable from both
@@ -561,7 +562,11 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
             .copied();
     }
 
-    glb::build_glb(
+    let node_animations = build_node_animation(&stage, &node_tree)?
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    glb::build_glb_with_node_animations(
         &node_tree,
         &inputs,
         &materials,
@@ -572,6 +577,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         &cameras,
         up_correction_f32,
         &instancing,
+        &node_animations,
     )
     .map_err(UsdError::Parse)
 }

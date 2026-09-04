@@ -202,6 +202,22 @@ describe("requiresGlbPreview fast text decision", () => {
     expect(mockInvoke).not.toHaveBeenCalled();
   });
 
+  it("asks the backend to confirm time-sampled xform candidates", async () => {
+    readBinaryFilePrefixMock.mockResolvedValueOnce(
+      encoded(
+        '#usda 1.0\ndef Xform "Animated" {\n  double3 xformOp:translate.timeSamples = { 1: (0, 0, 0), 2: (1, 0, 0) }\n}',
+      ),
+    );
+    mockInvoke.mockResolvedValueOnce(true);
+
+    await expect(
+      requiresGlbPreview("C:\\assets\\animated_xform.usda"),
+    ).resolves.toBe(true);
+    expect(mockInvoke).toHaveBeenCalledWith("requires_glb_preview", {
+      path: "C:\\assets\\animated_xform.usda",
+    });
+  });
+
   it("decides small plain USDA files from the prefix without decoding the whole file", async () => {
     readBinaryFilePrefixMock.mockResolvedValueOnce(
       encoded("#usda 1.0\ndef Xform {}"),
