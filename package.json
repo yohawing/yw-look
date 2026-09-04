@@ -53,7 +53,7 @@
     "test:viewport-state-snapshot": "node scripts/viewport-state-snapshot.mjs",
     "test:viewport-state-snapshot:update": "node scripts/viewport-state-snapshot.mjs --update-snapshot",
     "test:usd-stateful-regression": "node scripts/usd-stateful-regression.mjs",
-    "test:usd-stateful-regression:unit": "node --test scripts/usd-stateful-regression.test.mjs",
+    "test:usd-stateful-regression:unit": "node --test scripts/usd-stateful-regression.test.mjs scripts/usd-stateful-glb.test.mjs",
     "profile:sidebar-isolation": "node scripts/profile-sidebar-render-isolation.mjs",
     "local-assets:collect": "node scripts/collect-local-assets.mjs",
     "local-assets:check": "node scripts/local-asset-load-check.mjs",

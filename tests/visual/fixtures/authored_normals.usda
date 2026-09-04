@@ -1,0 +1,46 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    upAxis = "Y"
+    metersPerUnit = 1.0
+    doc = "Self-authored regression fixture: a visible quad carries tilted vertex normals unrelated to its geometric normal."
+)
+
+def Xform "Root" (
+    kind = "component"
+)
+{
+    def Mesh "AuthoredTiltedQuad" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [
+            (-1.6, 0, -1), (1.6, 0, -1), (1.2, 0, 1), (-1.2, 0, 1)
+        ]
+        normal3f[] normals = [
+            (0, 0.6, 0.8), (0, 0.6, 0.8), (0, 0.6, 0.8), (0, 0.6, 0.8)
+        ] (
+            interpolation = "vertex"
+        )
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </Root/Looks/NormalsMat>
+    }
+
+    def Scope "Looks"
+    {
+        def Material "NormalsMat"
+        {
+            token outputs:surface.connect = </Root/Looks/NormalsMat/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.72, 0.72, 0.72)
+                float inputs:roughness = 0.45
+                token outputs:surface
+            }
+        }
+    }
+}

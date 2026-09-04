@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodePngPixels, comparePixels } from "./pngPixels.mjs";
 import { runChildProcess } from "./processRunner.mjs";
+import { verifyGlbFeatures } from "./usd-stateful-glb.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -24,6 +25,12 @@ const snapshotDir = path.join(repoRoot, "tests/visual/snapshots/usd-stateful");
 const imageSize = { width: 384, height: 288 };
 const usage = `usage: npm run test:usd-stateful-regression -- [--case <id>] [--update-snapshot] [--list] [--shot-binary <path>]`;
 const caseRelationships = new Set(["payload", "independent"]);
+const glbProfiles = new Set([
+  "material-subsets",
+  "authored-normals",
+  "skinning",
+  "point-instancer",
+]);
 const approvedExpectedFailures = new Set([
   "extraction\u0000USD_INVALID_VARIANT_SELECTION",
   "adapter\u0000USD_STATEFUL_TIMECODE_UNSUPPORTED",
@@ -168,6 +175,11 @@ export function validateScenarioCases(cases) {
         !Array.isArray(capture.expectedDiagnostics)
       )
         fail(`expectedDiagnostics must be an array: ${capture.id}`);
+      if (
+        capture.glbProfile !== undefined &&
+        !glbProfiles.has(capture.glbProfile)
+      )
+        fail(`unsupported glbProfile: ${capture.glbProfile}`);
       validateExpectedFailure(capture.expectedFailure, capture.id);
     }
   }
@@ -334,6 +346,15 @@ async function render(captures, shotBinary) {
 
 export async function validateSnapshots(captures, update) {
   for (const capture of captures) {
+    const glb = await readFile(capture.glbPath);
+    if (capture.glbProfile !== undefined) {
+      try {
+        verifyGlbFeatures(capture.glbProfile, glb);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        fail(`GLB feature verification failed: ${capture.id}: ${detail}`);
+      }
+    }
     if (!(await exists(capture.pngPath)))
       fail(`shot output is missing: ${capture.pngPath}`);
     const actual = await readFile(capture.pngPath);
@@ -347,7 +368,7 @@ export async function validateSnapshots(captures, update) {
       requireBaseline(false, capture.snapshotPath);
     }
     capture.png = actual;
-    capture.glb = await readFile(capture.glbPath);
+    capture.glb = glb;
   }
 }
 
@@ -429,6 +450,11 @@ async function main() {
         path.dirname(scenarioPath),
         scenarioCase.stagePath,
       ),
+      captures: scenarioCase.captures.map((capture) => {
+        const extractorCapture = { ...capture };
+        delete extractorCapture.glbProfile;
+        return extractorCapture;
+      }),
     })),
   };
   const extractorScenarioPath = path.join(outputDir, "selected-scenario.json");
@@ -459,6 +485,7 @@ async function main() {
       );
       return {
         ...actual,
+        glbProfile: capture.glbProfile,
         status: record.status,
         pngPath: path.join(outputDir, `${capture.id}.png`),
         snapshotPath: path.join(snapshotDir, `${capture.id}.png`),

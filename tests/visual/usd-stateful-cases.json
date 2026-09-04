@@ -80,6 +80,70 @@
           }
         }
       ]
+    },
+    {
+      "id": "material-subsets-independent",
+      "relationship": "independent",
+      "stagePath": "fixtures/material_subsets.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "material-subsets",
+          "glbProfile": "material-subsets",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    },
+    {
+      "id": "authored-normals-independent",
+      "relationship": "independent",
+      "stagePath": "fixtures/authored_normals.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "authored-normals",
+          "glbProfile": "authored-normals",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    },
+    {
+      "id": "skinning-independent",
+      "relationship": "independent",
+      "stagePath": "../../samples/assets/usd/tiny_rigged.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "skinning-bind",
+          "glbProfile": "skinning",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    },
+    {
+      "id": "point-instancer-independent",
+      "relationship": "independent",
+      "stagePath": "../../samples/assets/usd/tiny_point_instancer.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "instancer-static",
+          "glbProfile": "point-instancer",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
     }
   ]
 }

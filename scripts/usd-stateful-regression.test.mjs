@@ -316,6 +316,47 @@ test("XPASS is rejected before update mode can touch the capture gate", async ()
   assert.deepEqual(calls, []);
 });
 
+test("semantic GLB verification fails before update mode can write a baseline", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "yw-look-usd-stateful-glb-"),
+  );
+  try {
+    const capture = {
+      id: "semantic-failure",
+      status: "PASS",
+      glbProfile: "authored-normals",
+      glbPath: path.join(tempDir, "capture.glb"),
+      pngPath: path.join(tempDir, "capture.png"),
+      snapshotPath: path.join(tempDir, "capture-baseline.png"),
+    };
+    await writeFile(capture.glbPath, Buffer.from("not-a-glb"));
+    const calls = [];
+    await assert.rejects(
+      () =>
+        runCaptureGate(
+          [capture],
+          [
+            {
+              id: "independent",
+              relationship: "independent",
+              captures: [{ id: capture.id }],
+            },
+          ],
+          { update: true, shotBinary: null },
+          {
+            render: async (passing) =>
+              writeFile(passing[0].pngPath, png(384, 288)),
+            updateSnapshots: async () => calls.push("update"),
+          },
+        ),
+      /GLB feature verification failed: semantic-failure/,
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("missing baseline fails normally and update creates it", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "yw-look-usd-stateful-"),
