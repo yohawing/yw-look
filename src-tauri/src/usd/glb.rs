@@ -19,6 +19,10 @@ use serde_json::{json, Value};
 use std::mem::size_of;
 use std::time::Instant;
 
+use crate::preview::glb::{
+    append_accessor_with, append_buffer_view_with, checked_binary_byte_length, AccessorSpec,
+};
+
 fn glb_timing_enabled() -> bool {
     std::env::var_os("YW_LOOK_USD_TIMING").is_some()
 }
@@ -753,11 +757,6 @@ fn vec3_min_max(data: &[f32]) -> ([f32; 3], [f32; 3]) {
     (min, max)
 }
 
-const GLB_MAGIC: u32 = 0x46546C67; // "glTF"
-const GLB_VERSION: u32 = 2;
-const CHUNK_TYPE_JSON: u32 = 0x4E4F534A; // "JSON"
-const CHUNK_TYPE_BIN: u32 = 0x004E4942; // "BIN\0"
-
 const COMPONENT_TYPE_FLOAT: u32 = 5126;
 const COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
 
@@ -1170,59 +1169,56 @@ fn build_glb_with_bin_capacity(
     let mut mesh_node_indices: Vec<usize> = Vec::with_capacity(meshes.len());
 
     for (mesh_idx, mesh) in meshes.iter().enumerate() {
-        let vertex_count = mesh.vertex_count() as u64;
-        let index_count = mesh.indices.len() as u64;
+        let vertex_count = mesh.vertex_count();
+        let index_count = mesh.indices.len();
 
         // -- positions ---------------------------------------------------
-        let pos_offset = bin.len() as u64;
-        for &v in &mesh.positions {
-            bin.extend_from_slice(&v.to_le_bytes());
-        }
-        let pos_byte_length = (bin.len() as u64) - pos_offset;
-        pad_to_4(&mut bin);
-
-        let position_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": pos_offset,
-            "byteLength": pos_byte_length,
-            "target": 34962, // ARRAY_BUFFER
-        }));
-
         let (pmin, pmax) = mesh.position_bounds();
-        let position_accessor_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": position_view_idx,
-            "componentType": COMPONENT_TYPE_FLOAT,
-            "count": vertex_count,
-            "type": "VEC3",
-            "min": [pmin[0], pmin[1], pmin[2]],
-            "max": [pmax[0], pmax[1], pmax[2]],
-        }));
+        let position_accessor_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(mesh.positions.len(), size_of::<f32>())?,
+            AccessorSpec {
+                target: Some(34962), // ARRAY_BUFFER
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: vertex_count,
+                type_name: "VEC3",
+                normalized: false,
+                byte_offset: None,
+                min: Some(json!([pmin[0], pmin[1], pmin[2]])),
+                max: Some(json!([pmax[0], pmax[1], pmax[2]])),
+            },
+            |binary| {
+                for &v in &mesh.positions {
+                    binary.extend_from_slice(&v.to_le_bytes());
+                }
+            },
+        )?;
 
         // -- normals (optional) ------------------------------------------
         let normal_accessor_idx = if let Some(normals) = &mesh.normals {
-            let off = bin.len() as u64;
-            for &v in normals {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-                "target": 34962,
-            }));
-            let acc_idx = accessors.len();
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": vertex_count,
-                "type": "VEC3",
-            }));
+            let acc_idx = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(normals.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: Some(34962),
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: vertex_count,
+                    type_name: "VEC3",
+                    normalized: false,
+                    byte_offset: None,
+                    min: None,
+                    max: None,
+                },
+                |binary| {
+                    for &v in normals {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                },
+            )?;
             Some(acc_idx)
         } else {
             None
@@ -1230,77 +1226,78 @@ fn build_glb_with_bin_capacity(
 
         // -- uvs (optional) ----------------------------------------------
         let uv_accessor_idx = if let Some(uvs) = &mesh.uvs {
-            let off = bin.len() as u64;
-            for &v in uvs {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-                "target": 34962,
-            }));
-            let acc_idx = accessors.len();
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": vertex_count,
-                "type": "VEC2",
-            }));
+            let acc_idx = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(uvs.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: Some(34962),
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: vertex_count,
+                    type_name: "VEC2",
+                    normalized: false,
+                    byte_offset: None,
+                    min: None,
+                    max: None,
+                },
+                |binary| {
+                    for &v in uvs {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                },
+            )?;
             Some(acc_idx)
         } else {
             None
         };
 
         // -- indices -----------------------------------------------------
-        let idx_offset = bin.len() as u64;
-        for &i in &mesh.indices {
-            bin.extend_from_slice(&i.to_le_bytes());
-        }
-        let idx_byte_length = (bin.len() as u64) - idx_offset;
-        pad_to_4(&mut bin);
-
-        let index_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": idx_offset,
-            "byteLength": idx_byte_length,
-            "target": 34963, // ELEMENT_ARRAY_BUFFER
-        }));
-        let index_accessor_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": index_view_idx,
-            "componentType": COMPONENT_TYPE_UNSIGNED_INT,
-            "count": index_count,
-            "type": "SCALAR",
-        }));
+        let index_accessor_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(mesh.indices.len(), size_of::<u32>())?,
+            AccessorSpec {
+                target: Some(34963), // ELEMENT_ARRAY_BUFFER
+                component_type: COMPONENT_TYPE_UNSIGNED_INT,
+                count: index_count,
+                type_name: "SCALAR",
+                normalized: false,
+                byte_offset: None,
+                min: None,
+                max: None,
+            },
+            |binary| {
+                for &i in &mesh.indices {
+                    binary.extend_from_slice(&i.to_le_bytes());
+                }
+            },
+        )?;
 
         // -- vertex colors (per-vertex displayColor) ----------------------
         let color_accessor_idx = if let Some(colors) = &mesh.colors {
-            let off = bin.len() as u64;
-            for &v in colors {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-                "target": 34962,
-            }));
-            let acc_idx = accessors.len();
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": vertex_count,
-                "type": "VEC4",
-            }));
+            let acc_idx = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(colors.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: Some(34962),
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: vertex_count,
+                    type_name: "VEC4",
+                    normalized: false,
+                    byte_offset: None,
+                    min: None,
+                    max: None,
+                },
+                |binary| {
+                    for &v in colors {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                },
+            )?;
             Some(acc_idx)
         } else {
             None
@@ -1311,48 +1308,50 @@ fn build_glb_with_bin_capacity(
             match (mesh.joint_indices.as_ref(), mesh.joint_weights.as_ref()) {
                 (Some(joint_idx), Some(joint_w)) => {
                     // JOINTS_0: VEC4 of unsigned shorts (component 5123).
-                    let off_j = bin.len() as u64;
-                    for &v in joint_idx {
-                        bin.extend_from_slice(&v.to_le_bytes());
-                    }
-                    let len_j = (bin.len() as u64) - off_j;
-                    pad_to_4(&mut bin);
-                    let view_j = buffer_views.len();
-                    buffer_views.push(json!({
-                        "buffer": 0,
-                        "byteOffset": off_j,
-                        "byteLength": len_j,
-                        "target": 34962,
-                    }));
-                    let acc_j = accessors.len();
-                    accessors.push(json!({
-                        "bufferView": view_j,
-                        "componentType": 5123, // UNSIGNED_SHORT
-                        "count": vertex_count,
-                        "type": "VEC4",
-                    }));
+                    let acc_j = append_accessor_with(
+                        &mut bin,
+                        &mut buffer_views,
+                        &mut accessors,
+                        checked_binary_byte_length(joint_idx.len(), size_of::<u16>())?,
+                        AccessorSpec {
+                            target: Some(34962),
+                            component_type: 5123, // UNSIGNED_SHORT
+                            count: vertex_count,
+                            type_name: "VEC4",
+                            normalized: false,
+                            byte_offset: None,
+                            min: None,
+                            max: None,
+                        },
+                        |binary| {
+                            for &v in joint_idx {
+                                binary.extend_from_slice(&v.to_le_bytes());
+                            }
+                        },
+                    )?;
 
                     // WEIGHTS_0: VEC4 of FLOAT.
-                    let off_w = bin.len() as u64;
-                    for &v in joint_w {
-                        bin.extend_from_slice(&v.to_le_bytes());
-                    }
-                    let len_w = (bin.len() as u64) - off_w;
-                    pad_to_4(&mut bin);
-                    let view_w = buffer_views.len();
-                    buffer_views.push(json!({
-                        "buffer": 0,
-                        "byteOffset": off_w,
-                        "byteLength": len_w,
-                        "target": 34962,
-                    }));
-                    let acc_w = accessors.len();
-                    accessors.push(json!({
-                        "bufferView": view_w,
-                        "componentType": COMPONENT_TYPE_FLOAT,
-                        "count": vertex_count,
-                        "type": "VEC4",
-                    }));
+                    let acc_w = append_accessor_with(
+                        &mut bin,
+                        &mut buffer_views,
+                        &mut accessors,
+                        checked_binary_byte_length(joint_w.len(), size_of::<f32>())?,
+                        AccessorSpec {
+                            target: Some(34962),
+                            component_type: COMPONENT_TYPE_FLOAT,
+                            count: vertex_count,
+                            type_name: "VEC4",
+                            normalized: false,
+                            byte_offset: None,
+                            min: None,
+                            max: None,
+                        },
+                        |binary| {
+                            for &v in joint_w {
+                                binary.extend_from_slice(&v.to_le_bytes());
+                            }
+                        },
+                    )?;
                     (Some(acc_j), Some(acc_w))
                 }
                 _ => (None, None),
@@ -1388,32 +1387,31 @@ fn build_glb_with_bin_capacity(
         for target in &mesh.morph_targets {
             // Validation already confirmed target.position_offsets.len()
             // == vertex_count * 3, so we can embed it as-is.
-            let view = buffer_views.len();
-            let off = bin.len() as u64;
-            for f in &target.position_offsets {
-                bin.extend_from_slice(&f.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-                "target": 34962, // ARRAY_BUFFER
-            }));
             // Per the glTF spec, morph target accessors must carry
             // `min` / `max` so renderers can compute a tight
             // bounding volume for the deformed mesh; we supply them.
             let (min, max) = vec3_min_max(&target.position_offsets);
-            let acc = accessors.len();
-            accessors.push(json!({
-                "bufferView": view,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": vertex_count,
-                "type": "VEC3",
-                "min": [min[0], min[1], min[2]],
-                "max": [max[0], max[1], max[2]],
-            }));
+            let acc = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(target.position_offsets.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: Some(34962), // ARRAY_BUFFER
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: vertex_count,
+                    type_name: "VEC3",
+                    normalized: false,
+                    byte_offset: None,
+                    min: Some(json!([min[0], min[1], min[2]])),
+                    max: Some(json!([max[0], max[1], max[2]])),
+                },
+                |binary| {
+                    for &f in &target.position_offsets {
+                        binary.extend_from_slice(&f.to_le_bytes());
+                    }
+                },
+            )?;
             morph_target_json.push(json!({
                 "POSITION": acc,
             }));
@@ -1601,27 +1599,32 @@ fn build_glb_with_bin_capacity(
 
         // Inverse bind matrices accessor: one VEC4 mat4 per joint,
         // 16 floats each, FLOAT componentType.
-        let off = bin.len() as u64;
-        for matrix in &skin.inverse_bind_matrices {
-            for &v in matrix {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-        }
-        let len = (bin.len() as u64) - off;
-        pad_to_4(&mut bin);
-        let view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": off,
-            "byteLength": len,
-        }));
-        let ibm_accessor_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": view_idx,
-            "componentType": COMPONENT_TYPE_FLOAT,
-            "count": joint_count,
-            "type": "MAT4",
-        }));
+        let ibm_accessor_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(
+                checked_binary_byte_length(skin.inverse_bind_matrices.len(), 16)?,
+                size_of::<f32>(),
+            )?,
+            AccessorSpec {
+                target: None,
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: joint_count,
+                type_name: "MAT4",
+                normalized: false,
+                byte_offset: None,
+                min: None,
+                max: None,
+            },
+            |binary| {
+                for matrix in &skin.inverse_bind_matrices {
+                    for &v in matrix {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                }
+            },
+        )?;
 
         let mut skin_obj = json!({
             "name": skin.name,
@@ -1649,18 +1652,6 @@ fn build_glb_with_bin_capacity(
     let mut gltf_animations: Vec<Value> = Vec::with_capacity(animations.len());
     for animation in animations {
         // Time accessor (shared across every channel).
-        let time_off = bin.len() as u64;
-        for &t in &animation.times {
-            bin.extend_from_slice(&t.to_le_bytes());
-        }
-        let time_len = (bin.len() as u64) - time_off;
-        pad_to_4(&mut bin);
-        let time_view = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": time_off,
-            "byteLength": time_len,
-        }));
         // glTF requires `min` / `max` for animation input accessors.
         let (t_min, t_max) = animation
             .times
@@ -1669,15 +1660,27 @@ fn build_glb_with_bin_capacity(
             .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), t| {
                 (lo.min(t), hi.max(t))
             });
-        let time_accessor = accessors.len();
-        accessors.push(json!({
-            "bufferView": time_view,
-            "componentType": COMPONENT_TYPE_FLOAT,
-            "count": animation.times.len(),
-            "type": "SCALAR",
-            "min": [t_min],
-            "max": [t_max],
-        }));
+        let time_accessor = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(animation.times.len(), size_of::<f32>())?,
+            AccessorSpec {
+                target: None,
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: animation.times.len(),
+                type_name: "SCALAR",
+                normalized: false,
+                byte_offset: None,
+                min: Some(json!([t_min])),
+                max: Some(json!([t_max])),
+            },
+            |binary| {
+                for &t in &animation.times {
+                    binary.extend_from_slice(&t.to_le_bytes());
+                }
+            },
+        )?;
 
         let mut samplers: Vec<Value> = Vec::new();
         let mut channels: Vec<Value> = Vec::new();
@@ -1693,27 +1696,30 @@ fn build_glb_with_bin_capacity(
                                 joint_idx: usize,
                                 samples: &[f32],
                                 stride: usize,
-                                path: &str| {
-            let off = bin.len() as u64;
-            for &v in samples {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(bin);
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-            }));
-            let acc_idx = accessors.len();
+                                path: &str|
+         -> Result<(), String> {
             let count = samples.len() / stride;
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": count,
-                "type": if stride == 4 { "VEC4" } else { "VEC3" },
-            }));
+            let acc_idx = append_accessor_with(
+                bin,
+                buffer_views,
+                accessors,
+                checked_binary_byte_length(samples.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: None,
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count,
+                    type_name: if stride == 4 { "VEC4" } else { "VEC3" },
+                    normalized: false,
+                    byte_offset: None,
+                    min: None,
+                    max: None,
+                },
+                |binary| {
+                    for &v in samples {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                },
+            )?;
             let sampler_idx = samplers.len();
             samplers.push(json!({
                 "input": time_accessor,
@@ -1724,9 +1730,10 @@ fn build_glb_with_bin_capacity(
                 "sampler": sampler_idx,
                 "target": {
                     "node": joint_nodes[joint_idx],
-                    "path": path,
+                "path": path,
                 },
             }));
+            Ok(())
         };
 
         for (joint_idx, samples) in animation.translations.iter().enumerate() {
@@ -1739,7 +1746,7 @@ fn build_glb_with_bin_capacity(
                     samples,
                     3,
                     "translation",
-                );
+                )?;
             }
         }
         for (joint_idx, samples) in animation.rotations.iter().enumerate() {
@@ -1752,7 +1759,7 @@ fn build_glb_with_bin_capacity(
                     samples,
                     4,
                     "rotation",
-                );
+                )?;
             }
         }
         for (joint_idx, samples) in animation.scales.iter().enumerate() {
@@ -1765,7 +1772,7 @@ fn build_glb_with_bin_capacity(
                     samples,
                     3,
                     "scale",
-                );
+                )?;
             }
         }
 
@@ -1790,28 +1797,34 @@ fn build_glb_with_bin_capacity(
             // count is frames × targets (glTF spec). When sample
             // counts don't line up we drop the channel rather than
             // emitting garbage.
-            if wc.weights.len() != animation.times.len() * target_count {
+            let Some(expected_weight_count) = animation.times.len().checked_mul(target_count)
+            else {
+                continue;
+            };
+            if wc.weights.len() != expected_weight_count {
                 continue;
             }
-            let off = bin.len() as u64;
-            for &w in &wc.weights {
-                bin.extend_from_slice(&w.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-            }));
-            let acc_idx = accessors.len();
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": wc.weights.len(),
-                "type": "SCALAR",
-            }));
+            let acc_idx = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(wc.weights.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: None,
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: wc.weights.len(),
+                    type_name: "SCALAR",
+                    normalized: false,
+                    byte_offset: None,
+                    min: None,
+                    max: None,
+                },
+                |binary| {
+                    for &w in &wc.weights {
+                        binary.extend_from_slice(&w.to_le_bytes());
+                    }
+                },
+            )?;
             let sampler_idx = samplers.len();
             samplers.push(json!({
                 "input": time_accessor,
@@ -1846,17 +1859,13 @@ fn build_glb_with_bin_capacity(
     let mut gltf_images: Vec<Value> = Vec::with_capacity(textures.len());
     let mut gltf_textures: Vec<Value> = Vec::with_capacity(textures.len());
     for tex in textures {
-        let off = bin.len() as u64;
-        bin.extend_from_slice(&tex.data);
-        let len = (bin.len() as u64) - off;
-        pad_to_4(&mut bin);
-
-        let view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": off,
-            "byteLength": len,
-        }));
+        let view_idx = append_buffer_view_with(
+            &mut bin,
+            &mut buffer_views,
+            tex.data.len(),
+            None,
+            |binary| binary.extend_from_slice(&tex.data),
+        )?;
         let image_idx = gltf_images.len();
         gltf_images.push(json!({
             "name": tex.name,
@@ -2352,22 +2361,6 @@ fn build_glb_with_bin_capacity(
         }
 
         // ---- TRANSLATION accessor (VEC3 / FLOAT) ----
-        let t_offset = bin.len() as u64;
-        for t in &inst.translations {
-            for &f in t.iter() {
-                bin.extend_from_slice(&f.to_le_bytes());
-            }
-        }
-        let t_byte_len = (bin.len() as u64) - t_offset;
-        pad_to_4(&mut bin);
-        let t_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": t_offset,
-            "byteLength": t_byte_len,
-            "target": 34962, // ARRAY_BUFFER
-        }));
-        let t_acc_idx = accessors.len();
         // Compute min/max for TRANSLATION (glTF validator requires them)
         let (t_min, t_max) = inst.translations.iter().fold(
             ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]),
@@ -2383,67 +2376,88 @@ fn build_glb_with_bin_capacity(
                 (mn, mx)
             },
         );
-        accessors.push(json!({
-            "bufferView": t_view_idx,
-            "byteOffset": 0,
-            "componentType": 5126, // FLOAT
-            "count": instance_count,
-            "type": "VEC3",
-            "min": [t_min[0], t_min[1], t_min[2]],
-            "max": [t_max[0], t_max[1], t_max[2]],
-        }));
+        let t_acc_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(
+                checked_binary_byte_length(instance_count, 3)?,
+                size_of::<f32>(),
+            )?,
+            AccessorSpec {
+                target: Some(34962), // ARRAY_BUFFER
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: instance_count,
+                type_name: "VEC3",
+                normalized: false,
+                byte_offset: Some(0),
+                min: Some(json!([t_min[0], t_min[1], t_min[2]])),
+                max: Some(json!([t_max[0], t_max[1], t_max[2]])),
+            },
+            |binary| {
+                for t in &inst.translations {
+                    for &f in t.iter() {
+                        binary.extend_from_slice(&f.to_le_bytes());
+                    }
+                }
+            },
+        )?;
 
         // ---- ROTATION accessor (VEC4 / FLOAT, x,y,z,w glTF order) ----
-        pad_to_4(&mut bin);
-        let r_offset = bin.len() as u64;
-        for r in &inst.rotations {
-            for &f in r.iter() {
-                bin.extend_from_slice(&f.to_le_bytes());
-            }
-        }
-        let r_byte_len = (bin.len() as u64) - r_offset;
-        pad_to_4(&mut bin);
-        let r_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": r_offset,
-            "byteLength": r_byte_len,
-            "target": 34962,
-        }));
-        let r_acc_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": r_view_idx,
-            "byteOffset": 0,
-            "componentType": 5126,
-            "count": instance_count,
-            "type": "VEC4",
-        }));
+        let r_acc_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(
+                checked_binary_byte_length(instance_count, 4)?,
+                size_of::<f32>(),
+            )?,
+            AccessorSpec {
+                target: Some(34962),
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: instance_count,
+                type_name: "VEC4",
+                normalized: false,
+                byte_offset: Some(0),
+                min: None,
+                max: None,
+            },
+            |binary| {
+                for r in &inst.rotations {
+                    for &f in r.iter() {
+                        binary.extend_from_slice(&f.to_le_bytes());
+                    }
+                }
+            },
+        )?;
 
         // ---- SCALE accessor (VEC3 / FLOAT) ----
-        pad_to_4(&mut bin);
-        let s_offset = bin.len() as u64;
-        for s in &inst.scales {
-            for &f in s.iter() {
-                bin.extend_from_slice(&f.to_le_bytes());
-            }
-        }
-        let s_byte_len = (bin.len() as u64) - s_offset;
-        pad_to_4(&mut bin);
-        let s_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": s_offset,
-            "byteLength": s_byte_len,
-            "target": 34962,
-        }));
-        let s_acc_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": s_view_idx,
-            "byteOffset": 0,
-            "componentType": 5126,
-            "count": instance_count,
-            "type": "VEC3",
-        }));
+        let s_acc_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(
+                checked_binary_byte_length(instance_count, 3)?,
+                size_of::<f32>(),
+            )?,
+            AccessorSpec {
+                target: Some(34962),
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: instance_count,
+                type_name: "VEC3",
+                normalized: false,
+                byte_offset: Some(0),
+                min: None,
+                max: None,
+            },
+            |binary| {
+                for s in &inst.scales {
+                    for &f in s.iter() {
+                        binary.extend_from_slice(&f.to_le_bytes());
+                    }
+                }
+            },
+        )?;
 
         // ---- Emit a glTF node with EXT_mesh_gpu_instancing ----
         let mesh_idx = inst.prototype_mesh_idx;
@@ -2593,32 +2607,17 @@ fn build_glb_with_bin_capacity(
     }
     log_glb_phase_timing("document", &mut phase_started);
 
-    let mut json_bytes =
+    let json_bytes =
         serde_json::to_vec(&document).map_err(|e| format!("failed to serialize GLTF JSON: {e}"))?;
-    pad_chunk(&mut json_bytes, 0x20); // ASCII space for JSON chunk
-    pad_chunk(&mut bin, 0x00); // zeros for BIN chunk
+    let bin_capacity = bin.capacity();
+    let (json_chunk_len, bin_chunk_len, _) =
+        crate::preview::glb::checked_glb_container_lengths(json_bytes.len(), bin.len())
+            .map_err(|error| format!("failed to assemble GLB container: {error}"))?;
     log_glb_phase_timing("json serialize", &mut phase_started);
 
     // ---- Stitch GLB binary container -----------------------------------
-    let json_chunk_len = json_bytes.len() as u32;
-    let bin_chunk_len = bin.len() as u32;
-    // 12 byte header + 8 byte chunk header + JSON + 8 byte chunk header + BIN
-    let total_length: u32 = 12 + 8 + json_chunk_len + 8 + bin_chunk_len;
-
-    let mut out = Vec::with_capacity(total_length as usize);
-    out.extend_from_slice(&GLB_MAGIC.to_le_bytes());
-    out.extend_from_slice(&GLB_VERSION.to_le_bytes());
-    out.extend_from_slice(&total_length.to_le_bytes());
-
-    out.extend_from_slice(&json_chunk_len.to_le_bytes());
-    out.extend_from_slice(&CHUNK_TYPE_JSON.to_le_bytes());
-    out.extend_from_slice(&json_bytes);
-
-    out.extend_from_slice(&bin_chunk_len.to_le_bytes());
-    out.extend_from_slice(&CHUNK_TYPE_BIN.to_le_bytes());
-    out.extend_from_slice(&bin);
-
-    debug_assert_eq!(out.len() as u32, total_length);
+    let out = crate::preview::glb::finish_glb(json_bytes, bin)
+        .map_err(|error| format!("failed to assemble GLB container: {error}"))?;
     log_glb_phase_timing("final concat", &mut phase_started);
     if timing_enabled {
         log::debug!(
@@ -2627,19 +2626,13 @@ fn build_glb_with_bin_capacity(
             nodes.len(),
             materials.len(),
             textures.len(),
-            bin.len(),
-            bin.capacity(),
-            json_bytes.len(),
+            bin_chunk_len,
+            bin_capacity,
+            json_chunk_len,
             out.len()
         );
     }
     Ok(out)
-}
-
-fn pad_to_4(buf: &mut Vec<u8>) {
-    while buf.len() % 4 != 0 {
-        buf.push(0);
-    }
 }
 
 /// Phase 2.P: column-major 4×4 identity check with a small epsilon
@@ -2767,15 +2760,10 @@ pub(crate) fn decompose_trs_column_major(m: &[f32; 16]) -> ([f32; 3], [f32; 4], 
     (translation, [qx, qy, qz, qw], [sx, sy, sz])
 }
 
-fn pad_chunk(buf: &mut Vec<u8>, byte: u8) {
-    while buf.len() % 4 != 0 {
-        buf.push(byte);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::preview::glb::{BIN_CHUNK as CHUNK_TYPE_BIN, JSON_CHUNK as CHUNK_TYPE_JSON};
 
     fn identity_matrix() -> [f32; 16] {
         [
