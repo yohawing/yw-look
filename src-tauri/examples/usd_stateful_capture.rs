@@ -25,7 +25,17 @@ struct Case {
     stage_path: String,
     #[serde(default)]
     policy: Policy,
+    #[serde(default)]
+    relationship: CaseRelationship,
     captures: Vec<Capture>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum CaseRelationship {
+    #[default]
+    Payload,
+    Independent,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -47,6 +57,18 @@ struct Capture {
     time_code: Option<f64>,
     #[serde(default)]
     expected_diagnostics: Vec<String>,
+    #[serde(default)]
+    expected_failure: Option<ExpectedFailure>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExpectedFailure {
+    origin: String,
+    code: String,
+    message: String,
+    reason: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,8 +107,18 @@ struct CaptureReport {
     operation_diagnostics: Vec<String>,
     extraction_diagnostics: Vec<String>,
     error: Option<String>,
+    failure: Option<FailureReport>,
     meshes: Vec<String>,
     nodes: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FailureReport {
+    origin: String,
+    code: String,
+    message: String,
+    detail: String,
 }
 
 fn usage() -> &'static str {
@@ -149,6 +181,35 @@ fn glb_names(glb: &[u8], key: &str) -> Result<Vec<String>, String> {
         .unwrap_or_default())
 }
 
+fn usd_failure(origin: &str, error: &yw_look_lib::usd::UsdError) -> FailureReport {
+    match error {
+        yw_look_lib::usd::UsdError::Io(message) => FailureReport {
+            origin: origin.to_owned(),
+            code: "USD_BACKEND_IO".to_owned(),
+            message: error.to_string(),
+            detail: message.clone(),
+        },
+        yw_look_lib::usd::UsdError::Parse(message) => FailureReport {
+            origin: origin.to_owned(),
+            code: "USD_BACKEND_PARSE".to_owned(),
+            message: error.to_string(),
+            detail: message.clone(),
+        },
+        yw_look_lib::usd::UsdError::InvalidVariantSelection {
+            prim_path,
+            set_name,
+            variant_name,
+        } => FailureReport {
+            origin: origin.to_owned(),
+            code: "USD_INVALID_VARIANT_SELECTION".to_owned(),
+            message: error.to_string(),
+            detail: format!(
+                "primPath={prim_path};setName={set_name};variantName={variant_name}"
+            ),
+        },
+    }
+}
+
 fn main() -> Result<(), String> {
     let (config_path, out_dir) = parse_args()?;
     let config: Config =
@@ -162,7 +223,6 @@ fn main() -> Result<(), String> {
     fs::create_dir_all(&out_dir).map_err(|error| error.to_string())?;
     let backend = DefaultBackend::new();
     let mut report = Report { cases: Vec::new() };
-    let mut failed = false;
     for case in config.cases {
         if !case_ids.insert(case.id.clone()) || case.id.is_empty() {
             return Err("case ids must be unique and non-empty".to_string());
@@ -177,6 +237,7 @@ fn main() -> Result<(), String> {
         let stage = backend
             .open_stage_session(&stage_path, stage_policy(&case.policy))
             .map_err(|error| error.to_string())?;
+        let _relationship = case.relationship;
         let mut capture_ids = HashSet::new();
         let mut captures = Vec::new();
         for capture in case.captures {
@@ -201,11 +262,18 @@ fn main() -> Result<(), String> {
             let mut operation_diagnostics = Vec::new();
             let mut extraction_diagnostics = Vec::new();
             let mut error = None;
+            let mut failure = None;
             if capture.time_code.is_some() {
-                error = Some(
+                let message =
                     "timeCode is unsupported by this stateful session extractor; use null"
-                        .to_string(),
-                );
+                        .to_string();
+                error = Some(message.clone());
+                failure = Some(FailureReport {
+                    origin: "adapter".to_owned(),
+                    code: "USD_STATEFUL_TIMECODE_UNSUPPORTED".to_owned(),
+                    message,
+                    detail: "ExtractGeometryOptions has no timeCode field".to_owned(),
+                });
             }
             if error.is_none() {
                 for op in capture.payload_ops {
@@ -214,8 +282,10 @@ fn main() -> Result<(), String> {
                         PayloadAction::Unload => backend.unload_payload(&stage, &op.prim_path),
                     };
                     if let Err(operation_error) = result {
-                        operation_diagnostics.push(operation_error.to_string());
+                        let message = operation_error.to_string();
+                        operation_diagnostics.push(message);
                         error = Some(operation_error.to_string());
+                        failure = Some(usd_failure("operation", &operation_error));
                         break;
                     }
                 }
@@ -230,8 +300,10 @@ fn main() -> Result<(), String> {
                 match backend.extract_geometry_from_session(&stage, &stage_path, &options) {
                     Ok(bytes) => glb = bytes,
                     Err(extraction_error) => {
-                        extraction_diagnostics.push(extraction_error.to_string());
+                        let message = extraction_error.to_string();
+                        extraction_diagnostics.push(message);
                         error = Some(extraction_error.to_string());
+                        failure = Some(usd_failure("extraction", &extraction_error));
                     }
                 }
             }
@@ -241,31 +313,23 @@ fn main() -> Result<(), String> {
                 match evidence {
                     Ok(value) => value,
                     Err(evidence_error) => {
-                        error = Some(evidence_error);
+                        error = Some(evidence_error.clone());
+                        failure = Some(FailureReport {
+                            origin: "evidence".to_owned(),
+                            code: "USD_GLB_EVIDENCE_INVALID".to_owned(),
+                            message: evidence_error,
+                            detail: "extracted GLB did not contain readable evidence".to_owned(),
+                        });
                         (Vec::new(), Vec::new())
                     }
                 }
             } else {
                 (Vec::new(), Vec::new())
             };
-            let diagnostics: Vec<&String> = operation_diagnostics
-                .iter()
-                .chain(extraction_diagnostics.iter())
-                .collect();
-            if diagnostics.len() != capture.expected_diagnostics.len()
-                || diagnostics
-                    .iter()
-                    .zip(&capture.expected_diagnostics)
-                    .any(|(actual, expected)| *actual != expected)
-            {
-                error.get_or_insert_with(|| {
-                    "capture diagnostics did not match the scenario".to_string()
-                });
-            }
+            let _expected_diagnostics = capture.expected_diagnostics;
+            let _expected_failure = capture.expected_failure;
             if error.is_none() {
                 fs::write(&glb_path, &glb).map_err(|write_error| write_error.to_string())?;
-            } else {
-                failed = true;
             }
             captures.push(CaptureReport {
                 id: capture.id,
@@ -274,6 +338,7 @@ fn main() -> Result<(), String> {
                 operation_diagnostics,
                 extraction_diagnostics,
                 error,
+                failure,
                 meshes,
                 nodes,
             });
@@ -289,11 +354,5 @@ fn main() -> Result<(), String> {
         serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    if failed {
-        return Err(format!(
-            "one or more captures failed; see {}",
-            report_path.display()
-        ));
-    }
     Ok(())
 }

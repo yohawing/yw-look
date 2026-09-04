@@ -2,6 +2,7 @@
   "cases": [
     {
       "id": "tiny-payload-session",
+      "relationship": "payload",
       "stagePath": "fixtures/tiny_payload_visual.usda",
       "policy": "noPayloads",
       "captures": [
@@ -27,6 +28,56 @@
           "variantSelections": [],
           "timeCode": null,
           "expectedDiagnostics": []
+        }
+      ]
+    },
+    {
+      "id": "variant-override-expected-failure",
+      "relationship": "independent",
+      "stagePath": "fixtures/variant_override.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "variant-override",
+          "payloadOps": [],
+          "variantSelections": [
+            {
+              "primPath": "/Root",
+              "setName": "look",
+              "variantName": "blue"
+            }
+          ],
+          "timeCode": null,
+          "expectedDiagnostics": [
+            "USD_INVALID_VARIANT_SELECTION\tprimPath=/Root\tsetName=look\tvariantName=blue"
+          ],
+          "expectedFailure": {
+            "origin": "extraction",
+            "code": "USD_INVALID_VARIANT_SELECTION",
+            "message": "USD_INVALID_VARIANT_SELECTION\tprimPath=/Root\tsetName=look\tvariantName=blue",
+            "reason": "The extraction backend reports variant override as an explicit typed capability gap."
+          }
+        }
+      ]
+    },
+    {
+      "id": "animated-xform-timecode-expected-failure",
+      "relationship": "independent",
+      "stagePath": "fixtures/animated_xform.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "animated-xform-timecode",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": 24,
+          "expectedDiagnostics": [],
+          "expectedFailure": {
+            "origin": "adapter",
+            "code": "USD_STATEFUL_TIMECODE_UNSUPPORTED",
+            "message": "timeCode is unsupported by this stateful session extractor; use null",
+            "reason": "The stateful capture adapter has no timeCode extraction field."
+          }
         }
       ]
     }

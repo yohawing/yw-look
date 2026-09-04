@@ -6,7 +6,10 @@ import test from "node:test";
 import { deflateSync } from "node:zlib";
 import {
   assertPngDimensions,
+  classifyReport,
+  runCaptureGate,
   updateSnapshots,
+  validateScenarioCases,
   validateSnapshots,
   verifyPayloadRelationships,
   verifyReport,
@@ -53,6 +56,265 @@ const goodReport = {
     },
   ],
 };
+
+const variantFailureMessage =
+  "USD_INVALID_VARIANT_SELECTION\tprimPath=/Root\tsetName=look\tvariantName=blue";
+const expectedVariantFailure = {
+  origin: "extraction",
+  code: "USD_INVALID_VARIANT_SELECTION",
+  message: variantFailureMessage,
+  reason: "variant override is an approved backend capability gap",
+};
+
+function expectedFailureScenario(expectedFailure = expectedVariantFailure) {
+  return {
+    cases: [
+      {
+        id: "variant",
+        relationship: "independent",
+        captures: [
+          {
+            id: "override",
+            expectedDiagnostics: [variantFailureMessage],
+            expectedFailure,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function variantFailureReport(message = variantFailureMessage, failure = {}) {
+  return {
+    cases: [
+      {
+        id: "variant",
+        captures: [
+          {
+            id: "override",
+            error: message,
+            operationDiagnostics: [],
+            extractionDiagnostics: [message],
+            failure: {
+              origin: "extraction",
+              code: "USD_INVALID_VARIANT_SELECTION",
+              message,
+              detail: "primPath=/Root;setName=look;variantName=blue",
+              ...failure,
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+test("matching typed expected failure is XFAIL", () => {
+  const summary = classifyReport(
+    expectedFailureScenario(),
+    variantFailureReport(),
+  );
+  assert.deepEqual(summary.counts, { PASS: 0, XFAIL: 1, FAIL: 0, XPASS: 0 });
+  assert.equal(summary.records[0].status, "XFAIL");
+  assert.match(summary.records[0].detail, /approved backend capability gap/);
+  assert.doesNotThrow(() =>
+    verifyReport(expectedFailureScenario(), variantFailureReport()),
+  );
+});
+
+test("wrong expected failure origin, code, or message is a hard FAIL", () => {
+  const wrongOrigin = expectedFailureScenario({
+    ...expectedVariantFailure,
+    origin: "operation",
+  });
+  assert.equal(
+    classifyReport(wrongOrigin, variantFailureReport()).records[0].status,
+    "FAIL",
+  );
+  const wrongCode = expectedFailureScenario({
+    ...expectedVariantFailure,
+    code: "USD_BACKEND_PARSE",
+  });
+  assert.equal(
+    classifyReport(wrongCode, variantFailureReport()).records[0].status,
+    "FAIL",
+  );
+  const wrongMessage = expectedFailureScenario({
+    ...expectedVariantFailure,
+    message: "different typed message",
+  });
+  assert.equal(
+    classifyReport(wrongMessage, variantFailureReport()).records[0].status,
+    "FAIL",
+  );
+});
+
+test("typed XFAIL also requires error text to match structured failure", () => {
+  const report = variantFailureReport();
+  report.cases[0].captures[0].error = "different error text";
+  assert.equal(
+    classifyReport(expectedFailureScenario(), report).records[0].status,
+    "FAIL",
+  );
+});
+
+test("unrelated IO and parse failures remain hard failures", () => {
+  const scenarioWithNoExpectation = expectedFailureScenario(null);
+  scenarioWithNoExpectation.cases[0].captures[0].expectedDiagnostics = [
+    "USD backend io error: missing.usda",
+  ];
+  const report = variantFailureReport("USD backend io error: missing.usda", {
+    origin: "extraction",
+    code: "USD_BACKEND_IO",
+  });
+  assert.equal(
+    classifyReport(scenarioWithNoExpectation, report).records[0].status,
+    "FAIL",
+  );
+  report.cases[0].captures[0].failure = {
+    origin: "extraction",
+    code: "USD_BACKEND_PARSE",
+    message: "USD backend parse error: malformed",
+    detail: "malformed",
+  };
+  report.cases[0].captures[0].error = "USD backend parse error: malformed";
+  report.cases[0].captures[0].extractionDiagnostics = [
+    "USD backend parse error: malformed",
+  ];
+  scenarioWithNoExpectation.cases[0].captures[0].expectedDiagnostics = [
+    "USD backend parse error: malformed",
+  ];
+  assert.throws(
+    () => verifyReport(scenarioWithNoExpectation, report),
+    /capture failed/,
+  );
+});
+
+test("successful extraction with an expected failure is XPASS", () => {
+  const report = {
+    cases: [
+      {
+        id: "variant",
+        captures: [
+          {
+            id: "override",
+            error: null,
+            operationDiagnostics: [],
+            extractionDiagnostics: [],
+          },
+        ],
+      },
+    ],
+  };
+  const summary = classifyReport(expectedFailureScenario(), report);
+  assert.deepEqual(summary.counts, { PASS: 0, XFAIL: 0, FAIL: 0, XPASS: 1 });
+  assert.throws(
+    () => verifyReport(expectedFailureScenario(), report),
+    /expected failure passed unexpectedly/,
+  );
+});
+
+test("expected failure declarations are validated fail closed", () => {
+  assert.throws(
+    () =>
+      validateScenarioCases([
+        {
+          id: "case",
+          relationship: "independent",
+          captures: [
+            {
+              id: "capture",
+              expectedFailure: {
+                origin: "adapter",
+                code: "USD_STATEFUL_TIMECODE_UNSUPPORTED",
+                reason: "",
+                message: "unsupported",
+              },
+            },
+          ],
+        },
+      ]),
+    /expectedFailure.reason must be non-empty/,
+  );
+  assert.throws(
+    () =>
+      validateScenarioCases([
+        {
+          id: "case",
+          relationship: "independent",
+          captures: [
+            {
+              id: "capture",
+              expectedFailure: {
+                origin: "adapter",
+                code: "USD_STATEFUL_TIMECODE_UNSUPPORTED",
+                reason: "unsupported",
+                message: "unsupported",
+                extra: "unknown field",
+              },
+            },
+          ],
+        },
+      ]),
+    /unknown expectedFailure field/,
+  );
+});
+
+test("update mode reaches the shared PASS capture gate", async () => {
+  const calls = [];
+  const captures = [{ id: "passing", status: "PASS" }];
+  const selected = [
+    {
+      id: "independent",
+      relationship: "independent",
+      captures: [{ id: "passing" }],
+    },
+  ];
+  const result = await runCaptureGate(
+    captures,
+    selected,
+    { update: true, shotBinary: null },
+    {
+      render: async (passing) => calls.push(["render", passing]),
+      validateSnapshots: async (passing, update) =>
+        calls.push(["validate", passing, update]),
+      updateSnapshots: async (passing) => calls.push(["update", passing]),
+    },
+  );
+  assert.deepEqual(result, captures);
+  assert.deepEqual(
+    calls.map(([name]) => name),
+    ["render", "validate", "update"],
+  );
+  assert.equal(calls[1][2], true);
+});
+
+test("XPASS is rejected before update mode can touch the capture gate", async () => {
+  const calls = [];
+  const captures = [{ id: "unexpected-pass", status: "XPASS" }];
+  const selected = [
+    {
+      id: "independent",
+      relationship: "independent",
+      captures: [{ id: "unexpected-pass" }],
+    },
+  ];
+  await assert.rejects(
+    () =>
+      runCaptureGate(
+        captures,
+        selected,
+        { update: true, shotBinary: null },
+        {
+          render: async () => calls.push("render"),
+          validateSnapshots: async () => calls.push("validate"),
+          updateSnapshots: async () => calls.push("update"),
+        },
+      ),
+    /XPASS capture cannot enter/,
+  );
+  assert.deepEqual(calls, []);
+});
 
 test("missing baseline fails normally and update creates it", async () => {
   const tempDir = await mkdtemp(

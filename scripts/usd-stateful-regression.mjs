@@ -23,36 +23,105 @@ const outputDir = path.join(repoRoot, "artifacts/screenshots/usd-stateful");
 const snapshotDir = path.join(repoRoot, "tests/visual/snapshots/usd-stateful");
 const imageSize = { width: 384, height: 288 };
 const usage = `usage: npm run test:usd-stateful-regression -- [--case <id>] [--update-snapshot] [--list] [--shot-binary <path>]`;
+const caseRelationships = new Set(["payload", "independent"]);
+const approvedExpectedFailures = new Set([
+  "extraction\u0000USD_INVALID_VARIANT_SELECTION",
+  "adapter\u0000USD_STATEFUL_TIMECODE_UNSUPPORTED",
+]);
 
 function fail(message) {
   throw new Error(message);
 }
 
 export function verifyReport(scenario, report) {
+  const summary = classifyReport(scenario, report);
+  const issue = summary.records.find(
+    (record) => record.status === "FAIL" || record.status === "XPASS",
+  );
+  if (issue) fail(issue.detail);
+  return summary;
+}
+
+function diagnosticsFor(actualCase) {
+  return [
+    ...(actualCase.operationDiagnostics ?? []),
+    ...(actualCase.extractionDiagnostics ?? []),
+  ];
+}
+
+function matchesExpectedFailure(actualFailure, expectedFailure) {
+  if (!actualFailure || typeof actualFailure !== "object") return false;
+  const failureKind = `${actualFailure.origin}\u0000${actualFailure.code}`;
+  if (failureKind !== `${expectedFailure.origin}\u0000${expectedFailure.code}`)
+    return false;
+  return actualFailure.message === expectedFailure.message;
+}
+
+export function classifyReport(scenario, report) {
   if (!Array.isArray(report?.cases)) fail("capture report has no cases array");
+  validateScenarioCases(scenario.cases);
+  const records = [];
+  const counts = { PASS: 0, XFAIL: 0, FAIL: 0, XPASS: 0 };
   for (const scenarioCase of scenario.cases) {
     const actualCase = report.cases.find((item) => item.id === scenarioCase.id);
     if (!actualCase) fail(`capture report is missing case: ${scenarioCase.id}`);
+    if (!Array.isArray(actualCase.captures))
+      fail(`capture report has no captures array: ${scenarioCase.id}`);
     for (const expected of scenarioCase.captures) {
       const actual = actualCase.captures?.find(
         (item) => item.id === expected.id,
       );
       if (!actual) fail(`capture report is missing capture: ${expected.id}`);
-      if (actual.error) fail(`capture failed: ${expected.id}: ${actual.error}`);
-      const diagnostics = [
-        ...(actual.operationDiagnostics ?? []),
-        ...(actual.extractionDiagnostics ?? []),
-      ];
-      if (
-        JSON.stringify(diagnostics) !==
-        JSON.stringify(expected.expectedDiagnostics ?? [])
-      ) {
-        fail(
-          `diagnostics mismatch for ${expected.id}: expected ${JSON.stringify(expected.expectedDiagnostics ?? [])}, got ${JSON.stringify(diagnostics)}`,
+      const diagnostics = diagnosticsFor(actual);
+      const expectedDiagnostics = expected.expectedDiagnostics ?? [];
+      const diagnosticsMatch =
+        JSON.stringify(diagnostics) === JSON.stringify(expectedDiagnostics);
+      let status = "PASS";
+      let detail = "";
+      if (expected.expectedFailure && !actual.error) {
+        status = "XPASS";
+        detail = `expected failure passed unexpectedly: ${expected.id}`;
+      } else if (actual.error && expected.expectedFailure) {
+        const declaration = expected.expectedFailure;
+        const approved = approvedExpectedFailures.has(
+          `${declaration.origin}\u0000${declaration.code}`,
         );
+        if (!approved) {
+          status = "FAIL";
+          detail = `expected failure type is not approved: ${expected.id}`;
+        } else if (
+          actual.error !== actual.failure?.message ||
+          !matchesExpectedFailure(actual.failure, declaration)
+        ) {
+          status = "FAIL";
+          detail = `expected failure mismatch for ${expected.id}: expected ${declaration.message}, got ${actual.failure?.message ?? actual.error}`;
+        } else if (!diagnosticsMatch) {
+          status = "FAIL";
+          detail = `diagnostics mismatch for ${expected.id}: expected ${JSON.stringify(expectedDiagnostics)}, got ${JSON.stringify(diagnostics)}`;
+        } else {
+          status = "XFAIL";
+          detail = `expected failure: ${declaration.reason}`;
+        }
+      } else if (actual.error) {
+        status = "FAIL";
+        detail = `capture failed: ${expected.id}: ${actual.error}`;
+      } else if (!diagnosticsMatch) {
+        status = "FAIL";
+        detail = `diagnostics mismatch for ${expected.id}: expected ${JSON.stringify(expectedDiagnostics)}, got ${JSON.stringify(diagnostics)}`;
+      } else if (actual.failure) {
+        status = "FAIL";
+        detail = `capture has an unexpected structured failure: ${expected.id}`;
       }
+      counts[status] += 1;
+      records.push({
+        caseId: scenarioCase.id,
+        captureId: expected.id,
+        status,
+        detail,
+      });
     }
   }
+  return { records, counts };
 }
 
 export function assertPngDimensions(buffer, label, expected = imageSize) {
@@ -70,8 +139,19 @@ export function requireBaseline(isPresent, label) {
 }
 
 export function validateScenarioCases(cases) {
+  if (!Array.isArray(cases) || cases.length === 0)
+    fail("scenario must contain at least one case");
+  const caseIds = new Set();
   const captureIds = new Set();
   for (const scenarioCase of cases) {
+    if (!/^[A-Za-z0-9_-]+$/.test(scenarioCase.id ?? ""))
+      fail(`case id is not filename-safe: ${scenarioCase.id}`);
+    if (caseIds.has(scenarioCase.id))
+      fail(`duplicate case id: ${scenarioCase.id}`);
+    caseIds.add(scenarioCase.id);
+    const relationship = scenarioCase.relationship ?? "payload";
+    if (!caseRelationships.has(relationship))
+      fail(`unsupported case relationship: ${relationship}`);
     if (
       !Array.isArray(scenarioCase.captures) ||
       scenarioCase.captures.length === 0
@@ -83,8 +163,36 @@ export function validateScenarioCases(cases) {
       if (captureIds.has(capture.id))
         fail(`duplicate capture id: ${capture.id}`);
       captureIds.add(capture.id);
+      if (
+        capture.expectedDiagnostics !== undefined &&
+        !Array.isArray(capture.expectedDiagnostics)
+      )
+        fail(`expectedDiagnostics must be an array: ${capture.id}`);
+      validateExpectedFailure(capture.expectedFailure, capture.id);
     }
   }
+}
+
+function validateExpectedFailure(expectedFailure, captureId) {
+  if (expectedFailure === undefined || expectedFailure === null) return;
+  if (typeof expectedFailure !== "object" || Array.isArray(expectedFailure))
+    fail(`expectedFailure must be an object: ${captureId}`);
+  const keys = new Set(["origin", "code", "message", "reason"]);
+  for (const key of Object.keys(expectedFailure)) {
+    if (!keys.has(key)) fail(`unknown expectedFailure field: ${key}`);
+  }
+  for (const key of ["origin", "code", "reason"]) {
+    if (
+      typeof expectedFailure[key] !== "string" ||
+      expectedFailure[key].trim() === ""
+    )
+      fail(`expectedFailure.${key} must be non-empty: ${captureId}`);
+  }
+  const hasMessage =
+    typeof expectedFailure.message === "string" &&
+    expectedFailure.message.trim() !== "";
+  if (!hasMessage)
+    fail(`expectedFailure.message must be non-empty: ${captureId}`);
 }
 
 export function verifyPayloadRelationships(captures) {
@@ -158,6 +266,7 @@ async function removeOwnedOutputs(scenario) {
   await mkdir(outputDir, { recursive: true });
   await Promise.all([
     rm(path.join(outputDir, "report.json"), { force: true }),
+    rm(path.join(outputDir, "gate-summary.json"), { force: true }),
     rm(path.join(outputDir, "shot-batch-config.json"), { force: true }),
     rm(path.join(outputDir, "selected-scenario.json"), { force: true }),
     ...scenario.cases.flatMap((scenarioCase) =>
@@ -249,9 +358,60 @@ export async function updateSnapshots(captures) {
   }
 }
 
+async function writeGateSummary(selected, summary, phase = "classified") {
+  await writeFile(
+    path.join(outputDir, "gate-summary.json"),
+    JSON.stringify(
+      {
+        version: 1,
+        phase,
+        cases: selected.map((scenarioCase) => scenarioCase.id),
+        counts: summary.counts,
+        captures: summary.records,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+export async function runCaptureGate(captures, selected, options, hooks = {}) {
+  const blockedCapture = captures.find(
+    (capture) => capture.status === "FAIL" || capture.status === "XPASS",
+  );
+  if (blockedCapture)
+    fail(
+      `${blockedCapture.status} capture cannot enter the visual capture gate: ${blockedCapture.id}`,
+    );
+  const renderCaptures = hooks.render ?? render;
+  const validate = hooks.validateSnapshots ?? validateSnapshots;
+  const update = hooks.updateSnapshots ?? updateSnapshots;
+  const verifyRelationships =
+    hooks.verifyPayloadRelationships ?? verifyPayloadRelationships;
+  const passingCaptures = captures.filter(
+    (capture) => capture.status === "PASS",
+  );
+  if (passingCaptures.length > 0) {
+    await renderCaptures(passingCaptures, options.shotBinary);
+    await validate(passingCaptures, options.update);
+  }
+  for (const scenarioCase of selected) {
+    const relationship = scenarioCase.relationship ?? "payload";
+    if (relationship === "payload")
+      verifyRelationships(
+        captures.filter((capture) =>
+          scenarioCase.captures.some((item) => item.id === capture.id),
+        ),
+      );
+  }
+  if (options.update) await update(passingCaptures);
+  return passingCaptures;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const scenario = await loadScenario();
+  validateScenarioCases(scenario.cases);
   const selected = options.caseId
     ? scenario.cases.filter((item) => item.id === options.caseId)
     : scenario.cases;
@@ -260,7 +420,6 @@ async function main() {
     selected.forEach((item) => console.log(item.id));
     return;
   }
-  validateScenarioCases(selected);
   const selectedScenario = { cases: selected };
   await removeOwnedOutputs(selectedScenario);
   const extractorScenario = {
@@ -281,29 +440,55 @@ async function main() {
   const report = JSON.parse(
     await readFile(path.join(outputDir, "report.json"), "utf8"),
   );
-  verifyReport(selectedScenario, report);
+  const summary = classifyReport(selectedScenario, report);
+  await writeGateSummary(selected, summary);
+  const issue = summary.records.find(
+    (record) => record.status === "FAIL" || record.status === "XPASS",
+  );
+  if (issue) {
+    await writeGateSummary(selected, summary, "failed");
+    fail(issue.detail);
+  }
   const captures = selected.flatMap((scenarioCase) => {
     const reportCase = report.cases.find((item) => item.id === scenarioCase.id);
     return scenarioCase.captures.map((capture) => {
       const actual = reportCase.captures.find((item) => item.id === capture.id);
+      const record = summary.records.find(
+        (item) =>
+          item.caseId === scenarioCase.id && item.captureId === capture.id,
+      );
       return {
         ...actual,
+        status: record.status,
         pngPath: path.join(outputDir, `${capture.id}.png`),
         snapshotPath: path.join(snapshotDir, `${capture.id}.png`),
       };
     });
   });
-  await render(captures, options.shotBinary);
-  await validateSnapshots(captures, options.update);
-  for (const scenarioCase of selected)
-    verifyPayloadRelationships(
-      captures.filter((capture) =>
-        scenarioCase.captures.some((item) => item.id === capture.id),
-      ),
+  try {
+    await runCaptureGate(captures, selected, options);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    await writeGateSummary(
+      selected,
+      {
+        counts: {
+          ...summary.counts,
+          FAIL: summary.counts.FAIL + 1,
+        },
+        records: [
+          ...summary.records,
+          { caseId: "<gate>", captureId: "<gate>", status: "FAIL", detail },
+        ],
+      },
+      "failed",
     );
-  if (options.update) await updateSnapshots(captures);
+    throw error;
+  }
+  await writeGateSummary(selected, summary, "complete");
   console.log(
-    `USD stateful regression passed: ${selected.map((item) => item.id).join(", ")}`,
+    `USD stateful regression passed: ${selected.map((item) => item.id).join(", ")} ` +
+      `(PASS=${summary.counts.PASS}, XFAIL=${summary.counts.XFAIL})`,
   );
 }
 
