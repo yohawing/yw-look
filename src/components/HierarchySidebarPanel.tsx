@@ -76,6 +76,7 @@ export function HierarchySidebarPanel({
     <>
       <HierarchyCard
         hierarchy={hierarchy}
+        fileIdentity={currentFile?.path ?? null}
         objectInfo={objectInfo}
         morphTargetValues={morphTargetValues}
         onMorphTargetChange={handleMorphTargetChange}

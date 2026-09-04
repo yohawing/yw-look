@@ -82,4 +82,32 @@ describe("TexturesSidebarPanel", () => {
     expect(state.selectedTextureId).toBe("tex-1");
     expect(state.viewerSurfaceMode).toBe("asset");
   });
+
+  it("keeps shared GPU texture channels distinct for selection toggles", () => {
+    const sharedTextures: TextureEntry[] = [
+      { ...texture, id: "shared-texture", channel: "Metalness" },
+      { ...texture, id: "shared-texture", channel: "Roughness" },
+    ];
+    useViewerStore.setState({
+      selectedTextureId: "shared-texture",
+      viewerSurfaceMode: "texture",
+    });
+    const { container } = renderWithTextures(sharedTextures);
+    const rows = () => container.querySelectorAll(".texture-row");
+
+    expect(rows()[0]?.classList.contains("is-active")).toBe(true);
+    expect(rows()[1]?.classList.contains("is-active")).toBe(false);
+    fireEvent.click(rows()[1] as HTMLElement);
+
+    expect(useViewerStore.getState().selectedTextureId).toBe("shared-texture");
+    expect(useViewerStore.getState().viewerSurfaceMode).toBe("texture");
+    expect(
+      container.querySelector(".texture-detail-grid")?.textContent,
+    ).toContain("Roughness");
+    expect(rows()[0]?.classList.contains("is-active")).toBe(false);
+    expect(rows()[1]?.classList.contains("is-active")).toBe(true);
+
+    fireEvent.click(rows()[1] as HTMLElement);
+    expect(useViewerStore.getState().viewerSurfaceMode).toBe("asset");
+  });
 });

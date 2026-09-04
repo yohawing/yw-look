@@ -3,7 +3,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { MaterialListCard } from "../MaterialListCard";
 import type { AssetMetadata, MaterialEntry } from "../assetMetadata";
 import { useFileStore } from "../../stores/fileStore";
@@ -186,5 +192,81 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     expect(getByText("No materials found.")).toBeTruthy();
     expect(container.querySelector(".material-split-panel")).toBeTruthy();
     expect(getByText("Select a material to inspect it.")).toBeTruthy();
+  });
+
+  it("filters material names case-insensitively while retaining selected details", () => {
+    const otherMaterial: MaterialEntry = {
+      ...baseMat,
+      id: "mat-2",
+      name: "Other",
+      type: "Mesh Physical",
+    };
+    const { container, getByRole, getByText, queryByText } =
+      renderWithMaterials([baseMat, otherMaterial]);
+
+    fireEvent.click(getByRole("button", { name: /Other/ }));
+    fireEvent.change(getByRole("textbox", { name: "Filter materials" }), {
+      target: { value: "gold" },
+    });
+
+    expect(container.querySelectorAll(".material-row")).toHaveLength(1);
+    expect(queryByText("Other")).toBeNull();
+    expect(getByText("Mesh Physical")).toBeTruthy();
+
+    fireEvent.click(getByRole("button", { name: "Clear material filter" }));
+    expect(container.querySelectorAll(".material-row")).toHaveLength(2);
+  });
+
+  it("resets its filter when the current file changes", async () => {
+    const { getByRole } = renderWithMaterials([baseMat]);
+    const filter = getByRole("textbox", { name: "Filter materials" });
+    fireEvent.change(filter, { target: { value: "gold" } });
+    expect((filter as HTMLInputElement).value).toBe("gold");
+
+    act(() => {
+      useFileStore.setState({
+        currentFile: {
+          path: "C:/assets/other.glb",
+          fileName: "other.glb",
+          extension: "glb",
+          kind: "model",
+          parentDirectory: "C:/assets",
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        (getByRole("textbox", { name: "Filter materials" }) as HTMLInputElement)
+          .value,
+      ).toBe("");
+    });
+  });
+
+  it("accepts Japanese IME input and keeps duplicate names visible", () => {
+    const duplicate: MaterialEntry = {
+      ...baseMat,
+      id: "mat-2",
+      name: "Gold",
+    };
+    const japanese: MaterialEntry = {
+      ...baseMat,
+      id: "mat-ja",
+      name: "材質01",
+    };
+    const { container, getByRole } = renderWithMaterials([
+      baseMat,
+      duplicate,
+      japanese,
+    ]);
+    const filter = getByRole("textbox", { name: "Filter materials" });
+
+    fireEvent.change(filter, { target: { value: "gold" } });
+    expect(container.querySelectorAll(".material-row")).toHaveLength(2);
+    fireEvent.compositionStart(filter);
+    fireEvent.change(filter, { target: { value: "材質" } });
+    fireEvent.compositionEnd(filter);
+    expect(container.querySelectorAll(".material-row")).toHaveLength(1);
+    expect(container.textContent).toContain("材質01");
   });
 });

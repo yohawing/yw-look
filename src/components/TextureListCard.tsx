@@ -5,13 +5,19 @@ import { SelectableListItem } from "./ui";
 import { Badge, BadgeButton } from "./ui/Badge";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
 import { SidebarSplitPanel } from "./ui/SidebarSplitPanel";
+import { ListTextFilter } from "./ui/ListTextFilter";
 import "../styles/texture-list.css";
 
 type TextureListCardProps = {
   textures: TextureEntry[];
   activeTextureId: string | null;
-  onSelectTexture: (textureId: string) => void;
+  onSelectTexture: (textureId: string, isSameRow: boolean) => void;
+  fileIdentity?: string | null;
 };
+
+function textureRowKey(texture: TextureEntry): string {
+  return JSON.stringify([texture.id, texture.channel]);
+}
 
 function textureExtension(label: string): string | null {
   const cleanLabel = label.split(/[?#]/, 1)[0];
@@ -68,12 +74,24 @@ function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
   );
 }
 
-export function TextureListCard({
+export function TextureListCard(props: TextureListCardProps) {
+  return (
+    <TextureListCardContent
+      key={props.fileIdentity ?? "__no-file__"}
+      {...props}
+    />
+  );
+}
+
+function TextureListCardContent({
   textures,
   activeTextureId,
   onSelectTexture,
 }: TextureListCardProps) {
   const [activeChannel, setActiveChannel] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
+
   const channels = useMemo(() => {
     const seen = new Set<string>();
     for (const texture of textures) {
@@ -83,80 +101,118 @@ export function TextureListCard({
     }
     return ["All", ...Array.from(seen).sort()];
   }, [textures]);
-  const visibleTextures =
-    activeChannel === "All"
-      ? textures
-      : textures.filter((texture) => texture.channel === activeChannel);
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const visibleTextures = useMemo(
+    () =>
+      textures.filter((texture) => {
+        const matchesChannel =
+          activeChannel === "All" || texture.channel === activeChannel;
+        const matchesSearch =
+          normalizedSearch.length === 0 ||
+          `${texture.label}\n${texture.sourcePath ?? ""}`
+            .toLocaleLowerCase()
+            .includes(normalizedSearch);
+        return matchesChannel && matchesSearch;
+      }),
+    [activeChannel, normalizedSearch, textures],
+  );
   const missingCount = textures.filter(
     (texture) => texture.sourceKind === "unresolved",
   ).length;
   const resolvedCount = textures.length - missingCount;
-  const selectedTexture =
-    textures.find((texture) => texture.id === activeTextureId) ??
-    visibleTextures[0] ??
-    null;
+  const activeTextureRow =
+    textures.find(
+      (texture) =>
+        texture.id === activeTextureId &&
+        textureRowKey(texture) === selectedRowKey,
+    ) ?? textures.find((texture) => texture.id === activeTextureId);
+  const activeRowKey = activeTextureRow
+    ? textureRowKey(activeTextureRow)
+    : null;
+  const selectedTexture = activeTextureRow ?? visibleTextures[0] ?? null;
 
-  const textureList =
-    textures.length > 0 ? (
-      <div className="texture-list-layout">
-        <div
-          className="texture-channel-filters u-flex u-flex-wrap u-gap-4"
-          aria-label="Texture channels"
-        >
-          {channels.map((channel) => (
-            <BadgeButton
-              key={channel}
-              className="texture-channel-filter"
-              variant={channel === activeChannel ? "info" : "neutral"}
-              mono
-              onClick={() => setActiveChannel(channel)}
-              size="sm"
-            >
-              {channel}
-            </BadgeButton>
-          ))}
-        </div>
-        <div className="texture-list">
-          {visibleTextures.map((texture) => {
-            const isMissing = texture.sourceKind === "unresolved";
-            return (
-              <SelectableListItem
-                key={texture.id}
-                className={`texture-row${texture.id === activeTextureId ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
-                onClick={() => onSelectTexture(texture.id)}
+  const textureList = (
+    <div className="texture-list-layout">
+      <ListTextFilter
+        ariaLabel="Filter textures"
+        clearLabel="Clear texture filter"
+        onChange={setSearchQuery}
+        placeholder="Search textures"
+        value={searchQuery}
+      />
+      {textures.length > 0 ? (
+        <>
+          <div
+            className="texture-channel-filters u-flex u-flex-wrap u-gap-4"
+            aria-label="Texture channels"
+          >
+            {channels.map((channel) => (
+              <BadgeButton
+                key={channel}
+                className="texture-channel-filter"
+                variant={channel === activeChannel ? "info" : "neutral"}
+                mono
+                onClick={() => setActiveChannel(channel)}
+                size="sm"
               >
-                <span className="texture-row-preview">
-                  {texture.thumbnailUrl && !isMissing ? (
-                    <img
-                      className={
-                        texture.previewFlipY ? "is-preview-flipped-y" : ""
-                      }
-                      src={texture.thumbnailUrl}
-                      alt={texture.label}
-                    />
-                  ) : (
-                    <span
-                      aria-label={isMissing ? "Missing texture" : "No preview"}
-                      className="texture-row-preview-placeholder"
-                    >
-                      {isMissing ? "!" : ""}
+                {channel}
+              </BadgeButton>
+            ))}
+          </div>
+          {visibleTextures.length > 0 ? (
+            <div className="texture-list">
+              {visibleTextures.map((texture) => {
+                const rowKey = textureRowKey(texture);
+                const isMissing = texture.sourceKind === "unresolved";
+                return (
+                  <SelectableListItem
+                    key={rowKey}
+                    className={`texture-row${rowKey === activeRowKey ? " is-active" : ""}${isMissing ? " is-missing" : ""}`}
+                    onClick={() => {
+                      const isSameRow = rowKey === activeRowKey;
+                      setSelectedRowKey(rowKey);
+                      onSelectTexture(texture.id, isSameRow);
+                    }}
+                  >
+                    <span className="texture-row-preview">
+                      {texture.thumbnailUrl && !isMissing ? (
+                        <img
+                          className={
+                            texture.previewFlipY ? "is-preview-flipped-y" : ""
+                          }
+                          src={texture.thumbnailUrl}
+                          alt={texture.label}
+                        />
+                      ) : (
+                        <span
+                          aria-label={
+                            isMissing ? "Missing texture" : "No preview"
+                          }
+                          className="texture-row-preview-placeholder"
+                        >
+                          {isMissing ? "!" : ""}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </span>
-                <span className="texture-row-info">
-                  <span className="texture-row-label">{texture.label}</span>
-                  <span className="texture-row-meta">
-                    {textureRowMetadata(texture)}
-                  </span>
-                </span>
-              </SelectableListItem>
-            );
-          })}
-        </div>
-      </div>
-    ) : (
-      <SidebarEmpty>No textures referenced.</SidebarEmpty>
-    );
+                    <span className="texture-row-info">
+                      <span className="texture-row-label">{texture.label}</span>
+                      <span className="texture-row-meta">
+                        {textureRowMetadata(texture)}
+                      </span>
+                    </span>
+                  </SelectableListItem>
+                );
+              })}
+            </div>
+          ) : (
+            <SidebarEmpty>No textures match.</SidebarEmpty>
+          )}
+        </>
+      ) : (
+        <SidebarEmpty>No textures referenced.</SidebarEmpty>
+      )}
+    </div>
+  );
 
   const textureDetails = (
     <div className="texture-detail-layout">
