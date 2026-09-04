@@ -689,6 +689,15 @@ impl UsdInspectBackend for OpenusdBackend {
         if *has_variants.borrow() {
             return Ok(true);
         }
+        // Single-layer USDA can still contain composed UsdSkel schema prims.
+        // USDLoader does not preserve skin / morph relationships, so route
+        // these stages through the backend even when no timeSamples marker
+        // is present.
+        if stage_query::has_skel_schema_candidate(&stage)
+            .map_err(|error| UsdError::Parse(error.to_string()))?
+        {
+            return Ok(true);
+        }
         // Single-layer USDA with a `.timeSamples` marker is routed here by
         // the frontend only as a candidate. Inspect the composed stage before
         // routing: supported candidates use bounded Xform baking, while an
@@ -868,6 +877,7 @@ mod tests {
         let accessor = &document["accessors"][accessor_index];
         let view = &document["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize];
         let component_count = match accessor["type"].as_str().unwrap() {
+            "SCALAR" => 1,
             "VEC3" => 3,
             "VEC4" => 4,
             other => panic!("unsupported accessor type {other}"),
@@ -4024,6 +4034,55 @@ def Xform "Root"
             .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract tiny_rigged_blend.usda");
         assert_eq!(&glb[0..4], b"glTF");
+    }
+
+    #[test]
+    fn extract_geometry_emits_skel_blend_shape_weight_timeline() {
+        let path = PathBuf::from("../samples/assets/usd/tiny_rigged_blend.usda");
+        if is_lfs_pointer(&path) {
+            eprintln!("SKIP skel blend weight fixture: LFS pointer");
+            return;
+        }
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract tiny_rigged_blend.usda");
+        let document = glb_json(&glb);
+        let animations = document["animations"].as_array().expect("animations");
+        let animation = animations
+            .iter()
+            .find(|animation| {
+                animation["channels"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|channel| channel["target"]["path"] == "weights")
+            })
+            .expect("blend shape weight animation");
+        let weight_channel = animation["channels"]
+            .as_array()
+            .expect("channels")
+            .iter()
+            .find(|channel| channel["target"]["path"] == "weights")
+            .expect("weight channel");
+        let sampler_index = weight_channel["sampler"].as_u64().expect("sampler") as usize;
+        let sampler = &animation["samplers"][sampler_index];
+        let time_accessor = sampler["input"].as_u64().expect("time accessor") as usize;
+        let weight_accessor = sampler["output"].as_u64().expect("weight accessor") as usize;
+        assert_eq!(document["accessors"][time_accessor]["count"], 3);
+        assert_eq!(document["accessors"][weight_accessor]["count"], 6);
+        assert_eq!(
+            glb_accessor_f32(&glb, &document, time_accessor),
+            vec![0.0, 0.5, 1.0]
+        );
+        let weights = glb_accessor_f32(&glb, &document, weight_accessor);
+        assert_eq!(weights.len(), 6);
+        assert!((weights[0] - 0.0).abs() < 1e-6);
+        assert!((weights[1] - 0.0).abs() < 1e-6);
+        assert!((weights[2] - 1.0).abs() < 1e-6);
+        assert!((weights[3] - 0.5).abs() < 1e-6);
+        assert!((weights[4] - 0.0).abs() < 1e-6);
+        assert!((weights[5] - 0.0).abs() < 1e-6);
     }
 
     /// Phase 6d regression: a mesh without `skel:blendShapeTargets`

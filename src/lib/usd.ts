@@ -61,6 +61,10 @@ const USD_GLTF_BACKEND_KEYWORDS = [
   "payload",
   "PointInstancer",
   "variantSet",
+  "Skeleton",
+  "SkelRoot",
+  "SkelAnimation",
+  "BlendShape",
 ].map((keyword) => new TextEncoder().encode(keyword));
 // A time-sampled xform must be composed by the USD backend before the GLB
 // route can expose it to the viewer. This is only a candidate marker: the

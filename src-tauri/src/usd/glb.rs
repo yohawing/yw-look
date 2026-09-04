@@ -267,9 +267,13 @@ pub struct SkinInput {
 pub struct AnimationInput {
     /// Display name attached to the glTF animation.
     pub name: String,
-    /// Time samples in seconds. Must be sorted and unique. Length is
-    /// `times.len()` for every channel below.
+    /// Time samples in seconds for the skin TRS channels. Must be sorted
+    /// and unique. Length is `times.len()` for every TRS channel below.
     pub times: Vec<f32>,
+    /// Independent time samples in seconds for morph weights. Required
+    /// and shared by every weight channel when `weight_channels` is
+    /// non-empty; leave empty when the animation has no weight channels.
+    pub weight_times: Vec<f32>,
     /// Index into `SkinInput::joint_names` of the skin this animation
     /// targets. Phase 5c E only supports one skin per stage so this
     /// is always `0`, but the field is here for forward compatibility.
@@ -286,7 +290,7 @@ pub struct AnimationInput {
     /// Phase 2.O: per-mesh morph-target weight channels driven by
     /// `UsdSkelAnimation.blendShapeWeights`. Each entry targets one
     /// mesh (by `MeshInput` index) and carries the full weight
-    /// vector at every time in `times`. Empty when the animation
+    /// vector at every time in `weight_times`. Empty when the animation
     /// drives only skeleton joints.
     pub weight_channels: Vec<MorphWeightChannel>,
 }
@@ -812,16 +816,30 @@ fn checked_add_bin_section(
     Some(())
 }
 
+fn mesh_payload_nodes(nodes: &[NodeInput]) -> impl Iterator<Item = (usize, usize)> + '_ {
+    nodes.iter().enumerate().filter_map(|(node_index, node)| {
+        if node.kind == NodeKind::Mesh {
+            node.mesh_payload_idx
+                .map(|mesh_index| (mesh_index, node_index))
+        } else {
+            None
+        }
+    })
+}
+
 fn mesh_output_node_flags(
     mesh_count: usize,
     nodes: &[NodeInput],
     instancing: &[InstancingInput],
 ) -> Vec<bool> {
-    // Weight channels are serialized before the hierarchy-aware node pass.
-    // In that mode mesh_node_indices still contains only usize::MAX sentinels,
-    // so build_glb deliberately skips every weight channel at this point.
     if !nodes.is_empty() {
-        return vec![false; mesh_count];
+        let mut flags = vec![false; mesh_count];
+        for (mesh_index, _) in mesh_payload_nodes(nodes) {
+            if let Some(flag) = flags.get_mut(mesh_index) {
+                *flag = true;
+            }
+        }
+        return flags;
     }
     let mut flags = vec![true; mesh_count];
     for input in instancing {
@@ -983,6 +1001,89 @@ fn validate_node_animations(
     Ok(())
 }
 
+fn validate_animation_weight_channels(
+    animations: &[AnimationInput],
+    meshes: &[MeshInput],
+) -> Result<(), String> {
+    for (animation_index, animation) in animations.iter().enumerate() {
+        if animation.weight_channels.is_empty() {
+            continue;
+        }
+        if animation.weight_times.is_empty() {
+            return Err(format!(
+                "animation[{animation_index}] '{}' weight channels require at least one weight time sample",
+                animation.name
+            ));
+        }
+        for (time_index, &time) in animation.weight_times.iter().enumerate() {
+            if !time.is_finite() || time < 0.0 {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight_time[{time_index}] must be finite and non-negative",
+                    animation.name
+                ));
+            }
+            if let Some(&next_time) = animation.weight_times.get(time_index + 1) {
+                if next_time <= time {
+                    return Err(format!(
+                        "animation[{animation_index}] '{}' weight_times must be strictly increasing",
+                        animation.name
+                    ));
+                }
+            }
+        }
+
+        let mut seen_meshes = HashSet::with_capacity(animation.weight_channels.len());
+        for (channel_index, channel) in animation.weight_channels.iter().enumerate() {
+            let Some(mesh) = meshes.get(channel.mesh_index) else {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight channel[{channel_index}] mesh_index {} is out of range (meshes.len={})",
+                    animation.name,
+                    channel.mesh_index,
+                    meshes.len()
+                ));
+            };
+            if !seen_meshes.insert(channel.mesh_index) {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' has duplicate weight track for mesh_index {}",
+                    animation.name, channel.mesh_index
+                ));
+            }
+            let target_count = mesh.morph_targets.len();
+            if target_count == 0 {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight channel[{channel_index}] mesh_index {} has no morph targets",
+                    animation.name, channel.mesh_index
+                ));
+            }
+            let expected_weight_count = animation
+                .weight_times
+                .len()
+                .checked_mul(target_count)
+                .ok_or_else(|| {
+                    format!(
+                        "animation[{animation_index}] '{}' weight channel[{channel_index}] sample count overflows",
+                        animation.name
+                    )
+                })?;
+            if channel.weights.len() != expected_weight_count {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight channel[{channel_index}] has {} weights but {} are required",
+                    animation.name,
+                    channel.weights.len(),
+                    expected_weight_count
+                ));
+            }
+            if let Some(value_index) = channel.weights.iter().position(|value| !value.is_finite()) {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight channel[{channel_index}] weight[{value_index}] must be finite",
+                    animation.name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn first_node_animation_poses(
     node_animations: &[NodeAnimationInput],
     node_count: usize,
@@ -1114,7 +1215,18 @@ fn estimate_bin_capacity(
     }
 
     for animation in animations {
-        checked_add_bin_section(&mut total, animation.times.len(), size_of::<f32>())?;
+        let has_trs_channels = animation
+            .translations
+            .iter()
+            .chain(&animation.rotations)
+            .chain(&animation.scales)
+            .any(Option::is_some);
+        // A weights-only animation gets its own independent time accessor
+        // in the deferred pass. Keep the legacy TRS accessor for all other
+        // animations so static and skin/TRS output remains byte-stable.
+        if has_trs_channels || animation.weight_channels.is_empty() {
+            checked_add_bin_section(&mut total, animation.times.len(), size_of::<f32>())?;
+        }
         for samples in animation
             .translations
             .iter()
@@ -1124,12 +1236,15 @@ fn estimate_bin_capacity(
         {
             checked_add_bin_section(&mut total, samples.len(), size_of::<f32>())?;
         }
+        if !animation.weight_channels.is_empty() {
+            checked_add_bin_section(&mut total, animation.weight_times.len(), size_of::<f32>())?;
+        }
         for channel in &animation.weight_channels {
             let Some(mesh) = meshes.get(channel.mesh_index) else {
                 continue;
             };
             let target_count = mesh.morph_targets.len();
-            let expected_weights = animation.times.len().checked_mul(target_count);
+            let expected_weights = animation.weight_times.len().checked_mul(target_count);
             if target_count == 0
                 || expected_weights != Some(channel.weights.len())
                 || !mesh_output_nodes
@@ -1384,6 +1499,7 @@ fn build_glb_with_bin_capacity_and_node_animations(
     for m in meshes {
         m.validate()?;
     }
+    validate_animation_weight_channels(animations, meshes)?;
     validate_node_animations(node_animations, nodes)?;
     let node_animation_initial_poses = if node_animations.is_empty() {
         Vec::new()
@@ -1928,37 +2044,51 @@ fn build_glb_with_bin_capacity_and_node_animations(
     //     channel pointing at the corresponding joint node and TRS
     //     path.
     let mut gltf_animations: Vec<Value> = Vec::with_capacity(animations.len());
-    for animation in animations {
-        // Time accessor (shared across every channel).
-        // glTF requires `min` / `max` for animation input accessors.
-        let (t_min, t_max) = animation
-            .times
+    let mut deferred_weight_animations: Option<Vec<(usize, Option<usize>)>> = None;
+    for (animation_index, animation) in animations.iter().enumerate() {
+        let has_trs_channels = animation
+            .translations
             .iter()
-            .copied()
-            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), t| {
-                (lo.min(t), hi.max(t))
-            });
-        let time_accessor = append_accessor_with(
-            &mut bin,
-            &mut buffer_views,
-            &mut accessors,
-            checked_binary_byte_length(animation.times.len(), size_of::<f32>())?,
-            AccessorSpec {
-                target: None,
-                component_type: COMPONENT_TYPE_FLOAT,
-                count: animation.times.len(),
-                type_name: "SCALAR",
-                normalized: false,
-                byte_offset: None,
-                min: Some(json!([t_min])),
-                max: Some(json!([t_max])),
-            },
-            |binary| {
-                for &t in &animation.times {
-                    binary.extend_from_slice(&t.to_le_bytes());
-                }
-            },
-        )?;
+            .chain(&animation.rotations)
+            .chain(&animation.scales)
+            .any(Option::is_some);
+        // A weights-only animation gets an independent input accessor in
+        // the deferred pass. Retain the legacy accessor for animations
+        // without weights, including an empty no-op animation.
+        let time_accessor = if has_trs_channels || animation.weight_channels.is_empty() {
+            // Time accessor (shared across every TRS channel).
+            // glTF requires `min` / `max` for animation input accessors.
+            let (t_min, t_max) = animation
+                .times
+                .iter()
+                .copied()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), t| {
+                    (lo.min(t), hi.max(t))
+                });
+            Some(append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(animation.times.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: None,
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: animation.times.len(),
+                    type_name: "SCALAR",
+                    normalized: false,
+                    byte_offset: None,
+                    min: Some(json!([t_min])),
+                    max: Some(json!([t_max])),
+                },
+                |binary| {
+                    for &t in &animation.times {
+                        binary.extend_from_slice(&t.to_le_bytes());
+                    }
+                },
+            )?)
+        } else {
+            None
+        };
 
         let mut samplers: Vec<Value> = Vec::new();
         let mut channels: Vec<Value> = Vec::new();
@@ -1976,6 +2106,12 @@ fn build_glb_with_bin_capacity_and_node_animations(
                                 stride: usize,
                                 path: &str|
          -> Result<(), String> {
+            let time_accessor = time_accessor.ok_or_else(|| {
+                format!(
+                    "animation[{animation_index}] '{}' TRS channel has no time accessor",
+                    animation.name
+                )
+            })?;
             let count = samples.len() / stride;
             let acc_idx = append_accessor_with(
                 bin,
@@ -2054,76 +2190,21 @@ fn build_glb_with_bin_capacity_and_node_animations(
             }
         }
 
-        // Phase 2.O: morph-target weight channels. Each channel
-        // targets one mesh node with `path = "weights"`; the
-        // output accessor holds `frames × morph_target_count`
-        // floats (time-major). Silently skip channels pointing at
-        // a mesh without morph targets — malformed authoring, no
-        // sensible output.
-        for wc in &animation.weight_channels {
-            let Some(&node_idx) = mesh_node_indices.get(wc.mesh_index) else {
-                continue;
-            };
-            if node_idx == usize::MAX {
-                continue;
-            }
-            let target_count = meshes[wc.mesh_index].morph_targets.len();
-            if target_count == 0 {
-                continue;
-            }
-            // Each frame contributes `target_count` weights; accessor
-            // count is frames × targets (glTF spec). When sample
-            // counts don't line up we drop the channel rather than
-            // emitting garbage.
-            let Some(expected_weight_count) = animation.times.len().checked_mul(target_count)
-            else {
-                continue;
-            };
-            if wc.weights.len() != expected_weight_count {
-                continue;
-            }
-            let acc_idx = append_accessor_with(
-                &mut bin,
-                &mut buffer_views,
-                &mut accessors,
-                checked_binary_byte_length(wc.weights.len(), size_of::<f32>())?,
-                AccessorSpec {
-                    target: None,
-                    component_type: COMPONENT_TYPE_FLOAT,
-                    count: wc.weights.len(),
-                    type_name: "SCALAR",
-                    normalized: false,
-                    byte_offset: None,
-                    min: None,
-                    max: None,
-                },
-                |binary| {
-                    for &w in &wc.weights {
-                        binary.extend_from_slice(&w.to_le_bytes());
-                    }
-                },
-            )?;
-            let sampler_idx = samplers.len();
-            samplers.push(json!({
-                "input": time_accessor,
-                "output": acc_idx,
-                "interpolation": "LINEAR",
-            }));
-            channels.push(json!({
-                "sampler": sampler_idx,
-                "target": {
-                    "node": node_idx,
-                    "path": "weights",
-                },
-            }));
-        }
-
-        if !channels.is_empty() {
+        let gltf_animation_index = if !channels.is_empty() {
+            let animation_index_in_gltf = gltf_animations.len();
             gltf_animations.push(json!({
                 "name": animation.name,
                 "samplers": samplers,
                 "channels": channels,
             }));
+            Some(animation_index_in_gltf)
+        } else {
+            None
+        };
+        if !animation.weight_channels.is_empty() {
+            deferred_weight_animations
+                .get_or_insert_with(Vec::new)
+                .push((animation_index, gltf_animation_index));
         }
     }
 
@@ -2296,6 +2377,14 @@ fn build_glb_with_bin_capacity_and_node_animations(
         // Per-NodeInput: gltf_node index.
         let node_gltf_indices: Vec<usize> =
             (node_input_base..node_input_base + nodes.len()).collect();
+        for (mesh_index, node_index) in mesh_payload_nodes(nodes) {
+            if let (Some(mesh_node_index), Some(&gltf_node_index)) = (
+                mesh_node_indices.get_mut(mesh_index),
+                node_gltf_indices.get(node_index),
+            ) {
+                *mesh_node_index = gltf_node_index;
+            }
+        }
 
         // Per-NodeInput: list of gltf node indices of its children.
         let mut children_of: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
@@ -2366,8 +2455,6 @@ fn build_glb_with_bin_capacity_and_node_animations(
                         .expect("Mesh node must have mesh_payload_idx");
                     let mesh = &meshes[mesh_idx];
                     let gltf_mesh_idx = mesh_idx; // 1:1 mapping: meshes[i] → gltf_meshes[i]
-                    mesh_node_indices[mesh_idx] = gltf_idx;
-
                     let purpose_str2 = mesh.purpose.as_deref().unwrap_or("default");
                     extras["purpose"] = json!(purpose_str2);
 
@@ -2493,6 +2580,144 @@ fn build_glb_with_bin_capacity_and_node_animations(
         scene_nodes.push(json!(up_axis_gltf_idx));
         if !node_animations.is_empty() {
             node_gltf_indices_for_animation = Some(node_gltf_indices);
+        }
+    }
+
+    // Morph weight targets need the final hierarchy mapping because glTF
+    // addresses the node that hosts each mesh. Append them after the node
+    // pass so a weights-only animation can create its own animation object
+    // and a mixed skin/morph animation can extend its existing samplers.
+    if let Some(deferred_weight_animations) = deferred_weight_animations {
+        for (animation_index, gltf_animation_index) in deferred_weight_animations {
+            let animation = &animations[animation_index];
+            let (weight_t_min, weight_t_max) = animation
+                .weight_times
+                .iter()
+                .copied()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), time| {
+                    (lo.min(time), hi.max(time))
+                });
+            let weight_time_accessor = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(animation.weight_times.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: None,
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: animation.weight_times.len(),
+                    type_name: "SCALAR",
+                    normalized: false,
+                    byte_offset: None,
+                    min: Some(json!([weight_t_min])),
+                    max: Some(json!([weight_t_max])),
+                },
+                |binary| {
+                    for &time in &animation.weight_times {
+                        binary.extend_from_slice(&time.to_le_bytes());
+                    }
+                },
+            )?;
+            let sampler_base = if let Some(gltf_index) = gltf_animation_index {
+                gltf_animations
+                    .get(gltf_index)
+                    .and_then(|value| value["samplers"].as_array())
+                    .ok_or_else(|| {
+                        format!(
+                            "animation[{animation_index}] '{}' has invalid glTF sampler state",
+                            animation.name
+                        )
+                    })?
+                    .len()
+            } else {
+                0
+            };
+            let mut samplers = Vec::with_capacity(animation.weight_channels.len());
+            let mut channels = Vec::with_capacity(animation.weight_channels.len());
+            for (channel_index, weight_channel) in animation.weight_channels.iter().enumerate() {
+                let node_idx = mesh_node_indices
+                    .get(weight_channel.mesh_index)
+                    .copied()
+                    .ok_or_else(|| {
+                        format!(
+                            "animation[{animation_index}] '{}' weight channel[{channel_index}] mesh_index {} has no node mapping",
+                            animation.name, weight_channel.mesh_index
+                        )
+                    })?;
+                if node_idx == usize::MAX {
+                    return Err(format!(
+                        "animation[{animation_index}] '{}' weight channel[{channel_index}] mesh_index {} has no resolved glTF mesh node",
+                        animation.name, weight_channel.mesh_index
+                    ));
+                }
+                let accessor_idx = append_accessor_with(
+                    &mut bin,
+                    &mut buffer_views,
+                    &mut accessors,
+                    checked_binary_byte_length(weight_channel.weights.len(), size_of::<f32>())?,
+                    AccessorSpec {
+                        target: None,
+                        component_type: COMPONENT_TYPE_FLOAT,
+                        count: weight_channel.weights.len(),
+                        type_name: "SCALAR",
+                        normalized: false,
+                        byte_offset: None,
+                        min: None,
+                        max: None,
+                    },
+                    |binary| {
+                        for &weight in &weight_channel.weights {
+                            binary.extend_from_slice(&weight.to_le_bytes());
+                        }
+                    },
+                )?;
+                let sampler_idx = sampler_base + samplers.len();
+                samplers.push(json!({
+                    "input": weight_time_accessor,
+                    "output": accessor_idx,
+                    "interpolation": "LINEAR",
+                }));
+                channels.push(json!({
+                    "sampler": sampler_idx,
+                    "target": {
+                        "node": node_idx,
+                        "path": "weights",
+                    },
+                }));
+            }
+
+            if let Some(gltf_index) = gltf_animation_index {
+                let animation_json = gltf_animations.get_mut(gltf_index).ok_or_else(|| {
+                    format!(
+                        "animation[{animation_index}] '{}' has no glTF animation object",
+                        animation.name
+                    )
+                })?;
+                animation_json["samplers"]
+                    .as_array_mut()
+                    .ok_or_else(|| {
+                        format!(
+                            "animation[{animation_index}] '{}' has invalid glTF samplers",
+                            animation.name
+                        )
+                    })?
+                    .extend(samplers);
+                animation_json["channels"]
+                    .as_array_mut()
+                    .ok_or_else(|| {
+                        format!(
+                            "animation[{animation_index}] '{}' has invalid glTF channels",
+                            animation.name
+                        )
+                    })?
+                    .extend(channels);
+            } else {
+                gltf_animations.push(json!({
+                    "name": &animation.name,
+                    "samplers": samplers,
+                    "channels": channels,
+                }));
+            }
         }
     }
 
@@ -3202,6 +3427,64 @@ mod tests {
         vec![MaterialInput::default_preview()]
     }
 
+    fn morph_mesh(name: &str, offset: f32) -> MeshInput {
+        let mut mesh = unit_quad_split_into_two_triangles();
+        mesh.name = name.to_string();
+        mesh.morph_targets = vec![MorphTarget {
+            name: Some("Smile".to_string()),
+            position_offsets: vec![offset; mesh.positions.len()],
+        }];
+        mesh.morph_weights = vec![0.0];
+        mesh
+    }
+
+    fn weight_animation(weight_channels: Vec<MorphWeightChannel>) -> AnimationInput {
+        AnimationInput {
+            name: "weights".to_string(),
+            times: Vec::new(),
+            weight_times: vec![0.0, 1.0],
+            skin_index: 0,
+            translations: vec![None],
+            rotations: vec![None],
+            scales: vec![None],
+            weight_channels,
+        }
+    }
+
+    fn one_joint_skin() -> SkinInput {
+        SkinInput {
+            name: "skin".to_string(),
+            joint_names: vec!["Root".to_string()],
+            parents: vec![None],
+            rest_local_matrices: vec![identity_matrix()],
+            inverse_bind_matrices: vec![identity_matrix()],
+            skel_root_matrix: None,
+        }
+    }
+
+    fn mesh_hierarchy_node(mesh_payload_idx: usize, parent: Option<usize>) -> NodeInput {
+        NodeInput {
+            prim_path: format!("/Root/Mesh{mesh_payload_idx}"),
+            basename: format!("Mesh{mesh_payload_idx}"),
+            parent,
+            local_matrix: identity_matrix(),
+            kind: NodeKind::Mesh,
+            mesh_payload_idx: Some(mesh_payload_idx),
+            light_payload_idx: None,
+            camera_payload_idx: None,
+            skin_payload_idx: None,
+        }
+    }
+
+    fn root_hierarchy_node() -> NodeInput {
+        NodeInput::group(
+            "/Root".to_string(),
+            "Root".to_string(),
+            None,
+            identity_matrix(),
+        )
+    }
+
     fn glb_json(glb: &[u8]) -> serde_json::Value {
         let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_text = std::str::from_utf8(&glb[20..20 + json_chunk_len])
@@ -3293,6 +3576,7 @@ mod tests {
         let animations = vec![AnimationInput {
             name: "animation".to_string(),
             times: vec![0.0, 1.0],
+            weight_times: vec![0.0, 1.0],
             skin_index: 0,
             translations: vec![Some(vec![0.0; 6])],
             rotations: vec![Some(vec![0.0; 8])],
@@ -3537,7 +3821,7 @@ mod tests {
     }
 
     #[test]
-    fn skips_weight_channels_without_resolved_mesh_node() {
+    fn rejects_weight_channels_without_resolved_mesh_node() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.morph_targets = vec![MorphTarget {
             name: Some("Smile".to_string()),
@@ -3555,6 +3839,7 @@ mod tests {
         let animation = AnimationInput {
             name: "weights".to_string(),
             times: vec![0.0, 1.0],
+            weight_times: vec![0.0, 1.0],
             skin_index: 0,
             translations: vec![None],
             rotations: vec![None],
@@ -3578,6 +3863,34 @@ mod tests {
         let meshes = vec![mesh];
         let skins = vec![skin];
         let animations = vec![animation];
+        let error = build_glb(
+            &nodes,
+            &meshes,
+            &default_materials(),
+            &[],
+            &skins,
+            &animations,
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect_err("unresolved mesh-node weight channel must fail closed");
+        assert!(
+            error.contains("no resolved glTF mesh node"),
+            "unexpected unresolved weight error: {error}"
+        );
+    }
+
+    #[test]
+    fn emits_weights_only_for_hierarchy_mesh_node() {
+        let meshes = vec![morph_mesh("mesh", 0.25)];
+        let nodes = vec![root_hierarchy_node(), mesh_hierarchy_node(0, Some(0))];
+        let animations = vec![weight_animation(vec![MorphWeightChannel {
+            mesh_index: 0,
+            weights: vec![0.0, 1.0],
+        }])];
+        let skins = vec![one_joint_skin()];
         let estimated = estimate_bin_capacity(&nodes, &meshes, &[], &skins, &animations, &[])
             .expect("capacity estimate");
 
@@ -3593,15 +3906,247 @@ mod tests {
             None,
             &[],
         )
-        .expect("build glb");
+        .expect("build weights-only glb");
         let doc = glb_json(&glb);
-
         assert_eq!(estimated, glb_bin_chunk_len(&glb));
-        assert!(
-            doc.get("animations").is_none(),
-            "unresolved mesh-node weight channel must not be emitted: {:?}",
-            doc.get("animations")
+
+        let animation = &doc["animations"][0];
+        assert_eq!(animation["samplers"].as_array().unwrap().len(), 1);
+        assert_eq!(animation["channels"].as_array().unwrap().len(), 1);
+        let channel = &animation["channels"][0];
+        assert_eq!(channel["target"]["node"], 3);
+        assert_eq!(channel["target"]["path"], "weights");
+        let sampler = &animation["samplers"][0];
+        assert_eq!(sampler["interpolation"], "LINEAR");
+        assert_eq!(
+            accessor_f32(&doc, &glb, sampler["input"].as_u64().unwrap() as usize),
+            vec![0.0, 1.0]
         );
+        assert_eq!(
+            accessor_f32(&doc, &glb, sampler["output"].as_u64().unwrap() as usize),
+            vec![0.0, 1.0]
+        );
+    }
+
+    #[test]
+    fn emits_weights_for_each_hierarchy_mesh_subset() {
+        let meshes = vec![morph_mesh("subset_a", 0.25), morph_mesh("subset_b", 0.5)];
+        let nodes = vec![
+            root_hierarchy_node(),
+            mesh_hierarchy_node(0, Some(0)),
+            mesh_hierarchy_node(1, Some(0)),
+        ];
+        let animations = vec![weight_animation(vec![
+            MorphWeightChannel {
+                mesh_index: 0,
+                weights: vec![0.0, 1.0],
+            },
+            MorphWeightChannel {
+                mesh_index: 1,
+                weights: vec![1.0, 0.0],
+            },
+        ])];
+        let skins = vec![one_joint_skin()];
+        let estimated = estimate_bin_capacity(&nodes, &meshes, &[], &skins, &animations, &[])
+            .expect("capacity estimate");
+
+        let glb = build_glb(
+            &nodes,
+            &meshes,
+            &default_materials(),
+            &[],
+            &skins,
+            &animations,
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build subset weights glb");
+        let doc = glb_json(&glb);
+        assert_eq!(estimated, glb_bin_chunk_len(&glb));
+
+        let animation = &doc["animations"][0];
+        assert_eq!(animation["samplers"].as_array().unwrap().len(), 2);
+        assert_eq!(animation["channels"].as_array().unwrap().len(), 2);
+        for (channel, expected_node) in [(0, 3), (1, 4)] {
+            assert_eq!(
+                animation["channels"][channel]["target"]["node"],
+                expected_node
+            );
+            assert_eq!(animation["channels"][channel]["target"]["path"], "weights");
+            let sampler = &animation["samplers"][channel];
+            assert_eq!(sampler["input"], animation["samplers"][0]["input"]);
+            let expected_weights = if channel == 0 {
+                vec![0.0, 1.0]
+            } else {
+                vec![1.0, 0.0]
+            };
+            assert_eq!(
+                accessor_f32(&doc, &glb, sampler["output"].as_u64().unwrap() as usize),
+                expected_weights
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_trs_and_weights_keep_independent_time_accessors() {
+        let meshes = vec![morph_mesh("mesh", 0.25)];
+        let nodes = vec![root_hierarchy_node(), mesh_hierarchy_node(0, Some(0))];
+        let animations = vec![AnimationInput {
+            name: "mixed".to_string(),
+            times: vec![0.0, 1.0],
+            weight_times: vec![0.0, 0.25, 1.0],
+            skin_index: 0,
+            translations: vec![Some(vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0])],
+            rotations: vec![Some(vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])],
+            scales: vec![Some(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0])],
+            weight_channels: vec![MorphWeightChannel {
+                mesh_index: 0,
+                weights: vec![0.0, 0.5, 1.0],
+            }],
+        }];
+        let skins = vec![one_joint_skin()];
+        let estimated = estimate_bin_capacity(&nodes, &meshes, &[], &skins, &animations, &[])
+            .expect("capacity estimate");
+        let glb = build_glb(
+            &nodes,
+            &meshes,
+            &default_materials(),
+            &[],
+            &skins,
+            &animations,
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build mixed animation glb");
+        let doc = glb_json(&glb);
+        assert_eq!(estimated, glb_bin_chunk_len(&glb));
+
+        let animation = &doc["animations"][0];
+        assert_eq!(animation["samplers"].as_array().unwrap().len(), 4);
+        assert_eq!(animation["channels"].as_array().unwrap().len(), 4);
+        for sampler in &animation["samplers"].as_array().unwrap()[..3] {
+            assert_eq!(
+                accessor_f32(&doc, &glb, sampler["input"].as_u64().unwrap() as usize),
+                vec![0.0, 1.0]
+            );
+        }
+        let weight_sampler = &animation["samplers"][3];
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                weight_sampler["input"].as_u64().unwrap() as usize
+            ),
+            vec![0.0, 0.25, 1.0]
+        );
+        assert_eq!(animation["channels"][3]["target"]["node"], 3);
+        assert_eq!(animation["channels"][3]["target"]["path"], "weights");
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                weight_sampler["output"].as_u64().unwrap() as usize
+            ),
+            vec![0.0, 0.5, 1.0]
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_weight_channels() {
+        let skin = one_joint_skin();
+        let nodes = Vec::new();
+        let cases = [
+            (
+                weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 1,
+                    weights: vec![0.0, 1.0],
+                }]),
+                vec![morph_mesh("mesh", 0.25)],
+                "mesh_index 1 is out of range",
+            ),
+            (
+                weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: Vec::new(),
+                }]),
+                vec![unit_quad_split_into_two_triangles()],
+                "has no morph targets",
+            ),
+            (
+                weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: vec![0.0],
+                }]),
+                vec![morph_mesh("mesh", 0.25)],
+                "weights but 2 are required",
+            ),
+            (
+                weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: vec![0.0, f32::NAN],
+                }]),
+                vec![morph_mesh("mesh", 0.25)],
+                "weight[1] must be finite",
+            ),
+            {
+                let mut animation = weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: vec![0.0, 1.0],
+                }]);
+                animation.weight_times.clear();
+                (
+                    animation,
+                    vec![morph_mesh("mesh", 0.25)],
+                    "require at least one weight time sample",
+                )
+            },
+            {
+                let mut animation = weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: vec![0.0, 1.0],
+                }]);
+                animation.weight_times[0] = -0.1;
+                (
+                    animation,
+                    vec![morph_mesh("mesh", 0.25)],
+                    "weight_time[0] must be finite and non-negative",
+                )
+            },
+            (
+                weight_animation(vec![
+                    MorphWeightChannel {
+                        mesh_index: 0,
+                        weights: vec![0.0, 1.0],
+                    },
+                    MorphWeightChannel {
+                        mesh_index: 0,
+                        weights: vec![1.0, 0.0],
+                    },
+                ]),
+                vec![morph_mesh("mesh", 0.25)],
+                "duplicate weight track for mesh_index 0",
+            ),
+        ];
+        for (animation, meshes, expected) in cases {
+            let error = build_glb(
+                &nodes,
+                &meshes,
+                &default_materials(),
+                &[],
+                std::slice::from_ref(&skin),
+                &[animation],
+                &[],
+                &[],
+                None,
+                &[],
+            )
+            .expect_err(expected);
+            assert!(error.contains(expected), "unexpected weight error: {error}");
+        }
     }
 
     #[test]

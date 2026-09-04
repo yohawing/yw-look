@@ -51,9 +51,16 @@ pub(crate) struct SkeletonData {
 /// A UsdSkel SkelAnimation prim's per-joint TRS time samples.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct SkelAnimationData {
+    /// The timeline formed by the authored joint TRS tracks. Weight samples
+    /// use a separate timeline so adding sparse morph frames cannot make an
+    /// otherwise-complete TRS channel appear sparse.
     pub times: Vec<f64>,
     pub translations: Vec<Vec<f32>>,
     pub rotations: Vec<Vec<f32>>,
     pub scales: Vec<Vec<f32>>,
     pub joints: Vec<String>,
+    /// Names parallel to the `blendShapeWeights` vectors below.
+    pub blend_shapes: Vec<String>,
+    /// Sparse authored weight samples, retained independently from `times`.
+    pub blend_shape_weights: Vec<(f64, Vec<f32>)>,
 }

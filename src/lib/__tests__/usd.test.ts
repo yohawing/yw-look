@@ -189,6 +189,19 @@ describe("requiresGlbPreview fast text decision", () => {
     expect(mockInvoke).not.toHaveBeenCalled();
   });
 
+  it("routes single-layer UsdSkel USDA through the GLB backend", async () => {
+    readBinaryFilePrefixMock.mockResolvedValueOnce(
+      encoded(
+        '#usda 1.0\ndef SkelAnimation "Anim" { token[] blendShapes = ["Smile"] }',
+      ),
+    );
+
+    await expect(requiresGlbPreview("C:\\assets\\weights.usda")).resolves.toBe(
+      true,
+    );
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
   it("routes USDA variant sets through the GLB backend", async () => {
     readBinaryFilePrefixMock.mockResolvedValueOnce(
       encoded(

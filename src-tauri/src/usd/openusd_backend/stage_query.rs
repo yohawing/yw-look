@@ -55,13 +55,17 @@ use openusd::ar::{DefaultResolver, ResolvedPath, Resolver as AssetResolver};
 use openusd::schemas::geom::PointInstancer;
 use openusd::sdf::schema::{ChildrenKey, FieldKey};
 use openusd::sdf::{self, Value};
-use openusd::usd::{InitialLoadSet, PrimPredicate};
+use openusd::usd::{InitialLoadSet, InterpolationType, PrimPredicate, ResolveInfoSource};
 use openusd::usd::{Stage, StageBuilder};
 
 use crate::usd::ir::{MaterialData, MeshData, SkelAnimationData, SkeletonData};
 use crate::usd::types::StageLoadPolicy;
 
 use super::stage_fields::ValidatedStagePathExt;
+
+const MAX_BLEND_SHAPE_NAMES: usize = 1024;
+const MAX_BLEND_SHAPE_WEIGHT_SAMPLES: usize = 8192;
+const MAX_BLEND_SHAPE_WEIGHT_FLOATS: usize = 4 * 1024 * 1024;
 
 /// Payload arc skipped during composition under
 /// [`StageLoadPolicy::NoPayloads`]. `prim_path` is the prim that
@@ -556,19 +560,101 @@ pub(crate) fn skeleton_of(
     ))
 }
 
+/// Returns whether a mesh's composed `skel:skeleton` relationship resolves to
+/// the requested Skeleton. The relationship may be authored on the mesh or
+/// inherited from a parent binding prim; both cases use the same composed
+/// lookup as [`skeleton_of`].
+pub(crate) fn mesh_bound_to_skeleton(
+    stage: &Stage,
+    mesh_path: impl Into<sdf::Path>,
+    skeleton_path: &sdf::Path,
+) -> bool {
+    first_target_in_self_or_ancestors(stage, &mesh_path.into(), "skel:skeleton")
+        .is_some_and(|bound_path| bound_path == *skeleton_path)
+}
+
+pub(crate) fn blend_shape_target_count(
+    stage: &Stage,
+    mesh_path: impl Into<sdf::Path>,
+) -> Option<usize> {
+    let targets_path = mesh_path
+        .into()
+        .append_property("skel:blendShapeTargets")
+        .ok()?;
+    stage
+        .relationship_at(targets_path)
+        .targets()
+        .ok()
+        .map(|targets| targets.len())
+}
+
+pub(crate) fn skel_animation_source_path(
+    stage: &Stage,
+    skeleton_path: impl Into<sdf::Path>,
+) -> Option<sdf::Path> {
+    first_target_in_self_or_ancestors(stage, &skeleton_path.into(), "skel:animationSource")
+}
+
+/// Returns whether a SkelAnimation prim has an authored animated weight
+/// value. Static default values are intentionally excluded: the current GLB
+/// path has no authored rest-weight contract, while animated values must not
+/// disappear when no mesh-bound Skeleton reaches the animation.
+pub(crate) fn skel_animation_has_weight_samples(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+) -> anyhow::Result<bool> {
+    let attr_path = prim_path.append_property("blendShapeWeights")?;
+    let attribute = stage.attribute_at(attr_path);
+    if attribute.resolve_info()?.source() == ResolveInfoSource::ValueClips {
+        return Ok(true);
+    }
+    Ok(attribute.num_time_samples()? > 0 || attribute.value_might_be_time_varying()?)
+}
+
 pub(crate) fn skel_animation_of(
     stage: &Stage,
     skeleton_path: impl Into<sdf::Path>,
-) -> Option<SkelAnimationData> {
-    let anim_path =
-        first_target_in_self_or_ancestors(stage, &skeleton_path.into(), "skel:animationSource")?;
+) -> anyhow::Result<Option<SkelAnimationData>> {
+    let skeleton_path = skeleton_path.into();
+    let Some(anim_path) =
+        first_target_in_self_or_ancestors(stage, &skeleton_path, "skel:animationSource")
+    else {
+        return Ok(None);
+    };
     if read_type_name(stage, anim_path.clone()).as_deref() != Some("SkelAnimation") {
-        return None;
+        anyhow::bail!(
+            "Skeleton '{}' has skel:animationSource '{}' that is not a SkelAnimation",
+            skeleton_path,
+            anim_path
+        );
     }
     let joints = read_string_vec_attr(stage, &anim_path, "joints").unwrap_or_default();
     let translations = read_vec3_time_samples(stage, &anim_path, "translations");
     let rotations = read_quat_time_samples(stage, &anim_path, "rotations");
     let scales = read_vec3_time_samples(stage, &anim_path, "scales");
+    let blend_shapes = read_string_vec_attr(stage, &anim_path, "blendShapes").unwrap_or_default();
+    if blend_shapes.len() > MAX_BLEND_SHAPE_NAMES {
+        anyhow::bail!(
+            "SkelAnimation '{}' has too many blend shape names ({})",
+            anim_path,
+            blend_shapes.len()
+        );
+    }
+    validate_unique_nonempty_names(&blend_shapes, "blend shape", anim_path.as_str())?;
+    let blend_shape_weights =
+        read_blend_shape_weight_samples(stage, &anim_path, blend_shapes.len())?;
+    if !blend_shape_weights.is_empty() && stage.interpolation_type() == InterpolationType::Held {
+        anyhow::bail!(
+            "SkelAnimation '{}' blendShapeWeights with held interpolation is unsupported",
+            anim_path
+        );
+    }
+    if !blend_shape_weights.is_empty() && blend_shapes.is_empty() {
+        anyhow::bail!(
+            "SkelAnimation '{}' authors blendShapeWeights without blendShapes names",
+            anim_path
+        );
+    }
     let mut times: Vec<f64> = translations
         .iter()
         .chain(rotations.iter())
@@ -577,16 +663,37 @@ pub(crate) fn skel_animation_of(
         .collect();
     times.sort_by(f64::total_cmp);
     times.dedup_by(|a, b| (*a - *b).abs() < f64::EPSILON);
-    if times.is_empty() {
-        return None;
+    if times.is_empty() && blend_shape_weights.is_empty() {
+        return Ok(None);
     }
-    Some(SkelAnimationData {
+    Ok(Some(SkelAnimationData {
         translations: align_samples(&times, translations),
         rotations: align_samples(&times, rotations),
         scales: align_samples(&times, scales),
         times,
         joints,
-    })
+        blend_shapes,
+        blend_shape_weights,
+    }))
+}
+
+/// Detect composed UsdSkel schema prims for the single-layer routing decision.
+/// Three.js USDLoader does not preserve these skin / morph relationships, so
+/// even a static-looking single-layer USDA needs the GLB path.
+pub(crate) fn has_skel_schema_candidate(stage: &Stage) -> anyhow::Result<bool> {
+    let candidate = std::cell::Cell::new(false);
+    stage.traverse(PrimPredicate::ALL, |prim_path| {
+        if candidate.get() {
+            return;
+        }
+        let Some(type_name) = read_type_name(stage, prim_path.clone()) else {
+            return;
+        };
+        if type_name.starts_with("Skel") || type_name == "BlendShape" {
+            candidate.set(true);
+        }
+    })?;
+    Ok(candidate.get())
 }
 
 /// Composed default value of `prim_path.name`, read via
@@ -993,6 +1100,120 @@ fn read_time_samples(
     stage.attribute_at(attr_path).time_samples().ok().flatten()
 }
 
+fn validate_unique_nonempty_names(
+    names: &[String],
+    kind: &str,
+    prim_path: &str,
+) -> anyhow::Result<()> {
+    let mut seen = HashSet::new();
+    for name in names {
+        if name.is_empty() {
+            anyhow::bail!("{kind} name on '{prim_path}' is empty");
+        }
+        if !seen.insert(name.as_str()) {
+            anyhow::bail!("duplicate {kind} name '{name}' on '{prim_path}'");
+        }
+    }
+    Ok(())
+}
+
+fn read_blend_shape_weight_samples(
+    stage: &Stage,
+    prim_path: &sdf::Path,
+    expected_width: usize,
+) -> anyhow::Result<Vec<(f64, Vec<f32>)>> {
+    let attr_path = prim_path.append_property("blendShapeWeights")?;
+    let attribute = stage.attribute_at(attr_path);
+    if attribute.resolve_info()?.source() == ResolveInfoSource::ValueClips {
+        anyhow::bail!(
+            "SkelAnimation '{}' blendShapeWeights uses an unsupported value-clip source",
+            prim_path
+        );
+    }
+    let count = attribute.num_time_samples()?;
+    if count > MAX_BLEND_SHAPE_WEIGHT_SAMPLES {
+        anyhow::bail!(
+            "SkelAnimation '{}' blendShapeWeights sample budget exceeds {}",
+            prim_path,
+            MAX_BLEND_SHAPE_WEIGHT_SAMPLES
+        );
+    }
+    let float_count = count.checked_mul(expected_width).ok_or_else(|| {
+        anyhow::anyhow!(
+            "SkelAnimation '{}' blendShapeWeights size overflows",
+            prim_path
+        )
+    })?;
+    if float_count > MAX_BLEND_SHAPE_WEIGHT_FLOATS {
+        anyhow::bail!(
+            "SkelAnimation '{}' blendShapeWeights float budget exceeds {}",
+            prim_path,
+            MAX_BLEND_SHAPE_WEIGHT_FLOATS
+        );
+    }
+    if count == 0 {
+        if attribute.value_might_be_time_varying()? {
+            anyhow::bail!(
+                "SkelAnimation '{}' blendShapeWeights has no usable samples",
+                prim_path
+            );
+        }
+        return Ok(Vec::new());
+    }
+    let Some(samples) = attribute.time_samples()? else {
+        anyhow::bail!(
+            "SkelAnimation '{}' blendShapeWeights has no direct timeSamples map",
+            prim_path
+        );
+    };
+    let mut out = Vec::with_capacity(samples.len());
+    for (time, value) in samples {
+        if !time.is_finite() {
+            anyhow::bail!(
+                "SkelAnimation '{}' blendShapeWeights has a non-finite sample time",
+                prim_path
+            );
+        }
+        let values = flatten_weight_value(value).ok_or_else(|| {
+            anyhow::anyhow!(
+                "SkelAnimation '{}' blendShapeWeights sample at {time} is not a float array",
+                prim_path
+            )
+        })?;
+        if values.len() != expected_width {
+            anyhow::bail!(
+                "SkelAnimation '{}' blendShapeWeights sample at {time} has {} values; expected {}",
+                prim_path,
+                values.len(),
+                expected_width
+            );
+        }
+        if values.iter().any(|value| !value.is_finite()) {
+            anyhow::bail!(
+                "SkelAnimation '{}' blendShapeWeights sample at {time} has a non-finite value",
+                prim_path
+            );
+        }
+        out.push((time, values));
+    }
+    Ok(out)
+}
+
+fn flatten_weight_value(value: Value) -> Option<Vec<f32>> {
+    match value {
+        Value::FloatVec(values) => Some(values),
+        Value::DoubleVec(values) => values
+            .into_iter()
+            .map(|value| {
+                let value = value as f32;
+                value.is_finite().then_some(value)
+            })
+            .collect(),
+        Value::HalfVec(values) => Some(values.into_iter().map(|value| value.to_f32()).collect()),
+        _ => None,
+    }
+}
+
 fn flatten_quat_value(value: Value) -> Option<Vec<f32>> {
     match value {
         Value::QuatfVec(v) => Some(v.into_iter().flat_map(|q| [q.x, q.y, q.z, q.w]).collect()),
@@ -1095,6 +1316,35 @@ mod tests {
                 .map(sdf::Path::as_str),
             Some("/Mat")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn mesh_skeleton_binding_is_composed_per_rig() -> anyhow::Result<()> {
+        let stage = Stage::builder().in_memory("anon.usda")?;
+        for rig in ["A", "B"] {
+            stage
+                .define_prim(&format!("/Rig{rig}"))?
+                .set_type_name("Xform")?;
+            stage
+                .define_prim(&format!("/Rig{rig}/Skeleton"))?
+                .set_type_name("Skeleton")?;
+            stage
+                .define_prim(&format!("/Rig{rig}/Body"))?
+                .set_type_name("Mesh")?;
+            stage
+                .define_prim(&format!("/Rig{rig}/Body"))?
+                .create_relationship("skel:skeleton")?
+                .set_targets([sdf::path(&format!("/Rig{rig}/Skeleton"))?])?;
+        }
+        let mesh_a = sdf::path("/RigA/Body")?;
+        let mesh_b = sdf::path("/RigB/Body")?;
+        let skeleton_a = sdf::path("/RigA/Skeleton")?;
+        let skeleton_b = sdf::path("/RigB/Skeleton")?;
+        assert!(mesh_bound_to_skeleton(&stage, mesh_a.clone(), &skeleton_a));
+        assert!(!mesh_bound_to_skeleton(&stage, mesh_a, &skeleton_b));
+        assert!(mesh_bound_to_skeleton(&stage, mesh_b.clone(), &skeleton_b));
+        assert!(!mesh_bound_to_skeleton(&stage, mesh_b, &skeleton_a));
         Ok(())
     }
 

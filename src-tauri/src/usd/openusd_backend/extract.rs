@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::Path as StdPath;
 
 use openusd::sdf::schema::FieldKey;
@@ -36,6 +37,17 @@ use super::stage_query::{self, UpAxis};
 use super::xform::compose_world_xform;
 use super::xform_animation::build_node_animation;
 use super::LEGACY_TRAVERSE_PREDICATE;
+
+fn is_identity_matrix4d(matrix: &[f64; 16]) -> bool {
+    matrix.iter().enumerate().all(|(index, value)| {
+        let expected = if [0, 5, 10, 15].contains(&index) {
+            1.0
+        } else {
+            0.0
+        };
+        (*value - expected).abs() <= 1e-9
+    })
+}
 // ---------------------------------------------------------------------------
 // Free function: the actual geometry-extraction pipeline, callable from both
 // `extract_geometry_glb`, `extract_geometry_glb_with_options`, and
@@ -81,9 +93,13 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     // so collect them separately for the instancing pass.
     let mesh_paths = RefCell::new(Vec::<SdfPath>::new());
     let instancer_paths = RefCell::new(Vec::<SdfPath>::new());
+    let skel_animation_paths = RefCell::new(Vec::<SdfPath>::new());
     stage
         .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
             if let Ok(Some(type_name)) = stage.prim_at(prim_path.clone()).type_name() {
+                if type_name.as_str() == "SkelAnimation" {
+                    skel_animation_paths.borrow_mut().push(prim_path.clone());
+                }
                 if type_name.as_str() == "PointInstancer" {
                     instancer_paths.borrow_mut().push(prim_path.clone());
                     return;
@@ -97,6 +113,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         .map_err(|e| UsdError::Parse(e.to_string()))?;
 
     let instancer_paths = instancer_paths.into_inner();
+    let skel_animation_paths = skel_animation_paths.into_inner();
     let mesh_paths = mesh_paths.into_inner();
 
     // Filter out "leaked" root prims from referenced/payloaded
@@ -241,6 +258,11 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // eyeball meshes bind to a single head-deep joint, etc.
         // Skipping this step leaves every vertex pointing at the
         // wrong joint and produces the classic "exploded" look.
+        let geom_bind = if mesh_skin_slots[mesh_idx].is_some() {
+            read_geom_bind_transform(&stage, prim_path)
+        } else {
+            None
+        };
         if let Some(skin_slot) = mesh_skin_slots[mesh_idx] {
             if let Some(local_joints) = read_mesh_skel_joints_override(&stage, prim_path) {
                 if let Some(skin) = skins.get(skin_slot) {
@@ -255,8 +277,8 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
             // this every skinned part is offset by its geom-bind matrix
             // and the character comes apart at the joints (move.ai /
             // Blender USDC exports author this on every mesh).
-            if let Some(geom_bind) = read_geom_bind_transform(&stage, prim_path) {
-                apply_geom_bind_transform(&mut mesh_data, &geom_bind);
+            if let Some(geom_bind) = geom_bind.as_ref() {
+                apply_geom_bind_transform(&mut mesh_data, geom_bind);
             }
         }
 
@@ -273,6 +295,16 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         // `skel:blendShapeTargets` relationship.
         let point_count = mesh_data.points.len() / 3;
         let blend_shapes = resolve_blend_shapes(&stage, prim_path, point_count);
+        if !blend_shapes.is_empty()
+            && geom_bind
+                .as_ref()
+                .is_some_and(|matrix| !is_identity_matrix4d(matrix))
+        {
+            return Err(UsdError::Parse(format!(
+                "USD mesh '{}' combines blend shapes with a non-identity geomBindTransform, which is unsupported",
+                prim_path
+            )));
+        }
 
         // Issue #43 displayOpacity: read `primvars:displayOpacity`
         // from the stage for this mesh prim. The values are scalar
@@ -437,7 +469,9 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
 
     // Phase 5c E: per skin, resolve the bound SkelAnimation and
     // convert it into a glTF animation. Stages without
-    // skel:animationSource skip the conversion silently. We
+    // skel:animationSource skip the conversion. Malformed animation
+    // bindings are returned as extraction errors rather than silently
+    // producing a static preview. We
     // also need the stage's `timeCodesPerSecond` so we can map
     // USD time codes (which is what `Stage::skel_animation_of`
     // returns) to glTF seconds — the spec defaults to 24 when
@@ -450,6 +484,7 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         .filter(|v| *v > 0.0)
         .unwrap_or(24.0);
     let mut animations: Vec<glb::AnimationInput> = Vec::new();
+    let mut resolved_weight_animation_sources: HashSet<String> = HashSet::new();
     for (skin_idx, skin) in skins.iter().enumerate() {
         // Look up the skel path key by reverse mapping. Cheap:
         // there are typically 0–2 skins in a stage.
@@ -462,15 +497,65 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
         let Ok(skel_path) = SdfPath::new(&skel_path_str) else {
             continue;
         };
-        if let Some(anim_data) = stage_query::skel_animation_of(&stage, skel_path) {
+        if let Some(anim_data) = stage_query::skel_animation_of(&stage, &skel_path)
+            .map_err(|error| UsdError::Parse(error.to_string()))?
+        {
+            if !anim_data.blend_shape_weights.is_empty() {
+                if let Some(source_path) =
+                    stage_query::skel_animation_source_path(&stage, &skel_path)
+                {
+                    resolved_weight_animation_sources.insert(source_path.to_string());
+                }
+            }
+            let weight_mesh_indices: Vec<usize> = if anim_data.blend_shape_weights.is_empty() {
+                Vec::new()
+            } else {
+                input_source_paths
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(mesh_index, source_path)| {
+                        stage_query::mesh_bound_to_skeleton(&stage, source_path, &skel_path)
+                            .then_some(mesh_index)
+                    })
+                    .collect()
+            };
+            for &mesh_index in &weight_mesh_indices {
+                let source_path = &input_source_paths[mesh_index];
+                let Some(authored_target_count) =
+                    stage_query::blend_shape_target_count(&stage, source_path)
+                else {
+                    continue;
+                };
+                let emitted_target_count = inputs[mesh_index].morph_targets.len();
+                if authored_target_count != emitted_target_count {
+                    return Err(UsdError::Parse(format!(
+                        "USD mesh '{}' has {} authored blend shape targets but only {} resolvable morph targets",
+                        source_path, authored_target_count, emitted_target_count
+                    )));
+                }
+            }
             if let Some(anim_input) = animation_input_from_skel(
                 skin_idx,
                 &skin.joint_names,
                 &anim_data,
                 time_codes_per_second,
-            ) {
+                &inputs,
+                &input_source_paths,
+                &weight_mesh_indices,
+            )? {
                 animations.push(anim_input);
             }
+        }
+    }
+    for animation_path in skel_animation_paths {
+        if stage_query::skel_animation_has_weight_samples(&stage, &animation_path)
+            .map_err(|error| UsdError::Parse(error.to_string()))?
+            && !resolved_weight_animation_sources.contains(animation_path.as_str())
+        {
+            return Err(UsdError::Parse(format!(
+                "USD SkelAnimation '{}' has blendShapeWeights but is not reachable from a mesh-bound Skeleton",
+                animation_path
+            )));
         }
     }
 
