@@ -3,6 +3,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   Group,
+  InstancedMesh,
   LineSegments,
   Matrix4,
   Mesh,
@@ -479,6 +480,7 @@ export function collectTransferables(
 function getStaticNodeType(
   object: Object3D,
 ): ModelParseWorkerStaticNodePayload["type"] | null {
+  if (object instanceof InstancedMesh) return null;
   if (object instanceof Mesh) return "Mesh";
   if (object instanceof LineSegments) return "LineSegments";
   if (object instanceof Points) return "Points";
