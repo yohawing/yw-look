@@ -107,6 +107,14 @@ type SessionGlbBufferState = {
   inputs: SessionGlbBufferInputs;
 };
 
+const EMPTY_PAYLOAD_PATHS: ReadonlySet<string> = new Set();
+
+type AppliedPayloadPathSnapshot = {
+  filePath: string;
+  handle: StageSessionHandle;
+  inspection: StageInspection;
+};
+
 function buildSessionInputsKey(
   filePath: string | null,
   usdLoadPolicy: StageLoadPolicy,
@@ -168,12 +176,15 @@ export function usePayloadSession(
   const [unloadedPayloadPaths, setUnloadedPayloadPaths] = useState<
     ReadonlySet<string>
   >(new Set());
+  const [appliedPayloadPathSnapshot, setAppliedPayloadPathSnapshot] =
+    useState<AppliedPayloadPathSnapshot | null>(null);
   const [sessionGlbBufferState, setSessionGlbBufferState] =
     useState<SessionGlbBufferState | null>(null);
   const [deferredPayloadProgress, setDeferredPayloadProgress] =
     useState<DeferredTextureSnapshot | null>(null);
+  const currentFilePath = currentFile?.path ?? null;
   const sessionGlbBufferInputKey = buildSessionInputsKey(
-    currentFile?.path ?? null,
+    currentFilePath,
     usdLoadPolicy,
     variantSelections,
     purposeModes,
@@ -314,12 +325,20 @@ export function usePayloadSession(
   }, [currentFile, isTauri, previewReadyForDeferredPayloads, usdLoadPolicy]);
 
   useEffect(() => {
-    if (!usdInspection || usdLoadPolicy !== "noPayloads") {
+    if (
+      !usdInspection ||
+      currentFilePath === null ||
+      usdInspection.path !== currentFilePath ||
+      usdLoadPolicy !== "noPayloads" ||
+      stageSessionHandle === null
+    ) {
       return deferEffectStateUpdate(() => {
+        setAppliedPayloadPathSnapshot(null);
         setPayloadPrimPaths(new Set());
         setUnloadedPayloadPaths(new Set());
       });
     }
+    const filePath = currentFilePath;
     const allPayloads = new Set(
       usdInspection.payloads.map((arc) => arc.sourcePrim),
     );
@@ -332,10 +351,15 @@ export function usePayloadSession(
       unloaded.delete(primPath);
     }
     return deferEffectStateUpdate(() => {
+      setAppliedPayloadPathSnapshot({
+        filePath,
+        handle: stageSessionHandle,
+        inspection: usdInspection,
+      });
       setPayloadPrimPaths(allPayloads);
       setUnloadedPayloadPaths(unloaded);
     });
-  }, [usdInspection, usdLoadPolicy]);
+  }, [currentFilePath, stageSessionHandle, usdInspection, usdLoadPolicy]);
 
   const buildExtractOptions = useCallback(
     (policy: StageLoadPolicy) =>
@@ -715,10 +739,24 @@ export function usePayloadSession(
     setSessionGlbBuffer,
   ]);
 
+  const payloadSnapshotIsCurrent =
+    isUsdFile(currentFile) &&
+    currentFile !== null &&
+    usdLoadPolicy === "noPayloads" &&
+    usdInspection !== null &&
+    stageSessionHandle !== null &&
+    appliedPayloadPathSnapshot !== null &&
+    appliedPayloadPathSnapshot.filePath === currentFile.path &&
+    appliedPayloadPathSnapshot.handle === stageSessionHandle &&
+    appliedPayloadPathSnapshot.inspection === usdInspection;
   return {
     stageSessionHandle,
-    payloadPrimPaths,
-    unloadedPayloadPaths,
+    payloadPrimPaths: payloadSnapshotIsCurrent
+      ? payloadPrimPaths
+      : EMPTY_PAYLOAD_PATHS,
+    unloadedPayloadPaths: payloadSnapshotIsCurrent
+      ? unloadedPayloadPaths
+      : EMPTY_PAYLOAD_PATHS,
     sessionGlbBuffer: currentSessionGlbBuffer,
     setSessionGlbBuffer,
     deferredPayloadProgress,

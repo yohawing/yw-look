@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { isUsdFile } from "../lib/files";
 import type { StageSessionHandle } from "../lib/usd";
@@ -12,6 +12,7 @@ import {
   getPackSelectedObjectDetails,
 } from "../packs";
 import { KeyValueRows } from "./ui/KeyValueRows";
+import { mergeKnownPayloadRoots } from "./usdPayloadHierarchy";
 
 type HierarchySidebarPanelProps = {
   debugPanelsEnabled?: boolean;
@@ -52,6 +53,15 @@ export function HierarchySidebarPanel({
     : storeAssetMetadata;
   const hierarchy = assetMetadata?.hierarchy ?? EMPTY_HIERARCHY;
   const objectInfo = assetMetadata?.objectInfo;
+  const payloadSessionEnabled =
+    !useDebugFixtures && isUsdFile(currentFile) && stageSessionHandle !== null;
+  const displayHierarchy = useMemo(
+    () =>
+      payloadSessionEnabled
+        ? mergeKnownPayloadRoots(hierarchy, payloadPrimPaths)
+        : hierarchy,
+    [hierarchy, payloadPrimPaths, payloadSessionEnabled],
+  );
 
   const handleMorphTargetChange = useCallback(
     (selectionKey: string, morphTargetIndex: number, value: number) => {
@@ -75,7 +85,7 @@ export function HierarchySidebarPanel({
   return (
     <>
       <HierarchyCard
-        hierarchy={hierarchy}
+        hierarchy={displayHierarchy}
         fileIdentity={currentFile?.path ?? null}
         objectInfo={objectInfo}
         morphTargetValues={morphTargetValues}
@@ -87,16 +97,12 @@ export function HierarchySidebarPanel({
         onSelectPrimPath={
           isUsdFile(currentFile) ? handleSelectPrimPath : undefined
         }
-        payloadPrimPaths={
-          stageSessionHandle !== null ? payloadPrimPaths : undefined
-        }
+        payloadPrimPaths={payloadSessionEnabled ? payloadPrimPaths : undefined}
         unloadedPayloadPaths={
-          stageSessionHandle !== null ? unloadedPayloadPaths : undefined
+          payloadSessionEnabled ? unloadedPayloadPaths : undefined
         }
-        onLoadPayload={stageSessionHandle !== null ? onLoadPayload : undefined}
-        onUnloadPayload={
-          stageSessionHandle !== null ? onUnloadPayload : undefined
-        }
+        onLoadPayload={payloadSessionEnabled ? onLoadPayload : undefined}
+        onUnloadPayload={payloadSessionEnabled ? onUnloadPayload : undefined}
         renderSelectedObjectDetails={renderPackSelectedObjectDetails}
         renderMorphTargetMeta={formatPackMorphTargetMeta}
       />

@@ -102,6 +102,7 @@ function buffer(byteLength: number) {
 }
 
 type PayloadSessionProps = {
+  currentFile?: SelectedFile | null;
   inspection: StageInspection;
   purposeModes: PurposeModes;
   variantSelections: VariantSelection[];
@@ -117,9 +118,14 @@ function renderPayloadSession(
   const recordVariantSelectionError = vi.fn(() => false);
   const updateViewerFeedback = vi.fn();
   const result = renderHook(
-    ({ inspection, purposeModes, variantSelections }: PayloadSessionProps) =>
+    ({
+      currentFile = file,
+      inspection,
+      purposeModes,
+      variantSelections,
+    }: PayloadSessionProps) =>
       usePayloadSession(
-        file,
+        currentFile,
         true,
         "noPayloads",
         inspection,
@@ -166,6 +172,54 @@ describe("usePayloadSession", () => {
       expect(result.current.stageSessionHandle).toBe(42);
     });
     expect(openStageSession).toHaveBeenCalledTimes(2);
+
+    unmount();
+  });
+
+  it("keeps payload paths across purpose changes and replaces inspection snapshots", async () => {
+    const { initialProps, rerender, result, unmount } = renderPayloadSession();
+
+    await waitFor(() => {
+      expect(result.current.payloadPrimPaths).toEqual(
+        new Set(["/Root/PayloadRoot"]),
+      );
+      expect(result.current.unloadedPayloadPaths).toEqual(
+        new Set(["/Root/PayloadRoot"]),
+      );
+    });
+
+    rerender({
+      ...initialProps,
+      purposeModes: { ...purposeModes, proxy: true },
+    });
+    expect(result.current.payloadPrimPaths).toEqual(
+      new Set(["/Root/PayloadRoot"]),
+    );
+    expect(result.current.unloadedPayloadPaths).toEqual(
+      new Set(["/Root/PayloadRoot"]),
+    );
+
+    rerender({
+      ...initialProps,
+      inspection: { ...inspection, payloads: [] },
+      purposeModes: { ...purposeModes, proxy: true },
+    });
+    await waitFor(() => {
+      expect(result.current.payloadPrimPaths).toEqual(new Set());
+      expect(result.current.unloadedPayloadPaths).toEqual(new Set());
+    });
+
+    rerender({
+      ...initialProps,
+      currentFile: {
+        ...file,
+        path: "samples/assets/usd/other_payload.usda",
+        fileName: "other_payload.usda",
+      },
+      variantSelections: [],
+    });
+    expect(result.current.payloadPrimPaths).toEqual(new Set());
+    expect(result.current.unloadedPayloadPaths).toEqual(new Set());
 
     unmount();
   });
