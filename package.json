@@ -90,6 +90,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-log": "^2.9.0",
+    "@xzdarcy/react-timeline-editor": "1.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-resizable-panels": "^4.12.3",

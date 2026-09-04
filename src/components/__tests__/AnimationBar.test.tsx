@@ -27,14 +27,15 @@ function renderAnimationBar() {
 
 describe("AnimationBar", () => {
   it("uses a 30 fps frame readout and frame-aligned seek step by default", () => {
-    const { getByLabelText, getByText } = renderAnimationBar();
+    const { getByRole, getByText } = renderAnimationBar();
 
     expect(getByText("30f")).toBeTruthy();
     expect(getByText("60f")).toBeTruthy();
     expect(getByText("30 fps")).toBeTruthy();
-    expect(
-      Number(getByLabelText("Animation seek").getAttribute("step")),
-    ).toBeCloseTo(1 / 30);
+    const timeline = getByRole("slider", { name: "Animation seek" });
+    expect(timeline.getAttribute("aria-valuemax")).toBe("60");
+    expect(timeline.getAttribute("aria-valuenow")).toBe("30");
+    expect(timeline.getAttribute("data-frame-rate")).toBe("30");
   });
 
   it("toggles from frames to clock time when the readout is clicked", () => {
