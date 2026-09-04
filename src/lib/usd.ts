@@ -159,8 +159,8 @@ export async function inspectUsdLights(
  * #28 — inspect the attributes, relationships, and metadata for the
  * prim at `primPath` inside the USD file at `path`.
  *
- * The current Rust backend does not expose this inspector API and returns an
- * error, which this wrapper re-throws so callers can handle gracefully.
+ * The Rust backend returns authored attributes, relationships, and metadata
+ * for the selected prim. Backend errors are propagated to the caller.
  */
 export async function inspectPrim(
   path: string,
@@ -173,8 +173,8 @@ export async function inspectPrim(
  * #37 — fetch up to `maxSamples` time samples for the named attribute
  * on the prim at `primPath` inside the USD file at `path`.
  *
- * `maxSamples` defaults to 100 on the Rust side when omitted. The current
- * backend returns an error because this inspector API is not implemented.
+ * `maxSamples` defaults to 100 on the Rust side when omitted. The backend
+ * also returns truncation metadata and numeric summary statistics.
  */
 export async function inspectAttributeTimeSamples(
   path: string,

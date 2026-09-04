@@ -27,6 +27,7 @@ mod mesh_attributes;
 mod mesh_visibility;
 mod node_tree;
 mod point_instancer;
+mod prim_inspection;
 mod session;
 mod shader_fields;
 mod skel_adapter;
@@ -693,10 +694,9 @@ impl UsdInspectBackend for OpenusdBackend {
         Ok(false)
     }
 
-    fn inspect_prim(&self, _path: &StdPath, _prim_path: &str) -> Result<PrimInspection, UsdError> {
-        Err(UsdError::Parse(
-            "inspect_prim is not supported on the openusd Rust backend".into(),
-        ))
+    fn inspect_prim(&self, path: &StdPath, prim_path: &str) -> Result<PrimInspection, UsdError> {
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        prim_inspection::inspect_prim(&stage, prim_path)
     }
 
     fn inspect_attribute_time_samples(
