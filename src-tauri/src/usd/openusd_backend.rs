@@ -51,9 +51,10 @@ use composition_arcs::{payload_arc_state, reference_arc_state};
 use extract::extract_geometry_from_open_stage_rs;
 #[cfg(test)]
 use mesh_visibility::is_renderable_mesh;
+#[cfg(test)]
+use stage_fields::read_string_or_token_attribute;
 use stage_fields::{
-    read_root_double_field, read_string_or_token_attribute, read_token_or_string_field,
-    token_vec_to_strings, ValidatedStagePathExt,
+    read_root_double_field, read_token_or_string_field, token_vec_to_strings, ValidatedStagePathExt,
 };
 use stage_query::UpAxis;
 use variants::apply_variant_selections;
@@ -86,32 +87,18 @@ impl StageCapabilityDetection {
             _ => {}
         }
 
-        if type_name == "Shader" {
-            let info_id = prim_path
-                .append_property("info:id")
-                .ok()
-                .and_then(|path| read_string_or_token_attribute(stage, path));
-            if info_id.as_deref().is_some_and(is_material_x_shader_id) {
-                self.material_x = true;
-            }
+        if type_name == "Shader" && stage_query::prim_has_material_x_candidate(stage, prim_path) {
+            self.material_x = true;
         }
     }
-}
-
-fn is_material_x_shader_id(id: &str) -> bool {
-    // MaterialX node identifiers emitted by the USD interchange commonly
-    // use the `ND_` namespace. Keep the check intentionally name-based: the
-    // Rust backend does not expose a richer MaterialX schema query yet.
-    id.starts_with("ND_") || id.starts_with("MaterialX")
 }
 
 fn stage_capability_infos(
     detection: StageCapabilityDetection,
     start_time_code: Option<f64>,
     end_time_code: Option<f64>,
+    material_x_reason: Option<String>,
 ) -> Vec<StageCapabilityInfo> {
-    const MATERIAL_X_REASON: &str =
-        "MaterialX preview is limited to known shader aliases and direct graphs.";
     const SKEL_REASON: &str =
         "UsdSkel preview supports the current GLB skinning path only; arbitrary rig data is not covered.";
     const ANIMATION_RANGE_REASON: &str =
@@ -130,7 +117,9 @@ fn stage_capability_infos(
             kind: StageCapabilityKind::MaterialX,
             detected: detection.material_x,
             support: StageCapabilitySupport::Degraded,
-            reason: MATERIAL_X_REASON.to_owned(),
+            reason: material_x_reason.unwrap_or_else(|| {
+                "MaterialX preview is limited to known shader aliases and direct graphs.".to_owned()
+            }),
         },
         StageCapabilityInfo {
             kind: StageCapabilityKind::Skel,
@@ -376,8 +365,15 @@ impl UsdInspectBackend for OpenusdBackend {
             .and_then(|v| String::try_from(v).ok())
             .filter(|s| !s.is_empty());
         let root_layer_is_binary = stage_query::root_layer_is_binary(&stage);
-        let capabilities =
-            stage_capability_infos(capability_detection, start_time_code, end_time_code);
+        let material_x_reason =
+            stage_query::material_x_diagnostic_reason(&stage, capability_detection.material_x)
+                .map_err(|error| UsdError::Parse(error.to_string()))?;
+        let capabilities = stage_capability_infos(
+            capability_detection,
+            start_time_code,
+            end_time_code,
+            material_x_reason,
+        );
 
         // #29 — degraded layer info: the Rust fork doesn't expose
         // per-layer muted / offset APIs, so we synthesise LayerInfo
@@ -607,7 +603,11 @@ impl UsdInspectBackend for OpenusdBackend {
             .into_iter()
             .map(|a| format!("unresolved asset: {a}"))
             .collect();
-        let capabilities = stage_capability_infos(capability_detection, start, end);
+        let material_x_reason =
+            stage_query::material_x_diagnostic_reason(&stage, capability_detection.material_x)
+                .map_err(|error| UsdError::Parse(error.to_string()))?;
+        let capabilities =
+            stage_capability_infos(capability_detection, start, end, material_x_reason);
 
         Ok(StageSummary {
             path: path.display().to_string(),
@@ -694,6 +694,14 @@ impl UsdInspectBackend for OpenusdBackend {
         // these stages through the backend even when no timeSamples marker
         // is present.
         if stage_query::has_skel_schema_candidate(&stage)
+            .map_err(|error| UsdError::Parse(error.to_string()))?
+        {
+            return Ok(true);
+        }
+        // A single-layer USDA can still contain MaterialX shader aliases.
+        // Three.js USDLoader does not evaluate those graphs or expose their
+        // resource diagnostics, so route the candidate through the backend.
+        if stage_query::has_material_x_candidate(&stage)
             .map_err(|error| UsdError::Parse(error.to_string()))?
         {
             return Ok(true);
@@ -1190,6 +1198,98 @@ def Xform "Root"
             mesh_nodes[0]["extras"]["primPath"],
             "/Root/VisibleInstance/Geometry"
         );
+    }
+
+    #[test]
+    fn materialx_capability_reason_is_shared_and_names_unsupported_inputs() {
+        let root = std::env::temp_dir().join(format!(
+            "yw-look-materialx-capability-diagnostics-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let path = root.join("materialx-diagnostics.usda");
+        std::fs::write(
+            &path,
+            r##"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+
+def Xform "Root"
+{
+    def NodeGraph "Outer"
+    {
+        color3f outputs:out
+    }
+
+    def Shader "MissingImage"
+    {
+        uniform token info:id = "ND_image_color3"
+        asset inputs:file = @missing.png@
+    }
+
+    def Shader "RawSource"
+    {
+        uniform token info:id = "ND_standard_surface_surfaceshader"
+        asset info:sourceAsset = @material.mtlx@
+    }
+
+    def Shader "RawSourceOnly"
+    {
+        asset info:mtlx:sourceAsset = @missing-material.mtlx@
+    }
+
+    def Shader "NestedPreview"
+    {
+        uniform token info:id = "ND_UsdPreviewSurface_surfaceshader"
+        color3f inputs:diffuseColor.connect = </Root/Outer.outputs:out>
+    }
+}
+"##,
+        )
+        .expect("write MaterialX diagnostic fixture");
+
+        let backend = OpenusdBackend::new();
+        let summary = backend
+            .summarize_stage(&path, StageLoadPolicy::LoadAll)
+            .expect("summarize MaterialX diagnostic fixture");
+        let inspection = backend
+            .inspect_stage(&path, StageLoadPolicy::LoadAll)
+            .expect("inspect MaterialX diagnostic fixture");
+        assert_eq!(summary.capabilities, inspection.capabilities);
+        let reason = &summary.capabilities[1].reason;
+        assert!(reason.contains("missing.png"), "reason = {reason}");
+        assert!(reason.contains("unresolved"), "reason = {reason}");
+        assert!(reason.contains("material.mtlx"), "reason = {reason}");
+        assert!(
+            reason.contains("missing-material.mtlx") && reason.contains("RawSourceOnly"),
+            "reason = {reason}"
+        );
+        assert!(reason.contains("standard_surface"), "reason = {reason}");
+        assert!(reason.contains("NodeGraph"), "reason = {reason}");
+    }
+
+    #[test]
+    fn single_layer_materialx_requires_glb_preview() {
+        let root =
+            std::env::temp_dir().join(format!("yw-look-materialx-routing-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let path = root.join("materialx-routing.usda");
+        std::fs::write(
+            &path,
+            r##"#usda 1.0
+def Shader "MaterialXShader"
+{
+    uniform token info:id = "ND_image_color3"
+}
+"##,
+        )
+        .expect("write MaterialX routing fixture");
+
+        let backend = OpenusdBackend::new();
+        assert!(backend
+            .requires_glb_preview(&path)
+            .expect("route MaterialX fixture"));
     }
 
     #[test]

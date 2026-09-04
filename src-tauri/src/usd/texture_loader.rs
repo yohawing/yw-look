@@ -2,6 +2,8 @@
 
 use std::path::Path as StdPath;
 
+use openusd::ar::split_package_relative_path_outer;
+
 use super::glb;
 
 /// Phase 5c: result of resolving an authored `UsdPreviewSurface`
@@ -25,17 +27,20 @@ pub(crate) struct LoadedTexture {
 /// The loader is intentionally state-bearing so a stage with hundreds
 /// of textures only opens its USDZ archive once.
 pub(crate) struct TextureLoader<'a> {
-    /// Source path passed to `extract_geometry_glb`. Used to detect
-    /// USDZ archives.
+    /// Source path passed to `extract_geometry_glb`. Used for legacy
+    /// relative texture resolution and root USDZ lookups.
     source_path: &'a StdPath,
     /// Filesystem search directories, in priority order (closest layer
     /// first). Empty for USDZ-rooted stages.
     search_dirs: Vec<std::path::PathBuf>,
-    /// `Some(map)` once a USDZ archive has been opened. Keyed on the
-    /// lower-cased zip entry name with the raw uncompressed file bytes.
-    usdz_entries: Option<std::collections::HashMap<String, Vec<u8>>>,
-    /// Set after a failed USDZ open so we don't keep retrying.
-    usdz_open_failed: bool,
+    /// Lazily opened USDZ archives, keyed by their canonical filesystem
+    /// path. Entry names retain their archive spelling so package-relative
+    /// identifiers can never collide through case folding.
+    usdz_entries:
+        std::collections::HashMap<std::path::PathBuf, std::collections::HashMap<String, Vec<u8>>>,
+    /// Failed archive opens keyed by canonical filesystem path, so repeated
+    /// texture references do not reopen a corrupt or unavailable archive.
+    usdz_open_failed: std::collections::HashMap<std::path::PathBuf, String>,
 }
 
 impl<'a> TextureLoader<'a> {
@@ -43,8 +48,8 @@ impl<'a> TextureLoader<'a> {
         Self {
             source_path,
             search_dirs,
-            usdz_entries: None,
-            usdz_open_failed: false,
+            usdz_entries: std::collections::HashMap::new(),
+            usdz_open_failed: std::collections::HashMap::new(),
         }
     }
 
@@ -52,11 +57,20 @@ impl<'a> TextureLoader<'a> {
     /// The `identity` field of the result is what callers should key
     /// dedupe caches on (NOT the authored `asset_path` string).
     pub(crate) fn load(&mut self, asset_path: &str) -> Result<LoadedTexture, String> {
-        let mime = guess_image_mime(asset_path)
+        let package_identifier = split_package_relative_path_outer(asset_path);
+        let mime_asset_path = package_identifier
+            .as_ref()
+            .map(|(_, package_entry)| package_entry.as_str())
+            .unwrap_or(asset_path);
+        let mime = guess_image_mime(mime_asset_path)
             .ok_or_else(|| format!("unsupported texture extension: {asset_path}"))?;
 
-        let (bytes, identity) = if self.is_usdz_source() {
-            self.load_from_usdz(asset_path)?
+        let (bytes, identity) = if let Some((package_path, package_entry)) = package_identifier {
+            self.load_from_package_identifier(&package_path, &package_entry)?
+        } else if StdPath::new(asset_path).is_absolute() {
+            self.load_absolute_filesystem(asset_path)?
+        } else if self.is_usdz_source() {
+            self.load_from_legacy_usdz(asset_path)?
         } else {
             self.load_from_filesystem(asset_path)?
         };
@@ -83,9 +97,7 @@ impl<'a> TextureLoader<'a> {
         // Try absolute first, then each search dir in order.
         let candidate = StdPath::new(asset_path);
         if candidate.is_absolute() {
-            return std::fs::read(candidate)
-                .map(|bytes| (bytes, candidate.to_string_lossy().to_string()))
-                .map_err(|e| format!("read {}: {e}", candidate.display()));
+            return self.load_absolute_filesystem(asset_path);
         }
 
         let mut last_err: Option<String> = None;
@@ -96,10 +108,7 @@ impl<'a> TextureLoader<'a> {
                     // Identity = canonicalized resolved path so two
                     // different relative authorings that hit the same
                     // file dedupe correctly.
-                    let canonical = std::fs::canonicalize(&resolved)
-                        .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_else(|_| resolved.to_string_lossy().to_string());
-                    return Ok((bytes, canonical));
+                    return Ok((bytes, filesystem_identity(&resolved)));
                 }
                 Err(e) => {
                     last_err = Some(format!("{}: {e}", resolved.display()));
@@ -113,54 +122,58 @@ impl<'a> TextureLoader<'a> {
         ))
     }
 
-    fn load_from_usdz(&mut self, asset_path: &str) -> Result<(Vec<u8>, String), String> {
-        if self.usdz_entries.is_none() && !self.usdz_open_failed {
-            match Self::open_usdz_archive(self.source_path) {
-                Ok(map) => self.usdz_entries = Some(map),
-                Err(err) => {
-                    self.usdz_open_failed = true;
-                    return Err(format!("open usdz {}: {err}", self.source_path.display()));
-                }
-            }
-        }
-        let entries = self
-            .usdz_entries
-            .as_ref()
-            .ok_or_else(|| "usdz archive unavailable".to_string())?;
+    fn load_absolute_filesystem(&self, asset_path: &str) -> Result<(Vec<u8>, String), String> {
+        let path = StdPath::new(asset_path);
+        std::fs::read(path)
+            .map(|bytes| (bytes, filesystem_identity(path)))
+            .map_err(|e| format!("read {}: {e}", path.display()))
+    }
 
-        // USDZ entries use forward slashes; the asset path may also
-        // contain `./` prefixes. Normalize before lookup. The lookup
-        // is case-insensitive because USDZ archives sometimes carry
-        // mixed-case names from Windows tools.
+    fn load_from_legacy_usdz(&mut self, asset_path: &str) -> Result<(Vec<u8>, String), String> {
+        let archive_path = self.source_path.to_path_buf();
+        let entries = self.usdz_entries_for(&archive_path)?;
+
+        // Legacy root-USDZ callers historically supplied an authored
+        // relative path, so retain their separator normalization,
+        // case-insensitive lookup, and unique-basename fallback. Resolved
+        // package identifiers use load_from_package_identifier instead and
+        // never enter this compatibility path.
         let normalized = asset_path.replace('\\', "/");
         let needle = normalized.trim_start_matches("./").to_ascii_lowercase();
-        if let Some(bytes) = entries.get(&needle) {
-            // Identity = "usdz:<archive path>!<entry key>" so it
-            // never collides with a filesystem identity.
-            let identity = format!("usdz:{}!{needle}", self.source_path.display());
-            return Ok((bytes.clone(), identity));
+        let path_matches: Vec<(&String, &Vec<u8>)> = entries
+            .iter()
+            .filter(|(key, _)| key.eq_ignore_ascii_case(&needle))
+            .collect();
+        match path_matches.len() {
+            1 => {
+                let (key, bytes) = path_matches[0];
+                let archive_identity = filesystem_identity(&archive_path);
+                let identity = format!("usdz:{archive_identity}!{key}");
+                return Ok((bytes.clone(), identity));
+            }
+            n if n > 1 => {
+                return Err(format!(
+                    "ambiguous usdz entry '{asset_path}' with {n} case-insensitive matches"
+                ));
+            }
+            _ => {}
         }
-        // Fall back to a basename match; some USDZ archives flatten
-        // their texture directory and the authored path still uses
-        // the original DCC layout. Codex P2: if multiple entries
-        // share the same basename (e.g. `textures/body/albedo.jpg`
-        // **and** `textures/head/albedo.jpg`) we **must not** pick
-        // arbitrarily because `HashMap::iter()` has no stable order
-        // and the preview would non-deterministically show the wrong
-        // texture. Require a unique basename hit, otherwise error
-        // out so the caller logs it and falls back to the scalar
-        // base color factor.
         let basename = needle.rsplit('/').next().unwrap_or(&needle);
         let basename_matches: Vec<&String> = entries
             .keys()
-            .filter(|k| k.rsplit('/').next() == Some(basename))
+            .filter(|key| {
+                key.rsplit('/')
+                    .next()
+                    .is_some_and(|entry_name| entry_name.eq_ignore_ascii_case(basename))
+            })
             .collect();
         match basename_matches.len() {
             0 => Err(format!("no usdz entry matches '{asset_path}'")),
             1 => {
                 let key = basename_matches[0];
                 let bytes = entries[key].clone();
-                let identity = format!("usdz:{}!{key}", self.source_path.display());
+                let archive_identity = filesystem_identity(&archive_path);
+                let identity = format!("usdz:{archive_identity}!{key}");
                 Ok((bytes, identity))
             }
             n => Err(format!(
@@ -168,6 +181,81 @@ impl<'a> TextureLoader<'a> {
                 basename_matches
             )),
         }
+    }
+
+    fn load_from_package_identifier(
+        &mut self,
+        package_path: &str,
+        package_entry: &str,
+    ) -> Result<(Vec<u8>, String), String> {
+        if package_entry.is_empty() {
+            return Err(format!(
+                "empty package entry in '{package_path}[{package_entry}]'"
+            ));
+        }
+        let archive_path = self.resolve_package_path(package_path)?;
+        let entries = self.usdz_entries_for(&archive_path)?;
+        let entry = package_entry.replace('\\', "/");
+        let bytes = entries.get(&entry).ok_or_else(|| {
+            format!(
+                "no exact usdz entry '{entry}' in package {}",
+                archive_path.display()
+            )
+        })?;
+        let archive_identity = filesystem_identity(&archive_path);
+        let identity = format!("usdz:{archive_identity}!{entry}");
+        Ok((bytes.clone(), identity))
+    }
+
+    fn resolve_package_path(&self, package_path: &str) -> Result<std::path::PathBuf, String> {
+        let candidate = StdPath::new(package_path);
+        if candidate.is_absolute() {
+            return Ok(candidate.to_path_buf());
+        }
+        let mut last_error = None;
+        for directory in &self.search_dirs {
+            let resolved = directory.join(candidate);
+            match std::fs::metadata(&resolved) {
+                Ok(metadata) if metadata.is_file() => return Ok(resolved),
+                Ok(_) => {
+                    last_error = Some(format!("{} is not a file", resolved.display()));
+                }
+                Err(error) => {
+                    last_error = Some(format!("{}: {error}", resolved.display()));
+                }
+            }
+        }
+        Err(format!(
+            "could not resolve package '{package_path}' against {} search dirs (last error: {})",
+            self.search_dirs.len(),
+            last_error.as_deref().unwrap_or("none"),
+        ))
+    }
+
+    fn usdz_entries_for(
+        &mut self,
+        archive_path: &StdPath,
+    ) -> Result<&std::collections::HashMap<String, Vec<u8>>, String> {
+        let cache_key = filesystem_identity_path(archive_path);
+        if !self.usdz_entries.contains_key(&cache_key) {
+            if let Some(error) = self.usdz_open_failed.get(&cache_key) {
+                return Err(error.clone());
+            }
+            match Self::open_usdz_archive(&cache_key) {
+                Ok(entries) => {
+                    self.usdz_entries.insert(cache_key.clone(), entries);
+                }
+                Err(error) => {
+                    let message = format!("open usdz {}: {error}", cache_key.display());
+                    self.usdz_open_failed
+                        .insert(cache_key.clone(), message.clone());
+                    return Err(message);
+                }
+            }
+        }
+        self.usdz_entries
+            .get(&cache_key)
+            .ok_or_else(|| format!("usdz archive unavailable: {}", cache_key.display()))
     }
 
     fn open_usdz_archive(
@@ -184,7 +272,7 @@ impl<'a> TextureLoader<'a> {
             if entry.is_dir() {
                 continue;
             }
-            let key = entry.name().to_ascii_lowercase();
+            let key = entry.name().to_string();
             let mut buf = Vec::with_capacity(entry.size() as usize);
             entry
                 .read_to_end(&mut buf)
@@ -344,6 +432,33 @@ fn log_texture_embed_error(
     }
 }
 
+fn filesystem_identity(path: &StdPath) -> String {
+    let rendered = filesystem_identity_path(path)
+        .to_string_lossy()
+        .into_owned();
+    #[cfg(windows)]
+    {
+        return normalize_windows_identity(&rendered);
+    }
+    #[cfg(not(windows))]
+    rendered
+}
+
+fn filesystem_identity_path(path: &StdPath) -> std::path::PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn normalize_windows_identity(path: &str) -> String {
+    let Some(path) = path.strip_prefix("\\\\?\\") else {
+        return path.to_string();
+    };
+    if let Some(unc_path) = path.strip_prefix("UNC\\") {
+        format!("\\\\{unc_path}")
+    } else {
+        path.to_string()
+    }
+}
+
 /// Best-effort image MIME type from a file extension. glTF only
 /// natively supports PNG and JPEG, so anything else is rejected at
 /// the call site.
@@ -383,6 +498,22 @@ mod tests {
         assert_eq!(guess_image_mime("albedo.jpeg"), Some("image/jpeg"));
         assert_eq!(guess_image_mime("albedo.JPEG"), Some("image/jpeg"));
         assert_eq!(guess_image_mime("albedo.tga"), None);
+    }
+
+    #[test]
+    fn windows_identity_normalization_preserves_unc_and_drive_roots() {
+        assert_eq!(
+            normalize_windows_identity(r"\\?\UNC\server\share\albedo.png"),
+            r"\\server\share\albedo.png"
+        );
+        assert_eq!(
+            normalize_windows_identity(r"\\?\C:\textures\albedo.png"),
+            r"C:\textures\albedo.png"
+        );
+        assert_eq!(
+            normalize_windows_identity(r"C:\textures\albedo.png"),
+            r"C:\textures\albedo.png"
+        );
     }
 
     #[test]
@@ -498,6 +629,130 @@ mod tests {
         };
 
         assert!(err.contains("ambiguous usdz basename 'albedo.jpg'"));
+    }
+
+    #[test]
+    fn legacy_usdz_case_insensitive_path_collision_returns_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("scene.usdz");
+        write_usdz(
+            &source,
+            &[
+                ("textures/Albedo.png", b"upper"),
+                ("textures/albedo.png", b"lower"),
+            ],
+        );
+        let mut loader = TextureLoader::new(&source, Vec::new());
+
+        let error = match loader.load("textures/ALBEDO.PNG") {
+            Ok(_) => panic!("case-insensitive archive path collision must fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.contains("ambiguous usdz entry 'textures/ALBEDO.PNG'"));
+    }
+
+    #[test]
+    fn package_identifier_owns_archive_and_exact_entry() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("scene.usda");
+        let first_archive = temp.path().join("first.usdz");
+        let second_archive = temp.path().join("second.usdz");
+        write_usdz(
+            &first_archive,
+            &[
+                ("inner/albedo.png", b"first"),
+                ("other/albedo.png", b"wrong-first"),
+            ],
+        );
+        write_usdz(&second_archive, &[("inner/albedo.png", b"second")]);
+        let mut loader = TextureLoader::new(&source, vec![temp.path().to_path_buf()]);
+
+        let first_identifier = format!("{}[inner/albedo.png]", first_archive.display());
+        let second_identifier = format!("{}[inner/albedo.png]", second_archive.display());
+        let first = loader
+            .load(&first_identifier)
+            .expect("load first package entry");
+        let second = loader
+            .load(&second_identifier)
+            .expect("load second package entry");
+
+        assert_eq!(first.input.data, b"first");
+        assert_eq!(second.input.data, b"second");
+        assert_ne!(first.identity, second.identity);
+        assert!(first.identity.contains("!inner/albedo.png"));
+
+        let missing_exact = format!("{}[missing/albedo.png]", first_archive.display());
+        let error = match loader.load(&missing_exact) {
+            Ok(_) => panic!("package identifiers must not basename-fallback"),
+            Err(error) => error,
+        };
+        assert!(error.contains("no exact usdz entry 'missing/albedo.png'"));
+    }
+
+    #[test]
+    fn package_identifier_resolves_relative_archive_from_usda_search_dir() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("scene.usda");
+        let archive_dir = temp.path().join("assets");
+        std::fs::create_dir_all(&archive_dir).expect("create archive dir");
+        write_usdz(
+            &archive_dir.join("materials.usdz"),
+            &[("inner/albedo.png", b"embedded")],
+        );
+        let mut loader = TextureLoader::new(&source, vec![archive_dir]);
+
+        let loaded = loader
+            .load("materials.usdz[inner/albedo.png]")
+            .expect("load relative package identifier");
+
+        assert_eq!(loaded.input.data, b"embedded");
+        assert!(loaded.identity.contains("!inner/albedo.png"));
+    }
+
+    #[test]
+    fn absolute_filesystem_identifier_wins_over_root_usdz_source() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("scene.usdz");
+        write_usdz(&source, &[("textures/albedo.png", b"embedded")]);
+        let external_dir = temp.path().join("external");
+        std::fs::create_dir_all(&external_dir).expect("create external dir");
+        let external = external_dir.join("albedo.png");
+        std::fs::write(&external, b"filesystem").expect("write external texture");
+        let mut loader = TextureLoader::new(&source, Vec::new());
+
+        let loaded = loader
+            .load(&external.to_string_lossy())
+            .expect("load absolute filesystem texture from USDZ stage");
+
+        assert_eq!(loaded.input.data, b"filesystem");
+        assert_eq!(loaded.identity, filesystem_identity(&external));
+    }
+
+    #[test]
+    fn package_identity_dedupes_separator_aliases_without_case_folding() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("scene.usda");
+        let archive = temp.path().join("textures.usdz");
+        write_usdz(&archive, &[("inner/shared.png", b"shared")]);
+        let mut loader = TextureLoader::new(&source, Vec::new());
+        let archive_path = archive.to_string_lossy();
+
+        let plain = loader
+            .load(&format!("{archive_path}[inner/shared.png]"))
+            .expect("load package entry");
+        let slash_alias = loader
+            .load(&format!("{archive_path}[inner\\shared.png]"))
+            .expect("load package separator alias");
+
+        assert_eq!(plain.identity, slash_alias.identity);
+        assert_eq!(plain.input.data, slash_alias.input.data);
+
+        let wrong_case = loader.load(&format!("{archive_path}[INNER/shared.png]"));
+        assert!(
+            wrong_case.is_err(),
+            "package entries must remain case-sensitive"
+        );
     }
 
     #[test]

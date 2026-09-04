@@ -121,10 +121,12 @@ pub(crate) fn resolve_material_slot(
         let diffuse_tex = surface_shader
             .as_ref()
             .and_then(|shader| resolve_shader_texture_asset(stage, shader, "inputs:diffuseColor"));
-        let tex_path = diffuse_tex
-            .as_ref()
-            .map(|tex| tex.asset_path.clone())
-            .or_else(|| data.as_ref().and_then(|data| data.diffuse_texture.clone()));
+        // `TextureNodeGraph` returns the resolver-owned path for an
+        // `AssetPath`. Keep the authored `MaterialData` string out of this
+        // loader path: it is only a diagnostic identity and can otherwise
+        // resolve against the extraction root instead of the layer that
+        // authored the sidecar.
+        let tex_path = diffuse_tex.as_ref().map(|tex| tex.asset_path.clone());
         // Phase 6a: the fork's `MaterialData` does not carry a normal
         // texture field, so we walk the UsdShade graph ourselves
         // using the same public API surface (prim_children + field
@@ -245,7 +247,10 @@ impl TextureNodeGraph for RustTextureNodeGraph<'_> {
             .ok()
             .flatten();
         match value? {
-            SdfValue::AssetPath(s) => Some(s.to_string()),
+            // Attribute::get resolves asset values and retains the authored
+            // path separately. Only pass the resolver result downstream;
+            // an unresolved asset must not fall back to root-name lookup.
+            SdfValue::AssetPath(s) => s.resolved_path().map(str::to_owned),
             SdfValue::String(s) => Some(s),
             SdfValue::Token(s) => Some(s.as_str().to_owned()),
             _ => None,

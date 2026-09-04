@@ -59,6 +59,7 @@ use openusd::usd::{InitialLoadSet, InterpolationType, PrimPredicate, ResolveInfo
 use openusd::usd::{Stage, StageBuilder};
 
 use crate::usd::ir::{MaterialData, MeshData, SkelAnimationData, SkeletonData};
+use crate::usd::material::{is_preview_surface_shader_id, is_texture_shader_id};
 use crate::usd::types::StageLoadPolicy;
 
 use super::stage_fields::ValidatedStagePathExt;
@@ -694,6 +695,271 @@ pub(crate) fn has_skel_schema_candidate(stage: &Stage) -> anyhow::Result<bool> {
         }
     })?;
     Ok(candidate.get())
+}
+
+/// Detect a single-layer MaterialX candidate for the GLB routing decision.
+///
+/// The text USD loader cannot evaluate even the direct MaterialX aliases
+/// that this backend can flatten, and it has no way to surface a useful
+/// reason for an unsupported graph. Keep this probe deliberately shallow:
+/// the detailed reason is produced by [`material_x_diagnostic_reason`] only
+/// for stages that already contain a MaterialX identifier.
+pub(crate) fn has_material_x_candidate(stage: &Stage) -> anyhow::Result<bool> {
+    let candidate = std::cell::Cell::new(false);
+    stage.traverse(PrimPredicate::ALL, |prim_path| {
+        if candidate.get() {
+            return;
+        }
+        if prim_has_material_x_candidate(stage, &prim_path) {
+            candidate.set(true);
+        }
+    })?;
+    Ok(candidate.get())
+}
+
+pub(crate) fn prim_has_material_x_candidate(stage: &Stage, prim_path: &sdf::Path) -> bool {
+    if read_type_name(stage, prim_path.clone()).as_deref() != Some("Shader") {
+        return false;
+    }
+    let info_id = prim_path
+        .append_property("info:id")
+        .ok()
+        .and_then(|path| read_string_attr(stage, path));
+    if info_id.as_deref().is_some_and(is_material_x_shader_id) {
+        return true;
+    }
+    [
+        "info:sourceAsset",
+        "info:mtlx:sourceAsset",
+        "inputs:sourceAsset",
+        "sourceAsset",
+    ]
+    .into_iter()
+    .filter_map(|property| prim_path.append_property(property).ok())
+    .filter_map(|path| read_asset_details(stage, path))
+    .any(|(authored, _)| authored.to_ascii_lowercase().ends_with(".mtlx"))
+}
+
+/// Return a deterministic, bounded explanation of the MaterialX surface
+/// subset visible to the current backend. This is intentionally a diagnostic
+/// surface, not a graph evaluator: known direct aliases keep their existing
+/// preview behaviour, while raw sidecars, unresolved assets, unsupported
+/// extensions, and graph/port shapes are named explicitly.
+pub(crate) fn material_x_diagnostic_reason(
+    stage: &Stage,
+    detected: bool,
+) -> anyhow::Result<Option<String>> {
+    if !detected {
+        return Ok(None);
+    }
+
+    const MAX_FINDINGS: usize = 16;
+    let mut findings = Vec::new();
+    stage.traverse(PrimPredicate::ALL, |prim_path| {
+        if read_type_name(stage, prim_path.clone()).as_deref() != Some("Shader") {
+            return;
+        }
+        let info_id = prim_path
+            .append_property("info:id")
+            .ok()
+            .and_then(|path| read_string_attr(stage, path));
+        let has_raw_source_asset = [
+            "info:sourceAsset",
+            "info:mtlx:sourceAsset",
+            "inputs:sourceAsset",
+            "sourceAsset",
+        ]
+        .into_iter()
+        .filter_map(|property| prim_path.append_property(property).ok())
+        .filter_map(|path| read_asset_details(stage, path))
+        .any(|(authored, _)| authored.to_ascii_lowercase().ends_with(".mtlx"));
+        if !info_id.as_deref().is_some_and(is_material_x_shader_id) && !has_raw_source_asset {
+            return;
+        }
+
+        for property in [
+            "info:sourceAsset",
+            "info:mtlx:sourceAsset",
+            "inputs:sourceAsset",
+            "sourceAsset",
+        ] {
+            let Some(path) = prim_path.append_property(property).ok() else {
+                continue;
+            };
+            let Some((authored, resolved)) = read_asset_details(stage, path) else {
+                continue;
+            };
+            if authored.to_ascii_lowercase().ends_with(".mtlx") {
+                push_materialx_finding(
+                    &mut findings,
+                    format!(
+                        "raw MaterialX sourceAsset '{authored}' at '{}.{}' is not evaluated",
+                        prim_path.as_str(),
+                        property
+                    ),
+                );
+                if resolved.is_none() {
+                    push_materialx_finding(
+                        &mut findings,
+                        format!(
+                            "MaterialX sourceAsset resource '{authored}' at '{}.{}' is unresolved",
+                            prim_path.as_str(),
+                            property
+                        ),
+                    );
+                }
+            }
+        }
+
+        if let Some(path) = prim_path.append_property("inputs:file").ok() {
+            if let Some((authored, resolved)) = read_asset_details(stage, path) {
+                let check_path = resolved.as_deref().unwrap_or(&authored);
+                if resolved.is_none() {
+                    push_materialx_finding(
+                        &mut findings,
+                        format!(
+                            "MaterialX texture resource '{authored}' at '{}.inputs:file' is unresolved",
+                            prim_path.as_str()
+                        ),
+                    );
+                }
+                if !is_supported_image_path(check_path) {
+                    push_materialx_finding(
+                        &mut findings,
+                        format!(
+                            "MaterialX texture extension is unsupported for '{authored}' at '{}.inputs:file'",
+                            prim_path.as_str()
+                        ),
+                    );
+                }
+            }
+        }
+
+        if info_id.as_deref() == Some("ND_standard_surface_surfaceshader") {
+            push_materialx_finding(
+                &mut findings,
+                format!(
+                    "MaterialX standard_surface ports/ORM are unsupported at '{}'",
+                    prim_path.as_str()
+                ),
+            );
+        } else if let Some(info_id) = info_id.as_deref() {
+            if !is_preview_surface_shader_id(Some(info_id))
+                && !is_texture_shader_id(Some(info_id))
+                && info_id != "ND_normalmap"
+            {
+                push_materialx_finding(
+                    &mut findings,
+                    format!(
+                        "unsupported MaterialX shader node '{info_id}' at '{}'",
+                        prim_path.as_str()
+                    ),
+                );
+            }
+        }
+
+        if is_preview_surface_shader_id(info_id.as_deref()) {
+            for input_name in ["inputs:diffuseColor", "inputs:normal"] {
+                let Some(input_path) = prim_path.append_property(input_name).ok() else {
+                    continue;
+                };
+                let Some(target) = first_attribute_connection(stage, input_path) else {
+                    continue;
+                };
+                if read_type_name(stage, target.prim_path()).as_deref() == Some("NodeGraph") {
+                    push_materialx_finding(
+                        &mut findings,
+                        format!(
+                            "nested MaterialX NodeGraph forwarding is unsupported at '{}'",
+                            prim_path.as_str()
+                        ),
+                    );
+                }
+            }
+            for input_name in [
+                "inputs:roughness",
+                "inputs:metallic",
+                "inputs:occlusion",
+                "inputs:metallicRoughness",
+            ] {
+                let Some(input_path) = prim_path.append_property(input_name).ok() else {
+                    continue;
+                };
+                if first_attribute_connection(stage, input_path).is_some() {
+                    push_materialx_finding(
+                        &mut findings,
+                        format!(
+                            "connected MaterialX input '{input_name}' is unsupported at '{}'",
+                            prim_path.as_str()
+                        ),
+                    );
+                }
+            }
+            for output_name in [
+                "outputs:displacement",
+                "outputs:volume",
+                "outputs:surface2",
+            ] {
+                let Some(output_path) = prim_path.append_property(output_name).ok() else {
+                    continue;
+                };
+                if first_attribute_connection(stage, output_path).is_some() {
+                    push_materialx_finding(
+                        &mut findings,
+                        format!(
+                            "unsupported MaterialX output port '{output_name}' at '{}'",
+                            prim_path.as_str()
+                        ),
+                    );
+                }
+            }
+        }
+    })?;
+
+    findings.sort();
+    findings.dedup();
+    findings.truncate(MAX_FINDINGS);
+    let mut reason =
+        "MaterialX preview is limited to known shader aliases and direct graphs.".to_owned();
+    if !findings.is_empty() {
+        reason.push(' ');
+        reason.push_str(&findings.join("; "));
+        reason.push('.');
+    }
+    Ok(Some(reason))
+}
+
+fn is_material_x_shader_id(id: &str) -> bool {
+    id.starts_with("ND_") || id.starts_with("MaterialX")
+}
+
+fn read_asset_details(stage: &Stage, path: sdf::Path) -> Option<(String, Option<String>)> {
+    let value: Option<Value> = stage.attribute_at(path).get::<Value>().ok().flatten();
+    match value? {
+        Value::AssetPath(asset) => {
+            let resolved = asset.resolved_path().map(str::to_owned);
+            Some((asset.authored_path, resolved))
+        }
+        Value::String(value) => Some((value, None)),
+        Value::Token(value) => Some((value.as_str().to_owned(), None)),
+        _ => None,
+    }
+}
+
+fn is_supported_image_path(path: &str) -> bool {
+    let inner = path
+        .rsplit_once('[')
+        .and_then(|(_, inner)| inner.strip_suffix(']'))
+        .unwrap_or(path);
+    let lower = inner.to_ascii_lowercase();
+    lower.ends_with(".png") || lower.ends_with(".jpg") || lower.ends_with(".jpeg")
+}
+
+fn push_materialx_finding(findings: &mut Vec<String>, finding: String) {
+    const MAX_FINDINGS: usize = 16;
+    if findings.len() < MAX_FINDINGS {
+        findings.push(finding);
+    }
 }
 
 /// Composed default value of `prim_path.name`, read via

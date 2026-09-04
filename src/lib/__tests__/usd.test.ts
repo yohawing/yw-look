@@ -202,6 +202,19 @@ describe("requiresGlbPreview fast text decision", () => {
     expect(mockInvoke).not.toHaveBeenCalled();
   });
 
+  it("routes single-layer MaterialX USDA through the GLB backend", async () => {
+    readBinaryFilePrefixMock.mockResolvedValueOnce(
+      encoded(
+        '#usda 1.0\ndef Shader "Image" { uniform token info:id = "ND_image_color3" }',
+      ),
+    );
+
+    await expect(
+      requiresGlbPreview("C:\\assets\\materialx.usda"),
+    ).resolves.toBe(true);
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
   it("routes USDA variant sets through the GLB backend", async () => {
     readBinaryFilePrefixMock.mockResolvedValueOnce(
       encoded(

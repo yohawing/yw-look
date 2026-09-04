@@ -15,7 +15,7 @@ const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
 const USD_FAST_DECISION_SCAN_BYTES: usize = 64 * 1024;
 const USDC_MAGIC: &[u8] = b"PXR-USDC";
 const USD_XFORM_TIME_SAMPLES_MARKER: &[u8] = b".timeSamples";
-const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 8] = [
+const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 11] = [
     b"subLayers",
     b"references",
     b"payload",
@@ -24,6 +24,9 @@ const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 8] = [
     b"SkelRoot",
     b"SkelAnimation",
     b"BlendShape",
+    b"MaterialX",
+    b"ND_",
+    b".mtlx",
 ];
 
 fn map_usd_error(error: UsdError) -> AppError {
@@ -435,6 +438,16 @@ mod tests {
         let (_dir, path) = write_usda(
             "weights.usda",
             b"#usda 1.0\ndef SkelAnimation \"Anim\" { token[] blendShapes = [\"Smile\"] }",
+        );
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_detects_materialx_alias() {
+        let (_dir, path) = write_usda(
+            "materialx.usda",
+            b"#usda 1.0\ndef Shader \"Image\" { uniform token info:id = \"ND_image_color3\" }",
         );
 
         assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));
