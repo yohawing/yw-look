@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "id": "tiny-payload-session",
+      "stagePath": "fixtures/tiny_payload_visual.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "loaded",
+          "payloadOps": [{ "action": "load", "primPath": "/Root/PayloadRoot" }],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        },
+        {
+          "id": "unloaded",
+          "payloadOps": [
+            { "action": "unload", "primPath": "/Root/PayloadRoot" }
+          ],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        },
+        {
+          "id": "reloaded",
+          "payloadOps": [{ "action": "load", "primPath": "/Root/PayloadRoot" }],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    }
+  ]
+}
