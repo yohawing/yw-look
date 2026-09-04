@@ -5,6 +5,8 @@ const PROFILES = new Set([
   "authored-normals",
   "skinning",
   "point-instancer",
+  "variant-red",
+  "variant-blue",
 ]);
 
 function error(profile, message) {
@@ -325,6 +327,76 @@ function verifyPointInstancer(doc, bin, profile) {
   return { profile, instanceCounts: counts };
 }
 
+function verifyVariant(doc, bin, profile) {
+  const red = profile === "variant-red";
+  const targetName = red ? "/Root/RedQuad" : "/Root/BlueQuad";
+  const oppositeName = red ? "/Root/BlueQuad" : "/Root/RedQuad";
+  const expectedColor = red ? [0.85, 0.05, 0.03, 1] : [0.03, 0.15, 0.9, 1];
+  const xMatches = red
+    ? (value) => value <= -0.2 + 1e-6
+    : (value) => value >= 0.3 - 1e-6;
+  if (doc.meshes?.length !== 2) {
+    error(profile, "expected one selected variant mesh and one inline anchor");
+  }
+  if (doc.meshes.some((mesh) => mesh.name === oppositeName)) {
+    error(profile, `opposite variant mesh is present: ${oppositeName}`);
+  }
+  const target = meshByName(doc, targetName, profile);
+  const anchor = meshByName(doc, "/Root/InlineAnchor", profile);
+  const targetPrimitive = target.primitives[0];
+  const anchorPrimitive = anchor.primitives[0];
+  const targetIndices = doc.accessors?.[targetPrimitive.indices];
+  if (!targetIndices || targetIndices.count !== 6) {
+    error(profile, `${targetName} must contain two triangles (6 indices)`);
+  }
+  const anchorIndices = doc.accessors?.[anchorPrimitive.indices];
+  if (!anchorIndices || anchorIndices.count !== 6) {
+    error(profile, "inline anchor must contain two triangles (6 indices)");
+  }
+  const actual =
+    doc.materials?.[targetPrimitive.material]?.pbrMetallicRoughness
+      ?.baseColorFactor;
+  if (!Array.isArray(actual) || actual.length !== 4) {
+    error(profile, `${targetName} has no baseColorFactor`);
+  }
+  const expectedLinear = expectedColor.map((value, channel) =>
+    channel < 3 ? srgbToLinear(value) : value,
+  );
+  if (!actual.every((value, channel) => near(value, expectedLinear[channel]))) {
+    error(profile, "variant material color is incorrect");
+  }
+  if (targetPrimitive.material === anchorPrimitive.material) {
+    error(profile, "variant material assignment is not distinct from anchor");
+  }
+  const positions = readAccessor(
+    doc,
+    bin,
+    targetPrimitive.attributes?.POSITION,
+    profile,
+  );
+  if (positions.length !== 6 || !positions.every((row) => xMatches(row[0]))) {
+    error(
+      profile,
+      "variant geometry position does not identify the selected look",
+    );
+  }
+  const targetIndex = doc.meshes.indexOf(target);
+  const anchorIndex = doc.meshes.indexOf(anchor);
+  if (
+    !(doc.nodes ?? []).some((node) => node.mesh === targetIndex) ||
+    !(doc.nodes ?? []).some((node) => node.mesh === anchorIndex)
+  ) {
+    error(profile, "variant node/mesh evidence is incomplete");
+  }
+  return {
+    profile,
+    variant: red ? "red" : "blue",
+    target: targetName,
+    anchor: "/Root/InlineAnchor",
+    indexCount: targetIndices.count,
+  };
+}
+
 export function verifyGlbFeatures(profile, buffer) {
   if (!PROFILES.has(profile)) error(profile, "unknown GLB feature profile");
   const { json, bin } = parseGlb(buffer, profile);
@@ -337,6 +409,9 @@ export function verifyGlbFeatures(profile, buffer) {
       return verifySkinning(json, bin, profile);
     case "point-instancer":
       return verifyPointInstancer(json, bin, profile);
+    case "variant-red":
+    case "variant-blue":
+      return verifyVariant(json, bin, profile);
     default:
       error(profile, "unknown GLB feature profile");
   }

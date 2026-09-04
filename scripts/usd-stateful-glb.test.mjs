@@ -263,6 +263,100 @@ function pointInstancerGlb({ badCount = false, badLocation = false } = {}) {
   });
 }
 
+function variantGlb(
+  variant = "red",
+  { badColor = false, badGeometry = false } = {},
+) {
+  const b = builder();
+  const redPositions = [
+    [-1.8, 0, -0.8],
+    [-0.2, 0, -0.8],
+    [-0.2, 0, 0.8],
+    [-1.8, 0, -0.8],
+    [-0.2, 0, 0.8],
+    [-1.8, 0, 0.8],
+  ];
+  const bluePositions = [
+    [0.3, 0, -1.2],
+    [2.4, 0, -1.2],
+    [2.1, 0, 1.2],
+    [0.3, 0, -1.2],
+    [2.1, 0, 1.2],
+    [0.3, 0, 1.2],
+  ];
+  const isRed = variant === "red";
+  const selectedName = isRed ? "/Root/RedQuad" : "/Root/BlueQuad";
+  const selectedPositions = (isRed ? redPositions : bluePositions).map(
+    (row) => [...row],
+  );
+  if (badGeometry) {
+    selectedPositions[0] = isRed ? [0, 0, -0.8] : [-0.3, 0, -1.2];
+  }
+  const positions = b.add(selectedPositions, "VEC3", 5126);
+  const anchor = b.add(
+    [
+      [-0.15, 0, 1.5],
+      [0.15, 0, 1.5],
+      [0.15, 0, 1.8],
+      [-0.15, 0, 1.5],
+      [0.15, 0, 1.8],
+      [-0.15, 0, 1.8],
+    ],
+    "VEC3",
+    5126,
+  );
+  const selectedIndices = b.add([0, 1, 2, 3, 4, 5], "SCALAR", 5125);
+  const anchorIndices = b.add([0, 1, 2, 3, 4, 5], "SCALAR", 5125);
+  const red = [0.85, 0.05, 0.03, 1].map((v, i) => (i < 3 ? linear(v) : v));
+  const blue = [0.03, 0.15, 0.9, 1].map((v, i) => (i < 3 ? linear(v) : v));
+  const selectedColor = badColor ? (isRed ? blue : red) : isRed ? red : blue;
+  const anchorColor = [0.65, 0.65, 0.65, 1].map((v, i) =>
+    i < 3 ? linear(v) : v,
+  );
+  return b.finish({
+    nodes: [
+      { name: selectedName.split("/").at(-1), mesh: 0 },
+      { name: "InlineAnchor", mesh: 1 },
+    ],
+    meshes: [
+      {
+        name: selectedName,
+        primitives: [
+          {
+            attributes: { POSITION: positions },
+            indices: selectedIndices,
+            material: 1,
+          },
+        ],
+      },
+      {
+        name: "/Root/InlineAnchor",
+        primitives: [
+          {
+            attributes: { POSITION: anchor },
+            indices: anchorIndices,
+            material: 2,
+          },
+        ],
+      },
+    ],
+    materials: [
+      {
+        name: "default",
+        pbrMetallicRoughness: { baseColorFactor: [0.7, 0.7, 0.7, 1] },
+      },
+      {
+        name: "selected",
+        pbrMetallicRoughness: { baseColorFactor: selectedColor },
+      },
+      {
+        name: "anchor",
+        pbrMetallicRoughness: { baseColorFactor: anchorColor },
+      },
+    ],
+  });
+}
+
 test("unknown GLB profile fails closed", () => {
   assert.throws(
     () => verifyGlbFeatures("unknown", Buffer.alloc(0)),
@@ -270,12 +364,14 @@ test("unknown GLB profile fails closed", () => {
   );
 });
 
-test("synthetic positive builders satisfy all four profiles", () => {
+test("synthetic positive builders satisfy all feature profiles", () => {
   for (const [profile, buffer] of [
     ["material-subsets", materialGlb()],
     ["authored-normals", normalsGlb()],
     ["skinning", skinningGlb()],
     ["point-instancer", pointInstancerGlb()],
+    ["variant-red", variantGlb("red")],
+    ["variant-blue", variantGlb("blue")],
   ]) {
     assert.equal(verifyGlbFeatures(profile, buffer).profile, profile);
   }
@@ -285,6 +381,27 @@ test("material subset assignment errors are detected", () => {
   assert.throws(
     () => verifyGlbFeatures("material-subsets", materialGlb(true)),
     /material color is incorrect/,
+  );
+});
+
+test("variant material and geometry errors are detected", () => {
+  assert.throws(
+    () =>
+      verifyGlbFeatures("variant-red", variantGlb("red", { badColor: true })),
+    /variant material color is incorrect/,
+  );
+  assert.throws(
+    () =>
+      verifyGlbFeatures("variant-blue", variantGlb("blue", { badColor: true })),
+    /variant material color is incorrect/,
+  );
+  assert.throws(
+    () =>
+      verifyGlbFeatures(
+        "variant-red",
+        variantGlb("red", { badGeometry: true }),
+      ),
+    /variant geometry position does not identify the selected look/,
   );
 });
 

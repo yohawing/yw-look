@@ -12,6 +12,7 @@ import type {
   UsdTypedError,
   UsdInvalidVariantSelectionError,
   UsdLightInfo,
+  VariantSelection,
   PrimInspection,
   AttributeTimeSamples,
   ExtractGeometryOptions,
@@ -59,11 +60,21 @@ const USD_GLTF_BACKEND_KEYWORDS = [
   "references",
   "payload",
   "PointInstancer",
+  "variantSet",
 ].map((keyword) => new TextEncoder().encode(keyword));
 
 type UsdInvokeOptions = {
   background?: boolean;
 };
+
+function withVariantSelections(
+  args: Record<string, unknown>,
+  variantSelections?: VariantSelection[],
+): Record<string, unknown> {
+  return variantSelections === undefined
+    ? args
+    : { ...args, variantSelections };
+}
 
 async function invokeUsd<T>(
   cmd: string,
@@ -130,11 +141,18 @@ export function isUsdTaskBusyError(error: unknown): boolean {
 export async function inspectUsdLights(
   path: string,
   invokeOptions?: UsdInvokeOptions,
+  variantSelections?: VariantSelection[],
 ): Promise<UsdLightInfo[]> {
-  return invokeUsd<UsdLightInfo[]>("inspect_usd_lights", {
-    path,
-    background: invokeOptions?.background,
-  });
+  return invokeUsd<UsdLightInfo[]>(
+    "inspect_usd_lights",
+    withVariantSelections(
+      {
+        path,
+        background: invokeOptions?.background,
+      },
+      variantSelections,
+    ),
+  );
 }
 
 /**
@@ -176,24 +194,38 @@ export async function inspectStage(
   path: string,
   policy?: StageLoadPolicy,
   invokeOptions?: UsdInvokeOptions,
+  variantSelections?: VariantSelection[],
 ) {
-  return invokeUsd<StageInspection>("inspect_stage", {
-    path,
-    policy,
-    background: invokeOptions?.background,
-  });
+  return invokeUsd<StageInspection>(
+    "inspect_stage",
+    withVariantSelections(
+      {
+        path,
+        policy,
+        background: invokeOptions?.background,
+      },
+      variantSelections,
+    ),
+  );
 }
 
 export async function summarizeStage(
   path: string,
   policy?: StageLoadPolicy,
   invokeOptions?: UsdInvokeOptions,
+  variantSelections?: VariantSelection[],
 ) {
-  return invokeUsd<StageSummary>("summarize_stage", {
-    path,
-    policy,
-    background: invokeOptions?.background,
-  });
+  return invokeUsd<StageSummary>(
+    "summarize_stage",
+    withVariantSelections(
+      {
+        path,
+        policy,
+        background: invokeOptions?.background,
+      },
+      variantSelections,
+    ),
+  );
 }
 
 export function inspectionHasDeferredPayloads(
@@ -211,11 +243,18 @@ export function deferredSummaryHasNoRenderableGeometry(
 export async function collectAssetIssues(
   path: string,
   invokeOptions?: UsdInvokeOptions,
+  variantSelections?: VariantSelection[],
 ) {
-  return invokeUsd<AssetIssue[]>("collect_asset_issues", {
-    path,
-    background: invokeOptions?.background,
-  });
+  return invokeUsd<AssetIssue[]>(
+    "collect_asset_issues",
+    withVariantSelections(
+      {
+        path,
+        background: invokeOptions?.background,
+      },
+      variantSelections,
+    ),
+  );
 }
 
 /**

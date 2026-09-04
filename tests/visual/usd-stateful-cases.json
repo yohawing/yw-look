@@ -32,13 +32,22 @@
       ]
     },
     {
-      "id": "variant-override-expected-failure",
-      "relationship": "independent",
+      "id": "variant-override-session",
+      "relationship": "variant",
       "stagePath": "fixtures/variant_override.usda",
       "policy": "noPayloads",
       "captures": [
         {
-          "id": "variant-override",
+          "id": "variant-default",
+          "glbProfile": "variant-red",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        },
+        {
+          "id": "variant-blue",
+          "glbProfile": "variant-blue",
           "payloadOps": [],
           "variantSelections": [
             {
@@ -48,15 +57,15 @@
             }
           ],
           "timeCode": null,
-          "expectedDiagnostics": [
-            "USD_INVALID_VARIANT_SELECTION\tprimPath=/Root\tsetName=look\tvariantName=blue"
-          ],
-          "expectedFailure": {
-            "origin": "extraction",
-            "code": "USD_INVALID_VARIANT_SELECTION",
-            "message": "USD_INVALID_VARIANT_SELECTION\tprimPath=/Root\tsetName=look\tvariantName=blue",
-            "reason": "The extraction backend reports variant override as an explicit typed capability gap."
-          }
+          "expectedDiagnostics": []
+        },
+        {
+          "id": "variant-reset",
+          "glbProfile": "variant-red",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
         }
       ]
     },

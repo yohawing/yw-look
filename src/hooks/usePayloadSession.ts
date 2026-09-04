@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { DEFERRED_PAYLOAD_PREVIEW_LIMITS } from "../config/viewerLimits";
 import { deferEffectStateUpdate } from "../lib/deferEffectStateUpdate";
 import { errorMessage } from "../lib/errors";
@@ -85,10 +91,35 @@ type PayloadOperation = "load" | "unload";
 type AbortCheck = () => boolean;
 
 type SessionRefreshInputs = {
+  filePath: string | null;
   handle: StageSessionHandle;
-  purposeModes: PurposeModes;
-  variantSelections: VariantSelection[];
+  key: string;
+  usdLoadPolicy: StageLoadPolicy;
 };
+
+type SessionGlbBufferInputs = {
+  handle: StageSessionHandle | null;
+  key: string;
+};
+
+type SessionGlbBufferState = {
+  buffer: ArrayBuffer;
+  inputs: SessionGlbBufferInputs;
+};
+
+function buildSessionInputsKey(
+  filePath: string | null,
+  usdLoadPolicy: StageLoadPolicy,
+  variantSelections: VariantSelection[],
+  purposeModes: PurposeModes,
+) {
+  return JSON.stringify({
+    filePath,
+    usdLoadPolicy,
+    variantSelections,
+    purposeModes,
+  });
+}
 
 function buildPayloadExtractOptions(
   policy: StageLoadPolicy,
@@ -137,11 +168,16 @@ export function usePayloadSession(
   const [unloadedPayloadPaths, setUnloadedPayloadPaths] = useState<
     ReadonlySet<string>
   >(new Set());
-  const [sessionGlbBuffer, setSessionGlbBuffer] = useState<ArrayBuffer | null>(
-    null,
-  );
+  const [sessionGlbBufferState, setSessionGlbBufferState] =
+    useState<SessionGlbBufferState | null>(null);
   const [deferredPayloadProgress, setDeferredPayloadProgress] =
     useState<DeferredTextureSnapshot | null>(null);
+  const sessionGlbBufferInputKey = buildSessionInputsKey(
+    currentFile?.path ?? null,
+    usdLoadPolicy,
+    variantSelections,
+    purposeModes,
+  );
 
   const stageSessionHandleRef = useRef<StageSessionHandle | null>(
     stageSessionHandle,
@@ -149,9 +185,32 @@ export function usePayloadSession(
   const payloadSessionSupportedRef = useRef<boolean | null>(null);
   const deferredPreviewSessionRef = useRef<StageSessionHandle | null>(null);
   const sessionRefreshInputsRef = useRef<SessionRefreshInputs | null>(null);
+  const sessionRefreshRequestRef = useRef(0);
   const sessionLoadedPayloadPathsRef = useRef<Set<string>>(new Set());
+  const currentSessionGlbBufferInputsRef = useRef<SessionGlbBufferInputs>({
+    handle: stageSessionHandle,
+    key: sessionGlbBufferInputKey,
+  });
+  useLayoutEffect(() => {
+    currentSessionGlbBufferInputsRef.current = {
+      handle: stageSessionHandle,
+      key: sessionGlbBufferInputKey,
+    };
+  }, [sessionGlbBufferInputKey, stageSessionHandle]);
+  const setSessionGlbBuffer = useCallback((buffer: ArrayBuffer | null) => {
+    setSessionGlbBufferState(
+      buffer
+        ? { buffer, inputs: currentSessionGlbBufferInputsRef.current }
+        : null,
+    );
+  }, []);
+  const nextSessionRefreshRequest = useCallback(() => {
+    sessionRefreshRequestRef.current += 1;
+    return sessionRefreshRequestRef.current;
+  }, []);
   const viewerWarningRef = useRef<string | null>(viewerWarning);
   useEffect(() => {
+    sessionRefreshRequestRef.current += 1;
     stageSessionHandleRef.current = stageSessionHandle;
     deferredPreviewSessionRef.current = null;
     sessionLoadedPayloadPathsRef.current = new Set();
@@ -165,10 +224,19 @@ export function usePayloadSession(
     viewerWarningRef.current = viewerWarning;
   }, [viewerWarning]);
 
-  const sessionGlbBufferRef = useRef<ArrayBuffer | null>(sessionGlbBuffer);
+  const sessionGlbBufferRef = useRef<ArrayBuffer | null>(
+    sessionGlbBufferState?.buffer ?? null,
+  );
   useEffect(() => {
-    sessionGlbBufferRef.current = sessionGlbBuffer;
-  }, [sessionGlbBuffer]);
+    sessionGlbBufferRef.current = sessionGlbBufferState?.buffer ?? null;
+  }, [sessionGlbBufferState]);
+
+  const currentSessionGlbBuffer =
+    sessionGlbBufferState !== null &&
+    sessionGlbBufferState.inputs.handle === stageSessionHandle &&
+    sessionGlbBufferState.inputs.key === sessionGlbBufferInputKey
+      ? sessionGlbBufferState.buffer
+      : null;
 
   useEffect(() => {
     if (
@@ -275,9 +343,20 @@ export function usePayloadSession(
     [variantSelections, purposeModes],
   );
 
+  const sessionExtractOptionsRef = useRef<ExtractGeometryOptions>(
+    buildPayloadExtractOptions("noPayloads", variantSelections, purposeModes),
+  );
+  useLayoutEffect(() => {
+    sessionExtractOptionsRef.current = buildPayloadExtractOptions(
+      "noPayloads",
+      variantSelections,
+      purposeModes,
+    );
+  }, [purposeModes, variantSelections]);
+
   const buildSessionExtractOptions = useCallback(
-    () => buildExtractOptions("noPayloads"),
-    [buildExtractOptions],
+    () => sessionExtractOptionsRef.current,
+    [],
   );
 
   const deferredPreviewPayloadsJson = JSON.stringify(
@@ -330,14 +409,28 @@ export function usePayloadSession(
     async (
       captured: StageSessionHandle,
       failureContext: string,
+      requestId: number,
+      expectedInputsKey: string,
       isAborted: AbortCheck = () => false,
     ) => {
+      const isRequestStale = () =>
+        requestId !== sessionRefreshRequestRef.current ||
+        currentSessionGlbBufferInputsRef.current.handle !== captured ||
+        currentSessionGlbBufferInputsRef.current.key !== expectedInputsKey;
+      if (
+        isRequestStale() ||
+        isAborted() ||
+        isSessionStale(stageSessionHandleRef.current, captured)
+      ) {
+        return;
+      }
       try {
         const glbBuffer = await extractGeometrySession(
           captured,
           buildSessionExtractOptions(),
         );
         if (
+          isRequestStale() ||
           isAborted() ||
           isSessionStale(stageSessionHandleRef.current, captured)
         ) {
@@ -346,6 +439,7 @@ export function usePayloadSession(
         setSessionGlbBuffer(glbBuffer);
       } catch (err: unknown) {
         if (
+          isRequestStale() ||
           isAborted() ||
           isSessionStale(stageSessionHandleRef.current, captured)
         ) {
@@ -356,7 +450,11 @@ export function usePayloadSession(
         setSessionGlbBuffer(null);
       }
     },
-    [buildSessionExtractOptions, recordVariantSelectionError],
+    [
+      buildSessionExtractOptions,
+      recordVariantSelectionError,
+      setSessionGlbBuffer,
+    ],
   );
 
   useEffect(() => {
@@ -368,19 +466,29 @@ export function usePayloadSession(
     }
 
     const previousInputs = sessionRefreshInputsRef.current;
-    sessionRefreshInputsRef.current = {
-      handle: stageSessionHandle,
-      purposeModes,
+    const filePath = currentFile?.path ?? null;
+    const key = buildSessionInputsKey(
+      filePath,
+      usdLoadPolicy,
       variantSelections,
+      purposeModes,
+    );
+    sessionRefreshInputsRef.current = {
+      filePath,
+      handle: stageSessionHandle,
+      key,
+      usdLoadPolicy,
     };
     const sessionOptionsChanged =
       previousInputs !== null &&
       previousInputs.handle === stageSessionHandle &&
-      (previousInputs.purposeModes !== purposeModes ||
-        previousInputs.variantSelections !== variantSelections);
+      previousInputs.filePath === filePath &&
+      previousInputs.usdLoadPolicy === usdLoadPolicy &&
+      previousInputs.key !== key;
     if (!sessionOptionsChanged) {
       return;
     }
+    const requestId = nextSessionRefreshRequest();
     if (sessionGlbBufferRef.current === null) {
       return;
     }
@@ -390,6 +498,8 @@ export function usePayloadSession(
       void refreshSessionGeometry(
         stageSessionHandle,
         "on variant change",
+        requestId,
+        key,
         () => cancelled,
       );
     });
@@ -401,12 +511,18 @@ export function usePayloadSession(
     refreshSessionGeometry,
     stageSessionHandle,
     variantSelections,
+    currentFile?.path,
+    usdLoadPolicy,
+    nextSessionRefreshRequest,
+    setSessionGlbBuffer,
   ]);
 
   const runPayloadMutation = useCallback(
     async (operation: PayloadOperation, primPath: string) => {
       const captured = stageSessionHandle;
       if (captured === null) return;
+      const requestId = nextSessionRefreshRequest();
+      setDeferredPayloadProgress(null);
       const mutatePayload = operation === "load" ? loadPayload : unloadPayload;
       try {
         const mutationCompleted = await retryWhileBusy(
@@ -417,7 +533,12 @@ export function usePayloadSession(
           },
         );
         if (mutationCompleted === undefined) {
-          if (isSessionStale(stageSessionHandleRef.current, captured)) return;
+          if (
+            requestId !== sessionRefreshRequestRef.current ||
+            isSessionStale(stageSessionHandleRef.current, captured)
+          ) {
+            return;
+          }
           reportPayloadOperationFailure(
             operation,
             primPath,
@@ -425,21 +546,37 @@ export function usePayloadSession(
           );
           return;
         }
-        if (isSessionStale(stageSessionHandleRef.current, captured)) return;
+        if (isSessionStale(stageSessionHandleRef.current, captured)) {
+          return;
+        }
         updatePayloadPathState(operation, primPath);
       } catch (err: unknown) {
-        if (isSessionStale(stageSessionHandleRef.current, captured)) return;
+        if (
+          requestId !== sessionRefreshRequestRef.current ||
+          isSessionStale(stageSessionHandleRef.current, captured)
+        ) {
+          return;
+        }
         console.error(`[usd] ${operation}_payload failed:`, err);
         reportPayloadOperationFailure(operation, primPath, err);
         return;
       }
-      await refreshSessionGeometry(captured, `after ${operation}`);
+      const refreshRequestId = nextSessionRefreshRequest();
+      const refreshInputsKey = currentSessionGlbBufferInputsRef.current.key;
+      await refreshSessionGeometry(
+        captured,
+        `after ${operation}`,
+        refreshRequestId,
+        refreshInputsKey,
+        () => refreshRequestId !== sessionRefreshRequestRef.current,
+      );
     },
     [
       stageSessionHandle,
       refreshSessionGeometry,
       reportPayloadOperationFailure,
       updatePayloadPathState,
+      nextSessionRefreshRequest,
     ],
   );
 
@@ -467,9 +604,13 @@ export function usePayloadSession(
     const previewPayloads = JSON.parse(deferredPreviewPayloadsJson) as string[];
     if (previewPayloads.length === 0) return;
 
+    if (sessionGlbBufferRef.current !== null) {
+      return;
+    }
     // Reserve before yielding or invoking the backend. Inspection refreshes
     // and viewport feedback updates must not enqueue duplicate full previews.
     deferredPreviewSessionRef.current = captured;
+    const deferredPreviewRequestId = nextSessionRefreshRequest();
 
     let cancelled = false;
     const releaseDeferredPreviewReservation = () => {
@@ -477,6 +618,16 @@ export function usePayloadSession(
         deferredPreviewSessionRef.current = null;
       }
     };
+    const cancelStaleDeferredPreview = () => {
+      releaseDeferredPreviewReservation();
+      setDeferredPayloadProgress(null);
+    };
+    const isDeferredPreviewRequestAborted = () =>
+      isDeferredPreviewAborted(
+        stageSessionHandleRef.current,
+        captured,
+        cancelled,
+      ) || deferredPreviewRequestId !== sessionRefreshRequestRef.current;
 
     const loadDeferredPreview = async () => {
       try {
@@ -491,13 +642,8 @@ export function usePayloadSession(
         await yieldDeferredPreviewFrame(
           DEFERRED_PAYLOAD_PREVIEW_LIMITS.startDelayMs,
         );
-        if (
-          isDeferredPreviewAborted(
-            stageSessionHandleRef.current,
-            captured,
-            cancelled,
-          )
-        ) {
+        if (isDeferredPreviewRequestAborted()) {
+          cancelStaleDeferredPreview();
           return;
         }
         const glbBuffer = await retryWhileBusy(
@@ -506,13 +652,9 @@ export function usePayloadSession(
               background: true,
             }),
           {
-            shouldAbort: () =>
-              isDeferredPreviewAborted(
-                stageSessionHandleRef.current,
-                captured,
-                cancelled,
-              ),
+            shouldAbort: () => isDeferredPreviewRequestAborted(),
             onBusyRetry: () => {
+              if (isDeferredPreviewRequestAborted()) return;
               setDeferredPayloadProgress({
                 kind: "payload",
                 total: previewPayloads.length,
@@ -526,24 +668,15 @@ export function usePayloadSession(
         );
         if (glbBuffer === undefined) {
           releaseDeferredPreviewReservation();
-          if (
-            !isDeferredPreviewAborted(
-              stageSessionHandleRef.current,
-              captured,
-              cancelled,
-            )
-          ) {
+          if (!isDeferredPreviewRequestAborted()) {
             setDeferredPayloadProgress(null);
+          } else {
+            cancelStaleDeferredPreview();
           }
           return;
         }
-        if (
-          isDeferredPreviewAborted(
-            stageSessionHandleRef.current,
-            captured,
-            cancelled,
-          )
-        ) {
+        if (isDeferredPreviewRequestAborted()) {
+          cancelStaleDeferredPreview();
           return;
         }
         setSessionGlbBuffer(glbBuffer);
@@ -555,13 +688,8 @@ export function usePayloadSession(
           );
         }
       } catch (err: unknown) {
-        if (
-          isDeferredPreviewAborted(
-            stageSessionHandleRef.current,
-            captured,
-            cancelled,
-          )
-        ) {
+        if (isDeferredPreviewRequestAborted()) {
+          cancelStaleDeferredPreview();
           return;
         }
         console.warn("[usd] deferred preview payload load failed:", err);
@@ -583,13 +711,15 @@ export function usePayloadSession(
     usdLoadPolicy,
     previewReadyForDeferredPayloads,
     buildExtractOptions,
+    nextSessionRefreshRequest,
+    setSessionGlbBuffer,
   ]);
 
   return {
     stageSessionHandle,
     payloadPrimPaths,
     unloadedPayloadPaths,
-    sessionGlbBuffer,
+    sessionGlbBuffer: currentSessionGlbBuffer,
     setSessionGlbBuffer,
     deferredPayloadProgress,
     buildSessionExtractOptions,

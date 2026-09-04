@@ -46,14 +46,6 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
     stage_path: &StdPath,
     options: &ExtractGeometryOptions,
 ) -> Result<Vec<u8>, UsdError> {
-    if let Some(selection) = options.variant_selections.first() {
-        return Err(UsdError::InvalidVariantSelection {
-            prim_path: selection.prim_path.clone(),
-            set_name: selection.set_name.clone(),
-            variant_name: selection.variant_name.clone(),
-        });
-    }
-
     let skipped_payload_sources: Vec<String> = if options.policy == StageLoadPolicy::NoPayloads {
         stage_query::skipped_payloads(&stage, options.policy)
             .iter()

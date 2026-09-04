@@ -79,6 +79,7 @@ export function App() {
     isTauri,
     usdLoadPolicy,
     viewerFeedback.mode === "ready",
+    variantSelections,
   );
 
   const {

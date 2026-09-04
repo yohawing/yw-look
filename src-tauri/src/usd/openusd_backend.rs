@@ -32,6 +32,7 @@ mod shader_fields;
 mod skel_adapter;
 mod stage_fields;
 mod stage_query;
+mod variants;
 mod xform;
 
 use super::asset_resolution::filter_resolvable_relative_assets;
@@ -42,7 +43,7 @@ use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
     CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection,
     PrimTypeCount, StageCapabilityInfo, StageCapabilityKind, StageCapabilitySupport,
-    StageInspection, StageLoadPolicy, StageSummary,
+    StageInspection, StageLoadPolicy, StageSummary, VariantSelection,
 };
 use composition_arcs::{payload_arc_state, reference_arc_state};
 use extract::extract_geometry_from_open_stage_rs;
@@ -53,6 +54,7 @@ use stage_fields::{
     token_vec_to_strings, ValidatedStagePathExt,
 };
 use stage_query::UpAxis;
+use variants::apply_variant_selections;
 #[cfg(test)]
 use xform::{build_xform_op_matrix, compose_prim_local_xform, read_quat};
 
@@ -112,8 +114,6 @@ fn stage_capability_infos(
         "UsdSkel preview supports the current GLB skinning path only; arbitrary rig data is not covered.";
     const ANIMATION_RANGE_REASON: &str =
         "Only authored stage start/end metadata is reported; time-varying attributes are not scanned.";
-    const VARIANT_OVERRIDE_REASON: &str =
-        "Variant session overrides are not supported by the current backend.";
     const USD_AUTHORED_SPLAT_REASON: &str =
         "USD-authored Points/splat geometry is not supported by the preview backend.";
 
@@ -151,8 +151,8 @@ fn stage_capability_infos(
         StageCapabilityInfo {
             kind: StageCapabilityKind::VariantOverride,
             detected: detection.variant_override,
-            support: StageCapabilitySupport::Unsupported,
-            reason: VARIANT_OVERRIDE_REASON.to_owned(),
+            support: StageCapabilitySupport::Supported,
+            reason: String::new(),
         },
         StageCapabilityInfo {
             kind: StageCapabilityKind::UsdAuthoredSplat,
@@ -213,7 +213,19 @@ impl UsdInspectBackend for OpenusdBackend {
         path: &StdPath,
         policy: StageLoadPolicy,
     ) -> Result<StageInspection, UsdError> {
+        self.inspect_stage_with_variants(path, policy, &[])
+    }
+
+    fn inspect_stage_with_variants(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+        variant_selections: &[VariantSelection],
+    ) -> Result<StageInspection, UsdError> {
         let stage = Self::open(path, policy)?;
+        if !variant_selections.is_empty() {
+            apply_variant_selections(&stage, variant_selections)?;
+        }
 
         let default_prim = stage.default_prim().map(|token| token.as_str().to_owned());
         let up_axis = stage_query::up_axis(&stage).map(|axis| match axis {
@@ -428,7 +440,19 @@ impl UsdInspectBackend for OpenusdBackend {
         path: &StdPath,
         policy: StageLoadPolicy,
     ) -> Result<StageSummary, UsdError> {
+        self.summarize_stage_with_variants(path, policy, &[])
+    }
+
+    fn summarize_stage_with_variants(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+        variant_selections: &[VariantSelection],
+    ) -> Result<StageSummary, UsdError> {
         let stage = Self::open(path, policy)?;
+        if !variant_selections.is_empty() {
+            apply_variant_selections(&stage, variant_selections)?;
+        }
 
         let layer_count = stage.layer_count();
         let root_prim_count = stage
@@ -643,6 +667,26 @@ impl UsdInspectBackend for OpenusdBackend {
         if *has_point_instancer.borrow() {
             return Ok(true);
         }
+        // A single-layer USDA can still depend on variant composition. The
+        // JS USDLoader path receives only the source text and does not apply
+        // the composed variant state used by the backend, so route stages
+        // with a resolved variant set through GLB extraction as well.
+        let has_variants = RefCell::new(false);
+        stage
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+                if stage
+                    .prim_at(prim_path.clone())
+                    .variant_sets()
+                    .get_all_variant_selections()
+                    .is_ok_and(|selections| !selections.is_empty())
+                {
+                    *has_variants.borrow_mut() = true;
+                }
+            })
+            .map_err(|error| UsdError::Parse(error.to_string()))?;
+        if *has_variants.borrow() {
+            return Ok(true);
+        }
         // Single self-contained USDA layer — USDLoader handles hierarchy
         // and xform composition better than the GLB flattener, so prefer
         // the JS path.
@@ -667,7 +711,18 @@ impl UsdInspectBackend for OpenusdBackend {
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
+        self.collect_asset_issues_with_variants(path, &[])
+    }
+
+    fn collect_asset_issues_with_variants(
+        &self,
+        path: &StdPath,
+        variant_selections: &[VariantSelection],
+    ) -> Result<Vec<AssetIssue>, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        if !variant_selections.is_empty() {
+            apply_variant_selections(&stage, variant_selections)?;
+        }
         let mut issues = Vec::new();
 
         if let Some(mpu) = stage_query::meters_per_unit(&stage) {
@@ -760,14 +815,10 @@ impl UsdGeometryBackend for OpenusdBackend {
         path: &StdPath,
         options: &ExtractGeometryOptions,
     ) -> Result<Vec<u8>, UsdError> {
-        if !options.variant_selections.is_empty() {
-            eprintln!(
-                "[usd-rust] extract_geometry_glb_with_options: variant_selections are \
-                 not supported by the Rust openusd backend (degraded mode). The \
-                 authored variant selections will be used instead."
-            );
-        }
         let stage = Self::open(path, options.policy)?;
+        if !options.variant_selections.is_empty() {
+            apply_variant_selections(&stage, &options.variant_selections)?;
+        }
         extract_geometry_from_open_stage_rs(&stage, path, options)
     }
 }
@@ -974,6 +1025,11 @@ def Skeleton "Rig"
         assert!(summary.capabilities[2].detected);
         assert!(summary.capabilities[3].detected);
         assert!(summary.capabilities[5].detected);
+        assert_eq!(
+            summary.capabilities[5].support,
+            StageCapabilitySupport::Supported
+        );
+        assert!(summary.capabilities[5].reason.is_empty());
         assert!(summary.capabilities[6].detected);
         for entry in &summary.capabilities {
             if matches!(

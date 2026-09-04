@@ -36,6 +36,7 @@ enum CaseRelationship {
     #[default]
     Payload,
     Independent,
+    Variant,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -203,9 +204,7 @@ fn usd_failure(origin: &str, error: &yw_look_lib::usd::UsdError) -> FailureRepor
             origin: origin.to_owned(),
             code: "USD_INVALID_VARIANT_SELECTION".to_owned(),
             message: error.to_string(),
-            detail: format!(
-                "primPath={prim_path};setName={set_name};variantName={variant_name}"
-            ),
+            detail: format!("primPath={prim_path};setName={set_name};variantName={variant_name}"),
         },
     }
 }

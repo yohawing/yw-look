@@ -294,4 +294,231 @@ describe("usePayloadSession", () => {
 
     unmount();
   });
+
+  it("publishes only the latest same-session refresh when options cycle A to B to A", async () => {
+    const selectionA: VariantSelection = {
+      primPath: "/Root/Asset",
+      setName: "modelingVariant",
+      variantName: "A",
+    };
+    const selectionB: VariantSelection = {
+      ...selectionA,
+      variantName: "B",
+    };
+    const pendingRefreshes: Array<(value: ArrayBuffer) => void> = [];
+    vi.mocked(extractGeometrySession).mockImplementation(
+      () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          pendingRefreshes.push(resolve);
+        }),
+    );
+
+    const initialProps = {
+      inspection,
+      purposeModes,
+      variantSelections: [selectionA],
+    };
+    const { rerender, result, unmount } = renderPayloadSession(initialProps);
+
+    await waitFor(() => {
+      expect(result.current.sessionGlbBuffer).toBeInstanceOf(ArrayBuffer);
+    });
+
+    rerender({
+      ...initialProps,
+      variantSelections: [selectionB],
+    });
+    await waitFor(() => {
+      expect(extractGeometrySession).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({
+      ...initialProps,
+      variantSelections: [{ ...selectionA }],
+    });
+    await waitFor(() => {
+      expect(extractGeometrySession).toHaveBeenCalledTimes(2);
+    });
+
+    const latestBuffer = buffer(256);
+    const staleBuffer = buffer(128);
+    pendingRefreshes[1]?.(latestBuffer);
+    pendingRefreshes[0]?.(staleBuffer);
+
+    await waitFor(() => {
+      expect(result.current.sessionGlbBuffer).toBe(latestBuffer);
+    });
+    expect(result.current.sessionGlbBuffer).not.toBe(staleBuffer);
+
+    unmount();
+  });
+
+  it("keeps a manual payload refresh ahead of a pending deferred loadAll", async () => {
+    let resolveDeferred: ((value: ArrayBuffer) => void) | undefined;
+    vi.mocked(extractGeometry).mockImplementation(
+      () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          resolveDeferred = resolve;
+        }),
+    );
+    let resolveSession: ((value: ArrayBuffer) => void) | undefined;
+    vi.mocked(extractGeometrySession).mockImplementation(
+      () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          resolveSession = resolve;
+        }),
+    );
+
+    const { result, unmount } = renderPayloadSession();
+
+    await waitFor(() => {
+      expect(extractGeometry).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      void result.current.handleLoadPayload("/Root/PayloadRoot");
+    });
+    await waitFor(() => {
+      expect(extractGeometrySession).toHaveBeenCalledTimes(1);
+    });
+
+    const manualBuffer = buffer(512);
+    resolveSession?.(manualBuffer);
+    resolveDeferred?.(buffer(256));
+
+    await waitFor(() => {
+      expect(result.current.sessionGlbBuffer).toBe(manualBuffer);
+    });
+
+    unmount();
+  });
+
+  it("keeps same-session payload intents and publishes the latest refresh", async () => {
+    const payloadA = {
+      ...inspection.payloads[0],
+      sourcePrim: "/Root/PayloadA",
+    };
+    const payloadB = {
+      ...inspection.payloads[0],
+      sourcePrim: "/Root/PayloadB",
+    };
+    let firstLoad = true;
+    vi.mocked(loadPayload).mockImplementation((_handle, primPath) => {
+      if (primPath === "/Root/PayloadA" && firstLoad) {
+        firstLoad = false;
+        return Promise.reject(busyError());
+      }
+      return Promise.resolve();
+    });
+    const pendingRefreshes: Array<(value: ArrayBuffer) => void> = [];
+    vi.mocked(extractGeometrySession).mockImplementation(
+      () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          pendingRefreshes.push(resolve);
+        }),
+    );
+
+    const { result, unmount } = renderPayloadSession({
+      inspection: { ...inspection, payloads: [payloadA, payloadB] },
+      purposeModes,
+      variantSelections: [],
+    });
+
+    await waitFor(() => {
+      expect(result.current.unloadedPayloadPaths).toEqual(
+        new Set(["/Root/PayloadA", "/Root/PayloadB"]),
+      );
+    });
+
+    const loadA = result.current.handleLoadPayload("/Root/PayloadA");
+    const loadB = result.current.handleLoadPayload("/Root/PayloadB");
+    await waitFor(() => {
+      expect(extractGeometrySession).toHaveBeenCalledTimes(2);
+    });
+
+    const latestBuffer = buffer(512);
+    const staleBuffer = buffer(256);
+    pendingRefreshes[1]?.(latestBuffer);
+    pendingRefreshes[0]?.(staleBuffer);
+    await act(async () => {
+      await Promise.all([loadA, loadB]);
+    });
+
+    expect(result.current.unloadedPayloadPaths).toEqual(new Set());
+    expect(result.current.sessionGlbBuffer).toBe(latestBuffer);
+    expect(result.current.sessionGlbBuffer).not.toBe(staleBuffer);
+
+    unmount();
+  });
+
+  it("uses current extraction options when a mutation finishes after a variant change", async () => {
+    const selectionA: VariantSelection = {
+      primPath: "/Root/Asset",
+      setName: "modelingVariant",
+      variantName: "A",
+    };
+    const selectionB: VariantSelection = {
+      ...selectionA,
+      variantName: "B",
+    };
+    vi.mocked(extractGeometry).mockImplementation(
+      () => new Promise<ArrayBuffer>(() => {}),
+    );
+    let resolveLoad: (() => void) | undefined;
+    vi.mocked(loadPayload).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+    let resolveRefresh: ((value: ArrayBuffer) => void) | undefined;
+    let refreshOptions: unknown;
+    vi.mocked(extractGeometrySession).mockImplementation((_handle, options) => {
+      refreshOptions = options;
+      return new Promise<ArrayBuffer>((resolve) => {
+        resolveRefresh = resolve;
+      });
+    });
+
+    const initialProps = {
+      inspection,
+      purposeModes,
+      variantSelections: [selectionA],
+    };
+    const { rerender, result, unmount } = renderPayloadSession(initialProps);
+    await waitFor(() => {
+      expect(result.current.stageSessionHandle).toBe(42);
+    });
+
+    const mutation = result.current.handleLoadPayload("/Root/PayloadRoot");
+    await waitFor(() => {
+      expect(loadPayload).toHaveBeenCalledTimes(1);
+    });
+    rerender({
+      ...initialProps,
+      variantSelections: [selectionB],
+    });
+    resolveLoad?.();
+
+    await waitFor(() => {
+      expect(extractGeometrySession).toHaveBeenCalledTimes(1);
+    });
+    expect(refreshOptions).toEqual({
+      policy: "noPayloads",
+      purposeModes,
+      variantSelections: [selectionB],
+    });
+
+    const refreshedBuffer = buffer(384);
+    resolveRefresh?.(refreshedBuffer);
+    await act(async () => {
+      await mutation;
+    });
+    expect(result.current.unloadedPayloadPaths.has("/Root/PayloadRoot")).toBe(
+      false,
+    );
+    expect(result.current.sessionGlbBuffer).toBe(refreshedBuffer);
+
+    unmount();
+  });
 });

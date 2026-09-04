@@ -24,12 +24,14 @@ const outputDir = path.join(repoRoot, "artifacts/screenshots/usd-stateful");
 const snapshotDir = path.join(repoRoot, "tests/visual/snapshots/usd-stateful");
 const imageSize = { width: 384, height: 288 };
 const usage = `usage: npm run test:usd-stateful-regression -- [--case <id>] [--update-snapshot] [--list] [--shot-binary <path>]`;
-const caseRelationships = new Set(["payload", "independent"]);
+const caseRelationships = new Set(["payload", "independent", "variant"]);
 const glbProfiles = new Set([
   "material-subsets",
   "authored-normals",
   "skinning",
   "point-instancer",
+  "variant-red",
+  "variant-blue",
 ]);
 const approvedExpectedFailures = new Set([
   "extraction\u0000USD_INVALID_VARIANT_SELECTION",
@@ -233,6 +235,68 @@ export function verifyPayloadRelationships(captures) {
     fail("inline mesh/node evidence is missing");
 }
 
+export function verifyVariantRelationships(captures) {
+  const byId = new Map(captures.map((capture) => [capture.id, capture]));
+  const defaultCapture = byId.get("variant-default");
+  const blueCapture = byId.get("variant-blue");
+  const resetCapture = byId.get("variant-reset");
+  if (!defaultCapture || !blueCapture || !resetCapture) {
+    fail(
+      "variant scenario needs variant-default, variant-blue, and variant-reset captures",
+    );
+  }
+  const requiredBuffers = [defaultCapture, blueCapture, resetCapture];
+  for (const capture of requiredBuffers) {
+    if (!capture.glb || !capture.png) {
+      fail(`variant capture output is missing: ${capture.id}`);
+    }
+  }
+  if (!Buffer.from(defaultCapture.glb).equals(Buffer.from(resetCapture.glb))) {
+    fail("variant-reset GLB must exactly match variant-default GLB");
+  }
+  if (Buffer.from(defaultCapture.glb).equals(Buffer.from(blueCapture.glb))) {
+    fail("variant-blue GLB must differ from variant-default GLB");
+  }
+  if (!comparePixels(defaultCapture.png, resetCapture.png)) {
+    fail(
+      "variant-reset PNG pixels must exactly match variant-default PNG pixels",
+    );
+  }
+  if (comparePixels(defaultCapture.png, blueCapture.png)) {
+    fail("variant-blue PNG pixels must differ from variant-default PNG pixels");
+  }
+  const evidence = (capture, meshName, nodeName) => {
+    if (
+      !Array.isArray(capture.meshes) ||
+      !capture.meshes.includes(meshName) ||
+      !capture.meshes.includes("/Root/InlineAnchor") ||
+      !Array.isArray(capture.nodes) ||
+      !capture.nodes.includes(nodeName) ||
+      !capture.nodes.includes("InlineAnchor")
+    ) {
+      fail(`variant ${capture.id} mesh/node evidence is incorrect`);
+    }
+  };
+  evidence(defaultCapture, "/Root/RedQuad", "RedQuad");
+  evidence(blueCapture, "/Root/BlueQuad", "BlueQuad");
+  evidence(resetCapture, "/Root/RedQuad", "RedQuad");
+  if (defaultCapture.glbProfile !== "variant-red") {
+    fail("variant-default must use the variant-red GLB profile");
+  }
+  if (blueCapture.glbProfile !== "variant-blue") {
+    fail("variant-blue must use the variant-blue GLB profile");
+  }
+  if (resetCapture.glbProfile !== "variant-red") {
+    fail("variant-reset must use the variant-red GLB profile");
+  }
+  return {
+    relationship: "variant",
+    default: "red",
+    blue: "blue",
+    reset: "red",
+  };
+}
+
 function parseArgs(argv) {
   const parsed = { update: false, list: false, caseId: null, shotBinary: null };
   for (let index = 0; index < argv.length; index += 1) {
@@ -409,6 +473,8 @@ export async function runCaptureGate(captures, selected, options, hooks = {}) {
   const update = hooks.updateSnapshots ?? updateSnapshots;
   const verifyRelationships =
     hooks.verifyPayloadRelationships ?? verifyPayloadRelationships;
+  const verifyVariants =
+    hooks.verifyVariantRelationships ?? verifyVariantRelationships;
   const passingCaptures = captures.filter(
     (capture) => capture.status === "PASS",
   );
@@ -420,6 +486,12 @@ export async function runCaptureGate(captures, selected, options, hooks = {}) {
     const relationship = scenarioCase.relationship ?? "payload";
     if (relationship === "payload")
       verifyRelationships(
+        captures.filter((capture) =>
+          scenarioCase.captures.some((item) => item.id === capture.id),
+        ),
+      );
+    if (relationship === "variant")
+      verifyVariants(
         captures.filter((capture) =>
           scenarioCase.captures.some((item) => item.id === capture.id),
         ),

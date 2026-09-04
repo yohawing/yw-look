@@ -19,6 +19,7 @@ import {
   requiresGlbPreview,
   type StageInspection,
   type StageLoadPolicy,
+  type VariantSelection,
 } from "../../lib/usd";
 import type { LoaderContext } from "../loaderRegistry";
 import { isAbortOrTimeoutError } from "../modelParseWorker";
@@ -68,6 +69,17 @@ export {
 type UsdRuntimeHints = {
   metersPerUnit: number | null;
 };
+
+function inspectStageForVariants(
+  path: string,
+  policy: StageLoadPolicy | undefined,
+  variantSelections?: VariantSelection[],
+) {
+  if (variantSelections && variantSelections.length > 0) {
+    return inspectStage(path, policy, undefined, variantSelections);
+  }
+  return inspectStage(path, policy);
+}
 
 function isLikelyUsdLoaderFallbackMaterial(material: Material): boolean {
   const materialRecord = material as Material & {
@@ -251,13 +263,14 @@ async function parseUsdRuntimeHints(
   path: string,
   policy?: StageLoadPolicy,
   existingInspection?: StageInspection | null,
+  variantSelections?: VariantSelection[],
 ): Promise<UsdRuntimeHints> {
   const started = performance.now();
   const TIMEOUT_MS = 10_000;
   const inspection =
     existingInspection ??
     (await Promise.race([
-      inspectStage(path, policy),
+      inspectStageForVariants(path, policy, variantSelections),
       new Promise<never>((_, reject) =>
         setTimeout(
           () =>
@@ -285,7 +298,11 @@ function matchingUsdInspection(
   path: string,
   policy: StageLoadPolicy,
   getUsdInspection: (() => StageInspection | null) | undefined,
+  variantSelections?: VariantSelection[],
 ): StageInspection | null {
+  if (variantSelections && variantSelections.length > 0) {
+    return null;
+  }
   const inspection = getUsdInspection?.() ?? null;
   if (!inspection || inspection.loadPolicy !== policy) {
     return null;
@@ -300,11 +317,13 @@ export async function loadUsdPreviewObject(
 ): Promise<LoadedPreview> {
   const reportStage = context.onStage ?? (() => undefined);
   const usdPolicy = context.usdLoadPolicy ?? "loadAll";
-  let useGlbPipeline = false;
+  const hasVariantSelections = (context.variantSelections?.length ?? 0) > 0;
+  let useGlbPipeline = hasVariantSelections;
   try {
     reportStage("resolve");
     throwIfAborted(context.signal);
-    useGlbPipeline = await requiresGlbPreview(file.path);
+    useGlbPipeline =
+      (await requiresGlbPreview(file.path)) || hasVariantSelections;
     throwIfAborted(context.signal);
   } catch (error) {
     if (
@@ -360,7 +379,13 @@ export async function loadUsdPreviewObject(
               file.path,
               "noPayloads",
               context.getUsdInspection,
-            ) ?? (await inspectStage(file.path, "noPayloads"));
+              context.variantSelections,
+            ) ??
+            (await inspectStageForVariants(
+              file.path,
+              "noPayloads",
+              context.variantSelections,
+            ));
           if (!inspectionHasDeferredPayloads(inspection)) {
             throw error;
           }
@@ -482,7 +507,9 @@ export async function loadUsdPreviewObject(
         file.path,
         context.usdLoadPolicy ?? "loadAll",
         context.getUsdInspection,
+        context.variantSelections,
       ),
+      context.variantSelections,
     );
     applyUsdRuntimeHints(object, runtimeHints);
   } catch (error) {

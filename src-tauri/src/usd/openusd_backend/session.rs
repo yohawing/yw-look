@@ -3,77 +3,50 @@ use std::path::Path as StdPath;
 use std::sync::Mutex;
 
 use openusd::sdf::Path as SdfPath;
-use openusd::usd::Stage;
-use openusd::usd::{InitialLoadSet, StagePopulationMask};
+use openusd::usd::{InitialLoadSet, LoadPolicy, Stage};
 
 use crate::usd::backend::{UsdError, UsdSessionBackend};
 use crate::usd::stage_state::{OpenStage, RustStageSession};
 use crate::usd::types::{ExtractGeometryOptions, StageLoadPolicy};
 
 use super::extract_geometry_from_open_stage_rs;
-use super::lights::detect_light_kind;
-use super::mesh_visibility::is_mesh_active_and_visible;
-use super::stage_fields::read_token_or_string_field;
-use super::{OpenusdBackend, LEGACY_TRAVERSE_PREDICATE};
-
-fn open_masked_load_all(
-    path: &StdPath,
-    mask_paths: impl IntoIterator<Item = SdfPath>,
-) -> Result<Stage, UsdError> {
-    let path_str = path
-        .to_str()
-        .ok_or_else(|| UsdError::Io(format!("non-UTF8 path: {}", path.display())))?;
-    Stage::builder()
-        .load(InitialLoadSet::LoadAll)
-        .mask(
-            StagePopulationMask::new(mask_paths)
-                .map_err(|e| UsdError::Parse(format!("invalid population mask path: {e}")))?,
-        )
-        .open(path_str)
-        .map_err(|e| UsdError::Parse(e.to_string()))
-}
-
-fn is_rust_session_mask_prim(stage: &Stage, prim_path: &SdfPath) -> bool {
-    if is_mesh_active_and_visible(stage, prim_path) || detect_light_kind(stage, prim_path).is_some()
-    {
-        return true;
-    }
-
-    matches!(
-        read_token_or_string_field(stage, prim_path.clone()).as_deref(),
-        Some("Camera" | "PointInstancer")
-    )
-}
+use super::variants::apply_variant_selections;
+use super::OpenusdBackend;
 
 fn open_rust_session_stage_with_loaded_payloads(
     stage_path: &StdPath,
     base_stage: &Stage,
     loaded_payload_paths: &HashSet<String>,
+    variant_selections: &[crate::usd::types::VariantSelection],
 ) -> Result<Stage, UsdError> {
-    let mut mask_paths = HashSet::<SdfPath>::new();
-    base_stage
-        .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
-            if is_rust_session_mask_prim(base_stage, prim_path) {
-                mask_paths.insert(prim_path.clone());
-            }
-        })
-        .map_err(|e| UsdError::Parse(e.to_string()))?;
-
+    // Stage clones share Rc-backed composition, so the persistent session
+    // stage must never receive either variant or load-rule edits. Reopen with
+    // the session's original policy, load only the explicit payload roots with
+    // upstream's native load rules, then apply the requested variant state.
+    // Loading first is required when a requested variant set is authored under
+    // a payload root: the inner prim is not composed while the stage is in its
+    // initial NoPayloads state. This avoids the old population-mask workaround,
+    // which could include every renderable payload encountered while
+    // rebuilding the mask.
+    let stage = OpenusdBackend::open(stage_path, session_stage_policy(base_stage))?;
     for prim_path in loaded_payload_paths {
         let path = SdfPath::new(prim_path)
             .map_err(|e| UsdError::Parse(format!("invalid payload prim path {prim_path}: {e}")))?;
-        mask_paths.insert(path);
+        stage
+            .load(path, LoadPolicy::WithDescendants)
+            .map_err(|e| UsdError::Parse(format!("failed to load payload {prim_path}: {e}")))?;
     }
-
-    if mask_paths.is_empty() {
-        return OpenusdBackend::open(stage_path, StageLoadPolicy::NoPayloads);
+    if !variant_selections.is_empty() {
+        apply_variant_selections(&stage, variant_selections)?;
     }
+    Ok(stage)
+}
 
-    // The Rust openusd crate does not currently expose mutable per-prim load
-    // rules. Reopen a LoadAll stage through a population mask instead: base
-    // renderable prims keep the no-payload preview visible, while explicit
-    // payload roots opt into composition.
-    open_masked_load_all(stage_path, mask_paths)
+fn session_stage_policy(stage: &Stage) -> StageLoadPolicy {
+    match stage.initial_load_set() {
+        InitialLoadSet::LoadAll => StageLoadPolicy::LoadAll,
+        InitialLoadSet::LoadNone => StageLoadPolicy::NoPayloads,
+    }
 }
 
 impl UsdSessionBackend for OpenusdBackend {
@@ -128,14 +101,23 @@ impl UsdSessionBackend for OpenusdBackend {
                 let session = mutex
                     .lock()
                     .map_err(|_| UsdError::Parse("stage Mutex was poisoned".to_string()))?;
-                if session.loaded_payload_paths.is_empty() {
+                if session.loaded_payload_paths.is_empty() && options.variant_selections.is_empty()
+                {
                     extract_geometry_from_open_stage_rs(&session.stage, stage_path, options)
                 } else {
-                    let stage_with_payloads = open_rust_session_stage_with_loaded_payloads(
-                        stage_path,
-                        &session.stage,
-                        &session.loaded_payload_paths,
-                    )?;
+                    let stage_with_payloads = if session.loaded_payload_paths.is_empty() {
+                        let stage =
+                            OpenusdBackend::open(stage_path, session_stage_policy(&session.stage))?;
+                        apply_variant_selections(&stage, &options.variant_selections)?;
+                        stage
+                    } else {
+                        open_rust_session_stage_with_loaded_payloads(
+                            stage_path,
+                            &session.stage,
+                            &session.loaded_payload_paths,
+                            &options.variant_selections,
+                        )?
+                    };
                     extract_geometry_from_open_stage_rs(&stage_with_payloads, stage_path, options)
                 }
             }

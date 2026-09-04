@@ -99,6 +99,20 @@ export type {
   ToneMappingMode,
 } from "../types/viewer";
 
+function buildPreviewLoadInputKey(
+  currentFile: AssetViewportProps["currentFile"],
+  usdLoadPolicy: AssetViewportProps["usdLoadPolicy"],
+  variantSelections: AssetViewportProps["variantSelections"],
+  purposeModes: AssetViewportProps["purposeModes"],
+) {
+  return JSON.stringify({
+    filePath: currentFile?.path ?? null,
+    purposeModes,
+    usdLoadPolicy,
+    variantSelections,
+  });
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
@@ -204,10 +218,29 @@ export function AssetViewport({
   const controlSensitivityRef = useRef(controlSensitivity);
   const cameraFovRef = useRef(cameraFov);
   const renderScaleRef = useRef(renderScale);
+  const previewLoadInputKey = buildPreviewLoadInputKey(
+    currentFile,
+    usdLoadPolicy,
+    variantSelections,
+    purposeModes,
+  );
   const latestLoadInputsRef = useRef<{
     filePath: string | null;
     glbOverride: ArrayBuffer | null;
-  }>({ filePath: currentFile?.path ?? null, glbOverride });
+    inputKey: string;
+    usdLoadPolicy: AssetViewportProps["usdLoadPolicy"];
+  }>({
+    filePath: currentFile?.path ?? null,
+    glbOverride,
+    inputKey: previewLoadInputKey,
+    usdLoadPolicy,
+  });
+  const previousPreviewLoadInputsRef = useRef({
+    glbOverride,
+    inputKey: previewLoadInputKey,
+    usdLoadPolicy,
+  });
+  const pendingGlbReloadFilePathRef = useRef<string | null>(null);
 
   useEffect(() => {
     usdInspectionRef.current = usdInspection;
@@ -216,6 +249,8 @@ export function AssetViewport({
     latestLoadInputsRef.current = {
       filePath: currentFile?.path ?? null,
       glbOverride,
+      inputKey: previewLoadInputKey,
+      usdLoadPolicy,
     };
   });
   const environmentPresetRef = useRef(environmentPreset);
@@ -637,33 +672,68 @@ export function AssetViewport({
       return;
     }
 
-    runCleanupCallbacks(context.cleanupCallbacks);
-    context.cleanupCallbacks = [];
-    context.packRuntime?.dispose();
-    context.packRuntime = null;
-    stopAnimations(context);
-    context.mmdModel = null;
-    resetSceneObjects(context);
-    revokeUrls(context.cleanupUrls);
-    context.cleanupUrls = [];
-    assetResourceMetricsRef.current = null;
-    publishResourceDiagnostics(context);
-    context.controls.enabled = false;
-    resetCameraRef.current = null;
-    // #34: clear USD camera override on every file change so we always start
-    // with the free-orbit camera for a fresh asset.
-    activeCameraRef.current = null;
-    applyPreviewLightingPreset(DEFAULT_LIGHTING_PRESET, {
-      ambient: ambientLightRef.current,
-      key: keyLightRef.current,
-      fill: fillLightRef.current,
-    });
-    applyViewportRenderingSettings(
-      context.renderer,
-      currentFile?.extension,
-      toneMappingModeRef.current,
-      exposureRef.current,
-    );
+    const isDeferredGlbReload =
+      currentFile !== null &&
+      glbOverride !== null &&
+      activePreviewPathRef.current === currentFile.path &&
+      context.mountedObject !== null;
+    const isNewPendingGlbReload =
+      currentFile !== null &&
+      usdLoadPolicy === "noPayloads" &&
+      glbOverride === null &&
+      previousPreviewLoadInputsRef.current.glbOverride !== null &&
+      previousPreviewLoadInputsRef.current.usdLoadPolicy === "noPayloads" &&
+      previousPreviewLoadInputsRef.current.inputKey !== previewLoadInputKey &&
+      activePreviewPathRef.current === currentFile.path &&
+      context.mountedObject !== null;
+    if (isDeferredGlbReload) {
+      pendingGlbReloadFilePathRef.current = null;
+    } else if (
+      currentFile === null ||
+      usdLoadPolicy !== "noPayloads" ||
+      activePreviewPathRef.current !== currentFile.path ||
+      context.mountedObject === null
+    ) {
+      pendingGlbReloadFilePathRef.current = null;
+    } else if (isNewPendingGlbReload) {
+      pendingGlbReloadFilePathRef.current = currentFile.path;
+    }
+    const isPendingGlbReload =
+      currentFile !== null &&
+      usdLoadPolicy === "noPayloads" &&
+      pendingGlbReloadFilePathRef.current === currentFile.path &&
+      activePreviewPathRef.current === currentFile.path &&
+      context.mountedObject !== null;
+
+    if (!isDeferredGlbReload && !isPendingGlbReload) {
+      runCleanupCallbacks(context.cleanupCallbacks);
+      context.cleanupCallbacks = [];
+      context.packRuntime?.dispose();
+      context.packRuntime = null;
+      stopAnimations(context);
+      context.mmdModel = null;
+      resetSceneObjects(context);
+      revokeUrls(context.cleanupUrls);
+      context.cleanupUrls = [];
+      assetResourceMetricsRef.current = null;
+      publishResourceDiagnostics(context);
+      context.controls.enabled = false;
+      resetCameraRef.current = null;
+      // #34: clear USD camera override on every file change so we always start
+      // with the free-orbit camera for a fresh asset.
+      activeCameraRef.current = null;
+      applyPreviewLightingPreset(DEFAULT_LIGHTING_PRESET, {
+        ambient: ambientLightRef.current,
+        key: keyLightRef.current,
+        fill: fillLightRef.current,
+      });
+      applyViewportRenderingSettings(
+        context.renderer,
+        currentFile?.extension,
+        toneMappingModeRef.current,
+        exposureRef.current,
+      );
+    }
 
     // Show/hide initial grid based on file state
     if (!currentFile) {
@@ -741,10 +811,10 @@ export function AssetViewport({
       return;
     }
 
-    const isDeferredGlbReload =
-      glbOverride !== null &&
-      activePreviewPathRef.current === currentFile.path &&
-      context.mountedObject !== null;
+    if (isPendingGlbReload) {
+      return;
+    }
+
     let disposed = false;
     let latestDeferredTexture: DeferredTextureSnapshot | null = null;
     let refreshTextureMetadata: (() => void) | null = null;
@@ -981,8 +1051,13 @@ export function AssetViewport({
       const keepMountedForDeferredReload =
         currentFile !== null &&
         nextLoadInputs.filePath === currentFile.path &&
-        nextLoadInputs.glbOverride !== null &&
-        nextLoadInputs.glbOverride !== glbOverride;
+        ((nextLoadInputs.glbOverride !== null &&
+          nextLoadInputs.glbOverride !== glbOverride) ||
+          (nextLoadInputs.glbOverride === null &&
+            glbOverride !== null &&
+            usdLoadPolicy === "noPayloads" &&
+            nextLoadInputs.usdLoadPolicy === "noPayloads" &&
+            nextLoadInputs.inputKey !== previewLoadInputKey));
       if (keepMountedForDeferredReload) {
         return;
       }
@@ -1014,7 +1089,16 @@ export function AssetViewport({
     disabledOptionalLoaderPackIds,
     incompatibleOptionalLoaderPackIds,
     publishResourceDiagnostics,
+    previewLoadInputKey,
   ]);
+
+  useEffect(() => {
+    previousPreviewLoadInputsRef.current = {
+      glbOverride,
+      inputKey: previewLoadInputKey,
+      usdLoadPolicy,
+    };
+  }, [glbOverride, previewLoadInputKey, usdLoadPolicy]);
 
   usePackFileRequest({
     currentFileName: currentFile?.fileName,

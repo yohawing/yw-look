@@ -12,6 +12,7 @@ import {
   validateScenarioCases,
   validateSnapshots,
   verifyPayloadRelationships,
+  verifyVariantRelationships,
   verifyReport,
 } from "./usd-stateful-regression.mjs";
 
@@ -458,4 +459,91 @@ test("payload relation failure leaves existing baselines unchanged", async () =>
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+});
+
+function variantCaptures() {
+  return [
+    {
+      id: "variant-default",
+      glb: Buffer.from("red-glb"),
+      png: png(384, 288, 1),
+      meshes: ["/Root/RedQuad", "/Root/InlineAnchor"],
+      nodes: ["Root", "RedQuad", "InlineAnchor"],
+      glbProfile: "variant-red",
+    },
+    {
+      id: "variant-blue",
+      glb: Buffer.from("blue-glb"),
+      png: png(384, 288, 2),
+      meshes: ["/Root/BlueQuad", "/Root/InlineAnchor"],
+      nodes: ["Root", "BlueQuad", "InlineAnchor"],
+      glbProfile: "variant-blue",
+    },
+    {
+      id: "variant-reset",
+      glb: Buffer.from("red-glb"),
+      png: png(384, 288, 1),
+      meshes: ["/Root/RedQuad", "/Root/InlineAnchor"],
+      nodes: ["Root", "RedQuad", "InlineAnchor"],
+      glbProfile: "variant-red",
+    },
+  ];
+}
+
+test("variant relation requires default-blue-reset state transitions", () => {
+  assert.deepEqual(verifyVariantRelationships(variantCaptures()), {
+    relationship: "variant",
+    default: "red",
+    blue: "blue",
+    reset: "red",
+  });
+  const sameGlb = variantCaptures();
+  sameGlb[1].glb = Buffer.from("red-glb");
+  assert.throws(
+    () => verifyVariantRelationships(sameGlb),
+    /variant-blue GLB must differ/,
+  );
+  const samePng = variantCaptures();
+  samePng[1].png = png(384, 288, 1);
+  assert.throws(
+    () => verifyVariantRelationships(samePng),
+    /variant-blue PNG pixels must differ/,
+  );
+  const wrongEvidence = variantCaptures();
+  wrongEvidence[1].meshes = ["/Root/RedQuad", "/Root/InlineAnchor"];
+  assert.throws(
+    () => verifyVariantRelationships(wrongEvidence),
+    /variant-blue mesh\/node evidence is incorrect/,
+  );
+});
+
+test("variant relation failure blocks update mode", async () => {
+  const calls = [];
+  const captures = variantCaptures().map((capture) => ({
+    ...capture,
+    status: "PASS",
+  }));
+  captures[2].glb = Buffer.from("mutated-reset-glb");
+  const selected = [
+    {
+      id: "variant",
+      relationship: "variant",
+      captures: captures.map(({ id }) => ({ id })),
+    },
+  ];
+  await assert.rejects(
+    () =>
+      runCaptureGate(
+        captures,
+        selected,
+        { update: true, shotBinary: null },
+        {
+          render: async () => calls.push("render"),
+          validateSnapshots: async () => calls.push("validate"),
+          updateSnapshots: async () => calls.push("update"),
+        },
+      ),
+    /variant-reset GLB must exactly match variant-default GLB/,
+  );
+  assert.deepEqual(calls, ["render", "validate"]);
 });
