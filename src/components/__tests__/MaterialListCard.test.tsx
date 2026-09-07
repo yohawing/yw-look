@@ -77,6 +77,26 @@ function renderWithMaterials(materials: MaterialEntry[]) {
 }
 
 describe("MaterialListCard – shader slot details (#36)", () => {
+  it("shows only the binding count and shares detail rows with other Selected panels", () => {
+    const { container, getByText, queryByText } = renderWithMaterials([
+      { ...baseMat, boundMeshes: ["UniqueMeshOne", "UniqueMeshTwo"] },
+    ]);
+    expect(queryByText("bound meshes")).toBeNull();
+    expect(queryByText("UniqueMeshOne")).toBeNull();
+    expect(queryByText("UniqueMeshTwo")).toBeNull();
+    expect(getByText("Bindings").closest(".yl-kv-row")?.textContent).toContain(
+      "2",
+    );
+    expect(
+      container.querySelector(".material-selected-panel > .selected-kv"),
+    ).toBeTruthy();
+    expect(container.querySelector(".material-selected-title")).toBeNull();
+    expect(
+      getByText("shader inputs")
+        .closest("details")
+        ?.querySelector(".selected-kv"),
+    ).toBeTruthy();
+  });
   it("exposes full texture and USD paths without putting locators in slot text", () => {
     const sourcePath = "F:/toy.usdz[a/normal.png]";
     const { getByTitle, getByText } = renderWithMaterials([

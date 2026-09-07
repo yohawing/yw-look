@@ -46,25 +46,26 @@ function fmtFlags(flags: Record<string, boolean> | null): string {
   return enabled.length > 0 ? enabled.join(", ") : "none";
 }
 
-function TextureSlotRow({
-  label,
-  slot,
-}: {
-  label: string;
-  slot: MaterialTextureSlot | null;
-}) {
-  if (!slot) return null;
-  return (
-    <tr className="mat-slot-row">
-      <td className="mat-slot-label">{label}</td>
-      <td
-        className="mat-slot-value mat-slot-texture"
-        title={slot.sourcePath ?? slot.name}
-      >
-        {slot.name}
-      </td>
-    </tr>
-  );
+function textureSlotRow(
+  id: string,
+  label: string,
+  slot: MaterialTextureSlot | null,
+): KeyValueRow | null {
+  return slot
+    ? {
+        id,
+        label,
+        mono: true,
+        value: (
+          <span
+            className="mat-slot-texture"
+            title={slot.sourcePath ?? slot.name}
+          >
+            {slot.name}
+          </span>
+        ),
+      }
+    : null;
 }
 
 function MmdColorValue({
@@ -75,7 +76,10 @@ function MmdColorValue({
   if (!value) return "none";
   const color = rgbToHex(value[0], value[1], value[2]);
   return (
-    <span className="material-detail-value material-detail-color">
+    <span
+      className="material-detail-value material-detail-color"
+      title={`${color} (${fmtVec(value)})`}
+    >
       <span className="mat-inline-swatch" style={{ background: color }} />
       <span>{color}</span>
       <span>({fmtVec(value)})</span>
@@ -187,134 +191,76 @@ function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
 
   return (
     <Disclosure variant="inline" title="MMD material" defaultOpen>
-      <KeyValueRows
-        className="mmd-material-details"
-        density="regular"
-        rows={rows}
-      />
+      <KeyValueRows className="selected-kv" density="regular" rows={rows} />
     </Disclosure>
   );
 }
 
 function ShaderDetails({ mat }: { mat: MaterialEntry }) {
-  const hasAnyDetail =
-    mat.baseColorFactor !== null ||
-    mat.metallicFactor !== null ||
-    mat.roughnessFactor !== null ||
-    mat.emissiveFactor !== null ||
-    mat.baseColorTexture !== null ||
-    mat.metallicRoughnessTexture !== null ||
-    mat.normalTexture !== null ||
-    mat.emissiveTexture !== null ||
-    mat.usdPrimPath !== null;
-
-  if (!hasAnyDetail) return null;
-
+  const rows = [
+    mat.baseColorFactor !== null && {
+      id: "base-color",
+      label: "Base Color",
+      value: (
+        <>
+          <MaterialBaseColor mat={mat} />
+          {mat.baseColorFactor[3] < 1 ? (
+            <span> a:{fmt255(mat.baseColorFactor[3])}</span>
+          ) : null}
+        </>
+      ),
+    },
+    mat.metallicFactor !== null && {
+      id: "metallic",
+      label: "Metallic",
+      value: mat.metallicFactor.toFixed(3),
+      mono: true,
+    },
+    mat.roughnessFactor !== null && {
+      id: "roughness",
+      label: "Roughness",
+      value: mat.roughnessFactor.toFixed(3),
+      mono: true,
+    },
+    mat.emissiveFactor?.some((value) => value > 0) && {
+      id: "emissive",
+      label: "Emissive",
+      value: (
+        <span>
+          <span
+            className="mat-inline-swatch"
+            style={{ background: rgbToHex(...mat.emissiveFactor) }}
+          />
+          {rgbToHex(...mat.emissiveFactor)}
+        </span>
+      ),
+      mono: true,
+    },
+    textureSlotRow("color-texture", "Color Tex", mat.baseColorTexture),
+    textureSlotRow(
+      "metal-rough-texture",
+      "Metal/Rough Tex",
+      mat.metallicRoughnessTexture,
+    ),
+    textureSlotRow("normal-texture", "Normal Tex", mat.normalTexture),
+    textureSlotRow("emissive-texture", "Emissive Tex", mat.emissiveTexture),
+    mat.alphaMode !== "OPAQUE" &&
+      mat.alphaMode !== "unknown" && {
+        id: "alpha",
+        label: "Alpha",
+        value: <Badge size="sm">{mat.alphaMode}</Badge>,
+      },
+    mat.usdPrimPath !== null && {
+      id: "usd-path",
+      label: "USD Path",
+      value: <span title={mat.usdPrimPath}>{mat.usdPrimPath}</span>,
+      mono: true,
+    },
+  ].filter(Boolean) as KeyValueRow[];
+  if (rows.length === 0) return null;
   return (
     <Disclosure variant="inline" title="shader inputs" defaultOpen={false}>
-      <table className="mat-slot-table">
-        <tbody>
-          {mat.baseColorFactor !== null && (
-            <tr className="mat-slot-row">
-              <td className="mat-slot-label">Base Color</td>
-              <td className="mat-slot-value">
-                <span
-                  className="mat-inline-swatch"
-                  style={{
-                    background: rgbToHex(
-                      mat.baseColorFactor[0],
-                      mat.baseColorFactor[1],
-                      mat.baseColorFactor[2],
-                    ),
-                  }}
-                />
-                <span className="mat-slot-hex">
-                  {rgbToHex(
-                    mat.baseColorFactor[0],
-                    mat.baseColorFactor[1],
-                    mat.baseColorFactor[2],
-                  )}
-                </span>
-                {mat.baseColorFactor[3] < 1 && (
-                  <span className="mat-slot-alpha">
-                    {" "}
-                    a:{fmt255(mat.baseColorFactor[3])}
-                  </span>
-                )}
-              </td>
-            </tr>
-          )}
-          {mat.metallicFactor !== null && (
-            <tr className="mat-slot-row">
-              <td className="mat-slot-label">Metallic</td>
-              <td className="mat-slot-value">
-                {mat.metallicFactor.toFixed(3)}
-              </td>
-            </tr>
-          )}
-          {mat.roughnessFactor !== null && (
-            <tr className="mat-slot-row">
-              <td className="mat-slot-label">Roughness</td>
-              <td className="mat-slot-value">
-                {mat.roughnessFactor.toFixed(3)}
-              </td>
-            </tr>
-          )}
-          {mat.emissiveFactor !== null &&
-            (mat.emissiveFactor[0] > 0 ||
-              mat.emissiveFactor[1] > 0 ||
-              mat.emissiveFactor[2] > 0) && (
-              <tr className="mat-slot-row">
-                <td className="mat-slot-label">Emissive</td>
-                <td className="mat-slot-value">
-                  <span
-                    className="mat-inline-swatch"
-                    style={{
-                      background: rgbToHex(
-                        mat.emissiveFactor[0],
-                        mat.emissiveFactor[1],
-                        mat.emissiveFactor[2],
-                      ),
-                    }}
-                  />
-                  <span className="mat-slot-hex">
-                    {rgbToHex(
-                      mat.emissiveFactor[0],
-                      mat.emissiveFactor[1],
-                      mat.emissiveFactor[2],
-                    )}
-                  </span>
-                </td>
-              </tr>
-            )}
-          <TextureSlotRow label="Color Tex" slot={mat.baseColorTexture} />
-          <TextureSlotRow
-            label="Metal/Rough Tex"
-            slot={mat.metallicRoughnessTexture}
-          />
-          <TextureSlotRow label="Normal Tex" slot={mat.normalTexture} />
-          <TextureSlotRow label="Emissive Tex" slot={mat.emissiveTexture} />
-          {mat.alphaMode !== "OPAQUE" && mat.alphaMode !== "unknown" && (
-            <tr className="mat-slot-row">
-              <td className="mat-slot-label">Alpha</td>
-              <td className="mat-slot-value">
-                <Badge size="sm">{mat.alphaMode}</Badge>
-              </td>
-            </tr>
-          )}
-          {mat.usdPrimPath !== null && (
-            <tr className="mat-slot-row">
-              <td className="mat-slot-label">USD Path</td>
-              <td
-                className="mat-slot-value mat-slot-prim-path"
-                title={mat.usdPrimPath}
-              >
-                {mat.usdPrimPath}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <KeyValueRows className="selected-kv" density="regular" rows={rows} />
     </Disclosure>
   );
 }
@@ -392,28 +338,7 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
 
   return (
     <section className="material-selected-panel" aria-label="Selected material">
-      <p className="material-selected-title">Selected material</p>
-      <KeyValueRows
-        className="material-detail-grid"
-        density="regular"
-        rows={rows}
-      />
-      {mat.boundMeshes.length > 0 && (
-        <Disclosure
-          variant="inline"
-          title="bound meshes"
-          count={mat.boundMeshes.length}
-          defaultOpen={false}
-        >
-          <ul className="material-bindings-list">
-            {mat.boundMeshes.map((meshName, index) => (
-              <li key={`${meshName}:${index}`} className="material-binding">
-                {meshName}
-              </li>
-            ))}
-          </ul>
-        </Disclosure>
-      )}
+      <KeyValueRows className="selected-kv" density="regular" rows={rows} />
       <MmdMaterialDetails mmd={mat.mmd} />
       <ShaderDetails mat={mat} />
     </section>
