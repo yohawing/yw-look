@@ -10,11 +10,12 @@
 .animation-bar {
   width: 100%;
   pointer-events: auto;
+  container: animation-bar / inline-size;
 }
 
 .animation-clip-selector {
   min-width: 0;
-  max-width: min(12rem, 32vw);
+  max-width: min(12rem, 32cqw);
 }
 
 .animation-clip-selector .yl-select-field__control {
