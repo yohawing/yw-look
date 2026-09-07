@@ -57,7 +57,12 @@ function TextureSlotRow({
   return (
     <tr className="mat-slot-row">
       <td className="mat-slot-label">{label}</td>
-      <td className="mat-slot-value mat-slot-texture">{slot.name}</td>
+      <td
+        className="mat-slot-value mat-slot-texture"
+        title={slot.sourcePath ?? slot.name}
+      >
+        {slot.name}
+      </td>
     </tr>
   );
 }
@@ -300,7 +305,10 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
           {mat.usdPrimPath !== null && (
             <tr className="mat-slot-row">
               <td className="mat-slot-label">USD Path</td>
-              <td className="mat-slot-value mat-slot-prim-path">
+              <td
+                className="mat-slot-value mat-slot-prim-path"
+                title={mat.usdPrimPath}
+              >
                 {mat.usdPrimPath}
               </td>
             </tr>

@@ -358,12 +358,15 @@ function textureSlot(
   slotLabel: string,
 ): MaterialTextureSlot | null {
   if (!(texture instanceof Texture)) return null;
-  const name =
-    texture.name.trim() ||
-    (typeof texture.userData?.path === "string" && texture.userData.path
-      ? texture.userData.path
-      : slotLabel);
-  return { name };
+  const source =
+    stringValue(texture.userData.path) ??
+    stringValue(texture.userData.fbxSourceName) ??
+    stringValue(texture.userData.sourcePath) ??
+    stringValue(texture.userData.uri) ??
+    stringValue(texture.name);
+  if (!source) return { name: slotLabel };
+  const name = textureSourceFileName(source);
+  return { name, ...(source !== name ? { sourcePath: source } : {}) };
 }
 
 function textureSourceReference(
@@ -697,6 +700,7 @@ function mmdMorphsByIndex(object: Mesh): Map<number, MmdMorphEntry> {
 function buildMaterialEntry(
   material: Material,
   boundMeshes: string[],
+  currentFile: SelectedFile,
 ): MaterialEntry {
   const typeName = material.type
     .replace("Material", "")
@@ -741,15 +745,29 @@ function buildMaterialEntry(
   }
 
   const ud = material.userData as Record<string, unknown>;
+  const authoredName = material.name.trim();
+  const usdSource = ["usd", "usda", "usdc", "usdz"].includes(
+    currentFile.extension,
+  );
   const usdPrimPath =
     typeof ud.usdPrimPath === "string" && ud.usdPrimPath
       ? ud.usdPrimPath
-      : null;
+      : usdSource && authoredName.startsWith("usd:/")
+        ? authoredName.slice(4)
+        : null;
   const mmd = buildMmdMaterialEntry(material);
+  const displayName = usdPrimPath
+    ? (stringValue(ud.displayName) ??
+      (authoredName &&
+      authoredName !== usdPrimPath &&
+      authoredName !== `usd:${usdPrimPath}`
+        ? authoredName
+        : basenameFromPrimPath(usdPrimPath)))
+    : authoredName;
 
   return {
     id: material.uuid,
-    name: mmd?.name ?? (material.name.trim() || typeName),
+    name: mmd?.name ?? (displayName || typeName),
     type: typeName,
     color: getMaterialColor(material),
     opacity: material.opacity,
@@ -1478,7 +1496,11 @@ export function collectAssetMetadata(
       hierarchy: buildHierarchyForest(object),
       textures: [...textures.values()],
       materials: [...materials].map((material) =>
-        buildMaterialEntry(material, materialBindings.get(material) ?? []),
+        buildMaterialEntry(
+          material,
+          materialBindings.get(material) ?? [],
+          currentFile,
+        ),
       ),
       lights,
       cameras,

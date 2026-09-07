@@ -454,6 +454,7 @@ export type TextureEntry = {
 
 export type MaterialTextureSlot = {
   name: string;
+  sourcePath?: string;
 };
 
 // ── MMD material ─────────────────────────────────────────────────

@@ -40,6 +40,80 @@ function singleMeshScene(
 }
 
 describe("MaterialEntry shader slot extraction (#36)", () => {
+  it("keeps same-name USD materials distinct without mutating their source names", () => {
+    const root = new Group();
+    const mats = ["usd:/World/A/Paint", "usd:/World/B/Paint"].map((name) => {
+      const mat = new MeshStandardMaterial();
+      mat.name = name;
+      root.add(new Mesh(new BufferGeometry(), mat));
+      return mat;
+    });
+    const entries = collectAssetMetadata(
+      root,
+      { ...fakeFile, extension: "usdz" },
+      [],
+      null,
+    ).metadata.materials;
+    expect(entries.map((entry) => entry.name)).toEqual(["Paint", "Paint"]);
+    expect(entries.map((entry) => entry.usdPrimPath)).toEqual([
+      "/World/A/Paint",
+      "/World/B/Paint",
+    ]);
+    expect(new Set(entries.map((entry) => entry.id)).size).toBe(2);
+    expect(mats.map((mat) => mat.name)).toEqual([
+      "usd:/World/A/Paint",
+      "usd:/World/B/Paint",
+    ]);
+  });
+
+  it("prefers an authored USD display name", () => {
+    const mat = new MeshStandardMaterial();
+    mat.name = "usd:/Looks/Paint";
+    mat.userData.displayName = "赤い塗装";
+    const entry = collectAssetMetadata(
+      singleMeshScene(mat),
+      { ...fakeFile, extension: "usdc" },
+      [],
+      null,
+    ).metadata.materials[0];
+    expect(entry.name).toBe("赤い塗装");
+    expect(entry.usdPrimPath).toBe("/Looks/Paint");
+  });
+
+  it.each(["glb", "fbx", "pmx"])(
+    "preserves authored %s material names that resemble a USD identifier",
+    (extension) => {
+      const mat = new MeshStandardMaterial();
+      mat.name = "usd:/Artist/Paint";
+      const entry = collectAssetMetadata(
+        singleMeshScene(mat),
+        { ...fakeFile, extension },
+        [],
+        null,
+      ).metadata.materials[0];
+      expect(entry.name).toBe(mat.name);
+      expect(entry.usdPrimPath).toBeNull();
+    },
+  );
+
+  it("shortens package texture slots while retaining complete locators", () => {
+    const mat = new MeshStandardMaterial();
+    const texture = new Texture();
+    texture.name = String.raw`\\?\F:\toy.usdz[0/normal.png]`;
+    mat.map = texture;
+    mat.normalMap = texture;
+    const entry = collectAssetMetadata(
+      singleMeshScene(mat),
+      { ...fakeFile, extension: "usdz" },
+      [],
+      null,
+    ).metadata.materials[0];
+    expect(entry.baseColorTexture).toEqual({
+      name: "normal.png",
+      sourcePath: texture.name,
+    });
+    expect(entry.normalTexture).toEqual(entry.baseColorTexture);
+  });
   it("extracts baseColorFactor from MeshStandardMaterial", () => {
     const mat = new MeshStandardMaterial();
     mat.name = "Std";
@@ -149,7 +223,10 @@ describe("MaterialEntry shader slot extraction (#36)", () => {
       null,
     );
     const entry = result.metadata.materials[0];
-    expect(entry.baseColorTexture!.name).toBe("/textures/diffuse.png");
+    expect(entry.baseColorTexture).toEqual({
+      name: "diffuse.png",
+      sourcePath: "/textures/diffuse.png",
+    });
   });
 
   it("infers alphaMode BLEND for transparent material", () => {

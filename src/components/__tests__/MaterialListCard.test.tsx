@@ -77,6 +77,19 @@ function renderWithMaterials(materials: MaterialEntry[]) {
 }
 
 describe("MaterialListCard – shader slot details (#36)", () => {
+  it("exposes full texture and USD paths without putting locators in slot text", () => {
+    const sourcePath = "F:/toy.usdz[a/normal.png]";
+    const { getByTitle, getByText } = renderWithMaterials([
+      {
+        ...baseMat,
+        usdPrimPath: "/Looks/Paint",
+        normalTexture: { name: "normal.png", sourcePath },
+      },
+    ]);
+    expect(getByText("normal.png").textContent).toBe("normal.png");
+    expect(getByTitle(sourcePath)).toBeTruthy();
+    expect(getByTitle("/Looks/Paint")).toBeTruthy();
+  });
   it("renders material names", () => {
     const { container, getByText } = renderWithMaterials([baseMat]);
     expect(getByText("Gold")).toBeTruthy();
