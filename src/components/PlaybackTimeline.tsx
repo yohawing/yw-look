@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import {
   TimelineEditor,
   type TimelineDataSource,
@@ -16,37 +16,20 @@ type PlaybackTimelineProps = {
   clipName: string;
   currentTime: number;
   duration: number;
+  isPlaying: boolean;
+  looping: boolean;
+  loopRange: { start: number; end: number } | null;
+  playbackRate: number;
   onSeek: (time: number) => void;
+  onTogglePlayback: () => void;
+  onSetLooping: (looping: boolean) => void;
+  onSetLoopRange: (range: { start: number; end: number } | null) => void;
+  onSetPlaybackRate: (rate: number) => void;
+  clipSelector?: ReactNode;
 };
 
 function safeDuration(duration: number) {
   return Number.isFinite(duration) && duration > 0 ? duration : 0;
-}
-
-function frameCount(duration: number) {
-  return Math.ceil(safeDuration(duration) * PLAYBACK_FRAME_RATE);
-}
-
-function clampFrame(frame: number, totalFrames: number) {
-  if (!Number.isFinite(frame)) return 0;
-  return Math.min(Math.max(Math.round(frame), 0), totalFrames);
-}
-
-function frameToTime(frame: number, duration: number) {
-  const safeDurationValue = safeDuration(duration);
-  const totalFrames = frameCount(safeDurationValue);
-  const safeFrame = clampFrame(frame, totalFrames);
-  return safeDurationValue > 0
-    ? Math.min(safeFrame / PLAYBACK_FRAME_RATE, safeDurationValue)
-    : 0;
-}
-
-function playbackTimeToFrame(time: number, duration: number) {
-  const safeDurationValue = safeDuration(duration);
-  const totalFrames = frameCount(safeDurationValue);
-  if (!Number.isFinite(time)) return 0;
-  if (safeDurationValue > 0 && time >= safeDurationValue) return totalFrames;
-  return clampFrame(time * PLAYBACK_FRAME_RATE, totalFrames);
 }
 
 function clampTime(time: number, duration: number) {
@@ -54,11 +37,28 @@ function clampTime(time: number, duration: number) {
   return Math.min(Math.max(time, 0), duration);
 }
 
-/** Keep the package adapter stable while the host publishes frame samples. */
+function normalizeLoopRange(
+  range: { start: number; end: number } | null | undefined,
+  duration: number,
+) {
+  if (!range) return null;
+  const start = clampTime(range.start, duration);
+  const end = clampTime(range.end, duration);
+  return end > start ? { start, end } : null;
+}
+
 type PlaybackControllerState = {
   currentTime: number;
   duration: number;
+  isPlaying: boolean;
+  looping: boolean;
+  loopRange: { start: number; end: number } | null;
+  playbackRate: number;
   onSeek: (time: number) => void;
+  onTogglePlayback: () => void;
+  onSetLooping: (looping: boolean) => void;
+  onSetLoopRange: (range: { start: number; end: number } | null) => void;
+  onSetPlaybackRate: (rate: number) => void;
 };
 
 type PlaybackControllerAdapter = TimelinePlaybackController & {
@@ -78,8 +78,10 @@ function createPlaybackController(
         available: safeDurationValue > 0,
         time: clampTime(state.currentTime, safeDurationValue),
         duration: safeDurationValue,
-        playing: false,
-        looping: false,
+        playing: safeDurationValue > 0 && state.isPlaying,
+        looping: state.looping,
+        loopRange: normalizeLoopRange(state.loopRange, safeDurationValue),
+        rate: state.playbackRate,
         target: null,
       };
     },
@@ -88,31 +90,59 @@ function createPlaybackController(
       return () => listeners.delete(listener);
     },
     dispatch: (command: TimelinePlaybackCommand) => {
-      if (command.type !== "seek") return;
-      state.onSeek(clampTime(command.time, safeDuration(state.duration)));
+      switch (command.type) {
+        case "seek":
+          state.onSeek(clampTime(command.time, safeDuration(state.duration)));
+          break;
+        case "play":
+          if (!state.isPlaying) state.onTogglePlayback();
+          break;
+        case "pause":
+          if (state.isPlaying) state.onTogglePlayback();
+          break;
+        case "setLooping":
+          state.onSetLooping(command.looping);
+          break;
+        case "setLoopRange":
+          {
+            const onSetLoopRange = state.onSetLoopRange;
+            const nextRange = normalizeLoopRange(
+              command.range,
+              safeDuration(state.duration),
+            );
+            queueMicrotask(() => onSetLoopRange(nextRange));
+          }
+          break;
+        case "setRate":
+          state.onSetPlaybackRate(command.rate);
+          break;
+        default:
+          break;
+      }
     },
     update: (nextState) => {
       const changed =
         state.currentTime !== nextState.currentTime ||
-        state.duration !== nextState.duration;
+        state.duration !== nextState.duration ||
+        state.isPlaying !== nextState.isPlaying ||
+        state.looping !== nextState.looping ||
+        state.loopRange?.start !== nextState.loopRange?.start ||
+        state.loopRange?.end !== nextState.loopRange?.end ||
+        state.playbackRate !== nextState.playbackRate;
       state = nextState;
       if (changed) listeners.forEach((listener) => listener());
     },
   };
 }
 
-function usePlaybackController(
-  currentTime: number,
-  duration: number,
-  onSeek: (time: number) => void,
-) {
+function usePlaybackController(state: PlaybackControllerState) {
   const [playbackController] = useState<PlaybackControllerAdapter>(() =>
-    createPlaybackController({ currentTime, duration, onSeek }),
+    createPlaybackController(state),
   );
 
   useLayoutEffect(() => {
-    playbackController.update({ currentTime, duration, onSeek });
-  }, [currentTime, duration, onSeek, playbackController]);
+    playbackController.update(state);
+  }, [playbackController, state]);
 
   return playbackController;
 }
@@ -141,79 +171,43 @@ export function PlaybackTimeline({
   clipName,
   currentTime,
   duration,
+  isPlaying,
+  looping,
+  loopRange,
+  playbackRate,
   onSeek,
+  onTogglePlayback,
+  onSetLooping,
+  onSetLoopRange,
+  onSetPlaybackRate,
+  clipSelector,
 }: PlaybackTimelineProps) {
   const safeDurationValue = safeDuration(duration);
-  const totalFrames = frameCount(safeDurationValue);
-  const currentFrame = playbackTimeToFrame(currentTime, safeDurationValue);
-  const clipKey = `${activeClipIndex}:${clipName}`;
-  const hasDuration = safeDurationValue > 0;
   const dataSource = usePlaybackDataSource(safeDurationValue);
-  const playbackController = usePlaybackController(
+  const playbackController = usePlaybackController({
     currentTime,
-    safeDurationValue,
+    duration: safeDurationValue,
+    isPlaying,
+    looping,
+    loopRange,
+    playbackRate,
     onSeek,
-  );
-
-  const seekFrame = useCallback(
-    (frame: number) => {
-      if (!hasDuration) return;
-      onSeek(frameToTime(frame, safeDurationValue));
-    },
-    [hasDuration, onSeek, safeDurationValue],
-  );
-
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      let frame: number | undefined;
-      switch (event.key) {
-        case "ArrowLeft":
-          frame = currentFrame - 1;
-          break;
-        case "ArrowRight":
-          frame = currentFrame + 1;
-          break;
-        case "Home":
-          frame = 0;
-          break;
-        case "End":
-          frame = totalFrames;
-          break;
-        default:
-          return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      seekFrame(frame);
-    },
-    [currentFrame, seekFrame, totalFrames],
-  );
+    onTogglePlayback,
+    onSetLooping,
+    onSetLoopRange,
+    onSetPlaybackRate,
+  });
 
   return (
-    <div
-      aria-disabled={!hasDuration}
-      aria-label="Animation seek"
-      aria-valuemax={totalFrames}
-      aria-valuemin={0}
-      aria-valuenow={currentFrame}
-      aria-valuetext={`${currentFrame}f / ${totalFrames}f`}
-      className="playback-timeline"
-      data-frame-rate={PLAYBACK_FRAME_RATE}
-      data-total-frames={totalFrames}
-      onKeyDown={handleKeyDown}
-      role="slider"
-      tabIndex={hasDuration ? 0 : -1}
-    >
+    <div className="playback-timeline">
       <TimelineEditor
-        key={clipKey}
-        className="playback-timeline-editor"
+        key={`${activeClipIndex}:${clipName}`}
         dataSource={dataSource}
         displayMode="frames"
         frameRate={PLAYBACK_FRAME_RATE}
         playbackController={playbackController}
         showTitle={false}
-        variant="compact"
+        slots={{ toolbarStart: clipSelector }}
       />
     </div>
   );

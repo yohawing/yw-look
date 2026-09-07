@@ -1223,6 +1223,12 @@ export function AssetViewport({
     handleSelectClip,
     handleStep,
     handleTogglePlayback,
+    looping,
+    playbackRate,
+    handleSetLooping,
+    handleSetPlaybackRate,
+    loopRange,
+    handleSetLoopRange,
   } = useViewportAnimation({
     animationState,
     setAnimationState,
@@ -1253,6 +1259,12 @@ export function AssetViewport({
         onSelectClip={handleSelectClip}
         onStep={handleStep}
         onTogglePlayback={handleTogglePlayback}
+        looping={looping}
+        playbackRate={playbackRate}
+        onSetLooping={handleSetLooping}
+        onSetPlaybackRate={handleSetPlaybackRate}
+        loopRange={loopRange}
+        onSetLoopRange={handleSetLoopRange}
         showRendererStats={showRendererStats}
         statsRef={statsRef}
         viewerSurfaceMode={viewerSurfaceMode}

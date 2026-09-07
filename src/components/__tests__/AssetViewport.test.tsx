@@ -88,6 +88,12 @@ vi.mock("../../viewport/useViewportAnimation", () => ({
     handleSelectClip: vi.fn(),
     handleStep: vi.fn(),
     handleTogglePlayback: vi.fn(),
+    looping: true,
+    playbackRate: 1,
+    loopRange: null,
+    handleSetLoopRange: vi.fn(),
+    handleSetLooping: vi.fn(),
+    handleSetPlaybackRate: vi.fn(),
     hasAnimation: false,
   }),
 }));

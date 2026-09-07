@@ -4,7 +4,9 @@
 
 ### Viewer and playback
 
-- Added a compact, full-width viewport footer with animation scrubbing using `@yohawing/timeline-editor`, with the track area hidden. Removed the previous timeline implementation and its scroll synchronization loop.
+- Added a compact, full-width viewport timeline using `@yohawing/timeline-editor`, with clip selection on the left, centered transport controls, and time/speed controls on the right. Controls use the application design system and the track column is hidden.
+- Connected playback speed, looping, and draggable loop ranges to native animation playback. Space toggles playback, Left/Right pause and step one frame, and PageUp/PageDown navigate files. Form controls retain their own keyboard behavior.
+- Removed the previous timeline implementation and its scroll synchronization loop.
 - Added asset-list filtering and preserved the selected texture channel while switching textures.
 - Refreshed glTF texture metadata after deferred loading and preserved instanced meshes across worker transfer.
 
