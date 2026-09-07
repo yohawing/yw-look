@@ -15,8 +15,6 @@ Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動
 **Images:** PNG, JPG, TGA, DDS, HDR, EXR, KTX2  
 **Optional Loader Packs:** VRM / VRMA, MMD (PMD / PMX / VMD), Gaussian Splat (PLY / SPLAT / SPZ / KSPLAT / SOG) — Settings からインストール
 
-USDのアニメーション、MaterialX、Gaussian Splatの対応範囲は [USDプレビュー対応](docs/usd.md) を参照してください。
-
 ## 何をするツールか
 
 yw-look は「何でもできるビューア」ではなく、**開く前後の確認作業を短くする道具** である。気軽に開けて、CG制作の現場が必要とするメタ情報やテクスチャ状態をすぐ把握できる。

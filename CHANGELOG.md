@@ -20,7 +20,7 @@
 
 ### Known limitations
 
-- USD preview remains bounded GLB extraction, not a general stage time evaluator. Xform, UsdSkel, and MaterialX restrictions are documented in `docs/usd.md`.
+- USD preview remains bounded GLB extraction, not a general stage time evaluator. Xform animation has sampling and TRS restrictions; UsdSkel weights require direct time samples, and MaterialX support is limited to known Preview Surface aliases with direct PNG/JPEG textures.
 - The upstream USDC integer-compressed float-array decoding limitation remains; some integral joint-weight arrays can produce broken skinning.
 - USD-authored Gaussian splats and Points are unsupported. Standalone Gaussian Splat Loader Pack support does not extend to USD-authored splats.
 - Windows production Authenticode signing, clean-environment SmartScreen behavior, and the interactive Optional Loader Pack installer page remain unverified.
