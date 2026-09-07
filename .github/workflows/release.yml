@@ -50,6 +50,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Require current README screenshot
+        run: npm run check:readme-screenshot
+
       - name: Verify NSIS loader pack hooks (Windows)
         if: runner.os == 'Windows'
         run: npm run check:nsis-loader-packs

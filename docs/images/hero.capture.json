@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "surface": "tauri-production-ui",
+  "version": "0.3.3",
+  "capturedAt": "2026-09-07T07:51:28.330Z",
+  "sourceSha256": "6f3152837981cd0a3ed8e21b5ea9ce8079bee814113e905b8652a5042f54b6db",
+  "configSha256": "8470e24975cc8e47cf0107dc72c78eb9a07249c95979fd1e08729b7dbfa4c118",
+  "modelSha256": "bd7133b4b322aae97c589b8839dae8155ad2546acb35ae32a127e722a959d007",
+  "imageSha256": "7f4ab034734d579034778b4418bbdcf920144485c9d0026f7668233eccbe4b59",
+  "viewportSha256": "ce85040e83ce3536c94f8d21e9a0aeae2dea58741c083fac24cc3ed69c424a2a",
+  "loadedModel": "ABeautifulGame.glb",
+  "errors": []
+}

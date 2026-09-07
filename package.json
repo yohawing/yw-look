@@ -74,6 +74,8 @@
     "release:notes": "node scripts/extract-release-notes.mjs",
     "release:notes:check": "node scripts/extract-release-notes.mjs --check-contract",
     "release:preflight": "node scripts/run-release-preflight.mjs",
+    "readme:screenshot": "node scripts/readme-screenshot.mjs",
+    "check:readme-screenshot": "node --test scripts/readme-screenshot.test.mjs && node scripts/readme-screenshot.mjs --check",
     "update:local:prepare": "node scripts/prepare-local-update-feed.mjs",
     "check:update-feed": "node scripts/check-local-update-feed.mjs",
     "check:release-updater": "node scripts/check-release-updater-manifest.mjs",
