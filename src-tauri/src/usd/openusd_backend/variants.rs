@@ -370,7 +370,7 @@ def Xform "Root"
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("tests")
-            .join("visual")
+            .join("usd-stateful")
             .join("fixtures")
             .join("variant_override.usda")
     }
