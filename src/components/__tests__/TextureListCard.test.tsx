@@ -37,6 +37,27 @@ function renderTextureListCard(
 }
 
 describe("TextureListCard", () => {
+  it.each([
+    "C:/textures/diffuse.png",
+    "C:/" + "very long folder/".repeat(15) + "diffuse.png",
+    "C:/素材/日本語 と 空白/diffuse.png",
+    undefined,
+  ])(
+    "keeps the full path available in the common detail rows: %s",
+    (sourcePath) => {
+      const { container, queryByText, getByTitle } = renderTextureListCard(
+        [{ ...baseTexture, sourcePath }],
+        baseTexture.id,
+      );
+      expect(getByTitle(baseTexture.label).closest(".yl-kv-row")).toBeTruthy();
+      expect(
+        container.querySelector(".texture-selected-panel > .selected-kv"),
+      ).toBeTruthy();
+      if (sourcePath)
+        expect(getByTitle(sourcePath).closest(".yl-kv-row")).toBeTruthy();
+      else expect(queryByText("Path")).toBeNull();
+    },
+  );
   it("shows an embedded texture container separately from its internal path", () => {
     const { getByText, getByTitle } = renderTextureListCard(
       [
@@ -54,6 +75,7 @@ describe("TextureListCard", () => {
     expect(getByText("Internal Path")).toBeTruthy();
     expect(getByTitle("F:/toy.usdz")).toBeTruthy();
     expect(getByTitle("a/diffuse.bmp")).toBeTruthy();
+    expect(getByTitle("a/diffuse.bmp").closest(".yl-kv-row")).toBeTruthy();
     expect(getByText("embedded")).toBeTruthy();
   });
   it("flips thumbnails when the texture metadata requests previewFlipY", () => {
@@ -128,7 +150,7 @@ describe("TextureListCard", () => {
         .querySelector(".texture-resize-handle")
         ?.getAttribute("aria-label"),
     ).toBe("Resize texture details");
-    expect(getByText("Selected texture")).toBeTruthy();
+    expect(container.querySelector(".texture-selected-title")).toBeNull();
     expect(getAllByText("diffuse.bmp").length).toBeGreaterThan(1);
     expect(getByText("Path")).toBeTruthy();
     expect(getByText("C:/assets/textures/diffuse.bmp")).toBeTruthy();

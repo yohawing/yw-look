@@ -79,7 +79,7 @@ textarea {
 }
 
 .sidebar.is-open {
-  width: var(--sidebar-width, 350px);
+  width: min(var(--sidebar-width, 350px), 100vw);
   opacity: 1;
   border-left-color: var(--yl-border-subtle);
 }

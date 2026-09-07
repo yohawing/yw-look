@@ -237,11 +237,6 @@
   color: var(--yl-text-tertiary);
 }
 
-.selected-kv {
-  padding: 0;
-}
-
-.selected-kv .yl-kv-row,
 .selected-mmd-section .yl-kv-row {
   padding-inline: 0;
 }

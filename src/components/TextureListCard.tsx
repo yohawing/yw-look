@@ -37,7 +37,12 @@ function textureRowMetadata(texture: TextureEntry): string {
 function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
   const extension = textureExtension(texture.label);
   const rows: KeyValueRow[] = [
-    { id: "name", label: "Name", value: texture.label, mono: true },
+    {
+      id: "name",
+      label: "Name",
+      value: <span title={texture.label}>{texture.label}</span>,
+      mono: true,
+    },
     extension && { id: "type", label: "Type", value: extension, mono: true },
     { id: "channel", label: "Channel", value: texture.channel, mono: true },
     { id: "dimensions", label: "Size", value: texture.dimensions, mono: true },
@@ -54,33 +59,42 @@ function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
       value: "Flip Y",
       mono: true,
     },
+    ...(texture.containerPath && texture.internalPath
+      ? [
+          {
+            id: "container",
+            label: "Container",
+            value: (
+              <span title={texture.containerPath}>{texture.containerPath}</span>
+            ),
+            mono: true,
+          },
+          {
+            id: "internal-path",
+            label: "Internal Path",
+            value: (
+              <span title={texture.internalPath}>{texture.internalPath}</span>
+            ),
+            mono: true,
+          },
+        ]
+      : texture.sourcePath
+        ? [
+            {
+              id: "path",
+              label: "Path",
+              value: (
+                <span title={texture.sourcePath}>{texture.sourcePath}</span>
+              ),
+              mono: true,
+            },
+          ]
+        : []),
   ].filter(Boolean) as KeyValueRow[];
 
   return (
     <section className="texture-selected-panel" aria-label="Selected texture">
-      <p className="texture-selected-title">Selected texture</p>
-      <KeyValueRows
-        className="texture-detail-grid"
-        density="regular"
-        rows={rows}
-      />
-      {texture.containerPath && texture.internalPath ? (
-        <>
-          <div className="texture-selected-path">
-            <span className="texture-selected-path-label">Container</span>
-            <code title={texture.containerPath}>{texture.containerPath}</code>
-          </div>
-          <div className="texture-selected-path">
-            <span className="texture-selected-path-label">Internal Path</span>
-            <code title={texture.internalPath}>{texture.internalPath}</code>
-          </div>
-        </>
-      ) : texture.sourcePath ? (
-        <div className="texture-selected-path">
-          <span className="texture-selected-path-label">Path</span>
-          <code title={texture.sourcePath}>{texture.sourcePath}</code>
-        </div>
-      ) : null}
+      <KeyValueRows className="selected-kv" density="regular" rows={rows} />
     </section>
   );
 }
