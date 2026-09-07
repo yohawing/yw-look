@@ -44,7 +44,6 @@ vi.mock("../../lib/usd", () => ({
 const capabilities: BackendCapabilities = {
   inspect: true,
   geometry: true,
-  source: true,
   session: true,
   light: true,
 };

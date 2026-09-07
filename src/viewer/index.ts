@@ -70,7 +70,6 @@ export type {
 export {
   loadPreviewObject,
   loadMmdMotion,
-  tryExtractUsdaText,
   loaderRegistry,
   getPreviewSupportState,
   listRegisteredLoaders,

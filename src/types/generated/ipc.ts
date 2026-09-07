@@ -155,7 +155,6 @@ export type AssetInspection = {
 export type BackendCapabilities = {
   inspect: boolean;
   geometry: boolean;
-  source: boolean;
   session: boolean;
   light: boolean;
 };

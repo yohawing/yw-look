@@ -36,7 +36,6 @@ pub mod types;
 
 pub use backend::{
     UsdError, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend, UsdSessionBackend,
-    UsdSourceBackend,
 };
 pub use openusd_backend::OpenusdBackend;
 pub use stage_state::{OpenSession, OpenStage, StageRegistry, StageSessionHandle};

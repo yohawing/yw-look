@@ -17,7 +17,6 @@ import type {
   AttributeTimeSamples,
   ExtractGeometryOptions,
   StageSessionHandle,
-  UsdSourcePayload,
 } from "../types/ipc";
 
 export type {
@@ -47,7 +46,6 @@ export type {
   UsdLightInfo,
   TimeSampleEntry,
   AttributeTimeSamples,
-  UsdSourcePayload,
   StageSessionHandle,
 } from "../types/ipc";
 
@@ -375,40 +373,8 @@ export async function requiresGlbPreview(path: string) {
   return invokeUsd<boolean>("requires_glb_preview", { path });
 }
 
-export async function loadUsdSource(
-  path: string,
-  extension: string,
-): Promise<UsdSourcePayload> {
-  // Short-circuit on extensions that are guaranteed binary so we
-  // never round-trip a multi-MB `.usdc` (or other future binary
-  // formats) through the JS number-array IPC just to discard it.
-  // Other extensions still need a content sniff: `.usd` may be
-  // either USDA or USDC, and `.usdz` is a zip whose first layer
-  // could be either.
-  if (extension === "usdc") {
-    return { kind: "binary" };
-  }
-  const { tryExtractUsdaText } = await import("../viewer");
-  const buffer = await readBinaryFile(path);
-  const text = await tryExtractUsdaText(extension, buffer);
-  return text === null ? { kind: "binary" } : { kind: "text", source: text };
-}
-
 export async function backendCapabilities(): Promise<BackendCapabilities> {
   return invokeUsd<BackendCapabilities>("backend_capabilities");
-}
-
-/**
- * #39 — returns the fully flattened USDA text for the stage at `path`,
- * equivalent to `usdcat --flatten`. Every reference, payload, and sublayer
- * is composed and inlined into the returned string.
- *
- * The current Rust backend does not implement source flattening, so the
- * promise rejects with a descriptive error. Callers should keep the "Binary
- * stage" placeholder in that case.
- */
-export async function flattenStage(path: string): Promise<string> {
-  return invokeUsd<string>("flatten_stage", { path });
 }
 
 /**

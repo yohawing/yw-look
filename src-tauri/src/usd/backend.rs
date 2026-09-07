@@ -214,22 +214,6 @@ pub trait UsdGeometryBackend: Send + Sync {
     }
 }
 
-/// Source layer export / flattening capability.
-pub trait UsdSourceBackend: Send + Sync {
-    /// #39 — returns the fully flattened USDA text of the stage,
-    /// equivalent to `usdcat --flatten`. Every reference, payload, and
-    /// sublayer is composed and inlined into the returned string.
-    ///
-    /// The Rust backend returns a degraded error because the `openusd` crate
-    /// does not yet expose an `ExportToString`-equivalent API.
-    ///
-    /// Frontend callers should only invoke this for binary stages (USDC /
-    /// USDZ-USDC) where the existing root-layer text path returns
-    /// `{ kind: "binary" }` — for USDA stages the raw layer text already
-    /// provides the source view without the overhead of full composition.
-    fn flatten_stage(&self, path: &Path) -> Result<String, UsdError>;
-}
-
 /// USD light detail inspection capability.
 pub trait UsdLightBackend: Send + Sync {
     /// #35 — enumerates all UsdLux light prims in the stage and returns

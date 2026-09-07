@@ -71,11 +71,6 @@ const UpdateCard = lazy(() =>
     default: module.UpdateCard,
   })),
 );
-const UsdSourceCard = lazy(() =>
-  import("../components/UsdSourceCard").then((module) => ({
-    default: module.UsdSourceCard,
-  })),
-);
 
 function SidebarCardFallback() {
   return (
@@ -266,9 +261,6 @@ export function useSidebarModel({
                     inspection={usdInspection}
                     loading={usdInspectorLoading}
                   />
-                </Suspense>
-                <Suspense fallback={<SidebarCardFallback />}>
-                  <UsdSourceCard />
                 </Suspense>
               </>
             )}

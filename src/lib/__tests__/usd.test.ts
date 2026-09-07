@@ -37,7 +37,6 @@ describe("backendCapabilities", () => {
     const capabilities: BackendCapabilities = {
       inspect: true,
       geometry: true,
-      source: false,
       session: true,
       light: false,
     };

@@ -170,7 +170,7 @@ export function shouldFailClosedOnUsdPreviewDecisionFailure(
   );
 }
 
-export async function tryExtractUsdaText(
+async function tryExtractUsdaText(
   extension: string,
   buffer: ArrayBuffer,
 ): Promise<string | null> {

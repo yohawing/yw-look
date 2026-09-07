@@ -279,16 +279,6 @@ pub(crate) async fn extract_geometry(
 }
 
 #[tauri::command]
-pub(crate) async fn flatten_stage(
-    backend: tauri::State<'_, UsdBackendState>,
-    path: String,
-) -> Result<String, AppError> {
-    let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.source()?;
-    run_blocking_usd(move || handle.flatten_stage(&normalized)).await
-}
-
-#[tauri::command]
 pub(crate) async fn open_stage_session(
     backend: tauri::State<'_, UsdBackendState>,
     registry: tauri::State<'_, StageRegistry>,
