@@ -52,11 +52,11 @@ use std::collections::HashSet;
 use std::io::Read;
 
 use openusd::ar::{DefaultResolver, ResolvedPath, Resolver as AssetResolver};
-use openusd::schemas::geom::PointInstancer;
 use openusd::sdf::schema::{ChildrenKey, FieldKey};
 use openusd::sdf::{self, Value};
 use openusd::usd::{InitialLoadSet, InterpolationType, PrimPredicate, ResolveInfoSource};
 use openusd::usd::{Stage, StageBuilder};
+use openusd_schemas::geom::PointInstancer;
 
 use crate::usd::ir::{MaterialData, MeshData, SkelAnimationData, SkeletonData};
 use crate::usd::material::{is_preview_surface_shader_id, is_texture_shader_id};
@@ -151,8 +151,8 @@ pub(crate) fn unresolved_assets(stage: &Stage) -> Vec<String> {
         .composition_errors()
         .into_iter()
         .filter_map(|err| match err {
-            openusd::pcp::CompositionError::UnresolvedLayer { asset_path, .. }
-            | openusd::pcp::CompositionError::UnresolvedSublayer { asset_path, .. } => {
+            openusd::pcp::CompositionDiagnostic::UnresolvedLayer { asset_path, .. }
+            | openusd::pcp::CompositionDiagnostic::UnresolvedSublayer { asset_path, .. } => {
                 Some(asset_path)
             }
             _ => None,

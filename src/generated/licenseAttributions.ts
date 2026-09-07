@@ -144,7 +144,13 @@ export const nativeRuntimeLicenseAttributions = [
   },
   {
     name: "openusd",
-    version: "0.6.0",
+    version: "0.7.0",
+    license: "MIT",
+    source: "native",
+  },
+  {
+    name: "openusd-schemas",
+    version: "0.7.0",
     license: "MIT",
     source: "native",
   },

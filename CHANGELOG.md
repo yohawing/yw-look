@@ -10,6 +10,7 @@
 
 ### USD preview
 
+- Updated the pinned OpenUSD dependency to 0.7.0 (`aaae6d5`), using the separate geometry schema crate and the renamed composition diagnostic API.
 - Added isolated variant overrides, consistent preview refreshes, and persistent payload outliner rows after unloading.
 - Added inspection of composed prim properties and metadata.
 - Added bounded time-sampled Xform animation preview with linear and held interpolation.

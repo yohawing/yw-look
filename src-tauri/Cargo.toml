@@ -42,7 +42,8 @@ flip-compare = ["dep:nv-flip", "dep:image"]
 [dependencies]
 # Pin the pure-Rust OpenUSD compatibility layer used by yw-look so local,
 # CI, and release builds resolve the same source without a sibling checkout.
-openusd = { git = "https://github.com/mxpv/openusd.git", rev = "ca52e1ca1326a9e34239f83fd2cdfe5488c5d516", features = ["geom"] }
+openusd = { git = "https://github.com/mxpv/openusd.git", rev = "aaae6d5f214b354fdde3724ef33c306ad68b0055" }
+openusd-schemas = { git = "https://github.com/mxpv/openusd.git", rev = "aaae6d5f214b354fdde3724ef33c306ad68b0055", features = ["geom"] }
 # Error aggregation for the yw-look-owned stage-query adapter. OpenUSD exposes
 # typed errors; this keeps the local multi-query helpers concise without
 # changing the upstream error contract.
