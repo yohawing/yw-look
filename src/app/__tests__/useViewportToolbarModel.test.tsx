@@ -45,6 +45,58 @@ afterEach(() => {
 });
 
 describe("useViewportToolbarModel", () => {
+  it("connects Lighting controls to persistent viewer settings and reflects None", () => {
+    useViewerStore.setState({
+      environmentPreset: "studio",
+      environmentRotation: 0,
+      showEnvironmentBackground: false,
+      showShadows: false,
+    });
+    const { result } = renderHook(() => useViewportToolbarModel());
+    const action = (id: string) =>
+      findAction(result.current.viewportToolbarItems, id);
+    act(() => action("environment-outdoor").onRun?.());
+    act(() => {
+      const rotation = action("environment-rotation");
+      if (rotation.kind !== "slider")
+        throw new Error("Expected rotation slider");
+      rotation.onValueChange(90);
+      action("environment-background").onRun?.();
+      action("lighting-shadows").onRun?.();
+    });
+    expect(useViewerStore.getState()).toMatchObject({
+      environmentPreset: "outdoor",
+      environmentRotation: Math.PI / 2,
+      showEnvironmentBackground: true,
+      showShadows: true,
+    });
+    expect(action("environment-rotation")).toMatchObject({
+      value: 90,
+      disabled: false,
+    });
+    act(() => action("environment-none").onRun?.());
+    expect(action("environment-none").active).toBe(true);
+    expect(action("environment-background")).toMatchObject({
+      active: false,
+      disabled: true,
+    });
+    expect(action("environment-rotation").disabled).toBe(true);
+    expect(useViewerStore.getState().showEnvironmentBackground).toBe(true);
+    act(() => action("environment-studio").onRun?.());
+    expect(action("environment-background")).toMatchObject({
+      active: true,
+      disabled: false,
+    });
+    expect(action("environment-rotation")).toMatchObject({ value: 90 });
+    act(() => {
+      const rotation = action("environment-rotation");
+      if (rotation.kind === "slider") rotation.onValueChange(360);
+    });
+    expect(action("environment-rotation")).toMatchObject({
+      value: 360,
+      valueLabel: "360°",
+    });
+  });
   it("updates the vertex color status when files change while the mode stays active", () => {
     const metadata = collectAssetMetadata(
       new Group(),

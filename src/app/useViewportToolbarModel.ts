@@ -19,6 +19,7 @@ const environmentPresets: Array<{
   id: EnvironmentPreset;
   label: string;
 }> = [
+  { id: "none", label: "None" },
   { id: "studio", label: "Studio" },
   { id: "neutral", label: "Neutral" },
   { id: "outdoor", label: "Outdoor" },
@@ -53,6 +54,9 @@ export function useViewportToolbarModel() {
   const showVertexColors = useViewerStore((state) => state.showVertexColors);
   const showWireframe = useViewerStore((state) => state.showWireframe);
   const environmentPreset = useViewerStore((state) => state.environmentPreset);
+  const environmentRotation = useViewerStore(
+    (state) => state.environmentRotation,
+  );
   const showShadows = useViewerStore((state) => state.showShadows);
   const showEnvironmentBackground = useViewerStore(
     (state) => state.showEnvironmentBackground,
@@ -155,10 +159,13 @@ export function useViewportToolbarModel() {
       // Wireframe
       showWireframe: showWireframe,
       onToggleWireframe: () => useViewerStore.getState().toggleShowWireframe(),
-      // Look
+      // Lighting
       environmentPreset: environmentPreset,
       environmentPresetOptions: environmentPresets,
       onSelectEnvironmentPreset: handleSelectEnvironmentPreset,
+      environmentRotation,
+      onChangeEnvironmentRotation: (rotation) =>
+        useViewerStore.getState().setEnvironmentRotation(rotation),
       showShadows: showShadows,
       onToggleShadows: () => useViewerStore.getState().toggleShowShadows(),
       showEnvironmentBackground: showEnvironmentBackground,
@@ -184,6 +191,7 @@ export function useViewportToolbarModel() {
     handleSelectEnvironmentPreset,
     activeCameraPreset,
     environmentPreset,
+    environmentRotation,
     showBoundingBoxes,
     showEnvironmentBackground,
     showJointNames,

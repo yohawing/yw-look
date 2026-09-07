@@ -196,12 +196,9 @@ export function useViewportSceneLifecycle({
     environmentTargetRef.current = createEnvironmentTarget(
       pmremGenerator,
       initialEnvironmentPreset,
+      environmentTargetsRef.current,
     );
     if (environmentTargetRef.current) {
-      environmentTargetsRef.current.set(
-        initialEnvironmentPreset,
-        environmentTargetRef.current,
-      );
       scene.environment = environmentTargetRef.current.texture;
     }
     activeEnvironmentPresetRef.current = initialEnvironmentPreset;

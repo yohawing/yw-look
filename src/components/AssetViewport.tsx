@@ -576,24 +576,17 @@ export function AssetViewport({
       return;
     }
 
-    let nextTarget = environmentTargetsRef.current?.get(environmentPreset);
-
-    if (!nextTarget) {
-      nextTarget = createEnvironmentTarget(
-        context.pmremGenerator,
-        environmentPreset,
-      );
-      if (!nextTarget) {
-        return;
-      }
-      if (environmentTargetsRef.current) {
-        environmentTargetsRef.current.set(environmentPreset, nextTarget);
-      }
-    }
+    const targets = environmentTargetsRef.current;
+    if (!targets) return;
+    const nextTarget = createEnvironmentTarget(
+      context.pmremGenerator,
+      environmentPreset,
+      targets,
+    );
 
     environmentTargetRef.current = nextTarget;
     activeEnvironmentPresetRef.current = environmentPreset;
-    context.scene.environment = nextTarget.texture;
+    context.scene.environment = nextTarget?.texture ?? null;
 
     // If the environment is currently used as the background too, swap the
     // background texture in the same frame to avoid a flicker where
@@ -603,7 +596,7 @@ export function AssetViewport({
         context.renderer,
         context.scene,
         backgroundPresetRef.current,
-        nextTarget.texture,
+        nextTarget?.texture ?? null,
       );
     }
   }, [environmentPreset]);

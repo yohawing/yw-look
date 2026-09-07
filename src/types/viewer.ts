@@ -668,7 +668,7 @@ export type AssetMetadata = {
 
 export type BackgroundPreset = "gray" | "charcoal" | "light";
 
-export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
+export type EnvironmentPreset = "none" | "studio" | "neutral" | "outdoor";
 
 export type ToneMappingMode = "linear" | "aces" | "reinhard";
 
@@ -710,6 +710,8 @@ export type Build3DToolbarOptions = {
   environmentPreset: string;
   environmentPresetOptions: Array<{ id: string; label: string }>;
   onSelectEnvironmentPreset?: (preset: string) => void;
+  environmentRotation?: number;
+  onChangeEnvironmentRotation?: (radians: number) => void;
   showShadows?: boolean;
   onToggleShadows?: () => void;
   showEnvironmentBackground?: boolean;
