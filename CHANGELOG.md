@@ -4,7 +4,7 @@
 
 ### Viewer and playback
 
-- Added a read-only timeline with scrubbing for preview animations.
+- Added a compact, full-width viewport footer with animation scrubbing using `@yohawing/timeline-editor`, with the track area hidden. Removed the previous timeline implementation and its scroll synchronization loop.
 - Added asset-list filtering and preserved the selected texture channel while switching textures.
 - Refreshed glTF texture metadata after deferred loading and preserved instanced meshes across worker transfer.
 

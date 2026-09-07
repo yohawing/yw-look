@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Timeline, type TimelineState } from "@xzdarcy/react-timeline-editor";
+import { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import {
+  TimelineEditor,
+  type TimelineDataSource,
+  type TimelinePlaybackCommand,
+  type TimelinePlaybackController,
+  type TimelinePlaybackSnapshot,
+} from "@yohawing/timeline-editor";
+import "@yohawing/timeline-editor/styles.css";
 import "../styles/playback-timeline.css";
 
 const PLAYBACK_FRAME_RATE = 30;
-
-const SCALE_WIDTH = 120;
-const SCALE_FRAMES = PLAYBACK_FRAME_RATE;
-const SCALE_SPLIT_COUNT = 10;
-const START_LEFT = 28;
-const TIMELINE_ROW_HEIGHT = 26;
 
 type PlaybackTimelineProps = {
   activeClipIndex: number;
@@ -48,6 +49,93 @@ function playbackTimeToFrame(time: number, duration: number) {
   return clampFrame(time * PLAYBACK_FRAME_RATE, totalFrames);
 }
 
+function clampTime(time: number, duration: number) {
+  if (!Number.isFinite(time)) return 0;
+  return Math.min(Math.max(time, 0), duration);
+}
+
+/** Keep the package adapter stable while the host publishes frame samples. */
+type PlaybackControllerState = {
+  currentTime: number;
+  duration: number;
+  onSeek: (time: number) => void;
+};
+
+type PlaybackControllerAdapter = TimelinePlaybackController & {
+  update: (state: PlaybackControllerState) => void;
+};
+
+function createPlaybackController(
+  initialState: PlaybackControllerState,
+): PlaybackControllerAdapter {
+  let state = initialState;
+  const listeners = new Set<() => void>();
+
+  return {
+    getSnapshot: (): TimelinePlaybackSnapshot => {
+      const safeDurationValue = safeDuration(state.duration);
+      return {
+        available: safeDurationValue > 0,
+        time: clampTime(state.currentTime, safeDurationValue),
+        duration: safeDurationValue,
+        playing: false,
+        looping: false,
+        target: null,
+      };
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    dispatch: (command: TimelinePlaybackCommand) => {
+      if (command.type !== "seek") return;
+      state.onSeek(clampTime(command.time, safeDuration(state.duration)));
+    },
+    update: (nextState) => {
+      const changed =
+        state.currentTime !== nextState.currentTime ||
+        state.duration !== nextState.duration;
+      state = nextState;
+      if (changed) listeners.forEach((listener) => listener());
+    },
+  };
+}
+
+function usePlaybackController(
+  currentTime: number,
+  duration: number,
+  onSeek: (time: number) => void,
+) {
+  const [playbackController] = useState<PlaybackControllerAdapter>(() =>
+    createPlaybackController({ currentTime, duration, onSeek }),
+  );
+
+  useLayoutEffect(() => {
+    playbackController.update({ currentTime, duration, onSeek });
+  }, [currentTime, duration, onSeek, playbackController]);
+
+  return playbackController;
+}
+
+function usePlaybackDataSource(duration: number) {
+  const safeDurationValue = safeDuration(duration);
+  return useMemo<TimelineDataSource>(
+    () => ({
+      subscribe: () => () => undefined,
+      getRevision: () => 1,
+      getDomain: () => ({ kind: "seconds" }),
+      getRange: () => ({ start: 0, end: safeDurationValue }),
+      getGroups: () => [],
+      getBindings: () => [],
+      getRowCount: () => 0,
+      getRows: () => [],
+      getItems: () => [],
+      getKeys: () => [],
+    }),
+    [safeDurationValue],
+  );
+}
+
 export function PlaybackTimeline({
   activeClipIndex,
   clipName,
@@ -55,12 +143,17 @@ export function PlaybackTimeline({
   duration,
   onSeek,
 }: PlaybackTimelineProps) {
-  const timelineRef = useRef<TimelineState>(null);
   const safeDurationValue = safeDuration(duration);
   const totalFrames = frameCount(safeDurationValue);
   const currentFrame = playbackTimeToFrame(currentTime, safeDurationValue);
   const clipKey = `${activeClipIndex}:${clipName}`;
   const hasDuration = safeDurationValue > 0;
+  const dataSource = usePlaybackDataSource(safeDurationValue);
+  const playbackController = usePlaybackController(
+    currentTime,
+    safeDurationValue,
+    onSeek,
+  );
 
   const seekFrame = useCallback(
     (frame: number) => {
@@ -68,15 +161,6 @@ export function PlaybackTimeline({
       onSeek(frameToTime(frame, safeDurationValue));
     },
     [hasDuration, onSeek, safeDurationValue],
-  );
-
-  const handleCursorDragEnd = useCallback(
-    (frame: number) => {
-      const roundedFrame = clampFrame(frame, totalFrames);
-      timelineRef.current?.setTime(roundedFrame);
-      seekFrame(roundedFrame);
-    },
-    [seekFrame, totalFrames],
   );
 
   const handleKeyDown = useCallback(
@@ -93,7 +177,7 @@ export function PlaybackTimeline({
           frame = 0;
           break;
         case "End":
-          seekFrame(totalFrames);
+          frame = totalFrames;
           break;
         default:
           return;
@@ -101,62 +185,10 @@ export function PlaybackTimeline({
 
       event.preventDefault();
       event.stopPropagation();
-      if (typeof frame !== "undefined") seekFrame(frame);
+      seekFrame(frame);
     },
     [currentFrame, seekFrame, totalFrames],
   );
-
-  const editorData = useMemo(
-    () => [
-      {
-        id: "playback-row",
-        rowHeight: TIMELINE_ROW_HEIGHT,
-        actions: [
-          {
-            id: "playback-action",
-            start: 0,
-            end: totalFrames,
-            effectId: "playback",
-            maxEnd: totalFrames,
-            movable: false,
-            flexible: false,
-          },
-        ],
-      },
-    ],
-    [totalFrames],
-  );
-
-  useEffect(() => {
-    const timeline = timelineRef.current;
-    timeline?.setTime(currentFrame);
-    if (!timeline || !hasDuration) return;
-    if (currentFrame === 0) {
-      timeline.setScrollLeft(0);
-      return;
-    }
-
-    const root = timeline.target;
-    const editGrid = root?.querySelector(
-      ".timeline-editor-edit-area .ReactVirtualized__Grid",
-    ) as HTMLElement | null;
-    if (!editGrid || editGrid.clientWidth <= 0) return;
-
-    const cursorPosition =
-      START_LEFT + (currentFrame / SCALE_FRAMES) * SCALE_WIDTH;
-    const viewportStart = editGrid.scrollLeft;
-    const viewportEnd = viewportStart + editGrid.clientWidth;
-    const followMargin = 20;
-    if (cursorPosition < viewportStart + followMargin) {
-      timeline.setScrollLeft(Math.max(0, cursorPosition - followMargin));
-    } else if (cursorPosition > viewportEnd - followMargin) {
-      timeline.setScrollLeft(
-        Math.max(0, cursorPosition - editGrid.clientWidth + followMargin),
-      );
-    }
-  }, [clipKey, currentFrame, hasDuration, totalFrames]);
-
-  const maxScaleCount = Math.max(1, Math.ceil(totalFrames / SCALE_FRAMES) + 2);
 
   return (
     <div
@@ -173,36 +205,15 @@ export function PlaybackTimeline({
       role="slider"
       tabIndex={hasDuration ? 0 : -1}
     >
-      <Timeline
+      <TimelineEditor
         key={clipKey}
-        autoReRender={false}
-        autoScroll={false}
-        disableDrag
-        editorData={editorData}
-        effects={{}}
-        enableRowDrag={false}
-        getActionRender={() => (
-          <span className="playback-timeline-action-label">{clipName}</span>
-        )}
-        getScaleRender={(frame) => `${Math.round(frame)}f`}
-        maxScaleCount={maxScaleCount}
-        minScaleCount={1}
-        onChange={() => false}
-        onClickActionOnly={(_event, { time }) => {
-          seekFrame(time);
-        }}
-        onClickTimeArea={(time) => {
-          seekFrame(time);
-          return false;
-        }}
-        onCursorDrag={seekFrame}
-        onCursorDragEnd={handleCursorDragEnd}
-        rowHeight={TIMELINE_ROW_HEIGHT}
-        scale={SCALE_FRAMES}
-        scaleSplitCount={SCALE_SPLIT_COUNT}
-        scaleWidth={SCALE_WIDTH}
-        startLeft={START_LEFT}
-        ref={timelineRef}
+        className="playback-timeline-editor"
+        dataSource={dataSource}
+        displayMode="frames"
+        frameRate={PLAYBACK_FRAME_RATE}
+        playbackController={playbackController}
+        showTitle={false}
+        variant="compact"
       />
     </div>
   );

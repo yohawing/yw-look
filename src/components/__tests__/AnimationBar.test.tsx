@@ -31,7 +31,9 @@ describe("AnimationBar", () => {
 
     expect(getByText("30f")).toBeTruthy();
     expect(getByText("60f")).toBeTruthy();
-    expect(getByText("30 fps")).toBeTruthy();
+    expect(
+      document.querySelector(".animation-frame-rate")?.textContent,
+    ).toContain("30 fps");
     const timeline = getByRole("slider", { name: "Animation seek" });
     expect(timeline.getAttribute("aria-valuemax")).toBe("60");
     expect(timeline.getAttribute("aria-valuenow")).toBe("30");
@@ -39,7 +41,7 @@ describe("AnimationBar", () => {
   });
 
   it("toggles from frames to clock time when the readout is clicked", () => {
-    const { getByRole, getByText, queryByText } = renderAnimationBar();
+    const { getByRole, getByText } = renderAnimationBar();
 
     fireEvent.click(
       getByRole("button", {
@@ -49,6 +51,8 @@ describe("AnimationBar", () => {
 
     expect(getByText("0:01.00")).toBeTruthy();
     expect(getByText("0:02.00")).toBeTruthy();
-    expect(queryByText("30 fps")).toBeNull();
+    expect(
+      document.querySelector(".animation-time-readout")?.textContent,
+    ).not.toContain("fps");
   });
 });

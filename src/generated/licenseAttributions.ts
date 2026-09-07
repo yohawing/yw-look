@@ -62,14 +62,14 @@ export const webRuntimeLicenseAttributions = [
     source: "web",
   },
   {
-    name: "@xzdarcy/react-timeline-editor",
-    version: "1.0.0",
+    name: "@yohawing/three-mmd-loader",
+    version: "0.8.2",
     license: "MIT",
     source: "web",
   },
   {
-    name: "@yohawing/three-mmd-loader",
-    version: "0.8.2",
+    name: "@yohawing/timeline-editor",
+    version: "0.1.0-rc.1",
     license: "MIT",
     source: "web",
   },

@@ -2,57 +2,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { PlaybackTimeline } from "../PlaybackTimeline";
 
-type TimelineMockProps = {
-  autoReRender?: boolean;
-  disableDrag?: boolean;
-  editorData: Array<{
-    actions: Array<Record<string, unknown>>;
-  }>;
-  enableRowDrag?: boolean;
-  onChange: (editorData: unknown[]) => boolean | void;
-  onClickActionOnly?: (event: unknown, params: { time: number }) => void;
-  onClickTimeArea?: (time: number) => boolean | void;
-  onCursorDrag?: (time: number) => void;
-  onCursorDragEnd?: (time: number) => void;
-};
-
-type TimelineMockRef = {
-  setScrollLeft: (value: number) => void;
-  setTime: (time: number) => void;
-  target: null;
-};
-
-const timelineMock = vi.hoisted(() => ({
-  props: [] as Array<TimelineMockProps>,
-  setTime: vi.fn(),
-  setScrollLeft: vi.fn(),
-}));
-
-vi.mock("@xzdarcy/react-timeline-editor", async () => {
-  const React = await import("react");
-  return {
-    Timeline: React.forwardRef<TimelineMockRef, TimelineMockProps>(
-      (props, ref) => {
-        timelineMock.props.push(props);
-        React.useImperativeHandle(ref, () => ({
-          setTime: timelineMock.setTime,
-          setScrollLeft: timelineMock.setScrollLeft,
-          target: null,
-        }));
-        return <div data-testid="timeline-mock" />;
-      },
-    ),
-  };
-});
-
 afterEach(() => {
   cleanup();
 });
 
 beforeEach(() => {
-  timelineMock.props.length = 0;
-  timelineMock.setTime.mockClear();
-  timelineMock.setScrollLeft.mockClear();
+  if (!HTMLElement.prototype.setPointerCapture) {
+    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
+      configurable: true,
+      value: () => undefined,
+    });
+  }
+  if (!HTMLElement.prototype.releasePointerCapture) {
+    Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
+      configurable: true,
+      value: () => undefined,
+    });
+  }
+  if (!HTMLElement.prototype.hasPointerCapture) {
+    Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
+      configurable: true,
+      value: () => true,
+    });
+  }
 });
 
 function renderTimeline(
@@ -71,27 +43,18 @@ function renderTimeline(
 }
 
 describe("PlaybackTimeline", () => {
-  it("exposes a fixed frame timeline and syncs the cursor from props", () => {
-    const onSeek = vi.fn();
-    const { getByRole } = renderTimeline({ onSeek });
+  it("uses the new timeline editor with a compact ruler-only projection", () => {
+    const { getByRole, container } = renderTimeline();
     const slider = getByRole("slider", { name: "Animation seek" });
-    const props = timelineMock.props.at(-1)!;
-    const action = props.editorData[0].actions[0];
 
     expect(slider.getAttribute("aria-valuemax")).toBe("60");
     expect(slider.getAttribute("aria-valuenow")).toBe("30");
-    expect(action).toMatchObject({
-      start: 0,
-      end: 60,
-      movable: false,
-      flexible: false,
-    });
-    expect(props.enableRowDrag).toBe(false);
-    expect(props.disableDrag).toBe(true);
-    expect(props.autoReRender).toBe(false);
-    expect(props.onChange([])).toBe(false);
-    expect(timelineMock.setTime).toHaveBeenCalledWith(30);
-    expect(onSeek).not.toHaveBeenCalled();
+    expect(container.querySelector(".timeline-editor--compact")).toBeTruthy();
+    expect(container.querySelector(".timeline-editor__ruler")).toBeTruthy();
+    expect(
+      container.querySelector(".timeline-editor__tree-viewport"),
+    ).toBeTruthy();
+    expect(container.querySelector(".timeline-editor__range-bar")).toBeTruthy();
   });
 
   it("seeks by frame with keyboard bounds while stopping global shortcuts", () => {
@@ -110,13 +73,7 @@ describe("PlaybackTimeline", () => {
     );
     const slider = getByRole("slider", { name: "Animation seek" });
 
-    const left = new KeyboardEvent("keydown", {
-      bubbles: true,
-      cancelable: true,
-      key: "ArrowLeft",
-    });
-    slider.dispatchEvent(left);
-    expect(left.defaultPrevented).toBe(true);
+    fireEvent.keyDown(slider, { key: "ArrowLeft" });
     expect(onSeek).toHaveBeenLastCalledWith(1.9666666666666666);
     expect(parentKeyDown).not.toHaveBeenCalled();
 
@@ -126,24 +83,71 @@ describe("PlaybackTimeline", () => {
     expect(onSeek).toHaveBeenLastCalledWith(0);
   });
 
-  it("rounds and clamps ruler and cursor callbacks, including fractional ends", () => {
+  it("disables seeking when the clip duration is invalid or empty", () => {
+    const { getByRole } = renderTimeline({ duration: Number.NaN });
+    const slider = getByRole("slider", { name: "Animation seek" });
+
+    expect(slider.getAttribute("aria-disabled")).toBe("true");
+    expect(slider.getAttribute("aria-valuemax")).toBe("0");
+    expect(slider.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("syncs the playhead when the current time changes within one clip", () => {
+    const { container, rerender } = renderTimeline({ currentTime: 0 });
+    const initialPlayhead = container.querySelector(
+      ".timeline-editor__playhead",
+    ) as HTMLElement;
+    const initialTransform = initialPlayhead.style.transform;
+
+    rerender(
+      <PlaybackTimeline
+        activeClipIndex={0}
+        clipName="Motion"
+        currentTime={1}
+        duration={2}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    expect(
+      (container.querySelector(".timeline-editor__playhead") as HTMLElement)
+        .style.transform,
+    ).not.toBe(initialTransform);
+  });
+
+  it("routes ruler scrubbing through the host seek callback", () => {
     const onSeek = vi.fn();
-    renderTimeline({ duration: 2.05, onSeek });
-    const props = timelineMock.props.at(-1)!;
+    const { container } = renderTimeline({ duration: 2.05, onSeek });
+    const ruler = container.querySelector(
+      ".timeline-editor__ruler",
+    ) as HTMLDivElement;
+    const viewport = container.querySelector(
+      ".timeline-editor__viewport",
+    ) as HTMLDivElement;
+    Object.defineProperty(viewport, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, width: 300, height: 0 }),
+    });
 
-    props.onClickTimeArea!(40.6);
-    props.onClickActionOnly!(null, { time: 900.4 });
-    props.onCursorDrag!(-2.4);
-    props.onCursorDragEnd!(62.4);
+    fireEvent.pointerDown(ruler, {
+      button: 0,
+      clientX: 40,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(ruler, { clientX: 80, pointerId: 1 });
+    fireEvent.pointerUp(ruler, { clientX: 80, pointerId: 1 });
 
-    expect(onSeek.mock.calls).toEqual([[41 / 30], [2.05], [0], [2.05]]);
-    expect(timelineMock.setTime).toHaveBeenLastCalledWith(62);
-    expect(props.onClickTimeArea!(0)).toBe(false);
+    expect(onSeek).toHaveBeenCalled();
+    expect(onSeek.mock.calls.every(([time]) => time >= 0 && time <= 2.05)).toBe(
+      true,
+    );
   });
 
   it("resets the library timeline when the active clip identity changes", () => {
-    const { getByTestId, rerender } = renderTimeline();
-    const previousTimeline = getByTestId("timeline-mock");
+    const { container, rerender } = renderTimeline();
+    const previousTimeline = container.querySelector(
+      ".timeline-editor",
+    ) as HTMLElement;
 
     rerender(
       <PlaybackTimeline
@@ -156,9 +160,11 @@ describe("PlaybackTimeline", () => {
     );
 
     expect(previousTimeline.isConnected).toBe(false);
-    expect(getByTestId("timeline-mock")).not.toBe(previousTimeline);
-    expect(timelineMock.props.at(-1)!.editorData[0].actions[0].end).toBe(900);
-    expect(timelineMock.setTime).toHaveBeenLastCalledWith(0);
-    expect(timelineMock.setScrollLeft).toHaveBeenLastCalledWith(0);
+    expect(container.querySelector(".timeline-editor")).not.toBe(
+      previousTimeline,
+    );
+    expect(
+      container.querySelector('[role="slider"]')?.getAttribute("aria-valuemax"),
+    ).toBe("900");
   });
 });
