@@ -16,8 +16,13 @@
 //!   - resolving UsdPreviewSurface inputs into `MaterialInput` scalars
 
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::mem::size_of;
 use std::time::Instant;
+
+use crate::preview::glb::{
+    append_accessor_with, append_buffer_view_with, checked_binary_byte_length, AccessorSpec,
+};
 
 fn glb_timing_enabled() -> bool {
     std::env::var_os("YW_LOOK_USD_TIMING").is_some()
@@ -262,9 +267,13 @@ pub struct SkinInput {
 pub struct AnimationInput {
     /// Display name attached to the glTF animation.
     pub name: String,
-    /// Time samples in seconds. Must be sorted and unique. Length is
-    /// `times.len()` for every channel below.
+    /// Time samples in seconds for the skin TRS channels. Must be sorted
+    /// and unique. Length is `times.len()` for every TRS channel below.
     pub times: Vec<f32>,
+    /// Independent time samples in seconds for morph weights. Required
+    /// and shared by every weight channel when `weight_channels` is
+    /// non-empty; leave empty when the animation has no weight channels.
+    pub weight_times: Vec<f32>,
     /// Index into `SkinInput::joint_names` of the skin this animation
     /// targets. Phase 5c E only supports one skin per stage so this
     /// is always `0`, but the field is here for forward compatibility.
@@ -281,9 +290,45 @@ pub struct AnimationInput {
     /// Phase 2.O: per-mesh morph-target weight channels driven by
     /// `UsdSkelAnimation.blendShapeWeights`. Each entry targets one
     /// mesh (by `MeshInput` index) and carries the full weight
-    /// vector at every time in `times`. Empty when the animation
+    /// vector at every time in `weight_times`. Empty when the animation
     /// drives only skeleton joints.
     pub weight_channels: Vec<MorphWeightChannel>,
+}
+
+/// One non-skin node animation clip. Times are in seconds and every
+/// channel carries all three TRS streams so the animated node can start from
+/// the first baked sample without retaining a glTF `matrix` property.
+#[derive(Debug, Clone)]
+pub struct NodeAnimationInput {
+    /// Display name attached to the glTF animation.
+    pub name: String,
+    /// Sample times in seconds. These must be finite, non-negative, and
+    /// strictly increasing.
+    pub times: Vec<f32>,
+    /// Interpolation used by every channel in this clip.
+    pub interpolation: NodeAnimationInterpolation,
+    /// Node TRS channels in the `nodes` slice passed to `build_glb`.
+    pub channels: Vec<NodeTrsChannel>,
+}
+
+/// Interpolation mode for a non-skin node animation clip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeAnimationInterpolation {
+    Linear,
+    Step,
+}
+
+/// A complete baked TRS track for one `NodeInput`.
+#[derive(Debug, Clone)]
+pub struct NodeTrsChannel {
+    /// Index into the `nodes` slice passed to `build_glb`.
+    pub node_index: usize,
+    /// Time-major translation samples (`times.len() * 3`).
+    pub translations: Vec<f32>,
+    /// Time-major glTF quaternion samples (`times.len() * 4`, x/y/z/w).
+    pub rotations: Vec<f32>,
+    /// Time-major scale samples (`times.len() * 3`).
+    pub scales: Vec<f32>,
 }
 
 /// Phase 2.O: one mesh's morph-target weight timeline. glTF
@@ -753,11 +798,6 @@ fn vec3_min_max(data: &[f32]) -> ([f32; 3], [f32; 3]) {
     (min, max)
 }
 
-const GLB_MAGIC: u32 = 0x46546C67; // "glTF"
-const GLB_VERSION: u32 = 2;
-const CHUNK_TYPE_JSON: u32 = 0x4E4F534A; // "JSON"
-const CHUNK_TYPE_BIN: u32 = 0x004E4942; // "BIN\0"
-
 const COMPONENT_TYPE_FLOAT: u32 = 5126;
 const COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
 
@@ -776,16 +816,30 @@ fn checked_add_bin_section(
     Some(())
 }
 
+fn mesh_payload_nodes(nodes: &[NodeInput]) -> impl Iterator<Item = (usize, usize)> + '_ {
+    nodes.iter().enumerate().filter_map(|(node_index, node)| {
+        if node.kind == NodeKind::Mesh {
+            node.mesh_payload_idx
+                .map(|mesh_index| (mesh_index, node_index))
+        } else {
+            None
+        }
+    })
+}
+
 fn mesh_output_node_flags(
     mesh_count: usize,
     nodes: &[NodeInput],
     instancing: &[InstancingInput],
 ) -> Vec<bool> {
-    // Weight channels are serialized before the hierarchy-aware node pass.
-    // In that mode mesh_node_indices still contains only usize::MAX sentinels,
-    // so build_glb deliberately skips every weight channel at this point.
     if !nodes.is_empty() {
-        return vec![false; mesh_count];
+        let mut flags = vec![false; mesh_count];
+        for (mesh_index, _) in mesh_payload_nodes(nodes) {
+            if let Some(flag) = flags.get_mut(mesh_index) {
+                *flag = true;
+            }
+        }
+        return flags;
     }
     let mut flags = vec![true; mesh_count];
     for input in instancing {
@@ -822,6 +876,256 @@ fn uses_gpu_instancing(input: &InstancingInput) -> bool {
             .zip(reconstructed.iter())
             .all(|(left, right)| (left - right).abs() <= 1e-4)
     })
+}
+
+fn validate_node_animations(
+    node_animations: &[NodeAnimationInput],
+    nodes: &[NodeInput],
+) -> Result<(), String> {
+    for (animation_index, animation) in node_animations.iter().enumerate() {
+        if animation.times.is_empty() {
+            return Err(format!(
+                "node_animation[{animation_index}] '{}' has no time samples",
+                animation.name
+            ));
+        }
+        for (time_index, &time) in animation.times.iter().enumerate() {
+            if !time.is_finite() || time < 0.0 {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' time[{time_index}] must be finite and non-negative",
+                    animation.name
+                ));
+            }
+            if let Some(&next_time) = animation.times.get(time_index + 1) {
+                if next_time <= time {
+                    return Err(format!(
+                        "node_animation[{animation_index}] '{}' times must be strictly increasing",
+                        animation.name
+                    ));
+                }
+            }
+        }
+        if animation.channels.is_empty() {
+            return Err(format!(
+                "node_animation[{animation_index}] '{}' has no channels",
+                animation.name
+            ));
+        }
+
+        let translation_len = animation.times.len().checked_mul(3).ok_or_else(|| {
+            format!(
+                "node_animation[{animation_index}] '{}' translation sample count overflows",
+                animation.name
+            )
+        })?;
+        let rotation_len = animation.times.len().checked_mul(4).ok_or_else(|| {
+            format!(
+                "node_animation[{animation_index}] '{}' rotation sample count overflows",
+                animation.name
+            )
+        })?;
+        let mut seen_nodes = HashSet::with_capacity(animation.channels.len());
+        for (channel_index, channel) in animation.channels.iter().enumerate() {
+            if channel.node_index >= nodes.len() {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] node_index {} is out of range (nodes.len={})",
+                    animation.name,
+                    channel.node_index,
+                    nodes.len()
+                ));
+            }
+            if !seen_nodes.insert(channel.node_index) {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' has duplicate track for node_index {}",
+                    animation.name, channel.node_index
+                ));
+            }
+            if channel.translations.len() != translation_len {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] translation length {} does not match expected {}",
+                    animation.name,
+                    channel.translations.len(),
+                    translation_len
+                ));
+            }
+            if channel.rotations.len() != rotation_len {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] rotation length {} does not match expected {}",
+                    animation.name,
+                    channel.rotations.len(),
+                    rotation_len
+                ));
+            }
+            if channel.scales.len() != translation_len {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] scale length {} does not match expected {}",
+                    animation.name,
+                    channel.scales.len(),
+                    translation_len
+                ));
+            }
+            if let Some(value_index) = channel
+                .translations
+                .iter()
+                .position(|value| !value.is_finite())
+            {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] translation[{value_index}] must be finite",
+                    animation.name
+                ));
+            }
+            if let Some(value_index) = channel.scales.iter().position(|value| !value.is_finite()) {
+                return Err(format!(
+                    "node_animation[{animation_index}] '{}' channel[{channel_index}] scale[{value_index}] must be finite",
+                    animation.name
+                ));
+            }
+            for (sample_index, rotation) in channel.rotations.chunks_exact(4).enumerate() {
+                if rotation.iter().any(|value| !value.is_finite()) {
+                    return Err(format!(
+                        "node_animation[{animation_index}] '{}' channel[{channel_index}] rotation sample {sample_index} must be finite",
+                        animation.name
+                    ));
+                }
+                let norm_squared = rotation.iter().map(|value| value * value).sum::<f32>();
+                let norm = norm_squared.sqrt();
+                if !norm.is_finite() || norm <= f32::EPSILON || (norm - 1.0).abs() > 1e-3 {
+                    return Err(format!(
+                        "node_animation[{animation_index}] '{}' channel[{channel_index}] rotation sample {sample_index} must be a normalized quaternion",
+                        animation.name
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_animation_weight_channels(
+    animations: &[AnimationInput],
+    meshes: &[MeshInput],
+) -> Result<(), String> {
+    for (animation_index, animation) in animations.iter().enumerate() {
+        if animation.weight_channels.is_empty() {
+            continue;
+        }
+        if animation.weight_times.is_empty() {
+            return Err(format!(
+                "animation[{animation_index}] '{}' weight channels require at least one weight time sample",
+                animation.name
+            ));
+        }
+        for (time_index, &time) in animation.weight_times.iter().enumerate() {
+            if !time.is_finite() || time < 0.0 {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight_time[{time_index}] must be finite and non-negative",
+                    animation.name
+                ));
+            }
+            if let Some(&next_time) = animation.weight_times.get(time_index + 1) {
+                if next_time <= time {
+                    return Err(format!(
+                        "animation[{animation_index}] '{}' weight_times must be strictly increasing",
+                        animation.name
+                    ));
+                }
+            }
+        }
+
+        let mut seen_meshes = HashSet::with_capacity(animation.weight_channels.len());
+        for (channel_index, channel) in animation.weight_channels.iter().enumerate() {
+            let Some(mesh) = meshes.get(channel.mesh_index) else {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight channel[{channel_index}] mesh_index {} is out of range (meshes.len={})",
+                    animation.name,
+                    channel.mesh_index,
+                    meshes.len()
+                ));
+            };
+            if !seen_meshes.insert(channel.mesh_index) {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' has duplicate weight track for mesh_index {}",
+                    animation.name, channel.mesh_index
+                ));
+            }
+            let target_count = mesh.morph_targets.len();
+            if target_count == 0 {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight channel[{channel_index}] mesh_index {} has no morph targets",
+                    animation.name, channel.mesh_index
+                ));
+            }
+            let expected_weight_count = animation
+                .weight_times
+                .len()
+                .checked_mul(target_count)
+                .ok_or_else(|| {
+                    format!(
+                        "animation[{animation_index}] '{}' weight channel[{channel_index}] sample count overflows",
+                        animation.name
+                    )
+                })?;
+            if channel.weights.len() != expected_weight_count {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight channel[{channel_index}] has {} weights but {} are required",
+                    animation.name,
+                    channel.weights.len(),
+                    expected_weight_count
+                ));
+            }
+            if let Some(value_index) = channel.weights.iter().position(|value| !value.is_finite()) {
+                return Err(format!(
+                    "animation[{animation_index}] '{}' weight channel[{channel_index}] weight[{value_index}] must be finite",
+                    animation.name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn first_node_animation_poses(
+    node_animations: &[NodeAnimationInput],
+    node_count: usize,
+) -> Vec<Option<([f32; 3], [f32; 4], [f32; 3])>> {
+    let mut initial_poses = vec![None; node_count];
+    for animation in node_animations {
+        for channel in &animation.channels {
+            if initial_poses[channel.node_index].is_none() {
+                initial_poses[channel.node_index] = Some((
+                    [
+                        channel.translations[0],
+                        channel.translations[1],
+                        channel.translations[2],
+                    ],
+                    [
+                        channel.rotations[0],
+                        channel.rotations[1],
+                        channel.rotations[2],
+                        channel.rotations[3],
+                    ],
+                    [channel.scales[0], channel.scales[1], channel.scales[2]],
+                ));
+            }
+        }
+    }
+    initial_poses
+}
+
+fn apply_node_animation_initial_pose(
+    node_json: &mut Value,
+    initial_pose: Option<([f32; 3], [f32; 4], [f32; 3])>,
+) {
+    let Some((translation, rotation, scale)) = initial_pose else {
+        return;
+    };
+    let Some(node_object) = node_json.as_object_mut() else {
+        return;
+    };
+    node_object.remove("matrix");
+    node_object.insert("translation".to_string(), json!(translation));
+    node_object.insert("rotation".to_string(), json!(rotation));
+    node_object.insert("scale".to_string(), json!(scale));
 }
 
 fn sanitized_vec3(value: [f32; 3], fallback: f32) -> [f32; 3] {
@@ -911,7 +1215,18 @@ fn estimate_bin_capacity(
     }
 
     for animation in animations {
-        checked_add_bin_section(&mut total, animation.times.len(), size_of::<f32>())?;
+        let has_trs_channels = animation
+            .translations
+            .iter()
+            .chain(&animation.rotations)
+            .chain(&animation.scales)
+            .any(Option::is_some);
+        // A weights-only animation gets its own independent time accessor
+        // in the deferred pass. Keep the legacy TRS accessor for all other
+        // animations so static and skin/TRS output remains byte-stable.
+        if has_trs_channels || animation.weight_channels.is_empty() {
+            checked_add_bin_section(&mut total, animation.times.len(), size_of::<f32>())?;
+        }
         for samples in animation
             .translations
             .iter()
@@ -921,12 +1236,15 @@ fn estimate_bin_capacity(
         {
             checked_add_bin_section(&mut total, samples.len(), size_of::<f32>())?;
         }
+        if !animation.weight_channels.is_empty() {
+            checked_add_bin_section(&mut total, animation.weight_times.len(), size_of::<f32>())?;
+        }
         for channel in &animation.weight_channels {
             let Some(mesh) = meshes.get(channel.mesh_index) else {
                 continue;
             };
             let target_count = mesh.morph_targets.len();
-            let expected_weights = animation.times.len().checked_mul(target_count);
+            let expected_weights = animation.weight_times.len().checked_mul(target_count);
             if target_count == 0
                 || expected_weights != Some(channel.weights.len())
                 || !mesh_output_nodes
@@ -1014,6 +1332,39 @@ pub fn build_glb(
     )
 }
 
+/// Build a GLB with baked TRS animations for non-skin `NodeInput`s. The
+/// arguments match [`build_glb`] with `node_animations` appended so existing
+/// callers can keep using the static or skin-animation entrypoint.
+#[allow(clippy::too_many_arguments)]
+pub fn build_glb_with_node_animations(
+    nodes: &[NodeInput],
+    meshes: &[MeshInput],
+    materials: &[MaterialInput],
+    textures: &[TextureInput],
+    skins: &[SkinInput],
+    animations: &[AnimationInput],
+    lights: &[LightInput],
+    cameras: &[CameraInput],
+    up_correction: Option<[f32; 16]>,
+    instancing: &[InstancingInput],
+    node_animations: &[NodeAnimationInput],
+) -> Result<Vec<u8>, String> {
+    build_glb_with_bin_capacity_and_node_animations(
+        nodes,
+        meshes,
+        materials,
+        textures,
+        skins,
+        animations,
+        lights,
+        cameras,
+        up_correction,
+        instancing,
+        node_animations,
+        None,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_glb_with_bin_capacity(
     nodes: &[NodeInput],
@@ -1026,6 +1377,37 @@ fn build_glb_with_bin_capacity(
     cameras: &[CameraInput],
     up_correction: Option<[f32; 16]>,
     instancing: &[InstancingInput],
+    bin_capacity_override: Option<usize>,
+) -> Result<Vec<u8>, String> {
+    build_glb_with_bin_capacity_and_node_animations(
+        nodes,
+        meshes,
+        materials,
+        textures,
+        skins,
+        animations,
+        lights,
+        cameras,
+        up_correction,
+        instancing,
+        &[],
+        bin_capacity_override,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_glb_with_bin_capacity_and_node_animations(
+    nodes: &[NodeInput],
+    meshes: &[MeshInput],
+    materials: &[MaterialInput],
+    textures: &[TextureInput],
+    skins: &[SkinInput],
+    animations: &[AnimationInput],
+    lights: &[LightInput],
+    cameras: &[CameraInput],
+    up_correction: Option<[f32; 16]>,
+    instancing: &[InstancingInput],
+    node_animations: &[NodeAnimationInput],
     bin_capacity_override: Option<usize>,
 ) -> Result<Vec<u8>, String> {
     let timing_enabled = glb_timing_enabled();
@@ -1117,6 +1499,13 @@ fn build_glb_with_bin_capacity(
     for m in meshes {
         m.validate()?;
     }
+    validate_animation_weight_channels(animations, meshes)?;
+    validate_node_animations(node_animations, nodes)?;
+    let node_animation_initial_poses = if node_animations.is_empty() {
+        Vec::new()
+    } else {
+        first_node_animation_poses(node_animations, nodes.len())
+    };
     // #41: validate instancing inputs
     for (i, inst) in instancing.iter().enumerate() {
         if inst.prototype_mesh_idx >= meshes.len() {
@@ -1162,6 +1551,10 @@ fn build_glb_with_bin_capacity(
     let mut gltf_meshes: Vec<Value> = Vec::new();
     let mut gltf_nodes: Vec<Value> = Vec::new();
     let mut scene_nodes: Vec<Value> = Vec::new();
+    // Filled by the hierarchy pass after the synthetic root and any joint
+    // nodes have been allocated. Node animation targets must use these
+    // absolute glTF indices rather than the caller's NodeInput indices.
+    let mut node_gltf_indices_for_animation: Option<Vec<usize>> = None;
     // Phase 2.O: map each MeshInput index to the glTF node index
     // that hosts it, so weight-animation channels can target the
     // right node with `path = "weights"`. A mesh without morph
@@ -1170,59 +1563,56 @@ fn build_glb_with_bin_capacity(
     let mut mesh_node_indices: Vec<usize> = Vec::with_capacity(meshes.len());
 
     for (mesh_idx, mesh) in meshes.iter().enumerate() {
-        let vertex_count = mesh.vertex_count() as u64;
-        let index_count = mesh.indices.len() as u64;
+        let vertex_count = mesh.vertex_count();
+        let index_count = mesh.indices.len();
 
         // -- positions ---------------------------------------------------
-        let pos_offset = bin.len() as u64;
-        for &v in &mesh.positions {
-            bin.extend_from_slice(&v.to_le_bytes());
-        }
-        let pos_byte_length = (bin.len() as u64) - pos_offset;
-        pad_to_4(&mut bin);
-
-        let position_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": pos_offset,
-            "byteLength": pos_byte_length,
-            "target": 34962, // ARRAY_BUFFER
-        }));
-
         let (pmin, pmax) = mesh.position_bounds();
-        let position_accessor_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": position_view_idx,
-            "componentType": COMPONENT_TYPE_FLOAT,
-            "count": vertex_count,
-            "type": "VEC3",
-            "min": [pmin[0], pmin[1], pmin[2]],
-            "max": [pmax[0], pmax[1], pmax[2]],
-        }));
+        let position_accessor_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(mesh.positions.len(), size_of::<f32>())?,
+            AccessorSpec {
+                target: Some(34962), // ARRAY_BUFFER
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: vertex_count,
+                type_name: "VEC3",
+                normalized: false,
+                byte_offset: None,
+                min: Some(json!([pmin[0], pmin[1], pmin[2]])),
+                max: Some(json!([pmax[0], pmax[1], pmax[2]])),
+            },
+            |binary| {
+                for &v in &mesh.positions {
+                    binary.extend_from_slice(&v.to_le_bytes());
+                }
+            },
+        )?;
 
         // -- normals (optional) ------------------------------------------
         let normal_accessor_idx = if let Some(normals) = &mesh.normals {
-            let off = bin.len() as u64;
-            for &v in normals {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-                "target": 34962,
-            }));
-            let acc_idx = accessors.len();
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": vertex_count,
-                "type": "VEC3",
-            }));
+            let acc_idx = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(normals.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: Some(34962),
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: vertex_count,
+                    type_name: "VEC3",
+                    normalized: false,
+                    byte_offset: None,
+                    min: None,
+                    max: None,
+                },
+                |binary| {
+                    for &v in normals {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                },
+            )?;
             Some(acc_idx)
         } else {
             None
@@ -1230,77 +1620,78 @@ fn build_glb_with_bin_capacity(
 
         // -- uvs (optional) ----------------------------------------------
         let uv_accessor_idx = if let Some(uvs) = &mesh.uvs {
-            let off = bin.len() as u64;
-            for &v in uvs {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-                "target": 34962,
-            }));
-            let acc_idx = accessors.len();
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": vertex_count,
-                "type": "VEC2",
-            }));
+            let acc_idx = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(uvs.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: Some(34962),
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: vertex_count,
+                    type_name: "VEC2",
+                    normalized: false,
+                    byte_offset: None,
+                    min: None,
+                    max: None,
+                },
+                |binary| {
+                    for &v in uvs {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                },
+            )?;
             Some(acc_idx)
         } else {
             None
         };
 
         // -- indices -----------------------------------------------------
-        let idx_offset = bin.len() as u64;
-        for &i in &mesh.indices {
-            bin.extend_from_slice(&i.to_le_bytes());
-        }
-        let idx_byte_length = (bin.len() as u64) - idx_offset;
-        pad_to_4(&mut bin);
-
-        let index_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": idx_offset,
-            "byteLength": idx_byte_length,
-            "target": 34963, // ELEMENT_ARRAY_BUFFER
-        }));
-        let index_accessor_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": index_view_idx,
-            "componentType": COMPONENT_TYPE_UNSIGNED_INT,
-            "count": index_count,
-            "type": "SCALAR",
-        }));
+        let index_accessor_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(mesh.indices.len(), size_of::<u32>())?,
+            AccessorSpec {
+                target: Some(34963), // ELEMENT_ARRAY_BUFFER
+                component_type: COMPONENT_TYPE_UNSIGNED_INT,
+                count: index_count,
+                type_name: "SCALAR",
+                normalized: false,
+                byte_offset: None,
+                min: None,
+                max: None,
+            },
+            |binary| {
+                for &i in &mesh.indices {
+                    binary.extend_from_slice(&i.to_le_bytes());
+                }
+            },
+        )?;
 
         // -- vertex colors (per-vertex displayColor) ----------------------
         let color_accessor_idx = if let Some(colors) = &mesh.colors {
-            let off = bin.len() as u64;
-            for &v in colors {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-                "target": 34962,
-            }));
-            let acc_idx = accessors.len();
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": vertex_count,
-                "type": "VEC4",
-            }));
+            let acc_idx = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(colors.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: Some(34962),
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: vertex_count,
+                    type_name: "VEC4",
+                    normalized: false,
+                    byte_offset: None,
+                    min: None,
+                    max: None,
+                },
+                |binary| {
+                    for &v in colors {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                },
+            )?;
             Some(acc_idx)
         } else {
             None
@@ -1311,48 +1702,50 @@ fn build_glb_with_bin_capacity(
             match (mesh.joint_indices.as_ref(), mesh.joint_weights.as_ref()) {
                 (Some(joint_idx), Some(joint_w)) => {
                     // JOINTS_0: VEC4 of unsigned shorts (component 5123).
-                    let off_j = bin.len() as u64;
-                    for &v in joint_idx {
-                        bin.extend_from_slice(&v.to_le_bytes());
-                    }
-                    let len_j = (bin.len() as u64) - off_j;
-                    pad_to_4(&mut bin);
-                    let view_j = buffer_views.len();
-                    buffer_views.push(json!({
-                        "buffer": 0,
-                        "byteOffset": off_j,
-                        "byteLength": len_j,
-                        "target": 34962,
-                    }));
-                    let acc_j = accessors.len();
-                    accessors.push(json!({
-                        "bufferView": view_j,
-                        "componentType": 5123, // UNSIGNED_SHORT
-                        "count": vertex_count,
-                        "type": "VEC4",
-                    }));
+                    let acc_j = append_accessor_with(
+                        &mut bin,
+                        &mut buffer_views,
+                        &mut accessors,
+                        checked_binary_byte_length(joint_idx.len(), size_of::<u16>())?,
+                        AccessorSpec {
+                            target: Some(34962),
+                            component_type: 5123, // UNSIGNED_SHORT
+                            count: vertex_count,
+                            type_name: "VEC4",
+                            normalized: false,
+                            byte_offset: None,
+                            min: None,
+                            max: None,
+                        },
+                        |binary| {
+                            for &v in joint_idx {
+                                binary.extend_from_slice(&v.to_le_bytes());
+                            }
+                        },
+                    )?;
 
                     // WEIGHTS_0: VEC4 of FLOAT.
-                    let off_w = bin.len() as u64;
-                    for &v in joint_w {
-                        bin.extend_from_slice(&v.to_le_bytes());
-                    }
-                    let len_w = (bin.len() as u64) - off_w;
-                    pad_to_4(&mut bin);
-                    let view_w = buffer_views.len();
-                    buffer_views.push(json!({
-                        "buffer": 0,
-                        "byteOffset": off_w,
-                        "byteLength": len_w,
-                        "target": 34962,
-                    }));
-                    let acc_w = accessors.len();
-                    accessors.push(json!({
-                        "bufferView": view_w,
-                        "componentType": COMPONENT_TYPE_FLOAT,
-                        "count": vertex_count,
-                        "type": "VEC4",
-                    }));
+                    let acc_w = append_accessor_with(
+                        &mut bin,
+                        &mut buffer_views,
+                        &mut accessors,
+                        checked_binary_byte_length(joint_w.len(), size_of::<f32>())?,
+                        AccessorSpec {
+                            target: Some(34962),
+                            component_type: COMPONENT_TYPE_FLOAT,
+                            count: vertex_count,
+                            type_name: "VEC4",
+                            normalized: false,
+                            byte_offset: None,
+                            min: None,
+                            max: None,
+                        },
+                        |binary| {
+                            for &v in joint_w {
+                                binary.extend_from_slice(&v.to_le_bytes());
+                            }
+                        },
+                    )?;
                     (Some(acc_j), Some(acc_w))
                 }
                 _ => (None, None),
@@ -1388,32 +1781,31 @@ fn build_glb_with_bin_capacity(
         for target in &mesh.morph_targets {
             // Validation already confirmed target.position_offsets.len()
             // == vertex_count * 3, so we can embed it as-is.
-            let view = buffer_views.len();
-            let off = bin.len() as u64;
-            for f in &target.position_offsets {
-                bin.extend_from_slice(&f.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-                "target": 34962, // ARRAY_BUFFER
-            }));
             // Per the glTF spec, morph target accessors must carry
             // `min` / `max` so renderers can compute a tight
             // bounding volume for the deformed mesh; we supply them.
             let (min, max) = vec3_min_max(&target.position_offsets);
-            let acc = accessors.len();
-            accessors.push(json!({
-                "bufferView": view,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": vertex_count,
-                "type": "VEC3",
-                "min": [min[0], min[1], min[2]],
-                "max": [max[0], max[1], max[2]],
-            }));
+            let acc = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(target.position_offsets.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: Some(34962), // ARRAY_BUFFER
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: vertex_count,
+                    type_name: "VEC3",
+                    normalized: false,
+                    byte_offset: None,
+                    min: Some(json!([min[0], min[1], min[2]])),
+                    max: Some(json!([max[0], max[1], max[2]])),
+                },
+                |binary| {
+                    for &f in &target.position_offsets {
+                        binary.extend_from_slice(&f.to_le_bytes());
+                    }
+                },
+            )?;
             morph_target_json.push(json!({
                 "POSITION": acc,
             }));
@@ -1601,27 +1993,32 @@ fn build_glb_with_bin_capacity(
 
         // Inverse bind matrices accessor: one VEC4 mat4 per joint,
         // 16 floats each, FLOAT componentType.
-        let off = bin.len() as u64;
-        for matrix in &skin.inverse_bind_matrices {
-            for &v in matrix {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-        }
-        let len = (bin.len() as u64) - off;
-        pad_to_4(&mut bin);
-        let view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": off,
-            "byteLength": len,
-        }));
-        let ibm_accessor_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": view_idx,
-            "componentType": COMPONENT_TYPE_FLOAT,
-            "count": joint_count,
-            "type": "MAT4",
-        }));
+        let ibm_accessor_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(
+                checked_binary_byte_length(skin.inverse_bind_matrices.len(), 16)?,
+                size_of::<f32>(),
+            )?,
+            AccessorSpec {
+                target: None,
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: joint_count,
+                type_name: "MAT4",
+                normalized: false,
+                byte_offset: None,
+                min: None,
+                max: None,
+            },
+            |binary| {
+                for matrix in &skin.inverse_bind_matrices {
+                    for &v in matrix {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                }
+            },
+        )?;
 
         let mut skin_obj = json!({
             "name": skin.name,
@@ -1647,37 +2044,51 @@ fn build_glb_with_bin_capacity(
     //     channel pointing at the corresponding joint node and TRS
     //     path.
     let mut gltf_animations: Vec<Value> = Vec::with_capacity(animations.len());
-    for animation in animations {
-        // Time accessor (shared across every channel).
-        let time_off = bin.len() as u64;
-        for &t in &animation.times {
-            bin.extend_from_slice(&t.to_le_bytes());
-        }
-        let time_len = (bin.len() as u64) - time_off;
-        pad_to_4(&mut bin);
-        let time_view = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": time_off,
-            "byteLength": time_len,
-        }));
-        // glTF requires `min` / `max` for animation input accessors.
-        let (t_min, t_max) = animation
-            .times
+    let mut deferred_weight_animations: Option<Vec<(usize, Option<usize>)>> = None;
+    for (animation_index, animation) in animations.iter().enumerate() {
+        let has_trs_channels = animation
+            .translations
             .iter()
-            .copied()
-            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), t| {
-                (lo.min(t), hi.max(t))
-            });
-        let time_accessor = accessors.len();
-        accessors.push(json!({
-            "bufferView": time_view,
-            "componentType": COMPONENT_TYPE_FLOAT,
-            "count": animation.times.len(),
-            "type": "SCALAR",
-            "min": [t_min],
-            "max": [t_max],
-        }));
+            .chain(&animation.rotations)
+            .chain(&animation.scales)
+            .any(Option::is_some);
+        // A weights-only animation gets an independent input accessor in
+        // the deferred pass. Retain the legacy accessor for animations
+        // without weights, including an empty no-op animation.
+        let time_accessor = if has_trs_channels || animation.weight_channels.is_empty() {
+            // Time accessor (shared across every TRS channel).
+            // glTF requires `min` / `max` for animation input accessors.
+            let (t_min, t_max) = animation
+                .times
+                .iter()
+                .copied()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), t| {
+                    (lo.min(t), hi.max(t))
+                });
+            Some(append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(animation.times.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: None,
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: animation.times.len(),
+                    type_name: "SCALAR",
+                    normalized: false,
+                    byte_offset: None,
+                    min: Some(json!([t_min])),
+                    max: Some(json!([t_max])),
+                },
+                |binary| {
+                    for &t in &animation.times {
+                        binary.extend_from_slice(&t.to_le_bytes());
+                    }
+                },
+            )?)
+        } else {
+            None
+        };
 
         let mut samplers: Vec<Value> = Vec::new();
         let mut channels: Vec<Value> = Vec::new();
@@ -1693,27 +2104,36 @@ fn build_glb_with_bin_capacity(
                                 joint_idx: usize,
                                 samples: &[f32],
                                 stride: usize,
-                                path: &str| {
-            let off = bin.len() as u64;
-            for &v in samples {
-                bin.extend_from_slice(&v.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(bin);
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-            }));
-            let acc_idx = accessors.len();
+                                path: &str|
+         -> Result<(), String> {
+            let time_accessor = time_accessor.ok_or_else(|| {
+                format!(
+                    "animation[{animation_index}] '{}' TRS channel has no time accessor",
+                    animation.name
+                )
+            })?;
             let count = samples.len() / stride;
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": count,
-                "type": if stride == 4 { "VEC4" } else { "VEC3" },
-            }));
+            let acc_idx = append_accessor_with(
+                bin,
+                buffer_views,
+                accessors,
+                checked_binary_byte_length(samples.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: None,
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count,
+                    type_name: if stride == 4 { "VEC4" } else { "VEC3" },
+                    normalized: false,
+                    byte_offset: None,
+                    min: None,
+                    max: None,
+                },
+                |binary| {
+                    for &v in samples {
+                        binary.extend_from_slice(&v.to_le_bytes());
+                    }
+                },
+            )?;
             let sampler_idx = samplers.len();
             samplers.push(json!({
                 "input": time_accessor,
@@ -1724,9 +2144,10 @@ fn build_glb_with_bin_capacity(
                 "sampler": sampler_idx,
                 "target": {
                     "node": joint_nodes[joint_idx],
-                    "path": path,
+                "path": path,
                 },
             }));
+            Ok(())
         };
 
         for (joint_idx, samples) in animation.translations.iter().enumerate() {
@@ -1739,7 +2160,7 @@ fn build_glb_with_bin_capacity(
                     samples,
                     3,
                     "translation",
-                );
+                )?;
             }
         }
         for (joint_idx, samples) in animation.rotations.iter().enumerate() {
@@ -1752,7 +2173,7 @@ fn build_glb_with_bin_capacity(
                     samples,
                     4,
                     "rotation",
-                );
+                )?;
             }
         }
         for (joint_idx, samples) in animation.scales.iter().enumerate() {
@@ -1765,74 +2186,25 @@ fn build_glb_with_bin_capacity(
                     samples,
                     3,
                     "scale",
-                );
+                )?;
             }
         }
 
-        // Phase 2.O: morph-target weight channels. Each channel
-        // targets one mesh node with `path = "weights"`; the
-        // output accessor holds `frames × morph_target_count`
-        // floats (time-major). Silently skip channels pointing at
-        // a mesh without morph targets — malformed authoring, no
-        // sensible output.
-        for wc in &animation.weight_channels {
-            let Some(&node_idx) = mesh_node_indices.get(wc.mesh_index) else {
-                continue;
-            };
-            if node_idx == usize::MAX {
-                continue;
-            }
-            let target_count = meshes[wc.mesh_index].morph_targets.len();
-            if target_count == 0 {
-                continue;
-            }
-            // Each frame contributes `target_count` weights; accessor
-            // count is frames × targets (glTF spec). When sample
-            // counts don't line up we drop the channel rather than
-            // emitting garbage.
-            if wc.weights.len() != animation.times.len() * target_count {
-                continue;
-            }
-            let off = bin.len() as u64;
-            for &w in &wc.weights {
-                bin.extend_from_slice(&w.to_le_bytes());
-            }
-            let len = (bin.len() as u64) - off;
-            pad_to_4(&mut bin);
-            let view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": off,
-                "byteLength": len,
-            }));
-            let acc_idx = accessors.len();
-            accessors.push(json!({
-                "bufferView": view_idx,
-                "componentType": COMPONENT_TYPE_FLOAT,
-                "count": wc.weights.len(),
-                "type": "SCALAR",
-            }));
-            let sampler_idx = samplers.len();
-            samplers.push(json!({
-                "input": time_accessor,
-                "output": acc_idx,
-                "interpolation": "LINEAR",
-            }));
-            channels.push(json!({
-                "sampler": sampler_idx,
-                "target": {
-                    "node": node_idx,
-                    "path": "weights",
-                },
-            }));
-        }
-
-        if !channels.is_empty() {
+        let gltf_animation_index = if !channels.is_empty() {
+            let animation_index_in_gltf = gltf_animations.len();
             gltf_animations.push(json!({
                 "name": animation.name,
                 "samplers": samplers,
                 "channels": channels,
             }));
+            Some(animation_index_in_gltf)
+        } else {
+            None
+        };
+        if !animation.weight_channels.is_empty() {
+            deferred_weight_animations
+                .get_or_insert_with(Vec::new)
+                .push((animation_index, gltf_animation_index));
         }
     }
 
@@ -1846,17 +2218,13 @@ fn build_glb_with_bin_capacity(
     let mut gltf_images: Vec<Value> = Vec::with_capacity(textures.len());
     let mut gltf_textures: Vec<Value> = Vec::with_capacity(textures.len());
     for tex in textures {
-        let off = bin.len() as u64;
-        bin.extend_from_slice(&tex.data);
-        let len = (bin.len() as u64) - off;
-        pad_to_4(&mut bin);
-
-        let view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": off,
-            "byteLength": len,
-        }));
+        let view_idx = append_buffer_view_with(
+            &mut bin,
+            &mut buffer_views,
+            tex.data.len(),
+            None,
+            |binary| binary.extend_from_slice(&tex.data),
+        )?;
         let image_idx = gltf_images.len();
         gltf_images.push(json!({
             "name": tex.name,
@@ -2009,6 +2377,14 @@ fn build_glb_with_bin_capacity(
         // Per-NodeInput: gltf_node index.
         let node_gltf_indices: Vec<usize> =
             (node_input_base..node_input_base + nodes.len()).collect();
+        for (mesh_index, node_index) in mesh_payload_nodes(nodes) {
+            if let (Some(mesh_node_index), Some(&gltf_node_index)) = (
+                mesh_node_indices.get_mut(mesh_index),
+                node_gltf_indices.get(node_index),
+            ) {
+                *mesh_node_index = gltf_node_index;
+            }
+        }
 
         // Per-NodeInput: list of gltf node indices of its children.
         let mut children_of: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
@@ -2079,8 +2455,6 @@ fn build_glb_with_bin_capacity(
                         .expect("Mesh node must have mesh_payload_idx");
                     let mesh = &meshes[mesh_idx];
                     let gltf_mesh_idx = mesh_idx; // 1:1 mapping: meshes[i] → gltf_meshes[i]
-                    mesh_node_indices[mesh_idx] = gltf_idx;
-
                     let purpose_str2 = mesh.purpose.as_deref().unwrap_or("default");
                     extras["purpose"] = json!(purpose_str2);
 
@@ -2176,6 +2550,11 @@ fn build_glb_with_bin_capacity(
                 }
             };
 
+            let mut node_json = node_json;
+            apply_node_animation_initial_pose(
+                &mut node_json,
+                node_animation_initial_poses.get(ni_idx).copied().flatten(),
+            );
             gltf_nodes[gltf_idx] = node_json;
         }
 
@@ -2199,6 +2578,249 @@ fn build_glb_with_bin_capacity(
         }
         gltf_nodes[up_axis_gltf_idx] = up_axis_node;
         scene_nodes.push(json!(up_axis_gltf_idx));
+        if !node_animations.is_empty() {
+            node_gltf_indices_for_animation = Some(node_gltf_indices);
+        }
+    }
+
+    // Morph weight targets need the final hierarchy mapping because glTF
+    // addresses the node that hosts each mesh. Append them after the node
+    // pass so a weights-only animation can create its own animation object
+    // and a mixed skin/morph animation can extend its existing samplers.
+    if let Some(deferred_weight_animations) = deferred_weight_animations {
+        for (animation_index, gltf_animation_index) in deferred_weight_animations {
+            let animation = &animations[animation_index];
+            let (weight_t_min, weight_t_max) = animation
+                .weight_times
+                .iter()
+                .copied()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), time| {
+                    (lo.min(time), hi.max(time))
+                });
+            let weight_time_accessor = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(animation.weight_times.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: None,
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: animation.weight_times.len(),
+                    type_name: "SCALAR",
+                    normalized: false,
+                    byte_offset: None,
+                    min: Some(json!([weight_t_min])),
+                    max: Some(json!([weight_t_max])),
+                },
+                |binary| {
+                    for &time in &animation.weight_times {
+                        binary.extend_from_slice(&time.to_le_bytes());
+                    }
+                },
+            )?;
+            let sampler_base = if let Some(gltf_index) = gltf_animation_index {
+                gltf_animations
+                    .get(gltf_index)
+                    .and_then(|value| value["samplers"].as_array())
+                    .ok_or_else(|| {
+                        format!(
+                            "animation[{animation_index}] '{}' has invalid glTF sampler state",
+                            animation.name
+                        )
+                    })?
+                    .len()
+            } else {
+                0
+            };
+            let mut samplers = Vec::with_capacity(animation.weight_channels.len());
+            let mut channels = Vec::with_capacity(animation.weight_channels.len());
+            for (channel_index, weight_channel) in animation.weight_channels.iter().enumerate() {
+                let node_idx = mesh_node_indices
+                    .get(weight_channel.mesh_index)
+                    .copied()
+                    .ok_or_else(|| {
+                        format!(
+                            "animation[{animation_index}] '{}' weight channel[{channel_index}] mesh_index {} has no node mapping",
+                            animation.name, weight_channel.mesh_index
+                        )
+                    })?;
+                if node_idx == usize::MAX {
+                    return Err(format!(
+                        "animation[{animation_index}] '{}' weight channel[{channel_index}] mesh_index {} has no resolved glTF mesh node",
+                        animation.name, weight_channel.mesh_index
+                    ));
+                }
+                let accessor_idx = append_accessor_with(
+                    &mut bin,
+                    &mut buffer_views,
+                    &mut accessors,
+                    checked_binary_byte_length(weight_channel.weights.len(), size_of::<f32>())?,
+                    AccessorSpec {
+                        target: None,
+                        component_type: COMPONENT_TYPE_FLOAT,
+                        count: weight_channel.weights.len(),
+                        type_name: "SCALAR",
+                        normalized: false,
+                        byte_offset: None,
+                        min: None,
+                        max: None,
+                    },
+                    |binary| {
+                        for &weight in &weight_channel.weights {
+                            binary.extend_from_slice(&weight.to_le_bytes());
+                        }
+                    },
+                )?;
+                let sampler_idx = sampler_base + samplers.len();
+                samplers.push(json!({
+                    "input": weight_time_accessor,
+                    "output": accessor_idx,
+                    "interpolation": "LINEAR",
+                }));
+                channels.push(json!({
+                    "sampler": sampler_idx,
+                    "target": {
+                        "node": node_idx,
+                        "path": "weights",
+                    },
+                }));
+            }
+
+            if let Some(gltf_index) = gltf_animation_index {
+                let animation_json = gltf_animations.get_mut(gltf_index).ok_or_else(|| {
+                    format!(
+                        "animation[{animation_index}] '{}' has no glTF animation object",
+                        animation.name
+                    )
+                })?;
+                animation_json["samplers"]
+                    .as_array_mut()
+                    .ok_or_else(|| {
+                        format!(
+                            "animation[{animation_index}] '{}' has invalid glTF samplers",
+                            animation.name
+                        )
+                    })?
+                    .extend(samplers);
+                animation_json["channels"]
+                    .as_array_mut()
+                    .ok_or_else(|| {
+                        format!(
+                            "animation[{animation_index}] '{}' has invalid glTF channels",
+                            animation.name
+                        )
+                    })?
+                    .extend(channels);
+            } else {
+                gltf_animations.push(json!({
+                    "name": &animation.name,
+                    "samplers": samplers,
+                    "channels": channels,
+                }));
+            }
+        }
+    }
+
+    // ---- USD-ANIMATION-XFORM-01: non-skin node animations -----------
+    //
+    // NodeInput glTF indices are only known after the synthetic __upAxis
+    // root and any skin joint nodes have been allocated. Emit these clips
+    // after the hierarchy pass so targets always address the actual glTF
+    // nodes, including scenes that contain skins before the hierarchy.
+    if !node_animations.is_empty() {
+        let node_gltf_indices = node_gltf_indices_for_animation
+            .as_ref()
+            .ok_or_else(|| "node animations require a non-empty NodeInput hierarchy".to_string())?;
+        for node_animation in node_animations {
+            let (t_min, t_max) = node_animation
+                .times
+                .iter()
+                .copied()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), time| {
+                    (lo.min(time), hi.max(time))
+                });
+            let time_accessor = append_accessor_with(
+                &mut bin,
+                &mut buffer_views,
+                &mut accessors,
+                checked_binary_byte_length(node_animation.times.len(), size_of::<f32>())?,
+                AccessorSpec {
+                    target: None,
+                    component_type: COMPONENT_TYPE_FLOAT,
+                    count: node_animation.times.len(),
+                    type_name: "SCALAR",
+                    normalized: false,
+                    byte_offset: None,
+                    min: Some(json!([t_min])),
+                    max: Some(json!([t_max])),
+                },
+                |binary| {
+                    for &time in &node_animation.times {
+                        binary.extend_from_slice(&time.to_le_bytes());
+                    }
+                },
+            )?;
+
+            let interpolation = match node_animation.interpolation {
+                NodeAnimationInterpolation::Linear => "LINEAR",
+                NodeAnimationInterpolation::Step => "STEP",
+            };
+            let mut samplers: Vec<Value> = Vec::new();
+            let mut channels: Vec<Value> = Vec::new();
+            let mut emit_channel = |samples: &[f32],
+                                    stride: usize,
+                                    path: &str,
+                                    node_idx: usize|
+             -> Result<(), String> {
+                let accessor_idx = append_accessor_with(
+                    &mut bin,
+                    &mut buffer_views,
+                    &mut accessors,
+                    checked_binary_byte_length(samples.len(), size_of::<f32>())?,
+                    AccessorSpec {
+                        target: None,
+                        component_type: COMPONENT_TYPE_FLOAT,
+                        count: samples.len() / stride,
+                        type_name: if stride == 4 { "VEC4" } else { "VEC3" },
+                        normalized: false,
+                        byte_offset: None,
+                        min: None,
+                        max: None,
+                    },
+                    |binary| {
+                        for &value in samples {
+                            binary.extend_from_slice(&value.to_le_bytes());
+                        }
+                    },
+                )?;
+                let sampler_idx = samplers.len();
+                samplers.push(json!({
+                    "input": time_accessor,
+                    "output": accessor_idx,
+                    "interpolation": interpolation,
+                }));
+                channels.push(json!({
+                    "sampler": sampler_idx,
+                    "target": {
+                        "node": node_idx,
+                        "path": path,
+                    },
+                }));
+                Ok(())
+            };
+
+            for channel in &node_animation.channels {
+                let node_idx = node_gltf_indices[channel.node_index];
+                emit_channel(&channel.translations, 3, "translation", node_idx)?;
+                emit_channel(&channel.rotations, 4, "rotation", node_idx)?;
+                emit_channel(&channel.scales, 3, "scale", node_idx)?;
+            }
+            gltf_animations.push(json!({
+                "name": node_animation.name,
+                "samplers": samplers,
+                "channels": channels,
+            }));
+        }
     }
 
     // ---- Phase 7a: KHR_lights_punctual -----------------------------
@@ -2352,22 +2974,6 @@ fn build_glb_with_bin_capacity(
         }
 
         // ---- TRANSLATION accessor (VEC3 / FLOAT) ----
-        let t_offset = bin.len() as u64;
-        for t in &inst.translations {
-            for &f in t.iter() {
-                bin.extend_from_slice(&f.to_le_bytes());
-            }
-        }
-        let t_byte_len = (bin.len() as u64) - t_offset;
-        pad_to_4(&mut bin);
-        let t_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": t_offset,
-            "byteLength": t_byte_len,
-            "target": 34962, // ARRAY_BUFFER
-        }));
-        let t_acc_idx = accessors.len();
         // Compute min/max for TRANSLATION (glTF validator requires them)
         let (t_min, t_max) = inst.translations.iter().fold(
             ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]),
@@ -2383,67 +2989,88 @@ fn build_glb_with_bin_capacity(
                 (mn, mx)
             },
         );
-        accessors.push(json!({
-            "bufferView": t_view_idx,
-            "byteOffset": 0,
-            "componentType": 5126, // FLOAT
-            "count": instance_count,
-            "type": "VEC3",
-            "min": [t_min[0], t_min[1], t_min[2]],
-            "max": [t_max[0], t_max[1], t_max[2]],
-        }));
+        let t_acc_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(
+                checked_binary_byte_length(instance_count, 3)?,
+                size_of::<f32>(),
+            )?,
+            AccessorSpec {
+                target: Some(34962), // ARRAY_BUFFER
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: instance_count,
+                type_name: "VEC3",
+                normalized: false,
+                byte_offset: Some(0),
+                min: Some(json!([t_min[0], t_min[1], t_min[2]])),
+                max: Some(json!([t_max[0], t_max[1], t_max[2]])),
+            },
+            |binary| {
+                for t in &inst.translations {
+                    for &f in t.iter() {
+                        binary.extend_from_slice(&f.to_le_bytes());
+                    }
+                }
+            },
+        )?;
 
         // ---- ROTATION accessor (VEC4 / FLOAT, x,y,z,w glTF order) ----
-        pad_to_4(&mut bin);
-        let r_offset = bin.len() as u64;
-        for r in &inst.rotations {
-            for &f in r.iter() {
-                bin.extend_from_slice(&f.to_le_bytes());
-            }
-        }
-        let r_byte_len = (bin.len() as u64) - r_offset;
-        pad_to_4(&mut bin);
-        let r_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": r_offset,
-            "byteLength": r_byte_len,
-            "target": 34962,
-        }));
-        let r_acc_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": r_view_idx,
-            "byteOffset": 0,
-            "componentType": 5126,
-            "count": instance_count,
-            "type": "VEC4",
-        }));
+        let r_acc_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(
+                checked_binary_byte_length(instance_count, 4)?,
+                size_of::<f32>(),
+            )?,
+            AccessorSpec {
+                target: Some(34962),
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: instance_count,
+                type_name: "VEC4",
+                normalized: false,
+                byte_offset: Some(0),
+                min: None,
+                max: None,
+            },
+            |binary| {
+                for r in &inst.rotations {
+                    for &f in r.iter() {
+                        binary.extend_from_slice(&f.to_le_bytes());
+                    }
+                }
+            },
+        )?;
 
         // ---- SCALE accessor (VEC3 / FLOAT) ----
-        pad_to_4(&mut bin);
-        let s_offset = bin.len() as u64;
-        for s in &inst.scales {
-            for &f in s.iter() {
-                bin.extend_from_slice(&f.to_le_bytes());
-            }
-        }
-        let s_byte_len = (bin.len() as u64) - s_offset;
-        pad_to_4(&mut bin);
-        let s_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": s_offset,
-            "byteLength": s_byte_len,
-            "target": 34962,
-        }));
-        let s_acc_idx = accessors.len();
-        accessors.push(json!({
-            "bufferView": s_view_idx,
-            "byteOffset": 0,
-            "componentType": 5126,
-            "count": instance_count,
-            "type": "VEC3",
-        }));
+        let s_acc_idx = append_accessor_with(
+            &mut bin,
+            &mut buffer_views,
+            &mut accessors,
+            checked_binary_byte_length(
+                checked_binary_byte_length(instance_count, 3)?,
+                size_of::<f32>(),
+            )?,
+            AccessorSpec {
+                target: Some(34962),
+                component_type: COMPONENT_TYPE_FLOAT,
+                count: instance_count,
+                type_name: "VEC3",
+                normalized: false,
+                byte_offset: Some(0),
+                min: None,
+                max: None,
+            },
+            |binary| {
+                for s in &inst.scales {
+                    for &f in s.iter() {
+                        binary.extend_from_slice(&f.to_le_bytes());
+                    }
+                }
+            },
+        )?;
 
         // ---- Emit a glTF node with EXT_mesh_gpu_instancing ----
         let mesh_idx = inst.prototype_mesh_idx;
@@ -2593,32 +3220,17 @@ fn build_glb_with_bin_capacity(
     }
     log_glb_phase_timing("document", &mut phase_started);
 
-    let mut json_bytes =
+    let json_bytes =
         serde_json::to_vec(&document).map_err(|e| format!("failed to serialize GLTF JSON: {e}"))?;
-    pad_chunk(&mut json_bytes, 0x20); // ASCII space for JSON chunk
-    pad_chunk(&mut bin, 0x00); // zeros for BIN chunk
+    let bin_capacity = bin.capacity();
+    let (json_chunk_len, bin_chunk_len, _) =
+        crate::preview::glb::checked_glb_container_lengths(json_bytes.len(), bin.len())
+            .map_err(|error| format!("failed to assemble GLB container: {error}"))?;
     log_glb_phase_timing("json serialize", &mut phase_started);
 
     // ---- Stitch GLB binary container -----------------------------------
-    let json_chunk_len = json_bytes.len() as u32;
-    let bin_chunk_len = bin.len() as u32;
-    // 12 byte header + 8 byte chunk header + JSON + 8 byte chunk header + BIN
-    let total_length: u32 = 12 + 8 + json_chunk_len + 8 + bin_chunk_len;
-
-    let mut out = Vec::with_capacity(total_length as usize);
-    out.extend_from_slice(&GLB_MAGIC.to_le_bytes());
-    out.extend_from_slice(&GLB_VERSION.to_le_bytes());
-    out.extend_from_slice(&total_length.to_le_bytes());
-
-    out.extend_from_slice(&json_chunk_len.to_le_bytes());
-    out.extend_from_slice(&CHUNK_TYPE_JSON.to_le_bytes());
-    out.extend_from_slice(&json_bytes);
-
-    out.extend_from_slice(&bin_chunk_len.to_le_bytes());
-    out.extend_from_slice(&CHUNK_TYPE_BIN.to_le_bytes());
-    out.extend_from_slice(&bin);
-
-    debug_assert_eq!(out.len() as u32, total_length);
+    let out = crate::preview::glb::finish_glb(json_bytes, bin)
+        .map_err(|error| format!("failed to assemble GLB container: {error}"))?;
     log_glb_phase_timing("final concat", &mut phase_started);
     if timing_enabled {
         log::debug!(
@@ -2627,19 +3239,13 @@ fn build_glb_with_bin_capacity(
             nodes.len(),
             materials.len(),
             textures.len(),
-            bin.len(),
-            bin.capacity(),
-            json_bytes.len(),
+            bin_chunk_len,
+            bin_capacity,
+            json_chunk_len,
             out.len()
         );
     }
     Ok(out)
-}
-
-fn pad_to_4(buf: &mut Vec<u8>) {
-    while buf.len() % 4 != 0 {
-        buf.push(0);
-    }
 }
 
 /// Phase 2.P: column-major 4×4 identity check with a small epsilon
@@ -2767,15 +3373,10 @@ pub(crate) fn decompose_trs_column_major(m: &[f32; 16]) -> ([f32; 3], [f32; 4], 
     (translation, [qx, qy, qz, qw], [sx, sy, sz])
 }
 
-fn pad_chunk(buf: &mut Vec<u8>, byte: u8) {
-    while buf.len() % 4 != 0 {
-        buf.push(byte);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::preview::glb::{BIN_CHUNK as CHUNK_TYPE_BIN, JSON_CHUNK as CHUNK_TYPE_JSON};
 
     fn identity_matrix() -> [f32; 16] {
         [
@@ -2826,6 +3427,64 @@ mod tests {
         vec![MaterialInput::default_preview()]
     }
 
+    fn morph_mesh(name: &str, offset: f32) -> MeshInput {
+        let mut mesh = unit_quad_split_into_two_triangles();
+        mesh.name = name.to_string();
+        mesh.morph_targets = vec![MorphTarget {
+            name: Some("Smile".to_string()),
+            position_offsets: vec![offset; mesh.positions.len()],
+        }];
+        mesh.morph_weights = vec![0.0];
+        mesh
+    }
+
+    fn weight_animation(weight_channels: Vec<MorphWeightChannel>) -> AnimationInput {
+        AnimationInput {
+            name: "weights".to_string(),
+            times: Vec::new(),
+            weight_times: vec![0.0, 1.0],
+            skin_index: 0,
+            translations: vec![None],
+            rotations: vec![None],
+            scales: vec![None],
+            weight_channels,
+        }
+    }
+
+    fn one_joint_skin() -> SkinInput {
+        SkinInput {
+            name: "skin".to_string(),
+            joint_names: vec!["Root".to_string()],
+            parents: vec![None],
+            rest_local_matrices: vec![identity_matrix()],
+            inverse_bind_matrices: vec![identity_matrix()],
+            skel_root_matrix: None,
+        }
+    }
+
+    fn mesh_hierarchy_node(mesh_payload_idx: usize, parent: Option<usize>) -> NodeInput {
+        NodeInput {
+            prim_path: format!("/Root/Mesh{mesh_payload_idx}"),
+            basename: format!("Mesh{mesh_payload_idx}"),
+            parent,
+            local_matrix: identity_matrix(),
+            kind: NodeKind::Mesh,
+            mesh_payload_idx: Some(mesh_payload_idx),
+            light_payload_idx: None,
+            camera_payload_idx: None,
+            skin_payload_idx: None,
+        }
+    }
+
+    fn root_hierarchy_node() -> NodeInput {
+        NodeInput::group(
+            "/Root".to_string(),
+            "Root".to_string(),
+            None,
+            identity_matrix(),
+        )
+    }
+
     fn glb_json(glb: &[u8]) -> serde_json::Value {
         let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json_text = std::str::from_utf8(&glb[20..20 + json_chunk_len])
@@ -2838,6 +3497,53 @@ mod tests {
         let json_chunk_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let bin_header = 20 + json_chunk_len;
         u32::from_le_bytes(glb[bin_header..bin_header + 4].try_into().unwrap()) as usize
+    }
+
+    fn accessor_f32(doc: &serde_json::Value, glb: &[u8], accessor_index: usize) -> Vec<f32> {
+        let accessor = &doc["accessors"][accessor_index];
+        let view_index = accessor["bufferView"]
+            .as_u64()
+            .expect("accessor bufferView") as usize;
+        let view = &doc["bufferViews"][view_index];
+        let view_offset = view["byteOffset"].as_u64().unwrap_or(0) as usize;
+        let accessor_offset = accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+        let count = accessor["count"].as_u64().expect("accessor count") as usize;
+        let components = match accessor["type"].as_str().expect("accessor type") {
+            "SCALAR" => 1,
+            "VEC3" => 3,
+            "VEC4" => 4,
+            other => panic!("unsupported test accessor type {other}"),
+        };
+        let bin_start = 20 + u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize + 8;
+        let start = bin_start + view_offset + accessor_offset;
+        (0..count * components)
+            .map(|index| {
+                let offset = start + index * size_of::<f32>();
+                f32::from_le_bytes(glb[offset..offset + 4].try_into().unwrap())
+            })
+            .collect()
+    }
+
+    fn node_animation_fixture(animation: NodeAnimationInput) -> Result<Vec<u8>, String> {
+        let nodes = vec![NodeInput::group(
+            "/Animated".to_string(),
+            "Animated".to_string(),
+            None,
+            identity_matrix(),
+        )];
+        build_glb_with_node_animations(
+            &nodes,
+            &[],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &[animation],
+        )
     }
 
     #[test]
@@ -2870,6 +3576,7 @@ mod tests {
         let animations = vec![AnimationInput {
             name: "animation".to_string(),
             times: vec![0.0, 1.0],
+            weight_times: vec![0.0, 1.0],
             skin_index: 0,
             translations: vec![Some(vec![0.0; 6])],
             rotations: vec![Some(vec![0.0; 8])],
@@ -3114,7 +3821,7 @@ mod tests {
     }
 
     #[test]
-    fn skips_weight_channels_without_resolved_mesh_node() {
+    fn rejects_weight_channels_without_resolved_mesh_node() {
         let mut mesh = unit_quad_split_into_two_triangles();
         mesh.morph_targets = vec![MorphTarget {
             name: Some("Smile".to_string()),
@@ -3132,6 +3839,7 @@ mod tests {
         let animation = AnimationInput {
             name: "weights".to_string(),
             times: vec![0.0, 1.0],
+            weight_times: vec![0.0, 1.0],
             skin_index: 0,
             translations: vec![None],
             rotations: vec![None],
@@ -3155,6 +3863,34 @@ mod tests {
         let meshes = vec![mesh];
         let skins = vec![skin];
         let animations = vec![animation];
+        let error = build_glb(
+            &nodes,
+            &meshes,
+            &default_materials(),
+            &[],
+            &skins,
+            &animations,
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect_err("unresolved mesh-node weight channel must fail closed");
+        assert!(
+            error.contains("no resolved glTF mesh node"),
+            "unexpected unresolved weight error: {error}"
+        );
+    }
+
+    #[test]
+    fn emits_weights_only_for_hierarchy_mesh_node() {
+        let meshes = vec![morph_mesh("mesh", 0.25)];
+        let nodes = vec![root_hierarchy_node(), mesh_hierarchy_node(0, Some(0))];
+        let animations = vec![weight_animation(vec![MorphWeightChannel {
+            mesh_index: 0,
+            weights: vec![0.0, 1.0],
+        }])];
+        let skins = vec![one_joint_skin()];
         let estimated = estimate_bin_capacity(&nodes, &meshes, &[], &skins, &animations, &[])
             .expect("capacity estimate");
 
@@ -3170,15 +3906,247 @@ mod tests {
             None,
             &[],
         )
-        .expect("build glb");
+        .expect("build weights-only glb");
         let doc = glb_json(&glb);
-
         assert_eq!(estimated, glb_bin_chunk_len(&glb));
-        assert!(
-            doc.get("animations").is_none(),
-            "unresolved mesh-node weight channel must not be emitted: {:?}",
-            doc.get("animations")
+
+        let animation = &doc["animations"][0];
+        assert_eq!(animation["samplers"].as_array().unwrap().len(), 1);
+        assert_eq!(animation["channels"].as_array().unwrap().len(), 1);
+        let channel = &animation["channels"][0];
+        assert_eq!(channel["target"]["node"], 3);
+        assert_eq!(channel["target"]["path"], "weights");
+        let sampler = &animation["samplers"][0];
+        assert_eq!(sampler["interpolation"], "LINEAR");
+        assert_eq!(
+            accessor_f32(&doc, &glb, sampler["input"].as_u64().unwrap() as usize),
+            vec![0.0, 1.0]
         );
+        assert_eq!(
+            accessor_f32(&doc, &glb, sampler["output"].as_u64().unwrap() as usize),
+            vec![0.0, 1.0]
+        );
+    }
+
+    #[test]
+    fn emits_weights_for_each_hierarchy_mesh_subset() {
+        let meshes = vec![morph_mesh("subset_a", 0.25), morph_mesh("subset_b", 0.5)];
+        let nodes = vec![
+            root_hierarchy_node(),
+            mesh_hierarchy_node(0, Some(0)),
+            mesh_hierarchy_node(1, Some(0)),
+        ];
+        let animations = vec![weight_animation(vec![
+            MorphWeightChannel {
+                mesh_index: 0,
+                weights: vec![0.0, 1.0],
+            },
+            MorphWeightChannel {
+                mesh_index: 1,
+                weights: vec![1.0, 0.0],
+            },
+        ])];
+        let skins = vec![one_joint_skin()];
+        let estimated = estimate_bin_capacity(&nodes, &meshes, &[], &skins, &animations, &[])
+            .expect("capacity estimate");
+
+        let glb = build_glb(
+            &nodes,
+            &meshes,
+            &default_materials(),
+            &[],
+            &skins,
+            &animations,
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build subset weights glb");
+        let doc = glb_json(&glb);
+        assert_eq!(estimated, glb_bin_chunk_len(&glb));
+
+        let animation = &doc["animations"][0];
+        assert_eq!(animation["samplers"].as_array().unwrap().len(), 2);
+        assert_eq!(animation["channels"].as_array().unwrap().len(), 2);
+        for (channel, expected_node) in [(0, 3), (1, 4)] {
+            assert_eq!(
+                animation["channels"][channel]["target"]["node"],
+                expected_node
+            );
+            assert_eq!(animation["channels"][channel]["target"]["path"], "weights");
+            let sampler = &animation["samplers"][channel];
+            assert_eq!(sampler["input"], animation["samplers"][0]["input"]);
+            let expected_weights = if channel == 0 {
+                vec![0.0, 1.0]
+            } else {
+                vec![1.0, 0.0]
+            };
+            assert_eq!(
+                accessor_f32(&doc, &glb, sampler["output"].as_u64().unwrap() as usize),
+                expected_weights
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_trs_and_weights_keep_independent_time_accessors() {
+        let meshes = vec![morph_mesh("mesh", 0.25)];
+        let nodes = vec![root_hierarchy_node(), mesh_hierarchy_node(0, Some(0))];
+        let animations = vec![AnimationInput {
+            name: "mixed".to_string(),
+            times: vec![0.0, 1.0],
+            weight_times: vec![0.0, 0.25, 1.0],
+            skin_index: 0,
+            translations: vec![Some(vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0])],
+            rotations: vec![Some(vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])],
+            scales: vec![Some(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0])],
+            weight_channels: vec![MorphWeightChannel {
+                mesh_index: 0,
+                weights: vec![0.0, 0.5, 1.0],
+            }],
+        }];
+        let skins = vec![one_joint_skin()];
+        let estimated = estimate_bin_capacity(&nodes, &meshes, &[], &skins, &animations, &[])
+            .expect("capacity estimate");
+        let glb = build_glb(
+            &nodes,
+            &meshes,
+            &default_materials(),
+            &[],
+            &skins,
+            &animations,
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build mixed animation glb");
+        let doc = glb_json(&glb);
+        assert_eq!(estimated, glb_bin_chunk_len(&glb));
+
+        let animation = &doc["animations"][0];
+        assert_eq!(animation["samplers"].as_array().unwrap().len(), 4);
+        assert_eq!(animation["channels"].as_array().unwrap().len(), 4);
+        for sampler in &animation["samplers"].as_array().unwrap()[..3] {
+            assert_eq!(
+                accessor_f32(&doc, &glb, sampler["input"].as_u64().unwrap() as usize),
+                vec![0.0, 1.0]
+            );
+        }
+        let weight_sampler = &animation["samplers"][3];
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                weight_sampler["input"].as_u64().unwrap() as usize
+            ),
+            vec![0.0, 0.25, 1.0]
+        );
+        assert_eq!(animation["channels"][3]["target"]["node"], 3);
+        assert_eq!(animation["channels"][3]["target"]["path"], "weights");
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                weight_sampler["output"].as_u64().unwrap() as usize
+            ),
+            vec![0.0, 0.5, 1.0]
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_weight_channels() {
+        let skin = one_joint_skin();
+        let nodes = Vec::new();
+        let cases = [
+            (
+                weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 1,
+                    weights: vec![0.0, 1.0],
+                }]),
+                vec![morph_mesh("mesh", 0.25)],
+                "mesh_index 1 is out of range",
+            ),
+            (
+                weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: Vec::new(),
+                }]),
+                vec![unit_quad_split_into_two_triangles()],
+                "has no morph targets",
+            ),
+            (
+                weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: vec![0.0],
+                }]),
+                vec![morph_mesh("mesh", 0.25)],
+                "weights but 2 are required",
+            ),
+            (
+                weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: vec![0.0, f32::NAN],
+                }]),
+                vec![morph_mesh("mesh", 0.25)],
+                "weight[1] must be finite",
+            ),
+            {
+                let mut animation = weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: vec![0.0, 1.0],
+                }]);
+                animation.weight_times.clear();
+                (
+                    animation,
+                    vec![morph_mesh("mesh", 0.25)],
+                    "require at least one weight time sample",
+                )
+            },
+            {
+                let mut animation = weight_animation(vec![MorphWeightChannel {
+                    mesh_index: 0,
+                    weights: vec![0.0, 1.0],
+                }]);
+                animation.weight_times[0] = -0.1;
+                (
+                    animation,
+                    vec![morph_mesh("mesh", 0.25)],
+                    "weight_time[0] must be finite and non-negative",
+                )
+            },
+            (
+                weight_animation(vec![
+                    MorphWeightChannel {
+                        mesh_index: 0,
+                        weights: vec![0.0, 1.0],
+                    },
+                    MorphWeightChannel {
+                        mesh_index: 0,
+                        weights: vec![1.0, 0.0],
+                    },
+                ]),
+                vec![morph_mesh("mesh", 0.25)],
+                "duplicate weight track for mesh_index 0",
+            ),
+        ];
+        for (animation, meshes, expected) in cases {
+            let error = build_glb(
+                &nodes,
+                &meshes,
+                &default_materials(),
+                &[],
+                std::slice::from_ref(&skin),
+                &[animation],
+                &[],
+                &[],
+                None,
+                &[],
+            )
+            .expect_err(expected);
+            assert!(error.contains(expected), "unexpected weight error: {error}");
+        }
     }
 
     #[test]
@@ -3463,5 +4431,195 @@ mod tests {
         let meshes_arr = doc["meshes"].as_array().expect("meshes array");
         assert_eq!(meshes_arr[0]["primitives"][0]["material"], 0);
         assert_eq!(meshes_arr[1]["primitives"][0]["material"], 1);
+    }
+
+    #[test]
+    fn node_animation_targets_actual_node_after_synthetic_root_and_skin_joints() {
+        let nodes = vec![
+            NodeInput::group(
+                "/Root".to_string(),
+                "Root".to_string(),
+                None,
+                identity_matrix(),
+            ),
+            NodeInput::group(
+                "/Root/Animated".to_string(),
+                "Animated".to_string(),
+                Some(0),
+                [
+                    1.0, 0.0, 0.0, 0.0, // matrix must be replaced by initial TRS
+                    0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 8.0, 0.0, 0.0, 1.0,
+                ],
+            ),
+        ];
+        let skins = vec![SkinInput {
+            name: "skin".to_string(),
+            joint_names: vec!["Joint".to_string()],
+            parents: vec![None],
+            rest_local_matrices: vec![identity_matrix()],
+            inverse_bind_matrices: vec![identity_matrix()],
+            skel_root_matrix: None,
+        }];
+        let node_animation = NodeAnimationInput {
+            name: "xform_step".to_string(),
+            times: vec![0.0, 1.0],
+            interpolation: NodeAnimationInterpolation::Step,
+            channels: vec![NodeTrsChannel {
+                node_index: 1,
+                translations: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                rotations: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.70710677, 0.70710677],
+                scales: vec![1.0, 1.0, 1.0, 2.0, 2.0, 2.0],
+            }],
+        };
+
+        let glb = build_glb_with_node_animations(
+            &nodes,
+            &[],
+            &default_materials(),
+            &[],
+            &skins,
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &[node_animation],
+        )
+        .expect("build node animation glb");
+        let doc = glb_json(&glb);
+
+        // Skin joint = 0, synthetic __upAxis = 1, Root = 2, Animated = 3.
+        let animated_node = &doc["nodes"][3];
+        assert!(animated_node.get("matrix").is_none());
+        assert_eq!(animated_node["translation"], json!([1.0, 2.0, 3.0]));
+        assert_eq!(animated_node["rotation"], json!([0.0, 0.0, 0.0, 1.0]));
+        assert_eq!(animated_node["scale"], json!([1.0, 1.0, 1.0]));
+
+        let animation = &doc["animations"][0];
+        assert_eq!(animation["name"], "xform_step");
+        assert_eq!(animation["samplers"].as_array().unwrap().len(), 3);
+        assert_eq!(animation["channels"][0]["target"]["node"], 3);
+        assert_eq!(animation["channels"][0]["target"]["path"], "translation");
+        assert_eq!(animation["channels"][1]["target"]["path"], "rotation");
+        assert_eq!(animation["channels"][2]["target"]["path"], "scale");
+        for sampler in animation["samplers"].as_array().unwrap() {
+            assert_eq!(sampler["interpolation"], "STEP");
+            assert_eq!(
+                accessor_f32(&doc, &glb, sampler["input"].as_u64().unwrap() as usize),
+                vec![0.0, 1.0]
+            );
+        }
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                animation["samplers"][0]["output"].as_u64().unwrap() as usize
+            ),
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        );
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                animation["samplers"][1]["output"].as_u64().unwrap() as usize
+            ),
+            vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.70710677, 0.70710677]
+        );
+        assert_eq!(
+            accessor_f32(
+                &doc,
+                &glb,
+                animation["samplers"][2]["output"].as_u64().unwrap() as usize
+            ),
+            vec![1.0, 1.0, 1.0, 2.0, 2.0, 2.0]
+        );
+    }
+
+    #[test]
+    fn build_glb_with_empty_node_animations_is_byte_identical() {
+        let nodes = vec![NodeInput::group(
+            "/Static".to_string(),
+            "Static".to_string(),
+            None,
+            identity_matrix(),
+        )];
+        let old = build_glb(
+            &nodes,
+            &[],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build static glb");
+        let additive = build_glb_with_node_animations(
+            &nodes,
+            &[],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &[],
+        )
+        .expect("build static glb through additive entrypoint");
+        assert_eq!(old, additive);
+    }
+
+    #[test]
+    fn rejects_malformed_node_animation_tracks() {
+        let valid_channel = || NodeTrsChannel {
+            node_index: 0,
+            translations: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            rotations: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            scales: vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        };
+        let valid = || NodeAnimationInput {
+            name: "invalid".to_string(),
+            times: vec![0.0, 1.0],
+            interpolation: NodeAnimationInterpolation::Linear,
+            channels: vec![valid_channel()],
+        };
+
+        let mut cases = Vec::new();
+        let mut no_times = valid();
+        no_times.times.clear();
+        cases.push((no_times, "no time samples"));
+        let mut no_channels = valid();
+        no_channels.channels.clear();
+        cases.push((no_channels, "no channels"));
+        let mut bad_length = valid();
+        bad_length.channels[0].scales.pop();
+        cases.push((bad_length, "scale length"));
+        let mut bad_index = valid();
+        bad_index.channels[0].node_index = 1;
+        cases.push((bad_index, "out of range"));
+        let mut bad_time = valid();
+        bad_time.times = vec![1.0, 1.0];
+        cases.push((bad_time, "strictly increasing"));
+        let mut bad_negative_time = valid();
+        bad_negative_time.times[0] = -0.1;
+        cases.push((bad_negative_time, "non-negative"));
+        let mut bad_finite = valid();
+        bad_finite.channels[0].translations[0] = f32::NAN;
+        cases.push((bad_finite, "must be finite"));
+        let mut bad_quaternion = valid();
+        bad_quaternion.channels[0].rotations[3] = 0.5;
+        cases.push((bad_quaternion, "normalized quaternion"));
+        let mut duplicate = valid();
+        duplicate.channels.push(valid_channel());
+        cases.push((duplicate, "duplicate track"));
+
+        for (animation, expected_error) in cases {
+            let error = node_animation_fixture(animation).expect_err(expected_error);
+            assert!(error.contains(expected_error), "{error}");
+        }
     }
 }

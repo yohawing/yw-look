@@ -31,6 +31,18 @@
   flex-direction: column;
 }
 
+.texture-list-layout > .sidebar-empty {
+  flex: 1 1 auto;
+}
+
+.texture-list-layout > .yl-list-text-filter {
+  flex: 0 0 auto;
+}
+
+.texture-list-layout > .texture-channel-filters {
+  flex: 0 0 auto;
+}
+
 .texture-list {
   display: flex;
   min-height: 0;

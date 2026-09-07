@@ -14,6 +14,11 @@ export type {
 } from "../types/ui";
 
 export const viewerShortcutHelpLines = [
+  "PageUp  File > Previous file",
+  "PageDown  File > Next file",
+  "Space  Playback > Play / pause",
+  "ArrowLeft / ArrowRight  Playback > Step frame",
+  "Ctrl+ArrowLeft / Ctrl+ArrowRight  Playback > First / last frame",
   "F  View > Focus selected",
   "Home  View > Frame all",
   "R  View > Reset view",

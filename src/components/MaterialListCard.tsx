@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { rgbToHex } from "../lib/format";
 import { useFileStore } from "../stores/fileStore";
@@ -12,6 +12,7 @@ import { Badge } from "./ui/Badge";
 import { Disclosure } from "./ui/Disclosure";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
 import { SidebarSplitPanel } from "./ui/SidebarSplitPanel";
+import { ListTextFilter } from "./ui/ListTextFilter";
 import "../styles/material-list.css";
 
 type MaterialListCardProps = {
@@ -411,7 +412,19 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
   );
 }
 
-export function MaterialListCard({
+export function MaterialListCard(props: MaterialListCardProps) {
+  const currentFilePath = useFileStore(
+    (state) => state.currentFile?.path ?? null,
+  );
+  return (
+    <MaterialListCardContent
+      key={currentFilePath ?? "__no-file__"}
+      {...props}
+    />
+  );
+}
+
+function MaterialListCardContent({
   debugPanelsEnabled = false,
 }: MaterialListCardProps) {
   const storeMaterials = useFileStore(
@@ -423,44 +436,71 @@ export function MaterialListCard({
     ? debugFixtures.debugPanelMetadata.materials
     : (storeMaterials ?? EMPTY_MATERIALS);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const visibleMaterials = useMemo(
+    () =>
+      materials.flatMap((material, index) =>
+        normalizedSearch.length === 0 ||
+        material.name.toLocaleLowerCase().includes(normalizedSearch)
+          ? [{ index, material }]
+          : [],
+      ),
+    [materials, normalizedSearch],
+  );
   const activeIndex =
     materials.length > 0 ? Math.min(selectedIndex, materials.length - 1) : -1;
   const selectedMaterial = activeIndex >= 0 ? materials[activeIndex] : null;
 
-  const materialList =
-    materials.length > 0 ? (
-      <ul className="material-list">
-        {materials.map((mat, index) => (
-          <li key={mat.id} className="material-item">
-            <button
-              className={`material-row${index === activeIndex ? " is-selected" : ""}`}
-              onClick={() => setSelectedIndex(index)}
-              type="button"
-            >
-              <span
-                className={`material-swatch${mat.color ? "" : " material-swatch-none"}`}
-                style={mat.color ? { background: mat.color } : undefined}
-              />
-              <span className="material-info">
-                <span className="material-name">{mat.name}</span>
-                <span className="material-meta">
-                  {mat.type} · {mat.textureCount} tex
-                  {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
-                  {mat.boundMeshes.length > 0
-                    ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
-                    : ""}
-                </span>
-              </span>
-              <Badge className="material-count-badge" mono size="sm">
-                {mat.textureCount}
-              </Badge>
-            </button>
-          </li>
-        ))}
-      </ul>
-    ) : (
-      <SidebarEmpty>No materials found.</SidebarEmpty>
-    );
+  const materialList = (
+    <div className="material-list-layout">
+      <ListTextFilter
+        ariaLabel="Filter materials"
+        clearLabel="Clear material filter"
+        onChange={setSearchQuery}
+        placeholder="Search materials"
+        value={searchQuery}
+      />
+      {materials.length === 0 ? (
+        <SidebarEmpty>No materials found.</SidebarEmpty>
+      ) : visibleMaterials.length === 0 ? (
+        <SidebarEmpty>No materials match.</SidebarEmpty>
+      ) : (
+        <ul className="material-list">
+          {visibleMaterials.map(({ index, material: mat }) => {
+            return (
+              <li key={mat.id} className="material-item">
+                <button
+                  className={`material-row${index === activeIndex ? " is-selected" : ""}`}
+                  onClick={() => setSelectedIndex(index)}
+                  type="button"
+                >
+                  <span
+                    className={`material-swatch${mat.color ? "" : " material-swatch-none"}`}
+                    style={mat.color ? { background: mat.color } : undefined}
+                  />
+                  <span className="material-info">
+                    <span className="material-name">{mat.name}</span>
+                    <span className="material-meta">
+                      {mat.type} · {mat.textureCount} tex
+                      {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
+                      {mat.boundMeshes.length > 0
+                        ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
+                        : ""}
+                    </span>
+                  </span>
+                  <Badge className="material-count-badge" mono size="sm">
+                    {mat.textureCount}
+                  </Badge>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
 
   return (
     <SidebarSplitPanel

@@ -4,6 +4,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   Group,
+  InstancedMesh,
   Mesh,
   MeshStandardMaterial,
   NumberKeyframeTrack,
@@ -73,6 +74,21 @@ describe("model parse worker static scene policy", () => {
   it("enables staticScene for textured static GLB scenes", () => {
     expect(canUseStaticSceneResult("glb", makeStaticGlbScene())).toBe(true);
     expect(canUseStaticSceneResult("gltf", makeStaticGlbScene())).toBe(true);
+  });
+
+  it("routes InstancedMesh scenes through Object JSON for GLB, glTF, and FBX", () => {
+    const root = new Group();
+    root.add(
+      new InstancedMesh(
+        new BoxGeometry(1, 1, 1),
+        new MeshStandardMaterial({ color: 0xffffff }),
+        3,
+      ),
+    );
+
+    for (const kind of ["glb", "gltf", "fbxGlb"] as const) {
+      expect(canUseStaticSceneResult(kind, root)).toBe(false);
+    }
   });
 
   it("rejects residual non-serializable texture payloads for GLB and glTF scenes", () => {

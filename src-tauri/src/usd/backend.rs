@@ -11,7 +11,7 @@ use std::path::Path;
 use super::stage_state::OpenStage;
 use super::types::{
     AssetIssue, AttributeTimeSamples, ExtractGeometryOptions, PrimInspection, StageInspection,
-    StageLoadPolicy, StageSummary, UsdLightInfo,
+    StageLoadPolicy, StageSummary, UsdLightInfo, VariantSelection,
 };
 
 /// Errors a USD backend can produce. Kept intentionally narrow so the
@@ -66,6 +66,24 @@ pub trait UsdInspectBackend: Send + Sync {
         policy: StageLoadPolicy,
     ) -> Result<StageInspection, UsdError>;
 
+    /// Variant-aware inspection entry point. Empty selections retain the
+    /// legacy authored-selection behavior; unsupported non-empty selections
+    /// return an explicit error so callers cannot mistake stale data for a
+    /// variant-aware result.
+    fn inspect_stage_with_variants(
+        &self,
+        path: &Path,
+        policy: StageLoadPolicy,
+        variant_selections: &[VariantSelection],
+    ) -> Result<StageInspection, UsdError> {
+        if variant_selections.is_empty() {
+            return self.inspect_stage(path, policy);
+        }
+        Err(UsdError::Parse(
+            "variant selections are not supported by this backend".into(),
+        ))
+    }
+
     /// Lightweight summary intended for the "show something instantly"
     /// UX path. Under `StageLoadPolicy::NoPayloads` the `mesh_count`
     /// reflects only composed payload-free geometry and
@@ -77,10 +95,45 @@ pub trait UsdInspectBackend: Send + Sync {
         policy: StageLoadPolicy,
     ) -> Result<StageSummary, UsdError>;
 
+    /// Variant-aware summary entry point. Empty selections retain the legacy
+    /// authored-selection behavior; unsupported non-empty selections return
+    /// an explicit error so callers cannot mistake stale data for a
+    /// variant-aware result.
+    fn summarize_stage_with_variants(
+        &self,
+        path: &Path,
+        policy: StageLoadPolicy,
+        variant_selections: &[VariantSelection],
+    ) -> Result<StageSummary, UsdError> {
+        if variant_selections.is_empty() {
+            return self.summarize_stage(path, policy);
+        }
+        Err(UsdError::Parse(
+            "variant selections are not supported by this backend".into(),
+        ))
+    }
+
     /// Asset hygiene checks: broken references, suspicious metadata, etc.
     /// Always runs under the default `LoadAll` policy — issue collection
     /// wants to see every arc regardless of deferred-load UI state.
     fn collect_asset_issues(&self, path: &Path) -> Result<Vec<AssetIssue>, UsdError>;
+
+    /// Variant-aware asset issue entry point. Empty selections retain the
+    /// legacy authored-selection behavior; unsupported non-empty selections
+    /// return an explicit error so callers cannot mistake stale data for a
+    /// variant-aware result.
+    fn collect_asset_issues_with_variants(
+        &self,
+        path: &Path,
+        variant_selections: &[VariantSelection],
+    ) -> Result<Vec<AssetIssue>, UsdError> {
+        if variant_selections.is_empty() {
+            return self.collect_asset_issues(path);
+        }
+        Err(UsdError::Parse(
+            "variant selections are not supported by this backend".into(),
+        ))
+    }
 
     /// Phase 3: returns `true` if the root layer of the stage is the binary
     /// USDC crate format, `false` if it's USDA text. Kept as a primitive
@@ -188,6 +241,23 @@ pub trait UsdLightBackend: Send + Sync {
     /// should treat an error from this method as "no USD light detail
     /// available" and fall back to the Three.js-derived `LightEntry` list.
     fn inspect_usd_lights(&self, path: &Path) -> Result<Vec<UsdLightInfo>, UsdError>;
+
+    /// Variant-aware light inspection entry point. Empty selections retain
+    /// the legacy authored-selection behavior; unsupported non-empty
+    /// selections return an explicit error so callers cannot mistake stale
+    /// data for a variant-aware result.
+    fn inspect_usd_lights_with_variants(
+        &self,
+        path: &Path,
+        variant_selections: &[VariantSelection],
+    ) -> Result<Vec<UsdLightInfo>, UsdError> {
+        if variant_selections.is_empty() {
+            return self.inspect_usd_lights(path);
+        }
+        Err(UsdError::Parse(
+            "variant selections are not supported by this backend".into(),
+        ))
+    }
 }
 
 /// Stateful stage session / per-prim payload capability.

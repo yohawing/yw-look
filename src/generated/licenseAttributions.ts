@@ -9,19 +9,19 @@ export type LicenseAttribution = {
 };
 
 export const projectName = "yw-look" as const;
-export const projectVersion = "0.3.1" as const;
+export const projectVersion = "0.3.3" as const;
 export const projectLicense = "MIT" as const;
 
 export const webRuntimeLicenseAttributions = [
   {
     name: "@pixiv/three-vrm",
-    version: "3.5.2",
+    version: "3.5.5",
     license: "MIT",
     source: "web",
   },
   {
     name: "@radix-ui/react-dialog",
-    version: "1.1.17",
+    version: "1.1.23",
     license: "MIT",
     source: "web",
   },
@@ -33,13 +33,13 @@ export const webRuntimeLicenseAttributions = [
   },
   {
     name: "@radix-ui/react-popover",
-    version: "1.1.17",
+    version: "1.1.23",
     license: "MIT",
     source: "web",
   },
   {
     name: "@radix-ui/react-tooltip",
-    version: "1.2.10",
+    version: "1.2.16",
     license: "MIT",
     source: "web",
   },
@@ -51,55 +51,61 @@ export const webRuntimeLicenseAttributions = [
   },
   {
     name: "@tauri-apps/api",
-    version: "2.10.1",
+    version: "2.11.1",
     license: "Apache-2.0 OR MIT",
     source: "web",
   },
   {
     name: "@tauri-apps/plugin-log",
-    version: "2.8.0",
+    version: "2.9.0",
     license: "MIT OR Apache-2.0",
     source: "web",
   },
   {
     name: "@yohawing/three-mmd-loader",
-    version: "0.8.1",
+    version: "0.8.2",
+    license: "MIT",
+    source: "web",
+  },
+  {
+    name: "@yohawing/timeline-editor",
+    version: "0.1.0-rc.1",
     license: "MIT",
     source: "web",
   },
   {
     name: "react",
-    version: "19.2.4",
+    version: "19.2.8",
     license: "MIT",
     source: "web",
   },
   {
     name: "react-dom",
-    version: "19.2.4",
+    version: "19.2.8",
     license: "MIT",
     source: "web",
   },
   {
     name: "react-resizable-panels",
-    version: "4.11.2",
+    version: "4.12.3",
     license: "MIT",
     source: "web",
   },
   {
     name: "three",
-    version: "0.180.0",
+    version: "0.185.1",
     license: "MIT",
     source: "web",
   },
   {
     name: "three-mesh-bvh",
-    version: "0.9.11",
+    version: "0.9.14",
     license: "MIT",
     source: "web",
   },
   {
     name: "zustand",
-    version: "5.0.14",
+    version: "5.0.15",
     license: "MIT",
     source: "web",
   },
@@ -108,13 +114,13 @@ export const webRuntimeLicenseAttributions = [
 export const nativeRuntimeLicenseAttributions = [
   {
     name: "anyhow",
-    version: "1.0.102",
+    version: "1.0.104",
     license: "MIT OR Apache-2.0",
     source: "native",
   },
   {
     name: "glam",
-    version: "0.33.2",
+    version: "0.33.5",
     license: "MIT OR Apache-2.0",
     source: "native",
   },
@@ -126,7 +132,7 @@ export const nativeRuntimeLicenseAttributions = [
   },
   {
     name: "log",
-    version: "0.4.33",
+    version: "0.4.34",
     license: "MIT OR Apache-2.0",
     source: "native",
   },
@@ -138,7 +144,13 @@ export const nativeRuntimeLicenseAttributions = [
   },
   {
     name: "openusd",
-    version: "0.6.0",
+    version: "0.7.0",
+    license: "MIT",
+    source: "native",
+  },
+  {
+    name: "openusd-schemas",
+    version: "0.7.0",
     license: "MIT",
     source: "native",
   },
@@ -150,55 +162,55 @@ export const nativeRuntimeLicenseAttributions = [
   },
   {
     name: "rfd",
-    version: "0.15.4",
+    version: "0.17.2",
     license: "MIT",
     source: "native",
   },
   {
     name: "semver",
-    version: "1.0.27",
+    version: "1.0.28",
     license: "MIT OR Apache-2.0",
     source: "native",
   },
   {
     name: "serde",
-    version: "1.0.228",
+    version: "1.0.229",
     license: "MIT OR Apache-2.0",
     source: "native",
   },
   {
     name: "serde_json",
-    version: "1.0.149",
+    version: "1.0.151",
     license: "MIT OR Apache-2.0",
     source: "native",
   },
   {
     name: "sysinfo",
-    version: "0.37.2",
+    version: "0.39.6",
     license: "MIT",
     source: "native",
   },
   {
     name: "tauri",
-    version: "2.10.3",
+    version: "2.11.5",
     license: "Apache-2.0 OR MIT",
     source: "native",
   },
   {
     name: "tauri-plugin-log",
-    version: "2.8.0",
+    version: "2.9.0",
     license: "Apache-2.0 OR MIT",
     source: "native",
   },
   {
     name: "tauri-plugin-updater",
-    version: "2.10.0",
+    version: "2.10.1",
     license: "Apache-2.0 OR MIT",
     source: "native",
   },
   {
     name: "thiserror",
-    version: "2.0.18",
+    version: "2.0.20",
     license: "MIT OR Apache-2.0",
     source: "native",
   },
@@ -216,19 +228,19 @@ export const nativeRuntimeLicenseAttributions = [
   },
   {
     name: "windows-sys",
-    version: "0.59.0",
+    version: "0.61.2",
     license: "MIT OR Apache-2.0",
     source: "native",
   },
   {
     name: "winreg",
-    version: "0.55.0",
+    version: "0.56.0",
     license: "MIT",
     source: "native",
   },
   {
     name: "zip",
-    version: "8.5.0",
+    version: "8.6.0",
     license: "MIT",
     source: "native",
   },

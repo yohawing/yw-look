@@ -68,6 +68,7 @@ Run a curated local release preflight before tagging. Cheap checks run by defaul
 optional flags add heavier or artifact-dependent gates.
 
 Default automatic checks:
+  npm run check:readme-screenshot
   npm run check:nsis-loader-packs
   npm run check:file-associations
   npm run check:macos-codesign        (skipped off macOS)
@@ -188,6 +189,13 @@ function hasMacosSigningArtifacts() {
 
 function buildStepDefinitions(options) {
   const steps = [
+    {
+      id: "readme-screenshot",
+      label: "README native UI screenshot freshness",
+      command: "npm run check:readme-screenshot",
+      npmArgs: ["run", "check:readme-screenshot"],
+      category: "automatic",
+    },
     {
       id: "nsis-loader-packs",
       label: "NSIS loader pack hooks",

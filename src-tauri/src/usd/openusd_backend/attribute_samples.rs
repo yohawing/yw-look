@@ -316,7 +316,7 @@ fn bounded_string(value: &str) -> String {
     }
 }
 
-fn value_summary(value: &SdfValue) -> String {
+pub(super) fn value_summary(value: &SdfValue) -> String {
     match value {
         SdfValue::None => "<none>".to_owned(),
         SdfValue::ValueBlock => "<value block>".to_owned(),

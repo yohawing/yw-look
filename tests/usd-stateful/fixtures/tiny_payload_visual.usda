@@ -1,0 +1,14 @@
+#usda 1.0
+(
+    subLayers = [@../../../samples/assets/usd/tiny_payload.usda@]
+    doc = "Visual-only payload regression wrapper. It separates the authored payload mesh from the inline mesh without changing the source fixture."
+)
+
+over "Root"
+{
+    over "PayloadRoot"
+    {
+        double3 xformOp:translate = (3, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}

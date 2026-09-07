@@ -167,8 +167,15 @@
   --yl-tooltip-border: var(--yl-border);
 }
 
+button,
+select {
+  user-select: none;
+}
+
 .yl-scope,
 .yl-button,
+.playback-timeline .timeline-editor__button,
+.playback-timeline .timeline-editor__readout,
 .yl-toggle,
 .yl-tooltip,
 .yl-tooltip__content,
@@ -242,7 +249,9 @@
   border: 0;
 }
 
-.yl-button {
+.yl-button,
+.playback-timeline .timeline-editor__button,
+.playback-timeline .timeline-editor__readout {
   display: inline-flex;
   min-height: var(--yl-control-height-md);
   align-items: center;
@@ -266,25 +275,32 @@
     opacity 120ms ease;
 }
 
-.yl-button:hover:not(:disabled, [aria-disabled="true"], .yl-button--unstyled) {
+.yl-button:hover:not(:disabled, [aria-disabled="true"], .yl-button--unstyled),
+.playback-timeline .timeline-editor__button:hover:not(:disabled),
+.playback-timeline .timeline-editor__readout:hover {
   border-color: var(--yl-border-strong);
   background: var(--yl-button-bg-hover);
   color: var(--yl-text-primary);
 }
 
-.yl-button:focus-visible {
+.yl-button:focus-visible,
+.playback-timeline .timeline-editor__button:focus-visible,
+.playback-timeline .timeline-editor__readout:focus-visible {
   outline: none;
   box-shadow: var(--yl-shadow-focus);
 }
 
 .yl-button:disabled,
-.yl-button[aria-disabled="true"] {
+.yl-button[aria-disabled="true"],
+.playback-timeline .timeline-editor__button:disabled,
+.playback-timeline .timeline-editor__readout:disabled {
   color: var(--yl-text-disabled);
   cursor: not-allowed;
   opacity: 0.65;
 }
 
-.yl-button--primary {
+.yl-button--primary,
+.playback-timeline .timeline-editor__button.is-active {
   border-color: transparent;
   background: var(--yl-button-primary-bg);
   color: var(--yl-button-primary-text);
@@ -294,7 +310,8 @@
     :disabled,
     [aria-disabled="true"],
     .yl-button--unstyled
-  ) {
+  ),
+.playback-timeline .timeline-editor__button.is-active:hover:not(:disabled) {
   background: var(--yl-button-primary-bg-hover);
   color: var(--yl-button-primary-text);
 }
@@ -324,7 +341,9 @@
   padding: 0;
 }
 
-.yl-button--sm {
+.yl-button--sm,
+.playback-timeline .timeline-editor__button,
+.playback-timeline .timeline-editor__readout {
   min-height: var(--yl-control-height-sm);
   padding: 0 7px;
   border-radius: var(--yl-radius-4);

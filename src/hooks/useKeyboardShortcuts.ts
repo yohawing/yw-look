@@ -10,6 +10,49 @@ import {
   type ViewerShortcutAction,
 } from "../lib/viewerShortcuts";
 
+const navigationInteractiveSelector = [
+  "a[href]",
+  "button",
+  "dialog",
+  "input",
+  "select",
+  "summary",
+  "textarea",
+  "[contenteditable]:not([contenteditable='false'])",
+  '[role="button"]',
+  '[role="checkbox"]',
+  '[role="combobox"]',
+  '[role="dialog"]',
+  '[role="grid"]',
+  '[role="gridcell"]',
+  '[role="link"]',
+  '[role="listbox"]',
+  '[role="menu"]',
+  '[role="menuitem"]',
+  '[role="menuitemcheckbox"]',
+  '[role="menuitemradio"]',
+  '[role="option"]',
+  '[role="radio"]',
+  '[role="searchbox"]',
+  '[role="scrollbar"]',
+  '[role="slider"]',
+  '[role="spinbutton"]',
+  '[role="switch"]',
+  '[role="tab"]',
+  '[role="textbox"]',
+  '[role="tree"]',
+  '[role="treegrid"]',
+  '[role="treeitem"]',
+].join(", ");
+
+function isNavigationProtectedTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return target.closest(navigationInteractiveSelector) !== null;
+}
+
 export function useKeyboardShortcuts(
   canNavigatePrev: boolean,
   canNavigateNext: boolean,
@@ -29,21 +72,22 @@ export function useKeyboardShortcuts(
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
 
-      const target = event.target as HTMLElement | null;
-      const isTyping =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable;
-
       if (
-        isTyping ||
+        event.isComposing ||
+        event.key === "Process" ||
+        event.keyCode === 229 ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        isNavigationProtectedTarget(event.target) ||
         !directoryListing ||
         directoryListing.currentIndex === null
       ) {
         return;
       }
 
-      if (event.key === "ArrowLeft" && canNavigatePrev) {
+      if (event.key === "PageUp" && canNavigatePrev) {
         event.preventDefault();
         const nextFile =
           directoryListing.files[directoryListing.currentIndex - 1];
@@ -52,7 +96,7 @@ export function useKeyboardShortcuts(
         );
       }
 
-      if (event.key === "ArrowRight" && canNavigateNext) {
+      if (event.key === "PageDown" && canNavigateNext) {
         event.preventDefault();
         const nextFile =
           directoryListing.files[directoryListing.currentIndex + 1];

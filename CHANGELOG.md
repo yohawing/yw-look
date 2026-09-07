@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.3.3 (2026-09-07)
+
+### Viewer and playback
+
+- Added a compact, full-width viewport timeline using `@yohawing/timeline-editor`, with clip selection on the left, centered transport controls, and time/speed controls on the right. Controls use the application design system and the track column is hidden.
+- Connected playback speed, looping, and draggable loop ranges to native animation playback. Space toggles playback, Left/Right pause and step one frame, and PageUp/PageDown navigate files. Form controls retain their own keyboard behavior.
+- Removed the previous timeline implementation and its scroll synchronization loop.
+- Added asset-list filtering and preserved the selected texture channel while switching textures.
+- Refreshed glTF texture metadata after deferred loading and preserved instanced meshes across worker transfer.
+
+### USD preview
+
+- Updated the pinned OpenUSD dependency to 0.7.0 (`aaae6d5`), using the separate geometry schema crate and the renamed composition diagnostic API.
+- Added isolated variant overrides, consistent preview refreshes, and persistent payload outliner rows after unloading.
+- Added inspection of composed prim properties and metadata.
+- Added bounded time-sampled Xform animation preview with linear and held interpolation.
+- Animated UsdSkel blend shape weights independently of joint transform timelines, matching channels by name.
+- Resolved supported MaterialX Preview Surface aliases and direct PNG/JPEG resources relative to their authoring layers.
+- Reported USD-authored Gaussian splats and Points as unsupported instead of silently claiming full preview support; mixed stages retain supported meshes.
+- Expanded stateful payload and material, normal, skin, and point-instancer regression coverage and shared GLB binary writing helpers.
+
+### Known limitations
+
+- USD preview remains bounded GLB extraction, not a general stage time evaluator. Xform animation has sampling and TRS restrictions; UsdSkel weights require direct time samples, and MaterialX support is limited to known Preview Surface aliases with direct PNG/JPEG textures.
+- The upstream USDC integer-compressed float-array decoding limitation remains; some integral joint-weight arrays can produce broken skinning.
+- USD-authored Gaussian splats and Points are unsupported. Standalone Gaussian Splat Loader Pack support does not extend to USD-authored splats.
+- Windows production Authenticode signing, clean-environment SmartScreen behavior, and the interactive Optional Loader Pack installer page remain unverified.
+- macOS build, signing, notarization, Gatekeeper, and Finder Open With for this candidate remain unverified from the Windows release-preparation environment.
+- MMD physics remains disabled by default.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: No v0.3.3 release NSIS installer has been produced at preparation time. Production Authenticode signing and clean-environment SmartScreen checks remain pending.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: This candidate is being prepared on Windows; no v0.3.3 macOS `.app`, `.dmg`, or updater archive has been audited. Developer ID signing, notarization, stapling, Gatekeeper, and Finder Open With require macOS release verification.
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: not verified — v0.3.3 is not published; clean installation and updating from v0.3.2 through the published `latest.json` remain pending.
+- macOS: not verified — v0.3.3 is not published; clean installation and updating from v0.3.2 through the published `latest.json` remain pending.
+
 ## v0.3.2 (2026-08-26)
 
 ### FBX preview

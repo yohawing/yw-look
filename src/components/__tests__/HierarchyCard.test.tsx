@@ -348,4 +348,111 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(getByText("goal, link")).toBeTruthy();
     expect(getByText("pmxLinkLimit")).toBeTruthy();
   });
+
+  it("filters to matching nodes and ancestors, then restores the prior expansion", () => {
+    const filterTree: HierarchyNode[] = [
+      {
+        name: "Root",
+        kind: "group",
+        children: [
+          {
+            name: "Branch",
+            kind: "group",
+            children: [
+              { name: "Needle", kind: "mesh", children: [] },
+              { name: "Other", kind: "mesh", children: [] },
+            ],
+          },
+          { name: "Side", kind: "group", children: [] },
+        ],
+      },
+    ];
+    const { container, getByRole } = render(
+      <HierarchyCard hierarchy={filterTree} />,
+    );
+    const branchRow = Array.from(container.querySelectorAll(".tree-row")).find(
+      (row) => row.textContent?.includes("Branch"),
+    );
+    expect(branchRow).toBeTruthy();
+    fireEvent.click(branchRow!.querySelector(".tree-chevron")!);
+
+    const filter = getByRole("textbox", { name: "Filter hierarchy" });
+    fireEvent.change(filter, { target: { value: "needle" } });
+    expect(container.textContent).toContain("Root");
+    expect(container.textContent).toContain("Branch");
+    expect(container.textContent).toContain("Needle");
+    expect(container.textContent).not.toContain("Other");
+    expect(container.textContent).not.toContain("Side");
+    for (const chevron of container.querySelectorAll(".tree-chevron")) {
+      expect((chevron as HTMLButtonElement).disabled).toBe(true);
+    }
+
+    fireEvent.click(getByRole("button", { name: "Clear hierarchy filter" }));
+    expect(container.textContent).not.toContain("Needle");
+    expect(container.textContent).not.toContain("Other");
+    expect(container.textContent).toContain("Side");
+  });
+
+  it("matches display names with Japanese input and shows an empty result", () => {
+    const displayNameTree: HierarchyNode[] = [
+      { name: "Arm_EN", displayName: "腕", kind: "bone", children: [] },
+    ];
+    const { container, getByRole, getByText } = render(
+      <HierarchyCard hierarchy={displayNameTree} />,
+    );
+    const filter = getByRole("textbox", { name: "Filter hierarchy" });
+
+    fireEvent.compositionStart(filter);
+    fireEvent.change(filter, { target: { value: "腕" } });
+    fireEvent.compositionEnd(filter);
+    expect(container.textContent).toContain("腕");
+    fireEvent.change(filter, { target: { value: "missing" } });
+    expect(getByText("No hierarchy nodes match.")).toBeTruthy();
+  });
+
+  it("keeps duplicate and delimiter names on independent expansion keys", () => {
+    const duplicateTree: HierarchyNode[] = [
+      {
+        name: "foo/bar",
+        kind: "group",
+        children: [{ name: "First", kind: "mesh", children: [] }],
+      },
+      {
+        name: "foo/bar",
+        kind: "group",
+        children: [{ name: "Second", kind: "mesh", children: [] }],
+      },
+      {
+        name: "foo/bar#1",
+        kind: "group",
+        children: [{ name: "Third", kind: "mesh", children: [] }],
+      },
+    ];
+    const { container } = render(<HierarchyCard hierarchy={duplicateTree} />);
+    const rows = container.querySelectorAll(".tree-row");
+    expect(rows).toHaveLength(6);
+
+    const groupRows = Array.from(rows).filter((row) =>
+      row.querySelector(".tree-chevron"),
+    );
+    fireEvent.click(groupRows[1].querySelector(".tree-chevron")!);
+    expect(container.textContent).not.toContain("Second");
+    expect(container.textContent).toContain("Third");
+  });
+
+  it("resets its filter when the current file identity changes", () => {
+    const { getByRole, rerender } = render(
+      <HierarchyCard fileIdentity="C:/assets/first.glb" hierarchy={tree} />,
+    );
+    const filter = getByRole("textbox", { name: "Filter hierarchy" });
+    fireEvent.change(filter, { target: { value: "arm" } });
+    rerender(
+      <HierarchyCard fileIdentity="C:/assets/second.glb" hierarchy={tree} />,
+    );
+
+    expect(
+      (getByRole("textbox", { name: "Filter hierarchy" }) as HTMLInputElement)
+        .value,
+    ).toBe("");
+  });
 });

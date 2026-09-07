@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { HierarchySidebarPanel } from "../HierarchySidebarPanel";
 import { useFileStore } from "../../stores/fileStore";
 import { useViewerStore } from "../../stores/viewerStore";
@@ -170,5 +170,134 @@ describe("HierarchySidebarPanel", () => {
     });
 
     expect(useViewerStore.getState().morphTargetValues.Face?.[0]).toBe(1);
+  });
+
+  it("retains an unloaded USD payload root row after GLB metadata drops it", () => {
+    const onLoadPayload = vi.fn();
+    const onUnloadPayload = vi.fn();
+    const hierarchy: HierarchyNode[] = [
+      {
+        name: "World",
+        kind: "Xform",
+        primPath: "/World",
+        children: [
+          {
+            name: "Visible",
+            kind: "Mesh",
+            primPath: "/World/Visible",
+            children: [],
+          },
+        ],
+      },
+    ];
+    useFileStore.setState({
+      currentFile: usdFile,
+      assetMetadata: makeMetadata({ hierarchy }),
+    });
+
+    const { getByLabelText, getByText, rerender } = render(
+      <HierarchySidebarPanel
+        stageSessionHandle={42}
+        payloadPrimPaths={new Set(["/World/PayloadRoot"])}
+        unloadedPayloadPaths={new Set(["/World/PayloadRoot"])}
+        onLoadPayload={onLoadPayload}
+        onUnloadPayload={onUnloadPayload}
+      />,
+    );
+
+    expect(getByText("PayloadRoot")).toBeTruthy();
+    fireEvent.click(getByLabelText("Load payload"));
+    expect(onLoadPayload).toHaveBeenCalledWith("/World/PayloadRoot");
+
+    // Keep the known row while a successful Load has re-extracted the GLB but
+    // metadata has not yet published the loaded root.
+    rerender(
+      <HierarchySidebarPanel
+        stageSessionHandle={42}
+        payloadPrimPaths={new Set(["/World/PayloadRoot"])}
+        unloadedPayloadPaths={new Set()}
+        onLoadPayload={onLoadPayload}
+        onUnloadPayload={onUnloadPayload}
+      />,
+    );
+    expect(getByText("PayloadRoot")).toBeTruthy();
+    fireEvent.click(getByLabelText("Unload payload"));
+    expect(onUnloadPayload).toHaveBeenCalledWith("/World/PayloadRoot");
+
+    rerender(
+      <HierarchySidebarPanel
+        stageSessionHandle={42}
+        payloadPrimPaths={new Set(["/World/PayloadRoot"])}
+        unloadedPayloadPaths={new Set(["/World/PayloadRoot"])}
+        onLoadPayload={onLoadPayload}
+        onUnloadPayload={onUnloadPayload}
+      />,
+    );
+  });
+
+  it("drops obsolete payload rows when the current path snapshot or session changes", () => {
+    const hierarchy: HierarchyNode[] = [];
+    useFileStore.setState({
+      currentFile: usdFile,
+      assetMetadata: makeMetadata({ hierarchy }),
+    });
+    const { queryByLabelText, queryByText, rerender } = render(
+      <HierarchySidebarPanel
+        stageSessionHandle={42}
+        payloadPrimPaths={new Set(["/World/OldRoot"])}
+        unloadedPayloadPaths={new Set(["/World/OldRoot"])}
+        onLoadPayload={vi.fn()}
+        onUnloadPayload={vi.fn()}
+      />,
+    );
+
+    expect(queryByText("OldRoot")).toBeTruthy();
+
+    rerender(
+      <HierarchySidebarPanel
+        stageSessionHandle={42}
+        payloadPrimPaths={new Set(["/World/CurrentRoot"])}
+        unloadedPayloadPaths={new Set(["/World/CurrentRoot"])}
+        onLoadPayload={vi.fn()}
+        onUnloadPayload={vi.fn()}
+      />,
+    );
+    expect(queryByText("OldRoot")).toBeNull();
+    expect(queryByText("CurrentRoot")).toBeTruthy();
+
+    rerender(
+      <HierarchySidebarPanel
+        stageSessionHandle={null}
+        payloadPrimPaths={new Set(["/World/CurrentRoot"])}
+        unloadedPayloadPaths={new Set(["/World/CurrentRoot"])}
+        onLoadPayload={vi.fn()}
+        onUnloadPayload={vi.fn()}
+      />,
+    );
+    expect(queryByText("CurrentRoot")).toBeNull();
+    expect(queryByLabelText("Load payload")).toBeNull();
+
+    act(() => {
+      useFileStore.setState({
+        currentFile: {
+          ...usdFile,
+          path: "F:\\assets\\scene.glb",
+          fileName: "scene.glb",
+          extension: "glb",
+        },
+        assetMetadata: makeMetadata({ hierarchy }),
+      });
+    });
+    rerender(
+      <HierarchySidebarPanel
+        stageSessionHandle={42}
+        payloadPrimPaths={new Set(["/World/CurrentRoot"])}
+        unloadedPayloadPaths={new Set(["/World/CurrentRoot"])}
+        onLoadPayload={vi.fn()}
+        onUnloadPayload={vi.fn()}
+      />,
+    );
+    expect(queryByText("CurrentRoot")).toBeNull();
+    expect(queryByLabelText("Load payload")).toBeNull();
   });
 });

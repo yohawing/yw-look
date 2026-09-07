@@ -1,13 +1,18 @@
 import {
   AnimationClip,
+  Box3,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  Color,
   Group,
+  InstancedMesh,
   MirroredRepeatWrapping,
+  Matrix4,
   Mesh,
   MeshStandardMaterial,
   NumberKeyframeTrack,
+  ObjectLoader,
   RepeatWrapping,
   SRGBColorSpace,
   SkinnedMesh,
@@ -309,6 +314,122 @@ describe("staticScene existing static format behavior", () => {
     const payload = toStaticScenePayload(mesh, false);
     expect(payload?.rootKind).toBe("mesh");
     expect(payload?.meshes).toHaveLength(1);
+  });
+});
+
+function makeNestedInstancedScene(includeOrdinaryMesh: boolean) {
+  const root = new Group();
+  const container = new Group();
+  const instances = new InstancedMesh(
+    new BoxGeometry(1, 1, 1),
+    new MeshStandardMaterial({ color: 0xffffff }),
+    3,
+  );
+  container.add(instances);
+  if (includeOrdinaryMesh) {
+    root.add(
+      new Mesh(
+        new BoxGeometry(1, 1, 1),
+        new MeshStandardMaterial({ color: 0xc7d2e3 }),
+      ),
+    );
+  }
+  root.add(container);
+  return root;
+}
+
+function makeInstancedJsonScene() {
+  const root = new Group();
+  root.position.set(5, -3, 2);
+
+  root.add(
+    new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: 0xc7d2e3 }),
+    ),
+  );
+
+  const container = new Group();
+  container.name = "InstanceContainer";
+  container.position.set(1, 1, 1);
+  const instances = new InstancedMesh(
+    new BoxGeometry(1, 1, 1),
+    new MeshStandardMaterial({ color: 0xffffff }),
+    3,
+  );
+  instances.name = "Instances";
+  instances.position.set(0, 2, 0);
+  const matrices = [
+    new Matrix4().makeTranslation(0, 0, 0),
+    new Matrix4().makeTranslation(2, 1, 0),
+    new Matrix4().makeTranslation(-1, 0, 3),
+  ];
+  const colors = [0xff0000, 0x00ff00, 0x0000ff];
+  matrices.forEach((matrix, index) => {
+    instances.setMatrixAt(index, matrix);
+    instances.setColorAt(index, new Color(colors[index]));
+  });
+  instances.instanceMatrix.needsUpdate = true;
+  instances.instanceColor!.needsUpdate = true;
+  container.add(instances);
+  root.add(container);
+  root.updateMatrixWorld(true);
+  instances.computeBoundingBox();
+
+  return { root, instances };
+}
+
+describe("staticScene instancing fallback boundary", () => {
+  it("rejects nested and mixed InstancedMesh trees in both payload modes", () => {
+    for (const root of [
+      makeNestedInstancedScene(false),
+      makeNestedInstancedScene(true),
+    ]) {
+      expect(canSerializeStaticNode(root)).toBe(false);
+      expect(toStaticScenePayload(root, false)).toBeNull();
+      expect(toStaticScenePayload(root, true)).toBeNull();
+    }
+  });
+
+  it("preserves instance count, matrices, colors, and world bounds in Object JSON fallback", () => {
+    const { root, instances } = makeInstancedJsonScene();
+    const sceneJson = root.toJSON();
+    const restored = new ObjectLoader().parse(sceneJson);
+    const restoredInstances = restored.getObjectByName("Instances");
+
+    expect(restoredInstances).toBeInstanceOf(InstancedMesh);
+    if (!(restoredInstances instanceof InstancedMesh)) {
+      throw new Error("Object JSON fallback did not restore InstancedMesh");
+    }
+
+    expect(restoredInstances.count).toBe(instances.count);
+    const sourceMatrix = new Matrix4();
+    const restoredMatrix = new Matrix4();
+    for (let index = 0; index < instances.count; index += 1) {
+      instances.getMatrixAt(index, sourceMatrix);
+      restoredInstances.getMatrixAt(index, restoredMatrix);
+      expect(restoredMatrix.elements).toEqual(sourceMatrix.elements);
+    }
+
+    expect(restoredInstances.instanceColor).not.toBeNull();
+    expect(Array.from(restoredInstances.instanceColor!.array)).toEqual(
+      Array.from(instances.instanceColor!.array),
+    );
+
+    restored.updateMatrixWorld(true);
+    restoredInstances.computeBoundingBox();
+    const sourceWorldBounds = new Box3()
+      .copy(instances.boundingBox!)
+      .applyMatrix4(instances.matrixWorld);
+    const restoredWorldBounds = new Box3()
+      .copy(restoredInstances.boundingBox!)
+      .applyMatrix4(restoredInstances.matrixWorld);
+    expect(restoredWorldBounds.min.toArray()).toEqual(
+      sourceWorldBounds.min.toArray(),
+    );
+    expect(restoredWorldBounds.max.toArray()).toEqual(
+      sourceWorldBounds.max.toArray(),
+    );
   });
 });
 

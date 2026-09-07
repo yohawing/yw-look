@@ -1,0 +1,158 @@
+{
+  "cases": [
+    {
+      "id": "tiny-payload-session",
+      "relationship": "payload",
+      "stagePath": "fixtures/tiny_payload_visual.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "loaded",
+          "payloadOps": [{ "action": "load", "primPath": "/Root/PayloadRoot" }],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        },
+        {
+          "id": "unloaded",
+          "payloadOps": [
+            { "action": "unload", "primPath": "/Root/PayloadRoot" }
+          ],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        },
+        {
+          "id": "reloaded",
+          "payloadOps": [{ "action": "load", "primPath": "/Root/PayloadRoot" }],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    },
+    {
+      "id": "variant-override-session",
+      "relationship": "variant",
+      "stagePath": "fixtures/variant_override.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "variant-default",
+          "glbProfile": "variant-red",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        },
+        {
+          "id": "variant-blue",
+          "glbProfile": "variant-blue",
+          "payloadOps": [],
+          "variantSelections": [
+            {
+              "primPath": "/Root",
+              "setName": "look",
+              "variantName": "blue"
+            }
+          ],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        },
+        {
+          "id": "variant-reset",
+          "glbProfile": "variant-red",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    },
+    {
+      "id": "animated-xform-timecode-expected-failure",
+      "relationship": "independent",
+      "stagePath": "fixtures/animated_xform.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "animated-xform-timecode",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": 24,
+          "expectedDiagnostics": [],
+          "expectedFailure": {
+            "origin": "adapter",
+            "code": "USD_STATEFUL_TIMECODE_UNSUPPORTED",
+            "message": "timeCode is unsupported by this stateful session extractor; use null",
+            "reason": "The stateful capture adapter has no timeCode extraction field."
+          }
+        }
+      ]
+    },
+    {
+      "id": "material-subsets-independent",
+      "relationship": "independent",
+      "stagePath": "fixtures/material_subsets.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "material-subsets",
+          "glbProfile": "material-subsets",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    },
+    {
+      "id": "authored-normals-independent",
+      "relationship": "independent",
+      "stagePath": "fixtures/authored_normals.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "authored-normals",
+          "glbProfile": "authored-normals",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    },
+    {
+      "id": "skinning-independent",
+      "relationship": "independent",
+      "stagePath": "../../samples/assets/usd/tiny_rigged.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "skinning-bind",
+          "glbProfile": "skinning",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    },
+    {
+      "id": "point-instancer-independent",
+      "relationship": "independent",
+      "stagePath": "../../samples/assets/usd/tiny_point_instancer.usda",
+      "policy": "noPayloads",
+      "captures": [
+        {
+          "id": "instancer-static",
+          "glbProfile": "point-instancer",
+          "payloadOps": [],
+          "variantSelections": [],
+          "timeCode": null,
+          "expectedDiagnostics": []
+        }
+      ]
+    }
+  ]
+}

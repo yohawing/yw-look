@@ -13,6 +13,7 @@ import {
 import type { AssetMetadata, HierarchyNode, ObjectInfo } from "./assetMetadata";
 import { Button } from "./ui/Button";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
+import { ListTextFilter } from "./ui/ListTextFilter";
 import { SliderNumberField } from "./ui/SliderNumberField";
 import "../styles/hierarchy.css";
 
@@ -29,6 +30,8 @@ type HierarchyCardProps = {
    * tree contains a node with this name it gets a highlight class and
    * is scrolled into view. `null` clears the selection. */
   selectedName?: string | null;
+  /** Identity of the loaded file; used to reset only file-scoped UI state. */
+  fileIdentity?: string | null;
   /** #33: invoked when the user clicks a node in the tree. Lets the
    * tree push selections back up to the same `selectedMeshName` state
    * the viewport-picking path drives, so both directions stay in sync.
@@ -90,8 +93,59 @@ function hierarchyDisplayName(node: HierarchyNode): string {
   return node.displayName || node.name || "(unnamed)";
 }
 
+type DisplayHierarchyNode = {
+  children: DisplayHierarchyNode[];
+  key: string;
+  node: HierarchyNode;
+};
+
+function buildDisplayHierarchy(
+  nodes: HierarchyNode[],
+  parentIndexPath: readonly number[] = [],
+): DisplayHierarchyNode[] {
+  return nodes.map((node, index) => {
+    const indexPath = [...parentIndexPath, index];
+    const key = `hierarchy-${indexPath.join(".")}`;
+    return {
+      children: buildDisplayHierarchy(node.children, indexPath),
+      key,
+      node,
+    };
+  });
+}
+
+function filterDisplayHierarchy(
+  nodes: DisplayHierarchyNode[],
+  normalizedSearch: string,
+): DisplayHierarchyNode[] {
+  if (normalizedSearch.length === 0) return nodes;
+
+  return nodes.flatMap((displayNode) => {
+    const children = filterDisplayHierarchy(
+      displayNode.children,
+      normalizedSearch,
+    );
+    const matches = hierarchyDisplayName(displayNode.node)
+      .toLocaleLowerCase()
+      .includes(normalizedSearch);
+    return matches || children.length > 0 ? [{ ...displayNode, children }] : [];
+  });
+}
+
+function collectFilterExpandedKeys(
+  nodes: DisplayHierarchyNode[],
+  expandedKeys: Set<string>,
+) {
+  for (const displayNode of nodes) {
+    if (displayNode.children.length > 0) {
+      expandedKeys.add(displayNode.key);
+      collectFilterExpandedKeys(displayNode.children, expandedKeys);
+    }
+  }
+}
+
 function HierarchyBranch({
-  node,
+  displayNode,
   depth,
   selectedName,
   onSelectName,
@@ -104,8 +158,11 @@ function HierarchyBranch({
   unloadedPayloadPaths,
   onLoadPayload,
   onUnloadPayload,
+  expandedKeys,
+  onToggleExpanded,
+  filterExpandedKeys,
 }: {
-  node: HierarchyNode;
+  displayNode: DisplayHierarchyNode;
   depth: number;
   selectedName: string | null;
   onSelectName?: (name: string | null) => void;
@@ -119,9 +176,13 @@ function HierarchyBranch({
   unloadedPayloadPaths?: ReadonlySet<string>;
   onLoadPayload?: (primPath: string) => void;
   onUnloadPayload?: (primPath: string) => void;
+  expandedKeys: Readonly<Record<string, boolean>>;
+  onToggleExpanded: (key: string, defaultExpanded: boolean) => void;
+  filterExpandedKeys: ReadonlySet<string>;
 }) {
-  const hasChildren = node.children.length > 0;
-  const [expanded, setExpanded] = useState(depth < 2);
+  const { node } = displayNode;
+  const hasChildren = displayNode.children.length > 0;
+  const expanded = expandedKeys[displayNode.key] ?? depth < 2;
   // #46: stable selection key — prefer the SdfPath stored in node.primPath
   // (emitted by the hierarchy-aware GLB pipeline) so that selections
   // survive node-name changes and stay consistent across the viewport
@@ -133,7 +194,9 @@ function HierarchyBranch({
   // `forceExpanded` from above and OR it into the local state instead
   // of overwriting it, so once the user collapses something
   // re-selecting the same prim doesn't snap their layout back open.
-  const showChildren = hasChildren && (expanded || forceExpanded);
+  const showChildren =
+    hasChildren &&
+    (expanded || forceExpanded || filterExpandedKeys.has(displayNode.key));
   // Build the full SdfPath for this node for the onSelectPrimPath callback.
   // #46: when node.primPath is present we use it directly — it is the
   // authoritative SdfPath from the GLB extras and needs no reconstruction.
@@ -196,8 +259,9 @@ function HierarchyBranch({
             className="tree-chevron"
             onClick={(event) => {
               event.stopPropagation();
-              setExpanded((v) => !v);
+              onToggleExpanded(displayNode.key, depth < 2);
             }}
+            disabled={filterExpandedKeys.has(displayNode.key)}
             type="button"
             aria-label={showChildren ? "Collapse" : "Expand"}
           >
@@ -243,10 +307,10 @@ function HierarchyBranch({
       </div>
       {showChildren ? (
         <ul className="tree-children">
-          {node.children.map((child, index) => (
+          {displayNode.children.map((child) => (
             <HierarchyBranch
-              key={`${node.name}-${child.name}-${index}`}
-              node={child}
+              key={child.key}
+              displayNode={child}
               depth={depth + 1}
               selectedName={selectedName}
               onSelectName={onSelectName}
@@ -258,7 +322,7 @@ function HierarchyBranch({
               // selected; the chain we actually want to open is just
               // the ancestor path of the selection.
               forceExpanded={forceExpandedKeys.has(
-                child.primPath ?? child.name,
+                child.node.primPath ?? child.node.name,
               )}
               forceExpandedKeys={forceExpandedKeys}
               selectedRef={selectedRef}
@@ -266,6 +330,9 @@ function HierarchyBranch({
               unloadedPayloadPaths={unloadedPayloadPaths}
               onLoadPayload={onLoadPayload}
               onUnloadPayload={onUnloadPayload}
+              expandedKeys={expandedKeys}
+              onToggleExpanded={onToggleExpanded}
+              filterExpandedKeys={filterExpandedKeys}
             />
           ))}
         </ul>
@@ -316,7 +383,16 @@ function collectHierarchyStats(
   };
 }
 
-export function HierarchyCard({
+export function HierarchyCard(props: HierarchyCardProps) {
+  return (
+    <HierarchyCardContent
+      key={props.fileIdentity ?? "__no-file__"}
+      {...props}
+    />
+  );
+}
+
+function HierarchyCardContent({
   hierarchy,
   objectInfo,
   morphTargetValues,
@@ -332,6 +408,8 @@ export function HierarchyCard({
   renderMorphTargetMeta,
 }: HierarchyCardProps) {
   const selectedRef = useRef<HTMLLIElement | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!selectedName) return;
@@ -413,6 +491,29 @@ export function HierarchyCard({
       ].filter(Boolean) as KeyValueRow[])
     : [];
 
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const displayHierarchy = useMemo(
+    () => buildDisplayHierarchy(hierarchy),
+    [hierarchy],
+  );
+  const filteredDisplayHierarchy = useMemo(
+    () => filterDisplayHierarchy(displayHierarchy, normalizedSearch),
+    [displayHierarchy, normalizedSearch],
+  );
+  const filterExpandedKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (normalizedSearch.length > 0) {
+      collectFilterExpandedKeys(filteredDisplayHierarchy, keys);
+    }
+    return keys;
+  }, [filteredDisplayHierarchy, normalizedSearch]);
+  const handleToggleExpanded = (key: string, defaultExpanded: boolean) => {
+    setExpandedKeys((current) => ({
+      ...current,
+      [key]: !(current[key] ?? defaultExpanded),
+    }));
+  };
+
   return (
     <PanelGroup
       className="hierarchy-card hierarchy-split"
@@ -433,36 +534,52 @@ export function HierarchyCard({
             <span className="yl-disclosure__title">Outliner</span>
             <span className="yl-disclosure__count">{totalNodeCount}</span>
           </div>
-          <div className="hierarchy-pane-scroll yl-disclosure__body">
-            {hierarchy.length > 0 ? (
-              <ul className="tree-root">
-                {hierarchy.map((node, index) => (
-                  <HierarchyBranch
-                    key={`${node.name}-${index}`}
-                    node={node}
-                    depth={0}
-                    selectedName={normalizedSelected}
-                    onSelectName={onSelectName}
-                    onSelectPrimPath={onSelectPrimPath}
-                    parentPath="/"
-                    forceExpanded={
-                      normalizedSelected !== null &&
-                      selectedAncestorKeys.has(node.primPath ?? node.name)
-                    }
-                    forceExpandedKeys={selectedAncestorKeys}
-                    selectedRef={selectedRef}
-                    payloadPrimPaths={payloadPrimPaths}
-                    unloadedPayloadPaths={unloadedPayloadPaths}
-                    onLoadPayload={onLoadPayload}
-                    onUnloadPayload={onUnloadPayload}
-                  />
-                ))}
-              </ul>
-            ) : (
-              <p className="sidebar-empty">
-                No hierarchy available for the current asset.
-              </p>
-            )}
+          <div className="hierarchy-pane-scroll hierarchy-outliner-body yl-disclosure__body">
+            <ListTextFilter
+              ariaLabel="Filter hierarchy"
+              clearLabel="Clear hierarchy filter"
+              onChange={setSearchQuery}
+              placeholder="Search hierarchy"
+              value={searchQuery}
+            />
+            <div className="hierarchy-tree-scroll">
+              {hierarchy.length === 0 ? (
+                <p className="sidebar-empty">
+                  No hierarchy available for the current asset.
+                </p>
+              ) : filteredDisplayHierarchy.length === 0 ? (
+                <p className="sidebar-empty">No hierarchy nodes match.</p>
+              ) : (
+                <ul className="tree-root">
+                  {filteredDisplayHierarchy.map((displayNode) => (
+                    <HierarchyBranch
+                      key={displayNode.key}
+                      displayNode={displayNode}
+                      depth={0}
+                      selectedName={normalizedSelected}
+                      onSelectName={onSelectName}
+                      onSelectPrimPath={onSelectPrimPath}
+                      parentPath="/"
+                      forceExpanded={
+                        normalizedSelected !== null &&
+                        selectedAncestorKeys.has(
+                          displayNode.node.primPath ?? displayNode.node.name,
+                        )
+                      }
+                      forceExpandedKeys={selectedAncestorKeys}
+                      selectedRef={selectedRef}
+                      payloadPrimPaths={payloadPrimPaths}
+                      unloadedPayloadPaths={unloadedPayloadPaths}
+                      onLoadPayload={onLoadPayload}
+                      onUnloadPayload={onUnloadPayload}
+                      expandedKeys={expandedKeys}
+                      onToggleExpanded={handleToggleExpanded}
+                      filterExpandedKeys={filterExpandedKeys}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </section>
       </Panel>

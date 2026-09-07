@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use openusd::sdf::{Path as SdfPath, Value as SdfValue};
 use openusd::usd::Stage;
 
 use super::stage_fields::ValidatedStagePathExt;
 
+use crate::usd::backend::UsdError;
 use crate::usd::glb;
 use crate::usd::ir;
 use crate::usd::math::{invert_mat4_f32, mat4_mul_f32, IDENTITY_MAT4_F32};
@@ -276,7 +279,7 @@ mod tests {
 
 /// Phase 5c E: convert a fork-level `SkelAnimationData` into the
 /// flattened-per-joint layout the GLB writer wants. Returns `None`
-/// when the animation has no time samples.
+/// when neither joint TRS nor blend-shape weight samples are authored.
 ///
 /// `time_codes_per_second` is used to map USD time codes (what the
 /// fork returns) to glTF seconds. Pass the stage-level
@@ -295,9 +298,12 @@ pub(crate) fn animation_input_from_skel(
     skin_joint_names: &[String],
     anim: &ir::SkelAnimationData,
     time_codes_per_second: f64,
-) -> Option<glb::AnimationInput> {
-    if anim.times.is_empty() {
-        return None;
+    meshes: &[glb::MeshInput],
+    input_source_paths: &[SdfPath],
+    weight_mesh_indices: &[usize],
+) -> Result<Option<glb::AnimationInput>, UsdError> {
+    if anim.times.is_empty() && anim.blend_shape_weights.is_empty() {
+        return Ok(None);
     }
     let frame_count = anim.times.len();
     let inv_tcps = if time_codes_per_second > 0.0 {
@@ -306,6 +312,20 @@ pub(crate) fn animation_input_from_skel(
         1.0
     };
     let times: Vec<f32> = anim.times.iter().map(|&t| (t * inv_tcps) as f32).collect();
+    let weight_times: Vec<f32> = anim
+        .blend_shape_weights
+        .iter()
+        .map(|&(t, _)| {
+            let seconds = (t * inv_tcps) as f32;
+            if seconds.is_finite() {
+                Ok(seconds)
+            } else {
+                Err(UsdError::Parse(
+                    "USD SkelAnimation sample time overflows GLB seconds".to_owned(),
+                ))
+            }
+        })
+        .collect::<Result<_, _>>()?;
 
     // Build a mapping from skin joint -> index in the animation's
     // joint list. UsdSkelSkelAnimation can target a subset of the
@@ -323,7 +343,7 @@ pub(crate) fn animation_input_from_skel(
                 let Some(anim_idx) = *maybe_anim_idx else {
                     return None;
                 };
-                if samples.is_empty() || samples.len() < frame_count {
+                if frame_count == 0 || samples.is_empty() || samples.len() < frame_count {
                     return None;
                 }
                 let mut out = Vec::with_capacity(frame_count * stride);
@@ -347,16 +367,181 @@ pub(crate) fn animation_input_from_skel(
     let rotations = extract_channel(&anim.rotations, 4);
     let scales = extract_channel(&anim.scales, 3);
 
-    Some(glb::AnimationInput {
+    let weight_channels = weight_channels_for_meshes(
+        &anim.blend_shapes,
+        &anim.blend_shape_weights,
+        meshes,
+        input_source_paths,
+        weight_mesh_indices,
+    )?;
+
+    Ok(Some(glb::AnimationInput {
         name: "usd:SkelAnimation".to_string(),
         times,
+        weight_times,
         skin_index,
         translations,
         rotations,
         scales,
-        // The fork's SkelAnimationData does not yet expose
-        // `blendShapeWeights`, so blend-shape animations stay at their
-        // static rest-pose weights.
-        weight_channels: Vec::new(),
-    })
+        weight_channels,
+    }))
+}
+
+fn weight_channels_for_meshes(
+    shape_names: &[String],
+    weight_samples: &[(f64, Vec<f32>)],
+    meshes: &[glb::MeshInput],
+    input_source_paths: &[SdfPath],
+    weight_mesh_indices: &[usize],
+) -> Result<Vec<glb::MorphWeightChannel>, UsdError> {
+    if weight_samples.is_empty() {
+        return Ok(Vec::new());
+    }
+    if shape_names.is_empty() {
+        return Err(UsdError::Parse(
+            "USD SkelAnimation blendShapeWeights has no blendShapes names".to_owned(),
+        ));
+    }
+    if meshes.len() != input_source_paths.len() {
+        return Err(UsdError::Parse(
+            "USD mesh inputs and source paths have inconsistent lengths".to_owned(),
+        ));
+    }
+    for (time, values) in weight_samples {
+        if values.len() != shape_names.len() {
+            return Err(UsdError::Parse(format!(
+                "USD SkelAnimation blendShapeWeights at {time} has {} values; expected {}",
+                values.len(),
+                shape_names.len()
+            )));
+        }
+    }
+    if weight_mesh_indices
+        .iter()
+        .any(|&index| index >= meshes.len())
+    {
+        return Err(UsdError::Parse(
+            "USD SkelAnimation weight mesh index is out of bounds".to_owned(),
+        ));
+    }
+
+    let mut channels = Vec::new();
+    let mut matched_any = false;
+    for &mesh_index in weight_mesh_indices {
+        let mesh = &meshes[mesh_index];
+        if mesh.morph_targets.is_empty() {
+            continue;
+        }
+        let source_path = &input_source_paths[mesh_index];
+        let mut seen_targets = BTreeMap::<String, ()>::new();
+        let target_to_shape = mesh
+            .morph_targets
+            .iter()
+            .map(|target| {
+                let name = target.name.as_ref().ok_or_else(|| {
+                    UsdError::Parse(format!(
+                        "mesh '{}' has a morph target without a name",
+                        source_path
+                    ))
+                })?;
+                if seen_targets.insert(name.clone(), ()).is_some() {
+                    return Err(UsdError::Parse(format!(
+                        "mesh '{}' has duplicate morph target name '{name}'",
+                        source_path
+                    )));
+                }
+                Ok(shape_names.iter().position(|shape| shape == name))
+            })
+            .collect::<Result<Vec<_>, UsdError>>()?;
+        if !target_to_shape.iter().any(Option::is_some) {
+            continue;
+        }
+        matched_any = true;
+        let mut weights = Vec::with_capacity(weight_samples.len() * target_to_shape.len());
+        for (_, frame) in weight_samples {
+            for shape_index in &target_to_shape {
+                weights.push(shape_index.map(|index| frame[index]).unwrap_or(0.0));
+            }
+        }
+        channels.push(glb::MorphWeightChannel {
+            mesh_index,
+            weights,
+        });
+    }
+    if !matched_any {
+        return Err(UsdError::Parse(
+            "USD SkelAnimation blendShapeWeights has no matching mesh morph targets".to_owned(),
+        ));
+    }
+    Ok(channels)
+}
+
+#[cfg(test)]
+mod animation_tests {
+    use super::*;
+
+    fn mesh_with_target(name: &str) -> glb::MeshInput {
+        glb::MeshInput {
+            name: name.to_owned(),
+            world_matrix: IDENTITY_MAT4_F32,
+            positions: vec![0.0, 0.0, 0.0],
+            indices: vec![0, 0, 0],
+            normals: None,
+            uvs: None,
+            colors: None,
+            joint_indices: None,
+            joint_weights: None,
+            material_index: 0,
+            skin_index: Some(0),
+            morph_targets: vec![glb::MorphTarget {
+                name: Some("Smile".to_owned()),
+                position_offsets: vec![0.0, 0.0, 0.0],
+            }],
+            morph_weights: vec![0.0],
+            purpose: None,
+        }
+    }
+
+    #[test]
+    fn weight_channels_only_include_meshes_bound_to_selected_skeleton() {
+        let meshes = vec![mesh_with_target("RigA"), mesh_with_target("RigB")];
+        let paths = vec![
+            SdfPath::new("/RigA/Mesh").expect("path"),
+            SdfPath::new("/RigB/Mesh").expect("path"),
+        ];
+        let names = vec!["Smile".to_owned()];
+        let samples = vec![(0.0, vec![0.0]), (1.0, vec![1.0])];
+        let channels = weight_channels_for_meshes(&names, &samples, &meshes, &paths, &[1])
+            .expect("weight channels");
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].mesh_index, 1);
+        assert_eq!(channels[0].weights, vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn keeps_trs_timeline_separate_from_weight_timeline() {
+        let anim = ir::SkelAnimationData {
+            times: vec![0.0, 24.0],
+            translations: vec![vec![0.0, 0.0, 0.0], vec![2.0, 0.0, 0.0]],
+            rotations: Vec::new(),
+            scales: Vec::new(),
+            joints: vec!["root".to_owned()],
+            blend_shapes: vec!["Smile".to_owned()],
+            blend_shape_weights: vec![(0.0, vec![0.0]), (12.0, vec![0.5]), (24.0, vec![1.0])],
+        };
+        let meshes = vec![mesh_with_target("Rig")];
+        let paths = vec![SdfPath::new("/Rig/Mesh").expect("path")];
+        let input =
+            animation_input_from_skel(0, &["root".to_owned()], &anim, 24.0, &meshes, &paths, &[0])
+                .expect("animation input")
+                .expect("animated input");
+
+        assert_eq!(input.times, vec![0.0, 1.0]);
+        assert_eq!(input.weight_times, vec![0.0, 0.5, 1.0]);
+        assert_eq!(
+            input.translations[0],
+            Some(vec![0.0, 0.0, 0.0, 2.0, 0.0, 0.0])
+        );
+        assert_eq!(input.weight_channels[0].weights, vec![0.0, 0.5, 1.0]);
+    }
 }

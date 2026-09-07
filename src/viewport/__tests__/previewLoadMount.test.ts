@@ -59,6 +59,7 @@ const viewerMocks = vi.hoisted(() => {
     scheduleTextureThumbnailEnrichment: vi.fn(() => ({
       cancel: vi.fn(),
     })),
+    collectAssetResourceMetrics: vi.fn(() => null),
     stub: vi.fn(),
   };
 });
@@ -114,7 +115,7 @@ vi.mock("../selection", () => ({
 }));
 
 vi.mock("../resourceDiagnostics", () => ({
-  collectAssetResourceMetrics: vi.fn(() => null),
+  collectAssetResourceMetrics: viewerMocks.collectAssetResourceMetrics,
 }));
 
 function ref<T>(current: T) {
@@ -151,6 +152,7 @@ function createMountOptions(context: SceneContext) {
   const setActivePreviewPath = vi.fn();
   const setOverlayReady = vi.fn();
   const onMetadataChange = vi.fn();
+  const onTextureMetadataRefresh = vi.fn();
   const publishResourceDiagnostics = vi.fn();
 
   return {
@@ -205,6 +207,7 @@ function createMountOptions(context: SceneContext) {
         onGridUnitChange: vi.fn(),
         onMetadataChange,
         onPackMetadataChange: vi.fn(),
+        onTextureMetadataRefresh,
         publishResourceDiagnostics,
         setActivePreviewPath,
         setAnimationState: vi.fn(),
@@ -215,8 +218,40 @@ function createMountOptions(context: SceneContext) {
       setActivePreviewPath,
       setOverlayReady,
       onMetadataChange,
+      onTextureMetadataRefresh,
       publishResourceDiagnostics,
     },
+  };
+}
+
+function metadataCollection(textureId: string | null, textureLabel: string) {
+  const textures = textureId
+    ? [
+        {
+          id: textureId,
+          label: textureLabel,
+          channel: "Base Color",
+          dimensions: "1x1",
+          thumbnailUrl: null,
+          sourceKind: "external" as const,
+        },
+      ]
+    : [];
+  const textureRegistry = textureId ? new Map([[textureId, {}]]) : new Map();
+  return {
+    metadata: {
+      meshCount: 1,
+      hasBones: false,
+      objectInfo: {},
+      hierarchy: [],
+      materials: [],
+      lights: [],
+      cameras: [],
+      animations: [],
+      textures,
+      textureCount: textures.length,
+    },
+    textureRegistry,
   };
 }
 
@@ -235,6 +270,7 @@ describe("mountLoadedPreview", () => {
     viewerMocks.applySkeletonHelpers.mockClear();
     viewerMocks.applySurfaceMaterialMode.mockClear();
     viewerMocks.scheduleTextureThumbnailEnrichment.mockClear();
+    viewerMocks.collectAssetResourceMetrics.mockClear();
     viewerMocks.cleanupCallback.mockClear();
   });
 
@@ -512,6 +548,129 @@ describe("mountLoadedPreview", () => {
       null,
       undefined,
       traversal,
+    );
+  });
+
+  it("recollects deferred texture metadata and replaces its scheduler", async () => {
+    mountState.disposeDuringNormalize = false;
+    const initial = metadataCollection(null, "");
+    const hydrated = metadataCollection("hydrated", "albedo.png");
+    viewerMocks.collectAssetMetadata
+      .mockImplementationOnce(() => initial as never)
+      .mockImplementationOnce(() => hydrated as never);
+    const initialMetrics = { textureCount: 0 };
+    const hydratedMetrics = { textureCount: 1 };
+    viewerMocks.collectAssetResourceMetrics
+      .mockImplementationOnce(() => initialMetrics as never)
+      .mockImplementationOnce(() => hydratedMetrics as never);
+
+    const object = new Group();
+    const context = createSceneContext();
+    const { options, spies } = createMountOptions(context);
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+      },
+      options,
+    );
+
+    const initialScheduler =
+      viewerMocks.scheduleTextureThumbnailEnrichment.mock.results[0]?.value;
+    const scheduledCalls = viewerMocks.scheduleTextureThumbnailEnrichment.mock
+      .calls as unknown as Array<[{ shouldContinue: () => boolean }]>;
+    const initialSchedulerOptions = scheduledCalls[0]?.[0];
+    const refresh = spies.onTextureMetadataRefresh.mock.calls[0]?.[0] as
+      (() => void) | undefined;
+
+    expect(refresh).toEqual(expect.any(Function));
+    expect(context.textureRegistry).toBe(initial.textureRegistry);
+    expect(options.refs.assetResourceMetricsRef.current).toBe(initialMetrics);
+    expect(refresh).toBeDefined();
+    refresh?.();
+
+    expect(viewerMocks.collectAssetMetadata).toHaveBeenCalledTimes(2);
+    expect(initialScheduler.cancel).toHaveBeenCalledOnce();
+    expect(initialSchedulerOptions?.shouldContinue()).toBe(false);
+    expect(context.textureRegistry).toBe(hydrated.textureRegistry);
+    expect(options.refs.assetResourceMetricsRef.current).toBe(hydratedMetrics);
+    expect(spies.onMetadataChange).toHaveBeenLastCalledWith(hydrated.metadata);
+    expect(
+      viewerMocks.scheduleTextureThumbnailEnrichment,
+    ).toHaveBeenCalledTimes(2);
+    expect(options.update.publishResourceDiagnostics).toHaveBeenCalledTimes(2);
+  });
+
+  it("recollects immediately when deferred completion predates callback registration", async () => {
+    mountState.disposeDuringNormalize = false;
+    const initial = metadataCollection(null, "");
+    const hydrated = metadataCollection("hydrated", "albedo.png");
+    viewerMocks.collectAssetMetadata
+      .mockImplementationOnce(() => initial as never)
+      .mockImplementationOnce(() => hydrated as never);
+
+    const object = new Group();
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    const immediateRefresh = vi.fn((refresh: (() => void) | null) =>
+      refresh?.(),
+    );
+    options.update.onTextureMetadataRefresh = immediateRefresh;
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+      },
+      options,
+    );
+
+    expect(immediateRefresh).toHaveBeenCalledOnce();
+    expect(viewerMocks.collectAssetMetadata).toHaveBeenCalledTimes(2);
+    expect(context.textureRegistry).toBe(hydrated.textureRegistry);
+  });
+
+  it("ignores deferred metadata refresh after disposal or object replacement", async () => {
+    mountState.disposeDuringNormalize = false;
+    const object = new Group();
+    const context = createSceneContext();
+    const { options, spies } = createMountOptions(context);
+
+    await mountLoadedPreview(
+      {
+        object,
+        cleanupCallbacks: [],
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: null,
+      },
+      options,
+    );
+
+    const refresh = spies.onTextureMetadataRefresh.mock.calls[0]?.[0] as
+      (() => void) | undefined;
+    expect(refresh).toEqual(expect.any(Function));
+    const initialCollectionCalls =
+      viewerMocks.collectAssetMetadata.mock.calls.length;
+
+    mountState.disposed = true;
+    refresh?.();
+    expect(viewerMocks.collectAssetMetadata).toHaveBeenCalledTimes(
+      initialCollectionCalls,
+    );
+
+    mountState.disposed = false;
+    context.mountedObject = new Group();
+    refresh?.();
+    expect(viewerMocks.collectAssetMetadata).toHaveBeenCalledTimes(
+      initialCollectionCalls,
     );
   });
 

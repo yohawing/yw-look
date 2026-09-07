@@ -25,6 +25,12 @@ type AssetViewportOverlayProps = {
   onSelectClip: (index: number) => void;
   onStep: (direction: -1 | 1) => void;
   onTogglePlayback: () => void;
+  looping: boolean;
+  playbackRate: number;
+  loopRange: { start: number; end: number } | null;
+  onSetLoopRange: (range: { start: number; end: number } | null) => void;
+  onSetLooping: (looping: boolean) => void;
+  onSetPlaybackRate: (rate: number) => void;
 };
 
 export function AssetViewportOverlay({
@@ -42,8 +48,13 @@ export function AssetViewportOverlay({
   hasAnimation,
   onSeek,
   onSelectClip,
-  onStep,
   onTogglePlayback,
+  looping,
+  playbackRate,
+  onSetLooping,
+  onSetPlaybackRate,
+  loopRange,
+  onSetLoopRange,
 }: AssetViewportOverlayProps) {
   return (
     <>
@@ -92,8 +103,13 @@ export function AssetViewportOverlay({
             isPlaying={animationState.isPlaying}
             onSeek={onSeek}
             onSelectClip={onSelectClip}
-            onStep={onStep}
             onTogglePlayback={onTogglePlayback}
+            looping={looping}
+            playbackRate={playbackRate}
+            loopRange={loopRange}
+            onSetLoopRange={onSetLoopRange}
+            onSetLooping={onSetLooping}
+            onSetPlaybackRate={onSetPlaybackRate}
           />
         </div>
       ) : null}

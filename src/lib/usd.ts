@@ -12,6 +12,7 @@ import type {
   UsdTypedError,
   UsdInvalidVariantSelectionError,
   UsdLightInfo,
+  VariantSelection,
   PrimInspection,
   AttributeTimeSamples,
   ExtractGeometryOptions,
@@ -59,11 +60,34 @@ const USD_GLTF_BACKEND_KEYWORDS = [
   "references",
   "payload",
   "PointInstancer",
+  "variantSet",
+  "Skeleton",
+  "SkelRoot",
+  "SkelAnimation",
+  "BlendShape",
+  "MaterialX",
+  "ND_",
+  ".mtlx",
+  "ParticleField3DGaussianSplat",
+  "Points",
 ].map((keyword) => new TextEncoder().encode(keyword));
+// A time-sampled xform must be composed by the USD backend before the GLB
+// route can expose it to the viewer. This is only a candidate marker: the
+// backend confirms that the samples belong to a supported xform op.
+const USD_XFORM_TIME_SAMPLES_MARKER = new TextEncoder().encode(".timeSamples");
 
 type UsdInvokeOptions = {
   background?: boolean;
 };
+
+function withVariantSelections(
+  args: Record<string, unknown>,
+  variantSelections?: VariantSelection[],
+): Record<string, unknown> {
+  return variantSelections === undefined
+    ? args
+    : { ...args, variantSelections };
+}
 
 async function invokeUsd<T>(
   cmd: string,
@@ -130,19 +154,26 @@ export function isUsdTaskBusyError(error: unknown): boolean {
 export async function inspectUsdLights(
   path: string,
   invokeOptions?: UsdInvokeOptions,
+  variantSelections?: VariantSelection[],
 ): Promise<UsdLightInfo[]> {
-  return invokeUsd<UsdLightInfo[]>("inspect_usd_lights", {
-    path,
-    background: invokeOptions?.background,
-  });
+  return invokeUsd<UsdLightInfo[]>(
+    "inspect_usd_lights",
+    withVariantSelections(
+      {
+        path,
+        background: invokeOptions?.background,
+      },
+      variantSelections,
+    ),
+  );
 }
 
 /**
  * #28 — inspect the attributes, relationships, and metadata for the
  * prim at `primPath` inside the USD file at `path`.
  *
- * The current Rust backend does not expose this inspector API and returns an
- * error, which this wrapper re-throws so callers can handle gracefully.
+ * The Rust backend returns authored attributes, relationships, and metadata
+ * for the selected prim. Backend errors are propagated to the caller.
  */
 export async function inspectPrim(
   path: string,
@@ -155,8 +186,8 @@ export async function inspectPrim(
  * #37 — fetch up to `maxSamples` time samples for the named attribute
  * on the prim at `primPath` inside the USD file at `path`.
  *
- * `maxSamples` defaults to 100 on the Rust side when omitted. The current
- * backend returns an error because this inspector API is not implemented.
+ * `maxSamples` defaults to 100 on the Rust side when omitted. The backend
+ * also returns truncation metadata and numeric summary statistics.
  */
 export async function inspectAttributeTimeSamples(
   path: string,
@@ -176,24 +207,38 @@ export async function inspectStage(
   path: string,
   policy?: StageLoadPolicy,
   invokeOptions?: UsdInvokeOptions,
+  variantSelections?: VariantSelection[],
 ) {
-  return invokeUsd<StageInspection>("inspect_stage", {
-    path,
-    policy,
-    background: invokeOptions?.background,
-  });
+  return invokeUsd<StageInspection>(
+    "inspect_stage",
+    withVariantSelections(
+      {
+        path,
+        policy,
+        background: invokeOptions?.background,
+      },
+      variantSelections,
+    ),
+  );
 }
 
 export async function summarizeStage(
   path: string,
   policy?: StageLoadPolicy,
   invokeOptions?: UsdInvokeOptions,
+  variantSelections?: VariantSelection[],
 ) {
-  return invokeUsd<StageSummary>("summarize_stage", {
-    path,
-    policy,
-    background: invokeOptions?.background,
-  });
+  return invokeUsd<StageSummary>(
+    "summarize_stage",
+    withVariantSelections(
+      {
+        path,
+        policy,
+        background: invokeOptions?.background,
+      },
+      variantSelections,
+    ),
+  );
 }
 
 export function inspectionHasDeferredPayloads(
@@ -211,11 +256,18 @@ export function deferredSummaryHasNoRenderableGeometry(
 export async function collectAssetIssues(
   path: string,
   invokeOptions?: UsdInvokeOptions,
+  variantSelections?: VariantSelection[],
 ) {
-  return invokeUsd<AssetIssue[]>("collect_asset_issues", {
-    path,
-    background: invokeOptions?.background,
-  });
+  return invokeUsd<AssetIssue[]>(
+    "collect_asset_issues",
+    withVariantSelections(
+      {
+        path,
+        background: invokeOptions?.background,
+      },
+      variantSelections,
+    ),
+  );
 }
 
 /**
@@ -270,6 +322,10 @@ function bytesRequireUsdGltfBackend(bytes: Uint8Array) {
   );
 }
 
+function bytesMayContainUsdXformAnimation(bytes: Uint8Array) {
+  return bytesInclude(bytes, USD_XFORM_TIME_SAMPLES_MARKER);
+}
+
 async function fastTextUsdRequiresGlbPreview(path: string) {
   const extension = extensionFromPath(path);
   if (extension === "usdc") {
@@ -291,6 +347,11 @@ async function fastTextUsdRequiresGlbPreview(path: string) {
     }
     if (bytesRequireUsdGltfBackend(prefix)) {
       return true;
+    }
+    if (bytesMayContainUsdXformAnimation(prefix)) {
+      // JS USDLoader can still handle ordinary single-layer static USDA. A
+      // sampled candidate needs the backend's authored-xform confirmation.
+      return isTauriEnvironment() ? null : false;
     }
     if (prefix.byteLength < USD_FAST_DECISION_SCAN_BYTES) {
       return false;

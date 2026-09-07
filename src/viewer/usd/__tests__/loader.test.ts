@@ -323,6 +323,27 @@ describe("loadUsdPreviewObject GLB pipeline", () => {
     });
   });
 
+  it("forces the GLB pipeline when variants are selected", async () => {
+    const scene = new Group();
+    const variantSelections = [
+      {
+        primPath: "/World/Asset",
+        setName: "modelingVariant",
+        variantName: "high",
+      },
+    ];
+    mocks.requiresGlbPreview.mockResolvedValue(false);
+    mocks.parseAsync.mockResolvedValue({ scene, animations: [] });
+
+    await loadUsdPreviewObject(usdaFile, { variantSelections });
+
+    expect(mocks.extractGeometry).toHaveBeenCalledWith(usdaFile.path, {
+      policy: "loadAll",
+      variantSelections,
+    });
+    expect(mocks.parseUsdInWorker).not.toHaveBeenCalled();
+  });
+
   it("preserves stage order for regular GLB extraction", async () => {
     const stages: string[] = [];
     mocks.parseAsync.mockResolvedValue({ scene: new Group(), animations: [] });
@@ -350,6 +371,13 @@ describe("loadUsdPreviewObject GLB pipeline", () => {
 
   it("returns an empty group for deferred payloads with no loaded geometry", async () => {
     const warnings: string[] = [];
+    const variantSelections = [
+      {
+        primPath: "/World/Asset",
+        setName: "modelingVariant",
+        variantName: "high",
+      },
+    ];
     mocks.extractGeometry.mockRejectedValue(
       new Error("no renderable Mesh prims found in stage"),
     );
@@ -369,6 +397,7 @@ describe("loadUsdPreviewObject GLB pipeline", () => {
 
     const loaded = await loadUsdPreviewObject(file, {
       usdLoadPolicy: "noPayloads",
+      variantSelections,
       onWarning: (warning) => warnings.push(warning),
     });
 
@@ -377,6 +406,12 @@ describe("loadUsdPreviewObject GLB pipeline", () => {
     expect(warnings).toEqual([
       "USD payloads are deferred. Load payload prims from the hierarchy to display geometry.",
     ]);
+    expect(mocks.inspectStage).toHaveBeenCalledWith(
+      file.path,
+      "noPayloads",
+      undefined,
+      variantSelections,
+    );
   });
 });
 

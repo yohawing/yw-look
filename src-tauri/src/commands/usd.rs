@@ -6,16 +6,30 @@ use crate::error::AppError;
 use crate::shared::{normalize_file_path, USD_TASK_LOCK};
 use crate::state::UsdBackendState;
 use crate::usd::{
-    types::ExtractGeometryOptions, AssetIssue, AttributeTimeSamples, PrimInspection,
-    StageInspection, StageLoadPolicy, StageRegistry, StageSessionHandle, StageSummary, UsdError,
-    UsdLightInfo,
+    types::{ExtractGeometryOptions, VariantSelection},
+    AssetIssue, AttributeTimeSamples, PrimInspection, StageInspection, StageLoadPolicy,
+    StageRegistry, StageSessionHandle, StageSummary, UsdError, UsdLightInfo,
 };
 
 const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
 const USD_FAST_DECISION_SCAN_BYTES: usize = 64 * 1024;
 const USDC_MAGIC: &[u8] = b"PXR-USDC";
-const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 4] =
-    [b"subLayers", b"references", b"payload", b"PointInstancer"];
+const USD_XFORM_TIME_SAMPLES_MARKER: &[u8] = b".timeSamples";
+const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 13] = [
+    b"subLayers",
+    b"references",
+    b"payload",
+    b"PointInstancer",
+    b"Skeleton",
+    b"SkelRoot",
+    b"SkelAnimation",
+    b"BlendShape",
+    b"MaterialX",
+    b"ND_",
+    b".mtlx",
+    b"ParticleField3DGaussianSplat",
+    b"Points",
+];
 
 fn map_usd_error(error: UsdError) -> AppError {
     AppError::Usd(error.to_string())
@@ -115,6 +129,14 @@ fn fast_usd_requires_glb_preview(path: &std::path::Path) -> Option<bool> {
     }) {
         return Some(true);
     }
+    if bytes
+        .windows(USD_XFORM_TIME_SAMPLES_MARKER.len())
+        .any(|window| window == USD_XFORM_TIME_SAMPLES_MARKER)
+    {
+        // Let the OpenUSD backend confirm that the sampled property is an
+        // authored Xform animation before choosing the GLB route.
+        return None;
+    }
     if bytes.len() < USD_FAST_DECISION_SCAN_BYTES {
         return Some(false);
     }
@@ -134,12 +156,14 @@ pub(crate) async fn inspect_stage(
     path: String,
     policy: Option<StageLoadPolicy>,
     background: Option<bool>,
+    variant_selections: Option<Vec<VariantSelection>>,
 ) -> Result<StageInspection, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
     let policy = policy.unwrap_or_default();
+    let variant_selections = variant_selections.unwrap_or_default();
     run_maybe_background_usd(background, move || {
-        handle.inspect_stage(&normalized, policy)
+        handle.inspect_stage_with_variants(&normalized, policy, &variant_selections)
     })
     .await
 }
@@ -177,10 +201,15 @@ pub(crate) async fn inspect_usd_lights(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
     background: Option<bool>,
+    variant_selections: Option<Vec<VariantSelection>>,
 ) -> Result<Vec<UsdLightInfo>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.light()?;
-    run_maybe_background_usd(background, move || handle.inspect_usd_lights(&normalized)).await
+    let variant_selections = variant_selections.unwrap_or_default();
+    run_maybe_background_usd(background, move || {
+        handle.inspect_usd_lights_with_variants(&normalized, &variant_selections)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -189,12 +218,14 @@ pub(crate) async fn summarize_stage(
     path: String,
     policy: Option<StageLoadPolicy>,
     background: Option<bool>,
+    variant_selections: Option<Vec<VariantSelection>>,
 ) -> Result<StageSummary, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
     let policy = policy.unwrap_or_default();
+    let variant_selections = variant_selections.unwrap_or_default();
     run_maybe_background_usd(background, move || {
-        handle.summarize_stage(&normalized, policy)
+        handle.summarize_stage_with_variants(&normalized, policy, &variant_selections)
     })
     .await
 }
@@ -204,10 +235,15 @@ pub(crate) async fn collect_asset_issues(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
     background: Option<bool>,
+    variant_selections: Option<Vec<VariantSelection>>,
 ) -> Result<Vec<AssetIssue>, AppError> {
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
-    run_maybe_background_usd(background, move || handle.collect_asset_issues(&normalized)).await
+    let variant_selections = variant_selections.unwrap_or_default();
+    run_maybe_background_usd(background, move || {
+        handle.collect_asset_issues_with_variants(&normalized, &variant_selections)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -400,10 +436,53 @@ mod tests {
     }
 
     #[test]
+    fn fast_usd_requires_glb_preview_detects_authored_splat_types() {
+        let (_gaussian_dir, gaussian_path) = write_usda(
+            "gaussian-splat.usda",
+            b"#usda 1.0\ndef ParticleField3DGaussianSplat \"Cloud\" {}",
+        );
+        let (_points_dir, points_path) =
+            write_usda("points.usda", b"#usda 1.0\ndef Points \"Cloud\" {}");
+
+        assert_eq!(fast_usd_requires_glb_preview(&gaussian_path), Some(true));
+        assert_eq!(fast_usd_requires_glb_preview(&points_path), Some(true));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_detects_skel_animation() {
+        let (_dir, path) = write_usda(
+            "weights.usda",
+            b"#usda 1.0\ndef SkelAnimation \"Anim\" { token[] blendShapes = [\"Smile\"] }",
+        );
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_detects_materialx_alias() {
+        let (_dir, path) = write_usda(
+            "materialx.usda",
+            b"#usda 1.0\ndef Shader \"Image\" { uniform token info:id = \"ND_image_color3\" }",
+        );
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));
+    }
+
+    #[test]
     fn fast_usd_requires_glb_preview_accepts_small_plain_usda() {
         let (_dir, path) = write_usda("plain.usda", b"#usda 1.0\ndef Xform \"Root\" {}");
 
         assert_eq!(fast_usd_requires_glb_preview(&path), Some(false));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_defers_small_time_sampled_usda() {
+        let (_dir, path) = write_usda(
+            "animated_xform.usda",
+            b"#usda 1.0\ndef Xform \"Root\" { double3 xformOp:translate.timeSamples = { 1: (0, 0, 0), 2: (1, 0, 0) } }",
+        );
+
+        assert_eq!(fast_usd_requires_glb_preview(&path), None);
     }
 
     #[test]

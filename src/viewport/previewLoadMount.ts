@@ -1,4 +1,4 @@
-import { AnimationMixer } from "three";
+import { AnimationMixer, type Texture } from "three";
 import type { AssetResourceMetrics } from "../lib/diagnostics";
 import type { SelectedFile } from "../lib/files";
 import type { PurposeModes } from "../lib/usd";
@@ -103,7 +103,7 @@ type MountLoadedPreviewOptions = {
     onScaleNormalizationChange?: (
       normalization: { applied: boolean; factor: number } | null,
     ) => void;
-    onTextureThumbnailRefresh?: (refresh: (() => void) | null) => void;
+    onTextureMetadataRefresh?: (refresh: (() => void) | null) => void;
     publishResourceDiagnostics: (context: SceneContext | null) => void;
     setActivePreviewPath: (path: string) => void;
     setAnimationState: (state: AnimationState) => void;
@@ -328,19 +328,58 @@ export async function mountLoadedPreview(
   );
   update.onMetadataChange(metadataCollection.metadata);
   update.onPackMetadataChange(packMetadata);
-  const thumbnailEnrichment = scheduleTextureThumbnailEnrichment({
-    metadata: metadataCollection.metadata,
-    onUpdate: update.onMetadataChange,
-    shouldContinue: () =>
-      !isDisposed() &&
-      context.mountedObject === object &&
-      context.textureRegistry === textureRegistry,
+  const scheduleThumbnails = (
+    metadata: AssetMetadata,
+    registry: ReadonlyMap<string, Texture>,
+  ) =>
+    scheduleTextureThumbnailEnrichment({
+      metadata,
+      onUpdate: update.onMetadataChange,
+      shouldContinue: () =>
+        !isDisposed() &&
+        context.mountedObject === object &&
+        context.textureRegistry === registry,
+      textureRegistry: registry,
+    });
+  let thumbnailEnrichment = scheduleThumbnails(
+    metadataCollection.metadata,
     textureRegistry,
-  });
-  update.onTextureThumbnailRefresh?.(thumbnailEnrichment.refresh);
+  );
+  const refreshTextureMetadata = () => {
+    if (isDisposed() || context.mountedObject !== object) {
+      return;
+    }
+
+    const nextCollection = collectAssetMetadata(
+      object,
+      currentFile,
+      clips,
+      formatVersion,
+      packMetadata?.kind === "mmd" ? packMetadata.asset : undefined,
+      traversal,
+    );
+    if (isDisposed() || context.mountedObject !== object) {
+      return;
+    }
+
+    nextCollection.metadata.assetKind = assetKind;
+    thumbnailEnrichment.cancel();
+    const nextTextureRegistry = nextCollection.textureRegistry;
+    context.textureRegistry = nextTextureRegistry;
+    refs.assetResourceMetricsRef.current = collectAssetResourceMetrics(
+      nextCollection.metadata,
+    );
+    update.onMetadataChange(nextCollection.metadata);
+    thumbnailEnrichment = scheduleThumbnails(
+      nextCollection.metadata,
+      nextTextureRegistry,
+    );
+    update.publishResourceDiagnostics(context);
+  };
+  update.onTextureMetadataRefresh?.(refreshTextureMetadata);
   context.cleanupCallbacks.push(() => {
     thumbnailEnrichment.cancel();
-    update.onTextureThumbnailRefresh?.(null);
+    update.onTextureMetadataRefresh?.(null);
   });
   update.publishResourceDiagnostics(context);
   applySkeletonHelpers(

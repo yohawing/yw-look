@@ -26,6 +26,22 @@
   overflow: auto;
 }
 
+.hierarchy-outliner-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.hierarchy-outliner-body > .yl-list-text-filter {
+  flex: 0 0 auto;
+}
+
+.hierarchy-tree-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
 .hierarchy-resize-handle {
   position: relative;
   flex: 0 0 8px;

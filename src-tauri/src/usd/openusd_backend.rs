@@ -27,12 +27,15 @@ mod mesh_attributes;
 mod mesh_visibility;
 mod node_tree;
 mod point_instancer;
+mod prim_inspection;
 mod session;
 mod shader_fields;
 mod skel_adapter;
 mod stage_fields;
 mod stage_query;
+mod variants;
 mod xform;
+mod xform_animation;
 
 use super::asset_resolution::filter_resolvable_relative_assets;
 use super::backend::{UsdError, UsdGeometryBackend, UsdInspectBackend};
@@ -42,17 +45,19 @@ use super::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeTimeSamples, CompositionArc,
     CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo, PrimInspection,
     PrimTypeCount, StageCapabilityInfo, StageCapabilityKind, StageCapabilitySupport,
-    StageInspection, StageLoadPolicy, StageSummary,
+    StageInspection, StageLoadPolicy, StageSummary, VariantSelection,
 };
 use composition_arcs::{payload_arc_state, reference_arc_state};
 use extract::extract_geometry_from_open_stage_rs;
 #[cfg(test)]
 use mesh_visibility::is_renderable_mesh;
+#[cfg(test)]
+use stage_fields::read_string_or_token_attribute;
 use stage_fields::{
-    read_root_double_field, read_string_or_token_attribute, read_token_or_string_field,
-    token_vec_to_strings, ValidatedStagePathExt,
+    read_root_double_field, read_token_or_string_field, token_vec_to_strings, ValidatedStagePathExt,
 };
 use stage_query::UpAxis;
+use variants::apply_variant_selections;
 #[cfg(test)]
 use xform::{build_xform_op_matrix, compose_prim_local_xform, read_quat};
 
@@ -66,6 +71,8 @@ struct StageCapabilityDetection {
     payload: bool,
     variant_override: bool,
     usd_authored_splat: bool,
+    usd_authored_gaussian_splat: bool,
+    usd_authored_points: bool,
 }
 
 impl StageCapabilityDetection {
@@ -76,47 +83,47 @@ impl StageCapabilityDetection {
 
         match type_name.as_str() {
             "PointInstancer" => self.point_instancer = true,
-            "Points" => self.usd_authored_splat = true,
+            "ParticleField3DGaussianSplat" => {
+                self.usd_authored_splat = true;
+                self.usd_authored_gaussian_splat = true;
+            }
+            "Points" => {
+                self.usd_authored_splat = true;
+                self.usd_authored_points = true;
+            }
             "Skeleton" | "SkelRoot" | "SkelAnimation" | "BlendShape" => self.skel = true,
             _ if type_name.starts_with("Skel") => self.skel = true,
             _ => {}
         }
 
-        if type_name == "Shader" {
-            let info_id = prim_path
-                .append_property("info:id")
-                .ok()
-                .and_then(|path| read_string_or_token_attribute(stage, path));
-            if info_id.as_deref().is_some_and(is_material_x_shader_id) {
-                self.material_x = true;
-            }
+        if type_name == "Shader" && stage_query::prim_has_material_x_candidate(stage, prim_path) {
+            self.material_x = true;
         }
     }
 }
 
-fn is_material_x_shader_id(id: &str) -> bool {
-    // MaterialX node identifiers emitted by the USD interchange commonly
-    // use the `ND_` namespace. Keep the check intentionally name-based: the
-    // Rust backend does not expose a richer MaterialX schema query yet.
-    id.starts_with("ND_") || id.starts_with("MaterialX")
+/// Explain the bounded splat capability contract shared by stage summary,
+/// inspection, and extraction errors. `Points` is intentionally called out
+/// separately: generic point geometry is not a Gaussian splat representation.
+pub(crate) fn usd_authored_splat_reason(gaussian_splat: bool, points: bool) -> String {
+    match (gaussian_splat, points) {
+        (true, true) => "USD-authored ParticleField3DGaussianSplat and Points geometry are unsupported by the preview backend and omitted from mixed mesh previews; generic Points are not treated as Gaussian splats.".to_owned(),
+        (true, false) => "USD-authored ParticleField3DGaussianSplat Gaussian splats are unsupported by the preview backend and omitted from mixed mesh previews; their position, orientation, scale, opacity, and radiance attributes are not converted to GLB.".to_owned(),
+        (false, true) => "USD-authored Points geometry is unsupported by the preview backend and omitted from mixed mesh previews; generic Points are not treated as Gaussian splats.".to_owned(),
+        (false, false) => "USD-authored Points/splat geometry is not supported by the preview backend.".to_owned(),
+    }
 }
 
 fn stage_capability_infos(
     detection: StageCapabilityDetection,
     start_time_code: Option<f64>,
     end_time_code: Option<f64>,
+    material_x_reason: Option<String>,
 ) -> Vec<StageCapabilityInfo> {
-    const MATERIAL_X_REASON: &str =
-        "MaterialX preview is limited to known shader aliases and direct graphs.";
     const SKEL_REASON: &str =
         "UsdSkel preview supports the current GLB skinning path only; arbitrary rig data is not covered.";
     const ANIMATION_RANGE_REASON: &str =
         "Only authored stage start/end metadata is reported; time-varying attributes are not scanned.";
-    const VARIANT_OVERRIDE_REASON: &str =
-        "Variant session overrides are not supported by the current backend.";
-    const USD_AUTHORED_SPLAT_REASON: &str =
-        "USD-authored Points/splat geometry is not supported by the preview backend.";
-
     vec![
         StageCapabilityInfo {
             kind: StageCapabilityKind::PointInstancer,
@@ -128,7 +135,9 @@ fn stage_capability_infos(
             kind: StageCapabilityKind::MaterialX,
             detected: detection.material_x,
             support: StageCapabilitySupport::Degraded,
-            reason: MATERIAL_X_REASON.to_owned(),
+            reason: material_x_reason.unwrap_or_else(|| {
+                "MaterialX preview is limited to known shader aliases and direct graphs.".to_owned()
+            }),
         },
         StageCapabilityInfo {
             kind: StageCapabilityKind::Skel,
@@ -151,14 +160,17 @@ fn stage_capability_infos(
         StageCapabilityInfo {
             kind: StageCapabilityKind::VariantOverride,
             detected: detection.variant_override,
-            support: StageCapabilitySupport::Unsupported,
-            reason: VARIANT_OVERRIDE_REASON.to_owned(),
+            support: StageCapabilitySupport::Supported,
+            reason: String::new(),
         },
         StageCapabilityInfo {
             kind: StageCapabilityKind::UsdAuthoredSplat,
             detected: detection.usd_authored_splat,
             support: StageCapabilitySupport::Unsupported,
-            reason: USD_AUTHORED_SPLAT_REASON.to_owned(),
+            reason: usd_authored_splat_reason(
+                detection.usd_authored_gaussian_splat,
+                detection.usd_authored_points,
+            ),
         },
     ]
 }
@@ -213,7 +225,19 @@ impl UsdInspectBackend for OpenusdBackend {
         path: &StdPath,
         policy: StageLoadPolicy,
     ) -> Result<StageInspection, UsdError> {
+        self.inspect_stage_with_variants(path, policy, &[])
+    }
+
+    fn inspect_stage_with_variants(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+        variant_selections: &[VariantSelection],
+    ) -> Result<StageInspection, UsdError> {
         let stage = Self::open(path, policy)?;
+        if !variant_selections.is_empty() {
+            apply_variant_selections(&stage, variant_selections)?;
+        }
 
         let default_prim = stage.default_prim().map(|token| token.as_str().to_owned());
         let up_axis = stage_query::up_axis(&stage).map(|axis| match axis {
@@ -362,8 +386,15 @@ impl UsdInspectBackend for OpenusdBackend {
             .and_then(|v| String::try_from(v).ok())
             .filter(|s| !s.is_empty());
         let root_layer_is_binary = stage_query::root_layer_is_binary(&stage);
-        let capabilities =
-            stage_capability_infos(capability_detection, start_time_code, end_time_code);
+        let material_x_reason =
+            stage_query::material_x_diagnostic_reason(&stage, capability_detection.material_x)
+                .map_err(|error| UsdError::Parse(error.to_string()))?;
+        let capabilities = stage_capability_infos(
+            capability_detection,
+            start_time_code,
+            end_time_code,
+            material_x_reason,
+        );
 
         // #29 — degraded layer info: the Rust fork doesn't expose
         // per-layer muted / offset APIs, so we synthesise LayerInfo
@@ -428,7 +459,19 @@ impl UsdInspectBackend for OpenusdBackend {
         path: &StdPath,
         policy: StageLoadPolicy,
     ) -> Result<StageSummary, UsdError> {
+        self.summarize_stage_with_variants(path, policy, &[])
+    }
+
+    fn summarize_stage_with_variants(
+        &self,
+        path: &StdPath,
+        policy: StageLoadPolicy,
+        variant_selections: &[VariantSelection],
+    ) -> Result<StageSummary, UsdError> {
         let stage = Self::open(path, policy)?;
+        if !variant_selections.is_empty() {
+            apply_variant_selections(&stage, variant_selections)?;
+        }
 
         let layer_count = stage.layer_count();
         let root_prim_count = stage
@@ -581,7 +624,11 @@ impl UsdInspectBackend for OpenusdBackend {
             .into_iter()
             .map(|a| format!("unresolved asset: {a}"))
             .collect();
-        let capabilities = stage_capability_infos(capability_detection, start, end);
+        let material_x_reason =
+            stage_query::material_x_diagnostic_reason(&stage, capability_detection.material_x)
+                .map_err(|error| UsdError::Parse(error.to_string()))?;
+        let capabilities =
+            stage_capability_infos(capability_detection, start, end, material_x_reason);
 
         Ok(StageSummary {
             path: path.display().to_string(),
@@ -643,16 +690,71 @@ impl UsdInspectBackend for OpenusdBackend {
         if *has_point_instancer.borrow() {
             return Ok(true);
         }
+        // Single-layer USDA can contain either the formal Gaussian splat
+        // schema or generic Points. Neither representation is handled by
+        // Three.js USDLoader, and the backend must own the explicit
+        // unsupported capability / extraction diagnostic rather than letting
+        // the JS route produce an empty preview.
+        if stage_query::has_usd_authored_splat_candidate(&stage)
+            .map_err(|error| UsdError::Parse(error.to_string()))?
+        {
+            return Ok(true);
+        }
+        // A single-layer USDA can still depend on variant composition. The
+        // JS USDLoader path receives only the source text and does not apply
+        // the composed variant state used by the backend, so route stages
+        // with a resolved variant set through GLB extraction as well.
+        let has_variants = RefCell::new(false);
+        stage
+            .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+                if stage
+                    .prim_at(prim_path.clone())
+                    .variant_sets()
+                    .get_all_variant_selections()
+                    .is_ok_and(|selections| !selections.is_empty())
+                {
+                    *has_variants.borrow_mut() = true;
+                }
+            })
+            .map_err(|error| UsdError::Parse(error.to_string()))?;
+        if *has_variants.borrow() {
+            return Ok(true);
+        }
+        // Single-layer USDA can still contain composed UsdSkel schema prims.
+        // USDLoader does not preserve skin / morph relationships, so route
+        // these stages through the backend even when no timeSamples marker
+        // is present.
+        if stage_query::has_skel_schema_candidate(&stage)
+            .map_err(|error| UsdError::Parse(error.to_string()))?
+        {
+            return Ok(true);
+        }
+        // A single-layer USDA can still contain MaterialX shader aliases.
+        // Three.js USDLoader does not evaluate those graphs or expose their
+        // resource diagnostics, so route the candidate through the backend.
+        if stage_query::has_material_x_candidate(&stage)
+            .map_err(|error| UsdError::Parse(error.to_string()))?
+        {
+            return Ok(true);
+        }
+        // Single-layer USDA with a `.timeSamples` marker is routed here by
+        // the frontend only as a candidate. Inspect the composed stage before
+        // routing: supported candidates use bounded Xform baking, while an
+        // unsupported candidate still reaches extraction so its reason is
+        // surfaced instead of silently using a static JS pose.
+        let xform_detection = xform_animation::detect_stage_xform_animation(&stage);
+        if xform_detection.should_route_to_glb() || xform_detection.candidate {
+            return Ok(true);
+        }
         // Single self-contained USDA layer — USDLoader handles hierarchy
         // and xform composition better than the GLB flattener, so prefer
         // the JS path.
         Ok(false)
     }
 
-    fn inspect_prim(&self, _path: &StdPath, _prim_path: &str) -> Result<PrimInspection, UsdError> {
-        Err(UsdError::Parse(
-            "inspect_prim is not supported on the openusd Rust backend".into(),
-        ))
+    fn inspect_prim(&self, path: &StdPath, prim_path: &str) -> Result<PrimInspection, UsdError> {
+        let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        prim_inspection::inspect_prim(&stage, prim_path)
     }
 
     fn inspect_attribute_time_samples(
@@ -667,7 +769,18 @@ impl UsdInspectBackend for OpenusdBackend {
     }
 
     fn collect_asset_issues(&self, path: &StdPath) -> Result<Vec<AssetIssue>, UsdError> {
+        self.collect_asset_issues_with_variants(path, &[])
+    }
+
+    fn collect_asset_issues_with_variants(
+        &self,
+        path: &StdPath,
+        variant_selections: &[VariantSelection],
+    ) -> Result<Vec<AssetIssue>, UsdError> {
         let stage = Self::open(path, StageLoadPolicy::LoadAll)?;
+        if !variant_selections.is_empty() {
+            apply_variant_selections(&stage, variant_selections)?;
+        }
         let mut issues = Vec::new();
 
         if let Some(mpu) = stage_query::meters_per_unit(&stage) {
@@ -760,14 +873,10 @@ impl UsdGeometryBackend for OpenusdBackend {
         path: &StdPath,
         options: &ExtractGeometryOptions,
     ) -> Result<Vec<u8>, UsdError> {
-        if !options.variant_selections.is_empty() {
-            eprintln!(
-                "[usd-rust] extract_geometry_glb_with_options: variant_selections are \
-                 not supported by the Rust openusd backend (degraded mode). The \
-                 authored variant selections will be used instead."
-            );
-        }
         let stage = Self::open(path, options.policy)?;
+        if !options.variant_selections.is_empty() {
+            apply_variant_selections(&stage, &options.variant_selections)?;
+        }
         extract_geometry_from_open_stage_rs(&stage, path, options)
     }
 }
@@ -807,6 +916,7 @@ mod tests {
         let accessor = &document["accessors"][accessor_index];
         let view = &document["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize];
         let component_count = match accessor["type"].as_str().unwrap() {
+            "SCALAR" => 1,
             "VEC3" => 3,
             "VEC4" => 4,
             other => panic!("unsupported accessor type {other}"),
@@ -974,6 +1084,11 @@ def Skeleton "Rig"
         assert!(summary.capabilities[2].detected);
         assert!(summary.capabilities[3].detected);
         assert!(summary.capabilities[5].detected);
+        assert_eq!(
+            summary.capabilities[5].support,
+            StageCapabilitySupport::Supported
+        );
+        assert!(summary.capabilities[5].reason.is_empty());
         assert!(summary.capabilities[6].detected);
         for entry in &summary.capabilities {
             if matches!(
@@ -993,6 +1108,136 @@ def Skeleton "Rig"
         );
 
         std::fs::remove_dir_all(root).ok();
+    }
+
+    fn write_splat_fixture(
+        name: &str,
+        splat_type: &str,
+        mixed_with_mesh: bool,
+    ) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("create splat fixture directory");
+        let mesh = if mixed_with_mesh {
+            r#"
+    def Mesh "Witness"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }
+"#
+        } else {
+            ""
+        };
+        let contents = format!(
+            r#"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+
+def Xform "Root"
+{{
+    def {splat_type} "Cloud"
+    {{
+    }}
+{mesh}}}
+"#
+        );
+        let path = dir.path().join(name);
+        std::fs::write(&path, contents).expect("write splat fixture");
+        (dir, path)
+    }
+
+    fn usd_authored_splat_capability(capabilities: &[StageCapabilityInfo]) -> &StageCapabilityInfo {
+        capabilities
+            .iter()
+            .find(|entry| entry.kind == StageCapabilityKind::UsdAuthoredSplat)
+            .expect("UsdAuthoredSplat capability")
+    }
+
+    #[test]
+    fn gaussian_splat_capability_and_extraction_boundary_is_explicit() {
+        let backend = OpenusdBackend::new();
+        let (_pure_dir, pure_path) =
+            write_splat_fixture("pure-gaussian.usda", "ParticleField3DGaussianSplat", false);
+        let pure_summary = backend
+            .summarize_stage(&pure_path, StageLoadPolicy::LoadAll)
+            .expect("summarize pure Gaussian splat");
+        let pure_inspection = backend
+            .inspect_stage(&pure_path, StageLoadPolicy::LoadAll)
+            .expect("inspect pure Gaussian splat");
+        assert_eq!(pure_summary.capabilities, pure_inspection.capabilities);
+        let pure_capability = usd_authored_splat_capability(&pure_summary.capabilities);
+        assert!(pure_capability.detected);
+        assert!(pure_capability
+            .reason
+            .contains("ParticleField3DGaussianSplat"));
+        assert!(pure_capability.reason.contains("unsupported"));
+        assert!(backend
+            .requires_glb_preview(&pure_path)
+            .expect("route pure Gaussian splat"));
+        let pure_error = backend
+            .extract_geometry_glb(&pure_path, StageLoadPolicy::LoadAll)
+            .expect_err("pure Gaussian splat must not become an empty success");
+        assert!(pure_error
+            .to_string()
+            .contains("ParticleField3DGaussianSplat"));
+
+        let (_mixed_dir, mixed_path) =
+            write_splat_fixture("mixed-gaussian.usda", "ParticleField3DGaussianSplat", true);
+        let mixed_summary = backend
+            .summarize_stage(&mixed_path, StageLoadPolicy::LoadAll)
+            .expect("summarize mixed Gaussian splat");
+        let mixed_capability = usd_authored_splat_capability(&mixed_summary.capabilities);
+        assert!(mixed_capability.detected);
+        assert!(mixed_capability.reason.contains("mixed mesh previews"));
+        let mixed_glb = backend
+            .extract_geometry_glb(&mixed_path, StageLoadPolicy::LoadAll)
+            .expect("mixed Gaussian splat keeps Mesh preview");
+        assert!(!glb_json(&mixed_glb)["meshes"]
+            .as_array()
+            .expect("mixed Gaussian GLB meshes")
+            .is_empty());
+    }
+
+    #[test]
+    fn points_capability_and_extraction_boundary_is_distinct_from_gaussian() {
+        let backend = OpenusdBackend::new();
+        let (_pure_dir, pure_path) = write_splat_fixture("pure-points.usda", "Points", false);
+        let pure_summary = backend
+            .summarize_stage(&pure_path, StageLoadPolicy::LoadAll)
+            .expect("summarize pure Points");
+        let pure_inspection = backend
+            .inspect_stage(&pure_path, StageLoadPolicy::LoadAll)
+            .expect("inspect pure Points");
+        assert_eq!(pure_summary.capabilities, pure_inspection.capabilities);
+        let pure_capability = usd_authored_splat_capability(&pure_summary.capabilities);
+        assert!(pure_capability.detected);
+        assert!(pure_capability.reason.contains("Points geometry"));
+        assert!(pure_capability
+            .reason
+            .contains("not treated as Gaussian splats"));
+        assert!(backend
+            .requires_glb_preview(&pure_path)
+            .expect("route pure Points"));
+        let pure_error = backend
+            .extract_geometry_glb(&pure_path, StageLoadPolicy::LoadAll)
+            .expect_err("pure Points must not become an empty success");
+        assert!(pure_error.to_string().contains("Points geometry"));
+
+        let (_mixed_dir, mixed_path) = write_splat_fixture("mixed-points.usda", "Points", true);
+        let mixed_summary = backend
+            .summarize_stage(&mixed_path, StageLoadPolicy::LoadAll)
+            .expect("summarize mixed Points");
+        let mixed_capability = usd_authored_splat_capability(&mixed_summary.capabilities);
+        assert!(mixed_capability.detected);
+        assert!(mixed_capability.reason.contains("mixed mesh previews"));
+        let mixed_glb = backend
+            .extract_geometry_glb(&mixed_path, StageLoadPolicy::LoadAll)
+            .expect("mixed Points keeps Mesh preview");
+        assert!(!glb_json(&mixed_glb)["meshes"]
+            .as_array()
+            .expect("mixed Points GLB meshes")
+            .is_empty());
     }
 
     #[test]
@@ -1114,6 +1359,98 @@ def Xform "Root"
             mesh_nodes[0]["extras"]["primPath"],
             "/Root/VisibleInstance/Geometry"
         );
+    }
+
+    #[test]
+    fn materialx_capability_reason_is_shared_and_names_unsupported_inputs() {
+        let root = std::env::temp_dir().join(format!(
+            "yw-look-materialx-capability-diagnostics-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let path = root.join("materialx-diagnostics.usda");
+        std::fs::write(
+            &path,
+            r##"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+
+def Xform "Root"
+{
+    def NodeGraph "Outer"
+    {
+        color3f outputs:out
+    }
+
+    def Shader "MissingImage"
+    {
+        uniform token info:id = "ND_image_color3"
+        asset inputs:file = @missing.png@
+    }
+
+    def Shader "RawSource"
+    {
+        uniform token info:id = "ND_standard_surface_surfaceshader"
+        asset info:sourceAsset = @material.mtlx@
+    }
+
+    def Shader "RawSourceOnly"
+    {
+        asset info:mtlx:sourceAsset = @missing-material.mtlx@
+    }
+
+    def Shader "NestedPreview"
+    {
+        uniform token info:id = "ND_UsdPreviewSurface_surfaceshader"
+        color3f inputs:diffuseColor.connect = </Root/Outer.outputs:out>
+    }
+}
+"##,
+        )
+        .expect("write MaterialX diagnostic fixture");
+
+        let backend = OpenusdBackend::new();
+        let summary = backend
+            .summarize_stage(&path, StageLoadPolicy::LoadAll)
+            .expect("summarize MaterialX diagnostic fixture");
+        let inspection = backend
+            .inspect_stage(&path, StageLoadPolicy::LoadAll)
+            .expect("inspect MaterialX diagnostic fixture");
+        assert_eq!(summary.capabilities, inspection.capabilities);
+        let reason = &summary.capabilities[1].reason;
+        assert!(reason.contains("missing.png"), "reason = {reason}");
+        assert!(reason.contains("unresolved"), "reason = {reason}");
+        assert!(reason.contains("material.mtlx"), "reason = {reason}");
+        assert!(
+            reason.contains("missing-material.mtlx") && reason.contains("RawSourceOnly"),
+            "reason = {reason}"
+        );
+        assert!(reason.contains("standard_surface"), "reason = {reason}");
+        assert!(reason.contains("NodeGraph"), "reason = {reason}");
+    }
+
+    #[test]
+    fn single_layer_materialx_requires_glb_preview() {
+        let root =
+            std::env::temp_dir().join(format!("yw-look-materialx-routing-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let path = root.join("materialx-routing.usda");
+        std::fs::write(
+            &path,
+            r##"#usda 1.0
+def Shader "MaterialXShader"
+{
+    uniform token info:id = "ND_image_color3"
+}
+"##,
+        )
+        .expect("write MaterialX routing fixture");
+
+        let backend = OpenusdBackend::new();
+        assert!(backend
+            .requires_glb_preview(&path)
+            .expect("route MaterialX fixture"));
     }
 
     #[test]
@@ -3958,6 +4295,55 @@ def Xform "Root"
             .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
             .expect("extract tiny_rigged_blend.usda");
         assert_eq!(&glb[0..4], b"glTF");
+    }
+
+    #[test]
+    fn extract_geometry_emits_skel_blend_shape_weight_timeline() {
+        let path = PathBuf::from("../samples/assets/usd/tiny_rigged_blend.usda");
+        if is_lfs_pointer(&path) {
+            eprintln!("SKIP skel blend weight fixture: LFS pointer");
+            return;
+        }
+        let backend = OpenusdBackend::new();
+        let glb = backend
+            .extract_geometry_glb(&path, super::StageLoadPolicy::LoadAll)
+            .expect("extract tiny_rigged_blend.usda");
+        let document = glb_json(&glb);
+        let animations = document["animations"].as_array().expect("animations");
+        let animation = animations
+            .iter()
+            .find(|animation| {
+                animation["channels"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|channel| channel["target"]["path"] == "weights")
+            })
+            .expect("blend shape weight animation");
+        let weight_channel = animation["channels"]
+            .as_array()
+            .expect("channels")
+            .iter()
+            .find(|channel| channel["target"]["path"] == "weights")
+            .expect("weight channel");
+        let sampler_index = weight_channel["sampler"].as_u64().expect("sampler") as usize;
+        let sampler = &animation["samplers"][sampler_index];
+        let time_accessor = sampler["input"].as_u64().expect("time accessor") as usize;
+        let weight_accessor = sampler["output"].as_u64().expect("weight accessor") as usize;
+        assert_eq!(document["accessors"][time_accessor]["count"], 3);
+        assert_eq!(document["accessors"][weight_accessor]["count"], 6);
+        assert_eq!(
+            glb_accessor_f32(&glb, &document, time_accessor),
+            vec![0.0, 0.5, 1.0]
+        );
+        let weights = glb_accessor_f32(&glb, &document, weight_accessor);
+        assert_eq!(weights.len(), 6);
+        assert!((weights[0] - 0.0).abs() < 1e-6);
+        assert!((weights[1] - 0.0).abs() < 1e-6);
+        assert!((weights[2] - 1.0).abs() < 1e-6);
+        assert!((weights[3] - 0.5).abs() < 1e-6);
+        assert!((weights[4] - 0.0).abs() < 1e-6);
+        assert!((weights[5] - 0.0).abs() < 1e-6);
     }
 
     /// Phase 6d regression: a mesh without `skel:blendShapeTargets`

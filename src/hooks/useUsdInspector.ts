@@ -10,18 +10,35 @@ import {
   type StageLoadPolicy,
   type StageSummary,
   type UsdLightInfo,
+  type VariantSelection,
 } from "../lib/usd";
 import { errorMessage } from "../lib/errors";
 import { retryWhileBusy } from "../lib/usdBusyRetry";
 
 const USD_INSPECTOR_DEFER_MS = 1_000;
+const EMPTY_VARIANT_SELECTIONS: VariantSelection[] = [];
+
+function makeUsdInspectorQueryKey(
+  currentFile: SelectedFile | null,
+  variantSelections: VariantSelection[],
+): string {
+  return JSON.stringify({
+    path: isUsdFile(currentFile) ? (currentFile?.path ?? null) : null,
+    variantSelections,
+  });
+}
 
 export function useUsdInspector(
   currentFile: SelectedFile | null,
   isTauri: boolean,
   usdLoadPolicy: StageLoadPolicy,
   enabled: boolean,
+  variantSelections: VariantSelection[] = EMPTY_VARIANT_SELECTIONS,
 ) {
+  const currentQueryKey = makeUsdInspectorQueryKey(
+    currentFile,
+    variantSelections,
+  );
   const [usdSummary, setUsdSummary] = useState<StageSummary | null>(null);
   const [usdInspection, setUsdInspection] = useState<StageInspection | null>(
     null,
@@ -33,10 +50,13 @@ export function useUsdInspector(
   const [usdInspectorError, setUsdInspectorError] = useState<string | null>(
     null,
   );
+  const [usdInspectorStartedQueryKey, setUsdInspectorStartedQueryKey] =
+    useState<string | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- invalidate the previous async snapshot before starting queries for a new USD selection
+    setUsdInspectorStartedQueryKey(currentQueryKey);
     if (!isTauri || !isUsdFile(currentFile) || !currentFile) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset all derived async USD state when the file is not a USD file or Tauri is unavailable; values come from cancellable RPCs and cannot be derived during render
       setUsdSummary(null);
       setUsdInspection(null);
       setUsdIssues([]);
@@ -69,7 +89,13 @@ export function useUsdInspector(
       const busyExhaustedMessage =
         "USD backend stayed busy; inspection is incomplete. Reopen the file to retry.";
       const summarizePromise = retryWhileBusy(
-        () => summarizeStage(path, usdLoadPolicy, { background: true }),
+        () =>
+          summarizeStage(
+            path,
+            usdLoadPolicy,
+            { background: true },
+            variantSelections,
+          ),
         { shouldAbort: () => cancelled },
       )
         .then((summary) => {
@@ -88,7 +114,13 @@ export function useUsdInspector(
         });
 
       const inspectPromise = retryWhileBusy(
-        () => inspectStage(path, usdLoadPolicy, { background: true }),
+        () =>
+          inspectStage(
+            path,
+            usdLoadPolicy,
+            { background: true },
+            variantSelections,
+          ),
         { shouldAbort: () => cancelled },
       )
         .then((inspection) => {
@@ -112,7 +144,12 @@ export function useUsdInspector(
       const issuesPromise =
         usdLoadPolicy === "loadAll"
           ? retryWhileBusy(
-              () => collectAssetIssues(path, { background: true }),
+              () =>
+                collectAssetIssues(
+                  path,
+                  { background: true },
+                  variantSelections,
+                ),
               { shouldAbort: () => cancelled },
             )
               .then((issues) => {
@@ -137,9 +174,13 @@ export function useUsdInspector(
 
       const lightsPromise =
         usdLoadPolicy === "loadAll"
-          ? retryWhileBusy(() => inspectUsdLights(path, { background: true }), {
-              shouldAbort: () => cancelled,
-            })
+          ? retryWhileBusy(
+              () =>
+                inspectUsdLights(path, { background: true }, variantSelections),
+              {
+                shouldAbort: () => cancelled,
+              },
+            )
               .then((lights) => {
                 if (cancelled) return;
                 if (lights === undefined) {
@@ -180,15 +221,24 @@ export function useUsdInspector(
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [currentFile, enabled, isTauri, usdLoadPolicy]);
+  }, [
+    currentFile,
+    currentQueryKey,
+    enabled,
+    isTauri,
+    usdLoadPolicy,
+    variantSelections,
+  ]);
+
+  const hasCurrentInspection = usdInspectorStartedQueryKey === currentQueryKey;
 
   return {
-    usdSummary,
-    usdInspection,
-    usdIssues,
-    usdLights,
-    usdLightsError,
+    usdSummary: hasCurrentInspection ? usdSummary : null,
+    usdInspection: hasCurrentInspection ? usdInspection : null,
+    usdIssues: hasCurrentInspection ? usdIssues : [],
+    usdLights: hasCurrentInspection ? usdLights : null,
+    usdLightsError: hasCurrentInspection ? usdLightsError : null,
     usdInspectorLoading,
-    usdInspectorError,
+    usdInspectorError: hasCurrentInspection ? usdInspectorError : null,
   };
 }

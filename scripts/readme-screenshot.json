@@ -1,0 +1,12 @@
+{
+  "model": "samples/private/usdz/toy_biplane.usdz",
+  "modelSha256": "293805686d7ac7364060ea8d0a295a60fe435a566a282d876c3e5de7b60e26dc",
+  "width": 1440,
+  "height": 960,
+  "frame": 3,
+  "expandSections": ["USD Details"],
+  "orbit": { "dx": 0, "dy": 0.025 },
+  "pan": { "dx": 0, "dy": -0.04 },
+  "zoomWheel": -330,
+  "settleMs": 2500
+}

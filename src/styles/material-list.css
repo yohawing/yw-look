@@ -15,10 +15,25 @@
   overflow: hidden;
 }
 
-.material-list {
+.material-list-layout {
   display: flex;
   min-height: 0;
   height: 100%;
+  flex-direction: column;
+}
+
+.material-list-layout > .sidebar-empty {
+  flex: 1 1 auto;
+}
+
+.material-list-layout > .yl-list-text-filter {
+  flex: 0 0 auto;
+}
+
+.material-list {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 4px;
   overflow: auto;
