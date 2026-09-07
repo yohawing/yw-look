@@ -42,6 +42,7 @@ describe("preview support classification", () => {
     expect(extensions.has("bvh")).toBe(true);
     expect(extensions.has("ktx2")).toBe(true);
     expect(extensions.has("psd")).toBe(true);
+    expect(extensions.has("3dm")).toBe(true);
   });
 
   it("exposes registered format packs by id", () => {
@@ -57,6 +58,7 @@ describe("preview support classification", () => {
       "core-preview-loader",
       "gaussian-splat-loader-pack",
       "mmd-loader-pack",
+      "rhino3dm-loader-pack",
       "vrm-loader-pack",
     ]);
   });

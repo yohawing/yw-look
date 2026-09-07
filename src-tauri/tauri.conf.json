@@ -124,6 +124,17 @@
         "rank": "Alternate"
       },
       {
+        "ext": ["3dm"],
+        "name": "yw-look Rhino 3DM Asset",
+        "description": "Rhino 3DM asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.3dm",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
         "ext": ["usd"],
         "contentTypes": ["com.pixar.universal-scene-description"],
         "name": "yw-look USD Asset",

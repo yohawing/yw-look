@@ -20,9 +20,12 @@
 | PLY          | `.ply`                         | ✅️           | [Three.js PLYLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/PLYLoader.js)を使用。メッシュ・点群の表示。Gaussian Splat形式のPLYには追加パックが必要です。                                    |
 | STL          | `.stl`                         | ✅️           | [Three.js STLLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/STLLoader.js)を使用。メッシュ形状の確認向けです。                                                                               |
 | COLLADA      | `.dae`                         | 一部対応     | [Three.js ColladaLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/ColladaLoader.js)を使用。モデルと外部テクスチャのプレビュー。現在の読み込み経路ではアニメーションクリップを取り込みません。 |
+| Rhino 3DM    | `.3dm`                         | ✅️           | [Three.js Rhino3dmLoader](https://threejs.org/docs/pages/Rhino3dmLoader.html)とopenNURBSの`rhino3dm.js/.wasm`を使用。mesh/Brep/extrusion/SubD/curve/point/点群、layer/instance、basic materialをプレビューします。     |
 | USD          | `.usd` `.usda` `.usdc` `.usdz` | 一部対応     | [openusd（Rust）](https://github.com/mxpv/openusd)を使用。形状・マテリアル・一部アニメーションのプレビューと、レイヤー・Prim・バリアント等の検査。UsdSkelやMaterialXなどは対応範囲に制限があり、警告を表示します。     |
 | Alembic      | `.abc`                         | 条件付き対応 | [Alembic](https://github.com/alembic/alembic)を使う専用ヘルパーを使用。メッシュ形状・頂点アニメーションのプレビュー。対応するネイティブ変換ヘルパーが必要です（Windows x64 / macOS arm64向け）。                       |
 | BVH          | `.bvh`                         | ✅️           | [Three.js BVHLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/BVHLoader.js)を使用。骨格とモーションのプレビュー。モデル形状を含む形式ではありません。                                         |
+
+Rhino 3DMは編集・保存、Grasshopper定義やRhinoプラグイン固有データの実行、Rhino表示モードの完全再現には対応しません。未変換の要素や不足リソースは警告として表示します。
 
 ### 画像・テクスチャ（標準対応）
 

@@ -1,4 +1,4 @@
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig, type Connect, type Plugin } from "vite";
@@ -63,6 +63,15 @@ const mmdAnimWasmDevUrl = "/@yw-look/mmd-loader/mmd_anim_wasm_bg.wasm";
 const mmdWasmUrlModuleId = "virtual:yw-look-mmd-wasm-url";
 const resolvedMmdWasmUrlModuleId = "\0yw-look-mmd-wasm-url";
 
+const rhino3dmPackagePath = fileURLToPath(
+  new URL("./node_modules/rhino3dm", import.meta.url),
+);
+const rhino3dmJsPath = path.resolve(rhino3dmPackagePath, "rhino3dm.js");
+const rhino3dmWasmPath = path.resolve(rhino3dmPackagePath, "rhino3dm.wasm");
+const rhino3dmDevBaseUrl = "/rhino3dm/";
+const rhino3dmLibraryPathModuleId = "virtual:yw-look-rhino3dm-library-path";
+const resolvedRhino3dmLibraryPathModuleId = "\0yw-look-rhino3dm-library-path";
+
 export function mmdWasmMimePlugin(): Plugin {
   let isServe = false;
 
@@ -116,8 +125,85 @@ export function mmdWasmMimePlugin(): Plugin {
   };
 }
 
+export function rhino3dmRuntimePlugin(): Plugin {
+  const serveRhino3dmAsset: Connect.NextHandleFunction = (
+    request,
+    response,
+    next,
+  ) => {
+    const requestPath = new URL(request.url ?? "/", "http://localhost")
+      .pathname;
+    const relativePath = requestPath.startsWith(rhino3dmDevBaseUrl)
+      ? requestPath.slice(rhino3dmDevBaseUrl.length)
+      : requestPath.startsWith("/")
+        ? requestPath.slice(1)
+        : requestPath;
+    const assetPath =
+      relativePath === "rhino3dm.js"
+        ? rhino3dmJsPath
+        : relativePath === "rhino3dm.wasm"
+          ? rhino3dmWasmPath
+          : null;
+
+    if (!assetPath || !existsSync(assetPath)) {
+      next();
+      return;
+    }
+
+    response.statusCode = 200;
+    response.setHeader(
+      "Content-Type",
+      relativePath.endsWith(".wasm")
+        ? "application/wasm"
+        : "text/javascript; charset=utf-8",
+    );
+    createReadStream(assetPath).pipe(response);
+  };
+
+  return {
+    name: "yw-look-rhino3dm-runtime",
+    enforce: "pre",
+    resolveId(id) {
+      return id === rhino3dmLibraryPathModuleId
+        ? resolvedRhino3dmLibraryPathModuleId
+        : null;
+    },
+    load(id) {
+      return id === resolvedRhino3dmLibraryPathModuleId
+        ? `export default ${JSON.stringify(rhino3dmDevBaseUrl)};`
+        : null;
+    },
+    configureServer(server) {
+      return () => {
+        server.middlewares.stack.unshift({
+          route: "/rhino3dm",
+          handle: serveRhino3dmAsset,
+        });
+      };
+    },
+    generateBundle() {
+      if (!existsSync(rhino3dmJsPath) || !existsSync(rhino3dmWasmPath)) {
+        throw new Error(
+          `rhino3dm runtime assets are missing under ${rhino3dmPackagePath}`,
+        );
+      }
+
+      this.emitFile({
+        type: "asset",
+        fileName: "rhino3dm/rhino3dm.js",
+        source: readFileSync(rhino3dmJsPath),
+      });
+      this.emitFile({
+        type: "asset",
+        fileName: "rhino3dm/rhino3dm.wasm",
+        source: readFileSync(rhino3dmWasmPath),
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [mmdWasmMimePlugin(), react()],
+  plugins: [mmdWasmMimePlugin(), rhino3dmRuntimePlugin(), react()],
   clearScreen: false,
   define: {
     __YW_HAS_THREE_MMD_LOADER__: JSON.stringify(includeOptionalThreeMmdLoader),

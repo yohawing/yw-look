@@ -92,6 +92,12 @@ export const webRuntimeLicenseAttributions = [
     source: "web",
   },
   {
+    name: "rhino3dm",
+    version: "8.32.2",
+    license: "MIT",
+    source: "web",
+  },
+  {
     name: "three",
     version: "0.185.1",
     license: "MIT",
