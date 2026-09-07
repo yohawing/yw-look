@@ -5448,7 +5448,7 @@ dependencies = [
 
 [[package]]
 name = "yw-look"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "cmake",

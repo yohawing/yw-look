@@ -9,7 +9,7 @@ export type LicenseAttribution = {
 };
 
 export const projectName = "yw-look" as const;
-export const projectVersion = "0.3.2" as const;
+export const projectVersion = "0.3.3" as const;
 export const projectLicense = "MIT" as const;
 
 export const webRuntimeLicenseAttributions = [
