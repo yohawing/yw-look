@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global window, document */
+/* global document */
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -124,7 +124,7 @@ async function capture() {
     "release/yw-look.exe",
   );
   const port = await freePort();
-  const child = spawn(executable, [], {
+  const child = spawn(executable, [modelPath], {
     cwd: root,
     windowsHide: true,
     stdio: "ignore",
@@ -170,14 +170,6 @@ async function capture() {
       mobile: false,
     });
     await page.locator(".app-statusbar").waitFor();
-    await page.evaluate(
-      (file) =>
-        window.__TAURI_INTERNALS__.invoke("plugin:event|emit", {
-          event: "tauri://drag-drop",
-          payload: { paths: [file], position: { x: 200, y: 200 } },
-        }),
-      modelPath,
-    );
     await page.waitForFunction(
       (name) =>
         document
@@ -191,6 +183,18 @@ async function capture() {
     if (await pause.count()) await pause.click();
     await page.evaluate(() => document.activeElement?.blur());
     await page.keyboard.press("Control+ArrowLeft");
+    for (let frame = 0; frame < (config.frame ?? 0); frame++) {
+      await page.keyboard.press("ArrowRight");
+    }
+    if (config.frame) {
+      const readout = await page
+        .getByRole("button", { name: "Toggle time display", exact: true })
+        .innerText();
+      if (parseInt(readout, 10) !== config.frame)
+        throw new Error(
+          "Capture did not reach the configured animation frame.",
+        );
+    }
     await page.keyboard.press("r");
     await page.keyboard.press("Home");
     await delay(500);
@@ -215,6 +219,9 @@ async function capture() {
       { steps: 20 },
     );
     await page.mouse.up({ button: "middle" });
+    for (const title of config.expandSections ?? []) {
+      await page.getByText(title, { exact: true }).click();
+    }
     await page.mouse.move(config.width - 1, config.height - 1);
     await page.evaluate(() => document.fonts.ready);
     await delay(config.settleMs);

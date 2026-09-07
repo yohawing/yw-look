@@ -11,7 +11,7 @@ Tauri v2製のCGアセット確認用の軽量インスペクタ。DCC を起動
 
 ![yw-look screenshot](docs/images/hero.png)
 
-Model: A Beautiful Game — original assets by Moeen Sayed and Mujtaba Sayed for SideFX. [Screenshot update workflow](docs/readme-screenshot.md).
+Model: `toy_biplane.usdz`. [Screenshot update workflow](docs/readme-screenshot.md).
 
 **3D:** glTF, FBX, OBJ, PLY, STL, USD, DAE  
 **Images:** PNG, JPG, TGA, DDS, HDR, EXR, KTX2  
