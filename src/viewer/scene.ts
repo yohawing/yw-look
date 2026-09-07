@@ -34,6 +34,7 @@ import {
   SkeletonHelper,
   SkinnedMesh,
   Texture,
+  Vector2,
   Vector3,
   WireframeGeometry,
 } from "three";
@@ -1589,6 +1590,18 @@ function createNormalMaterial(source: Material) {
     side: source.side,
     transparent: source.transparent || source.opacity < 1,
   });
+  // Share the authored texture so its UV channel and transform stay intact.
+  // Only the temporary material is owned by the diagnostic view.
+  if ("normalMap" in source && source.normalMap instanceof Texture) {
+    material.normalMap = source.normalMap;
+    if ("normalScale" in source && source.normalScale instanceof Vector2) {
+      material.normalScale.copy(source.normalScale);
+    }
+    if ("normalMapType" in source) {
+      material.normalMapType =
+        source.normalMapType as typeof material.normalMapType;
+    }
+  }
   material.visible = source.visible;
   material.colorWrite = source.colorWrite;
   material.depthFunc = source.depthFunc;

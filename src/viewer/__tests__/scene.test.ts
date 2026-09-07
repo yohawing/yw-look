@@ -15,6 +15,7 @@ import {
   MeshBasicMaterial,
   MeshNormalMaterial,
   MeshStandardMaterial,
+  ObjectSpaceNormalMap,
   Scene,
   SkinnedMesh,
   Texture,
@@ -718,6 +719,39 @@ function createNormalGeometry() {
 }
 
 describe("normal surface material mode", () => {
+  it("preserves normal texture coordinates and scale without owning the texture", () => {
+    const texture = new Texture();
+    texture.channel = 1;
+    texture.offset.set(0.2, 0.3);
+    texture.repeat.set(2, 3);
+    texture.rotation = 0.5;
+    const original = new MeshStandardMaterial({ normalMap: texture });
+    original.normalScale.set(0.4, -0.7);
+    original.normalMapType = ObjectSpaceNormalMap;
+    const plain = new MeshBasicMaterial();
+    const authored = [original, plain];
+    const mesh = new Mesh(createNormalGeometry(), authored);
+    const root = new Group().add(mesh);
+    const disposeTexture = vi.spyOn(texture, "dispose");
+
+    for (const nextMode of ["unlit", "shaded"] as const) {
+      applySurfaceMaterialMode(root, "normals");
+      const normals = mesh.material as unknown as MeshNormalMaterial[];
+      expect(normals[0].normalMap).toBe(texture);
+      expect(normals[0].normalScale).toEqual(original.normalScale);
+      expect(normals[0].normalScale).not.toBe(original.normalScale);
+      expect(normals[0].normalMapType).toBe(ObjectSpaceNormalMap);
+      expect(normals[1].normalMap).toBeNull();
+      applyDisplayMode(root, "wireframe");
+      applyDisplayMode(root, "textured");
+      expect(mesh.material).toBe(normals);
+      applySurfaceMaterialMode(root, nextMode);
+      expect(disposeTexture).not.toHaveBeenCalled();
+    }
+    expect(mesh.material).toBe(authored);
+    expect(original.normalMap).toBe(texture);
+  });
+
   it("replaces a static mesh surface while preserving authored render state", () => {
     const root = new Group();
     const original = new MeshStandardMaterial({
