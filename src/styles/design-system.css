@@ -167,6 +167,11 @@
   --yl-tooltip-border: var(--yl-border);
 }
 
+button,
+select {
+  user-select: none;
+}
+
 .yl-scope,
 .yl-button,
 .playback-timeline .timeline-editor__button,

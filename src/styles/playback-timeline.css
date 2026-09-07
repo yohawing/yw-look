@@ -2,8 +2,9 @@
 .playback-timeline {
   width: 100%;
   min-width: 0;
-  height: 64px;
+  height: 72px;
   overflow: hidden;
+  user-select: none;
 }
 
 /* Keep the package viewport mounted and measurable while matching app controls. */
@@ -20,7 +21,7 @@
   --timeline-accent-soft: color-mix(in srgb, var(--yl-accent) 22%, transparent);
   --timeline-control-height: var(--yl-control-height-sm);
   --timeline-toolbar-height: var(--yl-toolbar-size-lg);
-  --timeline-ruler-height: var(--yl-toolbar-size-sm);
+  --timeline-ruler-height: 10px;
   --timeline-font: var(--yl-font-sans);
   --timeline-mono: var(--yl-font-mono);
   --timeline-readout-width: 7rem;
@@ -135,8 +136,8 @@
 }
 
 .playback-timeline .timeline-editor__button svg {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
@@ -170,7 +171,8 @@
 }
 
 .playback-timeline .timeline-editor__tick {
-  font-size: 10px;
+  top: 0rem;
+  font-size: 8px;
 }
 
 .playback-timeline .timeline-editor__playhead {
@@ -183,6 +185,7 @@
 
 .playback-timeline .timeline-editor__loop-lane {
   z-index: 1;
+  top: 1px;
   height: var(--yl-space-8);
   background: var(--yl-surface-glass-2);
 }
