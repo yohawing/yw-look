@@ -362,6 +362,22 @@ describe("useViewportAnimation", () => {
     expect(event!.defaultPrevented).toBe(false);
     expect(result.current.animationState.isPlaying).toBe(false);
 
+    act(() => {
+      result.current.handleTogglePlayback();
+    });
+    act(() => {
+      event = dispatchKey(document.body, { key: "ArrowRight", ctrlKey: true });
+    });
+    expect(event!.defaultPrevented).toBe(true);
+    expect(activeAction.time).toBe(result.current.animationState.duration);
+    expect(result.current.animationState.isPlaying).toBe(false);
+
+    act(() => {
+      event = dispatchKey(document.body, { key: "ArrowLeft", ctrlKey: true });
+    });
+    expect(event!.defaultPrevented).toBe(true);
+    expect(activeAction.time).toBe(0);
+
     const input = document.createElement("input");
     document.body.append(input);
     act(() => {
@@ -369,5 +385,10 @@ describe("useViewportAnimation", () => {
     });
     expect(event!.defaultPrevented).toBe(false);
     expect(result.current.animationState.isPlaying).toBe(false);
+    act(() => {
+      event = dispatchKey(input, { key: "ArrowRight", ctrlKey: true });
+    });
+    expect(event!.defaultPrevented).toBe(false);
+    expect(activeAction.time).toBe(0);
   });
 });

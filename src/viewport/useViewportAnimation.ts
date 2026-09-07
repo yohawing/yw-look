@@ -517,7 +517,6 @@ export function useViewportAnimation({
         event.isComposing ||
         event.keyCode === 229 ||
         event.altKey ||
-        event.ctrlKey ||
         event.metaKey ||
         event.shiftKey ||
         isInteractiveKeyboardTarget(event.target)
@@ -532,7 +531,10 @@ export function useViewportAnimation({
         event.code === "Space";
       const stepDirection =
         event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : null;
-      if ((!isSpace && stepDirection === null) || (isSpace && event.repeat)) {
+      if (
+        (!isSpace && stepDirection === null) ||
+        (isSpace && (event.repeat || event.ctrlKey))
+      ) {
         return;
       }
 
@@ -540,6 +542,11 @@ export function useViewportAnimation({
       event.stopPropagation();
       if (isSpace) {
         handleTogglePlayback();
+      } else if (event.ctrlKey) {
+        if (animationState.isPlaying) {
+          handleTogglePlayback();
+        }
+        handleSeek(stepDirection === -1 ? 0 : animationState.duration);
       } else {
         handleStep(stepDirection as -1 | 1);
       }
@@ -547,7 +554,15 @@ export function useViewportAnimation({
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [handleStep, handleTogglePlayback, hasAnimation, viewerSurfaceMode]);
+  }, [
+    animationState.duration,
+    animationState.isPlaying,
+    handleSeek,
+    handleStep,
+    handleTogglePlayback,
+    hasAnimation,
+    viewerSurfaceMode,
+  ]);
 
   return {
     animationState,
