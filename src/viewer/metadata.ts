@@ -42,6 +42,8 @@ import type { TextureSlotKey, TexturedMaterial } from "./types";
 import {
   isViewportHelperObject,
   getMaterials,
+  getAuthoredSurfaceMaterial,
+  getVertexColorAttribute,
   type SceneTraversalSnapshot,
 } from "./scene";
 import {
@@ -1236,7 +1238,7 @@ function buildObjectInfo(
         triangleCount = Math.round(vertexCount / 3);
       }
     }
-    const mats = getMaterials(object.material);
+    const mats = getMaterials(getAuthoredSurfaceMaterial(object));
     materialNames = mats.map((m) => materialDisplayName(m, m.type));
     materialIds = mats.map((m) => m.uuid);
 
@@ -1327,6 +1329,7 @@ export function collectAssetMetadata(
 ): MetadataCollection {
   let nodeCount = 0;
   let meshCount = 0;
+  let vertexColorMeshCount = 0;
   let boneCount = 0;
   const materials = new Set<Material>();
   // Material → mesh-name list. Insertion-ordered so the UI shows binds
@@ -1378,10 +1381,11 @@ export function collectAssetMetadata(
     }
 
     meshCount += 1;
+    if (getVertexColorAttribute(child)) vertexColorMeshCount += 1;
 
     const meshName = safeTrimmedName(child) || "(unnamed mesh)";
 
-    for (const material of getMaterials(child.material)) {
+    for (const material of getMaterials(getAuthoredSurfaceMaterial(child))) {
       materials.add(material);
 
       const existing = materialBindings.get(material);
@@ -1457,6 +1461,7 @@ export function collectAssetMetadata(
       formatVersion,
       nodeCount,
       meshCount,
+      vertexColorMeshCount,
       boneCount,
       hasBones: boneCount > 0,
       materialCount: materials.size,

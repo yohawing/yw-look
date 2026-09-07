@@ -3,6 +3,13 @@
   "description": "Public fixture regression catalog for yw-look asset loading.",
   "cases": [
     {
+      "id": "model-gltf-vertex-colors",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/vertex-colors.gltf",
+      "format": "gltf",
+      "expect": { "shouldLoad": true }
+    },
+    {
       "id": "model-gltf-triangle",
       "category": "valid-minimal",
       "path": "tests/fixtures/models/triangle.gltf",

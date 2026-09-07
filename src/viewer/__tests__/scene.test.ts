@@ -634,8 +634,11 @@ describe("scene material display helpers", () => {
     applyVertexColors(root, true);
     applyDisplayMode(root, "textured");
 
+    expect(mesh.material).not.toBe(material);
+    expect(mesh.material.vertexColors).toBe(true);
+    expect(material.vertexColors).toBe(false);
+    applyVertexColors(root, false);
     expect(mesh.material).toBe(material);
-    expect(material.vertexColors).toBe(true);
   });
 
   it("keeps MMD outline materials out of global lighting toggles but applies wireframe display", () => {
@@ -717,6 +720,95 @@ function createNormalGeometry() {
   );
   return geometry;
 }
+
+describe("vertex color diagnostic surface", () => {
+  it.each([3, 4])(
+    "visualizes normalized %i-component colors without authored shading",
+    (size) => {
+      const geometry = createNormalGeometry();
+      const colors = new BufferAttribute(
+        new Uint8Array(3 * size).fill(128),
+        size,
+        true,
+      );
+      geometry.setAttribute("color", colors);
+      const texture = new Texture();
+      const original = new MeshStandardMaterial({
+        color: 0x001100,
+        map: texture,
+        opacity: 0.1,
+        transparent: true,
+        alphaTest: 0.9,
+        vertexColors: true,
+        side: DoubleSide,
+      });
+      const mesh = new SkinnedMesh(geometry, [original, original]);
+      mesh.morphTargetInfluences = [0.3];
+      const influences = mesh.morphTargetInfluences;
+      const authored = mesh.material;
+      const root = new Group().add(mesh);
+      const disposeTexture = vi.spyOn(texture, "dispose");
+      applySurfaceMaterialMode(root, "vertexColors");
+      const diagnostics = mesh.material as unknown as MeshBasicMaterial[];
+      for (const material of diagnostics) {
+        expect(material).toBeInstanceOf(MeshBasicMaterial);
+        expect(material.color.getHex()).toBe(0xffffff);
+        expect(material.vertexColors).toBe(true);
+        expect(material.map).toBeNull();
+        expect(material.envMap).toBeNull();
+        expect(material.opacity).toBe(1);
+        expect(material.alphaTest).toBe(0);
+        expect(material.transparent).toBe(size === 4);
+        expect(material.toneMapped).toBe(false);
+        expect(material.fog).toBe(false);
+        expect(material.side).toBe(DoubleSide);
+      }
+      expect(mesh.geometry).toBe(geometry);
+      expect(mesh.geometry.getAttribute("color")).toBe(colors);
+      expect(mesh.morphTargetInfluences).toBe(influences);
+      const disposals = diagnostics.map((material) =>
+        vi.spyOn(material, "dispose"),
+      );
+      applySurfaceMaterialMode(root, "shaded");
+      expect(mesh.material).toBe(authored);
+      expect(original.opacity).toBe(0.1);
+      expect(original.vertexColors).toBe(true);
+      expect(disposeTexture).not.toHaveBeenCalled();
+      for (const disposal of disposals)
+        expect(disposal).toHaveBeenCalledTimes(1);
+      disposeObject(root);
+      expect(disposeTexture).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("shows missing or invalid colors in gray even when an authored material is shared", () => {
+    const original = new MeshStandardMaterial({ color: 0xff0000 });
+    const colored = new Mesh(createNormalGeometry(), original);
+    colored.geometry.setAttribute(
+      "color",
+      new BufferAttribute(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), 3),
+    );
+    const missing = new Mesh(createNormalGeometry(), original);
+    const invalid = new Mesh(createNormalGeometry(), original);
+    invalid.geometry.setAttribute(
+      "color",
+      new BufferAttribute(new Float32Array([1, 0, 0]), 3),
+    );
+    const root = new Group().add(colored, missing, invalid);
+    applySurfaceMaterialMode(root, "vertexColors");
+    expect(
+      (colored.material as unknown as MeshBasicMaterial).vertexColors,
+    ).toBe(true);
+    for (const mesh of [missing, invalid]) {
+      const material = mesh.material as unknown as MeshBasicMaterial;
+      expect(material.vertexColors).toBe(false);
+      expect(material.color.getHex()).toBe(0x808080);
+    }
+    applySurfaceMaterialMode(root, "shaded");
+    for (const mesh of [colored, missing, invalid])
+      expect(mesh.material).toBe(original);
+  });
+});
 
 describe("normal surface material mode", () => {
   it("preserves normal texture coordinates and scale without owning the texture", () => {
@@ -912,9 +1004,16 @@ describe("normal surface material mode", () => {
       } else if (mode === "unlit") {
         expect(mesh.material).toBeInstanceOf(MeshBasicMaterial);
         expect(mesh.material).not.toBe(original);
+      } else if (mode === "vertexColors") {
+        expect(mesh.material).toBeInstanceOf(MeshBasicMaterial);
+        expect(mesh.material).not.toBe(original);
+        expect(
+          (mesh.material as unknown as MeshBasicMaterial).vertexColors,
+        ).toBe(true);
+        expect(original.vertexColors).toBe(false);
       } else {
         expect(mesh.material).toBe(original);
-        expect(original.vertexColors).toBe(mode === "vertexColors");
+        expect(original.vertexColors).toBe(false);
       }
     }
   });

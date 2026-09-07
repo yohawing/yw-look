@@ -78,12 +78,13 @@ const WIREFRAME_MATERIAL_COLOR_FALLBACK = "#f7f8f8";
 const WIREFRAME_ORIGINAL_COLOR_KEY = "__yw_wireframe_original_color";
 const WIREFRAME_ORIGINAL_MATERIAL_KEY = "__yw_wireframe_original_material";
 const WIREFRAME_MATERIAL_FLAG = "__yw_wireframe_material";
-const NORMAL_ORIGINAL_MATERIAL_KEY = "__yw_normal_original_material";
-const NORMAL_MATERIAL_FLAG = "__yw_normal_material";
+const DIAGNOSTIC_ORIGINAL_MATERIAL_KEY = "__yw_diagnostic_original_material";
+const DIAGNOSTIC_MATERIAL_FLAG = "__yw_diagnostic_material";
 const SELECTION_ORIGINAL_MATERIAL_KEY = "__yw_origMaterial";
 const SELECTION_CLONE_FLAG = "__yw_selectionClone";
-const SELECTION_NORMAL_SUPPRESSED_FLAG = "__yw_selectionSuppressedByNormals";
-const SELECTION_NORMAL_TINT_KEY = "__yw_selectionNormalTint";
+const SELECTION_DIAGNOSTIC_SUPPRESSED_FLAG =
+  "__yw_selectionSuppressedByDiagnostic";
+const SELECTION_DIAGNOSTIC_TINT_KEY = "__yw_selectionDiagnosticTint";
 const SELECTION_WIREFRAME_TINT_FLAG = "__yw_selectionWireframeTint";
 const SELECTION_TINT = new Color(0x7170ff);
 const SELECTION_EMISSIVE_INTENSITY = 0.35;
@@ -278,14 +279,28 @@ function setWireframeOriginalMaterial(
 }
 
 function getMaterialControlTargets(mesh: Mesh) {
-  const storedOriginal = getWireframeOriginalMaterial(mesh);
-  const normalOriginal = mesh.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
-    Material | Material[] | undefined;
-  return [
-    ...getMaterials(mesh.material),
-    ...(storedOriginal === undefined ? [] : getMaterials(storedOriginal)),
-    ...(normalOriginal === undefined ? [] : getMaterials(normalOriginal)),
-  ];
+  const layers = [
+    mesh.material,
+    getWireframeOriginalMaterial(mesh),
+    mesh.userData[UNLIT_ORIGINAL_KEY],
+    mesh.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY],
+    mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY],
+    mesh.userData[SELECTION_DIAGNOSTIC_TINT_KEY],
+  ] as (Material | Material[] | undefined)[];
+  return layers.flatMap((layer) =>
+    layer === undefined ? [] : getMaterials(layer),
+  );
+}
+
+/** Inspect the asset rather than a temporary viewport material. */
+export function getAuthoredSurfaceMaterial(mesh: Mesh): Material | Material[] {
+  return (
+    mesh.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] ??
+    mesh.userData[UNLIT_ORIGINAL_KEY] ??
+    mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY] ??
+    getWireframeOriginalMaterial(mesh) ??
+    mesh.material
+  );
 }
 
 function hasEmissive(
@@ -296,6 +311,11 @@ function hasEmissive(
 
 function createSelectionTintMaterial(source: Material) {
   const clone = source.clone();
+  // Material.clone JSON-copies userData; preserve the live texture reference
+  // used when texture display is restored after selecting an untextured mesh.
+  if (source.userData.originalMap instanceof Texture) {
+    clone.userData.originalMap = source.userData.originalMap;
+  }
   clone.userData[SELECTION_CLONE_FLAG] = true;
   if (hasEmissive(clone)) {
     clone.emissive.lerp(SELECTION_TINT, 0.6);
@@ -561,9 +581,9 @@ export function disposeObject(object: Object3D | null) {
               child.userData[UNLIT_ORIGINAL_KEY] as Material | Material[],
             )
           : []),
-        ...(child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] !== undefined
+        ...(child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] !== undefined
           ? getMaterials(
-              child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
+              child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] as
                 Material | Material[],
             )
           : []),
@@ -573,9 +593,9 @@ export function disposeObject(object: Object3D | null) {
                 Material | Material[],
             )
           : []),
-        ...(child.userData[SELECTION_NORMAL_TINT_KEY] !== undefined
+        ...(child.userData[SELECTION_DIAGNOSTIC_TINT_KEY] !== undefined
           ? getMaterials(
-              child.userData[SELECTION_NORMAL_TINT_KEY] as
+              child.userData[SELECTION_DIAGNOSTIC_TINT_KEY] as
                 Material | Material[],
             )
           : []),
@@ -589,10 +609,10 @@ export function disposeObject(object: Object3D | null) {
       }
       delete child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY];
       delete child.userData[UNLIT_ORIGINAL_KEY];
-      delete child.userData[NORMAL_ORIGINAL_MATERIAL_KEY];
+      delete child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY];
       delete child.userData[SELECTION_ORIGINAL_MATERIAL_KEY];
-      delete child.userData[SELECTION_NORMAL_TINT_KEY];
-      delete child.userData[SELECTION_NORMAL_SUPPRESSED_FLAG];
+      delete child.userData[SELECTION_DIAGNOSTIC_TINT_KEY];
+      delete child.userData[SELECTION_DIAGNOSTIC_SUPPRESSED_FLAG];
       delete child.userData[SELECTION_WIREFRAME_TINT_FLAG];
     }
   });
@@ -1581,18 +1601,37 @@ export function applyBoundingBoxHelpers(
   });
 }
 
-function createNormalMaterial(source: Material) {
-  const material = new MeshNormalMaterial({
-    alphaTest: source.alphaTest,
-    depthTest: source.depthTest,
-    depthWrite: source.depthWrite,
-    opacity: source.opacity,
-    side: source.side,
-    transparent: source.transparent || source.opacity < 1,
-  });
+function createDiagnosticMaterial(
+  source: Material,
+  mode: "normals" | "vertexColors",
+  colorSize: number,
+) {
+  const material =
+    mode === "normals"
+      ? new MeshNormalMaterial({
+          alphaTest: source.alphaTest,
+          depthTest: source.depthTest,
+          depthWrite: source.depthWrite,
+          opacity: source.opacity,
+          side: source.side,
+          transparent: source.transparent || source.opacity < 1,
+        })
+      : new MeshBasicMaterial({
+          color: colorSize > 0 ? 0xffffff : 0x808080,
+          vertexColors: colorSize > 0,
+          transparent: colorSize === 4,
+          side: source.side,
+          depthTest: source.depthTest,
+          depthWrite: source.depthWrite,
+          fog: false,
+        });
   // Share the authored texture so its UV channel and transform stay intact.
   // Only the temporary material is owned by the diagnostic view.
-  if ("normalMap" in source && source.normalMap instanceof Texture) {
+  if (
+    material instanceof MeshNormalMaterial &&
+    "normalMap" in source &&
+    source.normalMap instanceof Texture
+  ) {
     material.normalMap = source.normalMap;
     if ("normalScale" in source && source.normalScale instanceof Vector2) {
       material.normalScale.copy(source.normalScale);
@@ -1622,70 +1661,81 @@ function createNormalMaterial(source: Material) {
   material.alphaToCoverage = source.alphaToCoverage;
   material.forceSinglePass = source.forceSinglePass;
   material.toneMapped = false;
-  material.userData[NORMAL_MATERIAL_FLAG] = true;
+  material.userData[DIAGNOSTIC_MATERIAL_FLAG] = true;
   return material;
 }
 
-function createNormalMaterialSet(source: Material | Material[]) {
+function createDiagnosticMaterialSet(
+  source: Material | Material[],
+  mode: "normals" | "vertexColors",
+  colorSize: number,
+) {
   return Array.isArray(source)
-    ? source.map(createNormalMaterial)
-    : createNormalMaterial(source);
+    ? source.map((material) =>
+        createDiagnosticMaterial(material, mode, colorSize),
+      )
+    : createDiagnosticMaterial(source, mode, colorSize);
 }
 
-function disposeNormalMaterialSet(material: Material | Material[]) {
+function disposeDiagnosticMaterialSet(material: Material | Material[]) {
   for (const item of getMaterials(material)) {
-    if (item.userData[NORMAL_MATERIAL_FLAG] === true) {
+    if (item.userData[DIAGNOSTIC_MATERIAL_FLAG] === true) {
       item.dispose();
     }
   }
 }
 
-function suppressSelectionTintForNormalSurface(mesh: Mesh) {
+function suppressSelectionTintForDiagnosticSurface(mesh: Mesh) {
   const selectionOriginal = mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY] as
     Material | Material[] | undefined;
   if (selectionOriginal === undefined) {
     return mesh.material;
   }
 
-  disposeSelectionTintMaterialSet(mesh.material);
-  mesh.material = selectionOriginal;
+  const wireframeOriginal = getWireframeOriginalMaterial(mesh);
+  disposeSelectionTintMaterialSet(wireframeOriginal ?? mesh.material);
+  if (wireframeOriginal !== undefined) {
+    setWireframeOriginalMaterial(mesh, selectionOriginal);
+  } else {
+    mesh.material = selectionOriginal;
+  }
   delete mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY];
-  const source = getWireframeOriginalMaterial(mesh) ?? selectionOriginal;
-  mesh.userData[SELECTION_NORMAL_TINT_KEY] =
-    createSelectionTintMaterialSet(source);
-  mesh.userData[SELECTION_NORMAL_SUPPRESSED_FLAG] = true;
+  delete mesh.userData[SELECTION_WIREFRAME_TINT_FLAG];
+  mesh.userData[SELECTION_DIAGNOSTIC_TINT_KEY] =
+    createSelectionTintMaterialSet(selectionOriginal);
+  mesh.userData[SELECTION_DIAGNOSTIC_SUPPRESSED_FLAG] = true;
   return selectionOriginal;
 }
 
-export function isNormalSurfaceMaterialActive(mesh: Mesh) {
-  return mesh.userData[NORMAL_ORIGINAL_MATERIAL_KEY] !== undefined;
+export function isDiagnosticSurfaceMaterialActive(mesh: Mesh) {
+  return mesh.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] !== undefined;
 }
 
-export function getNormalSurfaceOriginalMaterial(mesh: Mesh) {
-  return mesh.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
+export function getDiagnosticSurfaceOriginalMaterial(mesh: Mesh) {
+  return mesh.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] as
     Material | Material[] | undefined;
 }
 
-export function storeSuppressedNormalSelectionTint(
+export function storeSuppressedDiagnosticSelectionTint(
   mesh: Mesh,
   material: Material | Material[],
 ) {
-  const previous = mesh.userData[SELECTION_NORMAL_TINT_KEY] as
+  const previous = mesh.userData[SELECTION_DIAGNOSTIC_TINT_KEY] as
     Material | Material[] | undefined;
   if (previous !== undefined) {
     disposeSelectionTintMaterialSet(previous);
   }
-  mesh.userData[SELECTION_NORMAL_TINT_KEY] = material;
-  mesh.userData[SELECTION_NORMAL_SUPPRESSED_FLAG] = true;
+  mesh.userData[SELECTION_DIAGNOSTIC_TINT_KEY] = material;
+  mesh.userData[SELECTION_DIAGNOSTIC_SUPPRESSED_FLAG] = true;
 }
 
-export function clearNormalSurfaceSelection(mesh: Mesh) {
-  const suppressedTint = mesh.userData[SELECTION_NORMAL_TINT_KEY] as
+export function clearDiagnosticSurfaceSelection(mesh: Mesh) {
+  const suppressedTint = mesh.userData[SELECTION_DIAGNOSTIC_TINT_KEY] as
     Material | Material[] | undefined;
   if (suppressedTint !== undefined) {
     disposeSelectionTintMaterialSet(suppressedTint);
-    delete mesh.userData[SELECTION_NORMAL_TINT_KEY];
-    delete mesh.userData[SELECTION_NORMAL_SUPPRESSED_FLAG];
+    delete mesh.userData[SELECTION_DIAGNOSTIC_TINT_KEY];
+    delete mesh.userData[SELECTION_DIAGNOSTIC_SUPPRESSED_FLAG];
     return true;
   }
 
@@ -1707,11 +1757,11 @@ export function clearNormalSurfaceSelection(mesh: Mesh) {
   return false;
 }
 
-function restoreSuppressedNormalSelectionTint(
+function restoreSuppressedDiagnosticSelectionTint(
   mesh: Mesh,
   authored: Material | Material[],
 ) {
-  const tint = mesh.userData[SELECTION_NORMAL_TINT_KEY] as
+  const tint = mesh.userData[SELECTION_DIAGNOSTIC_TINT_KEY] as
     Material | Material[] | undefined;
   if (tint === undefined) return;
 
@@ -1722,29 +1772,29 @@ function restoreSuppressedNormalSelectionTint(
     mesh.material = tint;
   }
   mesh.userData[SELECTION_ORIGINAL_MATERIAL_KEY] = authored;
-  delete mesh.userData[SELECTION_NORMAL_TINT_KEY];
-  delete mesh.userData[SELECTION_NORMAL_SUPPRESSED_FLAG];
+  delete mesh.userData[SELECTION_DIAGNOSTIC_TINT_KEY];
+  delete mesh.userData[SELECTION_DIAGNOSTIC_SUPPRESSED_FLAG];
 }
 
-export function applyNormalSurfaceMaterial(
+function applyDiagnosticSurfaceMaterial(
   object: Group | Mesh,
-  enabled: boolean,
+  mode: "normals" | "vertexColors" | null,
 ) {
   traverseMeshesExcludingHelpers(object, (child) => {
-    const original = child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] as
+    const original = child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] as
       Material | Material[] | undefined;
 
-    if (!enabled) {
+    if (mode === null) {
       if (original === undefined) return;
       const wireframeOriginal = getWireframeOriginalMaterial(child);
-      disposeNormalMaterialSet(wireframeOriginal ?? child.material);
+      disposeDiagnosticMaterialSet(wireframeOriginal ?? child.material);
       if (wireframeOriginal !== undefined) {
         setWireframeOriginalMaterial(child, original);
       } else {
         child.material = original;
       }
-      delete child.userData[NORMAL_ORIGINAL_MATERIAL_KEY];
-      restoreSuppressedNormalSelectionTint(child, original);
+      delete child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY];
+      restoreSuppressedDiagnosticSelectionTint(child, original);
       return;
     }
 
@@ -1753,22 +1803,51 @@ export function applyNormalSurfaceMaterial(
     if (
       child.material instanceof ShadowMaterial ||
       !(geometry instanceof BufferGeometry) ||
-      geometry.getAttribute("normal") === undefined
+      (mode === "normals" && geometry.getAttribute("normal") === undefined)
     ) {
       return;
     }
 
-    const selectionBase = suppressSelectionTintForNormalSurface(child);
+    const selectionBase = suppressSelectionTintForDiagnosticSurface(child);
     const wireframeOriginal = getWireframeOriginalMaterial(child);
     const source = wireframeOriginal ?? selectionBase;
-    const normal = createNormalMaterialSet(source);
-    child.userData[NORMAL_ORIGINAL_MATERIAL_KEY] = source;
+    const normal = createDiagnosticMaterialSet(
+      source,
+      mode,
+      getVertexColorAttribute(child)?.itemSize ?? 0,
+    );
+    child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] = source;
     if (wireframeOriginal !== undefined) {
       setWireframeOriginalMaterial(child, normal);
     } else {
       child.material = normal;
     }
   });
+}
+
+export function applyNormalSurfaceMaterial(
+  object: Group | Mesh,
+  enabled: boolean,
+) {
+  applyDiagnosticSurfaceMaterial(object, enabled ? "normals" : null);
+}
+
+/** Color attributes supported by the diagnostic mesh material. */
+export function getVertexColorAttribute(mesh: Mesh) {
+  if (
+    isViewportHelperObject(mesh) ||
+    isMmdOutlineMesh(mesh) ||
+    mesh.material instanceof ShadowMaterial
+  )
+    return undefined;
+  const color = mesh.geometry.getAttribute("color");
+  const position = mesh.geometry.getAttribute("position");
+  return color &&
+    (color.itemSize === 3 || color.itemSize === 4) &&
+    color.count > 0 &&
+    color.count === position?.count
+    ? color
+    : undefined;
 }
 
 type FilterPair = {
@@ -1806,36 +1885,8 @@ export function applyTextureFilter(
   });
 }
 
-export function applyVertexColors(
-  object: Group | Mesh,
-  useVertexColors: boolean,
-) {
-  traverseMeshesExcludingHelpers(object, (child) => {
-    const geometry = child.geometry;
-    const hasColorAttribute =
-      geometry instanceof BufferGeometry &&
-      geometry.getAttribute("color") !== undefined;
-
-    for (const material of getMaterialControlTargets(child)) {
-      if (!material || !("vertexColors" in material)) {
-        continue;
-      }
-      const original = material.userData.originalVertexColors;
-      if (typeof original !== "boolean") {
-        material.userData.originalVertexColors = Boolean(material.vertexColors);
-      }
-      const originalFlag = Boolean(
-        material.userData.originalVertexColors ?? false,
-      );
-      // Only force vertexColors on when the geometry actually has a
-      // color attribute; otherwise Three.js silently falls back to
-      // white and the toggle looks broken. When off, restore whatever
-      // the loader authored.
-      material.vertexColors =
-        useVertexColors && hasColorAttribute ? true : originalFlag;
-      material.needsUpdate = true;
-    }
-  });
+export function applyVertexColors(object: Group | Mesh, enabled: boolean) {
+  applyDiagnosticSurfaceMaterial(object, enabled ? "vertexColors" : null);
 }
 
 export function applyBackfaceCulling(
@@ -1932,25 +1983,13 @@ export function applyDisplayMode(
         child.add(overlay);
       }
 
-      for (const material of getMaterials(child.material)) {
+      for (const material of getMaterialControlTargets(child)) {
         applyDisplayModeToMaterial(
           material,
           displayMode,
           false,
           wireframeColor,
         );
-      }
-
-      const unlitOriginal = child.userData[UNLIT_ORIGINAL_KEY];
-      if (unlitOriginal instanceof Material || Array.isArray(unlitOriginal)) {
-        for (const material of getMaterials(unlitOriginal)) {
-          applyDisplayModeToMaterial(
-            material,
-            displayMode,
-            false,
-            wireframeColor,
-          );
-        }
       }
     },
     { excludeMmdOutlineMeshes: false, meshes: traversal?.meshes },
@@ -2058,9 +2097,8 @@ export function applySurfaceMaterialMode(
   // Restore every temporary surface layer before applying the next one. This
   // makes transitions independent of React effect ordering and keeps authored
   // material references as the sole base of the stack.
-  applyNormalSurfaceMaterial(object, false);
+  applyDiagnosticSurfaceMaterial(object, null);
   applyUnlitMaterial(object, false);
-  applyVertexColors(object, false);
 
   if (mode === "normals") {
     applyNormalSurfaceMaterial(object, true);

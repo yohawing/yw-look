@@ -40,6 +40,7 @@ import {
   applyDisplayMode,
   collectSceneTraversal,
   normalizeObjectScale,
+  applySurfaceMaterialMode,
 } from "../scene";
 import type { SelectedFile } from "../../lib/files";
 
@@ -50,6 +51,55 @@ const fakeFile: SelectedFile = {
   kind: "model",
   parentDirectory: "/tmp",
 };
+
+it("counts usable vertex color meshes from geometry rather than material flags", () => {
+  const root = new Group();
+  const colored = new Mesh(
+    new BufferGeometry(),
+    new MeshBasicMaterial({ vertexColors: false }),
+  );
+  colored.geometry.setAttribute(
+    "position",
+    new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+  );
+  colored.geometry.setAttribute(
+    "color",
+    new Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1], 3),
+  );
+  root.add(
+    colored,
+    new Mesh(
+      new BufferGeometry(),
+      new MeshBasicMaterial({ vertexColors: true }),
+    ),
+  );
+  expect(
+    collectAssetMetadata(root, fakeFile, [], null).metadata
+      .vertexColorMeshCount,
+  ).toBe(1);
+  colored.geometry.deleteAttribute("color");
+  expect(
+    collectAssetMetadata(root, fakeFile, [], null).metadata
+      .vertexColorMeshCount,
+  ).toBe(0);
+});
+
+it("keeps authored material and texture metadata while vertex colors are active", () => {
+  const texture = new Texture();
+  texture.name = "Authored texture";
+  const material = new MeshBasicMaterial({ map: texture, color: 0x123456 });
+  material.name = "Authored material";
+  const mesh = new Mesh(new BufferGeometry(), material);
+  mesh.name = "Mesh";
+  const root = new Group().add(mesh);
+  const before = collectAssetMetadata(root, fakeFile, [], null);
+  applySurfaceMaterialMode(root, "vertexColors");
+  const after = collectAssetMetadata(root, fakeFile, [], null);
+  expect(after.metadata.materials).toEqual(before.metadata.materials);
+  expect(after.metadata.objectInfo).toEqual(before.metadata.objectInfo);
+  expect(after.metadata.textures).toEqual(before.metadata.textures);
+  expect([...after.textureRegistry.values()]).toEqual([texture]);
+});
 
 const fakeMmdFile: SelectedFile = {
   path: "/tmp/miku.pmx",

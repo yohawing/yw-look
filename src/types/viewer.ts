@@ -648,6 +648,7 @@ export type AssetMetadata = {
   assetKind?: ViewerAssetKind;
   nodeCount: number;
   meshCount: number;
+  vertexColorMeshCount?: number;
   boneCount?: number;
   hasBones?: boolean;
   materialCount: number;
@@ -703,6 +704,7 @@ export type Build3DToolbarOptions = {
   onToggleNormals?: () => void;
   showVertexColors?: boolean;
   onToggleVertexColors?: () => void;
+  vertexColorMeshCount?: number;
   showWireframe: boolean;
   onToggleWireframe: () => void;
   environmentPreset: string;

@@ -52,7 +52,7 @@ export {
   removeBoundingBoxHelpers,
   applyNormalSurfaceMaterial,
   applySurfaceMaterialMode,
-  isNormalSurfaceMaterialActive,
+  isDiagnosticSurfaceMaterialActive,
   isViewportHelperObject,
   ensureShadowCatcher,
   applyShadows,

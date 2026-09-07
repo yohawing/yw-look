@@ -173,6 +173,19 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       });
     }
 
+    if (activeDisplayState.surface === "vertexColor") {
+      children.push({
+        id: "vertex-color-status",
+        mode: "3d",
+        group: "display",
+        kind: "status",
+        label:
+          options.vertexColorMeshCount === 0
+            ? "No vertex colors. Meshes are shown gray."
+            : "Meshes without vertex colors are shown gray.",
+      });
+    }
+
     push({
       id: "display",
       mode: "3d",

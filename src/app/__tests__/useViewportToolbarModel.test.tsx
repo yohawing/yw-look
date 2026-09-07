@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useViewportToolbarModel } from "../useViewportToolbarModel";
 import { useViewerStore } from "../../stores/viewerStore";
+import { useFileStore } from "../../stores/fileStore";
+import { Group } from "three";
+import { collectAssetMetadata } from "../../viewer/metadata";
 import type { ToolbarAction, ToolbarItem } from "../../types/ui";
 import { requestViewportCameraPreset } from "../../viewport/viewportCommands";
 
@@ -26,6 +29,7 @@ function findAction(items: ToolbarItem[], id: string): ToolbarAction {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useFileStore.setState({ assetMetadata: null });
   useViewerStore.setState({
     viewerSurfaceMode: "asset",
     showTexture: false,
@@ -41,6 +45,53 @@ afterEach(() => {
 });
 
 describe("useViewportToolbarModel", () => {
+  it("updates the vertex color status when files change while the mode stays active", () => {
+    const metadata = collectAssetMetadata(
+      new Group(),
+      {
+        path: "/test.glb",
+        fileName: "test.glb",
+        extension: "glb",
+        kind: "model",
+        parentDirectory: "/",
+      },
+      [],
+      null,
+    ).metadata;
+    useFileStore.setState({ assetMetadata: metadata });
+    useViewerStore.setState({
+      showVertexColors: true,
+      showNormals: false,
+      showUnlit: false,
+    });
+    const { result } = renderHook(() => useViewportToolbarModel());
+    const status = () =>
+      findAction(result.current.viewportToolbarItems, "display").children?.find(
+        (item) => item.kind === "status" && item.id === "vertex-color-status",
+      );
+    expect(status()).toMatchObject({
+      label: "No vertex colors. Meshes are shown gray.",
+    });
+    act(() =>
+      useFileStore.setState({
+        assetMetadata: { ...metadata, vertexColorMeshCount: 1 },
+      }),
+    );
+    expect(status()).toMatchObject({
+      label: "Meshes without vertex colors are shown gray.",
+    });
+    expect(
+      findAction(result.current.viewportToolbarItems, "display-vertexColor")
+        .active,
+    ).toBe(true);
+    act(() =>
+      findAction(
+        result.current.viewportToolbarItems,
+        "display-shaded",
+      ).onRun?.(),
+    );
+    expect(status()).toBeUndefined();
+  });
   it("derives display mode and updates 3D toolbar state through selectors", () => {
     const { result } = renderHook(() => useViewportToolbarModel());
 

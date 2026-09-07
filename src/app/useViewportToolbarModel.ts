@@ -12,6 +12,7 @@ import {
 } from "../components/toolbar/buildImageToolbar";
 import type { ToolbarItem } from "../components/toolbar/types";
 import { useViewerStore } from "../stores/viewerStore";
+import { useFileStore } from "../stores/fileStore";
 import { requestViewportCameraPreset } from "../viewport/viewportCommands";
 
 const environmentPresets: Array<{
@@ -36,6 +37,9 @@ const cameraPresetOptions: Array<{
 ];
 
 export function useViewportToolbarModel() {
+  const vertexColorMeshCount = useFileStore(
+    (state) => state.assetMetadata?.vertexColorMeshCount,
+  );
   const [activeCameraPreset, setActiveCameraPreset] =
     useState<CameraPreset | null>(null);
   const viewerSurfaceMode = useViewerStore((state) => state.viewerSurfaceMode);
@@ -145,6 +149,7 @@ export function useViewportToolbarModel() {
       showNormals: showNormals,
       onToggleNormals: () => useViewerStore.getState().toggleShowNormals(),
       showVertexColors: showVertexColors,
+      vertexColorMeshCount,
       onToggleVertexColors: () =>
         useViewerStore.getState().toggleShowVertexColors(),
       // Wireframe
@@ -195,6 +200,7 @@ export function useViewportToolbarModel() {
     textureTileCount,
     textureViewMode,
     viewerSurfaceMode,
+    vertexColorMeshCount,
   ]);
 
   return {
