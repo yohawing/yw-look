@@ -9,15 +9,6 @@ license does not replace the licenses that apply to those materials.
 from [Basis Universal](https://github.com/BinomialLLC/basis_universal) and are
 provided under the Apache License 2.0.
 
-## MMD preview stand-in assets
-
-`src/packs/mmd-loader-pack/assets/yw_test_model.pmx` and its textures are copied
-without modification from `three-mmd-loader/examples/viewer/assets/` at commit
-`73ed9f4` and are provided under the MIT License from that project.
-
-Model SHA-256:
-`2A18F0B92D14E2C1ED8FA75E3390FB9BAD632BF3308460A04520357753675C0D`
-
 ## ufbx
 
 Native FBX preview import statically links
