@@ -14,7 +14,7 @@ import {
   verifyPayloadRelationships,
   verifyVariantRelationships,
   verifyReport,
-} from "./usd-stateful-regression.mjs";
+} from "./run.mjs";
 
 function png(width, height, value = 0) {
   const chunk = (type, data) => {

@@ -9,6 +9,10 @@ edition = "2021"
 # like `src/bin/usd_to_glb.rs`.
 default-run = "yw-look"
 
+[[example]]
+name = "usd_stateful_capture"
+path = "../tests/usd-stateful/capture.rs"
+
 [package.metadata]
 
 [[bin]]

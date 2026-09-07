@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { verifyGlbFeatures } from "./usd-stateful-glb.mjs";
+import { verifyGlbFeatures } from "./glb.mjs";
 
 const linear = (value) =>
   value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;

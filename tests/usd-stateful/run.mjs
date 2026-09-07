@@ -8,20 +8,17 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodePngPixels, comparePixels } from "./pngPixels.mjs";
-import { runChildProcess } from "./processRunner.mjs";
-import { verifyGlbFeatures } from "./usd-stateful-glb.mjs";
+import { decodePngPixels, comparePixels } from "../../scripts/pngPixels.mjs";
+import { runChildProcess } from "../../scripts/processRunner.mjs";
+import { verifyGlbFeatures } from "./glb.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "..",
+  "../..",
 );
-const scenarioPath = path.join(
-  repoRoot,
-  "tests/visual/usd-stateful-cases.json",
-);
+const scenarioPath = path.join(repoRoot, "tests/usd-stateful/cases.json");
 const outputDir = path.join(repoRoot, "artifacts/screenshots/usd-stateful");
-const snapshotDir = path.join(repoRoot, "tests/visual/snapshots/usd-stateful");
+const snapshotDir = path.join(repoRoot, "tests/usd-stateful/snapshots");
 const imageSize = { width: 384, height: 288 };
 const usage = `usage: npm run test:usd-stateful-regression -- [--case <id>] [--update-snapshot] [--list] [--shot-binary <path>]`;
 const caseRelationships = new Set(["payload", "independent", "variant"]);
