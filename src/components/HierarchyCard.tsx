@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
   CircleIcon,
   DotFilledIcon,
+  MagnifyingGlassIcon,
 } from "@radix-ui/react-icons";
 import {
   Group as PanelGroup,
@@ -342,7 +350,6 @@ function HierarchyBranch({
 }
 
 type HierarchyStats = {
-  totalNodeCount: number;
   selectedNode: HierarchyNode | null;
   selectedAncestorKeys: ReadonlySet<string>;
 };
@@ -351,14 +358,11 @@ function collectHierarchyStats(
   nodes: HierarchyNode[],
   selectedKey: string | null,
 ): HierarchyStats {
-  let totalNodeCount = 0;
   let selectedNode: HierarchyNode | null = null;
   let selectedPathKeys: string[] | null = null;
   const ancestorStack: string[] = [];
 
   const visit = (node: HierarchyNode) => {
-    totalNodeCount += 1;
-
     const nodeKey = node.primPath ?? node.name;
     if (selectedKey !== null && nodeKey === selectedKey && !selectedNode) {
       selectedNode = node;
@@ -377,7 +381,6 @@ function collectHierarchyStats(
   }
 
   return {
-    totalNodeCount,
     selectedNode,
     selectedAncestorKeys: new Set(selectedPathKeys ?? []),
   };
@@ -408,7 +411,15 @@ function HierarchyCardContent({
   renderMorphTargetMeta,
 }: HierarchyCardProps) {
   const selectedRef = useRef<HTMLLIElement | null>(null);
+  const searchHeaderRef = useRef<HTMLDivElement>(null);
+  const searchId = useId();
+  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    searchHeaderRef.current?.querySelector("button")?.focus();
+  };
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -424,7 +435,7 @@ function HierarchyCardContent({
   }, [selectedName]);
 
   const normalizedSelected = selectedName ?? null;
-  const { selectedAncestorKeys, selectedNode, totalNodeCount } = useMemo(
+  const { selectedAncestorKeys, selectedNode } = useMemo(
     () => collectHierarchyStats(hierarchy, normalizedSelected),
     [hierarchy, normalizedSelected],
   );
@@ -525,23 +536,53 @@ function HierarchyCardContent({
         id="hierarchy-outliner"
         minSize={25}
       >
-        <section className="hierarchy-section yl-disclosure yl-disclosure--section">
-          <div className="yl-disclosure__summary">
+        <section
+          className="hierarchy-section yl-disclosure yl-disclosure--section"
+          onKeyDown={(event) => {
+            if (
+              searchOpen &&
+              event.key === "Escape" &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              closeSearch();
+            }
+          }}
+        >
+          <div className="yl-disclosure__summary" ref={searchHeaderRef}>
             <ChevronDownIcon
               className="yl-disclosure__chevron"
               aria-hidden="true"
             />
             <span className="yl-disclosure__title">Outliner</span>
-            <span className="yl-disclosure__count">{totalNodeCount}</span>
+            <Button
+              aria-label="Search hierarchy"
+              title="Search hierarchy"
+              aria-expanded={searchOpen}
+              aria-controls={searchOpen ? searchId : undefined}
+              aria-pressed={searchOpen}
+              className="hierarchy-search-toggle"
+              iconOnly
+              size="sm"
+              variant="ghost"
+              onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+            >
+              <MagnifyingGlassIcon aria-hidden="true" />
+            </Button>
           </div>
           <div className="hierarchy-pane-scroll hierarchy-outliner-body yl-disclosure__body">
-            <ListTextFilter
-              ariaLabel="Filter hierarchy"
-              clearLabel="Clear hierarchy filter"
-              onChange={setSearchQuery}
-              placeholder="Search hierarchy"
-              value={searchQuery}
-            />
+            {searchOpen ? (
+              <ListTextFilter
+                id={searchId}
+                autoFocus
+                ariaLabel="Filter hierarchy"
+                clearLabel="Clear hierarchy filter"
+                onChange={setSearchQuery}
+                placeholder="Search hierarchy"
+                value={searchQuery}
+              />
+            ) : null}
             <div className="hierarchy-tree-scroll">
               {hierarchy.length === 0 ? (
                 <p className="sidebar-empty">

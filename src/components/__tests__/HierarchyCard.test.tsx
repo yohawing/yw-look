@@ -74,6 +74,58 @@ describe("HierarchyCard selection sync (#33)", () => {
     cleanup();
   });
 
+  it.each(["button", "Escape"])(
+    "closes search via %s and clears hidden filtering",
+    (method) => {
+      const { getByRole, queryByRole, getByText, container } = render(
+        <HierarchyCard hierarchy={tree} />,
+      );
+      const toggle = getByRole("button", { name: "Search hierarchy" });
+      expect(queryByRole("textbox")).toBeNull();
+      expect(container.querySelector(".yl-disclosure__count")).toBeNull();
+      fireEvent.click(toggle);
+      const input = getByRole("textbox", { name: "Filter hierarchy" });
+      expect(document.activeElement).toBe(input);
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      fireEvent.change(input, { target: { value: "missing" } });
+      expect(getByText("No hierarchy nodes match.")).toBeTruthy();
+      if (method === "button") fireEvent.click(toggle);
+      else fireEvent.keyDown(input, { key: "Escape" });
+      expect(queryByRole("textbox")).toBeNull();
+      expect(document.activeElement).toBe(toggle);
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(getByText("Root")).toBeTruthy();
+      fireEvent.click(toggle);
+      expect((getByRole("textbox") as HTMLInputElement).value).toBe("");
+    },
+  );
+
+  it("preserves search during an IME Escape and closes from the clear button", () => {
+    const { getByRole } = render(<HierarchyCard hierarchy={tree} />);
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
+    const input = getByRole("textbox");
+    fireEvent.change(input, { target: { value: "腕" } });
+    fireEvent.keyDown(input, { key: "Escape", isComposing: true });
+    expect(getByRole("textbox")).toBe(input);
+    fireEvent.keyDown(getByRole("button", { name: "Clear hierarchy filter" }), {
+      key: "Escape",
+    });
+    expect(
+      getByRole("button", { name: "Search hierarchy" }).getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("false");
+  });
+
+  it("allows toggling search for an empty hierarchy", () => {
+    const { getByRole, getByText } = render(<HierarchyCard hierarchy={[]} />);
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
+    fireEvent.change(getByRole("textbox"), { target: { value: "missing" } });
+    expect(
+      getByText("No hierarchy available for the current asset."),
+    ).toBeTruthy();
+  });
+
   it("highlights the row whose name matches selectedName", () => {
     const { container } = render(
       <HierarchyCard hierarchy={tree} selectedName="Arm" />,
@@ -376,6 +428,7 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(branchRow).toBeTruthy();
     fireEvent.click(branchRow!.querySelector(".tree-chevron")!);
 
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
     const filter = getByRole("textbox", { name: "Filter hierarchy" });
     fireEvent.change(filter, { target: { value: "needle" } });
     expect(container.textContent).toContain("Root");
@@ -400,6 +453,7 @@ describe("HierarchyCard selection sync (#33)", () => {
     const { container, getByRole, getByText } = render(
       <HierarchyCard hierarchy={displayNameTree} />,
     );
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
     const filter = getByRole("textbox", { name: "Filter hierarchy" });
 
     fireEvent.compositionStart(filter);
@@ -444,12 +498,19 @@ describe("HierarchyCard selection sync (#33)", () => {
     const { getByRole, rerender } = render(
       <HierarchyCard fileIdentity="C:/assets/first.glb" hierarchy={tree} />,
     );
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
     const filter = getByRole("textbox", { name: "Filter hierarchy" });
     fireEvent.change(filter, { target: { value: "arm" } });
     rerender(
       <HierarchyCard fileIdentity="C:/assets/second.glb" hierarchy={tree} />,
     );
 
+    expect(
+      getByRole("button", { name: "Search hierarchy" }).getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("false");
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
     expect(
       (getByRole("textbox", { name: "Filter hierarchy" }) as HTMLInputElement)
         .value,

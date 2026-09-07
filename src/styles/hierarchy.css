@@ -36,6 +36,16 @@
   flex: 0 0 auto;
 }
 
+.hierarchy-search-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.hierarchy-search-toggle[aria-pressed="true"] {
+  color: var(--yl-text-primary);
+  background: var(--yl-surface-hover);
+}
+
 .hierarchy-tree-scroll {
   min-height: 0;
   flex: 1 1 auto;
