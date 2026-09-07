@@ -37,6 +37,25 @@ function renderTextureListCard(
 }
 
 describe("TextureListCard", () => {
+  it("shows an embedded texture container separately from its internal path", () => {
+    const { getByText, getByTitle } = renderTextureListCard(
+      [
+        {
+          ...baseTexture,
+          sourceKind: "embedded",
+          sourcePath: "F:/toy.usdz[a/diffuse.bmp]",
+          containerPath: "F:/toy.usdz",
+          internalPath: "a/diffuse.bmp",
+        },
+      ],
+      baseTexture.id,
+    );
+    expect(getByText("Container")).toBeTruthy();
+    expect(getByText("Internal Path")).toBeTruthy();
+    expect(getByTitle("F:/toy.usdz")).toBeTruthy();
+    expect(getByTitle("a/diffuse.bmp")).toBeTruthy();
+    expect(getByText("embedded")).toBeTruthy();
+  });
   it("flips thumbnails when the texture metadata requests previewFlipY", () => {
     const { getByAltText } = renderTextureListCard([
       { ...baseTexture, previewFlipY: true },

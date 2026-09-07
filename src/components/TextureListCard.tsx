@@ -64,7 +64,18 @@ function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
         density="regular"
         rows={rows}
       />
-      {texture.sourcePath ? (
+      {texture.containerPath && texture.internalPath ? (
+        <>
+          <div className="texture-selected-path">
+            <span className="texture-selected-path-label">Container</span>
+            <code title={texture.containerPath}>{texture.containerPath}</code>
+          </div>
+          <div className="texture-selected-path">
+            <span className="texture-selected-path-label">Internal Path</span>
+            <code title={texture.internalPath}>{texture.internalPath}</code>
+          </div>
+        </>
+      ) : texture.sourcePath ? (
         <div className="texture-selected-path">
           <span className="texture-selected-path-label">Path</span>
           <code title={texture.sourcePath}>{texture.sourcePath}</code>

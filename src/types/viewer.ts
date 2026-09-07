@@ -441,6 +441,8 @@ export type TextureEntry = {
   id: string;
   label: string;
   sourcePath?: string;
+  containerPath?: string;
+  internalPath?: string;
   channel: string;
   dimensions: string;
   thumbnailUrl: string | null;

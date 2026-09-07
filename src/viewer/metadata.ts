@@ -1,4 +1,9 @@
 import {
+  texturePackageSource,
+  textureSourceFileName,
+  textureSourceIdentity,
+} from "../lib/textureSource";
+import {
   AnimationClip,
   Box3,
   Bone,
@@ -361,17 +366,6 @@ function textureSlot(
   return { name };
 }
 
-function textureFileName(value: string): string {
-  const normalized = value.trim().replace(/\\/g, "/").split(/[?#]/, 1)[0];
-  const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
-  if (!basename) return value.trim();
-  try {
-    return decodeURIComponent(basename);
-  } catch {
-    return basename;
-  }
-}
-
 function textureSourceReference(
   texture: Texture,
   material: Material,
@@ -415,15 +409,12 @@ function textureDisplayName(
     currentFile,
   );
   return sourceReference
-    ? textureFileName(sourceReference)
+    ? textureSourceFileName(sourceReference)
     : `${channel} Texture`;
 }
 
 function textureSourceKey(sourceReference: string, channel: string): string {
-  const normalized = sourceReference
-    .trim()
-    .replace(/\\/g, "/")
-    .split(/[?#]/, 1)[0];
+  const normalized = textureSourceIdentity(sourceReference);
   return `${channel}:${normalized}`;
 }
 
@@ -1062,6 +1053,7 @@ export function scheduleTextureThumbnailEnrichment({
 function inferTextureSourceKind(
   texture: Texture,
   currentFile: SelectedFile,
+  sourceReference?: string,
 ): AssetMetadata["textures"][number]["sourceKind"] {
   const fromUserData = texture.userData.textureSourceKind;
   if (
@@ -1076,6 +1068,16 @@ function inferTextureSourceKind(
   if (currentFile.kind === "texture") {
     return "standalone";
   }
+
+  if (sourceReference && texturePackageSource(sourceReference))
+    return "embedded";
+  if (
+    sourceReference &&
+    (["usd", "usda", "usdc"].includes(currentFile.extension) ||
+      (currentFile.extension === "usdz" &&
+        /^(?:[A-Za-z]:[\\/]|[\\/]|https?:\/\/)/.test(sourceReference)))
+  )
+    return "external";
 
   if (currentFile.extension === "glb") {
     return "embedded";
@@ -1439,11 +1441,16 @@ export function collectAssetMetadata(
             currentFile,
           ),
           ...(sourceReference ? { sourcePath: sourceReference } : {}),
+          ...(sourceReference ? texturePackageSource(sourceReference) : null),
           channel,
           dimensions: getTextureDimensions(textureValue),
           thumbnailUrl: null,
           ...(previewFlipY ? { previewFlipY } : {}),
-          sourceKind: inferTextureSourceKind(textureValue, currentFile),
+          sourceKind: inferTextureSourceKind(
+            textureValue,
+            currentFile,
+            sourceReference ?? undefined,
+          ),
         });
         textureRegistry.set(textureId, textureValue);
       }
@@ -1491,7 +1498,11 @@ export function refreshTextureSourceKinds(
   const textures = metadata.textures.map((entry) => {
     const texture = textureRegistry.get(entry.id);
     if (!texture) return entry;
-    const sourceKind = inferTextureSourceKind(texture, currentFile);
+    const sourceKind = inferTextureSourceKind(
+      texture,
+      currentFile,
+      entry.sourcePath,
+    );
     if (sourceKind === entry.sourceKind) return entry;
     changed = true;
     return { ...entry, sourceKind };
