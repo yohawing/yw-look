@@ -40,6 +40,9 @@ import {
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { DisplayMode, SceneContext } from "./types";
 import {
   copyMmdMaterialUserData,
@@ -1540,10 +1543,16 @@ export function applySkeletonHelpers(
 }
 
 function disposeBoundingBoxHelper(helper: Box3Helper) {
-  helper.geometry.dispose();
-  for (const material of getMaterials(helper.material)) {
-    material.dispose();
+  const geometries = new Set([helper.geometry]);
+  const materials = new Set(getMaterials(helper.material));
+  for (const child of helper.children) {
+    if (child instanceof LineSegments2) {
+      geometries.add(child.geometry);
+      materials.add(child.material);
+    }
   }
+  geometries.forEach((geometry) => geometry.dispose());
+  materials.forEach((material) => material.dispose());
 }
 
 export function removeBoundingBoxHelpers(scene: Scene) {
@@ -1585,18 +1594,41 @@ export function applyBoundingBoxHelpers(
       return;
     }
 
-    const helper = new Box3Helper(worldBounds, 0x7170ff);
+    const helper = new Box3Helper(worldBounds, 0xf4f7ff);
     helper.userData[BBOX_HELPER_FLAG] = true;
     const materials = getMaterials(helper.material);
     for (const material of materials) {
-      if ("depthTest" in material) {
-        material.depthTest = false;
-      }
-      if ("transparent" in material) {
-        material.transparent = true;
-      }
+      material.visible = false;
     }
     helper.renderOrder = 2;
+    // A narrow dark rim separates the bright center line from light surfaces.
+    // Screen-space width stays legible regardless of model scale or zoom.
+    const edges = helper.geometry.toNonIndexed();
+    const lineGeometry = new LineSegmentsGeometry().setPositions(
+      edges.getAttribute("position").array as Float32Array,
+    );
+    edges.dispose();
+    for (const [color, linewidth, renderOrder] of [
+      [0x16191f, 2.5, 1.9],
+      [0xf4f7ff, 1, 2],
+    ]) {
+      const line = new LineSegments2(
+        lineGeometry,
+        new LineMaterial({
+          color,
+          linewidth,
+          worldUnits: false,
+          depthTest: false,
+          depthWrite: false,
+          transparent: true,
+          toneMapped: false,
+          alphaToCoverage: true,
+        }),
+      );
+      line.userData[BBOX_HELPER_FLAG] = true;
+      line.renderOrder = renderOrder;
+      helper.add(line);
+    }
     scene.add(helper);
   });
 }
