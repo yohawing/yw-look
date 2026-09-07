@@ -27,14 +27,33 @@ textarea {
 .app-shell {
   height: 100vh;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 26px;
+  grid-template-rows: 26px minmax(0, 1fr) 26px;
   grid-template-columns: 1fr auto;
   background: var(--yl-surface-canvas);
 }
 
+.app-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--yl-border-subtle);
+  background: var(--yl-surface-panel);
+}
+
+.app-version {
+  overflow: hidden;
+  color: var(--yl-text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .main-content {
   grid-column: 1;
-  grid-row: 1;
+  grid-row: 2;
   position: relative;
   overflow: hidden;
   min-width: 0;
@@ -45,7 +64,7 @@ textarea {
 .sidebar {
   position: relative;
   grid-column: 2;
-  grid-row: 1;
+  grid-row: 2;
   width: 0;
   background: var(--yl-surface-panel);
   border-left: 1px solid transparent;
