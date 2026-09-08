@@ -124,6 +124,8 @@ export type ModelParseWorkerStaticMaterialPayload = {
   roughness: number;
   opacity: number;
   transparent: boolean;
+  vertexColors?: boolean;
+  flatShading?: boolean;
   side: Material["side"];
   textures?: Partial<
     Record<SerializableTextureSlot, ModelParseWorkerStaticTexturePayload>
@@ -380,6 +382,8 @@ function getMaterialPayload(
     color?: { getHex: () => number };
     metalness?: number;
     roughness?: number;
+    vertexColors?: boolean;
+    flatShading?: boolean;
   };
   const textures = getMaterialTexturePayloads(material, options);
   return {
@@ -393,6 +397,8 @@ function getMaterialPayload(
     roughness: materialLike.roughness ?? 0.72,
     opacity: materialLike.opacity,
     transparent: materialLike.transparent,
+    vertexColors: materialLike.vertexColors,
+    flatShading: materialLike.flatShading,
     side: materialLike.side,
     ...(textures ? { textures } : {}),
   };
@@ -727,6 +733,7 @@ function createStaticMaterial(
     color: payload.color,
     opacity: payload.opacity,
     transparent: payload.transparent,
+    vertexColors: payload.vertexColors ?? false,
     side: payload.side,
   };
   const material =
@@ -742,6 +749,8 @@ function createStaticMaterial(
               roughness: payload.roughness,
             });
   material.name = payload.name;
+  if ("flatShading" in material && payload.flatShading !== undefined)
+    material.flatShading = payload.flatShading;
   material.userData = cloneUserData(payload.userData);
   applyStaticMaterialTextures(material, payload.textures);
   return material;

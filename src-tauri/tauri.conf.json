@@ -108,6 +108,18 @@
         "rank": "Alternate"
       },
       {
+        "ext": ["3mf"],
+        "mimeType": "model/3mf",
+        "name": "yw-look 3MF Asset",
+        "description": "3MF asset opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.3mf",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
         "ext": ["stl"],
         "contentTypes": ["public.standard-tesselated-geometry-format"],
         "name": "yw-look STL Asset",

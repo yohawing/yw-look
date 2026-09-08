@@ -62,6 +62,12 @@ export const webRuntimeLicenseAttributions = [
     source: "web",
   },
   {
+    name: "@xmldom/xmldom",
+    version: "0.9.12",
+    license: "MIT",
+    source: "web",
+  },
+  {
     name: "@yohawing/three-mmd-loader",
     version: "0.8.2",
     license: "MIT",

@@ -95,6 +95,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-log": "^2.9.0",
+    "@xmldom/xmldom": "0.9.12",
     "@yohawing/timeline-editor": "git+https://github.com/yohawing/timeline-editor.git#4adb126a4c48a3bb80873ef643fba55752f30cae",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

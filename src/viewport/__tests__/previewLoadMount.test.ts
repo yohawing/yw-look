@@ -2,6 +2,7 @@ import { Group, PerspectiveCamera, Scene } from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SceneContext, ViewerSurfaceMode } from "../../types/viewer";
 import { mountLoadedPreview } from "../previewLoadMount";
+import { syncMmdPreviewSpecularDirection } from "../../packs";
 
 const mountState = vi.hoisted(() => ({
   disposed: false,
@@ -272,6 +273,31 @@ describe("mountLoadedPreview", () => {
     viewerMocks.scheduleTextureThumbnailEnrichment.mockClear();
     viewerMocks.collectAssetResourceMetrics.mockClear();
     viewerMocks.cleanupCallback.mockClear();
+  });
+
+  it("keeps pending geometry unavailable to the BVH picker until async initialization completes", async () => {
+    mountState.disposeDuringNormalize = false;
+    let finish!: () => void;
+    vi.mocked(syncMmdPreviewSpecularDirection).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(null);
+        }),
+    );
+    const object = new Group();
+    const context = createSceneContext();
+    const { options } = createMountOptions(context);
+    const pending = mountLoadedPreview(
+      { object, cleanupUrls: [], clips: [], formatVersion: null },
+      options,
+    );
+    expect(context.mountedObject).toBeNull();
+    expect(context.scene.children).not.toContain(object);
+    expect(viewerMocks.collectSceneTraversal).not.toHaveBeenCalled();
+    finish();
+    await pending;
+    expect(context.mountedObject).toBe(object);
+    expect(viewerMocks.collectSceneTraversal).toHaveBeenCalledWith(object);
   });
 
   it("aborts late mount processing without publishing preview state when disposed during normalization", async () => {

@@ -37,6 +37,14 @@ const optionalLoaderPackages = {
 };
 
 const cases = [
+  ...["components", "vertex-colors", "texture"].map((name) => ({
+    id: `3mf-${name}`,
+    input: `tests/fixtures/models/3mf/${name}.3mf`,
+    snapshot: `tests/visual/snapshots/viewport/3mf-${name}.png`,
+    actual: `artifacts/screenshots/viewport/3mf-${name}-current.png`,
+    size: "640x480",
+    background: "default",
+  })),
   {
     id: "usda-tiny-sanity",
     input: "samples/assets/usd/tiny.usda",

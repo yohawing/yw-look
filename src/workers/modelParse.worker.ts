@@ -32,6 +32,7 @@ export type {
 } from "./staticScene";
 
 export type ModelParseWorkerPayload =
+  | { kind: "3mf"; buffer: ArrayBuffer }
   | {
       kind: "glb";
       buffer: ArrayBuffer;
@@ -126,6 +127,10 @@ async function parseObject(
   payload: ModelParseWorkerPayload,
 ): Promise<Object3D> {
   switch (payload.kind) {
+    case "3mf": {
+      const { parseThreeMf } = await import("./threeMfParse");
+      return parseThreeMf(payload.buffer);
+    }
     case "glb":
     case "fbxGlb":
     case "gltf":
@@ -181,6 +186,7 @@ async function parseObject(
 }
 
 const STATIC_SCENE_KINDS = new Set<ModelParseWorkerPayload["kind"]>([
+  "3mf",
   "obj",
   "ply",
   "stl",
@@ -209,7 +215,8 @@ export function canUseStaticSceneResult(
     return false;
   }
 
-  const requireSerializableTextures = kind === "glb" || kind === "gltf";
+  const requireSerializableTextures =
+    kind === "glb" || kind === "gltf" || kind === "3mf";
   return canSerializeStaticNode(object, { requireSerializableTextures });
 }
 
@@ -228,10 +235,14 @@ self.addEventListener(
           canUseStaticSceneResult(request.payload.kind, object)
         ) {
           const requireSerializableTextures =
-            request.payload.kind === "glb" || request.payload.kind === "gltf";
+            request.payload.kind === "glb" ||
+            request.payload.kind === "gltf" ||
+            request.payload.kind === "3mf";
           const scene = toStaticScenePayload(
             object,
-            request.payload.kind === "obj" || request.payload.kind === "dae",
+            request.payload.kind === "obj" ||
+              request.payload.kind === "dae" ||
+              request.payload.kind === "3mf",
             { requireSerializableTextures },
           );
           if (scene) {
@@ -251,6 +262,11 @@ self.addEventListener(
             return;
           }
         }
+
+        if (request.payload.kind === "3mf")
+          throw new Error(
+            "3MF: scene cannot be transferred safely from worker",
+          );
 
         const response: ModelParseWorkerResponse = {
           id: request.id,

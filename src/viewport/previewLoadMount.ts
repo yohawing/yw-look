@@ -212,6 +212,14 @@ export async function mountLoadedPreview(
     context.cleanupUrls = [];
   }
 
+  applyPreviewLightingPreset(lighting, lightingTargets);
+  mmdLightSync = await syncMmdPreviewSpecularDirection(mmdModel, keyLight);
+  if (isDisposed()) {
+    return abortMountedPreview();
+  }
+
+  // Publish only after asynchronous initialization. The picker may otherwise
+  // transfer geometry buffers to its BVH worker before framing reads bounds.
   context.scene.add(object);
   context.mountedObject = object;
   context.sourceObject = object;
@@ -219,12 +227,6 @@ export async function mountLoadedPreview(
   context.animationRoot = null;
   context.cleanupUrls = cleanupUrls;
   context.cleanupCallbacks = cleanupCallbacks;
-  applyPreviewLightingPreset(lighting, lightingTargets);
-  mmdLightSync = await syncMmdPreviewSpecularDirection(mmdModel, keyLight);
-  if (isDisposed()) {
-    return abortMountedPreview();
-  }
-
   const state = getMountState();
   const traversal = collectSceneTraversal(object);
 

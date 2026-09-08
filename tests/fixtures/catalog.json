@@ -367,6 +367,69 @@
       "path": "tests/fixtures/models/monkey.abc",
       "format": "abc",
       "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-3mf-minimal",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/3mf/minimal.3mf",
+      "format": "3mf",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-3mf-centimeters",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/3mf/centimeters.3mf",
+      "format": "3mf",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-3mf-components",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/3mf/components.3mf",
+      "format": "3mf",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-3mf-materials",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/3mf/materials.3mf",
+      "format": "3mf",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-3mf-vertex-colors",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/3mf/vertex-colors.3mf",
+      "format": "3mf",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "model-3mf-texture",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/3mf/texture.3mf",
+      "format": "3mf",
+      "expect": { "shouldLoad": true }
+    },
+    {
+      "id": "error-3mf-invalid-index",
+      "category": "corrupt-data",
+      "path": "tests/fixtures/broken/3mf/invalid-index.3mf",
+      "format": "3mf",
+      "expect": { "shouldLoad": false }
+    },
+    {
+      "id": "error-3mf-cycle",
+      "category": "corrupt-data",
+      "path": "tests/fixtures/broken/3mf/cycle.3mf",
+      "format": "3mf",
+      "expect": { "shouldLoad": false }
+    },
+    {
+      "id": "error-3mf-truncated",
+      "category": "corrupt-data",
+      "path": "tests/fixtures/broken/3mf/truncated.3mf",
+      "format": "3mf",
+      "expect": { "shouldLoad": false }
     }
   ]
 }

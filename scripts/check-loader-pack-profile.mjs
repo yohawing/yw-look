@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readdir, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 const [profile, distDirArg = "dist"] = process.argv.slice(2);
@@ -60,6 +60,12 @@ function assertHasAssets(files, pattern, label) {
 }
 
 const files = await listAssetFiles(assetsDir);
+const parseWorkers = findAssets(files, /^modelParse\.worker-.*\.js$/);
+if (
+  parseWorkers.length !== 1 ||
+  !(await readFile(parseWorkers[0].path, "utf8")).includes("3mf-texture:")
+)
+  throw new Error(`3MF worker support is missing from ${profile} profile.`);
 
 if (profile === "core") {
   assertNoAssets(files, /^spark-loader-pack-.*\.js$/, "Spark loader pack");
