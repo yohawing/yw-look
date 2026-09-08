@@ -202,7 +202,9 @@ export function useSidebarModel({
   const packMetadataCard = useMemo(
     () =>
       sidebarPackMetadata
-        ? renderMetadataCardForPackMetadata(sidebarPackMetadata)
+        ? renderMetadataCardForPackMetadata(sidebarPackMetadata, {
+            onSelect: useViewerStore.getState().setSelectedMeshName,
+          })
         : null,
     [sidebarPackMetadata],
   );
@@ -302,6 +304,11 @@ export function useSidebarModel({
           </>
         );
       case "hierarchy":
+        if (sidebarPackMetadata?.kind === "ifc")
+          return renderMetadataCardForPackMetadata(sidebarPackMetadata, {
+            view: "hierarchy",
+            onSelect: useViewerStore.getState().setSelectedMeshName,
+          });
         return (
           <HierarchySidebarPanel
             debugPanelsEnabled={debugPanelsEnabled}
@@ -393,6 +400,7 @@ export function useSidebarModel({
     settingsError,
     settingsPayload,
     packMetadataCard,
+    sidebarPackMetadata,
     sidebarRecentFilesError,
     sidebarRecentFilesPayload,
     sidebarWarnings,

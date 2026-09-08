@@ -93,6 +93,13 @@ describe("installed IFC loader", () => {
     mocks.managerLoad.mockResolvedValue({
       object: new Group(),
       useCamera: vi.fn(),
+      getSpatialStructure: vi
+        .fn()
+        .mockResolvedValue({ category: "IFCPROJECT", localId: null }),
+      getItemsIdsWithGeometry: vi.fn().mockResolvedValue([]),
+      getItemsData: vi.fn().mockResolvedValue([]),
+      resetHighlight: vi.fn().mockResolvedValue(undefined),
+      setColor: vi.fn().mockResolvedValue(undefined),
     });
     mocks.managerUpdate.mockResolvedValue(undefined);
     mocks.managerDispose.mockResolvedValue(undefined);
@@ -133,7 +140,7 @@ describe("installed IFC loader", () => {
     const runtime = result.createPackRuntime?.({} as never);
     runtime?.dispose();
     runtime?.dispose();
-    expect(mocks.managerDispose).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(mocks.managerDispose).toHaveBeenCalledOnce());
   });
 
   it("aborts an in-flight Fragments model load when the signal aborts", async () => {

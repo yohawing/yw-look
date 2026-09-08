@@ -1,3 +1,6 @@
+import { createIfcInspection, ifcSelectionKey } from "./inspection";
+import { registerIfcInspection } from "./metadata";
+import { Vector2, type OrthographicCamera } from "three";
 import { FragmentsModels, IfcImporter } from "@thatopen/fragments";
 import { Group, PerspectiveCamera } from "three";
 import { errorMessage } from "../../lib/errors";
@@ -76,13 +79,57 @@ export async function loadIfcPreviewObject(
           : new Group().add(model.object);
       object.name ||= `${file.fileName} IFC Preview`;
 
+      const inspection = await createIfcInspection(model);
+      throwIfAborted(context.signal);
+      registerIfcInspection(object, inspection);
+      await inspection.setColorMode("category");
+      await manager.update(true);
+      throwIfAborted(context.signal);
       const runtimeState: IfcRuntimeState = { manager, model };
       return {
         object,
         cleanupUrls: [],
         clips: [],
         formatVersion: "IFC",
-        createPackRuntime: () => createIfcRuntime(runtimeState),
+        createPackRuntime: () => {
+          const runtime = createIfcRuntime(runtimeState);
+          let disposed = false;
+          const picks = new Set<Promise<string | null>>();
+          return {
+            ...runtime,
+            update: (frame) => {
+              if (!disposed) runtime.update?.(frame);
+            },
+            selection: {
+              pick: async (event, camera, canvas) => {
+                if (disposed) return null;
+                const pick = model
+                  .raycast({
+                    camera: camera as PerspectiveCamera | OrthographicCamera,
+                    mouse: new Vector2(event.clientX, event.clientY),
+                    dom: canvas,
+                  })
+                  .then((hit) =>
+                    !disposed && hit ? ifcSelectionKey(hit.localId) : null,
+                  );
+                picks.add(pick);
+                try {
+                  return await pick;
+                } finally {
+                  picks.delete(pick);
+                }
+              },
+              select: inspection.select,
+            },
+            dispose: () => {
+              if (disposed) return;
+              disposed = true;
+              void Promise.allSettled([inspection.dispose(), ...picks]).then(
+                () => runtime.dispose(),
+              );
+            },
+          };
+        },
         skipScaleNormalization: false,
       };
     } finally {

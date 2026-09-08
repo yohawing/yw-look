@@ -410,6 +410,11 @@ export function AssetViewport({
       highlightedSelectionRef.current = null;
     }
 
+    const selection = sceneContextRef.current?.packRuntime?.selection;
+    if (selection) {
+      void selection.select(selectedMeshName ?? null);
+      return;
+    }
     if (selectedMeshName) {
       const target = findObjectBySelectionKey(mounted, selectedMeshName);
       if (target) {

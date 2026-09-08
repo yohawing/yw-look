@@ -74,14 +74,24 @@ export function registerFormatPacks(registry: FormatPackRegistry): void {
 
 export function getMetadataCardForPackMetadata(metadata: PackMetadata) {
   switch (metadata.kind) {
+    case "ifc":
+      return ifcLoaderPack.MetadataCard;
     case "mmd":
       return mmdLoaderPack.MetadataCard ?? null;
   }
 }
 
-export function renderMetadataCardForPackMetadata(metadata: PackMetadata) {
+export function renderMetadataCardForPackMetadata(
+  metadata: PackMetadata,
+  options: {
+    view?: "properties" | "hierarchy";
+    onSelect?: (key: string | null) => void;
+  } = {},
+) {
   const MetadataCard = getMetadataCardForPackMetadata(metadata);
-  return MetadataCard ? createElement(MetadataCard, { metadata }) : null;
+  return MetadataCard
+    ? createElement(MetadataCard, { metadata, ...options })
+    : null;
 }
 
 export function getPackSelectedObjectDetails(objectInfo: ObjectInfo | null) {

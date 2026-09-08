@@ -1,0 +1,57 @@
+.ifc-inspector {
+  min-width: 0;
+}
+.ifc-element-filter {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+}
+.ifc-inspector summary,
+.ifc-element-name {
+  overflow-wrap: anywhere;
+}
+.ifc-element-name {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.ifc-element-list {
+  list-style: none;
+  margin: 4px 0 12px;
+  padding: 0;
+}
+.ifc-element-list button {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: inherit;
+}
+.ifc-element-list button[aria-pressed="true"] {
+  background: #69b7ff22;
+  border-color: #69b7ff;
+}
+.ifc-element-list button:hover {
+  background: #8882;
+}
+.ifc-element-list span,
+.ifc-element-list small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.ifc-element-list small {
+  opacity: 0.65;
+  font-size: 10px;
+}
+
+.ifc-element-browser {
+  max-height: 34vh;
+  overflow: auto;
+}
+.ifc-color-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}

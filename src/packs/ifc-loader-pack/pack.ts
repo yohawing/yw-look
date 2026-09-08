@@ -1,3 +1,5 @@
+import { collectIfcMetadata } from "./metadata";
+import { IfcMetadataCard } from "./IfcMetadataCard";
 import type { FormatPack } from "../../types/format-pack";
 import { loadIfcPreviewObject } from "./loader";
 
@@ -10,5 +12,7 @@ export const ifcLoaderPack = {
   extensions: ["ifc"],
   optional: true,
   installed: HAS_IFC_LOADER,
+  collectMetadata: collectIfcMetadata,
+  MetadataCard: IfcMetadataCard,
   loadPreviewObject: loadIfcPreviewObject,
 } satisfies FormatPack;
