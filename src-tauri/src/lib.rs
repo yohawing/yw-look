@@ -48,8 +48,7 @@ use crate::commands::updater::{check_for_update, install_pending_update};
 use crate::commands::usd::{
     backend_capabilities, close_stage_session, collect_asset_issues, extract_geometry,
     extract_geometry_session, inspect_attribute_time_samples, inspect_prim, inspect_stage,
-    inspect_usd_lights, load_payload, open_stage_session, requires_glb_preview, summarize_stage,
-    unload_payload,
+    load_payload, open_stage_session, requires_glb_preview, summarize_stage, unload_payload,
 };
 use crate::state::{FbxImportState, PendingOpenFiles, PendingUpdateState, UsdBackendState};
 use crate::usd::{DefaultBackend, StageRegistry};
@@ -271,7 +270,6 @@ pub fn run() {
             extract_geometry,
             inspect_prim,
             inspect_attribute_time_samples,
-            inspect_usd_lights,
             open_stage_session,
             close_stage_session,
             load_payload,

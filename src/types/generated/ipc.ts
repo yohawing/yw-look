@@ -156,7 +156,6 @@ export type BackendCapabilities = {
   inspect: boolean;
   geometry: boolean;
   session: boolean;
-  light: boolean;
 };
 
 export type StageLoadPolicy = "loadAll" | "noPayloads";
@@ -314,21 +313,6 @@ export type LayerInfo = {
   timeOffset: number;
   timeScale: number;
   comment: string | null;
-};
-
-export type ShapingCone = { angle: number; softness: number };
-
-export type UsdLightInfo = {
-  primPath: string;
-  lightKind: string;
-  color: [number, number, number];
-  intensity: number;
-  exposure: number;
-  colorTemperature: number | null;
-  specular: number;
-  diffuse: number;
-  domeTextureFile: string | null;
-  shapingCone: ShapingCone | null;
 };
 
 export type TimeSampleEntry = { time: number; valueSummary: string };

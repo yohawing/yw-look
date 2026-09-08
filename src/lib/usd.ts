@@ -11,7 +11,6 @@ import type {
   AssetIssue,
   UsdTypedError,
   UsdInvalidVariantSelectionError,
-  UsdLightInfo,
   VariantSelection,
   PrimInspection,
   AttributeTimeSamples,
@@ -42,8 +41,6 @@ export type {
   RelationshipInfo,
   MetadataEntry,
   PrimInspection,
-  ShapingCone,
-  UsdLightInfo,
   TimeSampleEntry,
   AttributeTimeSamples,
   StageSessionHandle,
@@ -147,23 +144,6 @@ export function formatUsdErrorForDisplay(
 
 export function isUsdTaskBusyError(error: unknown): boolean {
   return errorMessage(error, "") === USD_TASK_BUSY_MESSAGE;
-}
-
-export async function inspectUsdLights(
-  path: string,
-  invokeOptions?: UsdInvokeOptions,
-  variantSelections?: VariantSelection[],
-): Promise<UsdLightInfo[]> {
-  return invokeUsd<UsdLightInfo[]>(
-    "inspect_usd_lights",
-    withVariantSelections(
-      {
-        path,
-        background: invokeOptions?.background,
-      },
-      variantSelections,
-    ),
-  );
 }
 
 /**

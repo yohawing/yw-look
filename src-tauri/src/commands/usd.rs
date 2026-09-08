@@ -8,7 +8,7 @@ use crate::state::UsdBackendState;
 use crate::usd::{
     types::{ExtractGeometryOptions, VariantSelection},
     AssetIssue, AttributeTimeSamples, PrimInspection, StageInspection, StageLoadPolicy,
-    StageRegistry, StageSessionHandle, StageSummary, UsdError, UsdLightInfo,
+    StageRegistry, StageSessionHandle, StageSummary, UsdError,
 };
 
 const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
@@ -194,22 +194,6 @@ pub(crate) async fn inspect_prim(
     let normalized = normalize_file_path(PathBuf::from(path))?;
     let handle = backend.inspect();
     run_blocking_usd(move || handle.inspect_prim(&normalized, &prim_path)).await
-}
-
-#[tauri::command]
-pub(crate) async fn inspect_usd_lights(
-    backend: tauri::State<'_, UsdBackendState>,
-    path: String,
-    background: Option<bool>,
-    variant_selections: Option<Vec<VariantSelection>>,
-) -> Result<Vec<UsdLightInfo>, AppError> {
-    let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.light()?;
-    let variant_selections = variant_selections.unwrap_or_default();
-    run_maybe_background_usd(background, move || {
-        handle.inspect_usd_lights_with_variants(&normalized, &variant_selections)
-    })
-    .await
 }
 
 #[tauri::command]

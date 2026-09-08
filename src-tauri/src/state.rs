@@ -8,8 +8,7 @@ use std::sync::{
 
 use crate::error::AppError;
 use crate::usd::{
-    DefaultBackend, StageLoadPolicy, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend,
-    UsdSessionBackend,
+    DefaultBackend, StageLoadPolicy, UsdGeometryBackend, UsdInspectBackend, UsdSessionBackend,
 };
 
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -234,14 +233,12 @@ pub(crate) struct BackendCapabilities {
     pub(crate) inspect: bool,
     pub(crate) geometry: bool,
     pub(crate) session: bool,
-    pub(crate) light: bool,
 }
 
 pub(crate) struct UsdBackendState {
     inspect: Arc<dyn UsdInspectBackend>,
     geometry: Option<Arc<dyn UsdGeometryBackend>>,
     session: Option<Arc<dyn UsdSessionBackend>>,
-    light: Option<Arc<dyn UsdLightBackend>>,
 }
 
 impl UsdBackendState {
@@ -251,7 +248,6 @@ impl UsdBackendState {
             inspect: backend.clone() as Arc<dyn UsdInspectBackend>,
             geometry: Some(backend.clone() as Arc<dyn UsdGeometryBackend>),
             session: Some(backend.clone() as Arc<dyn UsdSessionBackend>),
-            light: None,
         }
     }
 
@@ -260,7 +256,6 @@ impl UsdBackendState {
             inspect: true,
             geometry: self.geometry.is_some(),
             session: self.session.is_some(),
-            light: self.light.is_some(),
         }
     }
 
@@ -279,13 +274,6 @@ impl UsdBackendState {
             .as_ref()
             .map(Arc::clone)
             .ok_or_else(|| AppError::Internal("USD backend capability unavailable: session".into()))
-    }
-
-    pub(crate) fn light(&self) -> Result<Arc<dyn UsdLightBackend>, AppError> {
-        self.light
-            .as_ref()
-            .map(Arc::clone)
-            .ok_or_else(|| AppError::Internal("USD backend capability unavailable: light".into()))
     }
 }
 

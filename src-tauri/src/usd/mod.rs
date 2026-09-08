@@ -34,14 +34,12 @@ pub mod stage_state;
 pub mod texture_loader;
 pub mod types;
 
-pub use backend::{
-    UsdError, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend, UsdSessionBackend,
-};
+pub use backend::{UsdError, UsdGeometryBackend, UsdInspectBackend, UsdSessionBackend};
 pub use openusd_backend::OpenusdBackend;
 pub use stage_state::{OpenSession, OpenStage, StageRegistry, StageSessionHandle};
 pub use types::{
     AssetIssue, AttributeTimeSamples, PrimInspection, StageInspection, StageLoadPolicy,
-    StageSummary, UsdLightInfo,
+    StageSummary,
 };
 
 // There is no second USD implementation to select or accidentally enable.

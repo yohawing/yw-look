@@ -45,7 +45,6 @@ const capabilities: BackendCapabilities = {
   inspect: true,
   geometry: true,
   session: true,
-  light: true,
 };
 
 const file: SelectedFile = {

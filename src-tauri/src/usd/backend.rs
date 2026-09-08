@@ -11,7 +11,7 @@ use std::path::Path;
 use super::stage_state::OpenStage;
 use super::types::{
     AssetIssue, AttributeTimeSamples, ExtractGeometryOptions, PrimInspection, StageInspection,
-    StageLoadPolicy, StageSummary, UsdLightInfo, VariantSelection,
+    StageLoadPolicy, StageSummary, VariantSelection,
 };
 
 /// Errors a USD backend can produce. Kept intentionally narrow so the
@@ -211,36 +211,6 @@ pub trait UsdGeometryBackend: Send + Sync {
         options: &ExtractGeometryOptions,
     ) -> Result<Vec<u8>, UsdError> {
         self.extract_geometry_glb(path, options.policy)
-    }
-}
-
-/// USD light detail inspection capability.
-pub trait UsdLightBackend: Send + Sync {
-    /// #35 — enumerates all UsdLux light prims in the stage and returns
-    /// their detailed attributes (intensity, color, exposure, color
-    /// temperature, specular/diffuse multipliers, shaping cone, dome texture).
-    ///
-    /// The Rust backend returns `Err(UsdError::Parse("not supported"))`
-    /// because the openusd crate does not yet expose UsdLux APIs. Callers
-    /// should treat an error from this method as "no USD light detail
-    /// available" and fall back to the Three.js-derived `LightEntry` list.
-    fn inspect_usd_lights(&self, path: &Path) -> Result<Vec<UsdLightInfo>, UsdError>;
-
-    /// Variant-aware light inspection entry point. Empty selections retain
-    /// the legacy authored-selection behavior; unsupported non-empty
-    /// selections return an explicit error so callers cannot mistake stale
-    /// data for a variant-aware result.
-    fn inspect_usd_lights_with_variants(
-        &self,
-        path: &Path,
-        variant_selections: &[VariantSelection],
-    ) -> Result<Vec<UsdLightInfo>, UsdError> {
-        if variant_selections.is_empty() {
-            return self.inspect_usd_lights(path);
-        }
-        Err(UsdError::Parse(
-            "variant selections are not supported by this backend".into(),
-        ))
     }
 }
 

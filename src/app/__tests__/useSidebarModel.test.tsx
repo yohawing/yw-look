@@ -65,8 +65,6 @@ function makeOptions(
     usdInspectorError: null,
     usdInspectorLoading: false,
     usdIssues: [],
-    usdLights: null,
-    usdLightsError: null,
     ...overrides,
   };
 }

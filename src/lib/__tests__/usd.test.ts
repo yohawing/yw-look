@@ -5,7 +5,6 @@ import {
   collectAssetIssues,
   formatUsdErrorForDisplay,
   inspectStage,
-  inspectUsdLights,
   isUsdTaskBusyError,
   parseUsdError,
   requiresGlbPreview,
@@ -38,7 +37,6 @@ describe("backendCapabilities", () => {
       inspect: true,
       geometry: true,
       session: true,
-      light: false,
     };
     mockInvoke.mockResolvedValueOnce(capabilities);
 
@@ -81,13 +79,6 @@ describe("variant-aware USD inspection IPC", () => {
       },
       variantSelections,
     );
-    await inspectUsdLights(
-      "C:\\assets\\scene.usda",
-      {
-        background: true,
-      },
-      variantSelections,
-    );
 
     expect(mockInvoke).toHaveBeenNthCalledWith(1, "inspect_stage", {
       path: "C:\\assets\\scene.usda",
@@ -102,11 +93,6 @@ describe("variant-aware USD inspection IPC", () => {
       variantSelections,
     });
     expect(mockInvoke).toHaveBeenNthCalledWith(3, "collect_asset_issues", {
-      path: "C:\\assets\\scene.usda",
-      background: true,
-      variantSelections,
-    });
-    expect(mockInvoke).toHaveBeenNthCalledWith(4, "inspect_usd_lights", {
       path: "C:\\assets\\scene.usda",
       background: true,
       variantSelections,

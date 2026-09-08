@@ -3,7 +3,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { useViewportToolbarModel } from "../useViewportToolbarModel";
 import { useViewerStore } from "../../stores/viewerStore";
 import { useFileStore } from "../../stores/fileStore";
-import { Group } from "three";
+import { Group, PerspectiveCamera } from "three";
 import { collectAssetMetadata } from "../../viewer/metadata";
 import type { ToolbarAction, ToolbarItem } from "../../types/ui";
 import { requestViewportCameraPreset } from "../../viewport/viewportCommands";
@@ -31,6 +31,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useFileStore.setState({ assetMetadata: null });
   useViewerStore.setState({
+    activeCameraId: null,
     viewerSurfaceMode: "asset",
     showTexture: false,
     showWireframe: false,
@@ -45,6 +46,50 @@ afterEach(() => {
 });
 
 describe("useViewportToolbarModel", () => {
+  it("selects distinct authored cameras, returns to free view, and removes options on file change", () => {
+    const root = new Group();
+    const first = new PerspectiveCamera();
+    const second = new PerspectiveCamera();
+    first.name = second.name = "Shot";
+    root.add(first, second);
+    const metadata = collectAssetMetadata(
+      root,
+      {
+        path: "/camera.glb",
+        fileName: "camera.glb",
+        extension: "glb",
+        kind: "model",
+        parentDirectory: "/",
+      },
+      [],
+      null,
+    ).metadata;
+    useFileStore.setState({ assetMetadata: metadata });
+    const { result } = renderHook(() => useViewportToolbarModel());
+    const action = (id: string) =>
+      findAction(result.current.viewportToolbarItems, id);
+    const [a, b] = metadata.cameras;
+    expect(a.id).not.toBe(b.id);
+    act(() => action(`camera-asset:${a.id}`).onRun?.());
+    expect(useViewerStore.getState().activeCameraId).toBe(a.id);
+    expect(action(`camera-asset:${a.id}`).active).toBe(true);
+    act(() => action(`camera-asset:${b.id}`).onRun?.());
+    expect(useViewerStore.getState().activeCameraId).toBe(b.id);
+    expect(requestViewportCameraPreset).not.toHaveBeenCalled();
+    act(() => action("camera-free").onRun?.());
+    expect(useViewerStore.getState().activeCameraId).toBeNull();
+    expect(action("camera-free").active).toBe(true);
+    act(() => action(`camera-asset:${a.id}`).onRun?.());
+    act(() => action("camera-front").onRun?.());
+    expect(useViewerStore.getState().activeCameraId).toBeNull();
+    expect(requestViewportCameraPreset).toHaveBeenCalledWith("front");
+    expect(action("camera-front").active).toBe(true);
+    act(() => useFileStore.setState({ assetMetadata: null }));
+    expect(() => action(`camera-asset:${a.id}`)).toThrow(
+      "Toolbar action not found",
+    );
+    expect(() => action("camera-free")).toThrow("Toolbar action not found");
+  });
   it("connects Lighting controls to persistent viewer settings and reflects None", () => {
     useViewerStore.setState({
       environmentPreset: "studio",

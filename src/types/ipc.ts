@@ -25,7 +25,6 @@ import type {
   PurposeModes as GeneratedPurposeModes,
   RelationshipInfo as GeneratedRelationshipInfo,
   SettingsPayload as GeneratedSettingsPayload,
-  ShapingCone as GeneratedShapingCone,
   StageCapabilityInfo as GeneratedStageCapabilityInfo,
   StageCapabilityKind as GeneratedStageCapabilityKind,
   StageCapabilitySupport as GeneratedStageCapabilitySupport,
@@ -37,7 +36,6 @@ import type {
   UpdateConfigurationPayload as GeneratedUpdateConfigurationPayload,
   UpdateInstallPayload as GeneratedUpdateInstallPayload,
   UpdateMetadataPayload as GeneratedUpdateMetadataPayload,
-  UsdLightInfo as GeneratedUsdLightInfo,
   VariantSelection as GeneratedVariantSelection,
   VariantSetInfo as GeneratedVariantSetInfo,
 } from "./generated/ipc";
@@ -133,10 +131,6 @@ export type RelationshipInfo = GeneratedRelationshipInfo;
 export type MetadataEntry = GeneratedMetadataEntry;
 
 export type PrimInspection = GeneratedPrimInspection;
-
-export type ShapingCone = GeneratedShapingCone;
-
-export type UsdLightInfo = GeneratedUsdLightInfo;
 
 export type TimeSampleEntry = GeneratedTimeSampleEntry;
 

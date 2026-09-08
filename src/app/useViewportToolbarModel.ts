@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import {
+  type CameraEntry,
   type CameraPreset,
   type EnvironmentPreset,
   type TextureViewMode,
@@ -37,7 +38,27 @@ const cameraPresetOptions: Array<{
   { id: "bottom", label: "Bottom" },
 ];
 
+const emptyCameras: CameraEntry[] = [];
+
 export function useViewportToolbarModel() {
+  const cameras = useFileStore(
+    (state) => state.assetMetadata?.cameras ?? emptyCameras,
+  );
+  const activeCameraId = useViewerStore((state) => state.activeCameraId);
+  const cameraOptions = useMemo(
+    () =>
+      cameras.length
+        ? [
+            { id: "free", label: "Free Camera" },
+            ...cameras.map((camera) => ({
+              id: `asset:${camera.id}`,
+              label: camera.name,
+            })),
+            ...cameraPresetOptions,
+          ]
+        : cameraPresetOptions,
+    [cameras],
+  );
   const vertexColorMeshCount = useFileStore(
     (state) => state.assetMetadata?.vertexColorMeshCount,
   );
@@ -78,12 +99,27 @@ export function useViewportToolbarModel() {
     [showNormals, showTexture, showUnlit, showVertexColors, showWireframe],
   );
 
-  const handleSelectCameraPreset = useCallback((preset: string) => {
-    const typedPreset = preset as CameraPreset;
-    if (requestViewportCameraPreset(typedPreset)) {
-      setActiveCameraPreset(typedPreset);
-    }
-  }, []);
+  const handleSelectCameraPreset = useCallback(
+    (preset: string) => {
+      if (
+        preset === "free" ||
+        cameras.some((camera) => `asset:${camera.id}` === preset)
+      ) {
+        useViewerStore
+          .getState()
+          .setActiveCameraId(preset === "free" ? null : preset.slice(6));
+        setActiveCameraPreset(null);
+        return;
+      }
+      if (!cameraPresetOptions.some((option) => option.id === preset)) return;
+      const typedPreset = preset as CameraPreset;
+      if (requestViewportCameraPreset(typedPreset)) {
+        useViewerStore.getState().setActiveCameraId(null);
+        setActiveCameraPreset(typedPreset);
+      }
+    },
+    [cameras],
+  );
 
   const handleSelectEnvironmentPreset = useCallback((preset: string) => {
     useViewerStore.getState().setEnvironmentPreset(preset as EnvironmentPreset);
@@ -142,8 +178,10 @@ export function useViewportToolbarModel() {
 
     return build3DToolbar({
       // Camera
-      cameraPreset: activeCameraPreset,
-      cameraPresetOptions,
+      cameraPreset: activeCameraId
+        ? `asset:${activeCameraId}`
+        : (activeCameraPreset ?? (cameras.length ? "free" : null)),
+      cameraPresetOptions: cameraOptions,
       onSelectCameraPreset: handleSelectCameraPreset,
       // Shading
       showTexture: showTexture,
@@ -184,6 +222,9 @@ export function useViewportToolbarModel() {
         useViewerStore.getState().toggleShowJointNames(),
     });
   }, [
+    activeCameraId,
+    cameraOptions,
+    cameras.length,
     channelOptions,
     handleSelectCameraPreset,
     handleSelectChannel,
