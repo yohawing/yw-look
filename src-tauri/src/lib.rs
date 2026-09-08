@@ -110,6 +110,20 @@ fn install_panic_hook() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if std::env::args()
+        .skip(1)
+        .any(|arg| arg == "--print-update-config")
+    {
+        if std::env::args().skip(1).collect::<Vec<_>>() != ["--print-update-config"] {
+            eprintln!("--print-update-config must be used alone");
+            std::process::exit(2);
+        }
+        println!(
+            "{}",
+            crate::commands::updater::compiled_update_configuration()
+        );
+        return;
+    }
     let bench_cli_config = parse_bench_cli_config().expect("failed to parse bench CLI args");
     let shot_cli_config = parse_shot_cli_config().expect("failed to parse shot CLI args");
     let startup_bench_cli_config =

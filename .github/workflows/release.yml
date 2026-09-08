@@ -14,10 +14,12 @@ jobs:
         include:
           - platform: windows-x86_64
             runner: windows-latest
+            binary: src-tauri/target/release/yw-look.exe
             args: --features flip-compare --config src-tauri/tauri.windows.json --config src-tauri/tauri.windows.loaders.json --bundles nsis
           - platform: macos-aarch64
             runner: macos-14
             target: aarch64-apple-darwin
+            binary: src-tauri/target/aarch64-apple-darwin/release/yw-look
             args: --target aarch64-apple-darwin --features flip-compare --config src-tauri/tauri.macos.json
 
     runs-on: ${{ matrix.runner }}
@@ -143,6 +145,9 @@ jobs:
           tauriScript: npm run tauri
           args: ${{ matrix.args }}
 
+      - name: Verify compiled official updater configuration
+        run: npm run check:release-updater-config -- --binary "${{ matrix.binary }}" --config-only
+
       - name: Audit macOS codesign status
         if: runner.os == 'macOS'
         continue-on-error: true
@@ -201,5 +206,6 @@ jobs:
           latest.platforms["windows-x86_64"] = { ...nsis };
           fs.writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
           NODE
-          node scripts/check-release-updater-manifest.mjs --manifest manifest/latest.json --skip-url-check
+          version="$(node -p 'require("./package.json").version')"
+          node scripts/check-release-updater-manifest.mjs --manifest manifest/latest.json --expected-version "$version"
           gh release upload "$TAG" manifest/latest.json --clobber

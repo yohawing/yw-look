@@ -78,6 +78,8 @@
     "update:local:prepare": "node scripts/prepare-local-update-feed.mjs",
     "check:update-feed": "node scripts/check-local-update-feed.mjs",
     "check:release-updater": "node scripts/check-release-updater-manifest.mjs",
+    "check:release-updater-config": "node scripts/check-release-updater-config.mjs",
+    "test:release-updater-config": "node --test scripts/check-release-updater-config.test.mjs",
     "smoke:update-feed": "node scripts/smoke-local-update-feed.mjs",
     "check:win-authenticode": "node scripts/check-win-authenticode.mjs",
     "check:macos-codesign": "node scripts/check-macos-codesign.mjs",
