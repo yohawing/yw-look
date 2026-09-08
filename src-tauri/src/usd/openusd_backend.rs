@@ -673,21 +673,28 @@ impl UsdInspectBackend for OpenusdBackend {
         if stage.layer_count() > 1 {
             return Ok(true);
         }
-        let has_point_instancer = RefCell::new(false);
+        let needs_native_resources = RefCell::new(false);
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
-                if stage
-                    .prim_at(prim_path.clone())
-                    .type_name()
-                    .ok()
-                    .flatten()
-                    .is_some_and(|type_name| type_name.as_str() == "PointInstancer")
-                {
-                    *has_point_instancer.borrow_mut() = true;
+                let type_name = stage.prim_at(prim_path.clone()).type_name().ok().flatten();
+                // The JS text loader only receives the layer buffer and cannot
+                // resolve UsdUVTexture sidecars. This also covers shaders past
+                // the command's bounded prefix scan.
+                let is_texture = type_name
+                    .as_ref()
+                    .is_some_and(|name| name.as_str() == "Shader")
+                    && prim_path
+                        .append_property("info:id")
+                        .ok()
+                        .and_then(|path| stage_query::read_string_attr(&stage, path))
+                        .as_deref()
+                        == Some("UsdUVTexture");
+                if is_texture || type_name.is_some_and(|name| name.as_str() == "PointInstancer") {
+                    *needs_native_resources.borrow_mut() = true;
                 }
             })
             .map_err(|error| UsdError::Parse(error.to_string()))?;
-        if *has_point_instancer.borrow() {
+        if *needs_native_resources.borrow() {
             return Ok(true);
         }
         // Single-layer USDA can contain either the formal Gaussian splat
@@ -1428,6 +1435,24 @@ def Xform "Root"
         );
         assert!(reason.contains("standard_surface"), "reason = {reason}");
         assert!(reason.contains("NodeGraph"), "reason = {reason}");
+    }
+
+    #[test]
+    fn single_layer_texture_beyond_prefix_requires_glb_preview() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("texture.usda");
+        for (shader_id, expected) in [("UsdUVTexture", true), ("UsdPreviewSurface", false)] {
+            let contents = format!(
+                "#usda 1.0\n#{}\ndef Shader \"Image\"\n{{\n uniform token info:id = \"{}\"\n}}\n",
+                " ".repeat(70 * 1024),
+                shader_id,
+            );
+            std::fs::write(&path, contents).unwrap();
+            assert_eq!(
+                OpenusdBackend::new().requires_glb_preview(&path).unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]

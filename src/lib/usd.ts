@@ -61,6 +61,7 @@ const USD_GLTF_BACKEND_KEYWORDS = [
   "SkelAnimation",
   "BlendShape",
   "MaterialX",
+  "UsdUVTexture",
   "ND_",
   ".mtlx",
   "ParticleField3DGaussianSplat",
