@@ -9,6 +9,13 @@ export type IfcElement = {
 };
 
 export type IfcDetailSection = {
+  group:
+    | "Identity"
+    | "Type"
+    | "Materials"
+    | "Element properties"
+    | "Type properties"
+    | "Quantities";
   name: string;
   rows: { name: string; value: string }[];
 };

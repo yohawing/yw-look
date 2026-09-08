@@ -90,6 +90,7 @@ export async function loadIfcDetails(
   const sections: IfcDetailSection[] = [
     {
       name: "Element",
+      group: "Identity",
       rows: [
         { name: "GlobalId", value: ifcAttribute(root, "_guid") || "—" },
         { name: "Type", value: ifcAttribute(root, "ObjectType") || "—" },
@@ -152,7 +153,11 @@ export async function loadIfcDetails(
               ? "Material"
               : "Type";
     sections.push({
-      name: `${label} · ${ifcAttribute(item, "Name") || ifcAttribute(item, "LayerSetName") || `#${key}`}`,
+      group:
+        label === "Material" || label === "Material layer"
+          ? "Materials"
+          : label,
+      name: `${label === "Material layer" ? "Layer · " : ""}${ifcAttribute(item, "Name") || ifcAttribute(item, "LayerSetName") || `#${key}`}`,
       rows,
     });
   }

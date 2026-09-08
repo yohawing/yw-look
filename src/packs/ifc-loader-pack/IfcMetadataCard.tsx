@@ -1,6 +1,11 @@
 import { useState, useSyncExternalStore } from "react";
 import type { PackMetadata } from "../../types/format-pack";
 import {
+  Button,
+  SelectField,
+  ListTextFilter,
+  SelectableListItem,
+  Disclosure,
   SidebarEmpty,
   SidebarError,
   SidebarKeyValueRows,
@@ -58,64 +63,69 @@ function IfcInspector({
   return (
     <div className="ifc-inspector">
       <SidebarSection title="IFC Display">
-        <label className="ifc-color-mode">
-          Color by{" "}
-          <select
-            aria-label="IFC color mode"
-            value={state.colorMode}
-            onChange={(event) => {
-              void inspection.setColorMode(
-                event.target.value as typeof state.colorMode,
-              );
-            }}
-          >
-            <option value="original">Original</option>
-            <option value="category">Category</option>
-            <option value="element">Element</option>
-          </select>
-        </label>
-        <SidebarEmpty>Selection is highlighted in amber.</SidebarEmpty>
+        <SelectField
+          label="Color by"
+          size="sm"
+          aria-label="IFC color mode"
+          value={state.colorMode}
+          onChange={(event) => {
+            void inspection.setColorMode(
+              event.target.value as typeof state.colorMode,
+            );
+          }}
+        >
+          <option value="original">Original</option>
+          <option value="category">Category</option>
+          <option value="element">Element</option>
+        </SelectField>
       </SidebarSection>
       {view === "hierarchy" && (
         <SidebarSection title="IFC Elements" count={state.elements.length}>
-          <input
-            className="ifc-element-filter"
-            aria-label="Filter IFC elements"
+          <ListTextFilter
+            ariaLabel="Filter IFC elements"
+            clearLabel="Clear element filter"
             placeholder="Name, category or storey…"
             value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
+            onChange={(value) => {
+              setQuery(value);
               setLimit(150);
             }}
           />
           <div className="ifc-element-browser">
             {[...groups].map(([group, elements]) => (
-              <details key={group} open>
-                <summary>{group}</summary>
+              <Disclosure
+                key={group}
+                title={group}
+                variant="inline"
+                count={elements.length}
+              >
                 <ul className="ifc-element-list">
                   {elements.map((element) => (
                     <li key={element.id}>
-                      <button
-                        type="button"
+                      <SelectableListItem
                         aria-pressed={state.selected?.id === element.id}
                         onClick={() => onSelect?.(ifcSelectionKey(element.id))}
                       >
                         <span>{element.name}</span>
                         <small>{element.category}</small>
-                      </button>
+                      </SelectableListItem>
                     </li>
                   ))}
                 </ul>
-              </details>
+              </Disclosure>
             ))}
           </div>
           {filtered.length === 0 && (
             <SidebarEmpty>No matching elements.</SidebarEmpty>
           )}
           {filtered.length > limit && (
-            <button type="button" onClick={() => setLimit(limit + 150)}>
+            <Button
+              size="sm"
+              variant="subtle"
+              onClick={() => setLimit(limit + 150)}
+            >
               Show more ({filtered.length - limit})
-            </button>
+            </Button>
           )}
         </SidebarSection>
       )}
@@ -137,9 +147,14 @@ function IfcInspector({
                 { id: "storey", label: "Storey", value: state.selected.storey },
               ]}
             />
-            <button type="button" onClick={() => onSelect?.(null)}>
+            <Button
+              size="sm"
+              variant="subtle"
+              className="ifc-clear-selection"
+              onClick={() => onSelect?.(null)}
+            >
               Clear selection
-            </button>
+            </Button>
           </>
         )}
         {state.loading && (
@@ -152,25 +167,60 @@ function IfcInspector({
           </SidebarEmpty>
         )}
       </SidebarSection>
-      {state.sections.map((section, index) => (
-        <SidebarSection
-          key={index}
-          title={section.name}
-          collapsible
-          defaultOpen={index === 0}
-        >
-          <SidebarKeyValueRows
-            rows={section.rows.map((row, i) => ({
-              id: String(i),
-              label: row.name,
-              value: row.value,
-            }))}
-          />
-          {section.rows.length === 0 && (
-            <SidebarEmpty>No values provided.</SidebarEmpty>
-          )}
-        </SidebarSection>
-      ))}
+      {view === "properties" &&
+        [
+          "Identity",
+          "Type",
+          "Materials",
+          "Element properties",
+          "Type properties",
+          "Quantities",
+        ].map((group) => {
+          const sections = state.sections.filter(
+            (section) => section.group === group,
+          );
+          if (!sections.length) return null;
+          return (
+            <SidebarSection
+              key={group}
+              title={group}
+              count={group === "Identity" ? undefined : sections.length}
+              collapsible
+              defaultOpen={group !== "Identity"}
+            >
+              {sections.map((section, index) => {
+                const rows = (
+                  <SidebarKeyValueRows
+                    rows={section.rows.map((row, i) => ({
+                      id: String(i),
+                      label: row.name,
+                      value: (
+                        <span className="ifc-detail-value">{row.value}</span>
+                      ),
+                    }))}
+                  />
+                );
+                return group === "Identity" ? (
+                  <div key={index}>{rows}</div>
+                ) : (
+                  <Disclosure
+                    key={`${state.selected?.id}:${index}`}
+                    title={section.name}
+                    variant="inline"
+                    defaultOpen={false}
+                    className="ifc-detail-section"
+                  >
+                    {section.rows.length ? (
+                      rows
+                    ) : (
+                      <SidebarEmpty>No values provided.</SidebarEmpty>
+                    )}
+                  </Disclosure>
+                );
+              })}
+            </SidebarSection>
+          );
+        })}
     </div>
   );
 }

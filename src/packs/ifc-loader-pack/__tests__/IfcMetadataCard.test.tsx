@@ -56,4 +56,73 @@ describe("IFC inspector", () => {
     });
     expect(inspection.setColorMode).toHaveBeenCalledWith("original");
   });
+  it("groups details under short headings and clears the selected element", () => {
+    const selected = {
+      id: 20,
+      name: "Wall A",
+      category: "IFCWALL",
+      storey: "2F",
+      building: "A",
+    };
+    const state: IfcInspectionSnapshot = {
+      elements: [selected],
+      selected,
+      colorMode: "category",
+      loading: false,
+      error: null,
+      limited: false,
+      sections: [
+        {
+          group: "Identity",
+          name: "Element",
+          rows: [{ name: "GlobalId", value: "abc" }],
+        },
+        {
+          group: "Materials",
+          name: "Concrete",
+          rows: [{ name: "Thickness", value: "100" }],
+        },
+        {
+          group: "Element properties",
+          name: "Pset_WallCommon",
+          rows: [{ name: "LoadBearing", value: "false" }],
+        },
+      ],
+    };
+    const onSelect = vi.fn();
+    const { container } = render(
+      <IfcMetadataCard
+        metadata={{
+          kind: "ifc",
+          inspection: {
+            getSnapshot: () => state,
+            subscribe: () => () => {},
+            select: vi.fn(),
+            setColorMode: vi.fn(),
+            dispose: vi.fn(),
+          },
+        }}
+        onSelect={onSelect}
+      />,
+    );
+    const headings = [
+      ...container.querySelectorAll(
+        ".ifc-inspector > details > summary .yl-disclosure__title",
+      ),
+    ].map((node) => node.textContent);
+    expect(headings).toEqual([
+      "IFC Display",
+      "IFC Element",
+      "Identity",
+      "Materials",
+      "Element properties",
+    ]);
+    const material = screen.getByText("Concrete").closest("details")!;
+    expect(material.open).toBe(false);
+    fireEvent.click(screen.getByText("Concrete"));
+    expect(material.open).toBe(true);
+    expect(screen.getByText("100")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(onSelect).toHaveBeenCalledWith(null);
+  });
 });
