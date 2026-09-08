@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { Camera, Object3D, WebGLRenderer } from "three";
+import type { Box3, Camera, Object3D, WebGLRenderer } from "three";
 import type { SelectedFile } from "../lib/files";
 import type {
   LoaderContext,
@@ -35,6 +35,7 @@ export type PackRuntime = {
       camera: Camera,
       canvas: HTMLCanvasElement,
     ) => Promise<string | null>;
+    getBounds?: (key: string) => Promise<Box3 | null>;
     select: (key: string | null) => Promise<void>;
   };
   update?: (frame: PackRuntimeFrame) => void;
@@ -65,6 +66,8 @@ export type FormatPack = LoaderPlugin & {
   ) => PackMetadata | null;
   MetadataCard?: ComponentType<{
     metadata: PackMetadata;
+    view?: "display" | "selection";
+    selectedKey?: string | null;
     onSelect?: (key: string | null) => void;
   }>;
   createRuntime?: (context: SceneContext) => PackRuntime;

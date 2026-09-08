@@ -14,82 +14,86 @@ import "./inspection.css";
 export function IfcMetadataCard({
   metadata,
   onSelect,
+  view = "display",
+  selectedKey,
 }: {
   metadata: PackMetadata;
+  view?: "display" | "selection";
+  selectedKey?: string | null;
   onSelect?: (key: string | null) => void;
 }) {
   if (metadata.kind !== "ifc") return null;
-  return <IfcInspector inspection={metadata.inspection} onSelect={onSelect} />;
+  return (
+    <IfcInspector
+      inspection={metadata.inspection}
+      onSelect={onSelect}
+      view={view}
+      selectedKey={selectedKey}
+    />
+  );
 }
 
 function IfcInspector({
   inspection,
   onSelect,
+  view = "display",
+  selectedKey,
 }: {
   inspection: Extract<PackMetadata, { kind: "ifc" }>["inspection"];
+  view?: "display" | "selection";
+  selectedKey?: string | null;
   onSelect?: (key: string | null) => void;
 }) {
   const state = useSyncExternalStore(
     inspection.subscribe,
     inspection.getSnapshot,
   );
+  if (view === "display")
+    return (
+      <div className="ifc-inspector">
+        <SidebarSection title="IFC Display">
+          <SelectField
+            label="Color by"
+            size="sm"
+            aria-label="IFC color mode"
+            value={state.colorMode}
+            onChange={(event) => {
+              void inspection.setColorMode(
+                event.target.value as typeof state.colorMode,
+              );
+            }}
+          >
+            <option value="original">Original</option>
+            <option value="category">Category</option>
+            <option value="element">Element</option>
+          </SelectField>
+        </SidebarSection>
+      </div>
+    );
+  if (!state.selected || `ifc:${state.selected.id}` !== selectedKey)
+    return null;
   return (
     <div className="ifc-inspector">
-      <SidebarSection title="IFC Display">
-        <SelectField
-          label="Color by"
-          size="sm"
-          aria-label="IFC color mode"
-          value={state.colorMode}
-          onChange={(event) => {
-            void inspection.setColorMode(
-              event.target.value as typeof state.colorMode,
-            );
-          }}
-        >
-          <option value="original">Original</option>
-          <option value="category">Category</option>
-          <option value="element">Element</option>
-        </SelectField>
-      </SidebarSection>
-      <SidebarSection title="IFC Element">
-        {!state.selected ? (
-          <SidebarEmpty>
-            Click a building element to inspect its information.
-          </SidebarEmpty>
-        ) : (
-          <>
-            <h3 className="ifc-element-name">{state.selected.name}</h3>
-            <SidebarKeyValueRows
-              rows={[
-                {
-                  id: "category",
-                  label: "Category",
-                  value: state.selected.category,
-                },
-                { id: "storey", label: "Storey", value: state.selected.storey },
-              ]}
-            />
-            <Button
-              size="sm"
-              variant="subtle"
-              className="ifc-clear-selection"
-              onClick={() => onSelect?.(null)}
-            >
-              Clear selection
-            </Button>
-          </>
-        )}
-        {state.loading && (
-          <SidebarEmpty>Loading element information…</SidebarEmpty>
-        )}
-        {state.error && <SidebarError>{state.error}</SidebarError>}
-        {state.limited && (
-          <SidebarEmpty>
-            Some information was omitted because the detail limit was reached.
-          </SidebarEmpty>
-        )}
-      </SidebarSection>
+      <SidebarKeyValueRows
+        rows={[{ id: "storey", label: "Storey", value: state.selected.storey }]}
+      />
+      <Button
+        size="sm"
+        variant="subtle"
+        className="ifc-clear-selection"
+        onClick={() => onSelect?.(null)}
+      >
+        Clear selection
+      </Button>
+      {state.loading && (
+        <SidebarEmpty>Loading element information…</SidebarEmpty>
+      )}
+      {state.error && <SidebarError>{state.error}</SidebarError>}
+      {state.limited && (
+        <SidebarEmpty>
+          Some information was omitted because the detail limit was reached.
+        </SidebarEmpty>
+      )}
       {[
         "Identity",
         "Type",

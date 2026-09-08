@@ -1,3 +1,5 @@
+import { buildIfcHierarchy } from "../../lib/ifcHierarchy";
+import type { HierarchyNode } from "../../types/viewer";
 import { IFCGROUP, IFCRELASSIGNSTOGROUP } from "web-ifc";
 import { createIfcInspection, ifcSelectionKey } from "./inspection";
 import { registerIfcInspection } from "./metadata";
@@ -100,6 +102,10 @@ export async function loadIfcPreviewObject(
         createPackRuntime: () => {
           const runtime = createIfcRuntime(runtimeState);
           let disposed = false;
+          const hierarchy = buildIfcHierarchy(
+            inspection.getSnapshot().elements,
+          );
+          const boundsRequests = new Set<Promise<unknown>>();
           const picks = new Set<Promise<string | null>>();
           return {
             ...runtime,
@@ -107,6 +113,29 @@ export async function loadIfcPreviewObject(
               if (!disposed) runtime.update?.(frame);
             },
             selection: {
+              getBounds: async (key) => {
+                if (disposed) return null;
+                const ids = new Set<number>();
+                const visit = (nodes: HierarchyNode[], inside = false) => {
+                  for (const node of nodes) {
+                    const matches = inside || node.name === key;
+                    if (matches && /^ifc:\d+$/.test(node.name))
+                      ids.add(Number(node.name.slice(4)));
+                    visit(node.children, matches);
+                  }
+                };
+                visit(hierarchy);
+                if (!ids.size) return null;
+                model.object.updateWorldMatrix(true, false);
+                const request = model.getMergedBox([...ids]);
+                boundsRequests.add(request);
+                try {
+                  const bounds = await request;
+                  return disposed ? null : bounds;
+                } finally {
+                  boundsRequests.delete(request);
+                }
+              },
               pick: async (event, camera, canvas) => {
                 if (disposed) return null;
                 const pick = model
@@ -130,9 +159,11 @@ export async function loadIfcPreviewObject(
             dispose: () => {
               if (disposed) return;
               disposed = true;
-              void Promise.allSettled([inspection.dispose(), ...picks]).then(
-                () => runtime.dispose(),
-              );
+              void Promise.allSettled([
+                inspection.dispose(),
+                ...picks,
+                ...boundsRequests,
+              ]).then(() => runtime.dispose());
             },
           };
         },

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   BoxGeometry,
+  Box3,
+  Vector3,
   Group,
   Mesh,
   MeshBasicMaterial,
@@ -100,6 +102,28 @@ describe("applyViewportShortcutCommand", () => {
     expect(context.camera.position.length()).toBeGreaterThan(0);
   });
 
+  it("focuses runtime bounds and ignores a response after runtime replacement", async () => {
+    const context = createContext(new Group());
+    const bounds = new Box3(new Vector3(10, 20, 30), new Vector3(12, 22, 32));
+    context.packRuntime = {
+      dispose: () => {},
+      selection: {
+        pick: async () => null,
+        select: async () => {},
+        getBounds: async () => bounds,
+      },
+    };
+    expect(
+      runCommand(context, { kind: "focusSelected", selectionKey: "ifc:20" }),
+    ).toBe(true);
+    await Promise.resolve();
+    expect(context.controls.target.toArray()).toEqual([11, 21, 31]);
+    context.controls.target.set(0, 0, 0);
+    runCommand(context, { kind: "focusSelected", selectionKey: "ifc:20" });
+    context.packRuntime = null;
+    await Promise.resolve();
+    expect(context.controls.target.toArray()).toEqual([0, 0, 0]);
+  });
   it("updates manual visibility commands", () => {
     const root = new Group();
     const first = createMesh("First");

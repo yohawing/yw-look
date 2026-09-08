@@ -11,6 +11,7 @@ import { UsdPrimPropertyPanel } from "./UsdPrimPropertyPanel";
 import {
   formatPackMorphTargetMeta,
   getPackSelectedObjectDetails,
+  renderMetadataCardForPackMetadata,
 } from "../packs";
 import { KeyValueRows } from "./ui/KeyValueRows";
 import { mergeKnownPayloadRoots } from "./usdPayloadHierarchy";
@@ -115,7 +116,15 @@ export function HierarchySidebarPanel({
         }
         onLoadPayload={payloadSessionEnabled ? onLoadPayload : undefined}
         onUnloadPayload={payloadSessionEnabled ? onUnloadPayload : undefined}
-        renderSelectedObjectDetails={renderPackSelectedObjectDetails}
+        renderSelectedObjectDetails={(info) =>
+          !useDebugFixtures && packMetadata?.kind === "ifc"
+            ? renderMetadataCardForPackMetadata(packMetadata, {
+                view: "selection",
+                selectedKey: selectedMeshName,
+                onSelect: useViewerStore.getState().setSelectedMeshName,
+              })
+            : renderPackSelectedObjectDetails(info)
+        }
         renderMorphTargetMeta={formatPackMorphTargetMeta}
       />
       {isUsdFile(currentFile) && (

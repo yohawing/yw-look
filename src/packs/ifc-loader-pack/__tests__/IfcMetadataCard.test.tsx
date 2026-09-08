@@ -94,6 +94,8 @@ describe("IFC inspector", () => {
             dispose: vi.fn(),
           },
         }}
+        view="selection"
+        selectedKey="ifc:20"
         onSelect={onSelect}
       />,
     );
@@ -102,13 +104,7 @@ describe("IFC inspector", () => {
         ".ifc-inspector > details > summary .yl-disclosure__title",
       ),
     ].map((node) => node.textContent);
-    expect(headings).toEqual([
-      "IFC Display",
-      "IFC Element",
-      "Identity",
-      "Materials",
-      "Element properties",
-    ]);
+    expect(headings).toEqual(["Identity", "Materials", "Element properties"]);
     const material = screen.getByText("Concrete").closest("details")!;
     expect(material.open).toBe(false);
     fireEvent.click(screen.getByText("Concrete"));

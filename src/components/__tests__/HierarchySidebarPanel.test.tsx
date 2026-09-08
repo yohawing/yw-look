@@ -90,27 +90,28 @@ function makeMetadata({
 
 describe("HierarchySidebarPanel", () => {
   it("uses the shared tree and selection panel for IFC semantic elements", () => {
+    const snapshot = {
+      elements: [
+        {
+          id: 20,
+          name: "Wall A",
+          category: "IFCWALL",
+          building: "Museum",
+          storey: "2F",
+        },
+      ],
+      selected: null,
+      sections: [],
+      colorMode: "category",
+      loading: false,
+      error: null,
+      limited: false,
+    } as const;
     useFileStore.setState({
       packMetadata: {
         kind: "ifc",
         inspection: {
-          getSnapshot: () => ({
-            elements: [
-              {
-                id: 20,
-                name: "Wall A",
-                category: "IFCWALL",
-                building: "Museum",
-                storey: "2F",
-              },
-            ],
-            selected: null,
-            sections: [],
-            colorMode: "category",
-            loading: false,
-            error: null,
-            limited: false,
-          }),
+          getSnapshot: () => snapshot,
           subscribe: () => () => {},
           select: vi.fn(),
           setColorMode: vi.fn(),

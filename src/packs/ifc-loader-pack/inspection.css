@@ -1,13 +1,6 @@
 .ifc-inspector {
   min-width: 0;
 }
-.ifc-element-name {
-  font-size: 12px;
-  font-weight: var(--yl-font-weight-medium);
-  line-height: 1.5;
-  margin: 0 0 var(--yl-space-8);
-  overflow-wrap: anywhere;
-}
 .ifc-clear-selection {
   margin-top: var(--yl-space-8);
 }
