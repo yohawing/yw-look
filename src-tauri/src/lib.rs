@@ -14,7 +14,6 @@ use std::path::PathBuf;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Emitter;
 use tauri::Manager;
-use url::Url;
 
 use crate::commands::alembic::convert_alembic_to_preview;
 use crate::commands::bench::{
@@ -124,6 +123,26 @@ pub fn run() {
         panic!("--startup-bench cannot be combined with --bench-load or --shot/--check");
     }
 
+    let mut context = tauri::generate_context!();
+    let cli_entry = if bench_cli_config.is_some() {
+        Some("bench")
+    } else if shot_cli_config.is_some() {
+        Some("shot")
+    } else {
+        None
+    };
+    if let Some(entry) = cli_entry {
+        // Let Tauri resolve the development or bundled origin before creating the webview.
+        let window = context
+            .config_mut()
+            .app
+            .windows
+            .iter_mut()
+            .find(|window| window.label == "main")
+            .expect("main window configuration is missing");
+        window.url = tauri::WebviewUrl::App(format!("index.html?entry={entry}").into());
+    }
+
     // macOS can deliver an Opened event before the setup callback runs during
     // a cold launch. Register this queue on the builder so Finder-opened paths
     // are never dropped while the application is still starting.
@@ -162,13 +181,6 @@ pub fn run() {
             if !is_cli {
                 app.manage(initialize_crash_marker(&app.handle())?);
             }
-            let entry_url: Option<&str> = if bench_cli_config.is_some() {
-                Some("http://localhost:1420/?entry=bench")
-            } else if shot_cli_config.is_some() {
-                Some("http://localhost:1420/?entry=shot")
-            } else {
-                None
-            };
 
             let window = app.get_webview_window("main").ok_or_else(|| {
                 Box::<dyn std::error::Error>::from(std::io::Error::new(
@@ -198,14 +210,6 @@ pub fn run() {
                     .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
             }
 
-            if let Some(url) = entry_url {
-                window
-                    .navigate(
-                        Url::parse(url)
-                            .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?,
-                    )
-                    .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
-            }
             if !is_cli {
                 let app_handle = app.handle().clone();
                 window.on_window_event(move |event| {
@@ -276,7 +280,7 @@ pub fn run() {
             unload_payload,
             extract_geometry_session
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building yw-look");
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]

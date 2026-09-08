@@ -1,6 +1,9 @@
 const params = new URLSearchParams(window.location.search);
 const requestedEntry = params.get("entry") ?? "app";
-const entry = import.meta.env.DEV ? requestedEntry : "app";
+const entry =
+  requestedEntry === "shot" || requestedEntry === "bench" || import.meta.env.DEV
+    ? requestedEntry
+    : "app";
 
 function loadFontStylesheet() {
   const href =
@@ -26,6 +29,7 @@ switch (entry) {
     await import("./bench/entry");
     break;
   case "selftest":
+    if (!import.meta.env.DEV) break;
     document.title = "yw-look selftest";
     document.body.innerHTML = '<pre id="output">running...</pre>';
     await import("./selftest");
@@ -35,10 +39,12 @@ switch (entry) {
     await import("./shot/entry");
     break;
   case "sidebar-profile":
+    if (!import.meta.env.DEV) break;
     document.title = "yw-look sidebar profile";
     await import("./profile/sidebarIsolationEntry");
     break;
   case "viewport-state-snapshot":
+    if (!import.meta.env.DEV) break;
     document.title = "yw-look viewport state snapshot";
     await import("./viewport-state-snapshot/entry");
     break;
