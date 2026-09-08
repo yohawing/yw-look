@@ -100,6 +100,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-resizable-panels": "^4.12.3",
+    "rhino3dm": "8.32.2",
     "three": "^0.185.1",
     "three-mesh-bvh": "0.9.14",
     "zustand": "^5.0.15"

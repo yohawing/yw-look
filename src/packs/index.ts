@@ -18,6 +18,7 @@ import { mmdLoaderPack } from "./mmd-loader-pack/pack";
 import { useMmdPackFileRequest } from "./mmd-loader-pack/runtime";
 import "./mmd-loader-pack/ui/hierarchy.css";
 import { vrmLoaderPack } from "./vrm-loader-pack/pack";
+import { rhino3dmLoaderPack } from "./rhino3dm-loader-pack/pack";
 
 export { loadSparkPreviewObject } from "./gaussian-splat-loader-pack/loader";
 export { gaussianSplatLoaderPack } from "./gaussian-splat-loader-pack/pack";
@@ -48,10 +49,13 @@ export {
   syncMmdTransparentMaterialRenderState,
 } from "./mmd-loader-pack/userData";
 export { vrmLoaderPack } from "./vrm-loader-pack/pack";
+export { loadRhino3dmPreviewObject } from "./rhino3dm-loader-pack/loader";
+export { rhino3dmLoaderPack } from "./rhino3dm-loader-pack/pack";
 
 export const formatPacks = [
   gaussianSplatLoaderPack,
   mmdLoaderPack,
+  rhino3dmLoaderPack,
   vrmLoaderPack,
 ] as const;
 

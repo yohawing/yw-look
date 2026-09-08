@@ -108,6 +108,27 @@
       "expect": { "shouldLoad": true }
     },
     {
+      "id": "model-rhino3dm-mesh-material-instance",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/rhino3dm-mesh-material-instance.3dm",
+      "format": "3dm",
+      "expect": { "shouldLoad": true, "nonBlankCanvas": true }
+    },
+    {
+      "id": "model-rhino3dm-v7-mesh-material-instance",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/rhino3dm-v7-mesh-material-instance.3dm",
+      "format": "3dm",
+      "expect": { "shouldLoad": true, "nonBlankCanvas": true }
+    },
+    {
+      "id": "model-rhino3dm-v8-mesh-material-instance",
+      "category": "valid-minimal",
+      "path": "tests/fixtures/models/rhino3dm-v8-mesh-material-instance.3dm",
+      "format": "3dm",
+      "expect": { "shouldLoad": true, "nonBlankCanvas": true }
+    },
+    {
       "id": "model-fbx-samba-dancing",
       "category": "valid",
       "path": "samples/assets/fbx/Samba Dancing.fbx",

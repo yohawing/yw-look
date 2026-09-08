@@ -95,6 +95,16 @@ const cases = [
     background: "default",
   },
   {
+    id: "rhino3dm-mesh-material-instance",
+    input: "tests/fixtures/models/rhino3dm-mesh-material-instance.3dm",
+    snapshot:
+      "tests/visual/snapshots/viewport/rhino3dm-mesh-material-instance.png",
+    actual:
+      "artifacts/screenshots/viewport/rhino3dm-mesh-material-instance-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
     id: "obj-tiny-triangle",
     input: "samples/assets/obj/TinyTriangle.obj",
     snapshot: "tests/visual/snapshots/viewport/obj-tiny-triangle.png",
