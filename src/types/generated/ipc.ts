@@ -264,6 +264,7 @@ export type AssetIssueCode =
   | "broken-reference"
   | "missing-sub-layer"
   | "missing-payload"
+  | "missing-texture"
   | "suspicious-meters-per-unit";
 
 export type AssetIssueLevel = "warning" | "error";

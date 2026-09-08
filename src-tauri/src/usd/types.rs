@@ -325,6 +325,7 @@ pub enum AssetIssueCode {
     BrokenReference,
     MissingSubLayer,
     MissingPayload,
+    MissingTexture,
     SuspiciousMetersPerUnit,
 }
 

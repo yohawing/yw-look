@@ -815,6 +815,27 @@ impl UsdInspectBackend for OpenusdBackend {
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let source = prim_path.as_str().to_string();
+                let shader_id = prim_path
+                    .append_property("info:id")
+                    .ok()
+                    .and_then(|path| stage_query::read_string_attr(&stage, path));
+                if shader_id.as_deref() == Some("UsdUVTexture") {
+                    if let Some((authored, resolved)) = prim_path
+                        .append_property("inputs:file")
+                        .ok()
+                        .and_then(|path| stage_query::read_asset_details(&stage, path))
+                    {
+                        if !authored.is_empty() && resolved.as_deref().is_none_or(str::is_empty) {
+                            collected.borrow_mut().push(AssetIssue {
+                                code: AssetIssueCode::MissingTexture,
+                                level: AssetIssueLevel::Warning,
+                                message: format!("Missing texture reference: {authored}"),
+                                detail: None,
+                                context_path: Some(source.clone()),
+                            });
+                        }
+                    }
+                }
                 for r in stage_query::references_in(&stage, prim_path.clone()) {
                     if reference_arc_state(&unresolved, &r.asset_path)
                         == CompositionArcState::Missing
@@ -1775,6 +1796,48 @@ def Xform "World"
         assert_eq!(variant.variants, variants);
 
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn collect_issues_reports_missing_texture_relative_to_its_authored_layer() {
+        let dir = tempfile::tempdir().unwrap();
+        let looks = dir.path().join("looks");
+        std::fs::create_dir(&looks).unwrap();
+        // This is a resolver test; image decoding is covered by preview fixtures.
+        std::fs::write(looks.join("present.png"), b"resource").unwrap();
+        std::fs::write(
+            looks.join("material.usda"),
+            r#"#usda 1.0
+def Scope "Looks" {
+    def Shader "Present" {
+        uniform token info:id = "UsdUVTexture"
+        asset inputs:file = @present.png@
+    }
+    def Shader "Missing" {
+        uniform token info:id = "UsdUVTexture"
+        asset inputs:file = @absent.png@
+    }
+}
+"#,
+        )
+        .unwrap();
+        let root = dir.path().join("root.usda");
+        std::fs::write(
+            &root,
+            r#"#usda 1.0
+def Scope "World" (references = @looks/material.usda@</Looks>) {}
+"#,
+        )
+        .unwrap();
+        let issues = OpenusdBackend::new().collect_asset_issues(&root).unwrap();
+        let textures: Vec<_> = issues
+            .iter()
+            .filter(|issue| matches!(issue.code, AssetIssueCode::MissingTexture))
+            .collect();
+        assert_eq!(textures.len(), 1, "{issues:?}");
+        assert_eq!(textures[0].context_path.as_deref(), Some("/World/Missing"));
+        assert!(textures[0].message.contains("absent.png"));
+        assert!(matches!(textures[0].level, AssetIssueLevel::Warning));
     }
 
     #[test]
