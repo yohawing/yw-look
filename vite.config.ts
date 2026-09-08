@@ -53,6 +53,25 @@ const includeOptionalSparkLoader =
   process.env.YW_INCLUDE_SPARK_LOADER_PACK !== "0" &&
   process.env.YW_INCLUDE_SPARK_LOADER_PACK?.toLowerCase() !== "false";
 
+const optionalIfcFragmentsPath = fileURLToPath(
+  new URL("./node_modules/@thatopen/fragments", import.meta.url),
+);
+const optionalIfcWebIfcPath = fileURLToPath(
+  new URL("./node_modules/web-ifc", import.meta.url),
+);
+const installedIfcLoaderEntry = fileURLToPath(
+  new URL("./src/packs/ifc-loader-pack/loaderInstalled.ts", import.meta.url),
+);
+const unavailableIfcLoaderEntry = fileURLToPath(
+  new URL("./src/packs/ifc-loader-pack/loaderUnavailable.ts", import.meta.url),
+);
+const hasOptionalIfcLoader =
+  existsSync(optionalIfcFragmentsPath) && existsSync(optionalIfcWebIfcPath);
+const includeOptionalIfcLoader =
+  hasOptionalIfcLoader &&
+  process.env.YW_INCLUDE_IFC_LOADER_PACK !== "0" &&
+  process.env.YW_INCLUDE_IFC_LOADER_PACK?.toLowerCase() !== "false";
+
 const mmdAnimWasmPath = path.resolve(
   optionalThreeMmdLoaderPath,
   "dist/parser/wasm/generated/mmd_anim_wasm_bg.wasm",
@@ -208,6 +227,7 @@ export default defineConfig({
   define: {
     __YW_HAS_THREE_MMD_LOADER__: JSON.stringify(includeOptionalThreeMmdLoader),
     __YW_HAS_SPARK_LOADER__: JSON.stringify(includeOptionalSparkLoader),
+    __YW_HAS_IFC_LOADER__: JSON.stringify(includeOptionalIfcLoader),
   },
   resolve: {
     alias: [
@@ -222,6 +242,12 @@ export default defineConfig({
         replacement: includeOptionalSparkLoader
           ? installedSparkLoaderEntry
           : unavailableSparkLoaderEntry,
+      },
+      {
+        find: "#yw-look-ifc-loader-entry",
+        replacement: includeOptionalIfcLoader
+          ? installedIfcLoaderEntry
+          : unavailableIfcLoaderEntry,
       },
       ...(includeOptionalThreeMmdLoader
         ? []
@@ -256,6 +282,13 @@ export default defineConfig({
             normalizedId.includes("node_modules/@yohawing/three-mmd-loader")
           ) {
             return "mmd-loader-pack";
+          }
+
+          if (
+            normalizedId.includes("node_modules/@thatopen/fragments") ||
+            normalizedId.includes("node_modules/web-ifc")
+          ) {
+            return "ifc-loader-pack";
           }
 
           if (normalizedId.includes("node_modules/three")) {

@@ -351,6 +351,17 @@
           "identifier": "com.yohawing.ywlook.bvh",
           "conformsTo": ["public.data"]
         }
+      },
+      {
+        "ext": ["ifc"],
+        "name": "yw-look IFC Model",
+        "description": "IFC model opened by yw-look",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.yohawing.ywlook.ifc",
+          "conformsTo": ["public.data"]
+        }
       }
     ],
     "icon": [

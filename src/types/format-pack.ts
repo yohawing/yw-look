@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { Object3D } from "three";
+import type { Camera, Object3D, WebGLRenderer } from "three";
 import type { SelectedFile } from "../lib/files";
 import type {
   LoaderContext,
@@ -21,8 +21,17 @@ export type PackRuntimeAnimation = {
   step: (direction: -1 | 1) => PackRuntimeAnimationSnapshot | null;
 };
 
+export type PackRuntimeFrame = {
+  camera: Camera;
+  deltaSeconds: number;
+  renderer: WebGLRenderer;
+};
+
 export type PackRuntime = {
   animation?: PackRuntimeAnimation;
+  update?: (frame: PackRuntimeFrame) => void;
+  /** True when runtime/worker code owns the mounted object's GPU resources. */
+  ownsMountedObjectResources?: boolean;
   dispose: () => void;
 };
 

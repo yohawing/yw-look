@@ -7,7 +7,7 @@ import type {
 } from "three";
 import type { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import type { FxaaComposerState } from "./fxaa";
-import { runCleanupCallbacks } from "./renderSettings";
+import { runCleanupCallbacksSafely } from "./renderSettings";
 import {
   resetSceneObjects,
   revokeUrls,
@@ -53,15 +53,25 @@ export function disposeViewportScene({
   resetCameraRef,
   sceneContextRef,
 }: DisposeViewportSceneOptions): void {
+  let firstCleanupError: unknown = null;
+  const attemptCleanup = (cleanup: () => void) => {
+    try {
+      cleanup();
+    } catch (error) {
+      firstCleanupError ??= error;
+    }
+  };
+
   if (sceneContextRef.current) {
-    runCleanupCallbacks(sceneContextRef.current.cleanupCallbacks);
+    const cleanupError = runCleanupCallbacksSafely(
+      sceneContextRef.current.cleanupCallbacks,
+    );
+    firstCleanupError ??= cleanupError;
     sceneContextRef.current.cleanupCallbacks = [];
-    sceneContextRef.current.packRuntime?.dispose();
-    sceneContextRef.current.packRuntime = null;
-    stopAnimations(sceneContextRef.current);
-    resetSceneObjects(sceneContextRef.current);
+    attemptCleanup(() => stopAnimations(sceneContextRef.current!));
+    attemptCleanup(() => resetSceneObjects(sceneContextRef.current!));
   }
-  revokeUrls(sceneContextRef.current?.cleanupUrls ?? []);
+  attemptCleanup(() => revokeUrls(sceneContextRef.current?.cleanupUrls ?? []));
   controls.dispose();
   environmentTargetsRef.current?.forEach((target) => target.dispose());
   environmentTargetsRef.current?.clear();
@@ -79,4 +89,8 @@ export function disposeViewportScene({
   sceneContextRef.current = null;
   resetCameraRef.current = null;
   clearResourceDiagnostics();
+
+  if (firstCleanupError) {
+    throw firstCleanupError;
+  }
 }

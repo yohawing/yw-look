@@ -70,6 +70,9 @@ if (
 if (profile === "core") {
   assertNoAssets(files, /^spark-loader-pack-.*\.js$/, "Spark loader pack");
   assertNoAssets(files, /^mmd-loader-pack-.*\.js$/, "MMD loader pack");
+  assertNoAssets(files, /^ifc-loader-pack-.*\.js$/, "IFC loader pack");
+  assertNoAssets(files, /^worker-.*\.mjs$/, "IFC fragments worker");
+  assertNoAssets(files, /^web-ifc-.*\.wasm$/, "IFC WASM runtime");
   assertNoAssets(files, /^mmd_anim_wasm_bg-.*\.wasm$/, "MMD WASM runtime");
   assertHasAssets(
     files,
@@ -81,6 +84,9 @@ if (profile === "core") {
 if (profile === "all") {
   assertHasAssets(files, /^spark-loader-pack-.*\.js$/, "Spark loader pack");
   assertHasAssets(files, /^mmd-loader-pack-.*\.js$/, "MMD loader pack");
+  assertHasAssets(files, /^ifc-loader-pack-.*\.js$/, "IFC loader pack");
+  assertHasAssets(files, /^worker-.*\.mjs$/, "IFC fragments worker");
+  assertHasAssets(files, /^web-ifc-.*\.wasm$/, "IFC WASM runtime");
   assertHasAssets(files, /^mmd_anim_wasm_bg-.*\.wasm$/, "MMD WASM runtime");
   assertNoAssets(
     files,

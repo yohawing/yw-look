@@ -2,7 +2,7 @@ import { AnimationMixer, type Texture } from "three";
 import type { AssetResourceMetrics } from "../lib/diagnostics";
 import type { SelectedFile } from "../lib/files";
 import type { PurposeModes } from "../lib/usd";
-import type { PackMetadata } from "../types/format-pack";
+import type { PackMetadata, PackRuntime } from "../types/format-pack";
 import {
   emptyAnimationState,
   type AnimationState,
@@ -152,207 +152,234 @@ export async function mountLoadedPreview(
     skipScaleNormalization = false,
     mmdModel,
     mmdMotion,
+    createPackRuntime,
     warnings = [],
     assetKind = "mesh",
   } = result;
+  let mountedPackRuntime: PackRuntime | null = null;
+  let mountedPackRuntimeDisposed = false;
+  let abortInProgress = false;
+  let abortCompleted = false;
+  let mountCompleted = false;
+  let preserveExistingMountOnAbort = false;
   let mmdLightSync: Awaited<
     ReturnType<typeof syncMmdPreviewSpecularDirection>
   > = null;
 
+  const disposeMountedPackRuntime = () => {
+    const runtime = mountedPackRuntime;
+    if (runtime && !mountedPackRuntimeDisposed) {
+      mountedPackRuntimeDisposed = true;
+      try {
+        runtime.dispose();
+      } finally {
+        if (context.packRuntime === runtime) {
+          context.packRuntime = null;
+        }
+      }
+    } else if (context.packRuntime === runtime) {
+      context.packRuntime = null;
+    }
+  };
+
   const abortMountedPreview = (): null => {
-    const ownsMountedObject = context.mountedObject === object;
-    const ownsSourceObject = context.sourceObject === object;
-    const ownsAnimationRoot = context.animationRoot === object;
-    context.scene.remove(object);
-    if (ownsMountedObject) {
-      context.mountedObject = null;
-      context.boneOnlyPreview = false;
+    if (abortCompleted || abortInProgress) {
+      return null;
     }
-    if (ownsSourceObject) {
-      context.sourceObject = null;
+    if (preserveExistingMountOnAbort) {
+      abortCompleted = true;
+      return null;
     }
-    if (ownsAnimationRoot) {
-      context.animationRoot = null;
+    abortInProgress = true;
+    let firstCleanupError: unknown = null;
+    let cleanupErrorCaptured = false;
+    const attemptCleanup = (cleanup: () => void) => {
+      try {
+        cleanup();
+      } catch (error) {
+        if (!cleanupErrorCaptured) {
+          cleanupErrorCaptured = true;
+          firstCleanupError = error;
+        }
+      }
+    };
+    try {
+      const ownsMountedObject = context.mountedObject === object;
+      const ownsSourceObject = context.sourceObject === object;
+      const ownsAnimationRoot = context.animationRoot === object;
+      attemptCleanup(() => context.scene.remove(object));
+      if (ownsMountedObject) {
+        context.mountedObject = null;
+        context.boneOnlyPreview = false;
+      }
+      if (ownsSourceObject) {
+        context.sourceObject = null;
+      }
+      if (ownsAnimationRoot) {
+        context.animationRoot = null;
+      }
+      if (context.mmdLightSync === mmdLightSync) {
+        context.mmdLightSync = null;
+      }
+      for (const cleanup of [...cleanupCallbacks]) {
+        attemptCleanup(cleanup);
+      }
+      if (context.cleanupCallbacks === cleanupCallbacks) {
+        context.cleanupCallbacks = [];
+      }
+      attemptCleanup(disposeMountedPackRuntime);
+      if (mountedPackRuntime?.ownsMountedObjectResources !== true) {
+        attemptCleanup(() => disposeObject(object));
+      }
+      attemptCleanup(() => revokeUrls(cleanupUrls));
+      if (context.cleanupUrls === cleanupUrls) {
+        context.cleanupUrls = [];
+      }
+      if (ownsMountedObject || ownsSourceObject || ownsAnimationRoot) {
+        refs.scaleNormalizationRef.current = null;
+      }
+    } finally {
+      abortInProgress = false;
+      abortCompleted = true;
     }
-    if (context.mmdLightSync === mmdLightSync) {
-      context.mmdLightSync = null;
-    }
-    runCleanupCallbacks(cleanupCallbacks);
-    if (context.cleanupCallbacks === cleanupCallbacks) {
-      context.cleanupCallbacks = [];
-    }
-    disposeObject(object);
-    revokeUrls(cleanupUrls);
-    if (context.cleanupUrls === cleanupUrls) {
-      context.cleanupUrls = [];
-    }
-    if (ownsMountedObject || ownsSourceObject || ownsAnimationRoot) {
-      refs.scaleNormalizationRef.current = null;
+    if (cleanupErrorCaptured) {
+      throw firstCleanupError;
     }
     return null;
   };
 
-  if (isDisposed()) {
-    runCleanupCallbacks(cleanupCallbacks);
-    disposeObject(object);
-    revokeUrls(cleanupUrls);
-    return null;
-  }
-
-  if (replaceExistingPreview) {
-    context.packRuntime?.dispose();
-    context.packRuntime = null;
-    runCleanupCallbacks(context.cleanupCallbacks);
-    context.cleanupCallbacks = [];
-    stopAnimations(context);
-    context.mmdModel = null;
-    context.mmdLightSync = null;
-    resetSceneObjects(context);
-    revokeUrls(context.cleanupUrls);
-    context.cleanupUrls = [];
-  }
-
-  applyPreviewLightingPreset(lighting, lightingTargets);
-  mmdLightSync = await syncMmdPreviewSpecularDirection(mmdModel, keyLight);
-  if (isDisposed()) {
-    return abortMountedPreview();
-  }
-
-  // Publish only after asynchronous initialization. The picker may otherwise
-  // transfer geometry buffers to its BVH worker before framing reads bounds.
-  context.scene.add(object);
-  context.mountedObject = object;
-  context.sourceObject = object;
-  context.boneOnlyPreview = false;
-  context.animationRoot = null;
-  context.cleanupUrls = cleanupUrls;
-  context.cleanupCallbacks = cleanupCallbacks;
-  const state = getMountState();
-  const traversal = collectSceneTraversal(object);
-
-  if (rendering) {
-    applyPreviewRenderingPreset(context.renderer, rendering);
-  }
-  const normalization = skipScaleNormalization
-    ? buildSkippedNormalization(object, traversal.maxDimension)
-    : normalizeObjectScale(object, traversal);
-  refs.scaleNormalizationRef.current =
-    normalization.applied && normalization.originalScale
-      ? {
-          applied: true,
-          originalScale: normalization.originalScale,
-        }
-      : null;
-  update.onScaleNormalizationChange?.({
-    applied: normalization.applied,
-    factor: normalization.factor,
-  });
-  context.rawMaxDimension =
-    normalization.originalMaxDimension > 0
-      ? normalization.originalMaxDimension
-      : normalization.normalizedMaxDimension;
-
-  const gridConfig = applyDynamicGrid(
-    context.scene,
-    normalization.normalizedMaxDimension,
-    state.showGrid,
-  );
-  update.onGridUnitChange(gridConfig.label);
-  applyDynamicAxes(
-    context.scene,
-    normalization.normalizedMaxDimension,
-    state.showAxes,
-  );
-  applyDisplayMode(object, state.displayMode, traversal);
-  applyBackfaceCulling(object, state.backfaceCulling);
-  applyTextureFilter(object, state.textureFilterMode);
-  applySurfaceMaterialMode(
-    object,
-    state.showNormals
-      ? "normals"
-      : state.showUnlit
-        ? "unlit"
-        : state.showVertexColors
-          ? "vertexColors"
-          : "shaded",
-  );
-  applyMorphTargetValues(object, state.morphTargetValues);
-  mmdModel?.syncMaterialMorphs?.(
-    morphTargetValuesForObject(mmdModel.mesh, state.morphTargetValues),
-  );
-  applyShadows(context.scene, object, keyLight, state.showShadows);
-  if (!preserveCameraView) {
-    frameMountedObject(
-      context,
-      object,
-      state.viewerSurfaceMode,
-      state.showGrid,
-      state.showAxes,
-      state.cameraSpeedMultiplier,
-      context.rawMaxDimension,
-      state.texturePreview3D,
-    );
-  }
-  if (isDisposed()) {
-    return abortMountedPreview();
-  }
-
-  const packMetadata =
-    loaderRegistry
-      .getByExtension(currentFile.extension)
-      ?.collectMetadata?.(object, currentFile) ?? null;
-  const metadataCollection = collectAssetMetadata(
-    object,
-    currentFile,
-    clips,
-    formatVersion,
-    packMetadata?.kind === "mmd" ? packMetadata.asset : undefined,
-    traversal,
-  );
-  if (isDisposed()) {
-    return abortMountedPreview();
-  }
-  metadataCollection.metadata.assetKind = assetKind;
-
-  update.setActivePreviewPath(currentFile.path);
-  update.setOverlayReady();
-
-  const isBoneOnlyPreview =
-    metadataCollection.metadata.meshCount === 0 &&
-    metadataCollection.metadata.hasBones === true;
-  const isMotionPreviewRig = object.userData.motionPreviewRig === true;
-  context.boneOnlyPreview = isBoneOnlyPreview || isMotionPreviewRig;
-  context.animationRoot = object;
-  context.textureRegistry = metadataCollection.textureRegistry;
-  const textureRegistry = metadataCollection.textureRegistry;
-  refs.assetResourceMetricsRef.current = collectAssetResourceMetrics(
-    metadataCollection.metadata,
-  );
-  update.onMetadataChange(metadataCollection.metadata);
-  update.onPackMetadataChange(packMetadata);
-  const scheduleThumbnails = (
-    metadata: AssetMetadata,
-    registry: ReadonlyMap<string, Texture>,
-  ) =>
-    scheduleTextureThumbnailEnrichment({
-      metadata,
-      onUpdate: update.onMetadataChange,
-      shouldContinue: () =>
-        !isDisposed() &&
-        context.mountedObject === object &&
-        context.textureRegistry === registry,
-      textureRegistry: registry,
-    });
-  let thumbnailEnrichment = scheduleThumbnails(
-    metadataCollection.metadata,
-    textureRegistry,
-  );
-  const refreshTextureMetadata = () => {
-    if (isDisposed() || context.mountedObject !== object) {
-      return;
+  const existingPackRuntime = context.packRuntime;
+  try {
+    if (createPackRuntime) {
+      const candidateRuntime = createPackRuntime(context);
+      if (candidateRuntime && candidateRuntime === existingPackRuntime) {
+        preserveExistingMountOnAbort =
+          context.mountedObject === object ||
+          context.sourceObject === object ||
+          context.animationRoot === object;
+        throw new Error(
+          "LoadedPreview.createPackRuntime() must return a fresh PackRuntime instance.",
+        );
+      }
+      mountedPackRuntime = candidateRuntime;
     }
 
-    const nextCollection = collectAssetMetadata(
+    if (isDisposed()) {
+      return abortMountedPreview();
+    }
+
+    if (replaceExistingPreview) {
+      let firstCleanupError: unknown = null;
+      const attemptCleanup = (cleanup: () => void) => {
+        try {
+          cleanup();
+        } catch (error) {
+          firstCleanupError ??= error;
+        }
+      };
+      attemptCleanup(() => runCleanupCallbacks(context.cleanupCallbacks));
+      context.cleanupCallbacks = [];
+      attemptCleanup(() => stopAnimations(context));
+      context.mmdModel = null;
+      context.mmdLightSync = null;
+      attemptCleanup(() => resetSceneObjects(context));
+      attemptCleanup(() => revokeUrls(context.cleanupUrls));
+      context.cleanupUrls = [];
+      if (firstCleanupError) {
+        throw firstCleanupError;
+      }
+    }
+
+    applyPreviewLightingPreset(lighting, lightingTargets);
+    mmdLightSync = await syncMmdPreviewSpecularDirection(mmdModel, keyLight);
+    if (isDisposed()) {
+      return abortMountedPreview();
+    }
+
+    // Publish only after asynchronous initialization. The picker may otherwise
+    // transfer geometry buffers to its BVH worker before framing reads bounds.
+    context.scene.add(object);
+    context.mountedObject = object;
+    context.sourceObject = object;
+    context.boneOnlyPreview = false;
+    context.animationRoot = null;
+    context.cleanupUrls = cleanupUrls;
+    context.cleanupCallbacks = cleanupCallbacks;
+    const state = getMountState();
+    const traversal = collectSceneTraversal(object);
+
+    if (rendering) {
+      applyPreviewRenderingPreset(context.renderer, rendering);
+    }
+    const normalization = skipScaleNormalization
+      ? buildSkippedNormalization(object, traversal.maxDimension)
+      : normalizeObjectScale(object, traversal);
+    refs.scaleNormalizationRef.current =
+      normalization.applied && normalization.originalScale
+        ? {
+            applied: true,
+            originalScale: normalization.originalScale,
+          }
+        : null;
+    update.onScaleNormalizationChange?.({
+      applied: normalization.applied,
+      factor: normalization.factor,
+    });
+    context.rawMaxDimension =
+      normalization.originalMaxDimension > 0
+        ? normalization.originalMaxDimension
+        : normalization.normalizedMaxDimension;
+
+    const gridConfig = applyDynamicGrid(
+      context.scene,
+      normalization.normalizedMaxDimension,
+      state.showGrid,
+    );
+    update.onGridUnitChange(gridConfig.label);
+    applyDynamicAxes(
+      context.scene,
+      normalization.normalizedMaxDimension,
+      state.showAxes,
+    );
+    applyDisplayMode(object, state.displayMode, traversal);
+    applyBackfaceCulling(object, state.backfaceCulling);
+    applyTextureFilter(object, state.textureFilterMode);
+    applySurfaceMaterialMode(
+      object,
+      state.showNormals
+        ? "normals"
+        : state.showUnlit
+          ? "unlit"
+          : state.showVertexColors
+            ? "vertexColors"
+            : "shaded",
+    );
+    applyMorphTargetValues(object, state.morphTargetValues);
+    mmdModel?.syncMaterialMorphs?.(
+      morphTargetValuesForObject(mmdModel.mesh, state.morphTargetValues),
+    );
+    applyShadows(context.scene, object, keyLight, state.showShadows);
+    if (!preserveCameraView) {
+      frameMountedObject(
+        context,
+        object,
+        state.viewerSurfaceMode,
+        state.showGrid,
+        state.showAxes,
+        state.cameraSpeedMultiplier,
+        context.rawMaxDimension,
+        state.texturePreview3D,
+      );
+    }
+    if (isDisposed()) {
+      return abortMountedPreview();
+    }
+
+    const packMetadata =
+      loaderRegistry
+        .getByExtension(currentFile.extension)
+        ?.collectMetadata?.(object, currentFile) ?? null;
+    const metadataCollection = collectAssetMetadata(
       object,
       currentFile,
       clips,
@@ -360,107 +387,180 @@ export async function mountLoadedPreview(
       packMetadata?.kind === "mmd" ? packMetadata.asset : undefined,
       traversal,
     );
-    if (isDisposed() || context.mountedObject !== object) {
-      return;
+    if (isDisposed()) {
+      return abortMountedPreview();
     }
+    metadataCollection.metadata.assetKind = assetKind;
 
-    nextCollection.metadata.assetKind = assetKind;
-    thumbnailEnrichment.cancel();
-    const nextTextureRegistry = nextCollection.textureRegistry;
-    context.textureRegistry = nextTextureRegistry;
+    update.setActivePreviewPath(currentFile.path);
+    update.setOverlayReady();
+
+    const isBoneOnlyPreview =
+      metadataCollection.metadata.meshCount === 0 &&
+      metadataCollection.metadata.hasBones === true;
+    const isMotionPreviewRig = object.userData.motionPreviewRig === true;
+    context.boneOnlyPreview = isBoneOnlyPreview || isMotionPreviewRig;
+    context.animationRoot = object;
+    context.textureRegistry = metadataCollection.textureRegistry;
+    const textureRegistry = metadataCollection.textureRegistry;
     refs.assetResourceMetricsRef.current = collectAssetResourceMetrics(
-      nextCollection.metadata,
+      metadataCollection.metadata,
     );
-    update.onMetadataChange(nextCollection.metadata);
-    thumbnailEnrichment = scheduleThumbnails(
-      nextCollection.metadata,
-      nextTextureRegistry,
+    update.onMetadataChange(metadataCollection.metadata);
+    update.onPackMetadataChange(packMetadata);
+    const scheduleThumbnails = (
+      metadata: AssetMetadata,
+      registry: ReadonlyMap<string, Texture>,
+    ) =>
+      scheduleTextureThumbnailEnrichment({
+        metadata,
+        onUpdate: update.onMetadataChange,
+        shouldContinue: () =>
+          !isDisposed() &&
+          context.mountedObject === object &&
+          context.textureRegistry === registry,
+        textureRegistry: registry,
+      });
+    let thumbnailEnrichment = scheduleThumbnails(
+      metadataCollection.metadata,
+      textureRegistry,
     );
-    update.publishResourceDiagnostics(context);
-  };
-  update.onTextureMetadataRefresh?.(refreshTextureMetadata);
-  context.cleanupCallbacks.push(() => {
-    thumbnailEnrichment.cancel();
-    update.onTextureMetadataRefresh?.(null);
-  });
-  update.publishResourceDiagnostics(context);
-  applySkeletonHelpers(
-    context.scene,
-    object,
-    state.viewerSurfaceMode === "asset" &&
-      (state.showSkeleton || isBoneOnlyPreview || isMotionPreviewRig),
-    state.showLocalAxis,
-    state.showJointNames,
-  );
-  applyBoundingBoxHelpers(
-    context.scene,
-    object,
-    state.viewerSurfaceMode === "asset" && state.showBoundingBoxes,
-  );
-  applyPurposeVisibility(object, state.selectedPurposeModes);
+    const refreshTextureMetadata = () => {
+      if (isDisposed() || context.mountedObject !== object) {
+        return;
+      }
 
-  context.clips = clips;
-  context.mmdModel = mmdModel ?? null;
-  context.mmdMotion = mmdMotion ? { ...mmdMotion, currentTime: 0 } : null;
-  context.packRuntime?.dispose();
-  context.packRuntime =
-    loaderRegistry
-      .getByExtension(currentFile.extension)
-      ?.createRuntime?.(context) ?? null;
-  context.mmdLightSync = mmdLightSync;
-  if (mmdMotion && context.mmdModel?.runtime) {
-    update.setAnimationState({
-      clipNames: [mmdMotion.label],
-      activeClipIndex: 0,
-      currentTime: 0,
-      duration: mmdMotion.duration,
-      isPlaying: true,
-    });
-  } else if (clips.length > 0) {
-    context.mixer = new AnimationMixer(context.animationRoot ?? object);
-    const activated = activateClip(context, 0, true);
-    update.setAnimationState({
-      clipNames: clips.map(getClipLabel),
-      activeClipIndex: activated?.clipIndex ?? 0,
-      currentTime: activated?.currentTime ?? 0,
-      duration: activated?.duration ?? clips[0]?.duration ?? 0,
-      isPlaying: activated?.isPlaying ?? false,
-    });
-  } else {
-    update.setAnimationState(emptyAnimationState);
-  }
-
-  const activeCameraId = refs.activeCameraIdRef.current;
-  if (activeCameraId) {
-    const reFound = findCameraBySelectionKey(context.scene, activeCameraId);
-    if (reFound) {
-      refs.activeCameraRef.current = reFound;
-      context.controls.enabled = false;
-      syncPerspectiveCameraAspect(reFound, host);
-    } else {
-      console.warn(
-        `[viewer] USD camera id "${activeCameraId}" not found after reload - free camera restored`,
+      const nextCollection = collectAssetMetadata(
+        object,
+        currentFile,
+        clips,
+        formatVersion,
+        packMetadata?.kind === "mmd" ? packMetadata.asset : undefined,
+        traversal,
       );
-      refs.activeCameraIdRef.current = null;
-      clearActiveCameraId();
-    }
-  }
+      if (isDisposed() || context.mountedObject !== object) {
+        return;
+      }
 
-  const scaleWarning = getScaleWarning(object, normalization);
-  const readyFeedbackBase = {
-    message: `Preview ready: ${currentFile.fileName}`,
-    warnings: [
-      scaleWarning,
-      isBoneOnlyPreview
-        ? "Bone-only preview: no mesh geometry was found. Use the Skeleton overlay to show the rig."
-        : null,
-      ...warnings,
-    ],
-  };
-  update.onFeedbackChange(
-    buildReadyPreviewFeedback(readyFeedbackBase, runtimeWarnings),
-  );
-  return readyFeedbackBase;
+      nextCollection.metadata.assetKind = assetKind;
+      thumbnailEnrichment.cancel();
+      const nextTextureRegistry = nextCollection.textureRegistry;
+      context.textureRegistry = nextTextureRegistry;
+      refs.assetResourceMetricsRef.current = collectAssetResourceMetrics(
+        nextCollection.metadata,
+      );
+      update.onMetadataChange(nextCollection.metadata);
+      thumbnailEnrichment = scheduleThumbnails(
+        nextCollection.metadata,
+        nextTextureRegistry,
+      );
+      update.publishResourceDiagnostics(context);
+    };
+    update.onTextureMetadataRefresh?.(refreshTextureMetadata);
+    context.cleanupCallbacks.push(() => {
+      thumbnailEnrichment.cancel();
+      update.onTextureMetadataRefresh?.(null);
+    });
+    update.publishResourceDiagnostics(context);
+    applySkeletonHelpers(
+      context.scene,
+      object,
+      state.viewerSurfaceMode === "asset" &&
+        (state.showSkeleton || isBoneOnlyPreview || isMotionPreviewRig),
+      state.showLocalAxis,
+      state.showJointNames,
+    );
+    applyBoundingBoxHelpers(
+      context.scene,
+      object,
+      state.viewerSurfaceMode === "asset" && state.showBoundingBoxes,
+    );
+    applyPurposeVisibility(object, state.selectedPurposeModes);
+
+    context.clips = clips;
+    context.mmdModel = mmdModel ?? null;
+    context.mmdMotion = mmdMotion ? { ...mmdMotion, currentTime: 0 } : null;
+    const previousPackRuntime = context.packRuntime;
+    if (previousPackRuntime && previousPackRuntime !== mountedPackRuntime) {
+      previousPackRuntime.dispose();
+      if (context.packRuntime === previousPackRuntime) {
+        context.packRuntime = null;
+      }
+    }
+    if (!createPackRuntime) {
+      mountedPackRuntime =
+        loaderRegistry
+          .getByExtension(currentFile.extension)
+          ?.createRuntime?.(context) ?? null;
+      context.packRuntime = mountedPackRuntime;
+    } else {
+      context.packRuntime = mountedPackRuntime;
+    }
+    context.mmdLightSync = mmdLightSync;
+    if (mmdMotion && context.mmdModel?.runtime) {
+      update.setAnimationState({
+        clipNames: [mmdMotion.label],
+        activeClipIndex: 0,
+        currentTime: 0,
+        duration: mmdMotion.duration,
+        isPlaying: true,
+      });
+    } else if (clips.length > 0) {
+      context.mixer = new AnimationMixer(context.animationRoot ?? object);
+      const activated = activateClip(context, 0, true);
+      update.setAnimationState({
+        clipNames: clips.map(getClipLabel),
+        activeClipIndex: activated?.clipIndex ?? 0,
+        currentTime: activated?.currentTime ?? 0,
+        duration: activated?.duration ?? clips[0]?.duration ?? 0,
+        isPlaying: activated?.isPlaying ?? false,
+      });
+    } else {
+      update.setAnimationState(emptyAnimationState);
+    }
+
+    const activeCameraId = refs.activeCameraIdRef.current;
+    if (activeCameraId) {
+      const reFound = findCameraBySelectionKey(context.scene, activeCameraId);
+      if (reFound) {
+        refs.activeCameraRef.current = reFound;
+        context.controls.enabled = false;
+        syncPerspectiveCameraAspect(reFound, host);
+      } else {
+        console.warn(
+          `[viewer] USD camera id "${activeCameraId}" not found after reload - free camera restored`,
+        );
+        refs.activeCameraIdRef.current = null;
+        clearActiveCameraId();
+      }
+    }
+
+    const scaleWarning = getScaleWarning(object, normalization);
+    const readyFeedbackBase = {
+      message: `Preview ready: ${currentFile.fileName}`,
+      warnings: [
+        scaleWarning,
+        isBoneOnlyPreview
+          ? "Bone-only preview: no mesh geometry was found. Use the Skeleton overlay to show the rig."
+          : null,
+        ...warnings,
+      ],
+    };
+    update.onFeedbackChange(
+      buildReadyPreviewFeedback(readyFeedbackBase, runtimeWarnings),
+    );
+    mountCompleted = true;
+    return readyFeedbackBase;
+  } catch (error) {
+    if (!mountCompleted) {
+      try {
+        abortMountedPreview();
+      } catch {
+        // Preserve the original mount error; cleanup is best effort.
+      }
+    }
+    throw error;
+  }
 }
 
 function buildSkippedNormalization(

@@ -14,9 +14,10 @@ const KNOWN_OPTIONAL_LOADER_PACK_IDS: &[&str] = &[
     "vrm-loader-pack",
     "mmd-loader-pack",
     "gaussian-splat-loader-pack",
+    "ifc-loader-pack",
 ];
 pub(crate) const KNOWN_OPTIONAL_LOADER_EXTENSIONS: &[&str] = &[
-    "vrm", "vrma", "pmd", "pmx", "vmd", "splat", "spz", "ksplat", "sog",
+    "vrm", "vrma", "pmd", "pmx", "vmd", "splat", "spz", "ksplat", "sog", "ifc",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
@@ -61,6 +62,7 @@ pub(crate) fn known_pack_extensions(id: &str) -> Option<&'static [&'static str]>
         "vrm-loader-pack" => Some(&["vrm", "vrma"]),
         "mmd-loader-pack" => Some(&["pmd", "pmx", "vmd"]),
         "gaussian-splat-loader-pack" => Some(&["splat", "spz", "ksplat", "sog"]),
+        "ifc-loader-pack" => Some(&["ifc"]),
         _ => None,
     }
 }
@@ -70,6 +72,7 @@ fn known_pack_name(id: &str) -> Option<&'static str> {
         "vrm-loader-pack" => Some("VRM Loader Pack"),
         "mmd-loader-pack" => Some("MMD Loader Pack"),
         "gaussian-splat-loader-pack" => Some("Gaussian Splat Loader Pack"),
+        "ifc-loader-pack" => Some("IFC Loader Pack"),
         _ => None,
     }
 }
@@ -79,6 +82,7 @@ fn known_pack_dir_name(id: &str) -> Option<&'static str> {
         "vrm-loader-pack" => Some("vrm"),
         "mmd-loader-pack" => Some("mmd"),
         "gaussian-splat-loader-pack" => Some("gaussian-splat"),
+        "ifc-loader-pack" => Some("ifc"),
         _ => None,
     }
 }

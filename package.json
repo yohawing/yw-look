@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "imports": {
+    "#yw-look-ifc-loader-entry": "./src/packs/ifc-loader-pack/loaderInstalled.ts",
     "#yw-look-mmd-loader-entry": "./src/packs/mmd-loader-pack/loaderInstalled.ts",
     "#yw-look-spark-loader-entry": "./src/packs/gaussian-splat-loader-pack/loaderInstalled.ts"
   },
@@ -106,8 +107,10 @@
     "zustand": "^5.0.15"
   },
   "optionalDependencies": {
+    "@thatopen/fragments": "3.4.7",
     "@sparkjsdev/spark": "^2.1.0",
-    "@yohawing/three-mmd-loader": "0.8.2"
+    "@yohawing/three-mmd-loader": "0.8.2",
+    "web-ifc": "0.0.77"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

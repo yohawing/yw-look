@@ -208,6 +208,12 @@ export type ViewerAssetKind =
 
 export type LoadedPreview = {
   object: Group | Mesh;
+  /**
+   * Optional loader-created runtime; takes precedence over registry fallback.
+   * Every invocation must return a fresh runtime instance, never
+   * `context.packRuntime`.
+   */
+  createPackRuntime?: (context: SceneContext) => PackRuntime;
   cleanupUrls: string[];
   cleanupCallbacks?: Array<() => void>;
   clips: AnimationClip[];

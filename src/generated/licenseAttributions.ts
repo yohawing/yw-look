@@ -62,6 +62,12 @@ export const webRuntimeLicenseAttributions = [
     source: "web",
   },
   {
+    name: "@thatopen/fragments",
+    version: "3.4.7",
+    license: "MIT",
+    source: "web",
+  },
+  {
     name: "@xmldom/xmldom",
     version: "0.9.12",
     license: "MIT",
@@ -113,6 +119,12 @@ export const webRuntimeLicenseAttributions = [
     name: "three-mesh-bvh",
     version: "0.9.14",
     license: "MIT",
+    source: "web",
+  },
+  {
+    name: "web-ifc",
+    version: "0.0.77",
+    license: "MPL-2.0",
     source: "web",
   },
   {
