@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkForUpdate,
   installPendingUpdate,
+  isUpdaterConfigured,
   loadUpdateConfiguration,
   type UpdateCheckPayload,
   type UpdateConfigurationPayload,
@@ -21,6 +22,7 @@ export function useUpdater(
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
+  const canCheckForUpdate = isUpdaterConfigured(updateConfiguration);
 
   const refreshUpdateConfiguration = useCallback(async () => {
     try {
@@ -44,6 +46,7 @@ export function useUpdater(
   }, [shouldLoadDeferredData, refreshUpdateConfiguration]);
 
   const handleCheckForUpdate = useCallback(async () => {
+    if (!canCheckForUpdate) return;
     try {
       setIsCheckingForUpdate(true);
       const payload = await checkForUpdate();
@@ -55,18 +58,24 @@ export function useUpdater(
     } finally {
       setIsCheckingForUpdate(false);
     }
-  }, []);
+  }, [canCheckForUpdate]);
 
   const autoUpdateCheckedRef = useRef(false);
   useEffect(() => {
     if (autoUpdateCheckedRef.current) return;
+    if (!canCheckForUpdate) return;
     if (!settingsPayload?.settings.autoCheckForUpdates) return;
     autoUpdateCheckedRef.current = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initiates async update check which calls setState in its callbacks; auto-check must fire once at mount after settings load and cannot be derived during render
     void handleCheckForUpdate();
-  }, [settingsPayload?.settings.autoCheckForUpdates, handleCheckForUpdate]);
+  }, [
+    settingsPayload?.settings.autoCheckForUpdates,
+    handleCheckForUpdate,
+    canCheckForUpdate,
+  ]);
 
   const handleInstallUpdate = useCallback(async () => {
+    if (!canCheckForUpdate || !updateCheck?.update) return;
     try {
       setIsInstallingUpdate(true);
       setUpdateError(
@@ -80,7 +89,7 @@ export function useUpdater(
     } finally {
       setIsInstallingUpdate(false);
     }
-  }, []);
+  }, [canCheckForUpdate, updateCheck?.update]);
 
   return {
     updateConfiguration,
