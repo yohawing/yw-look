@@ -16,6 +16,8 @@ import {
   MeshNormalMaterial,
   MeshStandardMaterial,
   ObjectSpaceNormalMap,
+  Points,
+  PointsMaterial,
   Scene,
   SkinnedMesh,
   Texture,
@@ -229,6 +231,42 @@ describe("scene material display helpers", () => {
     expect(material.wireframe).toBe(false);
     expect(material.color.getHexString()).toBe("ff3300");
     expect(material.map).toBe(texture);
+  });
+
+  it("shares static wireframe resources and disposes them once", () => {
+    const root = new Group();
+    const sharedGeometry = new BufferGeometry();
+    sharedGeometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    const first = new Mesh(sharedGeometry, new MeshBasicMaterial());
+    const second = new Mesh(sharedGeometry, new MeshBasicMaterial());
+    root.add(first, second);
+
+    applyDisplayMode(root, "texturedWireframe");
+
+    const overlays = [first, second].map(
+      (mesh) => mesh.children[0] as LineSegments,
+    );
+    expect(overlays[0]).toBeInstanceOf(LineSegments);
+    expect(overlays[1]).toBeInstanceOf(LineSegments);
+    expect(overlays[0].geometry).toBe(overlays[1].geometry);
+    expect(overlays[0].material).toBe(overlays[1].material);
+
+    const sharedWireframeGeometry = overlays[0].geometry;
+    const sharedWireframeMaterial = overlays[0].material as LineBasicMaterial;
+    const disposeGeometry = vi.spyOn(sharedWireframeGeometry, "dispose");
+    const disposeMaterial = vi.spyOn(sharedWireframeMaterial, "dispose");
+    const disposeSourceGeometry = vi.spyOn(sharedGeometry, "dispose");
+
+    applyDisplayMode(root, "textured");
+
+    expect(disposeGeometry).toHaveBeenCalledOnce();
+    expect(disposeMaterial).toHaveBeenCalledOnce();
+    expect(disposeSourceGeometry).not.toHaveBeenCalled();
+    expect(first.children).toHaveLength(0);
+    expect(second.children).toHaveLength(0);
   });
 
   it("uses unlit neutral wireframe materials for lit source materials", () => {
@@ -615,6 +653,35 @@ describe("scene material display helpers", () => {
     expect(disposeNormalMap).toHaveBeenCalledTimes(1);
     expect(mesh.userData._ywUnlitOriginal).toBeUndefined();
     expect(mesh.userData.__yw_wireframe_original_material).toBeUndefined();
+  });
+
+  it("disposes shared mesh, line, points, and overlay geometry once", () => {
+    const root = new Group();
+    const geometry = new BufferGeometry();
+    const meshMaterial = new MeshBasicMaterial();
+    const lineMaterial = new LineBasicMaterial();
+    const pointsMaterial = new PointsMaterial();
+    const overlayMaterial = new LineBasicMaterial();
+    const mesh = new Mesh(geometry, meshMaterial);
+    const line = new LineSegments(geometry, lineMaterial);
+    const points = new Points(geometry, pointsMaterial);
+    const overlay = new LineSegments(geometry, overlayMaterial);
+    overlay.userData.__yw_wireframe_overlay = true;
+    root.add(mesh, line, points, overlay);
+
+    const disposeGeometry = vi.spyOn(geometry, "dispose");
+    const disposeMeshMaterial = vi.spyOn(meshMaterial, "dispose");
+    const disposeLineMaterial = vi.spyOn(lineMaterial, "dispose");
+    const disposePointsMaterial = vi.spyOn(pointsMaterial, "dispose");
+    const disposeOverlayMaterial = vi.spyOn(overlayMaterial, "dispose");
+
+    disposeObject(root);
+
+    expect(disposeGeometry).toHaveBeenCalledOnce();
+    expect(disposeMeshMaterial).toHaveBeenCalledOnce();
+    expect(disposeLineMaterial).toHaveBeenCalledOnce();
+    expect(disposePointsMaterial).toHaveBeenCalledOnce();
+    expect(disposeOverlayMaterial).toHaveBeenCalledOnce();
   });
 
   it("preserves vertex color toggles made while wireframe mode is active", () => {

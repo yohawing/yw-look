@@ -38,4 +38,18 @@ describe("normalizeErrorMessage", () => {
       message: "boom",
     });
   });
+
+  it("preserves structured details for native preview failures", () => {
+    expect(
+      normalizeErrorMessage({
+        kind: "memoryLimit",
+        message: "preview stopped",
+        details: { stage: "tessellation", limit: 100, observed: 120 },
+      }),
+    ).toEqual({
+      kind: "memoryLimit",
+      message: "preview stopped",
+      details: { stage: "tessellation", limit: 100, observed: 120 },
+    });
+  });
 });

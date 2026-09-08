@@ -1,0 +1,13 @@
+Copyright (c) 1993-2018 Robert McNeel & Associates. All Rights Reserved.
+Rhinoceros is a registered trademark of Robert McNeel & Associates.
+
+THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT EXPRESS OR IMPLIED WARRANTY.
+ALL IMPLIED WARRANTIES OF FITNESS FOR ANY PARTICULAR PURPOSE AND OF
+MERCHANTABILITY ARE HEREBY DISCLAIMED.
+
+The openNURBS toolkit uses zlib for mesh and bitmap compression. The zlib
+source code distributed with openNURBS is a subset of what is available from
+zlib. The zlib code itself has not been modified.
+
+For the complete upstream notice, see:
+https://github.com/mcneel/opennurbs/blob/23fc677ba06e49212296ca75fab7fb6c2851b4ce/LICENSE

@@ -42,9 +42,13 @@ import type {
 
 // ── Error type (mirrors Rust AppError) ──────────────────────────
 
+export type AppErrorDetails = Record<string, unknown>;
+
 export type AppError = {
-  kind: "io" | "usd" | "serde" | "timeout" | "internal";
+  /** Rust may add a format-specific kind without breaking the frontend. */
+  kind: string;
   message: string;
+  details?: AppErrorDetails;
 };
 
 // ── USD IPC types ────────────────────────────────────────────────

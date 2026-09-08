@@ -206,6 +206,34 @@ export type MmdMotionPlayback = {
 export type ViewerAssetKind =
   "mesh" | "pointCloud" | "gaussianSplat" | "motion";
 
+export type PreviewWarning = {
+  message: string;
+  reason?: string;
+  stage?: string;
+  limit?: number | string;
+  observed?: number | string;
+  count?: number;
+  /** Internal classification retained for diagnostics; never shown verbatim. */
+  category?: string;
+};
+
+export type PreviewLoadStats = Record<string, number | string | boolean | null>;
+
+export function formatPreviewWarning(warning: string | PreviewWarning): string {
+  if (typeof warning === "string") return warning;
+
+  const details = [
+    warning.reason ? `Reason: ${warning.reason}` : null,
+    warning.stage ? `Stage: ${warning.stage}` : null,
+    warning.limit !== undefined ? `Limit: ${warning.limit}` : null,
+    warning.observed !== undefined ? `Observed: ${warning.observed}` : null,
+    warning.count !== undefined ? `Count: ${warning.count}` : null,
+  ].filter((value): value is string => value !== null);
+  return details.length > 0
+    ? `${warning.message} (${details.join(", ")})`
+    : warning.message;
+}
+
 export type LoadedPreview = {
   object: Group | Mesh;
   /**
@@ -218,7 +246,8 @@ export type LoadedPreview = {
   cleanupCallbacks?: Array<() => void>;
   clips: AnimationClip[];
   formatVersion: string | null;
-  warnings?: string[];
+  warnings?: Array<string | PreviewWarning>;
+  stats?: PreviewLoadStats;
   lighting?: PreviewLightingPreset;
   rendering?: PreviewRenderingPreset;
   skipScaleNormalization?: boolean;
