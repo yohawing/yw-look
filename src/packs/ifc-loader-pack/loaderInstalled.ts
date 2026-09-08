@@ -1,3 +1,4 @@
+import { IFCGROUP, IFCRELASSIGNSTOGROUP } from "web-ifc";
 import { createIfcInspection, ifcSelectionKey } from "./inspection";
 import { registerIfcInspection } from "./metadata";
 import { Vector2, type OrthographicCamera } from "three";
@@ -37,6 +38,11 @@ export async function loadIfcPreviewObject(
 
     reportStage("decode");
     const importer = new IfcImporter();
+    importer.classes.abstract.add(IFCGROUP);
+    importer.relations.set(IFCRELASSIGNSTOGROUP, {
+      forRelating: "IsGroupedBy",
+      forRelated: "HasAssignments",
+    });
     importer.wasm = {
       path: wasmDirectoryUrl(webIfcWasmUrl),
       absolute: true,

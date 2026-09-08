@@ -200,10 +200,36 @@ export async function createIfcInspection(
     for (const item of data)
       labels.set(Number(ifcAttribute(item, "_localId")), item);
   }
+  const assignments = new Map<number, number[]>();
+  for (let offset = 0; offset < ids.length; offset += 256) {
+    const relations = await model.getRelations(ids.slice(offset, offset + 256));
+    for (const [id, relation] of relations)
+      assignments.set(id, relation.data.HasAssignments ?? []);
+  }
+  const groupIds = [...new Set([...assignments.values()].flat())];
+  const groups = new Map<number, { id: number; name: string }>();
+  for (let offset = 0; offset < groupIds.length; offset += 256) {
+    const data = await model.getItemsData(
+      groupIds.slice(offset, offset + 256),
+      {
+        attributes: ["Name"],
+        attributesDefault: false,
+        relationsDefault: { attributes: false, relations: false },
+      },
+    );
+    for (const item of data) {
+      if (ifcAttribute(item, "_category") !== "IFCGROUP") continue;
+      const id = Number(ifcAttribute(item, "_localId"));
+      groups.set(id, { id, name: ifcAttribute(item, "Name") || `#${id}` });
+    }
+  }
   const elements: IfcElement[] = [...geometryIds].map((id) => {
     const location = locations.get(id);
     return {
       id,
+      groups: (assignments.get(id) ?? []).flatMap((id) =>
+        groups.has(id) ? [groups.get(id)!] : [],
+      ),
       guid: ifcAttribute(labels.get(id), "_guid"),
       name: ifcAttribute(labels.get(id), "Name") || `#${id}`,
       category:

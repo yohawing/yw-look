@@ -25,6 +25,8 @@ import { ListTextFilter } from "./ui/ListTextFilter";
 import { SliderNumberField } from "./ui/SliderNumberField";
 import "../styles/hierarchy.css";
 
+type ExpansionOverride = { open: boolean; selection: string | null };
+
 type HierarchyCardProps = {
   hierarchy: HierarchyNode[];
   objectInfo?: AssetMetadata["objectInfo"];
@@ -184,27 +186,27 @@ function HierarchyBranch({
   unloadedPayloadPaths?: ReadonlySet<string>;
   onLoadPayload?: (primPath: string) => void;
   onUnloadPayload?: (primPath: string) => void;
-  expandedKeys: Readonly<Record<string, boolean>>;
+  expandedKeys: Readonly<Record<string, ExpansionOverride>>;
   onToggleExpanded: (key: string, defaultExpanded: boolean) => void;
   filterExpandedKeys: ReadonlySet<string>;
 }) {
   const { node } = displayNode;
   const hasChildren = displayNode.children.length > 0;
-  const expanded = expandedKeys[displayNode.key] ?? depth < 2;
+  const override = expandedKeys[displayNode.key];
+  const expanded = override?.open ?? depth < 2;
   // #46: stable selection key — prefer the SdfPath stored in node.primPath
   // (emitted by the hierarchy-aware GLB pipeline) so that selections
   // survive node-name changes and stay consistent across the viewport
   // picking path.  Falls back to node.name for non-USD assets.
   const nodeSelectionKey = node.primPath ?? node.name;
   const isSelected = selectedName !== null && nodeSelectionKey === selectedName;
-  // When the picker selects something deep in the tree we need to
-  // force-open every ancestor so the row is actually visible. We pass
-  // `forceExpanded` from above and OR it into the local state instead
-  // of overwriting it, so once the user collapses something
-  // re-selecting the same prim doesn't snap their layout back open.
+  // Reveal a newly selected descendant, but let the user close its ancestors.
   const showChildren =
     hasChildren &&
-    (expanded || forceExpanded || filterExpandedKeys.has(displayNode.key));
+    (filterExpandedKeys.has(displayNode.key) ||
+      (override?.selection === selectedName
+        ? override.open
+        : expanded || forceExpanded));
   // Build the full SdfPath for this node for the onSelectPrimPath callback.
   // #46: when node.primPath is present we use it directly — it is the
   // authoritative SdfPath from the GLB extras and needs no reconstruction.
@@ -267,7 +269,7 @@ function HierarchyBranch({
             className="tree-chevron"
             onClick={(event) => {
               event.stopPropagation();
-              onToggleExpanded(displayNode.key, depth < 2);
+              onToggleExpanded(displayNode.key, showChildren);
             }}
             disabled={filterExpandedKeys.has(displayNode.key)}
             type="button"
@@ -420,7 +422,9 @@ function HierarchyCardContent({
     setSearchQuery("");
     searchHeaderRef.current?.querySelector("button")?.focus();
   };
-  const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
+  const [expandedKeys, setExpandedKeys] = useState<
+    Record<string, ExpansionOverride>
+  >({});
 
   useEffect(() => {
     if (!selectedName) return;
@@ -521,7 +525,7 @@ function HierarchyCardContent({
   const handleToggleExpanded = (key: string, defaultExpanded: boolean) => {
     setExpandedKeys((current) => ({
       ...current,
-      [key]: !(current[key] ?? defaultExpanded),
+      [key]: { open: !defaultExpanded, selection: normalizedSelected },
     }));
   };
 

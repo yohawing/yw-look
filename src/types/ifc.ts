@@ -2,6 +2,7 @@ export type IfcColorMode = "original" | "category" | "element";
 export type IfcElement = {
   id: number;
   guid?: string;
+  groups?: readonly { id: number; name: string }[];
   name: string;
   category: string;
   storey: string;

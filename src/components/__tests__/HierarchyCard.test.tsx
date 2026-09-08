@@ -164,6 +164,20 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(container.textContent).toContain("Arm");
   });
 
+  it("lets users collapse and reopen an ancestor of the selected element", () => {
+    const { container, rerender } = render(
+      <HierarchyCard hierarchy={tree} selectedName="Arm" />,
+    );
+    const root = container.querySelector(".tree-row")!;
+    fireEvent.click(root.querySelector('button[aria-label="Collapse"]')!);
+    expect(container.querySelector(".tree-row.is-selected")).toBeNull();
+    rerender(<HierarchyCard hierarchy={tree} selectedName="Arm" />);
+    expect(container.querySelector(".tree-row.is-selected")).toBeNull();
+    rerender(<HierarchyCard hierarchy={tree} selectedName={null} />);
+    rerender(<HierarchyCard hierarchy={tree} selectedName="Arm" />);
+    fireEvent.click(container.querySelector('button[aria-label="Expand"]')!);
+    expect(container.querySelector(".tree-row.is-selected")).toBeTruthy();
+  });
   it("toggles selection off when the active row is clicked again", () => {
     const onSelect = vi.fn();
     const { container } = render(

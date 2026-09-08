@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => {
 
   class MockIfcImporter {
     wasm: unknown = undefined;
+    classes = { abstract: new Set<number>() };
+    relations = new Map();
 
     constructor() {
       state.importerInstances.push(this);

@@ -67,10 +67,30 @@ function fixture() {
     setColor: vi.fn().mockResolvedValue(undefined),
     resetHighlight: vi.fn().mockResolvedValue(undefined),
   };
-  return { model, typed: model as unknown as FragmentsModel };
+  return { data, relations, model, typed: model as unknown as FragmentsModel };
 }
 
 describe("IFC element inspection", () => {
+  it("reads explicit group membership without grouping other assignments", async () => {
+    const { data, relations, typed } = fixture();
+    data[6] = {
+      _localId: { value: 6 },
+      _category: { value: "IFCGROUP" },
+      Name: { value: "Louvers" },
+    };
+    data[7] = {
+      _localId: { value: 7 },
+      _category: { value: "IFCACTOR" },
+      Name: { value: "Designer" },
+    };
+    relations[1].data.HasAssignments = [6, 7];
+    const inspection = await createIfcInspection(typed);
+    expect(inspection.getSnapshot().elements[0].groups).toEqual([
+      { id: 6, name: "Louvers" },
+    ]);
+    expect(inspection.getSnapshot().elements[1].groups).toEqual([]);
+    await inspection.dispose();
+  });
   it("uses repeatable element colors and restores category color after deselection", async () => {
     const { model, typed } = fixture();
     const inspection = await createIfcInspection(typed);
