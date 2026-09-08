@@ -17,7 +17,7 @@ const MAX_KEYFRAME_SEGMENTS: usize = 32;
 const WHITE_PNG: &[u8] = &[
     137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
     0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 255, 255, 255, 127, 0, 9,
-    251, 3, 253, 42, 134, 227, 139, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    251, 3, 253, 209, 131, 140, 240, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
 ];
 
 #[derive(Clone, Hash, PartialEq, Eq)]
@@ -395,7 +395,11 @@ fn add_texture(
         "name": source_name.rsplit('/').next().unwrap_or(&source_name),
         "bufferView": view,
         "mimeType": mime,
-        "extras": { "fbxSourceName": source_name, "fbxDeferred": degraded }
+        "extras": {
+            "fbxSourceName": source_name,
+            "fbxDeferred": degraded,
+            "textureSourceKind": if degraded { "unresolved" } else { "embedded" }
+        }
     }));
     let texture_index = doc.textures.len();
     doc.textures
@@ -1555,6 +1559,15 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
 mod tests {
     use super::*;
     use crate::preview::glb::FLOAT;
+
+    #[test]
+    fn deferred_texture_placeholder_decodes_as_opaque_white() {
+        let image = image::load_from_memory(WHITE_PNG)
+            .expect("valid placeholder PNG")
+            .to_rgba8();
+        assert_eq!(image.dimensions(), (1, 1));
+        assert_eq!(image.get_pixel(0, 0).0, [255, 255, 255, 255]);
+    }
 
     fn temporary_fixture_path(name: &str) -> std::path::PathBuf {
         let thread_name: String = std::thread::current()

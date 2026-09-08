@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   Bone,
+  BoxGeometry,
   BufferGeometry,
   ClampToEdgeWrapping,
   DataTexture,
@@ -12,6 +13,10 @@ import {
   Texture,
 } from "three";
 import type { SelectedFile } from "../../../lib/files";
+import {
+  createStaticSceneObject,
+  toStaticScenePayload,
+} from "../../../workers/staticScene";
 import { formatMissingTextureWarnings } from "../../textureWarnings";
 import {
   applyFbxNativeNodeMetadata,
@@ -60,6 +65,50 @@ const fbxFile: SelectedFile = {
 };
 
 describe("FBX missing texture fallback", () => {
+  it("hydrates the matching external material after Worker roundtrip even when the image failed to decode", () => {
+    const root = new Group();
+    const material = new MeshStandardMaterial();
+    material.userData = { fbxMaterialId: 41, fbxMaterialIndex: 0 };
+    root.userData.fbxTextureBindings = [
+      {
+        materialId: 41,
+        materialIndex: 0,
+        slot: "baseColor",
+        source: "textures/albedo.png",
+      },
+    ];
+    root.add(new Mesh(new BoxGeometry(), material));
+    const restored = createStaticSceneObject(
+      toStaticScenePayload(root, false)!,
+    );
+    const texture = new Texture();
+    const load = vi.fn(() => texture);
+    hydrateFbxDeferredTexturePlaceholders(restored, load);
+    expect(load).toHaveBeenCalledExactlyOnceWith("textures/albedo.png");
+    expect(
+      ((restored.children[0] as Mesh).material as MeshStandardMaterial).map,
+    ).toBe(texture);
+    expect(material.map).toBeNull();
+  });
+
+  it("keeps explicitly embedded textures without requesting sidecars on the main-thread path", () => {
+    const texture = new Texture();
+    texture.image = { width: 16, height: 16 };
+    texture.userData = {
+      fbxSourceName: "absent/albedo.png",
+      fbxDeferred: false,
+      textureSourceKind: "embedded",
+    };
+    const material = new MeshStandardMaterial({ map: texture });
+    material.userData.fbxBaseColorSource = "absent/albedo.png";
+    const load = vi.fn(() => new Texture());
+    hydrateFbxDeferredTexturePlaceholders(
+      new Mesh(new BoxGeometry(), material),
+      load,
+    );
+    expect(load).not.toHaveBeenCalled();
+    expect(material.map).toBe(texture);
+  });
   it("applies native node visibility metadata", () => {
     const root = new Group();
     const hidden = new Group();
@@ -97,6 +146,8 @@ describe("FBX missing texture fallback", () => {
 
   it("copies decoded pixels without discarding FBX sampler transforms", () => {
     const target = createFbxPendingImageTexture("tex/albedo.png");
+    target.image = { width: 1, height: 1 };
+    const dispose = vi.spyOn(target, "dispose");
     target.offset.set(0.25, 0.5);
     target.repeat.set(2, -3);
     target.center.set(0.5, 0.5);
@@ -114,6 +165,7 @@ describe("FBX missing texture fallback", () => {
 
     copyDecodedFbxTextureImage(target, source);
 
+    expect(dispose).toHaveBeenCalledTimes(1);
     expect(target.image).toBe(source.image);
     expect(target.offset.toArray()).toEqual([0.25, 0.5]);
     expect(target.repeat.toArray()).toEqual([2, -3]);

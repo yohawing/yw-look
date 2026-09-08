@@ -31,6 +31,8 @@ type SerializableTextureSlot = (typeof SERIALIZABLE_TEXTURE_SLOTS)[number];
 
 /** Shared sampler/transform fields for both ImageData and deferred textures. */
 export type ModelParseWorkerStaticTextureSamplerPayload = {
+  name?: string;
+  userData?: Record<string, unknown>;
   colorSpace: Texture["colorSpace"];
   flipY: boolean;
   wrapS: Texture["wrapS"];
@@ -116,6 +118,7 @@ export type ModelParseWorkerStaticMaterialType =
 export type ModelParseWorkerStaticMaterialPayload = {
   type: ModelParseWorkerStaticMaterialType;
   name: string;
+  userData?: Record<string, unknown>;
   color: number;
   metalness: number;
   roughness: number;
@@ -248,6 +251,8 @@ function getTextureSamplerPayload(
   texture: Texture,
 ): ModelParseWorkerStaticTextureSamplerPayload {
   return {
+    name: texture.name,
+    userData: cloneUserData(texture.userData),
     colorSpace: texture.colorSpace,
     flipY: texture.flipY,
     wrapS: texture.wrapS,
@@ -273,18 +278,8 @@ function getTexturePayload(
 ): ModelParseWorkerStaticTexturePayload | null {
   const sampler = getTextureSamplerPayload(texture);
   const sourceName = texture.userData?.fbxSourceName;
-  if (
-    texture.userData?.fbxDeferred === true &&
-    typeof sourceName === "string" &&
-    sourceName.length > 0 &&
-    !/^(data:|blob:)/i.test(sourceName)
-  ) {
-    return {
-      kind: "deferred",
-      fbxSourceName: sourceName,
-      ...sampler,
-    };
-  }
+  // Preserve the native neutral pixel while sidecar loading is pending.
+  // userData retains fbxDeferred, so hydration still replaces this image.
   if (isImageData(texture.image)) {
     return {
       kind: "imageData",
@@ -392,6 +387,7 @@ function getMaterialPayload(
       ? materialLike.type
       : "MeshStandardMaterial",
     name: materialLike.name ?? "",
+    userData: cloneUserData(material.userData),
     color: materialLike.color?.getHex() ?? 0xc7d2e3,
     metalness: materialLike.metalness ?? 0.08,
     roughness: materialLike.roughness ?? 0.72,
@@ -667,6 +663,8 @@ function applyTextureSamplerPayload(
   texture: Texture,
   payload: ModelParseWorkerStaticTextureSamplerPayload,
 ) {
+  texture.name = payload.name ?? "";
+  texture.userData = cloneUserData(payload.userData);
   texture.colorSpace = payload.colorSpace;
   texture.flipY = payload.flipY;
   texture.wrapS = payload.wrapS;
@@ -688,11 +686,11 @@ function createTextureFromPayload(
     // Empty placeholder; main-thread FBX hydration replaces this via
     // loadDeferredTexture(fbxSourceName) without re-parsing the FBX.
     const texture = new Texture();
+    applyTextureSamplerPayload(texture, payload);
     texture.userData.fbxSourceName = payload.fbxSourceName;
     texture.userData.fbxDeferred = true;
     const baseName = payload.fbxSourceName.replace(/\\/g, "/");
-    texture.name = baseName.slice(baseName.lastIndexOf("/") + 1);
-    applyTextureSamplerPayload(texture, payload);
+    texture.name ||= baseName.slice(baseName.lastIndexOf("/") + 1);
     return texture;
   }
 
@@ -744,6 +742,7 @@ function createStaticMaterial(
               roughness: payload.roughness,
             });
   material.name = payload.name;
+  material.userData = cloneUserData(payload.userData);
   applyStaticMaterialTextures(material, payload.textures);
   return material;
 }

@@ -449,6 +449,9 @@ export function createFbxPendingImageTexture(name: string) {
 }
 
 export function copyDecodedFbxTextureImage(target: Texture, source: Texture) {
+  // The pending pixel may already have allocated immutable GPU storage.
+  // Release it before replacing the image with different dimensions.
+  target.dispose();
   target.image = source.image;
   target.mipmaps = source.mipmaps;
   target.format = source.format;
@@ -1481,6 +1484,9 @@ export function hydrateFbxDeferredTexturePlaceholders(
         // Native GLB deferred slots intentionally carry a valid 1x1 pixel so
         // they render opaque before hydration. Only treat real embedded image
         // data as final; fbxDeferred placeholders still need sidecar lookup.
+        if (placeholder.userData.fbxDeferred === false) {
+          continue;
+        }
         if (
           placeholder.userData?.fbxDeferred !== true &&
           !(

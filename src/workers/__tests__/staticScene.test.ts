@@ -77,6 +77,30 @@ function makeTexturedPbrMesh() {
 }
 
 describe("staticScene textured PBR roundtrip", () => {
+  it("preserves embedded texture identity and material bindings without sharing metadata", () => {
+    const source = makeTexturedPbrMesh();
+    const material = source.material as MeshStandardMaterial;
+    material.userData = {
+      fbxMaterialId: 41,
+      fbxBaseColorSource: "embedded/albedo.png",
+    };
+    material.map!.name = "albedo.png";
+    material.map!.userData = {
+      fbxSourceName: "embedded/albedo.png",
+      fbxDeferred: false,
+      textureSourceKind: "embedded",
+    };
+    const payload = toStaticScenePayload(source, false)!;
+    const restored = createStaticSceneObject(payload) as Mesh;
+    const rebuilt = restored.material as MeshStandardMaterial;
+    expect(rebuilt.userData).toEqual(material.userData);
+    expect(rebuilt.map!.name).toBe("albedo.png");
+    expect(rebuilt.map!.userData).toEqual(material.map!.userData);
+    rebuilt.userData.fbxMaterialId = 99;
+    rebuilt.map!.userData.fbxDeferred = true;
+    expect(material.userData.fbxMaterialId).toBe(41);
+    expect(material.map!.userData.fbxDeferred).toBe(false);
+  });
   it("preserves map and a PBR auxiliary texture through staticScene transfer", () => {
     const source = makeTexturedPbrMesh();
     expect(
