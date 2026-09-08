@@ -1,6 +1,6 @@
 import { ArboristHierarchyTree } from "./ArboristHierarchyTree";
-import { useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDownIcon, MagnifyingGlassIcon } from "@radix-ui/react-icons";
+import { useMemo, useState, type ReactNode } from "react";
+import { ChevronDownIcon } from "@radix-ui/react-icons";
 import {
   Group as PanelGroup,
   Panel,
@@ -9,7 +9,7 @@ import {
 import type { AssetMetadata, HierarchyNode, ObjectInfo } from "./assetMetadata";
 import { Button } from "./ui/Button";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
-import { ListTextFilter } from "./ui/ListTextFilter";
+import { SidebarListSection } from "./ui/SidebarListSection";
 import { SliderNumberField } from "./ui/SliderNumberField";
 import "../styles/hierarchy.css";
 
@@ -126,15 +126,7 @@ function HierarchyCardContent({
   renderSelectedObjectDetails,
   renderMorphTargetMeta,
 }: HierarchyCardProps) {
-  const searchHeaderRef = useRef<HTMLDivElement>(null);
-  const searchId = useId();
-  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const closeSearch = () => {
-    setSearchOpen(false);
-    setSearchQuery("");
-    searchHeaderRef.current?.querySelector("button")?.focus();
-  };
   const normalizedSelected = selectedName ?? null;
   const selectedNode = useMemo(
     () => findSelectedNode(hierarchy, normalizedSelected),
@@ -214,66 +206,30 @@ function HierarchyCardContent({
         id="hierarchy-outliner"
         minSize={25}
       >
-        <section
-          className="hierarchy-section yl-disclosure yl-disclosure--section"
-          onKeyDown={(event) => {
-            if (
-              searchOpen &&
-              event.key === "Escape" &&
-              !event.nativeEvent.isComposing
-            ) {
-              event.preventDefault();
-              event.stopPropagation();
-              closeSearch();
-            }
+        <SidebarListSection
+          className="hierarchy-section"
+          title="Outliner"
+          bodyClassName="hierarchy-pane-scroll hierarchy-outliner-body yl-disclosure__body"
+          search={{
+            ariaLabel: "Filter hierarchy",
+            clearLabel: "Clear hierarchy filter",
+            onChange: setSearchQuery,
+            placeholder: "Search hierarchy",
+            value: searchQuery,
           }}
         >
-          <div className="yl-disclosure__summary" ref={searchHeaderRef}>
-            <ChevronDownIcon
-              className="yl-disclosure__chevron"
-              aria-hidden="true"
-            />
-            <span className="yl-disclosure__title">Outliner</span>
-            <Button
-              aria-label="Search hierarchy"
-              title="Search hierarchy"
-              aria-expanded={searchOpen}
-              aria-controls={searchOpen ? searchId : undefined}
-              aria-pressed={searchOpen}
-              className="hierarchy-search-toggle"
-              iconOnly
-              size="sm"
-              variant="ghost"
-              onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-            >
-              <MagnifyingGlassIcon aria-hidden="true" />
-            </Button>
-          </div>
-          <div className="hierarchy-pane-scroll hierarchy-outliner-body yl-disclosure__body">
-            {searchOpen ? (
-              <ListTextFilter
-                id={searchId}
-                autoFocus
-                ariaLabel="Filter hierarchy"
-                clearLabel="Clear hierarchy filter"
-                onChange={setSearchQuery}
-                placeholder="Search hierarchy"
-                value={searchQuery}
-              />
-            ) : null}
-            <ArboristHierarchyTree
-              hierarchy={hierarchy}
-              searchTerm={searchQuery}
-              selectedName={normalizedSelected}
-              onSelectName={onSelectName}
-              onSelectPrimPath={onSelectPrimPath}
-              payloadPrimPaths={payloadPrimPaths}
-              unloadedPayloadPaths={unloadedPayloadPaths}
-              onLoadPayload={onLoadPayload}
-              onUnloadPayload={onUnloadPayload}
-            />
-          </div>
-        </section>
+          <ArboristHierarchyTree
+            hierarchy={hierarchy}
+            searchTerm={searchQuery}
+            selectedName={normalizedSelected}
+            onSelectName={onSelectName}
+            onSelectPrimPath={onSelectPrimPath}
+            payloadPrimPaths={payloadPrimPaths}
+            unloadedPayloadPaths={unloadedPayloadPaths}
+            onLoadPayload={onLoadPayload}
+            onUnloadPayload={onUnloadPayload}
+          />
+        </SidebarListSection>
       </Panel>
 
       <PanelResizeHandle

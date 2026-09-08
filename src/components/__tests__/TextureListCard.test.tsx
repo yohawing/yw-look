@@ -205,6 +205,7 @@ describe("TextureListCard", () => {
       },
     ];
     const { container, getByRole, getByText } = renderTextureListCard(textures);
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     const filter = getByRole("textbox", { name: "Filter textures" });
 
     fireEvent.change(filter, { target: { value: "BODY" } });
@@ -234,6 +235,7 @@ describe("TextureListCard", () => {
       "tex-2",
     );
 
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     fireEvent.change(getByRole("textbox", { name: "Filter textures" }), {
       target: { value: "diffuse" },
     });
@@ -244,6 +246,7 @@ describe("TextureListCard", () => {
 
   it("resets its filter when the current file identity changes", () => {
     const { getByRole, rerender } = renderTextureListCard([baseTexture], null);
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     const filter = getByRole("textbox", { name: "Filter textures" });
     fireEvent.change(filter, { target: { value: "diffuse" } });
     rerender(
@@ -255,6 +258,7 @@ describe("TextureListCard", () => {
       />,
     );
 
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     expect(
       (getByRole("textbox", { name: "Filter textures" }) as HTMLInputElement)
         .value,
@@ -277,6 +281,7 @@ describe("TextureListCard", () => {
       duplicate,
       japanese,
     ]);
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     const filter = getByRole("textbox", { name: "Filter textures" });
 
     fireEvent.change(filter, { target: { value: "diffuse" } });

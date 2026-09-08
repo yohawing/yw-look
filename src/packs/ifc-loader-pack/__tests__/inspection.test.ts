@@ -91,6 +91,19 @@ describe("IFC element inspection", () => {
     expect(inspection.getSnapshot().elements[1].groups).toEqual([]);
     await inspection.dispose();
   });
+  it("restores material highlights without changing the Outliner selection", async () => {
+    const { model, typed } = fixture();
+    const inspection = await createIfcInspection(typed);
+    await inspection.setColorMode("category");
+    await inspection.select("ifc:1");
+    await inspection.highlightMaterials!([1, 2, 2, 999]);
+    expect(inspection.getSnapshot().selected?.id).toBe(1);
+    expect(model.setColor.mock.calls.at(-1)?.[0]).toEqual([1]);
+    await inspection.highlightMaterials!([]);
+    expect(model.resetHighlight).toHaveBeenLastCalledWith([1, 2]);
+    expect(inspection.getSnapshot().selected?.id).toBe(1);
+    await inspection.dispose();
+  });
   it("uses repeatable element colors and restores category color after deselection", async () => {
     const { model, typed } = fixture();
     const inspection = await createIfcInspection(typed);

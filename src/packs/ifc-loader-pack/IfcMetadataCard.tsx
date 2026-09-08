@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { PackMetadata } from "../../types/format-pack";
 import {
-  Button,
   SelectField,
   Disclosure,
   SidebarEmpty,
@@ -13,7 +12,6 @@ import "./inspection.css";
 
 export function IfcMetadataCard({
   metadata,
-  onSelect,
   view = "display",
   selectedKey,
 }: {
@@ -26,7 +24,6 @@ export function IfcMetadataCard({
   return (
     <IfcInspector
       inspection={metadata.inspection}
-      onSelect={onSelect}
       view={view}
       selectedKey={selectedKey}
     />
@@ -35,7 +32,6 @@ export function IfcMetadataCard({
 
 function IfcInspector({
   inspection,
-  onSelect,
   view = "display",
   selectedKey,
 }: {
@@ -77,14 +73,6 @@ function IfcInspector({
       <SidebarKeyValueRows
         rows={[{ id: "storey", label: "Storey", value: state.selected.storey }]}
       />
-      <Button
-        size="sm"
-        variant="subtle"
-        className="ifc-clear-selection"
-        onClick={() => onSelect?.(null)}
-      >
-        Clear selection
-      </Button>
       {state.loading && (
         <SidebarEmpty>Loading element information…</SidebarEmpty>
       )}

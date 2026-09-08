@@ -48,7 +48,7 @@ describe("IFC inspector", () => {
     });
     expect(inspection.setColorMode).toHaveBeenCalledWith("original");
   });
-  it("groups details under short headings and clears the selected element", () => {
+  it("groups details under short headings without a clear button", () => {
     const selected = {
       id: 20,
       name: "Wall A",
@@ -110,7 +110,8 @@ describe("IFC inspector", () => {
     fireEvent.click(screen.getByText("Concrete"));
     expect(material.open).toBe(true);
     expect(screen.getByText("100")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
-    expect(onSelect).toHaveBeenCalledWith(null);
+    expect(
+      screen.queryByRole("button", { name: "Clear selection" }),
+    ).toBeNull();
   });
 });

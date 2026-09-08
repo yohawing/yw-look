@@ -131,7 +131,7 @@ describe("HierarchySidebarPanel", () => {
     expect(getByText("Museum")).toBeTruthy();
     expect(getByText("2F")).toBeTruthy();
     expect(queryByText("IFC Display")).toBeNull();
-    expect(container.querySelector(".hierarchy-search-toggle")).toBeTruthy();
+    expect(container.querySelector(".yl-list-search-toggle")).toBeTruthy();
     fireEvent.click(getByText("Wall A").closest(".tree-row")!);
     expect(useViewerStore.getState().selectedMeshName).toBe("ifc:20");
     expect(

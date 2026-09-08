@@ -1,3 +1,5 @@
+import { MaterialBrowser } from "./MaterialBrowser";
+import { IfcMaterialsPanel } from "./IfcMaterialsPanel";
 import { useMemo, useState } from "react";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { rgbToHex } from "../lib/format";
@@ -11,8 +13,6 @@ import { SidebarEmpty } from "../lib/sidebarPrimitives";
 import { Badge } from "./ui/Badge";
 import { Disclosure } from "./ui/Disclosure";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
-import { SidebarSplitPanel } from "./ui/SidebarSplitPanel";
-import { ListTextFilter } from "./ui/ListTextFilter";
 import "../styles/material-list.css";
 
 type MaterialListCardProps = {
@@ -349,6 +349,17 @@ export function MaterialListCard(props: MaterialListCardProps) {
   const currentFilePath = useFileStore(
     (state) => state.currentFile?.path ?? null,
   );
+  const packMetadata = useFileStore((state) => state.packMetadata);
+  const { useDebugFixtures } = useDebugPanelFixtures(
+    props.debugPanelsEnabled ?? false,
+  );
+  if (!useDebugFixtures && packMetadata?.kind === "ifc")
+    return (
+      <IfcMaterialsPanel
+        key={currentFilePath}
+        inspection={packMetadata.inspection}
+      />
+    );
   return (
     <MaterialListCardContent
       key={currentFilePath ?? "__no-file__"}
@@ -386,83 +397,37 @@ function MaterialListCardContent({
     materials.length > 0 ? Math.min(selectedIndex, materials.length - 1) : -1;
   const selectedMaterial = activeIndex >= 0 ? materials[activeIndex] : null;
 
-  const materialList = (
-    <div className="material-list-layout">
-      <ListTextFilter
-        ariaLabel="Filter materials"
-        clearLabel="Clear material filter"
-        onChange={setSearchQuery}
-        placeholder="Search materials"
-        value={searchQuery}
-      />
-      {materials.length === 0 ? (
-        <SidebarEmpty>No materials found.</SidebarEmpty>
-      ) : visibleMaterials.length === 0 ? (
-        <SidebarEmpty>No materials match.</SidebarEmpty>
-      ) : (
-        <ul className="material-list">
-          {visibleMaterials.map(({ index, material: mat }) => {
-            return (
-              <li key={mat.id} className="material-item">
-                <button
-                  className={`material-row${index === activeIndex ? " is-selected" : ""}`}
-                  onClick={() => setSelectedIndex(index)}
-                  type="button"
-                >
-                  <span
-                    className={`material-swatch${mat.color ? "" : " material-swatch-none"}`}
-                    style={mat.color ? { background: mat.color } : undefined}
-                  />
-                  <span className="material-info">
-                    <span className="material-name">{mat.name}</span>
-                    <span className="material-meta">
-                      {mat.type} · {mat.textureCount} tex
-                      {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
-                      {mat.boundMeshes.length > 0
-                        ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
-                        : ""}
-                    </span>
-                  </span>
-                  <Badge className="material-count-badge" mono size="sm">
-                    {mat.textureCount}
-                  </Badge>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-
   return (
-    <SidebarSplitPanel
-      className="material-split-panel"
-      handleClassName="material-resize-handle"
-      primary={{
-        bodyClassName: "material-list-scroll",
-        children: materialList,
-        className: "material-list-pane",
-        count: materials.length,
-        defaultSize: 58,
-        id: "material-list",
-        minSize: 24,
-        title: "Materials",
-      }}
-      resizeLabel="Resize material details"
-      secondary={{
-        bodyClassName: "material-detail-scroll",
-        children: selectedMaterial ? (
+    <MaterialBrowser
+      items={visibleMaterials.map(({ material: mat }) => ({
+        id: mat.id,
+        name: mat.name,
+        color: mat.color,
+        count: mat.textureCount,
+        meta: (
+          <>
+            {mat.type} · {mat.textureCount} tex
+            {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
+            {mat.boundMeshes.length > 0
+              ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
+              : ""}
+          </>
+        ),
+      }))}
+      total={materials.length}
+      selectedId={selectedMaterial?.id ?? null}
+      onSelect={(id) =>
+        setSelectedIndex(materials.findIndex((mat) => mat.id === id))
+      }
+      query={searchQuery}
+      onQueryChange={setSearchQuery}
+      details={
+        selectedMaterial ? (
           <MaterialDetailPanel mat={selectedMaterial} />
         ) : (
           <SidebarEmpty>Select a material to inspect it.</SidebarEmpty>
-        ),
-        className: "material-detail-pane",
-        defaultSize: 42,
-        id: "material-detail",
-        minSize: 22,
-        title: "Selected",
-      }}
+        )
+      }
     />
   );
 }

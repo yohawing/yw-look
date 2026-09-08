@@ -35,7 +35,7 @@
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
   overflow: auto;
   list-style: none;
   padding: 0 0 8px;
@@ -43,6 +43,8 @@
 }
 
 .material-item {
+  height: 48px;
+  flex: 0 0 48px;
   margin: 0;
 }
 
@@ -161,4 +163,9 @@
   border: 1px solid var(--yl-border-strong);
   border-radius: var(--yl-radius-2);
   vertical-align: middle;
+}
+
+.material-detail-scroll > .ifc-material-details {
+  padding-right: var(--yl-space-16);
+  padding-bottom: var(--yl-space-12);
 }

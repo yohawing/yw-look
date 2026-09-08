@@ -1,9 +1,7 @@
 .ifc-inspector {
   min-width: 0;
 }
-.ifc-clear-selection {
-  margin-top: var(--yl-space-8);
-}
+
 .ifc-detail-section > .yl-disclosure__summary .yl-disclosure__title {
   white-space: normal;
   overflow-wrap: anywhere;

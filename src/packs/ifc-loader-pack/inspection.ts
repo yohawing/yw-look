@@ -11,6 +11,8 @@ import type {
   IfcInspectionSnapshot,
   IfcDetailSection,
   IfcColorMode,
+  IfcMaterialCatalog,
+  IfcMaterialRecord,
 } from "../../types/ifc";
 
 type InspectionModel = Pick<
@@ -166,6 +168,7 @@ export async function loadIfcDetails(
 
 export async function createIfcInspection(
   model: InspectionModel,
+  materials?: IfcMaterialCatalog,
 ): Promise<IfcInspection> {
   const tree = await model.getSpatialStructure();
   const geometryIds = new Set(await model.getItemsIdsWithGeometry());
@@ -258,7 +261,9 @@ export async function createIfcInspection(
   let generation = 0;
   let highlights = Promise.resolve();
   let appliedMode: IfcColorMode = "original";
-  let highlighted: IfcElement | null = null;
+  let highlighted: number[] = [];
+  let materialHighlight: readonly number[] = [];
+  const byId = new Map(elements.map((element) => [element.id, element]));
   const tint = (ids: number[], color: string) =>
     model.setColor(ids, new Color(color));
   const queueAppearance = () => {
@@ -284,20 +289,38 @@ export async function createIfcInspection(
             }
           }
           appliedMode = colorMode;
-          highlighted = null;
+          highlighted = [];
         }
-        if (highlighted) {
-          await model.resetHighlight([highlighted.id]);
+        if (highlighted.length) {
+          await model.resetHighlight(highlighted);
           if (disposed) return;
-          if (colorMode !== "original")
-            await tint(
-              [highlighted.id],
-              ifcElementColor(highlighted, colorMode),
-            );
+          if (colorMode !== "original") {
+            const restore = new Map<string, number[]>();
+            for (const id of highlighted) {
+              const element = byId.get(id);
+              if (!element) continue;
+              const color = ifcElementColor(element, colorMode);
+              const ids = restore.get(color) ?? [];
+              ids.push(id);
+              restore.set(color, ids);
+            }
+            for (const [color, ids] of restore) {
+              if (disposed) return;
+              await tint(ids, color);
+            }
+          }
         }
         if (disposed) return;
+        if (materialHighlight.length)
+          await tint([...materialHighlight], "#59d5df");
+        if (disposed) return;
         if (selected) await tint([selected.id], "#ffc857");
-        highlighted = selected;
+        highlighted = [
+          ...new Set([
+            ...materialHighlight,
+            ...(selected ? [selected.id] : []),
+          ]),
+        ];
       });
     return highlights;
   };
@@ -343,6 +366,51 @@ export async function createIfcInspection(
     }
   };
   return {
+    materials,
+    getDisplayMaterials() {
+      const definitions = materials?.display ?? [];
+      if (snapshot.colorMode === "original") return definitions;
+      const generated = new Map<string, IfcMaterialRecord>();
+      for (const element of elements) {
+        const color = ifcElementColor(element, snapshot.colorMode);
+        const key =
+          snapshot.colorMode === "category" ? element.category : color;
+        let record = generated.get(key);
+        if (!record) {
+          record = {
+            id: `viewer:${snapshot.colorMode}:${key}`,
+            name: `${snapshot.colorMode === "category" ? "Category color" : "Element color"} · ${key}`,
+            kind: "display",
+            origin: snapshot.colorMode,
+            rows: [
+              { name: "Color", value: color },
+              {
+                name: "Opacity / Textures",
+                value: "Inherited from import settings",
+              },
+            ],
+            elementIds: [],
+            shapeIds: [],
+            linkedIds: [],
+            color,
+          };
+          generated.set(key, record);
+        }
+        record.elementIds.push(element.id);
+      }
+      return [...generated.values(), ...definitions];
+    },
+    async highlightMaterials(ids) {
+      if (disposed) return;
+      materialHighlight = [...new Set(ids)].filter((id) => byId.has(id));
+      const operation = queueAppearance();
+      active.add(operation);
+      try {
+        await operation;
+      } finally {
+        active.delete(operation);
+      }
+    },
     getSnapshot: () => snapshot,
     subscribe: (listener) => {
       listeners.add(listener);

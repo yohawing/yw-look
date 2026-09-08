@@ -32,9 +32,28 @@ export type IfcInspectionSnapshot = {
 };
 
 export type IfcInspection = {
+  materials?: IfcMaterialCatalog;
+  getDisplayMaterials?: () => readonly IfcMaterialRecord[];
+  highlightMaterials?: (elementIds: readonly number[]) => Promise<void>;
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => IfcInspectionSnapshot;
   setColorMode: (mode: IfcColorMode) => Promise<void>;
   select: (key: string | null) => Promise<void>;
   dispose: () => Promise<void>;
+};
+
+export type IfcMaterialRecord = {
+  id: string;
+  name: string;
+  kind: "building" | "display";
+  origin: "source" | "loader" | "fallback" | "category" | "element";
+  rows: { name: string; value: string }[];
+  elementIds: number[];
+  shapeIds: number[];
+  linkedIds: string[];
+  color: string | null;
+};
+export type IfcMaterialCatalog = {
+  building: IfcMaterialRecord[];
+  display: IfcMaterialRecord[];
 };

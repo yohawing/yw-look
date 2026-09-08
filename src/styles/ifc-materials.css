@@ -1,0 +1,19 @@
+.ifc-material-details h3 {
+  margin: 0 0 var(--yl-space-8);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ifc-material-details .yl-kv-key,
+.ifc-material-details .yl-kv-value {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ifc-material-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  margin-top: var(--yl-space-4);
+}

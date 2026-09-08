@@ -123,7 +123,7 @@ export function ArboristHierarchyTree(props: Props) {
               width={size.width}
               height={size.height}
               rowHeight={24}
-              indent={0}
+              indent={16}
               overscanCount={6}
               openByDefault={false}
               initialOpenState={index.initialOpenState}
@@ -189,7 +189,7 @@ function HierarchyRow({ node: nodeApi, style, tree }: NodeRendererProps<Item>) {
       className={`tree-row${isSelected ? " is-selected" : ""}${
         onSelectName && node.name ? " is-clickable" : ""
       }`}
-      style={{ ...style, paddingLeft: 6 }}
+      style={{ ...style, paddingLeft: 6 + nodeApi.level * 16 }}
       onClick={
         // Unnamed nodes (e.g. anonymous Three.js wrappers) have no
         // stable selection key, so skip the click rather than letting

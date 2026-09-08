@@ -5,7 +5,6 @@ import { SelectableListItem } from "./ui";
 import { Badge, BadgeButton } from "./ui/Badge";
 import { KeyValueRows, type KeyValueRow } from "./ui/KeyValueRows";
 import { SidebarSplitPanel } from "./ui/SidebarSplitPanel";
-import { ListTextFilter } from "./ui/ListTextFilter";
 import "../styles/texture-list.css";
 
 type TextureListCardProps = {
@@ -158,13 +157,6 @@ function TextureListCardContent({
 
   const textureList = (
     <div className="texture-list-layout">
-      <ListTextFilter
-        ariaLabel="Filter textures"
-        clearLabel="Clear texture filter"
-        onChange={setSearchQuery}
-        placeholder="Search textures"
-        value={searchQuery}
-      />
       {textures.length > 0 ? (
         <>
           <div
@@ -266,6 +258,13 @@ function TextureListCardContent({
       className="texture-split-panel"
       handleClassName="texture-resize-handle"
       primary={{
+        search: {
+          ariaLabel: "Filter textures",
+          clearLabel: "Clear texture filter",
+          onChange: setSearchQuery,
+          placeholder: "Search textures",
+          value: searchQuery,
+        },
         bodyClassName: "texture-list-scroll",
         children: textureList,
         className: "texture-grid-pane",

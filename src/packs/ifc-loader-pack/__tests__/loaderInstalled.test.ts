@@ -53,6 +53,10 @@ const mocks = vi.hoisted(() => {
   return { ...state, MockIfcImporter, MockFragmentsModels };
 });
 
+vi.mock("../materialSource", () => ({
+  readIfcMaterials: vi.fn().mockResolvedValue({ building: [], display: [] }),
+}));
+
 vi.mock("@thatopen/fragments", () => ({
   FragmentsModels: mocks.MockFragmentsModels,
   IfcImporter: mocks.MockIfcImporter,
@@ -99,6 +103,7 @@ describe("installed IFC loader", () => {
         .fn()
         .mockResolvedValue({ category: "IFCPROJECT", localId: null }),
       getItemsIdsWithGeometry: vi.fn().mockResolvedValue([]),
+      getItemsMaterialDefinition: vi.fn().mockResolvedValue([]),
       getItemsData: vi.fn().mockResolvedValue([]),
       resetHighlight: vi.fn().mockResolvedValue(undefined),
       setColor: vi.fn().mockResolvedValue(undefined),

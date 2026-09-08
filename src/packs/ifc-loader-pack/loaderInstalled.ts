@@ -1,3 +1,5 @@
+import { readIfcMaterials } from "./materialSource";
+import { Color } from "three";
 import { buildIfcHierarchy } from "../../lib/ifcHierarchy";
 import type { HierarchyNode } from "../../types/viewer";
 import { IFCGROUP, IFCRELASSIGNSTOGROUP } from "web-ifc";
@@ -87,7 +89,41 @@ export async function loadIfcPreviewObject(
           : new Group().add(model.object);
       object.name ||= `${file.fileName} IFC Preview`;
 
-      const inspection = await createIfcInspection(model);
+      const materialIds = await model.getItemsIdsWithGeometry();
+      const materials = await readIfcMaterials(
+        new Uint8Array(fileBytes),
+        webIfcWasmUrl,
+        materialIds,
+        context.signal,
+      );
+      const definitions = await model.getItemsMaterialDefinition(materialIds);
+      const noSourceBindings = materials.display.every(
+        (style) => !style.shapeIds.length && !style.linkedIds.length,
+      );
+      definitions.forEach(({ definition, localIds }, index) => {
+        const color = new Color().copy(definition.color).getHexString();
+        materials.display.push({
+          id: `render:${index}`,
+          name: `Imported material ${index + 1}`,
+          kind: "display",
+          origin: noSourceBindings ? "fallback" : "loader",
+          rows: [
+            { name: "Color", value: `#${color}` },
+            { name: "Opacity", value: String(definition.opacity) },
+            { name: "Transparent", value: String(definition.transparent) },
+            { name: "Rendered faces", value: String(definition.renderedFaces) },
+            {
+              name: "Textures",
+              value: "No texture information retained by loader",
+            },
+          ],
+          elementIds: [...new Set(localIds)],
+          shapeIds: [],
+          linkedIds: [],
+          color: `#${color}`,
+        });
+      });
+      const inspection = await createIfcInspection(model, materials);
       throwIfAborted(context.signal);
       registerIfcInspection(object, inspection);
       await inspection.setColorMode("category");

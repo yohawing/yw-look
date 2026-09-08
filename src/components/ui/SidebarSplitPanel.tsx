@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
-import { ChevronDownIcon } from "@radix-ui/react-icons";
+import {
+  SidebarListSection,
+  type SidebarListSearch,
+} from "./SidebarListSection";
 import {
   Group as PanelGroup,
   Panel,
@@ -15,6 +18,7 @@ export type SidebarSplitPane = {
   id: string;
   minSize: number;
   title: ReactNode;
+  search?: SidebarListSearch;
 };
 
 export type SidebarSplitPanelProps = {
@@ -44,19 +48,15 @@ function SplitPane({ pane }: { pane: SidebarSplitPane }) {
       id={pane.id}
       minSize={pane.minSize}
     >
-      <section className="yl-sidebar-split__section yl-disclosure yl-disclosure--section">
-        <div className="yl-disclosure__summary">
-          <ChevronDownIcon
-            className="yl-disclosure__chevron"
-            aria-hidden="true"
-          />
-          <span className="yl-disclosure__title">{pane.title}</span>
-          {pane.count != null ? (
-            <span className="yl-disclosure__count">{pane.count}</span>
-          ) : null}
-        </div>
-        <div className={bodyClassName}>{pane.children}</div>
-      </section>
+      <SidebarListSection
+        className="yl-sidebar-split__section"
+        title={pane.title}
+        count={pane.count}
+        search={pane.search}
+        bodyClassName={bodyClassName}
+      >
+        {pane.children}
+      </SidebarListSection>
     </Panel>
   );
 }

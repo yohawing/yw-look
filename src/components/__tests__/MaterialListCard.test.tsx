@@ -238,6 +238,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
       renderWithMaterials([baseMat, otherMaterial]);
 
     fireEvent.click(getByRole("button", { name: /Other/ }));
+    fireEvent.click(getByRole("button", { name: "Search materials" }));
     fireEvent.change(getByRole("textbox", { name: "Filter materials" }), {
       target: { value: "gold" },
     });
@@ -252,6 +253,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
 
   it("resets its filter when the current file changes", async () => {
     const { getByRole } = renderWithMaterials([baseMat]);
+    fireEvent.click(getByRole("button", { name: "Search materials" }));
     const filter = getByRole("textbox", { name: "Filter materials" });
     fireEvent.change(filter, { target: { value: "gold" } });
     expect((filter as HTMLInputElement).value).toBe("gold");
@@ -268,6 +270,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
       });
     });
 
+    fireEvent.click(getByRole("button", { name: "Search materials" }));
     await waitFor(() => {
       expect(
         (getByRole("textbox", { name: "Filter materials" }) as HTMLInputElement)
@@ -292,6 +295,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
       duplicate,
       japanese,
     ]);
+    fireEvent.click(getByRole("button", { name: "Search materials" }));
     const filter = getByRole("textbox", { name: "Filter materials" });
 
     fireEvent.change(filter, { target: { value: "gold" } });
