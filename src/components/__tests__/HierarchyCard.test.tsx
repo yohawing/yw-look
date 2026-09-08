@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { HierarchyCard } from "../HierarchyCard";
 import type { HierarchyNode, ObjectInfo } from "../assetMetadata";
 import {
@@ -164,7 +164,7 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(container.textContent).toContain("Arm");
   });
 
-  it("lets users collapse and reopen an ancestor of the selected element", () => {
+  it("lets users collapse and reopen an ancestor of the selected element", async () => {
     const { container, rerender } = render(
       <HierarchyCard hierarchy={tree} selectedName="Arm" />,
     );
@@ -173,10 +173,15 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(container.querySelector(".tree-row.is-selected")).toBeNull();
     rerender(<HierarchyCard hierarchy={tree} selectedName="Arm" />);
     expect(container.querySelector(".tree-row.is-selected")).toBeNull();
-    rerender(<HierarchyCard hierarchy={tree} selectedName={null} />);
-    rerender(<HierarchyCard hierarchy={tree} selectedName="Arm" />);
     fireEvent.click(container.querySelector('button[aria-label="Expand"]')!);
     expect(container.querySelector(".tree-row.is-selected")).toBeTruthy();
+    fireEvent.click(container.querySelector('button[aria-label="Collapse"]')!);
+    rerender(<HierarchyCard hierarchy={tree} selectedName="Torso" />);
+    await waitFor(() =>
+      expect(
+        container.querySelector(".tree-row.is-selected")?.textContent,
+      ).toContain("Torso"),
+    );
   });
   it("toggles selection off when the active row is clicked again", () => {
     const onSelect = vi.fn();
@@ -249,6 +254,48 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(arm).toBeTruthy();
     fireEvent.click(arm!);
     expect(onSelect).toHaveBeenCalledWith("Arm");
+  });
+
+  it("virtualizes large lists and reveals external selection", async () => {
+    const nodes = Array.from({ length: 4000 }, (_, i) => ({
+      name: `Part ${i}`,
+      kind: "mesh",
+      children: [],
+    }));
+    const { container, rerender } = render(<HierarchyCard hierarchy={nodes} />);
+    expect(container.querySelectorAll(".tree-row").length).toBeLessThan(50);
+    rerender(<HierarchyCard hierarchy={nodes} selectedName="Part 3999" />);
+    await waitFor(() =>
+      expect(
+        container.querySelector(".tree-row.is-selected")?.textContent,
+      ).toContain("Part 3999"),
+    );
+    expect(container.querySelectorAll(".tree-row").length).toBeLessThan(50);
+  });
+
+  it("keeps keyboard selection on semantic IDs and permits F to bubble", () => {
+    const onSelect = vi.fn();
+    const onKeyDown = vi.fn();
+    const nodes = [
+      { name: "ifc:20", displayName: "Wall", kind: "IFCWALL", children: [] },
+      { name: "ifc:21", displayName: "Door", kind: "IFCDOOR", children: [] },
+    ];
+    const { getByRole } = render(
+      <div onKeyDown={onKeyDown}>
+        <HierarchyCard
+          hierarchy={nodes}
+          selectedName="ifc:20"
+          onSelectName={onSelect}
+        />
+      </div>,
+    );
+    fireEvent.focus(getByRole("tree"));
+    fireEvent.keyDown(getByRole("tree"), { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenCalledWith("ifc:21");
+    onSelect.mockClear();
+    fireEvent.keyDown(getByRole("tree"), { key: "f" });
+    expect(onKeyDown).toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("renders morph target sliders for the selected mesh and forwards changes", () => {

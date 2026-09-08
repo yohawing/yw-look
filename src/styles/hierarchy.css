@@ -27,6 +27,7 @@
 }
 
 .hierarchy-outliner-body {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -47,9 +48,10 @@
 }
 
 .hierarchy-tree-scroll {
+  position: relative;
   min-height: 0;
   flex: 1 1 auto;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .hierarchy-resize-handle {
@@ -92,25 +94,6 @@
 .hierarchy-resize-handle[data-resize-handle-active]::after {
   background: var(--yl-accent);
   opacity: 1;
-}
-
-.tree-root,
-.tree-children {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.tree-root {
-  padding: 0;
-}
-
-.tree-children {
-  padding: 0;
-}
-
-.tree-item + .tree-item {
-  margin-top: 0;
 }
 
 .tree-row {
@@ -298,4 +281,9 @@
   grid-column: 3;
   min-width: 0;
   gap: 0;
+}
+
+.hierarchy-tree-scroll .tree-row {
+  height: 24px;
+  box-sizing: border-box;
 }

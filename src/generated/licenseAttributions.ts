@@ -92,6 +92,12 @@ export const webRuntimeLicenseAttributions = [
     source: "web",
   },
   {
+    name: "react-arborist",
+    version: "3.16.0",
+    license: "MIT",
+    source: "web",
+  },
+  {
     name: "react-dom",
     version: "19.2.8",
     license: "MIT",

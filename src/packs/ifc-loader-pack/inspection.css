@@ -17,3 +17,10 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* Selected already supplies the panel inset; nested details stay aligned. */
+.selected-kv .ifc-inspector > .yl-disclosure--section > .yl-disclosure__summary,
+.selected-kv .ifc-inspector > .yl-disclosure--section > .yl-disclosure__body {
+  padding-left: 0;
+  padding-right: 0;
+}
