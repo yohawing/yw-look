@@ -1594,14 +1594,14 @@ export function applyBoundingBoxHelpers(
       return;
     }
 
-    const helper = new Box3Helper(worldBounds, 0xf4f7ff);
+    const helper = new Box3Helper(worldBounds, 0xa8afb8);
     helper.userData[BBOX_HELPER_FLAG] = true;
     const materials = getMaterials(helper.material);
     for (const material of materials) {
       material.visible = false;
     }
     helper.renderOrder = 2;
-    // A narrow dark rim separates the bright center line from light surfaces.
+    // Muted gray layers keep dense boxes subdued but distinct on light surfaces.
     // Screen-space width stays legible regardless of model scale or zoom.
     const edges = helper.geometry.toNonIndexed();
     const lineGeometry = new LineSegmentsGeometry().setPositions(
@@ -1609,8 +1609,8 @@ export function applyBoundingBoxHelpers(
     );
     edges.dispose();
     for (const [color, linewidth, renderOrder] of [
-      [0x16191f, 2.5, 1.9],
-      [0xf4f7ff, 1, 2],
+      [0x4a5058, 2.5, 1.9],
+      [0xa8afb8, 1, 2],
     ]) {
       const line = new LineSegments2(
         lineGeometry,
