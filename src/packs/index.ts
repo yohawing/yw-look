@@ -84,7 +84,6 @@ export function getMetadataCardForPackMetadata(metadata: PackMetadata) {
 export function renderMetadataCardForPackMetadata(
   metadata: PackMetadata,
   options: {
-    view?: "properties" | "hierarchy";
     onSelect?: (key: string | null) => void;
   } = {},
 ) {

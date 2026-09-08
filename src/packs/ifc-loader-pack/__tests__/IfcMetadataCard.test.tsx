@@ -4,7 +4,7 @@ import type { IfcInspectionSnapshot } from "../../../types/ifc";
 import { IfcMetadataCard } from "../IfcMetadataCard";
 
 describe("IFC inspector", () => {
-  it("filters elements, selects instance keys, and switches display modes", () => {
+  it("switches display modes in Properties", () => {
     const state: IfcInspectionSnapshot = {
       elements: [
         {
@@ -40,17 +40,9 @@ describe("IFC inspector", () => {
     render(
       <IfcMetadataCard
         metadata={{ kind: "ifc", inspection }}
-        view="hierarchy"
         onSelect={onSelect}
       />,
     );
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Filter IFC elements" }),
-      { target: { value: "2F" } },
-    );
-    expect(screen.queryByRole("button", { name: /Door B/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Wall A/ }));
-    expect(onSelect).toHaveBeenCalledWith("ifc:20");
     fireEvent.change(screen.getByRole("combobox", { name: "IFC color mode" }), {
       target: { value: "original" },
     });

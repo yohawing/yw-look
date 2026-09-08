@@ -65,7 +65,6 @@ export type FormatPack = LoaderPlugin & {
   ) => PackMetadata | null;
   MetadataCard?: ComponentType<{
     metadata: PackMetadata;
-    view?: "properties" | "hierarchy";
     onSelect?: (key: string | null) => void;
   }>;
   createRuntime?: (context: SceneContext) => PackRuntime;

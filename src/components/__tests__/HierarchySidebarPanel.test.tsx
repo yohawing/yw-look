@@ -50,6 +50,7 @@ beforeEach(() => {
     assetInspection: null,
     assetMetadata: null,
     packFileRequest: null,
+    packMetadata: null,
     openError: null,
   });
   useViewerStore.setState({
@@ -88,6 +89,61 @@ function makeMetadata({
 }
 
 describe("HierarchySidebarPanel", () => {
+  it("uses the shared tree and selection panel for IFC semantic elements", () => {
+    useFileStore.setState({
+      packMetadata: {
+        kind: "ifc",
+        inspection: {
+          getSnapshot: () => ({
+            elements: [
+              {
+                id: 20,
+                name: "Wall A",
+                category: "IFCWALL",
+                building: "Museum",
+                storey: "2F",
+              },
+            ],
+            selected: null,
+            sections: [],
+            colorMode: "category",
+            loading: false,
+            error: null,
+            limited: false,
+          }),
+          subscribe: () => () => {},
+          select: vi.fn(),
+          setColorMode: vi.fn(),
+          dispose: vi.fn(),
+        },
+      },
+    });
+    const { container, getByText, queryByText } = render(
+      <HierarchySidebarPanel
+        stageSessionHandle={null}
+        payloadPrimPaths={new Set()}
+        unloadedPayloadPaths={new Set()}
+        onLoadPayload={vi.fn()}
+        onUnloadPayload={vi.fn()}
+      />,
+    );
+    expect(getByText("Museum")).toBeTruthy();
+    expect(getByText("2F")).toBeTruthy();
+    expect(queryByText("IFC Display")).toBeNull();
+    expect(container.querySelector(".hierarchy-search-toggle")).toBeTruthy();
+    fireEvent.click(getByText("Wall A").closest(".tree-row")!);
+    expect(useViewerStore.getState().selectedMeshName).toBe("ifc:20");
+    expect(
+      container.querySelector(".tree-row.is-selected")?.textContent,
+    ).toContain("Wall A");
+    fireEvent.click(container.querySelector(".tree-row.is-selected")!);
+    expect(useViewerStore.getState().selectedMeshName).toBeNull();
+    act(() => useViewerStore.getState().setSelectedMeshName("ifc:20"));
+    expect(
+      container.querySelector(".tree-row.is-selected")?.textContent,
+    ).toContain("Wall A");
+  });
+
   it("selects a hierarchy row through the viewer store", () => {
     const hierarchy: HierarchyNode[] = [
       { name: "Face", kind: "mesh", children: [] },

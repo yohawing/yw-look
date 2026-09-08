@@ -11,36 +11,6 @@
 .ifc-clear-selection {
   margin-top: var(--yl-space-8);
 }
-.ifc-element-list {
-  list-style: none;
-  margin: var(--yl-space-4) 0;
-  padding: 0;
-}
-.ifc-element-list .yl-selectable-list-item {
-  padding: var(--yl-space-6) var(--yl-space-8);
-}
-.ifc-element-list .yl-selectable-list-item[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--yl-accent) 16%, transparent);
-  color: var(--yl-accent);
-}
-.ifc-element-list .yl-selectable-list-item:hover {
-  background: var(--yl-surface-glass-3);
-}
-.ifc-element-list span,
-.ifc-element-list small {
-  display: block;
-  overflow-wrap: anywhere;
-}
-.ifc-element-list small {
-  color: var(--yl-text-tertiary);
-  font-size: 10px;
-  margin-top: var(--yl-space-2);
-}
-.ifc-element-browser {
-  max-height: 34vh;
-  overflow: auto;
-  margin-top: var(--yl-space-8);
-}
 .ifc-detail-section > .yl-disclosure__summary .yl-disclosure__title {
   white-space: normal;
   overflow-wrap: anywhere;

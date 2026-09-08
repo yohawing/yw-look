@@ -304,11 +304,6 @@ export function useSidebarModel({
           </>
         );
       case "hierarchy":
-        if (sidebarPackMetadata?.kind === "ifc")
-          return renderMetadataCardForPackMetadata(sidebarPackMetadata, {
-            view: "hierarchy",
-            onSelect: useViewerStore.getState().setSelectedMeshName,
-          });
         return (
           <HierarchySidebarPanel
             debugPanelsEnabled={debugPanelsEnabled}
