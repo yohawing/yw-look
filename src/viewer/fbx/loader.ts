@@ -223,10 +223,14 @@ function readDdsDimension(buffer: ArrayBuffer, offset: number) {
   return new DataView(buffer).getUint32(offset, true);
 }
 
-function decodeBc4Block(block: Uint8Array, offset: number) {
+function decodeBc4Block(
+  block: Uint8Array,
+  offset: number,
+  palette: Uint8Array,
+  values: Uint8Array,
+) {
   const endpoint0 = block[offset];
   const endpoint1 = block[offset + 1];
-  const palette = new Uint8Array(8);
   palette[0] = endpoint0;
   palette[1] = endpoint1;
 
@@ -242,19 +246,20 @@ function decodeBc4Block(block: Uint8Array, offset: number) {
     palette[7] = 255;
   }
 
-  let indices = 0;
-  for (let i = 0; i < 6; i += 1) {
-    indices += block[offset + 2 + i] * 2 ** (8 * i);
-  }
-
-  const values = new Uint8Array(16);
+  let low =
+    block[offset + 2] |
+    (block[offset + 3] << 8) |
+    (block[offset + 4] << 16) |
+    (block[offset + 5] << 24);
+  let high = block[offset + 6] | (block[offset + 7] << 8);
   for (let i = 0; i < values.length; i += 1) {
-    values[i] = palette[Math.floor(indices / 2 ** (3 * i)) & 0x07];
+    values[i] = palette[low & 7];
+    low = (low >>> 3) | ((high & 7) << 29);
+    high >>>= 3;
   }
-  return values;
 }
 
-function decodeDdsAti2NormalMap(buffer: ArrayBuffer) {
+export function decodeDdsAti2NormalMap(buffer: ArrayBuffer) {
   if (buffer.byteLength < 128 || getDdsFourCC(buffer) !== "ATI2") {
     throw new Error("DDS texture is not ATI2/BC5.");
   }
@@ -270,11 +275,14 @@ function decodeDdsAti2NormalMap(buffer: ArrayBuffer) {
   }
 
   const data = new Uint8Array(width * height * 4);
+  const palette = new Uint8Array(8);
+  const xValues = new Uint8Array(16);
+  const yValues = new Uint8Array(16);
   for (let blockY = 0; blockY < blocksHigh; blockY += 1) {
     for (let blockX = 0; blockX < blocksWide; blockX += 1) {
       const blockOffset = 128 + (blockY * blocksWide + blockX) * 16;
-      const xValues = decodeBc4Block(source, blockOffset);
-      const yValues = decodeBc4Block(source, blockOffset + 8);
+      decodeBc4Block(source, blockOffset, palette, xValues);
+      decodeBc4Block(source, blockOffset + 8, palette, yValues);
 
       for (let localY = 0; localY < 4; localY += 1) {
         const y = blockY * 4 + localY;
@@ -1283,6 +1291,7 @@ export function hydrateFbxDeferredTexturePlaceholders(
   object: Object3D,
   loadDeferredTexture: (reference: string) => Texture,
 ) {
+  const hydratedMaterials = new Set<Material>();
   const rootBindings = object.userData?.fbxTextureBindings;
   const bindings = Array.isArray(rootBindings) ? rootBindings : [];
 
@@ -1339,9 +1348,10 @@ export function hydrateFbxDeferredTexturePlaceholders(
       : [child.material];
 
     for (const material of materials) {
-      if (!material) {
+      if (!material || hydratedMaterials.has(material)) {
         continue;
       }
+      hydratedMaterials.add(material);
       const materialRecord = material as unknown as Record<string, unknown>;
       const materialBindings = bindings.filter(
         (candidate): candidate is FbxBinding =>

@@ -23,6 +23,7 @@ import {
   applyMissingTextureMaterialFallback,
   copyDecodedFbxTextureImage,
   createFbxPendingImageTexture,
+  decodeDdsAti2NormalMap,
   hydrateFbxDeferredTexturePlaceholders,
   registerFbxTextureMaterialFallbacks,
   resolveMissingTextureLabel,
@@ -65,6 +66,78 @@ const fbxFile: SelectedFile = {
 };
 
 describe("FBX missing texture fallback", () => {
+  it.each([
+    [4, 4],
+    [5, 7],
+    [31, 17],
+  ])("matches a 48-bit BC5 reference for %sx%s pixels", (width, height) => {
+    const bytes = new Uint8Array(
+      128 + Math.ceil(width / 4) * Math.ceil(height / 4) * 16,
+    );
+    const header = new DataView(bytes.buffer);
+    header.setUint32(12, height, true);
+    header.setUint32(16, width, true);
+    bytes.set(new TextEncoder().encode("ATI2"), 84);
+    for (let i = 128; i < bytes.length; i++)
+      bytes[i] = (i * 73 + (i >>> 3) * 31) & 255;
+    const sample = (offset: number, index: number) => {
+      const a = bytes[offset],
+        b = bytes[offset + 1];
+      const palette =
+        a > b
+          ? [
+              a,
+              b,
+              ...Array.from({ length: 6 }, (_, i) =>
+                Math.round(((6 - i) * a + (i + 1) * b) / 7),
+              ),
+            ]
+          : [
+              a,
+              b,
+              ...Array.from({ length: 4 }, (_, i) =>
+                Math.round(((4 - i) * a + (i + 1) * b) / 5),
+              ),
+              0,
+              255,
+            ];
+      let bits = 0n;
+      for (let i = 0; i < 6; i++)
+        bits |= BigInt(bytes[offset + 2 + i]) << BigInt(i * 8);
+      return palette[Number((bits >> BigInt(index * 3)) & 7n)];
+    };
+    const decoded = decodeDdsAti2NormalMap(bytes.buffer);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const offset =
+            128 + ((y >>> 2) * Math.ceil(width / 4) + (x >>> 2)) * 16,
+          index = (y % 4) * 4 + (x % 4);
+        const r = sample(offset, index),
+          g = sample(offset + 8, index);
+        const z = Math.sqrt(
+          Math.max(0, 1 - (r / 127.5 - 1) ** 2 - (g / 127.5 - 1) ** 2),
+        );
+        expect([
+          ...decoded.data.slice((y * width + x) * 4, (y * width + x + 1) * 4),
+        ]).toEqual([r, g, Math.round((z * 0.5 + 0.5) * 255), 255]);
+      }
+    expect(() => decodeDdsAti2NormalMap(bytes.buffer.slice(0, -1))).toThrow(
+      "truncated",
+    );
+  });
+
+  it("hydrates a shared material only once across its meshes", () => {
+    const material = new MeshStandardMaterial();
+    material.userData.fbxBaseColorSource = "albedo.png";
+    const root = new Group();
+    root.add(
+      new Mesh(new BoxGeometry(), material),
+      new Mesh(new BoxGeometry(), material),
+    );
+    const load = vi.fn(() => new Texture());
+    hydrateFbxDeferredTexturePlaceholders(root, load);
+    expect(load).toHaveBeenCalledExactlyOnceWith("albedo.png");
+  });
   it("hydrates the matching external material after Worker roundtrip even when the image failed to decode", () => {
     const root = new Group();
     const material = new MeshStandardMaterial();
