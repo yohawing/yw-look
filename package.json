@@ -97,7 +97,7 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-log": "^2.9.0",
     "@xmldom/xmldom": "0.9.12",
-    "@yohawing/timeline-editor": "git+https://github.com/yohawing/timeline-editor.git#4adb126a4c48a3bb80873ef643fba55752f30cae",
+    "@yohawing/timeline-editor": "git+https://github.com/yohawing/timeline-editor.git#26263e440ea202e0888d53ca4c067f4c9cc81913",
     "react": "^19.2.8",
     "react-arborist": "3.16.0",
     "react-dom": "^19.2.8",

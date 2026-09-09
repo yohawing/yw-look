@@ -266,9 +266,3 @@
     display: flex;
   }
 }
-
-@container animation-bar (max-width: 380px) {
-  .playback-timeline .timeline-editor__tick:nth-of-type(even) {
-    visibility: hidden;
-  }
-}
