@@ -2,21 +2,45 @@ import { accessSync, constants } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveCargoTargetDirectory as resolveCargoTargetDirectoryFromCargo } from "./cargo-target-directory.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
 
-const exeSuffix = process.platform === "win32" ? ".exe" : "";
-const binaryName = `flip_compare${exeSuffix}`;
 const cargoManifest = path.join(repoRoot, "src-tauri", "Cargo.toml");
+const defaultTargetDirectory = path.join(repoRoot, "src-tauri", "target");
 
-function findBinary() {
-  const candidates = [
-    path.join(repoRoot, "src-tauri", "target", "debug", binaryName),
-    path.join(repoRoot, "src-tauri", "target", "release", binaryName),
+function binaryNameForPlatform(platform = process.platform) {
+  return `flip_compare${platform === "win32" ? ".exe" : ""}`;
+}
+
+export function resolveCargoTargetDirectory(options = {}) {
+  return resolveCargoTargetDirectoryFromCargo({
+    cwd: repoRoot,
+    manifest: cargoManifest,
+    fallback: defaultTargetDirectory,
+    ...options,
+  });
+}
+
+export function binaryCandidates(
+  targetDirectory = defaultTargetDirectory,
+  platform = process.platform,
+) {
+  const binaryName = binaryNameForPlatform(platform);
+  return [
+    path.join(targetDirectory, "debug", binaryName),
+    path.join(targetDirectory, "release", binaryName),
   ];
+}
+
+export function findBinary(
+  targetDirectory = defaultTargetDirectory,
+  platform = process.platform,
+) {
+  const candidates = binaryCandidates(targetDirectory, platform);
   for (const candidate of candidates) {
     try {
       accessSync(candidate, constants.X_OK);
@@ -28,7 +52,8 @@ function findBinary() {
   return null;
 }
 
-let binaryPath = findBinary();
+const cargoTargetDirectory = resolveCargoTargetDirectory();
+let binaryPath = findBinary(cargoTargetDirectory);
 
 function buildBinary() {
   if (binaryPath) return;
@@ -48,15 +73,21 @@ function buildBinary() {
     {
       cwd: repoRoot,
       stdio: "inherit",
-      shell: process.platform === "win32",
+      shell: false,
     },
   );
   if (result.status !== 0) {
     throw new Error("cargo build flip_compare failed");
   }
-  binaryPath = findBinary();
+  binaryPath = findBinary(cargoTargetDirectory);
   if (!binaryPath) {
-    throw new Error("flip_compare binary not found after build");
+    throw new Error(
+      [
+        "flip_compare binary not found after build",
+        "Searched:",
+        ...binaryCandidates(cargoTargetDirectory),
+      ].join("\n"),
+    );
   }
 }
 
@@ -99,7 +130,7 @@ export async function flipCompare({
     const child = spawn(binaryPath, args, {
       cwd: repoRoot,
       stdio: ["ignore", "pipe", "pipe"],
-      shell: process.platform === "win32",
+      shell: false,
     });
 
     child.stdout.on("data", (chunk) => {

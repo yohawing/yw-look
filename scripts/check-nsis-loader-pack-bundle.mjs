@@ -7,20 +7,59 @@ import {
   buildPackManifest,
   readPackageVersion,
 } from "./prepare-nsis-loader-pack-hooks.mjs";
+import { resolveCargoTargetDirectory } from "./cargo-target-directory.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const bundleRoot = path.join(
-  repoRoot,
-  "src-tauri",
-  "target",
-  "release",
-  "bundle",
-);
-const nsisHookDir = path.join(repoRoot, "src-tauri", "target", "nsis");
+const cargoManifest = path.join(repoRoot, "src-tauri", "Cargo.toml");
+const defaultTargetDirectory = path.join(repoRoot, "src-tauri", "target");
+const defaultNsisHookDir = path.join(defaultTargetDirectory, "nsis");
 const tauriConfigPath = path.join(repoRoot, "src-tauri", "tauri.conf.json");
+
+function readOption(argv, option) {
+  const index = argv.indexOf(option);
+  if (index === -1) return null;
+  const value = argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${option} requires a path argument`);
+  }
+  return value;
+}
+
+export function resolveNsisBundlePaths({
+  argv = [],
+  env = process.env,
+  targetDirectory = resolveCargoTargetDirectory({
+    cwd: repoRoot,
+    manifest: cargoManifest,
+    fallback: defaultTargetDirectory,
+    env,
+  }),
+} = {}) {
+  const explicitBundleRoot = readOption(argv, "--bundle-root");
+  const explicitTargetDirectory =
+    readOption(argv, "--target-dir") ?? readOption(argv, "--target-directory");
+  const configuredBundleRoot = env.YW_LOOK_NSIS_BUNDLE_ROOT?.trim();
+  const bundleRoot = explicitBundleRoot
+    ? path.resolve(repoRoot, explicitBundleRoot)
+    : explicitTargetDirectory
+      ? path.join(
+          path.resolve(repoRoot, explicitTargetDirectory),
+          "release",
+          "bundle",
+        )
+      : configuredBundleRoot
+        ? path.resolve(repoRoot, configuredBundleRoot)
+        : path.join(targetDirectory, "release", "bundle");
+
+  return {
+    bundleRoot,
+    // Tauri's installerHooks config still points at src-tauri/target/nsis.
+    nsisHookDir: defaultNsisHookDir,
+  };
+}
 
 function toRelative(filePath) {
   return path.relative(repoRoot, filePath).replaceAll(path.sep, "/");
@@ -36,7 +75,7 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
-function findVersionedInstaller(directory, extension, version) {
+export function findVersionedInstaller(directory, extension, version) {
   const versionMarker = `_${version}_`;
 
   if (!fs.existsSync(directory)) {
@@ -92,7 +131,8 @@ function assertJsonEqual(actual, expected, label) {
   }
 }
 
-async function main() {
+export async function main({ paths = resolveNsisBundlePaths() } = {}) {
+  const { bundleRoot, nsisHookDir } = paths;
   const version = await readPackageVersion();
   const tauriConfig = readJson(tauriConfigPath);
 
@@ -108,13 +148,18 @@ async function main() {
   );
   if (!nsisInstaller) {
     throw new Error(
-      "No Windows NSIS Loader Pack bundle artifacts found. Run `npm run bundle:win:loaders` first.",
+      [
+        "No Windows NSIS Loader Pack bundle artifacts found. Run `npm run bundle:win:loaders` first.",
+        `Searched: ${toRelative(path.join(bundleRoot, "nsis"))}`,
+      ].join("\n"),
     );
   }
 
   assert(
     nsisInstaller,
-    `Missing NSIS setup .exe for v${version} under src-tauri/target/release/bundle/nsis/`,
+    `Missing NSIS setup .exe for v${version} under ${toRelative(
+      path.join(bundleRoot, "nsis"),
+    )}/`,
   );
   const nsisSignaturePath = assertUpdaterSignature(nsisInstaller);
 
@@ -178,9 +223,31 @@ async function main() {
   console.log(`  Meta: ${toRelative(metaPath)}`);
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
+const isMain =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  const args = process.argv.slice(2);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(`Usage: node scripts/check-nsis-loader-pack-bundle.mjs [options]
+
+Options:
+  --bundle-root <path>  Explicit release/bundle directory (highest priority).
+  --target-dir <path>   Cargo target directory; checks <path>/release/bundle.
+  --target-directory <path>
+                        Alias for --target-dir.
+
+Environment:
+  YW_LOOK_NSIS_BUNDLE_ROOT  Alternate release/bundle directory.
+  Cargo metadata            Used to resolve the configured target directory.`);
+    process.exit(0);
+  }
+
+  try {
+    await main({ paths: resolveNsisBundlePaths({ argv: args }) });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
 }
