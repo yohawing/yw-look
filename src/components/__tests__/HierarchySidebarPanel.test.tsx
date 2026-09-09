@@ -199,6 +199,12 @@ describe("HierarchySidebarPanel", () => {
     fireEvent.click(container.querySelector(".tree-row")!);
 
     expect(useViewerStore.getState().selectedUsdPrimPath).toBe("/World/Hero");
+    expect(
+      container.querySelector(".selected-kv [data-testid=usd-prim-panel]"),
+    ).toBeTruthy();
+    expect(
+      container.querySelectorAll("[data-testid=usd-prim-panel]"),
+    ).toHaveLength(1);
   });
 
   it("stores clamped morph target values through the viewer store", () => {

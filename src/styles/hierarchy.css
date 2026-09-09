@@ -214,6 +214,61 @@
   padding-inline: 0;
 }
 
+.selected-inspector-section {
+  border-top: 1px solid var(--yl-border-subtle);
+  padding: 10px 0 2px;
+}
+
+.selected-inspector-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.selected-inspector-section-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: var(--yl-text-tertiary);
+  font-size: 10.5px;
+  font-weight: 510;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.selected-inspector-section-note {
+  min-width: 0;
+  color: var(--yl-text-tertiary);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-transform: none;
+}
+
+.usd-properties-static-count {
+  margin-left: auto;
+  color: var(--yl-text-tertiary);
+  font-family: var(--yl-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.selected-inspector-section .yl-kv-row {
+  align-items: flex-start;
+  padding-inline: 0;
+}
+
+.selected-inspector-section .yl-kv-value {
+  max-width: 72%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .selected-morph-section {
   margin-top: 6px;
   border-top: 1px solid var(--yl-border-subtle);

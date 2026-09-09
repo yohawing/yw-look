@@ -340,6 +340,59 @@ describe("collectAssetMetadata", () => {
     );
   });
 
+  it("prefers USD node type names for hierarchy kinds and falls back for empty values", () => {
+    const root = new Group();
+    root.name = "Root";
+
+    const xform = new Group();
+    xform.name = "Building";
+    xform.userData.primPath = "/World/Building";
+    xform.userData.usdTypeName = "Xform";
+
+    const scope = new Group();
+    scope.name = "Materials";
+    scope.userData.primPath = "/World/Materials";
+    scope.userData.usdTypeName = "Scope";
+
+    const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    mesh.name = "Wall";
+    mesh.userData.primPath = "/World/Wall";
+    mesh.userData.usdTypeName = "Mesh";
+    mesh.userData.author = "visible";
+
+    const missingType = new Group();
+    missingType.name = "MissingFallback";
+
+    const emptyType = new Group();
+    emptyType.name = "Fallback";
+    emptyType.userData.primPath = "/World/Fallback";
+    emptyType.userData.usdTypeName = "";
+
+    const nonUsdExtra = new Group();
+    nonUsdExtra.name = "NonUsdExtra";
+    nonUsdExtra.userData.usdTypeName = "Mesh";
+
+    root.add(xform, scope, mesh, missingType, emptyType, nonUsdExtra);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    const children = result.metadata.hierarchy[0]?.children ?? [];
+
+    expect(children.map(({ name, kind }) => [name, kind])).toEqual([
+      ["Building", "Xform"],
+      ["Materials", "Scope"],
+      ["Wall", "Mesh"],
+      ["MissingFallback", "group"],
+      ["Fallback", "group"],
+      ["NonUsdExtra", "group"],
+    ]);
+    // USD type names are hierarchy metadata only; runtime ObjectInfo keeps
+    // its existing Three.js classification and does not expose the sentinel.
+    expect(result.metadata.objectInfo["/World/Wall"]?.kind).toBe("mesh");
+    expect(result.metadata.objectInfo["/World/Wall"]?.userData).toEqual({
+      author: "visible",
+    });
+  });
+
   it("enumerates Three.js Light children as USD light entries (#35)", () => {
     const root = new Group();
     const sun = new DirectionalLight(0xfff5cc, 2.5);

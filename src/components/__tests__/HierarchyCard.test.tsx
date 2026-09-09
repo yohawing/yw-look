@@ -327,6 +327,60 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(onMorphTargetChange).toHaveBeenCalledWith("Face", 1, 0.42);
   });
 
+  it("organizes available object info into inspector sections", () => {
+    const faceTree: HierarchyNode[] = [
+      { name: "Face", kind: "mesh", children: [] },
+    ];
+    const info: ObjectInfo = {
+      ...faceInfo,
+      position: [1.25, 2, 3],
+      rotation: [0, 90, 0],
+      scale: [1, 1, 1],
+      boundingBox: [-1, -2, -3, 4, 5, 6],
+      triangleCount: 4114,
+      materialNames: ["Skin", "Eyes"],
+      animatesWithClips: ["Idle"],
+    };
+    const { container, getByText } = render(
+      <HierarchyCard
+        hierarchy={faceTree}
+        objectInfo={{ Face: info }}
+        selectedName="Face"
+      />,
+    );
+
+    expect(
+      Array.from(container.querySelectorAll(".selected-inspector-section")).map(
+        (section) =>
+          section.querySelector(".selected-inspector-section-head > span")
+            ?.textContent,
+      ),
+    ).toEqual(expect.arrayContaining(["Identity", "Transform", "Geometry"]));
+    expect(getByText("Preview local values")).toBeTruthy();
+    expect(getByText("Loaded visibility")).toBeTruthy();
+    expect(getByText("1.25, 2, 3")).toBeTruthy();
+    expect(getByText("4,114")).toBeTruthy();
+    expect(getByText("min (-1, -2, -3) · max (4, 5, 6)")).toBeTruthy();
+    expect(getByText("Skin, Eyes")).toBeTruthy();
+    expect(getByText("Idle")).toBeTruthy();
+  });
+
+  it("does not turn absent geometry counts into zero values", () => {
+    const faceTree: HierarchyNode[] = [
+      { name: "Face", kind: "mesh", children: [] },
+    ];
+    const { queryByText } = render(
+      <HierarchyCard
+        hierarchy={faceTree}
+        objectInfo={{ Face: faceInfo }}
+        selectedName="Face"
+      />,
+    );
+
+    expect(queryByText("Triangles")).toBeNull();
+    expect(queryByText("Bounds")).toBeNull();
+  });
+
   it("renders MMD morph metadata in the selected shape key list", () => {
     const mmdFaceInfo: ObjectInfo = {
       ...faceInfo,

@@ -65,6 +65,9 @@ type HierarchyCardProps = {
    */
   onUnloadPayload?: (primPath: string) => void;
   renderSelectedObjectDetails?: (objectInfo: ObjectInfo | null) => ReactNode;
+  /** Clarifies whether the displayed local transform is an authored value or
+   * a preview/runtime snapshot. */
+  selectedTransformNote?: string;
   renderMorphTargetMeta?: (
     target: ObjectInfo["morphTargets"][number],
   ) => ReactNode;
@@ -102,6 +105,44 @@ function findSelectedNode(
   return null;
 }
 
+function formatPreviewVector(value: readonly number[]): string {
+  return value
+    .map((part) =>
+      Number.isFinite(part)
+        ? part.toLocaleString(undefined, { maximumFractionDigits: 4 })
+        : String(part),
+    )
+    .join(", ");
+}
+
+function formatBounds(
+  bounds: readonly [number, number, number, number, number, number],
+): string {
+  return `min (${formatPreviewVector(bounds.slice(0, 3))}) · max (${formatPreviewVector(bounds.slice(3))})`;
+}
+
+function SelectedInspectorSection({
+  title,
+  note,
+  rows,
+}: {
+  title: string;
+  note?: string;
+  rows: readonly KeyValueRow[];
+}) {
+  return (
+    <section className="selected-inspector-section">
+      <div className="selected-inspector-section-head">
+        <span>{title}</span>
+        {note ? (
+          <span className="selected-inspector-section-note">{note}</span>
+        ) : null}
+      </div>
+      <KeyValueRows density="regular" rows={rows} />
+    </section>
+  );
+}
+
 export function HierarchyCard(props: HierarchyCardProps) {
   return (
     <HierarchyCardContent
@@ -124,6 +165,7 @@ function HierarchyCardContent({
   onLoadPayload,
   onUnloadPayload,
   renderSelectedObjectDetails,
+  selectedTransformNote = "Preview local values",
   renderMorphTargetMeta,
 }: HierarchyCardProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -144,7 +186,7 @@ function HierarchyCardContent({
         ? "Deferred"
         : "Loaded"
       : null;
-  const selectedRows: KeyValueRow[] = selectedNode
+  const selectedIdentityRows: KeyValueRow[] = selectedNode
     ? ([
         {
           id: "name",
@@ -169,8 +211,14 @@ function HierarchyCardContent({
         {
           id: "children",
           label: "Children",
-          value: selectedChildCount,
+          value: selectedInfo?.childCount ?? selectedChildCount,
           mono: true,
+        },
+        selectedInfo && {
+          id: "visibility",
+          label: "Loaded visibility",
+          value: selectedInfo.visible ? "Visible" : "Hidden",
+          tone: selectedInfo.visible ? "ok" : "warn",
         },
         selectedPayloadState && {
           id: "payload",
@@ -178,22 +226,80 @@ function HierarchyCardContent({
           value: selectedPayloadState,
           mono: true,
         },
-        selectedInfo?.vertexCount !== null &&
-          selectedInfo?.vertexCount !== undefined && {
+      ].filter(Boolean) as KeyValueRow[])
+    : [];
+  const selectedTransformRows: KeyValueRow[] = selectedInfo
+    ? [
+        {
+          id: "position",
+          label: "Position",
+          value: formatPreviewVector(selectedInfo.position),
+          mono: true,
+        },
+        {
+          id: "rotation",
+          label: "Rotation",
+          value: formatPreviewVector(selectedInfo.rotation),
+          mono: true,
+        },
+        {
+          id: "scale",
+          label: "Scale",
+          value: formatPreviewVector(selectedInfo.scale),
+          mono: true,
+        },
+      ]
+    : [];
+  const selectedGeometryRows: KeyValueRow[] = selectedInfo
+    ? ([
+        selectedInfo.vertexCount !== null &&
+          selectedInfo.vertexCount !== undefined && {
             id: "vertices",
             label: "Vertices",
             value: selectedInfo.vertexCount.toLocaleString(),
             mono: true,
           },
-        selectedInfo &&
-          selectedInfo.materialNames.length > 0 && {
-            id: "material",
-            label: "Material",
-            value: selectedInfo.materialNames.join(", "),
+        selectedInfo.triangleCount !== null &&
+          selectedInfo.triangleCount !== undefined && {
+            id: "triangles",
+            label: "Triangles",
+            value: selectedInfo.triangleCount.toLocaleString(),
             mono: true,
           },
+        selectedInfo.boundingBox && {
+          id: "bounds",
+          label: "Bounds",
+          value: formatBounds(selectedInfo.boundingBox),
+          mono: true,
+        },
       ].filter(Boolean) as KeyValueRow[])
     : [];
+  const selectedMaterialRows: KeyValueRow[] = selectedInfo
+    ? [
+        {
+          id: "materials",
+          label: "Materials",
+          value:
+            selectedInfo.materialNames.length > 0
+              ? selectedInfo.materialNames.join(", ")
+              : selectedInfo.materialIds.length > 0
+                ? selectedInfo.materialIds.join(", ")
+                : "(none)",
+          mono: true,
+        },
+      ]
+    : [];
+  const selectedAnimationRows: KeyValueRow[] =
+    selectedInfo && selectedInfo.animatesWithClips.length > 0
+      ? [
+          {
+            id: "animation-clips",
+            label: "Animation Clips",
+            value: selectedInfo.animatesWithClips.join(", "),
+            mono: true,
+          },
+        ]
+      : [];
 
   return (
     <PanelGroup
@@ -254,7 +360,35 @@ function HierarchyCardContent({
           <div className="hierarchy-pane-scroll yl-disclosure__body">
             {selectedNode ? (
               <div className="selected-kv">
-                <KeyValueRows density="regular" rows={selectedRows} />
+                <SelectedInspectorSection
+                  title="Identity"
+                  rows={selectedIdentityRows}
+                />
+                {selectedTransformRows.length > 0 ? (
+                  <SelectedInspectorSection
+                    title="Transform"
+                    note={selectedTransformNote}
+                    rows={selectedTransformRows}
+                  />
+                ) : null}
+                {selectedGeometryRows.length > 0 ? (
+                  <SelectedInspectorSection
+                    title="Geometry"
+                    rows={selectedGeometryRows}
+                  />
+                ) : null}
+                {selectedMaterialRows.length > 0 ? (
+                  <SelectedInspectorSection
+                    title="Materials"
+                    rows={selectedMaterialRows}
+                  />
+                ) : null}
+                {selectedAnimationRows.length > 0 ? (
+                  <SelectedInspectorSection
+                    title="Animation"
+                    rows={selectedAnimationRows}
+                  />
+                ) : null}
                 {renderSelectedObjectDetails?.(selectedInfo ?? null)}
                 {normalizedSelected && selectedMorphTargets.length > 0 ? (
                   <div className="selected-morph-section">

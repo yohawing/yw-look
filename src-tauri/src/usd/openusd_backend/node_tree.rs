@@ -9,6 +9,7 @@ use crate::usd::node_tree::{
     collect_node_payload_maps, emit_node_inputs, insert_ancestor_group_nodes,
 };
 
+use super::stage_fields::ValidatedStagePathExt;
 use super::xform::compose_world_xform;
 
 /// #46 Pass 1.5: build the topologically-sorted `NodeInput` tree from the
@@ -51,6 +52,18 @@ pub(crate) fn build_node_tree(
         );
     }
     insert_ancestor_group_nodes(&mut maps.path_to_kind);
+    for path in maps.path_to_kind.keys() {
+        let Ok(sdf_path) = SdfPath::new(path) else {
+            continue;
+        };
+        if let Ok(Some(type_name)) = stage.prim_at(sdf_path).type_name() {
+            let type_name = type_name.as_str();
+            if !type_name.is_empty() {
+                maps.path_to_usd_type_name
+                    .insert(path.clone(), type_name.to_owned());
+            }
+        }
+    }
 
     // ---- Step 2: topological sort (ancestor before child) ---------------
     // Lexicographic order gives a correct
@@ -100,4 +113,105 @@ pub(crate) fn build_node_tree(
         };
         mat4_f64_to_f32(&local_mat_f64)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn identity_matrix() -> [f32; 16] {
+        [
+            1.0, 0.0, 0.0, 0.0, //
+            0.0, 1.0, 0.0, 0.0, //
+            0.0, 0.0, 1.0, 0.0, //
+            0.0, 0.0, 0.0, 1.0,
+        ]
+    }
+
+    fn mesh_input(name: &str) -> MeshInput {
+        MeshInput {
+            name: name.to_owned(),
+            world_matrix: identity_matrix(),
+            positions: Vec::new(),
+            indices: Vec::new(),
+            normals: None,
+            uvs: None,
+            colors: None,
+            joint_indices: None,
+            joint_weights: None,
+            material_index: 0,
+            skin_index: None,
+            morph_targets: Vec::new(),
+            morph_weights: Vec::new(),
+            purpose: None,
+        }
+    }
+
+    #[test]
+    fn build_node_tree_carries_composed_usd_type_names() -> anyhow::Result<()> {
+        let stage = Stage::builder().in_memory("node-types.usda")?;
+        stage.define_prim("/World")?.set_type_name("Xform")?;
+        stage.define_prim("/World/Scope")?.set_type_name("Scope")?;
+        stage
+            .define_prim("/World/Scope/Mesh")?
+            .set_type_name("Mesh")?;
+
+        let nodes = build_node_tree(
+            &stage,
+            &[],
+            &HashMap::new(),
+            &[],
+            &[mesh_input("/World/Scope/Mesh")],
+            &[],
+            &[],
+            &[],
+            None,
+        );
+
+        let type_name_for = |path: &str| {
+            nodes
+                .iter()
+                .find(|node| node.prim_path == path)
+                .and_then(|node| node.usd_type_name.as_deref())
+        };
+        assert_eq!(type_name_for("/World"), Some("Xform"));
+        assert_eq!(type_name_for("/World/Scope"), Some("Scope"));
+        assert_eq!(type_name_for("/World/Scope/Mesh"), Some("Mesh"));
+        Ok(())
+    }
+
+    #[test]
+    fn build_node_tree_omits_unauthored_usd_type_name() -> anyhow::Result<()> {
+        let stage = Stage::builder().in_memory("node-types-unauthored.usda")?;
+        stage.define_prim("/World")?;
+        stage.define_prim("/World/Mesh")?.set_type_name("Mesh")?;
+
+        let nodes = build_node_tree(
+            &stage,
+            &[],
+            &HashMap::new(),
+            &[],
+            &[mesh_input("/World/Mesh")],
+            &[],
+            &[],
+            &[],
+            None,
+        );
+
+        assert_eq!(
+            nodes
+                .iter()
+                .find(|node| node.prim_path == "/World")
+                .and_then(|node| node.usd_type_name.as_deref()),
+            None
+        );
+        assert_eq!(
+            nodes
+                .iter()
+                .find(|node| node.prim_path == "/World/Mesh")
+                .and_then(|node| node.usd_type_name.as_deref()),
+            Some("Mesh")
+        );
+        Ok(())
+    }
 }

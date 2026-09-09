@@ -45,6 +45,46 @@ describe("UsdPrimPropertyPanel", () => {
     });
   });
 
+  it("supports embedded display under the Selected inspector", async () => {
+    vi.mocked(inspectPrim).mockResolvedValue({
+      primPath: "/World/Hero",
+      attributes: [
+        {
+          name: "visibility",
+          typeName: "token",
+          valueSummary: "inherited",
+          variability: "uniform",
+          custom: false,
+          timeSampleCount: 0,
+        },
+      ],
+      relationships: [
+        {
+          name: "material:binding",
+          targets: ["/World/Looks/HeroMaterial"],
+        },
+      ],
+      metadata: [{ key: "kind", valueSummary: "component" }],
+    });
+    useViewerStore.setState({ selectedUsdPrimPath: "/World/Hero" });
+
+    const { container, getByText } = render(
+      <UsdPrimPropertyPanel embedded path={assetPath} />,
+    );
+
+    await waitFor(() => expect(getByText("USD Properties")).toBeTruthy());
+    expect(container.querySelector(".prim-property-panel")).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="usd-prim-panel"]'),
+    ).toBeTruthy();
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.querySelector("summary")).toBeNull();
+    expect(getByText("visibility")).toBeTruthy();
+    expect(getByText("material:binding")).toBeTruthy();
+    expect(getByText("kind")).toBeTruthy();
+    expect(container.textContent).not.toContain(assetPath);
+  });
+
   it("renders authored attributes, relationships, and metadata", async () => {
     const inspection: PrimInspection = {
       primPath: "/World/Hero",

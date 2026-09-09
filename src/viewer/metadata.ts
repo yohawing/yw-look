@@ -76,6 +76,23 @@ function getObjectKind(object: Object3D) {
   return object.type.toLowerCase();
 }
 
+/** Resolve the authored USD type for hierarchy rows when the GLB loader
+ * carried it through node extras. Runtime ObjectInfo classification remains
+ * Three.js-based; this is only for the user-facing USD hierarchy label. */
+function getHierarchyKind(object: Object3D): string {
+  // The USD loader emits both extras.primPath and extras.usdTypeName. Keep
+  // arbitrary glTF extras from changing the established non-USD hierarchy
+  // kind unless the node is identifiable as a USD prim.
+  const isUsdPrim =
+    typeof object.userData?.primPath === "string" &&
+    object.userData.primPath.trim().length > 0;
+  const usdTypeName =
+    isUsdPrim && typeof object.userData?.usdTypeName === "string"
+      ? object.userData.usdTypeName.trim()
+      : "";
+  return usdTypeName || getObjectKind(object);
+}
+
 function fallbackTrackNameParts(name: string): {
   target: string;
   propertyPath: string;
@@ -288,7 +305,7 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
     ...(visibleName && visibleName !== nodeName
       ? { displayName: visibleName }
       : {}),
-    kind: getObjectKind(object),
+    kind: getHierarchyKind(object),
     children: collectHierarchyChildren(object),
     ...(primPath !== undefined ? { primPath } : {}),
   };
@@ -1303,6 +1320,7 @@ function buildObjectInfo(
       k !== "vrm" &&
       k !== "primPath" &&
       k !== "purpose" &&
+      k !== "usdTypeName" &&
       k !== "textureSourceKind",
   );
   const userData =

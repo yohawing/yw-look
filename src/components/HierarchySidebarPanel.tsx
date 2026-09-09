@@ -116,20 +116,27 @@ export function HierarchySidebarPanel({
         }
         onLoadPayload={payloadSessionEnabled ? onLoadPayload : undefined}
         onUnloadPayload={payloadSessionEnabled ? onUnloadPayload : undefined}
-        renderSelectedObjectDetails={(info) =>
-          !useDebugFixtures && packMetadata?.kind === "ifc"
-            ? renderMetadataCardForPackMetadata(packMetadata, {
-                view: "selection",
-                selectedKey: selectedMeshName,
-                onSelect: useViewerStore.getState().setSelectedMeshName,
-              })
-            : renderPackSelectedObjectDetails(info)
-        }
+        renderSelectedObjectDetails={(info) => (
+          <>
+            {!useDebugFixtures && packMetadata?.kind === "ifc"
+              ? renderMetadataCardForPackMetadata(packMetadata, {
+                  view: "selection",
+                  selectedKey: selectedMeshName,
+                  onSelect: useViewerStore.getState().setSelectedMeshName,
+                })
+              : renderPackSelectedObjectDetails(info)}
+            {isUsdFile(currentFile) ? (
+              <UsdPrimPropertyPanel embedded path={currentFile?.path ?? null} />
+            ) : null}
+          </>
+        )}
         renderMorphTargetMeta={formatPackMorphTargetMeta}
+        selectedTransformNote={
+          isUsdFile(currentFile)
+            ? "Preview local values · not USD authored"
+            : "Preview local values"
+        }
       />
-      {isUsdFile(currentFile) && (
-        <UsdPrimPropertyPanel path={currentFile?.path ?? null} />
-      )}
     </>
   );
 }
