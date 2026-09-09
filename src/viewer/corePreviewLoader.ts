@@ -9,7 +9,6 @@ export const coreLoaderExtensions = [
   "obj",
   "ply",
   "stl",
-  "3mf",
   "dae",
   "usd",
   "usda",

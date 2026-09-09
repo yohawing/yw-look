@@ -14,10 +14,10 @@ const KNOWN_OPTIONAL_LOADER_PACK_IDS: &[&str] = &[
     "vrm-loader-pack",
     "mmd-loader-pack",
     "gaussian-splat-loader-pack",
-    "ifc-loader-pack",
+    "cad-loader-pack",
 ];
 pub(crate) const KNOWN_OPTIONAL_LOADER_EXTENSIONS: &[&str] = &[
-    "vrm", "vrma", "pmd", "pmx", "vmd", "splat", "spz", "ksplat", "sog", "ifc",
+    "vrm", "vrma", "pmd", "pmx", "vmd", "splat", "spz", "ksplat", "sog", "ifc", "3dm", "3mf",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
@@ -62,7 +62,7 @@ pub(crate) fn known_pack_extensions(id: &str) -> Option<&'static [&'static str]>
         "vrm-loader-pack" => Some(&["vrm", "vrma"]),
         "mmd-loader-pack" => Some(&["pmd", "pmx", "vmd"]),
         "gaussian-splat-loader-pack" => Some(&["splat", "spz", "ksplat", "sog"]),
-        "ifc-loader-pack" => Some(&["ifc"]),
+        "cad-loader-pack" => Some(&["ifc", "3dm", "3mf"]),
         _ => None,
     }
 }
@@ -72,7 +72,7 @@ fn known_pack_name(id: &str) -> Option<&'static str> {
         "vrm-loader-pack" => Some("VRM Loader Pack"),
         "mmd-loader-pack" => Some("MMD Loader Pack"),
         "gaussian-splat-loader-pack" => Some("Gaussian Splat Loader Pack"),
-        "ifc-loader-pack" => Some("IFC Loader Pack"),
+        "cad-loader-pack" => Some("CAD Loader Pack"),
         _ => None,
     }
 }
@@ -82,7 +82,8 @@ fn known_pack_dir_name(id: &str) -> Option<&'static str> {
         "vrm-loader-pack" => Some("vrm"),
         "mmd-loader-pack" => Some("mmd"),
         "gaussian-splat-loader-pack" => Some("gaussian-splat"),
-        "ifc-loader-pack" => Some("ifc"),
+        // Preserve the legacy on-disk directory and removal marker.
+        "cad-loader-pack" => Some("ifc"),
         _ => None,
     }
 }
@@ -249,7 +250,12 @@ fn validate_manifest(
     pack_dir: &Path,
     manifest: OptionalLoaderPackManifestRaw,
 ) -> Option<OptionalLoaderPackManifest> {
-    let id = manifest.id.trim();
+    let legacy_ifc = matches!(manifest.id.trim(), "ifc-loader-pack" | "architecture-pack");
+    let id = if legacy_ifc {
+        "cad-loader-pack"
+    } else {
+        manifest.id.trim()
+    };
     let name = manifest.name.trim();
     let version = manifest.version.trim();
 
@@ -262,6 +268,11 @@ fn validate_manifest(
     }
 
     let extensions = normalize_extensions(id, manifest.extensions)?;
+    let extensions = if legacy_ifc {
+        vec!["3dm".to_string(), "3mf".to_string(), "ifc".to_string()]
+    } else {
+        extensions
+    };
     let (entry, pack_path, entry_path) = validate_entry_path(pack_dir, &manifest.entry)?;
     let minimum_app_version = normalize_optional_version(manifest.minimum_app_version);
     let maximum_app_version = normalize_optional_version(manifest.maximum_app_version);
@@ -272,7 +283,11 @@ fn validate_manifest(
 
     Some(OptionalLoaderPackManifest {
         id: id.to_string(),
-        name: name.to_string(),
+        name: if id == "cad-loader-pack" {
+            "CAD Loader Pack".to_string()
+        } else {
+            name.to_string()
+        },
         version: version.to_string(),
         minimum_app_version,
         maximum_app_version,
@@ -473,6 +488,26 @@ mod tests {
         fs::create_dir_all(&pack_dir).expect("create pack dir");
         fs::write(pack_dir.join("loader.js"), "export {};").expect("write loader");
         fs::write(pack_dir.join("manifest.json"), manifest).expect("write manifest");
+    }
+
+    #[test]
+    fn legacy_ifc_manifest_maps_to_cad_and_removal_uses_existing_directory() {
+        let dir = tempdir().unwrap();
+        write_pack(
+            dir.path(),
+            "ifc",
+            r#"{"id":"ifc-loader-pack","name":"IFC Loader Pack","version":"0.1.0","extensions":["ifc"],"entry":"loader.js","kind":"firstPartyLoaderPack"}"#,
+        );
+        let manifests = scan_optional_loader_manifests_from_dir(dir.path()).unwrap();
+        assert_eq!(manifests[0].id, "cad-loader-pack");
+        assert_eq!(manifests[0].name, "CAD Loader Pack");
+        assert_eq!(manifests[0].extensions, ["3dm", "3mf", "ifc"]);
+        remove_optional_loader_pack_from_dir(dir.path(), "cad-loader-pack").unwrap();
+        assert!(scan_optional_loader_manifests_from_dir(dir.path())
+            .unwrap()
+            .is_empty());
+        let manifests = install_optional_loader_pack_to_dir(dir.path(), "cad-loader-pack").unwrap();
+        assert_eq!(manifests[0].extensions, ["3dm", "3mf", "ifc"]);
     }
 
     #[test]

@@ -26,6 +26,8 @@
 | Alembic      | `.abc`                         | 条件付き対応 | [Alembic](https://github.com/alembic/alembic)を使う専用ヘルパーを使用。メッシュ形状・頂点アニメーションのプレビュー。対応するネイティブ変換ヘルパーが必要です（Windows x64 / macOS arm64向け）。                       |
 | BVH          | `.bvh`                         | ✅️           | [Three.js BVHLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/BVHLoader.js)を使用。骨格とモーションのプレビュー。モデル形状を含む形式ではありません。                                         |
 
+IFC・Rhino 3DM・3MFは、Settingsの **CAD Loader Pack** でまとめて有効／無効を切り替えます。関連ランタイムは引き続きアプリに同梱します。
+
 Rhino 3DMは編集・保存、Grasshopper定義やRhinoプラグイン固有データの実行、Rhino表示モードの完全再現には対応しません。未変換の要素や不足リソースは警告として表示します。
 
 ### 画像・テクスチャ（標準対応）

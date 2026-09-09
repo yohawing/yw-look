@@ -1,3 +1,4 @@
+import { loadCorePreviewObject } from "../viewer/corePreviewLoader";
 import { createElement } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { SelectedFile } from "../lib/files";
@@ -54,11 +55,29 @@ export { vrmLoaderPack } from "./vrm-loader-pack/pack";
 export { loadRhino3dmPreviewObject } from "./rhino3dm-loader-pack/loader";
 export { rhino3dmLoaderPack } from "./rhino3dm-loader-pack/pack";
 
+export const cadLoaderPack = {
+  ...ifcLoaderPack,
+  id: "cad-loader-pack",
+  name: "CAD Loader Pack",
+  extensions: ["ifc", "3dm", "3mf"],
+  async loadPreviewObject(file, context) {
+    switch (file.extension) {
+      case "ifc":
+        return ifcLoaderPack.loadPreviewObject(file, context);
+      case "3dm":
+        return rhino3dmLoaderPack.loadPreviewObject(file, context);
+      case "3mf":
+        return loadCorePreviewObject(file, context);
+      default:
+        throw new Error(`Unsupported CAD format: ${file.extension}`);
+    }
+  },
+} satisfies FormatPack;
+
 export const formatPacks = [
   gaussianSplatLoaderPack,
-  ifcLoaderPack,
+  cadLoaderPack,
   mmdLoaderPack,
-  rhino3dmLoaderPack,
   vrmLoaderPack,
 ] as const;
 

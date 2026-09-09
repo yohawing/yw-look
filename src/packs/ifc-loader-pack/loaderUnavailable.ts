@@ -8,6 +8,6 @@ export async function loadIfcPreviewObject(
   void _file;
   void _context;
   throw new Error(
-    "IFC Loader Pack (@thatopen/fragments + web-ifc) is not installed. Install it to enable IFC (.ifc) preview.",
+    "CAD Loader Pack (@thatopen/fragments + web-ifc) is not installed. Install it to enable IFC (.ifc) preview.",
   );
 }

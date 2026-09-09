@@ -522,6 +522,32 @@ mod tests {
     }
 
     #[test]
+    fn cad_setting_controls_all_three_associations() {
+        let manifests = [compatible_manifest(
+            "cad-loader-pack",
+            &["ifc", "3dm", "3mf"],
+        )];
+        let mut settings = settings_with_associations_enabled(BTreeMap::new());
+        let enabled = resolve_file_association_plan(&settings, &manifests);
+        for extension in ["ifc", "3dm", "3mf"] {
+            assert!(!enabled.core_extensions.contains(&extension.to_string()));
+            assert!(enabled
+                .effective_extensions
+                .contains(&extension.to_string()));
+        }
+        settings.optional_loader_packs.insert(
+            "cad-loader-pack".to_string(),
+            OptionalLoaderPackSettings { enabled: false },
+        );
+        let disabled = resolve_file_association_plan(&settings, &manifests);
+        for extension in ["ifc", "3dm", "3mf"] {
+            assert!(!disabled
+                .effective_extensions
+                .contains(&extension.to_string()));
+        }
+    }
+
+    #[test]
     fn disabled_global_setting_returns_empty_effective_extensions() {
         let plan = resolve_file_association_plan(
             &AppSettings::default(),

@@ -6,7 +6,7 @@ describe("unavailable IFC loader", () => {
     await expect(
       loadIfcPreviewObject({} as never, {} as never),
     ).rejects.toThrow(
-      "IFC Loader Pack (@thatopen/fragments + web-ifc) is not installed",
+      "CAD Loader Pack (@thatopen/fragments + web-ifc) is not installed",
     );
   });
 });

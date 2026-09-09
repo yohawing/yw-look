@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import {
   loaderRegistry,
+  loadPreviewObject,
   listOptionalLoaderPacks,
   listRegisteredLoaders,
   summarizeOptionalLoaderPacks,
@@ -55,11 +56,10 @@ describe("preview support classification", () => {
       "vmd",
     ]);
     expect(loaderRegistry.listPacks().map((pack) => pack.id)).toEqual([
+      "cad-loader-pack",
       "core-preview-loader",
       "gaussian-splat-loader-pack",
-      "ifc-loader-pack",
       "mmd-loader-pack",
-      "rhino3dm-loader-pack",
       "vrm-loader-pack",
     ]);
   });
@@ -79,17 +79,43 @@ describe("preview support classification", () => {
     expect(getPreviewSupportState("vmd")).toBe("implemented");
   });
 
-  it("marks IFC as implemented only while its optional pack is available", () => {
-    expect(getPreviewSupportState("ifc")).toBe("implemented");
-    expect(
-      getPreviewSupportState("ifc", { optionalLoaderInstalled: false }),
-    ).toBe("missingOptionalLoader");
-    expect(
-      getPreviewSupportState("ifc", {
-        disabledOptionalLoaderPackIds: ["ifc-loader-pack"],
-      }),
-    ).toBe("disabledOptionalLoader");
-  });
+  it.each(["ifc", "3dm", "3mf"])(
+    "gates %s through the CAD pack",
+    (extension) => {
+      expect(getPreviewSupportState(extension)).toBe("implemented");
+      expect(
+        getPreviewSupportState(extension, { optionalLoaderInstalled: false }),
+      ).toBe("missingOptionalLoader");
+      expect(
+        getPreviewSupportState(extension, {
+          disabledOptionalLoaderPackIds: ["cad-loader-pack"],
+        }),
+      ).toBe("disabledOptionalLoader");
+    },
+  );
+
+  it.each(["ifc", "3dm", "3mf"])(
+    "rejects disabled %s before reading the file",
+    async (extension) => {
+      const file = {
+        path: `missing.${extension}`,
+        fileName: `missing.${extension}`,
+        parentDirectory: "",
+        extension,
+        kind: "model" as const,
+      };
+      await expect(
+        loadPreviewObject(file, undefined, {
+          disabledOptionalLoaderPackIds: ["cad-loader-pack"],
+        }),
+      ).rejects.toThrow("Preview loader is not installed");
+      expect(
+        getPreviewSupportState(extension, {
+          incompatibleOptionalLoaderPackIds: ["cad-loader-pack"],
+        }),
+      ).toBe("incompatibleOptionalLoader");
+    },
+  );
 
   it("marks optional MMD formats as missing when the pack is absent", () => {
     expect(
@@ -183,9 +209,9 @@ describe("preview support classification", () => {
   it("summarizes optional loader packs for Settings reporting", () => {
     expect(listOptionalLoaderPacks()).toEqual([
       {
-        id: "gaussian-splat-loader-pack",
-        name: "Gaussian Splat Loader Pack",
-        extensions: ["ksplat", "sog", "splat", "spz"],
+        id: "cad-loader-pack",
+        name: "CAD Loader Pack",
+        extensions: ["3dm", "3mf", "ifc"],
         installed: true,
         enabled: true,
         manifestInstalled: false,
@@ -199,9 +225,9 @@ describe("preview support classification", () => {
         },
       },
       {
-        id: "ifc-loader-pack",
-        name: "IFC Loader Pack",
-        extensions: ["ifc"],
+        id: "gaussian-splat-loader-pack",
+        name: "Gaussian Splat Loader Pack",
+        extensions: ["ksplat", "sog", "splat", "spz"],
         installed: true,
         enabled: true,
         manifestInstalled: false,
