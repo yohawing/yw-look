@@ -1,11 +1,7 @@
 import { readIfcMaterials } from "./materialSource";
-import { Color } from "three";
-import { buildIfcHierarchy } from "../../lib/ifcHierarchy";
-import type { HierarchyNode } from "../../types/viewer";
 import { IFCGROUP, IFCRELASSIGNSTOGROUP } from "web-ifc";
-import { createIfcInspection, ifcSelectionKey } from "./inspection";
+import { createIfcInspection } from "./inspection";
 import { registerIfcInspection } from "./metadata";
-import { Vector2, type OrthographicCamera } from "three";
 import { FragmentsModels, IfcImporter } from "@thatopen/fragments";
 import { Group, PerspectiveCamera } from "three";
 import { errorMessage } from "../../lib/errors";
@@ -96,33 +92,6 @@ export async function loadIfcPreviewObject(
         materialIds,
         context.signal,
       );
-      const definitions = await model.getItemsMaterialDefinition(materialIds);
-      const noSourceBindings = materials.display.every(
-        (style) => !style.shapeIds.length && !style.linkedIds.length,
-      );
-      definitions.forEach(({ definition, localIds }, index) => {
-        const color = new Color().copy(definition.color).getHexString();
-        materials.display.push({
-          id: `render:${index}`,
-          name: `Imported material ${index + 1}`,
-          kind: "display",
-          origin: noSourceBindings ? "fallback" : "loader",
-          rows: [
-            { name: "Color", value: `#${color}` },
-            { name: "Opacity", value: String(definition.opacity) },
-            { name: "Transparent", value: String(definition.transparent) },
-            { name: "Rendered faces", value: String(definition.renderedFaces) },
-            {
-              name: "Textures",
-              value: "No texture information retained by loader",
-            },
-          ],
-          elementIds: [...new Set(localIds)],
-          shapeIds: [],
-          linkedIds: [],
-          color: `#${color}`,
-        });
-      });
       const inspection = await createIfcInspection(model, materials);
       throwIfAborted(context.signal);
       registerIfcInspection(object, inspection);
@@ -135,74 +104,7 @@ export async function loadIfcPreviewObject(
         cleanupUrls: [],
         clips: [],
         formatVersion: "IFC",
-        createPackRuntime: () => {
-          const runtime = createIfcRuntime(runtimeState);
-          let disposed = false;
-          const hierarchy = buildIfcHierarchy(
-            inspection.getSnapshot().elements,
-          );
-          const boundsRequests = new Set<Promise<unknown>>();
-          const picks = new Set<Promise<string | null>>();
-          return {
-            ...runtime,
-            update: (frame) => {
-              if (!disposed) runtime.update?.(frame);
-            },
-            selection: {
-              getBounds: async (key) => {
-                if (disposed) return null;
-                const ids = new Set<number>();
-                const visit = (nodes: HierarchyNode[], inside = false) => {
-                  for (const node of nodes) {
-                    const matches = inside || node.name === key;
-                    if (matches && /^ifc:\d+$/.test(node.name))
-                      ids.add(Number(node.name.slice(4)));
-                    visit(node.children, matches);
-                  }
-                };
-                visit(hierarchy);
-                if (!ids.size) return null;
-                model.object.updateWorldMatrix(true, false);
-                const request = model.getMergedBox([...ids]);
-                boundsRequests.add(request);
-                try {
-                  const bounds = await request;
-                  return disposed ? null : bounds;
-                } finally {
-                  boundsRequests.delete(request);
-                }
-              },
-              pick: async (event, camera, canvas) => {
-                if (disposed) return null;
-                const pick = model
-                  .raycast({
-                    camera: camera as PerspectiveCamera | OrthographicCamera,
-                    mouse: new Vector2(event.clientX, event.clientY),
-                    dom: canvas,
-                  })
-                  .then((hit) =>
-                    !disposed && hit ? ifcSelectionKey(hit.localId) : null,
-                  );
-                picks.add(pick);
-                try {
-                  return await pick;
-                } finally {
-                  picks.delete(pick);
-                }
-              },
-              select: inspection.select,
-            },
-            dispose: () => {
-              if (disposed) return;
-              disposed = true;
-              void Promise.allSettled([
-                inspection.dispose(),
-                ...picks,
-                ...boundsRequests,
-              ]).then(() => runtime.dispose());
-            },
-          };
-        },
+        createPackRuntime: () => createIfcRuntime(runtimeState, inspection),
         skipScaleNormalization: false,
       };
     } finally {

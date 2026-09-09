@@ -12,7 +12,6 @@ import type {
   IfcDetailSection,
   IfcColorMode,
   IfcMaterialCatalog,
-  IfcMaterialRecord,
 } from "../../types/ifc";
 
 type InspectionModel = Pick<
@@ -367,39 +366,6 @@ export async function createIfcInspection(
   };
   return {
     materials,
-    getDisplayMaterials() {
-      const definitions = materials?.display ?? [];
-      if (snapshot.colorMode === "original") return definitions;
-      const generated = new Map<string, IfcMaterialRecord>();
-      for (const element of elements) {
-        const color = ifcElementColor(element, snapshot.colorMode);
-        const key =
-          snapshot.colorMode === "category" ? element.category : color;
-        let record = generated.get(key);
-        if (!record) {
-          record = {
-            id: `viewer:${snapshot.colorMode}:${key}`,
-            name: `${snapshot.colorMode === "category" ? "Category color" : "Element color"} · ${key}`,
-            kind: "display",
-            origin: snapshot.colorMode,
-            rows: [
-              { name: "Color", value: color },
-              {
-                name: "Opacity / Textures",
-                value: "Inherited from import settings",
-              },
-            ],
-            elementIds: [],
-            shapeIds: [],
-            linkedIds: [],
-            color,
-          };
-          generated.set(key, record);
-        }
-        record.elementIds.push(element.id);
-      }
-      return [...generated.values(), ...definitions];
-    },
     async highlightMaterials(ids) {
       if (disposed) return;
       materialHighlight = [...new Set(ids)].filter((id) => byId.has(id));

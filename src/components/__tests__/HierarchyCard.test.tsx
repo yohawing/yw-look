@@ -152,6 +152,7 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(container.querySelector(".tree-row.is-selected")).toBeTruthy();
     fireEvent.click(container.querySelector(".tree-row.is-selected")!);
     expect(onSelect).toHaveBeenCalledWith(null);
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("force-opens ancestor branches so the selected row is visible", () => {
@@ -196,6 +197,7 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(selectedRow).not.toBeNull();
     fireEvent.click(selectedRow!);
     expect(onSelect).toHaveBeenCalledWith(null);
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("does not force-open sibling branches of the selected ancestor", () => {

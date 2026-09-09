@@ -1,6 +1,10 @@
+import type { FragmentsModel } from "@thatopen/fragments";
 import type { Object3D, OrthographicCamera, PerspectiveCamera } from "three";
 
-export type IfcFragmentsModel = {
+export type IfcFragmentsModel = Pick<
+  FragmentsModel,
+  "raycast" | "getMergedBox"
+> & {
   object: Object3D;
   useCamera: (camera: PerspectiveCamera | OrthographicCamera) => void;
 };

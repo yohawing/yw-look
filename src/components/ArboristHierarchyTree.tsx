@@ -147,11 +147,12 @@ export function ArboristHierarchyTree(props: Props) {
               aria-label="Outliner"
               onSelect={(nodes) => {
                 const item = nodes[0]?.data;
-                if (!item) return;
-                const key = item.source.primPath ?? item.source.name;
-                if (key && key !== props.selectedName) {
+                const key = item
+                  ? (item.source.primPath ?? item.source.name)
+                  : null;
+                if (key !== props.selectedName) {
                   props.onSelectName?.(key);
-                  props.onSelectPrimPath?.(item.path);
+                  props.onSelectPrimPath?.(item?.path ?? null);
                 }
               }}
             >
@@ -168,7 +169,6 @@ function HierarchyRow({ node: nodeApi, style, tree }: NodeRendererProps<Item>) {
   const {
     selectedName,
     onSelectName,
-    onSelectPrimPath,
     payloadPrimPaths,
     unloadedPayloadPaths,
     onLoadPayload,
@@ -205,8 +205,6 @@ function HierarchyRow({ node: nodeApi, style, tree }: NodeRendererProps<Item>) {
               // direction drives the change.
               if (isSelected) {
                 nodeApi.deselect();
-                onSelectName(null);
-                onSelectPrimPath?.(null);
               } else {
                 nodeApi.select();
               }

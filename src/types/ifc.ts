@@ -33,7 +33,6 @@ export type IfcInspectionSnapshot = {
 
 export type IfcInspection = {
   materials?: IfcMaterialCatalog;
-  getDisplayMaterials?: () => readonly IfcMaterialRecord[];
   highlightMaterials?: (elementIds: readonly number[]) => Promise<void>;
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => IfcInspectionSnapshot;
