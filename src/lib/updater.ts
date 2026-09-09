@@ -13,6 +13,15 @@ export type {
   UpdateInstallPayload,
 } from "../types/ipc";
 
+export function isUpdaterConfigured(
+  configuration: UpdateConfigurationPayload | null,
+): boolean {
+  return Boolean(
+    configuration?.effectiveEndpoint?.trim() &&
+    configuration.effectivePubkeyAvailable,
+  );
+}
+
 export async function loadUpdateConfiguration() {
   return invoke<UpdateConfigurationPayload>("load_update_configuration");
 }

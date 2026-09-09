@@ -61,8 +61,6 @@ function makeSidebarOptions(): SidebarModelOptions {
     usdInspectorError: null,
     usdInspectorLoading: false,
     usdIssues: [],
-    usdLights: null,
-    usdLightsError: null,
   };
 }
 

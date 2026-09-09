@@ -228,7 +228,14 @@ export function frameObjectBounds(
   object: Object3D,
   sensitivityMultiplier = 1,
 ) {
-  const bounds = new Box3().setFromObject(object);
+  frameBounds(context, new Box3().setFromObject(object), sensitivityMultiplier);
+}
+
+export function frameBounds(
+  context: SceneContext,
+  bounds: Box3,
+  sensitivityMultiplier = 1,
+) {
   if (bounds.isEmpty()) {
     return;
   }

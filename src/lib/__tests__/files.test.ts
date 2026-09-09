@@ -113,6 +113,19 @@ describe("browser local files", () => {
     });
   });
 
+  it("accepts IFC as an optional model with a browser preview", async () => {
+    const file = new File(["ISO-10303-21;"], "building.ifc");
+    const selected = registerBrowserFile(file);
+
+    expect(formatSupport.model).toContain("ifc");
+    expect(formatSupport.previewImplemented).toContain("ifc");
+    await expect(inspectAsset(selected.path)).resolves.toMatchObject({
+      extension: "ifc",
+      kind: "model",
+      previewImplemented: true,
+    });
+  });
+
   it("rejects unsupported browser-local assets", () => {
     expect(() => registerBrowserFile(new File(["x"], "notes.txt"))).toThrow(
       "unsupported file extension: txt",

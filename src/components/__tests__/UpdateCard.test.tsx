@@ -34,6 +34,46 @@ describe("UpdateCard", () => {
     cleanup();
   });
 
+  it.each([
+    { ...configuration, effectiveEndpoint: null },
+    { ...configuration, effectivePubkeyAvailable: false },
+  ])(
+    "disables unsupported builds without showing a stale update or red failure",
+    (unavailable) => {
+      const check = vi.fn(),
+        install = vi.fn();
+      const { getByText, getByRole, queryByText } = render(
+        <UpdateCard
+          updateConfiguration={unavailable}
+          updateError="no updater endpoint configured"
+          updateCheck={updateCheck}
+          isCheckingForUpdate={false}
+          isInstallingUpdate={false}
+          onCheckForUpdate={check}
+          onInstallUpdate={install}
+        />,
+      );
+      expect(
+        getByText("Update checks unavailable for this build"),
+      ).toBeTruthy();
+      const checkButton = getByRole("button", {
+        name: "Check for Updates",
+      }) as HTMLButtonElement;
+      const installButton = getByRole("button", {
+        name: "Install Update",
+      }) as HTMLButtonElement;
+      expect(checkButton.disabled).toBe(true);
+      expect(installButton.disabled).toBe(true);
+      fireEvent.click(checkButton);
+      fireEvent.click(installButton);
+      expect(check).not.toHaveBeenCalled();
+      expect(install).not.toHaveBeenCalled();
+      expect(queryByText("no updater endpoint configured")).toBeNull();
+      expect(queryByText("Available update")).toBeNull();
+      expect(queryByText("0.1.9 -> 0.2.0")).toBeNull();
+    },
+  );
+
   it("shows current and available versions when an update exists", () => {
     const { getByText } = render(
       <UpdateCard

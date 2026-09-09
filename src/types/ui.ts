@@ -71,7 +71,8 @@ export type ViewportToolIcon =
 
 export type ToolbarMode = "3d" | "image" | "common";
 
-export type ToolbarActionKind = "button" | "toggle" | "cycle" | "popover";
+export type ToolbarActionKind =
+  "button" | "toggle" | "cycle" | "popover" | "slider";
 
 export type ToolbarActionGroup =
   | "background"
@@ -81,6 +82,7 @@ export type ToolbarActionGroup =
   | "display"
   | "inspect"
   | "look"
+  | "lighting"
   | "overlay"
   | "shading"
   | "tiling"
@@ -90,7 +92,6 @@ export type ToolbarAction = {
   id: string;
   mode: ToolbarMode;
   group: ToolbarActionGroup;
-  kind: ToolbarActionKind;
   label: string;
   description?: string;
   iconId?: ViewportToolIcon;
@@ -99,7 +100,18 @@ export type ToolbarAction = {
   shortcut?: string;
   onRun?: () => void;
   children?: ToolbarItem[];
-};
+} & (
+  | { kind: Exclude<ToolbarActionKind, "slider"> }
+  | {
+      kind: "slider";
+      value: number;
+      valueLabel: string;
+      min: number;
+      max: number;
+      step: number;
+      onValueChange: (value: number) => void;
+    }
+);
 
 export type ToolbarSeparator = { kind: "separator" };
 

@@ -45,10 +45,21 @@ export function applyViewportRenderingSettings(
   applyPreviewRenderingPreset(renderer, preset);
 }
 
-export function runCleanupCallbacks(callbacks: Array<() => void>) {
+export function runCleanupCallbacksSafely(callbacks: Array<() => void>) {
+  let firstError: unknown = null;
   for (const cleanup of callbacks) {
-    cleanup();
+    try {
+      cleanup();
+    } catch (error) {
+      firstError ??= error;
+    }
   }
+  return firstError;
+}
+
+export function runCleanupCallbacks(callbacks: Array<() => void>) {
+  const firstError = runCleanupCallbacksSafely(callbacks);
+  if (firstError) throw firstError;
 }
 
 export function applyViewportBackground(

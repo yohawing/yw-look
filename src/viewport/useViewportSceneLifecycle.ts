@@ -2,7 +2,7 @@ import { useEffect, type MutableRefObject, type RefObject } from "react";
 import {
   AmbientLight,
   DirectionalLight,
-  PCFSoftShadowMap,
+  PCFShadowMap,
   PerspectiveCamera,
   PMREMGenerator,
   Scene,
@@ -179,7 +179,7 @@ export function useViewportSceneLifecycle({
       exposureRef.current,
     );
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = PCFSoftShadowMap;
+    renderer.shadowMap.type = PCFShadowMap;
 
     const scene = new Scene();
     const camera = new PerspectiveCamera(
@@ -196,12 +196,9 @@ export function useViewportSceneLifecycle({
     environmentTargetRef.current = createEnvironmentTarget(
       pmremGenerator,
       initialEnvironmentPreset,
+      environmentTargetsRef.current,
     );
     if (environmentTargetRef.current) {
-      environmentTargetsRef.current.set(
-        initialEnvironmentPreset,
-        environmentTargetRef.current,
-      );
       scene.environment = environmentTargetRef.current.texture;
     }
     activeEnvironmentPresetRef.current = initialEnvironmentPreset;
@@ -278,7 +275,23 @@ export function useViewportSceneLifecycle({
         getMountedObject: () => sceneContextRef.current?.mountedObject,
         getSelectMesh: () => onSelectMeshRef.current,
         getViewerSurfaceMode: () => viewerSurfaceModeRef.current,
-        picker: viewportPicker,
+        picker: {
+          pickSelectionKey: (mounted, event) => {
+            const selection = sceneContextRef.current?.packRuntime?.selection;
+            return selection
+              ? selection
+                  .pick(
+                    event,
+                    activeCameraRef.current ?? camera,
+                    renderer.domElement,
+                  )
+                  .catch((error) => {
+                    console.error("[viewer] element selection failed", error);
+                    return null;
+                  })
+              : viewportPicker.pickSelectionKey(mounted, event);
+          },
+        },
       });
 
     renderer.domElement.addEventListener("pointerdown", pointerDownHandler);
@@ -341,7 +354,9 @@ export function useViewportSceneLifecycle({
       // this after rendering so a newly mounted geometry receives at least one
       // GPU upload before BVH preparation can temporarily neuter those arrays.
       viewportPicker.syncMountedObject(
-        sceneContextRef.current?.mountedObject ?? null,
+        sceneContextRef.current?.packRuntime?.selection
+          ? null
+          : (sceneContextRef.current?.mountedObject ?? null),
       );
       void viewportPicker.flushPendingGpuPick({
         camera: activeCameraRef.current ?? camera,

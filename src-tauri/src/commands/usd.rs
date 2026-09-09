@@ -8,14 +8,14 @@ use crate::state::UsdBackendState;
 use crate::usd::{
     types::{ExtractGeometryOptions, VariantSelection},
     AssetIssue, AttributeTimeSamples, PrimInspection, StageInspection, StageLoadPolicy,
-    StageRegistry, StageSessionHandle, StageSummary, UsdError, UsdLightInfo,
+    StageRegistry, StageSessionHandle, StageSummary, UsdError,
 };
 
 const USD_TASK_BUSY: &str = "USD_TASK_BUSY";
 const USD_FAST_DECISION_SCAN_BYTES: usize = 64 * 1024;
 const USDC_MAGIC: &[u8] = b"PXR-USDC";
 const USD_XFORM_TIME_SAMPLES_MARKER: &[u8] = b".timeSamples";
-const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 13] = [
+const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 14] = [
     b"subLayers",
     b"references",
     b"payload",
@@ -25,6 +25,7 @@ const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 13] = [
     b"SkelAnimation",
     b"BlendShape",
     b"MaterialX",
+    b"UsdUVTexture",
     b"ND_",
     b".mtlx",
     b"ParticleField3DGaussianSplat",
@@ -197,22 +198,6 @@ pub(crate) async fn inspect_prim(
 }
 
 #[tauri::command]
-pub(crate) async fn inspect_usd_lights(
-    backend: tauri::State<'_, UsdBackendState>,
-    path: String,
-    background: Option<bool>,
-    variant_selections: Option<Vec<VariantSelection>>,
-) -> Result<Vec<UsdLightInfo>, AppError> {
-    let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.light()?;
-    let variant_selections = variant_selections.unwrap_or_default();
-    run_maybe_background_usd(background, move || {
-        handle.inspect_usd_lights_with_variants(&normalized, &variant_selections)
-    })
-    .await
-}
-
-#[tauri::command]
 pub(crate) async fn summarize_stage(
     backend: tauri::State<'_, UsdBackendState>,
     path: String,
@@ -276,16 +261,6 @@ pub(crate) async fn extract_geometry(
     })
     .await?;
     Ok(tauri::ipc::Response::new(bytes))
-}
-
-#[tauri::command]
-pub(crate) async fn flatten_stage(
-    backend: tauri::State<'_, UsdBackendState>,
-    path: String,
-) -> Result<String, AppError> {
-    let normalized = normalize_file_path(PathBuf::from(path))?;
-    let handle = backend.source()?;
-    run_blocking_usd(move || handle.flatten_stage(&normalized)).await
 }
 
 #[tauri::command]
@@ -473,6 +448,15 @@ mod tests {
         let (_dir, path) = write_usda("plain.usda", b"#usda 1.0\ndef Xform \"Root\" {}");
 
         assert_eq!(fast_usd_requires_glb_preview(&path), Some(false));
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_routes_texture_resources() {
+        let (_dir, path) = write_usda(
+            "textured.usda",
+            b"#usda 1.0\ndef Shader \"Image\" { uniform token info:id = \"UsdUVTexture\" }",
+        );
+        assert_eq!(fast_usd_requires_glb_preview(&path), Some(true));
     }
 
     #[test]

@@ -5,6 +5,7 @@ import {
   configureAssetControls,
   frameCurrentMountedObject,
   frameObjectBounds,
+  frameBounds,
 } from "./camera";
 import {
   applyManualVisibility,
@@ -25,6 +26,8 @@ export type ApplyViewportShortcutCommandOptions = {
   viewerSurfaceMode: ViewerSurfaceMode;
 };
 
+const focusRequests = new WeakMap<SceneContext, object>();
+
 export function applyViewportShortcutCommand({
   cameraSpeedMultiplier,
   command,
@@ -39,12 +42,34 @@ export function applyViewportShortcutCommand({
     return false;
   }
 
+  const request = {};
+  focusRequests.set(context, request);
   const sourceObject = context.sourceObject;
 
   switch (command.kind) {
     case "focusSelected": {
       if (!sourceObject || viewerSurfaceMode !== "asset") {
         return false;
+      }
+      const runtime = context.packRuntime;
+      if (runtime?.selection?.getBounds) {
+        void runtime.selection
+          .getBounds(command.selectionKey)
+          .then((bounds) => {
+            if (
+              !bounds ||
+              context.packRuntime !== runtime ||
+              context.sourceObject !== sourceObject ||
+              focusRequests.get(context) !== request
+            )
+              return;
+            configureAssetControls(context.controls);
+            frameBounds(context, bounds, cameraSpeedMultiplier);
+          })
+          .catch((error) =>
+            console.warn("Unable to focus selected element", error),
+          );
+        return true;
       }
       const target = findObjectBySelectionKey(
         sourceObject,

@@ -1,3 +1,4 @@
+import { loadCorePreviewObject } from "../viewer/corePreviewLoader";
 import { createElement } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { SelectedFile } from "../lib/files";
@@ -10,6 +11,7 @@ import type {
   ViewerFeedback,
 } from "../types/viewer";
 import { gaussianSplatLoaderPack } from "./gaussian-splat-loader-pack/pack";
+import { ifcLoaderPack } from "./ifc-loader-pack/pack";
 import {
   formatMmdMorphTargetMeta,
   getMmdBoneDetails,
@@ -18,9 +20,11 @@ import { mmdLoaderPack } from "./mmd-loader-pack/pack";
 import { useMmdPackFileRequest } from "./mmd-loader-pack/runtime";
 import "./mmd-loader-pack/ui/hierarchy.css";
 import { vrmLoaderPack } from "./vrm-loader-pack/pack";
+import { rhino3dmLoaderPack } from "./rhino3dm-loader-pack/pack";
 
 export { loadSparkPreviewObject } from "./gaussian-splat-loader-pack/loader";
 export { gaussianSplatLoaderPack } from "./gaussian-splat-loader-pack/pack";
+export { ifcLoaderPack } from "./ifc-loader-pack/pack";
 export {
   formatMmdMorphTargetMeta,
   getMmdBoneDetails,
@@ -48,9 +52,31 @@ export {
   syncMmdTransparentMaterialRenderState,
 } from "./mmd-loader-pack/userData";
 export { vrmLoaderPack } from "./vrm-loader-pack/pack";
+export { loadRhino3dmPreviewObject } from "./rhino3dm-loader-pack/loader";
+export { rhino3dmLoaderPack } from "./rhino3dm-loader-pack/pack";
+
+export const cadLoaderPack = {
+  ...ifcLoaderPack,
+  id: "cad-loader-pack",
+  name: "CAD Loader Pack",
+  extensions: ["ifc", "3dm", "3mf"],
+  async loadPreviewObject(file, context) {
+    switch (file.extension) {
+      case "ifc":
+        return ifcLoaderPack.loadPreviewObject(file, context);
+      case "3dm":
+        return rhino3dmLoaderPack.loadPreviewObject(file, context);
+      case "3mf":
+        return loadCorePreviewObject(file, context);
+      default:
+        throw new Error(`Unsupported CAD format: ${file.extension}`);
+    }
+  },
+} satisfies FormatPack;
 
 export const formatPacks = [
   gaussianSplatLoaderPack,
+  cadLoaderPack,
   mmdLoaderPack,
   vrmLoaderPack,
 ] as const;
@@ -67,14 +93,25 @@ export function registerFormatPacks(registry: FormatPackRegistry): void {
 
 export function getMetadataCardForPackMetadata(metadata: PackMetadata) {
   switch (metadata.kind) {
+    case "ifc":
+      return ifcLoaderPack.MetadataCard;
     case "mmd":
       return mmdLoaderPack.MetadataCard ?? null;
   }
 }
 
-export function renderMetadataCardForPackMetadata(metadata: PackMetadata) {
+export function renderMetadataCardForPackMetadata(
+  metadata: PackMetadata,
+  options: {
+    view?: "display" | "selection";
+    selectedKey?: string | null;
+    onSelect?: (key: string | null) => void;
+  } = {},
+) {
   const MetadataCard = getMetadataCardForPackMetadata(metadata);
-  return MetadataCard ? createElement(MetadataCard, { metadata }) : null;
+  return MetadataCard
+    ? createElement(MetadataCard, { metadata, ...options })
+    : null;
 }
 
 export function getPackSelectedObjectDetails(objectInfo: ObjectInfo | null) {

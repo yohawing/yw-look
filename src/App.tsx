@@ -70,8 +70,6 @@ export function App() {
     usdSummary,
     usdInspection,
     usdIssues,
-    usdLights,
-    usdLightsError,
     usdInspectorLoading,
     usdInspectorError,
   } = useUsdInspector(
@@ -275,8 +273,6 @@ export function App() {
       usdInspectorError,
       usdInspectorLoading,
       usdIssues,
-      usdLights,
-      usdLightsError,
     });
 
   return (

@@ -3,6 +3,8 @@ import { Button } from "./Button";
 import "../../styles/list-text-filter.css";
 
 export type ListTextFilterProps = {
+  id?: string;
+  autoFocus?: boolean;
   ariaLabel: string;
   clearLabel: string;
   onChange: (value: string) => void;
@@ -12,6 +14,8 @@ export type ListTextFilterProps = {
 
 /** A small, IME-friendly text filter shared by sidebar lists. */
 export function ListTextFilter({
+  id,
+  autoFocus,
   ariaLabel,
   clearLabel,
   onChange,
@@ -25,6 +29,8 @@ export function ListTextFilter({
         className="yl-list-text-filter__icon"
       />
       <input
+        id={id}
+        autoFocus={autoFocus}
         aria-label={ariaLabel}
         className="yl-input yl-list-text-filter__input"
         onChange={(event) => onChange(event.currentTarget.value)}

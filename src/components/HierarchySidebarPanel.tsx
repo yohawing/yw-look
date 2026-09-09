@@ -1,3 +1,4 @@
+import { buildIfcHierarchy } from "../lib/ifcHierarchy";
 import { useCallback, useMemo } from "react";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { isUsdFile } from "../lib/files";
@@ -10,6 +11,7 @@ import { UsdPrimPropertyPanel } from "./UsdPrimPropertyPanel";
 import {
   formatPackMorphTargetMeta,
   getPackSelectedObjectDetails,
+  renderMetadataCardForPackMetadata,
 } from "../packs";
 import { KeyValueRows } from "./ui/KeyValueRows";
 import { mergeKnownPayloadRoots } from "./usdPayloadHierarchy";
@@ -44,6 +46,14 @@ export function HierarchySidebarPanel({
 }: HierarchySidebarPanelProps) {
   const currentFile = useFileStore((state) => state.currentFile);
   const storeAssetMetadata = useFileStore((state) => state.assetMetadata);
+  const packMetadata = useFileStore((state) => state.packMetadata);
+  const ifcHierarchy = useMemo(
+    () =>
+      packMetadata?.kind === "ifc"
+        ? buildIfcHierarchy(packMetadata.inspection.getSnapshot().elements)
+        : null,
+    [packMetadata],
+  );
   const morphTargetValues = useViewerStore((state) => state.morphTargetValues);
   const selectedMeshName = useViewerStore((state) => state.selectedMeshName);
   const { debugFixtures, useDebugFixtures } =
@@ -51,7 +61,10 @@ export function HierarchySidebarPanel({
   const assetMetadata = useDebugFixtures
     ? debugFixtures.debugPanelMetadata
     : storeAssetMetadata;
-  const hierarchy = assetMetadata?.hierarchy ?? EMPTY_HIERARCHY;
+  const hierarchy =
+    (!useDebugFixtures && ifcHierarchy) ||
+    assetMetadata?.hierarchy ||
+    EMPTY_HIERARCHY;
   const objectInfo = assetMetadata?.objectInfo;
   const payloadSessionEnabled =
     !useDebugFixtures && isUsdFile(currentFile) && stageSessionHandle !== null;
@@ -103,7 +116,15 @@ export function HierarchySidebarPanel({
         }
         onLoadPayload={payloadSessionEnabled ? onLoadPayload : undefined}
         onUnloadPayload={payloadSessionEnabled ? onUnloadPayload : undefined}
-        renderSelectedObjectDetails={renderPackSelectedObjectDetails}
+        renderSelectedObjectDetails={(info) =>
+          !useDebugFixtures && packMetadata?.kind === "ifc"
+            ? renderMetadataCardForPackMetadata(packMetadata, {
+                view: "selection",
+                selectedKey: selectedMeshName,
+                onSelect: useViewerStore.getState().setSelectedMeshName,
+              })
+            : renderPackSelectedObjectDetails(info)
+        }
         renderMorphTargetMeta={formatPackMorphTargetMeta}
       />
       {isUsdFile(currentFile) && (

@@ -48,6 +48,10 @@ export async function loadCorePreviewObject(
   reportStage("scan");
 
   switch (file.extension) {
+    case "3mf": {
+      const { loadThreeMfPreviewObject } = await import("./threeMf/loader");
+      return loadThreeMfPreviewObject(file, context);
+    }
     case "glb":
     case "gltf": {
       const { loadGltfPreviewObject } = await import("./gltf/loader");

@@ -32,7 +32,6 @@ export async function loadMmdMotion(
   return loadMmdMotionFromPack(file, options);
 }
 
-export { tryExtractUsdaText } from "./usd/loader";
 export {
   disabledOptionalLoaderPackIds,
   incompatibleOptionalLoaderPackIds,

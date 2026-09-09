@@ -26,6 +26,15 @@ export const optionalLoaderPackDefinitions = [
       { extension: "sog", formatLabel: "SOG Gaussian Splat" },
     ],
   },
+  {
+    id: "cad-loader-pack",
+    name: "CAD Loader Pack",
+    extensions: [
+      { extension: "ifc", formatLabel: "IFC / BIM" },
+      { extension: "3dm", formatLabel: "Rhino 3DM" },
+      { extension: "3mf", formatLabel: "3MF" },
+    ],
+  },
 ] as const;
 
 export function getOptionalLoaderPackDefinition(id: string) {

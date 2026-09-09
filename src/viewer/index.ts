@@ -52,7 +52,7 @@ export {
   removeBoundingBoxHelpers,
   applyNormalSurfaceMaterial,
   applySurfaceMaterialMode,
-  isNormalSurfaceMaterialActive,
+  isDiagnosticSurfaceMaterialActive,
   isViewportHelperObject,
   ensureShadowCatcher,
   applyShadows,
@@ -70,7 +70,6 @@ export type {
 export {
   loadPreviewObject,
   loadMmdMotion,
-  tryExtractUsdaText,
   loaderRegistry,
   getPreviewSupportState,
   listRegisteredLoaders,

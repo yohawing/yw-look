@@ -102,7 +102,7 @@ describe("TexturesSidebarPanel", () => {
     expect(useViewerStore.getState().selectedTextureId).toBe("shared-texture");
     expect(useViewerStore.getState().viewerSurfaceMode).toBe("texture");
     expect(
-      container.querySelector(".texture-detail-grid")?.textContent,
+      container.querySelector('[aria-label="Selected texture"]')?.textContent,
     ).toContain("Roughness");
     expect(rows()[0]?.classList.contains("is-active")).toBe(false);
     expect(rows()[1]?.classList.contains("is-active")).toBe(true);

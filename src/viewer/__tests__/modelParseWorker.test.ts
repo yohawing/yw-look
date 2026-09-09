@@ -483,6 +483,7 @@ describe("parseModelInWorker lifecycle and ownership", () => {
       signal: controller.signal,
     });
     expect(sawSignal).toBe(controller.signal);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
 
     controller.abort();
 
@@ -493,5 +494,41 @@ describe("parseModelInWorker lifecycle and ownership", () => {
     releaseReconstruction?.(new Group());
     await Promise.resolve();
     expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards a static-scene budget to main-thread reconstruction", async () => {
+    const scene: ModelParseWorkerStaticScenePayload = {
+      rootKind: "group",
+      rootName: "Budgeted",
+      rootUserData: {},
+      meshes: [],
+    };
+    const budget = {
+      maxNodes: 10,
+      maxGeometryCount: 2,
+      maxVertexBytes: 1024,
+      maxIndexBytes: 512,
+      maxTextureDecodedBytes: 2048,
+    };
+    const promise = parseModelInWorker(
+      "budgeted.glb",
+      { kind: "glb", buffer: new ArrayBuffer(4) },
+      { staticSceneBudget: budget },
+    );
+    const worker = mocks.workers[0];
+    const id = worker.postMessage.mock.calls[0][0].id;
+    worker.emit("message", {
+      data: {
+        id,
+        ok: true as const,
+        result: { kind: "staticScene" as const, scene },
+      },
+    });
+
+    await promise;
+    expect(mocks.createStaticSceneObjectAsync).toHaveBeenCalledWith(scene, {
+      signal: undefined,
+      budget,
+    });
   });
 });

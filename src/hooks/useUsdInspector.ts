@@ -3,13 +3,11 @@ import { isUsdFile, type SelectedFile } from "../lib/files";
 import {
   collectAssetIssues,
   inspectStage,
-  inspectUsdLights,
   summarizeStage,
   type AssetIssue,
   type StageInspection,
   type StageLoadPolicy,
   type StageSummary,
-  type UsdLightInfo,
   type VariantSelection,
 } from "../lib/usd";
 import { errorMessage } from "../lib/errors";
@@ -44,8 +42,6 @@ export function useUsdInspector(
     null,
   );
   const [usdIssues, setUsdIssues] = useState<AssetIssue[]>([]);
-  const [usdLights, setUsdLights] = useState<UsdLightInfo[] | null>(null);
-  const [usdLightsError, setUsdLightsError] = useState<string | null>(null);
   const [usdInspectorLoading, setUsdInspectorLoading] = useState(false);
   const [usdInspectorError, setUsdInspectorError] = useState<string | null>(
     null,
@@ -60,8 +56,6 @@ export function useUsdInspector(
       setUsdSummary(null);
       setUsdInspection(null);
       setUsdIssues([]);
-      setUsdLights(null);
-      setUsdLightsError(null);
       setUsdInspectorLoading(false);
       setUsdInspectorError(null);
       return;
@@ -70,8 +64,6 @@ export function useUsdInspector(
     setUsdSummary(null);
     setUsdInspection(null);
     setUsdIssues([]);
-    setUsdLights(null);
-    setUsdLightsError(null);
     setUsdInspectorLoading(enabled);
     setUsdInspectorError(null);
 
@@ -172,39 +164,10 @@ export function useUsdInspector(
               })
           : Promise.resolve();
 
-      const lightsPromise =
-        usdLoadPolicy === "loadAll"
-          ? retryWhileBusy(
-              () =>
-                inspectUsdLights(path, { background: true }, variantSelections),
-              {
-                shouldAbort: () => cancelled,
-              },
-            )
-              .then((lights) => {
-                if (cancelled) return;
-                if (lights === undefined) {
-                  setUsdLights(null);
-                  setUsdLightsError(busyExhaustedMessage);
-                  return;
-                }
-                setUsdLights(lights);
-                setUsdLightsError(null);
-              })
-              .catch((error: unknown) => {
-                if (cancelled) return;
-                setUsdLights(null);
-                setUsdLightsError(
-                  errorMessage(error, "Failed to inspect USD lights."),
-                );
-              })
-          : Promise.resolve();
-
       void Promise.allSettled([
         summarizePromise,
         inspectPromise,
         issuesPromise,
-        lightsPromise,
       ]).then(() => {
         if (cancelled) return;
         setUsdInspectorLoading(false);
@@ -236,8 +199,6 @@ export function useUsdInspector(
     usdSummary: hasCurrentInspection ? usdSummary : null,
     usdInspection: hasCurrentInspection ? usdInspection : null,
     usdIssues: hasCurrentInspection ? usdIssues : [],
-    usdLights: hasCurrentInspection ? usdLights : null,
-    usdLightsError: hasCurrentInspection ? usdLightsError : null,
     usdInspectorLoading,
     usdInspectorError: hasCurrentInspection ? usdInspectorError : null,
   };

@@ -14,10 +14,12 @@ const profiles = {
   core: {
     YW_INCLUDE_MMD_LOADER_PACK: "0",
     YW_INCLUDE_SPARK_LOADER_PACK: "0",
+    YW_INCLUDE_IFC_LOADER_PACK: "0",
   },
   all: {
     YW_INCLUDE_MMD_LOADER_PACK: "1",
     YW_INCLUDE_SPARK_LOADER_PACK: "1",
+    YW_INCLUDE_IFC_LOADER_PACK: "1",
   },
 };
 

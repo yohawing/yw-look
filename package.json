@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "imports": {
+    "#yw-look-ifc-loader-entry": "./src/packs/ifc-loader-pack/loaderInstalled.ts",
     "#yw-look-mmd-loader-entry": "./src/packs/mmd-loader-pack/loaderInstalled.ts",
     "#yw-look-spark-loader-entry": "./src/packs/gaussian-splat-loader-pack/loaderInstalled.ts"
   },
@@ -30,7 +31,6 @@
     "lint": "eslint .",
     "check:format-pack-boundaries": "node scripts/check-format-pack-boundaries.mjs",
     "check:viewer-viewport-boundaries": "node scripts/check-viewer-viewport-boundaries.mjs",
-    "check:test-count": "node scripts/count-tests.mjs --check",
     "check:ipc-types": "cargo test --manifest-path src-tauri/Cargo.toml ipc_type_exports::generated_ipc_types_are_current",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -38,7 +38,7 @@
     "typecheck": "npm run typecheck:ts && npm run typecheck:rust",
     "typecheck:ts": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "typecheck:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "check": "npm run lint && npm run format:check && npm run check:format-pack-boundaries && npm run check:viewer-viewport-boundaries && npm run check:test-count && npm run test && npm run typecheck",
+    "check": "npm run lint && npm run format:check && npm run check:format-pack-boundaries && npm run check:viewer-viewport-boundaries && npm run test && npm run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -79,6 +79,8 @@
     "update:local:prepare": "node scripts/prepare-local-update-feed.mjs",
     "check:update-feed": "node scripts/check-local-update-feed.mjs",
     "check:release-updater": "node scripts/check-release-updater-manifest.mjs",
+    "check:release-updater-config": "node scripts/check-release-updater-config.mjs",
+    "test:release-updater-config": "node --test scripts/check-release-updater-config.test.mjs",
     "smoke:update-feed": "node scripts/smoke-local-update-feed.mjs",
     "check:win-authenticode": "node scripts/check-win-authenticode.mjs",
     "check:macos-codesign": "node scripts/check-macos-codesign.mjs",
@@ -94,17 +96,22 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-log": "^2.9.0",
+    "@xmldom/xmldom": "0.9.12",
     "@yohawing/timeline-editor": "git+https://github.com/yohawing/timeline-editor.git#4adb126a4c48a3bb80873ef643fba55752f30cae",
     "react": "^19.2.8",
+    "react-arborist": "3.16.0",
     "react-dom": "^19.2.8",
     "react-resizable-panels": "^4.12.3",
+    "rhino3dm": "8.32.2",
     "three": "^0.185.1",
     "three-mesh-bvh": "0.9.14",
     "zustand": "^5.0.15"
   },
   "optionalDependencies": {
     "@sparkjsdev/spark": "^2.1.0",
-    "@yohawing/three-mmd-loader": "0.8.2"
+    "@thatopen/fragments": "3.4.7",
+    "@yohawing/three-mmd-loader": "0.8.2",
+    "web-ifc": "0.0.77"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

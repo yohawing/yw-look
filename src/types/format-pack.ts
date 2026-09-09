@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { Object3D } from "three";
+import type { Box3, Camera, Object3D, WebGLRenderer } from "three";
 import type { SelectedFile } from "../lib/files";
 import type {
   LoaderContext,
@@ -21,8 +21,26 @@ export type PackRuntimeAnimation = {
   step: (direction: -1 | 1) => PackRuntimeAnimationSnapshot | null;
 };
 
+export type PackRuntimeFrame = {
+  camera: Camera;
+  deltaSeconds: number;
+  renderer: WebGLRenderer;
+};
+
 export type PackRuntime = {
   animation?: PackRuntimeAnimation;
+  selection?: {
+    pick: (
+      event: Pick<PointerEvent, "clientX" | "clientY">,
+      camera: Camera,
+      canvas: HTMLCanvasElement,
+    ) => Promise<string | null>;
+    getBounds?: (key: string) => Promise<Box3 | null>;
+    select: (key: string | null) => Promise<void>;
+  };
+  update?: (frame: PackRuntimeFrame) => void;
+  /** True when runtime/worker code owns the mounted object's GPU resources. */
+  ownsMountedObjectResources?: boolean;
   dispose: () => void;
 };
 
@@ -38,14 +56,20 @@ export type MmdPackMetadata = {
   asset: MmdAssetMetadata;
 };
 
-export type PackMetadata = MmdPackMetadata;
+export type PackMetadata =
+  MmdPackMetadata | { kind: "ifc"; inspection: import("./ifc").IfcInspection };
 
 export type FormatPack = LoaderPlugin & {
   collectMetadata?: (
     object: Object3D,
     file: SelectedFile,
   ) => PackMetadata | null;
-  MetadataCard?: ComponentType<{ metadata: PackMetadata }>;
+  MetadataCard?: ComponentType<{
+    metadata: PackMetadata;
+    view?: "display" | "selection";
+    selectedKey?: string | null;
+    onSelect?: (key: string | null) => void;
+  }>;
   createRuntime?: (context: SceneContext) => PackRuntime;
   createFileRequest?: (
     file: SelectedFile,

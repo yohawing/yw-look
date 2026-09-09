@@ -12,7 +12,6 @@ import { CurrentFileCard } from "../components/CurrentFileCard";
 import { FileBrowserCard } from "../components/FileBrowserCard";
 import { HierarchySidebarPanel } from "../components/HierarchySidebarPanel";
 import { MaterialListCard } from "../components/MaterialListCard";
-import { SceneLightsCamerasPanel } from "../components/SceneLightsCamerasPanel";
 import { createSidebarTabs } from "../components/sidebarTabItems";
 import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 import type { SidebarTabItem } from "../components/SidebarTabs";
@@ -34,7 +33,6 @@ import type {
   StageInspection,
   StageSummary,
   StageSessionHandle,
-  UsdLightInfo,
 } from "../lib/usd";
 import { useFileStore } from "../stores/fileStore";
 import { useUiStore } from "../stores/uiStore";
@@ -69,11 +67,6 @@ const SettingsCard = lazy(() =>
 const UpdateCard = lazy(() =>
   import("../components/UpdateCard").then((module) => ({
     default: module.UpdateCard,
-  })),
-);
-const UsdSourceCard = lazy(() =>
-  import("../components/UsdSourceCard").then((module) => ({
-    default: module.UsdSourceCard,
   })),
 );
 
@@ -123,8 +116,6 @@ type UseSidebarModelOptions = {
   usdInspectorError: string | null;
   usdInspectorLoading: boolean;
   usdIssues: AssetIssue[];
-  usdLights: UsdLightInfo[] | null;
-  usdLightsError: string | null;
 };
 
 export function useSidebarModel({
@@ -162,8 +153,6 @@ export function useSidebarModel({
   usdInspectorError,
   usdInspectorLoading,
   usdIssues,
-  usdLights,
-  usdLightsError,
 }: UseSidebarModelOptions) {
   const currentFile = useFileStore((state) => state.currentFile);
   const assetMetadata = useFileStore((state) => state.assetMetadata);
@@ -213,7 +202,9 @@ export function useSidebarModel({
   const packMetadataCard = useMemo(
     () =>
       sidebarPackMetadata
-        ? renderMetadataCardForPackMetadata(sidebarPackMetadata)
+        ? renderMetadataCardForPackMetadata(sidebarPackMetadata, {
+            onSelect: useViewerStore.getState().setSelectedMeshName,
+          })
         : null,
     [sidebarPackMetadata],
   );
@@ -267,9 +258,6 @@ export function useSidebarModel({
                     loading={usdInspectorLoading}
                   />
                 </Suspense>
-                <Suspense fallback={<SidebarCardFallback />}>
-                  <UsdSourceCard />
-                </Suspense>
               </>
             )}
             {useDebugFixtures && (
@@ -281,11 +269,6 @@ export function useSidebarModel({
                 summary={debugFixtures.debugUsdSummary}
               />
             )}
-            <SceneLightsCamerasPanel
-              debugPanelsEnabled={debugPanelsEnabled}
-              usdLights={usdLights ?? undefined}
-              usdLightsError={usdLightsError}
-            />
           </>
         );
       case "file":
@@ -412,6 +395,7 @@ export function useSidebarModel({
     settingsError,
     settingsPayload,
     packMetadataCard,
+    sidebarPackMetadata,
     sidebarRecentFilesError,
     sidebarRecentFilesPayload,
     sidebarWarnings,
@@ -425,8 +409,6 @@ export function useSidebarModel({
     usdInspectorError,
     usdInspectorLoading,
     usdIssues,
-    usdLights,
-    usdLightsError,
   ]);
 
   const sidebarTabs = useMemo<SidebarTabItem<SidebarTabId>[]>(

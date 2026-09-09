@@ -2,6 +2,7 @@ import type {
   UpdateCheckPayload,
   UpdateConfigurationPayload,
 } from "../lib/updater";
+import { isUpdaterConfigured } from "../lib/updater";
 import { Button } from "./ui/Button";
 import {
   SidebarEmpty,
@@ -30,18 +31,24 @@ export function UpdateCard({
   onCheckForUpdate,
   onInstallUpdate,
 }: UpdateCardProps) {
-  const hasUpdate = Boolean(updateCheck?.update);
-  const updateState = updateError
-    ? "failed"
-    : isInstallingUpdate
-      ? "installing"
-      : isCheckingForUpdate
-        ? "checking"
-        : updateCheck?.update
-          ? "available"
-          : updateCheck
-            ? "up-to-date"
-            : "idle";
+  const configured = isUpdaterConfigured(updateConfiguration);
+  const unavailable = updateConfiguration !== null && !configured;
+  const hasUpdate = configured && Boolean(updateCheck?.update);
+  const updateState = unavailable
+    ? "unavailable"
+    : updateError
+      ? "failed"
+      : isInstallingUpdate
+        ? "installing"
+        : isCheckingForUpdate
+          ? "checking"
+          : updateCheck?.update
+            ? "available"
+            : updateCheck
+              ? "up-to-date"
+              : updateConfiguration
+                ? "idle"
+                : "loading";
   const updateStateText = {
     failed: "Update check failed",
     installing: "Installing update",
@@ -49,6 +56,8 @@ export function UpdateCard({
     available: "Update available",
     "up-to-date": "Up to date",
     idle: "Ready to check",
+    unavailable: "Unavailable",
+    loading: "Loading updater configuration",
   }[updateState];
   const updateRows: SidebarKeyValueRow[] = updateCheck?.update
     ? [
@@ -98,7 +107,7 @@ export function UpdateCard({
               ? "ok"
               : "muted",
     },
-    ...(updateCheck?.update
+    ...(configured && updateCheck?.update
       ? [
           {
             id: "version-path",
@@ -113,17 +122,29 @@ export function UpdateCard({
   return (
     <>
       <SidebarSection title="App Updates">
-        {updateError ? <SidebarError>{updateError}</SidebarError> : null}
+        {updateError && !unavailable ? (
+          <SidebarError>{updateError}</SidebarError>
+        ) : null}
         <SidebarKeyValueRows rows={statusRows} />
+        {unavailable ? (
+          <SidebarEmpty>Update checks unavailable for this build</SidebarEmpty>
+        ) : null}
         {updateConfiguration ? (
           <div className="card-actions">
-            <Button variant="ghost" size="sm" onClick={onCheckForUpdate}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={
+                !configured || isCheckingForUpdate || isInstallingUpdate
+              }
+              onClick={onCheckForUpdate}
+            >
               {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
             </Button>
             <Button
               variant="primary"
               size="sm"
-              disabled={!hasUpdate || isInstallingUpdate}
+              disabled={!hasUpdate || isCheckingForUpdate || isInstallingUpdate}
               onClick={onInstallUpdate}
             >
               {isInstallingUpdate ? "Installing..." : "Install Update"}
@@ -134,7 +155,7 @@ export function UpdateCard({
         )}
       </SidebarSection>
 
-      {updateCheck?.update ? (
+      {configured && updateCheck?.update ? (
         <SidebarSection
           title="Available update"
           count={updateCheck.update.version}
@@ -147,14 +168,16 @@ export function UpdateCard({
             <Button
               variant="primary"
               size="sm"
-              disabled={isInstallingUpdate}
+              disabled={
+                !configured || isCheckingForUpdate || isInstallingUpdate
+              }
               onClick={onInstallUpdate}
             >
               {isInstallingUpdate ? "Installing..." : "Install Update"}
             </Button>
           </div>
         </SidebarSection>
-      ) : updateCheck ? (
+      ) : configured && updateCheck ? (
         <SidebarSection title="Available update">
           <SidebarEmpty>No newer update available.</SidebarEmpty>
         </SidebarSection>

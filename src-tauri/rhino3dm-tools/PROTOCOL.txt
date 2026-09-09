@@ -1,0 +1,67 @@
+yw-look native 3DM helper protocol v1
+
+The helper is a separate 64-bit process. It reads a 3DM path directly and
+does all openNURBS traversal and GLB generation inside the process. There is
+no Rust/C++ ABI.
+
+Invocation:
+
+  rhino3dm_preview --input INPUT --output OUTPUT.part --result RESULT.json \
+    --request-id ID --protocol 1 [--max-* VALUE]
+
+Identity:
+
+  rhino3dm_preview --identity
+  rhino3dm_preview --version
+
+Both identity commands are side-effect-free and emit the same bounded JSON
+object on stdout. It contains schemaVersion, protocolVersion (1),
+helperVersion (1.0.0), helperRevision, targetOs, targetArch, and binaryName
+(rhino3dm_preview). The build script accepts a bundled helper only after
+checking every one of these fields and repeats the check after rebuilding.
+Identity stdout is capped at 4 KiB by the helper and the build check.
+
+OUTPUT must end in `.part`. The helper first writes OUTPUT.part.tmp, flushes
+and closes it, then atomically renames it to OUTPUT.part. A failed conversion
+does not publish a partial GLB. RESULT is also written through a temporary
+file and atomic rename. When `--result` is omitted, the bounded result object
+is written as the only stdout record. Diagnostic stderr is kept short; the
+parent owns stdout/stderr size limits.
+
+Result fields are versioned and use camelCase:
+
+  schemaVersion, protocolVersion, helperRevision, requestId, ok, stage,
+  counts, timingsMs, output, warnings, and error on failure.
+
+`counts` includes objects, visibleObjects, nodes, meshes, materials, vertices,
+indices, triangles, images, imageDecodedBytes, referenceExpansions, and
+maxRecursionDepth. `materials` reports emitted glTF material records; exact
+duplicate records are deduplicated while preserving their serialized names.
+Warnings are objects with `kind` and `count`. The helper
+currently reports unsupported_textures, unsupported_full_pbr,
+unsupported_curves, unsupported_points, unsupported_annotations,
+unsupported_lights, missing_saved_mesh, and missing_saved_mesh_extrusion.
+These are explicit loss reports; the helper does not claim texture/PBR/curve/
+point/annotation/light parity.
+
+The helper checks output bytes, nodes, vertices, indices, decoded image bytes,
+instance recursion depth, reference expansion count, and checked integer
+arithmetic before allocating generated buffers. A nonzero `--max-memory-bytes`
+adds a conservative generated-buffer estimate. OS process limits and crash
+classification remain the parent's responsibility.
+
+Exit codes:
+
+  0 success
+  2 invalid arguments
+  10 invalidFile
+  11 noPreviewGeometry
+  12 outputLimit
+  13 memoryLimit
+  14 allocationFailed
+  15 ioError
+  16 internalError
+
+The openNURBS source is fetched at revision
+23fc677ba06e49212296ca75fab7fb6c2851b4ce. nlohmann/json is fetched at commit
+65ee68451d8eb2b5f3a30b410476ab83deb3289b. Both notices are in LICENSES/.

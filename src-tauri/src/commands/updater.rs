@@ -66,6 +66,16 @@ fn default_updater_public_key() -> Option<String> {
         .map(ToString::to_string)
 }
 
+pub(crate) fn compiled_update_configuration() -> serde_json::Value {
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "debugBuild": cfg!(debug_assertions),
+        "source": "compile-time environment",
+        "endpoint": default_updater_endpoint(),
+        "publicKey": default_updater_public_key(),
+    })
+}
+
 fn effective_updater_endpoint(settings: &AppSettings) -> Option<String> {
     settings
         .update_endpoint_override
@@ -93,9 +103,12 @@ fn effective_updater_public_key(settings: &AppSettings) -> Option<String> {
 }
 
 fn is_loopback_update_endpoint(endpoint: &str) -> bool {
-    endpoint.starts_with("http://127.0.0.1")
-        || endpoint.starts_with("http://localhost")
-        || endpoint.starts_with("http://[::1]")
+    Url::parse(endpoint).is_ok_and(|url| {
+        url.scheme() == "http"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"))
+    })
 }
 
 pub(crate) fn build_update_configuration_payload(
@@ -151,6 +164,12 @@ mod tests {
             "https://github.com/example/latest.json",
             "http://192.168.1.5/latest.json",
             "http://evil.example/latest.json",
+            "http://localhost.evil.example/latest.json",
+            "http://127.0.0.1.evil.example/latest.json",
+            "http://127.0.0.1@evil.example/latest.json",
+            "http://user@localhost/latest.json",
+            "http://127.0.0.10/latest.json",
+            "not a URL",
         ] {
             assert!(!is_loopback_update_endpoint(endpoint), "{endpoint}");
         }

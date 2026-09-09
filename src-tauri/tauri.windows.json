@@ -2,7 +2,10 @@
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
     "resources": {
-      "alembic-tools/x64-windows/": "alembic-tools/x64-windows/"
+      "alembic-tools/x64-windows/": "alembic-tools/x64-windows/",
+      "rhino3dm-tools/x64-windows/rhino3dm_preview.exe": "rhino3dm-tools/x64-windows/rhino3dm_preview.exe",
+      "rhino3dm-tools/x64-windows/openNURBS-LICENSE.txt": "rhino3dm-tools/x64-windows/openNURBS-LICENSE.txt",
+      "rhino3dm-tools/x64-windows/nlohmann-json-LICENSE.txt": "rhino3dm-tools/x64-windows/nlohmann-json-LICENSE.txt"
     }
   }
 }

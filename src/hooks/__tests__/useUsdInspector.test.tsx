@@ -5,7 +5,6 @@ import type { VariantSelection } from "../../types/ipc";
 import {
   collectAssetIssues,
   inspectStage,
-  inspectUsdLights,
   summarizeStage,
 } from "../../lib/usd";
 import { useUsdInspector } from "../useUsdInspector";
@@ -22,7 +21,6 @@ vi.mock("../../config/viewerLimits", () => ({
 vi.mock("../../lib/usd", () => ({
   collectAssetIssues: vi.fn(),
   inspectStage: vi.fn(),
-  inspectUsdLights: vi.fn(),
   isUsdTaskBusyError: vi.fn((error: unknown) =>
     error instanceof Error
       ? error.message === "USD_TASK_BUSY"
@@ -41,7 +39,6 @@ const usdFile: SelectedFile = {
 
 const summary = { path: usdFile.path, defaultPrim: "Root" };
 const inspection = { path: usdFile.path, rootPrims: ["/Root"] };
-const lights = [{ primPath: "/Root/Key" }];
 
 function busyError() {
   return new Error("USD_TASK_BUSY");
@@ -71,7 +68,6 @@ describe("useUsdInspector", () => {
     vi.mocked(summarizeStage).mockResolvedValue(summary as never);
     vi.mocked(inspectStage).mockResolvedValue(inspection as never);
     vi.mocked(collectAssetIssues).mockResolvedValue([]);
-    vi.mocked(inspectUsdLights).mockResolvedValue(lights as never);
   });
 
   afterEach(() => {
@@ -123,20 +119,12 @@ describe("useUsdInspector", () => {
       { background: true },
       variantSelections,
     );
-    expect(inspectUsdLights).toHaveBeenCalledWith(
-      usdFile.path,
-      { background: true },
-      variantSelections,
-    );
     expect(result.current.usdInspectorError).toBeNull();
   });
 
   it("hides the previous inspection snapshot immediately after a variant change", async () => {
     vi.mocked(collectAssetIssues).mockResolvedValueOnce([
       { code: "old-variant" },
-    ] as never);
-    vi.mocked(inspectUsdLights).mockResolvedValueOnce([
-      { primPath: "/Root/OldLight" },
     ] as never);
     const { result, rerender } = renderInspector(usdFile, [
       {
@@ -150,7 +138,6 @@ describe("useUsdInspector", () => {
     expect(result.current.usdSummary).toEqual(summary);
     expect(result.current.usdInspection).toEqual(inspection);
     expect(result.current.usdIssues).toEqual([{ code: "old-variant" }]);
-    expect(result.current.usdLights).toEqual([{ primPath: "/Root/OldLight" }]);
 
     rerender({
       currentFile: usdFile,
@@ -160,8 +147,6 @@ describe("useUsdInspector", () => {
     expect(result.current.usdSummary).toBeNull();
     expect(result.current.usdInspection).toBeNull();
     expect(result.current.usdIssues).toEqual([]);
-    expect(result.current.usdLights).toBeNull();
-    expect(result.current.usdLightsError).toBeNull();
     expect(result.current.usdInspectorError).toBeNull();
   });
 
@@ -190,11 +175,10 @@ describe("useUsdInspector", () => {
     expect(result.current.usdInspectorLoading).toBe(false);
   });
 
-  it("suppresses all results and errors from four queries after a variant change", async () => {
+  it("suppresses all results and errors from all retained queries after a variant change", async () => {
     let resolveSummary!: (value: unknown) => void;
     let resolveInspection!: (value: unknown) => void;
     let rejectIssues!: (reason: unknown) => void;
-    let resolveLights!: (value: unknown) => void;
     const oldSummary = new Promise((resolve) => {
       resolveSummary = resolve;
     });
@@ -204,18 +188,12 @@ describe("useUsdInspector", () => {
     const oldIssues = new Promise((_, reject) => {
       rejectIssues = reject;
     });
-    const oldLights = new Promise((resolve) => {
-      resolveLights = resolve;
-    });
     vi.mocked(summarizeStage).mockImplementationOnce(() => oldSummary as never);
     vi.mocked(inspectStage).mockImplementationOnce(
       () => oldInspection as never,
     );
     vi.mocked(collectAssetIssues).mockImplementationOnce(
       () => oldIssues as never,
-    );
-    vi.mocked(inspectUsdLights).mockImplementationOnce(
-      () => oldLights as never,
     );
 
     const { result, rerender } = renderInspector(usdFile, []);
@@ -235,7 +213,6 @@ describe("useUsdInspector", () => {
       resolveSummary(summary);
       resolveInspection(inspection);
       rejectIssues(new Error("stale variant failure"));
-      resolveLights(lights);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -243,8 +220,6 @@ describe("useUsdInspector", () => {
     expect(result.current.usdSummary).toBeNull();
     expect(result.current.usdInspection).toBeNull();
     expect(result.current.usdIssues).toEqual([]);
-    expect(result.current.usdLights).toBeNull();
-    expect(result.current.usdLightsError).toBeNull();
     expect(result.current.usdInspectorError).toBeNull();
   });
 

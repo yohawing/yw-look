@@ -25,7 +25,6 @@ import type {
   PurposeModes as GeneratedPurposeModes,
   RelationshipInfo as GeneratedRelationshipInfo,
   SettingsPayload as GeneratedSettingsPayload,
-  ShapingCone as GeneratedShapingCone,
   StageCapabilityInfo as GeneratedStageCapabilityInfo,
   StageCapabilityKind as GeneratedStageCapabilityKind,
   StageCapabilitySupport as GeneratedStageCapabilitySupport,
@@ -37,16 +36,19 @@ import type {
   UpdateConfigurationPayload as GeneratedUpdateConfigurationPayload,
   UpdateInstallPayload as GeneratedUpdateInstallPayload,
   UpdateMetadataPayload as GeneratedUpdateMetadataPayload,
-  UsdLightInfo as GeneratedUsdLightInfo,
   VariantSelection as GeneratedVariantSelection,
   VariantSetInfo as GeneratedVariantSetInfo,
 } from "./generated/ipc";
 
 // ── Error type (mirrors Rust AppError) ──────────────────────────
 
+export type AppErrorDetails = Record<string, unknown>;
+
 export type AppError = {
-  kind: "io" | "usd" | "serde" | "timeout" | "internal";
+  /** Rust may add a format-specific kind without breaking the frontend. */
+  kind: string;
   message: string;
+  details?: AppErrorDetails;
 };
 
 // ── USD IPC types ────────────────────────────────────────────────
@@ -134,16 +136,9 @@ export type MetadataEntry = GeneratedMetadataEntry;
 
 export type PrimInspection = GeneratedPrimInspection;
 
-export type ShapingCone = GeneratedShapingCone;
-
-export type UsdLightInfo = GeneratedUsdLightInfo;
-
 export type TimeSampleEntry = GeneratedTimeSampleEntry;
 
 export type AttributeTimeSamples = GeneratedAttributeTimeSamples;
-
-export type UsdSourcePayload =
-  { kind: "text"; source: string } | { kind: "binary" };
 
 export type StageSessionHandle = number;
 

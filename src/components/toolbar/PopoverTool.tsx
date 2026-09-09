@@ -11,6 +11,7 @@ import { ViewportToolSvg } from "../ViewportToolIcons";
 import { PopoverContent, PopoverTrigger } from "../ui/Popover";
 import type { ToolbarAction, ToolbarItem, ToolbarStatus } from "./types";
 import { ToolbarPopover } from "./ToolbarPopover";
+import { SliderField } from "../ui/SliderField";
 
 type PopoverToolProps = {
   action: ToolbarAction;
@@ -37,6 +38,7 @@ export function PopoverTool({ action }: PopoverToolProps) {
   const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const hasChildren = action.children && action.children.length > 0;
+  const hasSlider = action.children?.some((child) => child.kind === "slider");
 
   const clearTimers = useCallback(() => {
     if (openTimerRef.current) {
@@ -192,7 +194,9 @@ export function PopoverTool({ action }: PopoverToolProps) {
       <PopoverTrigger asChild>
         <button
           aria-expanded={open}
-          aria-haspopup={hasChildren ? "menu" : undefined}
+          aria-haspopup={
+            hasChildren ? (hasSlider ? "dialog" : "menu") : undefined
+          }
           aria-label={action.label}
           className={`viewport-tool${action.active ? " is-active" : ""}${open ? " is-hover" : ""}`}
           disabled={action.disabled}
@@ -209,7 +213,8 @@ export function PopoverTool({ action }: PopoverToolProps) {
         <PopoverContent
           align="start"
           className="toolbar-popover"
-          role="menu"
+          role={hasSlider ? "dialog" : "menu"}
+          aria-label={action.label}
           side="right"
           onPointerEnter={scheduleOpen}
           onPointerLeave={handlePointerLeave}
@@ -232,9 +237,30 @@ function ToolbarPopoverActionRow({
   action: ToolbarAction;
   onAction: (onRun?: () => void) => void;
 }) {
+  if (action.kind === "slider") {
+    return (
+      <div className="toolbar-popover-slider">
+        <SliderField
+          aria-label={action.label}
+          label={action.label}
+          valueLabel={action.valueLabel}
+          value={action.value}
+          min={action.min}
+          max={action.max}
+          step={action.step}
+          disabled={action.disabled}
+          size="sm"
+          onChange={(event) =>
+            action.onValueChange(Number(event.currentTarget.value))
+          }
+        />
+      </div>
+    );
+  }
   return (
     <button
       aria-label={action.label}
+      aria-pressed={action.active}
       className={`toolbar-popover-item${action.active ? " is-active" : ""}`}
       disabled={action.disabled}
       onClick={() => onAction(action.onRun)}

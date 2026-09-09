@@ -56,8 +56,11 @@ function findChild(
 }
 
 describe("build3DToolbar", () => {
-  it("omits the Look popover from viewport settings", () => {
+  it("provides Lighting independently of Shading without restoring the old Look popover", () => {
     const items = build3DToolbar(createOptions());
+    const lighting = findPopover(items, "lighting")!;
+    expect(lighting.label).toBe("Lighting");
+    expect(findChild(lighting, "environment-studio")?.active).toBe(true);
 
     expect(
       items.some((item) => item.kind !== "separator" && item.id === "look"),

@@ -325,6 +325,7 @@ pub enum AssetIssueCode {
     BrokenReference,
     MissingSubLayer,
     MissingPayload,
+    MissingTexture,
     SuspiciousMetersPerUnit,
 }
 
@@ -467,54 +468,6 @@ pub struct LayerInfo {
     pub time_scale: f64,
     /// Authored `comment` on this layer, or `None` when absent.
     pub comment: Option<String>,
-}
-
-/// Shaping cone parameters on a UsdLux light prim that applies
-/// `UsdLuxShapingAPI` (#35).
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShapingCone {
-    /// `shaping:cone:angle` in degrees. Typically 0–180 for a spotlight.
-    pub angle: f32,
-    /// `shaping:cone:softness` in [0, 1]. Controls the penumbra falloff.
-    pub softness: f32,
-}
-
-/// Detailed information about one UsdLux light prim, returned by
-/// `inspect_usd_lights` (#35).
-///
-/// The Rust backend returns `Err("not supported")` so callers should ignore
-/// errors gracefully.
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UsdLightInfo {
-    /// SdfPath of the light prim (e.g. `"/World/Sun"`).
-    pub prim_path: String,
-    /// USD `typeName` token: `"DistantLight"`, `"SphereLight"`,
-    /// `"RectLight"`, `"DiskLight"`, `"DomeLight"`, `"CylinderLight"`, …
-    pub light_kind: String,
-    /// `inputs:color` as linearized RGB floats. Default is `[1, 1, 1]`.
-    #[cfg_attr(test, ts(type = "[number, number, number]"))]
-    pub color: [f32; 3],
-    /// `inputs:intensity`. Default 1.0.
-    pub intensity: f32,
-    /// `inputs:exposure` in stops. Default 0.0.
-    pub exposure: f32,
-    /// Color temperature in Kelvin when `enableColorTemperature` is `true`
-    /// and `colorTemperature` is authored. `None` when disabled or missing.
-    pub color_temperature: Option<f32>,
-    /// `inputs:specular` multiplier. Default 1.0.
-    pub specular: f32,
-    /// `inputs:diffuse` multiplier. Default 1.0.
-    pub diffuse: f32,
-    /// `inputs:texture:file` asset path for `DomeLight` prims. `None` for
-    /// all other light types or when the attribute is unauthored.
-    pub dome_texture_file: Option<String>,
-    /// Cone shaping parameters when `UsdLuxShapingAPI` is applied. `None`
-    /// for lights without explicit cone shaping.
-    pub shaping_cone: Option<ShapingCone>,
 }
 
 /// One time sample entry returned by `inspect_attribute_time_samples`

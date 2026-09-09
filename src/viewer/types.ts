@@ -12,6 +12,8 @@ export type {
   MmdRuntimeModelHandle,
   MmdMotionPlayback,
   LoadedPreview,
+  PreviewWarning,
+  PreviewLoadStats,
   ViewerAssetKind,
   LoadedMmdMotion,
   DeferredTextureSnapshot,
@@ -26,6 +28,7 @@ export type {
   OptionalLoaderPackStatus,
   RegisteredLoaderInfo,
 } from "../types/viewer";
+export { formatPreviewWarning } from "../types/viewer";
 export type {
   FormatPack,
   PackMetadata,

@@ -1,0 +1,23 @@
+.yl-list-search-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.yl-list-search-toggle[aria-pressed="true"] {
+  color: var(--yl-text-primary);
+  background: var(--yl-surface-hover);
+}
+
+.yl-list-search-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.yl-list-search-body > .yl-list-text-filter {
+  flex: 0 0 auto;
+}
+.yl-list-search-body > .material-list-layout,
+.yl-list-search-body > .texture-list-layout {
+  flex: 1 1 0;
+  height: auto;
+}

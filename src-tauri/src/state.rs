@@ -8,8 +8,7 @@ use std::sync::{
 
 use crate::error::AppError;
 use crate::usd::{
-    DefaultBackend, StageLoadPolicy, UsdGeometryBackend, UsdInspectBackend, UsdLightBackend,
-    UsdSessionBackend, UsdSourceBackend,
+    DefaultBackend, StageLoadPolicy, UsdGeometryBackend, UsdInspectBackend, UsdSessionBackend,
 };
 
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -227,23 +226,129 @@ mod fbx_import_state_tests {
     }
 }
 
+const MAX_RHINO3DM_CANCEL_TOMBSTONES: usize = 1024;
+
+enum Rhino3dmImportRequest {
+    Active(Arc<AtomicBool>),
+    CancelledBeforeRegistration,
+}
+
+/// Tracks native 3DM requests and serializes helper execution. The tombstone
+/// makes a cancel arriving before the async command registers observable.
+pub(crate) struct Rhino3dmImportState {
+    requests: Mutex<BTreeMap<String, Rhino3dmImportRequest>>,
+    exclusive: Arc<Mutex<()>>,
+}
+
+impl Default for Rhino3dmImportState {
+    fn default() -> Self {
+        Self {
+            requests: Mutex::new(BTreeMap::new()),
+            exclusive: Arc::new(Mutex::new(())),
+        }
+    }
+}
+
+impl Rhino3dmImportState {
+    pub(crate) fn register(
+        &self,
+        request_id: String,
+        flag: Arc<AtomicBool>,
+    ) -> Result<(), AppError> {
+        let mut requests = crate::shared::lock_or_recover(&self.requests, "3DM import requests");
+        match requests.entry(request_id) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(Rhino3dmImportRequest::Active(flag));
+                Ok(())
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => match entry.get() {
+                Rhino3dmImportRequest::Active(_) => Err(AppError::rhino3dm(
+                    "helperCrashed",
+                    "A 3DM conversion request with this requestId is already active.",
+                    Default::default(),
+                )),
+                Rhino3dmImportRequest::CancelledBeforeRegistration => {
+                    flag.store(true, Ordering::Release);
+                    entry.insert(Rhino3dmImportRequest::Active(flag));
+                    Ok(())
+                }
+            },
+        }
+    }
+
+    pub(crate) fn cancel(&self, request_id: String) -> bool {
+        let mut requests = crate::shared::lock_or_recover(&self.requests, "3DM import requests");
+        if let Some(request) = requests.get(&request_id) {
+            if let Rhino3dmImportRequest::Active(flag) = request {
+                flag.store(true, Ordering::Release);
+            }
+            return true;
+        }
+        requests.insert(
+            request_id,
+            Rhino3dmImportRequest::CancelledBeforeRegistration,
+        );
+        while requests.len() > MAX_RHINO3DM_CANCEL_TOMBSTONES {
+            let stale = requests.iter().find_map(|(id, request)| {
+                matches!(request, Rhino3dmImportRequest::CancelledBeforeRegistration)
+                    .then(|| id.clone())
+            });
+            let Some(stale) = stale else { break };
+            requests.remove(&stale);
+        }
+        true
+    }
+
+    pub(crate) fn remove(&self, request_id: &str) {
+        crate::shared::lock_or_recover(&self.requests, "3DM import requests").remove(request_id);
+    }
+
+    pub(crate) fn exclusive_lock(&self) -> Arc<Mutex<()>> {
+        Arc::clone(&self.exclusive)
+    }
+}
+
+#[cfg(test)]
+mod rhino3dm_import_state_tests {
+    use super::*;
+
+    #[test]
+    fn pre_cancel_is_observed_at_registration() {
+        let state = Rhino3dmImportState::default();
+        assert!(state.cancel("pre-cancelled".into()));
+        let flag = Arc::new(AtomicBool::new(false));
+        state
+            .register("pre-cancelled".into(), Arc::clone(&flag))
+            .unwrap();
+        assert!(flag.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn duplicate_registration_keeps_the_first_cancel_flag() {
+        let state = Rhino3dmImportState::default();
+        let first = Arc::new(AtomicBool::new(false));
+        state.register("same".into(), Arc::clone(&first)).unwrap();
+        let second = Arc::new(AtomicBool::new(false));
+        assert!(state.register("same".into(), second).is_err());
+        assert!(state.cancel("same".into()));
+        assert!(first.load(Ordering::Acquire));
+        state.remove("same");
+    }
+}
+
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BackendCapabilities {
     pub(crate) inspect: bool,
     pub(crate) geometry: bool,
-    pub(crate) source: bool,
     pub(crate) session: bool,
-    pub(crate) light: bool,
 }
 
 pub(crate) struct UsdBackendState {
     inspect: Arc<dyn UsdInspectBackend>,
     geometry: Option<Arc<dyn UsdGeometryBackend>>,
-    source: Option<Arc<dyn UsdSourceBackend>>,
     session: Option<Arc<dyn UsdSessionBackend>>,
-    light: Option<Arc<dyn UsdLightBackend>>,
 }
 
 impl UsdBackendState {
@@ -252,9 +357,7 @@ impl UsdBackendState {
         Self {
             inspect: backend.clone() as Arc<dyn UsdInspectBackend>,
             geometry: Some(backend.clone() as Arc<dyn UsdGeometryBackend>),
-            source: None,
             session: Some(backend.clone() as Arc<dyn UsdSessionBackend>),
-            light: None,
         }
     }
 
@@ -262,9 +365,7 @@ impl UsdBackendState {
         BackendCapabilities {
             inspect: true,
             geometry: self.geometry.is_some(),
-            source: self.source.is_some(),
             session: self.session.is_some(),
-            light: self.light.is_some(),
         }
     }
 
@@ -278,25 +379,11 @@ impl UsdBackendState {
         })
     }
 
-    pub(crate) fn source(&self) -> Result<Arc<dyn UsdSourceBackend>, AppError> {
-        self.source
-            .as_ref()
-            .map(Arc::clone)
-            .ok_or_else(|| AppError::Internal("USD backend capability unavailable: source".into()))
-    }
-
     pub(crate) fn session(&self) -> Result<Arc<dyn UsdSessionBackend>, AppError> {
         self.session
             .as_ref()
             .map(Arc::clone)
             .ok_or_else(|| AppError::Internal("USD backend capability unavailable: session".into()))
-    }
-
-    pub(crate) fn light(&self) -> Result<Arc<dyn UsdLightBackend>, AppError> {
-        self.light
-            .as_ref()
-            .map(Arc::clone)
-            .ok_or_else(|| AppError::Internal("USD backend capability unavailable: light".into()))
     }
 }
 
