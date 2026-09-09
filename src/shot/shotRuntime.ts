@@ -43,7 +43,10 @@ import {
   type SceneContext,
 } from "../viewer";
 import { createMmdRuntime, syncMmdPreviewSpecularDirection } from "../packs";
-import type { MmdRuntimeModelHandle } from "../types/viewer";
+import {
+  formatPreviewWarning,
+  type MmdRuntimeModelHandle,
+} from "../types/viewer";
 
 export type ShotMode = "shot" | "check";
 
@@ -506,7 +509,9 @@ export async function runShot(
     object = preview.object;
     cleanupUrls = preview.cleanupUrls;
     cleanupCallbacks = preview.cleanupCallbacks ?? [];
-    outcome.warnings.push(...(preview.warnings ?? []));
+    outcome.warnings.push(
+      ...(preview.warnings ?? []).map(formatPreviewWarning),
+    );
     await syncMmdPreviewSpecularDirection(preview.mmdModel, key);
     if (config.motionPath && preview.mmdModel?.runtime) {
       const motion = await loadMmdMotion(

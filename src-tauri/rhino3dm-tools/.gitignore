@@ -1,0 +1,12 @@
+build/
+build-*/
+*-build/
+# Keep release helpers tracked. Third party notices live once under LICENSES/
+# and are copied beside the helper during the build.
+x64-windows/*
+!x64-windows/rhino3dm_preview.exe
+arm64-osx/*
+!arm64-osx/rhino3dm_preview
+*.part
+*.part.tmp
+*.json.tmp

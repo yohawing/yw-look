@@ -35,6 +35,7 @@ use crate::commands::loader_packs::{
     install_optional_loader_pack, load_optional_loader_manifests, remove_optional_loader_pack,
 };
 use crate::commands::psd::decode_psd;
+use crate::commands::rhino3dm::{cancel_rhino3dm_preview, convert_rhino3dm_preview};
 use crate::commands::settings::{load_settings, load_update_configuration, save_settings};
 use crate::commands::shot::{
     finish_shot_run, get_shot_batch_config, get_shot_config, parse_shot_cli_config,
@@ -49,7 +50,9 @@ use crate::commands::usd::{
     extract_geometry_session, inspect_attribute_time_samples, inspect_prim, inspect_stage,
     load_payload, open_stage_session, requires_glb_preview, summarize_stage, unload_payload,
 };
-use crate::state::{FbxImportState, PendingOpenFiles, PendingUpdateState, UsdBackendState};
+use crate::state::{
+    FbxImportState, PendingOpenFiles, PendingUpdateState, Rhino3dmImportState, UsdBackendState,
+};
 use crate::usd::{DefaultBackend, StageRegistry};
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -183,6 +186,7 @@ pub fn run() {
 
             app.manage(PendingUpdateState::default());
             app.manage(FbxImportState::default());
+            app.manage(Rhino3dmImportState::default());
             app.manage(UsdBackendState::new(DefaultBackend::new()));
             app.manage(StageRegistry::new());
             app.manage(bench_cli_config.clone());
@@ -250,6 +254,8 @@ pub fn run() {
             convert_alembic_to_preview,
             convert_fbx_to_preview,
             cancel_fbx_import,
+            convert_rhino3dm_preview,
+            cancel_rhino3dm_preview,
             get_startup_files,
             load_recent_files,
             load_optional_loader_manifests,

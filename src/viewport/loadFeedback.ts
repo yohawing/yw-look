@@ -1,15 +1,24 @@
-import type { ViewerFeedback } from "../types/viewer";
+import {
+  formatPreviewWarning,
+  type PreviewWarning,
+  type ViewerFeedback,
+} from "../types/viewer";
 
 export type ReadyPreviewFeedbackBase = {
   message: string;
-  warnings: Array<string | null>;
+  warnings: Array<string | PreviewWarning | null>;
 };
 
 export function joinFeedbackWarnings(
-  warnings: readonly (string | null | undefined)[],
+  warnings: readonly (string | PreviewWarning | null | undefined)[],
 ) {
   const warningText = warnings
-    .filter((warning): warning is string => Boolean(warning))
+    .filter((warning): warning is string | PreviewWarning =>
+      typeof warning === "string"
+        ? Boolean(warning)
+        : warning !== null && warning !== undefined,
+    )
+    .map(formatPreviewWarning)
     .join("\n");
   return warningText || null;
 }

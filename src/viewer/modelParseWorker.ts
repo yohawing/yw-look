@@ -14,7 +14,10 @@
  */
 
 import { ObjectLoader, type Object3D } from "three";
-import { createStaticSceneObjectAsync } from "../workers/staticScene";
+import {
+  createStaticSceneObjectAsync,
+  type StaticScenePayloadBudget,
+} from "../workers/staticScene";
 import type {
   ModelParseWorkerPayload,
   ModelParseWorkerRequest,
@@ -61,6 +64,8 @@ let nextRequestId = 1;
 export type ParseModelInWorkerOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Optional native-route expansion budget checked before reconstruction. */
+  staticSceneBudget?: StaticScenePayloadBudget;
   /**
    * When true and the payload carries an ArrayBuffer, transfer ownership to the
    * worker instead of cloning. Callers must not use main-thread fallback after a
@@ -91,6 +96,12 @@ export async function parseModelInWorker(
 
   return new Promise<Object3D>((resolve, reject) => {
     let settled = false;
+    let workerTerminated = false;
+    const terminateWorker = () => {
+      if (workerTerminated) return;
+      workerTerminated = true;
+      worker.terminate();
+    };
     const cleanup = () => {
       settled = true;
       globalThis.clearTimeout(timeoutId);
@@ -98,7 +109,7 @@ export async function parseModelInWorker(
       worker.removeEventListener("message", handleMessage);
       worker.removeEventListener("error", handleError);
       worker.removeEventListener("messageerror", handleMessageError);
-      worker.terminate();
+      terminateWorker();
     };
     const settleResolve = (object: Object3D) => {
       if (settled) return;
@@ -122,13 +133,26 @@ export async function parseModelInWorker(
       // Narrow before the async reconstruction path so TypeScript keeps the
       // success payload type across the await boundary.
       const result = event.data.result;
+      // A static-scene response owns all parsed worker-side resources until
+      // the worker is terminated. Release that heap before reconstructing the
+      // main-thread scene so large native GLBs do not retain both copies.
+      if (result.kind === "staticScene") {
+        terminateWorker();
+      }
       // Static-scene reconstruction is cooperative/async; ObjectJSON stays sync.
       void (async () => {
         try {
           if (result.kind === "staticScene") {
-            const object = await createStaticSceneObjectAsync(result.scene, {
+            const reconstructionOptions = {
               signal: options.signal,
-            });
+              ...(options.staticSceneBudget
+                ? { budget: options.staticSceneBudget }
+                : {}),
+            };
+            const object = await createStaticSceneObjectAsync(
+              result.scene,
+              reconstructionOptions,
+            );
             settleResolve(object);
             return;
           }

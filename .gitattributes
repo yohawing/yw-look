@@ -53,3 +53,4 @@ public/basis/* binary -filter
 # without requiring an LFS checkout.
 src-tauri/alembic-tools/x64-windows/* binary -filter
 src-tauri/alembic-tools/arm64-osx/abc_to_obj binary -filter
+src-tauri/rhino3dm-tools/x64-windows/rhino3dm_preview.exe filter=lfs diff=lfs merge=lfs -text

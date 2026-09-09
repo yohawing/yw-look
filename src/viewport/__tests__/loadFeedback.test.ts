@@ -15,6 +15,23 @@ describe("joinFeedbackWarnings", () => {
   it("returns null when no warnings are present", () => {
     expect(joinFeedbackWarnings([null, undefined, ""])).toBeNull();
   });
+
+  it("keeps native warning details in the existing warning text", () => {
+    expect(
+      joinFeedbackWarnings([
+        {
+          message: "Extrusion preview skipped.",
+          reason: "saved mesh is unavailable",
+          stage: "mesh",
+          limit: 100,
+          observed: 204,
+          count: 204,
+        },
+      ]),
+    ).toBe(
+      "Extrusion preview skipped. (Reason: saved mesh is unavailable, Stage: mesh, Limit: 100, Observed: 204, Count: 204)",
+    );
+  });
 });
 
 describe("buildRuntimeWarningFeedback", () => {

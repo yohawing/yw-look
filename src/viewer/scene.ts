@@ -28,6 +28,7 @@ import {
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
+  Points,
   Quaternion,
   Scene,
   ShadowMaterial,
@@ -464,6 +465,16 @@ function disposeMaterialTextures(
   }
 }
 
+function createWireframeOverlayMaterial(color: Color) {
+  return new LineBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.78,
+    depthTest: true,
+    depthWrite: false,
+  });
+}
+
 function disposeMaterialOnce(
   material: Material,
   disposedMaterials: Set<Material>,
@@ -479,6 +490,7 @@ function disposeMaterialOnce(
 
 function disposeWireframeOverlayObject(
   overlay: Object3D,
+  disposedGeometries: Set<BufferGeometry> = new Set(),
   disposedMaterials: Set<Material> = new Set(),
   disposedTextures: Set<Texture> = new Set(),
 ) {
@@ -486,7 +498,10 @@ function disposeWireframeOverlayObject(
     overlay instanceof LineSegments &&
     overlay.geometry instanceof BufferGeometry
   ) {
-    overlay.geometry.dispose();
+    if (!disposedGeometries.has(overlay.geometry)) {
+      disposedGeometries.add(overlay.geometry);
+      overlay.geometry.dispose();
+    }
     for (const material of getMaterials(overlay.material)) {
       disposeMaterialOnce(material, disposedMaterials, disposedTextures);
     }
@@ -559,44 +574,64 @@ export function disposeObject(object: Object3D | null) {
 
   const disposedMaterials = new Set<Material>();
   const disposedTextures = new Set<Texture>();
+  const disposedGeometries = new Set<BufferGeometry>();
 
   object.traverse((child: Object3D) => {
     if (child.userData[WIREFRAME_OVERLAY_FLAG] === true) {
-      disposeWireframeOverlayObject(child, disposedMaterials, disposedTextures);
+      disposeWireframeOverlayObject(
+        child,
+        disposedGeometries,
+        disposedMaterials,
+        disposedTextures,
+      );
       return;
     }
 
-    if (child instanceof Mesh && child.geometry instanceof BufferGeometry) {
-      child.geometry.dispose();
+    const renderable =
+      child instanceof Mesh ||
+      child instanceof LineSegments ||
+      child instanceof Points
+        ? child
+        : null;
+    if (renderable?.geometry instanceof BufferGeometry) {
+      if (!disposedGeometries.has(renderable.geometry)) {
+        disposedGeometries.add(renderable.geometry);
+        renderable.geometry.dispose();
+      }
     }
 
-    if (child instanceof Mesh) {
+    if (renderable) {
       const materialsToDispose = [
-        ...getMaterials(child.material),
-        ...(child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] !== undefined
+        ...getMaterials(renderable.material),
+        ...(renderable instanceof Mesh &&
+        child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] !== undefined
           ? getMaterials(
               child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY] as
                 Material | Material[],
             )
           : []),
-        ...(child.userData[UNLIT_ORIGINAL_KEY] !== undefined
+        ...(renderable instanceof Mesh &&
+        child.userData[UNLIT_ORIGINAL_KEY] !== undefined
           ? getMaterials(
               child.userData[UNLIT_ORIGINAL_KEY] as Material | Material[],
             )
           : []),
-        ...(child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] !== undefined
+        ...(renderable instanceof Mesh &&
+        child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] !== undefined
           ? getMaterials(
               child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY] as
                 Material | Material[],
             )
           : []),
-        ...(child.userData[SELECTION_ORIGINAL_MATERIAL_KEY] !== undefined
+        ...(renderable instanceof Mesh &&
+        child.userData[SELECTION_ORIGINAL_MATERIAL_KEY] !== undefined
           ? getMaterials(
               child.userData[SELECTION_ORIGINAL_MATERIAL_KEY] as
                 Material | Material[],
             )
           : []),
-        ...(child.userData[SELECTION_DIAGNOSTIC_TINT_KEY] !== undefined
+        ...(renderable instanceof Mesh &&
+        child.userData[SELECTION_DIAGNOSTIC_TINT_KEY] !== undefined
           ? getMaterials(
               child.userData[SELECTION_DIAGNOSTIC_TINT_KEY] as
                 Material | Material[],
@@ -610,13 +645,15 @@ export function disposeObject(object: Object3D | null) {
 
         disposeMaterialOnce(material, disposedMaterials, disposedTextures);
       }
-      delete child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY];
-      delete child.userData[UNLIT_ORIGINAL_KEY];
-      delete child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY];
-      delete child.userData[SELECTION_ORIGINAL_MATERIAL_KEY];
-      delete child.userData[SELECTION_DIAGNOSTIC_TINT_KEY];
-      delete child.userData[SELECTION_DIAGNOSTIC_SUPPRESSED_FLAG];
-      delete child.userData[SELECTION_WIREFRAME_TINT_FLAG];
+      if (renderable instanceof Mesh) {
+        delete child.userData[WIREFRAME_ORIGINAL_MATERIAL_KEY];
+        delete child.userData[UNLIT_ORIGINAL_KEY];
+        delete child.userData[DIAGNOSTIC_ORIGINAL_MATERIAL_KEY];
+        delete child.userData[SELECTION_ORIGINAL_MATERIAL_KEY];
+        delete child.userData[SELECTION_DIAGNOSTIC_TINT_KEY];
+        delete child.userData[SELECTION_DIAGNOSTIC_SUPPRESSED_FLAG];
+        delete child.userData[SELECTION_WIREFRAME_TINT_FLAG];
+      }
     }
   });
 }
@@ -1978,6 +2015,11 @@ export function applyDisplayMode(
       WIREFRAME_MATERIAL_COLOR_FALLBACK,
     ),
   );
+  let wireframeOverlayMaterial: LineBasicMaterial | null = null;
+  const wireframeGeometries = new Map<BufferGeometry, BufferGeometry>();
+  const disposedOverlayGeometries = new Set<BufferGeometry>();
+  const disposedOverlayMaterials = new Set<Material>();
+  const disposedOverlayTextures = new Set<Texture>();
 
   traverseMeshesExcludingHelpers(
     object,
@@ -1988,7 +2030,12 @@ export function applyDisplayMode(
       );
       for (const overlay of existingOverlays) {
         child.remove(overlay);
-        disposeWireframeOverlayObject(overlay);
+        disposeWireframeOverlayObject(
+          overlay,
+          disposedOverlayGeometries,
+          disposedOverlayMaterials,
+          disposedOverlayTextures,
+        );
       }
 
       if (displayMode === "wireframe") {
@@ -2014,15 +2061,16 @@ export function applyDisplayMode(
         child.geometry instanceof BufferGeometry &&
         child.geometry.getAttribute("position") !== undefined
       ) {
+        let wireframeGeometry = wireframeGeometries.get(child.geometry);
+        if (!wireframeGeometry) {
+          wireframeGeometry = new WireframeGeometry(child.geometry);
+          wireframeGeometries.set(child.geometry, wireframeGeometry);
+        }
+        wireframeOverlayMaterial ??=
+          createWireframeOverlayMaterial(wireframeColor);
         const overlay = new LineSegments(
-          new WireframeGeometry(child.geometry),
-          new LineBasicMaterial({
-            color: wireframeColor,
-            transparent: true,
-            opacity: 0.78,
-            depthTest: true,
-            depthWrite: false,
-          }),
+          wireframeGeometry,
+          wireframeOverlayMaterial,
         );
         overlay.name = "__yw_textured_wireframe_overlay";
         overlay.userData[WIREFRAME_OVERLAY_FLAG] = true;

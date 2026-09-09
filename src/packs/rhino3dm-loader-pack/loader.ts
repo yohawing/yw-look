@@ -2,6 +2,13 @@ import { Group, type Object3D, type Texture } from "three";
 import { Rhino3dmLoader } from "three/examples/jsm/loaders/3DMLoader.js";
 import { errorMessage } from "../../lib/errors";
 import { readBinaryFile, type SelectedFile } from "../../lib/files";
+import {
+  convertRhino3dmPreview,
+  isRhino3dmNativePreviewEnabled,
+  normalizeRhino3dmStaticSceneError,
+  parseModelInWorker,
+  RHINO3DM_STATIC_SCENE_BUDGET,
+} from "../../lib/rhino3dm";
 import type { LoadedPreview, LoaderContext } from "../../types/viewer";
 import { createAbortError, throwIfAborted } from "../abort";
 import RHINO3DM_LIBRARY_PATH from "virtual:yw-look-rhino3dm-library-path";
@@ -169,6 +176,65 @@ function disposeRhinoLoader(loader: Rhino3dmLoader): void {
   );
 }
 
+async function loadNativeRhino3dmPreviewObject(
+  file: SelectedFile,
+  context: LoaderContext,
+): Promise<LoadedPreview> {
+  const reportStage = context.onStage ?? (() => undefined);
+  reportStage("scan");
+  throwIfAborted(context.signal);
+  reportStage("decode");
+  const nativeResult = await convertRhino3dmPreview(file.path, {
+    signal: context.signal,
+    timeoutMs: context.parseTimeoutMs,
+  });
+  throwIfAborted(context.signal);
+  reportStage("scene");
+
+  // The native route hands ownership of this one GLB buffer to the existing
+  // worker. There is deliberately no main-thread or WASM fallback after an
+  // IPC, conversion, or worker failure.
+  let root: Object3D;
+  try {
+    root = await parseModelInWorker(
+      file.path,
+      { kind: "glb", buffer: nativeResult.bytes },
+      {
+        signal: context.signal,
+        timeoutMs: context.parseTimeoutMs,
+        staticSceneBudget: RHINO3DM_STATIC_SCENE_BUDGET,
+        transferBuffer: true,
+      },
+    );
+  } catch (error) {
+    throw normalizeRhino3dmStaticSceneError(error);
+  }
+  const cleanupResources = collectRhinoResourceCleanup(root);
+  const cleanupFailedLoad = collectRhinoResourceCleanup(root, {
+    includeMeshResources: true,
+  });
+  try {
+    throwIfAborted(context.signal);
+
+    const object = new Group();
+    object.name = root.name || file.fileName;
+    object.add(root);
+    return {
+      object,
+      cleanupUrls: [],
+      cleanupCallbacks: [cleanupResources],
+      clips: [],
+      formatVersion: null,
+      warnings: nativeResult.warnings,
+      stats: nativeResult.stats ?? undefined,
+      assetKind: "mesh",
+    };
+  } catch (error) {
+    cleanupFailedLoad();
+    throw error;
+  }
+}
+
 function parseWithRhinoLoader(
   loader: Rhino3dmLoader,
   buffer: ArrayBuffer,
@@ -232,6 +298,10 @@ export async function loadRhino3dmPreviewObject(
   file: SelectedFile,
   context: LoaderContext,
 ): Promise<LoadedPreview> {
+  if (isRhino3dmNativePreviewEnabled()) {
+    return loadNativeRhino3dmPreviewObject(file, context);
+  }
+
   const reportStage = context.onStage ?? (() => undefined);
   const loader = new Rhino3dmLoader();
   loader.setLibraryPath(RHINO3DM_LIBRARY_PATH).setWorkerLimit(1);
