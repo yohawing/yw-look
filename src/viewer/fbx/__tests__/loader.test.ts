@@ -7,6 +7,7 @@ import {
   DataTexture,
   Group,
   LinearFilter,
+  LinearMipmapLinearFilter,
   Mesh,
   MeshStandardMaterial,
   RepeatWrapping,
@@ -64,6 +65,36 @@ const fbxFile: SelectedFile = {
   parentDirectory: "C:\\assets",
   path: "C:\\assets\\asset.fbx",
 };
+
+function createRgbaDds(width = 2, height = 2, mipmapCount = 2) {
+  const mipmapBytes = Array.from({ length: mipmapCount }, (_, level) => {
+    const levelWidth = Math.max(width >> level, 1);
+    const levelHeight = Math.max(height >> level, 1);
+    return levelWidth * levelHeight * 4;
+  });
+  const buffer = new ArrayBuffer(
+    128 + mipmapBytes.reduce((total, bytes) => total + bytes, 0),
+  );
+  const header = new Int32Array(buffer, 0, 31);
+  header[0] = 0x20534444;
+  header[1] = 124;
+  header[2] = 0x20000;
+  header[3] = height;
+  header[4] = width;
+  header[7] = mipmapCount;
+  header[22] = 32;
+  header[20] = 0x41;
+  header[23] = 0x00ff0000;
+  header[24] = 0x0000ff00;
+  header[25] = 0x000000ff;
+  header[26] = 0xff000000;
+  let offset = 128;
+  for (const byteLength of mipmapBytes) {
+    new Uint8Array(buffer, offset, byteLength).fill(127);
+    offset += byteLength;
+  }
+  return buffer;
+}
 
 describe("FBX missing texture fallback", () => {
   it.each([
@@ -430,6 +461,96 @@ describe("loadFbxPreviewObject native GLB policy", () => {
     expect(hydrated?.center.toArray()).toEqual([0.5, 0.5]);
     expect(hydrated?.rotation).toBe(0.25);
     expect(hydrated?.flipY).toBe(false);
+  });
+
+  it("keeps deferred DDS textures upload-safe before the sidecar read completes", async () => {
+    const placeholder = new Texture();
+    placeholder.userData.fbxSourceName = "Textures/albedo.dds";
+
+    const material = new MeshStandardMaterial({ map: placeholder });
+    const object = new Group();
+    object.add(new Mesh(new BufferGeometry(), material));
+
+    mocks.readBinaryFile.mockImplementation(async () => {
+      // The initial render happens while external texture I/O is pending.
+      return new Promise<ArrayBuffer>(() => undefined);
+    });
+    mocks.parseModelInWorker.mockResolvedValue(object);
+
+    const { loadFbxPreviewObject } = await import("../loader");
+    await loadFbxPreviewObject(fbxFile, {});
+
+    const hydrated = material.map as
+      | (Texture & {
+          isCompressedTexture?: boolean;
+          mipmaps?: Array<{
+            data: Uint8Array;
+            width: number;
+            height: number;
+          }>;
+        })
+      | null;
+    expect(hydrated?.isCompressedTexture).toBe(true);
+    expect(hydrated?.image).toMatchObject({ width: 1, height: 1 });
+    expect(hydrated?.minFilter).toBe(LinearFilter);
+    expect(hydrated?.mipmaps).toEqual([
+      {
+        data: new Uint8Array([199, 210, 227, 255]),
+        width: 1,
+        height: 1,
+      },
+    ]);
+  });
+
+  it("reallocates DDS GPU storage before applying same-format decoded mipmaps", async () => {
+    const placeholder = new Texture();
+    placeholder.userData.fbxSourceName = "Textures/albedo.dds";
+
+    const material = new MeshStandardMaterial({ map: placeholder });
+    const object = new Group();
+    object.add(new Mesh(new BufferGeometry(), material));
+
+    let resolveRead: (buffer: ArrayBuffer) => void = () => undefined;
+    mocks.readBinaryFile.mockImplementation(
+      () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+    mocks.parseModelInWorker.mockResolvedValue(object);
+
+    const { loadFbxPreviewObject } = await import("../loader");
+    await loadFbxPreviewObject(fbxFile, {});
+
+    const hydrated = material.map as Texture;
+    const dispose = vi.spyOn(hydrated, "dispose");
+    resolveRead(createRgbaDds());
+
+    await vi.waitFor(() => expect(dispose).toHaveBeenCalledTimes(1));
+    expect(hydrated.image).toMatchObject({ width: 2, height: 2 });
+    expect(hydrated.mipmaps).toHaveLength(2);
+    expect(hydrated.mipmaps[0]).toMatchObject({ width: 2, height: 2 });
+    expect(hydrated.mipmaps[1]).toMatchObject({ width: 1, height: 1 });
+    expect(hydrated.minFilter).toBe(LinearMipmapLinearFilter);
+  });
+
+  it("disposes an allocated DDS placeholder when sidecar loading fails", async () => {
+    const placeholder = new Texture();
+    placeholder.userData.fbxSourceName = "Textures/albedo.dds";
+
+    const material = new MeshStandardMaterial({ map: placeholder });
+    const object = new Group();
+    object.add(new Mesh(new BufferGeometry(), material));
+
+    const dispose = vi.spyOn(Texture.prototype, "dispose");
+    mocks.readBinaryFile.mockRejectedValue(new Error("missing DDS"));
+    mocks.parseModelInWorker.mockResolvedValue(object);
+
+    const { loadFbxPreviewObject } = await import("../loader");
+    await loadFbxPreviewObject(fbxFile, {});
+
+    await vi.waitFor(() => expect(material.map).toBeNull());
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 
   it("hydrates PSD alphaMap placeholders into non-empty RGBA8 textures", async () => {
