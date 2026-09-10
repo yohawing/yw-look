@@ -1,3 +1,4 @@
+import { version as packageVersion } from "../../package.json";
 import type {
   UpdateCheckPayload,
   UpdateConfigurationPayload,
@@ -95,6 +96,12 @@ export function UpdateCard({
     : [];
   const statusRows: SidebarKeyValueRow[] = [
     {
+      id: "current-version",
+      label: "Version",
+      value: updateConfiguration?.currentVersion ?? packageVersion,
+      mono: true,
+    },
+    {
       id: "state",
       label: "State",
       value: updateStateText,
@@ -111,7 +118,7 @@ export function UpdateCard({
       ? [
           {
             id: "version-path",
-            label: "Version",
+            label: "Update",
             value: `${updateCheck.update.currentVersion} -> ${updateCheck.update.version}`,
             mono: true,
           } satisfies SidebarKeyValueRow,

@@ -1,6 +1,5 @@
 import type { CSSProperties, PointerEvent, ReactNode } from "react";
 import { AppStatusBar } from "../components/AppStatusBar";
-import { AppVersion } from "../components/AppVersion";
 import { SidebarTabs } from "../components/SidebarTabs";
 import type { SidebarTabItem } from "../components/SidebarTabs";
 import type { SidebarTabId } from "../components/SidebarTabIcons";
@@ -43,9 +42,7 @@ export function AppShell({
 
   return (
     <main className="app-shell">
-      <header className="app-topbar">
-        <AppVersion />
-      </header>
+      <header className="app-topbar" />
       <section className="main-content">
         {banner}
         {viewport}

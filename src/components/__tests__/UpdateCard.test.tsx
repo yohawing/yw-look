@@ -53,6 +53,7 @@ describe("UpdateCard", () => {
           onInstallUpdate={install}
         />,
       );
+      expect(getByText("0.1.9")).toBeTruthy();
       expect(
         getByText("Update checks unavailable for this build"),
       ).toBeTruthy();
