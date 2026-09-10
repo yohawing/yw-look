@@ -38,6 +38,15 @@ try {
     await page.getByText("0.3.3", { exact: true }).waitFor();
     await page.waitForTimeout(300);
     assert.equal(await page.locator(".app-version").count(), 0);
+    assert.equal(await page.locator(".app-topbar").count(), 0);
+    const viewport = await page.locator(".main-content").boundingBox();
+    const sidebar = await page.locator(".sidebar").boundingBox();
+    const statusbar = await page.locator(".statusbar").boundingBox();
+    assert.equal(viewport.y, 0);
+    assert.equal(sidebar.y, 0);
+    assert.equal(viewport.height, 774);
+    assert.equal(statusbar.y, 774);
+    assert.equal(statusbar.height, 26);
     assert.ok(await page.getByText("Version", { exact: true }).isVisible());
     const overflow = await page
       .locator(".sidebar")

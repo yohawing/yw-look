@@ -42,7 +42,6 @@ export function AppShell({
 
   return (
     <main className="app-shell">
-      <header className="app-topbar" />
       <section className="main-content">
         {banner}
         {viewport}
