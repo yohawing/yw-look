@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- this file intentionally groups lazy sidebar components with the sidebar model hook. */
 import {
   Suspense,
+  useCallback,
   lazy,
   useEffect,
   useMemo,
@@ -8,6 +9,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
+import { SidebarPanels } from "./SidebarPanels";
 import { CurrentFileCard } from "../components/CurrentFileCard";
 import { FileBrowserCard } from "../components/FileBrowserCard";
 import { HierarchySidebarPanel } from "../components/HierarchySidebarPanel";
@@ -228,187 +230,202 @@ export function useSidebarModel({
     viewerFeedback,
   ]);
 
-  const sidebarContent = useMemo<ReactNode>(() => {
-    switch (activeTab) {
-      case "properties":
-        return (
-          <>
-            <CurrentFileCard
-              debugPanelsEnabled={debugPanelsEnabled}
-              usdPayloadSummary={
-                useDebugFixtures
-                  ? debugFixtures.debugUsdSummary
-                  : sessionAdjustedUsdSummary
-              }
-              warnings={sidebarWarnings}
-            />
-            {packMetadataCard}
-            {isTauri && isUsdFile(currentFile) && (
-              <>
-                <UsdInspectorSidebarPanel
-                  error={usdInspectorError}
-                  inspection={usdInspection}
-                  issues={usdIssues}
-                  loading={usdInspectorLoading}
-                  summary={sessionAdjustedUsdSummary}
-                />
-              </>
-            )}
-            {useDebugFixtures && (
-              <UsdInspectorSidebarPanel
-                error={null}
-                inspection={debugFixtures.debugUsdInspection}
-                issues={[]}
-                loading={false}
-                summary={debugFixtures.debugUsdSummary}
+  const renderSidebarPanel = useCallback(
+    (tab: SidebarTabId): ReactNode => {
+      switch (tab) {
+        case "properties":
+          return (
+            <>
+              <CurrentFileCard
+                debugPanelsEnabled={debugPanelsEnabled}
+                usdPayloadSummary={
+                  useDebugFixtures
+                    ? debugFixtures.debugUsdSummary
+                    : sessionAdjustedUsdSummary
+                }
+                warnings={sidebarWarnings}
               />
-            )}
-          </>
-        );
-      case "file":
-        return (
-          <>
-            <FileBrowserCard
-              debugPanelsEnabled={debugPanelsEnabled}
-              onOpenPath={(path) => {
-                void performSelectFilePath(path, "navigation").catch(
-                  (error: unknown) => {
-                    setRecentFilesError(
-                      errorMessage(error, "Failed to open file."),
-                    );
-                  },
-                );
-              }}
-            />
-            <Suspense fallback={<SidebarCardFallback />}>
-              <RecentFilesCard
+              {packMetadataCard}
+              {isTauri && isUsdFile(currentFile) && (
+                <>
+                  <UsdInspectorSidebarPanel
+                    error={usdInspectorError}
+                    inspection={usdInspection}
+                    issues={usdIssues}
+                    loading={usdInspectorLoading}
+                    summary={sessionAdjustedUsdSummary}
+                  />
+                </>
+              )}
+              {useDebugFixtures && (
+                <UsdInspectorSidebarPanel
+                  error={null}
+                  inspection={debugFixtures.debugUsdInspection}
+                  issues={[]}
+                  loading={false}
+                  summary={debugFixtures.debugUsdSummary}
+                />
+              )}
+            </>
+          );
+        case "file":
+          return (
+            <>
+              <FileBrowserCard
+                debugPanelsEnabled={debugPanelsEnabled}
                 onOpenPath={(path) => {
-                  void performSelectFilePath(path, "recent").catch(
+                  void performSelectFilePath(path, "navigation").catch(
                     (error: unknown) => {
                       setRecentFilesError(
-                        errorMessage(error, "Failed to open recent file."),
+                        errorMessage(error, "Failed to open file."),
                       );
                     },
                   );
                 }}
-                recentFilesError={sidebarRecentFilesError}
-                recentFilesPayload={sidebarRecentFilesPayload}
               />
-            </Suspense>
-          </>
-        );
-      case "hierarchy":
-        return (
-          <HierarchySidebarPanel
-            debugPanelsEnabled={debugPanelsEnabled}
-            inspection={
-              useDebugFixtures
-                ? debugFixtures.debugUsdInspection
-                : usdInspection
-            }
-            stageSessionHandle={stageSessionHandle}
-            payloadPrimPaths={payloadPrimPaths}
-            unloadedPayloadPaths={unloadedPayloadPaths}
-            onLoadPayload={handleLoadPayload}
-            onUnloadPayload={handleUnloadPayload}
-          />
-        );
-      case "materials":
-        return <MaterialListCard debugPanelsEnabled={debugPanelsEnabled} />;
-      case "textures":
-        return <TexturesSidebarPanel debugPanelsEnabled={debugPanelsEnabled} />;
-      case "settings":
-        return (
-          <>
-            <Suspense fallback={<SidebarCardFallback />}>
-              <SettingsCard
-                settingsPayload={settingsPayload}
-                settingsError={settingsError}
-                fileAssociationError={fileAssociationError}
-                fileAssociationResult={fileAssociationResult}
-                fileAssociationsAvailable={fileAssociationsAvailable}
-                optionalLoaderPacks={listOptionalLoaderPacks(
-                  settingsPayload?.settings.optionalLoaderPacks,
-                  optionalLoaderManifests,
-                )}
-                optionalLoaderPacksError={optionalLoaderManifestsError}
-                onToggleAutoCheckForUpdates={() =>
-                  void handleToggleAutoCheckForUpdates()
-                }
-                onToggleFileAssociations={() =>
-                  void handleToggleFileAssociations?.()
-                }
-                onToggleOptionalLoaderPack={(packId) =>
-                  void handleToggleOptionalLoaderPack(packId)
-                }
-                onOpenDefaultAppsSettings={() =>
-                  void handleOpenDefaultAppsSettings?.()
-                }
-                onRetryFileAssociations={() =>
-                  void handleRetryFileAssociations?.()
-                }
-              />
-            </Suspense>
-            <Suspense fallback={<SidebarCardFallback />}>
-              <UpdateCard
-                isCheckingForUpdate={isCheckingForUpdate}
-                isInstallingUpdate={isInstallingUpdate}
-                onCheckForUpdate={() => void handleCheckForUpdate()}
-                onInstallUpdate={() => void handleInstallUpdate()}
-                updateCheck={updateCheck}
-                updateConfiguration={updateConfiguration}
-                updateError={updateError}
-              />
-            </Suspense>
-          </>
-        );
-      case "warnings":
-        return <WarningsSidebarPanel warnings={sidebarWarnings} />;
-    }
-  }, [
-    activeTab,
-    currentFile,
-    debugFixtures,
-    debugPanelsEnabled,
-    handleCheckForUpdate,
-    handleInstallUpdate,
-    handleLoadPayload,
-    handleOpenDefaultAppsSettings,
-    handleRetryFileAssociations,
-    handleToggleAutoCheckForUpdates,
-    handleToggleFileAssociations,
-    handleToggleOptionalLoaderPack,
-    handleUnloadPayload,
-    isCheckingForUpdate,
-    isInstallingUpdate,
-    isTauri,
-    fileAssociationError,
-    fileAssociationResult,
-    fileAssociationsAvailable,
-    optionalLoaderManifests,
-    optionalLoaderManifestsError,
-    payloadPrimPaths,
-    performSelectFilePath,
-    setRecentFilesError,
-    sessionAdjustedUsdSummary,
-    settingsError,
-    settingsPayload,
-    packMetadataCard,
-    sidebarPackMetadata,
-    sidebarRecentFilesError,
-    sidebarRecentFilesPayload,
-    sidebarWarnings,
-    stageSessionHandle,
-    unloadedPayloadPaths,
-    updateCheck,
-    updateConfiguration,
-    updateError,
-    useDebugFixtures,
-    usdInspection,
-    usdInspectorError,
-    usdInspectorLoading,
-    usdIssues,
-  ]);
+              <Suspense fallback={<SidebarCardFallback />}>
+                <RecentFilesCard
+                  onOpenPath={(path) => {
+                    void performSelectFilePath(path, "recent").catch(
+                      (error: unknown) => {
+                        setRecentFilesError(
+                          errorMessage(error, "Failed to open recent file."),
+                        );
+                      },
+                    );
+                  }}
+                  recentFilesError={sidebarRecentFilesError}
+                  recentFilesPayload={sidebarRecentFilesPayload}
+                />
+              </Suspense>
+            </>
+          );
+        case "hierarchy":
+          return (
+            <HierarchySidebarPanel
+              debugPanelsEnabled={debugPanelsEnabled}
+              inspection={
+                useDebugFixtures
+                  ? debugFixtures.debugUsdInspection
+                  : usdInspection
+              }
+              stageSessionHandle={stageSessionHandle}
+              payloadPrimPaths={payloadPrimPaths}
+              unloadedPayloadPaths={unloadedPayloadPaths}
+              onLoadPayload={handleLoadPayload}
+              onUnloadPayload={handleUnloadPayload}
+            />
+          );
+        case "materials":
+          return <MaterialListCard debugPanelsEnabled={debugPanelsEnabled} />;
+        case "textures":
+          return (
+            <TexturesSidebarPanel debugPanelsEnabled={debugPanelsEnabled} />
+          );
+        case "settings":
+          return (
+            <>
+              <Suspense fallback={<SidebarCardFallback />}>
+                <SettingsCard
+                  settingsPayload={settingsPayload}
+                  settingsError={settingsError}
+                  fileAssociationError={fileAssociationError}
+                  fileAssociationResult={fileAssociationResult}
+                  fileAssociationsAvailable={fileAssociationsAvailable}
+                  optionalLoaderPacks={listOptionalLoaderPacks(
+                    settingsPayload?.settings.optionalLoaderPacks,
+                    optionalLoaderManifests,
+                  )}
+                  optionalLoaderPacksError={optionalLoaderManifestsError}
+                  onToggleAutoCheckForUpdates={() =>
+                    void handleToggleAutoCheckForUpdates()
+                  }
+                  onToggleFileAssociations={() =>
+                    void handleToggleFileAssociations?.()
+                  }
+                  onToggleOptionalLoaderPack={(packId) =>
+                    void handleToggleOptionalLoaderPack(packId)
+                  }
+                  onOpenDefaultAppsSettings={() =>
+                    void handleOpenDefaultAppsSettings?.()
+                  }
+                  onRetryFileAssociations={() =>
+                    void handleRetryFileAssociations?.()
+                  }
+                />
+              </Suspense>
+              <Suspense fallback={<SidebarCardFallback />}>
+                <UpdateCard
+                  isCheckingForUpdate={isCheckingForUpdate}
+                  isInstallingUpdate={isInstallingUpdate}
+                  onCheckForUpdate={() => void handleCheckForUpdate()}
+                  onInstallUpdate={() => void handleInstallUpdate()}
+                  updateCheck={updateCheck}
+                  updateConfiguration={updateConfiguration}
+                  updateError={updateError}
+                />
+              </Suspense>
+            </>
+          );
+        case "warnings":
+          return <WarningsSidebarPanel warnings={sidebarWarnings} />;
+      }
+    },
+    [
+      currentFile,
+      debugFixtures,
+      debugPanelsEnabled,
+      handleCheckForUpdate,
+      handleInstallUpdate,
+      handleLoadPayload,
+      handleOpenDefaultAppsSettings,
+      handleRetryFileAssociations,
+      handleToggleAutoCheckForUpdates,
+      handleToggleFileAssociations,
+      handleToggleOptionalLoaderPack,
+      handleUnloadPayload,
+      isCheckingForUpdate,
+      isInstallingUpdate,
+      isTauri,
+      fileAssociationError,
+      fileAssociationResult,
+      fileAssociationsAvailable,
+      optionalLoaderManifests,
+      optionalLoaderManifestsError,
+      payloadPrimPaths,
+      performSelectFilePath,
+      setRecentFilesError,
+      sessionAdjustedUsdSummary,
+      settingsError,
+      settingsPayload,
+      packMetadataCard,
+      sidebarPackMetadata,
+      sidebarRecentFilesError,
+      sidebarRecentFilesPayload,
+      sidebarWarnings,
+      stageSessionHandle,
+      unloadedPayloadPaths,
+      updateCheck,
+      updateConfiguration,
+      updateError,
+      useDebugFixtures,
+      usdInspection,
+      usdInspectorError,
+      usdInspectorLoading,
+      usdIssues,
+    ],
+  );
+
+  const sidebarContent = useMemo(
+    () => (
+      <SidebarPanels
+        activeTab={activeTab}
+        fileIdentity={currentFile?.path ?? null}
+        renderPanel={renderSidebarPanel}
+      />
+    ),
+    [activeTab, currentFile?.path, renderSidebarPanel],
+  );
 
   const sidebarTabs = useMemo<SidebarTabItem<SidebarTabId>[]>(
     () =>

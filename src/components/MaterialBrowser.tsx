@@ -33,6 +33,7 @@ export function MaterialBrowser({
 }) {
   const lastRevealed = useRef<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const previousQuery = useRef(query);
   const [viewport, setViewport] = useState({ top: 0, height: 360 });
   const rowHeight = 48;
   const start = Math.max(
@@ -54,7 +55,11 @@ export function MaterialBrowser({
     return () => observer.disconnect();
   }, [items.length]);
   useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = 0;
+    if (previousQuery.current !== query && listRef.current) {
+      listRef.current.scrollTop = 0;
+      setViewport((current) => ({ ...current, top: 0 }));
+    }
+    previousQuery.current = query;
   }, [query]);
   useEffect(() => {
     if (lastRevealed.current === selectedId) return;

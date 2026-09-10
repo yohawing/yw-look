@@ -1,3 +1,4 @@
+import { Activity } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { IfcMaterialsPanel } from "../IfcMaterialsPanel";
@@ -62,6 +63,32 @@ function fixture() {
   return { inspection };
 }
 describe("IFC Materials in the shared browser", () => {
+  it("clears hidden highlighting and restores the selected material on return", () => {
+    const { inspection } = fixture();
+    const view = render(
+      <Activity mode="visible">
+        <IfcMaterialsPanel inspection={inspection} />
+      </Activity>,
+    );
+    fireEvent.click(view.container.querySelector(".material-row")!);
+    expect(inspection.highlightMaterials).toHaveBeenLastCalledWith([20]);
+    view.rerender(
+      <Activity mode="hidden">
+        <IfcMaterialsPanel inspection={inspection} />
+      </Activity>,
+    );
+    expect(inspection.highlightMaterials).toHaveBeenLastCalledWith([]);
+    view.rerender(
+      <Activity mode="visible">
+        <IfcMaterialsPanel inspection={inspection} />
+      </Activity>,
+    );
+    expect(inspection.highlightMaterials).toHaveBeenLastCalledWith([20]);
+    expect(
+      view.container.querySelector(".material-row.is-selected")?.textContent,
+    ).toContain("Concrete");
+  });
+
   it("lists both kinds without a switch, follows explicit links, and cleans up highlighting", () => {
     const { inspection } = fixture();
     const { container, unmount } = render(

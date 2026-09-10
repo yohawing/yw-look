@@ -103,6 +103,12 @@ body.is-resizing-sidebar {
 
 .sidebar-content {
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-tab-content {
+  height: 100%;
   overflow-y: auto;
   padding: 0;
 }

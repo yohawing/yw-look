@@ -141,7 +141,7 @@ function TimeSamplesPanel({
         <p className="muted ts-panel-msg">Time sample data not available.</p>
       )}
 
-      {data && !loading && (
+      {data && (
         <>
           {/* ---- mini line chart (numeric types only) ---- */}
           {data.numericMin !== null && data.samples.length >= 2 && (
@@ -304,13 +304,29 @@ export function UsdPrimPropertyPanel({
   embedded = false,
 }: UsdPrimPropertyPanelProps) {
   const selectedPrimPath = useViewerStore((state) => state.selectedUsdPrimPath);
+  if (!path || !selectedPrimPath) return null;
+  return (
+    <UsdPrimPropertyContent
+      key={JSON.stringify([path, selectedPrimPath])}
+      path={path}
+      selectedPrimPath={selectedPrimPath}
+      embedded={embedded}
+    />
+  );
+}
+
+function UsdPrimPropertyContent({
+  path,
+  selectedPrimPath,
+  embedded,
+}: {
+  path: string;
+  selectedPrimPath: string;
+  embedded: boolean;
+}) {
   /** Attribute name whose samples are currently shown. `null` = none. */
   const [activeSampleAttr, setActiveSampleAttr] = useState<string | null>(null);
-  const canInspectPrim = path !== null && selectedPrimPath !== null;
   const fetchPrimInspection = useCallback(() => {
-    if (!path || !selectedPrimPath) {
-      throw new Error("Prim inspection requires an active USD selection.");
-    }
     return inspectPrim(path, selectedPrimPath);
   }, [path, selectedPrimPath]);
   const {
@@ -318,17 +334,12 @@ export function UsdPrimPropertyPanel({
     loading,
     error,
   } = useAsyncFetch<PrimInspection>(
-    canInspectPrim ? fetchPrimInspection : null,
-    [canInspectPrim, fetchPrimInspection],
+    fetchPrimInspection,
+    [fetchPrimInspection],
     {
-      enabled: canInspectPrim,
       errorFallback: "Failed to inspect prim.",
-      onBeforeFetch: () => setActiveSampleAttr(null),
-      onReset: () => setActiveSampleAttr(null),
     },
   );
-
-  if (!path || !selectedPrimPath) return null;
 
   const panel = (
     <div className="prim-property-panel">
@@ -339,7 +350,7 @@ export function UsdPrimPropertyPanel({
         <SidebarError>{`Prim inspection failed: ${error}`}</SidebarError>
       )}
 
-      {inspection && !loading && (
+      {inspection && (
         <>
           {inspection.attributes.length > 0 ? (
             <section className="prop-section">
@@ -379,6 +390,7 @@ export function UsdPrimPropertyPanel({
           {/* ---- inline time-samples panel (shown below the table) ---- */}
           {activeSampleAttr && (
             <TimeSamplesPanel
+              key={activeSampleAttr}
               path={path}
               primPath={selectedPrimPath}
               attrName={activeSampleAttr}
