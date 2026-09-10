@@ -51,6 +51,22 @@ function renderTimeline(
 }
 
 describe("PlaybackTimeline", () => {
+  it("shows absolute negative frames while seeking in runtime local time", () => {
+    const onSeek = vi.fn();
+    const view = renderTimeline({
+      rangeStart: -2,
+      duration: 5,
+      currentTime: 1,
+      onSeek,
+    });
+    expect(view.getByText("-0030 / 0090")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Skip to start" }));
+    expect(onSeek).toHaveBeenLastCalledWith(0);
+    fireEvent.click(view.getByRole("button", { name: "Skip to end" }));
+    expect(onSeek).toHaveBeenLastCalledWith(5);
+    fireEvent.click(view.getByRole("button", { name: "Next frame" }));
+    expect(onSeek.mock.lastCall?.[0]).toBeCloseTo(1 + 1 / 30);
+  });
   it("renders the package standard toolbar and measurable timeline viewport", () => {
     const { container, getByRole, getByText, queryByText } = renderTimeline();
 
@@ -120,67 +136,72 @@ describe("PlaybackTimeline", () => {
     expect(onSetPlaybackRate).toHaveBeenCalledWith(2);
   });
 
-  it("routes loop range creation, redefinition, and clear to the host", async () => {
-    const onSetLoopRange = vi.fn();
-    const view = renderTimeline({ onSetLoopRange });
-    const viewport = view.container.querySelector(
-      ".timeline-editor__viewport",
-    ) as HTMLDivElement;
-    const loopLane = view.container.querySelector(
-      ".timeline-editor__loop-lane",
-    ) as HTMLDivElement;
-    Object.defineProperty(viewport, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({ left: 0, top: 0, width: 300, height: 100 }),
-    });
-
-    const dragLoopRange = (startX: number, endX: number) => {
-      fireEvent.pointerDown(loopLane, {
-        button: 0,
-        clientX: startX,
-        pointerId: 1,
+  it.each([0, -2])(
+    "routes loop range creation, redefinition, and clear with start %s",
+    async (rangeStart) => {
+      const onSetLoopRange = vi.fn();
+      const view = renderTimeline({ onSetLoopRange, rangeStart });
+      const viewport = view.container.querySelector(
+        ".timeline-editor__viewport",
+      ) as HTMLDivElement;
+      const loopLane = view.container.querySelector(
+        ".timeline-editor__loop-lane",
+      ) as HTMLDivElement;
+      Object.defineProperty(viewport, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({ left: 0, top: 0, width: 300, height: 100 }),
       });
-      fireEvent.pointerMove(loopLane, { clientX: endX, pointerId: 1 });
-      fireEvent.pointerUp(loopLane, { clientX: endX, pointerId: 1 });
-    };
 
-    dragLoopRange(30, 150);
-    await waitFor(() => expect(onSetLoopRange).toHaveBeenCalledTimes(1));
-    const firstRange = onSetLoopRange.mock.calls[0]?.[0] as {
-      start: number;
-      end: number;
-    };
-    expect(firstRange.end).toBeGreaterThan(firstRange.start);
+      const dragLoopRange = (startX: number, endX: number) => {
+        fireEvent.pointerDown(loopLane, {
+          button: 0,
+          clientX: startX,
+          pointerId: 1,
+        });
+        fireEvent.pointerMove(loopLane, { clientX: endX, pointerId: 1 });
+        fireEvent.pointerUp(loopLane, { clientX: endX, pointerId: 1 });
+      };
 
-    dragLoopRange(60, 210);
-    await waitFor(() => expect(onSetLoopRange).toHaveBeenCalledTimes(2));
-    const secondRange = onSetLoopRange.mock.calls[1]?.[0] as {
-      start: number;
-      end: number;
-    };
-    expect(secondRange.end).toBeGreaterThan(secondRange.start);
-    expect(secondRange).not.toEqual(firstRange);
+      dragLoopRange(30, 150);
+      await waitFor(() => expect(onSetLoopRange).toHaveBeenCalledTimes(1));
+      const firstRange = onSetLoopRange.mock.calls[0]?.[0] as {
+        start: number;
+        end: number;
+      };
+      expect(firstRange.end).toBeGreaterThan(firstRange.start);
 
-    view.rerender(
-      <PlaybackTimeline
-        activeClipIndex={0}
-        clipName="Motion"
-        currentTime={1}
-        duration={2}
-        isPlaying={false}
-        looping={false}
-        loopRange={secondRange}
-        onSeek={vi.fn()}
-        onSetLooping={vi.fn()}
-        onSetLoopRange={onSetLoopRange}
-        onSetPlaybackRate={vi.fn()}
-        onTogglePlayback={vi.fn()}
-        playbackRate={1}
-      />,
-    );
-    fireEvent.click(view.getByRole("button", { name: "Clear loop range" }));
-    await waitFor(() => expect(onSetLoopRange).toHaveBeenLastCalledWith(null));
-  });
+      dragLoopRange(60, 210);
+      await waitFor(() => expect(onSetLoopRange).toHaveBeenCalledTimes(2));
+      const secondRange = onSetLoopRange.mock.calls[1]?.[0] as {
+        start: number;
+        end: number;
+      };
+      expect(secondRange.end).toBeGreaterThan(secondRange.start);
+      expect(secondRange).not.toEqual(firstRange);
+
+      view.rerender(
+        <PlaybackTimeline
+          activeClipIndex={0}
+          clipName="Motion"
+          currentTime={1}
+          duration={2}
+          isPlaying={false}
+          looping={false}
+          loopRange={secondRange}
+          onSeek={vi.fn()}
+          onSetLooping={vi.fn()}
+          onSetLoopRange={onSetLoopRange}
+          onSetPlaybackRate={vi.fn()}
+          onTogglePlayback={vi.fn()}
+          playbackRate={1}
+        />,
+      );
+      fireEvent.click(view.getByRole("button", { name: "Clear loop range" }));
+      await waitFor(() =>
+        expect(onSetLoopRange).toHaveBeenLastCalledWith(null),
+      );
+    },
+  );
 
   it("routes ruler scrubbing through the host seek callback", () => {
     const onSeek = vi.fn();

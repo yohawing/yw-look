@@ -1,0 +1,507 @@
+diff --git a/src/core/contracts.test.ts b/src/core/contracts.test.ts
+index f445d23..9da472c 100644
+--- a/src/core/contracts.test.ts
++++ b/src/core/contracts.test.ts
+@@ -18,7 +18,7 @@ describe("timeline core contracts", () => {
+     expect(normalizeTime(1.25)).toBe(1.25);
+     expect(() => normalizeTime(Number.POSITIVE_INFINITY)).toThrow("finite seconds");
+     expect(normalizeTimeRange({ start: 0, end: 2 })).toEqual({ start: 0, end: 2 });
+-    expect(() => normalizeTimeRange({ start: -1, end: 2 })).toThrow();
++    expect(normalizeTimeRange({ start: -1, end: 2 })).toEqual({ start: -1, end: 2 });
+     expect(() => normalizeTimeRange({ start: 3, end: 2 })).toThrow();
+   });
+ 
+diff --git a/src/core/contracts.ts b/src/core/contracts.ts
+index 2231f90..57d549f 100644
+--- a/src/core/contracts.ts
++++ b/src/core/contracts.ts
+@@ -178,6 +178,6 @@ export function normalizeTime(value: number): TimeValue {
+ export function normalizeTimeRange(range: TimeRange): TimeRange {
+   const start = normalizeTime(range.start);
+   const end = normalizeTime(range.end);
+-  if (start < 0 || end < start) throw new RangeError("Timeline range must satisfy 0 <= start <= end");
++  if (end < start) throw new RangeError("Timeline range must satisfy start <= end");
+   return { start, end };
+ }
+diff --git a/src/core/display.ts b/src/core/display.ts
+index 942dba2..d7b0447 100644
+--- a/src/core/display.ts
++++ b/src/core/display.ts
+@@ -10,11 +10,16 @@ export function normalizeFrameRate(frameRate: number): number {
+   return frameRate;
+ }
+ 
+-export function clampTimelineTime(time: number, timeEnd: number): number {
+-  const end = Number.isFinite(timeEnd) && timeEnd >= 0 ? timeEnd : 0;
+-  if (Number.isNaN(time) || time === -Infinity) return 0;
+-  if (time === Infinity) return end;
+-  return Math.min(end, Math.max(0, time));
++export function clampTimelineTime(time: number, timeEnd: number | TimeRange): number {
++  const range = typeof timeEnd === "number" ? { start: 0, end: Number.isFinite(timeEnd) ? Math.max(0, timeEnd) : 0 } : timeEnd;
++  if (Number.isNaN(time) || time === -Infinity) return range.start;
++  if (time === Infinity) return range.end;
++  return Math.min(range.end, Math.max(range.start, time));
++}
++
++function formatFrame(value: number): string {
++  const frame = Math.round(value);
++  return `${frame < 0 ? "-" : ""}${String(Math.abs(frame)).padStart(4, "0")}`;
+ }
+ 
+ /** Display formatting never changes canonical seconds. */
+@@ -26,7 +31,7 @@ export function snapTimelineTimeToFrame(time: number, frameRate = 24): number {
+ 
+ export function resolveTimelineSeekTime(
+   time: number,
+-  timeEnd: number,
++  timeEnd: number | TimeRange,
+   policy: TimelineSeekPolicy = "unsnapped",
+   frameRate = 24,
+ ): number {
+@@ -38,29 +43,29 @@ export function resolveTimelineSeekTime(
+ 
+ export function formatTimelineReadout(
+   time: number,
+-  timeEnd: number,
++  timeEnd: number | TimeRange,
+   displayMode: TimelineDisplayMode,
+   frameRate = 24,
+ ): string {
+   const fps = normalizeFrameRate(frameRate);
+   const canonical = clampTimelineTime(time, timeEnd);
+-  const end = clampTimelineTime(timeEnd, timeEnd);
++  const end = clampTimelineTime(typeof timeEnd === "number" ? timeEnd : timeEnd.end, timeEnd);
+   if (displayMode === "frames") {
+-    return `${String(Math.round(canonical * fps)).padStart(4, "0")} / ${String(Math.round(end * fps)).padStart(4, "0")}`;
++    return `${formatFrame(canonical * fps)} / ${formatFrame(end * fps)}`;
+   }
+   return `${canonical.toFixed(2)} / ${end.toFixed(2)} s`;
+ }
+ 
+ export function formatCompactTimelineReadout(
+   time: number,
+-  timeEnd: number,
++  timeEnd: number | TimeRange,
+   displayMode: TimelineDisplayMode,
+   frameRate = 24,
+ ): string {
+   const fps = normalizeFrameRate(frameRate);
+   const canonical = clampTimelineTime(time, timeEnd);
+   return displayMode === "frames"
+-    ? `${String(Math.round(canonical * fps)).padStart(4, "0")} f`
++    ? `${formatFrame(canonical * fps)} f`
+     : `${canonical.toFixed(2)} s`;
+ }
+ 
+@@ -69,9 +74,9 @@ export function formatCompactTimelineReadout(
+  * or malformed range (end <= start, non-finite bounds) to `null`, which
+  * callers treat as "no loop range" (playback loops the full duration).
+  */
+-export function clampTimelineLoopRange(range: TimeRange | null | undefined, duration: number): TimeRange | null {
++export function clampTimelineLoopRange(range: TimeRange | null | undefined, duration: number | TimeRange): TimeRange | null {
+   if (!range) return null;
+-  const end = Number.isFinite(duration) && duration >= 0 ? duration : 0;
++  const end = typeof duration === "number" ? (Number.isFinite(duration) && duration >= 0 ? duration : 0) : duration;
+   const start = clampTimelineTime(range.start, end);
+   const rawEnd = clampTimelineTime(range.end, end);
+   if (!(rawEnd > start)) return null;
+@@ -98,7 +103,7 @@ export function timelineRulerStep(baseStep: number, pixelsPerSecond: number, lab
+ }
+ 
+ export function visibleTimelineTicks(
+-  timeEnd: number,
++  timeEnd: number | TimeRange,
+   scrollLeft: number,
+   viewportWidth: number,
+   pixelsPerSecond: number,
+@@ -106,17 +111,18 @@ export function visibleTimelineTicks(
+   overscanTicks = 2,
+   maxTicks = 512,
+ ): number[] {
+-  const end = Number.isFinite(timeEnd) ? Math.max(0, timeEnd) : 0;
++  const start = typeof timeEnd === "number" ? 0 : timeEnd.start;
++  const end = typeof timeEnd === "number" ? (Number.isFinite(timeEnd) ? Math.max(0, timeEnd) : 0) : timeEnd.end - start;
+   const scale = Number.isFinite(pixelsPerSecond) ? Math.max(0.001, pixelsPerSecond) : 1;
+   const step = Number.isFinite(tickStep) ? Math.max(0.001, tickStep) : 1;
+   const left = Number.isFinite(scrollLeft) ? Math.max(0, scrollLeft) : 0;
+   const width = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
+   const overscan = Number.isFinite(overscanTicks) ? Math.max(0, Math.floor(overscanTicks)) : 0;
+-  const maxIndex = Math.floor(end / step);
++  const maxIndex = Math.floor((start + end) / step);
+   const visibleLeft = Math.min(left, Math.max(0, end * scale - width));
+   const visibleRight = Math.min(end, (visibleLeft + width) / scale);
+-  const first = Math.max(0, Math.floor(visibleLeft / scale / step) - overscan);
+-  const last = Math.min(maxIndex, Math.ceil(visibleRight / step) + overscan);
++  const first = Math.max(Math.ceil(start / step), Math.floor((start + visibleLeft / scale) / step) - overscan);
++  const last = Math.min(maxIndex, Math.ceil((start + visibleRight) / step) + overscan);
+   const count = Math.min(Math.max(0, Math.floor(maxTicks)), Math.max(0, last - first + 1));
+   return Array.from({ length: count }, (_, index) => (first + index) * step);
+ }
+diff --git a/src/core/playback.ts b/src/core/playback.ts
+index 9267a12..65e8aa3 100644
+--- a/src/core/playback.ts
++++ b/src/core/playback.ts
+@@ -7,6 +7,8 @@ export interface TimelinePlaybackSnapshot {
+   readonly available: boolean;
+   readonly time: number;
+   readonly duration: number;
++  /** Absolute canonical bounds; omitted by legacy zero-based hosts. */
++  readonly range?: TimeRange;
+   readonly playing: boolean;
+   readonly looping: boolean;
+   /**
+@@ -71,28 +73,32 @@ export function projectTimelinePlaybackTime(
+   nowUnixMs = Date.now(),
+ ): number {
+   const duration = Number.isFinite(snapshot.duration) && snapshot.duration >= 0 ? snapshot.duration : 0;
+-  const base = clampTimelineTime(snapshot.time, duration);
++  const range = snapshot.range ?? { start: 0, end: duration };
++  const base = clampTimelineTime(snapshot.time, range);
+   if (!snapshot.available || !snapshot.playing || !Number.isFinite(snapshot.sampledAtUnixMs)) return base;
+   const rate = Number.isFinite(snapshot.rate) && (snapshot.rate as number) > 0 ? (snapshot.rate as number) : 1;
+   const elapsed = (Math.max(0, nowUnixMs - (snapshot.sampledAtUnixMs ?? nowUnixMs)) / 1000) * rate;
+   const projected = base + elapsed;
+   if (snapshot.looping && duration > 0) {
+-    const loopRange = clampTimelineLoopRange(snapshot.loopRange, duration);
+-    const loopStart = loopRange?.start ?? 0;
+-    const loopEnd = loopRange?.end ?? duration;
++    const loopRange = clampTimelineLoopRange(snapshot.loopRange, range);
++    const loopStart = loopRange?.start ?? range.start;
++    const loopEnd = loopRange?.end ?? range.end;
+     const span = loopEnd - loopStart;
+     if (span > 0 && projected >= loopStart) return loopStart + ((projected - loopStart) % span);
+-    return projected % duration;
++    return range.start + ((projected - range.start) % duration);
+   }
+-  return Math.min(duration, projected);
++  return Math.min(range.end, projected);
+ }
+ 
+-export function createLocalPlaybackController(duration: number, initialTime = 0): TimelinePlaybackController {
+-  if (!Number.isFinite(duration) || duration < 0) throw new RangeError("Playback duration must be finite and non-negative");
++export function createLocalPlaybackController(durationOrRange: number | TimeRange, initialTime?: number): TimelinePlaybackController {
++  const range = typeof durationOrRange === "number" ? { start: 0, end: durationOrRange } : durationOrRange;
++  const duration = range.end - range.start;
++  if (!Number.isFinite(range.start) || !Number.isFinite(range.end) || !Number.isFinite(duration) || duration < 0) throw new RangeError("Playback duration must be finite and non-negative");
+   let snapshot: TimelinePlaybackSnapshot = {
+     available: true,
+-    time: clampTimelineTime(initialTime, duration),
++    time: clampTimelineTime(initialTime ?? range.start, range),
+     duration,
++    range,
+     playing: false,
+     looping: false,
+     rate: 1,
+@@ -119,15 +125,15 @@ export function createLocalPlaybackController(duration: number, initialTime = 0)
+       lastTick = now;
+       let time = snapshot.time + delta;
+       let playing = true;
+-      const loopRange = clampTimelineLoopRange(snapshot.loopRange, duration);
+-      const loopEnd = loopRange?.end ?? duration;
++      const loopRange = clampTimelineLoopRange(snapshot.loopRange, range);
++      const loopEnd = snapshot.looping ? (loopRange?.end ?? range.end) : range.end;
+       if (time >= loopEnd) {
+         if (snapshot.looping && duration > 0) {
+-          const loopStart = loopRange?.start ?? 0;
++          const loopStart = loopRange?.start ?? range.start;
+           const span = loopEnd - loopStart;
+           time = span > 0 ? loopStart + ((time - loopStart) % span) : 0;
+         } else {
+-          time = duration;
++          time = range.end;
+           playing = false;
+           stopTimer();
+         }
+@@ -150,7 +156,7 @@ export function createLocalPlaybackController(duration: number, initialTime = 0)
+           if (snapshot.playing) { snapshot = { ...snapshot, target: command.target, playing: false }; notify(); }
+           break;
+         case "seek":
+-          snapshot = { ...snapshot, target: command.target, time: clampTimelineTime(command.time, duration), sampledAtUnixMs: Date.now() };
++          snapshot = { ...snapshot, target: command.target, time: clampTimelineTime(command.time, range), sampledAtUnixMs: Date.now() };
+           notify();
+           break;
+         case "setLooping":
+@@ -158,7 +164,7 @@ export function createLocalPlaybackController(duration: number, initialTime = 0)
+           notify();
+           break;
+         case "setLoopRange":
+-          snapshot = { ...snapshot, target: command.target, loopRange: clampTimelineLoopRange(command.range, duration) };
++          snapshot = { ...snapshot, target: command.target, loopRange: clampTimelineLoopRange(command.range, range) };
+           notify();
+           break;
+         case "setRate": {
+diff --git a/src/react/TimelineEditor.test.tsx b/src/react/TimelineEditor.test.tsx
+index 51e23d8..abfabfd 100644
+--- a/src/react/TimelineEditor.test.tsx
++++ b/src/react/TimelineEditor.test.tsx
+@@ -68,6 +68,21 @@ beforeEach(() => {
+ afterEach(() => cleanup());
+ 
+ describe("TimelineEditor transport and interaction boundary", () => {
++  it("queries negative key times without changing row indexing", () => {
++    const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
++    const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(200);
++    const data = source();
++    const getRows=vi.fn(data.getRows);
++    const getKeys=vi.fn(data.getKeys);
++    const getItems=vi.fn(data.getItems);
++    render(<TimelineEditor dataSource={{...data,getRange:()=>({start:-2,end:3}),getRows,getKeys,getItems}} />);
++    expect(getRows.mock.calls[0][0].start).toBe(0);
++    expect(getKeys.mock.calls.at(-1)?.[0].range.start).toBe(-2);
++    expect(getItems.mock.calls.at(-1)?.[0].range.start).toBe(-2);
++    expect(getKeys.mock.calls.at(-1)?.[0].rowIds).toEqual([rowId]);
++    width.mockRestore();
++    height.mockRestore();
++  });
+   it("keeps transport disabled without a controller", () => {
+     render(<TimelineEditor dataSource={source()} />);
+     expect((screen.getByRole("button", { name: "Play" }) as HTMLButtonElement).disabled).toBe(true);
+diff --git a/src/react/TimelineEditor.tsx b/src/react/TimelineEditor.tsx
+index e76b298..865d8ca 100644
+--- a/src/react/TimelineEditor.tsx
++++ b/src/react/TimelineEditor.tsx
+@@ -151,7 +151,7 @@ function formatTimelineRate(rate: number): string {
+ 
+ function safeRange(dataSource: TimelineDataSource): { start: number; end: number } {
+   const range = dataSource.getRange();
+-  const start = Number.isFinite(range.start) ? Math.max(0, range.start) : 0;
++  const start = Number.isFinite(range.start) ? range.start : 0;
+   const end = Number.isFinite(range.end) ? Math.max(start, range.end) : start;
+   return { start, end };
+ }
+@@ -181,22 +181,24 @@ function normalizePlaybackSnapshot(value: unknown): TimelinePlaybackSnapshot {
+   if (!value || typeof value !== "object") return EMPTY_PLAYBACK;
+   const raw = value as Partial<Record<keyof TimelinePlaybackSnapshot, unknown>>;
+   const durationIsValid = typeof raw.duration === "number" && Number.isFinite(raw.duration) && raw.duration >= 0;
+-  const timeIsValid = typeof raw.time === "number" && Number.isFinite(raw.time) && raw.time >= 0;
++  const timeIsValid = typeof raw.time === "number" && Number.isFinite(raw.time);
+   const targetIsValid = raw.target === undefined || raw.target === null || isPlaybackTarget(raw.target);
+   const available = raw.available === true && durationIsValid && timeIsValid && targetIsValid;
+   const duration = durationIsValid ? raw.duration as number : 0;
+-  const time = available ? clampTimelineTime(raw.time as number, duration) : 0;
++  const range = isFiniteTimeRange(raw.range) && raw.range.start <= raw.range.end ? raw.range : { start: 0, end: duration };
++  const time = available ? clampTimelineTime(raw.time as number, range) : 0;
+   const sampledAtUnixMs = typeof raw.sampledAtUnixMs === "number" && Number.isFinite(raw.sampledAtUnixMs) && raw.sampledAtUnixMs >= 0
+     ? raw.sampledAtUnixMs
+     : undefined;
+   const rate = available && typeof raw.rate === "number" && Number.isFinite(raw.rate) && raw.rate > 0
+     ? raw.rate
+     : undefined;
+-  const loopRange = available && isFiniteTimeRange(raw.loopRange) ? clampTimelineLoopRange(raw.loopRange, duration) : null;
++  const loopRange = available && isFiniteTimeRange(raw.loopRange) ? clampTimelineLoopRange(raw.loopRange, range) : null;
+   return {
+     available,
+     time,
+-    duration: available ? duration : 0,
++    duration: available ? range.end - range.start : 0,
++    range,
+     playing: available && raw.playing === true,
+     looping: available && raw.looping === true,
+     loopRange,
+@@ -210,6 +212,7 @@ function samePlaybackSnapshot(left: TimelinePlaybackSnapshot, right: TimelinePla
+   return left.available === right.available &&
+     left.time === right.time &&
+     left.duration === right.duration &&
++    left.range?.start === right.range?.start && left.range?.end === right.range?.end &&
+     left.playing === right.playing &&
+     left.looping === right.looping &&
+     (left.rate ?? 1) === (right.rate ?? 1) &&
+@@ -496,8 +499,9 @@ export function TimelineEditor({
+   const rowHeight = measuredRowHeight > 0 ? measuredRowHeight : TIMELINE_ROW_HEIGHT;
+ 
+   useEffect(() => {
+-    setLocalTime((time) => clampTimelineTime(time, range.end));
+-  }, [range.end]);
++    setLocalTime((time) => clampTimelineTime(time, range));
++    setLocalLoopRange((loop) => clampTimelineLoopRange(loop, range));
++  }, [range.start, range.end]);
+ 
+   // A different clip (range) -> back to "fit the whole clip".
+   useEffect(() => {
+@@ -595,8 +599,8 @@ export function TimelineEditor({
+   const updateReadout = useCallback((nextTime: number) => {
+     if (readoutRef.current) {
+       readoutRef.current.textContent = variant === "compact"
+-        ? formatCompactTimelineReadout(nextTime - range.start, duration, displayMode, fps)
+-        : formatTimelineReadout(nextTime - range.start, duration, displayMode, fps);
++        ? formatCompactTimelineReadout(nextTime, range, displayMode, fps)
++        : formatTimelineReadout(nextTime, range, displayMode, fps);
+     }
+   }, [displayMode, duration, fps, range.start, variant]);
+ 
+@@ -624,7 +628,7 @@ export function TimelineEditor({
+     if (!element) return;
+     const next = resolveTimelineSeekTime(
+       range.start + (clientX - element.getBoundingClientRect().left + element.scrollLeft) / pixelsPerSecond,
+-      range.end,
++      range,
+       "frame-snap",
+       fps,
+     );
+@@ -682,18 +686,18 @@ export function TimelineEditor({
+ 
+   /** Seek transport (skip-to-start/end, frame step) shares scrub's dispatch-or-local-set split. */
+   const seekTo = useCallback((nextTime: number) => {
+-    const clamped = resolveTimelineSeekTime(nextTime, range.end, "frame-snap", fps);
++    const clamped = resolveTimelineSeekTime(nextTime, range, "frame-snap", fps);
+     if (playbackController && playbackSnapshot.available) {
+       dispatchSafely(playbackController, { type: "seek", time: clamped, target: commandTarget }, onDiagnostic);
+     } else if (!playbackController) {
+       setLocalTime(clamped);
+     }
+-  }, [commandTarget, fps, onDiagnostic, playbackController, playbackSnapshot.available, range.end]);
++  }, [commandTarget, fps, onDiagnostic, playbackController, playbackSnapshot.available, range]);
+ 
+   const stepFrame = useCallback((direction: -1 | 1) => {
+-    const stepped = resolveTimelineSeekTime(time + direction / fps, range.end, "frame-snap", fps);
++    const stepped = resolveTimelineSeekTime(time + direction / fps, range, "frame-snap", fps);
+     seekTo(stepped);
+-  }, [fps, range.end, seekTo, time]);
++  }, [fps, range, seekTo, time]);
+ 
+   /**
+    * ArrowLeft/ArrowRight step the playhead one frame while the timeline has
+@@ -715,16 +719,16 @@ export function TimelineEditor({
+     if (playbackController && playbackSnapshot.available) {
+       dispatchSafely(playbackController, { type: "setLoopRange", range: next, target: commandTarget }, onDiagnostic);
+     } else if (!playbackController) {
+-      setLocalLoopRange(clampTimelineLoopRange(next, duration));
++      setLocalLoopRange(clampTimelineLoopRange(next, range));
+     }
+-  }, [commandTarget, duration, onDiagnostic, playbackController, playbackSnapshot.available]);
++  }, [commandTarget, range, onDiagnostic, playbackController, playbackSnapshot.available]);
+ 
+   const loopTimeFromClientX = useCallback((clientX: number) => {
+     const element = timelineViewportRef.current;
+     if (!element) return range.start;
+     return resolveTimelineSeekTime(
+       range.start + (clientX - element.getBoundingClientRect().left + element.scrollLeft) / pixelsPerSecond,
+-      range.end,
++      range,
+       "frame-snap",
+       fps,
+     );
+@@ -752,10 +756,10 @@ export function TimelineEditor({
+     loopPointerIdRef.current = null;
+     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+     setLoopDragPreview((preview) => {
+-      if (preview) dispatchLoopRange(clampTimelineLoopRange(preview, duration));
++      if (preview) dispatchLoopRange(clampTimelineLoopRange(preview, range));
+       return null;
+     });
+-  }, [dispatchLoopRange, duration]);
++  }, [dispatchLoopRange, range]);
+ 
+   const clearLoopRange = useCallback((event: { stopPropagation(): void }) => {
+     event.stopPropagation();
+@@ -962,11 +966,11 @@ export function TimelineEditor({
+     // brighter so the rhythm stays readable. Iterated by index (not by
+     // accumulating a float step) so frame lines land exactly on frames.
+     const { gridStep, frameGrid } = timelineGridSteps(pixelsPerSecond, fps);
+-    const firstIndex = Math.max(0, Math.floor((visibleTimeRange.start - range.start) / gridStep));
+-    const lastIndex = Math.ceil((Math.min(range.end, visibleTimeRange.end) - range.start) / gridStep);
++    const firstIndex = Math.ceil(visibleTimeRange.start / gridStep);
++    const lastIndex = Math.floor(Math.min(range.end, visibleTimeRange.end) / gridStep);
+     const transform = createViewTransform(range.start, pixelsPerSecond);
+     for (let index = firstIndex; index <= lastIndex; index += 1) {
+-      const gridTime = range.start + index * gridStep;
++      const gridTime = index * gridStep;
+       const x = Math.round(transform.timeToX(gridTime)) + .5;
+       const onSecond = Math.abs(gridTime - Math.round(gridTime)) < gridStep * .01;
+       context.strokeStyle = onSecond ? "rgba(255,255,255,.16)" : frameGrid ? "rgba(255,255,255,.085)" : "rgba(255,255,255,.045)";
+@@ -1012,15 +1016,15 @@ export function TimelineEditor({
+     formatTimelineTick(visibleTimeRange.end, displayMode, fps).length,
+   ) * tickCharacterWidth;
+   const ticks = visibleTimelineTicks(
+-    range.end - range.start,
++    range,
+     scroll.left,
+     viewport.width,
+     pixelsPerSecond,
+     timelineRulerStep(timelineGridSteps(pixelsPerSecond, fps).labelStep, pixelsPerSecond, tickLabelWidth),
+-  ).filter((tick) => tick * pixelsPerSecond >= scroll.left && tick * pixelsPerSecond <= scroll.left + viewport.width);
++  ).filter((tick) => (tick - range.start) * pixelsPerSecond >= scroll.left && (tick - range.start) * pixelsPerSecond <= scroll.left + viewport.width);
+   const playbackReadout = variant === "compact"
+-    ? formatCompactTimelineReadout(time - range.start, duration, displayMode, fps)
+-    : formatTimelineReadout(time - range.start, duration, displayMode, fps);
++    ? formatCompactTimelineReadout(time, range, displayMode, fps)
++    : formatTimelineReadout(time, range, displayMode, fps);
+   const rootClassName = ["timeline-editor", `timeline-editor--${variant}`, scrubbing ? "is-scrubbing" : "", className ?? ""].filter(Boolean).join(" ");
+ 
+   type UntargetedPlaybackCommand =
+@@ -1119,7 +1123,7 @@ export function TimelineEditor({
+             onPointerCancel={(event) => finishScrub(event, true)}
+           >
+             <span ref={tickWidthProbeRef} className="timeline-editor__tick timeline-editor__tick--measure" aria-hidden="true">00000000</span>
+-            {ticks.map((tick) => <span className="timeline-editor__tick" key={tick} style={{ left: `${Math.max(tickLabelWidth / 2, Math.min(viewport.width - tickLabelWidth / 2, (tick * pixelsPerSecond) - scroll.left))}px` }}>{formatTimelineTick(tick + range.start, displayMode, fps)}</span>)}
++            {ticks.map((tick) => <span className="timeline-editor__tick" key={tick} style={{ left: `${Math.max(tickLabelWidth / 2, Math.min(viewport.width - tickLabelWidth / 2, ((tick - range.start) * pixelsPerSecond) - scroll.left))}px` }}>{formatTimelineTick(tick, displayMode, fps)}</span>)}
+             <div
+               className="timeline-editor__loop-lane"
+               aria-label="Loop range"
+diff --git a/src/core/negativeRange.test.ts b/src/core/negativeRange.test.ts
+new file mode 100644
+index 0000000..efb8d76
+--- /dev/null
++++ b/src/core/negativeRange.test.ts
+@@ -0,0 +1,35 @@
++import { describe, expect, it } from "vitest";
++import { clampTimelineTime, resolveTimelineSeekTime, formatTimelineReadout, visibleTimelineTicks, clampTimelineLoopRange } from "./display";
++import { createLocalPlaybackController, projectTimelinePlaybackTime } from "./playback";
++import { createViewTransform, overlapsHalfOpen } from "./contracts";
++import { viewRangeFromThumb, viewRangeThumb, zoomAroundAnchor } from "./viewRange";
++const range = { start: -2, end: 3 };
++describe("absolute negative range", () => {
++  it("clamps, snaps and formats absolute seconds", () => {
++    expect(clampTimelineTime(-9, range)).toBe(-2);
++    expect(resolveTimelineSeekTime(-1.12, range, "frame-snap", 30)).toBeCloseTo(-34/30);
++    expect(formatTimelineReadout(-1, range, "frames", 30)).toBe("-0030 / 0090");
++    expect(visibleTimelineTicks(range, 0, 500, 100, 1)).toEqual([-2,-1,0,1,2,3]);
++    expect(clampTimelineLoopRange({ start:-4, end:1 }, range)).toEqual({ start:-2,end:1 });
++  });
++  it("projects full and partial loops and stops at the absolute end", () => {
++    const snapshot = { available:true,time:-1,duration:5,range,playing:true,looping:true,sampledAtUnixMs:0 };
++    expect(projectTimelinePlaybackTime(snapshot,5000)).toBe(-1);
++    expect(projectTimelinePlaybackTime({...snapshot,loopRange:{start:-1,end:1}},3000)).toBe(0);
++    expect(projectTimelinePlaybackTime({...snapshot,looping:false},9000)).toBe(3);
++    const controller=createLocalPlaybackController(range);
++    expect(controller.getSnapshot().time).toBe(-2);
++    controller.dispatch({type:"seek",time:-1,target:null});
++    expect(controller.getSnapshot().time).toBe(-1);
++  });
++  it("keeps view fractions and absolute query coordinates consistent", () => {
++    const view=viewRangeFromThumb({start:0.2,end:0.6},5,400);
++    expect(viewRangeThumb(view,5,400).start).toBeCloseTo(0.2);
++    const zoom=zoomAroundAnchor(view,2,200,5,400);
++    const before=range.start+(view.scrollLeft+200)/view.pixelsPerSecond;
++    expect(range.start+(zoom.scrollLeft+200)/zoom.pixelsPerSecond).toBeCloseTo(before);
++    const transform=createViewTransform(range.start,100);
++    expect(transform.xToTime(100)).toBe(-1);
++    expect(overlapsHalfOpen({start:-1.5,end:-0.5},{start:-2,end:0})).toBe(true);
++  });
++});
+diff --git a/tests/e2e/negative-range.spec.ts b/tests/e2e/negative-range.spec.ts
+new file mode 100644
+index 0000000..3e6096e
+--- /dev/null
++++ b/tests/e2e/negative-range.spec.ts
+@@ -0,0 +1,20 @@
++import { expect, test } from "@playwright/test";
++for (const width of [320,1000]) test(`negative range transport and view ${width}`, async ({page}) => {
++  await page.setViewportSize({width,height:600});
++  await page.goto("/ruler.html?start=-60&frames=150");
++  const readout=page.getByRole("button",{name:"Toggle time display"});
++  await expect(readout).toContainText("-0060 / 0090");
++  await expect(page.locator(".timeline-editor__tick").filter({hasText:/^-/}).first()).toBeVisible();
++  await page.getByRole("button",{name:"Next frame"}).click();
++  await expect(readout).toContainText("-0059");
++  await page.getByRole("button",{name:"Skip to end"}).click();
++  await expect(readout).toContainText("0090 / 0090");
++  await page.getByRole("button",{name:"Skip to start"}).click();
++  await expect(readout).toContainText("-0060");
++  const ruler=await page.locator(".timeline-editor__ruler").boundingBox();
++  await page.mouse.move(ruler!.x+ruler!.width/2,ruler!.y+4);
++  await page.mouse.wheel(0,500);
++  await expect.poll(() => page.locator(".timeline-editor__range-thumb").evaluate(el => el.getBoundingClientRect().width)).toBeLessThan(ruler!.width);
++  await readout.click();
++  await expect(readout).toContainText("-2.00 / 3.00 s");
++});

@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/yohawing/timeline-editor.git",
+  "baseCommit": "d564567243a156150f1c6e92786b060c00ad036a",
+  "patch": "timeline-editor-negative-range.patch",
+  "archive": "yohawing-timeline-editor-0.1.0-rc.1.tgz",
+  "sha256": "62d9ce40ea3cf572235b272a7205dd8911c005962f3f030fd8b27d7bd1374047",
+  "reason": "Local negative-range implementation; no upstream push or release was requested. Replace the archive dependency with an upstream commit once published.",
+  "rebuild": [
+    "git checkout d564567243a156150f1c6e92786b060c00ad036a",
+    "git apply <yw-look>/vendor/timeline-editor-negative-range.patch",
+    "npm ci",
+    "npm test",
+    "npm run test:browser -- --workers=2",
+    "npm pack --pack-destination <yw-look>/vendor"
+  ]
+}

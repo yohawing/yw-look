@@ -7,6 +7,7 @@ type AnimationBarProps = {
   activeClipIndex: number;
   currentTime: number;
   duration: number;
+  rangeStart?: number;
   isPlaying: boolean;
   onSelectClip: (index: number) => void;
   onTogglePlayback: () => void;
@@ -24,6 +25,7 @@ export function AnimationBar({
   activeClipIndex,
   currentTime,
   duration,
+  rangeStart,
   isPlaying,
   onSelectClip,
   onTogglePlayback,
@@ -59,6 +61,7 @@ export function AnimationBar({
         clipSelector={clipSelector}
         currentTime={currentTime}
         duration={duration}
+        rangeStart={rangeStart}
         isPlaying={isPlaying}
         looping={looping}
         loopRange={loopRange}
