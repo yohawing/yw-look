@@ -1,3 +1,4 @@
+import { useUiStore } from "../stores/uiStore";
 import { ArboristHierarchyTree } from "./ArboristHierarchyTree";
 import { useMemo, useState, type ReactNode } from "react";
 import { ChevronDownIcon } from "@radix-ui/react-icons";
@@ -168,6 +169,8 @@ function HierarchyCardContent({
   selectedTransformNote = "Preview local values",
   renderMorphTargetMeta,
 }: HierarchyCardProps) {
+  const selectedPercent = useUiStore((state) => state.selectedPercent);
+  const setSelectedPercent = useUiStore((state) => state.setSelectedPercent);
   const [searchQuery, setSearchQuery] = useState("");
   const normalizedSelected = selectedName ?? null;
   const selectedNode = useMemo(
@@ -305,12 +308,15 @@ function HierarchyCardContent({
     <PanelGroup
       className="hierarchy-card hierarchy-split"
       orientation="vertical"
+      onLayoutChange={(layout) =>
+        setSelectedPercent(layout["hierarchy-selected"])
+      }
     >
       <Panel
         className="hierarchy-pane"
-        defaultSize={62}
+        defaultSize={`${100 - selectedPercent}%`}
         id="hierarchy-outliner"
-        minSize={25}
+        minSize="25%"
       >
         <SidebarListSection
           className="hierarchy-section"
@@ -345,9 +351,9 @@ function HierarchyCardContent({
 
       <Panel
         className="hierarchy-pane"
-        defaultSize={38}
+        defaultSize={`${selectedPercent}%`}
         id="hierarchy-selected"
-        minSize={20}
+        minSize="20%"
       >
         <section className="hierarchy-section yl-disclosure yl-disclosure--section">
           <div className="yl-disclosure__summary">

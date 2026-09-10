@@ -161,6 +161,11 @@ export function useSidebarModel({
   const activeTab = useUiStore((state) => state.activeTab);
   const sidebarWidth = useUiStore((state) => state.sidebarWidth);
   const setSidebarWidth = useUiStore((state) => state.setSidebarWidth);
+  useEffect(() => {
+    const resize = () => setSidebarWidth(useUiStore.getState().sidebarWidth);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [setSidebarWidth]);
   const sidebarResizeCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(
@@ -447,12 +452,10 @@ export function useSidebarModel({
     sidebarResizeCleanupRef.current?.();
     const startX = event.clientX;
     const startWidth = sidebarWidth;
-    const minWidth = 300;
-    const maxWidth = Math.min(560, Math.floor(window.innerWidth * 0.48));
 
     const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
       const nextWidth = startWidth + (startX - moveEvent.clientX);
-      setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, nextWidth)));
+      setSidebarWidth(nextWidth);
     };
 
     const stopResize = () => {
