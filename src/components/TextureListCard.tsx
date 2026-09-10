@@ -255,6 +255,7 @@ function TextureListCardContent({
 
   return (
     <SidebarSplitPanel
+      layoutId="textures"
       className="texture-split-panel"
       handleClassName="texture-resize-handle"
       primary={{

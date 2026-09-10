@@ -1,4 +1,4 @@
-import { useUiStore } from "../stores/uiStore";
+import { useSidebarLayout } from "../hooks/useSidebarLayout";
 import { ArboristHierarchyTree } from "./ArboristHierarchyTree";
 import { useMemo, useState, type ReactNode } from "react";
 import { ChevronDownIcon } from "@radix-ui/react-icons";
@@ -172,8 +172,7 @@ function HierarchyCardContent({
   selectedTransformNote = "Preview local values",
   renderMorphTargetMeta,
 }: HierarchyCardProps) {
-  const selectedPercent = useUiStore((state) => state.selectedPercent);
-  const setSelectedPercent = useUiStore((state) => state.setSelectedPercent);
+  const layoutProps = useSidebarLayout("hierarchy");
   const [searchQuery, setSearchQuery] = useState("");
   const normalizedSelected = selectedName ?? null;
   const selectedNode = useMemo(
@@ -311,13 +310,11 @@ function HierarchyCardContent({
     <PanelGroup
       className="hierarchy-card hierarchy-split"
       orientation="vertical"
-      onLayoutChange={(layout) =>
-        setSelectedPercent(layout["hierarchy-selected"])
-      }
+      {...layoutProps}
     >
       <Panel
         className="hierarchy-pane"
-        defaultSize={`${100 - selectedPercent}%`}
+        defaultSize="62%"
         id="hierarchy-outliner"
         minSize="25%"
       >
@@ -354,7 +351,7 @@ function HierarchyCardContent({
 
       <Panel
         className="hierarchy-pane"
-        defaultSize={`${selectedPercent}%`}
+        defaultSize="38%"
         id="hierarchy-selected"
         minSize="20%"
       >

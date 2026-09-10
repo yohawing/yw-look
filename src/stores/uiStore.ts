@@ -1,18 +1,18 @@
-import {
-  clampSidebarWidth,
-  clampSelectedPercent,
-  loadUiLayout,
-  saveUiLayout,
-} from "../lib/uiLayout";
+import { clampSidebarWidth } from "../lib/uiLayout";
 import { create } from "zustand";
 import type { SidebarTabId } from "../types/ui";
+
+export type SidebarLayoutId = "hierarchy" | "materials" | "textures";
 
 export interface UiState {
   activeTab: SidebarTabId;
   sidebarOpen: boolean;
   sidebarWidth: number;
-  selectedPercent: number;
-  setSelectedPercent: (v: number) => void;
+  sidebarLayouts: Partial<Record<SidebarLayoutId, Record<string, number>>>;
+  setSidebarLayout: (
+    id: SidebarLayoutId,
+    layout: Record<string, number>,
+  ) => void;
   viewportPanelOpen: boolean;
   isDragActive: boolean;
   dialogState: { title: string; lines: string[] } | null;
@@ -28,9 +28,13 @@ export interface UiState {
 
 export const useUiStore = create<UiState>((set) => ({
   activeTab: "properties",
-  ...loadUiLayout(),
-  setSelectedPercent: (value) =>
-    set({ selectedPercent: clampSelectedPercent(value) }),
+  sidebarOpen: typeof window === "undefined" || window.innerWidth >= 720,
+  sidebarWidth: clampSidebarWidth(350),
+  sidebarLayouts: {},
+  setSidebarLayout: (id, layout) =>
+    set((state) => ({
+      sidebarLayouts: { ...state.sidebarLayouts, [id]: layout },
+    })),
   viewportPanelOpen: true,
   isDragActive: false,
   dialogState: null,
@@ -44,12 +48,3 @@ export const useUiStore = create<UiState>((set) => ({
   setDialogState: (dialogState) => set({ dialogState }),
   toggleSidebarOpen: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
 }));
-
-useUiStore.subscribe((state, previous) => {
-  if (
-    state.sidebarOpen !== previous.sidebarOpen ||
-    state.sidebarWidth !== previous.sidebarWidth ||
-    state.selectedPercent !== previous.selectedPercent
-  )
-    saveUiLayout(state);
-});

@@ -70,6 +70,7 @@ export function MaterialBrowser({
   }, [selectedId, revealSelection, items]);
   return (
     <SidebarSplitPanel
+      layoutId="materials"
       className="material-split-panel"
       handleClassName="material-resize-handle"
       resizeLabel="Resize material details"

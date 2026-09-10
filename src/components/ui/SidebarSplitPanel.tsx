@@ -1,3 +1,5 @@
+import { useSidebarLayout } from "../../hooks/useSidebarLayout";
+import type { SidebarLayoutId } from "../../stores/uiStore";
 import type { ReactNode } from "react";
 import {
   SidebarListSection,
@@ -22,6 +24,7 @@ export type SidebarSplitPane = {
 };
 
 export type SidebarSplitPanelProps = {
+  layoutId: SidebarLayoutId;
   className?: string;
   handleClassName?: string;
   primary: SidebarSplitPane;
@@ -44,9 +47,9 @@ function SplitPane({ pane }: { pane: SidebarSplitPane }) {
   return (
     <Panel
       className={panelClassName}
-      defaultSize={pane.defaultSize}
+      defaultSize={`${pane.defaultSize}%`}
       id={pane.id}
-      minSize={pane.minSize}
+      minSize={`${pane.minSize}%`}
     >
       <SidebarListSection
         className="yl-sidebar-split__section"
@@ -62,12 +65,14 @@ function SplitPane({ pane }: { pane: SidebarSplitPane }) {
 }
 
 export function SidebarSplitPanel({
+  layoutId,
   className,
   handleClassName,
   primary,
   resizeLabel,
   secondary,
 }: SidebarSplitPanelProps) {
+  const layoutProps = useSidebarLayout(layoutId);
   const groupClassName = ["yl-sidebar-split", className]
     .filter(Boolean)
     .join(" ");
@@ -79,7 +84,11 @@ export function SidebarSplitPanel({
     .join(" ");
 
   return (
-    <PanelGroup className={groupClassName} orientation="vertical">
+    <PanelGroup
+      className={groupClassName}
+      orientation="vertical"
+      {...layoutProps}
+    >
       <SplitPane pane={primary} />
       <PanelResizeHandle
         aria-label={resizeLabel}
