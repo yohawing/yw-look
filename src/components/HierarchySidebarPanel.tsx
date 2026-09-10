@@ -2,11 +2,12 @@ import { buildIfcHierarchy } from "../lib/ifcHierarchy";
 import { useCallback, useMemo } from "react";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { isUsdFile } from "../lib/files";
-import type { StageSessionHandle } from "../lib/usd";
+import type { StageSessionHandle, StageInspection } from "../lib/usd";
 import { useFileStore } from "../stores/fileStore";
 import { useViewerStore } from "../stores/viewerStore";
 import type { HierarchyNode, ObjectInfo } from "./assetMetadata";
 import { HierarchyCard } from "./HierarchyCard";
+import { UsdSelectedSources } from "./UsdSelectedSources";
 import { UsdPrimPropertyPanel } from "./UsdPrimPropertyPanel";
 import {
   formatPackMorphTargetMeta,
@@ -19,6 +20,7 @@ import { mergeKnownPayloadRoots } from "./usdPayloadHierarchy";
 type HierarchySidebarPanelProps = {
   debugPanelsEnabled?: boolean;
   stageSessionHandle: StageSessionHandle | null;
+  inspection?: StageInspection | null;
   payloadPrimPaths: ReadonlySet<string>;
   unloadedPayloadPaths: ReadonlySet<string>;
   onLoadPayload: (primPath: string) => Promise<void>;
@@ -39,6 +41,7 @@ function renderPackSelectedObjectDetails(objectInfo: ObjectInfo | null) {
 export function HierarchySidebarPanel({
   debugPanelsEnabled = false,
   stageSessionHandle,
+  inspection = null,
   payloadPrimPaths,
   unloadedPayloadPaths,
   onLoadPayload,
@@ -116,7 +119,7 @@ export function HierarchySidebarPanel({
         }
         onLoadPayload={payloadSessionEnabled ? onLoadPayload : undefined}
         onUnloadPayload={payloadSessionEnabled ? onUnloadPayload : undefined}
-        renderSelectedObjectDetails={(info) => (
+        renderSelectedObjectDetails={(info, primPath) => (
           <>
             {!useDebugFixtures && packMetadata?.kind === "ifc"
               ? renderMetadataCardForPackMetadata(packMetadata, {
@@ -126,7 +129,25 @@ export function HierarchySidebarPanel({
                 })
               : renderPackSelectedObjectDetails(info)}
             {isUsdFile(currentFile) ? (
-              <UsdPrimPropertyPanel embedded path={currentFile?.path ?? null} />
+              <>
+                <UsdSelectedSources
+                  inspection={
+                    inspection?.path === currentFile?.path ? inspection : null
+                  }
+                  primPath={primPath}
+                  payloadLoaded={
+                    payloadSessionEnabled &&
+                    primPath !== null &&
+                    payloadPrimPaths.has(primPath)
+                      ? !unloadedPayloadPaths.has(primPath)
+                      : undefined
+                  }
+                />
+                <UsdPrimPropertyPanel
+                  embedded
+                  path={currentFile?.path ?? null}
+                />
+              </>
             ) : null}
           </>
         )}

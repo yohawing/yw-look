@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { HierarchySidebarPanel } from "../HierarchySidebarPanel";
 import { useFileStore } from "../../stores/fileStore";
 import { useViewerStore } from "../../stores/viewerStore";
+import type { StageInspection } from "../../lib/usd";
 import type { SelectedFile } from "../../lib/files";
 import type {
   AssetMetadata,
@@ -89,6 +90,65 @@ function makeMetadata({
 }
 
 describe("HierarchySidebarPanel", () => {
+  it("keeps USD sources inside Selected and drops stale file inspection", () => {
+    const hierarchy: HierarchyNode[] = [
+      { name: "Hero", kind: "Xform", primPath: "/World/Hero", children: [] },
+    ];
+    useFileStore.setState({
+      currentFile: usdFile,
+      assetMetadata: makeMetadata({ hierarchy }),
+    });
+    useViewerStore.setState({
+      selectedMeshName: "/World/Hero",
+      selectedUsdPrimPath: "/WrongSelection",
+    });
+    const inspection = {
+      path: usdFile.path,
+      defaultPrim: null,
+      upAxis: null,
+      metersPerUnit: null,
+      timeCodesPerSecond: null,
+      framesPerSecond: null,
+      startTimeCode: null,
+      endTimeCode: null,
+      comment: null,
+      rootLayerIsBinary: false,
+      rootPrims: [],
+      composedLayers: [],
+      missingAssets: [],
+      variantSets: [],
+      loadPolicy: "loadAll",
+      references: [
+        {
+          sourcePrim: "/World/Hero",
+          assetPath: "hero.usda",
+          targetPrim: "/Hero",
+          state: "loaded",
+        },
+      ],
+      payloads: [],
+    } satisfies StageInspection;
+    const view = render(
+      <HierarchySidebarPanel
+        inspection={inspection}
+        stageSessionHandle={null}
+        payloadPrimPaths={new Set()}
+        unloadedPayloadPaths={new Set()}
+        onLoadPayload={vi.fn()}
+        onUnloadPayload={vi.fn()}
+      />,
+    );
+    expect(
+      view.getByText("hero.usda").closest("#hierarchy-selected"),
+    ).toBeTruthy();
+    expect(view.queryByText("Advanced: Composition Arcs")).toBeNull();
+    act(() =>
+      useFileStore.setState({
+        currentFile: { ...usdFile, path: "F:/assets/other.usda" },
+      }),
+    );
+    expect(view.queryByText("hero.usda")).toBeNull();
+  });
   it("uses the shared tree and selection panel for IFC semantic elements", () => {
     const snapshot = {
       elements: [

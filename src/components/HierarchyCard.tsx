@@ -65,7 +65,10 @@ type HierarchyCardProps = {
    * the GLB.
    */
   onUnloadPayload?: (primPath: string) => void;
-  renderSelectedObjectDetails?: (objectInfo: ObjectInfo | null) => ReactNode;
+  renderSelectedObjectDetails?: (
+    objectInfo: ObjectInfo | null,
+    primPath: string | null,
+  ) => ReactNode;
   /** Clarifies whether the displayed local transform is an authored value or
    * a preview/runtime snapshot. */
   selectedTransformNote?: string;
@@ -395,7 +398,10 @@ function HierarchyCardContent({
                     rows={selectedAnimationRows}
                   />
                 ) : null}
-                {renderSelectedObjectDetails?.(selectedInfo ?? null)}
+                {renderSelectedObjectDetails?.(
+                  selectedInfo ?? null,
+                  selectedNode?.primPath ?? null,
+                )}
                 {normalizedSelected && selectedMorphTargets.length > 0 ? (
                   <div className="selected-morph-section">
                     <div className="selected-morph-head">

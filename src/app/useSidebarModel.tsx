@@ -49,11 +49,6 @@ import { listOptionalLoaderPacks } from "../viewer";
 import { renderMetadataCardForPackMetadata } from "../packs";
 import type { PackMetadata } from "../types/format-pack";
 
-const CompositionArcsCard = lazy(() =>
-  import("../components/CompositionArcsCard").then((module) => ({
-    default: module.CompositionArcsCard,
-  })),
-);
 const RecentFilesCard = lazy(() =>
   import("../components/RecentFilesCard").then((module) => ({
     default: module.RecentFilesCard,
@@ -257,12 +252,6 @@ export function useSidebarModel({
                   loading={usdInspectorLoading}
                   summary={sessionAdjustedUsdSummary}
                 />
-                <Suspense fallback={<SidebarCardFallback />}>
-                  <CompositionArcsCard
-                    inspection={usdInspection}
-                    loading={usdInspectorLoading}
-                  />
-                </Suspense>
               </>
             )}
             {useDebugFixtures && (
@@ -312,6 +301,11 @@ export function useSidebarModel({
         return (
           <HierarchySidebarPanel
             debugPanelsEnabled={debugPanelsEnabled}
+            inspection={
+              useDebugFixtures
+                ? debugFixtures.debugUsdInspection
+                : usdInspection
+            }
             stageSessionHandle={stageSessionHandle}
             payloadPrimPaths={payloadPrimPaths}
             unloadedPayloadPaths={unloadedPayloadPaths}
