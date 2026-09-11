@@ -28,7 +28,9 @@
 - Rhino 3DM preview does not edit or save files, execute Grasshopper definitions or Rhino plug-in data, or reproduce every Rhino display mode. Unsupported objects and missing resources are reported as warnings.
 - 3MF preview is limited to bounded Core 3MF content. External model references and unsupported required extensions are rejected.
 - The upstream USDC integer-compressed float-array decoding limitation remains; some integral joint-weight arrays can produce broken skinning.
-- Windows production Authenticode signing, clean-environment SmartScreen behavior, macOS signing and notarization, and the published updater roundtrip remain unverified for this candidate.
+- Windows artifacts are intentionally distributed without Authenticode while the project remains on a no-cost release path; an unknown-publisher or SmartScreen warning may appear.
+- v0.3.4 is a Windows-only release. macOS artifacts, Developer ID signing, and notarization are postponed until the paid Apple Developer Program is resumed.
+- Clean-environment installation and the published updater roundtrip remain unverified for this candidate.
 - MMD physics remains disabled by default.
 
 ### Distribution verification
@@ -36,17 +38,17 @@
 #### Windows signing and SmartScreen
 
 - Status: not verified
-- Details: The local v0.3.4 production executable built for the README capture was audited as 0 valid, 1 unsigned, and 0 invalid. No NSIS release candidate has been built yet; production signing and clean-environment SmartScreen verification remain pending.
+- Details: The local v0.3.4 production executable built for the README capture was audited as 0 valid, 1 unsigned, and 0 invalid. The Windows release is intentionally unsigned under the current no-cost distribution policy; clean-environment SmartScreen behavior remains unverified.
 
 #### macOS codesign, notarization, and Gatekeeper
 
 - Status: not verified
-- Details: No v0.3.4 macOS `.app`, `.dmg`, or updater archive has been built or audited yet. Developer ID signing, notarization, stapling, Gatekeeper, and Finder Open With remain pending.
+- Details: v0.3.4 does not publish macOS artifacts. Developer ID signing, notarization, stapling, Gatekeeper, and Finder Open With are postponed until the paid Apple Developer Program is resumed.
 
 #### GitHub Release install and updater roundtrip
 
 - Windows: not verified — v0.3.4 is not published; installation and updating from v0.3.3 through the published `latest.json` remain pending.
-- macOS: not verified — v0.3.4 is not published; installation and updating from v0.3.3 through the published `latest.json` remain pending.
+- macOS: not verified — v0.3.4 is Windows-only and has no macOS updater artifact.
 
 ## v0.3.3 (2026-09-07)
 

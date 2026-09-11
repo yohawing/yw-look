@@ -16,11 +16,6 @@ jobs:
             runner: windows-latest
             binary: src-tauri/target/release/yw-look.exe
             args: --features flip-compare --config src-tauri/tauri.windows.json --config src-tauri/tauri.windows.loaders.json --bundles nsis
-          - platform: macos-aarch64
-            runner: macos-14
-            target: aarch64-apple-darwin
-            binary: src-tauri/target/aarch64-apple-darwin/release/yw-look
-            args: --target aarch64-apple-darwin --features flip-compare --config src-tauri/tauri.macos.json
 
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -39,8 +34,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -58,51 +51,6 @@ jobs:
       - name: Verify NSIS loader pack hooks (Windows)
         if: runner.os == 'Windows'
         run: npm run check:nsis-loader-packs
-
-      - name: Validate macOS signing secrets
-        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          missing=()
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!name:-}" ]; then
-              missing+=("$name")
-            fi
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf '::error::missing required macOS signing secret: %s\n' "${missing[@]}"
-            exit 1
-          fi
-
-      - name: Import macOS signing certificate for helper signing
-        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          keychain="$RUNNER_TEMP/yw-look-signing.keychain-db"
-          keychain_password="$(openssl rand -base64 32)"
-          cert_path="$RUNNER_TEMP/apple-certificate.p12"
-          if ! printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$cert_path" 2>/dev/null; then
-            printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$cert_path"
-          fi
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$cert_path" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-          security find-identity -v -p codesigning "$keychain"
 
       - name: Extract release notes from CHANGELOG
         id: release_notes
@@ -130,12 +78,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           YW_LOOK_UPDATER_ENDPOINT: https://github.com/yohawing/yw-look/releases/latest/download/latest.json
           YW_LOOK_UPDATER_PUBLIC_KEY: dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCQ0M2RDM1Qzc5RkE4REEKUldUYXFKL0hOVzNNSzNMbmRwUXpPazlRa3NZRzJtTVlKSVFvVHRDK05CellrYXZSRGJlTGR6elYK
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: yw-look ${{ github.ref_name }}
@@ -148,28 +90,12 @@ jobs:
       - name: Verify compiled official updater configuration
         run: npm run check:release-updater-config -- --binary "${{ matrix.binary }}" --config-only
 
-      - name: Audit macOS codesign status
-        if: runner.os == 'macOS'
-        continue-on-error: true
-        run: npm run check:macos-codesign
-
-      - name: Upload macOS codesign audit report
-        if: always() && runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-codesign-report-${{ github.ref_name }}-${{ matrix.platform }}
-          path: |
-            artifacts/logs/macos-codesign-report.json
-            artifacts/logs/macos-codesign-report.md
-          if-no-files-found: ignore
-
       - name: Audit Windows Authenticode status
-        if: runner.os == 'Windows'
         continue-on-error: true
         run: npm run check:win-authenticode
 
       - name: Upload Windows Authenticode audit report
-        if: always() && runner.os == 'Windows'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: win-authenticode-report-${{ github.ref_name }}-${{ matrix.platform }}
@@ -201,8 +127,6 @@ jobs:
           const latest = JSON.parse(fs.readFileSync(path, "utf8"));
           const nsis = latest.platforms?.["windows-x86_64-nsis"];
           if (!nsis?.url || !nsis?.signature) throw new Error("latest.json is missing windows-x86_64-nsis updater metadata");
-          const macos = latest.platforms?.["darwin-aarch64"];
-          if (!macos?.url || !macos?.signature) throw new Error("latest.json is missing darwin-aarch64 updater metadata");
           latest.platforms["windows-x86_64"] = { ...nsis };
           fs.writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
           NODE

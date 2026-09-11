@@ -94,8 +94,8 @@ Exit code:
   0 when every executed step passes
   1 when any executed step fails (skipped steps never fail the run)
 
-This command does not complete a release. Manual install, signing, notarization,
-SmartScreen, Gatekeeper, and published updater roundtrip checks remain operator-owned.`);
+This command does not complete a release. Manual install, the declared signing
+status, platform-specific checks, and published updater roundtrips remain operator-owned.`);
 }
 
 function ensureDir(directoryPath) {
@@ -463,7 +463,7 @@ function buildReport(options, steps) {
     preflightPassed: !failedExecuted,
     releaseComplete: false,
     releaseCompleteNote:
-      "Automatic preflight success does not mark the release complete. Operator-owned install, signing, notarization, SmartScreen, Gatekeeper, and updater roundtrip checks remain required.",
+      "Automatic preflight success does not mark the release complete. Operator-owned install, declared signing and platform status, SmartScreen behavior, and updater roundtrip checks remain required for the platforms targeted by the release.",
   };
 }
 
@@ -534,9 +534,9 @@ function buildMarkdownReport(report) {
     "This preflight does **not** replace:",
     "",
     "- NSIS Optional Loader Packs interactive installer UI verification",
-    "- Windows Authenticode production signing or SmartScreen behavior on a clean machine",
-    "- macOS notarization, stapler, Gatekeeper, or Finder `Open With` on a clean Mac",
-    "- Published GitHub Release install → updater roundtrip on Windows and macOS",
+    "- Windows Authenticode status and SmartScreen behavior on a clean machine (an explicitly unsigned release may record that status)",
+    "- macOS notarization, stapler, Gatekeeper, or Finder `Open With` when macOS is a release target",
+    "- Published GitHub Release install → updater roundtrip on each targeted platform",
     "",
   );
 
@@ -590,7 +590,7 @@ function printHumanSummary(report) {
       : "Automatic preflight failed.",
   );
   console.log(
-    "Release is not complete until manual install, signing, notarization, SmartScreen, Gatekeeper, and updater roundtrip checks are recorded.",
+    "Release is not complete until manual install, declared signing and platform status, SmartScreen behavior, and updater roundtrip checks are recorded for every targeted platform.",
   );
   console.log(`JSON report: ${toRelative(jsonReportPath)}`);
   console.log(`Markdown report: ${toRelative(markdownReportPath)}`);

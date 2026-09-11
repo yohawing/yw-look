@@ -49,7 +49,7 @@ test("manifest verification cannot be silently omitted or redirected", () => {
     assert.throws(() => checkReleaseConfiguration(args));
 });
 
-test("manifest gate rejects a valid but stale release feed", () => {
+test("manifest gate accepts Windows-only releases but rejects a stale version", () => {
   const temp = fs.mkdtempSync(
     path.join(os.tmpdir(), "yw-look-updater-manifest-"),
   );
@@ -66,7 +66,6 @@ test("manifest gate rejects a valid but stale release feed", () => {
         platforms: {
           "windows-x86_64": entry,
           "windows-x86_64-nsis": entry,
-          "darwin-aarch64": entry,
         },
       }),
     );

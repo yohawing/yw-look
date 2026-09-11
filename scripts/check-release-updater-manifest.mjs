@@ -5,11 +5,7 @@ import https from "node:https";
 import path from "node:path";
 import { hasFlag, readOption, readRepeatedOption } from "./cliArgs.mjs";
 
-const DEFAULT_PLATFORMS = [
-  "windows-x86_64",
-  "windows-x86_64-nsis",
-  "darwin-aarch64",
-];
+const DEFAULT_PLATFORMS = ["windows-x86_64", "windows-x86_64-nsis"];
 
 const args = process.argv.slice(2);
 
