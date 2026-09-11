@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.3.4 (2026-09-11)
+
+### CAD preview
+
+- Added bounded previews for IFC, Rhino 3DM, and Core 3MF assets and grouped them under the CAD Loader Pack setting.
+- Added IFC element hierarchy, semantic selection, source-material inspection, and per-element color feedback using the shared outliner and material browser.
+- Added Rhino mesh, Brep, extrusion, SubD, curve, point, layer, instance, and basic-material preview with a native Windows helper and a browser-compatible fallback.
+- Added worker-based 3MF parsing for component hierarchies, units, basic materials, vertex colors, and embedded PNG/JPEG textures, with explicit rejection of unsupported required extensions and external model references.
+
+### Viewer and format fidelity
+
+- Migrated the hierarchy to a virtualized outliner, added on-demand search, and exposed USD prim references, payloads, authored properties, and metadata in the selected-prim details.
+- Preserved sidebar panel state and split sizes while switching tabs, removed the empty sidebar header row, and kept the active version visible in the title bar and update panel.
+- Added viewport lighting and environment controls, independent vertex-color inspection, clearer screen-space selection bounds, and adaptive timeline labels with canonical negative time ranges.
+- Preserved deferred FBX DDS texture bindings and image identity, reduced repeated BC5 texture work, resolved USDA texture resources through the native preview path, and reported unresolved USD textures as warnings.
+
+### CLI and release reliability
+
+- Made packaged `--check`, `--shot`, and batch CLI modes run from bundled frontend assets without Node.js, Rust, or a development server.
+- Disabled update checks in builds without an embedded official updater configuration and added checks for the compiled endpoint, public key, candidate version, and release manifest.
+- Honored custom Cargo target directories in build, fixture, preview, and release tooling.
+
+### Known limitations
+
+- CAD runtimes are bundled and can be toggled together in Settings, but the NSIS Optional Loader Pack component page does not yet install or remove the CAD Loader Pack separately.
+- Rhino 3DM preview does not edit or save files, execute Grasshopper definitions or Rhino plug-in data, or reproduce every Rhino display mode. Unsupported objects and missing resources are reported as warnings.
+- 3MF preview is limited to bounded Core 3MF content. External model references and unsupported required extensions are rejected.
+- The upstream USDC integer-compressed float-array decoding limitation remains; some integral joint-weight arrays can produce broken skinning.
+- Windows production Authenticode signing, clean-environment SmartScreen behavior, macOS signing and notarization, and the published updater roundtrip remain unverified for this candidate.
+- MMD physics remains disabled by default.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: The local v0.3.4 production executable built for the README capture was audited as 0 valid, 1 unsigned, and 0 invalid. No NSIS release candidate has been built yet; production signing and clean-environment SmartScreen verification remain pending.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: No v0.3.4 macOS `.app`, `.dmg`, or updater archive has been built or audited yet. Developer ID signing, notarization, stapling, Gatekeeper, and Finder Open With remain pending.
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: not verified — v0.3.4 is not published; installation and updating from v0.3.3 through the published `latest.json` remain pending.
+- macOS: not verified — v0.3.4 is not published; installation and updating from v0.3.3 through the published `latest.json` remain pending.
+
 ## v0.3.3 (2026-09-07)
 
 ### Viewer and playback
