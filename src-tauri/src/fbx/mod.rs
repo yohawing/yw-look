@@ -890,7 +890,12 @@ fn add_skin(
         };
         cluster_map.insert(cluster_index as u32, joints.len());
         joints.push(node);
-        matrices.extend(matrix_values(cluster.geometry_to_bone)?);
+        // `geometry_to_bone` maps FBX geometry space to bone space and also
+        // contains the mesh instance's bind transform. glTF applies the mesh
+        // node transform after skinning, so serializing that matrix directly
+        // applies a non-identity mesh transform twice. glTF inverse binds are
+        // instead the inverse bind-world transforms of the joint nodes.
+        matrices.extend(matrix_values(ufbx::matrix_invert(&cluster.bind_to_world))?);
     }
     if joints.is_empty() {
         return Ok(None);
@@ -1226,6 +1231,11 @@ fn native_load_options<'a>(
     ufbx::LoadOpts {
         target_axes: ufbx::CoordinateAxes::right_handed_y_up(),
         target_unit_meters: 1.0,
+        // glTF POSITION data is local to the node carrying the mesh. Baking
+        // FBX geometry transforms here keeps that contract without coupling a
+        // shared skin to any one mesh instance. ufbx falls back to helper
+        // nodes for instancing cases that cannot be baked safely.
+        geometry_transform_handling: ufbx::GeometryTransformHandling::ModifyGeometry,
         // Three.js applies a mounted node's transform after skinning. A
         // conversion root would therefore scale skinned vertices twice. The
         // geometry-space variant is selected for skinned scenes below; the
@@ -1808,6 +1818,15 @@ mod tests {
             space_conversion_for_scene(false),
             ufbx::SpaceConversion::TransformRoot
         );
+        let mut progress = |_: &ufbx::Progress| ufbx::ProgressResult::Continue;
+        let opts = native_load_options(
+            ufbx::ProgressCb::Mut(&mut progress),
+            space_conversion_for_scene(true),
+        );
+        assert_eq!(
+            opts.geometry_transform_handling,
+            ufbx::GeometryTransformHandling::ModifyGeometry
+        );
     }
 
     fn fixture_glb(name: &str) -> (Value, Vec<u8>) {
@@ -1840,6 +1859,7 @@ mod tests {
         let components = match accessor["type"].as_str().unwrap() {
             "SCALAR" => 1,
             "VEC3" => 3,
+            "MAT4" => 16,
             _ => panic!("unexpected fixture accessor type"),
         };
         let byte_len = count * components * std::mem::size_of::<f32>();
@@ -1987,18 +2007,7 @@ mod tests {
         let inverse_bind_accessor = document["skins"][0]["inverseBindMatrices"]
             .as_u64()
             .expect("inverse bind accessor") as usize;
-        let inverse_bind_view = document["accessors"][inverse_bind_accessor]["bufferView"]
-            .as_u64()
-            .expect("inverse bind buffer view") as usize;
-        let inverse_bind_offset = document["bufferViews"][inverse_bind_view]["byteOffset"]
-            .as_u64()
-            .unwrap_or(0) as usize;
-        let inverse_bind = (0..16)
-            .map(|index| {
-                let offset = inverse_bind_offset + index * std::mem::size_of::<f32>();
-                f32::from_le_bytes(binary[offset..offset + 4].try_into().unwrap())
-            })
-            .collect::<Vec<_>>();
+        let inverse_bind = accessor_f32(&document, &binary, inverse_bind_accessor);
         assert!((inverse_bind[15] - 1.0).abs() < 1e-5);
         for column in 0..3 {
             let offset = column * 4;
@@ -2008,7 +2017,78 @@ mod tests {
                 .sqrt();
             assert!((length - 1.0).abs() < 1e-5, "inverse bind scale changed");
         }
-        assert!(inverse_bind[12..15].iter().all(|value| value.abs() < 1e-5));
+        let nodes = document["nodes"].as_array().expect("nodes");
+        let mut parents = vec![None; nodes.len()];
+        for (parent_index, node) in nodes.iter().enumerate() {
+            if let Some(children) = node["children"].as_array() {
+                for child in children {
+                    parents[child.as_u64().expect("child node") as usize] = Some(parent_index);
+                }
+            }
+        }
+        fn node_local_matrix(node: &Value) -> glam::DMat4 {
+            let read_vec3 = |name: &str, fallback: [f64; 3]| {
+                node[name].as_array().map_or(fallback, |values| {
+                    [
+                        values[0].as_f64().unwrap(),
+                        values[1].as_f64().unwrap(),
+                        values[2].as_f64().unwrap(),
+                    ]
+                })
+            };
+            let translation = read_vec3("translation", [0.0, 0.0, 0.0]);
+            let scale = read_vec3("scale", [1.0, 1.0, 1.0]);
+            let rotation = node["rotation"]
+                .as_array()
+                .map_or([0.0, 0.0, 0.0, 1.0], |v| {
+                    [
+                        v[0].as_f64().unwrap(),
+                        v[1].as_f64().unwrap(),
+                        v[2].as_f64().unwrap(),
+                        v[3].as_f64().unwrap(),
+                    ]
+                });
+            glam::DMat4::from_scale_rotation_translation(
+                glam::DVec3::from_array(scale),
+                glam::DQuat::from_xyzw(rotation[0], rotation[1], rotation[2], rotation[3]),
+                glam::DVec3::from_array(translation),
+            )
+        }
+        fn node_world_matrix(
+            nodes: &[Value],
+            parents: &[Option<usize>],
+            index: usize,
+        ) -> glam::DMat4 {
+            let local = node_local_matrix(&nodes[index]);
+            parents[index].map_or(local, |parent| {
+                node_world_matrix(nodes, parents, parent) * local
+            })
+        }
+        for (joint, inverse_bind) in document["skins"][0]["joints"]
+            .as_array()
+            .expect("skin joints")
+            .iter()
+            .zip(inverse_bind.chunks_exact(16))
+        {
+            let joint_world = node_world_matrix(
+                nodes,
+                &parents,
+                joint.as_u64().expect("joint node") as usize,
+            );
+            let inverse_bind =
+                glam::DMat4::from_cols_array(&std::array::from_fn(|i| inverse_bind[i] as f64));
+            let rest_skin = joint_world * inverse_bind;
+            let max_error = rest_skin
+                .to_cols_array()
+                .iter()
+                .zip(glam::DMat4::IDENTITY.to_cols_array())
+                .map(|(actual, expected)| (actual - expected).abs())
+                .fold(0.0_f64, f64::max);
+            assert!(
+                max_error < 1e-5,
+                "glTF inverse bind must cancel the joint bind-world transform, max error {max_error}"
+            );
+        }
     }
 
     #[test]
