@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BoxGeometry,
   BufferGeometry,
+  Group,
   InterleavedBuffer,
   InterleavedBufferAttribute,
   Mesh,
@@ -128,6 +129,79 @@ describe("createViewportPicker", () => {
     picker.syncMountedObject(scene);
 
     expect(picker.pickSelectionKey(scene, makePointer(50, 50))).toBe("Cube");
+  });
+
+  it("uses the current mesh visibility instead of freezing it at synchronization", () => {
+    const scene = new Scene();
+    const mesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    mesh.name = "Toggleable";
+    mesh.position.z = -5;
+    mesh.visible = false;
+    scene.add(mesh);
+    scene.updateMatrixWorld(true);
+    const camera = new PerspectiveCamera(60, 1, 0.1, 100);
+    camera.updateMatrixWorld(true);
+    const picker = createViewportPicker(camera, makeDomElement());
+    picker.syncMountedObject(scene);
+
+    expect(picker.pickSelectionKey(scene, makePointer(50, 50))).toBeNull();
+
+    mesh.visible = true;
+    expect(picker.pickSelectionKey(scene, makePointer(50, 50))).toBe(
+      "Toggleable",
+    );
+  });
+
+  it("does not pick a mesh below an invisible parent", () => {
+    const scene = new Scene();
+    const parent = new Group();
+    const mesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    mesh.name = "HiddenByParent";
+    mesh.position.z = -5;
+    parent.add(mesh);
+    scene.add(parent);
+    scene.updateMatrixWorld(true);
+    const camera = new PerspectiveCamera(60, 1, 0.1, 100);
+    camera.updateMatrixWorld(true);
+    const picker = createViewportPicker(camera, makeDomElement());
+    picker.syncMountedObject(scene);
+
+    parent.visible = false;
+    expect(picker.pickSelectionKey(scene, makePointer(50, 50))).toBeNull();
+  });
+
+  it("picks a visible mesh behind an invisible BVH mesh", async () => {
+    const scene = new Scene();
+    const front = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    front.name = "InvisibleFront";
+    front.position.z = -4;
+    const rear = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    rear.name = "VisibleRear";
+    rear.position.z = -6;
+    scene.add(front, rear);
+    scene.updateMatrixWorld(true);
+    const builder = {
+      build: vi.fn(async (mesh: Mesh) => {
+        mesh.geometry.boundsTree = new MeshBVH(mesh.geometry);
+        mesh.raycast = acceleratedRaycast;
+        return true;
+      }),
+      invalidate: vi.fn(),
+      dispose: vi.fn(),
+    } as unknown as ReturnType<typeof createMeshBvhRaycastBuilder>;
+    const camera = new PerspectiveCamera(60, 1, 0.1, 100);
+    camera.updateMatrixWorld(true);
+    const picker = createViewportPicker(camera, makeDomElement(), {
+      bvhBuilder: builder,
+      largeTriangleThreshold: 1,
+    });
+    picker.syncMountedObject(scene);
+
+    front.visible = false;
+    await expect(
+      picker.pickSelectionKey(scene, makePointer(50, 50)),
+    ).resolves.toBe("VisibleRear");
+    expect(builder.build).toHaveBeenCalledTimes(2);
   });
 
   it("selects a mounted root mesh directly", () => {
@@ -363,6 +437,48 @@ describe("createViewportPicker", () => {
       }),
     );
     expect(raycast).not.toHaveBeenCalled();
+  });
+
+  it("only sends currently visible meshes to GPU picking", async () => {
+    const root = new Scene();
+    const hiddenParent = new Group();
+    hiddenParent.visible = false;
+    const hiddenByParent = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    hiddenByParent.name = "HiddenByParent";
+    hiddenByParent.morphTargetInfluences = [0];
+    hiddenParent.add(hiddenByParent);
+    const directlyHidden = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    directlyHidden.name = "DirectlyHidden";
+    directlyHidden.visible = false;
+    directlyHidden.morphTargetInfluences = [0];
+    const visible = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    visible.name = "Visible";
+    visible.morphTargetInfluences = [0];
+    root.add(hiddenParent, directlyHidden, visible);
+    const gpuPicker = {
+      dispose: vi.fn(),
+      pick: vi.fn(async () => "Visible"),
+    };
+    const camera = new PerspectiveCamera();
+    const picker = createViewportPicker(camera, makeDomElement(), {
+      gpuPicker,
+      largeTriangleThreshold: 1,
+    });
+    picker.syncMountedObject(root);
+
+    const result = picker.pickSelectionKey(root, makePointer(50, 50));
+    await picker.flushPendingGpuPick({
+      camera,
+      renderer: {} as never,
+      scene: root,
+    });
+
+    await expect(result).resolves.toBe("Visible");
+    expect(gpuPicker.pick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: [{ key: "Visible", mesh: visible }],
+      }),
+    );
   });
 
   it("deduplicates selection proxy keys in the GPU target list", async () => {

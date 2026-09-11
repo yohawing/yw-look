@@ -71,6 +71,7 @@ const USD_GLTF_BACKEND_KEYWORDS = [
 // route can expose it to the viewer. This is only a candidate marker: the
 // backend confirms that the samples belong to a supported xform op.
 const USD_XFORM_TIME_SAMPLES_MARKER = new TextEncoder().encode(".timeSamples");
+const USD_VISIBILITY_MARKER = new TextEncoder().encode("visibility");
 
 type UsdInvokeOptions = {
   background?: boolean;
@@ -305,6 +306,10 @@ function bytesMayContainUsdXformAnimation(bytes: Uint8Array) {
   return bytesInclude(bytes, USD_XFORM_TIME_SAMPLES_MARKER);
 }
 
+function bytesMayContainAuthoredUsdVisibility(bytes: Uint8Array) {
+  return bytesInclude(bytes, USD_VISIBILITY_MARKER);
+}
+
 async function fastTextUsdRequiresGlbPreview(path: string) {
   const extension = extensionFromPath(path);
   if (extension === "usdc") {
@@ -327,9 +332,13 @@ async function fastTextUsdRequiresGlbPreview(path: string) {
     if (bytesRequireUsdGltfBackend(prefix)) {
       return true;
     }
-    if (bytesMayContainUsdXformAnimation(prefix)) {
+    if (
+      bytesMayContainUsdXformAnimation(prefix) ||
+      bytesMayContainAuthoredUsdVisibility(prefix)
+    ) {
       // JS USDLoader can still handle ordinary single-layer static USDA. A
-      // sampled candidate needs the backend's authored-xform confirmation.
+      // sampled xform or visibility text candidate needs the backend's
+      // authored-property confirmation.
       return isTauriEnvironment() ? null : false;
     }
     if (prefix.byteLength < USD_FAST_DECISION_SCAN_BYTES) {

@@ -73,6 +73,16 @@ function collectVisibleSelectablePickTargets(root: Object3D): Mesh[] {
   return targets;
 }
 
+function isVisiblePickTarget(object: Object3D, mounted: Object3D) {
+  let current: Object3D | null = object;
+  while (current) {
+    if (!current.visible) return false;
+    if (current === mounted) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
 export function createViewportPicker(
   camera: Camera,
   domElement: Pick<HTMLElement, "getBoundingClientRect">,
@@ -192,7 +202,10 @@ export function createViewportPicker(
     if (mounted !== mountedRoot) return null;
     raycaster.ray.copy(pickRay);
 
-    const hits = raycaster.intersectObjects(targets, false);
+    const visibleTargets = targets.filter((target) =>
+      isVisiblePickTarget(target, mounted),
+    );
+    const hits = raycaster.intersectObjects(visibleTargets, false);
     if (hits.length === 0) return null;
 
     let node: Object3D | null = hits[0].object;
