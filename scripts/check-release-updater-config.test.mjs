@@ -100,6 +100,10 @@ test("release workflow publishes only after verification and manifest repair", (
   assert.doesNotMatch(workflow, /releaseDraft:\s*false/);
   assert.ok(draft < verify && verify < patch && patch < publish);
   assert.match(
+    workflow.slice(patch, publish),
+    /gh release view "\$TAG" --json assets[\s\S]*artifact is missing from the draft release[\s\S]*--skip-url-check/,
+  );
+  assert.match(
     workflow.slice(publish),
     /needs:\s*patch-updater-manifest[\s\S]*gh release edit "\$TAG" --draft=false/,
   );

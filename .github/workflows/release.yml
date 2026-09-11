@@ -112,7 +112,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
-      - name: Normalize NSIS as default Windows updater artifact
+      - name: Normalize and verify draft Windows updater assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -121,6 +121,7 @@ jobs:
           set -euo pipefail
           mkdir manifest
           gh release download "$TAG" --pattern latest.json --dir manifest --clobber
+          gh release view "$TAG" --json assets > manifest/release-assets.json
           node <<'NODE'
           const fs = require("fs");
           const path = "manifest/latest.json";
@@ -128,10 +129,30 @@ jobs:
           const nsis = latest.platforms?.["windows-x86_64-nsis"];
           if (!nsis?.url || !nsis?.signature) throw new Error("latest.json is missing windows-x86_64-nsis updater metadata");
           latest.platforms["windows-x86_64"] = { ...nsis };
+          const assetNames = new Set(
+            JSON.parse(fs.readFileSync("manifest/release-assets.json", "utf8")).assets.map(({ name }) => name),
+          );
+          const expectedPrefix = `/${process.env.GITHUB_REPOSITORY}/releases/download/${process.env.TAG}/`;
+          for (const platform of ["windows-x86_64", "windows-x86_64-nsis"]) {
+            const entry = latest.platforms[platform];
+            const url = new URL(entry.url);
+            if (url.origin !== "https://github.com" || !url.pathname.startsWith(expectedPrefix)) {
+              throw new Error(`${platform} updater URL does not target this tagged release`);
+            }
+            const artifactName = decodeURIComponent(url.pathname.slice(expectedPrefix.length));
+            if (!artifactName || artifactName.includes("/") || !assetNames.has(artifactName)) {
+              throw new Error(`${platform} updater artifact is missing from the draft release: ${artifactName}`);
+            }
+            if (!assetNames.has(`${artifactName}.sig`)) {
+              throw new Error(`${platform} updater signature asset is missing from the draft release: ${artifactName}.sig`);
+            }
+          }
           fs.writeFileSync(path, `${JSON.stringify(latest, null, 2)}\n`);
           NODE
           version="$(node -p 'require("./package.json").version')"
-          node scripts/check-release-updater-manifest.mjs --manifest manifest/latest.json --expected-version "$version"
+          # Draft release download URLs return 404 until publication. Asset
+          # presence is checked above; public URL reachability is a post-publish check.
+          node scripts/check-release-updater-manifest.mjs --manifest manifest/latest.json --expected-version "$version" --skip-url-check
           gh release upload "$TAG" manifest/latest.json --clobber
 
   publish-release:
