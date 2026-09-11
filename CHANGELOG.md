@@ -6,7 +6,7 @@
 
 - Added bounded previews for IFC, Rhino 3DM, and Core 3MF assets and grouped them under the CAD Loader Pack setting.
 - Added IFC element hierarchy, semantic selection, source-material inspection, and per-element color feedback using the shared outliner and material browser.
-- Added Rhino mesh, Brep, extrusion, SubD, curve, point, layer, instance, and basic-material preview with a native Windows helper and a browser-compatible fallback.
+- Added Rhino mesh, Brep, extrusion, SubD, layer, instance, and basic-material preview with a native Windows helper; curve, point, and point-cloud objects are warned and skipped on Windows. Other platforms use the browser-compatible fallback.
 - Added worker-based 3MF parsing for component hierarchies, units, basic materials, vertex colors, and embedded PNG/JPEG textures, with explicit rejection of unsupported required extensions and external model references.
 
 ### Viewer and format fidelity

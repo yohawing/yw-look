@@ -104,6 +104,10 @@ function transform(node: Element) {
     numbers[2] * (numbers[3] * numbers[7] - numbers[4] * numbers[6]);
   if (determinant === 0)
     throw new Error("3MF: singular component/build transform");
+  // ThreeMFLoader tokenizes with a single-space delimiter. Canonicalize valid
+  // input before the validated XML is repackaged so harmless XML whitespace
+  // cannot become empty tokens and NaN matrix elements downstream.
+  node.setAttribute("transform", numbers.join(" "));
 }
 
 export function validateThreeMfModel(files: Record<string, Uint8Array>) {

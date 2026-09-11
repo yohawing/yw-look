@@ -85,6 +85,20 @@ describe("3MF preview", () => {
     expect(box.min.z).toBeCloseTo(-0.03);
     expect(restored.getObjectByName("Assembly")).toBeDefined();
   });
+  it("normalizes XML whitespace in component and build transforms", async () => {
+    const object = await parseThreeMf(
+      threeMfArchive({
+        resources: `<object id="1">${tetraMesh}</object><object id="2"><components><component objectid="1" transform=" 1  0\t0 0 1 0 0 0 1 20 0 0 "/></components></object>`,
+        build: '<item objectid="2" transform="\n1 0 0 0 1 0 0 0 1 0  20 0 "/>',
+      }),
+    );
+    const box = new Box3().setFromObject(object);
+    expect(box.max.x).toBeCloseTo(0.03);
+    expect(box.min.z).toBeCloseTo(-0.03);
+    object.traverse((node) =>
+      expect(node.matrixWorld.elements.every(Number.isFinite)).toBe(true),
+    );
+  });
   it("retains authored vertex colors and flat shading across worker transfer", async () => {
     const object = await parseThreeMf(
       threeMfArchive({

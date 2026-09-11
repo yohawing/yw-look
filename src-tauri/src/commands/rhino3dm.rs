@@ -52,35 +52,21 @@ const RHINO3DM_PACKET_FIXED_BYTES: usize = RHINO3DM_PACKET_MAGIC.len() + 4;
 const MAX_PACKET_HEADER_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub(crate) struct Rhino3dmBudgets {
-    #[serde(default = "default_memory_bytes")]
     pub memory_bytes: u64,
-    #[serde(default = "default_output_bytes")]
     pub output_bytes: u64,
-    #[serde(default = "default_result_bytes")]
     pub result_bytes: u64,
-    #[serde(default = "default_stdout_bytes")]
     pub stdout_bytes: u64,
-    #[serde(default = "default_stderr_bytes")]
     pub stderr_bytes: u64,
-    #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
-    #[serde(default = "default_vertices")]
     pub vertices: u64,
-    #[serde(default = "default_triangles")]
     pub triangles: u64,
-    #[serde(default = "default_meshes")]
     pub meshes: u64,
-    #[serde(default = "default_materials")]
     pub materials: u64,
-    #[serde(default = "default_images")]
     pub images: u64,
-    #[serde(default = "default_image_pixels")]
     pub image_decoded_bytes: u64,
-    #[serde(default = "default_reference_expansions")]
     pub reference_expansions: u64,
-    #[serde(default = "default_recursion_depth")]
     pub recursion_depth: u64,
 }
 
@@ -103,49 +89,6 @@ impl Default for Rhino3dmBudgets {
             recursion_depth: 64,
         }
     }
-}
-
-fn default_memory_bytes() -> u64 {
-    DEFAULT_MEMORY_BYTES
-}
-fn default_output_bytes() -> u64 {
-    DEFAULT_OUTPUT_BYTES
-}
-fn default_result_bytes() -> u64 {
-    DEFAULT_RESULT_BYTES
-}
-fn default_stdout_bytes() -> u64 {
-    DEFAULT_STDOUT_BYTES
-}
-fn default_stderr_bytes() -> u64 {
-    DEFAULT_STDERR_BYTES
-}
-fn default_timeout_ms() -> u64 {
-    DEFAULT_TIMEOUT_MS
-}
-fn default_vertices() -> u64 {
-    DEFAULT_VERTICES
-}
-fn default_triangles() -> u64 {
-    DEFAULT_TRIANGLES
-}
-fn default_meshes() -> u64 {
-    DEFAULT_MESHES
-}
-fn default_materials() -> u64 {
-    DEFAULT_MATERIALS
-}
-fn default_images() -> u64 {
-    DEFAULT_IMAGES
-}
-fn default_image_pixels() -> u64 {
-    DEFAULT_IMAGE_PIXELS
-}
-fn default_reference_expansions() -> u64 {
-    1_000_000
-}
-fn default_recursion_depth() -> u64 {
-    64
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -2136,6 +2079,19 @@ mod tests {
         assert_eq!(
             resolve_budgets(None),
             resolve_budgets(Some(Rhino3dmBudgets::default()))
+        );
+    }
+
+    #[test]
+    fn partial_budgets_deserialize_with_struct_defaults() {
+        let budgets: Rhino3dmBudgets = serde_json::from_str(r#"{"timeoutMs":1234}"#).unwrap();
+        assert_eq!(budgets.timeout_ms, 1234);
+        assert_eq!(
+            Rhino3dmBudgets {
+                timeout_ms: DEFAULT_TIMEOUT_MS,
+                ..budgets
+            },
+            Rhino3dmBudgets::default()
         );
     }
 

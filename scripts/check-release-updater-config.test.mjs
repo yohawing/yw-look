@@ -87,3 +87,20 @@ test("manifest gate accepts Windows-only releases but rejects a stale version", 
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });
+
+test("release workflow publishes only after verification and manifest repair", () => {
+  const workflow = fs.readFileSync(".github/workflows/release.yml", "utf8");
+  const draft = workflow.indexOf("releaseDraft: true");
+  const verify = workflow.indexOf(
+    "Verify compiled official updater configuration",
+  );
+  const patch = workflow.indexOf("patch-updater-manifest:");
+  const publish = workflow.indexOf("publish-release:");
+  assert.ok(draft >= 0, "tauri-action must upload a draft release");
+  assert.doesNotMatch(workflow, /releaseDraft:\s*false/);
+  assert.ok(draft < verify && verify < patch && patch < publish);
+  assert.match(
+    workflow.slice(publish),
+    /needs:\s*patch-updater-manifest[\s\S]*gh release edit "\$TAG" --draft=false/,
+  );
+});
