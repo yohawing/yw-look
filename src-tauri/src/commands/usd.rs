@@ -16,6 +16,7 @@ const USD_FAST_DECISION_SCAN_BYTES: usize = 64 * 1024;
 const USDC_MAGIC: &[u8] = b"PXR-USDC";
 const USD_XFORM_TIME_SAMPLES_MARKER: &[u8] = b".timeSamples";
 const USD_VISIBILITY_MARKER: &[u8] = b"visibility";
+const USD_MATERIAL_BINDING_MARKER: &[u8] = b"material:binding";
 const USD_GLTF_BACKEND_KEYWORDS: [&[u8]; 14] = [
     b"subLayers",
     b"references",
@@ -131,13 +132,18 @@ fn fast_usd_requires_glb_preview(path: &std::path::Path) -> Option<bool> {
     }) {
         return Some(true);
     }
-    if [USD_XFORM_TIME_SAMPLES_MARKER, USD_VISIBILITY_MARKER]
-        .iter()
-        .any(|marker| bytes.windows(marker.len()).any(|window| window == *marker))
+    if [
+        USD_XFORM_TIME_SAMPLES_MARKER,
+        USD_VISIBILITY_MARKER,
+        USD_MATERIAL_BINDING_MARKER,
+    ]
+    .iter()
+    .any(|marker| bytes.windows(marker.len()).any(|window| window == *marker))
     {
         // Let the OpenUSD backend confirm that the text candidate is an
-        // authored Xform animation or visibility property before choosing the
-        // GLB route. A comment or prim name is not enough evidence.
+        // authored Xform animation, visibility property, or resolved material
+        // binding before choosing the GLB route. A comment or prim name is not
+        // enough evidence.
         return None;
     }
     if bytes.len() < USD_FAST_DECISION_SCAN_BYTES {
@@ -429,6 +435,35 @@ mod tests {
                 b"# visibility is intentionally not authored\ndef Xform \"Root\" {}".as_slice(),
             ),
             ("prim-name", b"def Xform \"visibilityHelper\" {}".as_slice()),
+        ] {
+            let mut bytes = b"#usda 1.0\n".to_vec();
+            bytes.extend_from_slice(prim);
+            let (_dir, path) = write_usda(&format!("{name}.usda"), &bytes);
+
+            assert_eq!(fast_usd_requires_glb_preview(&path), None);
+        }
+    }
+
+    #[test]
+    fn fast_usd_requires_glb_preview_defers_material_binding_text_candidates() {
+        for (name, prim) in [
+            (
+                "mesh-binding",
+                b"def Mesh \"Body\" { rel material:binding = </Looks/Body> }".as_slice(),
+            ),
+            (
+                "subset-binding",
+                b"def GeomSubset \"Face\" { rel material:binding = </Looks/Face> }".as_slice(),
+            ),
+            (
+                "comment",
+                b"# material:binding is intentionally not authored\ndef Xform \"Root\" {}"
+                    .as_slice(),
+            ),
+            (
+                "string-value",
+                b"def Xform \"Root\" { string note = \"material:binding\" }".as_slice(),
+            ),
         ] {
             let mut bytes = b"#usda 1.0\n".to_vec();
             bytes.extend_from_slice(prim);

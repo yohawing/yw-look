@@ -234,6 +234,52 @@ describe("requiresGlbPreview fast text decision", () => {
     expect(mockInvoke).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["mesh", 'def Mesh "Body" { rel material:binding = </Looks/Body> }'],
+    [
+      "GeomSubset",
+      'def GeomSubset "Face" { rel material:binding = </Looks/Face> }',
+    ],
+  ])(
+    "asks the backend to resolve a %s material binding candidate",
+    async (_kind, prim) => {
+      readBinaryFilePrefixMock.mockResolvedValueOnce(
+        encoded(`#usda 1.0\n${prim}`),
+      );
+      mockInvoke.mockResolvedValueOnce(true);
+
+      await expect(
+        requiresGlbPreview("C:\\assets\\material-binding.usda"),
+      ).resolves.toBe(true);
+      expect(mockInvoke).toHaveBeenCalledWith("requires_glb_preview", {
+        path: "C:\\assets\\material-binding.usda",
+      });
+    },
+  );
+
+  it.each([
+    [
+      "comment",
+      '# material:binding is intentionally not authored\ndef Xform "Root" {}',
+    ],
+    ["string value", 'def Xform "Root" { string note = "material:binding" }'],
+  ])(
+    "asks the backend to reject a material binding marker in a %s",
+    async (_kind, prim) => {
+      readBinaryFilePrefixMock.mockResolvedValueOnce(
+        encoded(`#usda 1.0\n${prim}`),
+      );
+      mockInvoke.mockResolvedValueOnce(false);
+
+      await expect(
+        requiresGlbPreview("C:\\assets\\material-binding-marker.usda"),
+      ).resolves.toBe(false);
+      expect(mockInvoke).toHaveBeenCalledWith("requires_glb_preview", {
+        path: "C:\\assets\\material-binding-marker.usda",
+      });
+    },
+  );
+
   it("routes authored Gaussian splat and Points USDA through the GLB backend", async () => {
     readBinaryFilePrefixMock.mockResolvedValueOnce(
       encoded('#usda 1.0\ndef ParticleField3DGaussianSplat "Cloud" {}'),

@@ -3,7 +3,10 @@ import { AssetViewport } from "../components/AssetViewport";
 import { Button } from "../components/ui/Button";
 import { ViewportControls } from "../components/ViewportControls";
 import type { DeferredTextureSnapshot } from "../types/viewer";
-import { useViewportHostViewerModel } from "./useViewportHostViewerModel";
+import {
+  resolveViewportMaterialNavigation,
+  useViewportHostViewerModel,
+} from "./useViewportHostViewerModel";
 import { useViewportToolbarModel } from "./useViewportToolbarModel";
 import { useFileStore } from "../stores/fileStore";
 import { useUiStore } from "../stores/uiStore";
@@ -37,6 +40,7 @@ export function ViewportHost({
   const currentFile = useFileStore((state) => state.currentFile);
   const packFileRequest = useFileStore((state) => state.packFileRequest);
   const setAssetMetadata = useFileStore((state) => state.setAssetMetadata);
+  const assetMetadata = useFileStore((state) => state.assetMetadata);
   const setPackMetadata = useFileStore((state) => state.setPackMetadata);
 
   const viewportPanelOpen = useUiStore((state) => state.viewportPanelOpen);
@@ -44,7 +48,23 @@ export function ViewportHost({
   const setViewportPanelOpen = useUiStore(
     (state) => state.setViewportPanelOpen,
   );
+  const setActiveTab = useUiStore((state) => state.setActiveTab);
+  const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
   const toggleSidebarOpen = useUiStore((state) => state.toggleSidebarOpen);
+
+  const handleSelectMesh = (selectionKey: string | null) => {
+    viewerActions.setSelectedMeshName(selectionKey);
+    const materialId = resolveViewportMaterialNavigation(
+      currentFile,
+      assetMetadata,
+      selectionKey,
+    );
+    if (!materialId) return;
+
+    viewerActions.requestMaterialNavigation(materialId);
+    setActiveTab("materials");
+    setSidebarOpen(true);
+  };
 
   return (
     <div className="viewer-panel">
@@ -96,7 +116,7 @@ export function ViewportHost({
         usdLoadPolicy={viewer.usdLoadPolicy}
         usdInspection={usdInspection}
         texturePreview3D={viewer.texturePreview3D}
-        onSelectMesh={viewerActions.setSelectedMeshName}
+        onSelectMesh={handleSelectMesh}
         selectedMeshName={viewer.selectedMeshName}
         morphTargetValues={viewer.morphTargetValues}
         purposeModes={viewer.purposeModes}

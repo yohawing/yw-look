@@ -681,6 +681,14 @@ impl UsdInspectBackend for OpenusdBackend {
                     *needs_native_resources.borrow_mut() = true;
                     return;
                 }
+                // Resolve the effective binding through the stage query so
+                // inherited bindings and GeomSubset bindings take the same
+                // native GLB route as direct mesh bindings. Merely containing
+                // the marker text is not sufficient.
+                if stage_query::bound_material(&stage, prim_path.clone()).is_some() {
+                    *needs_native_resources.borrow_mut() = true;
+                    return;
+                }
                 let type_name = stage.prim_at(prim_path.clone()).type_name().ok().flatten();
                 // The JS text loader only receives the layer buffer and cannot
                 // resolve UsdUVTexture sidecars. This also covers shaders past
@@ -1642,6 +1650,84 @@ def Xform "Root"
                 !OpenusdBackend::new()
                     .requires_glb_preview(&path)
                     .expect("inspect visibility text candidate"),
+                "contents = {contents}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolved_material_bindings_route_single_layer_usda_to_glb() {
+        for (name, binding_owner) in [
+            ("direct", "/Root/Body"),
+            ("inherited", "/Root"),
+            ("geom-subset", "/Root/Body/Face"),
+        ] {
+            let temp = tempfile::tempdir().expect("create material binding fixture directory");
+            let path = temp.path().join(format!("{name}.usda"));
+            let contents = format!(
+                r#"#usda 1.0
+def Xform "Root"
+{{
+    rel material:binding = {root_binding}
+    def Mesh "Body"
+    {{
+        rel material:binding = {mesh_binding}
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        def GeomSubset "Face"
+        {{
+            uniform token elementType = "face"
+            int[] indices = [0]
+            rel material:binding = {subset_binding}
+        }}
+    }}
+}}
+def Scope "Looks"
+{{
+    def Material "Body" {{}}
+}}
+"#,
+                root_binding = if binding_owner == "/Root" {
+                    "</Looks/Body>"
+                } else {
+                    "None"
+                },
+                mesh_binding = if binding_owner == "/Root/Body" {
+                    "</Looks/Body>"
+                } else {
+                    "None"
+                },
+                subset_binding = if binding_owner == "/Root/Body/Face" {
+                    "</Looks/Body>"
+                } else {
+                    "None"
+                },
+            );
+            std::fs::write(&path, contents).expect("write material binding fixture");
+
+            assert!(
+                OpenusdBackend::new()
+                    .requires_glb_preview(&path)
+                    .expect("inspect resolved material binding"),
+                "fixture = {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn material_binding_text_without_a_relationship_stays_on_the_text_route() {
+        let temp = tempfile::tempdir().expect("create material binding marker fixture directory");
+        let path = temp.path().join("material-binding-marker.usda");
+        for contents in [
+            "#usda 1.0\n# material:binding is intentionally not authored\ndef Xform \"Root\" {}",
+            "#usda 1.0\ndef Xform \"Root\" { string note = \"material:binding\" }",
+        ] {
+            std::fs::write(&path, contents).expect("write material binding marker fixture");
+            assert!(
+                !OpenusdBackend::new()
+                    .requires_glb_preview(&path)
+                    .expect("inspect material binding text candidate"),
                 "contents = {contents}"
             );
         }

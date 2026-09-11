@@ -65,6 +65,10 @@ export interface ViewerState {
   variantSelections: VariantSelection[];
   variantSelectionError: string | null;
   scaleNormalization: { applied: boolean; factor: number } | null;
+  materialNavigationRequest: {
+    materialId: string;
+    revision: number;
+  } | null;
 
   setShowTexture: (v: boolean) => void;
   setShowWireframe: (v: boolean) => void;
@@ -101,6 +105,8 @@ export interface ViewerState {
   setScaleNormalization: (
     v: { applied: boolean; factor: number } | null,
   ) => void;
+  requestMaterialNavigation: (materialId: string) => void;
+  clearMaterialNavigationRequest: () => void;
 
   toggleShowTexture: () => void;
   toggleShowWireframe: () => void;
@@ -174,6 +180,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
   variantSelections: [],
   variantSelectionError: null,
   scaleNormalization: null,
+  materialNavigationRequest: null,
 
   setShowTexture: (showTexture) => set({ showTexture }),
   setShowWireframe: (showWireframe) => set({ showWireframe }),
@@ -212,6 +219,15 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setVariantSelectionError: (variantSelectionError) =>
     set({ variantSelectionError }),
   setScaleNormalization: (scaleNormalization) => set({ scaleNormalization }),
+  requestMaterialNavigation: (materialId) =>
+    set((state) => ({
+      materialNavigationRequest: {
+        materialId,
+        revision: (state.materialNavigationRequest?.revision ?? 0) + 1,
+      },
+    })),
+  clearMaterialNavigationRequest: () =>
+    set({ materialNavigationRequest: null }),
 
   toggleShowTexture: () => set((s) => ({ showTexture: !s.showTexture })),
   toggleShowWireframe: () => set((s) => ({ showWireframe: !s.showWireframe })),

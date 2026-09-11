@@ -72,8 +72,13 @@ export function useAppFileOpen({
     // #33: a fresh file invalidates the prior viewport pick. The
     // selection refers to a Three.js Object3D.name, and the next
     // asset's hierarchy will not contain the same node.
-    const { setActiveCameraId, setSelectedMeshName, setSelectedUsdPrimPath } =
-      useViewerStore.getState();
+    const {
+      clearMaterialNavigationRequest,
+      setActiveCameraId,
+      setSelectedMeshName,
+      setSelectedUsdPrimPath,
+    } = useViewerStore.getState();
+    clearMaterialNavigationRequest();
     setSelectedMeshName(null);
     // #28: also clear the USD prim path selection so the property
     // panel does not query the new file with the old prim path.
@@ -163,6 +168,7 @@ export function useAppFileOpen({
         return;
       }
 
+      useViewerStore.getState().clearMaterialNavigationRequest();
       setCurrentFile(resolvedFile);
       setPackFileRequest(null);
       setDirectoryListing(listing);
@@ -203,6 +209,7 @@ export function useAppFileOpen({
         version: (packFileRequest?.version ?? 0) + 1,
       });
       if (request) {
+        useViewerStore.getState().clearMaterialNavigationRequest();
         setPackFileRequest(request);
         return;
       }

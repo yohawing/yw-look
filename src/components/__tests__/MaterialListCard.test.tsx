@@ -13,6 +13,7 @@ import {
 import { MaterialListCard } from "../MaterialListCard";
 import type { AssetMetadata, MaterialEntry } from "../assetMetadata";
 import { useFileStore } from "../../stores/fileStore";
+import { useViewerStore } from "../../stores/viewerStore";
 
 beforeEach(() => {
   useFileStore.setState({
@@ -23,6 +24,7 @@ beforeEach(() => {
     packFileRequest: null,
     openError: null,
   });
+  useViewerStore.setState({ materialNavigationRequest: null });
 });
 
 afterEach(() => {
@@ -305,5 +307,39 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     fireEvent.compositionEnd(filter);
     expect(container.querySelectorAll(".material-row")).toHaveLength(1);
     expect(container.textContent).toContain("材質01");
+  });
+
+  it("clears the filter and reveals repeated viewport material requests", async () => {
+    const materials = Array.from({ length: 20 }, (_, index) => ({
+      ...baseMat,
+      id: `mat-${index}`,
+      name: `Material ${index}`,
+      usdPrimPath: `/Looks/Material${index}`,
+    }));
+    const { getByRole, getByText, container } = renderWithMaterials(materials);
+    fireEvent.click(getByRole("button", { name: "Search materials" }));
+    fireEvent.change(getByRole("textbox", { name: "Filter materials" }), {
+      target: { value: "Material 0" },
+    });
+
+    act(() => {
+      useViewerStore.getState().requestMaterialNavigation("mat-19");
+    });
+
+    await waitFor(() => expect(getByText("Material 19")).toBeTruthy());
+    fireEvent.click(getByRole("button", { name: "Search materials" }));
+    expect(
+      (getByRole("textbox", { name: "Filter materials" }) as HTMLInputElement)
+        .value,
+    ).toBe("");
+    expect(getByText("/Looks/Material19")).toBeTruthy();
+
+    const firstList = container.querySelector(".material-list");
+    act(() => {
+      useViewerStore.getState().requestMaterialNavigation("mat-19");
+    });
+    await waitFor(() =>
+      expect(container.querySelector(".material-list")).not.toBe(firstList),
+    );
   });
 });

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { rgbToHex } from "../lib/format";
 import { useFileStore } from "../stores/fileStore";
+import { useViewerStore } from "../stores/viewerStore";
 import type {
   MaterialEntry,
   MaterialTextureSlot,
@@ -350,6 +351,9 @@ export function MaterialListCard(props: MaterialListCardProps) {
     (state) => state.currentFile?.path ?? null,
   );
   const packMetadata = useFileStore((state) => state.packMetadata);
+  const materialNavigationRequest = useViewerStore(
+    (state) => state.materialNavigationRequest,
+  );
   const { useDebugFixtures } = useDebugPanelFixtures(
     props.debugPanelsEnabled ?? false,
   );
@@ -362,15 +366,17 @@ export function MaterialListCard(props: MaterialListCardProps) {
     );
   return (
     <MaterialListCardContent
-      key={currentFilePath ?? "__no-file__"}
+      key={`${currentFilePath ?? "__no-file__"}:${materialNavigationRequest?.revision ?? 0}`}
       {...props}
+      requestedMaterialId={materialNavigationRequest?.materialId ?? null}
     />
   );
 }
 
 function MaterialListCardContent({
   debugPanelsEnabled = false,
-}: MaterialListCardProps) {
+  requestedMaterialId = null,
+}: MaterialListCardProps & { requestedMaterialId?: string | null }) {
   const storeMaterials = useFileStore(
     (state) => state.assetMetadata?.materials,
   );
@@ -379,7 +385,12 @@ function MaterialListCardContent({
   const materials = useDebugFixtures
     ? debugFixtures.debugPanelMetadata.materials
     : (storeMaterials ?? EMPTY_MATERIALS);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const requestedIndex = requestedMaterialId
+    ? materials.findIndex((material) => material.id === requestedMaterialId)
+    : -1;
+  const [selectedIndex, setSelectedIndex] = useState(() =>
+    requestedIndex >= 0 ? requestedIndex : 0,
+  );
   const [searchQuery, setSearchQuery] = useState("");
 
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
@@ -421,6 +432,7 @@ function MaterialListCardContent({
       }
       query={searchQuery}
       onQueryChange={setSearchQuery}
+      revealSelection={requestedIndex >= 0}
       details={
         selectedMaterial ? (
           <MaterialDetailPanel mat={selectedMaterial} />
