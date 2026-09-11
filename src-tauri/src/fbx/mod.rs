@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -465,6 +465,103 @@ fn emission_value(color_map: &ufbx::MaterialMap, factor_map: &ufbx::MaterialMap)
     [color[0] * factor, color[1] * factor, color[2] * factor]
 }
 
+/// Return whether a raw FBX Model explicitly asks for back-face culling to be
+/// disabled. `Culling` is a legacy Model child alongside `Shading`, rather
+/// than a material property, so it is only available through uFBX's retained
+/// DOM.
+/// Keep this opt-in: absent and unknown values must not turn every FBX material
+/// into a double-sided glTF material.
+fn has_explicit_culling_off(node: &ufbx::Node) -> bool {
+    let Some(model) = node.element.dom_node.as_deref() else {
+        return false;
+    };
+    let Some(culling) = model.find("Culling") else {
+        return false;
+    };
+    culling.values.iter().any(|value| {
+        value.type_ == ufbx::DomValueType::String && value.value_str.as_ref() == "CullingOff"
+    })
+}
+
+fn collect_culling_material_ids(
+    usages: impl IntoIterator<Item = (u32, bool)>,
+) -> (HashSet<u32>, HashSet<u32>) {
+    let mut explicit_off = HashSet::new();
+    let mut other_culling = HashSet::new();
+    for (material_id, is_explicit_off) in usages {
+        if is_explicit_off {
+            explicit_off.insert(material_id);
+        } else {
+            other_culling.insert(material_id);
+        }
+    }
+    let mixed = explicit_off.intersection(&other_culling).copied().collect();
+    (explicit_off, mixed)
+}
+
+fn culling_usages_for_matching_slots(
+    node_material_ids: &[u32],
+    mesh_material_ids: &[u32],
+    is_explicit_off: bool,
+) -> Option<Vec<(u32, bool)>> {
+    if node_material_ids != mesh_material_ids {
+        return None;
+    }
+    Some(
+        mesh_material_ids
+            .iter()
+            .copied()
+            .map(|material_id| (material_id, is_explicit_off))
+            .collect(),
+    )
+}
+
+fn culling_material_ids(scene: &ufbx::Scene) -> (HashSet<u32>, HashSet<u32>, Vec<String>) {
+    let mut usages = Vec::new();
+    let mut slot_mismatch_warnings = Vec::new();
+    for node in &scene.nodes {
+        let Some(mesh) = node.mesh.as_deref() else {
+            continue;
+        };
+        let node_material_ids: Vec<u32> = node
+            .materials
+            .iter()
+            .map(|material| material.element.typed_id)
+            .collect();
+        let mesh_material_ids: Vec<u32> = mesh
+            .materials
+            .iter()
+            .map(|material| material.element.typed_id)
+            .collect();
+        let is_explicit_off = has_explicit_culling_off(node);
+        let Some(matching_usages) = culling_usages_for_matching_slots(
+            &node_material_ids,
+            &mesh_material_ids,
+            is_explicit_off,
+        ) else {
+            slot_mismatch_warnings.push(format!(
+                "FBX node '{}' culling propagation skipped: node.materials slots {:?} differ from mesh '{}' materials {:?}",
+                node.element.name,
+                node_material_ids,
+                mesh.element.name,
+                mesh_material_ids,
+            ));
+            continue;
+        };
+        usages.extend(matching_usages);
+    }
+    let (explicit_off, mixed) = collect_culling_material_ids(usages);
+    (explicit_off, mixed, slot_mismatch_warnings)
+}
+
+fn material_double_sided(
+    material_default: bool,
+    explicit_culling_off: bool,
+    mixed_culling: bool,
+) -> bool {
+    material_default || (explicit_culling_off && !mixed_culling)
+}
+
 fn canonical_uv_indices(
     entries: impl IntoIterator<Item = (String, u32)>,
 ) -> (HashMap<String, u32>, Vec<String>) {
@@ -505,6 +602,8 @@ fn add_materials(
     scene: &ufbx::Scene,
     cancel: &AtomicBool,
     uv_indices: &HashMap<String, u32>,
+    culling_off_material_ids: &HashSet<u32>,
+    mixed_culling_material_ids: &HashSet<u32>,
 ) -> Result<(HashMap<u32, usize>, Vec<Value>, Vec<String>), AppError> {
     let mut texture_cache = HashMap::<u32, usize>::new();
     let mut sampler_cache = HashMap::<(u32, u32), usize>::new();
@@ -516,6 +615,14 @@ fn add_materials(
         let material_id = material.element.typed_id;
         let material_index = doc.materials.len();
         let material_name = material.element.name.to_string();
+        let explicit_culling_off = culling_off_material_ids.contains(&material_id);
+        let mixed_culling = mixed_culling_material_ids.contains(&material_id);
+        if mixed_culling {
+            warnings.push(format!(
+                "FBX material '{}' is used by Models with explicit CullingOff and other culling settings; keeping the normalized double-sided flag",
+                material_name
+            ));
+        }
         let base = map_value(&material.pbr.base_color, [1.0, 1.0, 1.0, 1.0]);
         let factor = scalar_map_value(&material.pbr.base_factor, 1.0);
         // ufbx leaves unauthored unified PBR opacity at zero with has_value=false.
@@ -543,6 +650,9 @@ fn add_materials(
             "fbxMaterialId": material_id,
             "fbxMaterialIndex": material_index,
             "fbxOpacityAuthored": material.pbr.opacity.has_value,
+            "fbxCullingOffAuthored": explicit_culling_off,
+            "fbxCullingMixed": mixed_culling,
+            "fbxCullingOffApplied": explicit_culling_off && !mixed_culling,
         });
         if let Some(texture) = material.pbr.base_color.texture.as_deref() {
             let index = texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?;
@@ -586,7 +696,11 @@ fn add_materials(
             "name": material_name,
             "pbrMetallicRoughness": pbr,
             "emissiveFactor": [f32v(emissive[0])?, f32v(emissive[1])?, f32v(emissive[2])?],
-            "doubleSided": material.features.double_sided.enabled,
+            "doubleSided": material_double_sided(
+                material.features.double_sided.enabled,
+                explicit_culling_off,
+                mixed_culling,
+            ),
             "alphaMode": alpha_mode,
             "extras": material_extras
         });
@@ -1249,6 +1363,10 @@ fn native_load_options<'a>(
         clean_skin_weights: true,
         use_blender_pbr_material: true,
         force_single_thread_ascii_parsing: true,
+        // The legacy Model-level `Shading/Culling` child is not surfaced in
+        // uFBX's normalized material features. Retain the DOM so explicit
+        // `CullingOff` can be propagated to only the materials on that Model.
+        retain_dom: true,
         progress_cb,
         progress_interval_hint: 64 * 1024,
         temp_allocator: ufbx::AllocatorOpts {
@@ -1335,8 +1453,16 @@ pub(crate) fn convert(path: &Path, cancel: Arc<AtomicBool>) -> Result<Vec<u8>, A
 fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppError> {
     let mut doc = GlbDocument::default();
     let (uv_indices, uv_warnings) = collect_uv_indices(scene);
-    let (material_map, texture_bindings, material_warnings) =
-        add_materials(&mut doc, scene, cancel, &uv_indices)?;
+    let (culling_off_material_ids, mixed_culling_material_ids, culling_slot_mismatch_warnings) =
+        culling_material_ids(scene);
+    let (material_map, texture_bindings, material_warnings) = add_materials(
+        &mut doc,
+        scene,
+        cancel,
+        &uv_indices,
+        &culling_off_material_ids,
+        &mixed_culling_material_ids,
+    )?;
     let mut warnings: Vec<String> = scene
         .metadata
         .warnings
@@ -1345,6 +1471,7 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
         .collect();
     warnings.extend(material_warnings);
     warnings.extend(uv_warnings);
+    warnings.extend(culling_slot_mismatch_warnings.iter().cloned());
     let mut gltf_lights = Vec::new();
     let mut node_map = HashMap::new();
     for node in &scene.nodes {
@@ -1557,11 +1684,15 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
         cancel,
     )?;
     let source_stats = json!({"nodes":scene.nodes.len(),"meshes":scene.meshes.len(),"materials":scene.materials.len(),"skins":scene.skin_deformers.len(),"blendChannels":scene.blend_channels.len(),"animationStacks":scene.anim_stacks.len(),"cameras":scene.cameras.len(),"lights":scene.lights.len(),"textures":scene.textures.len()});
-    doc.scenes.push(json!({"nodes":roots,"extras":{"fbxWarnings":warnings.clone(),"fbxSourceStats":source_stats.clone(),"fbxTextureBindings":texture_bindings.clone()}}));
+    doc.scenes.push(json!({"nodes":roots,"extras":{"fbxWarnings":warnings.clone(),"fbxSourceStats":source_stats.clone(),"fbxTextureBindings":texture_bindings.clone(),"fbxCullingSlotMismatches":culling_slot_mismatch_warnings.clone()}}));
     doc.extras.insert("fbxWarnings".into(), json!(warnings));
     doc.extras.insert("fbxSourceStats".into(), source_stats);
     doc.extras
         .insert("fbxTextureBindings".into(), json!(texture_bindings));
+    doc.extras.insert(
+        "fbxCullingSlotMismatches".into(),
+        json!(culling_slot_mismatch_warnings),
+    );
     doc.finish()
 }
 
@@ -1731,6 +1862,42 @@ mod tests {
         assert_eq!(indices["Other"], 1);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("UVMap"));
+    }
+
+    #[test]
+    fn material_double_sided_requires_authored_culling_or_existing_flag() {
+        assert!(!material_double_sided(false, false, false));
+        assert!(material_double_sided(false, true, false));
+        assert!(material_double_sided(true, false, false));
+    }
+
+    #[test]
+    fn mixed_culling_materials_fail_closed_in_synthetic_usage() {
+        let (explicit_off, mixed) =
+            collect_culling_material_ids([(11, true), (11, false), (12, true), (13, false)]);
+        assert!(explicit_off.contains(&11));
+        assert!(explicit_off.contains(&12));
+        assert!(mixed.contains(&11));
+        assert!(!mixed.contains(&12));
+        assert!(!mixed.contains(&13));
+        assert!(!material_double_sided(false, true, true));
+        assert!(material_double_sided(false, true, false));
+    }
+
+    #[test]
+    fn culling_skips_per_instance_material_slot_overrides() {
+        assert_eq!(
+            culling_usages_for_matching_slots(&[11, 12], &[11, 12], true),
+            Some(vec![(11, true), (12, true)])
+        );
+        assert_eq!(
+            culling_usages_for_matching_slots(&[11, 12], &[11, 13], true),
+            None
+        );
+        assert_eq!(
+            culling_usages_for_matching_slots(&[11], &[11, 12], false),
+            None
+        );
     }
 
     #[test]
@@ -1953,7 +2120,17 @@ mod tests {
     }
 
     #[test]
-    fn native_fixture_skinned_centimetre_root_uses_geometry_space_contract() {
+    fn native_fixture_propagates_explicit_model_culling_off() {
+        let (document, _) = fixture_glb("animated-triangle.fbx");
+        let material = &document["materials"][0];
+        assert_eq!(material["doubleSided"], true);
+        assert_eq!(material["extras"]["fbxCullingOffAuthored"], true);
+        assert_eq!(material["extras"]["fbxCullingMixed"], false);
+        assert_eq!(material["extras"]["fbxCullingOffApplied"], true);
+    }
+
+    #[test]
+    fn native_fixture_skinned_centimetre_root_uses_gltf_mesh_local_skin_contract() {
         let (document, binary) = fixture_glb("skinned-centimetre-root.fbx");
         let stats = &document["scenes"][0]["extras"]["fbxSourceStats"];
         assert_eq!(stats["skins"], 1);
