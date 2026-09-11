@@ -47,7 +47,7 @@
 
 #### GitHub Release install and updater roundtrip
 
-- Windows: not verified — v0.3.4 is not published; installation and updating from v0.3.3 through the published `latest.json` remain pending.
+- Windows: partially verified — v0.3.4 is published and the public `latest.json` and installer URLs are reachable; clean-environment installation and updating from v0.3.3 remain pending.
 - macOS: not verified — v0.3.4 is Windows-only and has no macOS updater artifact.
 
 ## v0.3.3 (2026-09-07)
