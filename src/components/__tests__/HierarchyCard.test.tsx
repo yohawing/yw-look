@@ -155,6 +155,30 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
+  it("searches authored dotted names while retaining the runtime selection key", () => {
+    const boneTree: HierarchyNode[] = [
+      {
+        name: "thigh_stretchl",
+        displayName: "thigh_stretch.l",
+        kind: "bone",
+        children: [],
+      },
+    ];
+    const onSelect = vi.fn();
+    const { container, getByRole, getAllByText } = render(
+      <HierarchyCard hierarchy={boneTree} onSelectName={onSelect} />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
+    fireEvent.change(getByRole("textbox", { name: "Filter hierarchy" }), {
+      target: { value: ".l" },
+    });
+
+    expect(getAllByText("thigh_stretch.l")).toHaveLength(1);
+    fireEvent.click(container.querySelector(".tree-row")!);
+    expect(onSelect).toHaveBeenCalledWith("thigh_stretchl");
+  });
+
   it("force-opens ancestor branches so the selected row is visible", () => {
     // The tree's default expansion stops at depth < 2, so without the
     // force-open path the leaf "Arm" (depth 3) would stay collapsed

@@ -276,7 +276,10 @@ function isSyntheticWrapper(object: Object3D): boolean {
  * synthetic wrapper nodes so they are transparent to the user. The
  * caller is expected to start from a non-wrapper root; if the root
  * itself is a wrapper, use `buildHierarchyForest` to skip past it. */
-function buildHierarchyNode(object: Object3D): HierarchyNode {
+function buildHierarchyNode(
+  object: Object3D,
+  useAuthoredFbxDisplayNames: boolean,
+): HierarchyNode {
   // Keep an empty string when the node has no authored name. The
   // display layer (HierarchyCard) substitutes "(unnamed)" purely for
   // the visible label; storing that placeholder in `name` would leak
@@ -292,21 +295,29 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
   // For USD-sourced nodes the SdfPath is globally unique, so derive the
   // display label from the SdfPath basename. Falls back to the raw
   // Three.js name for non-USD assets where primPath is absent.
-  const displayName = primPath
+  const runtimeName = primPath
     ? basenameFromPrimPath(primPath)
     : safeTrimmedName(object);
+  // GLTFLoader removes animation-reserved punctuation (including `.`) from
+  // runtime Object3D names, but keeps the authored glTF node name here. Native
+  // FBX preview uses that GLB path, so retain the safe runtime name as the
+  // selection key while restoring names such as `thigh_stretch.l` for display.
+  const authoredFbxName =
+    useAuthoredFbxDisplayNames && primPath === undefined
+      ? stringValue(object.userData.name)
+      : null;
   const explicitSelectionKey = explicitObjectSelectionKey(object);
   const mmdBoneName =
     object instanceof Bone ? stringValue(object.userData.mmdBoneName) : null;
-  const nodeName = explicitSelectionKey ?? displayName;
-  const visibleName = mmdBoneName ?? displayName;
+  const nodeName = explicitSelectionKey ?? runtimeName;
+  const visibleName = mmdBoneName ?? authoredFbxName ?? runtimeName;
   return {
     name: nodeName,
     ...(visibleName && visibleName !== nodeName
       ? { displayName: visibleName }
       : {}),
     kind: getHierarchyKind(object),
-    children: collectHierarchyChildren(object),
+    children: collectHierarchyChildren(object, useAuthoredFbxDisplayNames),
     ...(primPath !== undefined ? { primPath } : {}),
   };
 }
@@ -315,13 +326,16 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
  * (the children of a wrapper appear as direct children of `parent`).
  * Recursively flattens chains of wrappers in the rare case the GLB
  * pipeline ever stacks more than one. */
-function collectHierarchyChildren(parent: Object3D): HierarchyNode[] {
+function collectHierarchyChildren(
+  parent: Object3D,
+  useAuthoredFbxDisplayNames: boolean,
+): HierarchyNode[] {
   const out: HierarchyNode[] = [];
   for (const child of parent.children) {
     if (isSyntheticWrapper(child)) {
-      out.push(...collectHierarchyChildren(child));
+      out.push(...collectHierarchyChildren(child, useAuthoredFbxDisplayNames));
     } else {
-      out.push(buildHierarchyNode(child));
+      out.push(buildHierarchyNode(child, useAuthoredFbxDisplayNames));
     }
   }
   return out;
@@ -331,11 +345,14 @@ function collectHierarchyChildren(parent: Object3D): HierarchyNode[] {
  * past any chain of synthetic wrapper nodes at the top of the scene
  * graph so the first row the user sees is the actual USD stage root
  * (e.g. `Kitchen_set`) rather than `(unnamed) → __upAxis → Kitchen_set`. */
-function buildHierarchyForest(root: Object3D): HierarchyNode[] {
+function buildHierarchyForest(
+  root: Object3D,
+  useAuthoredFbxDisplayNames: boolean,
+): HierarchyNode[] {
   if (isSyntheticWrapper(root)) {
-    return collectHierarchyChildren(root);
+    return collectHierarchyChildren(root, useAuthoredFbxDisplayNames);
   }
-  return [buildHierarchyNode(root)];
+  return [buildHierarchyNode(root, useAuthoredFbxDisplayNames)];
 }
 
 function getMaterialColor(material: Material): string | null {
@@ -1511,7 +1528,7 @@ export function collectAssetMetadata(
       textureCount: textures.size,
       hasAnimation: clips.length > 0,
       animationClips,
-      hierarchy: buildHierarchyForest(object),
+      hierarchy: buildHierarchyForest(object, currentFile.extension === "fbx"),
       textures: [...textures.values()],
       materials: [...materials].map((material) =>
         buildMaterialEntry(

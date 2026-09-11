@@ -321,6 +321,48 @@ describe("collectAssetMetadata", () => {
     expect(result.metadata.hierarchy[0]?.name).toBe("MyRoot");
   });
 
+  it("restores authored FBX display names without changing runtime selection keys", () => {
+    const root = new Group();
+    root.name = "Scene";
+    const bone = new Bone();
+    bone.name = "thigh_stretchl";
+    bone.userData.name = "thigh_stretch.l";
+    root.add(bone);
+
+    const result = collectAssetMetadata(
+      root,
+      { ...fakeFile, extension: "fbx", fileName: "fake.fbx" },
+      [],
+      null,
+    );
+    const hierarchyBone = result.metadata.hierarchy[0]?.children[0];
+
+    expect(hierarchyBone).toMatchObject({
+      name: "thigh_stretchl",
+      displayName: "thigh_stretch.l",
+    });
+    expect(result.metadata.objectInfo.thigh_stretchl).toBeDefined();
+    expect(result.metadata.objectInfo["thigh_stretch.l"]).toBeUndefined();
+  });
+
+  it("ignores GLTFLoader source-name metadata outside FBX", () => {
+    const root = new Group();
+    root.name = "Scene";
+    const node = new Group();
+    node.name = "authoredname";
+    node.userData.name = "authored.name";
+    root.add(node);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+
+    expect(result.metadata.hierarchy[0]?.children[0]).toMatchObject({
+      name: "authoredname",
+    });
+    expect(
+      result.metadata.hierarchy[0]?.children[0]?.displayName,
+    ).toBeUndefined();
+  });
+
   it("derives display label from primPath basename to bypass GLTFLoader name suffixing", () => {
     // Three.js GLTFLoader appends `_1`, `_2` ... when glTF node names
     // collide globally (Kitchen_set has many sibling `Geom` xforms).
