@@ -23,6 +23,7 @@ export function resolveViewportMaterialNavigation(
 
 type ViewportHostViewerState = Pick<
   ViewerState,
+  | "ambientOcclusionEnabled"
   | "activeCameraId"
   | "backgroundPreset"
   | "backfaceCulling"
@@ -101,6 +102,7 @@ const viewportHostViewerActions = {
 export function useViewportHostViewerModel() {
   const state = useViewerStore(
     useShallow((state): ViewportHostViewerState => ({
+      ambientOcclusionEnabled: state.ambientOcclusionEnabled,
       activeCameraId: state.activeCameraId,
       backgroundPreset: state.backgroundPreset,
       backfaceCulling: state.backfaceCulling,

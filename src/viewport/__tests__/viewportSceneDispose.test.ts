@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { disposeViewportScene } from "../viewportSceneDispose";
-import type { FxaaComposerState } from "../fxaa";
+import type { ViewportComposerState } from "../fxaa";
 import type { SceneContext } from "../../types/viewer";
 
 const viewerMocks = vi.hoisted(() => {
@@ -73,10 +73,27 @@ function createDisposalHarness(sceneContext: SceneContext | null) {
   const fxaaState = {
     composer: {
       dispose: vi.fn(() => {
+        viewerMocks.order.push("composer.dispose");
+      }),
+    },
+    fxaaPass: {
+      dispose: vi.fn(() => {
         viewerMocks.order.push("fxaa.dispose");
       }),
     },
-  } as unknown as FxaaComposerState;
+    outputPass: {
+      dispose: vi.fn(() => {
+        viewerMocks.order.push("output.dispose");
+      }),
+    },
+    ssaoPass: {
+      dispose: vi.fn(() => {
+        viewerMocks.order.push("ssao.dispose");
+      }),
+      noiseTexture: { dispose: vi.fn() },
+      ssaoMaterial: { dispose: vi.fn() },
+    },
+  } as unknown as ViewportComposerState;
 
   return {
     ambientLightRef: ref({}),
@@ -90,7 +107,7 @@ function createDisposalHarness(sceneContext: SceneContext | null) {
     environmentTargetsRef: ref(environmentTargets),
     fillLightRef: ref({}),
     fxaaState,
-    fxaaStateRef: ref<FxaaComposerState | null>(fxaaState),
+    fxaaStateRef: ref<ViewportComposerState | null>(fxaaState),
     host,
     keyLightRef: ref({}),
     labelRenderer,
@@ -154,7 +171,10 @@ describe("disposeViewportScene", () => {
       "revokeUrls",
       "controls.dispose",
       "environmentTarget.dispose",
+      "ssao.dispose",
       "fxaa.dispose",
+      "output.dispose",
+      "composer.dispose",
       "pmrem.dispose",
       "renderer.dispose",
       "clearResourceDiagnostics",
@@ -167,6 +187,9 @@ describe("disposeViewportScene", () => {
     expect(harness.environmentTargetsRef.current).toBeNull();
     expect(harness.environmentTargetRef.current).toBeNull();
     expect(harness.fxaaState.composer.dispose).toHaveBeenCalledTimes(1);
+    expect(harness.fxaaState.ssaoPass.dispose).toHaveBeenCalledTimes(1);
+    expect(harness.fxaaState.fxaaPass.dispose).toHaveBeenCalledTimes(1);
+    expect(harness.fxaaState.outputPass.dispose).toHaveBeenCalledTimes(1);
     expect(harness.fxaaStateRef.current).toBeNull();
     expect(harness.ambientLightRef.current).toBeNull();
     expect(harness.keyLightRef.current).toBeNull();

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Camera, WebGLRendererParameters } from "three";
 import {
   getRendererLifetimeBoundary,
+  isViewportAmbientOcclusionAvailable,
   useViewportSceneLifecycle,
 } from "../useViewportSceneLifecycle";
 import type { SceneContext } from "../../viewer";
@@ -238,6 +239,36 @@ describe("getRendererLifetimeBoundary", () => {
     expect(getRendererLifetimeBoundary("glb")).not.toBe(
       getRendererLifetimeBoundary("pmx"),
     );
+  });
+});
+
+describe("isViewportAmbientOcclusionAvailable", () => {
+  it("enables AO only for a mounted asset on the standard depth renderer", () => {
+    expect(
+      isViewportAmbientOcclusionAvailable({
+        enabled: true,
+        hasMountedObject: true,
+        logarithmicDepthBuffer: false,
+        viewerSurfaceMode: "asset",
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
+    { enabled: false },
+    { hasMountedObject: false },
+    { logarithmicDepthBuffer: true },
+    { viewerSurfaceMode: "texture" as const },
+  ])("disables AO for unsupported state %#", (override) => {
+    expect(
+      isViewportAmbientOcclusionAvailable({
+        enabled: true,
+        hasMountedObject: true,
+        logarithmicDepthBuffer: false,
+        viewerSurfaceMode: "asset",
+        ...override,
+      }),
+    ).toBe(false);
   });
 });
 

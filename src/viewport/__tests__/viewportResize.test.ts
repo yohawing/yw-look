@@ -1,6 +1,6 @@
 import { PerspectiveCamera, Scene } from "three";
 import { describe, expect, it, vi } from "vitest";
-import type { FxaaComposerState } from "../fxaa";
+import type { ViewportComposerState } from "../fxaa";
 import { applyViewportResize } from "../viewportResize";
 
 function makeHost(width: number, height: number) {
@@ -14,6 +14,7 @@ function makeRenderer(pixelRatio = 1) {
   return {
     getPixelRatio: vi.fn(() => pixelRatio),
     render: vi.fn(),
+    setRenderTarget: vi.fn(),
     setSize: vi.fn(),
   };
 }
@@ -30,6 +31,7 @@ function makeFxaaState(camera: PerspectiveCamera) {
     composer: {
       dispose: vi.fn(),
       render: vi.fn(),
+      setPixelRatio: vi.fn(),
       setSize: vi.fn(),
     },
     fxaaPass: {
@@ -44,7 +46,7 @@ function makeFxaaState(camera: PerspectiveCamera) {
       },
     },
     renderPass: { camera },
-  } as unknown as FxaaComposerState;
+  } as unknown as ViewportComposerState;
 }
 
 describe("applyViewportResize", () => {
@@ -107,9 +109,40 @@ describe("applyViewportResize", () => {
     });
 
     expect(fxaaState.composer.setSize).toHaveBeenCalledWith(800, 600);
+    expect(fxaaState.composer.setPixelRatio).toHaveBeenCalledWith(2);
     expect(
       fxaaState.fxaaPass.material.uniforms.resolution.value.set,
     ).toHaveBeenCalledWith(1 / 1600, 1 / 1200);
     expect(renderer.render).toHaveBeenCalledWith(scene, defaultCamera);
+  });
+
+  it("skips rendering and target allocation while the host has zero size", () => {
+    const host = makeHost(0, 0);
+    const renderer = makeRenderer(2);
+    const labelRenderer = makeLabelRenderer();
+    const defaultCamera = new PerspectiveCamera();
+    const fxaaState = makeFxaaState(defaultCamera);
+
+    applyViewportResize({
+      activeCamera: null,
+      ambientOcclusionEnabled: true,
+      cameraSpeedMultiplier: 1,
+      defaultCamera,
+      fxaaEnabled: true,
+      fxaaState,
+      host,
+      labelRenderer: labelRenderer as never,
+      renderer: renderer as never,
+      scene: new Scene(),
+      sceneContext: null,
+      showAxes: true,
+      showGrid: true,
+      texturePreview3D: false,
+      viewerSurfaceMode: "asset",
+    });
+
+    expect(renderer.setSize).not.toHaveBeenCalled();
+    expect(fxaaState.composer.setSize).not.toHaveBeenCalled();
+    expect(renderer.render).not.toHaveBeenCalled();
   });
 });

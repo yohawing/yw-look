@@ -94,6 +94,7 @@ export type AssetViewportTextureProps = {
 };
 
 export type AssetViewportRenderProps = {
+  ambientOcclusionEnabled?: boolean;
   controlSensitivity: number;
   cameraFov: number;
   renderScale: number;

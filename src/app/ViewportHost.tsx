@@ -69,6 +69,7 @@ export function ViewportHost({
   return (
     <div className="viewer-panel">
       <AssetViewport
+        ambientOcclusionEnabled={viewer.ambientOcclusionEnabled}
         currentFile={currentFile}
         disabledOptionalLoaderPackIds={disabledOptionalLoaderPackIds}
         incompatibleOptionalLoaderPackIds={incompatibleOptionalLoaderPackIds}

@@ -52,9 +52,10 @@ import {
 } from "../viewport/camera";
 import { createEnvironmentTarget } from "../viewport/environment";
 import {
-  createFxaaComposerState,
-  syncFxaaComposerSize,
-  type FxaaComposerState,
+  createViewportComposerState,
+  disposeViewportComposer,
+  syncViewportComposerSize,
+  type ViewportComposerState,
 } from "../viewport/fxaa";
 import {
   applyViewportBackground,
@@ -180,6 +181,7 @@ export function AssetViewport({
   renderScale,
   showShadows,
   showUnlit,
+  ambientOcclusionEnabled = true,
   fxaaEnabled,
   showRendererStats,
   toneMappingMode,
@@ -208,10 +210,14 @@ export function AssetViewport({
   const fillLightRef = useRef<DirectionalLight | null>(null);
   const usdInspectionRef = useRef<StageInspection | null>(usdInspection);
   const showShadowsRef = useRef(showShadows);
-  const fxaaStateRef = useRef<FxaaComposerState | null>(null);
+  const fxaaStateRef = useRef<ViewportComposerState | null>(null);
+  const ambientOcclusionEnabledRef = useRef(ambientOcclusionEnabled);
   const fxaaEnabledRef = useRef(fxaaEnabled);
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
+  const rendererLifetimeBoundary = getPreviewRenderingPresetForExtension(
+    currentFile?.extension,
+  ).logarithmicDepthBuffer;
   const scaleNormalizationRef = useRef<{
     applied: boolean;
     originalScale: import("three").Vector3;
@@ -333,6 +339,7 @@ export function AssetViewport({
   useSyncRef(backfaceCullingRef, backfaceCulling);
   useSyncRef(textureFilterModeRef, textureFilterMode);
   useSyncRef(showShadowsRef, showShadows);
+  useSyncRef(ambientOcclusionEnabledRef, ambientOcclusionEnabled);
   useSyncRef(fxaaEnabledRef, fxaaEnabled);
   useSyncRef(showSkeletonRef, showSkeleton);
   useSyncRef(showLocalAxisRef, showLocalAxis);
@@ -467,6 +474,7 @@ export function AssetViewport({
   useViewportSceneLifecycle({
     activeCameraIdRef,
     activeCameraRef,
+    ambientOcclusionEnabledRef,
     activeEnvironmentPresetRef,
     ambientLightRef,
     backgroundPresetRef,
@@ -581,7 +589,7 @@ export function AssetViewport({
     const width = context.renderer.domElement.clientWidth;
     const height = context.renderer.domElement.clientHeight;
 
-    syncFxaaComposerSize(fxaaState, width, height, pixelRatio);
+    syncViewportComposerSize(fxaaState, width, height, pixelRatio);
   }, [renderScale]);
 
   useEffect(() => {
@@ -1133,9 +1141,9 @@ export function AssetViewport({
   });
 
   useEffect(() => {
-    if (!fxaaEnabled) {
+    if (!ambientOcclusionEnabled && !fxaaEnabled) {
       // Leave the composer in place (so re-enabling is cheap) and
-      // rely on fxaaEnabledRef to skip it in the render loop.
+      // rely on the render loop to skip it.
       return;
     }
     const context = sceneContextRef.current;
@@ -1146,14 +1154,14 @@ export function AssetViewport({
     (async () => {
       const host = hostRef.current;
       if (!host) return;
-      const state = await createFxaaComposerState(context, host, {
+      const state = await createViewportComposerState(context, host, {
         isCancelled: () => cancelled,
       });
       if (!state) {
         return;
       }
       if (cancelled) {
-        state.composer.dispose();
+        disposeViewportComposer(state);
         return;
       }
       fxaaStateRef.current = state;
@@ -1161,7 +1169,7 @@ export function AssetViewport({
     return () => {
       cancelled = true;
     };
-  }, [fxaaEnabled]);
+  }, [ambientOcclusionEnabled, fxaaEnabled, rendererLifetimeBoundary]);
 
   useTexturePreview({
     currentFile,

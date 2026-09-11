@@ -41,6 +41,9 @@ const cameraPresetOptions: Array<{
 const emptyCameras: CameraEntry[] = [];
 
 export function useViewportToolbarModel() {
+  const ambientOcclusionEnabled = useViewerStore(
+    (state) => state.ambientOcclusionEnabled,
+  );
   const cameras = useFileStore(
     (state) => state.assetMetadata?.cameras ?? emptyCameras,
   );
@@ -177,6 +180,9 @@ export function useViewportToolbarModel() {
     }
 
     return build3DToolbar({
+      ambientOcclusionEnabled,
+      onToggleAmbientOcclusion: () =>
+        useViewerStore.getState().toggleAmbientOcclusion(),
       // Camera
       cameraPreset: activeCameraId
         ? `asset:${activeCameraId}`
@@ -222,6 +228,7 @@ export function useViewportToolbarModel() {
         useViewerStore.getState().toggleShowJointNames(),
     });
   }, [
+    ambientOcclusionEnabled,
     activeCameraId,
     cameraOptions,
     cameras.length,

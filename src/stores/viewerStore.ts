@@ -17,6 +17,7 @@ import type {
 } from "../lib/usd";
 
 export interface ViewerState {
+  ambientOcclusionEnabled: boolean;
   showTexture: boolean;
   showWireframe: boolean;
   showUnlit: boolean;
@@ -83,6 +84,7 @@ export interface ViewerState {
   setShowVertexColors: (v: boolean) => void;
   setShowEnvironmentBackground: (v: boolean) => void;
   setShowShadows: (v: boolean) => void;
+  setAmbientOcclusionEnabled: (v: boolean) => void;
   setEnvironmentPreset: (v: EnvironmentPreset) => void;
   setEnvironmentRotation: (v: number) => void;
   setBackgroundPreset: (v: BackgroundPreset) => void;
@@ -115,6 +117,7 @@ export interface ViewerState {
   toggleShowNormals: () => void;
   toggleShowVertexColors: () => void;
   toggleShowShadows: () => void;
+  toggleAmbientOcclusion: () => void;
   toggleShowEnvironmentBackground: () => void;
   toggleShowBoundingBoxes: () => void;
   toggleShowSkeleton: () => void;
@@ -124,6 +127,7 @@ export interface ViewerState {
 }
 
 export const useViewerStore = create<ViewerState>((set) => ({
+  ambientOcclusionEnabled: true,
   showTexture: true,
   showWireframe: false,
   showUnlit: false,
@@ -196,6 +200,8 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setShowEnvironmentBackground: (showEnvironmentBackground) =>
     set({ showEnvironmentBackground }),
   setShowShadows: (showShadows) => set({ showShadows }),
+  setAmbientOcclusionEnabled: (ambientOcclusionEnabled) =>
+    set({ ambientOcclusionEnabled }),
   setEnvironmentPreset: (environmentPreset) => set({ environmentPreset }),
   setEnvironmentRotation: (environmentRotation) => {
     if (Number.isFinite(environmentRotation)) set({ environmentRotation });
@@ -237,6 +243,10 @@ export const useViewerStore = create<ViewerState>((set) => ({
   toggleShowVertexColors: () =>
     set((s) => ({ showVertexColors: !s.showVertexColors })),
   toggleShowShadows: () => set((s) => ({ showShadows: !s.showShadows })),
+  toggleAmbientOcclusion: () =>
+    set((s) => ({
+      ambientOcclusionEnabled: !s.ambientOcclusionEnabled,
+    })),
   toggleShowEnvironmentBackground: () =>
     set((s) => ({
       showEnvironmentBackground: !s.showEnvironmentBackground,

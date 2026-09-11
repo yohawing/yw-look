@@ -262,6 +262,16 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         disabled: !options.onToggleShadows,
         onRun: options.onToggleShadows,
       },
+      {
+        id: "lighting-ambient-occlusion",
+        mode: "3d",
+        group: "lighting",
+        kind: "toggle",
+        label: "Ambient Occlusion",
+        active: options.ambientOcclusionEnabled,
+        disabled: !options.onToggleAmbientOcclusion,
+        onRun: options.onToggleAmbientOcclusion,
+      },
     ];
     if (activeDisplayState.surface !== "shaded") {
       children.push({

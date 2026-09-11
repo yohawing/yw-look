@@ -5,8 +5,8 @@ import {
   type WebGLRenderer,
 } from "three";
 import type { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { FxaaComposerState } from "./fxaa";
-import { syncFxaaComposerSize } from "./fxaa";
+import type { ViewportComposerState } from "./fxaa";
+import { syncViewportComposerSize } from "./fxaa";
 import { frameMountedObject, syncPerspectiveCameraAspect } from "./camera";
 import { renderViewportFrame } from "./viewportFrame";
 import type { SceneContext, ViewerSurfaceMode } from "../types/viewer";
@@ -15,10 +15,11 @@ type ViewportResizeHost = Pick<HTMLElement, "clientWidth" | "clientHeight">;
 
 type ApplyViewportResizeOptions = {
   activeCamera: Camera | null;
+  ambientOcclusionEnabled?: boolean;
   cameraSpeedMultiplier: number;
   defaultCamera: PerspectiveCamera;
   fxaaEnabled: boolean;
-  fxaaState: FxaaComposerState | null;
+  fxaaState: ViewportComposerState | null;
   host: ViewportResizeHost;
   labelRenderer: CSS2DRenderer;
   renderer: WebGLRenderer;
@@ -32,6 +33,7 @@ type ApplyViewportResizeOptions = {
 
 export function applyViewportResize({
   activeCamera,
+  ambientOcclusionEnabled = false,
   cameraSpeedMultiplier,
   defaultCamera,
   fxaaEnabled,
@@ -49,17 +51,24 @@ export function applyViewportResize({
   const width = host.clientWidth;
   const height = host.clientHeight;
 
+  if (width <= 0 || height <= 0) return;
+
   renderer.setSize(width, height);
   labelRenderer.setSize(width, height);
   defaultCamera.aspect = width / height;
   defaultCamera.updateProjectionMatrix();
 
-  if (activeCamera instanceof PerspectiveCamera && height > 0) {
+  if (activeCamera instanceof PerspectiveCamera) {
     syncPerspectiveCameraAspect(activeCamera, host);
   }
 
   if (fxaaState) {
-    syncFxaaComposerSize(fxaaState, width, height, renderer.getPixelRatio());
+    syncViewportComposerSize(
+      fxaaState,
+      width,
+      height,
+      renderer.getPixelRatio(),
+    );
   }
 
   const mountedObject = sceneContext?.mountedObject;
@@ -78,6 +87,7 @@ export function applyViewportResize({
 
   renderViewportFrame({
     activeCamera,
+    ambientOcclusionEnabled,
     defaultCamera,
     fxaaEnabled,
     fxaaState,

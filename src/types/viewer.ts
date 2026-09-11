@@ -731,6 +731,8 @@ export type BuildImageToolbarOptions = {
 // ── 3D toolbar ───────────────────────────────────────────────────
 
 export type Build3DToolbarOptions = {
+  ambientOcclusionEnabled?: boolean;
+  onToggleAmbientOcclusion?: () => void;
   cameraPreset: string | null;
   cameraPresetOptions: Array<{ id: string; label: string }>;
   onSelectCameraPreset?: (preset: string) => void;
