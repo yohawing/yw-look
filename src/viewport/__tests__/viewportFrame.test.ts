@@ -236,6 +236,82 @@ describe("viewportFrame", () => {
     expect(runtimeUpdate).toHaveBeenCalledWith(0.1);
   });
 
+  it("updates the pack runtime with the active camera before rendering", () => {
+    const scene = new Scene();
+    const defaultCamera = new PerspectiveCamera();
+    const activeCamera = new PerspectiveCamera();
+    const renderer = makeRenderer();
+    const labelRenderer = makeLabelRenderer();
+    const packRuntimeUpdate = vi.fn();
+    const sceneContext = {
+      sourceObject: null,
+      packRuntime: { update: packRuntimeUpdate },
+    } as unknown as SceneContext;
+
+    tickViewportFrame({
+      activeCamera,
+      controls: makeControls() as never,
+      defaultCamera,
+      flyCameraControls: makeFlyCameraControls(false),
+      frameNow: 1016,
+      fxaaEnabled: false,
+      fxaaState: null,
+      labelRenderer: labelRenderer as never,
+      previousRenderTimestamp: 1000,
+      publishResourceDiagnostics: vi.fn(),
+      renderer: renderer as never,
+      scene,
+      sceneContext,
+      statsNode: null,
+      statsState: createViewportRuntimeStatsState(1016),
+      viewerSurfaceMode: "asset",
+    });
+
+    expect(packRuntimeUpdate).toHaveBeenCalledWith({
+      camera: activeCamera,
+      deltaSeconds: 0.016,
+      renderer,
+    });
+    expect(packRuntimeUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      renderer.render.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("passes the default camera to the pack runtime without an active camera", () => {
+    const defaultCamera = new PerspectiveCamera();
+    const renderer = makeRenderer();
+    const packRuntimeUpdate = vi.fn();
+    const sceneContext = {
+      sourceObject: null,
+      packRuntime: { update: packRuntimeUpdate },
+    } as unknown as SceneContext;
+
+    tickViewportFrame({
+      activeCamera: null,
+      controls: makeControls() as never,
+      defaultCamera,
+      flyCameraControls: makeFlyCameraControls(false),
+      frameNow: 1016,
+      fxaaEnabled: false,
+      fxaaState: null,
+      labelRenderer: makeLabelRenderer() as never,
+      previousRenderTimestamp: 1000,
+      publishResourceDiagnostics: vi.fn(),
+      renderer: renderer as never,
+      scene: new Scene(),
+      sceneContext,
+      statsNode: null,
+      statsState: createViewportRuntimeStatsState(1016),
+      viewerSurfaceMode: "asset",
+    });
+
+    expect(packRuntimeUpdate).toHaveBeenCalledWith({
+      camera: defaultCamera,
+      deltaSeconds: 0.016,
+      renderer,
+    });
+  });
+
   it("skips runtime preview in texture mode but still samples stats", () => {
     const scene = new Scene();
     const defaultCamera = new PerspectiveCamera();

@@ -37,6 +37,14 @@ const optionalLoaderPackages = {
 };
 
 const cases = [
+  ...["components", "vertex-colors", "texture"].map((name) => ({
+    id: `3mf-${name}`,
+    input: `tests/fixtures/models/3mf/${name}.3mf`,
+    snapshot: `tests/visual/snapshots/viewport/3mf-${name}.png`,
+    actual: `artifacts/screenshots/viewport/3mf-${name}-current.png`,
+    size: "640x480",
+    background: "default",
+  })),
   {
     id: "usda-tiny-sanity",
     input: "samples/assets/usd/tiny.usda",
@@ -83,6 +91,16 @@ const cases = [
     input: "samples/assets/glb/BoxTextured.glb",
     snapshot: "tests/visual/snapshots/viewport/glb-box-textured.png",
     actual: "artifacts/screenshots/viewport/glb-box-textured-current.png",
+    size: "384x288",
+    background: "default",
+  },
+  {
+    id: "rhino3dm-mesh-material-instance",
+    input: "tests/fixtures/models/rhino3dm-mesh-material-instance.3dm",
+    snapshot:
+      "tests/visual/snapshots/viewport/rhino3dm-mesh-material-instance.png",
+    actual:
+      "artifacts/screenshots/viewport/rhino3dm-mesh-material-instance-current.png",
     size: "384x288",
     background: "default",
   },

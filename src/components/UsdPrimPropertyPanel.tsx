@@ -20,6 +20,8 @@ import { useViewerStore } from "../stores/viewerStore";
 type UsdPrimPropertyPanelProps = {
   /** Absolute path to the USD file. `null` while no USD file is open. */
   path: string | null;
+  /** Render inside the Selected inspector instead of as a top-level card. */
+  embedded?: boolean;
 };
 
 const MAX_SAMPLES = 100;
@@ -139,7 +141,7 @@ function TimeSamplesPanel({
         <p className="muted ts-panel-msg">Time sample data not available.</p>
       )}
 
-      {data && !loading && (
+      {data && (
         <>
           {/* ---- mini line chart (numeric types only) ---- */}
           {data.numericMin !== null && data.samples.length >= 2 && (
@@ -297,15 +299,34 @@ function MetadataSection({ entries }: { entries: MetadataEntry[] }) {
   );
 }
 
-export function UsdPrimPropertyPanel({ path }: UsdPrimPropertyPanelProps) {
+export function UsdPrimPropertyPanel({
+  path,
+  embedded = false,
+}: UsdPrimPropertyPanelProps) {
   const selectedPrimPath = useViewerStore((state) => state.selectedUsdPrimPath);
+  if (!path || !selectedPrimPath) return null;
+  return (
+    <UsdPrimPropertyContent
+      key={JSON.stringify([path, selectedPrimPath])}
+      path={path}
+      selectedPrimPath={selectedPrimPath}
+      embedded={embedded}
+    />
+  );
+}
+
+function UsdPrimPropertyContent({
+  path,
+  selectedPrimPath,
+  embedded,
+}: {
+  path: string;
+  selectedPrimPath: string;
+  embedded: boolean;
+}) {
   /** Attribute name whose samples are currently shown. `null` = none. */
   const [activeSampleAttr, setActiveSampleAttr] = useState<string | null>(null);
-  const canInspectPrim = path !== null && selectedPrimPath !== null;
   const fetchPrimInspection = useCallback(() => {
-    if (!path || !selectedPrimPath) {
-      throw new Error("Prim inspection requires an active USD selection.");
-    }
     return inspectPrim(path, selectedPrimPath);
   }, [path, selectedPrimPath]);
   const {
@@ -313,17 +334,95 @@ export function UsdPrimPropertyPanel({ path }: UsdPrimPropertyPanelProps) {
     loading,
     error,
   } = useAsyncFetch<PrimInspection>(
-    canInspectPrim ? fetchPrimInspection : null,
-    [canInspectPrim, fetchPrimInspection],
+    fetchPrimInspection,
+    [fetchPrimInspection],
     {
-      enabled: canInspectPrim,
       errorFallback: "Failed to inspect prim.",
-      onBeforeFetch: () => setActiveSampleAttr(null),
-      onReset: () => setActiveSampleAttr(null),
     },
   );
 
-  if (!path || !selectedPrimPath) return null;
+  const panel = (
+    <div className="prim-property-panel">
+      {!embedded && <p className="prop-prim-path">{selectedPrimPath}</p>}
+
+      {loading && <SidebarEmpty>Loading…</SidebarEmpty>}
+      {error && (
+        <SidebarError>{`Prim inspection failed: ${error}`}</SidebarError>
+      )}
+
+      {inspection && (
+        <>
+          {inspection.attributes.length > 0 ? (
+            <section className="prop-section">
+              <p className="prop-section-title">Attributes</p>
+              <div className="prop-table-wrap">
+                <table className="prop-table">
+                  <thead>
+                    <tr>
+                      <th className="prop-table-name">Name</th>
+                      <th className="prop-table-type">Type</th>
+                      <th className="prop-table-value">Value</th>
+                      <th className="prop-table-var">Var</th>
+                      <th className="prop-table-custom">C</th>
+                      <th className="prop-table-samples">Samples</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inspection.attributes.map((attr) => (
+                      <AttributeRow
+                        key={attr.name}
+                        attr={attr}
+                        onViewSamples={(name) =>
+                          setActiveSampleAttr((prev) =>
+                            prev === name ? null : name,
+                          )
+                        }
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : (
+            <SidebarEmpty>No attributes authored.</SidebarEmpty>
+          )}
+
+          {/* ---- inline time-samples panel (shown below the table) ---- */}
+          {activeSampleAttr && (
+            <TimeSamplesPanel
+              key={activeSampleAttr}
+              path={path}
+              primPath={selectedPrimPath}
+              attrName={activeSampleAttr}
+              onClose={() => setActiveSampleAttr(null)}
+            />
+          )}
+
+          <RelationshipSection relationships={inspection.relationships} />
+          <MetadataSection entries={inspection.metadata} />
+        </>
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <section
+        className="selected-inspector-section usd-properties-static"
+        data-testid="usd-prim-panel"
+      >
+        <div className="selected-inspector-section-head">
+          <span>USD Properties</span>
+          {inspection ? (
+            <span className="usd-properties-static-count">
+              {inspection.attributes.length}
+            </span>
+          ) : null}
+        </div>
+        {panel}
+      </section>
+    );
+  }
 
   return (
     <SidebarSection
@@ -332,66 +431,7 @@ export function UsdPrimPropertyPanel({ path }: UsdPrimPropertyPanelProps) {
       collapsible
       defaultOpen={false}
     >
-      <div className="prim-property-panel">
-        <p className="prop-prim-path">{selectedPrimPath}</p>
-
-        {loading && <SidebarEmpty>Loading…</SidebarEmpty>}
-        {error && (
-          <SidebarError>{`Prim inspection failed: ${error}`}</SidebarError>
-        )}
-
-        {inspection && !loading && (
-          <>
-            {inspection.attributes.length > 0 ? (
-              <section className="prop-section">
-                <p className="prop-section-title">Attributes</p>
-                <div className="prop-table-wrap">
-                  <table className="prop-table">
-                    <thead>
-                      <tr>
-                        <th className="prop-table-name">Name</th>
-                        <th className="prop-table-type">Type</th>
-                        <th className="prop-table-value">Value</th>
-                        <th className="prop-table-var">Var</th>
-                        <th className="prop-table-custom">C</th>
-                        <th className="prop-table-samples">Samples</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inspection.attributes.map((attr) => (
-                        <AttributeRow
-                          key={attr.name}
-                          attr={attr}
-                          onViewSamples={(name) =>
-                            setActiveSampleAttr((prev) =>
-                              prev === name ? null : name,
-                            )
-                          }
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            ) : (
-              <SidebarEmpty>No attributes authored.</SidebarEmpty>
-            )}
-
-            {/* ---- inline time-samples panel (shown below the table) ---- */}
-            {activeSampleAttr && (
-              <TimeSamplesPanel
-                path={path}
-                primPath={selectedPrimPath}
-                attrName={activeSampleAttr}
-                onClose={() => setActiveSampleAttr(null)}
-              />
-            )}
-
-            <RelationshipSection relationships={inspection.relationships} />
-            <MetadataSection entries={inspection.metadata} />
-          </>
-        )}
-      </div>
+      {panel}
     </SidebarSection>
   );
 }

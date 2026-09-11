@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { HierarchyCard } from "../HierarchyCard";
 import type { HierarchyNode, ObjectInfo } from "../assetMetadata";
 import {
@@ -74,6 +74,58 @@ describe("HierarchyCard selection sync (#33)", () => {
     cleanup();
   });
 
+  it.each(["button", "Escape"])(
+    "closes search via %s and clears hidden filtering",
+    (method) => {
+      const { getByRole, queryByRole, getByText, container } = render(
+        <HierarchyCard hierarchy={tree} />,
+      );
+      const toggle = getByRole("button", { name: "Search hierarchy" });
+      expect(queryByRole("textbox")).toBeNull();
+      expect(container.querySelector(".yl-disclosure__count")).toBeNull();
+      fireEvent.click(toggle);
+      const input = getByRole("textbox", { name: "Filter hierarchy" });
+      expect(document.activeElement).toBe(input);
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      fireEvent.change(input, { target: { value: "missing" } });
+      expect(getByText("No hierarchy nodes match.")).toBeTruthy();
+      if (method === "button") fireEvent.click(toggle);
+      else fireEvent.keyDown(input, { key: "Escape" });
+      expect(queryByRole("textbox")).toBeNull();
+      expect(document.activeElement).toBe(toggle);
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(getByText("Root")).toBeTruthy();
+      fireEvent.click(toggle);
+      expect((getByRole("textbox") as HTMLInputElement).value).toBe("");
+    },
+  );
+
+  it("preserves search during an IME Escape and closes from the clear button", () => {
+    const { getByRole } = render(<HierarchyCard hierarchy={tree} />);
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
+    const input = getByRole("textbox");
+    fireEvent.change(input, { target: { value: "腕" } });
+    fireEvent.keyDown(input, { key: "Escape", isComposing: true });
+    expect(getByRole("textbox")).toBe(input);
+    fireEvent.keyDown(getByRole("button", { name: "Clear hierarchy filter" }), {
+      key: "Escape",
+    });
+    expect(
+      getByRole("button", { name: "Search hierarchy" }).getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("false");
+  });
+
+  it("allows toggling search for an empty hierarchy", () => {
+    const { getByRole, getByText } = render(<HierarchyCard hierarchy={[]} />);
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
+    fireEvent.change(getByRole("textbox"), { target: { value: "missing" } });
+    expect(
+      getByText("No hierarchy available for the current asset."),
+    ).toBeTruthy();
+  });
+
   it("highlights the row whose name matches selectedName", () => {
     const { container } = render(
       <HierarchyCard hierarchy={tree} selectedName="Arm" />,
@@ -100,6 +152,7 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(container.querySelector(".tree-row.is-selected")).toBeTruthy();
     fireEvent.click(container.querySelector(".tree-row.is-selected")!);
     expect(onSelect).toHaveBeenCalledWith(null);
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("force-opens ancestor branches so the selected row is visible", () => {
@@ -112,6 +165,25 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(container.textContent).toContain("Arm");
   });
 
+  it("lets users collapse and reopen an ancestor of the selected element", async () => {
+    const { container, rerender } = render(
+      <HierarchyCard hierarchy={tree} selectedName="Arm" />,
+    );
+    const root = container.querySelector(".tree-row")!;
+    fireEvent.click(root.querySelector('button[aria-label="Collapse"]')!);
+    expect(container.querySelector(".tree-row.is-selected")).toBeNull();
+    rerender(<HierarchyCard hierarchy={tree} selectedName="Arm" />);
+    expect(container.querySelector(".tree-row.is-selected")).toBeNull();
+    fireEvent.click(container.querySelector('button[aria-label="Expand"]')!);
+    expect(container.querySelector(".tree-row.is-selected")).toBeTruthy();
+    fireEvent.click(container.querySelector('button[aria-label="Collapse"]')!);
+    rerender(<HierarchyCard hierarchy={tree} selectedName="Torso" />);
+    await waitFor(() =>
+      expect(
+        container.querySelector(".tree-row.is-selected")?.textContent,
+      ).toContain("Torso"),
+    );
+  });
   it("toggles selection off when the active row is clicked again", () => {
     const onSelect = vi.fn();
     const { container } = render(
@@ -125,6 +197,7 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(selectedRow).not.toBeNull();
     fireEvent.click(selectedRow!);
     expect(onSelect).toHaveBeenCalledWith(null);
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
   it("does not force-open sibling branches of the selected ancestor", () => {
@@ -185,6 +258,48 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(onSelect).toHaveBeenCalledWith("Arm");
   });
 
+  it("virtualizes large lists and reveals external selection", async () => {
+    const nodes = Array.from({ length: 4000 }, (_, i) => ({
+      name: `Part ${i}`,
+      kind: "mesh",
+      children: [],
+    }));
+    const { container, rerender } = render(<HierarchyCard hierarchy={nodes} />);
+    expect(container.querySelectorAll(".tree-row").length).toBeLessThan(50);
+    rerender(<HierarchyCard hierarchy={nodes} selectedName="Part 3999" />);
+    await waitFor(() =>
+      expect(
+        container.querySelector(".tree-row.is-selected")?.textContent,
+      ).toContain("Part 3999"),
+    );
+    expect(container.querySelectorAll(".tree-row").length).toBeLessThan(50);
+  });
+
+  it("keeps keyboard selection on semantic IDs and permits F to bubble", () => {
+    const onSelect = vi.fn();
+    const onKeyDown = vi.fn();
+    const nodes = [
+      { name: "ifc:20", displayName: "Wall", kind: "IFCWALL", children: [] },
+      { name: "ifc:21", displayName: "Door", kind: "IFCDOOR", children: [] },
+    ];
+    const { getByRole } = render(
+      <div onKeyDown={onKeyDown}>
+        <HierarchyCard
+          hierarchy={nodes}
+          selectedName="ifc:20"
+          onSelectName={onSelect}
+        />
+      </div>,
+    );
+    fireEvent.focus(getByRole("tree"));
+    fireEvent.keyDown(getByRole("tree"), { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenCalledWith("ifc:21");
+    onSelect.mockClear();
+    fireEvent.keyDown(getByRole("tree"), { key: "f" });
+    expect(onKeyDown).toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it("renders morph target sliders for the selected mesh and forwards changes", () => {
     const onMorphTargetChange = vi.fn();
     const faceTree: HierarchyNode[] = [
@@ -210,6 +325,60 @@ describe("HierarchyCard selection sync (#33)", () => {
 
     fireEvent.change(mouth, { target: { value: "0.42" } });
     expect(onMorphTargetChange).toHaveBeenCalledWith("Face", 1, 0.42);
+  });
+
+  it("organizes available object info into inspector sections", () => {
+    const faceTree: HierarchyNode[] = [
+      { name: "Face", kind: "mesh", children: [] },
+    ];
+    const info: ObjectInfo = {
+      ...faceInfo,
+      position: [1.25, 2, 3],
+      rotation: [0, 90, 0],
+      scale: [1, 1, 1],
+      boundingBox: [-1, -2, -3, 4, 5, 6],
+      triangleCount: 4114,
+      materialNames: ["Skin", "Eyes"],
+      animatesWithClips: ["Idle"],
+    };
+    const { container, getByText } = render(
+      <HierarchyCard
+        hierarchy={faceTree}
+        objectInfo={{ Face: info }}
+        selectedName="Face"
+      />,
+    );
+
+    expect(
+      Array.from(container.querySelectorAll(".selected-inspector-section")).map(
+        (section) =>
+          section.querySelector(".selected-inspector-section-head > span")
+            ?.textContent,
+      ),
+    ).toEqual(expect.arrayContaining(["Identity", "Transform", "Geometry"]));
+    expect(getByText("Preview local values")).toBeTruthy();
+    expect(getByText("Loaded visibility")).toBeTruthy();
+    expect(getByText("1.25, 2, 3")).toBeTruthy();
+    expect(getByText("4,114")).toBeTruthy();
+    expect(getByText("min (-1, -2, -3) · max (4, 5, 6)")).toBeTruthy();
+    expect(getByText("Skin, Eyes")).toBeTruthy();
+    expect(getByText("Idle")).toBeTruthy();
+  });
+
+  it("does not turn absent geometry counts into zero values", () => {
+    const faceTree: HierarchyNode[] = [
+      { name: "Face", kind: "mesh", children: [] },
+    ];
+    const { queryByText } = render(
+      <HierarchyCard
+        hierarchy={faceTree}
+        objectInfo={{ Face: faceInfo }}
+        selectedName="Face"
+      />,
+    );
+
+    expect(queryByText("Triangles")).toBeNull();
+    expect(queryByText("Bounds")).toBeNull();
   });
 
   it("renders MMD morph metadata in the selected shape key list", () => {
@@ -376,6 +545,7 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(branchRow).toBeTruthy();
     fireEvent.click(branchRow!.querySelector(".tree-chevron")!);
 
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
     const filter = getByRole("textbox", { name: "Filter hierarchy" });
     fireEvent.change(filter, { target: { value: "needle" } });
     expect(container.textContent).toContain("Root");
@@ -400,6 +570,7 @@ describe("HierarchyCard selection sync (#33)", () => {
     const { container, getByRole, getByText } = render(
       <HierarchyCard hierarchy={displayNameTree} />,
     );
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
     const filter = getByRole("textbox", { name: "Filter hierarchy" });
 
     fireEvent.compositionStart(filter);
@@ -444,12 +615,19 @@ describe("HierarchyCard selection sync (#33)", () => {
     const { getByRole, rerender } = render(
       <HierarchyCard fileIdentity="C:/assets/first.glb" hierarchy={tree} />,
     );
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
     const filter = getByRole("textbox", { name: "Filter hierarchy" });
     fireEvent.change(filter, { target: { value: "arm" } });
     rerender(
       <HierarchyCard fileIdentity="C:/assets/second.glb" hierarchy={tree} />,
     );
 
+    expect(
+      getByRole("button", { name: "Search hierarchy" }).getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("false");
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
     expect(
       (getByRole("textbox", { name: "Filter hierarchy" }) as HTMLInputElement)
         .value,

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readdir, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 const [profile, distDirArg = "dist"] = process.argv.slice(2);
@@ -60,10 +60,19 @@ function assertHasAssets(files, pattern, label) {
 }
 
 const files = await listAssetFiles(assetsDir);
+const parseWorkers = findAssets(files, /^modelParse\.worker-.*\.js$/);
+if (
+  parseWorkers.length !== 1 ||
+  !(await readFile(parseWorkers[0].path, "utf8")).includes("3mf-texture:")
+)
+  throw new Error(`3MF worker support is missing from ${profile} profile.`);
 
 if (profile === "core") {
   assertNoAssets(files, /^spark-loader-pack-.*\.js$/, "Spark loader pack");
   assertNoAssets(files, /^mmd-loader-pack-.*\.js$/, "MMD loader pack");
+  assertNoAssets(files, /^ifc-loader-pack-.*\.js$/, "IFC loader pack");
+  assertNoAssets(files, /^worker-.*\.mjs$/, "IFC fragments worker");
+  assertNoAssets(files, /^web-ifc-.*\.wasm$/, "IFC WASM runtime");
   assertNoAssets(files, /^mmd_anim_wasm_bg-.*\.wasm$/, "MMD WASM runtime");
   assertHasAssets(
     files,
@@ -75,6 +84,9 @@ if (profile === "core") {
 if (profile === "all") {
   assertHasAssets(files, /^spark-loader-pack-.*\.js$/, "Spark loader pack");
   assertHasAssets(files, /^mmd-loader-pack-.*\.js$/, "MMD loader pack");
+  assertHasAssets(files, /^ifc-loader-pack-.*\.js$/, "IFC loader pack");
+  assertHasAssets(files, /^worker-.*\.mjs$/, "IFC fragments worker");
+  assertHasAssets(files, /^web-ifc-.*\.wasm$/, "IFC WASM runtime");
   assertHasAssets(files, /^mmd_anim_wasm_bg-.*\.wasm$/, "MMD WASM runtime");
   assertNoAssets(
     files,

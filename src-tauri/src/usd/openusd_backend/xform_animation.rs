@@ -912,6 +912,7 @@ mod tests {
         vec![
             NodeInput {
                 prim_path: "/Root".to_owned(),
+                usd_type_name: None,
                 basename: "Root".to_owned(),
                 parent: None,
                 local_matrix: crate::usd::math::IDENTITY_MAT4_F32,
@@ -923,6 +924,7 @@ mod tests {
             },
             NodeInput {
                 prim_path: path.as_str().to_owned(),
+                usd_type_name: None,
                 basename: "Quad".to_owned(),
                 parent: Some(0),
                 local_matrix: crate::usd::math::IDENTITY_MAT4_F32,
@@ -1087,6 +1089,7 @@ def Xform "Root"
         );
         let nodes = vec![NodeInput {
             prim_path: "/Root".to_owned(),
+            usd_type_name: None,
             basename: "Root".to_owned(),
             parent: None,
             local_matrix: crate::usd::math::IDENTITY_MAT4_F32,
@@ -1123,6 +1126,7 @@ def Xform "Root"
         );
         let nodes = vec![NodeInput {
             prim_path: "/Root".to_owned(),
+            usd_type_name: None,
             basename: "Root".to_owned(),
             parent: None,
             local_matrix: crate::usd::math::IDENTITY_MAT4_F32,
@@ -1157,6 +1161,7 @@ def Xform "Root"
         );
         let nodes = vec![NodeInput {
             prim_path: "/Root".to_owned(),
+            usd_type_name: None,
             basename: "Root".to_owned(),
             parent: None,
             local_matrix: crate::usd::math::IDENTITY_MAT4_F32,
@@ -1194,6 +1199,7 @@ def Xform "Root"
         );
         let nodes = vec![NodeInput {
             prim_path: "/Root".to_owned(),
+            usd_type_name: None,
             basename: "Root".to_owned(),
             parent: None,
             local_matrix: crate::usd::math::IDENTITY_MAT4_F32,
@@ -1299,6 +1305,7 @@ def Xform "Root"
         let mut nodes = vec![
             NodeInput {
                 prim_path: "/Root".to_owned(),
+                usd_type_name: None,
                 basename: "Root".to_owned(),
                 parent: None,
                 local_matrix: crate::usd::math::IDENTITY_MAT4_F32,
@@ -1310,6 +1317,7 @@ def Xform "Root"
             },
             NodeInput {
                 prim_path: "/Root/Static".to_owned(),
+                usd_type_name: None,
                 basename: "Static".to_owned(),
                 parent: Some(0),
                 local_matrix: crate::usd::math::IDENTITY_MAT4_F32,
@@ -1321,6 +1329,7 @@ def Xform "Root"
             },
             NodeInput {
                 prim_path: "/Root/Static/Reset".to_owned(),
+                usd_type_name: None,
                 basename: "Reset".to_owned(),
                 parent: Some(1),
                 local_matrix: crate::usd::math::IDENTITY_MAT4_F32,
@@ -1333,6 +1342,7 @@ def Xform "Root"
         ];
         nodes.push(NodeInput {
             prim_path: "/Root/Static/Reset/Quad".to_owned(),
+            usd_type_name: None,
             basename: "Quad".to_owned(),
             parent: Some(2),
             local_matrix: crate::usd::math::IDENTITY_MAT4_F32,

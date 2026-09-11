@@ -59,7 +59,7 @@ import {
 import {
   applyViewportBackground,
   applyViewportRenderingSettings,
-  runCleanupCallbacks,
+  runCleanupCallbacksSafely,
   toneMappingModeMap,
 } from "../viewport/renderSettings";
 import {
@@ -111,6 +111,31 @@ function buildPreviewLoadInputKey(
     usdLoadPolicy,
     variantSelections,
   });
+}
+
+function cleanupSceneContext(context: SceneContext) {
+  let firstCleanupError = runCleanupCallbacksSafely(context.cleanupCallbacks);
+  context.cleanupCallbacks = [];
+  try {
+    stopAnimations(context);
+  } catch (error) {
+    firstCleanupError ??= error;
+  }
+  context.mmdModel = null;
+  try {
+    resetSceneObjects(context);
+  } catch (error) {
+    firstCleanupError ??= error;
+  }
+  try {
+    revokeUrls(context.cleanupUrls);
+  } catch (error) {
+    firstCleanupError ??= error;
+  }
+  context.cleanupUrls = [];
+  if (firstCleanupError) {
+    console.error("[viewer] preview cleanup failed", firstCleanupError);
+  }
 }
 
 function isAbortError(error: unknown): boolean {
@@ -385,6 +410,11 @@ export function AssetViewport({
       highlightedSelectionRef.current = null;
     }
 
+    const selection = sceneContextRef.current?.packRuntime?.selection;
+    if (selection) {
+      void selection.select(selectedMeshName ?? null);
+      return;
+    }
     if (selectedMeshName) {
       const target = findObjectBySelectionKey(mounted, selectedMeshName);
       if (target) {
@@ -576,24 +606,17 @@ export function AssetViewport({
       return;
     }
 
-    let nextTarget = environmentTargetsRef.current?.get(environmentPreset);
-
-    if (!nextTarget) {
-      nextTarget = createEnvironmentTarget(
-        context.pmremGenerator,
-        environmentPreset,
-      );
-      if (!nextTarget) {
-        return;
-      }
-      if (environmentTargetsRef.current) {
-        environmentTargetsRef.current.set(environmentPreset, nextTarget);
-      }
-    }
+    const targets = environmentTargetsRef.current;
+    if (!targets) return;
+    const nextTarget = createEnvironmentTarget(
+      context.pmremGenerator,
+      environmentPreset,
+      targets,
+    );
 
     environmentTargetRef.current = nextTarget;
     activeEnvironmentPresetRef.current = environmentPreset;
-    context.scene.environment = nextTarget.texture;
+    context.scene.environment = nextTarget?.texture ?? null;
 
     // If the environment is currently used as the background too, swap the
     // background texture in the same frame to avoid a flicker where
@@ -603,7 +626,7 @@ export function AssetViewport({
         context.renderer,
         context.scene,
         backgroundPresetRef.current,
-        nextTarget.texture,
+        nextTarget?.texture ?? null,
       );
     }
   }, [environmentPreset]);
@@ -706,15 +729,7 @@ export function AssetViewport({
       context.mountedObject !== null;
 
     if (!isDeferredGlbReload && !isPendingGlbReload) {
-      runCleanupCallbacks(context.cleanupCallbacks);
-      context.cleanupCallbacks = [];
-      context.packRuntime?.dispose();
-      context.packRuntime = null;
-      stopAnimations(context);
-      context.mmdModel = null;
-      resetSceneObjects(context);
-      revokeUrls(context.cleanupUrls);
-      context.cleanupUrls = [];
+      cleanupSceneContext(context);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
       context.controls.enabled = false;
@@ -1061,15 +1076,7 @@ export function AssetViewport({
       if (keepMountedForDeferredReload) {
         return;
       }
-      runCleanupCallbacks(context.cleanupCallbacks);
-      context.cleanupCallbacks = [];
-      context.packRuntime?.dispose();
-      context.packRuntime = null;
-      stopAnimations(context);
-      context.mmdModel = null;
-      resetSceneObjects(context);
-      revokeUrls(context.cleanupUrls);
-      context.cleanupUrls = [];
+      cleanupSceneContext(context);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
     };

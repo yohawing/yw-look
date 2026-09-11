@@ -6,6 +6,7 @@ import {
   PMREMGenerator,
   Scene,
   SphereGeometry,
+  type WebGLRenderTarget,
 } from "three";
 import type { EnvironmentPreset } from "../types/viewer";
 import { disposeObject } from "../viewer";
@@ -14,7 +15,9 @@ export function disposeEnvironmentScene(scene: Scene) {
   disposeObject(scene);
 }
 
-export function buildEnvironmentScene(preset: EnvironmentPreset) {
+export function buildEnvironmentScene(
+  preset: Exclude<EnvironmentPreset, "none">,
+) {
   const scene = new Scene();
   const shell = new Mesh(
     new SphereGeometry(40, 40, 20),
@@ -143,9 +146,17 @@ export function buildEnvironmentScene(preset: EnvironmentPreset) {
 export function createEnvironmentTarget(
   pmremGenerator: PMREMGenerator,
   preset: EnvironmentPreset,
+  targets: Map<EnvironmentPreset, WebGLRenderTarget>,
 ) {
+  if (preset === "none") return null;
+  const cached = targets.get(preset);
+  if (cached) return cached;
   const environmentScene = buildEnvironmentScene(preset);
-  const target = pmremGenerator.fromScene(environmentScene, 0.04);
-  disposeEnvironmentScene(environmentScene);
-  return target;
+  try {
+    const target = pmremGenerator.fromScene(environmentScene, 0.04);
+    targets.set(preset, target);
+    return target;
+  } finally {
+    disposeEnvironmentScene(environmentScene);
+  }
 }

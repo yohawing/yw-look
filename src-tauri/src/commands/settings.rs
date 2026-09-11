@@ -14,6 +14,7 @@ const INSTALLER_MANAGED_OPTIONAL_LOADER_PACKS: &[(&str, &str)] = &[
     ("vrm-loader-pack", "vrm"),
     ("mmd-loader-pack", "mmd"),
     ("gaussian-splat-loader-pack", "gaussian-splat"),
+    ("cad-loader-pack", "ifc"),
 ];
 
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -125,6 +126,25 @@ mod tests {
     fn read_settings_value(path: &Path) -> Value {
         let raw = fs::read_to_string(path).expect("settings json should be readable");
         serde_json::from_str(&raw).expect("settings json should parse")
+    }
+
+    #[test]
+    fn legacy_cad_settings_migrate_and_new_setting_wins() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join(SETTINGS_FILE_NAME);
+        fs::write(
+            &path,
+            r#"{"optionalLoaderPacks":{"ifc-loader-pack":{"enabled":false}}}"#,
+        )
+        .unwrap();
+        let (_, settings) = load_settings_from_path(dir.path()).unwrap();
+        assert!(!settings.optional_loader_packs["cad-loader-pack"].enabled);
+        assert!(!settings
+            .optional_loader_packs
+            .contains_key("ifc-loader-pack"));
+        fs::write(&path, r#"{"optionalLoaderPacks":{"ifc-loader-pack":{"enabled":false},"cad-loader-pack":{"enabled":true}}}"#).unwrap();
+        let (_, settings) = load_settings_from_path(dir.path()).unwrap();
+        assert!(settings.optional_loader_packs["cad-loader-pack"].enabled);
     }
 
     #[test]

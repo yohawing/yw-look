@@ -157,7 +157,7 @@ describe("model parse worker static scene policy", () => {
     expect(canUseStaticSceneResult("fbxGlb", root)).toBe(true);
   });
 
-  it("preserves native fbxGlb deferred identity ahead of placeholder ImageData", async () => {
+  it("preserves native fbxGlb deferred identity together with the visible placeholder", async () => {
     const map = makeImageDataTexture();
     map.userData.fbxSourceName = "Parts01.png";
     map.userData.fbxDeferred = true;
@@ -174,6 +174,6 @@ describe("model parse worker static scene policy", () => {
     const rebuiltMap = (mesh.material as MeshStandardMaterial).map;
     expect(rebuiltMap?.userData.fbxSourceName).toBe("Parts01.png");
     expect(rebuiltMap?.userData.fbxDeferred).toBe(true);
-    expect(rebuiltMap?.image).toBeNull();
+    expect(rebuiltMap?.image).toEqual(map.image);
   });
 });

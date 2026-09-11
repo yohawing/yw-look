@@ -1,4 +1,4 @@
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig, type Connect, type Plugin } from "vite";
@@ -53,6 +53,25 @@ const includeOptionalSparkLoader =
   process.env.YW_INCLUDE_SPARK_LOADER_PACK !== "0" &&
   process.env.YW_INCLUDE_SPARK_LOADER_PACK?.toLowerCase() !== "false";
 
+const optionalIfcFragmentsPath = fileURLToPath(
+  new URL("./node_modules/@thatopen/fragments", import.meta.url),
+);
+const optionalIfcWebIfcPath = fileURLToPath(
+  new URL("./node_modules/web-ifc", import.meta.url),
+);
+const installedIfcLoaderEntry = fileURLToPath(
+  new URL("./src/packs/ifc-loader-pack/loaderInstalled.ts", import.meta.url),
+);
+const unavailableIfcLoaderEntry = fileURLToPath(
+  new URL("./src/packs/ifc-loader-pack/loaderUnavailable.ts", import.meta.url),
+);
+const hasOptionalIfcLoader =
+  existsSync(optionalIfcFragmentsPath) && existsSync(optionalIfcWebIfcPath);
+const includeOptionalIfcLoader =
+  hasOptionalIfcLoader &&
+  process.env.YW_INCLUDE_IFC_LOADER_PACK !== "0" &&
+  process.env.YW_INCLUDE_IFC_LOADER_PACK?.toLowerCase() !== "false";
+
 const mmdAnimWasmPath = path.resolve(
   optionalThreeMmdLoaderPath,
   "dist/parser/wasm/generated/mmd_anim_wasm_bg.wasm",
@@ -62,6 +81,15 @@ const mmdAnimWasmImportPath =
 const mmdAnimWasmDevUrl = "/@yw-look/mmd-loader/mmd_anim_wasm_bg.wasm";
 const mmdWasmUrlModuleId = "virtual:yw-look-mmd-wasm-url";
 const resolvedMmdWasmUrlModuleId = "\0yw-look-mmd-wasm-url";
+
+const rhino3dmPackagePath = fileURLToPath(
+  new URL("./node_modules/rhino3dm", import.meta.url),
+);
+const rhino3dmJsPath = path.resolve(rhino3dmPackagePath, "rhino3dm.js");
+const rhino3dmWasmPath = path.resolve(rhino3dmPackagePath, "rhino3dm.wasm");
+const rhino3dmDevBaseUrl = "/rhino3dm/";
+const rhino3dmLibraryPathModuleId = "virtual:yw-look-rhino3dm-library-path";
+const resolvedRhino3dmLibraryPathModuleId = "\0yw-look-rhino3dm-library-path";
 
 export function mmdWasmMimePlugin(): Plugin {
   let isServe = false;
@@ -116,12 +144,90 @@ export function mmdWasmMimePlugin(): Plugin {
   };
 }
 
+export function rhino3dmRuntimePlugin(): Plugin {
+  const serveRhino3dmAsset: Connect.NextHandleFunction = (
+    request,
+    response,
+    next,
+  ) => {
+    const requestPath = new URL(request.url ?? "/", "http://localhost")
+      .pathname;
+    const relativePath = requestPath.startsWith(rhino3dmDevBaseUrl)
+      ? requestPath.slice(rhino3dmDevBaseUrl.length)
+      : requestPath.startsWith("/")
+        ? requestPath.slice(1)
+        : requestPath;
+    const assetPath =
+      relativePath === "rhino3dm.js"
+        ? rhino3dmJsPath
+        : relativePath === "rhino3dm.wasm"
+          ? rhino3dmWasmPath
+          : null;
+
+    if (!assetPath || !existsSync(assetPath)) {
+      next();
+      return;
+    }
+
+    response.statusCode = 200;
+    response.setHeader(
+      "Content-Type",
+      relativePath.endsWith(".wasm")
+        ? "application/wasm"
+        : "text/javascript; charset=utf-8",
+    );
+    createReadStream(assetPath).pipe(response);
+  };
+
+  return {
+    name: "yw-look-rhino3dm-runtime",
+    enforce: "pre",
+    resolveId(id) {
+      return id === rhino3dmLibraryPathModuleId
+        ? resolvedRhino3dmLibraryPathModuleId
+        : null;
+    },
+    load(id) {
+      return id === resolvedRhino3dmLibraryPathModuleId
+        ? `export default ${JSON.stringify(rhino3dmDevBaseUrl)};`
+        : null;
+    },
+    configureServer(server) {
+      return () => {
+        server.middlewares.stack.unshift({
+          route: "/rhino3dm",
+          handle: serveRhino3dmAsset,
+        });
+      };
+    },
+    generateBundle() {
+      if (!existsSync(rhino3dmJsPath) || !existsSync(rhino3dmWasmPath)) {
+        throw new Error(
+          `rhino3dm runtime assets are missing under ${rhino3dmPackagePath}`,
+        );
+      }
+
+      this.emitFile({
+        type: "asset",
+        fileName: "rhino3dm/rhino3dm.js",
+        source: readFileSync(rhino3dmJsPath),
+      });
+      this.emitFile({
+        type: "asset",
+        fileName: "rhino3dm/rhino3dm.wasm",
+        source: readFileSync(rhino3dmWasmPath),
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [mmdWasmMimePlugin(), react()],
+  plugins: [mmdWasmMimePlugin(), rhino3dmRuntimePlugin(), react()],
   clearScreen: false,
   define: {
     __YW_HAS_THREE_MMD_LOADER__: JSON.stringify(includeOptionalThreeMmdLoader),
     __YW_HAS_SPARK_LOADER__: JSON.stringify(includeOptionalSparkLoader),
+    __YW_HAS_IFC_LOADER__: JSON.stringify(includeOptionalIfcLoader),
   },
   resolve: {
     alias: [
@@ -136,6 +242,12 @@ export default defineConfig({
         replacement: includeOptionalSparkLoader
           ? installedSparkLoaderEntry
           : unavailableSparkLoaderEntry,
+      },
+      {
+        find: "#yw-look-ifc-loader-entry",
+        replacement: includeOptionalIfcLoader
+          ? installedIfcLoaderEntry
+          : unavailableIfcLoaderEntry,
       },
       ...(includeOptionalThreeMmdLoader
         ? []
@@ -170,6 +282,13 @@ export default defineConfig({
             normalizedId.includes("node_modules/@yohawing/three-mmd-loader")
           ) {
             return "mmd-loader-pack";
+          }
+
+          if (
+            normalizedId.includes("node_modules/@thatopen/fragments") ||
+            normalizedId.includes("node_modules/web-ifc")
+          ) {
+            return "ifc-loader-pack";
           }
 
           if (normalizedId.includes("node_modules/three")) {

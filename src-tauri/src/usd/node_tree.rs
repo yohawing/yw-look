@@ -7,6 +7,7 @@ use super::prim_path::{ancestor_group_paths, basename_from_prim_path, parent_pri
 
 pub(crate) struct NodePayloadMaps {
     pub(crate) path_to_kind: HashMap<String, glb::NodeKind>,
+    pub(crate) path_to_usd_type_name: HashMap<String, String>,
     pub(crate) path_to_mesh_idx: HashMap<String, usize>,
     pub(crate) path_to_light_idx: HashMap<String, usize>,
     pub(crate) path_to_camera_idx: HashMap<String, usize>,
@@ -26,6 +27,7 @@ where
 {
     let mut maps = NodePayloadMaps {
         path_to_kind: HashMap::new(),
+        path_to_usd_type_name: HashMap::new(),
         path_to_mesh_idx: HashMap::new(),
         path_to_light_idx: HashMap::new(),
         path_to_camera_idx: HashMap::new(),
@@ -105,6 +107,7 @@ where
 
         out.push(glb::NodeInput {
             prim_path: path.clone(),
+            usd_type_name: maps.path_to_usd_type_name.get(path).cloned(),
             basename: basename_from_prim_path(path),
             parent,
             local_matrix,
@@ -193,6 +196,7 @@ mod tests {
         }
         NodePayloadMaps {
             path_to_kind,
+            path_to_usd_type_name: HashMap::new(),
             path_to_mesh_idx: HashMap::new(),
             path_to_light_idx: HashMap::new(),
             path_to_camera_idx: HashMap::new(),

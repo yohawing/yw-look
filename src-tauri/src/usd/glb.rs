@@ -571,6 +571,11 @@ pub struct NodeInput {
     /// Written verbatim into `node.extras.primPath` in the GLB so the
     /// frontend can use it as a stable selection key.
     pub prim_path: String,
+    /// Composed USD schema type name (for example, `Xform`, `Scope`, or
+    /// `Mesh`) when the node came from the OpenUSD backend. This is kept
+    /// optional so generic/non-USD callers do not have to invent a type.
+    /// Non-empty values are written to `node.extras.usdTypeName`.
+    pub usd_type_name: Option<String>,
     /// Last path component (e.g. `"Cube"`). Used as the glTF node name
     /// so the Three.js scene graph shows human-readable labels rather
     /// than full paths.
@@ -677,6 +682,7 @@ impl NodeInput {
     ) -> Self {
         Self {
             prim_path,
+            usd_type_name: None,
             basename,
             parent,
             local_matrix,
@@ -2435,6 +2441,9 @@ fn build_glb_with_bin_capacity_and_node_animations(
                 "primPath": ni.prim_path,
                 "purpose": purpose_str,
             });
+            if let Some(type_name) = ni.usd_type_name.as_deref().filter(|name| !name.is_empty()) {
+                extras["usdTypeName"] = json!(type_name);
+            }
 
             let node_json = match ni.kind {
                 NodeKind::Group => {
@@ -3465,6 +3474,7 @@ mod tests {
     fn mesh_hierarchy_node(mesh_payload_idx: usize, parent: Option<usize>) -> NodeInput {
         NodeInput {
             prim_path: format!("/Root/Mesh{mesh_payload_idx}"),
+            usd_type_name: None,
             basename: format!("Mesh{mesh_payload_idx}"),
             parent,
             local_matrix: identity_matrix(),
@@ -3768,6 +3778,67 @@ mod tests {
     }
 
     #[test]
+    fn build_glb_emits_optional_usd_type_name_extra() {
+        let nodes = vec![
+            NodeInput {
+                prim_path: "/World".to_string(),
+                usd_type_name: Some("Xform".to_string()),
+                basename: "World".to_string(),
+                parent: None,
+                local_matrix: identity_matrix(),
+                kind: NodeKind::Group,
+                mesh_payload_idx: None,
+                light_payload_idx: None,
+                camera_payload_idx: None,
+                skin_payload_idx: None,
+            },
+            NodeInput {
+                prim_path: "/World/NoType".to_string(),
+                usd_type_name: Some(String::new()),
+                basename: "NoType".to_string(),
+                parent: Some(0),
+                local_matrix: identity_matrix(),
+                kind: NodeKind::Group,
+                mesh_payload_idx: None,
+                light_payload_idx: None,
+                camera_payload_idx: None,
+                skin_payload_idx: None,
+            },
+        ];
+        let glb = build_glb(
+            &nodes,
+            &[],
+            &default_materials(),
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+        )
+        .expect("build GLB with USD type extras");
+
+        let doc = glb_json(&glb);
+        let gltf_nodes = doc["nodes"].as_array().expect("nodes array");
+        let world = gltf_nodes
+            .iter()
+            .find(|node| node["name"].as_str() == Some("World"))
+            .expect("World node");
+        let no_type = gltf_nodes
+            .iter()
+            .find(|node| node["name"].as_str() == Some("NoType"))
+            .expect("NoType node");
+
+        assert_eq!(world["extras"]["primPath"], "/World");
+        assert_eq!(world["extras"]["purpose"], "default");
+        assert_eq!(world["extras"]["usdTypeName"], "Xform");
+        assert_eq!(no_type["extras"]["primPath"], "/World/NoType");
+        assert_eq!(no_type["extras"]["purpose"], "default");
+        assert!(no_type["extras"].get("usdTypeName").is_none());
+    }
+
+    #[test]
     fn build_glb_roundtrips_a_unit_quad() {
         let mesh = unit_quad_split_into_two_triangles();
         let glb = build_glb(
@@ -3851,6 +3922,7 @@ mod tests {
         };
         let nodes = vec![NodeInput {
             prim_path: "/Root".to_string(),
+            usd_type_name: None,
             basename: "Root".to_string(),
             parent: None,
             local_matrix: identity_matrix(),

@@ -37,6 +37,7 @@ export function KeyValueRows({
         <div className="yl-kv-row" key={row.id}>
           <span className="yl-kv-key">{row.label}</span>
           <span
+            title={typeof row.value === "string" ? row.value : undefined}
             className={[
               "yl-kv-value",
               row.mono ? "is-mono" : null,

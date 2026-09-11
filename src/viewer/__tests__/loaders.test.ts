@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import {
   loaderRegistry,
+  loadPreviewObject,
   listOptionalLoaderPacks,
   listRegisteredLoaders,
   summarizeOptionalLoaderPacks,
@@ -42,6 +43,7 @@ describe("preview support classification", () => {
     expect(extensions.has("bvh")).toBe(true);
     expect(extensions.has("ktx2")).toBe(true);
     expect(extensions.has("psd")).toBe(true);
+    expect(extensions.has("3dm")).toBe(true);
   });
 
   it("exposes registered format packs by id", () => {
@@ -54,6 +56,7 @@ describe("preview support classification", () => {
       "vmd",
     ]);
     expect(loaderRegistry.listPacks().map((pack) => pack.id)).toEqual([
+      "cad-loader-pack",
       "core-preview-loader",
       "gaussian-splat-loader-pack",
       "mmd-loader-pack",
@@ -75,6 +78,44 @@ describe("preview support classification", () => {
     expect(getPreviewSupportState("pmd")).toBe("implemented");
     expect(getPreviewSupportState("vmd")).toBe("implemented");
   });
+
+  it.each(["ifc", "3dm", "3mf"])(
+    "gates %s through the CAD pack",
+    (extension) => {
+      expect(getPreviewSupportState(extension)).toBe("implemented");
+      expect(
+        getPreviewSupportState(extension, { optionalLoaderInstalled: false }),
+      ).toBe("missingOptionalLoader");
+      expect(
+        getPreviewSupportState(extension, {
+          disabledOptionalLoaderPackIds: ["cad-loader-pack"],
+        }),
+      ).toBe("disabledOptionalLoader");
+    },
+  );
+
+  it.each(["ifc", "3dm", "3mf"])(
+    "rejects disabled %s before reading the file",
+    async (extension) => {
+      const file = {
+        path: `missing.${extension}`,
+        fileName: `missing.${extension}`,
+        parentDirectory: "",
+        extension,
+        kind: "model" as const,
+      };
+      await expect(
+        loadPreviewObject(file, undefined, {
+          disabledOptionalLoaderPackIds: ["cad-loader-pack"],
+        }),
+      ).rejects.toThrow("Preview loader is not installed");
+      expect(
+        getPreviewSupportState(extension, {
+          incompatibleOptionalLoaderPackIds: ["cad-loader-pack"],
+        }),
+      ).toBe("incompatibleOptionalLoader");
+    },
+  );
 
   it("marks optional MMD formats as missing when the pack is absent", () => {
     expect(
@@ -167,6 +208,22 @@ describe("preview support classification", () => {
 
   it("summarizes optional loader packs for Settings reporting", () => {
     expect(listOptionalLoaderPacks()).toEqual([
+      {
+        id: "cad-loader-pack",
+        name: "CAD Loader Pack",
+        extensions: ["3dm", "3mf", "ifc"],
+        installed: true,
+        enabled: true,
+        manifestInstalled: false,
+        runtimeAvailable: true,
+        version: undefined,
+        compatibility: {
+          state: "bundled",
+          label: "Bundled runtime",
+          detail:
+            "The loader is bundled with this build but has no managed manifest.",
+        },
+      },
       {
         id: "gaussian-splat-loader-pack",
         name: "Gaussian Splat Loader Pack",

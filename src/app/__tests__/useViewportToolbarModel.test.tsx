@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useViewportToolbarModel } from "../useViewportToolbarModel";
 import { useViewerStore } from "../../stores/viewerStore";
+import { useFileStore } from "../../stores/fileStore";
+import { Group, PerspectiveCamera } from "three";
+import { collectAssetMetadata } from "../../viewer/metadata";
 import type { ToolbarAction, ToolbarItem } from "../../types/ui";
 import { requestViewportCameraPreset } from "../../viewport/viewportCommands";
 
@@ -26,7 +29,9 @@ function findAction(items: ToolbarItem[], id: string): ToolbarAction {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useFileStore.setState({ assetMetadata: null });
   useViewerStore.setState({
+    activeCameraId: null,
     viewerSurfaceMode: "asset",
     showTexture: false,
     showWireframe: false,
@@ -41,6 +46,149 @@ afterEach(() => {
 });
 
 describe("useViewportToolbarModel", () => {
+  it("selects distinct authored cameras, returns to free view, and removes options on file change", () => {
+    const root = new Group();
+    const first = new PerspectiveCamera();
+    const second = new PerspectiveCamera();
+    first.name = second.name = "Shot";
+    root.add(first, second);
+    const metadata = collectAssetMetadata(
+      root,
+      {
+        path: "/camera.glb",
+        fileName: "camera.glb",
+        extension: "glb",
+        kind: "model",
+        parentDirectory: "/",
+      },
+      [],
+      null,
+    ).metadata;
+    useFileStore.setState({ assetMetadata: metadata });
+    const { result } = renderHook(() => useViewportToolbarModel());
+    const action = (id: string) =>
+      findAction(result.current.viewportToolbarItems, id);
+    const [a, b] = metadata.cameras;
+    expect(a.id).not.toBe(b.id);
+    act(() => action(`camera-asset:${a.id}`).onRun?.());
+    expect(useViewerStore.getState().activeCameraId).toBe(a.id);
+    expect(action(`camera-asset:${a.id}`).active).toBe(true);
+    act(() => action(`camera-asset:${b.id}`).onRun?.());
+    expect(useViewerStore.getState().activeCameraId).toBe(b.id);
+    expect(requestViewportCameraPreset).not.toHaveBeenCalled();
+    act(() => action("camera-free").onRun?.());
+    expect(useViewerStore.getState().activeCameraId).toBeNull();
+    expect(action("camera-free").active).toBe(true);
+    act(() => action(`camera-asset:${a.id}`).onRun?.());
+    act(() => action("camera-front").onRun?.());
+    expect(useViewerStore.getState().activeCameraId).toBeNull();
+    expect(requestViewportCameraPreset).toHaveBeenCalledWith("front");
+    expect(action("camera-front").active).toBe(true);
+    act(() => useFileStore.setState({ assetMetadata: null }));
+    expect(() => action(`camera-asset:${a.id}`)).toThrow(
+      "Toolbar action not found",
+    );
+    expect(() => action("camera-free")).toThrow("Toolbar action not found");
+  });
+  it("connects Lighting controls to persistent viewer settings and reflects None", () => {
+    useViewerStore.setState({
+      environmentPreset: "studio",
+      environmentRotation: 0,
+      showEnvironmentBackground: false,
+      showShadows: false,
+    });
+    const { result } = renderHook(() => useViewportToolbarModel());
+    const action = (id: string) =>
+      findAction(result.current.viewportToolbarItems, id);
+    act(() => action("environment-outdoor").onRun?.());
+    act(() => {
+      const rotation = action("environment-rotation");
+      if (rotation.kind !== "slider")
+        throw new Error("Expected rotation slider");
+      rotation.onValueChange(90);
+      action("environment-background").onRun?.();
+      action("lighting-shadows").onRun?.();
+    });
+    expect(useViewerStore.getState()).toMatchObject({
+      environmentPreset: "outdoor",
+      environmentRotation: Math.PI / 2,
+      showEnvironmentBackground: true,
+      showShadows: true,
+    });
+    expect(action("environment-rotation")).toMatchObject({
+      value: 90,
+      disabled: false,
+    });
+    act(() => action("environment-none").onRun?.());
+    expect(action("environment-none").active).toBe(true);
+    expect(action("environment-background")).toMatchObject({
+      active: false,
+      disabled: true,
+    });
+    expect(action("environment-rotation").disabled).toBe(true);
+    expect(useViewerStore.getState().showEnvironmentBackground).toBe(true);
+    act(() => action("environment-studio").onRun?.());
+    expect(action("environment-background")).toMatchObject({
+      active: true,
+      disabled: false,
+    });
+    expect(action("environment-rotation")).toMatchObject({ value: 90 });
+    act(() => {
+      const rotation = action("environment-rotation");
+      if (rotation.kind === "slider") rotation.onValueChange(360);
+    });
+    expect(action("environment-rotation")).toMatchObject({
+      value: 360,
+      valueLabel: "360°",
+    });
+  });
+  it("updates the vertex color status when files change while the mode stays active", () => {
+    const metadata = collectAssetMetadata(
+      new Group(),
+      {
+        path: "/test.glb",
+        fileName: "test.glb",
+        extension: "glb",
+        kind: "model",
+        parentDirectory: "/",
+      },
+      [],
+      null,
+    ).metadata;
+    useFileStore.setState({ assetMetadata: metadata });
+    useViewerStore.setState({
+      showVertexColors: true,
+      showNormals: false,
+      showUnlit: false,
+    });
+    const { result } = renderHook(() => useViewportToolbarModel());
+    const status = () =>
+      findAction(result.current.viewportToolbarItems, "display").children?.find(
+        (item) => item.kind === "status" && item.id === "vertex-color-status",
+      );
+    expect(status()).toMatchObject({
+      label: "No vertex colors. Meshes are shown gray.",
+    });
+    act(() =>
+      useFileStore.setState({
+        assetMetadata: { ...metadata, vertexColorMeshCount: 1 },
+      }),
+    );
+    expect(status()).toMatchObject({
+      label: "Meshes without vertex colors are shown gray.",
+    });
+    expect(
+      findAction(result.current.viewportToolbarItems, "display-vertexColor")
+        .active,
+    ).toBe(true);
+    act(() =>
+      findAction(
+        result.current.viewportToolbarItems,
+        "display-shaded",
+      ).onRun?.(),
+    );
+    expect(status()).toBeUndefined();
+  });
   it("derives display mode and updates 3D toolbar state through selectors", () => {
     const { result } = renderHook(() => useViewportToolbarModel());
 

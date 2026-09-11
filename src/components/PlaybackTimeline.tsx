@@ -16,6 +16,8 @@ type PlaybackTimelineProps = {
   clipName: string;
   currentTime: number;
   duration: number;
+  /** Absolute display origin; runtime times and loop bounds remain local. */
+  rangeStart?: number;
   isPlaying: boolean;
   looping: boolean;
   loopRange: { start: number; end: number } | null;
@@ -50,6 +52,7 @@ function normalizeLoopRange(
 type PlaybackControllerState = {
   currentTime: number;
   duration: number;
+  rangeStart: number;
   isPlaying: boolean;
   looping: boolean;
   loopRange: { start: number; end: number } | null;
@@ -74,13 +77,18 @@ function createPlaybackController(
   return {
     getSnapshot: (): TimelinePlaybackSnapshot => {
       const safeDurationValue = safeDuration(state.duration);
+      const start = state.rangeStart;
+      const loop = normalizeLoopRange(state.loopRange, safeDurationValue);
       return {
+        range: { start, end: start + safeDurationValue },
         available: safeDurationValue > 0,
-        time: clampTime(state.currentTime, safeDurationValue),
+        time: start + clampTime(state.currentTime, safeDurationValue),
         duration: safeDurationValue,
         playing: safeDurationValue > 0 && state.isPlaying,
         looping: state.looping,
-        loopRange: normalizeLoopRange(state.loopRange, safeDurationValue),
+        loopRange: loop
+          ? { start: start + loop.start, end: start + loop.end }
+          : null,
         rate: state.playbackRate,
         target: null,
       };
@@ -92,7 +100,12 @@ function createPlaybackController(
     dispatch: (command: TimelinePlaybackCommand) => {
       switch (command.type) {
         case "seek":
-          state.onSeek(clampTime(command.time, safeDuration(state.duration)));
+          state.onSeek(
+            clampTime(
+              command.time - state.rangeStart,
+              safeDuration(state.duration),
+            ),
+          );
           break;
         case "play":
           if (!state.isPlaying) state.onTogglePlayback();
@@ -107,7 +120,12 @@ function createPlaybackController(
           {
             const onSetLoopRange = state.onSetLoopRange;
             const nextRange = normalizeLoopRange(
-              command.range,
+              command.range
+                ? {
+                    start: command.range.start - state.rangeStart,
+                    end: command.range.end - state.rangeStart,
+                  }
+                : null,
               safeDuration(state.duration),
             );
             queueMicrotask(() => onSetLoopRange(nextRange));
@@ -124,6 +142,7 @@ function createPlaybackController(
       const changed =
         state.currentTime !== nextState.currentTime ||
         state.duration !== nextState.duration ||
+        state.rangeStart !== nextState.rangeStart ||
         state.isPlaying !== nextState.isPlaying ||
         state.looping !== nextState.looping ||
         state.loopRange?.start !== nextState.loopRange?.start ||
@@ -147,14 +166,17 @@ function usePlaybackController(state: PlaybackControllerState) {
   return playbackController;
 }
 
-function usePlaybackDataSource(duration: number) {
+function usePlaybackDataSource(duration: number, rangeStart: number) {
   const safeDurationValue = safeDuration(duration);
   return useMemo<TimelineDataSource>(
     () => ({
       subscribe: () => () => undefined,
       getRevision: () => 1,
       getDomain: () => ({ kind: "seconds" }),
-      getRange: () => ({ start: 0, end: safeDurationValue }),
+      getRange: () => ({
+        start: rangeStart,
+        end: rangeStart + safeDurationValue,
+      }),
       getGroups: () => [],
       getBindings: () => [],
       getRowCount: () => 0,
@@ -162,7 +184,7 @@ function usePlaybackDataSource(duration: number) {
       getItems: () => [],
       getKeys: () => [],
     }),
-    [safeDurationValue],
+    [safeDurationValue, rangeStart],
   );
 }
 
@@ -171,6 +193,7 @@ export function PlaybackTimeline({
   clipName,
   currentTime,
   duration,
+  rangeStart = 0,
   isPlaying,
   looping,
   loopRange,
@@ -183,10 +206,14 @@ export function PlaybackTimeline({
   clipSelector,
 }: PlaybackTimelineProps) {
   const safeDurationValue = safeDuration(duration);
-  const dataSource = usePlaybackDataSource(safeDurationValue);
+  const dataSource = usePlaybackDataSource(
+    safeDurationValue,
+    Number.isFinite(rangeStart) ? rangeStart : 0,
+  );
   const playbackController = usePlaybackController({
     currentTime,
     duration: safeDurationValue,
+    rangeStart: Number.isFinite(rangeStart) ? rangeStart : 0,
     isPlaying,
     looping,
     loopRange,

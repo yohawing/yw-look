@@ -5,11 +5,7 @@ import https from "node:https";
 import path from "node:path";
 import { hasFlag, readOption, readRepeatedOption } from "./cliArgs.mjs";
 
-const DEFAULT_PLATFORMS = [
-  "windows-x86_64",
-  "windows-x86_64-nsis",
-  "darwin-aarch64",
-];
+const DEFAULT_PLATFORMS = ["windows-x86_64", "windows-x86_64-nsis"];
 
 const args = process.argv.slice(2);
 
@@ -22,6 +18,7 @@ Options:
   --manifest <path>   Local latest.json path (workflow / fixture use)
   --url <url>         Remote latest.json URL (post-release operator checks)
   --platform <name>   Additional platform key to validate (repeatable)
+  --expected-version <version> Require the manifest to match this release version
   --allow-http        Allow non-HTTPS artifact URLs
   --skip-url-check    Skip HTTP(S) reachability checks for artifact URLs
   --json              Print machine-readable JSON to stdout
@@ -60,7 +57,12 @@ function parseArgs() {
     throw new Error("One of --manifest or --url is required");
   }
 
-  const valueOptions = new Set(["--manifest", "--url", "--platform"]);
+  const valueOptions = new Set([
+    "--manifest",
+    "--url",
+    "--platform",
+    "--expected-version",
+  ]);
   const flagOptions = new Set([
     "--allow-http",
     "--skip-url-check",
@@ -90,6 +92,7 @@ function parseArgs() {
   return {
     manifestPath,
     manifestUrl,
+    expectedVersion: readOption(args, "--expected-version"),
     platforms: uniquePlatforms(readRepeatedOption(args, "--platform")),
     allowHttp: hasFlag(args, "--allow-http"),
     skipUrlCheck: hasFlag(args, "--skip-url-check"),
@@ -233,6 +236,14 @@ function validatePlatformEntry(platformName, entry, options, errors) {
 function validateManifestShape(manifest, platforms, options) {
   const errors = [];
   const platformResults = {};
+
+  if (options.expectedVersion) {
+    assert(
+      manifest.version === options.expectedVersion.replace(/^v/, ""),
+      `manifest version ${manifest.version} does not match ${options.expectedVersion}`,
+      errors,
+    );
+  }
 
   assert(
     typeof manifest.version === "string" && manifest.version.trim(),

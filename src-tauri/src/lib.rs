@@ -14,7 +14,6 @@ use std::path::PathBuf;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Emitter;
 use tauri::Manager;
-use url::Url;
 
 use crate::commands::alembic::convert_alembic_to_preview;
 use crate::commands::bench::{
@@ -36,6 +35,7 @@ use crate::commands::loader_packs::{
     install_optional_loader_pack, load_optional_loader_manifests, remove_optional_loader_pack,
 };
 use crate::commands::psd::decode_psd;
+use crate::commands::rhino3dm::{cancel_rhino3dm_preview, convert_rhino3dm_preview};
 use crate::commands::settings::{load_settings, load_update_configuration, save_settings};
 use crate::commands::shot::{
     finish_shot_run, get_shot_batch_config, get_shot_config, parse_shot_cli_config,
@@ -47,11 +47,12 @@ use crate::commands::startup_bench::{
 use crate::commands::updater::{check_for_update, install_pending_update};
 use crate::commands::usd::{
     backend_capabilities, close_stage_session, collect_asset_issues, extract_geometry,
-    extract_geometry_session, flatten_stage, inspect_attribute_time_samples, inspect_prim,
-    inspect_stage, inspect_usd_lights, load_payload, open_stage_session, requires_glb_preview,
-    summarize_stage, unload_payload,
+    extract_geometry_session, inspect_attribute_time_samples, inspect_prim, inspect_stage,
+    load_payload, open_stage_session, requires_glb_preview, summarize_stage, unload_payload,
 };
-use crate::state::{FbxImportState, PendingOpenFiles, PendingUpdateState, UsdBackendState};
+use crate::state::{
+    FbxImportState, PendingOpenFiles, PendingUpdateState, Rhino3dmImportState, UsdBackendState,
+};
 use crate::usd::{DefaultBackend, StageRegistry};
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -112,6 +113,20 @@ fn install_panic_hook() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if std::env::args()
+        .skip(1)
+        .any(|arg| arg == "--print-update-config")
+    {
+        if std::env::args().skip(1).collect::<Vec<_>>() != ["--print-update-config"] {
+            eprintln!("--print-update-config must be used alone");
+            std::process::exit(2);
+        }
+        println!(
+            "{}",
+            crate::commands::updater::compiled_update_configuration()
+        );
+        return;
+    }
     let bench_cli_config = parse_bench_cli_config().expect("failed to parse bench CLI args");
     let shot_cli_config = parse_shot_cli_config().expect("failed to parse shot CLI args");
     let startup_bench_cli_config =
@@ -123,6 +138,26 @@ pub fn run() {
         && (bench_cli_config.is_some() || shot_cli_config.is_some())
     {
         panic!("--startup-bench cannot be combined with --bench-load or --shot/--check");
+    }
+
+    let mut context = tauri::generate_context!();
+    let cli_entry = if bench_cli_config.is_some() {
+        Some("bench")
+    } else if shot_cli_config.is_some() {
+        Some("shot")
+    } else {
+        None
+    };
+    if let Some(entry) = cli_entry {
+        // Let Tauri resolve the development or bundled origin before creating the webview.
+        let window = context
+            .config_mut()
+            .app
+            .windows
+            .iter_mut()
+            .find(|window| window.label == "main")
+            .expect("main window configuration is missing");
+        window.url = tauri::WebviewUrl::App(format!("index.html?entry={entry}").into());
     }
 
     // macOS can deliver an Opened event before the setup callback runs during
@@ -151,6 +186,7 @@ pub fn run() {
 
             app.manage(PendingUpdateState::default());
             app.manage(FbxImportState::default());
+            app.manage(Rhino3dmImportState::default());
             app.manage(UsdBackendState::new(DefaultBackend::new()));
             app.manage(StageRegistry::new());
             app.manage(bench_cli_config.clone());
@@ -163,13 +199,6 @@ pub fn run() {
             if !is_cli {
                 app.manage(initialize_crash_marker(&app.handle())?);
             }
-            let entry_url: Option<&str> = if bench_cli_config.is_some() {
-                Some("http://localhost:1420/?entry=bench")
-            } else if shot_cli_config.is_some() {
-                Some("http://localhost:1420/?entry=shot")
-            } else {
-                None
-            };
 
             let window = app.get_webview_window("main").ok_or_else(|| {
                 Box::<dyn std::error::Error>::from(std::io::Error::new(
@@ -199,14 +228,6 @@ pub fn run() {
                     .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
             }
 
-            if let Some(url) = entry_url {
-                window
-                    .navigate(
-                        Url::parse(url)
-                            .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?,
-                    )
-                    .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
-            }
             if !is_cli {
                 let app_handle = app.handle().clone();
                 window.on_window_event(move |event| {
@@ -233,6 +254,8 @@ pub fn run() {
             convert_alembic_to_preview,
             convert_fbx_to_preview,
             cancel_fbx_import,
+            convert_rhino3dm_preview,
+            cancel_rhino3dm_preview,
             get_startup_files,
             load_recent_files,
             load_optional_loader_manifests,
@@ -271,15 +294,13 @@ pub fn run() {
             extract_geometry,
             inspect_prim,
             inspect_attribute_time_samples,
-            flatten_stage,
-            inspect_usd_lights,
             open_stage_session,
             close_stage_session,
             load_payload,
             unload_payload,
             extract_geometry_session
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building yw-look");
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]

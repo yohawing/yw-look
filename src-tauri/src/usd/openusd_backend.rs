@@ -673,21 +673,28 @@ impl UsdInspectBackend for OpenusdBackend {
         if stage.layer_count() > 1 {
             return Ok(true);
         }
-        let has_point_instancer = RefCell::new(false);
+        let needs_native_resources = RefCell::new(false);
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
-                if stage
-                    .prim_at(prim_path.clone())
-                    .type_name()
-                    .ok()
-                    .flatten()
-                    .is_some_and(|type_name| type_name.as_str() == "PointInstancer")
-                {
-                    *has_point_instancer.borrow_mut() = true;
+                let type_name = stage.prim_at(prim_path.clone()).type_name().ok().flatten();
+                // The JS text loader only receives the layer buffer and cannot
+                // resolve UsdUVTexture sidecars. This also covers shaders past
+                // the command's bounded prefix scan.
+                let is_texture = type_name
+                    .as_ref()
+                    .is_some_and(|name| name.as_str() == "Shader")
+                    && prim_path
+                        .append_property("info:id")
+                        .ok()
+                        .and_then(|path| stage_query::read_string_attr(&stage, path))
+                        .as_deref()
+                        == Some("UsdUVTexture");
+                if is_texture || type_name.is_some_and(|name| name.as_str() == "PointInstancer") {
+                    *needs_native_resources.borrow_mut() = true;
                 }
             })
             .map_err(|error| UsdError::Parse(error.to_string()))?;
-        if *has_point_instancer.borrow() {
+        if *needs_native_resources.borrow() {
             return Ok(true);
         }
         // Single-layer USDA can contain either the formal Gaussian splat
@@ -808,6 +815,27 @@ impl UsdInspectBackend for OpenusdBackend {
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
                 let source = prim_path.as_str().to_string();
+                let shader_id = prim_path
+                    .append_property("info:id")
+                    .ok()
+                    .and_then(|path| stage_query::read_string_attr(&stage, path));
+                if shader_id.as_deref() == Some("UsdUVTexture") {
+                    if let Some((authored, resolved)) = prim_path
+                        .append_property("inputs:file")
+                        .ok()
+                        .and_then(|path| stage_query::read_asset_details(&stage, path))
+                    {
+                        if !authored.is_empty() && resolved.as_deref().is_none_or(str::is_empty) {
+                            collected.borrow_mut().push(AssetIssue {
+                                code: AssetIssueCode::MissingTexture,
+                                level: AssetIssueLevel::Warning,
+                                message: format!("Missing texture reference: {authored}"),
+                                detail: None,
+                                context_path: Some(source.clone()),
+                            });
+                        }
+                    }
+                }
                 for r in stage_query::references_in(&stage, prim_path.clone()) {
                     if reference_arc_state(&unresolved, &r.asset_path)
                         == CompositionArcState::Missing
@@ -1431,6 +1459,24 @@ def Xform "Root"
     }
 
     #[test]
+    fn single_layer_texture_beyond_prefix_requires_glb_preview() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("texture.usda");
+        for (shader_id, expected) in [("UsdUVTexture", true), ("UsdPreviewSurface", false)] {
+            let contents = format!(
+                "#usda 1.0\n#{}\ndef Shader \"Image\"\n{{\n uniform token info:id = \"{}\"\n}}\n",
+                " ".repeat(70 * 1024),
+                shader_id,
+            );
+            std::fs::write(&path, contents).unwrap();
+            assert_eq!(
+                OpenusdBackend::new().requires_glb_preview(&path).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn single_layer_materialx_requires_glb_preview() {
         let root =
             std::env::temp_dir().join(format!("yw-look-materialx-routing-{}", std::process::id()));
@@ -1750,6 +1796,48 @@ def Xform "World"
         assert_eq!(variant.variants, variants);
 
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn collect_issues_reports_missing_texture_relative_to_its_authored_layer() {
+        let dir = tempfile::tempdir().unwrap();
+        let looks = dir.path().join("looks");
+        std::fs::create_dir(&looks).unwrap();
+        // This is a resolver test; image decoding is covered by preview fixtures.
+        std::fs::write(looks.join("present.png"), b"resource").unwrap();
+        std::fs::write(
+            looks.join("material.usda"),
+            r#"#usda 1.0
+def Scope "Looks" {
+    def Shader "Present" {
+        uniform token info:id = "UsdUVTexture"
+        asset inputs:file = @present.png@
+    }
+    def Shader "Missing" {
+        uniform token info:id = "UsdUVTexture"
+        asset inputs:file = @absent.png@
+    }
+}
+"#,
+        )
+        .unwrap();
+        let root = dir.path().join("root.usda");
+        std::fs::write(
+            &root,
+            r#"#usda 1.0
+def Scope "World" (references = @looks/material.usda@</Looks>) {}
+"#,
+        )
+        .unwrap();
+        let issues = OpenusdBackend::new().collect_asset_issues(&root).unwrap();
+        let textures: Vec<_> = issues
+            .iter()
+            .filter(|issue| matches!(issue.code, AssetIssueCode::MissingTexture))
+            .collect();
+        assert_eq!(textures.len(), 1, "{issues:?}");
+        assert_eq!(textures[0].context_path.as_deref(), Some("/World/Missing"));
+        assert!(textures[0].message.contains("absent.png"));
+        assert!(matches!(textures[0].level, AssetIssueLevel::Warning));
     }
 
     #[test]

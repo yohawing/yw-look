@@ -242,6 +242,31 @@ describe("getRendererLifetimeBoundary", () => {
 });
 
 describe("useViewportSceneLifecycle", () => {
+  it("starts with None without allocating an environment and keeps rotation across renderer recreation", () => {
+    const options = makeLifecycleOptions();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    options.environmentRotationRef.current = Math.PI / 2;
+    options.showEnvironmentBackgroundRef.current = true;
+    const { rerender } = renderHook(
+      ({ extension }: { extension: string }) =>
+        useViewportSceneLifecycle({
+          ...options,
+          environmentPresetRef: ref("none"),
+          currentFileExtension: extension,
+        }),
+      { initialProps: { extension: "glb" } },
+    );
+    for (const extension of ["glb", "pmx", "glb"]) {
+      rerender({ extension });
+      const context = options.sceneContextRef.current!;
+      expect(context.scene.environment).toBeNull();
+      expect(context.scene.background).toMatchObject({ isColor: true });
+      expect(context.scene.environmentRotation.y).toBe(Math.PI / 2);
+      expect(context.pmremGenerator.fromScene).not.toHaveBeenCalled();
+      expect(options.environmentTargetRef.current).toBeNull();
+    }
+  });
   it("renders once before synchronizing a mounted object for BVH transfer", () => {
     const options = makeLifecycleOptions();
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);

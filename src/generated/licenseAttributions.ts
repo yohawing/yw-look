@@ -62,6 +62,18 @@ export const webRuntimeLicenseAttributions = [
     source: "web",
   },
   {
+    name: "@thatopen/fragments",
+    version: "3.4.7",
+    license: "MIT",
+    source: "web",
+  },
+  {
+    name: "@xmldom/xmldom",
+    version: "0.9.12",
+    license: "MIT",
+    source: "web",
+  },
+  {
     name: "@yohawing/three-mmd-loader",
     version: "0.8.2",
     license: "MIT",
@@ -80,6 +92,12 @@ export const webRuntimeLicenseAttributions = [
     source: "web",
   },
   {
+    name: "react-arborist",
+    version: "3.16.0",
+    license: "MIT",
+    source: "web",
+  },
+  {
     name: "react-dom",
     version: "19.2.8",
     license: "MIT",
@@ -88,6 +106,12 @@ export const webRuntimeLicenseAttributions = [
   {
     name: "react-resizable-panels",
     version: "4.12.3",
+    license: "MIT",
+    source: "web",
+  },
+  {
+    name: "rhino3dm",
+    version: "8.32.2",
     license: "MIT",
     source: "web",
   },
@@ -101,6 +125,12 @@ export const webRuntimeLicenseAttributions = [
     name: "three-mesh-bvh",
     version: "0.9.14",
     license: "MIT",
+    source: "web",
+  },
+  {
+    name: "web-ifc",
+    version: "0.0.77",
+    license: "MPL-2.0",
     source: "web",
   },
   {

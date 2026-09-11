@@ -955,7 +955,7 @@ fn is_material_x_shader_id(id: &str) -> bool {
     id.starts_with("ND_") || id.starts_with("MaterialX")
 }
 
-fn read_asset_details(stage: &Stage, path: sdf::Path) -> Option<(String, Option<String>)> {
+pub(super) fn read_asset_details(stage: &Stage, path: sdf::Path) -> Option<(String, Option<String>)> {
     let value: Option<Value> = stage.attribute_at(path).get::<Value>().ok().flatten();
     match value? {
         Value::AssetPath(asset) => {
@@ -1010,7 +1010,7 @@ fn read_type_name(stage: &Stage, prim_path: sdf::Path) -> Option<String> {
 /// scalar. Read via `Attribute::get::<Value>()` (see [`read_attr`]);
 /// used for token/string/asset-path properties like `info:id` or
 /// `elementType` that don't fit the typed helpers below.
-fn read_string_attr(stage: &Stage, path: sdf::Path) -> Option<String> {
+pub(super) fn read_string_attr(stage: &Stage, path: sdf::Path) -> Option<String> {
     let value: Option<Value> = stage.attribute_at(path).get::<Value>().ok().flatten();
     match value? {
         Value::String(v) => Some(v),

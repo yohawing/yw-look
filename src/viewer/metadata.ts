@@ -1,4 +1,9 @@
 import {
+  texturePackageSource,
+  textureSourceFileName,
+  textureSourceIdentity,
+} from "../lib/textureSource";
+import {
   AnimationClip,
   Box3,
   Bone,
@@ -42,6 +47,8 @@ import type { TextureSlotKey, TexturedMaterial } from "./types";
 import {
   isViewportHelperObject,
   getMaterials,
+  getAuthoredSurfaceMaterial,
+  getVertexColorAttribute,
   type SceneTraversalSnapshot,
 } from "./scene";
 import {
@@ -67,6 +74,23 @@ function getObjectKind(object: Object3D) {
   }
 
   return object.type.toLowerCase();
+}
+
+/** Resolve the authored USD type for hierarchy rows when the GLB loader
+ * carried it through node extras. Runtime ObjectInfo classification remains
+ * Three.js-based; this is only for the user-facing USD hierarchy label. */
+function getHierarchyKind(object: Object3D): string {
+  // The USD loader emits both extras.primPath and extras.usdTypeName. Keep
+  // arbitrary glTF extras from changing the established non-USD hierarchy
+  // kind unless the node is identifiable as a USD prim.
+  const isUsdPrim =
+    typeof object.userData?.primPath === "string" &&
+    object.userData.primPath.trim().length > 0;
+  const usdTypeName =
+    isUsdPrim && typeof object.userData?.usdTypeName === "string"
+      ? object.userData.usdTypeName.trim()
+      : "";
+  return usdTypeName || getObjectKind(object);
 }
 
 function fallbackTrackNameParts(name: string): {
@@ -281,7 +305,7 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
     ...(visibleName && visibleName !== nodeName
       ? { displayName: visibleName }
       : {}),
-    kind: getObjectKind(object),
+    kind: getHierarchyKind(object),
     children: collectHierarchyChildren(object),
     ...(primPath !== undefined ? { primPath } : {}),
   };
@@ -351,23 +375,15 @@ function textureSlot(
   slotLabel: string,
 ): MaterialTextureSlot | null {
   if (!(texture instanceof Texture)) return null;
-  const name =
-    texture.name.trim() ||
-    (typeof texture.userData?.path === "string" && texture.userData.path
-      ? texture.userData.path
-      : slotLabel);
-  return { name };
-}
-
-function textureFileName(value: string): string {
-  const normalized = value.trim().replace(/\\/g, "/").split(/[?#]/, 1)[0];
-  const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
-  if (!basename) return value.trim();
-  try {
-    return decodeURIComponent(basename);
-  } catch {
-    return basename;
-  }
+  const source =
+    stringValue(texture.userData.path) ??
+    stringValue(texture.userData.fbxSourceName) ??
+    stringValue(texture.userData.sourcePath) ??
+    stringValue(texture.userData.uri) ??
+    stringValue(texture.name);
+  if (!source) return { name: slotLabel };
+  const name = textureSourceFileName(source);
+  return { name, ...(source !== name ? { sourcePath: source } : {}) };
 }
 
 function textureSourceReference(
@@ -413,15 +429,12 @@ function textureDisplayName(
     currentFile,
   );
   return sourceReference
-    ? textureFileName(sourceReference)
+    ? textureSourceFileName(sourceReference)
     : `${channel} Texture`;
 }
 
 function textureSourceKey(sourceReference: string, channel: string): string {
-  const normalized = sourceReference
-    .trim()
-    .replace(/\\/g, "/")
-    .split(/[?#]/, 1)[0];
+  const normalized = textureSourceIdentity(sourceReference);
   return `${channel}:${normalized}`;
 }
 
@@ -704,6 +717,7 @@ function mmdMorphsByIndex(object: Mesh): Map<number, MmdMorphEntry> {
 function buildMaterialEntry(
   material: Material,
   boundMeshes: string[],
+  currentFile: SelectedFile,
 ): MaterialEntry {
   const typeName = material.type
     .replace("Material", "")
@@ -748,15 +762,29 @@ function buildMaterialEntry(
   }
 
   const ud = material.userData as Record<string, unknown>;
+  const authoredName = material.name.trim();
+  const usdSource = ["usd", "usda", "usdc", "usdz"].includes(
+    currentFile.extension,
+  );
   const usdPrimPath =
     typeof ud.usdPrimPath === "string" && ud.usdPrimPath
       ? ud.usdPrimPath
-      : null;
+      : usdSource && authoredName.startsWith("usd:/")
+        ? authoredName.slice(4)
+        : null;
   const mmd = buildMmdMaterialEntry(material);
+  const displayName = usdPrimPath
+    ? (stringValue(ud.displayName) ??
+      (authoredName &&
+      authoredName !== usdPrimPath &&
+      authoredName !== `usd:${usdPrimPath}`
+        ? authoredName
+        : basenameFromPrimPath(usdPrimPath)))
+    : authoredName;
 
   return {
     id: material.uuid,
-    name: mmd?.name ?? (material.name.trim() || typeName),
+    name: mmd?.name ?? (displayName || typeName),
     type: typeName,
     color: getMaterialColor(material),
     opacity: material.opacity,
@@ -1060,6 +1088,7 @@ export function scheduleTextureThumbnailEnrichment({
 function inferTextureSourceKind(
   texture: Texture,
   currentFile: SelectedFile,
+  sourceReference?: string,
 ): AssetMetadata["textures"][number]["sourceKind"] {
   const fromUserData = texture.userData.textureSourceKind;
   if (
@@ -1074,6 +1103,16 @@ function inferTextureSourceKind(
   if (currentFile.kind === "texture") {
     return "standalone";
   }
+
+  if (sourceReference && texturePackageSource(sourceReference))
+    return "embedded";
+  if (
+    sourceReference &&
+    (["usd", "usda", "usdc"].includes(currentFile.extension) ||
+      (currentFile.extension === "usdz" &&
+        /^(?:[A-Za-z]:[\\/]|[\\/]|https?:\/\/)/.test(sourceReference)))
+  )
+    return "external";
 
   if (currentFile.extension === "glb") {
     return "embedded";
@@ -1236,7 +1275,7 @@ function buildObjectInfo(
         triangleCount = Math.round(vertexCount / 3);
       }
     }
-    const mats = getMaterials(object.material);
+    const mats = getMaterials(getAuthoredSurfaceMaterial(object));
     materialNames = mats.map((m) => materialDisplayName(m, m.type));
     materialIds = mats.map((m) => m.uuid);
 
@@ -1281,6 +1320,7 @@ function buildObjectInfo(
       k !== "vrm" &&
       k !== "primPath" &&
       k !== "purpose" &&
+      k !== "usdTypeName" &&
       k !== "textureSourceKind",
   );
   const userData =
@@ -1327,6 +1367,7 @@ export function collectAssetMetadata(
 ): MetadataCollection {
   let nodeCount = 0;
   let meshCount = 0;
+  let vertexColorMeshCount = 0;
   let boneCount = 0;
   const materials = new Set<Material>();
   // Material → mesh-name list. Insertion-ordered so the UI shows binds
@@ -1378,10 +1419,11 @@ export function collectAssetMetadata(
     }
 
     meshCount += 1;
+    if (getVertexColorAttribute(child)) vertexColorMeshCount += 1;
 
     const meshName = safeTrimmedName(child) || "(unnamed mesh)";
 
-    for (const material of getMaterials(child.material)) {
+    for (const material of getMaterials(getAuthoredSurfaceMaterial(child))) {
       materials.add(material);
 
       const existing = materialBindings.get(material);
@@ -1435,11 +1477,16 @@ export function collectAssetMetadata(
             currentFile,
           ),
           ...(sourceReference ? { sourcePath: sourceReference } : {}),
+          ...(sourceReference ? texturePackageSource(sourceReference) : null),
           channel,
           dimensions: getTextureDimensions(textureValue),
           thumbnailUrl: null,
           ...(previewFlipY ? { previewFlipY } : {}),
-          sourceKind: inferTextureSourceKind(textureValue, currentFile),
+          sourceKind: inferTextureSourceKind(
+            textureValue,
+            currentFile,
+            sourceReference ?? undefined,
+          ),
         });
         textureRegistry.set(textureId, textureValue);
       }
@@ -1457,6 +1504,7 @@ export function collectAssetMetadata(
       formatVersion,
       nodeCount,
       meshCount,
+      vertexColorMeshCount,
       boneCount,
       hasBones: boneCount > 0,
       materialCount: materials.size,
@@ -1466,7 +1514,11 @@ export function collectAssetMetadata(
       hierarchy: buildHierarchyForest(object),
       textures: [...textures.values()],
       materials: [...materials].map((material) =>
-        buildMaterialEntry(material, materialBindings.get(material) ?? []),
+        buildMaterialEntry(
+          material,
+          materialBindings.get(material) ?? [],
+          currentFile,
+        ),
       ),
       lights,
       cameras,
@@ -1486,7 +1538,11 @@ export function refreshTextureSourceKinds(
   const textures = metadata.textures.map((entry) => {
     const texture = textureRegistry.get(entry.id);
     if (!texture) return entry;
-    const sourceKind = inferTextureSourceKind(texture, currentFile);
+    const sourceKind = inferTextureSourceKind(
+      texture,
+      currentFile,
+      entry.sourcePath,
+    );
     if (sourceKind === entry.sourceKind) return entry;
     changed = true;
     return { ...entry, sourceKind };

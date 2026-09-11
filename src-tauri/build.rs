@@ -1,3 +1,8 @@
+const RHINO3DM_PROTOCOL_VERSION: u64 = 1;
+const RHINO3DM_HELPER_VERSION: &str = "1.0.0";
+const RHINO3DM_OPENNURBS_REVISION: &str = "23fc677ba06e49212296ca75fab7fb6c2851b4ce";
+const RHINO3DM_IDENTITY_MAX_BYTES: usize = 4 * 1024;
+
 fn main() {
     // Updater defaults are baked in via `option_env!` in lib.rs; tell Cargo
     // to rebuild if they change so local builds do not use stale endpoints.
@@ -33,14 +38,214 @@ fn main() {
         vcpkg_root.as_ref(),
         &overlay_triplets,
     );
+    ensure_rhino3dm_helper(&manifest_dir, &target_os, triplet);
 
     tauri_build::build();
 }
 
+fn should_force_rhino3dm_helper_build() -> bool {
+    matches!(
+        env::var("YW_LOOK_FORCE_RHINO3DM_HELPER").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+    )
+}
+
+fn ensure_rhino3dm_helper(manifest_dir: &Path, target_os: &str, triplet: &str) {
+    // The supervised native route is currently verified only with Windows Job
+    // Objects. macOS keeps the existing WASM loader until an equivalent process
+    // memory limit and release smoke are available.
+    if triplet.is_empty() || target_os != "windows" {
+        return;
+    }
+
+    let source_dir = manifest_dir.join("rhino3dm-tools");
+    let tool_dir = source_dir.join(triplet);
+    let tool_name = if target_os == "windows" {
+        "rhino3dm_preview.exe"
+    } else {
+        "rhino3dm_preview"
+    };
+    let tool_path = tool_dir.join(tool_name);
+    let expected_arch = target_arch_for_triplet(triplet);
+    println!("cargo:rerun-if-env-changed=YW_LOOK_FORCE_RHINO3DM_HELPER");
+    println!(
+        "cargo:rerun-if-changed={}",
+        source_dir.join("CMakeLists.txt").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        source_dir.join("rhino3dm_helper.cpp").display()
+    );
+    println!("cargo:rerun-if-changed={}", tool_path.display());
+    let source_changed = tool_path.exists()
+        && fs::metadata(&tool_path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .map(|tool_time| {
+                ["CMakeLists.txt", "rhino3dm_helper.cpp"]
+                    .iter()
+                    .map(|name| source_dir.join(name))
+                    .filter_map(|path| {
+                        fs::metadata(path)
+                            .and_then(|metadata| metadata.modified())
+                            .ok()
+                    })
+                    .any(|source_time| source_time > tool_time)
+            })
+            .unwrap_or(true);
+
+    let copy_licenses = || {
+        fs::create_dir_all(&tool_dir)
+            .unwrap_or_else(|error| panic!("failed to create {}: {error}", tool_dir.display()));
+        for license_name in ["openNURBS-LICENSE.txt", "nlohmann-json-LICENSE.txt"] {
+            let source = source_dir.join("LICENSES").join(license_name);
+            let destination = tool_dir.join(license_name);
+            fs::copy(&source, &destination).unwrap_or_else(|error| {
+                panic!(
+                    "failed to copy Rhino 3DM helper license {} -> {}: {error}",
+                    source.display(),
+                    destination.display()
+                )
+            });
+        }
+    };
+
+    let identity_ok =
+        tool_path.is_file() && rhino3dm_identity_matches(&tool_path, target_os, expected_arch);
+    if identity_ok && !should_force_rhino3dm_helper_build() && !source_changed {
+        copy_licenses();
+        println!(
+            "cargo:warning=using bundled Rhino 3DM helper: {}",
+            tool_path.display()
+        );
+        return;
+    }
+
+    let mut config = cmake::Config::new(&source_dir);
+    if target_os == "windows" {
+        if let Some((ninja, env_values)) =
+            ninja_path().and_then(|ninja| visual_studio_dev_env().map(|env| (ninja, env)))
+        {
+            config.generator("Ninja");
+            config.define("CMAKE_MAKE_PROGRAM", &ninja);
+            for (key, value) in &env_values {
+                config.env(key, value);
+            }
+        }
+    }
+    let cmake_out = config
+        .profile("Release")
+        .define("YW_OPENNURBS_REVISION", RHINO3DM_OPENNURBS_REVISION)
+        .build();
+    let built_tool = ["bin", "."]
+        .iter()
+        .map(|subdir| cmake_out.join(subdir).join(tool_name))
+        .find(|candidate| candidate.exists())
+        .unwrap_or_else(|| {
+            panic!(
+                "CMake build succeeded but {} was not found under {}",
+                tool_name,
+                cmake_out.display()
+            )
+        });
+    fs::create_dir_all(&tool_dir)
+        .unwrap_or_else(|error| panic!("failed to create {}: {error}", tool_dir.display()));
+    fs::copy(&built_tool, &tool_path).unwrap_or_else(|error| {
+        panic!(
+            "failed to copy Rhino 3DM helper {} -> {}: {error}",
+            built_tool.display(),
+            tool_path.display()
+        )
+    });
+    copy_licenses();
+    if !rhino3dm_identity_matches(&tool_path, target_os, expected_arch) {
+        panic!(
+            "rebuilt Rhino 3DM helper identity mismatch: {}",
+            tool_path.display()
+        );
+    }
+    println!(
+        "cargo:warning=rebuilt Rhino 3DM helper from fixed openNURBS revision: {}",
+        tool_path.display()
+    );
+}
+
+fn target_arch_for_triplet(triplet: &str) -> &str {
+    match triplet {
+        "x64-windows" => "x86_64",
+        "arm64-osx" => "aarch64",
+        _ => "unknown",
+    }
+}
+
+fn json_string_field<'a>(json: &'a str, field: &str) -> Option<&'a str> {
+    let marker = format!("\"{field}\":\"");
+    let start = json.find(&marker)? + marker.len();
+    let remainder = &json[start..];
+    let end = remainder.find('"')?;
+    Some(&remainder[..end])
+}
+
+fn json_u64_field(json: &str, field: &str) -> Option<u64> {
+    let marker = format!("\"{field}\":");
+    let start = json.find(&marker)? + marker.len();
+    let remainder = &json[start..];
+    let end = remainder
+        .find(|character: char| !character.is_ascii_digit())
+        .unwrap_or(remainder.len());
+    remainder[..end].parse().ok()
+}
+
+fn rhino3dm_identity_matches(tool_path: &Path, target_os: &str, target_arch: &str) -> bool {
+    let child = Command::new(tool_path)
+        .arg("--identity")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let Ok(mut child) = child else {
+        return false;
+    };
+
+    let Some(mut stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return false;
+    };
+    let mut identity = Vec::with_capacity(RHINO3DM_IDENTITY_MAX_BYTES + 1);
+    let read_result = (&mut stdout)
+        .take((RHINO3DM_IDENTITY_MAX_BYTES + 1) as u64)
+        .read_to_end(&mut identity);
+    drop(stdout);
+    if read_result.is_err() || identity.len() > RHINO3DM_IDENTITY_MAX_BYTES {
+        let _ = child.kill();
+        let _ = child.wait();
+        return false;
+    }
+    let Ok(status) = child.wait() else {
+        return false;
+    };
+    if !status.success() {
+        return false;
+    }
+    let Ok(json) = std::str::from_utf8(&identity) else {
+        return false;
+    };
+    let json = json.trim();
+    json.starts_with('{')
+        && json.ends_with('}')
+        && json_u64_field(json, "protocolVersion") == Some(RHINO3DM_PROTOCOL_VERSION)
+        && json_string_field(json, "helperVersion") == Some(RHINO3DM_HELPER_VERSION)
+        && json_string_field(json, "helperRevision") == Some(RHINO3DM_OPENNURBS_REVISION)
+        && json_string_field(json, "targetOs") == Some(target_os)
+        && json_string_field(json, "targetArch") == Some(target_arch)
+        && json_string_field(json, "binaryName") == Some("rhino3dm_preview")
+}
+
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;

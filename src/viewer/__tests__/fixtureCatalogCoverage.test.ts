@@ -82,6 +82,13 @@ const PRIVATE_ONLY_EXTENSIONS: PrivateExtensionCoverage[] = [
 ];
 
 const KNOWN_COVERAGE_GAPS: CoverageGap[] = [
+  {
+    type: "extension",
+    extension: "ifc",
+    privateCoverage: "noAsset",
+    reason:
+      "Phase 1 uses an external offline probe; add a self-authored IFC fixture in IFC-03",
+  },
   // Native Spark container fixtures are not enrolled yet; PLY gaussian splat covers Spark routing for now.
   {
     type: "extension",

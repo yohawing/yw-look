@@ -5,6 +5,57 @@ import { build3DToolbar } from "../toolbar/build3DToolbar";
 import type { ToolbarItem } from "../toolbar/types";
 
 describe("ViewportControls", () => {
+  it("renders Lighting rotation as an accessible slider and disables it for None", () => {
+    const changeRotation = vi.fn();
+    const options = {
+      cameraPreset: null,
+      cameraPresetOptions: [],
+      showTexture: true,
+      onToggleTexture: vi.fn(),
+      showUnlit: false,
+      onToggleUnlit: vi.fn(),
+      showWireframe: false,
+      onToggleWireframe: vi.fn(),
+      environmentPreset: "studio",
+      environmentPresetOptions: [
+        { id: "none", label: "None" },
+        { id: "studio", label: "Studio" },
+      ],
+      onSelectEnvironmentPreset: vi.fn(),
+      environmentRotation: Math.PI / 2,
+      onChangeEnvironmentRotation: changeRotation,
+      showEnvironmentBackground: true,
+      onToggleEnvironmentBackground: vi.fn(),
+    };
+    const { getByRole, rerender } = render(
+      <ViewportControls items={build3DToolbar(options)} />,
+    );
+    fireEvent.click(getByRole("button", { name: "Lighting" }));
+    const slider = getByRole("slider", {
+      name: "Rotation",
+    }) as HTMLInputElement;
+    expect(slider.value).toBe("90");
+    fireEvent.change(slider, { target: { value: "180" } });
+    expect(changeRotation).toHaveBeenCalledWith(Math.PI);
+    expect(
+      getByRole("button", { name: "Lighting" }).getAttribute("aria-expanded"),
+    ).toBe("true");
+    rerender(
+      <ViewportControls
+        items={build3DToolbar({ ...options, environmentPreset: "none" })}
+      />,
+    );
+    expect(slider.disabled).toBe(true);
+    expect(
+      (getByRole("button", { name: "Show as Background" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      getByRole("button", { name: "Show as Background" }).classList.contains(
+        "is-active",
+      ),
+    ).toBe(false);
+  });
   it("does not render viewport tooltips", () => {
     const items: ToolbarItem[] = [
       {

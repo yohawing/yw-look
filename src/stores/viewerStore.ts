@@ -80,6 +80,7 @@ export interface ViewerState {
   setShowEnvironmentBackground: (v: boolean) => void;
   setShowShadows: (v: boolean) => void;
   setEnvironmentPreset: (v: EnvironmentPreset) => void;
+  setEnvironmentRotation: (v: number) => void;
   setBackgroundPreset: (v: BackgroundPreset) => void;
   setGridUnitLabel: (v: string) => void;
   setViewerFeedback: (v: ViewerFeedback) => void;
@@ -189,6 +190,9 @@ export const useViewerStore = create<ViewerState>((set) => ({
     set({ showEnvironmentBackground }),
   setShowShadows: (showShadows) => set({ showShadows }),
   setEnvironmentPreset: (environmentPreset) => set({ environmentPreset }),
+  setEnvironmentRotation: (environmentRotation) => {
+    if (Number.isFinite(environmentRotation)) set({ environmentRotation });
+  },
   setBackgroundPreset: (backgroundPreset) => set({ backgroundPreset }),
   setGridUnitLabel: (gridUnitLabel) => set({ gridUnitLabel }),
   setViewerFeedback: (viewerFeedback) => set({ viewerFeedback }),

@@ -1,6 +1,6 @@
 [package]
 name = "yw-look"
-version = "0.3.3"
+version = "0.3.4"
 description = "Quick look style asset viewer for CG workflows"
 authors = ["OpenAI Codex"]
 edition = "2021"
@@ -78,5 +78,6 @@ winreg = "0.56.0"
 windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }
 
 [dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3"
 ts-rs = "12.0.1"

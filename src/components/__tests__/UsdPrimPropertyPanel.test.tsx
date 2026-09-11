@@ -1,3 +1,4 @@
+import { Activity } from "react";
 import {
   cleanup,
   fireEvent,
@@ -43,6 +44,46 @@ describe("UsdPrimPropertyPanel", () => {
         ),
       ).toBeTruthy();
     });
+  });
+
+  it("supports embedded display under the Selected inspector", async () => {
+    vi.mocked(inspectPrim).mockResolvedValue({
+      primPath: "/World/Hero",
+      attributes: [
+        {
+          name: "visibility",
+          typeName: "token",
+          valueSummary: "inherited",
+          variability: "uniform",
+          custom: false,
+          timeSampleCount: 0,
+        },
+      ],
+      relationships: [
+        {
+          name: "material:binding",
+          targets: ["/World/Looks/HeroMaterial"],
+        },
+      ],
+      metadata: [{ key: "kind", valueSummary: "component" }],
+    });
+    useViewerStore.setState({ selectedUsdPrimPath: "/World/Hero" });
+
+    const { container, getByText } = render(
+      <UsdPrimPropertyPanel embedded path={assetPath} />,
+    );
+
+    await waitFor(() => expect(getByText("USD Properties")).toBeTruthy());
+    expect(container.querySelector(".prim-property-panel")).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="usd-prim-panel"]'),
+    ).toBeTruthy();
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.querySelector("summary")).toBeNull();
+    expect(getByText("visibility")).toBeTruthy();
+    expect(getByText("material:binding")).toBeTruthy();
+    expect(getByText("kind")).toBeTruthy();
+    expect(container.textContent).not.toContain(assetPath);
   });
 
   it("renders authored attributes, relationships, and metadata", async () => {
@@ -99,7 +140,7 @@ describe("UsdPrimPropertyPanel", () => {
     expect(screen.getByText("component")).toBeTruthy();
   });
 
-  it("expands time samples with the capped query and numeric summary", async () => {
+  it("keeps expanded time samples across tab hiding and revalidation", async () => {
     const inspection: PrimInspection = {
       primPath: "/World/Hero",
       attributes: [
@@ -131,7 +172,10 @@ describe("UsdPrimPropertyPanel", () => {
     vi.mocked(inspectAttributeTimeSamples).mockResolvedValue(samples);
     useViewerStore.setState({ selectedUsdPrimPath: "/World/Hero" });
 
-    const { container } = render(<UsdPrimPropertyPanel path={assetPath} />);
+    const panel = <UsdPrimPropertyPanel path={assetPath} />;
+    const { container, rerender } = render(
+      <Activity mode="visible">{panel}</Activity>,
+    );
 
     await waitFor(() =>
       expect(screen.getByText("custom:strength")).toBeTruthy(),
@@ -147,6 +191,20 @@ describe("UsdPrimPropertyPanel", () => {
         100,
       ),
     );
+    rerender(<Activity mode="hidden">{panel}</Activity>);
+    let resolveRefresh!: (value: PrimInspection) => void;
+    vi.mocked(inspectPrim).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    rerender(<Activity mode="visible">{panel}</Activity>);
+    await waitFor(() => expect(inspectPrim).toHaveBeenCalledTimes(2));
+    expect(container.querySelector(".ts-panel")).toBeTruthy();
+    expect(screen.getByText("Showing first 2 of 150 samples")).toBeTruthy();
+    resolveRefresh(inspection);
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
     expect(screen.getByText("Showing first 2 of 150 samples")).toBeTruthy();
     expect(container.querySelector(".ts-stats")?.textContent).toContain(
       "1.0000",

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { HierarchySidebarPanel } from "../HierarchySidebarPanel";
 import { useFileStore } from "../../stores/fileStore";
 import { useViewerStore } from "../../stores/viewerStore";
+import type { StageInspection } from "../../lib/usd";
 import type { SelectedFile } from "../../lib/files";
 import type {
   AssetMetadata,
@@ -50,6 +51,7 @@ beforeEach(() => {
     assetInspection: null,
     assetMetadata: null,
     packFileRequest: null,
+    packMetadata: null,
     openError: null,
   });
   useViewerStore.setState({
@@ -88,6 +90,121 @@ function makeMetadata({
 }
 
 describe("HierarchySidebarPanel", () => {
+  it("keeps USD sources inside Selected and drops stale file inspection", () => {
+    const hierarchy: HierarchyNode[] = [
+      { name: "Hero", kind: "Xform", primPath: "/World/Hero", children: [] },
+    ];
+    useFileStore.setState({
+      currentFile: usdFile,
+      assetMetadata: makeMetadata({ hierarchy }),
+    });
+    useViewerStore.setState({
+      selectedMeshName: "/World/Hero",
+      selectedUsdPrimPath: "/WrongSelection",
+    });
+    const inspection = {
+      path: usdFile.path,
+      defaultPrim: null,
+      upAxis: null,
+      metersPerUnit: null,
+      timeCodesPerSecond: null,
+      framesPerSecond: null,
+      startTimeCode: null,
+      endTimeCode: null,
+      comment: null,
+      rootLayerIsBinary: false,
+      rootPrims: [],
+      composedLayers: [],
+      missingAssets: [],
+      variantSets: [],
+      loadPolicy: "loadAll",
+      references: [
+        {
+          sourcePrim: "/World/Hero",
+          assetPath: "hero.usda",
+          targetPrim: "/Hero",
+          state: "loaded",
+        },
+      ],
+      payloads: [],
+    } satisfies StageInspection;
+    const view = render(
+      <HierarchySidebarPanel
+        inspection={inspection}
+        stageSessionHandle={null}
+        payloadPrimPaths={new Set()}
+        unloadedPayloadPaths={new Set()}
+        onLoadPayload={vi.fn()}
+        onUnloadPayload={vi.fn()}
+      />,
+    );
+    expect(
+      view.getByText("hero.usda").closest("#hierarchy-selected"),
+    ).toBeTruthy();
+    expect(view.queryByText("Advanced: Composition Arcs")).toBeNull();
+    act(() =>
+      useFileStore.setState({
+        currentFile: { ...usdFile, path: "F:/assets/other.usda" },
+      }),
+    );
+    expect(view.queryByText("hero.usda")).toBeNull();
+  });
+  it("uses the shared tree and selection panel for IFC semantic elements", () => {
+    const snapshot = {
+      elements: [
+        {
+          id: 20,
+          name: "Wall A",
+          category: "IFCWALL",
+          building: "Museum",
+          storey: "2F",
+        },
+      ],
+      selected: null,
+      sections: [],
+      colorMode: "category",
+      loading: false,
+      error: null,
+      limited: false,
+    } as const;
+    useFileStore.setState({
+      packMetadata: {
+        kind: "ifc",
+        inspection: {
+          getSnapshot: () => snapshot,
+          subscribe: () => () => {},
+          select: vi.fn(),
+          setColorMode: vi.fn(),
+          dispose: vi.fn(),
+        },
+      },
+    });
+    const { container, getByText, queryByText } = render(
+      <HierarchySidebarPanel
+        stageSessionHandle={null}
+        payloadPrimPaths={new Set()}
+        unloadedPayloadPaths={new Set()}
+        onLoadPayload={vi.fn()}
+        onUnloadPayload={vi.fn()}
+      />,
+    );
+    expect(getByText("Museum")).toBeTruthy();
+    expect(getByText("2F")).toBeTruthy();
+    expect(queryByText("IFC Display")).toBeNull();
+    expect(container.querySelector(".yl-list-search-toggle")).toBeTruthy();
+    fireEvent.click(getByText("Wall A").closest(".tree-row")!);
+    expect(useViewerStore.getState().selectedMeshName).toBe("ifc:20");
+    expect(
+      container.querySelector(".tree-row.is-selected")?.textContent,
+    ).toContain("Wall A");
+    fireEvent.click(container.querySelector(".tree-row.is-selected")!);
+    expect(useViewerStore.getState().selectedMeshName).toBeNull();
+    act(() => useViewerStore.getState().setSelectedMeshName("ifc:20"));
+    expect(
+      container.querySelector(".tree-row.is-selected")?.textContent,
+    ).toContain("Wall A");
+  });
+
   it("selects a hierarchy row through the viewer store", () => {
     const hierarchy: HierarchyNode[] = [
       { name: "Face", kind: "mesh", children: [] },
@@ -142,6 +259,12 @@ describe("HierarchySidebarPanel", () => {
     fireEvent.click(container.querySelector(".tree-row")!);
 
     expect(useViewerStore.getState().selectedUsdPrimPath).toBe("/World/Hero");
+    expect(
+      container.querySelector(".selected-kv [data-testid=usd-prim-panel]"),
+    ).toBeTruthy();
+    expect(
+      container.querySelectorAll("[data-testid=usd-prim-panel]"),
+    ).toHaveLength(1);
   });
 
   it("stores clamped morph target values through the viewer store", () => {

@@ -1,15 +1,18 @@
+import { buildIfcHierarchy } from "../lib/ifcHierarchy";
 import { useCallback, useMemo } from "react";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { isUsdFile } from "../lib/files";
-import type { StageSessionHandle } from "../lib/usd";
+import type { StageSessionHandle, StageInspection } from "../lib/usd";
 import { useFileStore } from "../stores/fileStore";
 import { useViewerStore } from "../stores/viewerStore";
 import type { HierarchyNode, ObjectInfo } from "./assetMetadata";
 import { HierarchyCard } from "./HierarchyCard";
+import { UsdSelectedSources } from "./UsdSelectedSources";
 import { UsdPrimPropertyPanel } from "./UsdPrimPropertyPanel";
 import {
   formatPackMorphTargetMeta,
   getPackSelectedObjectDetails,
+  renderMetadataCardForPackMetadata,
 } from "../packs";
 import { KeyValueRows } from "./ui/KeyValueRows";
 import { mergeKnownPayloadRoots } from "./usdPayloadHierarchy";
@@ -17,6 +20,7 @@ import { mergeKnownPayloadRoots } from "./usdPayloadHierarchy";
 type HierarchySidebarPanelProps = {
   debugPanelsEnabled?: boolean;
   stageSessionHandle: StageSessionHandle | null;
+  inspection?: StageInspection | null;
   payloadPrimPaths: ReadonlySet<string>;
   unloadedPayloadPaths: ReadonlySet<string>;
   onLoadPayload: (primPath: string) => Promise<void>;
@@ -37,6 +41,7 @@ function renderPackSelectedObjectDetails(objectInfo: ObjectInfo | null) {
 export function HierarchySidebarPanel({
   debugPanelsEnabled = false,
   stageSessionHandle,
+  inspection = null,
   payloadPrimPaths,
   unloadedPayloadPaths,
   onLoadPayload,
@@ -44,6 +49,14 @@ export function HierarchySidebarPanel({
 }: HierarchySidebarPanelProps) {
   const currentFile = useFileStore((state) => state.currentFile);
   const storeAssetMetadata = useFileStore((state) => state.assetMetadata);
+  const packMetadata = useFileStore((state) => state.packMetadata);
+  const ifcHierarchy = useMemo(
+    () =>
+      packMetadata?.kind === "ifc"
+        ? buildIfcHierarchy(packMetadata.inspection.getSnapshot().elements)
+        : null,
+    [packMetadata],
+  );
   const morphTargetValues = useViewerStore((state) => state.morphTargetValues);
   const selectedMeshName = useViewerStore((state) => state.selectedMeshName);
   const { debugFixtures, useDebugFixtures } =
@@ -51,7 +64,10 @@ export function HierarchySidebarPanel({
   const assetMetadata = useDebugFixtures
     ? debugFixtures.debugPanelMetadata
     : storeAssetMetadata;
-  const hierarchy = assetMetadata?.hierarchy ?? EMPTY_HIERARCHY;
+  const hierarchy =
+    (!useDebugFixtures && ifcHierarchy) ||
+    assetMetadata?.hierarchy ||
+    EMPTY_HIERARCHY;
   const objectInfo = assetMetadata?.objectInfo;
   const payloadSessionEnabled =
     !useDebugFixtures && isUsdFile(currentFile) && stageSessionHandle !== null;
@@ -103,12 +119,45 @@ export function HierarchySidebarPanel({
         }
         onLoadPayload={payloadSessionEnabled ? onLoadPayload : undefined}
         onUnloadPayload={payloadSessionEnabled ? onUnloadPayload : undefined}
-        renderSelectedObjectDetails={renderPackSelectedObjectDetails}
+        renderSelectedObjectDetails={(info, primPath) => (
+          <>
+            {!useDebugFixtures && packMetadata?.kind === "ifc"
+              ? renderMetadataCardForPackMetadata(packMetadata, {
+                  view: "selection",
+                  selectedKey: selectedMeshName,
+                  onSelect: useViewerStore.getState().setSelectedMeshName,
+                })
+              : renderPackSelectedObjectDetails(info)}
+            {isUsdFile(currentFile) ? (
+              <>
+                <UsdSelectedSources
+                  inspection={
+                    inspection?.path === currentFile?.path ? inspection : null
+                  }
+                  primPath={primPath}
+                  payloadLoaded={
+                    payloadSessionEnabled &&
+                    primPath !== null &&
+                    payloadPrimPaths.has(primPath)
+                      ? !unloadedPayloadPaths.has(primPath)
+                      : undefined
+                  }
+                />
+                <UsdPrimPropertyPanel
+                  embedded
+                  path={currentFile?.path ?? null}
+                />
+              </>
+            ) : null}
+          </>
+        )}
         renderMorphTargetMeta={formatPackMorphTargetMeta}
+        selectedTransformNote={
+          isUsdFile(currentFile)
+            ? "Preview local values · not USD authored"
+            : "Preview local values"
+        }
       />
-      {isUsdFile(currentFile) && (
-        <UsdPrimPropertyPanel path={currentFile?.path ?? null} />
-      )}
     </>
   );
 }

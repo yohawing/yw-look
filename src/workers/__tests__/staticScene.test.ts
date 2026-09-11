@@ -21,10 +21,13 @@ import {
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   canSerializeStaticNode,
+  checkStaticScenePayloadBudget,
+  collectTransferables,
   createStaticSceneObject,
   createStaticSceneObjectAsync,
   DEFAULT_STATIC_SCENE_BATCH_SIZE,
   hasAnimatedStaticSceneBlocker,
+  StaticScenePayloadBudgetError,
   toStaticScenePayload,
   type ModelParseWorkerStaticScenePayload,
 } from "../staticScene";
@@ -77,6 +80,30 @@ function makeTexturedPbrMesh() {
 }
 
 describe("staticScene textured PBR roundtrip", () => {
+  it("preserves embedded texture identity and material bindings without sharing metadata", () => {
+    const source = makeTexturedPbrMesh();
+    const material = source.material as MeshStandardMaterial;
+    material.userData = {
+      fbxMaterialId: 41,
+      fbxBaseColorSource: "embedded/albedo.png",
+    };
+    material.map!.name = "albedo.png";
+    material.map!.userData = {
+      fbxSourceName: "embedded/albedo.png",
+      fbxDeferred: false,
+      textureSourceKind: "embedded",
+    };
+    const payload = toStaticScenePayload(source, false)!;
+    const restored = createStaticSceneObject(payload) as Mesh;
+    const rebuilt = restored.material as MeshStandardMaterial;
+    expect(rebuilt.userData).toEqual(material.userData);
+    expect(rebuilt.map!.name).toBe("albedo.png");
+    expect(rebuilt.map!.userData).toEqual(material.map!.userData);
+    rebuilt.userData.fbxMaterialId = 99;
+    rebuilt.map!.userData.fbxDeferred = true;
+    expect(material.userData.fbxMaterialId).toBe(41);
+    expect(material.map!.userData.fbxDeferred).toBe(false);
+  });
   it("preserves map and a PBR auxiliary texture through staticScene transfer", () => {
     const source = makeTexturedPbrMesh();
     expect(
@@ -314,6 +341,161 @@ describe("staticScene existing static format behavior", () => {
     const payload = toStaticScenePayload(mesh, false);
     expect(payload?.rootKind).toBe("mesh");
     expect(payload?.meshes).toHaveLength(1);
+  });
+});
+
+describe("staticScene shared resources and expansion budgets", () => {
+  it("stores repeated geometry/material/texture payloads once and restores identity", async () => {
+    const root = new Group();
+    const geometry = new BoxGeometry(1, 1, 1);
+    const material = new MeshStandardMaterial({ map: makeImageDataTexture() });
+    for (let index = 0; index < 120; index += 1) {
+      const mesh = new Mesh(geometry, material);
+      mesh.position.x = index;
+      root.add(mesh);
+    }
+
+    const payload = toStaticScenePayload(root, false)!;
+    expect(payload.resources?.geometries).toHaveLength(1);
+    expect(payload.resources?.materials).toHaveLength(1);
+    expect(payload.resources?.textures).toHaveLength(1);
+    expect(payload.meshes.every((mesh) => mesh.geometryId === 0)).toBe(true);
+    expect(payload.meshes.every((mesh) => mesh.materialId === 0)).toBe(true);
+    expect(collectTransferables(payload)).toHaveLength(5);
+    const cloned = structuredClone(payload);
+    expect(cloned.resources!.geometries[0].attributes.position.array).toBe(
+      cloned.meshes[0].attributes.position.array,
+    );
+
+    const restored = (await createStaticSceneObjectAsync(payload)) as Group;
+    expect(restored.children).toHaveLength(120);
+    const first = restored.children[0] as Mesh;
+    for (const child of restored.children.slice(1)) {
+      const mesh = child as Mesh;
+      expect(mesh.geometry).toBe(first.geometry);
+      expect(mesh.material).toBe(first.material);
+    }
+    expect((first.material as MeshStandardMaterial).map).toBe(
+      ((restored.children[1] as Mesh).material as MeshStandardMaterial).map,
+    );
+  });
+
+  it("keeps distinct materials separate while sharing only identical geometry", () => {
+    const root = new Group();
+    const geometry = new BoxGeometry(1, 1, 1);
+    root.add(
+      new Mesh(geometry, new MeshStandardMaterial({ color: 0xff0000 })),
+      new Mesh(geometry, new MeshStandardMaterial({ color: 0x0000ff })),
+    );
+
+    const payload = toStaticScenePayload(root, false)!;
+    expect(payload.resources?.geometries).toHaveLength(1);
+    expect(payload.resources?.materials).toHaveLength(2);
+    expect(payload.meshes[0].materialId).not.toBe(payload.meshes[1].materialId);
+
+    const restored = createStaticSceneObject(payload) as Group;
+    expect((restored.children[0] as Mesh).geometry).toBe(
+      (restored.children[1] as Mesh).geometry,
+    );
+    expect((restored.children[0] as Mesh).material).not.toBe(
+      (restored.children[1] as Mesh).material,
+    );
+  });
+
+  it("shares resources in tree payloads while preserving local transforms", () => {
+    const root = new Group();
+    const geometry = new BoxGeometry(1, 1, 1);
+    const material = new MeshStandardMaterial({ color: 0xffffff });
+    const first = new Mesh(geometry, material);
+    const second = new Mesh(geometry, material);
+    first.position.set(1, 2, 3);
+    second.position.set(-4, 5, -6);
+    root.add(first, second);
+
+    const payload = toStaticScenePayload(root, true)!;
+    expect(payload.resources?.geometries).toHaveLength(1);
+    expect(payload.resources?.materials).toHaveLength(1);
+    const restored = createStaticSceneObject(payload) as Group;
+    expect((restored.children[0] as Mesh).geometry).toBe(
+      (restored.children[1] as Mesh).geometry,
+    );
+    expect((restored.children[0] as Mesh).material).toBe(
+      (restored.children[1] as Mesh).material,
+    );
+    expect((restored.children[0] as Mesh).position.toArray()).toEqual([
+      1, 2, 3,
+    ]);
+    expect((restored.children[1] as Mesh).position.toArray()).toEqual([
+      -4, 5, -6,
+    ]);
+  });
+
+  it("rejects expansion budgets before allocating reconstruction resources", () => {
+    const payload = toStaticScenePayload(makeTexturedPbrMesh(), false)!;
+    expect(
+      checkStaticScenePayloadBudget(payload, { maxVertexBytes: 1 }),
+    ).toMatchObject({
+      ok: false,
+      reason: "vertexBytes",
+    });
+    expect(() =>
+      createStaticSceneObject(payload, { budget: { maxVertexBytes: 1 } }),
+    ).toThrow(StaticScenePayloadBudgetError);
+  });
+
+  it("disposes resources built before an abort", async () => {
+    const root = new Group();
+    const geometry = new BoxGeometry(1, 1, 1);
+    const material = new MeshStandardMaterial({ color: 0xffffff });
+    for (let index = 0; index < 3; index += 1) {
+      root.add(new Mesh(geometry, material));
+    }
+    const payload = toStaticScenePayload(root, false)!;
+    const controller = new AbortController();
+    const geometryDispose = vi.spyOn(BufferGeometry.prototype, "dispose");
+    const materialDispose = vi.spyOn(MeshStandardMaterial.prototype, "dispose");
+
+    let yields = 0;
+    await expect(
+      createStaticSceneObjectAsync(payload, {
+        batchSize: 1,
+        signal: controller.signal,
+        yieldFn: async () => {
+          yields += 1;
+          controller.abort();
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(yields).toBe(1);
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
+    expect(materialDispose).toHaveBeenCalledTimes(1);
+    geometryDispose.mockRestore();
+    materialDispose.mockRestore();
+  });
+
+  it("disposes shared resources once when a later resource reference is invalid", () => {
+    const root = new Group();
+    const geometry = new BoxGeometry(1, 1, 1);
+    const material = new MeshStandardMaterial({
+      color: 0xffffff,
+      map: makeImageDataTexture(),
+    });
+    root.add(new Mesh(geometry, material), new Mesh(geometry, material));
+    const payload = toStaticScenePayload(root, false)!;
+    payload.meshes[1].materialId = 99;
+
+    const geometryDispose = vi.spyOn(BufferGeometry.prototype, "dispose");
+    const materialDispose = vi.spyOn(MeshStandardMaterial.prototype, "dispose");
+    const textureDispose = vi.spyOn(Texture.prototype, "dispose");
+    expect(() => createStaticSceneObject(payload)).toThrow(
+      "Static scene material resource 99 is missing.",
+    );
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
+    expect(materialDispose).toHaveBeenCalledTimes(1);
+    expect(textureDispose).toHaveBeenCalledTimes(1);
+    geometryDispose.mockRestore();
+    materialDispose.mockRestore();
+    textureDispose.mockRestore();
   });
 });
 

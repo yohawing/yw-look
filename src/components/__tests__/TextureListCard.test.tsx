@@ -37,6 +37,47 @@ function renderTextureListCard(
 }
 
 describe("TextureListCard", () => {
+  it.each([
+    "C:/textures/diffuse.png",
+    "C:/" + "very long folder/".repeat(15) + "diffuse.png",
+    "C:/素材/日本語 と 空白/diffuse.png",
+    undefined,
+  ])(
+    "keeps the full path available in the common detail rows: %s",
+    (sourcePath) => {
+      const { container, queryByText, getByTitle } = renderTextureListCard(
+        [{ ...baseTexture, sourcePath }],
+        baseTexture.id,
+      );
+      expect(getByTitle(baseTexture.label).closest(".yl-kv-row")).toBeTruthy();
+      expect(
+        container.querySelector(".texture-selected-panel > .selected-kv"),
+      ).toBeTruthy();
+      if (sourcePath)
+        expect(getByTitle(sourcePath).closest(".yl-kv-row")).toBeTruthy();
+      else expect(queryByText("Path")).toBeNull();
+    },
+  );
+  it("shows an embedded texture container separately from its internal path", () => {
+    const { getByText, getByTitle } = renderTextureListCard(
+      [
+        {
+          ...baseTexture,
+          sourceKind: "embedded",
+          sourcePath: "F:/toy.usdz[a/diffuse.bmp]",
+          containerPath: "F:/toy.usdz",
+          internalPath: "a/diffuse.bmp",
+        },
+      ],
+      baseTexture.id,
+    );
+    expect(getByText("Container")).toBeTruthy();
+    expect(getByText("Internal Path")).toBeTruthy();
+    expect(getByTitle("F:/toy.usdz")).toBeTruthy();
+    expect(getByTitle("a/diffuse.bmp")).toBeTruthy();
+    expect(getByTitle("a/diffuse.bmp").closest(".yl-kv-row")).toBeTruthy();
+    expect(getByText("embedded")).toBeTruthy();
+  });
   it("flips thumbnails when the texture metadata requests previewFlipY", () => {
     const { getByAltText } = renderTextureListCard([
       { ...baseTexture, previewFlipY: true },
@@ -109,7 +150,7 @@ describe("TextureListCard", () => {
         .querySelector(".texture-resize-handle")
         ?.getAttribute("aria-label"),
     ).toBe("Resize texture details");
-    expect(getByText("Selected texture")).toBeTruthy();
+    expect(container.querySelector(".texture-selected-title")).toBeNull();
     expect(getAllByText("diffuse.bmp").length).toBeGreaterThan(1);
     expect(getByText("Path")).toBeTruthy();
     expect(getByText("C:/assets/textures/diffuse.bmp")).toBeTruthy();
@@ -164,6 +205,7 @@ describe("TextureListCard", () => {
       },
     ];
     const { container, getByRole, getByText } = renderTextureListCard(textures);
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     const filter = getByRole("textbox", { name: "Filter textures" });
 
     fireEvent.change(filter, { target: { value: "BODY" } });
@@ -193,6 +235,7 @@ describe("TextureListCard", () => {
       "tex-2",
     );
 
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     fireEvent.change(getByRole("textbox", { name: "Filter textures" }), {
       target: { value: "diffuse" },
     });
@@ -203,6 +246,7 @@ describe("TextureListCard", () => {
 
   it("resets its filter when the current file identity changes", () => {
     const { getByRole, rerender } = renderTextureListCard([baseTexture], null);
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     const filter = getByRole("textbox", { name: "Filter textures" });
     fireEvent.change(filter, { target: { value: "diffuse" } });
     rerender(
@@ -214,6 +258,7 @@ describe("TextureListCard", () => {
       />,
     );
 
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     expect(
       (getByRole("textbox", { name: "Filter textures" }) as HTMLInputElement)
         .value,
@@ -236,6 +281,7 @@ describe("TextureListCard", () => {
       duplicate,
       japanese,
     ]);
+    fireEvent.click(getByRole("button", { name: "Search textures" }));
     const filter = getByRole("textbox", { name: "Filter textures" });
 
     fireEvent.change(filter, { target: { value: "diffuse" } });

@@ -17,10 +17,9 @@ use crate::state::{AppSettings, BackendCapabilities, OptionalLoaderPackSettings}
 use crate::usd::types::{
     AssetIssue, AssetIssueCode, AssetIssueLevel, AttributeInfo, AttributeTimeSamples,
     CompositionArc, CompositionArcKind, CompositionArcState, ExtractGeometryOptions, LayerInfo,
-    MetadataEntry, PrimInspection, PrimTypeCount, PurposeModes, RelationshipInfo, ShapingCone,
+    MetadataEntry, PrimInspection, PrimTypeCount, PurposeModes, RelationshipInfo,
     StageCapabilityInfo, StageCapabilityKind, StageCapabilitySupport, StageInspection,
-    StageLoadPolicy, StageSummary, TimeSampleEntry, UsdLightInfo,
-    VariantSelection, VariantSetInfo,
+    StageLoadPolicy, StageSummary, TimeSampleEntry, VariantSelection, VariantSetInfo,
 };
 
 const GENERATED_IPC_TYPES: &str =
@@ -119,10 +118,6 @@ fn generated_ipc_types() -> String {
         &format_tsrs_decl(CompositionArcState::decl(&cfg)),
         "",
         &format_tsrs_decl(LayerInfo::decl(&cfg)),
-        "",
-        &format_tsrs_decl(ShapingCone::decl(&cfg)),
-        "",
-        &format_tsrs_decl(UsdLightInfo::decl(&cfg)),
         "",
         &format_tsrs_decl(TimeSampleEntry::decl(&cfg)),
         "",

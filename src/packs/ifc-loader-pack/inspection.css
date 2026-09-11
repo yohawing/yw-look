@@ -1,0 +1,24 @@
+.ifc-inspector {
+  min-width: 0;
+}
+
+.ifc-detail-section > .yl-disclosure__summary .yl-disclosure__title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.ifc-detail-value {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ifc-inspector .yl-kv-key {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Selected already supplies the panel inset; nested details stay aligned. */
+.selected-kv .ifc-inspector > .yl-disclosure--section > .yl-disclosure__summary,
+.selected-kv .ifc-inspector > .yl-disclosure--section > .yl-disclosure__body {
+  padding-left: 0;
+  padding-right: 0;
+}

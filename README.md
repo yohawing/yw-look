@@ -19,10 +19,16 @@
 | OBJ          | `.obj`                         | ✅️           | [Three.js OBJLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/OBJLoader.js)を使用。静的メッシュの表示。MTLと外部テクスチャの参照を読み込みます。                                              |
 | PLY          | `.ply`                         | ✅️           | [Three.js PLYLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/PLYLoader.js)を使用。メッシュ・点群の表示。Gaussian Splat形式のPLYには追加パックが必要です。                                    |
 | STL          | `.stl`                         | ✅️           | [Three.js STLLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/STLLoader.js)を使用。メッシュ形状の確認向けです。                                                                               |
+| 3MF          | `.3mf`                         | 一部対応     | Core 3MFのメッシュ・部品階層・単位・基本マテリアルと、頂点カラー・PNG/JPEGテクスチャをプレビューします。外部モデル参照や未対応の必須拡張は読み込みを拒否し、その他の未対応要素は警告します。                           |
 | COLLADA      | `.dae`                         | 一部対応     | [Three.js ColladaLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/ColladaLoader.js)を使用。モデルと外部テクスチャのプレビュー。現在の読み込み経路ではアニメーションクリップを取り込みません。 |
+| Rhino 3DM    | `.3dm`                         | ✅️           | Windowsでは分離プロセスのopenNURBS helperでmesh/Brep/extrusion/SubD、layer/instance、basic materialをプレビューします（curve/point/点群は警告して省略）。その他の環境ではThree.js Rhino3dmLoaderを使用します。         |
 | USD          | `.usd` `.usda` `.usdc` `.usdz` | 一部対応     | [openusd（Rust）](https://github.com/mxpv/openusd)を使用。形状・マテリアル・一部アニメーションのプレビューと、レイヤー・Prim・バリアント等の検査。UsdSkelやMaterialXなどは対応範囲に制限があり、警告を表示します。     |
 | Alembic      | `.abc`                         | 条件付き対応 | [Alembic](https://github.com/alembic/alembic)を使う専用ヘルパーを使用。メッシュ形状・頂点アニメーションのプレビュー。対応するネイティブ変換ヘルパーが必要です（Windows x64 / macOS arm64向け）。                       |
 | BVH          | `.bvh`                         | ✅️           | [Three.js BVHLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/BVHLoader.js)を使用。骨格とモーションのプレビュー。モデル形状を含む形式ではありません。                                         |
+
+IFC・Rhino 3DM・3MFは、Settingsの **CAD Loader Pack** でまとめて有効／無効を切り替えます。関連ランタイムは引き続きアプリに同梱します。
+
+Rhino 3DMは編集・保存、Grasshopper定義やRhinoプラグイン固有データの実行、Rhino表示モードの完全再現には対応しません。未変換の要素や不足リソースは警告として表示します。
 
 ### 画像・テクスチャ（標準対応）
 
@@ -67,7 +73,7 @@ yw-look --shot --in "path/to/model.glb" --out "out.png" --size 1920x1080 --bg tr
 
 `--in`は入力ファイル、`--out`はPNGの保存先です。`--size`と`--bg`は省略できます。
 
-現時点では、`--check`と`--shot`の実行には`localhost:1420`で開発サーバーが起動している必要があります。インストール済みアプリだけでは完結しません。
+配布ビルドのCLIは同梱の画面で処理するため、Node.js・Rust・開発サーバーは不要です。開発ビルドでは、`localhost:1420`で開発サーバーを起動して実行してください。
 
 ## ライセンス
 

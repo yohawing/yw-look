@@ -238,7 +238,15 @@ pub(crate) fn normalize_optional_text(value: Option<String>) -> Option<String> {
     })
 }
 
-pub(crate) fn sanitize_settings(settings: AppSettings) -> AppSettings {
+pub(crate) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
+    for legacy_id in ["ifc-loader-pack", "architecture-pack"] {
+        if let Some(legacy) = settings.optional_loader_packs.remove(legacy_id) {
+            settings
+                .optional_loader_packs
+                .entry("cad-loader-pack".to_string())
+                .or_insert(legacy);
+        }
+    }
     AppSettings {
         version: settings.version.max(5),
         recent_files_limit: settings.recent_files_limit.max(1),

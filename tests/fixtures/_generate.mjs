@@ -12,10 +12,11 @@
  *   broken/* error-matrix fixtures for B8 (beta error visualization)
  */
 
-import { writeFileSync, mkdirSync, readFileSync } from "fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { deflateSync } from "zlib";
+import rhino3dm from "rhino3dm";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const texturesDir = join(__dirname, "textures");
@@ -797,6 +798,251 @@ writeBinary(
   makeMaterialMorphPmx(),
 );
 
+// -----------------------------------------------------------------------
+// Rhino 3DM fixture
+// -----------------------------------------------------------------------
+
+/**
+ * Generate a small redistribution-safe Rhino file with the public rhino3dm
+ * API. The WASM library assigns object/instance GUIDs, so reproducibility is
+ * checked semantically and an already-valid checked-in file is preserved.
+ * No Rhino or third-party authored file is used here.
+ */
+async function makeRhino3dmFixture() {
+  const rhino = await rhino3dm();
+  const fixturePath = join(modelsDir, "rhino3dm-mesh-material-instance.3dm");
+  const archiveTargets = [
+    {
+      path: join(modelsDir, "rhino3dm-v7-mesh-material-instance.3dm"),
+      version: 7,
+      archiveVersion: 70,
+    },
+    {
+      path: join(modelsDir, "rhino3dm-v8-mesh-material-instance.3dm"),
+      version: 8,
+      archiveVersion: 80,
+    },
+  ];
+
+  function isValidRhino3dmFixture(bytes, expectedArchiveVersion = null) {
+    try {
+      const decoded = rhino.File3dm.fromByteArray(bytes);
+      const decodedObjects = decoded.objects();
+      const decodedMain = decodedObjects.get(0);
+      const decodedMainAttributes = decodedMain.attributes();
+      const decodedMainMesh = decodedMain.geometry();
+      const decodedDefinitionObject = decodedObjects.get(1);
+      const decodedDefinitionAttributes = decodedDefinitionObject.attributes();
+      const decodedDefinitionMesh = decodedDefinitionObject.geometry();
+      const decodedInstance = decodedObjects.get(decodedObjects.count - 1);
+      const decodedInstanceAttributes = decodedInstance.attributes();
+      const decodedInstanceReference = decodedInstance.geometry();
+      const decodedDefinition = decoded.instanceDefinitions().get(0);
+      const decodedMeshLayer = decoded.layers().get(0);
+      const decodedInstanceLayer = decoded.layers().get(1);
+      const decodedMaterial = decoded.materials().get(0);
+      const instanceTransform = decodedInstanceReference.xform;
+
+      return (
+        (expectedArchiveVersion === null ||
+          decoded.archiveVersion === expectedArchiveVersion) &&
+        decoded.layers().count === 2 &&
+        decodedMeshLayer.id === "11111111-1111-4111-8111-111111111111" &&
+        decodedMeshLayer.name === "3DM Fixture Mesh" &&
+        decodedMeshLayer.color.r === 40 &&
+        decodedMeshLayer.color.g === 92 &&
+        decodedMeshLayer.color.b === 148 &&
+        decodedInstanceLayer.id === "22222222-2222-4222-8222-222222222222" &&
+        decodedInstanceLayer.name === "3DM Fixture Instance" &&
+        decodedInstanceLayer.color.r === 148 &&
+        decodedInstanceLayer.color.g === 92 &&
+        decodedInstanceLayer.color.b === 40 &&
+        decoded.materials().count === 1 &&
+        decodedMaterial.name === "3DM Fixture Blue" &&
+        decodedMaterial.diffuseColor.r === 36 &&
+        decodedMaterial.diffuseColor.g === 132 &&
+        decodedMaterial.diffuseColor.b === 220 &&
+        decoded.instanceDefinitions().count === 1 &&
+        decodedDefinition.name === "3DM Fixture Triangle Definition" &&
+        decodedObjects.count === 3 &&
+        decodedMainAttributes.name === "3DM Fixture Main Mesh" &&
+        decodedMainAttributes.layerIndex === 0 &&
+        decodedMainAttributes.materialIndex === 0 &&
+        decodedMainAttributes.materialSource.constructor.name ===
+          "ObjectMaterialSource_MaterialFromObject" &&
+        decodedMainMesh.vertices().count === 3 &&
+        decodedMainMesh.faces().triangleCount === 1 &&
+        decodedMainMesh.vertexColors().count === 3 &&
+        decodedMainMesh.textureCoordinates().count === 3 &&
+        decodedDefinitionAttributes.name === "3DM Fixture Definition Mesh" &&
+        decodedDefinitionAttributes.isInstanceDefinitionObject === true &&
+        decodedDefinitionAttributes.materialIndex === 0 &&
+        decodedDefinitionAttributes.materialSource.constructor.name ===
+          "ObjectMaterialSource_MaterialFromObject" &&
+        decodedDefinitionMesh.vertices().count === 3 &&
+        decodedDefinitionMesh.faces().triangleCount === 1 &&
+        decodedInstanceAttributes.name === "3DM Fixture Instance" &&
+        decodedInstanceAttributes.layerIndex === 1 &&
+        decodedInstanceReference.parentIdefId === decodedDefinition.id &&
+        Math.abs(instanceTransform.m03 - 2.25) < 1e-9 &&
+        Math.abs(instanceTransform.m13) < 1e-9 &&
+        Math.abs(instanceTransform.m23) < 1e-9
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  const genericFixtureValid =
+    existsSync(fixturePath) &&
+    isValidRhino3dmFixture(readFileSync(fixturePath));
+  if (genericFixtureValid) {
+    console.log(
+      "Rhino 3DM fixture semantic validation passed; preserving checked-in bytes",
+    );
+  }
+
+  const validArchiveTargets = archiveTargets.filter(
+    ({ path, archiveVersion }) =>
+      existsSync(path) &&
+      isValidRhino3dmFixture(readFileSync(path), archiveVersion),
+  );
+  if (
+    validArchiveTargets.length === archiveTargets.length &&
+    genericFixtureValid
+  ) {
+    return;
+  }
+
+  const model = new rhino.File3dm();
+  model.applicationName = "yw-look fixture generator";
+  model.applicationUrl = "https://github.com/yohawing/yw-look";
+  model.applicationDetails =
+    "Semantically reproducible public fixture generated by tests/fixtures/_generate.mjs";
+
+  const layers = model.layers();
+  const meshLayerIndex = layers.addLayer("3DM Fixture Mesh", {
+    r: 40,
+    g: 92,
+    b: 148,
+  });
+  // Layer IDs are writable and fixed so layer references remain stable across
+  // generated files even though object and instance IDs are owned by Rhino.
+  layers.get(meshLayerIndex).id = "11111111-1111-4111-8111-111111111111";
+  const instanceLayerIndex = layers.addLayer("3DM Fixture Instance", {
+    r: 148,
+    g: 92,
+    b: 40,
+  });
+  layers.get(instanceLayerIndex).id = "22222222-2222-4222-8222-222222222222";
+
+  const material = new rhino.Material();
+  material.default();
+  material.name = "3DM Fixture Blue";
+  material.diffuseColor = { r: 36, g: 132, b: 220, a: 255 };
+  material.ambientColor = { r: 8, g: 28, b: 48, a: 255 };
+  model.materials().add(material);
+  const materialIndex = 0;
+
+  function makeTriangle(xOffset, yOffset, size) {
+    const mesh = new rhino.Mesh();
+    mesh.vertices().add(xOffset, yOffset, 0);
+    mesh.vertices().add(xOffset + size, yOffset, 0);
+    mesh.vertices().add(xOffset, yOffset + size, 0);
+    mesh.faces().addTriFace(0, 1, 2);
+    mesh.normals().computeNormals();
+    mesh.vertexColors().add(240, 80, 40);
+    mesh.vertexColors().add(240, 80, 40);
+    mesh.vertexColors().add(240, 80, 40);
+    mesh.textureCoordinates().add(0, 0);
+    mesh.textureCoordinates().add(1, 0);
+    mesh.textureCoordinates().add(0, 1);
+    return mesh;
+  }
+
+  function makeMeshAttributes(name, layerIndex) {
+    const attributes = new rhino.ObjectAttributes();
+    attributes.name = name;
+    attributes.layerIndex = layerIndex;
+    attributes.materialIndex = materialIndex;
+    attributes.materialSource = rhino.ObjectMaterialSource.MaterialFromObject;
+    attributes.colorSource = rhino.ObjectColorSource.ColorFromMaterial;
+    return attributes;
+  }
+
+  const objects = model.objects();
+  objects.addMesh(
+    makeTriangle(-1.5, -0.75, 1.5),
+    makeMeshAttributes("3DM Fixture Main Mesh", meshLayerIndex),
+  );
+
+  const instanceMesh = makeTriangle(0, 0, 1.0);
+  const definitionIndex = model
+    .instanceDefinitions()
+    .add(
+      "3DM Fixture Triangle Definition",
+      "Public generated instance definition fixture",
+      "",
+      "",
+      [0, 0, 0],
+      [instanceMesh],
+      [makeMeshAttributes("3DM Fixture Definition Mesh", meshLayerIndex)],
+    );
+  const definition = model.instanceDefinitions().get(definitionIndex);
+  const instanceReference = new rhino.InstanceReference(
+    definition.id,
+    rhino.Transform.translationXYZ(2.25, 0, 0),
+  );
+  objects.addInstanceObject(
+    instanceReference,
+    makeMeshAttributes("3DM Fixture Instance", instanceLayerIndex),
+  );
+
+  if (
+    !existsSync(fixturePath) ||
+    !isValidRhino3dmFixture(readFileSync(fixturePath))
+  ) {
+    const bytes = model.toByteArray();
+    if (!isValidRhino3dmFixture(bytes, 80)) {
+      throw new Error(
+        "Generated generic Rhino 3DM fixture failed semantic round-trip",
+      );
+    }
+    writeBinary(fixturePath, bytes);
+    console.log(
+      "Rhino 3DM fixture round-trip: 3 objects, 2 layers, 1 material, 1 instance definition",
+    );
+  }
+
+  for (const target of archiveTargets) {
+    if (
+      existsSync(target.path) &&
+      isValidRhino3dmFixture(readFileSync(target.path), target.archiveVersion)
+    ) {
+      console.log(
+        `Rhino ${target.version} 3DM fixture semantic validation passed; preserving checked-in bytes`,
+      );
+      continue;
+    }
+
+    const options = new rhino.File3dmWriteOptions();
+    options.version = target.version;
+    options.saveUserData = true;
+    const bytes = model.toByteArrayOptions(options);
+    if (!isValidRhino3dmFixture(bytes, target.archiveVersion)) {
+      throw new Error(
+        `Generated Rhino ${target.version} 3DM fixture failed semantic round-trip`,
+      );
+    }
+    writeBinary(target.path, bytes);
+    console.log(
+      `Rhino ${target.version} 3DM fixture round-trip: archive ${target.archiveVersion}`,
+    );
+  }
+}
+
+await makeRhino3dmFixture();
+
 console.log(
-  "Done. Fixture textures, animated FBX, BVH motion, material morph PMX, and B8 broken fixtures generated.",
+  "Done. Fixture textures, animated FBX, BVH motion, material morph PMX, Rhino 3DM, and B8 broken fixtures generated.",
 );

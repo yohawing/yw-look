@@ -17,12 +17,12 @@
 import { Mesh, type Material, type Object3D } from "three";
 import type { Group } from "three";
 import {
-  clearNormalSurfaceSelection,
+  clearDiagnosticSurfaceSelection,
   createSelectionTintMaterialSet,
-  getNormalSurfaceOriginalMaterial,
-  isNormalSurfaceMaterialActive,
+  getDiagnosticSurfaceOriginalMaterial,
+  isDiagnosticSurfaceMaterialActive,
   isViewportHelperObject,
-  storeSuppressedNormalSelectionTint,
+  storeSuppressedDiagnosticSelectionTint,
 } from "./scene";
 import { isSelectionProxy } from "./selectionProxy";
 import { resolveObjectSelectionKey } from "./selectionKeys";
@@ -44,13 +44,12 @@ function cloneWithTint(material: Material): Material {
 
 /** Apply the selection tint to a single mesh. */
 function applyTintToMesh(mesh: Mesh): void {
-  // MeshNormalMaterial already consumes RGB to visualize view-space normals;
-  // a color/emissive selection tint cannot be represented meaningfully. Keep
-  // selection lifecycle state without replacing the active normal material.
-  if (isNormalSurfaceMaterialActive(mesh)) {
-    const original = getNormalSurfaceOriginalMaterial(mesh);
+  // Diagnostic surfaces use RGB for normals or authored vertex colors. Keep
+  // selection lifecycle state without tinting those values.
+  if (isDiagnosticSurfaceMaterialActive(mesh)) {
+    const original = getDiagnosticSurfaceOriginalMaterial(mesh);
     if (original !== undefined) {
-      storeSuppressedNormalSelectionTint(
+      storeSuppressedDiagnosticSelectionTint(
         mesh,
         createSelectionTintMaterialSet(original),
       );
@@ -123,7 +122,7 @@ export function applySelectionHighlight(
 export function clearSelectionHighlight(root: Object3D | Group): void {
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
-    if (clearNormalSurfaceSelection(child)) {
+    if (clearDiagnosticSurfaceSelection(child)) {
       return;
     }
     if (child.userData.__yw_origMaterial !== undefined) {
@@ -140,7 +139,7 @@ export function applySelectionHighlightToObject(
     if (!shouldHighlightMesh(child)) return;
     if (
       child.userData.__yw_origMaterial !== undefined ||
-      child.userData.__yw_selectionSuppressedByNormals === true
+      child.userData.__yw_selectionSuppressedByDiagnostic === true
     )
       return;
     applyTintToMesh(child);
@@ -152,7 +151,7 @@ export function clearSelectionHighlightFromObject(
 ): void {
   object.traverse((child) => {
     if (!(child instanceof Mesh)) return;
-    if (clearNormalSurfaceSelection(child)) {
+    if (clearDiagnosticSurfaceSelection(child)) {
       return;
     }
     if (child.userData.__yw_origMaterial !== undefined) {

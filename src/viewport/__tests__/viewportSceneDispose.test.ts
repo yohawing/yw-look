@@ -103,6 +103,22 @@ function createDisposalHarness(sceneContext: SceneContext | null) {
 }
 
 describe("disposeViewportScene", () => {
+  it("disposes every cached preset even when None is active at shutdown", () => {
+    const harness = createDisposalHarness(null);
+    const neutral = { dispose: vi.fn() };
+    const outdoor = { dispose: vi.fn() };
+    harness.environmentTargets.set("neutral", neutral);
+    harness.environmentTargets.set("outdoor", outdoor);
+    harness.environmentTargetRef.current = null as never;
+    disposeViewportScene(
+      harness as unknown as Parameters<typeof disposeViewportScene>[0],
+    );
+    expect(harness.environmentTarget.dispose).toHaveBeenCalledTimes(1);
+    expect(neutral.dispose).toHaveBeenCalledTimes(1);
+    expect(outdoor.dispose).toHaveBeenCalledTimes(1);
+    expect(harness.environmentTargets.size).toBe(0);
+    expect(harness.environmentTargetsRef.current).toBeNull();
+  });
   beforeEach(() => {
     viewerMocks.order.length = 0;
     viewerMocks.resetSceneObjects.mockClear();

@@ -40,6 +40,7 @@ import {
   applyDisplayMode,
   collectSceneTraversal,
   normalizeObjectScale,
+  applySurfaceMaterialMode,
 } from "../scene";
 import type { SelectedFile } from "../../lib/files";
 
@@ -50,6 +51,102 @@ const fakeFile: SelectedFile = {
   kind: "model",
   parentDirectory: "/tmp",
 };
+
+it("separates USDZ members and channels while retaining resource locators", () => {
+  const root = new Group();
+  const sources = [
+    String.raw`\\?\F:\toy.usdz[a/same.png]`,
+    String.raw`\\?\F:\toy.usdz[b/same.png]`,
+  ];
+  for (const source of sources) {
+    const texture = new Texture();
+    texture.name = source;
+    const material = new MeshBasicMaterial({ map: texture, alphaMap: texture });
+    root.add(new Mesh(new BufferGeometry(), material));
+  }
+  const file = { ...fakeFile, extension: "usdz" };
+  const result = collectAssetMetadata(root, file, [], null);
+  expect(result.metadata.textures).toHaveLength(4);
+  for (const entry of result.metadata.textures) {
+    expect(entry.label).toBe("same.png");
+    expect(entry.sourceKind).toBe("embedded");
+    expect(entry.containerPath).toBe(String.raw`\\?\F:\toy.usdz`);
+    expect(sources).toContain(entry.sourcePath);
+    expect(["a/same.png", "b/same.png"]).toContain(entry.internalPath);
+  }
+  expect(
+    refreshTextureSourceKinds(result.metadata, file, result.textureRegistry),
+  ).toBe(result.metadata);
+});
+
+it.each([
+  ["usd", "external"],
+  ["glb", "embedded"],
+])("preserves %s texture source semantics", (extension, sourceKind) => {
+  const texture = new Texture();
+  texture.name = "textures/albedo.png";
+  const root = new Mesh(
+    new BufferGeometry(),
+    new MeshBasicMaterial({ map: texture }),
+  );
+  const entry = collectAssetMetadata(root, { ...fakeFile, extension }, [], null)
+    .metadata.textures[0];
+  expect(entry).toMatchObject({
+    label: "albedo.png",
+    sourcePath: "textures/albedo.png",
+    sourceKind,
+  });
+  expect(entry.containerPath).toBeUndefined();
+});
+
+it("counts usable vertex color meshes from geometry rather than material flags", () => {
+  const root = new Group();
+  const colored = new Mesh(
+    new BufferGeometry(),
+    new MeshBasicMaterial({ vertexColors: false }),
+  );
+  colored.geometry.setAttribute(
+    "position",
+    new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+  );
+  colored.geometry.setAttribute(
+    "color",
+    new Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1], 3),
+  );
+  root.add(
+    colored,
+    new Mesh(
+      new BufferGeometry(),
+      new MeshBasicMaterial({ vertexColors: true }),
+    ),
+  );
+  expect(
+    collectAssetMetadata(root, fakeFile, [], null).metadata
+      .vertexColorMeshCount,
+  ).toBe(1);
+  colored.geometry.deleteAttribute("color");
+  expect(
+    collectAssetMetadata(root, fakeFile, [], null).metadata
+      .vertexColorMeshCount,
+  ).toBe(0);
+});
+
+it("keeps authored material and texture metadata while vertex colors are active", () => {
+  const texture = new Texture();
+  texture.name = "Authored texture";
+  const material = new MeshBasicMaterial({ map: texture, color: 0x123456 });
+  material.name = "Authored material";
+  const mesh = new Mesh(new BufferGeometry(), material);
+  mesh.name = "Mesh";
+  const root = new Group().add(mesh);
+  const before = collectAssetMetadata(root, fakeFile, [], null);
+  applySurfaceMaterialMode(root, "vertexColors");
+  const after = collectAssetMetadata(root, fakeFile, [], null);
+  expect(after.metadata.materials).toEqual(before.metadata.materials);
+  expect(after.metadata.objectInfo).toEqual(before.metadata.objectInfo);
+  expect(after.metadata.textures).toEqual(before.metadata.textures);
+  expect([...after.textureRegistry.values()]).toEqual([texture]);
+});
 
 const fakeMmdFile: SelectedFile = {
   path: "/tmp/miku.pmx",
@@ -98,14 +195,16 @@ function mockCanvasThumbnail(thumbnailUrl = "data:image/jpeg;base64,thumb") {
     data: new Uint8ClampedArray(width * height * 4),
   }));
   const putImageDataMock = vi.fn();
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-    () =>
-      ({
-        createImageData: createImageDataMock,
-        drawImage: drawImageMock,
-        putImageData: putImageDataMock,
-      }) as unknown as CanvasRenderingContext2D,
-  );
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(((
+    contextId: string,
+  ) =>
+    contextId === "2d"
+      ? ({
+          createImageData: createImageDataMock,
+          drawImage: drawImageMock,
+          putImageData: putImageDataMock,
+        } as unknown as CanvasRenderingContext2D)
+      : null) as HTMLCanvasElement["getContext"]);
   vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
     thumbnailUrl,
   );
@@ -239,6 +338,59 @@ describe("collectAssetMetadata", () => {
     expect(result.metadata.hierarchy[0]?.children[0]?.primPath).toBe(
       "/Kitchen_set/Props_grp/Ceiling_grp/Geom",
     );
+  });
+
+  it("prefers USD node type names for hierarchy kinds and falls back for empty values", () => {
+    const root = new Group();
+    root.name = "Root";
+
+    const xform = new Group();
+    xform.name = "Building";
+    xform.userData.primPath = "/World/Building";
+    xform.userData.usdTypeName = "Xform";
+
+    const scope = new Group();
+    scope.name = "Materials";
+    scope.userData.primPath = "/World/Materials";
+    scope.userData.usdTypeName = "Scope";
+
+    const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    mesh.name = "Wall";
+    mesh.userData.primPath = "/World/Wall";
+    mesh.userData.usdTypeName = "Mesh";
+    mesh.userData.author = "visible";
+
+    const missingType = new Group();
+    missingType.name = "MissingFallback";
+
+    const emptyType = new Group();
+    emptyType.name = "Fallback";
+    emptyType.userData.primPath = "/World/Fallback";
+    emptyType.userData.usdTypeName = "";
+
+    const nonUsdExtra = new Group();
+    nonUsdExtra.name = "NonUsdExtra";
+    nonUsdExtra.userData.usdTypeName = "Mesh";
+
+    root.add(xform, scope, mesh, missingType, emptyType, nonUsdExtra);
+
+    const result = collectAssetMetadata(root, fakeFile, [], null);
+    const children = result.metadata.hierarchy[0]?.children ?? [];
+
+    expect(children.map(({ name, kind }) => [name, kind])).toEqual([
+      ["Building", "Xform"],
+      ["Materials", "Scope"],
+      ["Wall", "Mesh"],
+      ["MissingFallback", "group"],
+      ["Fallback", "group"],
+      ["NonUsdExtra", "group"],
+    ]);
+    // USD type names are hierarchy metadata only; runtime ObjectInfo keeps
+    // its existing Three.js classification and does not expose the sentinel.
+    expect(result.metadata.objectInfo["/World/Wall"]?.kind).toBe("mesh");
+    expect(result.metadata.objectInfo["/World/Wall"]?.userData).toEqual({
+      author: "visible",
+    });
   });
 
   it("enumerates Three.js Light children as USD light entries (#35)", () => {

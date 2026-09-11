@@ -173,6 +173,19 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       });
     }
 
+    if (activeDisplayState.surface === "vertexColor") {
+      children.push({
+        id: "vertex-color-status",
+        mode: "3d",
+        group: "display",
+        kind: "status",
+        label:
+          options.vertexColorMeshCount === 0
+            ? "No vertex colors. Meshes are shown gray."
+            : "Meshes without vertex colors are shown gray.",
+      });
+    }
+
     push({
       id: "display",
       mode: "3d",
@@ -180,6 +193,92 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       kind: "popover",
       label: "Shading",
       iconId: "shading",
+      children,
+    });
+  }
+
+  // ── Lighting ────────────────────────────────────────────
+  {
+    groupSep("lighting");
+    const hasEnvironment = options.environmentPreset !== "none";
+    const rotationDegrees =
+      ((options.environmentRotation ?? 0) * 180) / Math.PI;
+    const rotation =
+      rotationDegrees >= 0 && rotationDegrees <= 360
+        ? rotationDegrees
+        : ((rotationDegrees % 360) + 360) % 360;
+    const children: ToolbarItem[] = [
+      {
+        id: "environment-heading",
+        mode: "3d",
+        group: "lighting",
+        kind: "status",
+        label: "Environment Map (IBL)",
+      },
+      ...options.environmentPresetOptions.map((preset): ToolbarAction => ({
+        id: `environment-${preset.id}`,
+        mode: "3d",
+        group: "lighting",
+        kind: "button",
+        label: preset.label,
+        active: options.environmentPreset === preset.id,
+        disabled: !options.onSelectEnvironmentPreset,
+        onRun: () => options.onSelectEnvironmentPreset?.(preset.id),
+      })),
+      { kind: "separator" },
+      {
+        id: "environment-rotation",
+        mode: "3d",
+        group: "lighting",
+        kind: "slider",
+        label: "Rotation",
+        value: rotation,
+        valueLabel: `${Math.round(rotation)}°`,
+        min: 0,
+        max: 360,
+        step: 1,
+        disabled: !hasEnvironment || !options.onChangeEnvironmentRotation,
+        onValueChange: (degrees) =>
+          options.onChangeEnvironmentRotation?.((degrees * Math.PI) / 180),
+      },
+      {
+        id: "environment-background",
+        mode: "3d",
+        group: "lighting",
+        kind: "toggle",
+        label: "Show as Background",
+        active: hasEnvironment && options.showEnvironmentBackground,
+        disabled: !hasEnvironment || !options.onToggleEnvironmentBackground,
+        onRun: options.onToggleEnvironmentBackground,
+      },
+      { kind: "separator" },
+      {
+        id: "lighting-shadows",
+        mode: "3d",
+        group: "lighting",
+        kind: "toggle",
+        label: "Shadows",
+        active: options.showShadows,
+        disabled: !options.onToggleShadows,
+        onRun: options.onToggleShadows,
+      },
+    ];
+    if (activeDisplayState.surface !== "shaded") {
+      children.push({
+        id: "lighting-surface-status",
+        mode: "3d",
+        group: "lighting",
+        kind: "status",
+        label: "Lighting applies to Shaded surfaces.",
+      });
+    }
+    push({
+      id: "lighting",
+      mode: "3d",
+      group: "lighting",
+      kind: "popover",
+      label: "Lighting",
+      iconId: "light",
       children,
     });
   }

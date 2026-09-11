@@ -31,6 +31,8 @@ type SerializableTextureSlot = (typeof SERIALIZABLE_TEXTURE_SLOTS)[number];
 
 /** Shared sampler/transform fields for both ImageData and deferred textures. */
 export type ModelParseWorkerStaticTextureSamplerPayload = {
+  name?: string;
+  userData?: Record<string, unknown>;
   colorSpace: Texture["colorSpace"];
   flipY: boolean;
   wrapS: Texture["wrapS"];
@@ -116,15 +118,20 @@ export type ModelParseWorkerStaticMaterialType =
 export type ModelParseWorkerStaticMaterialPayload = {
   type: ModelParseWorkerStaticMaterialType;
   name: string;
+  userData?: Record<string, unknown>;
   color: number;
   metalness: number;
   roughness: number;
   opacity: number;
   transparent: boolean;
+  vertexColors?: boolean;
+  flatShading?: boolean;
   side: Material["side"];
   textures?: Partial<
     Record<SerializableTextureSlot, ModelParseWorkerStaticTexturePayload>
   >;
+  /** Resource-table references used by the current transfer format. */
+  textureIds?: Partial<Record<SerializableTextureSlot, number>>;
 };
 
 export type CanSerializeStaticNodeOptions = {
@@ -141,6 +148,9 @@ export type ModelParseWorkerMeshPayload = {
   material:
     | ModelParseWorkerStaticMaterialPayload
     | ModelParseWorkerStaticMaterialPayload[];
+  /** Resource-table references. The inline fields remain for old consumers. */
+  geometryId?: number;
+  materialId?: number | number[];
 };
 
 export type ModelParseWorkerStaticNodePayload = {
@@ -149,12 +159,71 @@ export type ModelParseWorkerStaticNodePayload = {
   matrix: number[];
   children: ModelParseWorkerStaticNodePayload[];
   geometry?: ModelParseWorkerStaticGeometryPayload;
+  geometryId?: number;
   material?:
     | ModelParseWorkerStaticMaterialPayload
     | ModelParseWorkerStaticMaterialPayload[];
+  materialId?: number | number[];
   visible?: boolean;
   userData?: Record<string, unknown>;
 };
+
+export type ModelParseWorkerStaticSceneResources = {
+  geometries: ModelParseWorkerStaticGeometryPayload[];
+  materials: ModelParseWorkerStaticMaterialPayload[];
+  textures: ModelParseWorkerStaticTexturePayload[];
+};
+
+export type StaticScenePayloadBudget = {
+  maxNodes?: number;
+  maxGeometryCount?: number;
+  maxVertexBytes?: number;
+  maxIndexBytes?: number;
+  maxTextureDecodedBytes?: number;
+};
+
+export type StaticScenePayloadBudgetUsage = {
+  nodeCount: number;
+  geometryCount: number;
+  vertexBytes: number;
+  indexBytes: number;
+  textureDecodedBytes: number;
+};
+
+export type StaticScenePayloadBudgetReason =
+  | "nodeCount"
+  | "geometryCount"
+  | "vertexBytes"
+  | "indexBytes"
+  | "textureDecodedBytes"
+  | "unsafeInteger"
+  | "invalidBudget";
+
+export type StaticScenePayloadBudgetCheck =
+  | { ok: true; usage: StaticScenePayloadBudgetUsage }
+  | {
+      ok: false;
+      reason: StaticScenePayloadBudgetReason;
+      usage: StaticScenePayloadBudgetUsage;
+      limit?: number;
+    };
+
+export class StaticScenePayloadBudgetError extends Error {
+  readonly code = "staticSceneBudgetExceeded";
+
+  constructor(
+    readonly reason: StaticScenePayloadBudgetReason,
+    readonly usage: StaticScenePayloadBudgetUsage,
+    readonly limit?: number,
+  ) {
+    super(
+      reason === "invalidBudget"
+        ? "Static scene budget contains an invalid limit."
+        : `Static scene ${reason} budget exceeded before reconstruction.`,
+    );
+    this.name = "StaticScenePayloadBudgetError";
+  }
+}
 
 export type ModelParseWorkerStaticScenePayload = {
   rootKind: "group" | "mesh";
@@ -162,6 +231,8 @@ export type ModelParseWorkerStaticScenePayload = {
   rootUserData: Record<string, unknown>;
   root?: ModelParseWorkerStaticNodePayload;
   meshes: ModelParseWorkerMeshPayload[];
+  /** Deduplicated resources for worker transfer and main-thread restoration. */
+  resources?: ModelParseWorkerStaticSceneResources;
 };
 
 function cloneAttribute(attribute: BufferAttribute) {
@@ -213,6 +284,44 @@ function cloneGeometryPayload(
   };
 }
 
+type StaticSceneBuildContext = {
+  geometries: ModelParseWorkerStaticGeometryPayload[];
+  geometryIds: Map<BufferGeometry, number>;
+  materials: ModelParseWorkerStaticMaterialPayload[];
+  materialIds: Map<Material, number>;
+  textures: ModelParseWorkerStaticTexturePayload[];
+  textureIds: Map<Texture, number>;
+};
+
+function createStaticSceneBuildContext(): StaticSceneBuildContext {
+  return {
+    geometries: [],
+    geometryIds: new Map(),
+    materials: [],
+    materialIds: new Map(),
+    textures: [],
+    textureIds: new Map(),
+  };
+}
+
+function getGeometryPayload(
+  geometry: BufferGeometry,
+  context?: StaticSceneBuildContext,
+): { payload: ModelParseWorkerStaticGeometryPayload; id?: number } {
+  if (!context) {
+    return { payload: cloneGeometryPayload(geometry) };
+  }
+  const existing = context.geometryIds.get(geometry);
+  if (existing !== undefined) {
+    return { payload: context.geometries[existing], id: existing };
+  }
+  const id = context.geometries.length;
+  const payload = cloneGeometryPayload(geometry);
+  context.geometryIds.set(geometry, id);
+  context.geometries.push(payload);
+  return { payload, id };
+}
+
 function isSupportedMaterialType(
   type: string,
 ): type is ModelParseWorkerStaticMaterialType {
@@ -248,6 +357,8 @@ function getTextureSamplerPayload(
   texture: Texture,
 ): ModelParseWorkerStaticTextureSamplerPayload {
   return {
+    name: texture.name,
+    userData: cloneUserData(texture.userData),
     colorSpace: texture.colorSpace,
     flipY: texture.flipY,
     wrapS: texture.wrapS,
@@ -273,18 +384,8 @@ function getTexturePayload(
 ): ModelParseWorkerStaticTexturePayload | null {
   const sampler = getTextureSamplerPayload(texture);
   const sourceName = texture.userData?.fbxSourceName;
-  if (
-    texture.userData?.fbxDeferred === true &&
-    typeof sourceName === "string" &&
-    sourceName.length > 0 &&
-    !/^(data:|blob:)/i.test(sourceName)
-  ) {
-    return {
-      kind: "deferred",
-      fbxSourceName: sourceName,
-      ...sampler,
-    };
-  }
+  // Preserve the native neutral pixel while sidecar loading is pending.
+  // userData retains fbxDeferred, so hydration still replaces this image.
   if (isImageData(texture.image)) {
     return {
       kind: "imageData",
@@ -312,6 +413,7 @@ function getTexturePayload(
 function getMaterialTexturePayloads(
   material: Material,
   options?: CanSerializeStaticNodeOptions,
+  context?: StaticSceneBuildContext,
 ):
   | Partial<
       Record<SerializableTextureSlot, ModelParseWorkerStaticTexturePayload>
@@ -351,7 +453,19 @@ function getMaterialTexturePayloads(
     if (requireStrict && !isImageDataStaticTexturePayload(payload)) {
       return null;
     }
-    textures[slot] = payload;
+    if (context) {
+      const existing = context.textureIds.get(value);
+      if (existing !== undefined) {
+        textures[slot] = context.textures[existing];
+      } else {
+        const id = context.textures.length;
+        context.textureIds.set(value, id);
+        context.textures.push(payload);
+        textures[slot] = payload;
+      }
+    } else {
+      textures[slot] = payload;
+    }
     hasSerializable = true;
   }
 
@@ -380,38 +494,90 @@ function canSerializeMaterial(
 function getMaterialPayload(
   material: Material,
   options?: CanSerializeStaticNodeOptions,
+  context?: StaticSceneBuildContext,
 ): ModelParseWorkerStaticMaterialPayload {
+  if (context) {
+    const existing = context.materialIds.get(material);
+    if (existing !== undefined) {
+      return context.materials[existing];
+    }
+  }
   const materialLike = material as Material & {
     color?: { getHex: () => number };
     metalness?: number;
     roughness?: number;
+    vertexColors?: boolean;
+    flatShading?: boolean;
   };
-  const textures = getMaterialTexturePayloads(material, options);
-  return {
+  const textures = getMaterialTexturePayloads(material, options, context);
+  const payload: ModelParseWorkerStaticMaterialPayload = {
     type: isSupportedMaterialType(materialLike.type)
       ? materialLike.type
       : "MeshStandardMaterial",
     name: materialLike.name ?? "",
+    userData: cloneUserData(material.userData),
     color: materialLike.color?.getHex() ?? 0xc7d2e3,
     metalness: materialLike.metalness ?? 0.08,
     roughness: materialLike.roughness ?? 0.72,
     opacity: materialLike.opacity,
     transparent: materialLike.transparent,
+    vertexColors: materialLike.vertexColors,
+    flatShading: materialLike.flatShading,
     side: materialLike.side,
     ...(textures ? { textures } : {}),
   };
+  if (context) {
+    const id = context.materials.length;
+    context.materialIds.set(material, id);
+    context.materials.push(payload);
+    // The resource table owns the texture bytes. Keep the compatibility
+    // `textures` aliases above while recording stable texture IDs below.
+    if (payload.textures) {
+      const textureIds: Partial<Record<SerializableTextureSlot, number>> = {};
+      for (const [slot, texture] of Object.entries(payload.textures) as Array<
+        [SerializableTextureSlot, ModelParseWorkerStaticTexturePayload]
+      >) {
+        const textureId = context.textures.findIndex(
+          (candidate) => candidate === texture,
+        );
+        if (textureId >= 0) textureIds[slot] = textureId;
+      }
+      if (Object.keys(textureIds).length > 0) {
+        payload.textureIds = textureIds;
+      }
+    }
+  }
+  return payload;
 }
 
 function getMaterialPayloads(
   material: Material | Material[] | undefined,
   options?: CanSerializeStaticNodeOptions,
+  context?: StaticSceneBuildContext,
 ) {
   if (!material) {
-    return getMaterialPayload(new MeshStandardMaterial(), options);
+    return getMaterialPayload(new MeshStandardMaterial(), options, context);
   }
   return Array.isArray(material)
-    ? material.map((entry) => getMaterialPayload(entry, options))
-    : getMaterialPayload(material, options);
+    ? material.map((entry) => getMaterialPayload(entry, options, context))
+    : getMaterialPayload(material, options, context);
+}
+
+function getMaterialPayloadIds(
+  payload:
+    | ModelParseWorkerStaticMaterialPayload
+    | ModelParseWorkerStaticMaterialPayload[],
+  context: StaticSceneBuildContext,
+): number | number[] {
+  const entries = Array.isArray(payload) ? payload : [payload];
+  const ids = entries.map((entry) => {
+    const id = context.materials.indexOf(entry);
+    if (id < 0) {
+      throw new Error("Static scene material resource was not registered.");
+    }
+    return id;
+  });
+  return Array.isArray(payload) ? ids : ids[0];
 }
 
 function collectMaterialTextureBuffers(
@@ -467,6 +633,23 @@ export function collectTransferables(
     }
   };
 
+  if (scene.resources) {
+    for (const geometry of scene.resources.geometries) {
+      collectGeometry(geometry);
+    }
+    for (const material of scene.resources.materials) {
+      collectMaterialTextureBuffers(material, buffers);
+    }
+    for (const texture of scene.resources.textures) {
+      if (
+        isImageDataStaticTexturePayload(texture) &&
+        texture.data.buffer instanceof ArrayBuffer
+      ) {
+        buffers.add(texture.data.buffer);
+      }
+    }
+  }
+
   for (const mesh of scene.meshes) {
     collectGeometry(mesh);
     collectMaterialTextureBuffers(mesh.material, buffers);
@@ -475,6 +658,271 @@ export function collectTransferables(
     collectNode(scene.root);
   }
   return [...buffers];
+}
+
+const EMPTY_BUDGET_USAGE: StaticScenePayloadBudgetUsage = {
+  nodeCount: 0,
+  geometryCount: 0,
+  vertexBytes: 0,
+  indexBytes: 0,
+  textureDecodedBytes: 0,
+};
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function checkedAdd(left: number, right: number): number | null {
+  const result = left + right;
+  return Number.isSafeInteger(result) ? result : null;
+}
+
+function checkedMultiply(left: number, right: number): number | null {
+  const result = left * right;
+  return Number.isSafeInteger(result) ? result : null;
+}
+
+function collectPayloadGeometries(
+  scene: ModelParseWorkerStaticScenePayload,
+): ModelParseWorkerStaticGeometryPayload[] {
+  if (scene.resources) {
+    return scene.resources.geometries;
+  }
+  const geometries: ModelParseWorkerStaticGeometryPayload[] = [];
+  const seenAttributes = new Set<object>();
+  const add = (geometry: ModelParseWorkerStaticGeometryPayload | undefined) => {
+    if (!geometry) return;
+    const key = geometry.attributes as object;
+    if (seenAttributes.has(key)) return;
+    seenAttributes.add(key);
+    geometries.push(geometry);
+  };
+  for (const mesh of scene.meshes) {
+    add({
+      attributes: mesh.attributes,
+      index: mesh.index,
+      groups: mesh.groups,
+    });
+  }
+  const pending = scene.root ? [scene.root] : [];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    add(node.geometry);
+    pending.push(...node.children);
+  }
+  return geometries;
+}
+
+function collectPayloadTextures(
+  scene: ModelParseWorkerStaticScenePayload,
+): ModelParseWorkerStaticTexturePayload[] {
+  if (scene.resources) {
+    return scene.resources.textures;
+  }
+  const textures: ModelParseWorkerStaticTexturePayload[] = [];
+  const seen = new Set<object>();
+  const addMaterial = (
+    material:
+      | ModelParseWorkerStaticMaterialPayload
+      | ModelParseWorkerStaticMaterialPayload[],
+  ) => {
+    const materials = Array.isArray(material) ? material : [material];
+    for (const entry of materials) {
+      for (const texture of Object.values(entry.textures ?? {})) {
+        if (!texture || seen.has(texture)) continue;
+        seen.add(texture);
+        textures.push(texture);
+      }
+    }
+  };
+  for (const mesh of scene.meshes) addMaterial(mesh.material);
+  const pending = scene.root ? [scene.root] : [];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (node.material) addMaterial(node.material);
+    pending.push(...node.children);
+  }
+  return textures;
+}
+
+function validateResourceIds(
+  scene: ModelParseWorkerStaticScenePayload,
+): StaticScenePayloadBudgetReason | null {
+  const resources = scene.resources;
+  if (!resources) return null;
+  const validId = (id: unknown, length: number) =>
+    isSafeNonNegativeInteger(id) && id < length;
+  const validMaterialId = (id: unknown) => {
+    if (Array.isArray(id))
+      return id.every((entry) => validId(entry, resources.materials.length));
+    return validId(id, resources.materials.length);
+  };
+  for (const mesh of scene.meshes) {
+    if (
+      mesh.geometryId !== undefined &&
+      !validId(mesh.geometryId, resources.geometries.length)
+    ) {
+      return "unsafeInteger";
+    }
+    if (mesh.materialId !== undefined && !validMaterialId(mesh.materialId)) {
+      return "unsafeInteger";
+    }
+  }
+  const pending = scene.root ? [scene.root] : [];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (
+      node.geometryId !== undefined &&
+      !validId(node.geometryId, resources.geometries.length)
+    ) {
+      return "unsafeInteger";
+    }
+    if (node.materialId !== undefined && !validMaterialId(node.materialId)) {
+      return "unsafeInteger";
+    }
+    pending.push(...node.children);
+  }
+  for (const material of resources.materials) {
+    for (const id of Object.values(material.textureIds ?? {})) {
+      if (!validId(id, resources.textures.length)) return "unsafeInteger";
+    }
+  }
+  return null;
+}
+
+/**
+ * Inspect a worker payload before creating any BufferGeometry, Material, or
+ * ImageData. No Three.js objects are allocated by this function.
+ */
+export function checkStaticScenePayloadBudget(
+  scene: ModelParseWorkerStaticScenePayload,
+  budget: StaticScenePayloadBudget = {},
+): StaticScenePayloadBudgetCheck {
+  for (const value of Object.values(budget)) {
+    if (value !== undefined && !isSafeNonNegativeInteger(value)) {
+      return {
+        ok: false,
+        reason: "invalidBudget",
+        usage: { ...EMPTY_BUDGET_USAGE },
+      };
+    }
+  }
+
+  const usage: StaticScenePayloadBudgetUsage = { ...EMPTY_BUDGET_USAGE };
+  const addUsage = (
+    key: keyof StaticScenePayloadBudgetUsage,
+    value: number,
+  ): boolean => {
+    const next = checkedAdd(usage[key], value);
+    if (next === null) return false;
+    usage[key] = next;
+    return true;
+  };
+  const nodeCount = scene.root
+    ? (() => {
+        let count = 0;
+        const pending = [scene.root!];
+        while (pending.length > 0) {
+          const node = pending.pop()!;
+          count = checkedAdd(count, 1) ?? Number.MAX_SAFE_INTEGER;
+          pending.push(...node.children);
+        }
+        return count;
+      })()
+    : scene.meshes.length + (scene.rootKind === "group" ? 1 : 0);
+  if (
+    !isSafeNonNegativeInteger(nodeCount) ||
+    !addUsage("nodeCount", nodeCount)
+  ) {
+    return { ok: false, reason: "unsafeInteger", usage };
+  }
+
+  const invalidIdReason = validateResourceIds(scene);
+  if (invalidIdReason) return { ok: false, reason: invalidIdReason, usage };
+
+  const geometries = collectPayloadGeometries(scene);
+  usage.geometryCount = geometries.length;
+  if (!isSafeNonNegativeInteger(usage.geometryCount)) {
+    return { ok: false, reason: "unsafeInteger", usage };
+  }
+  const seenVertexArrays = new Set<object>();
+  const seenIndexArrays = new Set<object>();
+  for (const geometry of geometries) {
+    for (const attribute of Object.values(geometry.attributes)) {
+      if (seenVertexArrays.has(attribute.array)) continue;
+      seenVertexArrays.add(attribute.array);
+      if (!addUsage("vertexBytes", attribute.array.byteLength)) {
+        return { ok: false, reason: "unsafeInteger", usage };
+      }
+    }
+    if (geometry.index && !seenIndexArrays.has(geometry.index.array)) {
+      seenIndexArrays.add(geometry.index.array);
+      if (!addUsage("indexBytes", geometry.index.array.byteLength)) {
+        return { ok: false, reason: "unsafeInteger", usage };
+      }
+    }
+  }
+
+  const textureArrays = new Set<object>();
+  for (const texture of collectPayloadTextures(scene)) {
+    if (!isImageDataStaticTexturePayload(texture)) continue;
+    if (
+      !isSafeNonNegativeInteger(texture.width) ||
+      !isSafeNonNegativeInteger(texture.height)
+    ) {
+      return { ok: false, reason: "unsafeInteger", usage };
+    }
+    const decodedPixels = checkedMultiply(
+      checkedMultiply(texture.width, texture.height) ?? Number.MAX_SAFE_INTEGER,
+      4,
+    );
+    if (decodedPixels === null) {
+      return { ok: false, reason: "unsafeInteger", usage };
+    }
+    const bytes = Math.max(texture.data.byteLength, decodedPixels);
+    if (!textureArrays.has(texture.data)) {
+      textureArrays.add(texture.data);
+      if (!addUsage("textureDecodedBytes", bytes)) {
+        return { ok: false, reason: "unsafeInteger", usage };
+      }
+    }
+  }
+
+  const checks: Array<
+    [
+      keyof StaticScenePayloadBudget,
+      keyof StaticScenePayloadBudgetUsage,
+      StaticScenePayloadBudgetReason,
+    ]
+  > = [
+    ["maxNodes", "nodeCount", "nodeCount"],
+    ["maxGeometryCount", "geometryCount", "geometryCount"],
+    ["maxVertexBytes", "vertexBytes", "vertexBytes"],
+    ["maxIndexBytes", "indexBytes", "indexBytes"],
+    ["maxTextureDecodedBytes", "textureDecodedBytes", "textureDecodedBytes"],
+  ];
+  for (const [budgetKey, usageKey, reason] of checks) {
+    const limit = budget[budgetKey];
+    if (limit !== undefined && usage[usageKey] > limit) {
+      return { ok: false, reason, usage, limit };
+    }
+  }
+  return { ok: true, usage };
+}
+
+export function assertStaticScenePayloadWithinBudget(
+  scene: ModelParseWorkerStaticScenePayload,
+  budget?: StaticScenePayloadBudget,
+): StaticScenePayloadBudgetUsage {
+  const result = checkStaticScenePayloadBudget(scene, budget);
+  if (!result.ok) {
+    throw new StaticScenePayloadBudgetError(
+      result.reason,
+      result.usage,
+      result.limit,
+    );
+  }
+  return result.usage;
 }
 
 function getStaticNodeType(
@@ -552,6 +1000,7 @@ export function canSerializeStaticNode(
 function toStaticNodePayload(
   object: Object3D,
   options?: CanSerializeStaticNodeOptions,
+  context?: StaticSceneBuildContext,
 ): ModelParseWorkerStaticNodePayload | null {
   const type = getStaticNodeType(object);
   if (!type) {
@@ -575,12 +1024,22 @@ function toStaticNodePayload(
     ) {
       return null;
     }
-    node.geometry = cloneGeometryPayload(geometryOwner.geometry);
-    node.material = getMaterialPayloads(geometryOwner.material, options);
+    const geometry = getGeometryPayload(geometryOwner.geometry, context);
+    const material = getMaterialPayloads(
+      geometryOwner.material,
+      options,
+      context,
+    );
+    node.geometry = geometry.payload;
+    node.geometryId = geometry.id;
+    node.material = material;
+    if (context) {
+      node.materialId = getMaterialPayloadIds(material, context);
+    }
   }
 
   for (const child of object.children) {
-    const childNode = toStaticNodePayload(child, options);
+    const childNode = toStaticNodePayload(child, options, context);
     if (!childNode) {
       return null;
     }
@@ -600,9 +1059,10 @@ export function toStaticScenePayload(
   }
 
   object.updateMatrixWorld(true);
+  const context = createStaticSceneBuildContext();
   const meshes: ModelParseWorkerMeshPayload[] = [];
   const root = useTree
-    ? (toStaticNodePayload(object, options) ?? undefined)
+    ? (toStaticNodePayload(object, options, context) ?? undefined)
     : undefined;
   if (useTree && !root) {
     return null;
@@ -617,16 +1077,19 @@ export function toStaticScenePayload(
         return;
       }
 
-      const geometry = cloneGeometryPayload(child.geometry);
+      const geometry = getGeometryPayload(child.geometry, context);
+      const material = getMaterialPayloads(child.material, options, context);
 
       meshes.push({
         name: child.name,
         matrix: child.matrixWorld.toArray(),
         userData: cloneUserData(child.userData),
-        attributes: geometry.attributes,
-        index: geometry.index,
-        groups: geometry.groups,
-        material: getMaterialPayloads(child.material, options),
+        attributes: geometry.payload.attributes,
+        index: geometry.payload.index,
+        groups: geometry.payload.groups,
+        material,
+        geometryId: geometry.id,
+        materialId: getMaterialPayloadIds(material, context),
       });
     });
   }
@@ -637,6 +1100,11 @@ export function toStaticScenePayload(
     rootUserData: cloneUserData(object.userData),
     root,
     meshes,
+    resources: {
+      geometries: context.geometries,
+      materials: context.materials,
+      textures: context.textures,
+    },
   };
 }
 
@@ -646,6 +1114,30 @@ function createBufferAttribute(payload: ModelParseWorkerAttributePayload) {
     payload.itemSize,
     payload.normalized,
   );
+}
+
+type StaticSceneReconstructionContext = {
+  resources?: ModelParseWorkerStaticSceneResources;
+  geometries: Map<number, BufferGeometry>;
+  materials: Map<number, Material>;
+  textures: Map<number, Texture>;
+  ownedGeometries: Set<BufferGeometry>;
+  ownedMaterials: Set<Material>;
+  ownedTextures: Set<Texture>;
+};
+
+function createStaticSceneReconstructionContext(
+  payload: ModelParseWorkerStaticScenePayload,
+): StaticSceneReconstructionContext {
+  return {
+    resources: payload.resources,
+    geometries: new Map(),
+    materials: new Map(),
+    textures: new Map(),
+    ownedGeometries: new Set(),
+    ownedMaterials: new Set(),
+    ownedTextures: new Set(),
+  };
 }
 
 function createStaticGeometry(payload: ModelParseWorkerStaticGeometryPayload) {
@@ -663,10 +1155,34 @@ function createStaticGeometry(payload: ModelParseWorkerStaticGeometryPayload) {
   return geometry;
 }
 
+function getStaticGeometry(
+  payload: ModelParseWorkerStaticGeometryPayload,
+  context: StaticSceneReconstructionContext,
+  id?: number,
+): BufferGeometry {
+  if (id !== undefined) {
+    const existing = context.geometries.get(id);
+    if (existing) return existing;
+    const resource = context.resources?.geometries[id];
+    if (!resource) {
+      throw new Error(`Static scene geometry resource ${id} is missing.`);
+    }
+    const geometry = createStaticGeometry(resource);
+    context.geometries.set(id, geometry);
+    context.ownedGeometries.add(geometry);
+    return geometry;
+  }
+  const geometry = createStaticGeometry(payload);
+  context.ownedGeometries.add(geometry);
+  return geometry;
+}
+
 function applyTextureSamplerPayload(
   texture: Texture,
   payload: ModelParseWorkerStaticTextureSamplerPayload,
 ) {
+  texture.name = payload.name ?? "";
+  texture.userData = cloneUserData(payload.userData);
   texture.colorSpace = payload.colorSpace;
   texture.flipY = payload.flipY;
   texture.wrapS = payload.wrapS;
@@ -683,16 +1199,31 @@ function applyTextureSamplerPayload(
 
 function createTextureFromPayload(
   payload: ModelParseWorkerStaticTexturePayload,
+  context?: StaticSceneReconstructionContext,
+  id?: number,
 ): Texture {
+  if (context && id !== undefined) {
+    const existing = context.textures.get(id);
+    if (existing) return existing;
+    const resource = context.resources?.textures[id];
+    if (!resource) {
+      throw new Error(`Static scene texture resource ${id} is missing.`);
+    }
+    const texture = createTextureFromPayload(resource);
+    context.textures.set(id, texture);
+    context.ownedTextures.add(texture);
+    return texture;
+  }
   if (isDeferredStaticTexturePayload(payload)) {
     // Empty placeholder; main-thread FBX hydration replaces this via
     // loadDeferredTexture(fbxSourceName) without re-parsing the FBX.
     const texture = new Texture();
+    applyTextureSamplerPayload(texture, payload);
     texture.userData.fbxSourceName = payload.fbxSourceName;
     texture.userData.fbxDeferred = true;
     const baseName = payload.fbxSourceName.replace(/\\/g, "/");
-    texture.name = baseName.slice(baseName.lastIndexOf("/") + 1);
-    applyTextureSamplerPayload(texture, payload);
+    texture.name ||= baseName.slice(baseName.lastIndexOf("/") + 1);
+    context?.ownedTextures.add(texture);
     return texture;
   }
 
@@ -702,33 +1233,53 @@ function createTextureFromPayload(
   const texture = new Texture(image);
   applyTextureSamplerPayload(texture, payload);
   texture.needsUpdate = true;
+  context?.ownedTextures.add(texture);
   return texture;
 }
 
 function applyStaticMaterialTextures(
   material: Material,
   textures: ModelParseWorkerStaticMaterialPayload["textures"],
+  textureIds: ModelParseWorkerStaticMaterialPayload["textureIds"],
+  context?: StaticSceneReconstructionContext,
 ) {
-  if (!textures) {
+  if (!textures && !textureIds) {
     return;
   }
   const materialRecord = material as unknown as Record<string, unknown>;
   for (const slot of SERIALIZABLE_TEXTURE_SLOTS) {
-    const payload = textures[slot];
+    const textureId = textureIds?.[slot];
+    if (textureId !== undefined && context) {
+      const resource = context.resources?.textures[textureId];
+      if (!resource) {
+        throw new Error(
+          `Static scene texture resource ${textureId} is missing.`,
+        );
+      }
+      materialRecord[slot] = createTextureFromPayload(
+        resource,
+        context,
+        textureId,
+      );
+      continue;
+    }
+    const payload = textures?.[slot];
     if (!payload) {
       continue;
     }
-    materialRecord[slot] = createTextureFromPayload(payload);
+    materialRecord[slot] = createTextureFromPayload(payload, context);
   }
 }
 
 function createStaticMaterial(
   payload: ModelParseWorkerStaticMaterialPayload,
+  context: StaticSceneReconstructionContext,
 ): Material {
   const parameters = {
     color: payload.color,
     opacity: payload.opacity,
     transparent: payload.transparent,
+    vertexColors: payload.vertexColors ?? false,
     side: payload.side,
   };
   const material =
@@ -744,7 +1295,16 @@ function createStaticMaterial(
               roughness: payload.roughness,
             });
   material.name = payload.name;
-  applyStaticMaterialTextures(material, payload.textures);
+  if ("flatShading" in material && payload.flatShading !== undefined)
+    material.flatShading = payload.flatShading;
+  material.userData = cloneUserData(payload.userData);
+  context.ownedMaterials.add(material);
+  applyStaticMaterialTextures(
+    material,
+    payload.textures,
+    payload.textureIds,
+    context,
+  );
   return material;
 }
 
@@ -752,10 +1312,27 @@ function createStaticMaterials(
   payload:
     | ModelParseWorkerStaticMaterialPayload
     | ModelParseWorkerStaticMaterialPayload[],
+  context: StaticSceneReconstructionContext,
+  ids?: number | number[],
 ) {
-  return Array.isArray(payload)
-    ? payload.map((entry) => createStaticMaterial(entry))
-    : createStaticMaterial(payload);
+  const entries = Array.isArray(payload) ? payload : [payload];
+  const resourceIds = Array.isArray(ids) ? ids : ids === undefined ? [] : [ids];
+  const materials = entries.map((entry, index) => {
+    const id = resourceIds[index];
+    if (id !== undefined) {
+      const existing = context.materials.get(id);
+      if (existing) return existing;
+      const resource = context.resources?.materials[id];
+      if (!resource) {
+        throw new Error(`Static scene material resource ${id} is missing.`);
+      }
+      const material = createStaticMaterial(resource, context);
+      context.materials.set(id, material);
+      return material;
+    }
+    return createStaticMaterial(entry, context);
+  });
+  return Array.isArray(payload) ? materials : materials[0];
 }
 
 function applyStaticNodeTransform(
@@ -769,9 +1346,61 @@ function applyStaticNodeTransform(
   object.matrix.decompose(object.position, object.quaternion, object.scale);
 }
 
-function createStaticNodeObject(node: ModelParseWorkerStaticNodePayload) {
-  const geometry = node.geometry ? createStaticGeometry(node.geometry) : null;
-  const material = node.material ? createStaticMaterials(node.material) : null;
+function trackStaticNodeResources(
+  object: Object3D,
+  context: StaticSceneReconstructionContext,
+): void {
+  const resourceOwner = object as Object3D & {
+    geometry?: unknown;
+    material?: unknown | unknown[];
+  };
+  if (
+    resourceOwner.geometry instanceof BufferGeometry &&
+    !context.ownedGeometries.has(resourceOwner.geometry)
+  ) {
+    context.ownedGeometries.add(resourceOwner.geometry);
+  }
+  const materials = Array.isArray(resourceOwner.material)
+    ? resourceOwner.material
+    : resourceOwner.material
+      ? [resourceOwner.material]
+      : [];
+  for (const material of materials) {
+    if (
+      typeof material === "object" &&
+      material !== null &&
+      "dispose" in material &&
+      typeof material.dispose === "function"
+    ) {
+      context.ownedMaterials.add(material as Material);
+    }
+  }
+}
+
+function createStaticNodeObject(
+  node: ModelParseWorkerStaticNodePayload,
+  context: StaticSceneReconstructionContext,
+) {
+  const geometry = node.geometry
+    ? getStaticGeometry(
+        node.geometry,
+        context,
+        context.resources ? node.geometryId : undefined,
+      )
+    : null;
+  const material = node.material
+    ? createStaticMaterials(
+        node.material,
+        context,
+        context.resources ? node.materialId : undefined,
+      )
+    : node.materialId !== undefined && context.resources
+      ? createStaticMaterials(
+          resolveMaterialPayloads(context, node.materialId),
+          context,
+          node.materialId,
+        )
+      : null;
   const object =
     node.type === "Mesh"
       ? new Mesh(geometry ?? new BufferGeometry(), material ?? undefined)
@@ -786,16 +1415,63 @@ function createStaticNodeObject(node: ModelParseWorkerStaticNodePayload) {
             ? new Group()
             : new Object3D();
 
+  trackStaticNodeResources(object, context);
   applyStaticNodeTransform(object, node);
   for (const child of node.children) {
-    object.add(createStaticNodeObject(child));
+    object.add(createStaticNodeObject(child, context));
   }
   return object;
 }
 
-function createFlatMeshFromPayload(meshPayload: ModelParseWorkerMeshPayload) {
-  const geometry = createStaticGeometry(meshPayload);
-  const material = createStaticMaterials(meshPayload.material);
+function resolveMaterialPayloads(
+  context: StaticSceneReconstructionContext,
+  ids: number | number[],
+):
+  | ModelParseWorkerStaticMaterialPayload
+  | ModelParseWorkerStaticMaterialPayload[] {
+  const resourceIds = Array.isArray(ids) ? ids : [ids];
+  const payloads = resourceIds.map((id) => {
+    const payload = context.resources?.materials[id];
+    if (!payload) {
+      throw new Error(`Static scene material resource ${id} is missing.`);
+    }
+    return payload;
+  });
+  return Array.isArray(ids) ? payloads : payloads[0];
+}
+
+function createFlatMeshFromPayload(
+  meshPayload: ModelParseWorkerMeshPayload,
+  context: StaticSceneReconstructionContext,
+) {
+  const geometry =
+    meshPayload.geometryId !== undefined && context.resources
+      ? getStaticGeometry(
+          {
+            attributes: meshPayload.attributes,
+            index: meshPayload.index,
+            groups: meshPayload.groups,
+          },
+          context,
+          meshPayload.geometryId,
+        )
+      : getStaticGeometry(
+          {
+            attributes: meshPayload.attributes,
+            index: meshPayload.index,
+            groups: meshPayload.groups,
+          },
+          context,
+        );
+  const materialPayload =
+    meshPayload.materialId !== undefined && context.resources
+      ? resolveMaterialPayloads(context, meshPayload.materialId)
+      : meshPayload.material;
+  const material = createStaticMaterials(
+    materialPayload,
+    context,
+    context.resources ? meshPayload.materialId : undefined,
+  );
 
   const mesh = new Mesh(geometry, material);
   mesh.name = meshPayload.name;
@@ -806,6 +1482,7 @@ function createFlatMeshFromPayload(meshPayload: ModelParseWorkerMeshPayload) {
 
 function createFlatStaticSceneObject(
   payload: ModelParseWorkerStaticScenePayload,
+  context: StaticSceneReconstructionContext,
 ) {
   const root = new Group();
   root.name = payload.rootName;
@@ -813,7 +1490,7 @@ function createFlatStaticSceneObject(
   const meshes: Mesh[] = [];
 
   for (const meshPayload of payload.meshes) {
-    meshes.push(createFlatMeshFromPayload(meshPayload));
+    meshes.push(createFlatMeshFromPayload(meshPayload, context));
   }
 
   if (payload.rootKind === "mesh" && meshes.length === 1) {
@@ -833,6 +1510,7 @@ export const DEFAULT_STATIC_SCENE_BATCH_SIZE = 16;
 
 export type CreateStaticSceneObjectAsyncOptions = {
   signal?: AbortSignal;
+  budget?: StaticScenePayloadBudget;
   /** Meshes constructed per cooperative turn. Defaults to {@link DEFAULT_STATIC_SCENE_BATCH_SIZE}. */
   batchSize?: number;
   /**
@@ -881,17 +1559,35 @@ function finalizeFlatStaticScene(
   return root;
 }
 
+function disposeStaticSceneReconstruction(
+  context: StaticSceneReconstructionContext,
+): void {
+  for (const geometry of context.ownedGeometries) geometry.dispose();
+  for (const material of context.ownedMaterials) material.dispose();
+  for (const texture of context.ownedTextures) texture.dispose();
+}
+
 /**
  * Synchronous reconstruction used by callers/tests that need a blocking API.
  * Prefer {@link createStaticSceneObjectAsync} for large flat worker payloads.
  */
 export function createStaticSceneObject(
   payload: ModelParseWorkerStaticScenePayload,
+  options: { budget?: StaticScenePayloadBudget } = {},
 ) {
-  if (payload.root) {
-    return createStaticNodeObject(payload.root);
+  if (options.budget !== undefined) {
+    assertStaticScenePayloadWithinBudget(payload, options.budget);
   }
-  return createFlatStaticSceneObject(payload);
+  const context = createStaticSceneReconstructionContext(payload);
+  try {
+    if (payload.root) {
+      return createStaticNodeObject(payload.root, context);
+    }
+    return createFlatStaticSceneObject(payload, context);
+  } catch (error) {
+    disposeStaticSceneReconstruction(context);
+    throw error;
+  }
 }
 
 /**
@@ -906,27 +1602,36 @@ export async function createStaticSceneObjectAsync(
   options: CreateStaticSceneObjectAsyncOptions = {},
 ): Promise<Object3D> {
   throwIfAborted(options.signal);
-
-  if (payload.root) {
-    return createStaticNodeObject(payload.root);
+  if (options.budget !== undefined) {
+    assertStaticScenePayloadWithinBudget(payload, options.budget);
   }
+  const context = createStaticSceneReconstructionContext(payload);
 
-  const batchSize = Math.max(
-    1,
-    options.batchSize ?? DEFAULT_STATIC_SCENE_BATCH_SIZE,
-  );
-  const yieldFn = options.yieldFn ?? defaultCooperativeYield;
-  const meshes: Mesh[] = [];
-  const total = payload.meshes.length;
-
-  for (let index = 0; index < total; index += 1) {
-    if (index > 0 && index % batchSize === 0) {
-      await yieldFn();
-      throwIfAborted(options.signal);
+  try {
+    if (payload.root) {
+      return createStaticNodeObject(payload.root, context);
     }
-    meshes.push(createFlatMeshFromPayload(payload.meshes[index]));
-  }
 
-  throwIfAborted(options.signal);
-  return finalizeFlatStaticScene(payload, meshes);
+    const batchSize = Math.max(
+      1,
+      options.batchSize ?? DEFAULT_STATIC_SCENE_BATCH_SIZE,
+    );
+    const yieldFn = options.yieldFn ?? defaultCooperativeYield;
+    const meshes: Mesh[] = [];
+    const total = payload.meshes.length;
+
+    for (let index = 0; index < total; index += 1) {
+      if (index > 0 && index % batchSize === 0) {
+        await yieldFn();
+        throwIfAborted(options.signal);
+      }
+      meshes.push(createFlatMeshFromPayload(payload.meshes[index], context));
+    }
+
+    throwIfAborted(options.signal);
+    return finalizeFlatStaticScene(payload, meshes);
+  } catch (error) {
+    disposeStaticSceneReconstruction(context);
+    throw error;
+  }
 }

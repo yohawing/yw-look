@@ -206,13 +206,48 @@ export type MmdMotionPlayback = {
 export type ViewerAssetKind =
   "mesh" | "pointCloud" | "gaussianSplat" | "motion";
 
+export type PreviewWarning = {
+  message: string;
+  reason?: string;
+  stage?: string;
+  limit?: number | string;
+  observed?: number | string;
+  count?: number;
+  /** Internal classification retained for diagnostics; never shown verbatim. */
+  category?: string;
+};
+
+export type PreviewLoadStats = Record<string, number | string | boolean | null>;
+
+export function formatPreviewWarning(warning: string | PreviewWarning): string {
+  if (typeof warning === "string") return warning;
+
+  const details = [
+    warning.reason ? `Reason: ${warning.reason}` : null,
+    warning.stage ? `Stage: ${warning.stage}` : null,
+    warning.limit !== undefined ? `Limit: ${warning.limit}` : null,
+    warning.observed !== undefined ? `Observed: ${warning.observed}` : null,
+    warning.count !== undefined ? `Count: ${warning.count}` : null,
+  ].filter((value): value is string => value !== null);
+  return details.length > 0
+    ? `${warning.message} (${details.join(", ")})`
+    : warning.message;
+}
+
 export type LoadedPreview = {
   object: Group | Mesh;
+  /**
+   * Optional loader-created runtime; takes precedence over registry fallback.
+   * Every invocation must return a fresh runtime instance, never
+   * `context.packRuntime`.
+   */
+  createPackRuntime?: (context: SceneContext) => PackRuntime;
   cleanupUrls: string[];
   cleanupCallbacks?: Array<() => void>;
   clips: AnimationClip[];
   formatVersion: string | null;
-  warnings?: string[];
+  warnings?: Array<string | PreviewWarning>;
+  stats?: PreviewLoadStats;
   lighting?: PreviewLightingPreset;
   rendering?: PreviewRenderingPreset;
   skipScaleNormalization?: boolean;
@@ -441,6 +476,8 @@ export type TextureEntry = {
   id: string;
   label: string;
   sourcePath?: string;
+  containerPath?: string;
+  internalPath?: string;
   channel: string;
   dimensions: string;
   thumbnailUrl: string | null;
@@ -452,6 +489,7 @@ export type TextureEntry = {
 
 export type MaterialTextureSlot = {
   name: string;
+  sourcePath?: string;
 };
 
 // ── MMD material ─────────────────────────────────────────────────
@@ -648,6 +686,7 @@ export type AssetMetadata = {
   assetKind?: ViewerAssetKind;
   nodeCount: number;
   meshCount: number;
+  vertexColorMeshCount?: number;
   boneCount?: number;
   hasBones?: boolean;
   materialCount: number;
@@ -667,7 +706,7 @@ export type AssetMetadata = {
 
 export type BackgroundPreset = "gray" | "charcoal" | "light";
 
-export type EnvironmentPreset = "studio" | "neutral" | "outdoor";
+export type EnvironmentPreset = "none" | "studio" | "neutral" | "outdoor";
 
 export type ToneMappingMode = "linear" | "aces" | "reinhard";
 
@@ -703,11 +742,14 @@ export type Build3DToolbarOptions = {
   onToggleNormals?: () => void;
   showVertexColors?: boolean;
   onToggleVertexColors?: () => void;
+  vertexColorMeshCount?: number;
   showWireframe: boolean;
   onToggleWireframe: () => void;
   environmentPreset: string;
   environmentPresetOptions: Array<{ id: string; label: string }>;
   onSelectEnvironmentPreset?: (preset: string) => void;
+  environmentRotation?: number;
+  onChangeEnvironmentRotation?: (radians: number) => void;
   showShadows?: boolean;
   onToggleShadows?: () => void;
   showEnvironmentBackground?: boolean;

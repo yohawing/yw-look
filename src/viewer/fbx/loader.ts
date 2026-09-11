@@ -223,10 +223,14 @@ function readDdsDimension(buffer: ArrayBuffer, offset: number) {
   return new DataView(buffer).getUint32(offset, true);
 }
 
-function decodeBc4Block(block: Uint8Array, offset: number) {
+function decodeBc4Block(
+  block: Uint8Array,
+  offset: number,
+  palette: Uint8Array,
+  values: Uint8Array,
+) {
   const endpoint0 = block[offset];
   const endpoint1 = block[offset + 1];
-  const palette = new Uint8Array(8);
   palette[0] = endpoint0;
   palette[1] = endpoint1;
 
@@ -242,19 +246,20 @@ function decodeBc4Block(block: Uint8Array, offset: number) {
     palette[7] = 255;
   }
 
-  let indices = 0;
-  for (let i = 0; i < 6; i += 1) {
-    indices += block[offset + 2 + i] * 2 ** (8 * i);
-  }
-
-  const values = new Uint8Array(16);
+  let low =
+    block[offset + 2] |
+    (block[offset + 3] << 8) |
+    (block[offset + 4] << 16) |
+    (block[offset + 5] << 24);
+  let high = block[offset + 6] | (block[offset + 7] << 8);
   for (let i = 0; i < values.length; i += 1) {
-    values[i] = palette[Math.floor(indices / 2 ** (3 * i)) & 0x07];
+    values[i] = palette[low & 7];
+    low = (low >>> 3) | ((high & 7) << 29);
+    high >>>= 3;
   }
-  return values;
 }
 
-function decodeDdsAti2NormalMap(buffer: ArrayBuffer) {
+export function decodeDdsAti2NormalMap(buffer: ArrayBuffer) {
   if (buffer.byteLength < 128 || getDdsFourCC(buffer) !== "ATI2") {
     throw new Error("DDS texture is not ATI2/BC5.");
   }
@@ -270,11 +275,14 @@ function decodeDdsAti2NormalMap(buffer: ArrayBuffer) {
   }
 
   const data = new Uint8Array(width * height * 4);
+  const palette = new Uint8Array(8);
+  const xValues = new Uint8Array(16);
+  const yValues = new Uint8Array(16);
   for (let blockY = 0; blockY < blocksHigh; blockY += 1) {
     for (let blockX = 0; blockX < blocksWide; blockX += 1) {
       const blockOffset = 128 + (blockY * blocksWide + blockX) * 16;
-      const xValues = decodeBc4Block(source, blockOffset);
-      const yValues = decodeBc4Block(source, blockOffset + 8);
+      decodeBc4Block(source, blockOffset, palette, xValues);
+      decodeBc4Block(source, blockOffset + 8, palette, yValues);
 
       for (let localY = 0; localY < 4; localY += 1) {
         const y = blockY * 4 + localY;
@@ -433,7 +441,30 @@ function createPendingCompressedTexture() {
   const PendingCompressedTexture = CompressedTexture as unknown as {
     new (): CompressedTexture;
   };
-  return new PendingCompressedTexture();
+  // Three.js uploads compressed textures through `mipmaps[0]` before the
+  // deferred file read completes. A bare CompressedTexture leaves `mipmaps`
+  // undefined, so the first render races the read and crashes in
+  // WebGLTextures.uploadTexture. Keep a valid 1x1 RGBA level until DDS data
+  // replaces it. The temporary texture is disposed before decoded data is
+  // applied so Three.js allocates fresh GPU storage even when the DDS uses
+  // the same format and type as this placeholder.
+  const texture = new PendingCompressedTexture();
+  texture.image = { width: 1, height: 1 };
+  texture.mipmaps = [
+    {
+      data: new Uint8Array([199, 210, 227, 255]),
+      width: 1,
+      height: 1,
+    },
+  ];
+  // A single placeholder level cannot satisfy a mipmap minification filter.
+  texture.minFilter = LinearFilter;
+  // CompressedTexture's public type only accepts compressed formats, but
+  // Three.js explicitly supports RGBAFormat in its uncompressed mipmap
+  // branch, which is what makes this 1x1 placeholder uploadable.
+  texture.format = RGBAFormat as CompressedTexture["format"];
+  texture.type = UnsignedByteType;
+  return texture;
 }
 
 export function createFbxPendingImageTexture(name: string) {
@@ -449,6 +480,9 @@ export function createFbxPendingImageTexture(name: string) {
 }
 
 export function copyDecodedFbxTextureImage(target: Texture, source: Texture) {
+  // The pending pixel may already have allocated immutable GPU storage.
+  // Release it before replacing the image with different dimensions.
+  target.dispose();
   target.image = source.image;
   target.mipmaps = source.mipmaps;
   target.format = source.format;
@@ -881,6 +915,10 @@ async function createFbxLoadingManager(
               deferredTextureState.parseMs +=
                 performance.now() - parseStartedAt;
               if (texture instanceof DataTexture) {
+                // The placeholder may already have been uploaded at 1x1.
+                // Dispose it before changing dimensions so immutable GPU
+                // storage is not reused for the decoded image.
+                texture.dispose();
                 texture.image.width = decoded.width;
                 texture.image.height = decoded.height;
                 texture.image.data = decoded.data;
@@ -920,6 +958,11 @@ async function createFbxLoadingManager(
               markFbxTextureHasAlpha(texture);
             }
 
+            // DDS data can be RGBA8, matching the placeholder's format/type.
+            // Dispose before replacing dimensions/mipmaps so WebGLTextures
+            // cannot sub-upload larger data into the old 1x1 texStorage.
+            texture.dispose();
+
             if (texData.isCubemap) {
               const faces = texData.mipmaps.length / texData.mipmapCount;
               (texture as unknown as { image: unknown }).image = Array.from(
@@ -940,9 +983,8 @@ async function createFbxLoadingManager(
               texture.mipmaps = texData.mipmaps;
             }
 
-            if (texData.mipmapCount === 1) {
-              texture.minFilter = LinearFilter;
-            }
+            texture.minFilter =
+              texData.mipmapCount > 1 ? LinearMipmapLinearFilter : LinearFilter;
 
             texture.format = texData.format as CompressedTexture["format"];
             texture.userData.textureSourceKind = "external";
@@ -959,6 +1001,10 @@ async function createFbxLoadingManager(
               url: resourceUrl,
               error,
             });
+            // The 1x1 compressed placeholder may already have a GPU
+            // allocation from an earlier render. Remove that allocation when
+            // the sidecar fails, before the material fallback drops its slot.
+            texture.dispose();
             reportMissingTexture(resourceUrl, texture);
             trackTextureFailed();
           })
@@ -1280,6 +1326,7 @@ export function hydrateFbxDeferredTexturePlaceholders(
   object: Object3D,
   loadDeferredTexture: (reference: string) => Texture,
 ) {
+  const hydratedMaterials = new Set<Material>();
   const rootBindings = object.userData?.fbxTextureBindings;
   const bindings = Array.isArray(rootBindings) ? rootBindings : [];
 
@@ -1336,9 +1383,10 @@ export function hydrateFbxDeferredTexturePlaceholders(
       : [child.material];
 
     for (const material of materials) {
-      if (!material) {
+      if (!material || hydratedMaterials.has(material)) {
         continue;
       }
+      hydratedMaterials.add(material);
       const materialRecord = material as unknown as Record<string, unknown>;
       const materialBindings = bindings.filter(
         (candidate): candidate is FbxBinding =>
@@ -1481,6 +1529,9 @@ export function hydrateFbxDeferredTexturePlaceholders(
         // Native GLB deferred slots intentionally carry a valid 1x1 pixel so
         // they render opaque before hydration. Only treat real embedded image
         // data as final; fbxDeferred placeholders still need sidecar lookup.
+        if (placeholder.userData.fbxDeferred === false) {
+          continue;
+        }
         if (
           placeholder.userData?.fbxDeferred !== true &&
           !(
@@ -1522,6 +1573,9 @@ export function hydrateFbxDeferredTexturePlaceholders(
         const isDataTexture =
           (deferred as Texture & { isDataTexture?: boolean }).isDataTexture ===
           true;
+        const isCompressedTexture =
+          (deferred as Texture & { isCompressedTexture?: boolean })
+            .isCompressedTexture === true;
         const isPsdTexture = deferred.userData.fbxPsdTexture === true;
         // DataTexture loaders choose a complete sampler state themselves.
         // A worker-side regular Texture placeholder defaults to a mipmapped
@@ -1530,7 +1584,13 @@ export function hydrateFbxDeferredTexturePlaceholders(
         // incomplete and alphaMap samples become zero.
         if (!isDataTexture && !isPsdTexture) {
           deferred.magFilter = placeholder.magFilter;
-          deferred.minFilter = placeholder.minFilter;
+          // A pending compressed texture has one 1x1 level until its DDS
+          // read completes. Preserve its non-mipmap filter instead of
+          // copying the worker placeholder's mipmap filter and creating an
+          // incomplete texture during the first render.
+          deferred.minFilter = isCompressedTexture
+            ? LinearFilter
+            : placeholder.minFilter;
         }
         deferred.mapping = placeholder.mapping;
         deferred.anisotropy = placeholder.anisotropy;

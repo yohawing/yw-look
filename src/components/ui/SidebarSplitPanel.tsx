@@ -1,5 +1,10 @@
+import { useSidebarLayout } from "../../hooks/useSidebarLayout";
+import type { SidebarLayoutId } from "../../stores/uiStore";
 import type { ReactNode } from "react";
-import { ChevronDownIcon } from "@radix-ui/react-icons";
+import {
+  SidebarListSection,
+  type SidebarListSearch,
+} from "./SidebarListSection";
 import {
   Group as PanelGroup,
   Panel,
@@ -15,9 +20,11 @@ export type SidebarSplitPane = {
   id: string;
   minSize: number;
   title: ReactNode;
+  search?: SidebarListSearch;
 };
 
 export type SidebarSplitPanelProps = {
+  layoutId: SidebarLayoutId;
   className?: string;
   handleClassName?: string;
   primary: SidebarSplitPane;
@@ -40,34 +47,32 @@ function SplitPane({ pane }: { pane: SidebarSplitPane }) {
   return (
     <Panel
       className={panelClassName}
-      defaultSize={pane.defaultSize}
+      defaultSize={`${pane.defaultSize}%`}
       id={pane.id}
-      minSize={pane.minSize}
+      minSize={`${pane.minSize}%`}
     >
-      <section className="yl-sidebar-split__section yl-disclosure yl-disclosure--section">
-        <div className="yl-disclosure__summary">
-          <ChevronDownIcon
-            className="yl-disclosure__chevron"
-            aria-hidden="true"
-          />
-          <span className="yl-disclosure__title">{pane.title}</span>
-          {pane.count != null ? (
-            <span className="yl-disclosure__count">{pane.count}</span>
-          ) : null}
-        </div>
-        <div className={bodyClassName}>{pane.children}</div>
-      </section>
+      <SidebarListSection
+        className="yl-sidebar-split__section"
+        title={pane.title}
+        count={pane.count}
+        search={pane.search}
+        bodyClassName={bodyClassName}
+      >
+        {pane.children}
+      </SidebarListSection>
     </Panel>
   );
 }
 
 export function SidebarSplitPanel({
+  layoutId,
   className,
   handleClassName,
   primary,
   resizeLabel,
   secondary,
 }: SidebarSplitPanelProps) {
+  const layoutProps = useSidebarLayout(layoutId);
   const groupClassName = ["yl-sidebar-split", className]
     .filter(Boolean)
     .join(" ");
@@ -79,7 +84,11 @@ export function SidebarSplitPanel({
     .join(" ");
 
   return (
-    <PanelGroup className={groupClassName} orientation="vertical">
+    <PanelGroup
+      className={groupClassName}
+      orientation="vertical"
+      {...layoutProps}
+    >
       <SplitPane pane={primary} />
       <PanelResizeHandle
         aria-label={resizeLabel}

@@ -1,0 +1,125 @@
+import { readIfcMaterials } from "./materialSource";
+import { IFCGROUP, IFCRELASSIGNSTOGROUP } from "web-ifc";
+import { createIfcInspection } from "./inspection";
+import { registerIfcInspection } from "./metadata";
+import { FragmentsModels, IfcImporter } from "@thatopen/fragments";
+import { Group, PerspectiveCamera } from "three";
+import { errorMessage } from "../../lib/errors";
+import type { SelectedFile } from "../../lib/files";
+import { readBinaryFile } from "../../lib/files";
+import type { LoadedPreview, LoaderContext } from "../../types/viewer";
+import { throwIfAborted } from "../abort";
+import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
+import webIfcWasmUrl from "web-ifc/web-ifc.wasm?url";
+import { createIfcRuntime } from "./runtime";
+import type { IfcRuntimeState } from "./types";
+
+function wasmDirectoryUrl(fileUrl: string): string {
+  const slash = fileUrl.lastIndexOf("/");
+  return slash >= 0 ? fileUrl.slice(0, slash + 1) : fileUrl;
+}
+
+function modelIdForFile(file: SelectedFile): string {
+  return `ifc-preview-${file.fileName.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
+}
+
+export async function loadIfcPreviewObject(
+  file: SelectedFile,
+  context: LoaderContext,
+): Promise<LoadedPreview> {
+  const reportStage = context.onStage ?? (() => undefined);
+  let manager: FragmentsModels | null = null;
+
+  try {
+    throwIfAborted(context.signal);
+    reportStage("scan");
+    const fileBytes = await readBinaryFile(file.path);
+    throwIfAborted(context.signal);
+
+    reportStage("decode");
+    const importer = new IfcImporter();
+    importer.classes.abstract.add(IFCGROUP);
+    importer.relations.set(IFCRELASSIGNSTOGROUP, {
+      forRelating: "IsGroupedBy",
+      forRelated: "HasAssignments",
+    });
+    importer.wasm = {
+      path: wasmDirectoryUrl(webIfcWasmUrl),
+      absolute: true,
+    };
+    const fragmentsBytes = await importer.process({
+      bytes: new Uint8Array(fileBytes),
+      raw: false,
+    });
+    throwIfAborted(context.signal);
+
+    manager = new FragmentsModels(fragmentsWorkerUrl, { maxWorkers: 2 });
+    const modelId = modelIdForFile(file);
+    const abortLoad = () => {
+      manager?.abort(modelId);
+    };
+    context.signal?.addEventListener("abort", abortLoad, { once: true });
+    if (context.signal?.aborted) {
+      abortLoad();
+    }
+    throwIfAborted(context.signal);
+    const camera = new PerspectiveCamera(45, 1, 0.1, 10000);
+    camera.position.set(10, 10, 10);
+    camera.lookAt(0, 0, 0);
+    try {
+      const model = await manager.load(fragmentsBytes, {
+        modelId,
+        camera,
+        raw: false,
+      });
+      // Fragments materializes the visible tile meshes on the first view
+      // update. Complete that first update before handing the object to the
+      // generic viewport mount so framing and metadata see actual geometry.
+      await manager.update(true);
+      throwIfAborted(context.signal);
+
+      reportStage("scene");
+      const object =
+        model.object instanceof Group
+          ? model.object
+          : new Group().add(model.object);
+      object.name ||= `${file.fileName} IFC Preview`;
+
+      const materialIds = await model.getItemsIdsWithGeometry();
+      const materials = await readIfcMaterials(
+        new Uint8Array(fileBytes),
+        webIfcWasmUrl,
+        materialIds,
+        context.signal,
+      );
+      const inspection = await createIfcInspection(model, materials);
+      throwIfAborted(context.signal);
+      registerIfcInspection(object, inspection);
+      await inspection.setColorMode("category");
+      await manager.update(true);
+      throwIfAborted(context.signal);
+      const runtimeState: IfcRuntimeState = { manager, model };
+      return {
+        object,
+        cleanupUrls: [],
+        clips: [],
+        formatVersion: "IFC",
+        createPackRuntime: () => createIfcRuntime(runtimeState, inspection),
+        skipScaleNormalization: false,
+      };
+    } finally {
+      context.signal?.removeEventListener("abort", abortLoad);
+    }
+  } catch (error) {
+    if (manager) {
+      await manager.dispose().catch(() => undefined);
+    }
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
+    throw new Error(
+      `Unable to load IFC preview: ${errorMessage(error, "Unknown error")}`,
+      { cause: error },
+    );
+  }
+}

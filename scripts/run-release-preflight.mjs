@@ -71,6 +71,7 @@ Default automatic checks:
   npm run check:readme-screenshot
   npm run check:nsis-loader-packs
   npm run check:file-associations
+  npm run test:release-updater-config
   npm run check:macos-codesign        (skipped off macOS)
   npm run check:win-authenticode      (skipped off Windows)
 
@@ -81,6 +82,7 @@ Options:
   --include-local-update      Also run check:update-feed and smoke:update-feed
   --release-manifest <path>   Run check:release-updater with --manifest and --skip-url-check
   --release-url <url>         Run check:release-updater with --url
+  --release-binary <path>     Verify compiled official endpoint/key and the supplied release manifest/URL
   --json                      Print JSON report only to stdout
   --help, -h                  Show this help
 
@@ -92,8 +94,8 @@ Exit code:
   0 when every executed step passes
   1 when any executed step fails (skipped steps never fail the run)
 
-This command does not complete a release. Manual install, signing, notarization,
-SmartScreen, Gatekeeper, and published updater roundtrip checks remain operator-owned.`);
+This command does not complete a release. Manual install, the declared signing
+status, platform-specific checks, and published updater roundtrips remain operator-owned.`);
 }
 
 function ensureDir(directoryPath) {
@@ -114,11 +116,21 @@ function parseOptions() {
   const releaseManifest = readOption(args, "--release-manifest");
   const releaseUrl =
     readOption(args, "--release-url") ?? readOption(args, "--url");
+  const releaseBinary = readOption(args, "--release-binary");
+  if (
+    releaseBinary &&
+    Number(Boolean(releaseManifest)) + Number(Boolean(releaseUrl)) !== 1
+  ) {
+    throw new Error(
+      "--release-binary requires exactly one of --release-manifest or --release-url",
+    );
+  }
 
   const valueOptions = new Set([
     "--tag",
     "--release-manifest",
     "--release-url",
+    "--release-binary",
     "--url",
   ]);
   const flagOptions = new Set([
@@ -146,6 +158,7 @@ function parseOptions() {
     includeLocalUpdate: hasFlag(args, "--include-local-update"),
     releaseManifest,
     releaseUrl,
+    releaseBinary,
     jsonOnly: hasFlag(args, "--json"),
   };
 }
@@ -189,6 +202,13 @@ function hasMacosSigningArtifacts() {
 
 function buildStepDefinitions(options) {
   const steps = [
+    {
+      id: "release-updater-config-contract",
+      label: "Release updater configuration contract",
+      command: "npm run test:release-updater-config",
+      npmArgs: ["run", "test:release-updater-config"],
+      category: "automatic",
+    },
     {
       id: "readme-screenshot",
       label: "README native UI screenshot freshness",
@@ -301,7 +321,25 @@ function buildStepDefinitions(options) {
     );
   }
 
-  if (options.releaseManifest) {
+  if (options.releaseBinary) {
+    const sourceArgs = options.releaseManifest
+      ? ["--manifest", options.releaseManifest]
+      : ["--url", options.releaseUrl];
+    steps.push({
+      id: "release-updater-binary",
+      label: "Compiled official updater settings and release manifest",
+      command: `npm run check:release-updater-config -- --binary ${options.releaseBinary} ${sourceArgs.join(" ")}`,
+      nodeArgs: [
+        path.join(scriptDir, "check-release-updater-config.mjs"),
+        "--binary",
+        options.releaseBinary,
+        ...sourceArgs,
+      ],
+      category: "optional",
+    });
+  }
+
+  if (options.releaseManifest && !options.releaseBinary) {
     steps.push({
       id: "release-updater-manifest",
       label: "Release updater manifest contract",
@@ -318,7 +356,7 @@ function buildStepDefinitions(options) {
     });
   }
 
-  if (options.releaseUrl) {
+  if (options.releaseUrl && !options.releaseBinary) {
     steps.push({
       id: "release-updater-url",
       label: "Release updater manifest URL",
@@ -350,13 +388,17 @@ async function runNpmStep(step, { forwardOutput = false } = {}) {
     };
   }
 
-  const result = await runChildProcess(npmCmd, step.npmArgs, {
-    cwd: repoRoot,
-    shell: process.platform === "win32",
-    windowsHide: true,
-    forwardStdout: forwardOutput,
-    forwardStderr: forwardOutput,
-  });
+  const result = await runChildProcess(
+    step.nodeArgs ? process.execPath : npmCmd,
+    step.nodeArgs ?? step.npmArgs,
+    {
+      cwd: repoRoot,
+      shell: !step.nodeArgs && process.platform === "win32",
+      windowsHide: true,
+      forwardStdout: forwardOutput,
+      forwardStderr: forwardOutput,
+    },
+  );
 
   const exitCode = result.exitCode;
   const failed = exitCode !== 0;
@@ -421,7 +463,7 @@ function buildReport(options, steps) {
     preflightPassed: !failedExecuted,
     releaseComplete: false,
     releaseCompleteNote:
-      "Automatic preflight success does not mark the release complete. Operator-owned install, signing, notarization, SmartScreen, Gatekeeper, and updater roundtrip checks remain required.",
+      "Automatic preflight success does not mark the release complete. Operator-owned install, declared signing and platform status, SmartScreen behavior, and updater roundtrip checks remain required for the platforms targeted by the release.",
   };
 }
 
@@ -492,9 +534,9 @@ function buildMarkdownReport(report) {
     "This preflight does **not** replace:",
     "",
     "- NSIS Optional Loader Packs interactive installer UI verification",
-    "- Windows Authenticode production signing or SmartScreen behavior on a clean machine",
-    "- macOS notarization, stapler, Gatekeeper, or Finder `Open With` on a clean Mac",
-    "- Published GitHub Release install → updater roundtrip on Windows and macOS",
+    "- Windows Authenticode status and SmartScreen behavior on a clean machine (an explicitly unsigned release may record that status)",
+    "- macOS notarization, stapler, Gatekeeper, or Finder `Open With` when macOS is a release target",
+    "- Published GitHub Release install → updater roundtrip on each targeted platform",
     "",
   );
 
@@ -548,7 +590,7 @@ function printHumanSummary(report) {
       : "Automatic preflight failed.",
   );
   console.log(
-    "Release is not complete until manual install, signing, notarization, SmartScreen, Gatekeeper, and updater roundtrip checks are recorded.",
+    "Release is not complete until manual install, declared signing and platform status, SmartScreen behavior, and updater roundtrip checks are recorded for every targeted platform.",
   );
   console.log(`JSON report: ${toRelative(jsonReportPath)}`);
   console.log(`Markdown report: ${toRelative(markdownReportPath)}`);

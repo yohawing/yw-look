@@ -15,12 +15,16 @@ import {
   MeshBasicMaterial,
   MeshNormalMaterial,
   MeshStandardMaterial,
+  ObjectSpaceNormalMap,
+  Points,
+  PointsMaterial,
   Scene,
   SkinnedMesh,
   Texture,
   Vector3,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
+import type { SceneContext } from "../../types/viewer";
 import {
   applyBackfaceCulling,
   collectSceneTraversal,
@@ -34,6 +38,7 @@ import {
   applySkeletonHelpers,
   traverseMeshesExcludingHelpers,
   normalizeObjectScale,
+  resetSceneObjects,
 } from "../scene";
 import { syncMmdTransparentMaterialRenderState } from "../../packs";
 
@@ -226,6 +231,42 @@ describe("scene material display helpers", () => {
     expect(material.wireframe).toBe(false);
     expect(material.color.getHexString()).toBe("ff3300");
     expect(material.map).toBe(texture);
+  });
+
+  it("shares static wireframe resources and disposes them once", () => {
+    const root = new Group();
+    const sharedGeometry = new BufferGeometry();
+    sharedGeometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    );
+    const first = new Mesh(sharedGeometry, new MeshBasicMaterial());
+    const second = new Mesh(sharedGeometry, new MeshBasicMaterial());
+    root.add(first, second);
+
+    applyDisplayMode(root, "texturedWireframe");
+
+    const overlays = [first, second].map(
+      (mesh) => mesh.children[0] as LineSegments,
+    );
+    expect(overlays[0]).toBeInstanceOf(LineSegments);
+    expect(overlays[1]).toBeInstanceOf(LineSegments);
+    expect(overlays[0].geometry).toBe(overlays[1].geometry);
+    expect(overlays[0].material).toBe(overlays[1].material);
+
+    const sharedWireframeGeometry = overlays[0].geometry;
+    const sharedWireframeMaterial = overlays[0].material as LineBasicMaterial;
+    const disposeGeometry = vi.spyOn(sharedWireframeGeometry, "dispose");
+    const disposeMaterial = vi.spyOn(sharedWireframeMaterial, "dispose");
+    const disposeSourceGeometry = vi.spyOn(sharedGeometry, "dispose");
+
+    applyDisplayMode(root, "textured");
+
+    expect(disposeGeometry).toHaveBeenCalledOnce();
+    expect(disposeMaterial).toHaveBeenCalledOnce();
+    expect(disposeSourceGeometry).not.toHaveBeenCalled();
+    expect(first.children).toHaveLength(0);
+    expect(second.children).toHaveLength(0);
   });
 
   it("uses unlit neutral wireframe materials for lit source materials", () => {
@@ -614,6 +655,35 @@ describe("scene material display helpers", () => {
     expect(mesh.userData.__yw_wireframe_original_material).toBeUndefined();
   });
 
+  it("disposes shared mesh, line, points, and overlay geometry once", () => {
+    const root = new Group();
+    const geometry = new BufferGeometry();
+    const meshMaterial = new MeshBasicMaterial();
+    const lineMaterial = new LineBasicMaterial();
+    const pointsMaterial = new PointsMaterial();
+    const overlayMaterial = new LineBasicMaterial();
+    const mesh = new Mesh(geometry, meshMaterial);
+    const line = new LineSegments(geometry, lineMaterial);
+    const points = new Points(geometry, pointsMaterial);
+    const overlay = new LineSegments(geometry, overlayMaterial);
+    overlay.userData.__yw_wireframe_overlay = true;
+    root.add(mesh, line, points, overlay);
+
+    const disposeGeometry = vi.spyOn(geometry, "dispose");
+    const disposeMeshMaterial = vi.spyOn(meshMaterial, "dispose");
+    const disposeLineMaterial = vi.spyOn(lineMaterial, "dispose");
+    const disposePointsMaterial = vi.spyOn(pointsMaterial, "dispose");
+    const disposeOverlayMaterial = vi.spyOn(overlayMaterial, "dispose");
+
+    disposeObject(root);
+
+    expect(disposeGeometry).toHaveBeenCalledOnce();
+    expect(disposeMeshMaterial).toHaveBeenCalledOnce();
+    expect(disposeLineMaterial).toHaveBeenCalledOnce();
+    expect(disposePointsMaterial).toHaveBeenCalledOnce();
+    expect(disposeOverlayMaterial).toHaveBeenCalledOnce();
+  });
+
   it("preserves vertex color toggles made while wireframe mode is active", () => {
     const root = new Group();
     const material = new MeshBasicMaterial();
@@ -633,8 +703,11 @@ describe("scene material display helpers", () => {
     applyVertexColors(root, true);
     applyDisplayMode(root, "textured");
 
+    expect(mesh.material).not.toBe(material);
+    expect(mesh.material.vertexColors).toBe(true);
+    expect(material.vertexColors).toBe(false);
+    applyVertexColors(root, false);
     expect(mesh.material).toBe(material);
-    expect(material.vertexColors).toBe(true);
   });
 
   it("keeps MMD outline materials out of global lighting toggles but applies wireframe display", () => {
@@ -717,7 +790,129 @@ function createNormalGeometry() {
   return geometry;
 }
 
+describe("vertex color diagnostic surface", () => {
+  it.each([3, 4])(
+    "visualizes normalized %i-component colors without authored shading",
+    (size) => {
+      const geometry = createNormalGeometry();
+      const colors = new BufferAttribute(
+        new Uint8Array(3 * size).fill(128),
+        size,
+        true,
+      );
+      geometry.setAttribute("color", colors);
+      const texture = new Texture();
+      const original = new MeshStandardMaterial({
+        color: 0x001100,
+        map: texture,
+        opacity: 0.1,
+        transparent: true,
+        alphaTest: 0.9,
+        vertexColors: true,
+        side: DoubleSide,
+      });
+      const mesh = new SkinnedMesh(geometry, [original, original]);
+      mesh.morphTargetInfluences = [0.3];
+      const influences = mesh.morphTargetInfluences;
+      const authored = mesh.material;
+      const root = new Group().add(mesh);
+      const disposeTexture = vi.spyOn(texture, "dispose");
+      applySurfaceMaterialMode(root, "vertexColors");
+      const diagnostics = mesh.material as unknown as MeshBasicMaterial[];
+      for (const material of diagnostics) {
+        expect(material).toBeInstanceOf(MeshBasicMaterial);
+        expect(material.color.getHex()).toBe(0xffffff);
+        expect(material.vertexColors).toBe(true);
+        expect(material.map).toBeNull();
+        expect(material.envMap).toBeNull();
+        expect(material.opacity).toBe(1);
+        expect(material.alphaTest).toBe(0);
+        expect(material.transparent).toBe(size === 4);
+        expect(material.toneMapped).toBe(false);
+        expect(material.fog).toBe(false);
+        expect(material.side).toBe(DoubleSide);
+      }
+      expect(mesh.geometry).toBe(geometry);
+      expect(mesh.geometry.getAttribute("color")).toBe(colors);
+      expect(mesh.morphTargetInfluences).toBe(influences);
+      const disposals = diagnostics.map((material) =>
+        vi.spyOn(material, "dispose"),
+      );
+      applySurfaceMaterialMode(root, "shaded");
+      expect(mesh.material).toBe(authored);
+      expect(original.opacity).toBe(0.1);
+      expect(original.vertexColors).toBe(true);
+      expect(disposeTexture).not.toHaveBeenCalled();
+      for (const disposal of disposals)
+        expect(disposal).toHaveBeenCalledTimes(1);
+      disposeObject(root);
+      expect(disposeTexture).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("shows missing or invalid colors in gray even when an authored material is shared", () => {
+    const original = new MeshStandardMaterial({ color: 0xff0000 });
+    const colored = new Mesh(createNormalGeometry(), original);
+    colored.geometry.setAttribute(
+      "color",
+      new BufferAttribute(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), 3),
+    );
+    const missing = new Mesh(createNormalGeometry(), original);
+    const invalid = new Mesh(createNormalGeometry(), original);
+    invalid.geometry.setAttribute(
+      "color",
+      new BufferAttribute(new Float32Array([1, 0, 0]), 3),
+    );
+    const root = new Group().add(colored, missing, invalid);
+    applySurfaceMaterialMode(root, "vertexColors");
+    expect(
+      (colored.material as unknown as MeshBasicMaterial).vertexColors,
+    ).toBe(true);
+    for (const mesh of [missing, invalid]) {
+      const material = mesh.material as unknown as MeshBasicMaterial;
+      expect(material.vertexColors).toBe(false);
+      expect(material.color.getHex()).toBe(0x808080);
+    }
+    applySurfaceMaterialMode(root, "shaded");
+    for (const mesh of [colored, missing, invalid])
+      expect(mesh.material).toBe(original);
+  });
+});
+
 describe("normal surface material mode", () => {
+  it("preserves normal texture coordinates and scale without owning the texture", () => {
+    const texture = new Texture();
+    texture.channel = 1;
+    texture.offset.set(0.2, 0.3);
+    texture.repeat.set(2, 3);
+    texture.rotation = 0.5;
+    const original = new MeshStandardMaterial({ normalMap: texture });
+    original.normalScale.set(0.4, -0.7);
+    original.normalMapType = ObjectSpaceNormalMap;
+    const plain = new MeshBasicMaterial();
+    const authored = [original, plain];
+    const mesh = new Mesh(createNormalGeometry(), authored);
+    const root = new Group().add(mesh);
+    const disposeTexture = vi.spyOn(texture, "dispose");
+
+    for (const nextMode of ["unlit", "shaded"] as const) {
+      applySurfaceMaterialMode(root, "normals");
+      const normals = mesh.material as unknown as MeshNormalMaterial[];
+      expect(normals[0].normalMap).toBe(texture);
+      expect(normals[0].normalScale).toEqual(original.normalScale);
+      expect(normals[0].normalScale).not.toBe(original.normalScale);
+      expect(normals[0].normalMapType).toBe(ObjectSpaceNormalMap);
+      expect(normals[1].normalMap).toBeNull();
+      applyDisplayMode(root, "wireframe");
+      applyDisplayMode(root, "textured");
+      expect(mesh.material).toBe(normals);
+      applySurfaceMaterialMode(root, nextMode);
+      expect(disposeTexture).not.toHaveBeenCalled();
+    }
+    expect(mesh.material).toBe(authored);
+    expect(original.normalMap).toBe(texture);
+  });
+
   it("replaces a static mesh surface while preserving authored render state", () => {
     const root = new Group();
     const original = new MeshStandardMaterial({
@@ -878,9 +1073,16 @@ describe("normal surface material mode", () => {
       } else if (mode === "unlit") {
         expect(mesh.material).toBeInstanceOf(MeshBasicMaterial);
         expect(mesh.material).not.toBe(original);
+      } else if (mode === "vertexColors") {
+        expect(mesh.material).toBeInstanceOf(MeshBasicMaterial);
+        expect(mesh.material).not.toBe(original);
+        expect(
+          (mesh.material as unknown as MeshBasicMaterial).vertexColors,
+        ).toBe(true);
+        expect(original.vertexColors).toBe(false);
       } else {
         expect(mesh.material).toBe(original);
-        expect(original.vertexColors).toBe(mode === "vertexColors");
+        expect(original.vertexColors).toBe(false);
       }
     }
   });
@@ -917,5 +1119,77 @@ describe("normal surface material mode", () => {
 
     expect(disposeOriginal).toHaveBeenCalledTimes(1);
     expect(disposeNormal).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("scene reset resource ownership", () => {
+  function makeContext(object: Mesh, packRuntime: SceneContext["packRuntime"]) {
+    const scene = new Scene();
+    scene.add(object);
+    return {
+      scene,
+      mountedObject: object,
+      sourceObject: object,
+      previewObject: null,
+      boneOnlyPreview: false,
+      cleanupUrls: [],
+      cleanupCallbacks: [],
+      animationRoot: null,
+      mixer: null,
+      clips: [],
+      activeAction: null,
+      packRuntime,
+      mmdModel: null,
+      mmdMotion: null,
+      mmdLightSync: null,
+      textureRegistry: new Map(),
+      rawMaxDimension: 1,
+    } as unknown as SceneContext;
+  }
+
+  it("removes but does not generically dispose pack-owned mounted resources", () => {
+    const object = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    const disposeGeometry = vi.spyOn(object.geometry, "dispose");
+    const disposeMaterial = vi.spyOn(object.material, "dispose");
+    const runtime = { dispose: vi.fn(), ownsMountedObjectResources: true };
+    const context = makeContext(object, runtime);
+
+    resetSceneObjects(context);
+
+    expect(context.scene.children).not.toContain(object);
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(disposeGeometry).not.toHaveBeenCalled();
+    expect(disposeMaterial).not.toHaveBeenCalled();
+    expect(context.packRuntime).toBeNull();
+  });
+
+  it("generically disposes viewer-owned mounted resources by default", () => {
+    const object = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    const disposeGeometry = vi.spyOn(object.geometry, "dispose");
+    const disposeMaterial = vi.spyOn(object.material, "dispose");
+    const context = makeContext(object, null);
+
+    resetSceneObjects(context);
+
+    expect(disposeGeometry).toHaveBeenCalledOnce();
+    expect(disposeMaterial).toHaveBeenCalledOnce();
+  });
+
+  it("completes scene reset before rethrowing a runtime disposal error", () => {
+    const object = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    const runtimeError = new Error("runtime dispose failed");
+    const runtime = {
+      dispose: vi.fn(() => {
+        throw runtimeError;
+      }),
+      ownsMountedObjectResources: true,
+    };
+    const context = makeContext(object, runtime);
+
+    expect(() => resetSceneObjects(context)).toThrow(runtimeError);
+    expect(context.packRuntime).toBeNull();
+    expect(context.scene.children).not.toContain(object);
+    expect(context.mountedObject).toBeNull();
+    expect(context.sourceObject).toBeNull();
   });
 });
