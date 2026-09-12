@@ -813,7 +813,35 @@ function getBoneBounds(object: Group | Mesh) {
   return hasBone ? bounds : null;
 }
 
+function synchronizeSkinnedMeshWorldMatrices(object: Group | Mesh) {
+  const skinnedMeshes: SkinnedMesh[] = [];
+  const pending: Object3D[] = [object];
+  while (pending.length > 0) {
+    const child = pending.pop()!;
+    if (child instanceof SkinnedMesh) {
+      skinnedMeshes.push(child);
+    }
+    pending.push(...child.children);
+  }
+  if (skinnedMeshes.length === 0) {
+    return skinnedMeshes;
+  }
+
+  // ObjectLoader restores transforms and skeleton bindings without updating
+  // matrixWorld. Synchronize the whole mounted hierarchy so CPU skinning uses
+  // the same bone matrices and bindMatrixInverse as the renderer.
+  object.updateWorldMatrix(true, true, true);
+  return skinnedMeshes;
+}
+
 function getObjectBounds(object: Group | Mesh) {
+  const skinnedMeshes = synchronizeSkinnedMeshWorldMatrices(object);
+  for (const mesh of skinnedMeshes) {
+    // SkinnedMesh bounds are pose-dependent. Do not retain bounds computed
+    // before ObjectLoader transforms were synchronized or for an older pose.
+    mesh.computeBoundingBox();
+    mesh.computeBoundingSphere();
+  }
   const bounds = new Box3().setFromObject(object);
   if (!bounds.isEmpty()) {
     return bounds;
@@ -1633,6 +1661,7 @@ export function applyBoundingBoxHelpers(
     return;
   }
 
+  const skinnedMeshes = synchronizeSkinnedMeshWorldMatrices(object);
   traverseMeshesExcludingHelpers(object, (child) => {
     const geometry = child.geometry;
     if (!(geometry instanceof BufferGeometry)) {
@@ -1641,7 +1670,10 @@ export function applyBoundingBoxHelpers(
 
     // Compute the axis-aligned world-space box so helper can live on
     // the scene root without inheriting the model's transform.
-    const worldBounds = new Box3().setFromObject(child);
+    const worldBounds = new Box3().setFromObject(
+      child,
+      skinnedMeshes.length > 0 && child instanceof SkinnedMesh,
+    );
     if (worldBounds.isEmpty()) {
       return;
     }
