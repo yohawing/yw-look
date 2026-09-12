@@ -474,7 +474,9 @@ export function createFbxPendingImageTexture(name: string) {
   const texture = new Texture();
   texture.name = filenameFromUrl(name);
   texture.colorSpace = SRGBColorSpace;
-  texture.needsUpdate = true;
+  // Leave the texture at version 0 until the deferred image has decoded.
+  // Marking an image-less regular Texture dirty makes Three.js call the
+  // TexImageSource overload with `null`, which WebView2 rejects.
   texture.userData.textureSourceKind = "unresolved";
   return texture;
 }
@@ -489,6 +491,39 @@ export function copyDecodedFbxTextureImage(target: Texture, source: Texture) {
   target.internalFormat = source.internalFormat;
   target.type = source.type;
   target.needsUpdate = true;
+}
+
+function restoreDeferredPlaceholderImage(image: unknown): Texture["image"] {
+  if (!image || typeof image !== "object") return null;
+  const prototype = Object.getPrototypeOf(image);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return image as Texture["image"];
+  }
+
+  const candidate = image as {
+    data?: unknown;
+    width?: unknown;
+    height?: unknown;
+  };
+  if (
+    typeof ImageData !== "undefined" &&
+    candidate.data instanceof Uint8ClampedArray &&
+    Number.isSafeInteger(candidate.width) &&
+    Number.isSafeInteger(candidate.height) &&
+    (candidate.width as number) > 0 &&
+    (candidate.height as number) > 0 &&
+    candidate.data.length ===
+      (candidate.width as number) * (candidate.height as number) * 4
+  ) {
+    const pixels = new Uint8ClampedArray(candidate.data.length);
+    pixels.set(candidate.data);
+    return new ImageData(
+      pixels,
+      candidate.width as number,
+      candidate.height as number,
+    );
+  }
+  return null;
 }
 
 function enableFbxMaterialTransparency(
@@ -1560,7 +1595,10 @@ export function hydrateFbxDeferredTexturePlaceholders(
         // Keep the native opaque/neutral pixel visible while asynchronous
         // sidecar I/O is pending. Local loaders replace this image on success.
         if (!deferred.image && placeholder.image) {
-          deferred.image = placeholder.image;
+          // ObjectLoader restores serialized ImageData as a plain object.
+          // Rebuild the browser-native source before the regular Texture is
+          // handed to WebGL; a plain object is not a valid TexImageSource.
+          deferred.image = restoreDeferredPlaceholderImage(placeholder.image);
           deferred.mipmaps = placeholder.mipmaps;
         }
         // Preserve transform/sampler state from the static-scene placeholder.
@@ -1600,7 +1638,9 @@ export function hydrateFbxDeferredTexturePlaceholders(
         }
         deferred.userData.fbxSourceName =
           deferred.userData.fbxSourceName ?? sourceName;
-        deferred.needsUpdate = true;
+        if (deferred.image) {
+          deferred.needsUpdate = true;
+        }
 
         materialRecord[key] = deferred;
         materialDirty = true;
