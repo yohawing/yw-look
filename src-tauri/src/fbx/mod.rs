@@ -1004,12 +1004,11 @@ fn add_skin(
         };
         cluster_map.insert(cluster_index as u32, joints.len());
         joints.push(node);
-        // `geometry_to_bone` maps FBX geometry space to bone space and also
-        // contains the mesh instance's bind transform. glTF applies the mesh
-        // node transform after skinning, so serializing that matrix directly
-        // applies a non-identity mesh transform twice. glTF inverse binds are
-        // instead the inverse bind-world transforms of the joint nodes.
-        matrices.extend(matrix_values(ufbx::matrix_invert(&cluster.bind_to_world))?);
+        // glTF evaluates a rest vertex as `joint_world * inverse_bind * position`.
+        // The product must reproduce the mesh node's bind-world transform,
+        // including non-identity axis conversion and placement. uFBX exposes
+        // exactly that geometry-space-to-bone mapping here.
+        matrices.extend(matrix_values(cluster.geometry_to_bone)?);
     }
     if joints.is_empty() {
         return Ok(None);
@@ -2149,11 +2148,12 @@ mod tests {
                 .is_some_and(|scale| (scale - 1.0).abs() < 1e-6)
         }));
 
-        let mesh_node = document["nodes"]
+        let (mesh_node_index, mesh_node) = document["nodes"]
             .as_array()
             .expect("nodes")
             .iter()
-            .find(|node| node.get("mesh").is_some())
+            .enumerate()
+            .find(|(_, node)| node.get("mesh").is_some())
             .expect("skinned mesh node");
         assert_eq!(mesh_node["skin"], 0);
         assert!(
@@ -2241,6 +2241,16 @@ mod tests {
                 node_world_matrix(nodes, parents, parent) * local
             })
         }
+        let mesh_world = node_world_matrix(nodes, &parents, mesh_node_index);
+        let mesh_bind_is_non_identity = mesh_world
+            .to_cols_array()
+            .iter()
+            .zip(glam::DMat4::IDENTITY.to_cols_array())
+            .any(|(actual, identity)| (actual - identity).abs() > 1e-5);
+        assert!(
+            mesh_bind_is_non_identity,
+            "fixture must retain a non-identity mesh bind/axis transform"
+        );
         for (joint, inverse_bind) in document["skins"][0]["joints"]
             .as_array()
             .expect("skin joints")
@@ -2258,12 +2268,12 @@ mod tests {
             let max_error = rest_skin
                 .to_cols_array()
                 .iter()
-                .zip(glam::DMat4::IDENTITY.to_cols_array())
+                .zip(mesh_world.to_cols_array())
                 .map(|(actual, expected)| (actual - expected).abs())
                 .fold(0.0_f64, f64::max);
             assert!(
                 max_error < 1e-5,
-                "glTF inverse bind must cancel the joint bind-world transform, max error {max_error}"
+                "glTF rest skin must reproduce the mesh bind-world transform, max error {max_error}"
             );
         }
     }
