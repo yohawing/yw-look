@@ -119,7 +119,10 @@ export function formatSupportedExtensionList(extensions: readonly string[]) {
     return labels[0] ?? "";
   }
 
-  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+  return t("format.listLast", {
+    previous: labels.slice(0, -1).join(", "),
+    last: labels[labels.length - 1],
+  });
 }
 
 export const neutralFeedback: ViewerFeedback = {

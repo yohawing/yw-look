@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { deriveDisplayFlags, type DisplayMode } from "../types/viewer";
 
 import type {
@@ -13,22 +14,24 @@ export type {
   ViewerShortcutState,
 } from "../types/ui";
 
-export const viewerShortcutHelpLines = [
-  "PageUp  File > Previous file",
-  "PageDown  File > Next file",
-  "Space  Playback > Play / pause",
-  "ArrowLeft / ArrowRight  Playback > Step frame",
-  "Ctrl+ArrowLeft / Ctrl+ArrowRight  Playback > First / last frame",
-  "F  View > Focus selected",
-  "Home  View > Frame all",
-  "R  View > Reset view",
-  "Esc  Selection > Clear selection",
-  "H  Visibility > Hide selected",
-  "Shift+H  Visibility > Isolate selected",
-  "Alt+H  Visibility > Unhide all",
-  "Z  Display > Cycle display mode",
-  "G  Display > Toggle grid",
-];
+export function getViewerShortcutHelpLines() {
+  return [
+    `PageUp  ${t("shortcuts.previousFile")}`,
+    `PageDown  ${t("shortcuts.nextFile")}`,
+    `Space  ${t("shortcuts.playPause")}`,
+    `ArrowLeft / ArrowRight  ${t("shortcuts.stepFrame")}`,
+    `Ctrl+ArrowLeft / Ctrl+ArrowRight  ${t("shortcuts.firstLastFrame")}`,
+    `F  ${t("shortcuts.focusSelected")}`,
+    `Home  ${t("shortcuts.frameAll")}`,
+    `R  ${t("shortcuts.resetView")}`,
+    `Esc  ${t("shortcuts.clearSelection")}`,
+    `H  ${t("shortcuts.hideSelected")}`,
+    `Shift+H  ${t("shortcuts.isolateSelected")}`,
+    `Alt+H  ${t("shortcuts.unhideAll")}`,
+    `Z  ${t("shortcuts.cycleDisplayMode")}`,
+    `G  ${t("shortcuts.toggleGrid")}`,
+  ];
+}
 
 type KeyboardShortcutEvent = Pick<
   KeyboardEvent,
