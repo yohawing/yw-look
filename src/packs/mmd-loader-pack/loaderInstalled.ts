@@ -1,3 +1,5 @@
+import "./locales";
+import { LocalizedError } from "../../lib/localizedMessage";
 import {
   DirectionalLight,
   Group,
@@ -895,7 +897,12 @@ export async function loadMmdPreviewObject(
       throw error;
     }
     const message = errorMessage(error, "Unknown error");
-    throw new Error(`Unable to load MMD preview: ${message}`, { cause: error });
+    throw new LocalizedError(
+      "mmd-loader-pack:load_failed",
+      `Unable to load MMD preview: ${message}`,
+      { detail: message },
+      { cause: error },
+    );
   }
 }
 
@@ -1027,9 +1034,14 @@ export async function loadMmdMotionPreviewObject(
       throw error;
     }
     const message = errorMessage(error, "Unknown error");
-    throw new Error(`Unable to load MMD motion preview: ${message}`, {
-      cause: error,
-    });
+    throw new LocalizedError(
+      "mmd-loader-pack:motion_failed",
+      `Unable to load MMD motion preview: ${message}`,
+      { detail: message },
+      {
+        cause: error,
+      },
+    );
   }
 }
 
@@ -1065,6 +1077,11 @@ export async function loadMmdMotion(
       throw error;
     }
     const message = errorMessage(error, "Unknown error");
-    throw new Error(`Unable to load MMD motion: ${message}`, { cause: error });
+    throw new LocalizedError(
+      "mmd-loader-pack:motion_failed",
+      `Unable to load MMD motion: ${message}`,
+      { detail: message },
+      { cause: error },
+    );
   }
 }

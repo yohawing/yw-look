@@ -5,6 +5,7 @@ export type OptionalLoaderPackSettings = { enabled: boolean };
 
 export type AppSettings = {
   version: number;
+  language: string;
   recentFilesLimit: number;
   diagnosticsLogLevel: string;
   fileAssociationsEnabled: boolean;

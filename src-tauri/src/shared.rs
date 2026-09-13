@@ -249,6 +249,10 @@ pub(crate) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     }
     AppSettings {
         version: settings.version.max(5),
+        language: match settings.language.as_str() {
+            "system" | "en" | "ja" | "zh-Hans" | "ko" => settings.language,
+            _ => "system".to_string(),
+        },
         recent_files_limit: settings.recent_files_limit.max(1),
         diagnostics_log_level: if settings.diagnostics_log_level.trim().is_empty() {
             "info".to_string()

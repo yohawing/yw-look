@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { SidebarEmpty, SidebarSection } from "../lib/sidebarPrimitives";
 import { Button } from "./ui/Button";
 import { WarningList } from "./ui/WarningList";
@@ -13,9 +14,10 @@ export function WarningsCard({
   scaleNormalizationApplied = false,
   warnings,
 }: WarningsCardProps) {
+  useLocale();
   const title = (
     <span className="warnings-title">
-      <span>Warnings</span>
+      <span>{t("warnings")}</span>
       {scaleNormalizationApplied && onCancelScaleNormalization ? (
         <Button
           className="u-shrink-0"
@@ -27,7 +29,7 @@ export function WarningsCard({
           size="sm"
           variant="subtle"
         >
-          Cancel Scale Normalize
+          {t("cancel_scale_normalize")}
         </Button>
       ) : null}
     </span>
@@ -38,7 +40,7 @@ export function WarningsCard({
       {warnings.length > 0 ? (
         <WarningList warnings={warnings} />
       ) : (
-        <SidebarEmpty>No active warnings.</SidebarEmpty>
+        <SidebarEmpty>{t("no_active_warnings")}</SidebarEmpty>
       )}
     </SidebarSection>
   );

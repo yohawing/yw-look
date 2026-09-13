@@ -1,3 +1,4 @@
+import { t, useLocale, formatNumber } from "../lib/i18n";
 import { useEffect, useMemo, useState } from "react";
 import type {
   DiagnosticsPayload,
@@ -21,9 +22,10 @@ export function DiagnosticsCard({
   processMemoryMetrics,
   resourceDiagnostics,
 }: DiagnosticsCardProps) {
+  const locale = useLocale();
   const resourceRows = useMemo(
     () => buildResourceRows(resourceDiagnostics, processMemoryMetrics),
-    [processMemoryMetrics, resourceDiagnostics],
+    [locale, processMemoryMetrics, resourceDiagnostics],
   );
 
   return (
@@ -35,6 +37,7 @@ export function DiagnosticsCard({
 }
 
 function OperationalDiagnosticsSection() {
+  const locale = useLocale();
   const [diagnostics, setDiagnostics] = useState<DiagnosticsPayload | null>(
     null,
   );
@@ -64,22 +67,22 @@ function OperationalDiagnosticsSection() {
     }
     return [
       {
-        label: "App logs",
+        label: t("app_logs"),
         value: diagnostics.appLogDir || "unavailable",
         mono: true,
       },
       {
-        label: "Diagnostics log",
+        label: t("diagnostics_log"),
         value: diagnostics.diagnosticsLogPath || "unavailable",
         mono: true,
       },
       {
-        label: "Recent records",
-        value: diagnostics.diagnosticsSnapshot.length.toLocaleString(),
+        label: t("recent_records"),
+        value: formatNumber(diagnostics.diagnosticsSnapshot.length),
         mono: true,
       },
     ];
-  }, [diagnostics]);
+  }, [locale, diagnostics]);
 
   const copyDiagnostics = async () => {
     const snapshot = await loadDiagnosticsSnapshot();
@@ -98,14 +101,17 @@ function OperationalDiagnosticsSection() {
   };
 
   return (
-    <SidebarSection title="Log Details" collapsible>
+    <SidebarSection title={t("log_details")} collapsible>
       {rows.length > 0 ? (
         <CompactMetricRows rows={rows} />
       ) : (
-        <SidebarEmpty>No diagnostics snapshot loaded.</SidebarEmpty>
+        <SidebarEmpty>{t("no_diagnostics_snapshot_loaded")}</SidebarEmpty>
       )}
       {diagnostics && diagnostics.diagnosticsSnapshot.length > 0 ? (
-        <ul className="diagnostics-log-list" aria-label="Recent diagnostics">
+        <ul
+          className="diagnostics-log-list"
+          aria-label={t("recent_diagnostics")}
+        >
           {diagnostics.diagnosticsSnapshot.slice(-8).map((line, index) => (
             <li key={`${line}:${index}`}>{line}</li>
           ))}
@@ -113,7 +119,7 @@ function OperationalDiagnosticsSection() {
       ) : null}
       <div className="card-actions">
         <Button onClick={() => void openAppLogDir()} size="sm" variant="ghost">
-          Open Logs
+          {t("open_logs")}
         </Button>
         <Button
           onClick={() => void copyDiagnostics()}
@@ -121,9 +127,9 @@ function OperationalDiagnosticsSection() {
           variant="ghost"
         >
           {copyState === "copied"
-            ? "Copied"
+            ? t("copied")
             : copyState === "failed"
-              ? "Copy Failed"
+              ? t("copy.failure")
               : "Copy Diagnostics"}
         </Button>
         <Button
@@ -131,14 +137,14 @@ function OperationalDiagnosticsSection() {
           size="sm"
           variant="ghost"
         >
-          Report Issue
+          {t("report_issue")}
         </Button>
         <Button
           onClick={() => void refreshDiagnostics()}
           size="sm"
           variant="subtle"
         >
-          Refresh
+          {t("refresh")}
         </Button>
       </div>
     </SidebarSection>
@@ -150,9 +156,10 @@ function ResourceDiagnosticsSection({
 }: {
   rows: readonly CompactMetricRow[];
 }) {
+  useLocale();
   return (
     <SidebarSection
-      title="Resources"
+      title={t("resources")}
       count={rows.length > 0 ? rows.length : undefined}
       collapsible
       defaultOpen={false}
@@ -160,7 +167,7 @@ function ResourceDiagnosticsSection({
       {rows.length > 0 ? (
         <CompactMetricRows rows={rows} />
       ) : (
-        <SidebarEmpty>No runtime resource metrics yet.</SidebarEmpty>
+        <SidebarEmpty>{t("no_runtime_resource_metrics_yet")}</SidebarEmpty>
       )}
     </SidebarSection>
   );
@@ -175,12 +182,12 @@ function buildResourceRows(
   if (processMemory) {
     rows.push(
       {
-        label: "Process memory",
+        label: t("process_memory"),
         value: formatBytes(processMemory.residentSetBytes),
         mono: true,
       },
       {
-        label: "Virtual memory",
+        label: t("virtual_memory"),
         value: formatBytes(processMemory.virtualMemoryBytes),
         mono: true,
       },
@@ -190,17 +197,17 @@ function buildResourceRows(
   if (snapshot) {
     rows.push(
       {
-        label: "WebGL geometry",
+        label: t("webgl_geometry"),
         value: formatCount(snapshot.webgl.geometries),
         mono: true,
       },
       {
-        label: "WebGL textures",
+        label: t("webgl_textures"),
         value: formatCount(snapshot.webgl.textures),
         mono: true,
       },
       {
-        label: "WebGL programs",
+        label: t("webgl_programs"),
         value:
           snapshot.webgl.programs === null
             ? "unavailable"
@@ -208,17 +215,17 @@ function buildResourceRows(
         mono: true,
       },
       {
-        label: "Draw calls",
+        label: t("draw_calls"),
         value: formatCount(snapshot.webgl.calls),
         mono: true,
       },
       {
-        label: "Frame triangles",
+        label: t("frame_triangles"),
         value: formatCount(snapshot.webgl.triangles),
         mono: true,
       },
       {
-        label: "Frame points / lines",
+        label: t("frame_points_lines"),
         value: `${formatCount(snapshot.webgl.points)} / ${formatCount(snapshot.webgl.lines)}`,
         mono: true,
       },
@@ -227,17 +234,17 @@ function buildResourceRows(
     if (snapshot.asset) {
       rows.push(
         {
-          label: "Asset vertices",
+          label: t("asset_vertices"),
           value: formatCount(snapshot.asset.vertices),
           mono: true,
         },
         {
-          label: "Asset triangles",
+          label: t("asset_triangles"),
           value: formatCount(snapshot.asset.triangles),
           mono: true,
         },
         {
-          label: "Asset materials / textures",
+          label: t("asset_materials_textures"),
           value: `${formatCount(snapshot.asset.materials)} / ${formatCount(snapshot.asset.textures)}`,
           mono: true,
         },
@@ -246,7 +253,7 @@ function buildResourceRows(
 
     if (snapshot.memory.jsHeapUsedBytes !== null) {
       rows.push({
-        label: "JS heap used",
+        label: t("js_heap_used"),
         value: formatBytes(snapshot.memory.jsHeapUsedBytes),
         mono: true,
       });
@@ -254,7 +261,7 @@ function buildResourceRows(
 
     if (snapshot.memory.jsHeapTotalBytes !== null) {
       rows.push({
-        label: "JS heap total",
+        label: t("js_heap_total"),
         value: formatBytes(snapshot.memory.jsHeapTotalBytes),
         mono: true,
       });
@@ -262,7 +269,7 @@ function buildResourceRows(
 
     if (snapshot.memory.jsHeapLimitBytes !== null) {
       rows.push({
-        label: "JS heap limit",
+        label: t("js_heap_limit"),
         value: formatBytes(snapshot.memory.jsHeapLimitBytes),
         mono: true,
       });
@@ -273,5 +280,5 @@ function buildResourceRows(
 }
 
 function formatCount(value: number) {
-  return Number.isFinite(value) ? value.toLocaleString() : "0";
+  return Number.isFinite(value) ? formatNumber(value) : "0";
 }

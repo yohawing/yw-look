@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import {
   useEffect,
   useMemo,
@@ -63,6 +64,7 @@ function adapt(
 }
 
 export function ArboristHierarchyTree(props: Props) {
+  useLocale();
   const host = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 320, height: 360 });
   const data = useMemo(() => adapt(props.hierarchy), [props.hierarchy]);
@@ -110,12 +112,12 @@ export function ArboristHierarchyTree(props: Props) {
       <div className="hierarchy-tree-scroll" ref={host}>
         {!data.length ? (
           <p className="sidebar-empty">
-            No hierarchy available for the current asset.
+            {t("no_hierarchy_available_for_the_current_asset")}
           </p>
         ) : (
           <>
             {!hasMatches && (
-              <p className="sidebar-empty">No hierarchy nodes match.</p>
+              <p className="sidebar-empty">{t("no_hierarchy_nodes_match")}</p>
             )}
             <Tree<Item>
               data={data}
@@ -144,7 +146,7 @@ export function ArboristHierarchyTree(props: Props) {
               selectionFollowsFocus
               disableMultiSelection
               disableSelect={(item) => !item.source.name}
-              aria-label="Outliner"
+              aria-label={t("outliner")}
               onSelect={(nodes) => {
                 const item = nodes[0]?.data;
                 const key = item
@@ -166,6 +168,7 @@ export function ArboristHierarchyTree(props: Props) {
 }
 
 function HierarchyRow({ node: nodeApi, style, tree }: NodeRendererProps<Item>) {
+  useLocale();
   const {
     selectedName,
     onSelectName,
@@ -241,7 +244,7 @@ function HierarchyRow({ node: nodeApi, style, tree }: NodeRendererProps<Item>) {
       {isUnloadedPayload && onLoadPayload && (
         <button
           className="tree-payload-btn tree-payload-btn--unloaded"
-          aria-label="Load payload"
+          aria-label={t("load_payload")}
           type="button"
           onClick={(e) => {
             e.stopPropagation();
@@ -254,7 +257,7 @@ function HierarchyRow({ node: nodeApi, style, tree }: NodeRendererProps<Item>) {
       {isLoadedPayload && onUnloadPayload && (
         <button
           className="tree-payload-btn tree-payload-btn--loaded"
-          aria-label="Unload payload"
+          aria-label={t("unload_payload")}
           type="button"
           onClick={(e) => {
             e.stopPropagation();
@@ -275,6 +278,7 @@ function ArboristRow({
   innerRef,
   children,
 }: RowRendererProps<Item>) {
+  useLocale();
   return (
     <div
       {...attrs}

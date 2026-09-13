@@ -16,6 +16,7 @@ use crate::usd::{
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct AppSettings {
     pub(crate) version: u32,
+    pub(crate) language: String,
     pub(crate) recent_files_limit: usize,
     pub(crate) diagnostics_log_level: String,
     pub(crate) file_associations_enabled: bool,
@@ -391,6 +392,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             version: 5,
+            language: "system".to_string(),
             recent_files_limit: 20,
             diagnostics_log_level: "info".to_string(),
             file_associations_enabled: false,

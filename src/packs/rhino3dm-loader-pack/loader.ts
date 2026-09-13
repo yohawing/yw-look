@@ -1,3 +1,5 @@
+import "./locales";
+import { LocalizedError } from "../../lib/localizedMessage";
 import { Group, type Object3D, type Texture } from "three";
 import { Rhino3dmLoader } from "three/examples/jsm/loaders/3DMLoader.js";
 import { errorMessage } from "../../lib/errors";
@@ -354,9 +356,14 @@ export async function loadRhino3dmPreviewObject(
       throw error;
     }
     const message = errorMessage(error, "Unknown error");
-    throw new Error(`Unable to load Rhino 3DM preview: ${message}`, {
-      cause: error,
-    });
+    throw new LocalizedError(
+      "rhino3dm-loader-pack:load_failed",
+      `Unable to load Rhino 3DM preview: ${message}`,
+      { detail: message },
+      {
+        cause: error,
+      },
+    );
   } finally {
     disposeRhinoLoader(loader);
   }

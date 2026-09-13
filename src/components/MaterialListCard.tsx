@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { MaterialBrowser } from "./MaterialBrowser";
 import { IfcMaterialsPanel } from "./IfcMaterialsPanel";
 import { useMemo, useState } from "react";
@@ -73,6 +74,7 @@ function MmdColorValue({
 }: {
   value: [number, number, number] | [number, number, number, number] | null;
 }) {
+  useLocale();
   if (!value) return "none";
   const color = rgbToHex(value[0], value[1], value[2]);
   return (
@@ -88,12 +90,13 @@ function MmdColorValue({
 }
 
 function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
+  useLocale();
   if (!mmd) return null;
   const flags = fmtFlags(mmd.flags);
   const rows: KeyValueRow[] = [
     mmd.materialIndex !== null && {
       id: "index",
-      label: "Index",
+      label: t("index"),
       value: mmd.materialIndex,
       mono: true,
     },
@@ -105,84 +108,84 @@ function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
       },
     mmd.diffuse && {
       id: "diffuse",
-      label: "Diffuse",
+      label: t("diffuse"),
       value: <MmdColorValue value={mmd.diffuse} />,
       mono: true,
     },
     mmd.specular && {
       id: "specular",
-      label: "Specular",
+      label: t("specular"),
       value: <MmdColorValue value={mmd.specular} />,
       mono: true,
     },
     mmd.specularPower !== null && {
       id: "specular-power",
-      label: "Spec Power",
+      label: t("spec_power"),
       value: fmtFloat(mmd.specularPower),
       mono: true,
     },
     mmd.ambient && {
       id: "ambient",
-      label: "Ambient",
+      label: t("ambient"),
       value: <MmdColorValue value={mmd.ambient} />,
       mono: true,
     },
     mmd.edgeColor && {
       id: "edge",
-      label: "Edge",
+      label: t("edge"),
       value: <MmdColorValue value={mmd.edgeColor} />,
       mono: true,
     },
     mmd.edgeSize !== null && {
       id: "edge-size",
-      label: "Edge Size",
+      label: t("edge_size"),
       value: fmtFloat(mmd.edgeSize),
       mono: true,
     },
     {
       id: "texture",
-      label: "Texture",
+      label: t("texture"),
       value: fmtTexturePath(mmd.texturePath),
       mono: true,
     },
     {
       id: "sphere",
-      label: "Sphere",
+      label: t("sphere"),
       value: `${fmtTexturePath(mmd.sphereTexturePath)}${mmd.sphereMode ? ` (${mmd.sphereMode})` : ""}`,
       mono: true,
     },
     {
       id: "toon",
-      label: "Toon",
+      label: t("toon"),
       value: `${fmtTexturePath(mmd.toonTexturePath)}${mmd.sharedToonIndex !== null ? ` shared:${mmd.sharedToonIndex}` : ""}`,
       mono: true,
     },
     mmd.transparencyMode && {
       id: "transparency",
-      label: "Transparency",
+      label: t("transparency"),
       value: <Badge size="sm">{mmd.transparencyMode}</Badge>,
     },
     mmd.renderOrderBucket && {
       id: "render-order",
-      label: "Render Order",
+      label: t("render_order"),
       value: mmd.renderOrderBucket,
       mono: true,
     },
     mmd.faceCount !== null && {
       id: "faces",
-      label: "Faces",
+      label: t("faces"),
       value: mmd.faceCount,
       mono: true,
     },
     {
       id: "flags",
-      label: "Flags",
+      label: t("flags"),
       value: <span title={flags}>{flags}</span>,
       mono: true,
     },
     mmd.unsupportedDrawFlags.length > 0 && {
       id: "unsupported",
-      label: "Unsupported",
+      label: t("unsupported"),
       value: mmd.unsupportedDrawFlags.join(", "),
       tone: "warn",
       mono: true,
@@ -190,17 +193,18 @@ function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
   ].filter(Boolean) as KeyValueRow[];
 
   return (
-    <Disclosure variant="inline" title="MMD material" defaultOpen>
+    <Disclosure variant="inline" title={t("mmd_material")} defaultOpen>
       <KeyValueRows className="selected-kv" density="regular" rows={rows} />
     </Disclosure>
   );
 }
 
 function ShaderDetails({ mat }: { mat: MaterialEntry }) {
+  useLocale();
   const rows = [
     mat.baseColorFactor !== null && {
       id: "base-color",
-      label: "Base Color",
+      label: t("base_color"),
       value: (
         <>
           <MaterialBaseColor mat={mat} />
@@ -212,19 +216,19 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
     },
     mat.metallicFactor !== null && {
       id: "metallic",
-      label: "Metallic",
+      label: t("metallic"),
       value: mat.metallicFactor.toFixed(3),
       mono: true,
     },
     mat.roughnessFactor !== null && {
       id: "roughness",
-      label: "Roughness",
+      label: t("roughness"),
       value: mat.roughnessFactor.toFixed(3),
       mono: true,
     },
     mat.emissiveFactor?.some((value) => value > 0) && {
       id: "emissive",
-      label: "Emissive",
+      label: t("emissive"),
       value: (
         <span>
           <span
@@ -247,25 +251,26 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
     mat.alphaMode !== "OPAQUE" &&
       mat.alphaMode !== "unknown" && {
         id: "alpha",
-        label: "Alpha",
+        label: t("alpha"),
         value: <Badge size="sm">{mat.alphaMode}</Badge>,
       },
     mat.usdPrimPath !== null && {
       id: "usd-path",
-      label: "USD Path",
+      label: t("usd_path"),
       value: <span title={mat.usdPrimPath}>{mat.usdPrimPath}</span>,
       mono: true,
     },
   ].filter(Boolean) as KeyValueRow[];
   if (rows.length === 0) return null;
   return (
-    <Disclosure variant="inline" title="shader inputs" defaultOpen={false}>
+    <Disclosure variant="inline" title={t("shader_inputs")} defaultOpen={false}>
       <KeyValueRows className="selected-kv" density="regular" rows={rows} />
     </Disclosure>
   );
 }
 
 function MaterialBaseColor({ mat }: { mat: MaterialEntry }) {
+  useLocale();
   const color =
     mat.baseColorFactor !== null
       ? rgbToHex(
@@ -290,54 +295,58 @@ function MaterialBaseColor({ mat }: { mat: MaterialEntry }) {
 }
 
 function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
+  useLocale();
   const rows: KeyValueRow[] = [
-    { id: "shader", label: "Shader", value: mat.type },
+    { id: "shader", label: t("shader"), value: mat.type },
     {
       id: "base-color",
-      label: "Base color",
+      label: t("base_color_2"),
       value: <MaterialBaseColor mat={mat} />,
     },
     mat.metallicFactor !== null && {
       id: "metallic",
-      label: "Metallic",
+      label: t("metallic"),
       value: mat.metallicFactor.toFixed(2),
       mono: true,
     },
     mat.roughnessFactor !== null && {
       id: "roughness",
-      label: "Roughness",
+      label: t("roughness"),
       value: mat.roughnessFactor.toFixed(2),
       mono: true,
     },
     {
       id: "alpha-mode",
-      label: "Alpha mode",
+      label: t("alpha_mode"),
       value: mat.alphaMode,
       tone: mat.alphaMode === "OPAQUE" ? "muted" : "default",
       mono: true,
     },
     {
       id: "opacity",
-      label: "Opacity",
+      label: t("opacity"),
       value: mat.opacity.toFixed(2),
       mono: true,
     },
     {
       id: "textures",
-      label: "Textures",
+      label: t("textures"),
       value: mat.textureCount,
       mono: true,
     },
     {
       id: "bindings",
-      label: "Bindings",
+      label: t("bindings"),
       value: mat.boundMeshes.length,
       mono: true,
     },
   ].filter(Boolean) as KeyValueRow[];
 
   return (
-    <section className="material-selected-panel" aria-label="Selected material">
+    <section
+      className="material-selected-panel"
+      aria-label={t("selected_material")}
+    >
       <KeyValueRows className="selected-kv" density="regular" rows={rows} />
       <MmdMaterialDetails mmd={mat.mmd} />
       <ShaderDetails mat={mat} />
@@ -346,6 +355,7 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
 }
 
 export function MaterialListCard(props: MaterialListCardProps) {
+  useLocale();
   const currentFilePath = useFileStore(
     (state) => state.currentFile?.path ?? null,
   );
@@ -371,6 +381,7 @@ export function MaterialListCard(props: MaterialListCardProps) {
 function MaterialListCardContent({
   debugPanelsEnabled = false,
 }: MaterialListCardProps) {
+  useLocale();
   const storeMaterials = useFileStore(
     (state) => state.assetMetadata?.materials,
   );
@@ -406,7 +417,8 @@ function MaterialListCardContent({
         count: mat.textureCount,
         meta: (
           <>
-            {mat.type} · {mat.textureCount} tex
+            {mat.type} · {mat.textureCount}
+            {t("tex")}
             {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
             {mat.boundMeshes.length > 0
               ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
@@ -425,7 +437,7 @@ function MaterialListCardContent({
         selectedMaterial ? (
           <MaterialDetailPanel mat={selectedMaterial} />
         ) : (
-          <SidebarEmpty>Select a material to inspect it.</SidebarEmpty>
+          <SidebarEmpty>{t("select_a_material_to_inspect_it")}</SidebarEmpty>
         )
       }
     />

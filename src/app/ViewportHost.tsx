@@ -1,4 +1,5 @@
 import { ArrowLeftIcon, DotsVerticalIcon } from "@radix-ui/react-icons";
+import { t, useLocale } from "../lib/i18n";
 import { AssetViewport } from "../components/AssetViewport";
 import { Button } from "../components/ui/Button";
 import { ViewportControls } from "../components/ViewportControls";
@@ -31,6 +32,7 @@ export function ViewportHost({
   sessionGlbBuffer,
   usdInspection,
 }: ViewportHostProps) {
+  useLocale();
   const { displayMode, viewportToolbarItems } = useViewportToolbarModel();
   const viewer = useViewportHostViewerModel();
   const viewerActions = viewer.actions;
@@ -115,6 +117,7 @@ export function ViewportHost({
       />
       {/* InfoPanel toggle button */}
       <Button
+        aria-label={t("viewport.toggleSidebar")}
         aria-pressed={sidebarOpen}
         className="viewport-sidebar-toggle"
         iconOnly
@@ -134,14 +137,14 @@ export function ViewportHost({
           type="button"
         >
           <ArrowLeftIcon aria-hidden="true" />
-          Back to 3D View
+          {t("viewport.backTo3d")}
         </button>
       ) : null}
 
       {/* Drop overlay */}
       {isDragActive ? (
         <div className="drop-overlay">
-          <p>Drop file to open or attach motion</p>
+          <p>{t("viewport.drop")}</p>
         </div>
       ) : null}
     </div>

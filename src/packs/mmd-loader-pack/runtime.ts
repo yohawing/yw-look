@@ -1,3 +1,5 @@
+import "./locales";
+import { LocalizedError } from "../../lib/localizedMessage";
 import {
   useEffect,
   type Dispatch,
@@ -152,6 +154,11 @@ export function useMmdPackFileRequest({
         message: "VMD motion was not loaded.",
         warning:
           "VMD motion can only be loaded after an MMD model with runtime support is ready.",
+        warningTranslation: {
+          key: "mmd-loader-pack:motion_requires_model",
+          defaultValue:
+            "VMD motion can only be loaded after an MMD model with runtime support is ready.",
+        },
         canResetCamera: false,
       });
       return;
@@ -211,6 +218,8 @@ export function useMmdPackFileRequest({
           mode: "ready",
           message: `Preview ready: ${currentFileName ?? "MMD model"}`,
           warning: message,
+          warningTranslation:
+            error instanceof LocalizedError ? error.translation : undefined,
           canResetCamera: true,
         });
       });

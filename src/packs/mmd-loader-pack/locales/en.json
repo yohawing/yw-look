@@ -1,0 +1,15 @@
+{
+  "model_name": "Model name",
+  "name": "Name",
+  "comment": "Comment",
+  "english_comment": "English comment",
+  "format": "Format",
+  "encoding": "Encoding",
+  "additional_uv": "Additional UV",
+  "trailing_bytes": "Trailing bytes",
+  "mmd_format": "MMD Format",
+  "load_failed": "Unable to load MMD preview: {{detail}}",
+  "unavailable": "MMD loader is not installed. Install the matching loader pack to preview this file.",
+  "motion_failed": "Unable to load MMD motion: {{detail}}",
+  "motion_requires_model": "VMD motion can only be loaded after an MMD model with runtime support is ready."
+}

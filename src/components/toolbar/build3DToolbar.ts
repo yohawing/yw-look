@@ -1,3 +1,4 @@
+import { t } from "../../lib/i18n";
 import type { ToolbarAction, ToolbarItem } from "./types";
 
 import type {
@@ -130,7 +131,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       mode: "3d",
       group: "camera",
       kind: "popover",
-      label: "Camera",
+      label: t("camera"),
       iconId: "camera",
       children: cameraChildren,
     });
@@ -146,16 +147,16 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       label: string;
       available: boolean;
     }> = [
-      { id: "shaded", label: "Shaded", available: true },
-      { id: "unlit", label: "Unlit", available: true },
+      { id: "shaded", label: t("shaded"), available: true },
+      { id: "unlit", label: t("unlit"), available: true },
       {
         id: "normals",
-        label: "Normals",
+        label: t("normals"),
         available: options.onToggleNormals !== undefined,
       },
       {
         id: "vertexColor",
-        label: "Vertex Color",
+        label: t("vertex_color"),
         available: options.onToggleVertexColors !== undefined,
       },
     ];
@@ -181,8 +182,8 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         kind: "status",
         label:
           options.vertexColorMeshCount === 0
-            ? "No vertex colors. Meshes are shown gray."
-            : "Meshes without vertex colors are shown gray.",
+            ? t("toolbar.noVertexColors")
+            : t("toolbar.partialVertexColors"),
       });
     }
 
@@ -191,7 +192,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       mode: "3d",
       group: "display",
       kind: "popover",
-      label: "Shading",
+      label: t("shading"),
       iconId: "shading",
       children,
     });
@@ -213,7 +214,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         mode: "3d",
         group: "lighting",
         kind: "status",
-        label: "Environment Map (IBL)",
+        label: t("environment_map_ibl"),
       },
       ...options.environmentPresetOptions.map((preset): ToolbarAction => ({
         id: `environment-${preset.id}`,
@@ -231,7 +232,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         mode: "3d",
         group: "lighting",
         kind: "slider",
-        label: "Rotation",
+        label: t("rotation"),
         value: rotation,
         valueLabel: `${Math.round(rotation)}°`,
         min: 0,
@@ -246,7 +247,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         mode: "3d",
         group: "lighting",
         kind: "toggle",
-        label: "Show as Background",
+        label: t("show_as_background"),
         active: hasEnvironment && options.showEnvironmentBackground,
         disabled: !hasEnvironment || !options.onToggleEnvironmentBackground,
         onRun: options.onToggleEnvironmentBackground,
@@ -257,7 +258,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         mode: "3d",
         group: "lighting",
         kind: "toggle",
-        label: "Shadows",
+        label: t("shadows"),
         active: options.showShadows,
         disabled: !options.onToggleShadows,
         onRun: options.onToggleShadows,
@@ -269,7 +270,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         mode: "3d",
         group: "lighting",
         kind: "status",
-        label: "Lighting applies to Shaded surfaces.",
+        label: t("lighting_applies_to_shaded_surfaces"),
       });
     }
     push({
@@ -277,7 +278,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       mode: "3d",
       group: "lighting",
       kind: "popover",
-      label: "Lighting",
+      label: t("lighting"),
       iconId: "light",
       children,
     });
@@ -290,9 +291,9 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       id: ViewportWireframeMode;
       label: string;
     }> = [
-      { id: "off", label: "Off" },
-      { id: "overlay", label: "Overlay" },
-      { id: "only", label: "Only" },
+      { id: "off", label: t("off") },
+      { id: "overlay", label: t("overlay") },
+      { id: "only", label: t("only") },
     ];
 
     push({
@@ -300,7 +301,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
       mode: "3d",
       group: "wireframe",
       kind: "popover",
-      label: "Wireframe",
+      label: t("wireframe"),
       iconId: "wireframe",
       active: activeDisplayState.wireframe !== "off",
       children: wireframeModes.map((mode) => ({
@@ -327,7 +328,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         mode: "3d",
         group: "overlay",
         kind: "popover",
-        label: "Overlays",
+        label: t("overlays"),
         iconId: "overlay",
         active: options.showBoundingBoxes,
         children: [
@@ -336,7 +337,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
             mode: "3d",
             group: "overlay",
             kind: "toggle",
-            label: "Bounding Box",
+            label: t("bounding_box"),
             active: options.showBoundingBoxes,
             onRun: options.onToggleBoundingBoxes,
           },
@@ -355,7 +356,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
           mode: "3d",
           group: "overlay",
           kind: "toggle",
-          label: "Bone",
+          label: t("bone"),
           active: options.showSkeleton,
           onRun: options.onToggleSkeleton,
         },
@@ -366,7 +367,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
           mode: "3d",
           group: "overlay",
           kind: "toggle",
-          label: "Local Axis",
+          label: t("local_axis"),
           active: options.showLocalAxis,
           onRun: options.onToggleLocalAxis,
         });
@@ -377,7 +378,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
           mode: "3d",
           group: "overlay",
           kind: "toggle",
-          label: "Bone Name",
+          label: t("bone_name"),
           active: options.showJointNames,
           onRun: options.onToggleJointNames,
         });
@@ -387,7 +388,7 @@ export function build3DToolbar(options: Build3DToolbarOptions): ToolbarItem[] {
         mode: "3d",
         group: "overlay",
         kind: "popover",
-        label: "Skeleton",
+        label: t("skeleton"),
         iconId: "skeleton",
         active: Boolean(
           options.showSkeleton ||

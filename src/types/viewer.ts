@@ -15,6 +15,7 @@ import type {
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PackRuntime } from "./format-pack";
+import type { LocalizedMessage } from "../lib/localizedMessage";
 
 // ── Viewer mode & feedback ───────────────────────────────────────
 
@@ -33,6 +34,7 @@ export type ViewerFeedback = {
   mode: ViewerMode;
   message: string;
   warning: string | null;
+  warningTranslation?: LocalizedMessage;
   canResetCamera: boolean;
 };
 

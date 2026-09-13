@@ -1,0 +1,14 @@
+{
+  "ifc_display": "IFC Display",
+  "color_by": "Color by",
+  "ifc_color_mode": "IFC color mode",
+  "original": "Original",
+  "category": "Category",
+  "element": "Element",
+  "storey": "Storey",
+  "loading_element_information": "Loading element information…",
+  "some_information_was_omitted_because_the_detail_limit_was_reached": "Some information was omitted because the detail limit was reached.",
+  "no_values_provided": "No values provided.",
+  "load_failed": "Unable to load IFC preview: {{detail}}",
+  "unavailable": "IFC loader is not installed. Install the matching loader pack to preview this file."
+}

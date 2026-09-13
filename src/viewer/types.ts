@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import type { ViewerFeedback } from "../types/viewer";
 import { getOptionalLoaderMessageInfo } from "./optionalLoaderPacks";
 
@@ -43,8 +44,14 @@ export function formatMissingOptionalLoaderMessage(extension: string) {
   }
 
   return {
-    title: `${optionalLoader.loaderPackName} is not installed.`,
-    body: `Install ${optionalLoader.loaderPackName} to preview ${optionalLoader.formatLabel} files.`,
+    title: t("loader.notInstalled", {
+      pack: optionalLoader.loaderPackName,
+      format: optionalLoader.formatLabel,
+    }),
+    body: t("loader.install", {
+      pack: optionalLoader.loaderPackName,
+      format: optionalLoader.formatLabel,
+    }),
   };
 }
 
@@ -56,8 +63,14 @@ export function formatDisabledOptionalLoaderMessage(extension: string) {
   }
 
   return {
-    title: `${optionalLoader.loaderPackName} is disabled.`,
-    body: `Enable ${optionalLoader.loaderPackName} in Settings to preview ${optionalLoader.formatLabel} files.`,
+    title: t("loader.disabled", {
+      pack: optionalLoader.loaderPackName,
+      format: optionalLoader.formatLabel,
+    }),
+    body: t("loader.enable", {
+      pack: optionalLoader.loaderPackName,
+      format: optionalLoader.formatLabel,
+    }),
   };
 }
 
@@ -69,8 +82,14 @@ export function formatIncompatibleOptionalLoaderMessage(extension: string) {
   }
 
   return {
-    title: `${optionalLoader.loaderPackName} is not compatible with this app version.`,
-    body: `Update yw-look or reinstall ${optionalLoader.loaderPackName} to preview ${optionalLoader.formatLabel} files.`,
+    title: t("loader.incompatible", {
+      pack: optionalLoader.loaderPackName,
+      format: optionalLoader.formatLabel,
+    }),
+    body: t("loader.update", {
+      pack: optionalLoader.loaderPackName,
+      format: optionalLoader.formatLabel,
+    }),
   };
 }
 
@@ -78,13 +97,15 @@ export function formatUnsupportedFormatMessage(
   extension: string,
   supportedExtensions: readonly string[] = [],
 ) {
-  const normalizedExtension = extension ? `.${extension}` : "this extension";
+  const normalizedExtension = extension
+    ? `.${extension}`
+    : t("format.extension");
   const supportedList = formatSupportedExtensionList(supportedExtensions);
   return {
-    title: "This file format is not supported yet.",
-    body: `No preview loader is available for ${normalizedExtension}.${
-      supportedList ? ` Supported formats include ${supportedList}.` : ""
-    }`,
+    title: t("format.unsupported"),
+    body:
+      t("format.noLoader", { extension: normalizedExtension }) +
+      (supportedList ? t("format.supported", { formats: supportedList }) : ""),
   };
 }
 

@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { useEffect, useState } from "react";
 import type {
   DeferredTextureSnapshot,
@@ -12,15 +13,6 @@ type LoadingScreenProps = {
   deferredTexture?: DeferredTextureSnapshot | null;
   compact?: boolean;
 };
-
-const consoleRows: Array<{ id: LoadingStageId; text: string }> = [
-  { id: "scan", text: "Opening file" },
-  { id: "resolve", text: "Finding linked files" },
-  { id: "decode", text: "Reading asset data" },
-  { id: "gpu", text: "Preparing preview" },
-  { id: "scene", text: "Building scene" },
-  { id: "ui", text: "Updating panels" },
-];
 
 type ConsoleRow = {
   id: LoadingStageId | "texture" | "payload";
@@ -40,7 +32,17 @@ export function LoadingScreen({
   fileName,
   stage,
 }: LoadingScreenProps) {
-  const displayName = fileName ?? "Asset preview";
+  useLocale();
+  const consoleRows: Array<{ id: LoadingStageId; text: string }> = [
+    { id: "scan", text: t("opening_file") },
+    { id: "resolve", text: t("finding_linked_files") },
+    { id: "decode", text: t("reading_asset_data") },
+    { id: "gpu", text: t("preparing_preview") },
+    { id: "scene", text: t("building_scene") },
+    { id: "ui", text: t("updating_panels") },
+  ];
+
+  const displayName = fileName ?? t("preview");
   const [now, setNow] = useState(() => performance.now());
   const activeStage = stage?.activeStage ?? "scan";
   const activeElapsed = stage ? now - stage.activeStageStartedAt : 0;
@@ -51,13 +53,13 @@ export function LoadingScreen({
     deferredKind === "payload"
       ? {
           id: "payload" as const,
-          text: "Loading linked scene data",
-          idle: "Finishing linked data",
+          text: t("loading_linked_scene_data"),
+          idle: t("finishing_linked_data"),
         }
       : {
           id: "texture" as const,
-          text: "Loading textures",
-          idle: "Finishing textures",
+          text: t("loading_textures"),
+          idle: t("finishing_textures"),
         };
   const rows: ConsoleRow[] = deferredTextureProgress
     ? [
@@ -106,14 +108,14 @@ export function LoadingScreen({
       role="status"
       aria-live="polite"
     >
-      <section className="loader-console" aria-label="Loading asset">
+      <section className="loader-console" aria-label={t("loading_asset")}>
         <div className="loader-console-topbar" aria-hidden="true">
           <span />
           <span />
           <span />
         </div>
         <div className="loader-console-head">
-          <span className="loader-console-label">Loading</span>
+          <span className="loader-console-label">{t("loading")}</span>
           <strong className="loader-console-file" title={displayName}>
             {displayName}
           </strong>
@@ -136,11 +138,11 @@ export function LoadingScreen({
               ? deferredTextureProgress.activeLabel
               : deferredTextureProgress
                 ? deferredLabel.idle
-                : "Preparing preview"}
+                : t("preparing_preview")}
           </span>
           <b>
             {deferredTextureProgress
-              ? `${deferredTextureProgress.pending} pending`
+              ? t("loading.pending", { count: deferredTextureProgress.pending })
               : formatElapsed(totalElapsed)}
           </b>
           <i aria-hidden="true" />

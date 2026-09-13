@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import type { ReactNode } from "react";
 
 import { ViewportToolSvg } from "./ViewportToolIcons";
@@ -28,6 +29,7 @@ function ViewportTool({
   label: string;
   onClick: () => void;
 }) {
+  useLocale();
   return (
     <button
       aria-label={label}
@@ -43,6 +45,7 @@ function ViewportTool({
 }
 
 function ViewportToolGroup({ children }: { children: ReactNode }) {
+  useLocale();
   return <div className="viewport-tool-group">{children}</div>;
 }
 
@@ -59,11 +62,15 @@ export function ViewportControls({
   onToggleOpen,
   items,
 }: ViewportControlsProps) {
+  useLocale();
   if (!isOpen) {
     return (
-      <aside className="viewport-controls is-closed" aria-label="Viewport HUD">
+      <aside
+        className="viewport-controls is-closed"
+        aria-label={t("viewport_hud")}
+      >
         <button
-          aria-label="Open viewport tools"
+          aria-label={t("open_viewport_tools")}
           className="viewport-tool"
           onClick={onToggleOpen}
           type="button"
@@ -80,7 +87,7 @@ export function ViewportControls({
   );
 
   return (
-    <aside className="viewport-controls" aria-label="Viewport HUD">
+    <aside className="viewport-controls" aria-label={t("viewport_hud")}>
       <ViewportToolGroup>
         {actions.map((action) =>
           hasPopover(action) ? (

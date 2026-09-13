@@ -1,3 +1,5 @@
+import "./locales";
+import { LocalizedError } from "../../lib/localizedMessage";
 import { readIfcMaterials } from "./materialSource";
 import { IFCGROUP, IFCRELASSIGNSTOGROUP } from "web-ifc";
 import { createIfcInspection } from "./inspection";
@@ -117,8 +119,10 @@ export async function loadIfcPreviewObject(
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
     }
-    throw new Error(
+    throw new LocalizedError(
+      "ifc-loader-pack:load_failed",
       `Unable to load IFC preview: ${errorMessage(error, "Unknown error")}`,
+      { detail: errorMessage(error, "Unknown error") },
       { cause: error },
     );
   }

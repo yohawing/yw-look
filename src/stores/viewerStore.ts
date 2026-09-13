@@ -235,6 +235,12 @@ export const useViewerStore = create<ViewerState>((set) => ({
     set((s) => ({ showJointNames: !s.showJointNames })),
   updateViewerFeedback: (partial) =>
     set((s) => ({
-      viewerFeedback: { ...s.viewerFeedback, ...partial },
+      viewerFeedback: {
+        ...s.viewerFeedback,
+        ...(Object.hasOwn(partial, "warning")
+          ? { warningTranslation: undefined }
+          : {}),
+        ...partial,
+      },
     })),
 }));

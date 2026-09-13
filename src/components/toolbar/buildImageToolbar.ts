@@ -1,3 +1,4 @@
+import { t } from "../../lib/i18n";
 import type { ToolbarAction, ToolbarItem } from "./types";
 import type {
   TextureColorSpace,
@@ -53,7 +54,7 @@ export function buildImageToolbar(
         mode: "image",
         group: "channel",
         kind: "popover",
-        label: "Channel",
+        label: t("channel"),
         iconId: "channel",
         children,
       });
@@ -64,9 +65,9 @@ export function buildImageToolbar(
   {
     groupSep("color");
     const colorSpaces: Array<{ id: TextureColorSpace; label: string }> = [
-      { id: "srgb", label: "sRGB" },
-      { id: "linear", label: "Linear" },
-      { id: "raw", label: "Raw" },
+      { id: "srgb", label: t("srgb") },
+      { id: "linear", label: t("linear") },
+      { id: "raw", label: t("raw") },
     ];
     const children: ToolbarItem[] = colorSpaces.map((cs) => ({
       id: `colorspace-${cs.id}`,
@@ -85,7 +86,7 @@ export function buildImageToolbar(
       mode: "image",
       group: "color",
       kind: "status",
-      label: `Exposure: ${options.exposure.toFixed(1)}`,
+      label: t("toolbar.exposure", { value: options.exposure.toFixed(1) }),
     });
 
     push({
@@ -93,7 +94,7 @@ export function buildImageToolbar(
       mode: "image",
       group: "color",
       kind: "popover",
-      label: "Color",
+      label: t("color"),
       iconId: "colorspace",
       children,
     });

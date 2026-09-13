@@ -18,7 +18,8 @@
     BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --yl-font-mono:
     "Source Code Pro", ui-monospace, "SF Mono", Menlo, Monaco, Consolas,
-    "Liberation Mono", monospace;
+    "Liberation Mono", "Yu Gothic UI", "Microsoft YaHei UI", "Malgun Gothic",
+    monospace;
   --yl-font-ui: var(--yl-font-mono);
   --yl-font-feature: "cv01", "ss03";
 

@@ -9,7 +9,7 @@ export type LicenseAttribution = {
 };
 
 export const projectName = "yw-look" as const;
-export const projectVersion = "0.3.3" as const;
+export const projectVersion = "0.3.4" as const;
 export const projectLicense = "MIT" as const;
 
 export const webRuntimeLicenseAttributions = [
@@ -86,6 +86,12 @@ export const webRuntimeLicenseAttributions = [
     source: "web",
   },
   {
+    name: "i18next",
+    version: "26.4.2",
+    license: "MIT",
+    source: "web",
+  },
+  {
     name: "react",
     version: "19.2.8",
     license: "MIT",
@@ -100,6 +106,12 @@ export const webRuntimeLicenseAttributions = [
   {
     name: "react-dom",
     version: "19.2.8",
+    license: "MIT",
+    source: "web",
+  },
+  {
+    name: "react-i18next",
+    version: "17.0.13",
     license: "MIT",
     source: "web",
   },

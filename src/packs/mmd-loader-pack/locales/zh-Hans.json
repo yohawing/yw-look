@@ -1,0 +1,15 @@
+{
+  "model_name": "模型名称",
+  "name": "名称",
+  "comment": "注释",
+  "english_comment": "英文注释",
+  "format": "格式",
+  "encoding": "字符编码",
+  "additional_uv": "附加 UV",
+  "trailing_bytes": "尾部字节",
+  "mmd_format": "MMD 格式",
+  "load_failed": "无法加载MMD预览：{{detail}}",
+  "unavailable": "未安装MMD加载器。请安装对应的加载器包。",
+  "motion_failed": "无法加载 MMD 动作：{{detail}}",
+  "motion_requires_model": "加载 VMD 动作前，请先打开支持运行时的 MMD 模型。"
+}

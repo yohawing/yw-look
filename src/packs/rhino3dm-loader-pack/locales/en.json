@@ -1,0 +1,4 @@
+{
+  "load_failed": "Unable to load Rhino 3DM preview: {{detail}}",
+  "unavailable": "Rhino 3DM loader is not installed. Install the matching loader pack to preview this file."
+}

@@ -1,3 +1,4 @@
+import { t, useLocale, formatNumber } from "../lib/i18n";
 import { MaterialBrowser } from "./MaterialBrowser";
 import { useEffect, useMemo, useState } from "react";
 import type { IfcInspection, IfcMaterialRecord } from "../types/ifc";
@@ -22,6 +23,7 @@ export function IfcMaterialsPanel({
 }: {
   inspection: IfcInspection;
 }) {
+  useLocale();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,12 +71,16 @@ export function IfcMaterialsPanel({
         density="regular"
         className="selected-kv"
         rows={[
-          { id: "origin", label: "Origin", value: provenance[selected.origin] },
+          {
+            id: "origin",
+            label: t("origin"),
+            value: provenance[selected.origin],
+          },
           {
             id: "usage",
-            label: "Usage",
+            label: t("usage"),
             value: selected.elementIds.length
-              ? `${selected.elementIds.length.toLocaleString()} elements`
+              ? `${formatNumber(selected.elementIds.length)} elements`
               : selected.kind === "display"
                 ? "Unassigned definition"
                 : "No linked loaded elements",
@@ -88,7 +94,9 @@ export function IfcMaterialsPanel({
       />
       {selected.origin === "source" && selected.kind === "display" && (
         <SidebarEmpty>
-          Source definition. It may differ from the current viewport appearance.
+          {t(
+            "source_definition_it_may_differ_from_the_current_viewport_appearance",
+          )}
         </SidebarEmpty>
       )}
       <Disclosure
@@ -115,12 +123,12 @@ export function IfcMaterialsPanel({
             ) : null;
           })
         ) : (
-          <SidebarEmpty>No explicit source link found.</SidebarEmpty>
+          <SidebarEmpty>{t("no_explicit_source_link_found")}</SidebarEmpty>
         )}
       </Disclosure>
       {selected.shapeIds.length > 0 && (
         <Disclosure
-          title="Referenced shapes"
+          title={t("referenced_shapes")}
           count={selected.shapeIds.length}
           variant="inline"
           defaultOpen={false}
@@ -132,7 +140,9 @@ export function IfcMaterialsPanel({
       )}
     </div>
   ) : (
-    <SidebarEmpty>Select a material to inspect its properties.</SidebarEmpty>
+    <SidebarEmpty>
+      {t("select_a_material_to_inspect_its_properties")}
+    </SidebarEmpty>
   );
   return (
     <MaterialBrowser
@@ -142,7 +152,7 @@ export function IfcMaterialsPanel({
         name: entry.name,
         color: entry.color,
         count: entry.elementIds.length,
-        meta: `${entry.kind === "building" ? "Building material" : `Display material · ${provenance[entry.origin]}`} · ${entry.elementIds.length ? `${entry.elementIds.length.toLocaleString()} elements` : entry.kind === "display" ? "Unassigned" : "0 elements"}`,
+        meta: `${entry.kind === "building" ? "Building material" : `Display material · ${provenance[entry.origin]}`} · ${entry.elementIds.length ? `${formatNumber(entry.elementIds.length)} elements` : entry.kind === "display" ? "Unassigned" : "0 elements"}`,
       }))}
       total={entries.length}
       selectedId={selected?.id ?? null}

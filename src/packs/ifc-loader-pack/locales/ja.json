@@ -1,0 +1,14 @@
+{
+  "ifc_display": "IFC表示",
+  "color_by": "色分け",
+  "ifc_color_mode": "IFC色分けモード",
+  "original": "元の色",
+  "category": "分類",
+  "element": "要素",
+  "storey": "階",
+  "loading_element_information": "要素情報を読み込み中…",
+  "some_information_was_omitted_because_the_detail_limit_was_reached": "詳細情報の上限に達したため、一部を省略しました。",
+  "no_values_provided": "値がありません。",
+  "load_failed": "IFCのプレビューを読み込めませんでした：{{detail}}",
+  "unavailable": "IFCローダーがありません。対応するローダーパックをインストールしてください。"
+}

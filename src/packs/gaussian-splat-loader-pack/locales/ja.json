@@ -1,0 +1,4 @@
+{
+  "load_failed": "Gaussian Splatのプレビューを読み込めませんでした：{{detail}}",
+  "unavailable": "Gaussian Splatローダーがありません。対応するローダーパックをインストールしてください。"
+}
