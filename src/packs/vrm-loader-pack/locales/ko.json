@@ -1,0 +1,4 @@
+{
+  "load_failed": "VRM 미리보기를 불러오지 못했습니다: {{detail}}",
+  "unavailable": "VRM 로더가 없습니다. 해당 로더 팩을 설치하세요."
+}

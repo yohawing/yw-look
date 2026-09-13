@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { SidebarSplitPanel } from "./ui/SidebarSplitPanel";
 import { Badge } from "./ui/Badge";
@@ -31,6 +32,7 @@ export function MaterialBrowser({
   details: ReactNode;
   revealSelection?: boolean;
 }) {
+  useLocale();
   const lastRevealed = useRef<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const previousQuery = useRef(query);
@@ -78,13 +80,13 @@ export function MaterialBrowser({
       layoutId="materials"
       className="material-split-panel"
       handleClassName="material-resize-handle"
-      resizeLabel="Resize material details"
+      resizeLabel={t("resize.materials")}
       primary={{
         search: {
-          ariaLabel: "Filter materials",
-          clearLabel: "Clear material filter",
+          ariaLabel: t("filter.materials"),
+          clearLabel: t("filter.clearMaterials"),
           onChange: onQueryChange,
-          placeholder: "Search materials",
+          placeholder: t("search_materials"),
           value: query,
         },
         bodyClassName: "material-list-scroll",
@@ -93,13 +95,13 @@ export function MaterialBrowser({
         defaultSize: 58,
         id: "material-list",
         minSize: 24,
-        title: "Materials",
+        title: t("materials"),
         children: (
           <div className="material-list-layout">
             {total === 0 ? (
-              <SidebarEmpty>No materials found.</SidebarEmpty>
+              <SidebarEmpty>{t("no_materials_found")}</SidebarEmpty>
             ) : !items.length ? (
-              <SidebarEmpty>No materials match.</SidebarEmpty>
+              <SidebarEmpty>{t("no_materials_match")}</SidebarEmpty>
             ) : (
               <ul
                 className="material-list"
@@ -158,7 +160,7 @@ export function MaterialBrowser({
         defaultSize: 42,
         id: "material-detail",
         minSize: 22,
-        title: "Selected",
+        title: t("selected"),
       }}
     />
   );

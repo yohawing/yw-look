@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { useCallback, useState } from "react";
 import { useAsyncFetch } from "../hooks/useAsyncFetch";
 import {
@@ -28,6 +29,7 @@ const MAX_SAMPLES = 100;
 
 /** Inline SVG line chart for numeric time samples. viewBox is 200×50. */
 function TimeSampleLineChart({ samples }: { samples: TimeSampleEntry[] }) {
+  useLocale();
   const numeric = samples
     .map((s) => ({ time: s.time, value: parseFloat(s.valueSummary) }))
     .filter((p) => isFinite(p.value));
@@ -107,6 +109,7 @@ function TimeSamplesPanel({
   attrName: string;
   onClose: () => void;
 }) {
+  useLocale();
   const fetchTimeSamples = useCallback(
     () => inspectAttributeTimeSamples(path, primPath, attrName, MAX_SAMPLES),
     [attrName, path, primPath],
@@ -124,21 +127,24 @@ function TimeSamplesPanel({
     <div className="ts-panel">
       <div className="ts-panel-header">
         <span className="ts-panel-title">
-          Time Samples: <code>{attrName}</code>
+          {t("time_samples")}
+          <code>{attrName}</code>
         </span>
         <button
           type="button"
           className="ts-panel-close"
           onClick={onClose}
-          aria-label="Close time samples"
+          aria-label={t("close_time_samples")}
         >
           ×
         </button>
       </div>
 
-      {loading && <p className="muted ts-panel-msg">Loading…</p>}
+      {loading && <p className="muted ts-panel-msg">{t("loading_2")}</p>}
       {error && (
-        <p className="muted ts-panel-msg">Time sample data not available.</p>
+        <p className="muted ts-panel-msg">
+          {t("time_sample_data_not_available")}
+        </p>
       )}
 
       {data && (
@@ -153,8 +159,11 @@ function TimeSamplesPanel({
           {/* ---- numeric statistics ---- */}
           {data.numericMin !== null && (
             <p className="ts-stats muted">
-              min&nbsp;{data.numericMin.toPrecision(5)}&ensp; max&nbsp;
-              {data.numericMax!.toPrecision(5)}&ensp; mean&nbsp;
+              {t("min_nbsp")}
+              {data.numericMin.toPrecision(5)}
+              {t("ensp_max_nbsp")}
+              {data.numericMax!.toPrecision(5)}
+              {t("ensp_mean_nbsp")}
               {data.numericMean!.toPrecision(5)}
             </p>
           )}
@@ -162,7 +171,10 @@ function TimeSamplesPanel({
           {/* ---- truncation notice ---- */}
           {data.totalCount > data.samples.length && (
             <p className="ts-trunc-notice muted">
-              Showing first {data.samples.length} of {data.totalCount} samples
+              {t("samples.summary", {
+                shown: data.samples.length,
+                total: data.totalCount,
+              })}
             </p>
           )}
 
@@ -171,8 +183,8 @@ function TimeSamplesPanel({
             <table className="ts-table">
               <thead>
                 <tr>
-                  <th className="ts-col-time">Time</th>
-                  <th className="ts-col-value">Value</th>
+                  <th className="ts-col-time">{t("time")}</th>
+                  <th className="ts-col-value">{t("value")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -180,7 +192,9 @@ function TimeSamplesPanel({
                   <tr key={i} className="ts-table-row">
                     <td className="ts-col-time">{s.time}</td>
                     <td className="ts-col-value">
-                      {s.valueSummary || <span className="muted">(none)</span>}
+                      {s.valueSummary || (
+                        <span className="muted">{t("none")}</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -200,6 +214,7 @@ function AttributeRow({
   attr: AttributeInfo;
   onViewSamples: (attrName: string) => void;
 }) {
+  useLocale();
   const [expanded, setExpanded] = useState(false);
   const isLong = attr.valueSummary.length > 40;
   return (
@@ -220,11 +235,11 @@ function AttributeRow({
               onClick={() => setExpanded((v) => !v)}
               aria-label={expanded ? "Collapse value" : "Expand value"}
             >
-              {expanded ? "less" : "more"}
+              {expanded ? t("less") : t("more")}
             </button>
           </>
         ) : (
-          attr.valueSummary || <span className="muted">(none)</span>
+          attr.valueSummary || <span className="muted">{t("none")}</span>
         )}
       </td>
       <td className="prop-table-var">{attr.variability}</td>
@@ -256,10 +271,11 @@ function RelationshipSection({
 }: {
   relationships: RelationshipInfo[];
 }) {
+  useLocale();
   if (relationships.length === 0) return null;
   return (
     <section className="prop-section">
-      <p className="prop-section-title">Relationships</p>
+      <p className="prop-section-title">{t("relationships")}</p>
       <ul className="prop-rel-list">
         {relationships.map((rel) => (
           <li key={rel.name} className="prop-rel-item">
@@ -273,7 +289,7 @@ function RelationshipSection({
                 ))}
               </ul>
             ) : (
-              <span className="muted"> (no targets)</span>
+              <span className="muted">{t("no_targets")}</span>
             )}
           </li>
         ))}
@@ -283,10 +299,11 @@ function RelationshipSection({
 }
 
 function MetadataSection({ entries }: { entries: MetadataEntry[] }) {
+  useLocale();
   if (entries.length === 0) return null;
   return (
     <section className="prop-section">
-      <p className="prop-section-title">Metadata</p>
+      <p className="prop-section-title">{t("metadata")}</p>
       <ul className="prop-meta-list">
         {entries.map((entry) => (
           <li key={entry.key} className="prop-meta-item">
@@ -303,6 +320,7 @@ export function UsdPrimPropertyPanel({
   path,
   embedded = false,
 }: UsdPrimPropertyPanelProps) {
+  useLocale();
   const selectedPrimPath = useViewerStore((state) => state.selectedUsdPrimPath);
   if (!path || !selectedPrimPath) return null;
   return (
@@ -324,6 +342,7 @@ function UsdPrimPropertyContent({
   selectedPrimPath: string;
   embedded: boolean;
 }) {
+  useLocale();
   /** Attribute name whose samples are currently shown. `null` = none. */
   const [activeSampleAttr, setActiveSampleAttr] = useState<string | null>(null);
   const fetchPrimInspection = useCallback(() => {
@@ -345,7 +364,7 @@ function UsdPrimPropertyContent({
     <div className="prim-property-panel">
       {!embedded && <p className="prop-prim-path">{selectedPrimPath}</p>}
 
-      {loading && <SidebarEmpty>Loading…</SidebarEmpty>}
+      {loading && <SidebarEmpty>{t("loading_2")}</SidebarEmpty>}
       {error && (
         <SidebarError>{`Prim inspection failed: ${error}`}</SidebarError>
       )}
@@ -354,17 +373,17 @@ function UsdPrimPropertyContent({
         <>
           {inspection.attributes.length > 0 ? (
             <section className="prop-section">
-              <p className="prop-section-title">Attributes</p>
+              <p className="prop-section-title">{t("attributes")}</p>
               <div className="prop-table-wrap">
                 <table className="prop-table">
                   <thead>
                     <tr>
-                      <th className="prop-table-name">Name</th>
-                      <th className="prop-table-type">Type</th>
-                      <th className="prop-table-value">Value</th>
-                      <th className="prop-table-var">Var</th>
+                      <th className="prop-table-name">{t("name")}</th>
+                      <th className="prop-table-type">{t("type")}</th>
+                      <th className="prop-table-value">{t("value")}</th>
+                      <th className="prop-table-var">{t("var")}</th>
                       <th className="prop-table-custom">C</th>
-                      <th className="prop-table-samples">Samples</th>
+                      <th className="prop-table-samples">{t("samples_2")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -384,7 +403,7 @@ function UsdPrimPropertyContent({
               </div>
             </section>
           ) : (
-            <SidebarEmpty>No attributes authored.</SidebarEmpty>
+            <SidebarEmpty>{t("no_attributes_authored")}</SidebarEmpty>
           )}
 
           {/* ---- inline time-samples panel (shown below the table) ---- */}
@@ -412,7 +431,7 @@ function UsdPrimPropertyContent({
         data-testid="usd-prim-panel"
       >
         <div className="selected-inspector-section-head">
-          <span>USD Properties</span>
+          <span>{t("usd_properties")}</span>
           {inspection ? (
             <span className="usd-properties-static-count">
               {inspection.attributes.length}
@@ -426,7 +445,7 @@ function UsdPrimPropertyContent({
 
   return (
     <SidebarSection
-      title="Advanced: Prim Properties"
+      title={t("advanced_prim_properties")}
       count={inspection?.attributes.length}
       collapsible
       defaultOpen={false}

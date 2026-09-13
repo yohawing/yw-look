@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { useCallback, useMemo, useState } from "react";
 import {
   type CameraEntry,
@@ -16,31 +17,36 @@ import { useViewerStore } from "../stores/viewerStore";
 import { useFileStore } from "../stores/fileStore";
 import { requestViewportCameraPreset } from "../viewport/viewportCommands";
 
-const environmentPresets: Array<{
-  id: EnvironmentPreset;
-  label: string;
-}> = [
-  { id: "none", label: "None" },
-  { id: "studio", label: "Studio" },
-  { id: "neutral", label: "Neutral" },
-  { id: "outdoor", label: "Outdoor" },
-];
-
-const cameraPresetOptions: Array<{
-  id: CameraPreset;
-  label: string;
-}> = [
-  { id: "front", label: "Front" },
-  { id: "back", label: "Back" },
-  { id: "left", label: "Left" },
-  { id: "right", label: "Right" },
-  { id: "top", label: "Top" },
-  { id: "bottom", label: "Bottom" },
-];
-
 const emptyCameras: CameraEntry[] = [];
 
 export function useViewportToolbarModel() {
+  const locale = useLocale();
+  const { environmentPresets, cameraPresetOptions } = useMemo(() => {
+    const environmentPresets: Array<{
+      id: EnvironmentPreset;
+      label: string;
+    }> = [
+      { id: "none", label: t("camera.none") },
+      { id: "studio", label: t("camera.studio") },
+      { id: "neutral", label: t("camera.neutral") },
+      { id: "outdoor", label: t("camera.outdoor") },
+    ];
+
+    const cameraPresetOptions: Array<{
+      id: CameraPreset;
+      label: string;
+    }> = [
+      { id: "front", label: t("camera.front") },
+      { id: "back", label: t("camera.back") },
+      { id: "left", label: t("camera.left") },
+      { id: "right", label: t("camera.right") },
+      { id: "top", label: t("camera.top") },
+      { id: "bottom", label: t("camera.bottom") },
+    ];
+
+    return { environmentPresets, cameraPresetOptions };
+  }, [locale]);
+
   const cameras = useFileStore(
     (state) => state.assetMetadata?.cameras ?? emptyCameras,
   );
@@ -49,7 +55,7 @@ export function useViewportToolbarModel() {
     () =>
       cameras.length
         ? [
-            { id: "free", label: "Free Camera" },
+            { id: "free", label: t("camera.free_camera") },
             ...cameras.map((camera) => ({
               id: `asset:${camera.id}`,
               label: camera.name,
@@ -57,7 +63,7 @@ export function useViewportToolbarModel() {
             ...cameraPresetOptions,
           ]
         : cameraPresetOptions,
-    [cameras],
+    [cameras, cameraPresetOptions],
   );
   const vertexColorMeshCount = useFileStore(
     (state) => state.assetMetadata?.vertexColorMeshCount,
@@ -118,7 +124,7 @@ export function useViewportToolbarModel() {
         setActiveCameraPreset(typedPreset);
       }
     },
-    [cameras],
+    [cameras, cameraPresetOptions],
   );
 
   const handleSelectEnvironmentPreset = useCallback((preset: string) => {
@@ -222,6 +228,8 @@ export function useViewportToolbarModel() {
         useViewerStore.getState().toggleShowJointNames(),
     });
   }, [
+    locale,
+    environmentPresets,
     activeCameraId,
     cameraOptions,
     cameras.length,

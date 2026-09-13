@@ -1,3 +1,4 @@
+import { t, useLocale, formatNumber } from "../lib/i18n";
 import { formatBytes } from "../lib/format";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { useFileStore } from "../stores/fileStore";
@@ -21,7 +22,7 @@ type CurrentFileCardProps = {
 
 function renderValue(value: string | number | boolean | null) {
   if (typeof value === "boolean") {
-    return value ? "Yes" : "No";
+    return value ? t("yes") : t("no");
   }
 
   return value ?? "—";
@@ -39,10 +40,6 @@ function formatDuration(value: number) {
     .padStart(2, "0")}`;
 }
 
-function formatNumber(value: number) {
-  return Intl.NumberFormat("en-US").format(value);
-}
-
 function formatFps(value: number | null) {
   return value === null ? "n/a" : `${value.toFixed(1)} fps`;
 }
@@ -52,6 +49,7 @@ export function CurrentFileCard({
   usdPayloadSummary,
   warnings,
 }: CurrentFileCardProps) {
+  useLocale();
   const assetInspection = useFileStore((state) => state.assetInspection);
   const storeCurrentFile = useFileStore((state) => state.currentFile);
   const storeAssetMetadata = useFileStore((state) => state.assetMetadata);
@@ -67,9 +65,9 @@ export function CurrentFileCard({
 
   if (!currentFile) {
     return (
-      <SidebarSection title="File">
+      <SidebarSection title={t("file")}>
         <SidebarEmpty>
-          No file selected. Drop a file or use File to open.
+          {t("no_file_selected_drop_a_file_or_use_file_to_open")}
         </SidebarEmpty>
       </SidebarSection>
     );
@@ -108,7 +106,7 @@ export function CurrentFileCard({
   const summaryRows: SidebarKeyValueRow[] = [
     {
       id: "format",
-      label: "Format",
+      label: t("format"),
       value: `${formatLabel}${
         metadata?.formatVersion ? ` ${metadata.formatVersion}` : ""
       }`,
@@ -116,61 +114,63 @@ export function CurrentFileCard({
     },
     {
       id: "file-size",
-      label: "File size",
+      label: t("file_size"),
       value: formatBytes(assetInspection?.fileSizeBytes),
       mono: true,
       tone: assetInspection ? "default" : "muted",
     },
     {
       id: "meshes",
-      label: "Meshes",
+      label: t("meshes"),
       value: renderValue(metadata?.meshCount ?? null),
       mono: true,
       tone: metadata ? "default" : "muted",
     },
     {
       id: "materials",
-      label: "Materials",
+      label: t("materials"),
       value: renderValue(metadata?.materialCount ?? null),
       mono: true,
       tone: metadata ? "default" : "muted",
     },
     {
       id: "textures",
-      label: "Textures",
+      label: t("textures"),
       value: renderValue(metadata?.textureCount ?? null),
       mono: true,
       tone: metadata ? "default" : "muted",
     },
     {
       id: "animations",
-      label: "Animation",
-      value: metadata?.hasAnimation ? "Present" : "None",
+      label: t("animation"),
+      value: metadata?.hasAnimation
+        ? t("metadata.present")
+        : t("metadata.none"),
       tone: metadata?.hasAnimation ? "ok" : "muted",
     },
     ...(animationClipCount > 0
       ? [
           {
             id: "animation-duration",
-            label: "Duration",
+            label: t("duration"),
             value: formatDuration(longestAnimationDuration),
             mono: true,
           },
           {
             id: "animation-fps",
-            label: "FPS",
+            label: t("fps"),
             value: formatFps(representativeAnimationFps),
             mono: true,
           },
           {
             id: "animation-keys",
-            label: "Keys",
+            label: t("keys"),
             value: formatNumber(totalAnimationKeyframeCount),
             mono: true,
           },
           {
             id: "animation-tracks",
-            label: "Tracks",
+            label: t("tracks"),
             value: formatNumber(totalAnimationTrackCount),
             mono: true,
           },
@@ -178,19 +178,25 @@ export function CurrentFileCard({
       : []),
     {
       id: "warnings",
-      label: "Warnings",
+      label: t("warnings"),
       value: warningCount,
       mono: true,
       tone: warningCount > 0 ? "warn" : "muted",
     },
     payloadSummary && {
       id: "payloads",
-      label: "USD payloads",
+      label: t("usd_payloads"),
       value:
         payloadSummary.unloadedPayloadCount > 0
-          ? `${payloadSummary.payloadCount} (${payloadSummary.unloadedPayloadCount} deferred)`
+          ? t("metadata.payloadDeferred", {
+              count: payloadSummary.payloadCount,
+              deferred: payloadSummary.unloadedPayloadCount,
+            })
           : payloadSummary.unresolvedPayloadCount > 0
-            ? `${payloadSummary.payloadCount} (${payloadSummary.unresolvedPayloadCount} missing)`
+            ? t("metadata.payloadMissing", {
+                count: payloadSummary.payloadCount,
+                missing: payloadSummary.unresolvedPayloadCount,
+              })
             : payloadSummary.payloadCount,
       mono: true,
       tone:
@@ -203,7 +209,7 @@ export function CurrentFileCard({
   ].filter(Boolean) as SidebarKeyValueRow[];
 
   return (
-    <SidebarSection title="File Info">
+    <SidebarSection title={t("file_info")}>
       <SidebarKeyValueRows rows={summaryRows} />
       {warnings.length > 0 ? (
         <WarningList

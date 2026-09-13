@@ -470,6 +470,8 @@ pub(crate) fn load_format_support() -> FormatSupportPayload {
 #[tauri::command]
 pub(crate) fn open_file_dialog(
     _app: tauri::AppHandle,
+    title: Option<String>,
+    filter_name: Option<String>,
 ) -> Result<Option<Vec<SelectedFilePayload>>, AppError> {
     let dialog_extensions = dialog_filter_extensions();
     let dialog_extension_refs: Vec<&str> = dialog_extensions
@@ -477,8 +479,11 @@ pub(crate) fn open_file_dialog(
         .map(|extension| extension.as_str())
         .collect();
     let file_paths = rfd::FileDialog::new()
-        .set_title("Open asset file")
-        .add_filter("Supported assets", &dialog_extension_refs)
+        .set_title(title.as_deref().unwrap_or("Open asset file"))
+        .add_filter(
+            filter_name.as_deref().unwrap_or("Supported assets"),
+            &dialog_extension_refs,
+        )
         .pick_files();
 
     file_paths.map(collect_supported_files).transpose()

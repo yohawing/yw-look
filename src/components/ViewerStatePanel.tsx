@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { LoadingScreen } from "./LoadingScreen";
 import { useState } from "react";
 import { loadDiagnosticsSnapshot, openAppLogDir } from "../lib/diagnostics";
@@ -39,101 +40,6 @@ const optionalFormats = registeredLoaders
   .filter((loader) => loader.optional)
   .map((loader) => loader.extension);
 
-const stateContent: Record<
-  ViewerMode,
-  {
-    label: string;
-    title: string;
-    body: string;
-    tone: "neutral" | "warning" | "danger";
-    details?: string[];
-  }
-> = {
-  empty: {
-    label: "yw-look",
-    title: "Drop a file here to preview",
-    body: "Drag & drop a 3D model or texture onto this window, or use File to open.",
-    tone: "neutral",
-  },
-  loading: {
-    label: "Loading",
-    title: "Preparing preview",
-    body: "The file is being opened and prepared for display.",
-    tone: "neutral",
-    details: [
-      "Large files can take a moment.",
-      "Linked textures or payloads may continue loading after the preview appears.",
-    ],
-  },
-  ready: {
-    label: "Preview Ready",
-    title: "The scene is active and camera controls are enabled.",
-    body: "This state is handled by the live viewport and should not remain overlaid.",
-    tone: "neutral",
-  },
-  unsupported: {
-    label: "Unsupported Format",
-    title: "This file type is not mapped to a loader yet.",
-    body: "This build cannot preview the selected file type.",
-    tone: "warning",
-    details: [
-      "Core loader support is built into this app.",
-      "Optional formats are listed separately when they require a loader pack.",
-    ],
-  },
-  missingOptionalLoader: {
-    label: "Optional Loader Missing",
-    title: "A loader pack is required for this file.",
-    body: "The file extension is recognized, but this installation does not include the optional loader needed to preview it.",
-    tone: "warning",
-    details: [
-      "Install the matching loader pack when it becomes available.",
-      "Reopen the file after the loader pack is installed.",
-    ],
-  },
-  disabledOptionalLoader: {
-    label: "Optional Loader Disabled",
-    title: "A loader pack is disabled for this file.",
-    body: "The file extension is recognized, but its optional loader pack is currently disabled.",
-    tone: "warning",
-    details: [
-      "Enable the matching loader pack in Settings.",
-      "Reopen the file after changing the loader pack setting.",
-    ],
-  },
-  incompatibleOptionalLoader: {
-    label: "Optional Loader Incompatible",
-    title: "A loader pack is not compatible with this app version.",
-    body: "The file extension is recognized, but its optional loader pack cannot run with the current app version.",
-    tone: "warning",
-    details: [
-      "Update yw-look or reinstall the matching loader pack.",
-      "Reopen the file after the app and loader pack versions match.",
-    ],
-  },
-  loadFailed: {
-    label: "Load Error",
-    title: "This file could not be previewed.",
-    body: "The file may be damaged or use data this build cannot read.",
-    tone: "danger",
-    details: [
-      "Try another file or check that linked resources are available.",
-      "If this keeps happening, share the file and error details with support.",
-    ],
-  },
-  missingReference: {
-    label: "Missing Reference",
-    title:
-      "The main file was found, but one or more linked resources are missing.",
-    body: "Some linked textures, buffers, or sidecar files could not be found.",
-    tone: "warning",
-    details: [
-      "Move the missing files next to the asset, then reopen it.",
-      "File names may appear in the warning panel when available.",
-    ],
-  },
-};
-
 export function ViewerStatePanel({
   deferredTexture,
   detailMessage,
@@ -143,6 +49,121 @@ export function ViewerStatePanel({
   mode,
   onOpenFile,
 }: ViewerStatePanelProps) {
+  useLocale();
+  const stateContent: Record<
+    ViewerMode,
+    {
+      label: string;
+      title: string;
+      body: string;
+      tone: "neutral" | "warning" | "danger";
+      details?: string[];
+    }
+  > = {
+    empty: {
+      label: "yw-look",
+      title: t("drop_a_file_here_to_preview"),
+      body: t(
+        "drag_drop_a_3d_model_or_texture_onto_this_window_or_use_file_to_open",
+      ),
+      tone: "neutral",
+    },
+    loading: {
+      label: t("loading"),
+      title: t("preparing_preview"),
+      body: t("the_file_is_being_opened_and_prepared_for_display"),
+      tone: "neutral",
+      details: [
+        t("large_files_can_take_a_moment"),
+        t(
+          "linked_textures_or_payloads_may_continue_loading_after_the_preview_appears",
+        ),
+      ],
+    },
+    ready: {
+      label: t("preview_ready"),
+      title: t("the_scene_is_active_and_camera_controls_are_enabled"),
+      body: t(
+        "this_state_is_handled_by_the_live_viewport_and_should_not_remain_overlaid",
+      ),
+      tone: "neutral",
+    },
+    unsupported: {
+      label: t("unsupported_format"),
+      title: t("this_file_type_is_not_mapped_to_a_loader_yet"),
+      body: t("this_build_cannot_preview_the_selected_file_type"),
+      tone: "warning",
+      details: [
+        t("core_loader_support_is_built_into_this_app"),
+        t(
+          "optional_formats_are_listed_separately_when_they_require_a_loader_pack",
+        ),
+      ],
+    },
+    missingOptionalLoader: {
+      label: t("optional_loader_missing"),
+      title: t("a_loader_pack_is_required_for_this_file"),
+      body: t(
+        "the_file_extension_is_recognized_but_this_installation_does_not_include_the_optional_",
+      ),
+      tone: "warning",
+      details: [
+        t("install_the_matching_loader_pack_when_it_becomes_available"),
+        t("reopen_the_file_after_the_loader_pack_is_installed"),
+      ],
+    },
+    disabledOptionalLoader: {
+      label: t("optional_loader_disabled"),
+      title: t("a_loader_pack_is_disabled_for_this_file"),
+      body: t(
+        "the_file_extension_is_recognized_but_its_optional_loader_pack_is_currently_disabled",
+      ),
+      tone: "warning",
+      details: [
+        t("enable_the_matching_loader_pack_in_settings"),
+        t("reopen_the_file_after_changing_the_loader_pack_setting"),
+      ],
+    },
+    incompatibleOptionalLoader: {
+      label: t("optional_loader_incompatible"),
+      title: t("a_loader_pack_is_not_compatible_with_this_app_version"),
+      body: t(
+        "the_file_extension_is_recognized_but_its_optional_loader_pack_cannot_run_with_the_cur",
+      ),
+      tone: "warning",
+      details: [
+        t("update_yw_look_or_reinstall_the_matching_loader_pack"),
+        t("reopen_the_file_after_the_app_and_loader_pack_versions_match"),
+      ],
+    },
+    loadFailed: {
+      label: t("load_error"),
+      title: t("this_file_could_not_be_previewed"),
+      body: t("the_file_may_be_damaged_or_use_data_this_build_cannot_read"),
+      tone: "danger",
+      details: [
+        t("try_another_file_or_check_that_linked_resources_are_available"),
+        t(
+          "if_this_keeps_happening_share_the_file_and_error_details_with_support",
+        ),
+      ],
+    },
+    missingReference: {
+      label: t("missing_reference"),
+      title: t(
+        "the_main_file_was_found_but_one_or_more_linked_resources_are_missing",
+      ),
+      body: t(
+        "some_linked_textures_buffers_or_sidecar_files_could_not_be_found",
+      ),
+      tone: "warning",
+      details: [
+        t("move_the_missing_files_next_to_the_asset_then_reopen_it"),
+        t("file_names_may_appear_in_the_warning_panel_when_available"),
+      ],
+    },
+  };
+
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -220,7 +241,7 @@ export function ViewerStatePanel({
 
   if (mode === "empty") {
     return (
-      <div className="viewer-empty-state" aria-label="Drop file">
+      <div className="viewer-empty-state" aria-label={t("drop_file")}>
         <div className="viewer-empty-iso" aria-hidden="true">
           <svg width="160" height="160" viewBox="-80 -80 160 160" fill="none">
             <g opacity="0.35">
@@ -252,21 +273,21 @@ export function ViewerStatePanel({
           </svg>
         </div>
         <div className="viewer-empty-copy">
-          <h2>Inspect a model or texture</h2>
-          <p>Open a file or drop one here to preview the asset.</p>
+          <h2>{t("inspect_a_model_or_texture")}</h2>
+          <p>{t("open_a_file_or_drop_one_here_to_preview_the_asset")}</p>
         </div>
         <div className="viewer-empty-actions">
           <button onClick={onOpenFile} type="button">
-            Open File
+            {t("open_file")}
           </button>
-          <span>Drag & Drop</span>
+          <span>{t("drag_drop")}</span>
         </div>
         <div className="viewer-empty-format-groups">
           <div>
-            <p>Core</p>
+            <p>{t("core")}</p>
             <div
               className="viewer-empty-formats"
-              aria-label="Supported formats"
+              aria-label={t("supported_formats")}
             >
               {coreFormats.map((format) => (
                 <span key={format}>{format}</span>
@@ -274,10 +295,10 @@ export function ViewerStatePanel({
             </div>
           </div>
           <div>
-            <p>Optional packs</p>
+            <p>{t("optional_packs")}</p>
             <div
               className="viewer-empty-formats viewer-empty-formats-optional"
-              aria-label="Optional formats"
+              aria-label={t("optional_formats")}
             >
               {optionalFormats.map((format) => (
                 <span key={format}>{format}</span>
@@ -286,7 +307,7 @@ export function ViewerStatePanel({
           </div>
         </div>
         <p className="viewer-empty-hint">
-          Use Left / Right after opening a file to browse nearby assets.
+          {t("use_left_right_after_opening_a_file_to_browse_nearby_assets")}
         </p>
       </div>
     );
@@ -306,7 +327,7 @@ export function ViewerStatePanel({
       ) : null}
       {detailMessage ? (
         <div className="viewer-error-detail" role="status">
-          <p>Error details</p>
+          <p>{t("error_details")}</p>
           <pre>{detailMessage}</pre>
         </div>
       ) : null}
@@ -314,19 +335,19 @@ export function ViewerStatePanel({
         <div className="viewer-error-actions">
           <button onClick={() => void handleCopyDetails()} type="button">
             {copyState === "copied"
-              ? "Details Copied"
+              ? t("details_copied")
               : copyState === "failed"
-                ? "Copy Failed"
-                : "Copy Details"}
+                ? t("copy.failure")
+                : t("copy_details")}
           </button>
           <button onClick={() => void openAppLogDir()} type="button">
-            Open Logs
+            {t("open_logs")}
           </button>
           <button
             onClick={() => window.open(ISSUE_REPORT_URL, "_blank", "noopener")}
             type="button"
           >
-            Report Issue
+            {t("report_issue")}
           </button>
         </div>
       ) : null}

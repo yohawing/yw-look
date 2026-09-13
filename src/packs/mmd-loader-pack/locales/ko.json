@@ -1,0 +1,15 @@
+{
+  "model_name": "모델 이름",
+  "name": "이름",
+  "comment": "설명",
+  "english_comment": "영문 설명",
+  "format": "형식",
+  "encoding": "문자 인코딩",
+  "additional_uv": "추가 UV",
+  "trailing_bytes": "후행 바이트",
+  "mmd_format": "MMD 형식",
+  "load_failed": "MMD 미리보기를 불러오지 못했습니다: {{detail}}",
+  "unavailable": "MMD 로더가 없습니다. 해당 로더 팩을 설치하세요.",
+  "motion_failed": "MMD 모션을 불러오지 못했습니다: {{detail}}",
+  "motion_requires_model": "VMD 모션을 불러오려면 런타임을 지원하는 MMD 모델을 먼저 여세요."
+}

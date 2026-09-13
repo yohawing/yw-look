@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { openAppLogDir } from "../lib/diagnostics";
 import { logFrontendFatal } from "../lib/runtimeLogging";
@@ -50,15 +51,12 @@ export class ErrorBoundary extends Component<
     return (
       <main className="app-error-boundary" role="alert">
         <section className="app-error-boundary__panel">
-          <p className="app-error-boundary__label">Fatal UI Error</p>
-          <h1>yw-look hit a render error.</h1>
-          <p>
-            The error was written to the local log. Reload the app, copy the
-            details, or open the log folder for a bug report.
-          </p>
+          <p className="app-error-boundary__label">{t("fatal.label")}</p>
+          <h1>{t("fatal.title")}</h1>
+          <p>{t("fatal.body")}</p>
           <div className="app-error-boundary__actions">
             <button onClick={() => window.location.reload()} type="button">
-              Reload
+              {t("reload")}
             </button>
             <button
               onClick={() => {
@@ -66,10 +64,10 @@ export class ErrorBoundary extends Component<
               }}
               type="button"
             >
-              Copy Details
+              {t("copy_details")}
             </button>
             <button onClick={() => void openAppLogDir()} type="button">
-              Open Logs
+              {t("open_logs")}
             </button>
           </div>
           <pre>{details}</pre>

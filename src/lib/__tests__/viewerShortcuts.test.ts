@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   applyViewerShortcutAction,
+  getViewerShortcutHelpLines,
   isEditableShortcutTarget,
   resolveViewerShortcutAction,
   type ViewerShortcutState,
 } from "../viewerShortcuts";
+import { setLanguage } from "../i18n";
 import type { DisplayMode } from "../../viewer";
 
 function event(
@@ -45,6 +47,31 @@ function applyKey(
   }
   return applyViewerShortcutAction(state, action, displayMode);
 }
+
+afterEach(() => setLanguage("en"));
+
+describe("viewer shortcut help", () => {
+  it("resolves the current language on each opening while preserving physical keys", () => {
+    setLanguage("en");
+    const english = getViewerShortcutHelpLines();
+    expect(english[0]).toBe("PageUp  File > Previous file");
+    expect(english).toHaveLength(14);
+    for (const [locale, expected] of [
+      ["ja", "PageUp  ファイル > 前のファイル"],
+      ["zh-Hans", "PageUp  文件 > 上一个文件"],
+      ["ko", "PageUp  파일 > 이전 파일"],
+    ]) {
+      setLanguage(locale);
+      const lines = getViewerShortcutHelpLines();
+      expect(lines[0]).toBe(expected);
+      expect(lines.map((line) => line.split("  ")[0])).toEqual(
+        english.map((line) => line.split("  ")[0]),
+      );
+      expect(lines.every((line, index) => line !== english[index])).toBe(true);
+      expect(lines.join("\n")).not.toContain("shortcuts.");
+    }
+  });
+});
 
 describe("viewer shortcuts", () => {
   it("maps F to focus selected", () => {

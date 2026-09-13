@@ -83,6 +83,52 @@ function StrictModeWrapper({ children }: { children: ReactNode }) {
   return <StrictMode>{children}</StrictMode>;
 }
 
+it("serializes language selection with other settings and permits retry after a failed save", async () => {
+  const initial = makeSettingsPayload(true);
+  const setSettingsPayload = vi.fn();
+  const setSettingsError = vi.fn();
+  vi.mocked(saveSettings).mockImplementation(async (settings) => ({
+    ...initial,
+    settings,
+  }));
+  const { result } = renderHook(() =>
+    useSettingsActions({
+      isTauri: false,
+      refreshUpdateConfiguration: vi.fn(async () => {}),
+      setSettingsError,
+      setOptionalLoaderManifests: vi.fn(),
+      setSettingsPayload,
+      setUpdateError: vi.fn(),
+      settingsPayload: initial,
+    }),
+  );
+  await act(async () => {
+    await Promise.all([
+      result.current.handleChangeLanguage("ja"),
+      result.current.handleToggleAutoCheckForUpdates(),
+    ]);
+  });
+  expect(vi.mocked(saveSettings).mock.calls.at(-1)?.[0]).toMatchObject({
+    language: "ja",
+    autoCheckForUpdates: false,
+  });
+  vi.mocked(saveSettings).mockRejectedValueOnce(new Error("disk full"));
+  await act(async () => {
+    await result.current.handleChangeLanguage("ko");
+  });
+  expect(setSettingsError).toHaveBeenLastCalledWith("disk full");
+  expect(setSettingsPayload.mock.calls.at(-1)?.[0].settings.language).toBe(
+    "ja",
+  );
+  await act(async () => {
+    await result.current.handleChangeLanguage("zh-Hans");
+  });
+  expect(setSettingsPayload.mock.calls.at(-1)?.[0].settings).toMatchObject({
+    language: "zh-Hans",
+    autoCheckForUpdates: false,
+  });
+});
+
 beforeEach(() => {
   vi.mocked(installOptionalLoaderPack).mockResolvedValue([manifest]);
   vi.mocked(removeOptionalLoaderPack).mockResolvedValue([]);

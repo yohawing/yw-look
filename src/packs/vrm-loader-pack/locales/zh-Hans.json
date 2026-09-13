@@ -1,0 +1,4 @@
+{
+  "load_failed": "无法加载VRM预览：{{detail}}",
+  "unavailable": "未安装VRM加载器。请安装对应的加载器包。"
+}

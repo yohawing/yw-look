@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { invokeSafe } from "./invokeSafe";
 import { isTauriEnvironment } from "./platform";
 
@@ -157,7 +158,10 @@ export async function openFileDialog() {
   if (!isTauriEnvironment()) {
     return openBrowserFileDialog();
   }
-  return invokeFile<SelectedFile[] | null>("open_file_dialog");
+  return invokeFile<SelectedFile[] | null>("open_file_dialog", {
+    title: t("dialog.openAsset"),
+    filterName: t("dialog.supportedAssets"),
+  });
 }
 
 export async function resolveSelectedFiles(paths: string[]) {

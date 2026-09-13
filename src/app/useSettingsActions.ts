@@ -1,3 +1,4 @@
+import { type LanguagePreference } from "../lib/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   installOptionalLoaderPack,
@@ -154,6 +155,22 @@ export function useSettingsActions({
       active = false;
     };
   }, [hasPersistedSettings, isTauri, scheduleFileAssociationSync]);
+
+  const handleChangeLanguage = (language: LanguagePreference) =>
+    enqueueSettingsMutation(async (current) => {
+      if (!current) return;
+      try {
+        await persistSettings(current, (settings) => ({
+          ...settings,
+          language,
+        }));
+        setSettingsError(null);
+      } catch (error: unknown) {
+        setSettingsError(
+          errorMessage(error, "Failed to save language setting."),
+        );
+      }
+    });
 
   const handleToggleAutoCheckForUpdates = () =>
     enqueueSettingsMutation(async (current) => {
@@ -321,6 +338,7 @@ export function useSettingsActions({
     handleSaveUpdateSettings,
     handleInstallOptionalLoaderPack,
     handleRemoveOptionalLoaderPack,
+    handleChangeLanguage,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,

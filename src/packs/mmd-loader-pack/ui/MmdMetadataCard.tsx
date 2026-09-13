@@ -1,3 +1,5 @@
+import "../locales";
+import { t, useLocale } from "../../../lib/i18n";
 import type { MmdAssetMetadata } from "../../../types/viewer";
 import {
   SidebarKeyValueRows,
@@ -20,17 +22,22 @@ function renderMultiline(value: string) {
 }
 
 export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
+  useLocale();
   const isMotion = metadata.format === "vmd";
   const modelRows: SidebarKeyValueRow[] = isMotion
     ? [
         {
           id: "name",
-          label: "Model name",
+          label: t("mmd-loader-pack:model_name"),
           value: renderValue(metadata.name),
         },
       ]
     : [
-        { id: "name", label: "Name", value: renderValue(metadata.name) },
+        {
+          id: "name",
+          label: t("mmd-loader-pack:name"),
+          value: renderValue(metadata.name),
+        },
         {
           id: "english-name",
           label: "English",
@@ -38,12 +45,12 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
         },
         {
           id: "comment",
-          label: "Comment",
+          label: t("mmd-loader-pack:comment"),
           value: renderMultiline(metadata.comment),
         },
         {
           id: "english-comment",
-          label: "English comment",
+          label: t("mmd-loader-pack:english_comment"),
           value: renderMultiline(metadata.englishComment),
         },
       ];
@@ -51,7 +58,7 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
   const formatRows: SidebarKeyValueRow[] = [
     {
       id: "format",
-      label: "Format",
+      label: t("mmd-loader-pack:format"),
       value:
         metadata.version === null
           ? metadata.format.toUpperCase()
@@ -60,19 +67,19 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
     },
     {
       id: "encoding",
-      label: "Encoding",
+      label: t("mmd-loader-pack:encoding"),
       value: renderValue(metadata.encoding),
       mono: true,
     },
     {
       id: "additional-uv",
-      label: "Additional UV",
+      label: t("mmd-loader-pack:additional_uv"),
       value: renderValue(metadata.additionalUvCount),
       mono: true,
     },
     {
       id: "trailing",
-      label: "Trailing bytes",
+      label: t("mmd-loader-pack:trailing_bytes"),
       value: metadata.trailingBytes,
       mono: true,
       tone: metadata.trailingBytes > 0 ? "warn" : "muted",
@@ -88,7 +95,11 @@ export function MmdMetadataCard({ metadata }: MmdMetadataCardProps) {
       >
         <SidebarKeyValueRows rows={modelRows} />
       </SidebarSection>
-      <SidebarSection title="MMD Format" collapsible defaultOpen={false}>
+      <SidebarSection
+        title={t("mmd-loader-pack:mmd_format")}
+        collapsible
+        defaultOpen={false}
+      >
         <SidebarKeyValueRows rows={formatRows} />
       </SidebarSection>
     </>
