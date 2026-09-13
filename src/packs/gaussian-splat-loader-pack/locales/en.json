@@ -1,0 +1,4 @@
+{
+  "load_failed": "Unable to load Gaussian Splat preview: {{detail}}",
+  "unavailable": "Gaussian Splat loader is not installed. Install the matching loader pack to preview this file."
+}

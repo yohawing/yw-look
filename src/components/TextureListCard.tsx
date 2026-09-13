@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { useMemo, useState } from "react";
 import type { TextureEntry } from "./assetMetadata";
 import { SidebarEmpty } from "../lib/sidebarPrimitives";
@@ -34,27 +35,33 @@ function textureRowMetadata(texture: TextureEntry): string {
 }
 
 function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
+  useLocale();
   const extension = textureExtension(texture.label);
   const rows: KeyValueRow[] = [
     {
       id: "name",
-      label: "Name",
+      label: t("name"),
       value: <span title={texture.label}>{texture.label}</span>,
       mono: true,
     },
-    extension && { id: "type", label: "Type", value: extension, mono: true },
-    { id: "channel", label: "Channel", value: texture.channel, mono: true },
-    { id: "dimensions", label: "Size", value: texture.dimensions, mono: true },
+    extension && { id: "type", label: t("type"), value: extension, mono: true },
+    { id: "channel", label: t("channel"), value: texture.channel, mono: true },
+    {
+      id: "dimensions",
+      label: t("size"),
+      value: texture.dimensions,
+      mono: true,
+    },
     {
       id: "source",
-      label: "Source",
+      label: t("source"),
       value: texture.sourceKind,
       tone: texture.sourceKind === "unresolved" ? "warn" : "muted",
       mono: true,
     },
     texture.previewFlipY && {
       id: "orientation",
-      label: "Preview",
+      label: t("preview"),
       value: "Flip Y",
       mono: true,
     },
@@ -62,7 +69,7 @@ function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
       ? [
           {
             id: "container",
-            label: "Container",
+            label: t("container"),
             value: (
               <span title={texture.containerPath}>{texture.containerPath}</span>
             ),
@@ -70,7 +77,7 @@ function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
           },
           {
             id: "internal-path",
-            label: "Internal Path",
+            label: t("internal_path"),
             value: (
               <span title={texture.internalPath}>{texture.internalPath}</span>
             ),
@@ -81,7 +88,7 @@ function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
         ? [
             {
               id: "path",
-              label: "Path",
+              label: t("path"),
               value: (
                 <span title={texture.sourcePath}>{texture.sourcePath}</span>
               ),
@@ -92,13 +99,17 @@ function TextureDetailPanel({ texture }: { texture: TextureEntry }) {
   ].filter(Boolean) as KeyValueRow[];
 
   return (
-    <section className="texture-selected-panel" aria-label="Selected texture">
+    <section
+      className="texture-selected-panel"
+      aria-label={t("selected_texture")}
+    >
       <KeyValueRows className="selected-kv" density="regular" rows={rows} />
     </section>
   );
 }
 
 export function TextureListCard(props: TextureListCardProps) {
+  useLocale();
   return (
     <TextureListCardContent
       key={props.fileIdentity ?? "__no-file__"}
@@ -112,6 +123,7 @@ function TextureListCardContent({
   activeTextureId,
   onSelectTexture,
 }: TextureListCardProps) {
+  useLocale();
   const [activeChannel, setActiveChannel] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
@@ -161,7 +173,7 @@ function TextureListCardContent({
         <>
           <div
             className="texture-channel-filters u-flex u-flex-wrap u-gap-4"
-            aria-label="Texture channels"
+            aria-label={t("texture_channels")}
           >
             {channels.map((channel) => (
               <BadgeButton
@@ -222,11 +234,11 @@ function TextureListCardContent({
               })}
             </div>
           ) : (
-            <SidebarEmpty>No textures match.</SidebarEmpty>
+            <SidebarEmpty>{t("no_textures_match")}</SidebarEmpty>
           )}
         </>
       ) : (
-        <SidebarEmpty>No textures referenced.</SidebarEmpty>
+        <SidebarEmpty>{t("no_textures_referenced")}</SidebarEmpty>
       )}
     </div>
   );
@@ -236,18 +248,20 @@ function TextureListCardContent({
       {selectedTexture ? (
         <TextureDetailPanel texture={selectedTexture} />
       ) : (
-        <SidebarEmpty>Select a texture to inspect it.</SidebarEmpty>
+        <SidebarEmpty>{t("select_a_texture_to_inspect_it")}</SidebarEmpty>
       )}
       <div className="texture-summary u-flex u-justify-between">
         <Badge variant="success" size="sm">
-          Resolved {resolvedCount}
+          {t("resolved")}
+          {resolvedCount}
         </Badge>
         <Badge
           className={missingCount > 0 ? "is-warning" : ""}
           variant={missingCount > 0 ? "warning" : "neutral"}
           size="sm"
         >
-          Missing {missingCount}
+          {t("missing")}
+          {missingCount}
         </Badge>
       </div>
     </div>
@@ -260,10 +274,10 @@ function TextureListCardContent({
       handleClassName="texture-resize-handle"
       primary={{
         search: {
-          ariaLabel: "Filter textures",
-          clearLabel: "Clear texture filter",
+          ariaLabel: t("filter.textures"),
+          clearLabel: t("filter.clearTextures"),
           onChange: setSearchQuery,
-          placeholder: "Search textures",
+          placeholder: t("search_textures"),
           value: searchQuery,
         },
         bodyClassName: "texture-list-scroll",
@@ -273,9 +287,9 @@ function TextureListCardContent({
         defaultSize: 62,
         id: "texture-grid",
         minSize: 24,
-        title: "Textures",
+        title: t("textures"),
       }}
-      resizeLabel="Resize texture details"
+      resizeLabel={t("resize.textures")}
       secondary={{
         bodyClassName: "texture-detail-scroll",
         children: textureDetails,
@@ -283,7 +297,7 @@ function TextureListCardContent({
         defaultSize: 38,
         id: "texture-detail",
         minSize: 20,
-        title: "Selected",
+        title: t("selected"),
       }}
     />
   );

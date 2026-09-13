@@ -1,3 +1,5 @@
+import { formatLocalizedMessage, useLocale } from "../lib/i18n";
+import { LocalizedError, type LocalizedMessage } from "../lib/localizedMessage";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AmbientLight,
@@ -203,6 +205,7 @@ export function AssetViewport({
   deferredProgress = null,
   onScaleNormalizationChange,
 }: AssetViewportProps) {
+  useLocale();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
   const ambientLightRef = useRef<AmbientLight | null>(null);
@@ -313,7 +316,9 @@ export function AssetViewport({
   );
   const activePreviewPathRef = useRef<string | null>(activePreviewPath);
   const [overlayMode, setOverlayMode] = useState<ViewerMode>("empty");
-  const [errorDetail, setErrorDetail] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<
+    string | LocalizedMessage | null
+  >(null);
   const [loadingStage, setLoadingStage] = useState<LoadingStageSnapshot | null>(
     null,
   );
@@ -1022,6 +1027,8 @@ export function AssetViewport({
             mode: "ready",
             message: `Preview ready: ${currentFile.fileName}`,
             warning: message,
+            warningTranslation:
+              error instanceof LocalizedError ? error.translation : undefined,
             canResetCamera: true,
           });
           setLoadingStage(null);
@@ -1039,7 +1046,9 @@ export function AssetViewport({
         // to "loading" when activePreviewPath !== currentFile.path.
         setActivePreviewPath(currentFile.path);
         setOverlayMode(mode);
-        setErrorDetail(message);
+        setErrorDetail(
+          error instanceof LocalizedError ? error.translation : message,
+        );
         onMetadataChange(
           mode === "missingReference" && currentFile
             ? buildMissingReferenceMetadata(
@@ -1264,7 +1273,9 @@ export function AssetViewport({
         errorDetail={
           effectiveOverlayMode === "loadFailed" ||
           effectiveOverlayMode === "missingReference"
-            ? errorDetail
+            ? errorDetail === null
+              ? null
+              : formatLocalizedMessage(errorDetail)
             : null
         }
         hasAnimation={hasAnimation}

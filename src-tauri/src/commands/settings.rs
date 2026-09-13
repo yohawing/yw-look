@@ -173,11 +173,37 @@ mod tests {
 
         assert_eq!(settings.version, 5);
         assert_eq!(settings.recent_files_limit, 5);
+        assert_eq!(settings.language, "system");
         assert_eq!(settings.diagnostics_log_level, "info");
         assert!(!settings.file_associations_enabled);
         assert!(settings.optional_loader_packs.is_empty());
         assert_eq!(settings.update_endpoint_override, None);
         assert_eq!(settings.update_public_key_override, None);
+    }
+
+    #[test]
+    fn language_roundtrips_and_unknown_language_preserves_other_settings() {
+        let dir = tempdir().expect("tempdir");
+        for language in ["system", "en", "ja", "zh-Hans", "ko", "unknown"] {
+            let settings = AppSettings {
+                language: language.to_string(),
+                recent_files_limit: 37,
+                auto_check_for_updates: true,
+                ..AppSettings::default()
+            };
+            save_settings_to_path(dir.path(), settings).expect("save settings");
+            let (_, loaded) = load_settings_from_path(dir.path()).expect("load settings");
+            assert_eq!(
+                loaded.language,
+                if language == "unknown" {
+                    "system"
+                } else {
+                    language
+                }
+            );
+            assert_eq!(loaded.recent_files_limit, 37);
+            assert!(loaded.auto_check_for_updates);
+        }
     }
 
     #[test]

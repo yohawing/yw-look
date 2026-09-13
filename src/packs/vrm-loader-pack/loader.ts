@@ -1,3 +1,5 @@
+import "./locales";
+import { LocalizedError } from "../../lib/localizedMessage";
 import { errorMessage } from "../../lib/errors";
 import { readBinaryFile, type SelectedFile } from "../../lib/files";
 import type { LoadedPreview, LoaderContext } from "../../types/viewer";
@@ -57,6 +59,11 @@ export async function loadVrmPreviewObject(
       throw error;
     }
     const message = errorMessage(error, "Unknown error");
-    throw new Error(`Unable to load VRM preview: ${message}`, { cause: error });
+    throw new LocalizedError(
+      "vrm-loader-pack:load_failed",
+      `Unable to load VRM preview: ${message}`,
+      { detail: message },
+      { cause: error },
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { SelectField } from "./ui";
 import { PlaybackTimeline } from "./PlaybackTimeline";
 import "../styles/animation.css";
@@ -37,9 +38,10 @@ export function AnimationBar({
   onSetLoopRange,
   onSetPlaybackRate,
 }: AnimationBarProps) {
+  useLocale();
   const clipSelector = (
     <SelectField
-      aria-label="Animation clip"
+      aria-label={t("animation_clip")}
       className="animation-clip-selector"
       onChange={(event) => onSelectClip(Number(event.target.value))}
       size="sm"
@@ -54,7 +56,11 @@ export function AnimationBar({
   );
 
   return (
-    <div className="animation-bar" role="group" aria-label="Animation controls">
+    <div
+      className="animation-bar"
+      role="group"
+      aria-label={t("animation_controls")}
+    >
       <PlaybackTimeline
         activeClipIndex={activeClipIndex}
         clipName={clipNames[activeClipIndex] ?? "Animation"}

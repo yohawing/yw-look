@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { version as packageVersion } from "../../package.json";
 import type {
   UpdateCheckPayload,
@@ -32,6 +33,7 @@ export function UpdateCard({
   onCheckForUpdate,
   onInstallUpdate,
 }: UpdateCardProps) {
+  useLocale();
   const configured = isUpdaterConfigured(updateConfiguration);
   const unavailable = updateConfiguration !== null && !configured;
   const hasUpdate = configured && Boolean(updateCheck?.update);
@@ -50,35 +52,26 @@ export function UpdateCard({
               : updateConfiguration
                 ? "idle"
                 : "loading";
-  const updateStateText = {
-    failed: "Update check failed",
-    installing: "Installing update",
-    checking: "Checking for updates",
-    available: "Update available",
-    "up-to-date": "Up to date",
-    idle: "Ready to check",
-    unavailable: "Unavailable",
-    loading: "Loading updater configuration",
-  }[updateState];
+  const updateStateText = t(`update.${updateState}`);
   const updateRows: SidebarKeyValueRow[] = updateCheck?.update
     ? [
         {
           id: "current",
-          label: "Current",
+          label: t("current"),
           value: updateCheck.update.currentVersion,
           mono: true,
           tone: "muted",
         },
         {
           id: "available",
-          label: "Available",
+          label: t("available"),
           value: updateCheck.update.version,
           mono: true,
         },
-        { id: "target", label: "Target", value: updateCheck.update.target },
+        { id: "target", label: t("target"), value: updateCheck.update.target },
         {
           id: "download-url",
-          label: "Download",
+          label: t("download"),
           value: updateCheck.update.downloadUrl,
           mono: true,
         },
@@ -86,7 +79,7 @@ export function UpdateCard({
           ? [
               {
                 id: "published",
-                label: "Published",
+                label: t("published"),
                 value: updateCheck.update.pubDate,
                 tone: "muted" as const,
               },
@@ -97,13 +90,13 @@ export function UpdateCard({
   const statusRows: SidebarKeyValueRow[] = [
     {
       id: "current-version",
-      label: "Version",
+      label: t("version"),
       value: updateConfiguration?.currentVersion ?? packageVersion,
       mono: true,
     },
     {
       id: "state",
-      label: "State",
+      label: t("state"),
       value: updateStateText,
       tone:
         updateState === "available"
@@ -118,7 +111,7 @@ export function UpdateCard({
       ? [
           {
             id: "version-path",
-            label: "Update",
+            label: t("update"),
             value: `${updateCheck.update.currentVersion} -> ${updateCheck.update.version}`,
             mono: true,
           } satisfies SidebarKeyValueRow,
@@ -128,13 +121,15 @@ export function UpdateCard({
 
   return (
     <>
-      <SidebarSection title="App Updates">
+      <SidebarSection title={t("app_updates")}>
         {updateError && !unavailable ? (
           <SidebarError>{updateError}</SidebarError>
         ) : null}
         <SidebarKeyValueRows rows={statusRows} />
         {unavailable ? (
-          <SidebarEmpty>Update checks unavailable for this build</SidebarEmpty>
+          <SidebarEmpty>
+            {t("update_checks_unavailable_for_this_build")}
+          </SidebarEmpty>
         ) : null}
         {updateConfiguration ? (
           <div className="card-actions">
@@ -146,7 +141,7 @@ export function UpdateCard({
               }
               onClick={onCheckForUpdate}
             >
-              {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
+              {isCheckingForUpdate ? t("checking") : t("check_for_updates")}
             </Button>
             <Button
               variant="primary"
@@ -154,17 +149,17 @@ export function UpdateCard({
               disabled={!hasUpdate || isCheckingForUpdate || isInstallingUpdate}
               onClick={onInstallUpdate}
             >
-              {isInstallingUpdate ? "Installing..." : "Install Update"}
+              {isInstallingUpdate ? t("installing") : t("install_update")}
             </Button>
           </div>
         ) : (
-          <SidebarEmpty>Loading updater configuration.</SidebarEmpty>
+          <SidebarEmpty>{t("loading_updater_configuration")}</SidebarEmpty>
         )}
       </SidebarSection>
 
       {configured && updateCheck?.update ? (
         <SidebarSection
-          title="Available update"
+          title={t("available_update")}
           count={updateCheck.update.version}
         >
           <SidebarKeyValueRows rows={updateRows} />
@@ -180,13 +175,13 @@ export function UpdateCard({
               }
               onClick={onInstallUpdate}
             >
-              {isInstallingUpdate ? "Installing..." : "Install Update"}
+              {isInstallingUpdate ? t("installing") : t("install_update")}
             </Button>
           </div>
         </SidebarSection>
       ) : configured && updateCheck ? (
-        <SidebarSection title="Available update">
-          <SidebarEmpty>No newer update available.</SidebarEmpty>
+        <SidebarSection title={t("available_update")}>
+          <SidebarEmpty>{t("no_newer_update_available")}</SidebarEmpty>
         </SidebarSection>
       ) : null}
     </>

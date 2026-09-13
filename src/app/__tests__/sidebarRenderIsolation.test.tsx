@@ -20,6 +20,7 @@ function makeSidebarOptions(): SidebarModelTestOptions {
     handleInstallUpdate: vi.fn(() => Promise.resolve()),
     handleLoadPayload: vi.fn(() => Promise.resolve()),
     handleOpenDefaultAppsSettings: vi.fn(() => Promise.resolve()),
+    handleChangeLanguage: vi.fn(async () => {}),
     handleToggleAutoCheckForUpdates: vi.fn(() => Promise.resolve()),
     handleToggleFileAssociations: vi.fn(() => Promise.resolve()),
     handleToggleOptionalLoaderPack: vi.fn(() => Promise.resolve()),

@@ -1,5 +1,8 @@
+import "./locales";
+import { LocalizedError } from "../../lib/localizedMessage";
 function missingMmdLoader(): never {
-  throw new Error(
+  throw new LocalizedError(
+    "mmd-loader-pack:unavailable",
     "MMD Loader Pack is not installed. Install @yohawing/three-mmd-loader to enable PMX, PMD, and VMD support.",
   );
 }

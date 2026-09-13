@@ -1,3 +1,5 @@
+import "./locales";
+import { t, useLocale } from "../../lib/i18n";
 import { useSyncExternalStore } from "react";
 import type { PackMetadata } from "../../types/format-pack";
 import {
@@ -20,6 +22,7 @@ export function IfcMetadataCard({
   selectedKey?: string | null;
   onSelect?: (key: string | null) => void;
 }) {
+  useLocale();
   if (metadata.kind !== "ifc") return null;
   return (
     <IfcInspector
@@ -40,6 +43,7 @@ function IfcInspector({
   selectedKey?: string | null;
   onSelect?: (key: string | null) => void;
 }) {
+  useLocale();
   const state = useSyncExternalStore(
     inspection.subscribe,
     inspection.getSnapshot,
@@ -47,11 +51,11 @@ function IfcInspector({
   if (view === "display")
     return (
       <div className="ifc-inspector">
-        <SidebarSection title="IFC Display">
+        <SidebarSection title={t("ifc-loader-pack:ifc_display")}>
           <SelectField
-            label="Color by"
+            label={t("ifc-loader-pack:color_by")}
             size="sm"
-            aria-label="IFC color mode"
+            aria-label={t("ifc-loader-pack:ifc_color_mode")}
             value={state.colorMode}
             onChange={(event) => {
               void inspection.setColorMode(
@@ -59,9 +63,9 @@ function IfcInspector({
               );
             }}
           >
-            <option value="original">Original</option>
-            <option value="category">Category</option>
-            <option value="element">Element</option>
+            <option value="original">{t("ifc-loader-pack:original")}</option>
+            <option value="category">{t("ifc-loader-pack:category")}</option>
+            <option value="element">{t("ifc-loader-pack:element")}</option>
           </SelectField>
         </SidebarSection>
       </div>
@@ -71,15 +75,25 @@ function IfcInspector({
   return (
     <div className="ifc-inspector">
       <SidebarKeyValueRows
-        rows={[{ id: "storey", label: "Storey", value: state.selected.storey }]}
+        rows={[
+          {
+            id: "storey",
+            label: t("ifc-loader-pack:storey"),
+            value: state.selected.storey,
+          },
+        ]}
       />
       {state.loading && (
-        <SidebarEmpty>Loading element information…</SidebarEmpty>
+        <SidebarEmpty>
+          {t("ifc-loader-pack:loading_element_information")}
+        </SidebarEmpty>
       )}
       {state.error && <SidebarError>{state.error}</SidebarError>}
       {state.limited && (
         <SidebarEmpty>
-          Some information was omitted because the detail limit was reached.
+          {t(
+            "ifc-loader-pack:some_information_was_omitted_because_the_detail_limit_was_reached",
+          )}
         </SidebarEmpty>
       )}
       {[
@@ -127,7 +141,9 @@ function IfcInspector({
                   {section.rows.length ? (
                     rows
                   ) : (
-                    <SidebarEmpty>No values provided.</SidebarEmpty>
+                    <SidebarEmpty>
+                      {t("ifc-loader-pack:no_values_provided")}
+                    </SidebarEmpty>
                   )}
                 </Disclosure>
               );

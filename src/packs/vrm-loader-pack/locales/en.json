@@ -1,0 +1,4 @@
+{
+  "load_failed": "Unable to load VRM preview: {{detail}}",
+  "unavailable": "VRM loader is not installed. Install the matching loader pack to preview this file."
+}

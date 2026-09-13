@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 /* eslint-disable react-refresh/only-export-components -- this file intentionally groups lazy sidebar components with the sidebar model hook. */
 import {
   Suspense,
@@ -68,9 +69,10 @@ const UpdateCard = lazy(() =>
 );
 
 function SidebarCardFallback() {
+  useLocale();
   return (
-    <SidebarSection title="Loading">
-      <SidebarEmpty>Loading panel…</SidebarEmpty>
+    <SidebarSection title={t("loading")}>
+      <SidebarEmpty>{t("loading_panel")}</SidebarEmpty>
     </SidebarSection>
   );
 }
@@ -81,6 +83,9 @@ type UseSidebarModelOptions = {
   handleLoadPayload: (primPath: string) => Promise<void>;
   handleOpenDefaultAppsSettings?: () => Promise<void>;
   handleRetryFileAssociations?: () => Promise<void>;
+  handleChangeLanguage: (
+    language: import("../lib/i18n").LanguagePreference,
+  ) => Promise<void>;
   handleToggleAutoCheckForUpdates: () => Promise<void>;
   handleToggleFileAssociations?: () => Promise<void>;
   handleToggleOptionalLoaderPack: (packId: string) => Promise<void>;
@@ -121,6 +126,7 @@ export function useSidebarModel({
   handleLoadPayload,
   handleOpenDefaultAppsSettings,
   handleRetryFileAssociations,
+  handleChangeLanguage,
   handleToggleAutoCheckForUpdates,
   handleToggleFileAssociations,
   handleToggleOptionalLoaderPack,
@@ -151,6 +157,7 @@ export function useSidebarModel({
   usdInspectorLoading,
   usdIssues,
 }: UseSidebarModelOptions) {
+  const locale = useLocale();
   const currentFile = useFileStore((state) => state.currentFile);
   const assetMetadata = useFileStore((state) => state.assetMetadata);
   const packMetadata = useFileStore((state) => state.packMetadata);
@@ -186,7 +193,7 @@ export function useSidebarModel({
       usdIssues,
       viewerFeedback,
     });
-  }, [assetMetadata, usdCapabilities, usdIssues, viewerFeedback]);
+  }, [locale, assetMetadata, usdCapabilities, usdIssues, viewerFeedback]);
   const sidebarWarnings = useDebugFixtures
     ? debugFixtures.debugPanelWarnings
     : warnings;
@@ -327,6 +334,7 @@ export function useSidebarModel({
             <>
               <Suspense fallback={<SidebarCardFallback />}>
                 <SettingsCard
+                  onChangeLanguage={handleChangeLanguage}
                   settingsPayload={settingsPayload}
                   settingsError={settingsError}
                   fileAssociationError={fileAssociationError}
@@ -380,6 +388,7 @@ export function useSidebarModel({
       handleLoadPayload,
       handleOpenDefaultAppsSettings,
       handleRetryFileAssociations,
+      handleChangeLanguage,
       handleToggleAutoCheckForUpdates,
       handleToggleFileAssociations,
       handleToggleOptionalLoaderPack,
@@ -434,7 +443,7 @@ export function useSidebarModel({
           return {
             ...tab,
             badge: {
-              label: "Active diagnostics",
+              label: t("active_diagnostics"),
               tone:
                 diagnosticCounts.errorCount > 0
                   ? ("danger" as const)
@@ -447,7 +456,9 @@ export function useSidebarModel({
           return {
             ...tab,
             badge: {
-              label: `Update available: ${updateCheck.update.version}`,
+              label: t("update.versionAvailable", {
+                version: updateCheck.update.version,
+              }),
               tone: "warning" as const,
             },
           };
@@ -455,7 +466,12 @@ export function useSidebarModel({
 
         return tab;
       }),
-    [diagnosticCounts.errorCount, diagnosticCounts.total, updateCheck?.update],
+    [
+      locale,
+      diagnosticCounts.errorCount,
+      diagnosticCounts.total,
+      updateCheck?.update,
+    ],
   );
 
   const handleSidebarResizeStart = (event: PointerEvent<HTMLDivElement>) => {
