@@ -22,17 +22,12 @@ import {
   type SidebarKeyValueRow,
 } from "../lib/sidebarPrimitives";
 
-const loadPolicyOptions = [
-  { value: "loadAll", label: "Loaded" },
-  { value: "noPayloads", label: "Deferred" },
-] as const;
-
 /** Pretty-print a numeric metadatum, falling back to "(default)" when
  * the stage didn't author the field. The fallback wording is shared
  * across timeCodesPerSecond / framesPerSecond / start/endTimeCode so
  * the metadata table reads consistently. */
 function formatAuthoredNumber(value: number | null): string {
-  return value === null ? "(default)" : String(value);
+  return value === null ? t("usd_default_value") : String(value);
 }
 
 /** Render one row in the layer stack list. Handles depth indentation,
@@ -61,9 +56,11 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
         )}
         {hasOffset && (
           <span className="usd-inspector-note">
-            {layer.timeOffset !== 0 && `offset:${layer.timeOffset}`}
+            {layer.timeOffset !== 0 &&
+              t("usd_layer_offset", { value: layer.timeOffset })}
             {layer.timeOffset !== 0 && layer.timeScale !== 1 && " "}
-            {layer.timeScale !== 1 && `scale:${layer.timeScale}`}
+            {layer.timeScale !== 1 &&
+              t("usd_layer_scale", { value: layer.timeScale })}
           </span>
         )}
       </div>
@@ -103,13 +100,13 @@ function shortLayerLabel(identifier: string): string {
  * only when the extension is missing or non-standard. */
 function rootLayerFormatLabel(path: string, isBinary: boolean): string {
   const lower = path.toLowerCase();
-  if (lower.endsWith(".usdz")) return "USDZ (package)";
-  if (lower.endsWith(".usdc")) return "USDC (binary)";
-  if (lower.endsWith(".usda")) return "USDA (text)";
+  if (lower.endsWith(".usdz")) return t("usd_format_package");
+  if (lower.endsWith(".usdc")) return t("usd_format_usdc");
+  if (lower.endsWith(".usda")) return t("usd_format_usda");
   if (lower.endsWith(".usd")) {
-    return isBinary ? "USDC (binary)" : "USDA (text)";
+    return isBinary ? t("usd_format_usdc") : t("usd_format_usda");
   }
-  return isBinary ? "binary" : "text";
+  return isBinary ? t("usd_format_binary") : t("usd_format_text");
 }
 
 function asRows(
@@ -118,15 +115,27 @@ function asRows(
   return entries.filter(Boolean) as SidebarKeyValueRow[];
 }
 
-const capabilityLabels: Record<StageCapabilityKind, string> = {
-  pointInstancer: "Point Instancer",
-  materialX: "MaterialX",
-  skel: "UsdSkel",
-  animationRange: "Animation Range",
-  payload: "Payload",
-  variantOverride: "Variant Override",
-  usdAuthoredSplat: "USD-authored Splat",
+const capabilityLabelKeys: Record<StageCapabilityKind, string> = {
+  pointInstancer: "usd_capability_point_instancer",
+  materialX: "usd_capability_materialx",
+  skel: "usd_capability_skel",
+  animationRange: "usd_capability_animation_range",
+  payload: "usd_capability_payload",
+  variantOverride: "usd_capability_variant_override",
+  usdAuthoredSplat: "usd_capability_authored_splat",
 };
+
+const capabilitySupportKeys: Record<StageCapabilitySupport, string> = {
+  supported: "usd_support_supported",
+  degraded: "usd_support_degraded",
+  unsupported: "usd_support_unsupported",
+};
+
+function resolvedCountLabel(resolved: number, unresolved: number): string {
+  return unresolved > 0
+    ? t("usd_resolved_and_unresolved", { resolved, unresolved })
+    : t("usd_resolved_count", { resolved });
+}
 
 const capabilityBadgeVariants: Record<
   StageCapabilitySupport,
@@ -177,13 +186,13 @@ function StageCapabilities({
                 .join(" ")}
             >
               <div className="yl-list-row__main">
-                <strong>{capabilityLabels[capability.kind]}</strong>
+                <strong>{t(capabilityLabelKeys[capability.kind])}</strong>
                 <Badge
                   className="usd-inspector-badge"
                   variant={capabilityBadgeVariants[capability.support]}
                   size="sm"
                 >
-                  {capability.support}
+                  {t(capabilitySupportKeys[capability.support])}
                 </Badge>
               </div>
               {reasonVisible && (
@@ -241,6 +250,10 @@ export function UsdInspectorCard({
   variantSelectionError,
 }: UsdInspectorCardProps) {
   useLocale();
+  const loadPolicyOptions = [
+    { value: "loadAll", label: t("usd_policy_loaded") },
+    { value: "noPayloads", label: t("usd_policy_deferred") },
+  ] as const;
   const showControl = loadPolicy !== null;
   const effectiveCapabilities =
     summary?.capabilities ?? inspection?.capabilities ?? [];
@@ -308,7 +321,10 @@ export function UsdInspectorCard({
                 label: t("payloads"),
                 value:
                   summary.unloadedPayloadCount > 0
-                    ? `${summary.payloadCount} (${summary.unloadedPayloadCount} deferred)`
+                    ? t("usd_payloads_deferred", {
+                        total: summary.payloadCount,
+                        deferred: summary.unloadedPayloadCount,
+                      })
                     : summary.payloadCount,
                 mono: true,
                 tone: summary.unloadedPayloadCount > 0 ? "warn" : "default",
@@ -318,10 +334,15 @@ export function UsdInspectorCard({
                 label: t("variants"),
                 value:
                   summary.variantSetCount > 0
-                    ? `${summary.hasVariants ? "yes" : "no"} (${summary.variantSetCount} sets)`
+                    ? t("usd_variant_sets_count", {
+                        presence: summary.hasVariants
+                          ? t("usd_yes")
+                          : t("usd_no"),
+                        count: summary.variantSetCount,
+                      })
                     : summary.hasVariants
-                      ? "yes"
-                      : "no",
+                      ? t("usd_yes")
+                      : t("usd_no"),
                 tone: summary.hasVariants ? "default" : "muted",
               },
               summary.durationSeconds !== null && {
@@ -334,11 +355,10 @@ export function UsdInspectorCard({
                 summary.unresolvedReferenceCount > 0) && {
                 id: "references",
                 label: t("references"),
-                value: `${summary.resolvedReferenceCount} resolved${
-                  summary.unresolvedReferenceCount > 0
-                    ? ` / ${summary.unresolvedReferenceCount} unresolved`
-                    : ""
-                }`,
+                value: resolvedCountLabel(
+                  summary.resolvedReferenceCount,
+                  summary.unresolvedReferenceCount,
+                ),
                 tone:
                   summary.unresolvedReferenceCount > 0 ? "danger" : "default",
               },
@@ -346,11 +366,10 @@ export function UsdInspectorCard({
                 summary.unresolvedPayloadCount > 0) && {
                 id: "resolved-payloads",
                 label: t("payloads_resolved"),
-                value: `${summary.resolvedPayloadCount} resolved${
-                  summary.unresolvedPayloadCount > 0
-                    ? ` / ${summary.unresolvedPayloadCount} unresolved`
-                    : ""
-                }`,
+                value: resolvedCountLabel(
+                  summary.resolvedPayloadCount,
+                  summary.unresolvedPayloadCount,
+                ),
                 tone: summary.unresolvedPayloadCount > 0 ? "danger" : "default",
               },
             ])}
@@ -389,13 +408,13 @@ export function UsdInspectorCard({
                     {
                       id: "defaultPrim",
                       label: t("defaultprim"),
-                      value: inspection.defaultPrim ?? "(unset)",
+                      value: inspection.defaultPrim ?? t("usd_unset_value"),
                       tone: inspection.defaultPrim ? "default" : "muted",
                     },
                     {
                       id: "upAxis",
                       label: t("upaxis"),
-                      value: inspection.upAxis ?? "(default)",
+                      value: inspection.upAxis ?? t("usd_default_value"),
                       tone: inspection.upAxis ? "default" : "muted",
                     },
                     {
@@ -404,7 +423,7 @@ export function UsdInspectorCard({
                       value:
                         inspection.metersPerUnit !== null
                           ? inspection.metersPerUnit
-                          : "(default)",
+                          : t("usd_default_value"),
                       mono: true,
                     },
                     {

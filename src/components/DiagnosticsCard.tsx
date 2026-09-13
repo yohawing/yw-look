@@ -130,7 +130,7 @@ function OperationalDiagnosticsSection() {
             ? t("copied")
             : copyState === "failed"
               ? t("copy.failure")
-              : "Copy Diagnostics"}
+              : t("copy_diagnostics")}
         </Button>
         <Button
           onClick={() => window.open(ISSUE_REPORT_URL, "_blank", "noopener")}

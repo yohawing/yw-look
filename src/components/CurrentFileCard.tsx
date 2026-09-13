@@ -143,7 +143,9 @@ export function CurrentFileCard({
     {
       id: "animations",
       label: t("animation"),
-      value: metadata?.hasAnimation ? "Present" : "None",
+      value: metadata?.hasAnimation
+        ? t("metadata.present")
+        : t("metadata.none"),
       tone: metadata?.hasAnimation ? "ok" : "muted",
     },
     ...(animationClipCount > 0
@@ -186,9 +188,15 @@ export function CurrentFileCard({
       label: t("usd_payloads"),
       value:
         payloadSummary.unloadedPayloadCount > 0
-          ? `${payloadSummary.payloadCount} (${payloadSummary.unloadedPayloadCount} deferred)`
+          ? t("metadata.payloadDeferred", {
+              count: payloadSummary.payloadCount,
+              deferred: payloadSummary.unloadedPayloadCount,
+            })
           : payloadSummary.unresolvedPayloadCount > 0
-            ? `${payloadSummary.payloadCount} (${payloadSummary.unresolvedPayloadCount} missing)`
+            ? t("metadata.payloadMissing", {
+                count: payloadSummary.payloadCount,
+                missing: payloadSummary.unresolvedPayloadCount,
+              })
             : payloadSummary.payloadCount,
       mono: true,
       tone:

@@ -1,3 +1,6 @@
+import { t, useLocale } from "../lib/i18n";
+import { formatShortcut, menuShortcuts } from "../lib/menu";
+import { getViewerShortcutHelpLines } from "../lib/viewerShortcuts";
 import type { CSSProperties, PointerEvent, ReactNode } from "react";
 import { AppStatusBar } from "../components/AppStatusBar";
 import { SidebarTabs } from "../components/SidebarTabs";
@@ -38,7 +41,21 @@ export function AppShell({
   statusRightItems,
   viewport,
 }: AppShellProps) {
-  const dialogLines = dialogState?.lines.join("\n") ?? "";
+  useLocale();
+  const dialog =
+    dialogState?.kind === "shortcuts"
+      ? {
+          title: t("shortcuts.title"),
+          lines: [
+            ...getViewerShortcutHelpLines(),
+            ...Object.entries(menuShortcuts).map(
+              ([actionId, definition]) =>
+                `${formatShortcut(definition)}  ${t(`shortcuts.menu.${actionId}`)}`,
+            ),
+          ],
+        }
+      : dialogState;
+  const dialogLines = dialog?.lines.join("\n") ?? "";
 
   return (
     <main className="app-shell">
@@ -78,8 +95,8 @@ export function AppShell({
           }
         }}
       >
-        {dialogState ? (
-          <DialogContent title={dialogState.title}>
+        {dialog ? (
+          <DialogContent title={dialog.title}>
             <pre className="yl-dialog__body">{dialogLines}</pre>
           </DialogContent>
         ) : null}

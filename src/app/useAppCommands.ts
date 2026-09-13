@@ -3,10 +3,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { deriveDisplayMode } from "./displayMode";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { errorMessage } from "../lib/errors";
-import { formatShortcut, menuShortcuts, type MenuActionId } from "../lib/menu";
+import type { MenuActionId } from "../lib/menu";
 import {
   applyViewerShortcutAction,
-  viewerShortcutHelpLines,
   type ViewerShortcutAction,
 } from "../lib/viewerShortcuts";
 import {
@@ -57,17 +56,6 @@ export function useAppCommands({
     [showTexture, showWireframe],
   );
 
-  const shortcutLines = useMemo(
-    () => [
-      ...viewerShortcutHelpLines,
-      ...Object.entries(menuShortcuts).map(([actionId, definition]) => {
-        const actionLabel = actionId.split(".").join(" > ");
-        return `${formatShortcut(definition)}  ${actionLabel}`;
-      }),
-    ],
-    [],
-  );
-
   const handleToggleFullscreen = useCallback(async () => {
     if (isTauri) {
       try {
@@ -92,11 +80,8 @@ export function useAppCommands({
   }, [isTauri]);
 
   const handleShowShortcuts = useCallback(() => {
-    setDialogState({
-      title: "Keyboard Shortcuts",
-      lines: shortcutLines,
-    });
-  }, [setDialogState, shortcutLines]);
+    setDialogState({ kind: "shortcuts" });
+  }, [setDialogState]);
 
   const executeMenuAction = useCallback(
     async (actionId: MenuActionId) => {

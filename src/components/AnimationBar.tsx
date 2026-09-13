@@ -63,7 +63,7 @@ export function AnimationBar({
     >
       <PlaybackTimeline
         activeClipIndex={activeClipIndex}
-        clipName={clipNames[activeClipIndex] ?? "Animation"}
+        clipName={clipNames[activeClipIndex] ?? t("animation_unnamed_clip")}
         clipSelector={clipSelector}
         currentTime={currentTime}
         duration={duration}
