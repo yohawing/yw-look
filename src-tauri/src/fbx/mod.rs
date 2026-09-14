@@ -100,7 +100,8 @@ fn vertex_vec4(v: &ufbx::VertexVec4, index: usize) -> Result<ufbx::Vec4, AppErro
 }
 
 fn gltf_uv(uv: ufbx::Vec2) -> Result<[f32; 2], AppError> {
-    Ok([f32v(uv.x)?, f32v(uv.y)?])
+    // FBX uses a bottom-left UV origin; glTF uses the upper-left image pixel.
+    Ok([f32v(uv.x)?, f32v(1.0 - uv.y)?])
 }
 
 fn transform_json(t: ufbx::Transform) -> Result<Value, AppError> {
@@ -270,28 +271,39 @@ fn khr_texture_transform_from_matrix(matrix: ufbx::Matrix) -> Result<Option<Valu
         return Ok(None);
     }
 
-    let sx = (matrix.m00 * matrix.m00 + matrix.m10 * matrix.m10).sqrt();
-    let sy_abs = (matrix.m01 * matrix.m01 + matrix.m11 * matrix.m11).sqrt();
+    // Both the mesh UV and the texture-space coordinate change from a
+    // bottom-left to an upper-left origin: T_gltf = F * T_fbx * F, where
+    // F(u, v) = (u, 1 - v). A UV-only flip would break authored offsets and
+    // rotations even when the untransformed texture looks correct.
+    let m00 = matrix.m00;
+    let m01 = -matrix.m01;
+    let m10 = -matrix.m10;
+    let m11 = matrix.m11;
+    let tx = matrix.m03 + matrix.m01;
+    let ty = 1.0 - matrix.m11 - matrix.m13;
+
+    let sx = (m00 * m00 + m10 * m10).sqrt();
+    let sy_abs = (m01 * m01 + m11 * m11).sqrt();
     if sx <= epsilon || sy_abs <= epsilon {
         return Ok(None);
     }
-    let dot = matrix.m00 * matrix.m01 + matrix.m10 * matrix.m11;
+    let dot = m00 * m01 + m10 * m11;
     let scale = sx.max(sy_abs);
     if dot.abs() > epsilon * scale * scale {
         return Ok(None);
     }
-    let determinant = matrix.m00 * matrix.m11 - matrix.m01 * matrix.m10;
+    let determinant = m00 * m11 - m01 * m10;
     let sy = if determinant < 0.0 { -sy_abs } else { sy_abs };
-    let rotation = matrix.m10.atan2(matrix.m00);
+    let rotation = m10.atan2(m00);
     let sin = rotation.sin();
     let cos = rotation.cos();
     let tolerance = epsilon * scale.max(1.0);
-    if (matrix.m01 - (-sin * sy)).abs() > tolerance || (matrix.m11 - (cos * sy)).abs() > tolerance {
+    if (m01 - (-sin * sy)).abs() > tolerance || (m11 - (cos * sy)).abs() > tolerance {
         return Ok(None);
     }
 
     Ok(Some(json!({
-        "offset": [f32v(matrix.m03)?, f32v(matrix.m13)?],
+        "offset": [f32v(tx)?, f32v(ty)?],
         "scale": [f32v(sx)?, f32v(sy)?],
         "rotation": f32v(rotation)?,
     })))
@@ -881,9 +893,9 @@ fn primitive_data(
             };
             let pf = [f32v(p.x)?, f32v(p.y)?, f32v(p.z)?];
             let nf = [f32v(n.x)?, f32v(n.y)?, f32v(n.z)?];
-            // ufbx exposes FBX UVs in the source convention expected by the
-            // decoded image. GLB textures are emitted with flipY=false, so an
-            // additional V inversion here would turn the material upside down.
+            // ufbx exposes the authored bottom-left FBX UVs. GLB images use
+            // the upper-left origin (flipY=false in GLTFLoader), so convert
+            // every exported UV set to glTF's image-space convention.
             let uvf = uv_values
                 .iter()
                 .map(|uv| gltf_uv(*uv))
@@ -1800,11 +1812,13 @@ mod tests {
     }
 
     #[test]
-    fn native_fbx_uv_is_not_inverted_twice() {
+    fn native_fbx_uv_uses_gltf_top_left_origin() {
         assert_eq!(
             gltf_uv(ufbx::Vec2 { x: 0.25, y: 0.75 }).unwrap(),
-            [0.25, 0.75]
+            [0.25, 0.25]
         );
+        assert_eq!(gltf_uv(ufbx::Vec2 { x: 0.0, y: 0.0 }).unwrap(), [0.0, 1.0]);
+        assert_eq!(gltf_uv(ufbx::Vec2 { x: 1.0, y: 1.0 }).unwrap(), [1.0, 0.0]);
     }
 
     #[test]
@@ -1826,9 +1840,47 @@ mod tests {
         let transform = khr_texture_transform_from_matrix(matrix)
             .unwrap()
             .expect("2D UV-to-texture matrix is representable");
-        assert_eq!(transform["offset"], json!([0.25, -0.5]));
+        assert_eq!(transform["offset"], json!([0.25, -1.5]));
         assert_eq!(transform["scale"], json!([2.0, 3.0]));
         assert_eq!(transform["rotation"], json!(0.0));
+    }
+
+    #[test]
+    fn khr_texture_transform_preserves_rotated_fbx_sampling_after_uv_flip() {
+        let matrix = ufbx::Matrix {
+            m00: 0.0,
+            m10: 2.0,
+            m20: 0.0,
+            m01: -3.0,
+            m11: 0.0,
+            m21: 0.0,
+            m02: 0.0,
+            m12: 0.0,
+            m22: 1.0,
+            m03: 0.25,
+            m13: 0.4,
+            m23: 0.0,
+        };
+        let transform = khr_texture_transform_from_matrix(matrix)
+            .unwrap()
+            .expect("rotated UV-to-texture matrix is representable");
+        let source_uv = ufbx::Vec2 { x: 0.2, y: 0.7 };
+        let gltf_input = gltf_uv(source_uv).unwrap();
+        let gltf_output = [
+            matrix.m00 * source_uv.x + matrix.m01 * source_uv.y + matrix.m03,
+            1.0 - (matrix.m10 * source_uv.x + matrix.m11 * source_uv.y + matrix.m13),
+        ];
+        let offset = transform["offset"].as_array().unwrap();
+        let scale = transform["scale"].as_array().unwrap();
+        let angle = transform["rotation"].as_f64().unwrap();
+        let su = scale[0].as_f64().unwrap() * f64::from(gltf_input[0]);
+        let sv = scale[1].as_f64().unwrap() * f64::from(gltf_input[1]);
+        let sampled = [
+            angle.cos() * su - angle.sin() * sv + offset[0].as_f64().unwrap(),
+            angle.sin() * su + angle.cos() * sv + offset[1].as_f64().unwrap(),
+        ];
+        assert!((sampled[0] - gltf_output[0]).abs() < 1e-6);
+        assert!((sampled[1] - gltf_output[1]).abs() < 1e-6);
     }
 
     #[test]

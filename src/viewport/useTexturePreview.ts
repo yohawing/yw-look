@@ -97,7 +97,7 @@ export function useTexturePreview({
       textureWhitePoint,
       textureTileCount,
       textureGamma,
-      shouldFlipTexturePreviewY(selectedTexture, currentFile),
+      shouldFlipTexturePreviewY(selectedTexture),
     );
     context.sourceObject.visible = false;
     context.previewObject = previewObject;
