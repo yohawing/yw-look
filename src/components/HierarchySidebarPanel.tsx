@@ -5,6 +5,7 @@ import { isUsdFile } from "../lib/files";
 import type { StageSessionHandle, StageInspection } from "../lib/usd";
 import { useFileStore } from "../stores/fileStore";
 import { useViewerStore } from "../stores/viewerStore";
+import { useUiStore } from "../stores/uiStore";
 import type { HierarchyNode, ObjectInfo } from "./assetMetadata";
 import { HierarchyCard } from "./HierarchyCard";
 import { UsdSelectedSources } from "./UsdSelectedSources";
@@ -98,6 +99,12 @@ export function HierarchySidebarPanel({
     useViewerStore.getState().setSelectedUsdPrimPath(primPath);
   }, []);
 
+  const handleSelectMaterial = useCallback((materialId: string) => {
+    useViewerStore.getState().requestMaterialNavigation(materialId);
+    useUiStore.getState().setActiveTab("materials");
+    useUiStore.getState().setSidebarOpen(true);
+  }, []);
+
   return (
     <>
       <HierarchyCard
@@ -112,6 +119,9 @@ export function HierarchySidebarPanel({
         }}
         onSelectPrimPath={
           isUsdFile(currentFile) ? handleSelectPrimPath : undefined
+        }
+        onSelectMaterial={
+          isUsdFile(currentFile) ? handleSelectMaterial : undefined
         }
         payloadPrimPaths={payloadSessionEnabled ? payloadPrimPaths : undefined}
         unloadedPayloadPaths={

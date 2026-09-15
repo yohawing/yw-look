@@ -269,6 +269,33 @@
   white-space: normal;
 }
 
+.selected-material-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px 6px;
+}
+
+.selected-material-link {
+  border: 0;
+  padding: 0;
+  color: var(--yl-accent);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  overflow-wrap: anywhere;
+  text-align: right;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.selected-material-link:hover,
+.selected-material-link:focus-visible {
+  color: var(--yl-text-primary);
+  text-decoration-color: currentColor;
+}
+
 .selected-morph-section {
   margin-top: 6px;
   border-top: 1px solid var(--yl-border-subtle);

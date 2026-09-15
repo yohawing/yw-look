@@ -488,6 +488,28 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(onMorphTargetChange).toHaveBeenCalledWith("/World/Face", 0, 0.75);
   });
 
+  it("opens a material only from the explicit selected-material link", () => {
+    const onSelectMaterial = vi.fn();
+    const materialInfo: ObjectInfo = {
+      ...faceInfo,
+      materialNames: ["Hair"],
+      materialIds: ["/World/Looks/Hair"],
+    };
+    const { getByRole } = render(
+      <HierarchyCard
+        hierarchy={[{ name: "Face", kind: "mesh", children: [] }]}
+        objectInfo={{ Face: materialInfo }}
+        onSelectMaterial={onSelectMaterial}
+        selectedName="Face"
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Hair" }));
+
+    expect(onSelectMaterial).toHaveBeenCalledOnce();
+    expect(onSelectMaterial).toHaveBeenCalledWith("/World/Looks/Hair");
+  });
+
   it("renders MMD bone parameters for the selected bone", () => {
     const boneTree: HierarchyNode[] = [
       { name: "Arm_EN", kind: "bone", children: [] },

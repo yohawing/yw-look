@@ -41,6 +41,8 @@ type HierarchyCardProps = {
    * the hierarchy selection to the `UsdPrimPropertyPanel`. `null` is
    * passed when the active row is clicked a second time (deselect). */
   onSelectPrimPath?: (primPath: string | null) => void;
+  /** Opens a material explicitly from the selected object's material row. */
+  onSelectMaterial?: (materialId: string) => void;
   // ---- #44 per-prim payload session controls --------------------------------
   /**
    * Set of SdfPaths that author a payload arc on this stage (load state
@@ -167,6 +169,7 @@ function HierarchyCardContent({
   selectedName,
   onSelectName,
   onSelectPrimPath,
+  onSelectMaterial,
   payloadPrimPaths,
   unloadedPayloadPaths,
   onLoadPayload,
@@ -289,12 +292,31 @@ function HierarchyCardContent({
           id: "materials",
           label: t("materials"),
           value:
-            selectedInfo.materialNames.length > 0
-              ? selectedInfo.materialNames.join(", ")
-              : selectedInfo.materialIds.length > 0
-                ? selectedInfo.materialIds.join(", ")
-                : "(none)",
-          mono: true,
+            onSelectMaterial && selectedInfo.materialIds.length > 0 ? (
+              <span className="selected-material-links">
+                {selectedInfo.materialIds.map((materialId, index) => {
+                  const label = selectedInfo.materialNames[index] ?? materialId;
+                  return (
+                    <button
+                      className="selected-material-link"
+                      key={materialId}
+                      onClick={() => onSelectMaterial(materialId)}
+                      title={materialId}
+                      type="button"
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </span>
+            ) : selectedInfo.materialNames.length > 0 ? (
+              selectedInfo.materialNames.join(", ")
+            ) : selectedInfo.materialIds.length > 0 ? (
+              selectedInfo.materialIds.join(", ")
+            ) : (
+              "(none)"
+            ),
+          mono: !onSelectMaterial,
         },
       ]
     : [];

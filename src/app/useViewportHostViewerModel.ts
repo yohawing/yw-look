@@ -1,25 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
 import { useViewerStore, type ViewerState } from "../stores/viewerStore";
-import { isUsdFile, type SelectedFile } from "../lib/files";
-import type { AssetMetadata } from "../types/viewer";
-
-export function resolveViewportMaterialNavigation(
-  currentFile: SelectedFile | null,
-  assetMetadata: AssetMetadata | null,
-  selectionKey: string | null,
-): string | null {
-  if (!selectionKey || !isUsdFile(currentFile)) return null;
-
-  const materialIds = assetMetadata?.objectInfo[selectionKey]?.materialIds;
-  if (materialIds?.length !== 1) return null;
-
-  const material = assetMetadata?.materials.find(
-    (candidate) => candidate.id === materialIds[0],
-  );
-  return material?.usdPrimPath !== null && material?.usdPrimPath !== undefined
-    ? material.id
-    : null;
-}
 
 type ViewportHostViewerState = Pick<
   ViewerState,
@@ -70,7 +50,6 @@ type ViewportHostViewerActions = Pick<
   | "setActiveCameraId"
   | "setGridUnitLabel"
   | "setResourceDiagnostics"
-  | "requestMaterialNavigation"
   | "setScaleNormalization"
   | "setSelectedMeshName"
   | "setViewerFeedback"
@@ -86,8 +65,6 @@ const viewportHostViewerActions = {
     useViewerStore.getState().setGridUnitLabel(value),
   setResourceDiagnostics: (value) =>
     useViewerStore.getState().setResourceDiagnostics(value),
-  requestMaterialNavigation: (materialId) =>
-    useViewerStore.getState().requestMaterialNavigation(materialId),
   setScaleNormalization: (value) =>
     useViewerStore.getState().setScaleNormalization(value),
   setSelectedMeshName: (value) =>
