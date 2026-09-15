@@ -207,6 +207,15 @@ pub fn run() {
                 ))
             })?;
 
+            // Use the running package version and Rust build kind, including when
+            // a release build is configured to use a local update feed.
+            #[cfg(debug_assertions)]
+            window.set_title(&format!(
+                "{} — Development v{}",
+                window.title()?,
+                app.package_info().version
+            ))?;
+
             let keep_window_visible = bench_cli_config
                 .as_ref()
                 .is_some_and(|config| config.visible)
