@@ -609,6 +609,36 @@ fn collect_uv_indices(scene: &ufbx::Scene) -> (HashMap<String, u32>, Vec<String>
     }))
 }
 
+// Blender can author only a TransparencyFactor texture connection, without a
+// scalar property. ufbx 0.11 then leaves pbr.opacity empty. When it uses the
+// same image and sampler as base color, glTF can use that image's alpha directly.
+fn blender_base_color_alpha(
+    material: &ufbx::Material,
+    creator: &str,
+    uv_indices: &HashMap<String, u32>,
+) -> Result<bool, AppError> {
+    if !creator.starts_with("Blender (stable FBX IO)")
+        || !matches!(
+            material.shader_type,
+            ufbx::ShaderType::FbxPhong | ufbx::ShaderType::BlenderPhong
+        )
+    {
+        return Ok(false);
+    }
+    let (Some(base), Some(alpha)) = (
+        material.pbr.base_color.texture.as_deref(),
+        material.fbx.transparency_factor.texture.as_deref(),
+    ) else {
+        return Ok(false);
+    };
+    Ok(base.has_file
+        && alpha.has_file
+        && base.file_index == alpha.file_index
+        && base.wrap_u == alpha.wrap_u
+        && base.wrap_v == alpha.wrap_v
+        && texture_uv_metadata(base, uv_indices)? == texture_uv_metadata(alpha, uv_indices)?)
+}
+
 fn add_materials(
     doc: &mut GlbDocument,
     scene: &ufbx::Scene,
@@ -679,11 +709,18 @@ fn add_materials(
                 &uv_indices,
             )?);
         }
-        let opacity_texture = material.pbr.opacity.texture.as_deref();
+        let base_color_alpha =
+            blender_base_color_alpha(material, &scene.metadata.creator, uv_indices)?;
+        let opacity_texture = material
+            .pbr
+            .opacity
+            .texture
+            .as_deref()
+            .filter(|_| !base_color_alpha);
         // ufbx's unified PBR contract does not expose an authored cutout
         // mode. Keep opacity textures in the safe continuous-alpha path;
         // MASK is reserved for a future explicit source-format signal.
-        let opacity_mode = opacity_texture.map(|_| "BLEND");
+        let opacity_mode = (base_color_alpha || opacity_texture.is_some()).then_some("BLEND");
         if let Some(texture) = opacity_texture {
             let index = texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?;
             // glTF has no separate alphaMap slot. Referencing the opacity image
@@ -716,7 +753,7 @@ fn add_materials(
             "alphaMode": alpha_mode,
             "extras": material_extras
         });
-        if let Some(texture) = material.pbr.opacity.texture.as_deref() {
+        if let Some(texture) = opacity_texture {
             value["occlusionTexture"] = texture_info(
                 texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?,
                 texture,
@@ -1712,6 +1749,73 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
 mod tests {
     use super::*;
     use crate::preview::glb::FLOAT;
+
+    #[test]
+    fn blender_texture_only_alpha_uses_base_color_alpha() {
+        let source = r#"
+; FBX 7.4.0 project file
+FBXHeaderExtension: {
+    FBXHeaderVersion: 1003
+    FBXVersion: 7400
+    Creator: "Blender (stable FBX IO) - 4.0.0 - 5.0.0"
+}
+Objects: {
+    Material: 1, "Material::Highlight", "" {
+        ShadingModel: "Phong"
+        Properties70: {
+            P: "DiffuseColor", "Color", "", "A", 1, 1, 1
+        }
+    }
+    Texture: 2, "Texture::Base", "" {
+        Type: "TextureVideoClip"
+        FileName: "eye.png"
+        RelativeFilename: "eye.png"
+    }
+    Texture: 3, "Texture::Alpha", "" {
+        Type: "TextureVideoClip"
+        FileName: "eye.png"
+        RelativeFilename: "eye.png"
+    }
+}
+Connections: {
+    C: "OP", 2, 1, "DiffuseColor"
+    C: "OP", 3, 1, "TransparencyFactor"
+}
+"#;
+        for (source, expected) in [
+            (source.to_owned(), "BLEND"),
+            (
+                source.replace("Blender (stable FBX IO)", "Other exporter"),
+                "OPAQUE",
+            ),
+            (source.replacen("eye.png", "other.png", 2), "OPAQUE"),
+            (
+                source.replace("C: \"OP\", 3, 1, \"TransparencyFactor\"", ""),
+                "OPAQUE",
+            ),
+        ] {
+            let scene = ufbx::load_memory(source.as_bytes(), Default::default()).unwrap();
+            let mut doc = GlbDocument::default();
+            add_materials(
+                &mut doc,
+                &scene,
+                &AtomicBool::new(false),
+                &HashMap::new(),
+                &HashSet::new(),
+                &HashSet::new(),
+            )
+            .unwrap();
+            assert_eq!(doc.materials[0]["alphaMode"], expected);
+            assert_eq!(
+                doc.materials[0]["pbrMetallicRoughness"]["baseColorFactor"][3],
+                1.0
+            );
+            assert!(
+                doc.materials[0].get("occlusionTexture").is_none(),
+                "must not multiply alpha by image RGB"
+            );
+        }
+    }
 
     #[test]
     fn deferred_texture_placeholder_decodes_as_opaque_white() {
