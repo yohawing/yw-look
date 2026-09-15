@@ -241,6 +241,7 @@ self.addEventListener(
           const scene = toStaticScenePayload(
             object,
             request.payload.kind === "obj" ||
+              request.payload.kind === "fbxGlb" ||
               request.payload.kind === "dae" ||
               request.payload.kind === "3mf",
             { requireSerializableTextures },

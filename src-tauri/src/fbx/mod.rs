@@ -1492,6 +1492,7 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
         value["extras"] = json!({
             "visible": node.visible,
             "fbxBone": node.bone.is_some(),
+            "fbxMesh": node.mesh.is_some(),
         });
         if let Some(camera) = node.camera.as_deref() {
             let camera_index = doc.cameras.len();

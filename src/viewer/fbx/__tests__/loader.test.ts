@@ -14,6 +14,8 @@ import {
   Texture,
 } from "three";
 import type { SelectedFile } from "../../../lib/files";
+import { collectAssetMetadata } from "../../metadata";
+import { resolveObjectSelectionKey } from "../../selectionKeys";
 import {
   createStaticSceneObject,
   toStaticScenePayload,
@@ -226,6 +228,58 @@ describe("FBX missing texture fallback", () => {
     expect((motionBone as Group & { isBone?: boolean }).isBone).toBe(true);
     expect(motionBone.type).toBe("Bone");
   });
+
+  it.each([false, true])(
+    "keeps material parts under their authored mesh after worker restore=%s",
+    (restore) => {
+      let root = new Group();
+      root.name = "Scene";
+      const body = new Group();
+      body.name = "Body";
+      body.userData.fbxMesh = true;
+      const part = new Mesh(new BoxGeometry(), new MeshStandardMaterial());
+      part.name = "Body_1";
+      const authoredChild = new Mesh(
+        new BoxGeometry(),
+        new MeshStandardMaterial(),
+      );
+      authoredChild.name = "Accessory";
+      authoredChild.userData.fbxMesh = true;
+      body.add(part, authoredChild);
+      root.add(body);
+      if (restore)
+        root = createStaticSceneObject(
+          toStaticScenePayload(root, true)!,
+        ) as Group;
+      applyFbxNativeNodeMetadata(root);
+      const restoredBody = root.children[0];
+      expect(restoredBody.children).toHaveLength(2);
+      expect(resolveObjectSelectionKey(restoredBody.children[0])).toBe("Body");
+      expect(resolveObjectSelectionKey(restoredBody.children[1])).toBe(
+        "Accessory",
+      );
+      const { metadata } = collectAssetMetadata(
+        root,
+        {
+          path: "/Body.fbx",
+          fileName: "Body.fbx",
+          extension: "fbx",
+          kind: "model",
+          parentDirectory: "/",
+        },
+        [],
+        null,
+      );
+      expect(metadata.hierarchy[0].children[0]).toMatchObject({
+        name: "Body",
+        kind: "mesh",
+        children: [{ name: "Accessory" }],
+      });
+      expect(metadata.hierarchy[0].children[0].children).toHaveLength(1);
+      // A material part must not replace the authored object's inspector entry.
+      expect(metadata.objectInfo.Body.kind).toBe("group");
+    },
+  );
 
   it("uses authored, basename, Textures, then parent Texture candidates", () => {
     expect(

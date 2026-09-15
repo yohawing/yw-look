@@ -316,7 +316,10 @@ function buildHierarchyNode(
     ...(visibleName && visibleName !== nodeName
       ? { displayName: visibleName }
       : {}),
-    kind: getHierarchyKind(object),
+    kind:
+      useAuthoredFbxDisplayNames && object.userData.fbxMesh === true
+        ? "mesh"
+        : getHierarchyKind(object),
     children: collectHierarchyChildren(object, useAuthoredFbxDisplayNames),
     ...(primPath !== undefined ? { primPath } : {}),
   };
@@ -332,6 +335,12 @@ function collectHierarchyChildren(
 ): HierarchyNode[] {
   const out: HierarchyNode[] = [];
   for (const child of parent.children) {
+    if (
+      useAuthoredFbxDisplayNames &&
+      child.userData.__ywFbxMaterialPart === true
+    ) {
+      continue;
+    }
     if (isSyntheticWrapper(child)) {
       out.push(...collectHierarchyChildren(child, useAuthoredFbxDisplayNames));
     } else {
@@ -1414,7 +1423,7 @@ export function collectAssetMetadata(
     // Collect ObjectInfo for every traversed node that has a stable
     // selection key (meshes, named groups, lights, cameras).
     const infoKey = resolveSelectionKey(child);
-    if (infoKey) {
+    if (infoKey && child.userData.__ywFbxMaterialPart !== true) {
       objectInfoMap.set(
         infoKey,
         buildObjectInfo(child, clips, infoKey, mmdBoneMetadata),

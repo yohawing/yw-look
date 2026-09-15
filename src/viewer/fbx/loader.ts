@@ -19,6 +19,7 @@ import {
   Loader as ThreeLoader,
 } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { setObjectSelectionKey } from "../selectionKeys";
 import { errorMessage } from "../../lib/errors";
 import { cancelFbxImport, convertFbxToPreview } from "../../lib/fbx";
 import {
@@ -1655,6 +1656,16 @@ export function hydrateFbxDeferredTexturePlaceholders(
 
 export function applyFbxNativeNodeMetadata(object: Object3D): void {
   object.traverse((child) => {
+    // GLTFLoader wraps a multi-material mesh in a Group. Only the generated
+    // primitives lack native node metadata; authored child nodes must remain.
+    if (child.userData?.fbxMesh === true && !(child instanceof Mesh)) {
+      for (const part of child.children) {
+        if (part instanceof Mesh && part.userData.fbxMesh === undefined) {
+          part.userData.__ywFbxMaterialPart = true;
+          setObjectSelectionKey(part, child.name);
+        }
+      }
+    }
     if (child.userData?.fbxBone === true && !(child instanceof Bone)) {
       // Native motion-only FBX files have no glTF skin to make GLTFLoader
       // instantiate Bone nodes. Bone adds no state beyond Object3D, so retain
