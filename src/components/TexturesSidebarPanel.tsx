@@ -21,6 +21,7 @@ export function TexturesSidebarPanel({
   const textures = useDebugFixtures
     ? debugFixtures.debugPanelMetadata.textures
     : (storeTextures ?? EMPTY_TEXTURES);
+  const navigation = useViewerStore((state) => state.textureNavigationRequest);
   const selectedTextureId = useViewerStore((state) => state.selectedTextureId);
   const viewerSurfaceMode = useViewerStore((state) => state.viewerSurfaceMode);
 
@@ -46,6 +47,8 @@ export function TexturesSidebarPanel({
 
   return (
     <TextureListCard
+      key={`${currentFile?.path ?? ""}:${navigation?.revision ?? 0}`}
+      requestedChannel={navigation?.channel}
       activeTextureId={selectedTextureId ?? textures[0]?.id ?? null}
       fileIdentity={currentFile?.path ?? null}
       onSelectTexture={handleSelectTexture}

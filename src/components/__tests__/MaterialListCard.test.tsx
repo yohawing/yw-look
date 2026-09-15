@@ -1,3 +1,5 @@
+import { TexturesSidebarPanel } from "../TexturesSidebarPanel";
+import { useUiStore } from "../../stores/uiStore";
 /**
  * Tests for MaterialListCard shader-slot detail panel (#36).
  */
@@ -28,7 +30,12 @@ beforeEach(() => {
     packFileRequest: null,
     openError: null,
   });
-  useViewerStore.setState({ materialNavigationRequest: null });
+  useViewerStore.setState({
+    materialNavigationRequest: null,
+    textureNavigationRequest: null,
+    selectedTextureId: null,
+    viewerSurfaceMode: "asset",
+  });
 });
 
 afterEach(() => {
@@ -99,6 +106,76 @@ function baseColorTexture(overrides: Partial<TextureEntry> = {}): TextureEntry {
 }
 
 describe("MaterialListCard – shader slot details (#36)", () => {
+  it("shows each factor once and navigates by texture ID and channel despite identical names", () => {
+    const textures: TextureEntry[] = [
+      {
+        id: "other",
+        label: "same.png",
+        channel: "Normal",
+        dimensions: "8×8",
+        thumbnailUrl: null,
+        sourceKind: "embedded",
+      },
+      {
+        id: "target",
+        label: "same.png",
+        channel: "Base Color",
+        dimensions: "8×8",
+        thumbnailUrl: null,
+        sourceKind: "embedded",
+      },
+      {
+        id: "target",
+        label: "same.png",
+        channel: "Normal",
+        dimensions: "8×8",
+        thumbnailUrl: null,
+        sourceKind: "embedded",
+      },
+    ];
+    useFileStore.setState({
+      assetMetadata: makeMetadata(
+        [
+          {
+            ...baseMat,
+            normalTexture: { name: "same.png", textureId: "target" },
+          },
+        ],
+        textures,
+      ),
+    });
+    const { getByRole, getAllByText, container } = render(
+      <>
+        <MaterialListCard />
+        <TexturesSidebarPanel />
+      </>,
+    );
+    expect(getAllByText("Metallic")).toHaveLength(1);
+    expect(getAllByText("Roughness")).toHaveLength(1);
+    fireEvent.click(getByRole("button", { name: "Base Color" }));
+    fireEvent.click(getByRole("button", { name: "same.png" }));
+    expect(useViewerStore.getState().selectedTextureId).toBe("target");
+    expect(useViewerStore.getState().textureNavigationRequest).toMatchObject({
+      textureId: "target",
+      channel: "Normal",
+      revision: 1,
+    });
+    expect(useViewerStore.getState().viewerSurfaceMode).toBe("asset");
+    expect(useUiStore.getState().activeTab).toBe("textures");
+    expect(container.querySelectorAll(".texture-row")).toHaveLength(3);
+    expect(
+      container
+        .querySelectorAll(".texture-row")[2]
+        .classList.contains("is-active"),
+    ).toBe(true);
+    fireEvent.click(getByRole("button", { name: "Base Color" }));
+    fireEvent.click(getByRole("button", { name: "same.png" }));
+    expect(container.querySelectorAll(".texture-row")).toHaveLength(3);
+    expect(useViewerStore.getState().textureNavigationRequest?.revision).toBe(
+      2,
+    );
+  });
+
   it("shows only the binding count and shares detail rows with other Selected panels", () => {
     const { container, getByText, queryByText } = renderWithMaterials([
       { ...baseMat, boundMeshes: ["UniqueMeshOne", "UniqueMeshTwo"] },
@@ -114,7 +191,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     ).toBeTruthy();
     expect(container.querySelector(".material-selected-title")).toBeNull();
     expect(
-      getByText("shader inputs")
+      getByText("Material parameters")
         .closest("details")
         ?.querySelector(".selected-kv"),
     ).toBeTruthy();
@@ -231,7 +308,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
 
   it("renders shader inputs summary when shader detail is present", () => {
     const { getByText } = renderWithMaterials([baseMat]);
-    expect(getByText("shader inputs")).toBeTruthy();
+    expect(getByText("Material parameters")).toBeTruthy();
   });
 
   it("renders base color hex values in the shared lowercase format", () => {
@@ -241,7 +318,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     expect(queryByText("#B5A642")).toBeNull();
   });
 
-  it("does not render shader inputs when all slots are null", () => {
+  it("keeps opacity parameters available without PBR factors", () => {
     const mat: MaterialEntry = {
       ...baseMat,
       id: "mat-none",
@@ -257,7 +334,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
       usdPrimPath: null,
     };
     const { queryByText } = renderWithMaterials([mat]);
-    expect(queryByText("shader inputs")).toBeNull();
+    expect(queryByText("Material parameters")).toBeTruthy();
   });
 
   it("renders texture name in shader detail", () => {

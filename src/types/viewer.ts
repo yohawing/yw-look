@@ -490,6 +490,7 @@ export type TextureEntry = {
 // ── Material texture slot ────────────────────────────────────────
 
 export type MaterialTextureSlot = {
+  textureId?: string;
   name: string;
   sourcePath?: string;
 };
@@ -535,6 +536,8 @@ export type MaterialEntry = {
   emissiveFactor: [number, number, number] | null;
   baseColorTexture: MaterialTextureSlot | null;
   metallicRoughnessTexture: MaterialTextureSlot | null;
+  roughnessTexture?: MaterialTextureSlot | null;
+  alphaTexture?: MaterialTextureSlot | null;
   normalTexture: MaterialTextureSlot | null;
   emissiveTexture: MaterialTextureSlot | null;
   alphaMode: "OPAQUE" | "MASK" | "BLEND" | "unknown";

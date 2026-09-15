@@ -66,6 +66,13 @@ export interface ViewerState {
   variantSelections: VariantSelection[];
   variantSelectionError: string | null;
   scaleNormalization: { applied: boolean; factor: number } | null;
+  textureNavigationRequest: {
+    textureId: string;
+    channel: string;
+    revision: number;
+  } | null;
+  requestTextureNavigation: (textureId: string, channel: string) => void;
+  clearTextureNavigationRequest: () => void;
   materialNavigationRequest: {
     materialId: string;
     revision: number;
@@ -184,6 +191,17 @@ export const useViewerStore = create<ViewerState>((set) => ({
   variantSelections: [],
   variantSelectionError: null,
   scaleNormalization: null,
+  textureNavigationRequest: null,
+  requestTextureNavigation: (textureId, channel) =>
+    set((state) => ({
+      selectedTextureId: textureId,
+      textureNavigationRequest: {
+        textureId,
+        channel,
+        revision: (state.textureNavigationRequest?.revision ?? 0) + 1,
+      },
+    })),
+  clearTextureNavigationRequest: () => set({ textureNavigationRequest: null }),
   materialNavigationRequest: null,
 
   setShowTexture: (showTexture) => set({ showTexture }),

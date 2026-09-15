@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { rgbToHex } from "../lib/format";
 import { useFileStore } from "../stores/fileStore";
+import { useUiStore } from "../stores/uiStore";
 import { useViewerStore } from "../stores/viewerStore";
 import type {
   MaterialEntry,
@@ -56,11 +57,6 @@ function resolveBaseColorTexturePreview(
   return matchingNames.length === 1 ? matchingNames[0] : null;
 }
 
-/** Format a 0-1 float as a 0-255 decimal integer string for display. */
-function fmt255(v: number): string {
-  return String(Math.round(v * 255));
-}
-
 function fmtFloat(v: number): string {
   return v.toFixed(3).replace(/\.?0+$/, "");
 }
@@ -84,14 +80,37 @@ function fmtFlags(flags: Record<string, boolean> | null): string {
 function textureSlotRow(
   id: string,
   label: string,
-  slot: MaterialTextureSlot | null,
+  slot: MaterialTextureSlot | null | undefined,
+  textures: readonly TextureEntry[],
+  channel: string,
 ): KeyValueRow | null {
+  const target = slot?.textureId
+    ? textures.find(
+        (texture) =>
+          texture.id === slot.textureId && texture.channel === channel,
+      )
+    : undefined;
   return slot
     ? {
         id,
         label,
         mono: true,
-        value: (
+        value: target ? (
+          <button
+            type="button"
+            className="mat-slot-texture"
+            title={slot.sourcePath ?? slot.name}
+            onClick={() => {
+              useViewerStore
+                .getState()
+                .requestTextureNavigation(target.id, target.channel);
+              useUiStore.getState().setActiveTab("textures");
+              useUiStore.getState().setSidebarOpen(true);
+            }}
+          >
+            {target.label}
+          </button>
+        ) : (
           <span
             className="mat-slot-texture"
             title={slot.sourcePath ?? slot.name}
@@ -233,33 +252,53 @@ function MmdMaterialDetails({ mmd }: { mmd: MmdMaterialEntry | null }) {
   );
 }
 
-function ShaderDetails({ mat }: { mat: MaterialEntry }) {
+function MaterialParameters({
+  mat,
+  textures,
+}: {
+  mat: MaterialEntry;
+  textures: readonly TextureEntry[];
+}) {
   useLocale();
   const rows = [
-    mat.baseColorFactor !== null && {
+    {
       id: "base-color",
-      label: t("base_color"),
-      value: (
-        <>
-          <MaterialBaseColor mat={mat} />
-          {mat.baseColorFactor[3] < 1 ? (
-            <span> a:{fmt255(mat.baseColorFactor[3])}</span>
-          ) : null}
-        </>
-      ),
+      label: t("material.baseColorFactor"),
+      value: <MaterialBaseColor mat={mat} />,
     },
+    textureSlotRow(
+      "color-texture",
+      t("material.baseColorTexture"),
+      mat.baseColorTexture,
+      textures,
+      "Base Color",
+    ),
     mat.metallicFactor !== null && {
       id: "metallic",
       label: t("metallic"),
       value: mat.metallicFactor.toFixed(3),
       mono: true,
     },
+    textureSlotRow(
+      "metal-texture",
+      t("material.metalnessTexture"),
+      mat.metallicRoughnessTexture,
+      textures,
+      "Metalness",
+    ),
     mat.roughnessFactor !== null && {
       id: "roughness",
       label: t("roughness"),
       value: mat.roughnessFactor.toFixed(3),
       mono: true,
     },
+    textureSlotRow(
+      "rough-texture",
+      t("material.roughnessTexture"),
+      mat.roughnessTexture,
+      textures,
+      "Roughness",
+    ),
     mat.emissiveFactor?.some((value) => value > 0) && {
       id: "emissive",
       label: t("emissive"),
@@ -274,20 +313,39 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
       ),
       mono: true,
     },
-    textureSlotRow("color-texture", "Color Tex", mat.baseColorTexture),
     textureSlotRow(
-      "metal-rough-texture",
-      "Metal/Rough Tex",
-      mat.metallicRoughnessTexture,
+      "normal-texture",
+      t("material.normalTexture"),
+      mat.normalTexture,
+      textures,
+      "Normal",
     ),
-    textureSlotRow("normal-texture", "Normal Tex", mat.normalTexture),
-    textureSlotRow("emissive-texture", "Emissive Tex", mat.emissiveTexture),
-    mat.alphaMode !== "OPAQUE" &&
-      mat.alphaMode !== "unknown" && {
-        id: "alpha",
-        label: t("alpha"),
-        value: <Badge size="sm">{mat.alphaMode}</Badge>,
-      },
+    textureSlotRow(
+      "emissive-texture",
+      t("material.emissiveTexture"),
+      mat.emissiveTexture,
+      textures,
+      "Emissive",
+    ),
+    {
+      id: "alpha-mode",
+      label: t("alpha_mode"),
+      value: mat.alphaMode,
+      mono: true,
+    },
+    {
+      id: "opacity",
+      label: t("opacity"),
+      value: fmtFloat(mat.opacity),
+      mono: true,
+    },
+    textureSlotRow(
+      "alpha-texture",
+      t("material.alphaTexture"),
+      mat.alphaTexture,
+      textures,
+      "Alpha",
+    ),
     mat.usdPrimPath !== null && {
       id: "usd-path",
       label: t("usd_path"),
@@ -295,9 +353,8 @@ function ShaderDetails({ mat }: { mat: MaterialEntry }) {
       mono: true,
     },
   ].filter(Boolean) as KeyValueRow[];
-  if (rows.length === 0) return null;
   return (
-    <Disclosure variant="inline" title={t("shader_inputs")} defaultOpen={false}>
+    <Disclosure variant="inline" title={t("material.parameters")} defaultOpen>
       <KeyValueRows className="selected-kv" density="regular" rows={rows} />
     </Disclosure>
   );
@@ -328,40 +385,16 @@ function MaterialBaseColor({ mat }: { mat: MaterialEntry }) {
   );
 }
 
-function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
+function MaterialDetailPanel({
+  mat,
+  textures,
+}: {
+  mat: MaterialEntry;
+  textures: readonly TextureEntry[];
+}) {
   useLocale();
   const rows: KeyValueRow[] = [
     { id: "shader", label: t("shader"), value: mat.type },
-    {
-      id: "base-color",
-      label: t("base_color_2"),
-      value: <MaterialBaseColor mat={mat} />,
-    },
-    mat.metallicFactor !== null && {
-      id: "metallic",
-      label: t("metallic"),
-      value: mat.metallicFactor.toFixed(2),
-      mono: true,
-    },
-    mat.roughnessFactor !== null && {
-      id: "roughness",
-      label: t("roughness"),
-      value: mat.roughnessFactor.toFixed(2),
-      mono: true,
-    },
-    {
-      id: "alpha-mode",
-      label: t("alpha_mode"),
-      value: mat.alphaMode,
-      tone: mat.alphaMode === "OPAQUE" ? "muted" : "default",
-      mono: true,
-    },
-    {
-      id: "opacity",
-      label: t("opacity"),
-      value: mat.opacity.toFixed(2),
-      mono: true,
-    },
     {
       id: "textures",
       label: t("textures"),
@@ -382,8 +415,8 @@ function MaterialDetailPanel({ mat }: { mat: MaterialEntry }) {
       aria-label={t("selected_material")}
     >
       <KeyValueRows className="selected-kv" density="regular" rows={rows} />
+      <MaterialParameters mat={mat} textures={textures} />
       <MmdMaterialDetails mmd={mat.mmd} />
-      <ShaderDetails mat={mat} />
     </section>
   );
 }
@@ -487,7 +520,7 @@ function MaterialListCardContent({
       revealSelection={requestedIndex >= 0}
       details={
         selectedMaterial ? (
-          <MaterialDetailPanel mat={selectedMaterial} />
+          <MaterialDetailPanel mat={selectedMaterial} textures={textures} />
         ) : (
           <SidebarEmpty>{t("select_a_material_to_inspect_it")}</SidebarEmpty>
         )

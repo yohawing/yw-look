@@ -407,9 +407,13 @@ function textureSlot(
     stringValue(texture.userData.sourcePath) ??
     stringValue(texture.userData.uri) ??
     stringValue(texture.name);
-  if (!source) return { name: slotLabel };
+  if (!source) return { name: slotLabel, textureId: texture.uuid };
   const name = textureSourceFileName(source);
-  return { name, ...(source !== name ? { sourcePath: source } : {}) };
+  return {
+    name,
+    textureId: texture.uuid,
+    ...(source !== name ? { sourcePath: source } : {}),
+  };
 }
 
 function textureSourceReference(
@@ -823,6 +827,11 @@ function buildMaterialEntry(
     emissiveFactor,
     baseColorTexture,
     metallicRoughnessTexture,
+    roughnessTexture: textureSlot(
+      (material as TexturedMaterial).roughnessMap,
+      "Roughness",
+    ),
+    alphaTexture: textureSlot((material as TexturedMaterial).alphaMap, "Alpha"),
     normalTexture,
     emissiveTexture,
     alphaMode: inferAlphaMode(material),
@@ -1419,6 +1428,7 @@ export function collectAssetMetadata(
   const materialBindings = new Map<Material, string[]>();
   const textures = new Map<string, AssetMetadata["textures"][number]>();
   const textureRegistry = new Map<string, Texture>();
+  const canonicalTextureIds = new Map<string, string>();
   const lights: LightEntry[] = [];
   const cameras: CameraEntry[] = [];
   const animationClips = buildAnimationClipMetadata(clips);
@@ -1500,7 +1510,11 @@ export function collectAssetMetadata(
         );
         const textureKey = sourceReference
           ? textureSourceKey(sourceReference, channel)
-          : `uuid:${textureId}`;
+          : `uuid:${textureId}:${channel}`;
+        canonicalTextureIds.set(
+          `${textureId}:${channel}`,
+          textures.get(textureKey)?.id ?? textureId,
+        );
         if (textures.has(textureKey)) {
           continue;
         }
@@ -1555,13 +1569,27 @@ export function collectAssetMetadata(
       animationClips,
       hierarchy: buildHierarchyForest(object, currentFile.extension === "fbx"),
       textures: [...textures.values()],
-      materials: [...materials].map((material) =>
-        buildMaterialEntry(
+      materials: [...materials].map((material) => {
+        const entry = buildMaterialEntry(
           material,
           materialBindings.get(material) ?? [],
           currentFile,
-        ),
-      ),
+        );
+        for (const [slot, channel] of [
+          [entry.baseColorTexture, "Base Color"],
+          [entry.metallicRoughnessTexture, "Metalness"],
+          [entry.roughnessTexture, "Roughness"],
+          [entry.normalTexture, "Normal"],
+          [entry.emissiveTexture, "Emissive"],
+          [entry.alphaTexture, "Alpha"],
+        ] as const) {
+          if (slot?.textureId)
+            slot.textureId =
+              canonicalTextureIds.get(`${slot.textureId}:${channel}`) ??
+              slot.textureId;
+        }
+        return entry;
+      }),
       lights,
       cameras,
       objectInfo: Object.fromEntries(objectInfoMap),

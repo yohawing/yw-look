@@ -1,5 +1,5 @@
 import { t, useLocale } from "../lib/i18n";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { TextureEntry } from "./assetMetadata";
 import { SidebarEmpty } from "../lib/sidebarPrimitives";
 import { SelectableListItem } from "./ui";
@@ -13,6 +13,7 @@ type TextureListCardProps = {
   activeTextureId: string | null;
   onSelectTexture: (textureId: string, isSameRow: boolean) => void;
   fileIdentity?: string | null;
+  requestedChannel?: string;
 };
 
 function textureRowKey(texture: TextureEntry): string {
@@ -122,11 +123,16 @@ function TextureListCardContent({
   textures,
   activeTextureId,
   onSelectTexture,
+  requestedChannel,
 }: TextureListCardProps) {
   useLocale();
   const [activeChannel, setActiveChannel] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
+  const [selectedRowKey, setSelectedRowKey] = useState<string | null>(() =>
+    requestedChannel
+      ? JSON.stringify([activeTextureId, requestedChannel])
+      : null,
+  );
 
   const channels = useMemo(() => {
     const seen = new Set<string>();
@@ -167,6 +173,14 @@ function TextureListCardContent({
     : null;
   const selectedTexture = activeTextureRow ?? visibleTextures[0] ?? null;
 
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (requestedChannel)
+      listRef.current
+        ?.querySelector(".texture-row.is-active")
+        ?.scrollIntoView?.({ block: "nearest" });
+  }, [requestedChannel, activeRowKey]);
+
   const textureList = (
     <div className="texture-list-layout">
       {textures.length > 0 ? (
@@ -189,7 +203,7 @@ function TextureListCardContent({
             ))}
           </div>
           {visibleTextures.length > 0 ? (
-            <div className="texture-list">
+            <div className="texture-list" ref={listRef}>
               {visibleTextures.map((texture) => {
                 const rowKey = textureRowKey(texture);
                 const isMissing = texture.sourceKind === "unresolved";

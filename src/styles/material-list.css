@@ -177,6 +177,30 @@
   vertical-align: middle;
 }
 
+.mat-slot-texture {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+button.mat-slot-texture {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--yl-accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+button.mat-slot-texture:hover,
+button.mat-slot-texture:focus-visible {
+  color: var(--yl-text-primary);
+}
+
 .material-detail-scroll > .ifc-material-details {
   padding-right: var(--yl-space-16);
   padding-bottom: var(--yl-space-12);

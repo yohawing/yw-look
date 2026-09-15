@@ -21,6 +21,7 @@ import {
   InterpolateSmooth,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   NumberKeyframeTrack,
   PerspectiveCamera,
   PointLight,
@@ -51,6 +52,34 @@ const fakeFile: SelectedFile = {
   kind: "model",
   parentDirectory: "/tmp",
 };
+
+it("resolves material texture links to the canonical texture row after source deduplication", () => {
+  const first = new Texture();
+  first.userData.path = "F:/textures/shared.png";
+  const second = first.clone();
+  const a = new MeshStandardMaterial({ map: first });
+  const b = new MeshStandardMaterial({ map: second, normalMap: second });
+  const root = new Group();
+  root.add(
+    new Mesh(new BufferGeometry(), a),
+    new Mesh(new BufferGeometry(), b),
+  );
+  const { metadata } = collectAssetMetadata(root, fakeFile, [], null);
+  const material = metadata.materials.find((entry) => entry.id === b.uuid)!;
+  expect(material.baseColorTexture?.textureId).toBe(first.uuid);
+  expect(material.normalTexture?.textureId).toBe(second.uuid);
+  for (const [slot, channel] of [
+    [material.baseColorTexture, "Base Color"],
+    [material.normalTexture, "Normal"],
+  ] as const) {
+    expect(
+      metadata.textures.some(
+        (texture) =>
+          texture.id === slot?.textureId && texture.channel === channel,
+      ),
+    ).toBe(true);
+  }
+});
 
 it("separates USDZ members and channels while retaining resource locators", () => {
   const root = new Group();

@@ -79,6 +79,7 @@ export function useAppFileOpen({
       setSelectedUsdPrimPath,
     } = useViewerStore.getState();
     clearMaterialNavigationRequest();
+    useViewerStore.getState().clearTextureNavigationRequest();
     setSelectedMeshName(null);
     // #28: also clear the USD prim path selection so the property
     // panel does not query the new file with the old prim path.
