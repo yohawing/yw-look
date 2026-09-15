@@ -403,7 +403,8 @@ export function MaterialListCard(props: MaterialListCardProps) {
   if (!useDebugFixtures && packMetadata?.kind === "ifc")
     return (
       <IfcMaterialsPanel
-        key={currentFilePath}
+        key={`${currentFilePath}:${materialNavigationRequest?.revision ?? 0}`}
+        requestedMaterialId={materialNavigationRequest?.materialId ?? null}
         inspection={packMetadata.inspection}
       />
     );

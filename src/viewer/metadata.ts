@@ -1325,6 +1325,22 @@ function buildObjectInfo(
     });
   } else if (object instanceof Group) {
     childCount = object.children.length;
+    // Multi-primitive FBX/glTF meshes arrive as a group of render meshes.
+    // Collect immediate surfaces only, keeping this linear across the scene.
+    const materials = new Set<Material>();
+    for (const child of object.children) {
+      if (child instanceof Mesh) {
+        for (const material of getMaterials(
+          getAuthoredSurfaceMaterial(child),
+        )) {
+          materials.add(material);
+        }
+      }
+    }
+    materialNames = [...materials].map((material) =>
+      materialDisplayName(material, material.type),
+    );
+    materialIds = [...materials].map((material) => material.uuid);
   }
 
   const clipNames: string[] = [];

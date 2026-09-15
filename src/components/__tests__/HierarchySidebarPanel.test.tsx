@@ -174,6 +174,22 @@ describe("HierarchySidebarPanel", () => {
       packMetadata: {
         kind: "ifc",
         inspection: {
+          materials: {
+            building: [
+              {
+                id: "building:concrete",
+                name: "Concrete",
+                kind: "building",
+                origin: "source",
+                rows: [],
+                elementIds: [20],
+                shapeIds: [],
+                linkedIds: [],
+                color: null,
+              },
+            ],
+            display: [],
+          },
           getSnapshot: () => snapshot,
           subscribe: () => () => {},
           select: vi.fn(),
@@ -203,6 +219,12 @@ describe("HierarchySidebarPanel", () => {
     fireEvent.click(container.querySelector(".tree-row.is-selected")!);
     expect(useViewerStore.getState().selectedMeshName).toBeNull();
     act(() => useViewerStore.getState().setSelectedMeshName("ifc:20"));
+    fireEvent.click(getByText("Concrete"));
+    expect(
+      useViewerStore.getState().materialNavigationRequest?.materialId,
+    ).toBe("building:concrete");
+    expect(useUiStore.getState().activeTab).toBe("materials");
+
     expect(
       container.querySelector(".tree-row.is-selected")?.textContent,
     ).toContain("Wall A");
@@ -270,49 +292,65 @@ describe("HierarchySidebarPanel", () => {
     ).toHaveLength(1);
   });
 
-  it("navigates to Materials only when the selected material link is clicked", () => {
-    const hierarchy: HierarchyNode[] = [
-      {
-        name: "Hero",
-        kind: "mesh",
-        primPath: "/World/Hero",
-        children: [],
-      },
-    ];
-    useFileStore.setState({
-      currentFile: usdFile,
-      assetMetadata: makeMetadata({
-        hierarchy,
-        objectInfo: {
-          "/World/Hero": {
-            ...faceInfo,
-            materialNames: ["Projection"],
-            materialIds: ["/World/Looks/Projection"],
-          },
+  it.each([
+    "usd",
+    "fbx",
+    "glb",
+    "obj",
+    "dae",
+    "pmx",
+    "vrm",
+    "3dm",
+    "3mf",
+    "abc",
+    "stl",
+    "ply",
+  ])(
+    "navigates to Materials only when the selected material link is clicked (%s)",
+    (extension) => {
+      const hierarchy: HierarchyNode[] = [
+        {
+          name: "Hero",
+          kind: "mesh",
+          primPath: "/World/Hero",
+          children: [],
         },
-      }),
-    });
-    useViewerStore.setState({ selectedMeshName: "/World/Hero" });
-    const { getByRole } = render(
-      <HierarchySidebarPanel
-        stageSessionHandle={null}
-        payloadPrimPaths={new Set()}
-        unloadedPayloadPaths={new Set()}
-        onLoadPayload={vi.fn()}
-        onUnloadPayload={vi.fn()}
-      />,
-    );
+      ];
+      useFileStore.setState({
+        currentFile: { ...usdFile, extension },
+        assetMetadata: makeMetadata({
+          hierarchy,
+          objectInfo: {
+            "/World/Hero": {
+              ...faceInfo,
+              materialNames: ["Projection"],
+              materialIds: ["/World/Looks/Projection"],
+            },
+          },
+        }),
+      });
+      useViewerStore.setState({ selectedMeshName: "/World/Hero" });
+      const { getByRole } = render(
+        <HierarchySidebarPanel
+          stageSessionHandle={null}
+          payloadPrimPaths={new Set()}
+          unloadedPayloadPaths={new Set()}
+          onLoadPayload={vi.fn()}
+          onUnloadPayload={vi.fn()}
+        />,
+      );
 
-    expect(useUiStore.getState().activeTab).toBe("properties");
-    fireEvent.click(getByRole("button", { name: "Projection" }));
+      expect(useUiStore.getState().activeTab).toBe("properties");
+      fireEvent.click(getByRole("button", { name: "Projection" }));
 
-    expect(useViewerStore.getState().materialNavigationRequest).toEqual({
-      materialId: "/World/Looks/Projection",
-      revision: 1,
-    });
-    expect(useUiStore.getState().activeTab).toBe("materials");
-    expect(useUiStore.getState().sidebarOpen).toBe(true);
-  });
+      expect(useViewerStore.getState().materialNavigationRequest).toEqual({
+        materialId: "/World/Looks/Projection",
+        revision: 1,
+      });
+      expect(useUiStore.getState().activeTab).toBe("materials");
+      expect(useUiStore.getState().sidebarOpen).toBe(true);
+    },
+  );
 
   it("stores clamped morph target values through the viewer store", () => {
     useViewerStore.setState({ selectedMeshName: "Face" });

@@ -20,11 +20,15 @@ const empty: readonly IfcMaterialRecord[] = [];
 
 export function IfcMaterialsPanel({
   inspection,
+  requestedMaterialId = null,
 }: {
   inspection: IfcInspection;
+  requestedMaterialId?: string | null;
 }) {
   useLocale();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    requestedMaterialId,
+  );
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const display = useMemo(

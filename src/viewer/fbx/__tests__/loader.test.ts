@@ -278,6 +278,10 @@ describe("FBX missing texture fallback", () => {
       expect(metadata.hierarchy[0].children[0].children).toHaveLength(1);
       // A material part must not replace the authored object's inspector entry.
       expect(metadata.objectInfo.Body.kind).toBe("group");
+      expect(metadata.objectInfo.Body.materialIds).toHaveLength(2);
+      expect(
+        new Set(metadata.materials.map((material) => material.id)),
+      ).toEqual(new Set(metadata.objectInfo.Body.materialIds));
     },
   );
 
