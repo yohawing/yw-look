@@ -9,6 +9,8 @@ export type MaterialListItem = {
   id: string;
   name: string;
   color: string | null;
+  thumbnailUrl?: string | null;
+  previewFlipY?: boolean;
   meta: ReactNode;
   count: number;
 };
@@ -126,11 +128,19 @@ export function MaterialBrowser({
                       type="button"
                     >
                       <span
-                        className={`material-swatch${item.color ? "" : " material-swatch-none"}`}
+                        className={`material-swatch${item.thumbnailUrl || item.color ? "" : " material-swatch-none"}`}
                         style={
                           item.color ? { background: item.color } : undefined
                         }
-                      />
+                      >
+                        {item.thumbnailUrl ? (
+                          <img
+                            alt=""
+                            className={`material-swatch-image${item.previewFlipY ? " is-preview-flipped-y" : ""}`}
+                            src={item.thumbnailUrl}
+                          />
+                        ) : null}
+                      </span>
                       <span className="material-info">
                         <span className="material-name">{item.name}</span>
                         <span className="material-meta">{item.meta}</span>

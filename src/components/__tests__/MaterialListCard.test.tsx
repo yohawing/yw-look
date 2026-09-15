@@ -11,7 +11,11 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MaterialListCard } from "../MaterialListCard";
-import type { AssetMetadata, MaterialEntry } from "../assetMetadata";
+import type {
+  AssetMetadata,
+  MaterialEntry,
+  TextureEntry,
+} from "../assetMetadata";
 import { useFileStore } from "../../stores/fileStore";
 import { useViewerStore } from "../../stores/viewerStore";
 
@@ -53,7 +57,10 @@ const baseMat: MaterialEntry = {
   mmd: null,
 };
 
-function makeMetadata(materials: MaterialEntry[]): AssetMetadata {
+function makeMetadata(
+  materials: MaterialEntry[],
+  textures: TextureEntry[] = [],
+): AssetMetadata {
   return {
     formatLabel: "Test",
     formatVersion: null,
@@ -63,7 +70,7 @@ function makeMetadata(materials: MaterialEntry[]): AssetMetadata {
     textureCount: 0,
     hasAnimation: false,
     hierarchy: [],
-    textures: [],
+    textures,
     materials,
     lights: [],
     cameras: [],
@@ -76,6 +83,19 @@ function renderWithMaterials(materials: MaterialEntry[]) {
     assetMetadata: makeMetadata(materials),
   });
   return render(<MaterialListCard />);
+}
+
+function baseColorTexture(overrides: Partial<TextureEntry> = {}): TextureEntry {
+  return {
+    id: "texture-base-color",
+    label: "albedo.png",
+    sourcePath: "F:/textures/albedo.png",
+    channel: "Base Color",
+    dimensions: "1024x1024",
+    thumbnailUrl: "data:image/png;base64,albedo",
+    sourceKind: "external",
+    ...overrides,
+  };
 }
 
 describe("MaterialListCard – shader slot details (#36)", () => {
@@ -131,6 +151,82 @@ describe("MaterialListCard – shader slot details (#36)", () => {
         .querySelector(".material-resize-handle")
         ?.getAttribute("aria-label"),
     ).toBe("Resize material details");
+  });
+
+  it("uses the diffuse texture thumbnail ahead of the base-color swatch", () => {
+    useFileStore.setState({
+      assetMetadata: makeMetadata(
+        [
+          {
+            ...baseMat,
+            baseColorTexture: {
+              name: "albedo.png",
+              sourcePath: "F:\\textures\\albedo.png",
+            },
+          },
+        ],
+        [baseColorTexture({ previewFlipY: true })],
+      ),
+    });
+    const { container } = render(<MaterialListCard />);
+
+    const preview = container.querySelector(
+      ".material-swatch-image",
+    ) as HTMLImageElement | null;
+    expect(preview?.getAttribute("src")).toBe("data:image/png;base64,albedo");
+    expect(preview?.classList.contains("is-preview-flipped-y")).toBe(true);
+    expect(
+      container.querySelector(".material-swatch")?.getAttribute("style"),
+    ).toContain("background");
+  });
+
+  it("does not guess between duplicate diffuse texture names", () => {
+    useFileStore.setState({
+      assetMetadata: makeMetadata(
+        [
+          {
+            ...baseMat,
+            baseColorTexture: { name: "albedo.png" },
+          },
+        ],
+        [
+          baseColorTexture({ id: "first", sourcePath: "a/albedo.png" }),
+          baseColorTexture({ id: "second", sourcePath: "b/albedo.png" }),
+        ],
+      ),
+    });
+    const { container } = render(<MaterialListCard />);
+
+    expect(container.querySelector(".material-swatch-image")).toBeNull();
+    expect(
+      container.querySelector(".material-swatch")?.getAttribute("style"),
+    ).toContain("background");
+  });
+
+  it("updates the material preview when the async thumbnail arrives", () => {
+    const material = {
+      ...baseMat,
+      baseColorTexture: { name: "albedo.png" },
+    };
+    const texture = baseColorTexture({ thumbnailUrl: null });
+    useFileStore.setState({
+      assetMetadata: makeMetadata([material], [texture]),
+    });
+    const { container } = render(<MaterialListCard />);
+    expect(container.querySelector(".material-swatch-image")).toBeNull();
+
+    act(() => {
+      useFileStore.setState({
+        assetMetadata: makeMetadata(
+          [material],
+          [{ ...texture, thumbnailUrl: "data:image/png;base64,ready" }],
+        ),
+      });
+    });
+
+    expect(
+      container.querySelector(".material-swatch-image")?.getAttribute("src"),
+    ).toBe("data:image/png;base64,ready");
   });
 
   it("renders shader inputs summary when shader detail is present", () => {

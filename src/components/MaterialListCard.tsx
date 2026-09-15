@@ -10,6 +10,7 @@ import type {
   MaterialEntry,
   MaterialTextureSlot,
   MmdMaterialEntry,
+  TextureEntry,
 } from "./assetMetadata";
 import { SidebarEmpty } from "../lib/sidebarPrimitives";
 import { Badge } from "./ui/Badge";
@@ -22,6 +23,38 @@ type MaterialListCardProps = {
 };
 
 const EMPTY_MATERIALS: MaterialEntry[] = [];
+const EMPTY_TEXTURES: TextureEntry[] = [];
+
+function normalizeTextureReference(value: string): string {
+  return value.trim().replaceAll("\\", "/").toLocaleLowerCase();
+}
+
+function resolveBaseColorTexturePreview(
+  material: MaterialEntry,
+  textures: readonly TextureEntry[],
+): TextureEntry | null {
+  const slot = material.baseColorTexture;
+  if (!slot) return null;
+
+  const baseColorTextures = textures.filter(
+    (texture) => texture.channel === "Base Color",
+  );
+  if (slot.sourcePath) {
+    const sourcePath = normalizeTextureReference(slot.sourcePath);
+    const exact = baseColorTextures.find(
+      (texture) =>
+        texture.sourcePath !== undefined &&
+        normalizeTextureReference(texture.sourcePath) === sourcePath,
+    );
+    if (exact) return exact;
+  }
+
+  const slotName = normalizeTextureReference(slot.name);
+  const matchingNames = baseColorTextures.filter(
+    (texture) => normalizeTextureReference(texture.label) === slotName,
+  );
+  return matchingNames.length === 1 ? matchingNames[0] : null;
+}
 
 /** Format a 0-1 float as a 0-255 decimal integer string for display. */
 function fmt255(v: number): string {
@@ -388,14 +421,15 @@ function MaterialListCardContent({
   requestedMaterialId = null,
 }: MaterialListCardProps & { requestedMaterialId?: string | null }) {
   useLocale();
-  const storeMaterials = useFileStore(
-    (state) => state.assetMetadata?.materials,
-  );
+  const storeMetadata = useFileStore((state) => state.assetMetadata);
   const { debugFixtures, useDebugFixtures } =
     useDebugPanelFixtures(debugPanelsEnabled);
   const materials = useDebugFixtures
     ? debugFixtures.debugPanelMetadata.materials
-    : (storeMaterials ?? EMPTY_MATERIALS);
+    : (storeMetadata?.materials ?? EMPTY_MATERIALS);
+  const textures = useDebugFixtures
+    ? debugFixtures.debugPanelMetadata.textures
+    : (storeMetadata?.textures ?? EMPTY_TEXTURES);
   const requestedIndex = requestedMaterialId
     ? materials.findIndex((material) => material.id === requestedMaterialId)
     : -1;
@@ -421,22 +455,27 @@ function MaterialListCardContent({
 
   return (
     <MaterialBrowser
-      items={visibleMaterials.map(({ material: mat }) => ({
-        id: mat.id,
-        name: mat.name,
-        color: mat.color,
-        count: mat.textureCount,
-        meta: (
-          <>
-            {mat.type} · {mat.textureCount}
-            {t("tex")}
-            {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
-            {mat.boundMeshes.length > 0
-              ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
-              : ""}
-          </>
-        ),
-      }))}
+      items={visibleMaterials.map(({ material: mat }) => {
+        const preview = resolveBaseColorTexturePreview(mat, textures);
+        return {
+          id: mat.id,
+          name: mat.name,
+          color: mat.color,
+          thumbnailUrl: preview?.thumbnailUrl ?? null,
+          previewFlipY: preview?.previewFlipY,
+          count: mat.textureCount,
+          meta: (
+            <>
+              {mat.type} · {mat.textureCount}
+              {t("tex")}
+              {mat.transparent ? ` · a:${mat.opacity.toFixed(2)}` : ""}
+              {mat.boundMeshes.length > 0
+                ? ` · ${mat.boundMeshes.length} bind${mat.boundMeshes.length === 1 ? "" : "s"}`
+                : ""}
+            </>
+          ),
+        };
+      })}
       total={materials.length}
       selectedId={selectedMaterial?.id ?? null}
       onSelect={(id) =>
