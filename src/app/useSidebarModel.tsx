@@ -345,9 +345,6 @@ export function useSidebarModel({
                     optionalLoaderManifests,
                   )}
                   optionalLoaderPacksError={optionalLoaderManifestsError}
-                  onToggleAutoCheckForUpdates={() =>
-                    void handleToggleAutoCheckForUpdates()
-                  }
                   onToggleFileAssociations={() =>
                     void handleToggleFileAssociations?.()
                   }
@@ -364,6 +361,12 @@ export function useSidebarModel({
               </Suspense>
               <Suspense fallback={<SidebarCardFallback />}>
                 <UpdateCard
+                  autoCheckForUpdates={
+                    settingsPayload?.settings.autoCheckForUpdates ?? null
+                  }
+                  onToggleAutoCheckForUpdates={() =>
+                    void handleToggleAutoCheckForUpdates()
+                  }
                   isCheckingForUpdate={isCheckingForUpdate}
                   isInstallingUpdate={isInstallingUpdate}
                   onCheckForUpdate={() => void handleCheckForUpdate()}

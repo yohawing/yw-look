@@ -21,8 +21,6 @@ type SettingsCardProps = {
   fileAssociationResult?: FileAssociationSyncResult | null;
   fileAssociationError?: string | null;
   fileAssociationsAvailable?: boolean;
-  /** #26: flips `autoCheckForUpdates` and persists via save_settings. */
-  onToggleAutoCheckForUpdates: () => void;
   onToggleFileAssociations?: () => void;
   onToggleOptionalLoaderPack: (packId: string) => void;
   onOpenDefaultAppsSettings?: () => void;
@@ -48,7 +46,6 @@ export function SettingsCard({
   fileAssociationResult = null,
   fileAssociationError = null,
   fileAssociationsAvailable = false,
-  onToggleAutoCheckForUpdates,
   onToggleFileAssociations,
   onToggleOptionalLoaderPack,
   onOpenDefaultAppsSettings,
@@ -99,23 +96,6 @@ export function SettingsCard({
             <option value="ko">한국어</option>
           </SelectField>
         </FieldRow>
-      </SidebarSection>
-      <SidebarSection title={t("update_preferences")}>
-        <div className="yl-kv">
-          <FieldRow
-            className="yl-kv-row"
-            controlClassName="yl-kv-value"
-            label={t("auto_check_updates")}
-            labelClassName="yl-kv-key"
-          >
-            <ToggleSwitch
-              aria-label={t("auto_check_updates")}
-              checked={settingsPayload.settings.autoCheckForUpdates}
-              onCheckedChange={() => onToggleAutoCheckForUpdates()}
-              size="sm"
-            />
-          </FieldRow>
-        </div>
       </SidebarSection>
       {fileAssociationsAvailable &&
       fileAssociationResult?.supported !== false ? (

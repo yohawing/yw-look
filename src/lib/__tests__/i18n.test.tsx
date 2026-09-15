@@ -1,3 +1,4 @@
+import { UpdateCard } from "../../components/UpdateCard";
 import { afterEach, describe, expect, it } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import {
@@ -214,19 +215,31 @@ it("switches the mounted settings UI while preserving its state and leaves recov
   function Harness() {
     const [language, change] = useState<LanguagePreference>("en");
     return (
-      <SettingsCard
-        settingsPayload={{
-          ...payload,
-          settings: { ...payload.settings, language },
-        }}
-        settingsError="disk full"
-        onChangeLanguage={(next) => {
-          change(next);
-          setLanguage(next);
-        }}
-        onToggleAutoCheckForUpdates={() => undefined}
-        onToggleOptionalLoaderPack={() => undefined}
-      />
+      <>
+        <SettingsCard
+          settingsPayload={{
+            ...payload,
+            settings: { ...payload.settings, language },
+          }}
+          settingsError="disk full"
+          onChangeLanguage={(next) => {
+            change(next);
+            setLanguage(next);
+          }}
+          onToggleOptionalLoaderPack={() => undefined}
+        />
+        <UpdateCard
+          autoCheckForUpdates={payload.settings.autoCheckForUpdates}
+          onToggleAutoCheckForUpdates={() => undefined}
+          updateConfiguration={null}
+          updateError={null}
+          updateCheck={null}
+          isCheckingForUpdate={false}
+          isInstallingUpdate={false}
+          onCheckForUpdate={() => undefined}
+          onInstallUpdate={() => undefined}
+        />
+      </>
     );
   }
   render(<Harness />);
