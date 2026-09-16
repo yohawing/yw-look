@@ -23,6 +23,7 @@ function makeUsdInspectorQueryKey(
   return JSON.stringify({
     path: isUsdFile(currentFile) ? (currentFile?.path ?? null) : null,
     variantSelections,
+    reloadRevision: currentFile?.reloadRevision,
   });
 }
 

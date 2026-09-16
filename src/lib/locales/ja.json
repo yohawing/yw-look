@@ -463,5 +463,15 @@
   "usd_variant_sets_count": "{{presence}} ({{count}}セット)",
   "usd_yes": "あり",
   "usd_no": "なし",
-  "animation_unnamed_clip": "アニメーション"
+  "animation_unnamed_clip": "アニメーション",
+  "externalFile.modified": "ファイルが更新されました",
+  "externalFile.replaced": "ファイルが置き換えられました",
+  "externalFile.renamed": "ファイルが移動・改名されました",
+  "externalFile.deleted": "ファイルが削除されました",
+  "externalFile.error": "ファイルの監視に失敗しました",
+  "externalFile.kept": "現在の表示を保持しています。",
+  "externalFile.reload": "再読み込み",
+  "externalFile.later": "後で",
+  "externalFile.loading": "再読み込み中…",
+  "externalFile.retryWatch": "監視を再試行"
 }

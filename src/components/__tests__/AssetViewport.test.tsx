@@ -1,4 +1,5 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { useFileStore } from "../../stores/fileStore";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Group } from "three";
 import type { SceneContext } from "../../viewer";
@@ -110,6 +111,7 @@ vi.mock("../../viewport/useViewportSceneLifecycle", () => ({
 
 vi.mock("../../viewport/previewLoadMount", () => ({
   mountLoadedPreview: viewportMocks.mountLoadedPreview,
+  mountReloadedPreview: viewportMocks.mountLoadedPreview,
 }));
 
 const fileA: SelectedFile = {
@@ -260,6 +262,56 @@ describe("AssetViewport", () => {
   afterEach(() => {
     cleanup();
   });
+
+  it.each(["fbx", "glb", "usda"])(
+    "keeps the mounted %s preview on a failed external reload and retries",
+    async (extension) => {
+      const file = { ...fileA, path: `/asset.${extension}`, extension };
+      const props = makeProps(file, null, "red");
+      const view = render(<AssetViewport {...props} />);
+      await waitFor(() =>
+        expect(viewportMocks.mountLoadedPreview).toHaveBeenCalledTimes(1),
+      );
+      const previous = viewportMocks.context!.mountedObject;
+      const metadataCalls = vi.mocked(props.onMetadataChange).mock.calls.length;
+      let fail!: (error: Error) => void;
+      viewportMocks.loadPreviewObject.mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+      );
+      useFileStore.getState().setCurrentFile(file);
+      useFileStore.getState().requestExternalReload(file);
+      view.rerender(
+        <AssetViewport
+          {...props}
+          currentFile={useFileStore.getState().currentFile}
+        />,
+      );
+      expect(viewportMocks.context!.mountedObject).toBe(previous);
+      await act(async () => fail(new Error("Invalid file contents")));
+      expect(viewportMocks.context!.mountedObject).toBe(previous);
+      expect(vi.mocked(props.onMetadataChange).mock.calls.length).toBe(
+        metadataCalls,
+      );
+      expect(useFileStore.getState().externalReload?.status).toBe("failed");
+      useFileStore.getState().requestExternalReload(file);
+      view.rerender(
+        <AssetViewport
+          {...props}
+          currentFile={useFileStore.getState().currentFile}
+        />,
+      );
+      await waitFor(() =>
+        expect(useFileStore.getState().externalReload?.status).toBe("done"),
+      );
+      expect(viewportMocks.context!.mountedObject).not.toBe(previous);
+      expect(viewportMocks.mountLoadedPreview).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.objectContaining({ preserveCameraView: true }),
+      );
+    },
+  );
 
   it("keeps the mounted preview across consecutive pending GLB refreshes", async () => {
     const initialBuffer = makeBuffer(64);

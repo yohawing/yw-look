@@ -463,5 +463,15 @@
   "usd_variant_sets_count": "{{presence}} ({{count}} sets)",
   "usd_yes": "yes",
   "usd_no": "no",
-  "animation_unnamed_clip": "Animation"
+  "animation_unnamed_clip": "Animation",
+  "externalFile.modified": "The file changed",
+  "externalFile.replaced": "The file was replaced",
+  "externalFile.renamed": "The file was renamed or moved",
+  "externalFile.deleted": "The file was deleted",
+  "externalFile.error": "File monitoring failed",
+  "externalFile.kept": "The current preview is kept.",
+  "externalFile.reload": "Reload",
+  "externalFile.later": "Later",
+  "externalFile.loading": "Reloading…",
+  "externalFile.retryWatch": "Retry monitoring"
 }

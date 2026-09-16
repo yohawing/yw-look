@@ -87,7 +87,11 @@ import { useSyncRef } from "../viewport/useSyncRef";
 import { useTexturePreview } from "../viewport/useTexturePreview";
 import { useViewportAnimation } from "../viewport/useViewportAnimation";
 import { useViewportSceneLifecycle } from "../viewport/useViewportSceneLifecycle";
-import { mountLoadedPreview } from "../viewport/previewLoadMount";
+import { useFileStore } from "../stores/fileStore";
+import {
+  mountLoadedPreview,
+  mountReloadedPreview,
+} from "../viewport/previewLoadMount";
 import { registerViewportCommandHandlers } from "../viewport/viewportCommands";
 
 export type {
@@ -110,6 +114,7 @@ function buildPreviewLoadInputKey(
 ) {
   return JSON.stringify({
     filePath: currentFile?.path ?? null,
+    reloadRevision: currentFile?.reloadRevision,
     purposeModes,
     usdLoadPolicy,
     variantSelections,
@@ -260,11 +265,13 @@ export function AssetViewport({
   );
   const latestLoadInputsRef = useRef<{
     filePath: string | null;
+    reloadRevision?: number;
     glbOverride: ArrayBuffer | null;
     inputKey: string;
     usdLoadPolicy: AssetViewportProps["usdLoadPolicy"];
   }>({
     filePath: currentFile?.path ?? null,
+    reloadRevision: currentFile?.reloadRevision,
     glbOverride,
     inputKey: previewLoadInputKey,
     usdLoadPolicy,
@@ -282,6 +289,7 @@ export function AssetViewport({
   useLayoutEffect(() => {
     latestLoadInputsRef.current = {
       filePath: currentFile?.path ?? null,
+      reloadRevision: currentFile?.reloadRevision,
       glbOverride,
       inputKey: previewLoadInputKey,
       usdLoadPolicy,
@@ -708,6 +716,10 @@ export function AssetViewport({
       return;
     }
 
+    const isExternalReload =
+      currentFile?.reloadRevision !== undefined &&
+      activePreviewPathRef.current === currentFile.path &&
+      context.mountedObject !== null;
     const isDeferredGlbReload =
       currentFile !== null &&
       glbOverride !== null &&
@@ -741,7 +753,7 @@ export function AssetViewport({
       activePreviewPathRef.current === currentFile.path &&
       context.mountedObject !== null;
 
-    if (!isDeferredGlbReload && !isPendingGlbReload) {
+    if (!isExternalReload && !isDeferredGlbReload && !isPendingGlbReload) {
       cleanupSceneContext(context);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
@@ -839,7 +851,7 @@ export function AssetViewport({
       return;
     }
 
-    if (isPendingGlbReload) {
+    if (isPendingGlbReload && !isExternalReload) {
       return;
     }
 
@@ -851,12 +863,12 @@ export function AssetViewport({
     const loadingClock = createLoadingStageClock("scan", loadingStartedAt);
     const reportLoadingStage = (stage: LoadingStageId) => {
       if (disposed) return;
-      if (isDeferredGlbReload) return;
+      if (isDeferredGlbReload || isExternalReload) return;
 
       setLoadingStage(loadingClock.report(stage));
     };
 
-    if (!isDeferredGlbReload) {
+    if (!isDeferredGlbReload && !isExternalReload) {
       onFeedbackChange({
         mode: "loading",
         message: `Loading ${currentFile.fileName}`,
@@ -890,9 +902,14 @@ export function AssetViewport({
     };
     loadPreviewObject(currentFile, context.renderer, {
       usdLoadPolicy,
-      getUsdInspection: () => usdInspectionRef.current,
+      getUsdInspection: () =>
+        isExternalReload ? null : usdInspectionRef.current,
       variantSelections,
-      glbOverride: glbOverride ?? null,
+      glbOverride:
+        isExternalReload &&
+        useFileStore.getState().externalReload?.status === "loading"
+          ? null
+          : (glbOverride ?? null),
       disabledOptionalLoaderPackIds,
       incompatibleOptionalLoaderPackIds,
       signal: abortController.signal,
@@ -910,7 +927,9 @@ export function AssetViewport({
       .then(async (result) => {
         reportLoadingStage("scene");
         reportLoadingStage("ui");
-        readyFeedbackBase = await mountLoadedPreview(result, {
+        readyFeedbackBase = await (
+          isExternalReload ? mountReloadedPreview : mountLoadedPreview
+        )(result, {
           clearActiveCameraId: () => onActiveCameraResetRef.current?.(),
           context,
           currentFile,
@@ -942,7 +961,7 @@ export function AssetViewport({
             key: keyLightRef.current,
             fill: fillLightRef.current,
           },
-          preserveCameraView: isDeferredGlbReload,
+          preserveCameraView: isDeferredGlbReload || isExternalReload,
           replaceExistingPreview: isDeferredGlbReload,
           refs: {
             activeCameraIdRef,
@@ -977,6 +996,12 @@ export function AssetViewport({
         if (!readyFeedbackBase || disposed) {
           return;
         }
+        if (isExternalReload && currentFile.reloadRevision !== undefined) {
+          useFileStore
+            .getState()
+            .finishExternalReload(currentFile.reloadRevision);
+          onSelectMeshRef.current?.(null);
+        }
         setErrorDetail(null);
         resetCameraRef.current = () => {
           frameCurrentMountedObject(
@@ -995,7 +1020,14 @@ export function AssetViewport({
           return;
         }
         if (isAbortError(error)) {
-          if (isDeferredGlbReload) {
+          if (isDeferredGlbReload || isExternalReload) {
+            if (isExternalReload && currentFile.reloadRevision !== undefined)
+              useFileStore
+                .getState()
+                .finishExternalReload(
+                  currentFile.reloadRevision,
+                  "Reload cancelled",
+                );
             setLoadingStage(null);
             setDeferredTexture(null);
             return;
@@ -1022,7 +1054,11 @@ export function AssetViewport({
           error,
           "Failed to load preview.",
         );
-        if (isDeferredGlbReload) {
+        if (isDeferredGlbReload || isExternalReload) {
+          if (isExternalReload && currentFile.reloadRevision !== undefined)
+            useFileStore
+              .getState()
+              .finishExternalReload(currentFile.reloadRevision, message);
           onFeedbackChange({
             mode: "ready",
             message: `Preview ready: ${currentFile.fileName}`,
@@ -1090,7 +1126,10 @@ export function AssetViewport({
             usdLoadPolicy === "noPayloads" &&
             nextLoadInputs.usdLoadPolicy === "noPayloads" &&
             nextLoadInputs.inputKey !== previewLoadInputKey));
-      if (keepMountedForDeferredReload) {
+      const keepMountedForExternalReload =
+        nextLoadInputs.filePath === currentFile?.path &&
+        nextLoadInputs.reloadRevision !== undefined;
+      if (keepMountedForDeferredReload || keepMountedForExternalReload) {
         return;
       }
       cleanupSceneContext(context);

@@ -165,6 +165,7 @@ pub fn run() {
     // are never dropped while the application is still starting.
     let app = tauri::Builder::default()
         .manage(PendingOpenFiles::default())
+        .manage(commands::file_watch::FileWatches::default())
         .setup(move |app| {
             app.handle()
                 .plugin(
@@ -251,6 +252,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::file_watch::start_file_watch,
+            commands::file_watch::stop_file_watch,
             load_settings,
             save_settings,
             load_update_configuration,

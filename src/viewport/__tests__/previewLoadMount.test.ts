@@ -1,7 +1,7 @@
 import { Group, PerspectiveCamera, Scene } from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SceneContext, ViewerSurfaceMode } from "../../types/viewer";
-import { mountLoadedPreview } from "../previewLoadMount";
+import { mountLoadedPreview, mountReloadedPreview } from "../previewLoadMount";
 import { syncMmdPreviewSpecularDirection } from "../../packs";
 
 const mountState = vi.hoisted(() => ({
@@ -260,6 +260,68 @@ function metadataCollection(textureId: string | null, textureLabel: string) {
 }
 
 describe("mountLoadedPreview", () => {
+  it("keeps the old object and metadata when replacement mounting throws", async () => {
+    mountState.disposeDuringNormalize = false;
+    const context = createSceneContext();
+    const old = new Group();
+    context.scene.add(old);
+    context.mountedObject = context.sourceObject = old;
+    const retired = vi.fn();
+    context.cleanupCallbacks = [retired];
+    const { options, spies } = createMountOptions(context);
+    viewerMocks.collectAssetMetadata.mockImplementationOnce(() => {
+      throw new Error("bad metadata");
+    });
+    await expect(
+      mountReloadedPreview(
+        {
+          object: new Group(),
+          cleanupUrls: [],
+          clips: [],
+          formatVersion: null,
+        },
+        options,
+      ),
+    ).rejects.toThrow("bad metadata");
+    expect(context.mountedObject).toBe(old);
+    expect(context.scene.children).toContain(old);
+    expect(retired).not.toHaveBeenCalled();
+    expect(spies.onMetadataChange).not.toHaveBeenCalled();
+    expect(viewerMocks.disposeObject).not.toHaveBeenCalledWith(old);
+  });
+
+  it("keeps the old preview during preparation and publishes the replacement only after commit", async () => {
+    mountState.disposeDuringNormalize = false;
+    const context = createSceneContext();
+    const old = new Group();
+    context.scene.add(old);
+    context.mountedObject = context.sourceObject = old;
+    const retired = vi.fn();
+    context.cleanupCallbacks = [retired];
+    const originalCamera = context.camera.position.clone();
+    const { options, spies } = createMountOptions(context);
+    let finish!: () => void;
+    vi.mocked(syncMmdPreviewSpecularDirection).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(null);
+        }),
+    );
+    const object = new Group();
+    const pending = mountReloadedPreview(
+      { object, cleanupUrls: [], clips: [], formatVersion: null },
+      options,
+    );
+    expect(context.mountedObject).toBe(old);
+    expect(spies.onMetadataChange).not.toHaveBeenCalled();
+    finish();
+    expect(await pending).not.toBeNull();
+    expect(context.mountedObject).toBe(object);
+    expect(context.scene.children).toContain(object);
+    expect(retired).toHaveBeenCalledOnce();
+    expect(spies.onMetadataChange).toHaveBeenCalledOnce();
+    expect(context.camera.position.equals(originalCamera)).toBe(true);
+  });
   beforeEach(() => {
     mountState.disposed = false;
     mountState.disposeDuringMetadata = false;

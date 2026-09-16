@@ -63,7 +63,7 @@ export function useAppFileOpen({
   useEffect(() => {
     const { setVariantSelectionError, setVariantSelections } =
       useViewerStore.getState();
-    setVariantSelections([]);
+    if (!currentFile?.reloadRevision) setVariantSelections([]);
     setVariantSelectionError(null);
     setSessionGlbBuffer(null);
   }, [currentFile, usdLoadPolicy, setSessionGlbBuffer]);

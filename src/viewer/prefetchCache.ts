@@ -8,6 +8,7 @@ type CacheEntry = {
 const cache = new Map<string, CacheEntry>();
 const pending = new Map<string, Promise<ArrayBuffer | null>>();
 let totalCachedBytes = 0;
+let generation = 0;
 
 function touchEntry(path: string, entry: CacheEntry) {
   cache.delete(path);
@@ -52,14 +53,17 @@ export function getCachedBuffer(path: string): ArrayBuffer | null {
 }
 
 export function evictAll() {
+  generation += 1;
   cache.clear();
   pending.clear();
   totalCachedBytes = 0;
 }
 
 async function fetchAndCache(path: string): Promise<ArrayBuffer | null> {
+  const current = generation;
   try {
     const buffer = await readBinaryFile(path);
+    if (current !== generation) return null;
     if (buffer.byteLength > PREFETCH_CACHE_LIMITS.maxFileSizeBytes) {
       return null;
     }
@@ -71,7 +75,7 @@ async function fetchAndCache(path: string): Promise<ArrayBuffer | null> {
   } catch {
     return null;
   } finally {
-    pending.delete(path);
+    if (current === generation) pending.delete(path);
   }
 }
 

@@ -8,6 +8,7 @@ import { useSessionAdjustedUsdSummary } from "./app/useSessionAdjustedUsdSummary
 import { useSidebarModel } from "./app/useSidebarModel";
 import { useViewerDiagnosticsModel } from "./app/useViewerDiagnosticsModel";
 import { ViewportHost } from "./app/ViewportHost";
+import { ExternalFileChangeNotice } from "./app/ExternalFileChangeNotice";
 import { CrashRecoveryNotice } from "./components/CrashRecoveryNotice";
 import { useDeferredData } from "./hooks/useDeferredData";
 import { usePayloadSession } from "./hooks/usePayloadSession";
@@ -289,7 +290,12 @@ export function App() {
   return (
     <AppShell
       activeTab={activeTab}
-      banner={<CrashRecoveryNotice status={crashRecoveryStatus} />}
+      banner={
+        <>
+          <CrashRecoveryNotice status={crashRecoveryStatus} />
+          <ExternalFileChangeNotice enabled={isTauri} />
+        </>
+      }
       dialogState={dialogState}
       handleSidebarResizeStart={handleSidebarResizeStart}
       onCloseDialog={() => setDialogState(null)}

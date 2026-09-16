@@ -463,5 +463,15 @@
   "usd_variant_sets_count": "{{presence}} ({{count}}组)",
   "usd_yes": "有",
   "usd_no": "无",
-  "animation_unnamed_clip": "动画"
+  "animation_unnamed_clip": "动画",
+  "externalFile.modified": "文件已更新",
+  "externalFile.replaced": "文件已替换",
+  "externalFile.renamed": "文件已移动或重命名",
+  "externalFile.deleted": "文件已删除",
+  "externalFile.error": "文件监视失败",
+  "externalFile.kept": "保留当前预览。",
+  "externalFile.reload": "重新加载",
+  "externalFile.later": "稍后",
+  "externalFile.loading": "正在重新加载…",
+  "externalFile.retryWatch": "重试监视"
 }

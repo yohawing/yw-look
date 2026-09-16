@@ -463,5 +463,15 @@
   "usd_variant_sets_count": "{{presence}} ({{count}}개 세트)",
   "usd_yes": "있음",
   "usd_no": "없음",
-  "animation_unnamed_clip": "애니메이션"
+  "animation_unnamed_clip": "애니메이션",
+  "externalFile.modified": "파일이 변경되었습니다",
+  "externalFile.replaced": "파일이 교체되었습니다",
+  "externalFile.renamed": "파일이 이동되거나 이름이 변경되었습니다",
+  "externalFile.deleted": "파일이 삭제되었습니다",
+  "externalFile.error": "파일 모니터링에 실패했습니다",
+  "externalFile.kept": "현재 미리보기를 유지합니다.",
+  "externalFile.reload": "다시 불러오기",
+  "externalFile.later": "나중에",
+  "externalFile.loading": "다시 불러오는 중…",
+  "externalFile.retryWatch": "모니터링 재시도"
 }

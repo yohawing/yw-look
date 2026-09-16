@@ -69,6 +69,7 @@ nv-flip = { version = "0.1", optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
 glam = { version = "0.33.5", default-features = false, features = ["std", "f64"] }
 log = "0.4.34"
+notify = "8.2"
 tauri-plugin-log = "2.9.0"
 # Official safe Rust bindings; the crate compiles and statically links ufbx.c.
 ufbx = "0.11.3"

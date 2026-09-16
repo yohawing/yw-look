@@ -13,6 +13,7 @@ export type AssetKind = "model" | "texture" | "motion" | "unknown";
 
 export type SelectedFile = Omit<GeneratedSelectedFile, "kind"> & {
   kind: AssetKind;
+  reloadRevision?: number;
 };
 
 export type DirectoryListing = Omit<GeneratedDirectoryListing, "files"> & {
