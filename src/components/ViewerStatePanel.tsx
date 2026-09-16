@@ -33,13 +33,6 @@ const registeredLoaders = listRegisteredLoaders();
 const supportedPreviewExtensions = registeredLoaders.map(
   (loader) => loader.extension,
 );
-const coreFormats = registeredLoaders
-  .filter((loader) => !loader.optional)
-  .map((loader) => loader.extension);
-const optionalFormats = registeredLoaders
-  .filter((loader) => loader.optional)
-  .map((loader) => loader.extension);
-
 export function ViewerStatePanel({
   deferredTexture,
   detailMessage,
@@ -282,33 +275,6 @@ export function ViewerStatePanel({
           </button>
           <span>{t("drag_drop")}</span>
         </div>
-        <div className="viewer-empty-format-groups">
-          <div>
-            <p>{t("core")}</p>
-            <div
-              className="viewer-empty-formats"
-              aria-label={t("supported_formats")}
-            >
-              {coreFormats.map((format) => (
-                <span key={format}>{format}</span>
-              ))}
-            </div>
-          </div>
-          <div>
-            <p>{t("optional_packs")}</p>
-            <div
-              className="viewer-empty-formats viewer-empty-formats-optional"
-              aria-label={t("optional_formats")}
-            >
-              {optionalFormats.map((format) => (
-                <span key={format}>{format}</span>
-              ))}
-            </div>
-          </div>
-        </div>
-        <p className="viewer-empty-hint">
-          {t("use_left_right_after_opening_a_file_to_browse_nearby_assets")}
-        </p>
       </div>
     );
   }
