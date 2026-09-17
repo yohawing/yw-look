@@ -339,9 +339,7 @@ pub(crate) fn mesh_data_to_input(
             if point_index >= point_count {
                 return Err(UsdError::Parse(format!(
                     "Mesh '{}' faceVertexIndex {} out of range (point_count={})",
-                    prim_path,
-                    point_index,
-                    point_count
+                    prim_path, point_index, point_count
                 )));
             }
             face_points.push([
@@ -580,15 +578,13 @@ pub(crate) fn validate_mesh_topology(prim_path: &str, data: &MeshData) -> Result
     if let Some(bad) = data.face_vertex_counts.iter().find(|c| **c < 0) {
         return Err(UsdError::Parse(format!(
             "Mesh '{}' has negative faceVertexCounts entry ({}); file is malformed",
-            prim_path,
-            bad
+            prim_path, bad
         )));
     }
     if let Some(bad) = data.face_vertex_indices.iter().find(|i| **i < 0) {
         return Err(UsdError::Parse(format!(
             "Mesh '{}' has negative faceVertexIndices entry ({}); file is malformed",
-            prim_path,
-            bad
+            prim_path, bad
         )));
     }
 

@@ -64,6 +64,14 @@ async function capture() {
   const work = await fs.mkdtemp(path.join(os.tmpdir(), "yw-look-readme-"));
   // A separate identity gives native settings/recent files a fresh, isolated home.
   const identifier = `com.yohawing.ywlook.capture-${randomUUID()}`;
+  // Keep README copy and selectors stable on non-English Windows hosts.
+  // This settings directory belongs only to the isolated capture identity.
+  const settingsDir = path.join(process.env.APPDATA, identifier);
+  await fs.mkdir(settingsDir, { recursive: true });
+  await fs.writeFile(
+    path.join(settingsDir, "settings.json"),
+    `${JSON.stringify({ language: "en" })}\n`,
+  );
   const tauriConfig = path.join(work, "tauri.capture.json");
   await fs.writeFile(
     tauriConfig,

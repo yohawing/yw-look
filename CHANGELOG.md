@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.3.5 (2026-09-17)
+
+### Viewer and workflow
+
+- Added persisted English, Japanese, Simplified Chinese, and Korean UI selection, including loader-owned messages, shortcuts, and metadata labels.
+- Added viewport ambient occlusion and corrected skinned bounds, visibility, and picking.
+- Added diffuse texture thumbnails to the material list, grouped material parameters, and linked material texture slots to the Textures panel.
+- Made selected-material navigation consistent across formats and clarified USD material inspection.
+- Added external file-change notifications and reload actions that preserve preview state.
+- Consolidated update controls in App Updates, exposed development build identity in the native title bar, and simplified the empty viewer screen.
+- Refreshed the application icon and browser favicon.
+
+### FBX fidelity and release reliability
+
+- Preserved authored FBX mesh hierarchy, labels, bind transforms, and culling, including hair materials.
+- Restored deferred texture pixels, corrected UV and texture-preview orientation, and preserved Blender shared base-color/alpha texture connections.
+- Fixed draft release asset verification before publication.
+
+### Known limitations
+
+- Timeline-internal translation, native language-change behavior, and native Chinese/Korean language review remain unverified; Chinese support currently covers Simplified Chinese.
+- CAD runtimes remain grouped in Settings; the NSIS component page does not separately install or remove the CAD Loader Pack.
+- USD and CAD previews retain their documented bounded-format limitations. The upstream USDC integer-compressed float-array decoding limitation remains.
+- Windows artifacts are intentionally distributed without Authenticode under the no-cost release policy; unknown-publisher or SmartScreen warnings may appear.
+- v0.3.5 is Windows-only. macOS artifacts, Developer ID signing, and notarization remain postponed until the paid Apple Developer Program is resumed.
+- Clean-environment packaged CLI validation, installation, and the published updater roundtrip remain unverified for this candidate.
+- MMD physics remains disabled by default.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: This release intentionally omits Authenticode. Clean-environment SmartScreen behavior has not been verified for v0.3.5.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: v0.3.5 does not publish macOS artifacts. Signing, notarization, Gatekeeper, and macOS build validation remain unverified for this candidate.
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: not verified — v0.3.5 is not published; clean installation and updating from v0.3.4 through the published feed remain pending.
+- macOS: not verified — v0.3.5 is Windows-only and has no macOS updater artifact.
+
 ## v0.3.4 (2026-09-11)
 
 ### CAD preview

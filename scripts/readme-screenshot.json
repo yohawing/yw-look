@@ -5,8 +5,8 @@
   "height": 960,
   "frame": 3,
   "expandSections": ["USD Details"],
-  "orbit": { "dx": 0, "dy": 0.025 },
-  "pan": { "dx": 0, "dy": -0.04 },
-  "zoomWheel": -330,
+  "orbit": { "dx": 0, "dy": 0 },
+  "pan": { "dx": 0, "dy": 0 },
+  "zoomWheel": 0,
   "settleMs": 2500
 }

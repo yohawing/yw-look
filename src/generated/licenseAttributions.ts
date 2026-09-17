@@ -9,7 +9,7 @@ export type LicenseAttribution = {
 };
 
 export const projectName = "yw-look" as const;
-export const projectVersion = "0.3.4" as const;
+export const projectVersion = "0.3.5" as const;
 export const projectLicense = "MIT" as const;
 
 export const webRuntimeLicenseAttributions = [
@@ -176,6 +176,12 @@ export const nativeRuntimeLicenseAttributions = [
     name: "log",
     version: "0.4.34",
     license: "MIT OR Apache-2.0",
+    source: "native",
+  },
+  {
+    name: "notify",
+    version: "8.2.0",
+    license: "CC0-1.0",
     source: "native",
   },
   {

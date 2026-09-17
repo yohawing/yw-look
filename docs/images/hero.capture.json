@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "surface": "tauri-production-ui",
-  "version": "0.3.4",
-  "capturedAt": "2026-09-11T05:27:17.917Z",
-  "sourceSha256": "8721a45b6807271630caf7d02bafa8a3bff03448c60605c22f72f2009dc1353a",
-  "configSha256": "666afb783a71feec22e79bb6bb6f2dcc1f55f3154ab85131b4c3fa7b79b68ccc",
+  "version": "0.3.5",
+  "capturedAt": "2026-09-17T02:24:22.290Z",
+  "sourceSha256": "9358a802a14415b2126050826ab661977aee91cf2df222a0877fa9fe3493563e",
+  "configSha256": "3efb2e13ad87c98c165eb14a55b62bf02c7b961f5cdf66d106a17d57083e01a1",
   "modelSha256": "293805686d7ac7364060ea8d0a295a60fe435a566a282d876c3e5de7b60e26dc",
-  "imageSha256": "c17a300652c8e42d5eede71b6fd3453b9b29094303df5c7015f2282f8c3d77a7",
-  "viewportSha256": "e0d7c8c795569fbcf3ac951568da50226ab48477638d980ac95f0a758ec8666a",
+  "imageSha256": "61cb8713e699a19d78fd910621959f29c12e5fdbf6aea522f745a12d07ddb508",
+  "viewportSha256": "9b71b635cda3b5606a9e0be94a26c177c5a185e5222138958ea19f826d0f2cb3",
   "loadedModel": "toy_biplane.usdz",
   "errors": []
 }
